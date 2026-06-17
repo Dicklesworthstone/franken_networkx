@@ -1,0 +1,72 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 .venv/bin/python tests/artifacts/perf/20260614T-digraph-attr-construction-boldfalcon/digraph_attr_construction_harness.py once --impl fnx --loops 120",
+      "mean": 0.7334569249200001,
+      "stddev": 0.05085558371458517,
+      "median": 0.7157556877200001,
+      "user": 0.6721663400000002,
+      "system": 0.0577423,
+      "min": 0.67903850472,
+      "max": 0.8084734427200001,
+      "times": [
+        0.6836572927200001,
+        0.8084734427200001,
+        0.7515117077200001,
+        0.8066042427200001,
+        0.69710423172,
+        0.78595222872,
+        0.6907162227200001,
+        0.67903850472,
+        0.7152303027200001,
+        0.7162810727200001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env PYTHONPATH=python OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 .venv/bin/python tests/artifacts/perf/20260614T-digraph-attr-construction-boldfalcon/digraph_attr_construction_harness.py once --impl nx --loops 120",
+      "mean": 1.7721190540199998,
+      "stddev": 0.06689307803392631,
+      "median": 1.75910462522,
+      "user": 1.5783292399999995,
+      "system": 0.19133489999999997,
+      "min": 1.67279826172,
+      "max": 1.9252837967199998,
+      "times": [
+        1.81656263772,
+        1.73765728072,
+        1.72929537472,
+        1.77222007472,
+        1.9252837967199998,
+        1.74484945572,
+        1.67279826172,
+        1.74598917572,
+        1.7869550457199999,
+        1.78957943672
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

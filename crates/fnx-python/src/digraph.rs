@@ -23,10 +23,7 @@ use pyo3::types::{
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-fn single_weight_float_attr_map_with_mirror(
-    py: Python<'_>,
-    attrs: &Bound<'_, PyDict>,
-) -> PyResult<Option<(AttrMap, Py<PyDict>)>> {
+fn single_weight_float_attr_map(attrs: &Bound<'_, PyDict>) -> PyResult<Option<AttrMap>> {
     if attrs.len() != 1 {
         return Ok(None);
     }
@@ -46,6 +43,19 @@ fn single_weight_float_attr_map_with_mirror(
         "weight".to_owned(),
         CgseValue::Float(value.extract::<f64>()?),
     );
+    Ok(Some(rust_attrs))
+}
+
+fn single_weight_float_attr_map_with_mirror(
+    py: Python<'_>,
+    attrs: &Bound<'_, PyDict>,
+) -> PyResult<Option<(AttrMap, Py<PyDict>)>> {
+    let Some(rust_attrs) = single_weight_float_attr_map(attrs)? else {
+        return Ok(None);
+    };
+    let Some((key, value)) = attrs.iter().next() else {
+        return Ok(None);
+    };
     let mirror = PyDict::new(py);
     mirror.set_item(&key, &value)?;
     Ok(Some((rust_attrs, mirror.unbind())))
@@ -5618,7 +5628,7 @@ impl PyDiGraph {
 
     fn collect_fresh_exact_int_attr_edge_batch<'py, I>(
         &self,
-        py: Python<'py>,
+        _py: Python<'py>,
         items: I,
         len: usize,
     ) -> PyResult<Option<DiIndexedAttrEdgeBatch>>
@@ -5629,7 +5639,7 @@ impl PyDiGraph {
         let mut node_indices: HashMap<i64, usize> = HashMap::with_capacity(node_capacity);
         let mut node_labels: Vec<String> = Vec::with_capacity(node_capacity);
         let mut node_objects: Vec<PyObject> = Vec::with_capacity(node_capacity);
-        let mut edges: Vec<(usize, usize, AttrMap, Py<PyDict>)> = Vec::with_capacity(len);
+        let mut edges: Vec<(usize, usize, AttrMap)> = Vec::with_capacity(len);
         let mut node_bumps = 0_u64;
 
         for item in items {
@@ -5660,8 +5670,15 @@ impl PyDiGraph {
             let Ok(dict) = third.downcast::<PyDict>() else {
                 return Ok(None);
             };
-            let Ok((attrs, mirror)) = py_dict_to_attr_map_with_mirror(py, dict) else {
-                return Ok(None);
+            let attrs = match single_weight_float_attr_map(dict) {
+                Ok(Some(attrs)) => attrs,
+                Ok(None) => {
+                    let Ok(attrs) = py_dict_to_attr_map(dict) else {
+                        return Ok(None);
+                    };
+                    attrs
+                }
+                Err(_) => return Ok(None),
             };
             if attrs
                 .keys()
@@ -5696,7 +5713,7 @@ impl PyDiGraph {
             if edge_added_node {
                 node_bumps = node_bumps.wrapping_add(1);
             }
-            edges.push((u_index, v_index, attrs, mirror));
+            edges.push((u_index, v_index, attrs));
         }
 
         Ok(Some((node_labels, node_objects, edges, node_bumps)))
@@ -5707,7 +5724,7 @@ impl PyDiGraph {
         py: Python<'_>,
         node_labels: Vec<String>,
         node_objects: Vec<PyObject>,
-        edges: Vec<(usize, usize, AttrMap, Py<PyDict>)>,
+        edges: Vec<(usize, usize, AttrMap)>,
         node_bumps: u64,
         final_edge_bump: bool,
     ) -> PyResult<()> {
@@ -5725,19 +5742,8 @@ impl PyDiGraph {
             }
         }
 
-        self.edge_py_attrs.reserve(edge_count);
         let mut inner_edges = Vec::with_capacity(edge_count);
-        for (source_idx, target_idx, attrs, mirror) in edges {
-            let source = &node_labels[source_idx];
-            let target = &node_labels[target_idx];
-            match self.edge_py_attrs.entry(Self::edge_key(source, target)) {
-                std::collections::hash_map::Entry::Occupied(entry) => {
-                    entry.get().bind(py).update(mirror.bind(py).as_mapping())?;
-                }
-                std::collections::hash_map::Entry::Vacant(entry) => {
-                    entry.insert(mirror);
-                }
-            }
+        for (source_idx, target_idx, attrs) in edges {
             inner_edges.push((source_idx, target_idx, attrs));
         }
 
@@ -6056,9 +6062,22 @@ impl PyDiGraph {
     }
 
     fn materialize_edge_py_attrs(&mut self, py: Python<'_>, u: &str, v: &str) -> Py<PyDict> {
+        let key = Self::edge_key(u, v);
+        if let Some(attrs) = self.edge_py_attrs.get(&key) {
+            return attrs.clone_ref(py);
+        }
+        let attrs = self
+            .inner
+            .edge_attrs(u, v)
+            .map_or_else(
+                || Ok(PyDict::new(py).unbind()),
+                |attrs| attr_map_to_pydict(py, attrs),
+            )
+            .expect("stored directed edge attrs must convert to Python");
+        self.edge_py_attrs.insert(key.clone(), attrs);
         self.edge_py_attrs
-            .entry(Self::edge_key(u, v))
-            .or_insert_with(|| PyDict::new(py).unbind())
+            .get(&key)
+            .expect("just inserted directed edge attrs")
             .clone_ref(py)
     }
 
@@ -6176,7 +6195,7 @@ type DiAttrEdgeBatch = (
 type DiIndexedAttrEdgeBatch = (
     Vec<String>,
     Vec<PyObject>,
-    Vec<(usize, usize, AttrMap, Py<PyDict>)>,
+    Vec<(usize, usize, AttrMap)>,
     u64,
 );
 type MultiDiIndexedAttrEdgeBatch = (
@@ -7931,13 +7950,7 @@ impl PyDiGraph {
             return Ok(default.unwrap_or_else(|| py.None()));
         }
         self.mark_edges_dirty();
-        let ek = (u_c, v_c);
-        Ok(self
-            .edge_py_attrs
-            .entry(ek)
-            .or_insert_with(|| PyDict::new(py).unbind())
-            .clone_ref(py)
-            .into_any())
+        Ok(self.materialize_edge_py_attrs(py, &u_c, &v_c).into_any())
     }
 
     /// br-r37-c1-sjf4t: push the per-node and per-edge Python attribute
@@ -8069,15 +8082,16 @@ impl PyDiGraph {
         );
         if !valid {
             let mut items: Vec<PyObject> = Vec::with_capacity(self.inner.edge_count());
-            for (u, v, _) in self.inner.edges_ordered_borrowed() {
-                let py_u = self.py_node_key(py, u);
-                let py_v = self.py_succ_key(py, u, v) /* br-r37-c1-z6uka */;
-                let ek = Self::edge_key(u, v);
-                let attrs = self
-                    .edge_py_attrs
-                    .entry(ek)
-                    .or_insert_with(|| PyDict::new(py).unbind())
-                    .clone_ref(py);
+            let edges: Vec<(String, String)> = self
+                .inner
+                .edges_ordered_borrowed()
+                .into_iter()
+                .map(|(u, v, _)| (u.to_owned(), v.to_owned()))
+                .collect();
+            for (u, v) in edges {
+                let py_u = self.py_node_key(py, &u);
+                let py_v = self.py_succ_key(py, &u, &v) /* br-r37-c1-z6uka */;
+                let attrs = self.materialize_edge_py_attrs(py, &u, &v);
                 items.push(tuple_object(py, &[py_u, py_v, attrs.into_any()])?);
             }
             self.edges_with_data_cache = Some((self.nodes_seq, self.edges_seq, items));
@@ -8088,18 +8102,20 @@ impl PyDiGraph {
     }
 
     fn ordered_edge_attr_dicts(&mut self, py: Python<'_>) -> Option<Vec<Py<PyDict>>> {
-        if self.edge_py_attrs.len() != self.inner.edge_count() {
-            self.edges_attr_dicts_cache = None;
-            return None;
-        }
         let valid = matches!(
             &self.edges_attr_dicts_cache,
             Some((ns, es, _)) if *ns == self.nodes_seq && *es == self.edges_seq
         );
         if !valid {
             let mut dicts = Vec::with_capacity(self.inner.edge_count());
-            for (u, v, _) in self.inner.edges_ordered_borrowed() {
-                let attrs = self.edge_py_attrs.get(&Self::edge_key(u, v))?;
+            let edges: Vec<(String, String)> = self
+                .inner
+                .edges_ordered_borrowed()
+                .into_iter()
+                .map(|(u, v, _)| (u.to_owned(), v.to_owned()))
+                .collect();
+            for (u, v) in edges {
+                let attrs = self.materialize_edge_py_attrs(py, &u, &v);
                 dicts.push(attrs.clone_ref(py));
             }
             self.edges_attr_dicts_cache = Some((self.nodes_seq, self.edges_seq, dicts));
@@ -8126,19 +8142,6 @@ impl PyDiGraph {
         if self.succ_py_keys.is_empty() {
             let keys = self.cached_node_key_vec(py);
             let mut items = Vec::with_capacity(self.inner.edge_count());
-            if self.edge_py_attrs.is_empty() {
-                for (u_idx, v_idx) in self.inner.edges_ordered_indices() {
-                    items.push(tuple_object(
-                        py,
-                        &[
-                            keys[u_idx].clone_ref(py),
-                            keys[v_idx].clone_ref(py),
-                            default.clone_ref(py),
-                        ],
-                    )?);
-                }
-                return Ok(items.into_pyobject(py)?.into_any().unbind());
-            }
             if let Some(attr_dicts) = self.ordered_edge_attr_dicts(py) {
                 for ((u_idx, v_idx), attrs) in self
                     .inner
@@ -8163,21 +8166,20 @@ impl PyDiGraph {
                 let u = self
                     .inner
                     .get_node_name(u_idx)
-                    .expect("edge index source must name an existing node");
+                    .expect("edge index source must name an existing node")
+                    .to_owned();
                 let v = self
                     .inner
                     .get_node_name(v_idx)
-                    .expect("edge index target must name an existing node");
-                let ek = Self::edge_key(u, v);
-                let value = match self.edge_py_attrs.get(&ek) {
-                    Some(d) => d
-                        .bind(py)
-                        .get_item(key)
-                        .ok()
-                        .flatten()
-                        .map_or_else(|| default.clone_ref(py), |val| val.unbind()),
-                    None => default.clone_ref(py),
-                };
+                    .expect("edge index target must name an existing node")
+                    .to_owned();
+                let attrs = self.materialize_edge_py_attrs(py, &u, &v);
+                let value = attrs
+                    .bind(py)
+                    .get_item(key)
+                    .ok()
+                    .flatten()
+                    .map_or_else(|| default.clone_ref(py), |val| val.unbind());
                 items.push(tuple_object(
                     py,
                     &[keys[u_idx].clone_ref(py), keys[v_idx].clone_ref(py), value],
@@ -8186,19 +8188,22 @@ impl PyDiGraph {
             return Ok(items.into_pyobject(py)?.into_any().unbind());
         }
         let mut items = Vec::with_capacity(self.inner.edge_count());
-        for (u, v, _) in self.inner.edges_ordered_borrowed() {
-            let py_u = self.py_node_key(py, u);
-            let py_v = self.py_succ_key(py, u, v) /* br-r37-c1-z6uka */;
-            let ek = Self::edge_key(u, v);
-            let value = match self.edge_py_attrs.get(&ek) {
-                Some(d) => d
-                    .bind(py)
-                    .get_item(key)
-                    .ok()
-                    .flatten()
-                    .map_or_else(|| default.clone_ref(py), |val| val.unbind()),
-                None => default.clone_ref(py),
-            };
+        let edges: Vec<(String, String)> = self
+            .inner
+            .edges_ordered_borrowed()
+            .into_iter()
+            .map(|(u, v, _)| (u.to_owned(), v.to_owned()))
+            .collect();
+        for (u, v) in edges {
+            let py_u = self.py_node_key(py, &u);
+            let py_v = self.py_succ_key(py, &u, &v) /* br-r37-c1-z6uka */;
+            let attrs = self.materialize_edge_py_attrs(py, &u, &v);
+            let value = attrs
+                .bind(py)
+                .get_item(key)
+                .ok()
+                .flatten()
+                .map_or_else(|| default.clone_ref(py), |val| val.unbind());
             items.push(tuple_object(py, &[py_u, py_v, value])?);
         }
         Ok(items.into_pyobject(py)?.into_any().unbind())
@@ -9453,7 +9458,7 @@ impl DiEdgeView {
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<DiViewIterator>> {
-        let g = self.graph.borrow(py);
+        let mut g = self.graph.borrow_mut(py);
         if matches!(&self.data, ViewData::AllData) && g.inner.edge_count() > 0 {
             g.mark_edges_dirty();
         }
@@ -9461,39 +9466,45 @@ impl DiEdgeView {
         // O(1) per-next staleness check, not a full nodes_ordered() Vec.
         let node_count = g.inner.node_count();
         let nodes_seq = g.nodes_seq;
-        let items: Vec<PyObject> = g
-            .edge_py_attrs
-            .iter()
-            .map(|((u, v), attrs)| {
-                let py_u = g.py_node_key(py, u);
-                let py_v = g.py_node_key(py, v);
-                match &self.data {
-                    ViewData::NoData => tuple_object(py, &[py_u, py_v]),
-                    ViewData::AllData => {
-                        let a: PyObject = attrs.clone_ref(py).into_any();
-                        tuple_object(py, &[py_u, py_v, a])
-                    }
-                    ViewData::Attr(attr_name) => {
-                        let val = attrs
-                            .bind(py)
-                            .get_item(attr_name.as_str())
-                            .ok()
-                            .flatten()
-                            .map_or_else(|| py.None(), |v| v.unbind());
-                        tuple_object(py, &[py_u, py_v, val])
-                    }
-                    ViewData::AttrWithDefault(attr_name, def_val) => {
-                        let val = attrs
-                            .bind(py)
-                            .get_item(attr_name.as_str())
-                            .ok()
-                            .flatten()
-                            .map_or_else(|| def_val.clone_ref(py), |v| v.unbind());
-                        tuple_object(py, &[py_u, py_v, val])
-                    }
+        let edges: Vec<(String, String)> = g
+            .inner
+            .edges_ordered_borrowed()
+            .into_iter()
+            .map(|(u, v, _)| (u.to_owned(), v.to_owned()))
+            .collect();
+        let mut items = Vec::with_capacity(edges.len());
+        for (u, v) in edges {
+            let py_u = g.py_node_key(py, &u);
+            let py_v = g.py_node_key(py, &v);
+            let item = match &self.data {
+                ViewData::NoData => tuple_object(py, &[py_u, py_v]),
+                ViewData::AllData => {
+                    let a: PyObject = g.materialize_edge_py_attrs(py, &u, &v).into_any();
+                    tuple_object(py, &[py_u, py_v, a])
                 }
-            })
-            .collect::<PyResult<Vec<_>>>()?;
+                ViewData::Attr(attr_name) => {
+                    let attrs = g.materialize_edge_py_attrs(py, &u, &v);
+                    let val = attrs
+                        .bind(py)
+                        .get_item(attr_name.as_str())
+                        .ok()
+                        .flatten()
+                        .map_or_else(|| py.None(), |v| v.unbind());
+                    tuple_object(py, &[py_u, py_v, val])
+                }
+                ViewData::AttrWithDefault(attr_name, def_val) => {
+                    let attrs = g.materialize_edge_py_attrs(py, &u, &v);
+                    let val = attrs
+                        .bind(py)
+                        .get_item(attr_name.as_str())
+                        .ok()
+                        .flatten()
+                        .map_or_else(|| def_val.clone_ref(py), |v| v.unbind());
+                    tuple_object(py, &[py_u, py_v, val])
+                }
+            }?;
+            items.push(item);
+        }
         Py::new(
             py,
             DiViewIterator {
@@ -9516,10 +9527,9 @@ impl DiEdgeView {
             return Err(PyKeyError::new_err(format!("({}, {})", u, v)));
         }
         g.mark_edges_dirty();
-        let ek = PyDiGraph::edge_key(&u, &v);
-        Ok(g.edge_py_attrs
-            .get(&ek)
-            .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py)))
+        drop(g);
+        let mut g = self.graph.borrow_mut(py);
+        Ok(g.materialize_edge_py_attrs(py, &u, &v))
     }
 
     fn __bool__(&self, py: Python<'_>) -> bool {
@@ -9820,26 +9830,25 @@ impl DiAtlasView {
     /// Materialise the full `{neighbour: shared_edge_attr_dict}` (O(degree)) —
     /// only when a materialising method (items/values/==/str/repr) is called.
     fn materialize(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
-        let g = self.graph.borrow(py);
+        let mut g = self.graph.borrow_mut(py);
         let neighbors = match self.kind {
             AdjKind::Successors => g.inner.successors(&self.node).unwrap_or_default(),
             AdjKind::Predecessors => g.inner.predecessors(&self.node).unwrap_or_default(),
-        };
+        }
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
         let result = PyDict::new(py);
-        for nb in neighbors {
+        for nb in &neighbors {
             let py_nb = match self.kind {
                 // br-r37-c1-z6uka
                 AdjKind::Successors => g.py_succ_key(py, &self.node, nb),
                 AdjKind::Predecessors => g.py_pred_key(py, &self.node, nb),
             };
-            let ek = match self.kind {
-                AdjKind::Successors => PyDiGraph::edge_key(&self.node, nb),
-                AdjKind::Predecessors => PyDiGraph::edge_key(nb, &self.node),
+            let edge_attrs = match self.kind {
+                AdjKind::Successors => g.materialize_edge_py_attrs(py, &self.node, nb),
+                AdjKind::Predecessors => g.materialize_edge_py_attrs(py, nb, &self.node),
             };
-            let edge_attrs = g
-                .edge_py_attrs
-                .get(&ek)
-                .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
             result.set_item(py_nb, edge_attrs.bind(py))?;
         }
         Ok(result.unbind())
@@ -9851,15 +9860,9 @@ impl DiAtlasView {
     fn __getitem__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
         let g = self.graph.borrow(py);
         let v_canon = node_key_to_string(py, v)?;
-        let (exists, ek) = match self.kind {
-            AdjKind::Successors => (
-                g.inner.has_edge(&self.node, &v_canon),
-                PyDiGraph::edge_key(&self.node, &v_canon),
-            ),
-            AdjKind::Predecessors => (
-                g.inner.has_edge(&v_canon, &self.node),
-                PyDiGraph::edge_key(&v_canon, &self.node),
-            ),
+        let exists = match self.kind {
+            AdjKind::Successors => g.inner.has_edge(&self.node, &v_canon),
+            AdjKind::Predecessors => g.inner.has_edge(&v_canon, &self.node),
         };
         if !exists {
             return Err(PyKeyError::new_err((v.clone().unbind(),)));
@@ -9871,10 +9874,10 @@ impl DiAtlasView {
         g.mark_edges_dirty();
         drop(g);
         let mut g = self.graph.borrow_mut(py);
-        Ok(g.edge_py_attrs
-            .entry(ek)
-            .or_insert_with(|| PyDict::new(py).unbind())
-            .clone_ref(py))
+        match self.kind {
+            AdjKind::Successors => Ok(g.materialize_edge_py_attrs(py, &self.node, &v_canon)),
+            AdjKind::Predecessors => Ok(g.materialize_edge_py_attrs(py, &v_canon, &self.node)),
+        }
     }
 
     fn __contains__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<bool> {
@@ -9910,26 +9913,25 @@ impl DiAtlasView {
     }
 
     fn items(&self, py: Python<'_>) -> PyResult<Vec<(PyObject, Py<PyDict>)>> {
-        let g = self.graph.borrow(py);
+        let mut g = self.graph.borrow_mut(py);
         let neighbors = match self.kind {
             AdjKind::Successors => g.inner.successors(&self.node).unwrap_or_default(),
             AdjKind::Predecessors => g.inner.predecessors(&self.node).unwrap_or_default(),
-        };
+        }
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
         let mut out = Vec::with_capacity(neighbors.len());
-        for nb in neighbors {
+        for nb in &neighbors {
             let py_nb = match self.kind {
                 // br-r37-c1-z6uka
                 AdjKind::Successors => g.py_succ_key(py, &self.node, nb),
                 AdjKind::Predecessors => g.py_pred_key(py, &self.node, nb),
             };
-            let ek = match self.kind {
-                AdjKind::Successors => PyDiGraph::edge_key(&self.node, nb),
-                AdjKind::Predecessors => PyDiGraph::edge_key(nb, &self.node),
+            let ed = match self.kind {
+                AdjKind::Successors => g.materialize_edge_py_attrs(py, &self.node, nb),
+                AdjKind::Predecessors => g.materialize_edge_py_attrs(py, nb, &self.node),
             };
-            let ed = g
-                .edge_py_attrs
-                .get(&ek)
-                .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
             out.push((py_nb, ed));
         }
         Ok(out)
@@ -9957,26 +9959,26 @@ impl DiAtlasView {
 
     /// nx ``AtlasView.copy`` -> ``{n: self[n].copy()}``.
     fn copy(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
-        let g = self.graph.borrow(py);
+        let mut g = self.graph.borrow_mut(py);
         let neighbors = match self.kind {
             AdjKind::Successors => g.inner.successors(&self.node).unwrap_or_default(),
             AdjKind::Predecessors => g.inner.predecessors(&self.node).unwrap_or_default(),
-        };
+        }
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
         let result = PyDict::new(py);
-        for nb in neighbors {
+        for nb in &neighbors {
             let py_nb = match self.kind {
                 // br-r37-c1-z6uka
                 AdjKind::Successors => g.py_succ_key(py, &self.node, nb),
                 AdjKind::Predecessors => g.py_pred_key(py, &self.node, nb),
             };
-            let ek = match self.kind {
-                AdjKind::Successors => PyDiGraph::edge_key(&self.node, nb),
-                AdjKind::Predecessors => PyDiGraph::edge_key(nb, &self.node),
+            let attrs = match self.kind {
+                AdjKind::Successors => g.materialize_edge_py_attrs(py, &self.node, nb),
+                AdjKind::Predecessors => g.materialize_edge_py_attrs(py, nb, &self.node),
             };
-            let copied = match g.edge_py_attrs.get(&ek) {
-                Some(d) => d.bind(py).copy()?.unbind(),
-                None => PyDict::new(py).unbind(),
-            };
+            let copied = attrs.bind(py).copy()?.unbind();
             result.set_item(py_nb, copied)?;
         }
         Ok(result.unbind())

@@ -291,6 +291,37 @@ def test_digraph_fresh_exact_int_attr_batch_matches_nx_order_and_copies():
     assert gf.get_edge_data(0, 1) == {"w": 91, "label": "first", "extra": "last"}
 
 
+def test_digraph_lazy_attr_mirrors_materialize_from_all_views():
+    batch = (
+        [(0, 1, {"weight": 1.5, "label": "first"}), (1, 2, {"weight": 2.5})]
+        + [(i, i + 1, {"weight": float(i), "tag": f"e{i}"}) for i in range(2, 12)]
+    )
+    gf = fnx.DiGraph()
+    gn = nx.DiGraph()
+    gf.add_edges_from(batch)
+    gn.add_edges_from(batch)
+
+    assert list(gf.edges(data=True)) == list(gn.edges(data=True))
+    assert list(gf.edges(data="weight", default=None)) == list(
+        gn.edges(data="weight", default=None)
+    )
+    assert list(gf.succ[0].items()) == list(gn.succ[0].items())
+    assert gf.succ[0].copy() == gn.succ[0].copy()
+
+    edge_dict = gf[0][1]
+    edge_view_dict = next(data for u, v, data in gf.edges(data=True) if (u, v) == (0, 1))
+    assert edge_view_dict is edge_dict
+    edge_view_dict["weight"] = 7.5
+    edge_view_dict["extra"] = "live"
+    assert gf[0][1] == {"weight": 7.5, "label": "first", "extra": "live"}
+
+    gn[0][1]["weight"] = 7.5
+    gn[0][1]["extra"] = "live"
+    assert dict(fnx.single_source_dijkstra_path_length(gf, 0)) == dict(
+        nx.single_source_dijkstra_path_length(gn, 0)
+    )
+
+
 def test_digraph_exact_int_batch_probe_falls_back_for_bool_nodes():
     batch = (
         [(True, 2, {"w": "bool"}), (1, 3, {"w": "int"})]
