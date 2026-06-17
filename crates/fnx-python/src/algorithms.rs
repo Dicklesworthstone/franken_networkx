@@ -10890,8 +10890,64 @@ pub fn is_strongly_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<b
                 "Connectivity is undefined for the null graph.",
             ));
         }
-        Ok(py.allow_threads(|| fnx_algorithms::is_strongly_connected(dg_ref)))
+        Ok(py.allow_threads(|| strongly_connected_via_reachability(dg_ref)))
     }
+}
+
+/// br-r37-c1-04z53: a digraph is strongly connected iff, from any single
+/// vertex, every vertex is reachable following edges FORWARD and every vertex
+/// can reach it (i.e. is reachable following edges BACKWARD). Two index-space
+/// traversals with early-exit on the forward pass — O(V+E), and bails on the
+/// first pass for the common not-strongly-connected case. The previous kernel
+/// (`number_strongly_connected_components == 1`) computed the FULL SCC
+/// decomposition, labelling every component before counting, which was ~2x
+/// slower than nx's `len(next(strongly_connected_components(G))) == len(G)`
+/// (nx stops after the first, often size-1, SCC). Boolean output is
+/// order-invariant, so this matches nx exactly. `node_count() > 0` is
+/// guaranteed by the caller.
+fn strongly_connected_via_reachability(dg: &fnx_classes::digraph::DiGraph) -> bool {
+    let n = dg.node_count();
+    let mut seen = vec![false; n];
+    let mut stack: Vec<usize> = Vec::with_capacity(n);
+
+    // Forward reachability from node 0; bail the instant it cannot reach all.
+    seen[0] = true;
+    stack.push(0);
+    let mut count = 1usize;
+    while let Some(u) = stack.pop() {
+        if let Some(succs) = dg.successors_indices(u) {
+            for &v in succs {
+                if !seen[v] {
+                    seen[v] = true;
+                    count += 1;
+                    stack.push(v);
+                }
+            }
+        }
+    }
+    if count != n {
+        return false;
+    }
+
+    // Backward reachability from node 0 (forward over the transpose).
+    for s in &mut seen {
+        *s = false;
+    }
+    seen[0] = true;
+    stack.push(0);
+    count = 1;
+    while let Some(u) = stack.pop() {
+        if let Some(preds) = dg.predecessors_indices(u) {
+            for &v in preds {
+                if !seen[v] {
+                    seen[v] = true;
+                    count += 1;
+                    stack.push(v);
+                }
+            }
+        }
+    }
+    count == n
 }
 
 /// Condense a directed graph by contracting each SCC into a single node.
