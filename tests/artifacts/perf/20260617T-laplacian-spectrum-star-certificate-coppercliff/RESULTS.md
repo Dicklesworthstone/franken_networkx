@@ -50,6 +50,11 @@ fallback route.
 
 - Focused pytest: `tests/python/test_laplacian_spectrum_native.py -k 'star_laplacian or laplacian_spectrum' -q` -> `24 passed`
 - Py compile: `python/franken_networkx/__init__.py` and focused spectrum test passed
+- `cargo fmt --check` passed
+- `cargo check -p fnx-python --all-targets` passed
+- `cargo clippy -p fnx-python --all-targets -- -D warnings` passed
+- `git diff --check` passed
+- `ubs python/franken_networkx/__init__.py tests/python/test_laplacian_spectrum_native.py` was bounded with `timeout 180s`; it timed out after starting the Python scan with no findings emitted
 
 ## Score
 
