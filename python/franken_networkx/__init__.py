@@ -15858,85 +15858,62 @@ from franken_networkx._fnx import (
 def maximal_independent_set(G, nodes=None, seed=None, *, backend=None, **backend_kwargs):
     """Return a maximal independent set of nodes in G.
 
-    Thin Python wrapper around the Rust binding to bridge two parity
-    points with networkx (br-r37-c1-misseed):
-
-    1. ``seed`` accepts negative ints and large positive ints in nx
-       (any value valid for ``random.Random.seed``).  The Rust binding
-       declared seed as ``u64`` and raised
-       ``OverflowError("can't convert negative int to unsigned")`` on
-       negative seeds and the PyO3-prefixed
-       ``TypeError("argument 'seed': 'float' object cannot be interpreted as an integer")``
-       on NaN.  Pre-validate via ``random.Random(seed)`` so the same
-       rejection (ValueError on NaN) and acceptance (negative ints
-       hashed to a deterministic state) match nx.
-
-    2. The Rust path's NetworkXUnfeasible message wraps the offending
-       nodes as a Python list-of-strings (``["99"]``) where nx uses
-       a set repr (``{99}``).  Re-raise with nx's wording so callers
-       regex-matching the message string aren't broken.
+    br-r37-c1-366al: the native ``_raw_maximal_independent_set`` kernel
+    operates on canonical *string* node keys, so its
+    ``seed.choice(list(available))`` over a string-hashed set picks a
+    different index than nx's choice over the original Python node
+    objects — yielding a valid but DIFFERENT maximal independent set for
+    many seed/graph combinations (a parity break that the small
+    path-graph tests never caught).  nx's algorithm
+    (``networkx/algorithms/mis.py``) is short and its only
+    parity-critical state is ordinary CPython ``set``/``list`` objects of
+    the node values, so run it verbatim in-process on the fnx graph's
+    real Python node objects.  This is byte-exact with nx for every
+    hashable node type and folds in nx's ``@not_implemented_for(
+    'directed')`` guard, ``@py_random_state`` seed handling, the
+    self-loop ``NetworkXUnfeasible`` path, and nx's set-repr error
+    wording with no extra reformatting.
     """
     G = _coerce_arg_to_fnx_graph(G)
     _validate_backend_dispatch_keywords(
         "maximal_independent_set", backend, backend_kwargs
     )
 
-    # br-r37-c1-ms5et: route seed through the shared _native_random_seed
-    # helper — handles None / negative / large ints / NaN AND
-    # ``random.Random`` instances (nx accepts random.Random via
-    # @py_random_state; fnx must mirror).  The pre-pick further down
-    # uses the *original* ``seed`` argument (still a Python-level value
-    # or random.Random) so its RNG path matches nx's body.
-    if seed is None:
-        rust_seed = None
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+
+    # Match nx's @py_random_state(2): None/`random` -> the global instance,
+    # int -> random.Random(int), random.Random -> itself, anything else
+    # (e.g. a float / NaN) -> ValueError.
+    from networkx.utils import create_py_random_state as _create_py_random_state
+
+    seed = _create_py_random_state(seed)
+
+    # Touch adjacency lazily (only the seed nodes plus each chosen node), the
+    # same access pattern as nx — a full G.adjacency() snapshot is ~2x slower
+    # here because it materialises every node's neighbours, most of which the
+    # algorithm never reads. ``G[v]`` is the adjacency view (== nx's
+    # ``G.adj[v]``); the node objects are the graph's real Python keys so every
+    # CPython set built from them iterates exactly as nx's does.
+    node_list = list(G)
+    node_set = set(node_list)
+
+    if not nodes:
+        nodes = {seed.choice(node_list)}
     else:
-        rust_seed = _native_random_seed(seed)
-
-    # br-r37-c1-of11w: when ``nodes`` is None and the algorithm fails,
-    # nx reports the failing node as ``"{node} is not an independent
-    # set of G"`` (it picks a random starting node first); the Rust
-    # binding emits ``"[] is not an independent set"`` with no picked
-    # node captured.  Only the selfloop case can trigger the failure
-    # with ``nodes=None``, and the failing node is the selfloop itself.
-    # Pre-pick *just for that case* so the message reformatter below
-    # produces the matching ``{node}`` text — without pre-picking on
-    # success-path graphs (which would advance the seed differently
-    # from nx's body and break MIS-value parity).
-    # br-r37-c1-04z53: the failure pre-pick is only reachable when G has a
-    # self-loop, so gate it behind the fast native ``number_of_selfloops``
-    # (one Rust scan) instead of an O(N) per-node ``G.has_edge(n, n)`` Python
-    # loop that ran on EVERY call (it was ~52% of the wrapper's cost). The
-    # common no-self-loop success path now skips the pre-pick entirely,
-    # leaving the seed RNG untouched so MIS-value parity with nx is preserved.
-    if nodes is None and len(G) > 0 and number_of_selfloops(G) > 0:
-        import random as _random
-        if isinstance(seed, _random.Random):
-            rng = seed
-        elif seed is not None:
-            rng = _random.Random(seed)
-        else:
-            rng = _random
-        nodes = [rng.choice(list(G))]
-
-    try:
-        return _raw_maximal_independent_set(G, nodes, rust_seed)
-    except NetworkXUnfeasible as exc:
-        # Reformat the message to match nx's set-repr wording.
-        msg = str(exc)
-        if nodes is not None:
-            try:
-                node_set = set(nodes)
-            except TypeError:
-                raise
-            if "is not a subset" in msg:
-                raise NetworkXUnfeasible(
-                    f"{node_set} is not a subset of the nodes of G"
-                ) from exc
-            if "is not an independent set" in msg:
-                raise NetworkXUnfeasible(
-                    f"{node_set} is not an independent set of G"
-                ) from exc
-        raise
+        nodes = set(nodes)
+    if not nodes.issubset(node_set):
+        raise NetworkXUnfeasible(f"{nodes} is not a subset of the nodes of G")
+    neighbors = set.union(*[set(G[v]) for v in nodes])
+    if set.intersection(neighbors, nodes):
+        raise NetworkXUnfeasible(f"{nodes} is not an independent set of G")
+    indep_nodes = list(nodes)
+    available_nodes = node_set.difference(neighbors.union(nodes))
+    while available_nodes:
+        node = seed.choice(list(available_nodes))
+        indep_nodes.append(node)
+        available_nodes.difference_update(list(G[node]) + [node])
+    return indep_nodes
 
 
 def spanner(G, stretch, weight=None, seed=None):
