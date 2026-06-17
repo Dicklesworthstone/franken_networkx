@@ -1,0 +1,7 @@
+{
+  "elapsed_seconds": 1.8831985929864459,
+  "loops": 1000,
+  "profile_file": "cprofile_fnx_top.txt",
+  "seconds_per_call": 0.001883198592986446,
+  "sort": "cumtime"
+}

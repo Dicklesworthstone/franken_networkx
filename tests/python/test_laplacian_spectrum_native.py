@@ -32,6 +32,38 @@ def test_weighted_complete_laplacian_stays_on_weighted_route():
     assert not np.allclose(np.sort(fr), unweighted)
 
 
+def test_unweighted_star_laplacian_closed_form_matches_nx_sorted_values():
+    assert fnx._star_laplacian_spectrum_sorted_value_safe(fnx.empty_graph(1), None) is None
+    assert np.allclose(
+        fnx._star_laplacian_spectrum_sorted_value_safe(fnx.star_graph(1), None),
+        np.asarray([0.0, 2.0], dtype=np.float64),
+    )
+    for leaves in (1, 30):
+        Gf = fnx.star_graph(leaves)
+        Gn = nx.star_graph(leaves)
+        fr = fnx.laplacian_spectrum(Gf)
+        nr = nx.laplacian_spectrum(Gn)
+        n = leaves + 1
+        expected = np.ones(n, dtype=np.float64)
+        expected[0] = 0.0
+        expected[-1] = float(n)
+        assert fr.dtype == np.float64
+        assert np.allclose(np.sort(fr), np.sort(nr))
+        assert np.allclose(fr, expected)
+
+
+def test_weighted_star_laplacian_stays_on_weighted_route():
+    Gf = fnx.star_graph(8)
+    Gn = nx.star_graph(8)
+    Gf[0][1]["weight"] = 2.5
+    Gn[0][1]["weight"] = 2.5
+    fr = fnx.laplacian_spectrum(Gf)
+    nr = nx.laplacian_spectrum(Gn)
+    assert fnx._star_laplacian_spectrum_sorted_value_safe(Gf, "weight") is None
+    assert fr.dtype == np.float64
+    assert np.allclose(np.sort(fr), np.sort(nr))
+
+
 def test_unweighted_complete_normalized_laplacian_closed_form_matches_nx():
     Gf = fnx.complete_graph(31)
     Gn = nx.complete_graph(31)

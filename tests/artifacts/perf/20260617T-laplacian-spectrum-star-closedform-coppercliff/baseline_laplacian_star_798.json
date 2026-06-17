@@ -1,0 +1,27 @@
+{
+  "allclose": true,
+  "case": "laplacian_spectrum_star_798",
+  "fnx_direct_median_s": 0.22721471701515839,
+  "fnx_direct_runs_s": [
+    0.25760691601317376,
+    0.22080773202469572,
+    0.21805170399602503,
+    0.22721471701515839,
+    0.2335009319940582
+  ],
+  "fnx_dtype": "float64",
+  "fnx_q9_sha256": "c56400e4c3ce6edc3dce0ab34a611b5586fbabdb123003a672fa14b08830813a",
+  "head": "d39edc252189b9539ae4d7ef20dd5d358afc3eaa",
+  "max_sorted_delta": 7.327996699436857e-15,
+  "nx_direct_median_s": 1.0018005190067925,
+  "nx_direct_runs_s": [
+    1.28809138701763,
+    1.0018005190067925,
+    1.2856045819935389,
+    0.9197499990114011,
+    0.36603394598932937
+  ],
+  "nx_dtype": "float64",
+  "nx_q9_sha256": "267e2d0347ebe4856bb092e75e3bada1a43ec05673dae00d2af9a4852fe9da43",
+  "profile": "tests/artifacts/perf/20260617T-laplacian-spectrum-star-closedform-coppercliff/baseline_profile_laplacian_star_798.txt"
+}

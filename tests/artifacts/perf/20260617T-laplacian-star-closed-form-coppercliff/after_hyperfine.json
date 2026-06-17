@@ -1,0 +1,72 @@
+{
+  "results": [
+    {
+      "command": "OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 .venv/bin/python tests/artifacts/perf/20260617T-laplacian-star-closed-form-coppercliff/laplacian_star_measure.py bench-once --impl fnx --loops 5",
+      "mean": 0.32935926901999996,
+      "stddev": 0.028508929345171907,
+      "median": 0.32934043012,
+      "user": 0.2597907,
+      "system": 0.05691645999999999,
+      "min": 0.29491006512,
+      "max": 0.38087147612,
+      "times": [
+        0.34649508112,
+        0.33356085512,
+        0.30296230912,
+        0.31538340212,
+        0.36390701212,
+        0.33241592512,
+        0.29682162912,
+        0.38087147612,
+        0.32626493512,
+        0.29491006512
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 .venv/bin/python tests/artifacts/perf/20260617T-laplacian-star-closed-form-coppercliff/laplacian_star_measure.py bench-once --impl networkx --loops 5",
+      "mean": 0.66787654702,
+      "stddev": 0.049913947708793614,
+      "median": 0.6560262356200001,
+      "user": 0.5508295999999999,
+      "system": 0.10317116,
+      "min": 0.6187581191200001,
+      "max": 0.7774417121200001,
+      "times": [
+        0.66064363812,
+        0.6187581191200001,
+        0.6514088331200001,
+        0.7774417121200001,
+        0.71597997812,
+        0.62194281212,
+        0.6248020511200001,
+        0.6632227811200001,
+        0.6463769221200001,
+        0.6981886231200001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

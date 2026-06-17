@@ -1,0 +1,36 @@
+         366 function calls (365 primitive calls) in 0.247 seconds
+
+   Ordered by: cumulative time
+   List reduced from 113 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      2/1    0.001    0.000    0.247    0.247 __init__.py:53800(wrapper)
+        1    0.000    0.000    0.246    0.246 __init__.py:22557(laplacian_spectrum)
+        1    0.239    0.239    0.239    0.239 {built-in method franken_networkx._fnx.symmetric_eigvals_rust}
+        1    0.003    0.003    0.003    0.003 {built-in method numpy.ascontiguousarray}
+        1    0.000    0.000    0.003    0.003 _compressed.py:1002(toarray)
+        1    0.003    0.003    0.003    0.003 {built-in method scipy.sparse._sparsetools.csr_todense}
+        1    0.000    0.000    0.001    0.001 __init__.py:22356(laplacian_matrix)
+        1    0.000    0.000    0.000    0.000 _coo.py:349(tocsr)
+        1    0.000    0.000    0.000    0.000 _coo.py:32(__init__)
+        9    0.000    0.000    0.000    0.000 {built-in method numpy.asarray}
+        4    0.000    0.000    0.000    0.000 _base.py:1525(_get_index_dtype)
+        1    0.000    0.000    0.000    0.000 _coo.py:383(_coo_to_compressed)
+        1    0.000    0.000    0.000    0.000 _coo.py:204(_check)
+        1    0.000    0.000    0.000    0.000 _compressed.py:1063(sum_duplicates)
+        1    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.adjacency_default_order_index_arrays}
+        4    0.000    0.000    0.000    0.000 _sputils.py:264(get_index_dtype)
+        1    0.000    0.000    0.000    0.000 _compressed.py:30(__init__)
+        1    0.000    0.000    0.000    0.000 __init__.py:22603(_complete_laplacian_spectrum_sorted_value_safe)
+       52    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+        2    0.000    0.000    0.000    0.000 {built-in method numpy.zeros}
+        1    0.000    0.000    0.000    0.000 _base.py:1512(_process_toarray_args)
+        2    0.000    0.000    0.000    0.000 _data.py:21(__init__)
+        1    0.000    0.000    0.000    0.000 _compressed.py:1110(sort_indices)
+        2    0.000    0.000    0.000    0.000 _base.py:138(__init__)
+        1    0.000    0.000    0.000    0.000 {built-in method scipy.sparse._sparsetools.coo_tocsr}
+        4    0.000    0.000    0.000    0.000 __init__.py:37693(__len__)
+        1    0.000    0.000    0.000    0.000 {built-in method scipy.sparse._sparsetools.csr_sort_indices}
+       11    0.000    0.000    0.000    0.000 _base.py:365(nnz)
+        5    0.000    0.000    0.000    0.000 __init__.py:37130(_private_override)
+        4    0.000    0.000    0.000    0.000 {method 'reduce' of 'numpy.ufunc' objects}

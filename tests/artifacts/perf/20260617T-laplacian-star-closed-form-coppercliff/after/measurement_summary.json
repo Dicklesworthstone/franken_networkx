@@ -1,0 +1,136 @@
+{
+  "direct_timing": {
+    "expression_includes_graph_construction": true,
+    "fnx": {
+      "mean_seconds": 0.0013335588077704112,
+      "median_seconds": 0.001328488055150956,
+      "min_seconds": 0.001302407996263355,
+      "p95_seconds": 0.001364777039270848,
+      "p99_seconds": 0.001364777039270848,
+      "samples": 15,
+      "seconds": [
+        0.0013508000411093235,
+        0.0013198520173318684,
+        0.001331965031567961,
+        0.0013569009606726468,
+        0.001328488055150956,
+        0.001325240998994559,
+        0.0013489369885064662,
+        0.0013563109678216279,
+        0.001324561017099768,
+        0.0013459610054269433,
+        0.0013187190052121878,
+        0.001302407996263355,
+        0.001364777039270848,
+        0.0013208629679866135,
+        0.0013075980241410434
+      ],
+      "warmups": 3
+    },
+    "fnx_vs_networkx_median_ratio": 0.03364455662894691,
+    "networkx": {
+      "mean_seconds": 0.039688209060113874,
+      "median_seconds": 0.03948597301496193,
+      "min_seconds": 0.03919441002653912,
+      "p95_seconds": 0.040905702975578606,
+      "p99_seconds": 0.040905702975578606,
+      "samples": 15,
+      "seconds": [
+        0.0393404770293273,
+        0.03919441002653912,
+        0.03945069503970444,
+        0.03977040096651763,
+        0.03961098997388035,
+        0.039352949999738485,
+        0.039451026008464396,
+        0.040905702975578606,
+        0.04087841196451336,
+        0.03981772100087255,
+        0.03954586596228182,
+        0.03948597301496193,
+        0.03936297894688323,
+        0.03988253400893882,
+        0.03927299898350611
+      ],
+      "warmups": 3
+    }
+  },
+  "environment": {
+    "cwd": "/data/projects/franken_networkx",
+    "fnx_file": "/data/projects/franken_networkx/python/franken_networkx/__init__.py",
+    "fnx_version": "0.1.0",
+    "git_head": "d39edc252189b9539ae4d7ef20dd5d358afc3eaa",
+    "networkx_file": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/__init__.py",
+    "networkx_version": "3.6.1",
+    "numpy_version": "2.4.6",
+    "platform": "Linux-6.17.0-35-generic-x86_64-with-glibc2.42",
+    "python": "3.13.7 (main, Mar  3 2026, 12:19:54) [GCC 15.2.0]",
+    "target_expression": "fnx.laplacian_spectrum(fnx.star_graph(798))",
+    "thread_env": {
+      "MKL_NUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1"
+    }
+  },
+  "parity": {
+    "allclose_fnx_closed_form_1e_8": true,
+    "allclose_fnx_networkx_1e_8": true,
+    "expected_multiplicities": {
+      "0.0": 1,
+      "1.0": 797,
+      "799.0": 1
+    },
+    "expression": "fnx.laplacian_spectrum(fnx.star_graph(798))",
+    "fnx_dtype": "float64",
+    "fnx_first5_sorted": [
+      0.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "fnx_last5_sorted": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      799.0
+    ],
+    "fnx_shape": [
+      799
+    ],
+    "max_sorted_delta_fnx_vs_closed_form": 0.0,
+    "max_sorted_delta_fnx_vs_networkx": 1.887379141862766e-14,
+    "n_nodes": 799,
+    "n_spokes": 798,
+    "networkx_dtype": "float64",
+    "networkx_first5_sorted": [
+      4.229465686844138e-15,
+      0.9999999999999881,
+      0.9999999999999929,
+      0.9999999999999947,
+      0.9999999999999954
+    ],
+    "networkx_last5_sorted": [
+      1.0000000000000098,
+      1.0000000000000107,
+      1.0000000000000169,
+      1.0000000000000189,
+      799.0
+    ],
+    "networkx_shape": [
+      799
+    ],
+    "q9_sorted_payload_file": "q9_sorted_payload.json",
+    "q9_sorted_sha256": "375fa52a42b6385d40091801807090bb18b6061ea6d5584bec0005bad4e5415e",
+    "sorted_value_order": "ascending"
+  },
+  "profile": {
+    "elapsed_seconds": 1.8831985929864459,
+    "loops": 1000,
+    "profile_file": "cprofile_fnx_top.txt",
+    "seconds_per_call": 0.001883198592986446,
+    "sort": "cumtime"
+  }
+}
