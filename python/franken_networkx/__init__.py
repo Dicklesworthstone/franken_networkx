@@ -2338,9 +2338,17 @@ class _MultiDiGraphEdgeView:
         # unchanged.
         result = _EdgeListWithSetAlgebra()
         if data is False or data is True or isinstance(data, str):
-            result.extend(
-                self._graph._native_edge_view()(nbunch, data, keys, default)
+            native_list = (
+                getattr(self._graph, "_native_edge_view_list", None)
+                if nbunch is None
+                else None
             )
+            if native_list is not None:
+                result = _EdgeListWithSetAlgebra(native_list(data, keys, default))
+            else:
+                result.extend(
+                    self._graph._native_edge_view()(nbunch, data, keys, default)
+                )
         else:
             for source in self._graph.nbunch_iter(nbunch):
                 for target, keyed_attrs in self._graph.succ[source].items():

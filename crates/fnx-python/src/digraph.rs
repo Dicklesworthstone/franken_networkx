@@ -256,6 +256,75 @@ impl PyMultiDiGraph {
         }
         Ok(Some(result))
     }
+
+    /// Native all-edge list for MultiDiGraph.edges(...), matching the Python
+    /// wrapper's no-nbunch tuple shapes while avoiding a Python pass over a
+    /// native NodeIterator just to populate the final list subclass.
+    fn native_edge_view_list(
+        &mut self,
+        py: Python<'_>,
+        data: &Bound<'_, PyAny>,
+        keys: bool,
+        default: PyObject,
+    ) -> PyResult<Vec<PyObject>> {
+        let data_is_bool = data.is_instance_of::<PyBool>();
+        let want_dict = data_is_bool && data.extract::<bool>()?;
+        let want_value = !data_is_bool;
+        if want_dict && self.inner.edge_count() > 0 {
+            self.mark_edges_dirty();
+        }
+        if keys && !want_dict && !want_value {
+            return self.edges_key_tuples(py);
+        }
+        if want_dict && !keys {
+            return self.edges_alldata_tuples(py);
+        }
+        if want_dict
+            && keys
+            && let Some(result) = self.edges_key_alldata_existing_mirrors(py)?
+        {
+            return Ok(result);
+        }
+
+        let edges: Vec<(String, String, usize)> = self
+            .inner
+            .edges_ordered_borrowed()
+            .into_iter()
+            .map(|(source, target, key, _attrs)| (source.to_owned(), target.to_owned(), key))
+            .collect();
+        let mut result: Vec<PyObject> = Vec::with_capacity(edges.len());
+        for (source, target, key) in &edges {
+            let py_u = self.py_node_key(py, source);
+            let py_v = self.py_succ_key(py, source, target);
+            let py_key = self.py_edge_key(py, source, target, *key);
+            let item = if want_dict {
+                let attrs = self
+                    .ensure_edge_py_attrs(py, source, target, *key)
+                    .clone_ref(py)
+                    .into_any();
+                tuple_object(py, &[py_u, py_v, py_key, attrs])?
+            } else if want_value {
+                let val = self
+                    .ensure_edge_py_attrs(py, source, target, *key)
+                    .bind(py)
+                    .get_item(data)
+                    .ok()
+                    .flatten()
+                    .map_or_else(|| default.clone_ref(py), |v| v.unbind());
+                if keys {
+                    tuple_object(py, &[py_u, py_v, py_key, val])?
+                } else {
+                    tuple_object(py, &[py_u, py_v, val])?
+                }
+            } else if keys {
+                tuple_object(py, &[py_u, py_v, py_key])?
+            } else {
+                tuple_object(py, &[py_u, py_v])?
+            };
+            result.push(item);
+        }
+        Ok(result)
+    }
 }
 
 impl PyMultiDiGraph {
@@ -3307,6 +3376,16 @@ impl PyMultiDiGraph {
         let py = slf.py();
         let graph_py: Py<PyMultiDiGraph> = Py::from(slf);
         Py::new(py, MultiDiGraphEdgeView { graph: graph_py })
+    }
+
+    fn _native_edge_view_list(
+        &mut self,
+        py: Python<'_>,
+        data: &Bound<'_, PyAny>,
+        keys: bool,
+        default: PyObject,
+    ) -> PyResult<Vec<PyObject>> {
+        self.native_edge_view_list(py, data, keys, default)
     }
 
     #[getter]
