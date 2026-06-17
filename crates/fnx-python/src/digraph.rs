@@ -234,6 +234,28 @@ impl PyMultiDiGraph {
         let cached = &self.edges_with_data_cache.as_ref().unwrap().2;
         Ok(cached.iter().map(|t| t.clone_ref(py)).collect())
     }
+
+    /// Build the all-edge ``edges(keys=True, data=True)`` result in one pass when
+    /// every edge already has its live Python attr mirror. Plain/sparse edges fall
+    /// back to the generic path, which materializes missing mirrors before return.
+    pub(crate) fn edges_key_alldata_existing_mirrors(
+        &self,
+        py: Python<'_>,
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        let edges = self.inner.edges_ordered_borrowed();
+        let mut result: Vec<PyObject> = Vec::with_capacity(edges.len());
+        for (source, target, key, _attrs) in edges {
+            let Some(attrs) = self.edge_py_attrs.get(&Self::edge_key(source, target, key)) else {
+                return Ok(None);
+            };
+            let py_u = self.py_node_key(py, source);
+            let py_v = self.py_succ_key(py, source, target);
+            let py_key = self.py_edge_key(py, source, target, key);
+            let attrs = attrs.clone_ref(py).into_any();
+            result.push(tuple_object(py, &[py_u, py_v, py_key, attrs])?);
+        }
+        Ok(Some(result))
+    }
 }
 
 impl PyMultiDiGraph {
@@ -5009,6 +5031,22 @@ impl MultiDiGraphEdgeView {
         if source_nodes.is_none() && matches!(&view_data, ViewData::NoData) && keys {
             drop(g);
             let result = self.graph.borrow_mut(py).edges_key_tuples(py)?;
+            return Py::new(
+                py,
+                crate::NodeIterator::with_graph_guard(
+                    py,
+                    result,
+                    crate::NodeIteratorGuard::MultiDiGraph(self.graph.clone_ref(py)),
+                    node_count,
+                ),
+            );
+        }
+        if source_nodes.is_none()
+            && matches!(&view_data, ViewData::AllData)
+            && keys
+            && let Some(result) = g.edges_key_alldata_existing_mirrors(py)?
+        {
+            drop(g);
             return Py::new(
                 py,
                 crate::NodeIterator::with_graph_guard(

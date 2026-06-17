@@ -419,6 +419,30 @@ def test_multidigraph_fresh_exact_int_attr_batch_matches_nx_order_keys_and_copie
     }
 
 
+def test_multidigraph_keyed_data_view_preserves_live_attrs_for_mirrored_and_plain_edges():
+    attr_batch = [(0, 1, {"weight": 1.5}), (0, 1, {"weight": 2.5, "label": "parallel"})]
+    gf = fnx.MultiDiGraph()
+    gn = nx.MultiDiGraph()
+    gf.add_edges_from(attr_batch)
+    gn.add_edges_from(attr_batch)
+
+    assert list(gf.edges(keys=True, data=True)) == list(gn.edges(keys=True, data=True))
+    edge_dict = next(
+        data for u, v, key, data in gf.edges(keys=True, data=True) if (u, v, key) == (0, 1, 0)
+    )
+    edge_dict["weight"] = 7.5
+    gn[0][1][0]["weight"] = 7.5
+    assert gf[0][1][0] is edge_dict
+    assert dict(gf.out_degree(weight="weight")) == dict(gn.out_degree(weight="weight"))
+
+    plain = fnx.MultiDiGraph()
+    plain.add_edge(1, 2)
+    _u, _v, _key, attrs = list(plain.edges(keys=True, data=True))[0]
+    attrs["weight"] = 3.0
+    assert plain[1][2][0]["weight"] == 3.0
+    assert list(plain.edges(keys=True, data="weight", default=None)) == [(1, 2, 0, 3.0)]
+
+
 def test_multidigraph_exact_int_weight_float_batch_matches_nx_and_copies():
     attrs = [{"weight": float(i) + 0.25} for i in range(16)]
     batch = [(i % 5, (i * 7 + 1) % 9, attrs[i]) for i in range(16)]
