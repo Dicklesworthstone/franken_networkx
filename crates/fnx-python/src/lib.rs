@@ -2400,7 +2400,10 @@ impl PyMultiGraph {
         let mut node_indices: HashMap<i64, usize> = HashMap::new();
         let mut node_labels: Vec<String> = Vec::new();
         let mut node_objects: Vec<PyObject> = Vec::new();
-        let mut pair_count: HashMap<(usize, usize), usize> = HashMap::new();
+        if items.len() > (u32::MAX as usize) / 2 {
+            return Ok(None);
+        }
+        let mut pair_count: HashMap<u64, usize> = HashMap::with_capacity(items.len());
         let mut edges: Vec<(usize, usize, usize, AttrMap, Option<Py<PyDict>>)> =
             Vec::with_capacity(items.len());
         let mut node_bumps = 0_u64;
@@ -2486,7 +2489,8 @@ impl PyMultiGraph {
             } else {
                 (v_index, u_index)
             };
-            let counter = pair_count.entry(pair).or_insert(0);
+            let pair_key = ((pair.0 as u64) << 32) | (pair.1 as u64);
+            let counter = pair_count.entry(pair_key).or_insert(0);
             let key = *counter;
             *counter += 1;
             edges.push((u_index, v_index, key, attrs, mirror));
