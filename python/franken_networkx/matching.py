@@ -8,6 +8,8 @@ _nx_matching = _importlib.import_module("networkx.algorithms.matching")
 
 import franken_networkx as _fnx
 
+_DIRECT_MAX_WEIGHT_MATCHING_NODE_LIMIT = 12
+
 __all__ = list(
     getattr(
         _nx_matching,
@@ -22,6 +24,15 @@ __all__ = list(
         ),
     )
 )
+
+
+def _upstream_body(name):
+    function = getattr(_nx_matching, name)
+    return getattr(function, "orig_func", function)
+
+
+def _is_simple_fnx_graph(G):
+    return isinstance(G, _fnx.Graph)
 
 
 def is_matching(G, matching, *, backend=None, **backend_kwargs):
@@ -53,6 +64,12 @@ def max_weight_matching(
     _fnx._validate_backend_dispatch_keywords(
         "max_weight_matching", backend, backend_kwargs
     )
+    if _is_simple_fnx_graph(G) and len(G) <= _DIRECT_MAX_WEIGHT_MATCHING_NODE_LIMIT:
+        return _upstream_body("max_weight_matching")(
+            G,
+            maxcardinality=maxcardinality,
+            weight=weight,
+        )
     return _fnx.max_weight_matching(
         G, maxcardinality=maxcardinality, weight=weight
     )
@@ -63,6 +80,8 @@ def min_weight_matching(G, weight="weight", *, backend=None, **backend_kwargs):
     _fnx._validate_backend_dispatch_keywords(
         "min_weight_matching", backend, backend_kwargs
     )
+    if _is_simple_fnx_graph(G):
+        return _upstream_body("min_weight_matching")(G, weight=weight)
     return _fnx.min_weight_matching(G, weight=weight)
 
 

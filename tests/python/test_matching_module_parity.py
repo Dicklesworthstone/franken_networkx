@@ -106,6 +106,33 @@ def test_matching_constructors_match_networkx():
     )
 
 
+def test_weighted_matching_small_graphs_bypass_top_level_conversion(monkeypatch):
+    module = importlib.import_module("franken_networkx.matching")
+    fnx_graph, nx_graph = _build_pair()
+
+    def fail_top_level(*args, **kwargs):
+        raise AssertionError("top-level weighted matching delegation was used")
+
+    monkeypatch.setattr(fnx, "max_weight_matching", fail_top_level)
+    monkeypatch.setattr(fnx, "min_weight_matching", fail_top_level)
+
+    assert module.max_weight_matching(
+        fnx_graph,
+        maxcardinality=True,
+    ) == nx.max_weight_matching(nx_graph, maxcardinality=True)
+    assert module.min_weight_matching(fnx_graph) == nx.min_weight_matching(nx_graph)
+
+
+def test_max_weight_matching_large_graph_keeps_existing_route(monkeypatch):
+    module = importlib.import_module("franken_networkx.matching")
+    graph = fnx.path_graph(13)
+    sentinel = {("existing", "route")}
+
+    monkeypatch.setattr(fnx, "max_weight_matching", lambda *args, **kwargs: sentinel)
+
+    assert module.max_weight_matching(graph) is sentinel
+
+
 def test_matching_rejects_backend_kwargs_like_networkx_dispatch():
     module = importlib.import_module("franken_networkx.matching")
     fnx_graph, _ = _build_pair()
