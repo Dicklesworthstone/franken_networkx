@@ -19947,7 +19947,15 @@ mod tests {
             let mst =
                 minimum_spanning_tree(py, multigraph.bind(py).as_any(), "weight").expect("mst");
             assert_eq!(mst.inner.mode(), CompatibilityMode::Hardened);
-            assert_eq!(mst.inner.runtime_policy(), &expected_multigraph_policy);
+            // br-r37-c1-cyyfg: the MST wrapper intentionally builds the result on
+            // a fresh mode-only RuntimePolicy (br-r37-c1-7dpyg) rather than cloning
+            // the source's unbounded decision ledger, which made MST 2.45x slower on
+            // ctor-built sources. The preserved contract is therefore the
+            // compatibility MODE and the policy allowlist, NOT the source's ledger;
+            // the result's decision log is rebuilt from the tree's own construction.
+            let mst_policy = mst.inner.runtime_policy();
+            assert_eq!(mst_policy.mode(), expected_multigraph_policy.mode());
+            assert_eq!(mst_policy.allowlist(), expected_multigraph_policy.allowlist());
 
             let mut graph = PyGraph::new_empty(py).expect("graph should initialize");
             graph.inner = fnx_classes::Graph::new(CompatibilityMode::Hardened);
@@ -19962,16 +19970,34 @@ mod tests {
             let expected_graph_policy = graph.inner.runtime_policy().clone();
             let graph = Py::new(py, graph).expect("py graph should initialize");
 
+            // br-r37-c1-cyyfg: these construction helpers build their result via the
+            // bulk extend_*_unrecorded fast paths on a fresh mode-only policy, so the
+            // preserved contract is the compatibility MODE and allowlist, not the
+            // source's full decision ledger.
             let core =
                 k_core_rust(py, graph.bind(py).as_any(), None).expect("k-core should succeed");
             let core_ref = core.bind(py).borrow();
             assert_eq!(core_ref.inner.mode(), CompatibilityMode::Hardened);
-            assert_eq!(core_ref.inner.runtime_policy(), &expected_graph_policy);
+            assert_eq!(
+                core_ref.inner.runtime_policy().mode(),
+                expected_graph_policy.mode(),
+            );
+            assert_eq!(
+                core_ref.inner.runtime_policy().allowlist(),
+                expected_graph_policy.allowlist(),
+            );
 
             let dfs = dfs_tree(py, graph.bind(py).as_any(), None, None, None)
                 .expect("dfs tree should succeed");
             assert_eq!(dfs.inner.mode(), CompatibilityMode::Hardened);
-            assert_eq!(dfs.inner.runtime_policy(), &expected_graph_policy);
+            assert_eq!(
+                dfs.inner.runtime_policy().mode(),
+                expected_graph_policy.mode(),
+            );
+            assert_eq!(
+                dfs.inner.runtime_policy().allowlist(),
+                expected_graph_policy.allowlist(),
+            );
         });
     }
 
