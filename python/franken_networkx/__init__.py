@@ -7171,8 +7171,33 @@ def _graph_has_nonunit_weight(G, weight):
     is now: sync the Python attrs into the Rust ``inner`` graph and
     return ``False`` (no fallback needed). The Rust kernel sees fresh
     data and produces the correct weighted distances.
+
+    NOTE: callers whose native kernel does NOT self-sync (e.g.
+    ``_raw_cut_size`` / ``_raw_normalized_cut_size``) RELY on this sync
+    side effect — keep using this gate for them. Callers whose binding
+    self-syncs via ``sync_rust_attrs_if_available`` should use the
+    cheaper :func:`_binding_self_syncs_gate` instead (br-r37-c1-tqqzq).
     """
     _sync_rust_edge_attrs(G)
+    return False
+
+
+def _binding_self_syncs_gate(G, weight):
+    """No-op delegation gate (always ``False``, NO sync) — br-r37-c1-tqqzq.
+
+    Use ONLY in shortest-path wrappers whose native binding already calls
+    ``sync_rust_attrs_if_available`` (the identical ``_fnx_sync_attrs_to_inner``
+    pessimistic re-sync) before reading ``inner``. For those, the historical
+    ``_graph_has_nonunit_weight`` gate performed a redundant SECOND full
+    O(E+N) AttrMap rebuild on every call — a provable double-sync (no Python
+    runs between the two syncs). Dropping it is byte-identical for default and
+    custom weight names, including post-construction weight mutation, while the
+    binding's own re-sync preserves the held-reference mutation contract.
+    Self-speedup ~1.4x on voronoi_cells / multi_source_dijkstra_path /
+    single_source_bellman_ford / all_pairs_bellman_ford.
+
+    Do NOT use for kernels that do NOT self-sync (``_raw_cut_size`` etc.).
+    """
     return False
 
 
@@ -18488,7 +18513,7 @@ def single_source_bellman_ford(G, source, target=None, weight="weight"):
     if (
         target is not None
         or _should_delegate_bellman_ford_to_networkx(weight)
-        or _graph_has_nonunit_weight(G, weight)
+        or _binding_self_syncs_gate(G, weight)
     ):
         return _call_networkx_for_parity(
             "single_source_bellman_ford",
@@ -18525,7 +18550,7 @@ def single_source_bellman_ford_path(G, source, weight="weight"):
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     hash(source)
     # br-bfignoreweight: delegate weighted inputs.
-    if _should_delegate_bellman_ford_to_networkx(weight) or _graph_has_nonunit_weight(G, weight):
+    if _should_delegate_bellman_ford_to_networkx(weight) or _binding_self_syncs_gate(G, weight):
         return _call_networkx_for_parity(
             "single_source_bellman_ford_path", G, source, weight=weight
         )
@@ -18550,7 +18575,7 @@ def single_source_bellman_ford_path_length(G, source, weight="weight"):
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     hash(source)
     # br-bfignoreweight: delegate weighted inputs.
-    if _should_delegate_bellman_ford_to_networkx(weight) or _graph_has_nonunit_weight(G, weight):
+    if _should_delegate_bellman_ford_to_networkx(weight) or _binding_self_syncs_gate(G, weight):
         return _call_networkx_for_parity(
             "single_source_bellman_ford_path_length", G, source, weight=weight
         )
@@ -18675,7 +18700,7 @@ def all_pairs_bellman_ford_path(G, weight="weight"):
     """
     G = _coerce_arg_to_fnx_graph(G)
     # br-bfignoreweight: delegate weighted inputs to nx.
-    if _should_delegate_bellman_ford_to_networkx(weight) or _graph_has_nonunit_weight(G, weight):
+    if _should_delegate_bellman_ford_to_networkx(weight) or _binding_self_syncs_gate(G, weight):
         yield from _call_networkx_for_parity(
             "all_pairs_bellman_ford_path", G, weight=weight
         )
@@ -18698,7 +18723,7 @@ def all_pairs_bellman_ford_path_length(G, weight="weight"):
     """
     G = _coerce_arg_to_fnx_graph(G)
     # br-bfignoreweight: delegate weighted inputs to nx.
-    if _should_delegate_bellman_ford_to_networkx(weight) or _graph_has_nonunit_weight(G, weight):
+    if _should_delegate_bellman_ford_to_networkx(weight) or _binding_self_syncs_gate(G, weight):
         yield from _call_networkx_for_parity(
             "all_pairs_bellman_ford_path_length", G, weight=weight
         )
@@ -27592,7 +27617,7 @@ def _voronoi_nearest_centers(G, sources, *, weight):
     if (
         callable(weight)
         or _should_delegate_dijkstra_to_networkx(G, weight)
-        or _graph_has_nonunit_weight(G, weight)
+        or _binding_self_syncs_gate(G, weight)
     ):
         paths = multi_source_dijkstra_path(G, sources, weight=weight)
         return {v: p[0] for v, p in paths.items()}
@@ -29521,7 +29546,7 @@ def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight")
     if (
         callable(weight)
         or _should_delegate_dijkstra_to_networkx(G, weight)
-        or _graph_has_nonunit_weight(G, weight)
+        or _binding_self_syncs_gate(G, weight)
     ):
         return _call_networkx_for_parity(
             "multi_source_dijkstra",
