@@ -34946,20 +34946,28 @@ def moral_graph(G):
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
 
+    # br-r37-c1-moralbatch: the native moral_graph_rust kernel is unusable
+    # (it returns canonical str display keys and drops node attributes — the
+    # lazy-key divergence bug), so stay in Python but replace the per-node
+    # add_node(**dict) and per-edge add_edge(**data) loops with batch
+    # construction (add_nodes_from / add_edges_from). The co-parent marriage
+    # keeps the per-pair has_edge guard so existing edge data is preserved and
+    # only genuinely new edges are queued; add_edges_from idempotently dedupes
+    # repeated co-parent pairs while preserving first-seen insertion order, so
+    # the result is byte-identical to the per-pair loop.
     H = Graph()
-    for node in G.nodes():
-        H.add_node(node, **dict(G.nodes[node]))
-
-    # Add existing edges as undirected.
-    for u, v, data in G.edges(data=True):
-        H.add_edge(u, v, **data)
+    H.add_nodes_from((node, G.nodes[node]) for node in G.nodes())
+    # Add existing edges as undirected (preserving edge order and data).
+    H.add_edges_from(G.edges(data=True))
 
     # Marry co-parents: for each node, connect all pairs of predecessors.
+    extra = []
     for node in G.nodes():
         preds = list(G.predecessors(node))
         for u, v in _combinations(preds, 2):
             if not H.has_edge(u, v):
-                H.add_edge(u, v)
+                extra.append((u, v))
+    H.add_edges_from(extra)
 
     return H
 
