@@ -15902,19 +15902,21 @@ def maximal_independent_set(G, nodes=None, seed=None, *, backend=None, **backend
     # produces the matching ``{node}`` text — without pre-picking on
     # success-path graphs (which would advance the seed differently
     # from nx's body and break MIS-value parity).
-    nodes_picked_for_selfloop = False
-    if nodes is None and len(G) > 0:
-        selfloops = [n for n in G if G.has_edge(n, n)]
-        if selfloops:
-            import random as _random
-            if isinstance(seed, _random.Random):
-                rng = seed
-            elif seed is not None:
-                rng = _random.Random(seed)
-            else:
-                rng = _random
-            nodes = [rng.choice(list(G))]
-            nodes_picked_for_selfloop = True
+    # br-r37-c1-04z53: the failure pre-pick is only reachable when G has a
+    # self-loop, so gate it behind the fast native ``number_of_selfloops``
+    # (one Rust scan) instead of an O(N) per-node ``G.has_edge(n, n)`` Python
+    # loop that ran on EVERY call (it was ~52% of the wrapper's cost). The
+    # common no-self-loop success path now skips the pre-pick entirely,
+    # leaving the seed RNG untouched so MIS-value parity with nx is preserved.
+    if nodes is None and len(G) > 0 and number_of_selfloops(G) > 0:
+        import random as _random
+        if isinstance(seed, _random.Random):
+            rng = seed
+        elif seed is not None:
+            rng = _random.Random(seed)
+        else:
+            rng = _random
+        nodes = [rng.choice(list(G))]
 
     try:
         return _raw_maximal_independent_set(G, nodes, rust_seed)
