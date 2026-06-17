@@ -52,6 +52,17 @@ def test_unweighted_star_laplacian_closed_form_matches_nx_sorted_values():
         assert np.allclose(fr, expected)
 
 
+def test_unweighted_star_laplacian_uses_shape_certificate():
+    Gf = fnx.star_graph(30)
+    assert vars(Gf)["_fnx_star_shape"] == (Gf.nodes_seq, Gf.edges_seq, 31)
+    assert fnx._star_shape_certificate_size(Gf, "weight") == 31
+    assert fnx._star_shape_certificate_size(Gf, None) == 31
+    expected = np.ones(31, dtype=np.float64)
+    expected[0] = 0.0
+    expected[-1] = 31.0
+    assert np.allclose(fnx.laplacian_spectrum(Gf), expected)
+
+
 def test_weighted_star_laplacian_stays_on_weighted_route():
     Gf = fnx.star_graph(8)
     Gn = nx.star_graph(8)
@@ -60,6 +71,68 @@ def test_weighted_star_laplacian_stays_on_weighted_route():
     fr = fnx.laplacian_spectrum(Gf)
     nr = nx.laplacian_spectrum(Gn)
     assert fnx._star_laplacian_spectrum_sorted_value_safe(Gf, "weight") is None
+    assert fr.dtype == np.float64
+    assert np.allclose(np.sort(fr), np.sort(nr))
+
+
+def test_star_laplacian_certificate_rejects_existing_edge_weight_update():
+    Gf = fnx.star_graph(8)
+    Gn = nx.star_graph(8)
+    original_shape = vars(Gf)["_fnx_star_shape"]
+    Gf.add_edge(0, 1, weight=3.0)
+    Gn.add_edge(0, 1, weight=3.0)
+    assert vars(Gf)["_fnx_star_shape"] == original_shape
+    assert Gf.edges_seq != original_shape[1]
+    assert fnx._star_shape_certificate_size(Gf, "weight") is None
+    fr = fnx.laplacian_spectrum(Gf)
+    nr = nx.laplacian_spectrum(Gn)
+    unweighted = np.ones(9, dtype=np.float64)
+    unweighted[0] = 0.0
+    unweighted[-1] = 9.0
+    assert np.allclose(np.sort(fr), np.sort(nr))
+    assert not np.allclose(np.sort(fr), unweighted)
+
+
+def test_star_laplacian_certificate_rejects_dirty_edge_weight_mutation():
+    Gf = fnx.star_graph(8)
+    Gn = nx.star_graph(8)
+    Gf[0][1]["weight"] = 3.0
+    Gn[0][1]["weight"] = 3.0
+    assert fnx._star_shape_certificate_size(Gf, "weight") is None
+    fr = fnx.laplacian_spectrum(Gf)
+    nr = nx.laplacian_spectrum(Gn)
+    assert np.allclose(np.sort(fr), np.sort(nr))
+
+
+def test_star_laplacian_certificate_keeps_weight_none_after_attrs():
+    Gf = fnx.star_graph(8)
+    Gn = nx.star_graph(8)
+    Gf[0][1]["weight"] = 3.0
+    Gn[0][1]["weight"] = 3.0
+    assert fnx._star_shape_certificate_size(Gf, None) == 9
+    fr = fnx.laplacian_spectrum(Gf, weight=None)
+    nr = nx.laplacian_spectrum(Gn, weight=None)
+    expected = np.ones(9, dtype=np.float64)
+    expected[0] = 0.0
+    expected[-1] = 9.0
+    assert np.allclose(np.sort(fr), np.sort(nr))
+    assert np.allclose(fr, expected)
+
+
+def test_star_laplacian_certificate_rejects_count_preserving_rewire():
+    Gf = fnx.star_graph(8)
+    Gn = nx.star_graph(8)
+    original_shape = vars(Gf)["_fnx_star_shape"]
+    Gf.remove_edge(0, 1)
+    Gn.remove_edge(0, 1)
+    Gf.add_edge(1, 2)
+    Gn.add_edge(1, 2)
+    assert vars(Gf)["_fnx_star_shape"] == original_shape
+    assert Gf.edges_seq != original_shape[1]
+    assert fnx._star_shape_certificate_size(Gf, "weight") is None
+    assert fnx._star_laplacian_spectrum_sorted_value_safe(Gf, "weight") is None
+    fr = fnx.laplacian_spectrum(Gf)
+    nr = nx.laplacian_spectrum(Gn)
     assert fr.dtype == np.float64
     assert np.allclose(np.sort(fr), np.sort(nr))
 

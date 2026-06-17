@@ -19701,6 +19701,8 @@ def star_graph(n, create_using=None):
         # Drop it; emit all hub spokes through ONE add_edges_from. Byte-exact:
         # node order [0..n] and edge order ((hub,1),(hub,2),...) match nx.
         graph.add_edges_from((hub, node) for node in nodes[1:])
+    if type(graph) is Graph:
+        vars(graph)["_fnx_star_shape"] = (graph.nodes_seq, graph.edges_seq, len(nodes))
     return graph
 
 
@@ -22638,29 +22640,33 @@ def _star_laplacian_spectrum_sorted_value_safe(G, weight):
     if type(G) is not Graph or not (weight is None or isinstance(weight, str)):
         return None
     n = len(G)
-    if n < 2 or G.number_of_edges() != n - 1:
+    certified_n = _star_shape_certificate_size(G, weight)
+    if certified_n is not None:
+        n = certified_n
+    elif n < 2 or G.number_of_edges() != n - 1:
         return None
-    if isinstance(weight, str):
+    elif isinstance(weight, str):
         for _, _, attrs in G.edges(data=True):
             if weight in attrs:
                 return None
 
-    if n == 2:
-        for _, degree in G.degree():
-            if degree != 1:
+    if certified_n is None:
+        if n == 2:
+            for _, degree in G.degree():
+                if degree != 1:
+                    return None
+        else:
+            center_count = 0
+            leaf_count = 0
+            for _, degree in G.degree():
+                if degree == n - 1:
+                    center_count += 1
+                elif degree == 1:
+                    leaf_count += 1
+                else:
+                    return None
+            if center_count != 1 or leaf_count != n - 1:
                 return None
-    else:
-        center_count = 0
-        leaf_count = 0
-        for _, degree in G.degree():
-            if degree == n - 1:
-                center_count += 1
-            elif degree == 1:
-                leaf_count += 1
-            else:
-                return None
-        if center_count != 1 or leaf_count != n - 1:
-            return None
 
     import numpy as np
 
@@ -22668,6 +22674,41 @@ def _star_laplacian_spectrum_sorted_value_safe(G, weight):
     values[0] = 0.0
     values[-1] = float(n)
     return values
+
+
+def _star_shape_certificate_size(G, weight):
+    certificate = vars(G).get("_fnx_star_shape")
+    if certificate is None:
+        return None
+    try:
+        nodes_seq, edges_seq, n = certificate
+    except (TypeError, ValueError):
+        return None
+    try:
+        if G.nodes_seq != nodes_seq or G.edges_seq != edges_seq:
+            return None
+    except AttributeError:
+        return None
+    if n < 2 or G.number_of_edges() != n - 1:
+        return None
+    if weight is None:
+        return n
+    if not isinstance(weight, str) or _native_dijkstra_weight_cache_token is None:
+        return None
+    try:
+        token = _native_dijkstra_weight_cache_token(G)
+    except Exception:
+        return None
+    if token is None:
+        return None
+    token_nodes_seq, token_edges_seq, edge_attrs_dirty = token
+    if (
+        token_nodes_seq == nodes_seq
+        and token_edges_seq == edges_seq
+        and not edge_attrs_dirty
+    ):
+        return n
+    return None
 
 
 def _star_adjacency_spectrum_raw_order_safe(G, weight):
