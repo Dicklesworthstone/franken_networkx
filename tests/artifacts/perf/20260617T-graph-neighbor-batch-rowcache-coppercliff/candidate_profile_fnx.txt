@@ -1,0 +1,18 @@
+         1730341 function calls in 0.525 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      180    0.181    0.001    0.525    0.003 graph_neighbor_rowcache_harness.py:77(neighbors_all)
+   432000    0.234    0.000    0.343    0.000 __init__.py:38091(neighbors)
+   864360    0.078    0.000    0.078    0.000 {method 'get' of 'dict' objects}
+   432000    0.030    0.000    0.030    0.000 {built-in method builtins.iter}
+      180    0.000    0.000    0.000    0.000 __init__.py:37797(nodes)
+      180    0.000    0.000    0.000    0.000 __init__.py:1031(wrapped)
+      180    0.000    0.000    0.000    0.000 __init__.py:37211(_private_override)
+      360    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      540    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+      360    0.000    0.000    0.000    0.000 {method 'pop' of 'dict' objects}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+
+
