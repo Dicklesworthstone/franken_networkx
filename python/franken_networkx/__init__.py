@@ -34971,11 +34971,14 @@ def moral_graph(G):
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
 
-    # br-r37-c1-moralbatch: the native moral_graph_rust kernel is unusable
-    # (it returns canonical str display keys and drops node attributes — the
-    # lazy-key divergence bug), so stay in Python but replace the per-node
-    # add_node(**dict) and per-edge add_edge(**data) loops with batch
-    # construction (add_nodes_from / add_edges_from). The co-parent marriage
+    # br-r37-c1-moralbatch: replace the per-node add_node(**dict) and per-edge
+    # add_edge(**data) loops with batch construction (add_nodes_from /
+    # add_edges_from). br-r37-c1-umz6c fixed the native moral_graph_rust binding
+    # (it had returned canonical str display keys and dropped attributes — the
+    # lazy-key divergence bug — and mis-handled reciprocal-edge data), but this
+    # Python batch path is already at nx parity (~1.07x) and guarantees the
+    # exact to_undirected tie-break, so it remains the live implementation. The
+    # co-parent marriage
     # keeps the per-pair has_edge guard so existing edge data is preserved and
     # only genuinely new edges are queued; add_edges_from idempotently dedupes
     # repeated co-parent pairs while preserving first-seen insertion order, so

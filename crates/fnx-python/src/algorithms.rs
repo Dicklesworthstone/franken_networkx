@@ -17899,25 +17899,61 @@ pub fn moral_graph_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObje
     let dg = gr
         .digraph()
         .ok_or_else(|| crate::NetworkXError::new_err("moral_graph requires DiGraph"))?;
+    // br-r37-c1-umz6c: the kernel result Graph carries canonical node
+    // identities (e.g. "0", "1") that match the source's inner DiGraph,
+    // but wrapping it directly with empty maps dropped the Python display
+    // keys (int 0, not str "0") AND all node/edge attributes (the lazy-key
+    // canonical divergence bug). Rebuild the result PyGraph in the kernel's
+    // node/edge iteration order — which already mirrors nx's order
+    // (digraph.nodes_ordered() then existing edges then co-parent edges) —
+    // while re-keying through the source's display keys and copying node/
+    // edge/graph attrs.
+    //
+    // nx's moral_graph is `H = G.to_undirected(); H.add_edges_from(co_parents)`.
+    // `DiGraph.to_undirected()` walks directed edges in node-major order and is
+    // LAST-WRITER-WINS on the undirected edge data: for a reciprocal pair the
+    // edge processed later (the larger-source-index direction) overwrites the
+    // earlier one. The generic `rust_graph_to_py_subgraph` helper instead keeps
+    // the FIRST orientation's attrs, which diverges from nx whenever reciprocal
+    // edges carry distinct data (e.g. the nx docstring's (3,4)/(4,3)). So build
+    // the undirected edge-attr map here by replaying the source's directed edge
+    // order with overwrite semantics; co-parent edges (in the result but not in
+    // the source) get an empty dict, matching the Python batch path exactly.
     let result = py.allow_threads(|| fnx_algorithms::moral_graph(dg));
-    let pg = crate::PyGraph {
-        inner: result,
-        node_key_map: std::collections::HashMap::new(),
-        lazy_int_node_stop: 0,
-        node_py_attrs: std::collections::HashMap::new(),
-        edge_py_attrs: std::collections::HashMap::new(),
-        adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
-        dict_of_dicts_cache: None,
-        adj_row_py: HashMap::new(),
-        graph_attrs: PyDict::new(py).unbind(),
-        nodes_seq: 0,
-        edges_seq: 0,
-        edges_dirty: AtomicBool::new(false),
-        node_keys_cache: std::sync::Mutex::new(None),
-        node_iter_mirror: std::sync::Mutex::new(None),
-        node_data_mirror: std::sync::Mutex::new(None),
-    };
-    Ok(pg.into_pyobject(py)?.into_any().unbind())
+
+    let mut edge_attr_map: HashMap<(String, String), Py<PyDict>> = HashMap::new();
+    for e in dg.edges_ordered() {
+        let attrs = match gr.edge_attrs_for_directed(&e.left, &e.right) {
+            Some(d) => d.bind(py).copy()?.unbind(),
+            None => PyDict::new(py).unbind(),
+        };
+        edge_attr_map.insert(PyGraph::edge_key(&e.left, &e.right), attrs);
+    }
+
+    let mut py_graph =
+        PyGraph::new_empty_with_policy(py, gr.undirected().runtime_policy().clone())?;
+    py_graph.graph_attrs = gr.graph_attrs().bind(py).copy()?.unbind();
+    for node in result.nodes_ordered() {
+        py_graph
+            .node_key_map
+            .insert(node.to_owned(), gr.py_node_key(py, node));
+        let attrs = match gr.node_attrs_for(node) {
+            Some(d) => d.bind(py).copy()?.unbind(),
+            None => PyDict::new(py).unbind(),
+        };
+        py_graph.node_py_attrs.insert(node.to_owned(), attrs);
+        py_graph.inner.add_node(node);
+    }
+    for edge in result.edges_ordered() {
+        let _ = py_graph.inner.add_edge(&edge.left, &edge.right);
+        let ek = PyGraph::edge_key(&edge.left, &edge.right);
+        let attrs = match edge_attr_map.remove(&ek) {
+            Some(d) => d,
+            None => PyDict::new(py).unbind(),
+        };
+        py_graph.edge_py_attrs.insert(ek, attrs);
+    }
+    Ok(py_graph.into_pyobject(py)?.into_any().unbind())
 }
 
 // ---------------------------------------------------------------------------
