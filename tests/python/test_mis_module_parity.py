@@ -62,6 +62,21 @@ def test_maximal_independent_set_values_match_networkx():
     ) == nx.maximal_independent_set(nx_graph, nodes=[1], seed=3)
 
 
+def test_maximal_independent_set_matches_networkx_set_iteration_order(monkeypatch):
+    module = importlib.import_module("franken_networkx.mis")
+    fnx_graph = fnx.gnp_random_graph(20, 0.15, seed=4)
+    nx_graph = nx.gnp_random_graph(20, 0.15, seed=4)
+    monkeypatch.setattr(
+        fnx,
+        "maximal_independent_set",
+        lambda *args, **kwargs: ["native-delegation-sentinel"],
+    )
+
+    assert module.maximal_independent_set(
+        fnx_graph, seed=1
+    ) == nx.maximal_independent_set(nx_graph, seed=1)
+
+
 def test_maximal_independent_set_error_message_matches_networkx():
     module = importlib.import_module("franken_networkx.mis")
     graph = fnx.path_graph(3)
