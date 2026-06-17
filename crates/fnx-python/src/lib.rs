@@ -1609,7 +1609,7 @@ impl PyGraph {
         let mut node_indices: HashMap<i64, usize> = HashMap::new();
         let mut node_labels: Vec<String> = Vec::new();
         let mut node_objects: Vec<PyObject> = Vec::new();
-        let mut edges: Vec<(usize, usize, AttrMap, Py<PyDict>)> = Vec::with_capacity(len);
+        let mut edges: Vec<(usize, usize, AttrMap)> = Vec::with_capacity(len);
         let mut node_bumps = 0_u64;
 
         for item in items {
@@ -1643,7 +1643,6 @@ impl PyGraph {
             let Ok(attrs) = py_dict_to_attr_map(dict) else {
                 return Ok(None);
             };
-            let mirror = dict.copy()?.unbind();
             if attrs
                 .keys()
                 .any(|key| key.starts_with("__fnx_incompatible"))
@@ -1677,7 +1676,7 @@ impl PyGraph {
             if edge_added_node {
                 node_bumps = node_bumps.wrapping_add(1);
             }
-            edges.push((u_index, v_index, attrs, mirror));
+            edges.push((u_index, v_index, attrs));
         }
 
         Ok(Some((node_labels, node_objects, edges, node_bumps)))
@@ -1688,7 +1687,7 @@ impl PyGraph {
         py: Python<'_>,
         node_labels: Vec<String>,
         node_objects: Vec<PyObject>,
-        edges: Vec<(usize, usize, AttrMap, Py<PyDict>)>,
+        edges: Vec<(usize, usize, AttrMap)>,
         node_bumps: u64,
     ) -> PyResult<()> {
         let edge_bumps = u64::try_from(edges.len())
@@ -1700,26 +1699,9 @@ impl PyGraph {
             self.node_iter_mirror_insert(py, canonical)?;
         }
 
-        let mut inner_edges = Vec::with_capacity(edges.len());
-        for (left_idx, right_idx, attrs, mirror) in edges {
-            let left = &node_labels[left_idx];
-            let right = &node_labels[right_idx];
-            if !mirror.bind(py).is_empty() {
-                match self.edge_py_attrs.entry(Self::edge_key(left, right)) {
-                    std::collections::hash_map::Entry::Occupied(entry) => {
-                        entry.get().bind(py).update(mirror.bind(py).as_mapping())?;
-                    }
-                    std::collections::hash_map::Entry::Vacant(entry) => {
-                        entry.insert(mirror);
-                    }
-                }
-            }
-            inner_edges.push((left_idx, right_idx, attrs));
-        }
-
         let _inserted = self
             .inner
-            .extend_fresh_index_edges_with_attrs_unrecorded(node_labels, inner_edges);
+            .extend_fresh_index_edges_with_attrs_unrecorded(node_labels, edges);
         self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
         self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
         Ok(())
@@ -1980,7 +1962,7 @@ type AttrEdgeBatch = (
 type IndexedAttrEdgeBatch = (
     Vec<String>,
     Vec<PyObject>,
-    Vec<(usize, usize, AttrMap, Py<PyDict>)>,
+    Vec<(usize, usize, AttrMap)>,
     u64,
 );
 
@@ -9584,12 +9566,12 @@ impl PyGraph {
         }
 
         // Compare edge sets and attributes. `edge_py_attrs` can be sparse for
-        // generator-built graphs; a missing entry is equivalent to an empty
-        // live dict until first materialization.
+        // generated and fresh-batch graphs; a missing entry uses the canonical
+        // Rust attrs until a live Python dict is materialized.
         if self.inner.edge_count() != other.inner.edge_count() {
             return Ok(false);
         }
-        for (u, v, _attrs) in self.inner.edges_ordered_borrowed() {
+        for (u, v, attrs) in self.inner.edges_ordered_borrowed() {
             if !other.inner.has_edge(u, v) {
                 return Ok(false);
             }
@@ -9601,16 +9583,28 @@ impl PyGraph {
                     }
                 }
                 (Some(attrs), None) => {
-                    if !attrs.bind(py).is_empty() {
+                    let Some(other_inner_attrs) = other.inner.edge_attrs(u, v) else {
+                        return Ok(false);
+                    };
+                    let other_dict = attr_map_to_pydict(py, other_inner_attrs)?;
+                    if !attrs.bind(py).eq(other_dict.bind(py))? {
                         return Ok(false);
                     }
                 }
                 (None, Some(other_attrs)) => {
-                    if !other_attrs.bind(py).is_empty() {
+                    let self_dict = attr_map_to_pydict(py, attrs)?;
+                    if !self_dict.bind(py).eq(other_attrs.bind(py))? {
                         return Ok(false);
                     }
                 }
-                (None, None) => {}
+                (None, None) => {
+                    let Some(other_inner_attrs) = other.inner.edge_attrs(u, v) else {
+                        return Ok(false);
+                    };
+                    if attrs != other_inner_attrs {
+                        return Ok(false);
+                    }
+                }
             }
         }
 
@@ -9694,24 +9688,25 @@ impl PyGraph {
             .collect();
         state.set_item("nodes", nodes_list)?;
 
-        // Store edges as list of (u, v, attrs) tuples. Generated graphs keep
-        // edge_py_attrs sparse until the first live attr-dict handout, so the
-        // edge structure must come from inner rather than edge_py_attrs.
+        // Store edges as list of (u, v, attrs) tuples. Generated and fresh-batch
+        // graphs keep edge_py_attrs sparse until the first live attr-dict
+        // handout, so the edge structure and unmaterialized attrs come from
+        // inner rather than edge_py_attrs.
         let edges_list: Vec<(PyObject, PyObject, Py<PyDict>)> = self
             .inner
             .edges_ordered_borrowed()
             .into_iter()
-            .map(|(u, v, _attrs)| {
+            .map(|(u, v, inner_attrs)| {
                 let py_u = self.py_node_key(py, u);
                 let py_v = self.py_node_key(py, v);
                 let key = Self::edge_key(u, v);
-                let attrs = self
-                    .edge_py_attrs
-                    .get(&key)
-                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-                (py_u, py_v, attrs)
+                let attrs = self.edge_py_attrs.get(&key).map_or_else(
+                    || attr_map_to_pydict(py, inner_attrs),
+                    |d| Ok(d.clone_ref(py)),
+                )?;
+                Ok((py_u, py_v, attrs))
             })
-            .collect();
+            .collect::<PyResult<_>>()?;
         state.set_item("edges", edges_list)?;
         state.set_item("graph", self.graph_attrs.bind(py))?;
         // br-r37-c1-u3qyn: the edges list above is the u-major adjacency
@@ -9829,6 +9824,27 @@ mod tests {
         graph.runtime_policy().clone()
     }
 
+    fn exact_int_attr_ebunch(py: Python<'_>) -> PyResult<(Bound<'_, PyList>, Py<PyDict>)> {
+        let ebunch = PyList::empty(py);
+        let mut first_attrs = None;
+        for i in 0_i64..8 {
+            let attrs = PyDict::new(py);
+            attrs.set_item("weight", i)?;
+            attrs.set_item("label", format!("edge-{i}"))?;
+            let attrs_object = attrs.clone().unbind();
+            if i == 0 {
+                first_attrs = Some(attrs_object.clone_ref(py));
+            }
+            let tuple_items = [
+                i.into_py_any(py)?,
+                (i + 1).into_py_any(py)?,
+                attrs_object.into_any(),
+            ];
+            ebunch.append(PyTuple::new(py, &tuple_items)?)?;
+        }
+        Ok((ebunch, first_attrs.expect("loop always creates attrs")))
+    }
+
     #[test]
     fn graph_new_empty_with_policy_preserves_runtime_policy_state() {
         ensure_python();
@@ -9904,6 +9920,103 @@ mod tests {
 
             assert_eq!(restored.inner.runtime_policy(), &expected_policy);
         });
+    }
+
+    #[test]
+    fn graph_fresh_exact_int_attr_batch_keeps_attrs_with_lazy_mirrors() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let (ebunch, first_source_attrs) = exact_int_attr_ebunch(py)?;
+            let mut sparse = PyGraph::new_empty(py)?;
+
+            assert!(sparse.try_add_fresh_exact_int_attr_edge_batch(py, ebunch.as_any())?);
+            assert_eq!(sparse.inner.node_count(), 9);
+            assert_eq!(sparse.inner.edge_count(), 8);
+            assert!(
+                sparse.edge_py_attrs.is_empty(),
+                "fresh exact-int attributed batch should leave Python edge mirrors lazy"
+            );
+
+            let first_inner_attrs = sparse
+                .inner
+                .edge_attrs("0", "1")
+                .expect("edge attrs should stay canonical in inner graph");
+            assert_eq!(first_inner_attrs.get("weight"), Some(&CgseValue::Int(0)));
+            assert_eq!(
+                first_inner_attrs.get("label"),
+                Some(&CgseValue::String("edge-0".to_owned()))
+            );
+
+            first_source_attrs.bind(py).set_item("weight", 99)?;
+            assert_eq!(
+                sparse
+                    .inner
+                    .edge_attrs("0", "1")
+                    .and_then(|attrs| attrs.get("weight")),
+                Some(&CgseValue::Int(0)),
+                "source dict mutation must not alias graph attrs"
+            );
+
+            let state = sparse
+                .__getstate__(py)?
+                .into_bound(py)
+                .downcast_into::<PyDict>()?;
+            let edges = state
+                .get_item("edges")?
+                .expect("pickle state should include edges");
+            let first_edge = edges.get_item(0)?;
+            let first_edge_tuple = first_edge.downcast::<PyTuple>()?;
+            let state_attrs = first_edge_tuple.get_item(2)?.downcast_into::<PyDict>()?;
+            assert_eq!(
+                state_attrs
+                    .get_item("weight")?
+                    .expect("state attrs should include weight")
+                    .extract::<i64>()?,
+                0
+            );
+            assert_eq!(
+                state_attrs
+                    .get_item("label")?
+                    .expect("state attrs should include label")
+                    .extract::<String>()?,
+                "edge-0"
+            );
+            assert!(
+                sparse.edge_py_attrs.is_empty(),
+                "__getstate__ should not eagerly materialize live edge mirrors"
+            );
+
+            let (ebunch, _) = exact_int_attr_ebunch(py)?;
+            let mut materialized = PyGraph::new_empty(py)?;
+            assert!(materialized.try_add_fresh_exact_int_attr_edge_batch(py, ebunch.as_any())?);
+            let zero = 0_i64.into_pyobject(py)?.into_any();
+            let one = 1_i64.into_pyobject(py)?.into_any();
+            let data = materialized.get_edge_data(py, &zero, &one, None)?;
+            let data_dict = data.bind(py).downcast::<PyDict>()?;
+            assert_eq!(
+                data_dict
+                    .get_item("weight")?
+                    .expect("materialized attrs should include weight")
+                    .extract::<i64>()?,
+                0
+            );
+            assert_eq!(materialized.edge_py_attrs.len(), 1);
+
+            let sparse_py = Py::new(py, sparse)?;
+            let materialized_py = Py::new(py, materialized)?;
+            assert!(
+                sparse_py
+                    .borrow(py)
+                    .__eq__(py, materialized_py.bind(py).as_any())?
+            );
+            assert!(
+                materialized_py
+                    .borrow(py)
+                    .__eq__(py, sparse_py.bind(py).as_any())?
+            );
+            Ok(())
+        })
+        .expect("fresh exact-int attr batch parity should hold");
     }
 
     #[test]
