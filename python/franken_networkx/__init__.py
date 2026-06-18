@@ -30110,30 +30110,32 @@ def google_matrix(
     A = to_numpy_array(G, nodelist=nodelist, weight=weight)
     row_sums = A.sum(axis=1)
 
-    if dangling is None:
-        dangling_row = None
-    else:
-        dangling_row = np.array(
-            [dangling.get(node, 0) for node in nodelist], dtype=float
-        )
-        total = dangling_row.sum()
-        if total > 0:
-            dangling_row = dangling_row / total
-
-    S = np.zeros_like(A)
-    for i in range(n):
-        if row_sums[i] > 0:
-            S[i, :] = A[i, :] / row_sums[i]
-        elif dangling_row is not None:
-            S[i, :] = dangling_row
-        else:
-            S[i, :] = 1.0 / n
     if personalization is None:
         v = np.ones(n) / n
     else:
         v = np.array([personalization.get(node, 0) for node in nodelist], dtype=float)
         s = v.sum()
         v = v / s if s > 0 else np.ones(n) / n
+
+    # br-r37-c1-gmdangling: nx redistributes a dangling node's mass using the
+    # dangling vector if given, otherwise the PERSONALIZATION vector v (NOT a
+    # uniform 1/n). Previously fnx used 1/n for dangling rows, diverging from nx
+    # whenever a dangling node coexisted with a non-uniform personalization.
+    if dangling is None:
+        dangling_weights = v
+    else:
+        dangling_weights = np.array(
+            [dangling.get(node, 0) for node in nodelist], dtype=float
+        )
+        total = dangling_weights.sum()
+        dangling_weights = dangling_weights / total if total > 0 else v
+
+    S = np.zeros_like(A)
+    for i in range(n):
+        if row_sums[i] > 0:
+            S[i, :] = A[i, :] / row_sums[i]
+        else:
+            S[i, :] = dangling_weights
     return alpha * S + (1 - alpha) * np.outer(np.ones(n), v)
 
 

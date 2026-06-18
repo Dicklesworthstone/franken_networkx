@@ -48,13 +48,32 @@ def test_default_case_routed_matches_nx(cls, alpha, seed):
     assert a.shape == b.shape and np.allclose(a, b, atol=1e-9)
 
 
+@pytest.mark.parametrize("seed", range(8))
+def test_personalization_with_dangling_node(seed):
+    # br-r37-c1-gmdangling: a dangling node's mass must redistribute using the
+    # PERSONALIZATION vector (not uniform 1/n) when no explicit dangling is given.
+    # Build a graph guaranteed to have a dangling node + non-uniform personalization.
+    r = random.Random(seed + 100)
+    n = r.randint(5, 9)
+    fg, ng = fnx.DiGraph(), nx.DiGraph()
+    fg.add_nodes_from(range(n)); ng.add_nodes_from(range(n))
+    for u in range(n - 1):                       # node n-1 left dangling
+        for v in range(n):
+            if u != v and r.random() < 0.5:
+                fg.add_edge(u, v); ng.add_edge(u, v)
+    p = {i: (i + 1) for i in range(n)}           # non-uniform personalization
+    assert np.allclose(np.asarray(fnx.google_matrix(fg, personalization=p), dtype=float),
+                       np.asarray(nx.google_matrix(ng, personalization=p), dtype=float), atol=1e-9)
+
+
 def test_non_default_paths_match_nx():
     fg, ng, n = _wg(fnx.DiGraph, 1)
     nodes = list(range(n))
-    # NOTE: personalization-on-graphs-with-dangling-nodes is an orthogonal path
-    # (not touched by the default-case routing) with a suspected fnx/nx
-    # divergence in dangling-row redistribution; flagged separately, not asserted
-    # here.
+    # personalization (no dangling node in this graph).
+    p = {i: (i + 1) for i in nodes}
+    if all(fg.out_degree(i) > 0 for i in range(n)):
+        assert np.allclose(np.asarray(fnx.google_matrix(fg, personalization=p), dtype=float),
+                           np.asarray(nx.google_matrix(ng, personalization=p), dtype=float), atol=1e-9)
     # dangling
     d = {nodes[-1]: 1.0}
     assert np.allclose(np.asarray(fnx.google_matrix(fg, dangling=d), dtype=float),
