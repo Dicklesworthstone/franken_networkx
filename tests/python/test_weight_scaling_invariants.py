@@ -2,10 +2,10 @@
 
 Multiplying every edge weight by a constant ``c > 0``:
 
-* scales shortest-path lengths, MST total weight and the (weighted) Wiener
-  index by exactly ``c`` (linearity)
-* leaves the MST edge set and the shortest-path node sequences unchanged
-  (a positive monotone transform preserves the argmin)
+* scales shortest-path lengths, min/max spanning-tree total weight and the
+  (weighted) Wiener index by exactly ``c`` (linearity)
+* leaves the min/max spanning-tree edge sets and the shortest-path node
+  sequences unchanged (a positive monotone transform preserves argmin/argmax)
 * relabels spanning-tree edge/weight outputs in lockstep
 
 These exercise the weighted code paths without any networkx oracle.
@@ -13,6 +13,7 @@ These exercise the weighted code paths without any networkx oracle.
 br-r37-c1-6fji3
 br-r37-c1-6ws5d
 br-r37-c1-pvstf
+br-r37-c1-0g5x6
 """
 
 from __future__ import annotations
@@ -89,6 +90,11 @@ def test_weighted_metrics_scale_linearly(c, seed):
     mst_scaled = sum(d["weight"] for _, _, d in
                      fnx.minimum_spanning_tree(gc, weight="weight").edges(data=True))
     assert mst_scaled == pytest.approx(c * mst_base)
+    maxst_base = sum(d["weight"] for _, _, d in
+                     fnx.maximum_spanning_tree(g, weight="weight").edges(data=True))
+    maxst_scaled = sum(d["weight"] for _, _, d in
+                       fnx.maximum_spanning_tree(gc, weight="weight").edges(data=True))
+    assert maxst_scaled == pytest.approx(c * maxst_base)
     assert fnx.wiener_index(gc, weight="weight") == pytest.approx(
         c * fnx.wiener_index(g, weight="weight")
     )
@@ -114,6 +120,22 @@ def test_argmin_invariant_under_positive_scaling(c, seed):
             assert fnx.dijkstra_path(g, s, t, weight="weight") == (
                 fnx.dijkstra_path(gc, s, t, weight="weight")
             )
+
+
+@pytest.mark.parametrize("c", [2, 3, 7])
+@pytest.mark.parametrize("seed", range(30))
+def test_argmax_invariant_under_positive_scaling(c, seed):
+    res = _connected_weighted(seed, distinct=True)
+    if res is None:
+        pytest.skip("disconnected")
+    g, _ = res
+    gc = _scaled(g, c)
+
+    base_max = sorted(tuple(sorted(e)) for e in
+                      fnx.maximum_spanning_tree(g, weight="weight").edges())
+    scaled_max = sorted(tuple(sorted(e)) for e in
+                        fnx.maximum_spanning_tree(gc, weight="weight").edges())
+    assert base_max == scaled_max
 
 
 @pytest.mark.parametrize("seed", range(30))
