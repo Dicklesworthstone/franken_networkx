@@ -5634,11 +5634,13 @@ def test_algorithms_submodule_import_paths_match_nx():
         assert fnx_mod is nx_sub
 
     # The from-import form — naive text-substitution drop-in
+    import franken_networkx.flow as fnx_flow_mod
     from franken_networkx.algorithms.flow import maximum_flow
     from franken_networkx.algorithms.approximation import min_weighted_vertex_cover
     from franken_networkx.algorithms.tree.branchings import branching_weight
 
-    assert maximum_flow is nx_mod.algorithms.flow.maximum_flow
+    assert maximum_flow is fnx_flow_mod.maximum_flow
+    assert maximum_flow is not nx_mod.algorithms.flow.maximum_flow
     assert (
         min_weighted_vertex_cover
         is nx_mod.algorithms.approximation.min_weighted_vertex_cover
