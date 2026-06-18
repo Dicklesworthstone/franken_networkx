@@ -48198,6 +48198,90 @@ mod tests {
     }
 
     #[test]
+    fn link_prediction_endpoint_cache_preserves_order_and_missing_zero() {
+        fn community_attrs(value: &str) -> AttrMap {
+            let mut attrs = AttrMap::new();
+            attrs.insert(
+                "community".to_owned(),
+                CgseValue::String(value.to_owned()),
+            );
+            attrs
+        }
+
+        let mut g = Graph::strict();
+        let _ = g.add_node_with_attrs("u", community_attrs("core"));
+        let _ = g.add_node_with_attrs("v", community_attrs("core"));
+        let _ = g.add_node_with_attrs("c0", community_attrs("core"));
+        let _ = g.add_node_with_attrs("c1", community_attrs("outer"));
+        let _ = g.add_node_with_attrs("left", community_attrs("left"));
+        let _ = g.add_node_with_attrs("right", community_attrs("right"));
+        let _ = g.add_node_with_attrs("extra", community_attrs("outer"));
+        let _ = g.add_edge("u", "c0");
+        let _ = g.add_edge("u", "c1");
+        let _ = g.add_edge("u", "left");
+        let _ = g.add_edge("v", "c0");
+        let _ = g.add_edge("v", "c1");
+        let _ = g.add_edge("v", "right");
+        let _ = g.add_edge("c0", "extra");
+        let pairs = vec![
+            ("u".to_owned(), "v".to_owned()),
+            ("u".to_owned(), "missing".to_owned()),
+            ("u".to_owned(), "v".to_owned()),
+            ("missing".to_owned(), "v".to_owned()),
+        ];
+
+        let jaccard = jaccard_coefficient(&g, &pairs);
+        assert_eq!(
+            jaccard
+                .iter()
+                .map(|(u, v, _)| (u.as_str(), v.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("u", "v"), ("u", "missing"), ("u", "v"), ("missing", "v")]
+        );
+        assert!((jaccard[0].2 - 0.5).abs() < TEST_TOLERANCE);
+        assert_eq!(jaccard[0].2, jaccard[2].2);
+        assert_eq!(jaccard[1].2, 0.0);
+        assert_eq!(jaccard[3].2, 0.0);
+
+        let expected_adamic_adar = 1.0 / 3.0_f64.ln() + 1.0 / 2.0_f64.ln();
+        let adamic_adar = adamic_adar_index(&g, &pairs);
+        assert!((adamic_adar[0].2 - expected_adamic_adar).abs() < TEST_TOLERANCE);
+        assert_eq!(adamic_adar[0].2, adamic_adar[2].2);
+        assert_eq!(adamic_adar[1].2, 0.0);
+        assert_eq!(adamic_adar[3].2, 0.0);
+
+        let resource_allocation = resource_allocation_index(&g, &pairs);
+        assert!((resource_allocation[0].2 - (1.0 / 3.0 + 1.0 / 2.0)).abs() < TEST_TOLERANCE);
+        assert_eq!(resource_allocation[0].2, resource_allocation[2].2);
+        assert_eq!(resource_allocation[1].2, 0.0);
+        assert_eq!(resource_allocation[3].2, 0.0);
+
+        let preferential = preferential_attachment(&g, &pairs);
+        assert_eq!(preferential[0].2, 9.0);
+        assert_eq!(preferential[0].2, preferential[2].2);
+        assert_eq!(preferential[1].2, 0.0);
+        assert_eq!(preferential[3].2, 0.0);
+
+        let ccpa = common_neighbor_centrality(&g, &pairs, 0.8);
+        assert!((ccpa[0].2 - 2.3).abs() < TEST_TOLERANCE);
+        assert_eq!(ccpa[0].2, ccpa[2].2);
+        assert_eq!(ccpa[1].2, 0.0);
+        assert_eq!(ccpa[3].2, 0.0);
+
+        let cn_soundarajan = cn_soundarajan_hopcroft(&g, &pairs, "community");
+        assert!((cn_soundarajan[0].2 - 3.0).abs() < TEST_TOLERANCE);
+        assert_eq!(cn_soundarajan[0].2, cn_soundarajan[2].2);
+        assert_eq!(cn_soundarajan[1].2, 0.0);
+        assert_eq!(cn_soundarajan[3].2, 0.0);
+
+        let ra_soundarajan = ra_index_soundarajan_hopcroft(&g, &pairs, "community");
+        assert!((ra_soundarajan[0].2 - (1.0 / 3.0)).abs() < TEST_TOLERANCE);
+        assert_eq!(ra_soundarajan[0].2, ra_soundarajan[2].2);
+        assert_eq!(ra_soundarajan[1].2, 0.0);
+        assert_eq!(ra_soundarajan[3].2, 0.0);
+    }
+
+    #[test]
     fn adamic_adar_index_basic() {
         // 0-1, 0-2, 1-2, plus 2-3
         let mut g = Graph::strict();
