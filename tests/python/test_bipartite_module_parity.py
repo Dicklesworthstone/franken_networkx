@@ -71,6 +71,40 @@ def test_bipartite_matching_and_cover():
     )
 
 
+def test_bipartite_matching_module_paths_match_networkx():
+    module = importlib.import_module("franken_networkx.bipartite")
+    via_algorithms = importlib.import_module("franken_networkx.algorithms.bipartite")
+    fnx_graph, nx_graph = _mk(fnx), _mk(nx)
+
+    def matching_items(matching):
+        return sorted((repr(k), repr(v)) for k, v in matching.items())
+
+    expected_hk = nxb.hopcroft_karp_matching(nx_graph, top_nodes=_TOP)
+    assert matching_items(module.hopcroft_karp_matching(fnx_graph, top_nodes=_TOP)) == matching_items(
+        expected_hk
+    )
+    assert matching_items(
+        via_algorithms.hopcroft_karp_matching(fnx_graph, top_nodes=_TOP)
+    ) == matching_items(expected_hk)
+
+    expected_max = nxb.maximum_matching(nx_graph, top_nodes=_TOP)
+    module_max = module.maximum_matching(fnx_graph, top_nodes=_TOP)
+    algorithms_max = via_algorithms.maximum_matching(fnx_graph, top_nodes=_TOP)
+    assert matching_items(module_max) == matching_items(expected_max)
+    assert matching_items(algorithms_max) == matching_items(expected_max)
+
+    expected_cover = sorted(
+        repr(node) for node in nxb.to_vertex_cover(nx_graph, expected_max, _TOP)
+    )
+    assert sorted(
+        repr(node) for node in module.to_vertex_cover(fnx_graph, module_max, _TOP)
+    ) == expected_cover
+    assert sorted(
+        repr(node)
+        for node in via_algorithms.to_vertex_cover(fnx_graph, algorithms_max, _TOP)
+    ) == expected_cover
+
+
 def test_bipartite_min_edge_cover_routes_through_fnx(monkeypatch):
     module = importlib.import_module("franken_networkx.bipartite")
     via_algorithms = importlib.import_module("franken_networkx.algorithms.bipartite")
