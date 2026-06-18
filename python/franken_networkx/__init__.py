@@ -30589,6 +30589,17 @@ def cost_of_flow(G, flowDict, weight="weight"):
     total = 0
     for u in flowDict:
         for v, flow in flowDict[u].items():
+            if isinstance(flow, dict):
+                data = G.get_edge_data(u, v)
+                for key, keyed_flow in flow.items():
+                    if keyed_flow > 0:
+                        edge_data = data.get(key, {}) if isinstance(data, dict) else {}
+                        if isinstance(edge_data, dict):
+                            cost = edge_data.get(weight, 0)
+                        else:
+                            cost = 0
+                        total = total + keyed_flow * cost
+                continue
             if flow > 0:
                 data = G.get_edge_data(u, v)
                 if isinstance(data, dict):

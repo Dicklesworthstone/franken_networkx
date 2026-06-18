@@ -55,6 +55,18 @@ def _min_cost_demand():
     return fg, ng
 
 
+def _multi_min_cost_demand():
+    """Parallel arcs where the cheaper key should carry all demand."""
+    fg = fnx.MultiDiGraph()
+    ng = nx.MultiDiGraph()
+    for g in (fg, ng):
+        g.add_node("s", demand=-2)
+        g.add_node("t", demand=2)
+        g.add_edge("s", "t", capacity=2, weight=3)
+        g.add_edge("s", "t", capacity=2, weight=5)
+    return fg, ng
+
+
 # ---------------------------------------------------------------------------
 # maximum_flow_value / maximum_flow
 # ---------------------------------------------------------------------------
@@ -129,6 +141,17 @@ def test_cost_of_flow_matches_networkx_on_network_simplex_output():
     _, f_flow = fnx.network_simplex(fg)
     _, n_flow = nx.network_simplex(ng)
     assert fnx.cost_of_flow(fg, f_flow) == nx.cost_of_flow(ng, n_flow)
+
+
+def test_multidigraph_min_cost_flow_cost_family_matches_networkx():
+    fg, ng = _multi_min_cost_demand()
+
+    _, f_flow = fnx.network_simplex(fg)
+    _, n_flow = nx.network_simplex(ng)
+    assert fnx.cost_of_flow(fg, f_flow) == nx.cost_of_flow(ng, n_flow)
+    assert fnx.min_cost_flow_cost(fg) == nx.min_cost_flow_cost(ng)
+    assert fnx.network_simplex(fg) == nx.network_simplex(ng)
+    assert fnx.capacity_scaling(fg) == nx.capacity_scaling(ng)
 
 
 # ---------------------------------------------------------------------------
