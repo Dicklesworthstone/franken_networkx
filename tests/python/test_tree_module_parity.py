@@ -73,3 +73,19 @@ def test_tree_module_graph_returning_wrappers_match_networkx(name, fnx_args, nx_
 
     assert isinstance(result, fnx.Graph)
     assert _graph_snapshot(result) == _graph_snapshot(expected)
+
+
+@pytest.mark.parametrize(
+    "fnx_cls,nx_cls",
+    [(fnx.MultiGraph, nx.MultiGraph), (fnx.MultiDiGraph, nx.MultiDiGraph)],
+)
+def test_tree_module_junction_tree_multigraph_guard_matches_networkx(fnx_cls, nx_cls):
+    graph = fnx_cls([(0, 1), (1, 2)])
+    expected = nx_cls([(0, 1), (1, 2)])
+
+    with pytest.raises(nx.NetworkXNotImplemented) as fnx_exc:
+        fnx_tree.junction_tree(graph)
+    with pytest.raises(nx.NetworkXNotImplemented) as nx_exc:
+        nx_tree.junction_tree(expected)
+
+    assert str(fnx_exc.value) == str(nx_exc.value)
