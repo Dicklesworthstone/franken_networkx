@@ -6,10 +6,12 @@ Multiplying every edge weight by a constant ``c > 0``:
   index by exactly ``c`` (linearity)
 * leaves the MST edge set and the shortest-path node sequences unchanged
   (a positive monotone transform preserves the argmin)
+* relabels spanning-tree edge/weight outputs in lockstep
 
 These exercise the weighted code paths without any networkx oracle.
 
 br-r37-c1-6fji3
+br-r37-c1-6ws5d
 """
 
 from __future__ import annotations
@@ -45,6 +47,20 @@ def _scaled(g, c):
     for u, v in gc.edges():
         gc[u][v]["weight"] *= c
     return gc
+
+
+def _edge_weight_set(tree):
+    return {
+        (frozenset((u, v)), d["weight"])
+        for u, v, d in tree.edges(data=True)
+    }
+
+
+def _mapped_edge_weight_set(tree, mapping):
+    return {
+        (frozenset((mapping[u], mapping[v])), d["weight"])
+        for u, v, d in tree.edges(data=True)
+    }
 
 
 @pytest.mark.parametrize("c", [2, 3, 5, 10])
@@ -89,3 +105,21 @@ def test_argmin_invariant_under_positive_scaling(c, seed):
             assert fnx.dijkstra_path(g, s, t, weight="weight") == (
                 fnx.dijkstra_path(gc, s, t, weight="weight")
             )
+
+
+@pytest.mark.parametrize("seed", range(30))
+def test_spanning_tree_outputs_relabeling_equivariant(seed):
+    res = _connected_weighted(seed, distinct=True)
+    if res is None:
+        pytest.skip("disconnected")
+    g, n = res
+    mapping = {node: f"tree-node-{seed}-{node}" for node in range(n)}
+    relabelled = fnx.relabel_nodes(g, mapping)
+
+    base_min = fnx.minimum_spanning_tree(g, weight="weight")
+    relabelled_min = fnx.minimum_spanning_tree(relabelled, weight="weight")
+    assert _mapped_edge_weight_set(base_min, mapping) == _edge_weight_set(relabelled_min)
+
+    base_max = fnx.maximum_spanning_tree(g, weight="weight")
+    relabelled_max = fnx.maximum_spanning_tree(relabelled, weight="weight")
+    assert _mapped_edge_weight_set(base_max, mapping) == _edge_weight_set(relabelled_max)
