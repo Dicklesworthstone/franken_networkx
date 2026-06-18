@@ -9,9 +9,11 @@ as an oracle:
 * every weighted shortest-path algorithm agrees:
   dijkstra == bellman_ford == bidirectional_dijkstra == floyd_warshall == astar
 * relabeling nodes relabels single-source distance-map keys without changing values
+* relabeling nodes relabels all-pairs distance-map keys without changing values
 
 br-r37-c1-dkw4f
 br-r37-c1-na09m
+br-r37-c1-2lmey
 """
 
 from __future__ import annotations
@@ -48,6 +50,17 @@ def _weighted(seed, directed, p=0.4):
             if u != v and (directed or u < v) and rng.random() < p:
                 g.add_edge(u, v, weight=rng.randint(1, 9))
     return g, n
+
+
+def _assert_all_pairs_map_relabelled(base, relabelled, mapping):
+    assert list(relabelled) == [mapping[source] for source in base]
+    for source, distances in base.items():
+        relabelled_distances = relabelled[mapping[source]]
+        assert list(relabelled_distances) == [
+            mapping[target] for target in distances
+        ]
+        for target, distance in distances.items():
+            assert relabelled_distances[mapping[target]] == pytest.approx(distance)
 
 
 @pytest.mark.parametrize("seed", range(60))
@@ -127,3 +140,45 @@ def test_single_source_weighted_length_map_relabeling_equivariant(directed, seed
     assert list(relabelled_lengths) == [mapping[node] for node in base]
     for node, distance in base.items():
         assert relabelled_lengths[mapping[node]] == pytest.approx(distance)
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("seed", range(20))
+def test_all_pairs_unweighted_length_map_relabeling_equivariant(directed, seed):
+    g, n = _weighted(seed, directed)
+    mapping = {node: f"all-dist-node-{seed}-{node}" for node in range(n)}
+    relabelled = fnx.relabel_nodes(g, mapping)
+
+    base = {
+        source: dict(distances)
+        for source, distances in fnx.all_pairs_shortest_path_length(g)
+    }
+    relabelled_lengths = {
+        source: dict(distances)
+        for source, distances in fnx.all_pairs_shortest_path_length(relabelled)
+    }
+
+    _assert_all_pairs_map_relabelled(base, relabelled_lengths, mapping)
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("seed", range(20))
+def test_all_pairs_weighted_length_map_relabeling_equivariant(directed, seed):
+    g, n = _weighted(seed, directed)
+    mapping = {node: f"all-weighted-dist-node-{seed}-{node}" for node in range(n)}
+    relabelled = fnx.relabel_nodes(g, mapping)
+
+    base = {
+        source: dict(distances)
+        for source, distances in fnx.all_pairs_dijkstra_path_length(
+            g, weight="weight"
+        )
+    }
+    relabelled_lengths = {
+        source: dict(distances)
+        for source, distances in fnx.all_pairs_dijkstra_path_length(
+            relabelled, weight="weight"
+        )
+    }
+
+    _assert_all_pairs_map_relabelled(base, relabelled_lengths, mapping)
