@@ -196,3 +196,10 @@ perf.data.old
 .beads/.br_recovery/
 fuzz/coverage/
 fuzz/fuzz-*.log
+
+# === Ephemeral build & scratch artifacts (multi-repo cleanup 2026-06-18) ===
+# Stray out-of-tree compile outputs (normal builds live under target/, already ignored).
+*.rlib
+rust_out
+# One-off local CARGO_TARGET_DIR override directories (e.g. criterion micro-benches).
+**/local-target/
