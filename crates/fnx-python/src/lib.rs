@@ -9055,21 +9055,25 @@ impl PyGraph {
             self.inner.runtime_policy().clone(),
         )?;
 
+        // br-r37-c1-tbh4q: single-pass attr crossing (with_mirror) on the
+        // to_directed node loop — each node once (no merge), mirror byte-identical
+        // to .copy(), unconditional node_key_map insert preserved.
         for canonical in self.inner.nodes_ordered() {
-            let rust_attrs = self
-                .node_py_attrs
-                .get(canonical)
-                .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
-                .transpose()?
-                .unwrap_or_default();
-            dg.inner
-                .add_node_with_attrs(canonical.to_owned(), rust_attrs);
+            match self.node_py_attrs.get(canonical) {
+                Some(attrs) => {
+                    let (rust_attrs, mirror) =
+                        py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+                    dg.inner
+                        .add_node_with_attrs(canonical.to_owned(), rust_attrs);
+                    dg.node_py_attrs.insert(canonical.to_owned(), mirror);
+                }
+                None => {
+                    dg.inner
+                        .add_node_with_attrs(canonical.to_owned(), AttrMap::new());
+                }
+            }
             dg.node_key_map
                 .insert(canonical.to_owned(), self.py_node_key(py, canonical));
-            if let Some(attrs) = self.node_py_attrs.get(canonical) {
-                dg.node_py_attrs
-                    .insert(canonical.to_owned(), attrs.bind(py).copy()?.unbind());
-            }
         }
 
         for edge in self.inner.edges_ordered() {
