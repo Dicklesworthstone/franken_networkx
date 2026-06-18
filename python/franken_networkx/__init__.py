@@ -17895,6 +17895,13 @@ def bidirectional_shortest_path(G, source, target):
     conversion tax on every call.
     """
     G = _coerce_arg_to_fnx_graph(G)
+    # br-r37-c1-qmu8x: validate membership up front with nx's exact wording.
+    # The native binding otherwise leaks a repr-quoted "Source 'x' is not in G"
+    # whereas nx emits the unquoted "Source x is not in G" (source first).
+    if source not in G:
+        raise NodeNotFound(f"Source {source} is not in G")
+    if target not in G:
+        raise NodeNotFound(f"Target {target} is not in G")
     return _raw_bidirectional_shortest_path(G, source, target)
 
 
