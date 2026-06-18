@@ -9,13 +9,13 @@ use std::collections::BTreeMap;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use fnx_algorithms::{
-    adamic_adar_index, average_shortest_path_length, betweenness_centrality,
-    closeness_centrality, cn_soundarajan_hopcroft, common_neighbor_centrality,
-    common_neighbors, connected_components, degree_centrality, degree_mixing_dict,
-    eigenvector_centrality, jaccard_coefficient, max_flow_edmonds_karp, minimum_cut_edmonds_karp,
-    minimum_spanning_tree, node_degree_xy, pagerank, preferential_attachment,
-    ra_index_soundarajan_hopcroft, resource_allocation_index, shortest_path_unweighted,
-    shortest_path_weighted,
+    adamic_adar_index, average_degree_connectivity, average_shortest_path_length,
+    betweenness_centrality, closeness_centrality, cn_soundarajan_hopcroft,
+    common_neighbor_centrality, common_neighbors, connected_components, degree_centrality,
+    degree_mixing_dict, eigenvector_centrality, jaccard_coefficient, max_flow_edmonds_karp,
+    minimum_cut_edmonds_karp, minimum_spanning_tree, node_degree_xy, pagerank,
+    preferential_attachment, ra_index_soundarajan_hopcroft, resource_allocation_index,
+    shortest_path_unweighted, shortest_path_weighted,
     single_source_dijkstra_path_length,
 };
 use fnx_classes::{DiGraph, Graph};
@@ -209,6 +209,22 @@ fn build_degree_mixing_hubs(hubs: usize, spokes_per_hub: usize) -> Graph {
             let spoke_node = format!("h{hub}_s{spoke}");
             let _ = g.add_edge(hub_node.clone(), spoke_node);
         }
+    }
+    g
+}
+
+fn build_average_degree_connectivity_mix(
+    hubs: usize,
+    spokes_per_hub: usize,
+    isolates: usize,
+) -> Graph {
+    let mut g = build_degree_mixing_hubs(hubs, spokes_per_hub);
+    for hub in 0..hubs.min(32) {
+        let hub_node = format!("h{hub}");
+        let _ = g.add_edge(hub_node.clone(), hub_node);
+    }
+    for isolate in 0..isolates {
+        let _ = g.add_node(format!("iso{isolate}"));
     }
     g
 }
@@ -415,6 +431,26 @@ fn bench_degree_mixing_dict(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_average_degree_connectivity(c: &mut Criterion) {
+    let mut group = c.benchmark_group("average_degree_connectivity");
+    for &(hubs, spokes, isolates) in &[
+        (64usize, 32usize, 64usize),
+        (256, 16, 128),
+        (512, 32, 256),
+    ] {
+        let g = build_average_degree_connectivity_mix(hubs, spokes, isolates);
+        let label = format!("h{hubs}_s{spokes}_i{isolates}");
+        group.bench_with_input(
+            BenchmarkId::new("hub_spokes_isolates", &label),
+            &label,
+            |b, _| {
+                b.iter(|| average_degree_connectivity(&g));
+            },
+        );
+    }
+    group.finish();
+}
+
 fn bench_node_degree_xy(c: &mut Criterion) {
     let mut group = c.benchmark_group("node_degree_xy");
     for &(hubs, spokes) in &[(64usize, 32usize), (256, 16), (512, 32)] {
@@ -579,6 +615,7 @@ criterion_group!(
     bench_pagerank,
     bench_common_neighbors,
     bench_degree_mixing_dict,
+    bench_average_degree_connectivity,
     bench_node_degree_xy,
     bench_link_prediction_scores,
     bench_max_flow,

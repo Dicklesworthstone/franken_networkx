@@ -19650,33 +19650,40 @@ pub fn closeness_vitality_single(graph: &Graph, node: &str) -> Option<f64> {
 /// Matches `networkx.average_degree_connectivity(G)`.
 #[must_use]
 pub fn average_degree_connectivity(graph: &Graph) -> HashMap<usize, f64> {
-    let mut degree_sum: HashMap<usize, f64> = HashMap::new();
-    let mut degree_count: HashMap<usize, usize> = HashMap::new();
+    let n = graph.node_count();
+    if n == 0 {
+        return HashMap::new();
+    }
 
-    for node in graph.nodes_ordered() {
-        let k = graph.neighbor_count(node);
-        if k == 0 {
-            continue;
+    let degree_by_index: Vec<usize> = (0..n).map(|idx| graph.degree_by_index(idx)).collect();
+    let max_degree = degree_by_index.iter().copied().max().unwrap_or(0);
+    let mut degree_sum = vec![0.0_f64; max_degree + 1];
+    let mut degree_norm = vec![0_usize; max_degree + 1];
+    let mut degree_seen = vec![false; max_degree + 1];
+
+    for (node_idx, &degree) in degree_by_index.iter().enumerate() {
+        degree_seen[degree] = true;
+        degree_norm[degree] += degree;
+        if let Some(neighbors) = graph.neighbors_indices(node_idx) {
+            degree_sum[degree] += neighbors
+                .iter()
+                .map(|&neighbor_idx| degree_by_index[neighbor_idx] as f64)
+                .sum::<f64>();
         }
-        // Average degree of neighbors
-        let nbr_deg_sum: usize = graph
-            .neighbors(node)
-            .unwrap_or_default()
-            .iter()
-            .map(|nbr| graph.neighbor_count(nbr))
-            .sum();
-        let avg_nbr_deg = nbr_deg_sum as f64 / k as f64;
-
-        *degree_sum.entry(k).or_insert(0.0) += avg_nbr_deg;
-        *degree_count.entry(k).or_insert(0) += 1;
     }
 
-    let mut result = HashMap::with_capacity(degree_sum.len());
-    for (k, total) in &degree_sum {
-        let count = degree_count[k];
-        result.insert(*k, *total / count as f64);
+    let mut result = HashMap::with_capacity(degree_seen.iter().filter(|&&seen| seen).count());
+    for (degree, &seen) in degree_seen.iter().enumerate() {
+        if seen {
+            let norm = degree_norm[degree];
+            let avg = if norm == 0 {
+                degree_sum[degree]
+            } else {
+                degree_sum[degree] / norm as f64
+            };
+            result.insert(degree, avg);
+        }
     }
-
     result
 }
 
@@ -49344,6 +49351,24 @@ mod tests {
         assert!((adc[&3] - 1.0).abs() < TEST_TOLERANCE);
         // Leaves (deg=1): neighbor is center with deg 3 → avg=3.0
         assert!((adc[&1] - 3.0).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn average_degree_connectivity_includes_isolates() {
+        let mut g = Graph::strict();
+        g.add_node("iso");
+        let adc = average_degree_connectivity(&g);
+        assert_eq!(adc.len(), 1);
+        assert!((adc[&0] - 0.0).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn average_degree_connectivity_self_loop_uses_networkx_degree() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "a");
+        let adc = average_degree_connectivity(&g);
+        assert_eq!(adc.len(), 1);
+        assert!((adc[&2] - 1.0).abs() < TEST_TOLERANCE);
     }
 
     // -----------------------------------------------------------------------
