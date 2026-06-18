@@ -8,8 +8,10 @@ as an oracle:
 * shortest-path lengths obey the triangle inequality
 * every weighted shortest-path algorithm agrees:
   dijkstra == bellman_ford == bidirectional_dijkstra == floyd_warshall == astar
+* relabeling nodes relabels single-source distance-map keys without changing values
 
 br-r37-c1-dkw4f
+br-r37-c1-na09m
 """
 
 from __future__ import annotations
@@ -89,3 +91,39 @@ def test_weighted_shortest_path_algorithms_agree(directed, seed):
             assert fnx.bidirectional_dijkstra(g, s, t, weight="weight")[0] == pytest.approx(dij)
             assert fnx.astar_path_length(g, s, t, weight="weight") == pytest.approx(dij)
             assert fw[s][t] == pytest.approx(dij)
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("seed", range(30))
+def test_single_source_unweighted_length_map_relabeling_equivariant(directed, seed):
+    g, n = _weighted(seed, directed)
+    mapping = {node: f"dist-node-{seed}-{node}" for node in range(n)}
+    relabelled = fnx.relabel_nodes(g, mapping)
+
+    base = dict(fnx.single_source_shortest_path_length(g, 0))
+    relabelled_lengths = dict(
+        fnx.single_source_shortest_path_length(relabelled, mapping[0])
+    )
+
+    assert list(relabelled_lengths) == [mapping[node] for node in base]
+    for node, distance in base.items():
+        assert relabelled_lengths[mapping[node]] == distance
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("seed", range(30))
+def test_single_source_weighted_length_map_relabeling_equivariant(directed, seed):
+    g, n = _weighted(seed, directed)
+    mapping = {node: f"weighted-dist-node-{seed}-{node}" for node in range(n)}
+    relabelled = fnx.relabel_nodes(g, mapping)
+
+    base = dict(fnx.single_source_dijkstra_path_length(g, 0, weight="weight"))
+    relabelled_lengths = dict(
+        fnx.single_source_dijkstra_path_length(
+            relabelled, mapping[0], weight="weight"
+        )
+    )
+
+    assert list(relabelled_lengths) == [mapping[node] for node in base]
+    for node, distance in base.items():
+        assert relabelled_lengths[mapping[node]] == pytest.approx(distance)
