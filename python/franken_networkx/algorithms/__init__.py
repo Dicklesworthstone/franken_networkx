@@ -485,6 +485,55 @@ _sys.modules[f"{__name__}.wiener"] = _fnx_wiener
 wiener = _fnx_wiener  # Override in module globals
 
 
+# br-r37-c1-nhbni: ``from networkx.algorithms import *`` flattens networkx's
+# functions into this namespace, so ``from franken_networkx.algorithms import X``
+# resolved to nx's implementation wherever fnx has a native top-level ``fnx.X``.
+# The submodule overrides above fix ``fnx.algorithms.<submodule>.X``; this routes
+# the FLATTENED ``X`` names too. Computed dynamically (fnx is fully initialized by
+# the time this subpackage is imported, verified reachable in a fresh process) so
+# it auto-tracks fnx's native surface. Only names currently bound to nx's object
+# are replaced. Functions use call-time closures (import-order robust); classes /
+# exceptions use direct alias (a closure would break isinstance / ``except``).
+def _install_fnx_native_algorithm_aliases():
+    import inspect as _inspect
+    import franken_networkx as _fnx_pkg
+    import networkx as _nx_top
+
+    def _make_router(_fn_name):
+        def _routed(*args, **kwargs):
+            import franken_networkx as _fnx_call
+
+            return getattr(_fnx_call, _fn_name)(*args, **kwargs)
+
+        _routed.__name__ = _fn_name
+        _routed.__qualname__ = _fn_name
+        _routed.__doc__ = (
+            f"Route to ``franken_networkx.{_fn_name}`` (fnx-native). See "
+            f"``networkx.algorithms.{_fn_name}`` for semantics."
+        )
+        return _routed
+
+    for _name in list(__all__):
+        if _name.startswith("_"):
+            continue
+        _fnx_obj = getattr(_fnx_pkg, _name, None)
+        _nx_obj = getattr(_nx_top, _name, None)
+        _current = globals().get(_name)
+        # Replace only where the current binding IS networkx's and fnx has a
+        # different native version.
+        if _fnx_obj is None or _nx_obj is None:
+            continue
+        if _current is not _nx_obj or _fnx_obj is _nx_obj:
+            continue
+        if _inspect.isclass(_fnx_obj):
+            globals()[_name] = _fnx_obj
+        elif callable(_fnx_obj):
+            globals()[_name] = _make_router(_name)
+
+
+_install_fnx_native_algorithm_aliases()
+
+
 def __getattr__(name):
     import networkx.algorithms as _src
 
