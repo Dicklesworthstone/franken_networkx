@@ -8987,41 +8987,48 @@ impl PyGraph {
 
         // Add nodes using the existing HashSet iteration behavior; only
         // node-key materialization changes for sparse range fast-path keys.
+        // br-r37-c1-tbh4q: single-pass attr crossing (with_mirror) — edge
+        // subgraph keeps each node/edge once (no merge); mirror is shallow-copy
+        // byte-identical to .copy(); unconditional node_key_map insert preserved.
         for canonical in &nodes_needed {
-            let rust_attrs = self
-                .node_py_attrs
-                .get(canonical)
-                .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
-                .transpose()?
-                .unwrap_or_default();
-            new_graph
-                .inner
-                .add_node_with_attrs(canonical.clone(), rust_attrs);
+            match self.node_py_attrs.get(canonical) {
+                Some(attrs) => {
+                    let (rust_attrs, mirror) =
+                        py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+                    new_graph
+                        .inner
+                        .add_node_with_attrs(canonical.clone(), rust_attrs);
+                    new_graph.node_py_attrs.insert(canonical.clone(), mirror);
+                }
+                None => {
+                    new_graph
+                        .inner
+                        .add_node_with_attrs(canonical.clone(), AttrMap::new());
+                }
+            }
             new_graph
                 .node_key_map
                 .insert(canonical.clone(), self.py_node_key(py, canonical));
-            if let Some(attrs) = self.node_py_attrs.get(canonical) {
-                new_graph
-                    .node_py_attrs
-                    .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
-            }
         }
 
         // Add edges
         for (u, v) in &keep_edges {
-            let rust_attrs = self
-                .edge_py_attrs
-                .get(&(u.clone(), v.clone()))
-                .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
-                .transpose()?
-                .unwrap_or_default();
-            let _ = new_graph
-                .inner
-                .add_edge_with_attrs(u.clone(), v.clone(), rust_attrs);
-            if let Some(attrs) = self.edge_py_attrs.get(&(u.clone(), v.clone())) {
-                new_graph
-                    .edge_py_attrs
-                    .insert((u.clone(), v.clone()), attrs.bind(py).copy()?.unbind());
+            match self.edge_py_attrs.get(&(u.clone(), v.clone())) {
+                Some(attrs) => {
+                    let (rust_attrs, mirror) =
+                        py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+                    let _ = new_graph
+                        .inner
+                        .add_edge_with_attrs(u.clone(), v.clone(), rust_attrs);
+                    new_graph
+                        .edge_py_attrs
+                        .insert((u.clone(), v.clone()), mirror);
+                }
+                None => {
+                    let _ = new_graph
+                        .inner
+                        .add_edge_with_attrs(u.clone(), v.clone(), AttrMap::new());
+                }
             }
         }
 
