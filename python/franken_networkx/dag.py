@@ -33,6 +33,43 @@ v_structures = _nx_dag.v_structures
 # dag.__all__, so the star import skips it.  Re-export for parity.
 root_to_leaf_paths = _nx_dag.root_to_leaf_paths
 
+# br-r37-c1-2qsqf: ``from networkx.algorithms.dag import *`` above left these DAG
+# functions bound to networkx's implementations, so ``fnx.dag.topological_sort``
+# (ancestors/descendants/is_directed_acyclic_graph/antichains/dag_longest_path/
+# ...) silently resolved to nx's instead of fnx's native versions. Route each to
+# the fnx top-level function via closure wrappers that reference ``_fnx.<fn>`` at
+# CALL time (robust against the package-init order in which fnx defines them).
+_FNX_NATIVE_DAG_NAMES = (
+    "descendants",
+    "ancestors",
+    "topological_sort",
+    "lexicographical_topological_sort",
+    "all_topological_sorts",
+    "topological_generations",
+    "is_directed_acyclic_graph",
+    "is_aperiodic",
+    "antichains",
+    "dag_longest_path",
+    "dag_longest_path_length",
+)
+
+
+def _make_fnx_dag_router(_fn_name):
+    def _routed(*args, **kwargs):
+        return getattr(_fnx, _fn_name)(*args, **kwargs)
+
+    _routed.__name__ = _fn_name
+    _routed.__qualname__ = _fn_name
+    _routed.__doc__ = (
+        f"Route to ``franken_networkx.{_fn_name}`` (fnx-native). See "
+        f"``networkx.algorithms.dag.{_fn_name}`` for semantics."
+    )
+    return _routed
+
+
+for _name in _FNX_NATIVE_DAG_NAMES:
+    globals()[_name] = _make_fnx_dag_router(_name)
+
 __all__ = list(
     getattr(
         _nx_dag,
