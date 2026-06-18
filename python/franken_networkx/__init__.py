@@ -8223,9 +8223,14 @@ def node_connectivity(G, s=None, t=None, flow_func=None):
     # via a vertex-split max-flow, which CANNOT separate two ADJACENT nodes and
     # so returns 0. nx's local_node_connectivity instead counts the direct edge
     # as one node-independent path: e.g. local kappa(0,4) on K5 is 4, not 0.
-    # Non-adjacent pairs are computed correctly by the kernel; only adjacent
-    # pairs need nx's convention, so delegate just those.
-    if s is not None and G.has_edge(s, t):
+    # Undirected non-adjacent pairs are computed correctly by the kernel, so
+    # only adjacent pairs need nx's convention.
+    # br-r37-c1-ebd8d: the DIRECTED local kernel additionally UNDERCOUNTS
+    # node-independent paths for some non-adjacent pairs (e.g. returns 1 where
+    # two node-disjoint s->t paths exist, so Menger's #node_disjoint_paths and
+    # nx both say 2). The directed GLOBAL path stays correct, so delegate every
+    # directed local s-t query — and undirected adjacent pairs — to nx.
+    if s is not None and (G.is_directed() or G.has_edge(s, t)):
         return _call_networkx_for_parity("node_connectivity", G, s=s, t=t)
     return _raw_node_connectivity(G, s=s, t=t)
 
