@@ -8219,6 +8219,14 @@ def node_connectivity(G, s=None, t=None, flow_func=None):
             s=s,
             t=t,
         )
+    # br-r37-c1-cqlms: _raw_node_connectivity computes local s-t connectivity
+    # via a vertex-split max-flow, which CANNOT separate two ADJACENT nodes and
+    # so returns 0. nx's local_node_connectivity instead counts the direct edge
+    # as one node-independent path: e.g. local kappa(0,4) on K5 is 4, not 0.
+    # Non-adjacent pairs are computed correctly by the kernel; only adjacent
+    # pairs need nx's convention, so delegate just those.
+    if s is not None and G.has_edge(s, t):
+        return _call_networkx_for_parity("node_connectivity", G, s=s, t=t)
     return _raw_node_connectivity(G, s=s, t=t)
 
 
