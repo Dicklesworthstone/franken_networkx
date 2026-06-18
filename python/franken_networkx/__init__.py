@@ -16147,8 +16147,21 @@ def edge_boundary(G, nbunch1, nbunch2=None, data=False, keys=False, default=None
     """
     # br-r37-c1-e861i: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
+    nb1 = _coerce_nbunch(nbunch1)
+    nb2 = _coerce_nbunch(nbunch2)
+    # br-r37-c1-dhi0m: the native _raw_edge_boundary computes the STRICT
+    # boundary (other endpoint NOT in nbunch1) and then filters by nbunch2.
+    # That drops edges when nbunch1 and nbunch2 OVERLAP — nx counts an edge
+    # whenever one endpoint is in nbunch1 and the other in nbunch2, even if
+    # both endpoints lie in the overlap. Delegate that (rare) case to nx for
+    # exact parity; the disjoint / nbunch2-None paths stay on the kernel.
+    if nb2 is not None and not set(nb1).isdisjoint(nb2):
+        yield from _call_networkx_for_parity(
+            "edge_boundary", G, nb1, nb2, data=data, keys=keys, default=default
+        )
+        return
     if data is False and not keys and default is None and not G.is_multigraph():
-        yield from _raw_edge_boundary(G, _coerce_nbunch(nbunch1), _coerce_nbunch(nbunch2))
+        yield from _raw_edge_boundary(G, nb1, nb2)
         return
     # br-r37-c1-wpyzi / br-r37-c1-is5xw: de-delegate the data/string/default
     # path for simple Graph/DiGraph entirely onto native kernels. The OLD path
@@ -16165,9 +16178,7 @@ def edge_boundary(G, nbunch1, nbunch2=None, data=False, keys=False, default=None
     # This beats nx (1.25x) on attributed graphs instead of trailing it ~3.4x.
     # Multigraphs (keyed edge-view order) keep delegating.
     if not G.is_multigraph() and type(G) in (Graph, DiGraph):
-        pairs = _raw_edge_boundary(
-            G, _coerce_nbunch(nbunch1), _coerce_nbunch(nbunch2)
-        )
+        pairs = _raw_edge_boundary(G, nb1, nb2)
         if data is False:
             yield from pairs
             return
