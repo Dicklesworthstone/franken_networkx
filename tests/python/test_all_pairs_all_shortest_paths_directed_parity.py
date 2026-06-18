@@ -63,6 +63,26 @@ def test_directed_does_not_emit_reverse_paths():
     }
 
 
+def test_directed_self_paths_and_reachability_match_networkx():
+    fg = fnx.DiGraph()
+    ng = nx.DiGraph()
+    for graph in (fg, ng):
+        graph.add_nodes_from(["source", "mid", "sink", "other", "isolated"])
+        graph.add_edges_from([
+            ("source", "mid"),
+            ("mid", "sink"),
+            ("other", "mid"),
+        ])
+
+    result = dict(fnx.all_pairs_all_shortest_paths(fg))
+    expected = dict(nx.all_pairs_all_shortest_paths(ng))
+
+    assert result == expected
+    assert result["sink"] == {"sink": [["sink"]]}
+    assert result["isolated"] == {"isolated": [["isolated"]]}
+    assert "source" not in result["mid"]
+
+
 def test_weighted_still_matches_networkx():
     fg = fnx.DiGraph()
     ng = nx.DiGraph()
