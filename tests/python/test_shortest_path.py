@@ -285,6 +285,32 @@ class TestShortestPath:
                 )
                 assert list(fnx_lengths.items()) == list(nx_lengths.items())
 
+    def test_single_target_shortest_paths_negative_cutoff_matches_networkx(self, fnx, nx):
+        for graph_factory in (fnx.Graph, fnx.DiGraph):
+            G_fnx = graph_factory()
+            G_nx = getattr(nx, graph_factory.__name__)()
+            edges = [
+                ("a", "b"),
+                ("b", "c"),
+                ("a", "d"),
+                ("d", "c"),
+            ]
+            G_fnx.add_edges_from(edges)
+            G_nx.add_edges_from(edges)
+
+            for cutoff in (-3, -1):
+                fnx_paths = fnx.single_target_shortest_path(G_fnx, "c", cutoff=cutoff)
+                nx_paths = nx.single_target_shortest_path(G_nx, "c", cutoff=cutoff)
+                assert list(fnx_paths.items()) == list(nx_paths.items())
+
+                fnx_lengths = fnx.single_target_shortest_path_length(
+                    G_fnx, "c", cutoff=cutoff
+                )
+                nx_lengths = nx.single_target_shortest_path_length(
+                    G_nx, "c", cutoff=cutoff
+                )
+                assert list(fnx_lengths.items()) == list(nx_lengths.items())
+
     def test_average_shortest_path_length(self, fnx, nx, path_graph):
         G_fnx, G_nx = path_graph
         fnx_val = fnx.average_shortest_path_length(G_fnx)
@@ -1256,9 +1282,12 @@ class TestShortestPath:
         for graph in (G_fnx, G_nx):
             graph.add_weighted_edges_from(edges)
 
-        assert dijkstra_weight_cache_token(G_fnx)[2] is False
-        assert fnx._graph_has_explicit_nonunit_weight(G_fnx, "weight") is True
-        assert dijkstra_weight_cache_token(G_fnx)[2] is False
+        if dijkstra_weight_cache_token(G_fnx)[2]:
+            raise AssertionError("fresh weighted graph should not start dirty")
+        if not fnx._graph_has_explicit_nonunit_weight(G_fnx, "weight"):
+            raise AssertionError("weighted graph should report an explicit nonunit weight")
+        if dijkstra_weight_cache_token(G_fnx)[2]:
+            raise AssertionError("weight scan should not dirty the cache token")
 
         first_fnx = dict(fnx.all_pairs_dijkstra(G_fnx, weight="weight"))
         first_nx = dict(nx.all_pairs_dijkstra(G_nx, weight="weight"))
@@ -1271,7 +1300,8 @@ class TestShortestPath:
         # so the stale cached snapshot must be bypassed.
         G_fnx["a"]["c"]["weight"] = 1.0
         G_nx["a"]["c"]["weight"] = 1.0
-        assert dijkstra_weight_cache_token(G_fnx)[2] is True
+        if not dijkstra_weight_cache_token(G_fnx)[2]:
+            raise AssertionError("edge attribute mutation should dirty the cache token")
         assert dict(fnx.all_pairs_dijkstra(G_fnx, weight="weight")) == dict(
             nx.all_pairs_dijkstra(G_nx, weight="weight")
         )
