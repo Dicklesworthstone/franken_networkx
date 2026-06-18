@@ -22454,7 +22454,12 @@ def laplacian_matrix(G, nodelist=None, weight="weight"):
                 raise NetworkXError("nodelist contains duplicates.")
             missing = set(native_nodelist) - set(G)
             if missing:
-                raise NetworkXError(f"Nodes {missing} in nodelist is not in G")
+                # br-r37-c1-6cdtz: nx reports the FIRST missing node in nodelist
+                # order, singular & str-formatted, not a set of all missing.
+                first_missing = next(n for n in native_nodelist if n not in G)
+                raise NetworkXError(
+                    f"Node {first_missing} in nodelist is not in G"
+                )
         absent_weight_attr = weight if isinstance(weight, str) else None
         if (
             nodelist is None
@@ -22546,7 +22551,12 @@ def normalized_laplacian_matrix(G, nodelist=None, weight="weight"):
                 raise NetworkXError("nodelist contains duplicates.")
             missing = set(native_nodelist) - set(G)
             if missing:
-                raise NetworkXError(f"Nodes {missing} in nodelist is not in G")
+                # br-r37-c1-6cdtz: nx reports the FIRST missing node in nodelist
+                # order, singular & str-formatted, not a set of all missing.
+                first_missing = next(n for n in native_nodelist if n not in G)
+                raise NetworkXError(
+                    f"Node {first_missing} in nodelist is not in G"
+                )
         absent_weight_attr = weight if isinstance(weight, str) else None
         if (
             nodelist is None
@@ -49961,6 +49971,9 @@ def to_numpy_array(
             raise NetworkXError("nodelist contains duplicates.")
         missing = set(nodelist) - set(G)
         if missing:
+            # br-r37-c1-6cdtz: the DENSE exporters (to_numpy_array,
+            # to_pandas_adjacency) keep nx's plural set wording, unlike the
+            # sparse/laplacian exporters which report the first missing node.
             raise NetworkXError(f"Nodes {missing} in nodelist is not in G")
 
     matrix = np.full(
@@ -50189,7 +50202,10 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
             raise NetworkXError("nodelist contains duplicates.")
         missing = set(nodelist) - set(G)
         if missing:
-            raise NetworkXError(f"Nodes {missing} in nodelist is not in G")
+            # br-r37-c1-6cdtz: nx reports the FIRST missing node in nodelist
+            # order, singular & str-formatted, not a set of all missing.
+            first_missing = next(n for n in nodelist if n not in G)
+            raise NetworkXError(f"Node {first_missing} in nodelist is not in G")
 
     is_directed = G.is_directed()
     weight_is_none = weight is None
