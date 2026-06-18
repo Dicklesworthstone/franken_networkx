@@ -28,6 +28,7 @@ def test_direct_hybrid_module_import_exposes_public_surface():
     module = importlib.import_module("franken_networkx.hybrid")
     expected = importlib.import_module("networkx.algorithms.hybrid")
 
+    assert set(module.__all__) == set(expected.__all__)
     for name in set(expected.__all__) | set(PUBLIC_FUNCTIONS):
         assert callable(getattr(module, name))
 

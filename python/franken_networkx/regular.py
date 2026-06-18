@@ -17,6 +17,14 @@ import networkx.algorithms.regular as _nx_regular
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
 
+__all__ = list(
+    getattr(
+        _nx_regular,
+        "__all__",
+        ("is_regular", "is_k_regular", "k_factor"),
+    )
+)
+
 
 def k_factor(G, k, matching_weight='weight', *, backend=None, **backend_kwargs):
     """Compute a k-factor of a graph.

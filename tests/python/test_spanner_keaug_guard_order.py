@@ -9,9 +9,18 @@ and surfaced ValueError on those edge cases.
 
 from __future__ import annotations
 
+import importlib
+
 import pytest
 
 import franken_networkx as fnx
+
+
+def test_sparsifiers_module_public_surface_matches_networkx():
+    module = importlib.import_module("franken_networkx.sparsifiers")
+    expected = importlib.import_module("networkx.algorithms.sparsifiers")
+
+    assert set(module.__all__) == set(expected.__all__)
 
 
 @pytest.mark.parametrize("cls", [fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph])

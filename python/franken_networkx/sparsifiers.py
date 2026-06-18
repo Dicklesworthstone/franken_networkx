@@ -18,6 +18,8 @@ import networkx.algorithms.sparsifiers as _nx_sparsifiers  # noqa: F401
 
 import franken_networkx as _fnx
 
+__all__ = list(getattr(_nx_sparsifiers, "__all__", ("spanner",)))
+
 
 def _spanner_inproc(G, stretch, weight=None, seed=None):
     """In-process Baswana-Sen spanner (br-r37-c1-fe1k0).

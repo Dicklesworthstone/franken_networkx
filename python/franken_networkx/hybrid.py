@@ -17,6 +17,14 @@ import networkx.algorithms.hybrid as _nx_hybrid
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
 
+__all__ = list(
+    getattr(
+        _nx_hybrid,
+        "__all__",
+        ("kl_connected_subgraph", "is_kl_connected"),
+    )
+)
+
 
 def kl_connected_subgraph(
     G, k, l, low_memory=False, same_as_graph=False, *, backend=None, **backend_kwargs

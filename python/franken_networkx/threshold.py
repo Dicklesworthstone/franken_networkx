@@ -24,6 +24,14 @@ from franken_networkx.readwrite import _from_nx_graph
 find_alternating_4_cycle = _nx_threshold.find_alternating_4_cycle
 find_creation_sequence = _nx_threshold.find_creation_sequence
 
+__all__ = list(
+    getattr(
+        _nx_threshold,
+        "__all__",
+        ("is_threshold_graph", "find_threshold_graph"),
+    )
+)
+
 
 def find_threshold_graph(G, create_using=None, *, backend=None, **backend_kwargs):
     """Find a threshold subgraph of the given graph.

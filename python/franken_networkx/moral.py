@@ -17,6 +17,8 @@ import networkx.algorithms.moral as _nx_moral
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
 
+__all__ = list(getattr(_nx_moral, "__all__", ("moral_graph",)))
+
 
 def moral_graph(G, *, backend=None, **backend_kwargs):
     """Return the moral graph of a directed acyclic graph.
