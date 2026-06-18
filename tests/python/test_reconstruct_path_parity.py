@@ -57,6 +57,25 @@ def test_reconstruct_path_goldens():
     assert fnx.reconstruct_path(1, 3, pred) == [1, 2, 3]
 
 
+def test_reconstruct_path_rejects_flat_predecessor_maps_like_networkx():
+    flat = {"a": [], "b": ["a"], "c": ["b"]}
+
+    for source, target in [("a", "c"), ("a", "missing")]:
+        with pytest.raises(TypeError) as fnx_exc:
+            fnx.reconstruct_path(source, target, flat)
+        with pytest.raises(TypeError) as nx_exc:
+            nx.reconstruct_path(source, target, flat)
+        assert fnx_exc.value.args == nx_exc.value.args
+
+    with pytest.raises(KeyError) as fnx_exc:
+        fnx.reconstruct_path("missing", "c", flat)
+    with pytest.raises(KeyError) as nx_exc:
+        nx.reconstruct_path("missing", "c", flat)
+    assert fnx_exc.value.args == nx_exc.value.args
+
+    assert fnx.reconstruct_path("a", "a", flat) == nx.reconstruct_path("a", "a", flat)
+
+
 def test_reconstruct_path_missing_source_raises_keyerror():
     g = nx.DiGraph([(0, 1), (1, 2)])
     pred, _ = nx.floyd_warshall_predecessor_and_distance(g)
