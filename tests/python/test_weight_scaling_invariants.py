@@ -1,4 +1,4 @@
-"""Oracle-free weight-scaling metamorphic relations.
+"""Oracle-free weight-transform metamorphic relations.
 
 Multiplying every edge weight by a constant ``c > 0``:
 
@@ -9,6 +9,9 @@ Multiplying every edge weight by a constant ``c > 0``:
 * leaves min/max spanning-edge iterator choices unchanged under the same scaling
 * relabels spanning-tree edge/weight outputs in lockstep
 
+Adding the same constant to every edge leaves min/max spanning-tree choices
+unchanged and shifts total tree weight by that constant times ``n - 1``.
+
 These exercise the weighted code paths without any networkx oracle.
 
 br-r37-c1-6fji3
@@ -16,6 +19,7 @@ br-r37-c1-6ws5d
 br-r37-c1-pvstf
 br-r37-c1-0g5x6
 br-r37-c1-u1ot8
+br-r37-c1-fdti4
 """
 
 from __future__ import annotations
@@ -53,6 +57,13 @@ def _scaled(g, c):
     return gc
 
 
+def _shifted(g, k):
+    gc = g.copy()
+    for u, v in gc.edges():
+        gc[u][v]["weight"] += k
+    return gc
+
+
 def _edge_record_weight_set(edge_records):
     return {
         (frozenset((u, v)), d["weight"])
@@ -79,6 +90,10 @@ def _mapped_edge_weight_set(tree, mapping):
     return _mapped_edge_record_weight_set(tree.edges(data=True), mapping)
 
 
+def _tree_weight(tree):
+    return sum(d["weight"] for _, _, d in tree.edges(data=True))
+
+
 @pytest.mark.parametrize("c", [2, 3, 5, 10])
 @pytest.mark.parametrize("seed", range(30))
 def test_weighted_metrics_scale_linearly(c, seed):
@@ -103,6 +118,35 @@ def test_weighted_metrics_scale_linearly(c, seed):
     assert maxst_scaled == pytest.approx(c * maxst_base)
     assert fnx.wiener_index(gc, weight="weight") == pytest.approx(
         c * fnx.wiener_index(g, weight="weight")
+    )
+
+
+@pytest.mark.parametrize("k", [1, 5, 11])
+@pytest.mark.parametrize("seed", range(30))
+def test_spanning_tree_outputs_shift_uniformly(k, seed):
+    res = _connected_weighted(seed, distinct=True)
+    if res is None:
+        pytest.skip("disconnected")
+    g, n = res
+    shifted = _shifted(g, k)
+    expected_shift = k * (n - 1)
+
+    base_min = fnx.minimum_spanning_tree(g, weight="weight")
+    shifted_min = fnx.minimum_spanning_tree(shifted, weight="weight")
+    assert _edge_record_set(base_min.edges(data=True)) == _edge_record_set(
+        shifted_min.edges(data=True)
+    )
+    assert _tree_weight(shifted_min) == pytest.approx(
+        _tree_weight(base_min) + expected_shift
+    )
+
+    base_max = fnx.maximum_spanning_tree(g, weight="weight")
+    shifted_max = fnx.maximum_spanning_tree(shifted, weight="weight")
+    assert _edge_record_set(base_max.edges(data=True)) == _edge_record_set(
+        shifted_max.edges(data=True)
+    )
+    assert _tree_weight(shifted_max) == pytest.approx(
+        _tree_weight(base_max) + expected_shift
     )
 
 
