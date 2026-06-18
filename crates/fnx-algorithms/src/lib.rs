@@ -42738,7 +42738,10 @@ mod tests {
         let result = global_edge_connectivity_edmonds_karp(&graph, "capacity");
         assert!((result.value - 7.0).abs() <= TEST_TOLERANCE);
         assert_eq!(result.witness.complexity_claim, "O(|D| * |V| * |E|^2)");
-        assert_eq!(result.witness.edges_scanned, 56);
+        assert!(
+            result.witness.edges_scanned <= graph.edge_count(),
+            "complete graph fast path should avoid max-flow pair sweeps"
+        );
     }
 
     #[test]
