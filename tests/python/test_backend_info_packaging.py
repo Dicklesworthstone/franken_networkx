@@ -90,6 +90,32 @@ def test_backend_info_module_loads_and_exports_get_backend_info():
     assert "shortest_path" in info["functions"]
 
 
+def test_backend_info_modules_star_export_public_entrypoint():
+    import fnx_backend_info as top_level_info
+    import franken_networkx.backend_info as package_info
+
+    for module in (top_level_info, package_info):
+        assert module.__all__ == ["get_backend_info"]
+        namespace = {}
+        exec(f"from {module.__name__} import *", namespace)
+        assert namespace["get_backend_info"] is module.get_backend_info
+        assert "_supported_algorithm_names" not in namespace
+
+
+def test_backend_module_star_exports_dispatch_surface():
+    assert set(fnx_backend.__all__) == {
+        "BackendInterface",
+        "backend_interface",
+        "get_backend_info",
+    }
+    namespace = {}
+    exec("from franken_networkx.backend import *", namespace)
+    assert namespace["BackendInterface"] is fnx_backend.BackendInterface
+    assert namespace["backend_interface"] is fnx_backend.backend_interface
+    assert namespace["get_backend_info"] is fnx_backend.get_backend_info
+    assert "_SUPPORTED_ALGORITHMS" not in namespace
+
+
 def test_networkx_imports_before_franken_networkx_backend_package():
     env = os.environ.copy()
     python_path = str(ROOT / "python")

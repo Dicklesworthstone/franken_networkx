@@ -9,6 +9,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+__all__ = ["get_backend_info"]
+
 
 def _supported_algorithm_names() -> list[str]:
     backend_source = Path(__file__).with_name("backend.py").read_text(encoding="utf-8")

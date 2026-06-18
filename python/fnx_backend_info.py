@@ -12,6 +12,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+__all__ = ["get_backend_info"]
+
 
 def _supported_algorithm_names() -> list[str]:
     backend_source = (
