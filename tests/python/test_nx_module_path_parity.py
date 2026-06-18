@@ -47,6 +47,10 @@ def _expect(condition, message):
         pytest.fail(message)
 
 
+def _canonical_edges(graph):
+    return sorted(tuple(sorted(edge)) for edge in graph.edges())
+
+
 def test_each_module_path_is_directly_importable():
     """``import franken_networkx.<sub>`` must succeed for every nx
     top-level submodule."""
@@ -91,6 +95,36 @@ def test_callables_actually_execute():
     _expect("a" in relabeled and "d" in relabeled, "relabel_nodes result is missing endpoints")
     arr = fnx.convert_matrix.to_numpy_array(G)
     _expect(arr.shape == (4, 4), "to_numpy_array shape must match graph order")
+
+
+def test_relabel_module_graph_returning_calls_preserve_fnx_type():
+    module = importlib.import_module("franken_networkx.relabel")
+
+    mapping = {0: "a", 1: "b", 2: "c", 3: "d"}
+    relabeled = module.relabel_nodes(fnx.path_graph(4), mapping)
+    expected_relabel = nx.relabel_nodes(nx.path_graph(4), mapping)
+
+    assert isinstance(relabeled, fnx.Graph)
+    assert sorted(relabeled.nodes()) == sorted(expected_relabel.nodes())
+    assert _canonical_edges(relabeled) == _canonical_edges(expected_relabel)
+
+    converted = module.convert_node_labels_to_integers(
+        fnx.path_graph(["x", "y", "z"]),
+        first_label=7,
+        label_attribute="old",
+    )
+    expected_convert = nx.convert_node_labels_to_integers(
+        nx.path_graph(["x", "y", "z"]),
+        first_label=7,
+        label_attribute="old",
+    )
+
+    assert isinstance(converted, fnx.Graph)
+    assert sorted(converted.nodes()) == sorted(expected_convert.nodes())
+    assert _canonical_edges(converted) == _canonical_edges(expected_convert)
+    assert {
+        node: converted.nodes[node]["old"] for node in converted
+    } == {node: expected_convert.nodes[node]["old"] for node in expected_convert}
 
 
 def test_aliases_against_nx_for_classlike_names():
