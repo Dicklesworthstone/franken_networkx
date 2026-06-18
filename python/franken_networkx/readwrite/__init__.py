@@ -2977,6 +2977,101 @@ def _install_readwrite_submodule_aliases():
             setattr(parent, child_name, module)
 
 
+def generate_graphml(
+    G, encoding="utf-8", prettyprint=True, named_key_ids=False,
+    edge_id_from_attribute=None,
+):
+    import franken_networkx as _fnx
+
+    return _fnx.generate_graphml(
+        G,
+        encoding=encoding,
+        prettyprint=prettyprint,
+        named_key_ids=named_key_ids,
+        edge_id_from_attribute=edge_id_from_attribute,
+    )
+
+
+def generate_network_text(
+    graph, with_labels=True, sources=None, max_depth=None, ascii_only=False,
+    vertical_chains=False,
+):
+    import franken_networkx as _fnx
+
+    return _fnx.generate_network_text(
+        graph,
+        with_labels=with_labels,
+        sources=sources,
+        max_depth=max_depth,
+        ascii_only=ascii_only,
+        vertical_chains=vertical_chains,
+    )
+
+
+def write_adjlist(G, path, comments="#", delimiter=" ", encoding="utf-8"):
+    import franken_networkx as _fnx
+
+    return _fnx.write_adjlist(
+        G, path, comments=comments, delimiter=delimiter, encoding=encoding
+    )
+
+
+def write_edgelist(
+    G, path, comments="#", delimiter=" ", data=True, encoding="utf-8"
+):
+    import franken_networkx as _fnx
+
+    return _fnx.write_edgelist(
+        G,
+        path,
+        comments=comments,
+        delimiter=delimiter,
+        data=data,
+        encoding=encoding,
+    )
+
+
+def write_gml(G, path, stringizer=None):
+    import franken_networkx as _fnx
+
+    return _fnx.write_gml(G, path, stringizer=stringizer)
+
+
+def write_graphml(
+    G, path, encoding="utf-8", prettyprint=True, infer_numeric_types=False,
+    named_key_ids=False, edge_id_from_attribute=None,
+):
+    import franken_networkx as _fnx
+
+    return _fnx.write_graphml(
+        G,
+        path,
+        encoding=encoding,
+        prettyprint=prettyprint,
+        infer_numeric_types=infer_numeric_types,
+        named_key_ids=named_key_ids,
+        edge_id_from_attribute=edge_id_from_attribute,
+    )
+
+
+def write_network_text(
+    graph, path=None, with_labels=True, sources=None, max_depth=None,
+    ascii_only=False, end="\n", vertical_chains=False,
+):
+    import franken_networkx as _fnx
+
+    return _fnx.write_network_text(
+        graph,
+        path=path,
+        with_labels=with_labels,
+        sources=sources,
+        max_depth=max_depth,
+        ascii_only=ascii_only,
+        end=end,
+        vertical_chains=vertical_chains,
+    )
+
+
 def __getattr__(name):
     """Fallback to ``networkx.readwrite`` for any name not implemented
     by fnx's own readwrite layer."""

@@ -432,6 +432,42 @@ def test_readwrite_submodules_keep_fnx_implemented_names():
         _expect(local is exported, f"{label} must alias franken_networkx.readwrite")
 
 
+@pytest.mark.parametrize(
+    ("name", "args", "kwargs"),
+    [
+        ("generate_graphml", lambda: (fnx.path_graph(2),), {}),
+        ("generate_network_text", lambda: (fnx.path_graph(2),), {}),
+        ("write_adjlist", lambda: (fnx.path_graph(2), object()), {}),
+        ("write_edgelist", lambda: (fnx.path_graph(2), object()), {}),
+        ("write_gml", lambda: (fnx.path_graph(2), object()), {}),
+        ("write_graphml", lambda: (fnx.path_graph(2), object()), {}),
+        ("write_network_text", lambda: (fnx.path_graph(2),), {"path": object()}),
+    ],
+)
+def test_readwrite_writer_helpers_route_through_fnx(monkeypatch, name, args, kwargs):
+    import franken_networkx.readwrite as fnx_readwrite
+    import networkx.readwrite as nx_readwrite
+
+    sentinel = object()
+    calls = []
+
+    def fake_writer(*call_args, **call_kwargs):
+        calls.append((call_args, call_kwargs))
+        return sentinel
+
+    monkeypatch.setattr(fnx, name, fake_writer)
+
+    _expect(
+        getattr(fnx_readwrite, name) is not getattr(nx_readwrite, name),
+        f"readwrite.{name} must not expose NetworkX's function object",
+    )
+    _expect(
+        getattr(fnx_readwrite, name)(*args(), **kwargs) is sentinel,
+        f"readwrite.{name} did not route through top-level fnx",
+    )
+    _expect(len(calls) == 1, f"readwrite.{name} should call top-level fnx once")
+
+
 def test_readwrite_json_graph_builders_return_fnx_graphs():
     """``fnx.readwrite`` JSON graph builders must preserve fnx graph types."""
     import franken_networkx.readwrite as fnx_readwrite
