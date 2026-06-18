@@ -11063,6 +11063,16 @@ def _py_dfs_edges(G, source=None, depth_limit=None, sort_neighbors=None):
             yield (u, v)
 
 
+def _traversal_missing_source_error(G, source):
+    # br-r37-c1-i7asy: nx raises NetworkXError("The node {n} is not in the
+    # {graph|digraph}.") for a missing traversal source. The native bfs/dfs
+    # bindings instead leak a repr-quoted "The node 'n' is not in the graph."
+    # (always 'graph', even for digraphs). Reformat with nx's exact wording,
+    # honouring the directed/undirected graph-kind distinction.
+    graph_kind = "digraph" if G.is_directed() else "graph"
+    return NetworkXError(f"The node {source} is not in the {graph_kind}.")
+
+
 def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
     """Yield edges in BFS order from source.
 
@@ -11105,7 +11115,7 @@ def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
                 return
             yield from _bfs_edges_raw(G, source, reverse=reverse, depth_limit=depth_limit)
         except NodeNotFound as exc:
-            raise NetworkXError(str(exc)) from exc
+            raise _traversal_missing_source_error(G, source) from exc
 
     return _gen()
 
@@ -11252,7 +11262,7 @@ def dfs_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
                 return
             yield from _dfs_edges_raw(G, source=source, depth_limit=depth_limit)
         except NodeNotFound as exc:
-            raise NetworkXError(str(exc)) from exc
+            raise _traversal_missing_source_error(G, source) from exc
 
     return _gen()
 
@@ -11559,7 +11569,7 @@ def dfs_predecessors(G, source=None, depth_limit=None, *, sort_neighbors=None):
             preds[v] = u
         return preds
     except NodeNotFound as exc:
-        raise NetworkXError(str(exc)) from exc
+        raise _traversal_missing_source_error(G, source) from exc
 
 
 def dfs_successors(G, source=None, depth_limit=None, *, sort_neighbors=None):
@@ -11578,7 +11588,7 @@ def dfs_successors(G, source=None, depth_limit=None, *, sort_neighbors=None):
             succs[u].append(v)
         return dict(succs)
     except NodeNotFound as exc:
-        raise NetworkXError(str(exc)) from exc
+        raise _traversal_missing_source_error(G, source) from exc
 
 
 def dfs_preorder_nodes(G, source=None, depth_limit=None, *, sort_neighbors=None):
@@ -11604,7 +11614,7 @@ def dfs_preorder_nodes(G, source=None, depth_limit=None, *, sort_neighbors=None)
                 return
             nodes = _dfs_preorder_nodes_raw(G, source=source, depth_limit=depth_limit)
         except NodeNotFound as exc:
-            raise NetworkXError(str(exc)) from exc
+            raise _traversal_missing_source_error(G, source) from exc
         yield from nodes
 
     return _gen()
@@ -11633,7 +11643,7 @@ def dfs_postorder_nodes(G, source=None, depth_limit=None, *, sort_neighbors=None
                 return
             nodes = _dfs_postorder_nodes_raw(G, source=source, depth_limit=depth_limit)
         except NodeNotFound as exc:
-            raise NetworkXError(str(exc)) from exc
+            raise _traversal_missing_source_error(G, source) from exc
         yield from nodes
 
     return _gen()
@@ -11673,7 +11683,7 @@ def dfs_tree(G, source=None, depth_limit=None, *, sort_neighbors=None):
             return T
         return _dfs_tree_raw(G, source=source, depth_limit=depth_limit)
     except NodeNotFound as exc:
-        raise NetworkXError(str(exc)) from exc
+        raise _traversal_missing_source_error(G, source) from exc
 
 
 # Algorithm functions — reciprocity (wrapped to match NetworkX API)
