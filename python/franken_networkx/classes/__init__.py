@@ -21,6 +21,59 @@ __all__ = list(
     or [name for name in dir(_nx_classes) if not name.startswith("_")]
 )
 
+# br-r37-c1-2qsqf: ``from networkx.classes import *`` above left the core graph
+# TYPES (Graph/DiGraph/MultiGraph/MultiDiGraph) and ~42 helper functions bound to
+# networkx's objects, so ``from franken_networkx.classes import Graph`` returned
+# nx.Graph (a serious drop-in bug — that path should give fnx's native graph) and
+# ``fnx.classes.degree`` etc. resolved to nx's helpers. Route to the fnx
+# top-level objects: TYPES via direct hasattr-guarded alias (closures would break
+# instantiation / isinstance); FUNCTIONS via call-time closure wrappers
+# (import-order robust). Verified no internal module imports the graph types from
+# ``.classes``, so this is safe.
+_FNX_NATIVE_CLASS_TYPES = ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph")
+_FNX_NATIVE_CLASS_FUNCS = (
+    "add_cycle", "add_path", "add_star", "all_neighbors", "common_neighbors",
+    "create_empty_copy", "degree", "degree_histogram", "density", "describe",
+    "edge_subgraph", "edges", "freeze", "get_edge_attributes",
+    "get_node_attributes", "induced_subgraph", "is_directed", "is_empty",
+    "is_frozen", "is_negatively_weighted", "is_path", "is_weighted", "neighbors",
+    "nodes", "nodes_with_selfloops", "non_edges", "non_neighbors",
+    "number_of_edges", "number_of_nodes", "number_of_selfloops", "path_weight",
+    "remove_edge_attributes", "remove_node_attributes", "restricted_view",
+    "reverse_view", "selfloop_edges", "set_edge_attributes", "set_node_attributes",
+    "subgraph", "subgraph_view", "to_directed", "to_undirected",
+)
+
+
+def _make_fnx_classes_router(_fn_name):
+    def _routed(*args, **kwargs):
+        import franken_networkx as _fnx
+
+        return getattr(_fnx, _fn_name)(*args, **kwargs)
+
+    _routed.__name__ = _fn_name
+    _routed.__qualname__ = _fn_name
+    _routed.__doc__ = (
+        f"Route to ``franken_networkx.{_fn_name}`` (fnx-native). See "
+        f"``networkx.classes.{_fn_name}`` for semantics."
+    )
+    return _routed
+
+
+for _name in _FNX_NATIVE_CLASS_FUNCS:
+    globals()[_name] = _make_fnx_classes_router(_name)
+
+
+def _install_fnx_native_class_types():
+    import franken_networkx as _fnx
+
+    for _name in _FNX_NATIVE_CLASS_TYPES:
+        if hasattr(_fnx, _name):
+            globals()[_name] = getattr(_fnx, _name)
+
+
+_install_fnx_native_class_types()
+
 
 def _install_classes_child_aliases():
     import importlib
