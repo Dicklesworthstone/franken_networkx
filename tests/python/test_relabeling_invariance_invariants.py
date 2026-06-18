@@ -7,6 +7,7 @@ class that produced the spanning-tree str-node defect.
 
 br-r37-c1-jeohx
 br-r37-c1-j78ld
+br-r37-c1-pltsy
 """
 
 from __future__ import annotations
@@ -51,6 +52,10 @@ def _connected_graph(seed, p=0.4):
     if not nx.is_connected(ng):
         return None
     return g, n
+
+
+def _undirected_edge_metric_map(values):
+    return {frozenset(edge): value for edge, value in values.items()}
 
 
 @pytest.mark.parametrize("metric", list(_METRICS))
@@ -102,3 +107,26 @@ def test_node_metric_maps_relabeling_equivariant(metric, seed):
     assert list(relabelled) == [mapping[node] for node in base]
     for node, value in base.items():
         assert relabelled[mapping[node]] == pytest.approx(value)
+
+
+@pytest.mark.parametrize("seed", range(30))
+def test_edge_metric_maps_relabeling_equivariant(seed):
+    res = _connected_graph(seed, p=0.45)
+    if res is None:
+        pytest.skip("disconnected")
+    g, n = res
+    mapping = {i: f"edge-node-{seed}-{i}" for i in range(n)}
+    g_str = fnx.relabel_nodes(g, mapping)
+
+    base = _undirected_edge_metric_map(fnx.edge_betweenness_centrality(g))
+    relabelled = _undirected_edge_metric_map(
+        fnx.edge_betweenness_centrality(g_str)
+    )
+    expected = {
+        frozenset(mapping[node] for node in edge): value
+        for edge, value in base.items()
+    }
+
+    assert set(relabelled) == set(expected)
+    for edge, value in expected.items():
+        assert relabelled[edge] == pytest.approx(value)
