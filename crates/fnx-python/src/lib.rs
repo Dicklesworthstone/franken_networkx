@@ -5773,24 +5773,29 @@ impl PyMultiGraph {
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
+        // br-r37-c1-tbh4q: single-pass attr crossing (with_mirror) on copy() —
+        // each node/edge once; mirror byte-identical to .copy(); for edges the
+        // Rust map built from the original entry equals the old build-from-copy
+        // (copy is shallow-identical), so the result is byte-identical.
         for node in self.inner.nodes_ordered() {
-            let rust_attrs = self
-                .node_py_attrs
-                .get(node)
-                .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
-                .transpose()?
-                .unwrap_or_default();
-            new_graph
-                .inner
-                .add_node_with_attrs(node.to_owned(), rust_attrs);
+            match self.node_py_attrs.get(node) {
+                Some(attrs) => {
+                    let (rust_attrs, mirror) =
+                        py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+                    new_graph
+                        .inner
+                        .add_node_with_attrs(node.to_owned(), rust_attrs);
+                    new_graph.node_py_attrs.insert(node.to_owned(), mirror);
+                }
+                None => {
+                    new_graph
+                        .inner
+                        .add_node_with_attrs(node.to_owned(), AttrMap::new());
+                }
+            }
             new_graph
                 .node_key_map
                 .insert(node.to_owned(), self.py_node_key(py, node));
-            if let Some(attrs) = self.node_py_attrs.get(node) {
-                new_graph
-                    .node_py_attrs
-                    .insert(node.to_owned(), attrs.bind(py).copy()?.unbind());
-            }
         }
         for snapshot in self.inner.edges_ordered() {
             let (u, v, key) = (snapshot.left.clone(), snapshot.right.clone(), snapshot.key);
@@ -5798,11 +5803,10 @@ impl PyMultiGraph {
                 .edge_py_attrs
                 .get(&(u.clone(), v.clone(), key))
                 .or_else(|| self.edge_py_attrs.get(&(v.clone(), u.clone(), key)));
-            let py_attrs = match attrs_entry {
-                Some(attrs) => attrs.bind(py).copy()?.unbind(),
-                None => PyDict::new(py).unbind(),
+            let (rust_attrs, py_attrs) = match attrs_entry {
+                Some(attrs) => py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?,
+                None => (AttrMap::new(), PyDict::new(py).unbind()),
             };
-            let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
             let _ =
                 new_graph
                     .inner
