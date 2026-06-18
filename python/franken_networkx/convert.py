@@ -5,7 +5,13 @@ hosts ``to_dict_of_dicts``, ``from_dict_of_dicts``, ``to_dict_of_lists``,
 ``from_dict_of_lists``, ``to_edgelist``, ``from_edgelist``, etc.
 """
 
+import networkx.convert as _nx_convert
 from networkx.convert import *  # noqa: F401, F403
+
+__all__ = list(
+    getattr(_nx_convert, "__all__", ())
+    or [name for name in dir(_nx_convert) if not name.startswith("_")]
+)
 
 
 def to_dict_of_dicts(G, nodelist=None, edge_data=None):

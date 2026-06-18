@@ -33,6 +33,18 @@ MODULE_EXPORTS = [
     ("franken_networkx.tree", "networkx.algorithms.tree"),
 ]
 
+ROOT_MIRROR_MODULE_EXPORTS = [
+    ("franken_networkx.algorithms", "networkx.algorithms"),
+    ("franken_networkx.bipartite", "networkx.algorithms.bipartite"),
+    ("franken_networkx.classes", "networkx.classes"),
+    ("franken_networkx.convert", "networkx.convert"),
+    ("franken_networkx.convert_matrix", "networkx.convert_matrix"),
+    ("franken_networkx.generators", "networkx.generators"),
+    ("franken_networkx.linalg", "networkx.linalg"),
+    ("franken_networkx.relabel", "networkx.relabel"),
+    ("franken_networkx.utils", "networkx.utils"),
+]
+
 
 def _expected_exports(module):
     exports = getattr(module, "__all__", None)
@@ -126,6 +138,19 @@ def test_dir_exposes_nx_sub_namespace():
 
 def test_overlay_modules_define_star_exports_like_networkx():
     for fnx_name, nx_name in MODULE_EXPORTS:
+        fnx_mod = importlib.import_module(fnx_name)
+        nx_mod = importlib.import_module(nx_name)
+        expected = _expected_exports(nx_mod)
+
+        assert set(fnx_mod.__all__) == expected
+        missing_attrs = sorted(name for name in expected if not hasattr(fnx_mod, name))
+        assert not missing_attrs, (
+            f"{fnx_name} __all__ lists names not present on module: {missing_attrs}"
+        )
+
+
+def test_root_mirror_modules_define_star_exports_like_networkx():
+    for fnx_name, nx_name in ROOT_MIRROR_MODULE_EXPORTS:
         fnx_mod = importlib.import_module(fnx_name)
         nx_mod = importlib.import_module(nx_name)
         expected = _expected_exports(nx_mod)

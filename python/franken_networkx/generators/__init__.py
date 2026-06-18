@@ -15,7 +15,13 @@ NetworkX graphs. NetworkX's nested submodules (``classic``,
 ``franken_networkx.generators.classic.balanced_tree`` resolve.
 """
 
+import networkx.generators as _nx_generators
 from networkx.generators import *  # noqa: F401, F403
+
+__all__ = list(
+    getattr(_nx_generators, "__all__", ())
+    or [name for name in dir(_nx_generators) if not name.startswith("_")]
+)
 
 
 def _franken_parent_globals():

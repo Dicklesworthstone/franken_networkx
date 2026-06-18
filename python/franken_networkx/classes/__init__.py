@@ -13,7 +13,13 @@ explicitly imports through it for compatibility with nx-style
 introspection.
 """
 
+import networkx.classes as _nx_classes
 from networkx.classes import *  # noqa: F401, F403
+
+__all__ = list(
+    getattr(_nx_classes, "__all__", ())
+    or [name for name in dir(_nx_classes) if not name.startswith("_")]
+)
 
 
 def _install_classes_child_aliases():

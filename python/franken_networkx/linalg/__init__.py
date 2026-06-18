@@ -6,7 +6,13 @@ modularity / algebraic-connectivity matrix builders that drop-in code
 expects to be importable through the ``franken_networkx.linalg`` path.
 """
 
+import networkx.linalg as _nx_linalg
 from networkx.linalg import *  # noqa: F401, F403
+
+__all__ = list(
+    getattr(_nx_linalg, "__all__", ())
+    or [name for name in dir(_nx_linalg) if not name.startswith("_")]
+)
 
 
 def _install_linalg_child_aliases():

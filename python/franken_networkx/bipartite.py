@@ -22,6 +22,11 @@ import networkx.algorithms.bipartite as _nx_bipartite
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
 
+__all__ = list(
+    getattr(_nx_bipartite, "__all__", ())
+    or [name for name in dir(_nx_bipartite) if not name.startswith("_")]
+)
+
 
 def _matching_nx_view(B):
     """Lightweight fnx->nx conversion (nodes + edges, no attributes) for the

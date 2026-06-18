@@ -21,7 +21,13 @@ import sys as _sys
 import importlib as _importlib
 import pkgutil as _pkgutil
 
+import networkx.algorithms as _nx_algorithms
 from networkx.algorithms import *  # noqa: F401, F403
+
+__all__ = list(
+    getattr(_nx_algorithms, "__all__", ())
+    or [name for name in dir(_nx_algorithms) if not name.startswith("_")]
+)
 
 
 _FNX_OVERRIDE_SUBMODULES = {

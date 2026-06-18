@@ -6,7 +6,13 @@ builders (``to_numpy_array``, ``from_numpy_array``,
 ``to_scipy_sparse_array``, ``from_pandas_edgelist``, etc.).
 """
 
+import networkx.convert_matrix as _nx_convert_matrix
 from networkx.convert_matrix import *  # noqa: F401, F403
+
+__all__ = list(
+    getattr(_nx_convert_matrix, "__all__", ())
+    or [name for name in dir(_nx_convert_matrix) if not name.startswith("_")]
+)
 
 
 def __getattr__(name):

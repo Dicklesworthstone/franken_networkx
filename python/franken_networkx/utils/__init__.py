@@ -11,7 +11,13 @@ through to the source package for nested submodules
 ``mapped_queue``, etc.) that the star-import doesn't auto-pull.
 """
 
+import networkx.utils as _nx_utils
 from networkx.utils import *  # noqa: F401, F403
+
+__all__ = list(
+    getattr(_nx_utils, "__all__", ())
+    or [name for name in dir(_nx_utils) if not name.startswith("_")]
+)
 
 
 def _install_utils_child_aliases():
