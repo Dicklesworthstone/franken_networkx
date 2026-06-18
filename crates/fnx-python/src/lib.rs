@@ -6251,16 +6251,16 @@ impl PyMultiGraph {
                 involved_nodes.insert(v.clone());
                 let ek = Self::edge_key(u, v, k);
                 if let Some(attrs) = self.edge_py_attrs.get(&ek) {
-                    let rust_attrs = py_dict_to_attr_map(attrs.bind(py))?;
+                    // br-r37-c1-tbh4q: single-pass Rust AttrMap + Python mirror.
+                    let (rust_attrs, mirror) =
+                        py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
                     let _ = new_graph.inner.add_edge_with_key_and_attrs(
                         u.clone(),
                         v.clone(),
                         k,
                         rust_attrs,
                     );
-                    new_graph
-                        .edge_py_attrs
-                        .insert(ek, attrs.bind(py).copy()?.unbind());
+                    new_graph.edge_py_attrs.insert(ek, mirror);
                     if let Some(py_key) = self.edge_py_keys.get(&Self::edge_key(u, v, k)) {
                         new_graph.remember_edge_key_object(py, u, v, k, py_key);
                     } else {
@@ -6278,24 +6278,27 @@ impl PyMultiGraph {
         }
 
         for canonical in &involved_nodes {
-            let rust_attrs = self
-                .node_py_attrs
-                .get(canonical)
-                .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
-                .transpose()?
-                .unwrap_or_default();
-            new_graph
-                .inner
-                .add_node_with_attrs(canonical.clone(), rust_attrs);
+            // br-r37-c1-tbh4q: single-pass attr crossing (with_mirror); conditional
+            // node_key_map insert preserved.
+            match self.node_py_attrs.get(canonical) {
+                Some(attrs) => {
+                    let (rust_attrs, mirror) =
+                        py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+                    new_graph
+                        .inner
+                        .add_node_with_attrs(canonical.clone(), rust_attrs);
+                    new_graph.node_py_attrs.insert(canonical.clone(), mirror);
+                }
+                None => {
+                    new_graph
+                        .inner
+                        .add_node_with_attrs(canonical.clone(), AttrMap::new());
+                }
+            }
             if let Some(py_key) = self.node_key_map.get(canonical) {
                 new_graph
                     .node_key_map
                     .insert(canonical.clone(), py_key.clone_ref(py));
-            }
-            if let Some(attrs) = self.node_py_attrs.get(canonical) {
-                new_graph
-                    .node_py_attrs
-                    .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
             }
         }
 
