@@ -37,6 +37,30 @@ __all__ = list(
     )
 )
 
+# br-r37-c1-2qsqf: ``from networkx.algorithms.core import *`` above left
+# ``core_number`` and ``k_truss`` bound to networkx's implementations, so
+# ``fnx.core.core_number`` etc. silently resolved to nx's instead of fnx's
+# native versions. ``k_core`` already overrides below; route these via call-time
+# closure wrappers (import-order robust).
+_FNX_NATIVE_CORE_NAMES = ("core_number", "k_truss")
+
+
+def _make_fnx_core_router(_fn_name):
+    def _routed(*args, **kwargs):
+        return getattr(_fnx, _fn_name)(*args, **kwargs)
+
+    _routed.__name__ = _fn_name
+    _routed.__qualname__ = _fn_name
+    _routed.__doc__ = (
+        f"Route to ``franken_networkx.{_fn_name}`` (fnx-native). See "
+        f"``networkx.algorithms.core.{_fn_name}`` for semantics."
+    )
+    return _routed
+
+
+for _name in _FNX_NATIVE_CORE_NAMES:
+    globals()[_name] = _make_fnx_core_router(_name)
+
 
 def k_core(G, k=None, core_number=None, *, backend=None, **backend_kwargs):
     """Return the k-core of G.
