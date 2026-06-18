@@ -29722,10 +29722,9 @@ def reconstruct_path(source, target, predecessors):
 
     Matches networkx's public signature
     ``reconstruct_path(source, target, predecessors)`` where
-    ``predecessors`` is either the nested
+    ``predecessors`` is the nested
     ``floyd_warshall_predecessor_and_distance`` dict
-    (``predecessors[src][tgt] -> predecessor``) or a flat dict of
-    ``{node: predecessor_list}`` (dijkstra-style output).
+    (``predecessors[src][tgt] -> predecessor``).
     """
     # br-r37-c1-recon-keyerr: nx raises KeyError(node) when the
     # source / target is not present in the predecessor dict.  fnx
@@ -29734,37 +29733,13 @@ def reconstruct_path(source, target, predecessors):
     # ``TypeError: unhashable type: 'dict'`` on bad-source or
     # silently returning ``[]`` on bad-target.
 
-    # Floyd-Warshall style: predecessors is {src: {tgt: pred}}
-    is_floyd = (
-        isinstance(predecessors, dict)
-        and any(isinstance(v, dict) for v in predecessors.values())
-    )
-    if is_floyd:
-        if source not in predecessors:
-            raise KeyError(source)
-        table = predecessors[source]
-        if source == target:
-            return []
-        if target not in table:
-            raise KeyError(target)
-        path = [target]
-        current = target
-        while current != source:
-            current = table[current]
-            path.append(current)
-        path.reverse()
-        return path
-
-    # Dijkstra-style: predecessors is {node: [pred1, ...]}
     if source == target:
-        return [source]
-    path = [target]
-    current = target
+        return []
+    table = predecessors[source]
+    current = table[target]
+    path = [target, current]
     while current != source:
-        preds = predecessors.get(current, [])
-        if not preds:
-            return []
-        current = preds[0] if isinstance(preds, (list, tuple)) else preds
+        current = table[current]
         path.append(current)
     path.reverse()
     return path

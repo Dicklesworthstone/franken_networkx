@@ -1536,6 +1536,25 @@ class TestShortestPath:
                 lambda run=run: run(nx, G_nx),
             )
 
+    def test_reconstruct_path_rejects_flat_predecessor_map_like_networkx(self, fnx, nx):
+        flat_predecessors = {"a": [], "b": ["a"], "c": ["b"]}
+        _assert_same_result_or_exception(
+            lambda: fnx.reconstruct_path("a", "c", flat_predecessors),
+            lambda: nx.reconstruct_path("a", "c", flat_predecessors),
+        )
+        _assert_same_result_or_exception(
+            lambda: fnx.reconstruct_path("a", "a", flat_predecessors),
+            lambda: nx.reconstruct_path("a", "a", flat_predecessors),
+        )
+
+        G_fnx = fnx.path_graph(["a", "b", "c"])
+        G_nx = nx.path_graph(["a", "b", "c"])
+        fnx_predecessors, _ = fnx.floyd_warshall_predecessor_and_distance(G_fnx)
+        nx_predecessors, _ = nx.floyd_warshall_predecessor_and_distance(G_nx)
+        assert fnx.reconstruct_path("a", "c", fnx_predecessors) == (
+            nx.reconstruct_path("a", "c", nx_predecessors)
+        )
+
     def test_negative_weight_dijkstra_directed_api_parity(self, fnx, nx):
         D_fnx, D_nx = _negative_weight_graph_pair(fnx, nx, directed=True)
 
