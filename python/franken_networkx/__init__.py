@@ -30246,12 +30246,11 @@ def _complete_bipartite_shape_certificate_parts(G, weight):
 
 
 def _directed_laplacian_not_implemented_guard(G):
-    # nx decorators: @not_implemented_for("undirected") (outer, fires first) then
-    # @not_implemented_for("multigraph"). Mirror the order + messages.
-    if not G.is_directed():
-        raise NetworkXNotImplemented("not implemented for undirected type")
+    # nx decorators report multigraph before undirected for MultiGraph inputs.
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
 
 
 def _directed_transition_matrix(G, nodelist, weight, walk_type, alpha):
@@ -44769,6 +44768,12 @@ def _simrank_impl(G, *, source, target, importance_factor, max_iterations, toler
             break
 
     if its + 1 == max_iterations:
+        # br-r37-c1-s13m9: ExceededMaxIterations is not in this module's
+        # namespace — referencing it raised NameError instead of nx's
+        # exception. Import the upstream class so callers catching
+        # ``nx.ExceededMaxIterations`` work (same pattern as elsewhere).
+        from networkx import ExceededMaxIterations
+
         raise ExceededMaxIterations(
             f"simrank did not converge after {max_iterations} iterations."
         )

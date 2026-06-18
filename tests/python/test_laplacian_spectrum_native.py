@@ -4,6 +4,22 @@ import pytest
 import franken_networkx as fnx
 
 
+@pytest.mark.parametrize(
+    "fn_name",
+    ["directed_laplacian_matrix", "directed_combinatorial_laplacian_matrix"],
+)
+def test_directed_laplacian_multigraph_guard_order_matches_networkx(fn_name):
+    Gf = fnx.MultiGraph([(0, 1)])
+    Gn = nx.MultiGraph([(0, 1)])
+
+    with pytest.raises(nx.NetworkXNotImplemented) as fnx_exc:
+        getattr(fnx, fn_name)(Gf)
+    with pytest.raises(nx.NetworkXNotImplemented) as nx_exc:
+        getattr(nx, fn_name)(Gn)
+
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+
 def test_unweighted_complete_laplacian_closed_form_matches_nx_sorted_values():
     Gf = fnx.complete_graph(31)
     Gn = nx.complete_graph(31)
