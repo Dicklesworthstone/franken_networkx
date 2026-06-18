@@ -35479,11 +35479,24 @@ pub fn all_triads(digraph: &DiGraph) -> Vec<(String, String, String, String)> {
 /// For directed graphs, `x` controls source degree type ('in'/'out'/'inout')
 /// and `y` controls target degree type.
 pub fn node_degree_xy(graph: &Graph) -> Vec<(usize, usize)> {
-    let mut result = Vec::new();
-    for edge in graph.edges_ordered() {
-        let du = graph.neighbors(&edge.left).unwrap_or_default().len();
-        let dv = graph.neighbors(&edge.right).unwrap_or_default().len();
-        result.push((du, dv));
+    let node_count = graph.node_count();
+    let degrees: Vec<usize> = (0..node_count).map(|idx| graph.degree_by_index(idx)).collect();
+    let mut result = Vec::with_capacity(graph.edge_count());
+    let mut seen = std::collections::HashSet::<(usize, usize)>::with_capacity(graph.edge_count());
+
+    for source_idx in 0..node_count {
+        if let Some(neighbors) = graph.neighbors_indices(source_idx) {
+            for &target_idx in neighbors {
+                let pair = if source_idx <= target_idx {
+                    (source_idx, target_idx)
+                } else {
+                    (target_idx, source_idx)
+                };
+                if seen.insert(pair) {
+                    result.push((degrees[source_idx], degrees[target_idx]));
+                }
+            }
+        }
     }
     result
 }
@@ -35494,25 +35507,37 @@ pub fn node_degree_xy_directed(
     x_type: &str,
     y_type: &str,
 ) -> Vec<(usize, usize)> {
-    let mut result = Vec::new();
-    for edge in digraph.edges_ordered() {
-        let du = match x_type {
-            "in" => digraph.predecessors(&edge.left).map_or(0, |p| p.len()),
-            "out" => digraph.neighbor_count(&edge.left),
-            _ => {
-                digraph.neighbor_count(&edge.left)
-                    + digraph.predecessors(&edge.left).map_or(0, |p| p.len())
+    let node_count = digraph.node_count();
+    let x_degrees: Vec<usize> = match x_type {
+        "in" => (0..node_count)
+            .map(|idx| digraph.in_degree_by_index(idx))
+            .collect(),
+        "out" => (0..node_count)
+            .map(|idx| digraph.out_degree_by_index(idx))
+            .collect(),
+        _ => (0..node_count)
+            .map(|idx| digraph.degree_by_index(idx))
+            .collect(),
+    };
+    let y_degrees: Vec<usize> = match y_type {
+        "in" => (0..node_count)
+            .map(|idx| digraph.in_degree_by_index(idx))
+            .collect(),
+        "out" => (0..node_count)
+            .map(|idx| digraph.out_degree_by_index(idx))
+            .collect(),
+        _ => (0..node_count)
+            .map(|idx| digraph.degree_by_index(idx))
+            .collect(),
+    };
+
+    let mut result = Vec::with_capacity(digraph.edge_count());
+    for source_idx in 0..node_count {
+        if let Some(successors) = digraph.successors_indices(source_idx) {
+            for &target_idx in successors {
+                result.push((x_degrees[source_idx], y_degrees[target_idx]));
             }
-        };
-        let dv = match y_type {
-            "in" => digraph.predecessors(&edge.right).map_or(0, |p| p.len()),
-            "out" => digraph.neighbor_count(&edge.right),
-            _ => {
-                digraph.neighbor_count(&edge.right)
-                    + digraph.predecessors(&edge.right).map_or(0, |p| p.len())
-            }
-        };
-        result.push((du, dv));
+        }
     }
     result
 }
@@ -55028,6 +55053,51 @@ mod tests {
         assert_eq!(m.get(&(dg.out_degree("a"), dg.in_degree("c"))), Some(&1));
         assert_eq!(m.get(&(dg.out_degree("b"), dg.in_degree("c"))), Some(&1));
         assert_eq!(m.get(&(dg.out_degree("c"), dg.in_degree("a"))), Some(&1));
+    }
+
+    #[test]
+    fn test_node_degree_xy_self_loop_uses_public_degree_semantics() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "a");
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+
+        assert_eq!(
+            node_degree_xy(&g),
+            vec![
+                (g.degree("a"), g.degree("a")),
+                (g.degree("a"), g.degree("b")),
+                (g.degree("b"), g.degree("c")),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_node_degree_xy_directed_degree_modes() {
+        let mut dg = DiGraph::strict();
+        let _ = dg.add_edge("a", "b");
+        let _ = dg.add_edge("a", "c");
+        let _ = dg.add_edge("b", "c");
+        let _ = dg.add_edge("c", "a");
+
+        assert_eq!(
+            node_degree_xy_directed(&dg, "out", "in"),
+            vec![
+                (dg.out_degree("a"), dg.in_degree("b")),
+                (dg.out_degree("a"), dg.in_degree("c")),
+                (dg.out_degree("b"), dg.in_degree("c")),
+                (dg.out_degree("c"), dg.in_degree("a")),
+            ]
+        );
+        assert_eq!(
+            node_degree_xy_directed(&dg, "in", "out"),
+            vec![
+                (dg.in_degree("a"), dg.out_degree("b")),
+                (dg.in_degree("a"), dg.out_degree("c")),
+                (dg.in_degree("b"), dg.out_degree("c")),
+                (dg.in_degree("c"), dg.out_degree("a")),
+            ]
+        );
     }
 
     #[test]

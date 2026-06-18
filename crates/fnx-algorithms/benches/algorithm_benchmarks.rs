@@ -13,11 +13,12 @@ use fnx_algorithms::{
     closeness_centrality, cn_soundarajan_hopcroft, common_neighbor_centrality,
     common_neighbors, connected_components, degree_centrality, degree_mixing_dict,
     eigenvector_centrality, jaccard_coefficient, max_flow_edmonds_karp, minimum_cut_edmonds_karp,
-    minimum_spanning_tree, pagerank, preferential_attachment, ra_index_soundarajan_hopcroft,
-    resource_allocation_index, shortest_path_unweighted, shortest_path_weighted,
+    minimum_spanning_tree, node_degree_xy, pagerank, preferential_attachment,
+    ra_index_soundarajan_hopcroft, resource_allocation_index, shortest_path_unweighted,
+    shortest_path_weighted,
     single_source_dijkstra_path_length,
 };
-use fnx_classes::Graph;
+use fnx_classes::{DiGraph, Graph};
 use fnx_runtime::CgseValue;
 
 fn attr(key: &str, val: &str) -> BTreeMap<String, CgseValue> {
@@ -212,6 +213,23 @@ fn build_degree_mixing_hubs(hubs: usize, spokes_per_hub: usize) -> Graph {
     g
 }
 
+fn build_directed_degree_xy_fan(layers: usize, fanout: usize) -> DiGraph {
+    let mut dg = DiGraph::strict();
+    for layer in 0..layers {
+        let source = format!("s{layer}");
+        let sink = format!("t{layer}");
+        for spoke in 0..fanout {
+            let mid = format!("m{layer}_{spoke}");
+            let _ = dg.add_edge(source.clone(), mid.clone());
+            let _ = dg.add_edge(mid, sink.clone());
+        }
+        if layer > 0 {
+            let _ = dg.add_edge(format!("t{}", layer - 1), source);
+        }
+    }
+    dg
+}
+
 fn bench_single_source_dijkstra(c: &mut Criterion) {
     let mut group = c.benchmark_group("single_source_dijkstra");
     for &side in &[20usize, 45, 64] {
@@ -397,6 +415,25 @@ fn bench_degree_mixing_dict(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_node_degree_xy(c: &mut Criterion) {
+    let mut group = c.benchmark_group("node_degree_xy");
+    for &(hubs, spokes) in &[(64usize, 32usize), (256, 16), (512, 32)] {
+        let g = build_degree_mixing_hubs(hubs, spokes);
+        let label = format!("h{hubs}_s{spokes}");
+        group.bench_with_input(BenchmarkId::new("undirected_hub_spokes", &label), &label, |b, _| {
+            b.iter(|| node_degree_xy(&g));
+        });
+    }
+    for &(layers, fanout) in &[(64usize, 32usize), (256, 16), (512, 32)] {
+        let dg = build_directed_degree_xy_fan(layers, fanout);
+        let label = format!("l{layers}_f{fanout}");
+        group.bench_with_input(BenchmarkId::new("directed_fan", &label), &label, |b, _| {
+            b.iter(|| fnx_algorithms::node_degree_xy_directed(&dg, "out", "in"));
+        });
+    }
+    group.finish();
+}
+
 fn bench_link_prediction_scores(c: &mut Criterion) {
     let mut group = c.benchmark_group("link_prediction_scores");
     for &(left_only, right_only, common, repeats) in
@@ -542,6 +579,7 @@ criterion_group!(
     bench_pagerank,
     bench_common_neighbors,
     bench_degree_mixing_dict,
+    bench_node_degree_xy,
     bench_link_prediction_scores,
     bench_max_flow,
     bench_minimum_cut,
