@@ -23,6 +23,48 @@ __all__ = list(
     or [name for name in dir(_nx_traversal) if not name.startswith("_")]
 )
 
+# br-r37-c1-2qsqf: ``from networkx.algorithms.traversal import *`` above left the
+# BFS/DFS edge/node/predecessor/successor generators bound to networkx's
+# implementations, so ``fnx.traversal.bfs_edges`` etc. silently resolved to nx's
+# instead of fnx's native versions. ``bfs_tree``/``dfs_tree`` already override
+# below; route the rest to the fnx top-level functions via call-time closure
+# wrappers (robust against the package-init order in which fnx defines them).
+_FNX_NATIVE_TRAVERSAL_NAMES = (
+    "bfs_beam_edges",
+    "bfs_edges",
+    "bfs_labeled_edges",
+    "bfs_layers",
+    "bfs_predecessors",
+    "bfs_successors",
+    "descendants_at_distance",
+    "dfs_edges",
+    "dfs_labeled_edges",
+    "dfs_postorder_nodes",
+    "dfs_predecessors",
+    "dfs_preorder_nodes",
+    "dfs_successors",
+    "edge_bfs",
+    "edge_dfs",
+    "generic_bfs_edges",
+)
+
+
+def _make_fnx_traversal_router(_fn_name):
+    def _routed(*args, **kwargs):
+        return getattr(_fnx, _fn_name)(*args, **kwargs)
+
+    _routed.__name__ = _fn_name
+    _routed.__qualname__ = _fn_name
+    _routed.__doc__ = (
+        f"Route to ``franken_networkx.{_fn_name}`` (fnx-native). See "
+        f"``networkx.algorithms.traversal.{_fn_name}`` for semantics."
+    )
+    return _routed
+
+
+for _name in _FNX_NATIVE_TRAVERSAL_NAMES:
+    globals()[_name] = _make_fnx_traversal_router(_name)
+
 
 def bfs_tree(G, source, reverse=False, depth_limit=None, sort_neighbors=None, *, backend=None, **backend_kwargs):
     """Return an oriented tree constructed from a breadth-first search.
