@@ -61,6 +61,29 @@ def test_bipartite_basics_and_projection():
     )
 
 
+def test_bipartite_projection_module_paths_match_networkx():
+    module = importlib.import_module("franken_networkx.bipartite")
+    via_algorithms = importlib.import_module("franken_networkx.algorithms.bipartite")
+    fnx_graph, nx_graph = _mk(fnx), _mk(nx)
+
+    assert round(module.density(fnx_graph, _TOP), 9) == round(
+        nxb.density(nx_graph, _TOP), 9
+    )
+    assert round(via_algorithms.density(fnx_graph, _TOP), 9) == round(
+        nxb.density(nx_graph, _TOP), 9
+    )
+    for route in (module, via_algorithms):
+        assert _EW(route.projected_graph(fnx_graph, _TOP), weighted=False) == _EW(
+            nxb.projected_graph(nx_graph, _TOP), weighted=False
+        )
+        assert _EW(route.weighted_projected_graph(fnx_graph, _TOP)) == _EW(
+            nxb.weighted_projected_graph(nx_graph, _TOP)
+        )
+        assert _EW(route.overlap_weighted_projected_graph(fnx_graph, _TOP)) == _EW(
+            nxb.overlap_weighted_projected_graph(nx_graph, _TOP)
+        )
+
+
 def test_bipartite_matching_and_cover():
     bf, bn = _mk(fnx), _mk(nx)
     assert sorted((repr(k), repr(v)) for k, v in nxb.hopcroft_karp_matching(bf, top_nodes=_TOP).items()) == sorted(
