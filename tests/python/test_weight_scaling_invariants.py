@@ -12,6 +12,7 @@ These exercise the weighted code paths without any networkx oracle.
 
 br-r37-c1-6fji3
 br-r37-c1-6ws5d
+br-r37-c1-pvstf
 """
 
 from __future__ import annotations
@@ -49,18 +50,26 @@ def _scaled(g, c):
     return gc
 
 
-def _edge_weight_set(tree):
+def _edge_record_weight_set(edge_records):
     return {
         (frozenset((u, v)), d["weight"])
-        for u, v, d in tree.edges(data=True)
+        for u, v, d in edge_records
     }
+
+
+def _mapped_edge_record_weight_set(edge_records, mapping):
+    return {
+        (frozenset((mapping[u], mapping[v])), d["weight"])
+        for u, v, d in edge_records
+    }
+
+
+def _edge_weight_set(tree):
+    return _edge_record_weight_set(tree.edges(data=True))
 
 
 def _mapped_edge_weight_set(tree, mapping):
-    return {
-        (frozenset((mapping[u], mapping[v])), d["weight"])
-        for u, v, d in tree.edges(data=True)
-    }
+    return _mapped_edge_record_weight_set(tree.edges(data=True), mapping)
 
 
 @pytest.mark.parametrize("c", [2, 3, 5, 10])
@@ -123,3 +132,34 @@ def test_spanning_tree_outputs_relabeling_equivariant(seed):
     base_max = fnx.maximum_spanning_tree(g, weight="weight")
     relabelled_max = fnx.maximum_spanning_tree(relabelled, weight="weight")
     assert _mapped_edge_weight_set(base_max, mapping) == _edge_weight_set(relabelled_max)
+
+
+@pytest.mark.parametrize("algorithm", ["kruskal", "prim", "boruvka"])
+@pytest.mark.parametrize("seed", range(30))
+def test_spanning_edge_iterators_relabeling_equivariant(algorithm, seed):
+    res = _connected_weighted(seed, distinct=True)
+    if res is None:
+        pytest.skip("disconnected")
+    g, n = res
+    mapping = {node: f"edge-node-{seed}-{node}" for node in range(n)}
+    relabelled = fnx.relabel_nodes(g, mapping)
+
+    base_min = fnx.minimum_spanning_edges(
+        g, algorithm=algorithm, weight="weight", data=True
+    )
+    relabelled_min = fnx.minimum_spanning_edges(
+        relabelled, algorithm=algorithm, weight="weight", data=True
+    )
+    assert _mapped_edge_record_weight_set(
+        base_min, mapping
+    ) == _edge_record_weight_set(relabelled_min)
+
+    base_max = fnx.maximum_spanning_edges(
+        g, algorithm=algorithm, weight="weight", data=True
+    )
+    relabelled_max = fnx.maximum_spanning_edges(
+        relabelled, algorithm=algorithm, weight="weight", data=True
+    )
+    assert _mapped_edge_record_weight_set(
+        base_max, mapping
+    ) == _edge_record_weight_set(relabelled_max)
