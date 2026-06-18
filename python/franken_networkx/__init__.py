@@ -29789,6 +29789,14 @@ def all_pairs_all_shortest_paths(G, weight=None, method="dijkstra"):
             "all_pairs_all_shortest_paths", G, weight=weight, method=method
         )
         return
+    if G.is_directed():
+        # br-r37-c1-s1czw: the native all_pairs_all_shortest_paths_rust kernel
+        # ignores edge direction (emits reverse paths to unreachable targets).
+        # 88rd0 only fixed the weighted delegation. Build the directed result
+        # from the directed-correct single_source_all_shortest_paths per source.
+        for source in G.nodes():
+            yield (source, dict(single_source_all_shortest_paths(G, source)))
+        return
     result = _fnx.all_pairs_all_shortest_paths_rust(G)
     for source in G.nodes():
         paths_dict = {source: [[source]]}
