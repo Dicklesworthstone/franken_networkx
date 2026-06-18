@@ -20368,13 +20368,159 @@ fn common_neighbor_indices_from_rows(u_neighbors: &[usize], v_neighbors: &[usize
     result
 }
 
-fn common_neighbor_indices_excluding_endpoints(graph: &Graph, u: usize, v: usize) -> Vec<usize> {
-    let mut common = common_neighbor_indices_from_rows(
-        graph.neighbors_indices(u).unwrap_or(&[]),
-        graph.neighbors_indices(v).unwrap_or(&[]),
-    );
-    common.retain(|&neighbor| neighbor != u && neighbor != v);
-    common
+struct CommonNeighborScratch {
+    marks: Vec<u32>,
+    stamp: u32,
+    common: Vec<usize>,
+    terms: Vec<f64>,
+}
+
+impl CommonNeighborScratch {
+    fn new(node_count: usize) -> Self {
+        Self {
+            marks: vec![0; node_count],
+            stamp: 0,
+            common: Vec::new(),
+            terms: Vec::new(),
+        }
+    }
+
+    fn next_stamp(&mut self) -> u32 {
+        if self.stamp == u32::MAX {
+            self.marks.fill(0);
+            self.stamp = 1;
+        } else {
+            self.stamp += 1;
+        }
+        self.stamp
+    }
+
+    fn collect_from_rows(&mut self, u_neighbors: &[usize], v_neighbors: &[usize]) {
+        self.common.clear();
+        let (small, large) = if u_neighbors.len() <= v_neighbors.len() {
+            (u_neighbors, v_neighbors)
+        } else {
+            (v_neighbors, u_neighbors)
+        };
+        let stamp = self.next_stamp();
+        for &neighbor in small {
+            self.marks[neighbor] = stamp;
+        }
+        self.common.reserve(small.len().min(large.len()));
+        for &neighbor in large {
+            if self.marks[neighbor] == stamp {
+                self.marks[neighbor] = 0;
+                self.common.push(neighbor);
+            }
+        }
+    }
+
+    fn collect_from_rows_excluding(
+        &mut self,
+        u_neighbors: &[usize],
+        v_neighbors: &[usize],
+        excluded_a: usize,
+        excluded_b: usize,
+    ) {
+        self.collect_from_rows(u_neighbors, v_neighbors);
+        self.common
+            .retain(|&neighbor| neighbor != excluded_a && neighbor != excluded_b);
+    }
+
+    fn common_len(&self) -> usize {
+        self.common.len()
+    }
+
+    fn adamic_adar_score(&mut self, graph: &Graph) -> f64 {
+        self.terms.clear();
+        self.terms.reserve(self.common.len());
+        for &w in &self.common {
+            let deg = graph.neighbors_indices(w).map_or(0, <[usize]>::len);
+            self.terms.push(if deg > 1 {
+                1.0 / (deg as f64).ln()
+            } else {
+                0.0
+            });
+        }
+        self.terms.sort_unstable_by(f64::total_cmp);
+        self.terms.iter().sum()
+    }
+
+    fn resource_allocation_score(&mut self, graph: &Graph) -> f64 {
+        self.terms.clear();
+        self.terms.reserve(self.common.len());
+        for &w in &self.common {
+            let deg = graph.neighbors_indices(w).map_or(0, <[usize]>::len);
+            self.terms.push(if deg > 0 {
+                1.0 / deg as f64
+            } else {
+                0.0
+            });
+        }
+        self.terms.sort_unstable_by(f64::total_cmp);
+        self.terms.iter().sum()
+    }
+
+    fn soundarajan_resource_score(
+        &mut self,
+        graph: &Graph,
+        communities: &[Option<Cow<'_, str>>],
+        target_community: Option<&Cow<'_, str>>,
+    ) -> f64 {
+        self.terms.clear();
+        self.terms.reserve(self.common.len());
+        for &w in &self.common {
+            let w_comm = communities.get(w).and_then(Option::as_ref);
+            if w_comm == target_community {
+                let deg_w = graph.degree_by_index(w);
+                if deg_w > 0 {
+                    self.terms.push(1.0 / deg_w as f64);
+                }
+            }
+        }
+        self.terms.sort_unstable_by(f64::total_cmp);
+        self.terms.iter().sum()
+    }
+
+    fn count_with_community(
+        &self,
+        communities: &[Option<Cow<'_, str>>],
+        target_community: Option<&Cow<'_, str>>,
+    ) -> usize {
+        self.common
+            .iter()
+            .filter(|&&w| communities.get(w).and_then(Option::as_ref) == target_community)
+            .count()
+    }
+}
+
+struct LinkPredictionEndpointCache<'graph, 'nodes> {
+    graph: &'graph Graph,
+    cache: HashMap<&'nodes str, Option<usize>>,
+}
+
+impl<'graph, 'nodes> LinkPredictionEndpointCache<'graph, 'nodes> {
+    fn new(graph: &'graph Graph, pair_count: usize) -> Self {
+        Self {
+            graph,
+            cache: HashMap::with_capacity(pair_count.saturating_mul(2)),
+        }
+    }
+
+    fn get(&mut self, node: &'nodes str) -> Option<usize> {
+        if let Some(&idx) = self.cache.get(node) {
+            return idx;
+        }
+        let idx = self.graph.get_node_index(node);
+        self.cache.insert(node, idx);
+        idx
+    }
+}
+
+fn neighbor_indices_by_index_or_empty(graph: &Graph, node_idx: Option<usize>) -> &[usize] {
+    node_idx
+        .and_then(|idx| graph.neighbors_indices(idx))
+        .unwrap_or(&[])
 }
 
 fn community_key_from_value(value: &CgseValue) -> Cow<'_, str> {
@@ -20409,12 +20555,15 @@ pub fn jaccard_coefficient(
     graph: &Graph,
     ebunch: &[(String, String)],
 ) -> Vec<(String, String, f64)> {
+    let mut scratch = CommonNeighborScratch::new(graph.node_count());
+    let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
     ebunch
         .iter()
         .map(|(u, v)| {
-            let u_nbrs = neighbor_indices_or_empty(graph, u);
-            let v_nbrs = neighbor_indices_or_empty(graph, v);
-            let common = common_neighbor_indices_from_rows(u_nbrs, v_nbrs).len();
+            let u_nbrs = neighbor_indices_by_index_or_empty(graph, endpoint_cache.get(u.as_str()));
+            let v_nbrs = neighbor_indices_by_index_or_empty(graph, endpoint_cache.get(v.as_str()));
+            scratch.collect_from_rows(u_nbrs, v_nbrs);
+            let common = scratch.common_len();
             let union = u_nbrs.len() + v_nbrs.len() - common;
             let score = if union == 0 {
                 0.0
@@ -20432,6 +20581,8 @@ pub fn jaccard_coefficient(
 /// Matches `networkx.adamic_adar_index(G, ebunch)`.
 #[must_use]
 pub fn adamic_adar_index(graph: &Graph, ebunch: &[(String, String)]) -> Vec<(String, String, f64)> {
+    let mut scratch = CommonNeighborScratch::new(graph.node_count());
+    let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
     ebunch
         .iter()
         .map(|(u, v)| {
@@ -20439,19 +20590,11 @@ pub fn adamic_adar_index(graph: &Graph, ebunch: &[(String, String)]) -> Vec<(Str
             // non-associative, so summing in set order makes the last ULP of the score
             // vary run-to-run. Sort the terms before summing so identical inputs always
             // produce bit-identical scores.
-            let mut terms: Vec<f64> = common_neighbor_indices(graph, u, v)
-                .into_iter()
-                .map(|w| {
-                    let deg = graph.neighbors_indices(w).map_or(0, <[usize]>::len);
-                    if deg > 1 {
-                        1.0 / (deg as f64).ln()
-                    } else {
-                        0.0
-                    }
-                })
-                .collect();
-            terms.sort_unstable_by(f64::total_cmp);
-            let score: f64 = terms.iter().sum();
+            scratch.collect_from_rows(
+                neighbor_indices_by_index_or_empty(graph, endpoint_cache.get(u.as_str())),
+                neighbor_indices_by_index_or_empty(graph, endpoint_cache.get(v.as_str())),
+            );
+            let score = scratch.adamic_adar_score(graph);
             (u.clone(), v.clone(), score)
         })
         .collect()
@@ -20469,15 +20612,16 @@ pub fn preferential_attachment(
     let degrees: Vec<usize> = (0..graph.node_count())
         .map(|idx| graph.degree_by_index(idx))
         .collect();
+    let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
     ebunch
         .iter()
         .map(|(u, v)| {
-            let u_deg = graph
-                .get_node_index(u)
+            let u_deg = endpoint_cache
+                .get(u.as_str())
                 .and_then(|idx| degrees.get(idx).copied())
                 .unwrap_or(0);
-            let v_deg = graph
-                .get_node_index(v)
+            let v_deg = endpoint_cache
+                .get(v.as_str())
                 .and_then(|idx| degrees.get(idx).copied())
                 .unwrap_or(0);
             let score = (u_deg * v_deg) as f64;
@@ -20495,19 +20639,17 @@ pub fn resource_allocation_index(
     graph: &Graph,
     ebunch: &[(String, String)],
 ) -> Vec<(String, String, f64)> {
+    let mut scratch = CommonNeighborScratch::new(graph.node_count());
+    let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
     ebunch
         .iter()
         .map(|(u, v)| {
             // Sorted-term summation for run-to-run bit determinism; see adamic_adar_index.
-            let mut terms: Vec<f64> = common_neighbor_indices(graph, u, v)
-                .into_iter()
-                .map(|w| {
-                    let deg = graph.neighbors_indices(w).map_or(0, <[usize]>::len);
-                    if deg > 0 { 1.0 / deg as f64 } else { 0.0 }
-                })
-                .collect();
-            terms.sort_unstable_by(f64::total_cmp);
-            let score: f64 = terms.iter().sum();
+            scratch.collect_from_rows(
+                neighbor_indices_by_index_or_empty(graph, endpoint_cache.get(u.as_str())),
+                neighbor_indices_by_index_or_empty(graph, endpoint_cache.get(v.as_str())),
+            );
+            let score = scratch.resource_allocation_score(graph);
             (u.clone(), v.clone(), score)
         })
         .collect()
@@ -33772,12 +33914,20 @@ pub fn common_neighbor_centrality(
     let mut dist = vec![usize::MAX; n];
     let mut touched = Vec::with_capacity(n.min(1024));
     let mut queue = VecDeque::new();
+    let mut scratch = CommonNeighborScratch::new(n);
+    let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
     let mut result = Vec::with_capacity(ebunch.len());
     for (u, v) in ebunch {
-        let u_idx = graph.get_node_index(u);
-        let v_idx = graph.get_node_index(v);
+        let u_idx = endpoint_cache.get(u.as_str());
+        let v_idx = endpoint_cache.get(v.as_str());
         let (cn, sp) = if let (Some(ui), Some(vi)) = (u_idx, v_idx) {
-            let cn = common_neighbor_indices_excluding_endpoints(graph, ui, vi).len() as f64;
+            scratch.collect_from_rows_excluding(
+                neighbor_indices_by_index_or_empty(graph, u_idx),
+                neighbor_indices_by_index_or_empty(graph, v_idx),
+                ui,
+                vi,
+            );
+            let cn = scratch.common_len() as f64;
             let sp = indexed_shortest_path_length(
                 graph,
                 ui,
@@ -35511,32 +35661,23 @@ pub fn ra_index_soundarajan_hopcroft(
 ) -> Vec<(String, String, f64)> {
     let communities = community_keys_by_index(graph, community_attr);
     let mut result = Vec::with_capacity(ebunch.len());
+    let mut scratch = CommonNeighborScratch::new(graph.node_count());
+    let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
 
     for (u, v) in ebunch {
-        let u_idx = graph.get_node_index(u);
-        let v_idx = graph.get_node_index(v);
+        let u_idx = endpoint_cache.get(u.as_str());
+        let v_idx = endpoint_cache.get(v.as_str());
         let u_comm = u_idx.and_then(|idx| communities.get(idx).and_then(Option::as_ref));
         let v_comm = v_idx.and_then(|idx| communities.get(idx).and_then(Option::as_ref));
         let same_endpoint_community = matches!((u_comm, v_comm), (Some(u), Some(v)) if u == v);
         let mut score = 0.0;
 
         if same_endpoint_community {
-            let common = common_neighbor_indices_from_rows(
-                u_idx.and_then(|idx| graph.neighbors_indices(idx)).unwrap_or(&[]),
-                v_idx.and_then(|idx| graph.neighbors_indices(idx)).unwrap_or(&[]),
+            scratch.collect_from_rows(
+                neighbor_indices_by_index_or_empty(graph, u_idx),
+                neighbor_indices_by_index_or_empty(graph, v_idx),
             );
-            let mut terms = Vec::with_capacity(common.len());
-            for w in common {
-                let w_comm = communities.get(w).and_then(Option::as_ref);
-                if w_comm == u_comm {
-                    let deg_w = graph.degree_by_index(w);
-                    if deg_w > 0 {
-                        terms.push(1.0 / deg_w as f64);
-                    }
-                }
-            }
-            terms.sort_unstable_by(f64::total_cmp);
-            score = terms.iter().sum();
+            score = scratch.soundarajan_resource_score(graph, &communities, u_comm);
         }
 
         result.push((u.clone(), v.clone(), score));
@@ -35921,24 +36062,21 @@ pub fn cn_soundarajan_hopcroft(
 ) -> Vec<(String, String, f64)> {
     let communities = community_keys_by_index(graph, community_attr);
     let mut result = Vec::with_capacity(ebunch.len());
+    let mut scratch = CommonNeighborScratch::new(graph.node_count());
+    let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
     for (u, v) in ebunch {
-        let u_idx = graph.get_node_index(u);
-        let v_idx = graph.get_node_index(v);
-        let common = common_neighbor_indices_from_rows(
-            u_idx.and_then(|idx| graph.neighbors_indices(idx)).unwrap_or(&[]),
-            v_idx.and_then(|idx| graph.neighbors_indices(idx)).unwrap_or(&[]),
+        let u_idx = endpoint_cache.get(u.as_str());
+        let v_idx = endpoint_cache.get(v.as_str());
+        scratch.collect_from_rows(
+            neighbor_indices_by_index_or_empty(graph, u_idx),
+            neighbor_indices_by_index_or_empty(graph, v_idx),
         );
         let u_comm = u_idx.and_then(|idx| communities.get(idx).and_then(Option::as_ref));
         let v_comm = v_idx.and_then(|idx| communities.get(idx).and_then(Option::as_ref));
         let same_endpoint_community = matches!((u_comm, v_comm), (Some(u), Some(v)) if u == v);
-        let mut score = common.len() as f64;
+        let mut score = scratch.common_len() as f64;
         if same_endpoint_community {
-            for w in common {
-                let w_comm = communities.get(w).and_then(Option::as_ref);
-                if w_comm == u_comm {
-                    score += 1.0;
-                }
-            }
+            score += scratch.count_with_community(&communities, u_comm) as f64;
         }
         result.push((u.clone(), v.clone(), score));
     }
@@ -41551,9 +41689,11 @@ mod test_dijkstra;
 #[cfg(test)]
 mod tests {
     use super::{
+        AttrMap,
         BranchingEdge,
         CGSE_WITNESS_LEDGER_PATH,
         CGSE_WITNESS_POLICY_SPEC_PATH,
+        CgseValue,
         CentralityScore,
         ChordalGraphTreewidthError,
         ComplexityWitness,
@@ -47989,6 +48129,72 @@ mod tests {
 
         let (_, _, resource_allocation) = resource_allocation_index(&g, &pairs)[0];
         assert!((resource_allocation - (1.0 / 3.0 + 1.0 / 2.0)).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn link_prediction_stamp_scratch_preserves_repeated_pair_scores() {
+        fn community_attrs(value: &str) -> AttrMap {
+            let mut attrs = AttrMap::new();
+            attrs.insert(
+                "community".to_owned(),
+                CgseValue::String(value.to_owned()),
+            );
+            attrs
+        }
+
+        let mut g = Graph::strict();
+        let _ = g.add_node_with_attrs("u", community_attrs("core"));
+        let _ = g.add_node_with_attrs("v", community_attrs("core"));
+        let _ = g.add_node_with_attrs("c0", community_attrs("core"));
+        let _ = g.add_node_with_attrs("c1", community_attrs("outer"));
+        let _ = g.add_node_with_attrs("left", community_attrs("left"));
+        let _ = g.add_node_with_attrs("right", community_attrs("right"));
+        let _ = g.add_node_with_attrs("extra", community_attrs("outer"));
+        let _ = g.add_edge("u", "c0");
+        let _ = g.add_edge("u", "c1");
+        let _ = g.add_edge("u", "left");
+        let _ = g.add_edge("v", "c0");
+        let _ = g.add_edge("v", "c1");
+        let _ = g.add_edge("v", "right");
+        let _ = g.add_edge("c0", "extra");
+        let pairs = vec![
+            ("u".to_owned(), "v".to_owned()),
+            ("u".to_owned(), "v".to_owned()),
+        ];
+
+        for (_, _, score) in jaccard_coefficient(&g, &pairs) {
+            assert!((score - 0.5).abs() < TEST_TOLERANCE);
+        }
+        let expected_adamic_adar = 1.0 / 3.0_f64.ln() + 1.0 / 2.0_f64.ln();
+        for (_, _, score) in adamic_adar_index(&g, &pairs) {
+            assert!((score - expected_adamic_adar).abs() < TEST_TOLERANCE);
+        }
+        for (_, _, score) in resource_allocation_index(&g, &pairs) {
+            assert!((score - (1.0 / 3.0 + 1.0 / 2.0)).abs() < TEST_TOLERANCE);
+        }
+        for (_, _, score) in cn_soundarajan_hopcroft(&g, &pairs, "community") {
+            assert!((score - 3.0).abs() < TEST_TOLERANCE);
+        }
+        for (_, _, score) in ra_index_soundarajan_hopcroft(&g, &pairs, "community") {
+            assert!((score - (1.0 / 3.0)).abs() < TEST_TOLERANCE);
+        }
+        for (_, _, score) in common_neighbor_centrality(&g, &pairs, 0.8) {
+            assert!((score - 2.3).abs() < TEST_TOLERANCE);
+        }
+    }
+
+    #[test]
+    fn common_neighbor_centrality_stamp_scratch_excludes_endpoints() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("u", "v");
+        let _ = g.add_edge("u", "u");
+        let _ = g.add_edge("v", "v");
+        let _ = g.add_edge("u", "c");
+        let _ = g.add_edge("v", "c");
+        let pairs = vec![("u".to_owned(), "v".to_owned())];
+        let (_, _, score) = common_neighbor_centrality(&g, &pairs, 0.5)[0];
+
+        assert!((score - 2.0).abs() < TEST_TOLERANCE);
     }
 
     #[test]

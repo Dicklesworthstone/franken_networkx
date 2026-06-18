@@ -355,7 +355,12 @@ fn bench_common_neighbors(c: &mut Criterion) {
 fn bench_link_prediction_scores(c: &mut Criterion) {
     let mut group = c.benchmark_group("link_prediction_scores");
     for &(left_only, right_only, common, repeats) in
-        &[(64, 64, 64, 128), (32, 512, 32, 128), (512, 512, 256, 64)]
+        &[
+            (64, 64, 64, 128),
+            (32, 512, 32, 128),
+            (512, 512, 256, 64),
+            (32, 512, 32, 2048),
+        ]
     {
         let g = build_common_neighbors_graph(left_only, right_only, common);
         let pairs = build_link_prediction_pairs(repeats);
