@@ -37,6 +37,18 @@ def double_edge_swap(G, nswap=1, max_tries=100, seed=None, *, backend=None, **ba
     return nx_result
 
 
+def connected_double_edge_swap(
+    G, nswap=1, _window_threshold=3, seed=None, *, backend=None, **backend_kwargs
+):
+    """Swap edges through the fnx guarded connected-swap implementation."""
+    _fnx._validate_backend_dispatch_keywords(
+        "connected_double_edge_swap", backend, backend_kwargs
+    )
+    return _fnx.connected_double_edge_swap(
+        G, nswap=nswap, _window_threshold=_window_threshold, seed=seed
+    )
+
+
 def directed_edge_swap(G, *, nswap=1, max_tries=100, seed=None, backend=None, **backend_kwargs):
     """Swap three edges in a directed graph while keeping the node degrees fixed.
 

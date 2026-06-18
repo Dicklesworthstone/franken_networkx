@@ -120,6 +120,49 @@ def test_swap_module_double_edge_swap_returns_original_nx_input():
 
 
 @needs_nx
+def test_swap_module_connected_double_edge_swap_routes_to_fnx(monkeypatch):
+    from franken_networkx.algorithms import swap as algorithms_swap
+
+    graph = fnx.cycle_graph(8)
+    calls = []
+
+    def fake_connected_double_edge_swap(
+        G, nswap=1, _window_threshold=3, seed=None
+    ):
+        calls.append((G, nswap, _window_threshold, seed))
+        return 23
+
+    monkeypatch.setattr(
+        fnx, "connected_double_edge_swap", fake_connected_double_edge_swap
+    )
+
+    assert (
+        fnx_swap.connected_double_edge_swap(
+            graph, nswap=2, _window_threshold=5, seed=7
+        )
+        == 23
+    )
+    assert algorithms_swap.connected_double_edge_swap(graph) == 23
+    assert calls == [
+        (graph, 2, 5, 7),
+        (graph, 1, 3, None),
+    ]
+
+
+@needs_nx
+def test_swap_module_connected_double_edge_swap_matches_fnx_invariants():
+    graph = fnx.cycle_graph(8)
+    expected_graph = fnx.cycle_graph(8)
+
+    result = fnx_swap.connected_double_edge_swap(graph, nswap=1, seed=7)
+    expected = fnx.connected_double_edge_swap(expected_graph, nswap=1, seed=7)
+
+    assert result == expected
+    assert graph.number_of_edges() == expected_graph.number_of_edges() == 8
+    assert fnx.is_connected(graph)
+
+
+@needs_nx
 def test_swap_module_directed_edge_swap_returns_original_fnx_input():
     graph = _directed_swap_graph(fnx)
     expected_graph = _directed_swap_graph(fnx)
