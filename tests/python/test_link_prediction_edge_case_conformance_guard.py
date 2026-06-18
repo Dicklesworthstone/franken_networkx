@@ -61,6 +61,23 @@ def test_default_ebunch(fn, seed):
     _eq(getattr(fnx, fn)(fg), getattr(nx, fn)(ng))
 
 
+@pytest.mark.parametrize("fn", _PLAIN)
+def test_self_loop_and_missing_endpoints(fn):
+    # The raw kernels explicitly handle self-loop endpoints + missing-endpoint
+    # fallback (ledger 9142/9144/9151). fnx must match nx by value OR by raising
+    # the same exception.
+    fg, ng, n = _g(3)
+    for ebunch in ([(2, 2)], [(0, 999)], [(2, 2), (0, 1), (0, 999)]):
+        ffn, nfn = getattr(fnx, fn), getattr(nx, fn)
+        try:
+            nr = list(nfn(ng, ebunch))
+        except Exception as ne:
+            with pytest.raises(type(ne)):
+                list(ffn(fg, ebunch))
+            continue
+        _eq(ffn(fg, ebunch), nr)
+
+
 @pytest.mark.parametrize("seed", range(10))
 def test_community_scorers_repeated_reversed(seed):
     r = random.Random(seed)
