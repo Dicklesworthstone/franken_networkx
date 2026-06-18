@@ -89,3 +89,31 @@ def test_generalized_degree_directed_multigraph_rejected():
         fnx.generalized_degree(fnx.DiGraph([(0, 1), (1, 2)]))
     with pytest.raises(fnx.NetworkXNotImplemented):
         fnx.generalized_degree(fnx.MultiGraph([(0, 1), (1, 2)]))
+
+
+# Edge-case graphs where native-kernel bugs tend to hide (cf the google_matrix
+# dangling-node bug found this campaign). All verified clean vs nx.
+_EDGE_CASES = {
+    "single_node": ([], [0]),
+    "two_node": ([(0, 1)], [0, 1]),
+    "star": ([(0, 1), (0, 2), (0, 3), (0, 4)], list(range(5))),
+    "complete": ([(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)], list(range(4))),
+    "path": ([(0, 1), (1, 2), (2, 3), (3, 4)], list(range(5))),
+}
+
+
+@pytest.mark.parametrize("name", list(_EDGE_CASES))
+@pytest.mark.parametrize("fn", ["gutman_index", "schultz_index"])
+def test_distance_index_edge_case_graphs(fn, name):
+    edges, nodes = _EDGE_CASES[name]
+    fg = fnx.Graph(edges); fg.add_nodes_from(nodes)
+    ng = nx.Graph(edges); ng.add_nodes_from(nodes)
+    assert getattr(fnx, fn)(fg) == pytest.approx(getattr(nx, fn)(ng))
+
+
+@pytest.mark.parametrize("name", list(_EDGE_CASES))
+def test_generalized_degree_edge_case_graphs(name):
+    edges, nodes = _EDGE_CASES[name]
+    fg = fnx.Graph(edges); fg.add_nodes_from(nodes)
+    ng = nx.Graph(edges); ng.add_nodes_from(nodes)
+    assert dict(fnx.generalized_degree(fg)) == dict(nx.generalized_degree(ng))
