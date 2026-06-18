@@ -20568,6 +20568,25 @@ impl<'graph, 'nodes> LinkPredictionEndpointCache<'graph, 'nodes> {
 
 const LINK_PREDICTION_PAIR_SCORE_CACHE_MIN_EBUNCH: usize = 8;
 
+struct LinkPredictionEndpointPairs {
+    indices: Vec<Option<(usize, usize)>>,
+}
+
+impl LinkPredictionEndpointPairs {
+    fn new(graph: &Graph, ebunch: &[(String, String)]) -> Self {
+        let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
+        let indices = ebunch
+            .iter()
+            .map(|(u, v)| endpoint_cache.get(u.as_str()).zip(endpoint_cache.get(v.as_str())))
+            .collect();
+        Self { indices }
+    }
+
+    fn get(&self, index: usize) -> Option<(usize, usize)> {
+        self.indices[index]
+    }
+}
+
 fn canonical_link_prediction_pair(left: usize, right: usize) -> (usize, usize) {
     if left <= right {
         (left, right)
@@ -20576,33 +20595,37 @@ fn canonical_link_prediction_pair(left: usize, right: usize) -> (usize, usize) {
     }
 }
 
+fn link_prediction_pair_key(indices: Option<(usize, usize)>) -> Option<(usize, usize)> {
+    indices.map(|(left, right)| canonical_link_prediction_pair(left, right))
+}
+
+fn link_prediction_index_options(
+    indices: Option<(usize, usize)>,
+) -> (Option<usize>, Option<usize>) {
+    indices.map_or((None, None), |(left, right)| (Some(left), Some(right)))
+}
+
 struct LinkPredictionPairScoreCache {
     repeated: HashSet<(usize, usize)>,
     scores: HashMap<(usize, usize), f64>,
 }
 
 impl LinkPredictionPairScoreCache {
-    fn new<'graph, 'nodes>(
-        endpoint_cache: &mut LinkPredictionEndpointCache<'graph, 'nodes>,
-        ebunch: &'nodes [(String, String)],
-    ) -> Self {
-        if ebunch.len() < LINK_PREDICTION_PAIR_SCORE_CACHE_MIN_EBUNCH {
+    fn new(endpoint_pairs: &LinkPredictionEndpointPairs) -> Self {
+        if endpoint_pairs.indices.len() < LINK_PREDICTION_PAIR_SCORE_CACHE_MIN_EBUNCH {
             return Self {
                 repeated: HashSet::new(),
                 scores: HashMap::new(),
             };
         }
 
-        let mut seen = HashSet::with_capacity(ebunch.len());
+        let mut seen = HashSet::with_capacity(endpoint_pairs.indices.len());
         let mut repeated = HashSet::new();
-        for (u, v) in ebunch {
-            if let (Some(ui), Some(vi)) =
-                (endpoint_cache.get(u.as_str()), endpoint_cache.get(v.as_str()))
-            {
-                let key = canonical_link_prediction_pair(ui, vi);
-                if !seen.insert(key) {
-                    repeated.insert(key);
-                }
+        for endpoint_pair in endpoint_pairs.indices.iter().copied().flatten() {
+            let (ui, vi) = endpoint_pair;
+            let key = canonical_link_prediction_pair(ui, vi);
+            if !seen.insert(key) {
+                repeated.insert(key);
             }
         }
 
@@ -20664,16 +20687,15 @@ pub fn jaccard_coefficient(
     ebunch: &[(String, String)],
 ) -> Vec<(String, String, f64)> {
     let mut scratch = CommonNeighborScratch::new(graph.node_count());
-    let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
-    let mut score_cache = LinkPredictionPairScoreCache::new(&mut endpoint_cache, ebunch);
+    let endpoint_pairs = LinkPredictionEndpointPairs::new(graph, ebunch);
+    let mut score_cache = LinkPredictionPairScoreCache::new(&endpoint_pairs);
     ebunch
         .iter()
-        .map(|(u, v)| {
-            let u_idx = endpoint_cache.get(u.as_str());
-            let v_idx = endpoint_cache.get(v.as_str());
-            let key = u_idx
-                .zip(v_idx)
-                .map(|(ui, vi)| canonical_link_prediction_pair(ui, vi));
+        .enumerate()
+        .map(|(pair_index, (u, v))| {
+            let endpoint_pair = endpoint_pairs.get(pair_index);
+            let (u_idx, v_idx) = link_prediction_index_options(endpoint_pair);
+            let key = link_prediction_pair_key(endpoint_pair);
             let score = if let Some(key) = key
                 && let Some(score) = score_cache.get(key)
             {
@@ -20707,16 +20729,15 @@ pub fn jaccard_coefficient(
 pub fn adamic_adar_index(graph: &Graph, ebunch: &[(String, String)]) -> Vec<(String, String, f64)> {
     let mut scratch = CommonNeighborScratch::new(graph.node_count());
     let mut weights = CommonNeighborWeightCache::new(graph.node_count());
-    let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
-    let mut score_cache = LinkPredictionPairScoreCache::new(&mut endpoint_cache, ebunch);
+    let endpoint_pairs = LinkPredictionEndpointPairs::new(graph, ebunch);
+    let mut score_cache = LinkPredictionPairScoreCache::new(&endpoint_pairs);
     ebunch
         .iter()
-        .map(|(u, v)| {
-            let u_idx = endpoint_cache.get(u.as_str());
-            let v_idx = endpoint_cache.get(v.as_str());
-            let key = u_idx
-                .zip(v_idx)
-                .map(|(ui, vi)| canonical_link_prediction_pair(ui, vi));
+        .enumerate()
+        .map(|(pair_index, (u, v))| {
+            let endpoint_pair = endpoint_pairs.get(pair_index);
+            let (u_idx, v_idx) = link_prediction_index_options(endpoint_pair);
+            let key = link_prediction_pair_key(endpoint_pair);
             let score = if let Some(key) = key
                 && let Some(score) = score_cache.get(key)
             {
@@ -20753,16 +20774,15 @@ pub fn preferential_attachment(
     let degrees: Vec<usize> = (0..graph.node_count())
         .map(|idx| graph.degree_by_index(idx))
         .collect();
-    let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
-    let mut score_cache = LinkPredictionPairScoreCache::new(&mut endpoint_cache, ebunch);
+    let endpoint_pairs = LinkPredictionEndpointPairs::new(graph, ebunch);
+    let mut score_cache = LinkPredictionPairScoreCache::new(&endpoint_pairs);
     ebunch
         .iter()
-        .map(|(u, v)| {
-            let u_idx = endpoint_cache.get(u.as_str());
-            let v_idx = endpoint_cache.get(v.as_str());
-            let key = u_idx
-                .zip(v_idx)
-                .map(|(ui, vi)| canonical_link_prediction_pair(ui, vi));
+        .enumerate()
+        .map(|(pair_index, (u, v))| {
+            let endpoint_pair = endpoint_pairs.get(pair_index);
+            let (u_idx, v_idx) = link_prediction_index_options(endpoint_pair);
+            let key = link_prediction_pair_key(endpoint_pair);
             let score = if let Some(key) = key
                 && let Some(score) = score_cache.get(key)
             {
@@ -20792,16 +20812,15 @@ pub fn resource_allocation_index(
 ) -> Vec<(String, String, f64)> {
     let mut scratch = CommonNeighborScratch::new(graph.node_count());
     let mut weights = CommonNeighborWeightCache::new(graph.node_count());
-    let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
-    let mut score_cache = LinkPredictionPairScoreCache::new(&mut endpoint_cache, ebunch);
+    let endpoint_pairs = LinkPredictionEndpointPairs::new(graph, ebunch);
+    let mut score_cache = LinkPredictionPairScoreCache::new(&endpoint_pairs);
     ebunch
         .iter()
-        .map(|(u, v)| {
-            let u_idx = endpoint_cache.get(u.as_str());
-            let v_idx = endpoint_cache.get(v.as_str());
-            let key = u_idx
-                .zip(v_idx)
-                .map(|(ui, vi)| canonical_link_prediction_pair(ui, vi));
+        .enumerate()
+        .map(|(pair_index, (u, v))| {
+            let endpoint_pair = endpoint_pairs.get(pair_index);
+            let (u_idx, v_idx) = link_prediction_index_options(endpoint_pair);
+            let key = link_prediction_pair_key(endpoint_pair);
             let score = if let Some(key) = key
                 && let Some(score) = score_cache.get(key)
             {
@@ -34135,22 +34154,19 @@ pub fn common_neighbor_centrality(
     let mut touched = Vec::with_capacity(n.min(1024));
     let mut queue = VecDeque::new();
     let mut scratch = CommonNeighborScratch::new(n);
-    let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
-    let mut score_cache = LinkPredictionPairScoreCache::new(&mut endpoint_cache, ebunch);
+    let endpoint_pairs = LinkPredictionEndpointPairs::new(graph, ebunch);
+    let mut score_cache = LinkPredictionPairScoreCache::new(&endpoint_pairs);
     let mut source_reuse_counts = HashMap::with_capacity(ebunch.len().min(n));
-    for (u, _) in ebunch {
-        if let Some(source_idx) = endpoint_cache.get(u.as_str()) {
-            *source_reuse_counts.entry(source_idx).or_insert(0usize) += 1;
-        }
+    for endpoint_pair in endpoint_pairs.indices.iter().copied().flatten() {
+        let (source_idx, _) = endpoint_pair;
+        *source_reuse_counts.entry(source_idx).or_insert(0usize) += 1;
     }
     let mut distance_cache = CcpaSourceDistanceCache::new(n, source_reuse_counts.len());
     let mut result = Vec::with_capacity(ebunch.len());
-    for (u, v) in ebunch {
-        let u_idx = endpoint_cache.get(u.as_str());
-        let v_idx = endpoint_cache.get(v.as_str());
-        let key = u_idx
-            .zip(v_idx)
-            .map(|(ui, vi)| canonical_link_prediction_pair(ui, vi));
+    for (pair_index, (u, v)) in ebunch.iter().enumerate() {
+        let endpoint_pair = endpoint_pairs.get(pair_index);
+        let (u_idx, v_idx) = link_prediction_index_options(endpoint_pair);
+        let key = link_prediction_pair_key(endpoint_pair);
         let score = if let Some(key) = key
             && let Some(score) = score_cache.get(key)
         {
@@ -35973,15 +35989,13 @@ pub fn ra_index_soundarajan_hopcroft(
     let mut result = Vec::with_capacity(ebunch.len());
     let mut scratch = CommonNeighborScratch::new(graph.node_count());
     let mut weights = CommonNeighborWeightCache::new(graph.node_count());
-    let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
-    let mut score_cache = LinkPredictionPairScoreCache::new(&mut endpoint_cache, ebunch);
+    let endpoint_pairs = LinkPredictionEndpointPairs::new(graph, ebunch);
+    let mut score_cache = LinkPredictionPairScoreCache::new(&endpoint_pairs);
 
-    for (u, v) in ebunch {
-        let u_idx = endpoint_cache.get(u.as_str());
-        let v_idx = endpoint_cache.get(v.as_str());
-        let key = u_idx
-            .zip(v_idx)
-            .map(|(ui, vi)| canonical_link_prediction_pair(ui, vi));
+    for (pair_index, (u, v)) in ebunch.iter().enumerate() {
+        let endpoint_pair = endpoint_pairs.get(pair_index);
+        let (u_idx, v_idx) = link_prediction_index_options(endpoint_pair);
+        let key = link_prediction_pair_key(endpoint_pair);
         let score = if let Some(key) = key
             && let Some(score) = score_cache.get(key)
         {
@@ -36389,14 +36403,12 @@ pub fn cn_soundarajan_hopcroft(
     let communities = community_keys_by_index(graph, community_attr);
     let mut result = Vec::with_capacity(ebunch.len());
     let mut scratch = CommonNeighborScratch::new(graph.node_count());
-    let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
-    let mut score_cache = LinkPredictionPairScoreCache::new(&mut endpoint_cache, ebunch);
-    for (u, v) in ebunch {
-        let u_idx = endpoint_cache.get(u.as_str());
-        let v_idx = endpoint_cache.get(v.as_str());
-        let key = u_idx
-            .zip(v_idx)
-            .map(|(ui, vi)| canonical_link_prediction_pair(ui, vi));
+    let endpoint_pairs = LinkPredictionEndpointPairs::new(graph, ebunch);
+    let mut score_cache = LinkPredictionPairScoreCache::new(&endpoint_pairs);
+    for (pair_index, (u, v)) in ebunch.iter().enumerate() {
+        let endpoint_pair = endpoint_pairs.get(pair_index);
+        let (u_idx, v_idx) = link_prediction_index_options(endpoint_pair);
+        let key = link_prediction_pair_key(endpoint_pair);
         let score = if let Some(key) = key
             && let Some(score) = score_cache.get(key)
         {
@@ -48712,6 +48724,41 @@ mod tests {
         assert_eq!(soundarajan[0].2.to_bits(), soundarajan[4].2.to_bits());
         assert_eq!(soundarajan[2].2, 0.0);
         assert_eq!(soundarajan[3].2, 0.0);
+    }
+
+    #[test]
+    fn link_prediction_endpoint_pair_slab_preserves_order_and_missing_endpoints() {
+        let mut g = Graph::strict();
+        let _ = g.add_node("u");
+        let _ = g.add_node("v");
+        let pairs = vec![
+            ("u".to_owned(), "v".to_owned()),
+            ("v".to_owned(), "u".to_owned()),
+            ("u".to_owned(), "missing".to_owned()),
+            ("missing".to_owned(), "v".to_owned()),
+            ("u".to_owned(), "u".to_owned()),
+        ];
+
+        let endpoint_pairs = LinkPredictionEndpointPairs::new(&g, &pairs);
+        let u_idx = g.get_node_index("u").expect("u exists");
+        let v_idx = g.get_node_index("v").expect("v exists");
+
+        assert_eq!(
+            endpoint_pairs.indices,
+            vec![
+                Some((u_idx, v_idx)),
+                Some((v_idx, u_idx)),
+                None,
+                None,
+                Some((u_idx, u_idx)),
+            ]
+        );
+        assert_eq!(
+            link_prediction_pair_key(endpoint_pairs.get(0)),
+            link_prediction_pair_key(endpoint_pairs.get(1))
+        );
+        assert_eq!(link_prediction_pair_key(endpoint_pairs.get(2)), None);
+        assert_eq!(link_prediction_pair_key(endpoint_pairs.get(3)), None);
     }
 
     #[test]
