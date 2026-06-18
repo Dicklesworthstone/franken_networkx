@@ -29,6 +29,19 @@ __all__ = list(
     or [name for name in dir(_nx_algorithms) if not name.startswith("_")]
 )
 
+# br-r37-c1-8wp6u: networkx.algorithms has no __all__, so the above falls to
+# dir(_nx_algorithms) — but that is captured before networkx lazily loads some
+# submodules (e.g. ``threshold``), leaving them out of __all__ and diverging
+# from nx's exports. Add every algorithms submodule explicitly so __all__ is
+# complete regardless of lazy-import timing.
+for _info in _pkgutil.iter_modules(_nx_algorithms.__path__):
+    if (
+        not _info.name.startswith("_")
+        and _info.name != "tests"
+        and _info.name not in __all__
+    ):
+        __all__.append(_info.name)
+
 
 _FNX_OVERRIDE_SUBMODULES = {
     "asteroidal",
