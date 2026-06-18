@@ -9,6 +9,7 @@ a degree sequence describes a tree (the upstream PR proposed a similar
 helper in networkx; not yet merged).
 
 br-r37-c1-r2n2h
+br-r37-c1-mffff
 """
 
 from __future__ import annotations
@@ -145,6 +146,25 @@ def test_is_valid_tree_degree_sequence_is_permutation_invariant(sequence):
 
     assert reversed_valid is expected_valid
     assert rotated_valid is expected_valid
+
+
+@pytest.mark.parametrize(
+    "sequence",
+    [
+        [0],
+        [1, 1],
+        [1, 2, 1],
+        [1, 2, 2, 1],
+        [3, 3, 1, 1, 1, 1],
+    ],
+)
+def test_degree_sequence_tree_realizes_valid_tree_sequences(sequence):
+    graph = fnx.degree_sequence_tree(sequence)
+
+    assert graph.number_of_nodes() == len(sequence)
+    assert graph.number_of_edges() == max(len(sequence) - 1, 0)
+    assert sorted((degree for _, degree in graph.degree())) == sorted(sequence)
+    assert fnx.is_tree(graph)
 
 
 def test_is_valid_tree_degree_sequence_returns_tuple_with_reason():
