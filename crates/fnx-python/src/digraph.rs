@@ -7632,28 +7632,19 @@ impl PyDiGraph {
     /// Convert to undirected PyGraph — merges parallel directed edges.
     fn to_undirected(&self, py: Python<'_>) -> PyResult<PyGraph> {
         let mut ug = PyGraph::new_empty_with_policy(py, self.inner.runtime_policy().clone())?;
-        // Copy nodes. br-r37-c1-tbh4q: build the Rust AttrMap and the Python
-        // mirror dict in a SINGLE dict pass via py_dict_to_attr_map_with_mirror,
-        // instead of py_dict_to_attr_map (pass 1) + a redundant dict.copy()
-        // (pass 2) plus a duplicate node_py_attrs lookup. The mirror is a
-        // shallow copy with contents/order identical to `.copy()`, so node
-        // attrs stay byte-identical — locked by
-        // tests/python/test_copy_family_conformance_guard.py +
-        // test_to_undirected_conformance_guard.py.
+        let mut needs_edge_attr_sync = false;
+        // br-r37-c1-tbh4q: this conversion is primarily a topology copy. Keep
+        // Python attr mirrors authoritative and defer Rust AttrMap materialization
+        // until a native read asks for it, instead of crossing every attr dict
+        // during construction.
         for (canonical, py_key) in &self.node_key_map {
+            ug.inner
+                .add_node_with_attrs(canonical.clone(), AttrMap::new());
             ug.node_key_map
                 .insert(canonical.clone(), py_key.clone_ref(py));
-            match self.node_py_attrs.get(canonical) {
-                Some(attrs) => {
-                    let (rust_attrs, mirror) =
-                        py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
-                    ug.inner.add_node_with_attrs(canonical.clone(), rust_attrs);
-                    ug.node_py_attrs.insert(canonical.clone(), mirror);
-                }
-                None => {
-                    ug.inner
-                        .add_node_with_attrs(canonical.clone(), AttrMap::new());
-                }
+            if let Some(attrs) = self.node_py_attrs.get(canonical) {
+                ug.node_py_attrs
+                    .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
             }
         }
         // br-r37-c1-78os5: copy edges in canonical node->successor order
@@ -7668,13 +7659,14 @@ impl PyDiGraph {
             let v = snapshot.right;
             let ek = PyGraph::edge_key(&u, &v);
             let src = self.edge_py_attrs.get(&(u.clone(), v.clone()));
-            // Inner: `add_edge_with_attrs` extends (updates) existing edge attrs,
-            // so node->successor order already yields nx's latter-wins merge.
-            let rust_attrs = match src {
-                Some(d) => py_dict_to_attr_map(d.bind(py))?,
-                None => AttrMap::new(),
-            };
-            let _ = ug.inner.add_edge_with_attrs(u, v, rust_attrs);
+            if let Some(d) = src {
+                if !d.bind(py).is_empty() {
+                    needs_edge_attr_sync = true;
+                }
+            }
+            // Inner topology only; Python side below keeps nx's latter-wins
+            // attr merge. Weighted native callers will sync from the mirrors.
+            let _ = ug.inner.add_edge_with_attrs(u, v, AttrMap::new());
             // Python side: latter wins -> update the existing undirected dict;
             // otherwise insert a fresh copy.
             match ug.edge_py_attrs.entry(ek) {
@@ -7694,6 +7686,9 @@ impl PyDiGraph {
                     entry.insert(copy);
                 }
             }
+        }
+        if needs_edge_attr_sync {
+            ug.mark_edges_dirty();
         }
         ug.graph_attrs = self.graph_attrs.bind(py).copy()?.unbind();
         Ok(ug)
