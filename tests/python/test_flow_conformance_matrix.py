@@ -13,6 +13,11 @@ import pytest
 import franken_networkx as fnx
 
 
+def _expect(condition, message):
+    if not condition:
+        raise AssertionError(message)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures — small directed capacity graphs
 # ---------------------------------------------------------------------------
@@ -122,11 +127,23 @@ def test_minimum_cut_partition_covers_all_nodes():
 def test_native_network_simplex_module_star_exports_only_port():
     import franken_networkx._network_simplex_native as native_network_simplex
 
-    assert native_network_simplex.__all__ == ["network_simplex"]
-    namespace = {}
-    exec("from franken_networkx._network_simplex_native import *", namespace)
-    assert namespace["network_simplex"] is native_network_simplex.network_simplex
-    assert "_FastG" not in namespace
+    exported = {
+        name: getattr(native_network_simplex, name)
+        for name in native_network_simplex.__all__
+    }
+
+    _expect(
+        native_network_simplex.__all__ == ["network_simplex"],
+        "_network_simplex_native must export only network_simplex",
+    )
+    _expect(
+        exported["network_simplex"] is native_network_simplex.network_simplex,
+        "_network_simplex_native network_simplex export must be the native port",
+    )
+    _expect(
+        "_FastG" not in native_network_simplex.__all__,
+        "_network_simplex_native __all__ must not expose _FastG",
+    )
 
 
 def test_network_simplex_diamond_matches_networkx():
@@ -156,9 +173,11 @@ def test_cost_of_flow_matches_networkx_on_network_simplex_output():
 def test_multidigraph_min_cost_flow_cost_family_matches_networkx():
     fg, ng = _multi_min_cost_demand()
 
-    _, f_flow = fnx.network_simplex(fg)
-    _, n_flow = nx.network_simplex(ng)
-    assert fnx.cost_of_flow(fg, f_flow) == nx.cost_of_flow(ng, n_flow)
+    f_cost, f_flow = fnx.network_simplex(fg)
+    n_cost, n_flow = nx.network_simplex(ng)
+    assert f_cost == n_cost
+    assert fnx.cost_of_flow(fg, f_flow) == n_cost
+    assert fnx.cost_of_flow(fg, n_flow) == n_cost
     assert fnx.min_cost_flow_cost(fg) == nx.min_cost_flow_cost(ng)
     assert fnx.network_simplex(fg) == nx.network_simplex(ng)
     assert fnx.capacity_scaling(fg) == nx.capacity_scaling(ng)
