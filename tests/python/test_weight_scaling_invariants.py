@@ -13,7 +13,8 @@ Adding the same constant to every edge leaves min/max spanning-tree and
 spanning-edge choices unchanged and shifts total tree weight by that constant
 times ``n - 1``.
 
-Negating every edge weight swaps minimum and maximum spanning-tree choices.
+Negating every edge weight swaps minimum and maximum spanning-tree and
+spanning-edge choices.
 
 These exercise the weighted code paths without any networkx oracle.
 
@@ -25,6 +26,7 @@ br-r37-c1-u1ot8
 br-r37-c1-fdti4
 br-r37-c1-rjwkl
 br-r37-c1-j9nsw
+br-r37-c1-sn94a
 """
 
 from __future__ import annotations
@@ -201,6 +203,32 @@ def test_negated_weights_swap_spanning_tree_extrema(seed):
     assert _edge_record_set(negated_max.edges(data=True)) == _edge_record_set(
         base_min.edges(data=True)
     )
+
+
+@pytest.mark.parametrize("algorithm", ["kruskal", "prim", "boruvka"])
+@pytest.mark.parametrize("seed", range(30))
+def test_negated_weights_swap_spanning_edge_iterator_extrema(algorithm, seed):
+    res = _connected_weighted(seed, distinct=True)
+    if res is None:
+        pytest.skip("disconnected")
+    g, _ = res
+    negated = _scaled(g, -1)
+
+    base_min = fnx.minimum_spanning_edges(
+        g, algorithm=algorithm, weight="weight", data=True
+    )
+    base_max = fnx.maximum_spanning_edges(
+        g, algorithm=algorithm, weight="weight", data=True
+    )
+    negated_min = fnx.minimum_spanning_edges(
+        negated, algorithm=algorithm, weight="weight", data=True
+    )
+    negated_max = fnx.maximum_spanning_edges(
+        negated, algorithm=algorithm, weight="weight", data=True
+    )
+
+    assert _edge_record_set(negated_min) == _edge_record_set(base_max)
+    assert _edge_record_set(negated_max) == _edge_record_set(base_min)
 
 
 @pytest.mark.parametrize("c", [2, 3, 7])
