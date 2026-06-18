@@ -20375,6 +20375,59 @@ struct CommonNeighborScratch {
     terms: Vec<f64>,
 }
 
+struct CommonNeighborWeightCache {
+    adamic: Vec<f64>,
+    row_resource: Vec<f64>,
+    degree_resource: Vec<f64>,
+}
+
+impl CommonNeighborWeightCache {
+    fn new(node_count: usize) -> Self {
+        Self {
+            adamic: vec![f64::NAN; node_count],
+            row_resource: vec![f64::NAN; node_count],
+            degree_resource: vec![f64::NAN; node_count],
+        }
+    }
+
+    fn adamic(&mut self, graph: &Graph, node_idx: usize) -> f64 {
+        let cached = self.adamic[node_idx];
+        if !cached.is_nan() {
+            return cached;
+        }
+        let deg = graph.neighbors_indices(node_idx).map_or(0, <[usize]>::len);
+        let score = if deg > 1 {
+            1.0 / (deg as f64).ln()
+        } else {
+            0.0
+        };
+        self.adamic[node_idx] = score;
+        score
+    }
+
+    fn row_resource(&mut self, graph: &Graph, node_idx: usize) -> f64 {
+        let cached = self.row_resource[node_idx];
+        if !cached.is_nan() {
+            return cached;
+        }
+        let deg = graph.neighbors_indices(node_idx).map_or(0, <[usize]>::len);
+        let score = if deg > 0 { 1.0 / deg as f64 } else { 0.0 };
+        self.row_resource[node_idx] = score;
+        score
+    }
+
+    fn degree_resource(&mut self, graph: &Graph, node_idx: usize) -> f64 {
+        let cached = self.degree_resource[node_idx];
+        if !cached.is_nan() {
+            return cached;
+        }
+        let deg = graph.degree_by_index(node_idx);
+        let score = if deg > 0 { 1.0 / deg as f64 } else { 0.0 };
+        self.degree_resource[node_idx] = score;
+        score
+    }
+}
+
 impl CommonNeighborScratch {
     fn new(node_count: usize) -> Self {
         Self {
@@ -20431,31 +20484,29 @@ impl CommonNeighborScratch {
         self.common.len()
     }
 
-    fn adamic_adar_score(&mut self, graph: &Graph) -> f64 {
+    fn adamic_adar_score(
+        &mut self,
+        graph: &Graph,
+        weights: &mut CommonNeighborWeightCache,
+    ) -> f64 {
         self.terms.clear();
         self.terms.reserve(self.common.len());
         for &w in &self.common {
-            let deg = graph.neighbors_indices(w).map_or(0, <[usize]>::len);
-            self.terms.push(if deg > 1 {
-                1.0 / (deg as f64).ln()
-            } else {
-                0.0
-            });
+            self.terms.push(weights.adamic(graph, w));
         }
         self.terms.sort_unstable_by(f64::total_cmp);
         self.terms.iter().sum()
     }
 
-    fn resource_allocation_score(&mut self, graph: &Graph) -> f64 {
+    fn resource_allocation_score(
+        &mut self,
+        graph: &Graph,
+        weights: &mut CommonNeighborWeightCache,
+    ) -> f64 {
         self.terms.clear();
         self.terms.reserve(self.common.len());
         for &w in &self.common {
-            let deg = graph.neighbors_indices(w).map_or(0, <[usize]>::len);
-            self.terms.push(if deg > 0 {
-                1.0 / deg as f64
-            } else {
-                0.0
-            });
+            self.terms.push(weights.row_resource(graph, w));
         }
         self.terms.sort_unstable_by(f64::total_cmp);
         self.terms.iter().sum()
@@ -20466,16 +20517,14 @@ impl CommonNeighborScratch {
         graph: &Graph,
         communities: &[Option<Cow<'_, str>>],
         target_community: Option<&Cow<'_, str>>,
+        weights: &mut CommonNeighborWeightCache,
     ) -> f64 {
         self.terms.clear();
         self.terms.reserve(self.common.len());
         for &w in &self.common {
             let w_comm = communities.get(w).and_then(Option::as_ref);
             if w_comm == target_community {
-                let deg_w = graph.degree_by_index(w);
-                if deg_w > 0 {
-                    self.terms.push(1.0 / deg_w as f64);
-                }
+                self.terms.push(weights.degree_resource(graph, w));
             }
         }
         self.terms.sort_unstable_by(f64::total_cmp);
@@ -20582,6 +20631,7 @@ pub fn jaccard_coefficient(
 #[must_use]
 pub fn adamic_adar_index(graph: &Graph, ebunch: &[(String, String)]) -> Vec<(String, String, f64)> {
     let mut scratch = CommonNeighborScratch::new(graph.node_count());
+    let mut weights = CommonNeighborWeightCache::new(graph.node_count());
     let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
     ebunch
         .iter()
@@ -20594,7 +20644,7 @@ pub fn adamic_adar_index(graph: &Graph, ebunch: &[(String, String)]) -> Vec<(Str
                 neighbor_indices_by_index_or_empty(graph, endpoint_cache.get(u.as_str())),
                 neighbor_indices_by_index_or_empty(graph, endpoint_cache.get(v.as_str())),
             );
-            let score = scratch.adamic_adar_score(graph);
+            let score = scratch.adamic_adar_score(graph, &mut weights);
             (u.clone(), v.clone(), score)
         })
         .collect()
@@ -20640,6 +20690,7 @@ pub fn resource_allocation_index(
     ebunch: &[(String, String)],
 ) -> Vec<(String, String, f64)> {
     let mut scratch = CommonNeighborScratch::new(graph.node_count());
+    let mut weights = CommonNeighborWeightCache::new(graph.node_count());
     let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
     ebunch
         .iter()
@@ -20649,7 +20700,7 @@ pub fn resource_allocation_index(
                 neighbor_indices_by_index_or_empty(graph, endpoint_cache.get(u.as_str())),
                 neighbor_indices_by_index_or_empty(graph, endpoint_cache.get(v.as_str())),
             );
-            let score = scratch.resource_allocation_score(graph);
+            let score = scratch.resource_allocation_score(graph, &mut weights);
             (u.clone(), v.clone(), score)
         })
         .collect()
@@ -35765,6 +35816,7 @@ pub fn ra_index_soundarajan_hopcroft(
     let communities = community_keys_by_index(graph, community_attr);
     let mut result = Vec::with_capacity(ebunch.len());
     let mut scratch = CommonNeighborScratch::new(graph.node_count());
+    let mut weights = CommonNeighborWeightCache::new(graph.node_count());
     let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
 
     for (u, v) in ebunch {
@@ -35780,7 +35832,7 @@ pub fn ra_index_soundarajan_hopcroft(
                 neighbor_indices_by_index_or_empty(graph, u_idx),
                 neighbor_indices_by_index_or_empty(graph, v_idx),
             );
-            score = scratch.soundarajan_resource_score(graph, &communities, u_comm);
+            score = scratch.soundarajan_resource_score(graph, &communities, u_comm, &mut weights);
         }
 
         result.push((u.clone(), v.clone(), score));
@@ -48421,6 +48473,60 @@ mod tests {
         assert_eq!(ra_soundarajan[0].2, ra_soundarajan[2].2);
         assert_eq!(ra_soundarajan[1].2, 0.0);
         assert_eq!(ra_soundarajan[3].2, 0.0);
+    }
+
+    #[test]
+    fn link_prediction_weight_cache_preserves_repeated_common_neighbor_scores() {
+        fn community_attrs(value: &str) -> AttrMap {
+            let mut attrs = AttrMap::new();
+            attrs.insert(
+                "community".to_owned(),
+                CgseValue::String(value.to_owned()),
+            );
+            attrs
+        }
+
+        let mut g = Graph::strict();
+        let _ = g.add_node_with_attrs("u", community_attrs("core"));
+        let _ = g.add_node_with_attrs("v", community_attrs("core"));
+        let _ = g.add_node_with_attrs("c0", community_attrs("core"));
+        let _ = g.add_node_with_attrs("c1", community_attrs("outer"));
+        let _ = g.add_edge("u", "c0");
+        let _ = g.add_edge("v", "c0");
+        let _ = g.add_edge("c0", "x0");
+        let _ = g.add_edge("c0", "x1");
+        let _ = g.add_edge("u", "c1");
+        let _ = g.add_edge("v", "c1");
+        let _ = g.add_edge("c1", "y0");
+        let pairs = vec![
+            ("u".to_owned(), "v".to_owned()),
+            ("u".to_owned(), "v".to_owned()),
+            ("u".to_owned(), "missing".to_owned()),
+            ("missing".to_owned(), "v".to_owned()),
+            ("u".to_owned(), "v".to_owned()),
+        ];
+
+        let expected_adamic = 1.0 / 4.0_f64.ln() + 1.0 / 3.0_f64.ln();
+        let adamic = adamic_adar_index(&g, &pairs);
+        assert!((adamic[0].2 - expected_adamic).abs() < TEST_TOLERANCE);
+        assert_eq!(adamic[0].2.to_bits(), adamic[1].2.to_bits());
+        assert_eq!(adamic[0].2.to_bits(), adamic[4].2.to_bits());
+        assert_eq!(adamic[2].2, 0.0);
+        assert_eq!(adamic[3].2, 0.0);
+
+        let resource = resource_allocation_index(&g, &pairs);
+        assert!((resource[0].2 - (1.0 / 4.0 + 1.0 / 3.0)).abs() < TEST_TOLERANCE);
+        assert_eq!(resource[0].2.to_bits(), resource[1].2.to_bits());
+        assert_eq!(resource[0].2.to_bits(), resource[4].2.to_bits());
+        assert_eq!(resource[2].2, 0.0);
+        assert_eq!(resource[3].2, 0.0);
+
+        let soundarajan = ra_index_soundarajan_hopcroft(&g, &pairs, "community");
+        assert!((soundarajan[0].2 - 0.25).abs() < TEST_TOLERANCE);
+        assert_eq!(soundarajan[0].2.to_bits(), soundarajan[1].2.to_bits());
+        assert_eq!(soundarajan[0].2.to_bits(), soundarajan[4].2.to_bits());
+        assert_eq!(soundarajan[2].2, 0.0);
+        assert_eq!(soundarajan[3].2, 0.0);
     }
 
     #[test]
