@@ -28,6 +28,22 @@ __all__ = list(
 )
 
 
+# br-r37-c1-2qsqf: ``from networkx.algorithms.bipartite import *`` above left
+# ``is_bipartite`` bound to networkx's implementation, so
+# ``fnx.bipartite.is_bipartite`` silently resolved to nx's instead of fnx's
+# native version. Route it to the fnx top-level function (the many bipartite
+# helpers below are already explicit overrides). Call-time reference keeps it
+# import-order robust.
+def is_bipartite(G, *, backend=None, **backend_kwargs):
+    """Return True if graph G is bipartite (fnx-native).
+
+    See ``networkx.algorithms.bipartite.is_bipartite`` for semantics.
+    """
+    import franken_networkx as _fnx_top
+
+    return _fnx_top.is_bipartite(G)
+
+
 def _matching_nx_view(B):
     """Lightweight fnx->nx conversion (nodes + edges, no attributes) for the
     bipartite matching algorithms, which only read adjacency.
