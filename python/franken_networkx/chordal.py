@@ -31,6 +31,40 @@ __all__ = list(
     )
 )
 
+# br-r37-c1-2qsqf: ``from networkx.algorithms.chordal import *`` above left these
+# chordal functions and the NetworkXTreewidthBoundExceeded exception bound to
+# networkx's objects, so ``fnx.chordal.is_chordal`` etc. silently resolved to
+# nx's instead of fnx's native versions. ``complete_to_chordal_graph`` already
+# overrides below; route the functions via call-time closure wrappers and the
+# exception class via direct hasattr-guarded alias (a closure would break
+# ``except fnx.chordal.NetworkXTreewidthBoundExceeded`` / isinstance).
+_FNX_NATIVE_CHORDAL_FUNCS = (
+    "is_chordal",
+    "find_induced_nodes",
+    "chordal_graph_cliques",
+    "chordal_graph_treewidth",
+)
+
+
+def _make_fnx_chordal_router(_fn_name):
+    def _routed(*args, **kwargs):
+        return getattr(_fnx, _fn_name)(*args, **kwargs)
+
+    _routed.__name__ = _fn_name
+    _routed.__qualname__ = _fn_name
+    _routed.__doc__ = (
+        f"Route to ``franken_networkx.{_fn_name}`` (fnx-native). See "
+        f"``networkx.algorithms.chordal.{_fn_name}`` for semantics."
+    )
+    return _routed
+
+
+for _name in _FNX_NATIVE_CHORDAL_FUNCS:
+    globals()[_name] = _make_fnx_chordal_router(_name)
+
+if hasattr(_fnx, "NetworkXTreewidthBoundExceeded"):
+    NetworkXTreewidthBoundExceeded = _fnx.NetworkXTreewidthBoundExceeded
+
 
 def complete_to_chordal_graph(G, *, backend=None, **backend_kwargs):
     """Return a chordal completion of G and the added fill-in edges.
