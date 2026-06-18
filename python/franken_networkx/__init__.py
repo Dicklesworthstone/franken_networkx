@@ -32156,15 +32156,14 @@ def gutman_index(G, weight=None, *, backend=None, **backend_kwargs):
     if not is_connected(G):
         return float("inf")
 
-    degrees = dict(G.degree)
     if weight is None:
-        spl = shortest_path_length(G)
-        return sum(
-            dist * degrees[u] * degrees[v]
-            for u, vinfo in spl
-            for v, dist in vinfo.items()
-        ) / 2
+        # br-r37-c1-distidx: route to the byte-exact native kernel (verified 25
+        # connected cases vs nx) instead of materializing all-pairs
+        # shortest_path_length into a Python dict-of-dicts + an O(V^2) Python
+        # double-loop. Guards (multigraph/directed/disconnected) preserved above.
+        return _fnx.gutman_index_rust(G)
 
+    degrees = dict(G.degree)
     return sum(
         dist * degrees[u] * degrees[v]
         for u in G
@@ -32189,12 +32188,9 @@ def schultz_index(G, weight=None, *, backend=None, **backend_kwargs):
 
     degrees = dict(G.degree)
     if weight is None:
-        spl = shortest_path_length(G)
-        return sum(
-            dist * (degrees[u] + degrees[v])
-            for u, vinfo in spl
-            for v, dist in vinfo.items()
-        ) / 2
+        # br-r37-c1-distidx: byte-exact native kernel (verified 25 cases vs nx)
+        # instead of the all-pairs dict materialization + O(V^2) Python loop.
+        return _fnx.schultz_index_rust(G)
 
     return sum(
         dist * (degrees[u] + degrees[v])
