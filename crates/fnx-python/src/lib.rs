@@ -3218,30 +3218,35 @@ impl PyMultiGraph {
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
             } else if let Ok(other) = data.extract::<PyRef<'_, PyGraph>>() {
                 g.inner = MultiGraph::with_runtime_policy(other.inner.runtime_policy().clone());
+                // br-r37-c1-tbh4q: single-pass attr crossing (with_mirror) on the
+                // MultiGraph(PyGraph) absorb — no reciprocal merge (each node/edge
+                // appears once), mirror is byte-identical to .copy().
                 for canonical in other.inner.nodes_ordered() {
-                    let rust_attrs = other
-                        .node_py_attrs
-                        .get(canonical)
-                        .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
-                        .transpose()?
-                        .unwrap_or_default();
-                    g.inner
-                        .add_node_with_attrs(canonical.to_owned(), rust_attrs);
                     g.node_key_map
                         .insert(canonical.to_owned(), other.py_node_key(py, canonical));
-                    if let Some(attrs) = other.node_py_attrs.get(canonical) {
-                        g.node_py_attrs
-                            .insert(canonical.to_owned(), attrs.bind(py).copy()?.unbind());
+                    match other.node_py_attrs.get(canonical) {
+                        Some(attrs) => {
+                            let (rust_attrs, mirror) =
+                                py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+                            g.inner
+                                .add_node_with_attrs(canonical.to_owned(), rust_attrs);
+                            g.node_py_attrs.insert(canonical.to_owned(), mirror);
+                        }
+                        None => {
+                            g.inner
+                                .add_node_with_attrs(canonical.to_owned(), AttrMap::new());
+                        }
                     }
                 }
                 for edge in other.inner.edges_ordered() {
                     let ek = PyGraph::edge_key(&edge.left, &edge.right);
-                    let rust_attrs = other
-                        .edge_py_attrs
-                        .get(&ek)
-                        .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
-                        .transpose()?
-                        .unwrap_or_default();
+                    let (rust_attrs, mirror) = match other.edge_py_attrs.get(&ek) {
+                        Some(attrs) => {
+                            let (r, m) = py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+                            (r, Some(m))
+                        }
+                        None => (AttrMap::new(), None),
+                    };
                     let key = g
                         .inner
                         .add_edge_with_key_and_attrs(
@@ -3251,11 +3256,9 @@ impl PyMultiGraph {
                             rust_attrs,
                         )
                         .map_err(|e| NetworkXError::new_err(e.to_string()))?;
-                    if let Some(attrs) = other.edge_py_attrs.get(&ek) {
-                        g.edge_py_attrs.insert(
-                            Self::edge_key(&edge.left, &edge.right, key),
-                            attrs.bind(py).copy()?.unbind(),
-                        );
+                    if let Some(mirror) = mirror {
+                        g.edge_py_attrs
+                            .insert(Self::edge_key(&edge.left, &edge.right, key), mirror);
                     }
                     g.remember_edge_key(py, &edge.left, &edge.right, key, None);
                 }
