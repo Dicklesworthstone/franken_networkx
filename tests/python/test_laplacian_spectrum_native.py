@@ -8,9 +8,17 @@ import franken_networkx as fnx
     "fn_name",
     ["directed_laplacian_matrix", "directed_combinatorial_laplacian_matrix"],
 )
-def test_directed_laplacian_multigraph_guard_order_matches_networkx(fn_name):
-    Gf = fnx.MultiGraph([(0, 1)])
-    Gn = nx.MultiGraph([(0, 1)])
+@pytest.mark.parametrize(
+    "fnx_cls,nx_cls",
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_directed_laplacian_guard_order_matches_networkx(fn_name, fnx_cls, nx_cls):
+    Gf = fnx_cls([(0, 1)])
+    Gn = nx_cls([(0, 1)])
 
     with pytest.raises(nx.NetworkXNotImplemented) as fnx_exc:
         getattr(fnx, fn_name)(Gf)
@@ -244,7 +252,10 @@ def test_unweighted_path_normalized_laplacian_closed_form_matches_nx():
     assert fr.dtype == np.float64
     assert np.allclose(np.sort(fr), np.sort(nr))
     assert np.allclose(fr, expected)
-    assert np.signbit(fr[0]) == np.signbit(expected[0])
+    actual_signbit = bool(np.signbit(fr[0]))
+    expected_signbit = bool(np.signbit(expected[0]))
+    if actual_signbit is not expected_signbit:
+        raise AssertionError("path normalized laplacian zero sign diverged")
 
 
 def test_weighted_path_normalized_laplacian_stays_on_weighted_route():
