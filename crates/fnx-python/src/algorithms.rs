@@ -7675,7 +7675,7 @@ pub fn bfs_edges(
     if !gr.has_node(&source_key) {
         return Err(NodeNotFound::new_err(format!(
             "The node {} is not in the graph.",
-            source.repr()?
+            source.str()?
         )));
     }
 
@@ -7785,7 +7785,7 @@ pub fn bfs_tree(
     if !gr.has_node(&source_key) {
         return Err(NodeNotFound::new_err(format!(
             "The node {} is not in the graph.",
-            source.repr()?
+            source.str()?
         )));
     }
 
@@ -7917,7 +7917,7 @@ pub fn bfs_predecessors(
     if !gr.has_node(&source_key) {
         return Err(NodeNotFound::new_err(format!(
             "The node {} is not in the graph.",
-            source.repr()?
+            source.str()?
         )));
     }
 
@@ -7995,7 +7995,7 @@ pub fn bfs_successors(
     if !gr.has_node(&source_key) {
         return Err(NodeNotFound::new_err(format!(
             "The node {} is not in the graph.",
-            source.repr()?
+            source.str()?
         )));
     }
 
@@ -8125,7 +8125,7 @@ pub fn bfs_layers(
                 // nx raises NetworkXError (not NodeNotFound) here.
                 return Err(NetworkXError::new_err(format!(
                     "The node {} is not in the graph.",
-                    item.repr()?
+                    item.str()?
                 )));
             }
             seeds.entry(k.clone()).or_insert_with(|| item.unbind());
@@ -8146,7 +8146,7 @@ pub fn bfs_layers(
 
     Err(NodeNotFound::new_err(format!(
         "The node {} is not in the graph.",
-        sources.repr()?
+        sources.str()?
     )))
 }
 
@@ -8163,7 +8163,7 @@ pub fn descendants_at_distance(
     if !gr.has_node(&source_key) {
         return Err(NodeNotFound::new_err(format!(
             "The node {} is not in the graph.",
-            source.repr()?
+            source.str()?
         )));
     }
 

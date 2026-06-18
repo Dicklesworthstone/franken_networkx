@@ -156,6 +156,63 @@ def test_raw_ancestors_descendants_missing_string_node_message_matches_public_an
         assert str(nx_exc.value) == expected
 
 
+def test_raw_bfs_missing_string_source_message_matches_public_and_nx():
+    fg = fnx.path_graph(["a", "b"])
+    ng = nx.path_graph(["a", "b"])
+    expected = "The node missing is not in the graph."
+
+    cases = [
+        (
+            fnx.NodeNotFound,
+            lambda: fnx._bfs_edges_raw(fg, "missing"),
+            lambda: list(fnx.bfs_edges(fg, "missing")),
+            lambda: list(nx.bfs_edges(ng, "missing")),
+        ),
+        (
+            fnx.NodeNotFound,
+            lambda: fnx._bfs_tree_raw(fg, "missing"),
+            lambda: fnx.bfs_tree(fg, "missing"),
+            lambda: nx.bfs_tree(ng, "missing"),
+        ),
+        (
+            fnx.NodeNotFound,
+            lambda: fnx._bfs_predecessors_raw(fg, "missing"),
+            lambda: list(fnx.bfs_predecessors(fg, "missing")),
+            lambda: list(nx.bfs_predecessors(ng, "missing")),
+        ),
+        (
+            fnx.NodeNotFound,
+            lambda: fnx._bfs_successors_raw(fg, "missing"),
+            lambda: list(fnx.bfs_successors(fg, "missing")),
+            lambda: list(nx.bfs_successors(ng, "missing")),
+        ),
+        (
+            fnx.NetworkXError,
+            lambda: fnx._bfs_layers_raw(fg, ["missing"]),
+            lambda: list(fnx.bfs_layers(fg, ["missing"])),
+            lambda: list(nx.bfs_layers(ng, ["missing"])),
+        ),
+        (
+            fnx.NodeNotFound,
+            lambda: fnx._raw_descendants_at_distance(fg, "missing", 1),
+            lambda: fnx.descendants_at_distance(fg, "missing", 1),
+            lambda: nx.descendants_at_distance(ng, "missing", 1),
+        ),
+    ]
+
+    for raw_error, raw_call, public_call, nx_call in cases:
+        with pytest.raises(raw_error) as raw_exc:
+            raw_call()
+        with pytest.raises(fnx.NetworkXError) as public_exc:
+            public_call()
+        with pytest.raises(nx.NetworkXError) as nx_exc:
+            nx_call()
+
+        assert str(raw_exc.value) == expected
+        assert str(public_exc.value) == expected
+        assert str(nx_exc.value) == expected
+
+
 @pytest.mark.parametrize(
     "fn_name",
     [
