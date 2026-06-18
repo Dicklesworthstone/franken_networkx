@@ -8,11 +8,14 @@ networkx with metamorphic checks:
 * the Erdős–Gallai and Havel–Hakimi validity tests are equivalent theorems,
   so they must agree (and agree with ``is_graphical``)
 * ``havel_hakimi_graph`` must realize exactly the requested degree sequence
+* a bounded degree sequence is graphical iff its complement sequence is
+  graphical
 * the complement of a realization must have degree sequence
   ``n - 1 - d`` and the complementary edge count
 
 br-r37-c1-xy5mv
 br-r37-c1-clzp1
+br-r37-c1-fmjj4
 """
 
 from __future__ import annotations
@@ -47,6 +50,27 @@ def test_havel_hakimi_graph_realizes_sequence(seed):
         pytest.skip("not graphical")
     h = fnx.havel_hakimi_graph(seq)
     assert sorted((d for _, d in h.degree()), reverse=True) == seq
+
+
+@pytest.mark.parametrize("seed", range(80))
+def test_graphicality_is_invariant_under_complement_sequence(seed):
+    rng = random.Random(seed * 19 + 11)
+    n = rng.randint(3, 10)
+    seq = [rng.randint(0, n - 1) for _ in range(n)]
+    complement_seq = [n - 1 - degree for degree in seq]
+
+    assert fnx.is_graphical(seq, method="eg") == fnx.is_graphical(
+        complement_seq, method="eg"
+    )
+    assert fnx.is_graphical(seq, method="hh") == fnx.is_graphical(
+        complement_seq, method="hh"
+    )
+    assert fnx.is_valid_degree_sequence_erdos_gallai(
+        seq
+    ) == fnx.is_valid_degree_sequence_erdos_gallai(complement_seq)
+    assert fnx.is_valid_degree_sequence_havel_hakimi(
+        seq
+    ) == fnx.is_valid_degree_sequence_havel_hakimi(complement_seq)
 
 
 @pytest.mark.parametrize("seed", range(50))
