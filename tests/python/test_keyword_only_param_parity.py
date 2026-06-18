@@ -101,6 +101,11 @@ def test_swap_directed_edge_swap_param_kind_matches_networkx():
 
 
 @needs_nx
+def test_swap_module_public_surface_matches_networkx():
+    assert set(fnx_swap.__all__) == set(nx.algorithms.swap.__all__)
+
+
+@needs_nx
 def test_swap_directed_edge_swap_rejects_positional_nswap():
     G = fnx.DiGraph()
     G.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 0)])

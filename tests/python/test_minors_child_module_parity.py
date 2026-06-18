@@ -16,6 +16,13 @@ def test_algorithms_minors_contraction_submodule_imports_like_networkx():
     assert actual is expected
 
 
+def test_minors_module_public_surface_matches_networkx():
+    actual = importlib.import_module("franken_networkx.minors")
+    expected = importlib.import_module("networkx.algorithms.minors")
+
+    assert set(actual.__all__) == set(expected.__all__)
+
+
 def test_algorithms_minors_from_import_exposes_contraction_module():
     from franken_networkx.algorithms.minors import contraction
 

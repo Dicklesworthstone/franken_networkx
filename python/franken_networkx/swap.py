@@ -18,6 +18,14 @@ import networkx.algorithms.swap as _nx_swap
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
 
+__all__ = list(
+    getattr(
+        _nx_swap,
+        "__all__",
+        ("double_edge_swap", "connected_double_edge_swap", "directed_edge_swap"),
+    )
+)
+
 
 def double_edge_swap(G, nswap=1, max_tries=100, seed=None, *, backend=None, **backend_kwargs):
     """Swap two edges in the graph while keeping the node degrees fixed.

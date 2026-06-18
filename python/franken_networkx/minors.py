@@ -20,6 +20,20 @@ import networkx.algorithms.minors as _nx_minors
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
 
+__all__ = list(
+    getattr(
+        _nx_minors,
+        "__all__",
+        (
+            "contracted_edge",
+            "contracted_nodes",
+            "equivalence_classes",
+            "identified_nodes",
+            "quotient_graph",
+        ),
+    )
+)
+
 
 def quotient_graph(
     G,
