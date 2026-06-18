@@ -3,11 +3,19 @@ is_maximal_matching / is_perfect_matching), max/min weight matching,
 seeded small-world metrics (sigma/omega), k-edge-connectivity. Zero
 divergences.
 """
+import importlib
 import random
 
 import networkx as nx
 
 import franken_networkx as fnx
+
+
+def test_smallworld_module_public_surface_matches_networkx():
+    module = importlib.import_module("franken_networkx.smallworld")
+    expected = importlib.import_module("networkx.algorithms.smallworld")
+
+    assert set(module.__all__) == set(expected.__all__)
 
 
 def _mk():

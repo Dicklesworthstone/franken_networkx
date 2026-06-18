@@ -28,6 +28,14 @@ from franken_networkx.readwrite import _from_nx_graph
 # (this mirrors how ``check_planarity`` is surfaced via the star import).
 check_planarity_recursive = _nx_planarity.check_planarity_recursive
 
+__all__ = list(
+    getattr(
+        _nx_planarity,
+        "__all__",
+        ("check_planarity", "is_planar", "PlanarEmbedding"),
+    )
+)
+
 
 def get_counterexample(G, *, backend=None, **backend_kwargs):
     """Obtains a Kuratowski subgraph.

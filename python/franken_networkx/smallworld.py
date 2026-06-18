@@ -18,6 +18,14 @@ import networkx.algorithms.smallworld as _nx_smallworld
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
 
+__all__ = list(
+    getattr(
+        _nx_smallworld,
+        "__all__",
+        ("random_reference", "lattice_reference", "sigma", "omega"),
+    )
+)
+
 
 def random_reference(G, niter=1, connectivity=True, seed=None, *, backend=None, **backend_kwargs):
     """Compute a random graph by swapping edges of a given graph.

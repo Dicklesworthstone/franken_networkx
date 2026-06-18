@@ -27,6 +27,7 @@ distribution is the same up to sign and that values sum to 1
 
 from __future__ import annotations
 
+import importlib
 import math
 
 import networkx as nx
@@ -34,6 +35,13 @@ import numpy as np
 import pytest
 
 import franken_networkx as fnx
+
+
+def test_summarization_module_public_surface_matches_networkx():
+    module = importlib.import_module("franken_networkx.summarization")
+    expected = importlib.import_module("networkx.algorithms.summarization")
+
+    assert set(module.__all__) == set(expected.__all__)
 
 
 def _close(a, b, *, tol=1e-6):

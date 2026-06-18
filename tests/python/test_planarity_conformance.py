@@ -28,6 +28,7 @@ Asserts:
 
 from __future__ import annotations
 
+import importlib
 import itertools
 import warnings
 
@@ -38,6 +39,13 @@ from networkx.algorithms.planarity import (
 )
 
 import franken_networkx as fnx
+
+
+def test_planarity_module_public_surface_matches_networkx():
+    module = importlib.import_module("franken_networkx.planarity")
+    expected = importlib.import_module("networkx.algorithms.planarity")
+
+    assert set(module.__all__) == set(expected.__all__)
 
 
 def _pair(edges, nodes=None):

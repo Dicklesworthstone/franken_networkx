@@ -17,6 +17,14 @@ import networkx.algorithms.triads as _nx_triads
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
 
+__all__ = list(
+    getattr(
+        _nx_triads,
+        "__all__",
+        ("triadic_census", "is_triad", "all_triads", "triads_by_type", "triad_type"),
+    )
+)
+
 
 def all_triads(G, *, backend=None, **backend_kwargs):
     """Generate all possible triads in G.

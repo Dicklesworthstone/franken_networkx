@@ -28,6 +28,7 @@ Tournament family covered:
 
 from __future__ import annotations
 
+import importlib
 import itertools
 import warnings
 
@@ -36,6 +37,13 @@ import networkx as nx
 from networkx.algorithms import tournament as nx_tournament
 
 import franken_networkx as fnx
+
+
+def test_triads_module_public_surface_matches_networkx():
+    module = importlib.import_module("franken_networkx.triads")
+    expected = importlib.import_module("networkx.algorithms.triads")
+
+    assert set(module.__all__) == set(expected.__all__)
 
 
 def _pair_directed(edges, nodes=None):

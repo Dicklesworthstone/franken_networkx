@@ -18,6 +18,14 @@ import networkx.algorithms.summarization as _nx_summarization
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
 
+__all__ = list(
+    getattr(
+        _nx_summarization,
+        "__all__",
+        ("dedensify", "snap_aggregation"),
+    )
+)
+
 
 def dedensify(G, threshold, prefix=None, copy=True, *, backend=None, **backend_kwargs):
     """Compresses neighborhoods around high-degree nodes.
