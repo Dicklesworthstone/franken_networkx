@@ -12062,6 +12062,23 @@ def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     elif _has_nan_or_inf_edge_weight(G, weight):
         return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
     result = _raw_minimum_spanning_tree(G, weight=weight)
+    # br-r37-c1-esr5k: for graphs built via ``add_nodes_from(range(n))`` (lazy
+    # int display keys) the _raw_minimum_spanning_tree kernel can emit CANONICAL
+    # STRING node keys ('0','1',...) instead of the original ints, changing the
+    # node-label TYPE vs nx (edge set + weights are correct). Every sibling
+    # native algo (k_truss/condensation/complement/...) and minimum_spanning_edges
+    # preserve the real node objects, so rebuild the tree from G's actual nodes
+    # and the result's edges re-keyed by str-identity. Guarded so it is a no-op
+    # whenever the kernel already returns the correct node objects.
+    if any(_n not in G for _n in result):
+        _node_by_str = {str(_n): _n for _n in G}
+        _fixed = Graph()
+        _fixed.add_nodes_from(G.nodes(data=True))
+        for _u, _v, _d in result.edges(data=True):
+            _fixed.add_edge(
+                _node_by_str.get(str(_u), _u), _node_by_str.get(str(_v), _v), **_d
+            )
+        result = _fixed
     # br-r37-c1-mstminattr: the native binding preserves edge attrs + node
     # identity but NOT graph-level or node attributes; nx's minimum_spanning_tree
     # copies G.graph and every node's data (and the _from_nx_graph parity path it
