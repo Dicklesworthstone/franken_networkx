@@ -12963,7 +12963,10 @@ def dominating_set(G, start_with=None):
     # nx's). Compute nx's exact default seed and reuse the matching greedy
     # below so the chosen set is identical. (Empty graph keeps fnx's set()
     # return rather than nx's StopIteration leak.)
-    if start_with is None and not G.is_directed() and len(G) > 0:
+    # br-r37-c1-04z53: the same greedy is valid for directed graphs because
+    # ``G[v]`` iterates successors, matching nx. Only empty directed graphs
+    # still use the parity fallback below to preserve the prior exception.
+    if start_with is None and len(G) > 0:
         start_with = next(iter(set(G)))
     if start_with is not None:
         if start_with not in G:

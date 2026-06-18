@@ -45,6 +45,17 @@ def test_dominating_set_digraph_cycle():
     assert fnx.dominating_set(fg) == nx.dominating_set(ng)
 
 
+def test_dominating_set_plain_digraph_default_stays_local(monkeypatch):
+    graph = _build(fnx.DiGraph, [(0, 1), (1, 2), (2, 3)])
+
+    def fail_parity_fallback(*args, **kwargs):
+        raise AssertionError("plain DiGraph dominating_set should not delegate")
+
+    monkeypatch.setattr(fnx, "_call_networkx_for_parity", fail_parity_fallback)
+
+    assert fnx.dominating_set(graph) == {0, 2}
+
+
 @needs_nx
 def test_dominating_set_multidigraph():
     edges = [(0, 1), (1, 2)]
