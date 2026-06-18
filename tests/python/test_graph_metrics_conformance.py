@@ -159,6 +159,40 @@ def test_edge_boundary_weighted_data_matches_networkx():
     assert fr == nr
 
 
+def test_boundary_overlap_metrics_match_networkx_without_fallback(monkeypatch):
+    undirected_edges = [("a", "b"), ("b", "c"), ("c", "d"), ("b", "d")]
+    fg = fnx.Graph()
+    ng = nx.Graph()
+    fg.add_edges_from(undirected_edges)
+    ng.add_edges_from(undirected_edges)
+    S = {"a", "b", "c"}
+    T = {"b", "c", "d"}
+    expected_boundary = list(nx.edge_boundary(ng, S, T))
+    expected_cut = nx.cut_size(ng, S, T)
+    expected_normalized = nx.normalized_cut_size(ng, S, T)
+
+    directed_edges = [("a", "b"), ("b", "a"), ("b", "b"), ("b", "c")]
+    fd = fnx.DiGraph()
+    nd = nx.DiGraph()
+    fd.add_edges_from(directed_edges)
+    nd.add_edges_from(directed_edges)
+    directed_S = {"a", "b"}
+    directed_T = {"b", "c"}
+    expected_directed_boundary = list(nx.edge_boundary(nd, directed_S, directed_T))
+    expected_directed_cut = nx.cut_size(nd, directed_S, directed_T)
+
+    def fail_fallback(*args, **kwargs):
+        raise AssertionError("overlapping boundary/cut path should stay native")
+
+    monkeypatch.setattr(fnx, "_call_networkx_for_parity", fail_fallback)
+
+    assert list(fnx.edge_boundary(fg, S, T)) == expected_boundary
+    assert _equiv(fnx.cut_size(fg, S, T), expected_cut)
+    assert _equiv(fnx.normalized_cut_size(fg, S, T), expected_normalized)
+    assert list(fnx.edge_boundary(fd, directed_S, directed_T)) == expected_directed_boundary
+    assert _equiv(fnx.cut_size(fd, directed_S, directed_T), expected_directed_cut)
+
+
 # ---------------------------------------------------------------------------
 # cuts — cut_size, volume, normalized_cut_size, conductance, expansions
 # ---------------------------------------------------------------------------

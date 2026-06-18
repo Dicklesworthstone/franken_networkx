@@ -16159,13 +16159,6 @@ def cut_size(G, S, T=None, weight=None):
 
     S_nb = _coerce_nbunch(S)
     T_nb = _coerce_nbunch(T)
-    # br-r37-c1-dy93n: _raw_cut_size shares edge_boundary's strict-boundary
-    # bug (br-r37-c1-dhi0m) — it computes the boundary with the other endpoint
-    # NOT in S, then filters by T, undercounting when S and T overlap. nx
-    # counts an edge whenever one endpoint is in S and the other in T (overlap
-    # included). Delegate the overlapping case; disjoint / T-None stay native.
-    if T_nb is not None and not set(S_nb).isdisjoint(T_nb):
-        return _call_networkx_for_parity("cut_size", G, S, T=T, weight=weight)
     raw = _raw_cut_size(G, S_nb, T_nb, weight=weight)
     if weight is None or _sp_edge_weights_all_int(G, weight):
         # Result is necessarily an integer (edge _count or sum of int
@@ -16190,12 +16183,6 @@ def normalized_cut_size(G, S, T=None, weight=None):
         )
     S_nb = _coerce_nbunch(S)
     T_nb = _coerce_nbunch(T)
-    # br-r37-c1-dy93n: same overlap bug as cut_size — the native kernel
-    # undercounts S↔T crossing edges when S and T overlap. Delegate that case.
-    if T_nb is not None and not set(S_nb).isdisjoint(T_nb):
-        return _call_networkx_for_parity(
-            "normalized_cut_size", G, S, T=T, weight=weight,
-        )
     return _raw_normalized_cut_size(G, S_nb, T_nb, weight=weight)
 
 
@@ -16229,17 +16216,6 @@ def edge_boundary(G, nbunch1, nbunch2=None, data=False, keys=False, default=None
     G = _coerce_arg_to_fnx_graph(G)
     nb1 = _coerce_nbunch(nbunch1)
     nb2 = _coerce_nbunch(nbunch2)
-    # br-r37-c1-dhi0m: the native _raw_edge_boundary computes the STRICT
-    # boundary (other endpoint NOT in nbunch1) and then filters by nbunch2.
-    # That drops edges when nbunch1 and nbunch2 OVERLAP — nx counts an edge
-    # whenever one endpoint is in nbunch1 and the other in nbunch2, even if
-    # both endpoints lie in the overlap. Delegate that (rare) case to nx for
-    # exact parity; the disjoint / nbunch2-None paths stay on the kernel.
-    if nb2 is not None and not set(nb1).isdisjoint(nb2):
-        yield from _call_networkx_for_parity(
-            "edge_boundary", G, nb1, nb2, data=data, keys=keys, default=default
-        )
-        return
     if data is False and not keys and default is None and not G.is_multigraph():
         yield from _raw_edge_boundary(G, nb1, nb2)
         return

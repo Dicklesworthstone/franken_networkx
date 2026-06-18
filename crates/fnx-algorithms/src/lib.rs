@@ -24094,9 +24094,13 @@ pub fn number_of_isolates_directed(graph: &DiGraph) -> usize {
 // Boundary
 // ---------------------------------------------------------------------------
 
-/// Return the set of edges with one endpoint in `nbunch1` and the other not.
-/// Each edge is (u, v) where u is in nbunch1.
-/// If `nbunch2` is provided, only edges to nodes in nbunch2 are returned.
+/// Return the set of edges with one endpoint in `nbunch1` and the other in
+/// `nbunch2`.
+///
+/// If `nbunch2` is omitted, it is treated as the complement of `nbunch1`.
+/// If `nbunch2` is provided, it may overlap `nbunch1`; matching NetworkX,
+/// every edge with one endpoint in `nbunch1` and the other in `nbunch2` is
+/// returned once.
 #[must_use]
 pub fn edge_boundary(
     graph: &Graph,
@@ -24104,18 +24108,24 @@ pub fn edge_boundary(
     nbunch2: Option<&[&str]>,
 ) -> Vec<(String, String)> {
     let set1: HashSet<&str> = nbunch1.iter().copied().collect();
-    let set2: Option<HashSet<&str>> = nbunch2.map(|s| s.iter().copied().collect());
+    if let Some(nodes2) = nbunch2 {
+        let set2 = nodes2.iter().copied().collect::<HashSet<&str>>();
+        let mut result = Vec::new();
+        for (left, right, _) in graph.edges_ordered_borrowed() {
+            if (set1.contains(left) && set2.contains(right))
+                || (set1.contains(right) && set2.contains(left))
+            {
+                result.push((left.to_string(), right.to_string()));
+            }
+        }
+        return result;
+    }
 
     let mut result = Vec::new();
     for &node in nbunch1 {
         if let Some(nbrs) = graph.neighbors(node) {
             for &nbr in &nbrs {
                 if set1.contains(nbr) {
-                    continue;
-                }
-                if let Some(ref s2) = set2
-                    && !s2.contains(nbr)
-                {
                     continue;
                 }
                 result.push((node.to_string(), nbr.to_string()));
@@ -24195,12 +24205,11 @@ pub fn edge_boundary_directed(
     for &node in nbunch1 {
         if let Some(succs) = graph.successors(node) {
             for &succ in &succs {
-                if set1.contains(succ) {
-                    continue;
-                }
-                if let Some(ref s2) = set2
-                    && !s2.contains(succ)
-                {
+                if let Some(ref s2) = set2 {
+                    if !s2.contains(succ) {
+                        continue;
+                    }
+                } else if set1.contains(succ) {
                     continue;
                 }
                 result.push((node.to_string(), succ.to_string()));
@@ -50379,6 +50388,25 @@ mod tests {
     }
 
     #[test]
+    fn test_edge_boundary_with_overlapping_nbunch2() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "d");
+        let _ = g.add_edge("b", "d");
+        let eb = edge_boundary(&g, &["a", "b", "c"], Some(&["b", "c", "d"]));
+        assert_eq!(
+            eb,
+            vec![
+                ("a".to_string(), "b".to_string()),
+                ("b".to_string(), "c".to_string()),
+                ("b".to_string(), "d".to_string()),
+                ("c".to_string(), "d".to_string()),
+            ],
+        );
+    }
+
+    #[test]
     fn test_node_boundary() {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
@@ -50396,6 +50424,24 @@ mod tests {
         let _ = g.add_edge("c", "a");
         let eb = edge_boundary_directed(&g, &["a"], None);
         assert_eq!(eb, vec![("a".to_string(), "b".to_string())]);
+    }
+
+    #[test]
+    fn test_edge_boundary_directed_with_overlapping_nbunch2() {
+        let mut g = DiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "a");
+        let _ = g.add_edge("b", "b");
+        let _ = g.add_edge("b", "c");
+        let eb = edge_boundary_directed(&g, &["a", "b"], Some(&["b", "c"]));
+        assert_eq!(
+            eb,
+            vec![
+                ("a".to_string(), "b".to_string()),
+                ("b".to_string(), "b".to_string()),
+                ("b".to_string(), "c".to_string()),
+            ],
+        );
     }
 
     #[test]
@@ -52931,6 +52977,17 @@ mod tests {
         let _ = g.add_edge("b", "c");
         let _ = g.add_edge("c", "d");
         assert!((cut_size(&g, &["a", "b"], None, None) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_cut_size_counts_overlapping_partitions() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "d");
+        let _ = g.add_edge("b", "d");
+        let cut = cut_size(&g, &["a", "b", "c"], Some(&["b", "c", "d"]), None);
+        assert!((cut - 4.0).abs() < 1e-9);
     }
 
     #[test]
