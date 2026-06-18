@@ -78,23 +78,27 @@ def test_structuralholes_measures_match_networkx():
     )
 
 
-@pytest.mark.parametrize(
-    ("u", "v"),
-    [
-        ("missing", 1),
-        (1, "missing"),
-    ],
-)
-def test_local_constraint_digraph_missing_node_message_matches_networkx(u, v):
+def test_local_constraint_digraph_missing_u_message_matches_networkx():
     module = importlib.import_module("franken_networkx.structuralholes")
     fnx_graph = fnx.DiGraph([(0, 1)])
     nx_graph = nx.DiGraph([(0, 1)])
 
     with pytest.raises(nx.NetworkXError) as fnx_exc:
-        module.local_constraint(fnx_graph, u, v)
+        module.local_constraint(fnx_graph, "missing", 1)
     with pytest.raises(nx.NetworkXError) as nx_exc:
-        nx.local_constraint(nx_graph, u, v)
+        nx.local_constraint(nx_graph, "missing", 1)
     assert str(fnx_exc.value) == str(nx_exc.value)
+
+
+@pytest.mark.parametrize("graph_factory", [fnx.Graph, fnx.DiGraph])
+def test_local_constraint_missing_v_matches_networkx_zero(graph_factory):
+    module = importlib.import_module("franken_networkx.structuralholes")
+    fnx_graph = graph_factory([(0, 1)])
+    nx_graph = getattr(nx, graph_factory.__name__)([(0, 1)])
+
+    assert module.local_constraint(fnx_graph, 1, "missing") == nx.local_constraint(
+        nx_graph, 1, "missing"
+    )
 
 
 def test_structuralholes_rejects_backend_kwargs_like_networkx_dispatch():

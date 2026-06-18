@@ -45697,8 +45697,6 @@ def local_constraint(G, u, v, weight=None, *, backend=None, **backend_kwargs):
     graph_kind = "digraph" if G.is_directed() else "graph"
     if u not in G:
         raise NetworkXError(f"The node {u} is not in the {graph_kind}.")
-    if v not in G:
-        raise NetworkXError(f"The node {v} is not in the {graph_kind}.")
 
     direct = _normalized_mutual_weight(G, u, v, weight=weight)
     indirect = sum(
