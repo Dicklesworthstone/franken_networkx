@@ -179,6 +179,23 @@ fn build_link_prediction_pairs(repeats: usize) -> Vec<(String, String)> {
         .collect()
 }
 
+fn build_link_prediction_shared_source_pairs(
+    repeats: usize,
+    target_count: usize,
+) -> Vec<(String, String)> {
+    let target_count = target_count.max(1);
+    (0..repeats)
+        .map(|i| {
+            let target = if i % target_count == 0 {
+                "v".to_owned()
+            } else {
+                format!("r{}", i % target_count)
+            };
+            ("u".to_owned(), target)
+        })
+        .collect()
+}
+
 fn bench_single_source_dijkstra(c: &mut Criterion) {
     let mut group = c.benchmark_group("single_source_dijkstra");
     for &side in &[20usize, 45, 64] {
@@ -383,6 +400,15 @@ fn bench_link_prediction_scores(c: &mut Criterion) {
             &label,
             |b, _| {
                 b.iter(|| common_neighbor_centrality(&g, &pairs, 0.8));
+            },
+        );
+        let shared_source_pairs =
+            build_link_prediction_shared_source_pairs(repeats, right_only.min(64));
+        group.bench_with_input(
+            BenchmarkId::new("common_neighbor_centrality_shared_source", &label),
+            &label,
+            |b, _| {
+                b.iter(|| common_neighbor_centrality(&g, &shared_source_pairs, 0.8));
             },
         );
         group.bench_with_input(

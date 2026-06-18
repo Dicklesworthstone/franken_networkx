@@ -33901,6 +33901,58 @@ pub fn ego_graph_directed(digraph: &DiGraph, center: &str, radius: usize) -> DiG
 // Common neighbor centrality (CCPA / resource allocation index variant)
 // ---------------------------------------------------------------------------
 
+const CCPA_DISTANCE_CACHE_MAX_SOURCES: usize = 64;
+const CCPA_DISTANCE_CACHE_MAX_CELLS: usize = 262_144;
+
+struct CcpaSourceDistanceCache {
+    rows: HashMap<usize, Vec<usize>>,
+    limit: usize,
+}
+
+impl CcpaSourceDistanceCache {
+    fn new(node_count: usize, pair_count: usize) -> Self {
+        let cell_budget_sources = if node_count == 0 {
+            0
+        } else {
+            CCPA_DISTANCE_CACHE_MAX_CELLS / node_count
+        };
+        let limit = pair_count
+            .min(node_count)
+            .min(CCPA_DISTANCE_CACHE_MAX_SOURCES)
+            .min(cell_budget_sources);
+        Self {
+            rows: HashMap::with_capacity(limit),
+            limit,
+        }
+    }
+
+    fn shortest_path_length(
+        &mut self,
+        graph: &Graph,
+        source: usize,
+        target: usize,
+        cacheable_source: bool,
+        dist: &mut [usize],
+        touched: &mut Vec<usize>,
+        queue: &mut VecDeque<usize>,
+    ) -> Option<usize> {
+        if !cacheable_source || self.limit == 0 {
+            return indexed_shortest_path_length(graph, source, target, dist, touched, queue);
+        }
+        if let Some(row) = self.rows.get(&source) {
+            return (row[target] != usize::MAX).then_some(row[target]);
+        }
+        if self.rows.len() >= self.limit {
+            return indexed_shortest_path_length(graph, source, target, dist, touched, queue);
+        }
+
+        let row = indexed_shortest_path_distance_row(graph, source, graph.node_count(), queue);
+        let result = (row[target] != usize::MAX).then_some(row[target]);
+        self.rows.insert(source, row);
+        result
+    }
+}
+
 /// Common Neighbor Centrality (CCPA) link prediction index.
 ///
 /// For each pair (u, v), score = alpha * |common_neighbors(u,v)|
@@ -33916,6 +33968,13 @@ pub fn common_neighbor_centrality(
     let mut queue = VecDeque::new();
     let mut scratch = CommonNeighborScratch::new(n);
     let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
+    let mut source_reuse_counts = HashMap::with_capacity(ebunch.len().min(n));
+    for (u, _) in ebunch {
+        if let Some(source_idx) = endpoint_cache.get(u.as_str()) {
+            *source_reuse_counts.entry(source_idx).or_insert(0usize) += 1;
+        }
+    }
+    let mut distance_cache = CcpaSourceDistanceCache::new(n, source_reuse_counts.len());
     let mut result = Vec::with_capacity(ebunch.len());
     for (u, v) in ebunch {
         let u_idx = endpoint_cache.get(u.as_str());
@@ -33928,10 +33987,12 @@ pub fn common_neighbor_centrality(
                 vi,
             );
             let cn = scratch.common_len() as f64;
-            let sp = indexed_shortest_path_length(
+            let cacheable_source = source_reuse_counts.get(&ui).copied().unwrap_or(0) > 1;
+            let sp = distance_cache.shortest_path_length(
                 graph,
                 ui,
                 vi,
+                cacheable_source,
                 &mut dist,
                 &mut touched,
                 &mut queue,
@@ -33950,6 +34011,33 @@ pub fn common_neighbor_centrality(
     }
 
     result
+}
+
+fn indexed_shortest_path_distance_row(
+    graph: &Graph,
+    source: usize,
+    node_count: usize,
+    queue: &mut VecDeque<usize>,
+) -> Vec<usize> {
+    let mut row = vec![usize::MAX; node_count];
+    queue.clear();
+    row[source] = 0;
+    queue.push_back(source);
+
+    while let Some(node) = queue.pop_front() {
+        let next_distance = row[node] + 1;
+        if let Some(neighbors) = graph.neighbors_indices(node) {
+            for &neighbor in neighbors {
+                if row[neighbor] == usize::MAX {
+                    row[neighbor] = next_distance;
+                    queue.push_back(neighbor);
+                }
+            }
+        }
+    }
+
+    queue.clear();
+    row
 }
 
 fn indexed_shortest_path_length(
@@ -48195,6 +48283,44 @@ mod tests {
         let (_, _, score) = common_neighbor_centrality(&g, &pairs, 0.5)[0];
 
         assert!((score - 2.0).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn common_neighbor_centrality_source_cache_preserves_reused_source_outputs() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("u", "a");
+        let _ = g.add_edge("a", "v");
+        let _ = g.add_edge("u", "b");
+        let _ = g.add_edge("b", "w");
+        let _ = g.add_node("isolated");
+        let pairs = vec![
+            ("u".to_owned(), "v".to_owned()),
+            ("u".to_owned(), "w".to_owned()),
+            ("u".to_owned(), "isolated".to_owned()),
+            ("missing".to_owned(), "v".to_owned()),
+            ("u".to_owned(), "v".to_owned()),
+        ];
+
+        let result = common_neighbor_centrality(&g, &pairs, 0.5);
+
+        assert_eq!(
+            result
+                .iter()
+                .map(|(u, v, _)| (u.as_str(), v.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("u", "v"),
+                ("u", "w"),
+                ("u", "isolated"),
+                ("missing", "v"),
+                ("u", "v"),
+            ]
+        );
+        assert!((result[0].2 - 2.0).abs() < TEST_TOLERANCE);
+        assert!((result[1].2 - 2.0).abs() < TEST_TOLERANCE);
+        assert_eq!(result[2].2, 0.0);
+        assert_eq!(result[3].2, 0.0);
+        assert_eq!(result[0].2, result[4].2);
     }
 
     #[test]
