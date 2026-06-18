@@ -208,6 +208,29 @@ def test_bipartite_clustering_module_paths_match_networkx():
             ) == round(nxb.average_clustering(nx_graph, nodes=nodes, mode=mode), 12)
 
 
+def test_bipartite_centrality_module_paths_match_networkx():
+    module = importlib.import_module("franken_networkx.bipartite")
+    via_algorithms = importlib.import_module("franken_networkx.algorithms.bipartite")
+    fnx_graph, nx_graph = _mk(fnx), _mk(nx)
+
+    for route in (module, via_algorithms):
+        assert _D(route.degree_centrality(fnx_graph, _TOP)) == _D(
+            nxb.degree_centrality(nx_graph, _TOP)
+        )
+        assert _D(route.betweenness_centrality(fnx_graph, _TOP)) == _D(
+            nxb.betweenness_centrality(nx_graph, _TOP)
+        )
+        assert _D(route.closeness_centrality(fnx_graph, _TOP)) == _D(
+            nxb.closeness_centrality(nx_graph, _TOP)
+        )
+        assert _D(route.node_redundancy(fnx_graph)) == _D(
+            nxb.node_redundancy(nx_graph)
+        )
+        assert round(route.spectral_bipartivity(fnx_graph), 6) == round(
+            nxb.spectral_bipartivity(nx_graph), 6
+        )
+
+
 def test_bipartite_centrality_clustering_redundancy():
     bf, bn = _mk(fnx), _mk(nx)
     assert _D(nxb.degree_centrality(bf, _TOP)) == _D(nxb.degree_centrality(bn, _TOP))
