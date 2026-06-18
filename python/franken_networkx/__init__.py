@@ -46150,6 +46150,11 @@ def goldberg_radzik(G, source, weight="weight"):
     shortest path from source, and dist[v] is the distance.
     Uses Bellman-Ford internally (same correctness guarantees for negative weights).
     """
+    # br-r37-c1-tnzt9: nx validates the source up front with the exact wording
+    # ``Node {source} is not found in the graph`` (before weight handling); the
+    # internal bellman-ford call otherwise surfaces ``Source x not in G``.
+    if source not in G:
+        raise NodeNotFound(f"Node {source} is not found in the graph")
     if callable(weight):
         return _call_networkx_for_parity("goldberg_radzik", G, source, weight=weight)
     if G.is_directed():
