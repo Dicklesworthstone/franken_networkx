@@ -42287,6 +42287,40 @@ mod tests {
     }
 
     #[test]
+    fn shortest_path_weighted_order_matches_networkx_packet_005_golden() {
+        let mut graph = Graph::strict();
+        for (left, right) in [("n1", "n4"), ("n2", "n0"), ("n4", "n2"), ("n4", "n5")] {
+            graph
+                .add_edge(left, right)
+                .expect("packet 005 edge add should succeed");
+        }
+
+        // NetworkX emits both dictionaries in this order for this minimized graph.
+        let expected = vec![
+            ("n1", 0.0_f64),
+            ("n4", 1.0_f64),
+            ("n2", 2.0_f64),
+            ("n5", 2.0_f64),
+            ("n0", 3.0_f64),
+        ];
+        let dijkstra_result = multi_source_dijkstra(&graph, &["n1"], "weight");
+        let bellman_ford_result = bellman_ford_shortest_paths(&graph, "n1", "weight");
+        let dijkstra_order = dijkstra_result
+            .distances
+            .iter()
+            .map(|entry| (entry.node.as_str(), entry.distance))
+            .collect::<Vec<(&str, f64)>>();
+        let bellman_ford_order = bellman_ford_result
+            .distances
+            .iter()
+            .map(|entry| (entry.node.as_str(), entry.distance))
+            .collect::<Vec<(&str, f64)>>();
+
+        assert_eq!(dijkstra_order, expected);
+        assert_eq!(bellman_ford_order, expected);
+    }
+
+    #[test]
     fn bellman_ford_shortest_paths_positive_weights_match_expected() {
         let mut graph = Graph::strict();
         graph
