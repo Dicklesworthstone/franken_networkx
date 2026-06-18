@@ -23,6 +23,48 @@ __all__ = list(
     or [name for name in dir(_nx_connectivity) if not name.startswith("_")]
 )
 
+# br-r37-c1-2qsqf: ``from networkx.algorithms.connectivity import *`` above left
+# the connectivity/cut/disjoint-path functions bound to networkx's
+# implementations, so ``fnx.connectivity.node_connectivity`` etc. silently
+# resolved to nx's instead of fnx's native versions (node_connectivity even
+# carries the br-r37-c1-cqlms/ebd8d local-connectivity fixes). Route each to the
+# fnx top-level function via call-time closure wrappers (robust against the
+# package-init order in which fnx defines them).
+_FNX_NATIVE_CONNECTIVITY_NAMES = (
+    "all_node_cuts",
+    "all_pairs_node_connectivity",
+    "average_node_connectivity",
+    "edge_connectivity",
+    "edge_disjoint_paths",
+    "is_k_edge_connected",
+    "k_components",
+    "k_edge_augmentation",
+    "k_edge_components",
+    "k_edge_subgraphs",
+    "minimum_edge_cut",
+    "minimum_node_cut",
+    "node_connectivity",
+    "node_disjoint_paths",
+    "stoer_wagner",
+)
+
+
+def _make_fnx_connectivity_router(_fn_name):
+    def _routed(*args, **kwargs):
+        return getattr(_fnx, _fn_name)(*args, **kwargs)
+
+    _routed.__name__ = _fn_name
+    _routed.__qualname__ = _fn_name
+    _routed.__doc__ = (
+        f"Route to ``franken_networkx.{_fn_name}`` (fnx-native). See "
+        f"``networkx.algorithms.connectivity.{_fn_name}`` for semantics."
+    )
+    return _routed
+
+
+for _name in _FNX_NATIVE_CONNECTIVITY_NAMES:
+    globals()[_name] = _make_fnx_connectivity_router(_name)
+
 
 def build_auxiliary_node_connectivity(G):
     """Return auxiliary digraph for computing node connectivity.
