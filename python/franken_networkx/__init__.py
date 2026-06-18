@@ -40778,6 +40778,8 @@ def to_nested_tuple(T, root, canonical_form=False):
     cycles (the recursive descent looped through the cycle until
     Python's stack ran out).  Pre-check both up front.
     """
+    if T.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     if root not in T:
         raise NodeNotFound(f"Graph {T!s} contains no node {root}")
     if not is_tree(T):

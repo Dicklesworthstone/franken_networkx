@@ -46,3 +46,19 @@ def test_string_tree(canonical):
     assert fnx.to_nested_tuple(Tf, "r", canonical_form=canonical) == nx.to_nested_tuple(
         Tn, "r", canonical_form=canonical
     )
+
+
+@pytest.mark.parametrize("root", [0, "missing"])
+def test_directed_input_rejects_before_root_lookup(root):
+    Tf = fnx.DiGraph([(0, 1)])
+    Tn = nx.DiGraph([(0, 1)])
+
+    with pytest.raises(nx.NetworkXNotImplemented) as fnx_exc:
+        fnx.to_nested_tuple(Tf, root)
+    with pytest.raises(nx.NetworkXNotImplemented) as nx_exc:
+        nx.to_nested_tuple(Tn, root)
+    assert (
+        str(fnx_exc.value)
+        == str(nx_exc.value)
+        == "not implemented for directed type"
+    )
