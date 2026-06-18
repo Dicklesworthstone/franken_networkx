@@ -8,10 +8,12 @@
   subset of paths at cutoff k+1)
 * relabeling nodes relabels every generated path in lockstep
 * relabeling nodes relabels every generated edge path in lockstep
+* relabeling nodes preserves path predicates
 
 br-r37-c1-6btnh
 br-r37-c1-grld5
 br-r37-c1-vn4yh
+br-r37-c1-q2c7r
 """
 
 from __future__ import annotations
@@ -115,3 +117,21 @@ def test_all_simple_edge_paths_relabeling_equivariant(directed, seed):
         ]
 
         assert relabelled_paths == expected
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("seed", range(30))
+def test_path_predicates_relabeling_invariant(directed, seed):
+    g, n = _graph(seed, directed=directed)
+    mapping = {node: f"predicate-node-{seed}-{node}" for node in range(n)}
+    relabelled = fnx.relabel_nodes(g, mapping)
+    source = 0
+
+    for target in range(n):
+        has_base = fnx.has_path(g, source, target)
+        assert fnx.has_path(relabelled, mapping[source], mapping[target]) == has_base
+        if has_base:
+            path = fnx.shortest_path(g, source, target)
+            mapped_path = [mapping[node] for node in path]
+            assert fnx.is_simple_path(g, path)
+            assert fnx.is_simple_path(relabelled, mapped_path)
