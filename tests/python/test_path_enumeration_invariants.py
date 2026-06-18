@@ -6,8 +6,10 @@
 * ``shortest_path`` is a valid path no longer than any simple path
 * ``all_simple_paths`` is monotonic in ``cutoff`` (paths at cutoff k are a
   subset of paths at cutoff k+1)
+* relabeling nodes relabels every generated path in lockstep
 
 br-r37-c1-6btnh
+br-r37-c1-grld5
 """
 
 from __future__ import annotations
@@ -65,3 +67,26 @@ def test_all_simple_paths_cutoff_monotonic(directed, seed):
             lo = {tuple(p) for p in fnx.all_simple_paths(g, s, t, cutoff=2)}
             hi = {tuple(p) for p in fnx.all_simple_paths(g, s, t, cutoff=3)}
             assert lo <= hi
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("seed", range(30))
+def test_all_simple_paths_relabeling_equivariant(directed, seed):
+    g, n = _graph(seed, directed=directed)
+    mapping = {node: f"path-node-{seed}-{node}" for node in range(n)}
+    relabelled = fnx.relabel_nodes(g, mapping)
+    source = 0
+
+    for target in range(1, min(n, 5)):
+        base_paths = list(fnx.all_simple_paths(g, source, target, cutoff=4))
+        relabelled_paths = list(
+            fnx.all_simple_paths(
+                relabelled, mapping[source], mapping[target], cutoff=4
+            )
+        )
+        expected = [
+            [mapping[node] for node in path]
+            for path in base_paths
+        ]
+
+        assert relabelled_paths == expected
