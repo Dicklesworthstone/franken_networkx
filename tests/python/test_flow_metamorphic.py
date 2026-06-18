@@ -21,12 +21,15 @@ Flow / cut duality and structural invariants:
    net flow out.
 7. **Capacity scaling**: multiplying every finite capacity by ``c > 0``
    multiplies max-flow and min-cut values by exactly ``c``.
+8. **Relabeling invariance**: changing node labels while mapping source and
+   sink consistently preserves max-flow and min-cut values.
 
 Pairs with the fuzz_flow target (1d23f49d) — the fuzzer drives the
 same identities on arbitrary flow networks; this module pins them at
 deterministic fixtures so any regression is immediately visible.
 
 br-r37-c1-rulk1
+br-r37-c1-sdxka
 """
 
 from __future__ import annotations
@@ -150,6 +153,20 @@ def test_capacity_scaling_scales_flow_and_cut_values(
     assert scaled_cut_value == pytest.approx(factor * base_cut_value), (
         f"{name}: min-cut did not scale by {factor}"
     )
+
+
+@pytest.mark.parametrize(("name", "builder", "source", "sink"), FLOW_FIXTURES)
+def test_relabeling_preserves_flow_and_cut_values(name, builder, source, sink):
+    g = builder()
+    mapping = {node: f"{name}-{node}" for node in g.nodes()}
+    relabelled = fnx.relabel_nodes(g, mapping)
+
+    assert fnx.maximum_flow_value(
+        relabelled, mapping[source], mapping[sink]
+    ) == fnx.maximum_flow_value(g, source, sink)
+    assert fnx.minimum_cut_value(
+        relabelled, mapping[source], mapping[sink]
+    ) == fnx.minimum_cut_value(g, source, sink)
 
 
 # -----------------------------------------------------------------------------
