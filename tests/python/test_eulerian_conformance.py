@@ -384,6 +384,18 @@ def test_eulerize_already_eulerian_returns_equivalent_graph():
     assert sorted(fnx_result.edges()) == sorted(nx_result.edges())
 
 
+def test_euler_module_eulerize_returns_fnx_multigraph_matching_networkx():
+    module = importlib.import_module("franken_networkx.euler")
+    expected_module = importlib.import_module("networkx.algorithms.euler")
+    fg, ng = _pair_undirected([(0, 1), (1, 2), (2, 3)], list(range(4)))
+
+    fnx_result = module.eulerize(fg)
+    nx_result = expected_module.eulerize(ng)
+
+    assert isinstance(fnx_result, fnx.MultiGraph)
+    assert sorted(fnx_result.edges(keys=True)) == sorted(nx_result.edges(keys=True))
+
+
 # ---------------------------------------------------------------------------
 # Empty / disconnected dispatch
 # ---------------------------------------------------------------------------
