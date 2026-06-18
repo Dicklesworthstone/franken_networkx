@@ -249,16 +249,22 @@ def test_convert_matrix_module_graph_builders_preserve_fnx_type():
     )
 
 
-def test_relabel_module_graph_returning_calls_preserve_fnx_type():
+def test_relabel_module_graph_returning_calls_preserve_fnx_type(monkeypatch):
     module = importlib.import_module("franken_networkx.relabel")
 
     mapping = {0: "a", 1: "b", 2: "c", 3: "d"}
     relabeled = module.relabel_nodes(fnx.path_graph(4), mapping)
     expected_relabel = nx.relabel_nodes(nx.path_graph(4), mapping)
 
-    assert isinstance(relabeled, fnx.Graph)
-    assert sorted(relabeled.nodes()) == sorted(expected_relabel.nodes())
-    assert _canonical_edges(relabeled) == _canonical_edges(expected_relabel)
+    _expect(isinstance(relabeled, fnx.Graph), "relabel_nodes must return an fnx Graph")
+    _expect(
+        sorted(relabeled.nodes()) == sorted(expected_relabel.nodes()),
+        "relabel_nodes nodes must match networkx",
+    )
+    _expect(
+        _canonical_edges(relabeled) == _canonical_edges(expected_relabel),
+        "relabel_nodes edges must match networkx",
+    )
 
     converted = module.convert_node_labels_to_integers(
         fnx.path_graph(["x", "y", "z"]),
@@ -271,12 +277,84 @@ def test_relabel_module_graph_returning_calls_preserve_fnx_type():
         label_attribute="old",
     )
 
-    assert isinstance(converted, fnx.Graph)
-    assert sorted(converted.nodes()) == sorted(expected_convert.nodes())
-    assert _canonical_edges(converted) == _canonical_edges(expected_convert)
-    assert {
-        node: converted.nodes[node]["old"] for node in converted
-    } == {node: expected_convert.nodes[node]["old"] for node in expected_convert}
+    _expect(
+        isinstance(converted, fnx.Graph),
+        "convert_node_labels_to_integers must return an fnx Graph",
+    )
+    _expect(
+        sorted(converted.nodes()) == sorted(expected_convert.nodes()),
+        "convert_node_labels_to_integers nodes must match networkx",
+    )
+    _expect(
+        _canonical_edges(converted) == _canonical_edges(expected_convert),
+        "convert_node_labels_to_integers edges must match networkx",
+    )
+    _expect(
+        {node: converted.nodes[node]["old"] for node in converted}
+        == {node: expected_convert.nodes[node]["old"] for node in expected_convert},
+        "convert_node_labels_to_integers label attributes must match networkx",
+    )
+
+    sentinel = object()
+    source = fnx.path_graph(2)
+
+    def fake_relabel_nodes(graph, actual_mapping, copy=True, *, backend=None, **kwargs):
+        _expect(graph is source, "relabel_nodes must forward the original graph")
+        _expect(actual_mapping == mapping, "relabel_nodes must forward mapping")
+        _expect(not copy, "relabel_nodes must forward copy")
+        _expect(backend == "sentinel", "relabel_nodes must forward backend")
+        _expect(kwargs == {"strict": True}, "relabel_nodes must forward backend kwargs")
+        return sentinel
+
+    def fake_convert_node_labels_to_integers(
+        graph,
+        first_label=0,
+        ordering="default",
+        label_attribute=None,
+        *,
+        backend=None,
+        **kwargs,
+    ):
+        _expect(graph is source, "convert_node_labels_to_integers must forward graph")
+        _expect(first_label == 5, "convert_node_labels_to_integers must forward first_label")
+        _expect(ordering == "sorted", "convert_node_labels_to_integers must forward ordering")
+        _expect(label_attribute == "old", "convert_node_labels_to_integers must forward label_attribute")
+        _expect(backend == "sentinel", "convert_node_labels_to_integers must forward backend")
+        _expect(
+            kwargs == {"strict": True},
+            "convert_node_labels_to_integers must forward backend kwargs",
+        )
+        return sentinel
+
+    monkeypatch.setattr(fnx, "relabel_nodes", fake_relabel_nodes)
+    monkeypatch.setattr(
+        fnx,
+        "convert_node_labels_to_integers",
+        fake_convert_node_labels_to_integers,
+    )
+    _expect(
+        module.relabel_nodes(
+            source,
+            mapping,
+            copy=False,
+            backend="sentinel",
+            strict=True,
+        )
+        is sentinel,
+        "relabel.relabel_nodes must route through fnx",
+    )
+    _expect(
+        module.convert_node_labels_to_integers(
+            source,
+            first_label=5,
+            ordering="sorted",
+            label_attribute="old",
+            backend="sentinel",
+            strict=True,
+        )
+        is sentinel,
+        "relabel.convert_node_labels_to_integers must route through fnx",
+    )
 
 
 def test_aliases_against_nx_for_classlike_names():

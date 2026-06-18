@@ -13,6 +13,41 @@ __all__ = list(
 )
 
 
+def relabel_nodes(G, mapping, copy=True, *, backend=None, **backend_kwargs):
+    """Relabel graph nodes via the fnx-native top-level implementation."""
+    import franken_networkx as _fnx
+
+    return _fnx.relabel_nodes(
+        G,
+        mapping,
+        copy=copy,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def convert_node_labels_to_integers(
+    G,
+    first_label=0,
+    ordering="default",
+    label_attribute=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    """Relabel graph nodes to consecutive integers via the fnx-native route."""
+    import franken_networkx as _fnx
+
+    return _fnx.convert_node_labels_to_integers(
+        G,
+        first_label=first_label,
+        ordering=ordering,
+        label_attribute=label_attribute,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
 def __getattr__(name):
     import networkx.relabel as _src
 
