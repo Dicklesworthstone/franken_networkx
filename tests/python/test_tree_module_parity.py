@@ -9,6 +9,11 @@ from franken_networkx import tree as fnx_tree
 from networkx.algorithms import tree as nx_tree
 
 
+def _expect(condition, message):
+    if not condition:
+        raise AssertionError(message)
+
+
 def _weighted_triangle(module):
     graph = module.Graph()
     graph.add_edge(0, 1, weight=3)
@@ -73,6 +78,57 @@ def test_tree_module_graph_returning_wrappers_match_networkx(name, fnx_args, nx_
 
     assert isinstance(result, fnx.Graph)
     assert _graph_snapshot(result) == _graph_snapshot(expected)
+
+
+@pytest.mark.parametrize(
+    ("name", "fnx_args", "nx_args"),
+    [
+        (
+            "from_prufer_sequence",
+            lambda: ([0, 0, 0],),
+            lambda: ([0, 0, 0],),
+        ),
+        (
+            "from_nested_tuple",
+            lambda: (((), ((), ())),),
+            lambda: (((), ((), ())),),
+        ),
+        (
+            "junction_tree",
+            lambda: (fnx.cycle_graph(4),),
+            lambda: (nx.cycle_graph(4),),
+        ),
+        (
+            "minimum_spanning_tree",
+            lambda: (_weighted_triangle(fnx),),
+            lambda: (_weighted_triangle(nx),),
+        ),
+        (
+            "maximum_spanning_tree",
+            lambda: (_weighted_triangle(fnx),),
+            lambda: (_weighted_triangle(nx),),
+        ),
+    ],
+)
+def test_algorithms_tree_graph_returning_wrappers_match_networkx(
+    name, fnx_args, nx_args
+):
+    from franken_networkx.algorithms import tree as algorithms_tree
+
+    fnx_kwargs = {"sensible_relabeling": True} if name == "from_nested_tuple" else {}
+    nx_kwargs = dict(fnx_kwargs)
+
+    result = getattr(algorithms_tree, name)(*fnx_args(), **fnx_kwargs)
+    expected = getattr(nx_tree, name)(*nx_args(), **nx_kwargs)
+
+    _expect(
+        isinstance(result, fnx.Graph),
+        "franken_networkx.algorithms.tree wrapper must return fnx.Graph",
+    )
+    _expect(
+        _graph_snapshot(result) == _graph_snapshot(expected),
+        "franken_networkx.algorithms.tree wrapper must match networkx",
+    )
 
 
 @pytest.mark.parametrize(
