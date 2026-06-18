@@ -32638,6 +32638,13 @@ def edge_disjoint_paths(
         )
         return
     paths = _fnx.edge_disjoint_paths_rust(G, s, t)
+    if not paths:
+        # br-r37-c1-djp-nopath: the Rust path returns an empty list when no
+        # s-t path exists, but nx raises ``NetworkXNoPath`` in that case.
+        # Delegate the empty case to nx so the documented exception contract
+        # holds (s == t is already rejected above, so empty == disconnected).
+        yield from _call_networkx_for_parity("edge_disjoint_paths", G, s, t)
+        return
     for path in paths:
         yield path
 
@@ -32672,6 +32679,13 @@ def node_disjoint_paths(
         )
         return
     paths = _fnx.node_disjoint_paths_rust(G, s, t)
+    if not paths:
+        # br-r37-c1-djp-nopath: the Rust path returns an empty list both when
+        # s and t are disconnected (nx raises ``NetworkXNoPath``) and for the
+        # degenerate s == t case (nx yields one trivial path). Delegate the
+        # empty case to nx so both contracts are reproduced exactly.
+        yield from _call_networkx_for_parity("node_disjoint_paths", G, s, t)
+        return
     for path in paths:
         yield path
 
