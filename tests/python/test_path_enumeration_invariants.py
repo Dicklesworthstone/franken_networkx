@@ -7,9 +7,11 @@
 * ``all_simple_paths`` is monotonic in ``cutoff`` (paths at cutoff k are a
   subset of paths at cutoff k+1)
 * relabeling nodes relabels every generated path in lockstep
+* relabeling nodes relabels every generated edge path in lockstep
 
 br-r37-c1-6btnh
 br-r37-c1-grld5
+br-r37-c1-vn4yh
 """
 
 from __future__ import annotations
@@ -86,6 +88,29 @@ def test_all_simple_paths_relabeling_equivariant(directed, seed):
         )
         expected = [
             [mapping[node] for node in path]
+            for path in base_paths
+        ]
+
+        assert relabelled_paths == expected
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("seed", range(30))
+def test_all_simple_edge_paths_relabeling_equivariant(directed, seed):
+    g, n = _graph(seed, directed=directed)
+    mapping = {node: f"edge-path-node-{seed}-{node}" for node in range(n)}
+    relabelled = fnx.relabel_nodes(g, mapping)
+    source = 0
+
+    for target in range(1, min(n, 5)):
+        base_paths = list(fnx.all_simple_edge_paths(g, source, target, cutoff=4))
+        relabelled_paths = list(
+            fnx.all_simple_edge_paths(
+                relabelled, mapping[source], mapping[target], cutoff=4
+            )
+        )
+        expected = [
+            [(mapping[u], mapping[v]) for u, v in path]
             for path in base_paths
         ]
 
