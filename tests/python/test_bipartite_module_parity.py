@@ -3,6 +3,7 @@ vertex cover, centralities, clustering, redundancy, spectral
 bipartivity. Identical fixed bipartite graphs. Zero divergences.
 """
 import importlib
+import io
 import random
 
 import networkx as nx
@@ -98,6 +99,32 @@ def test_bipartite_min_edge_cover_matches_networkx_value():
     expected_graph = nx.path_graph(4)
 
     assert module.min_edge_cover(graph) == nxb.min_edge_cover(expected_graph)
+
+
+def test_bipartite_edgelist_helpers_match_networkx():
+    module = importlib.import_module("franken_networkx.bipartite")
+    via_algorithms = importlib.import_module("franken_networkx.algorithms.bipartite")
+    fnx_graph, nx_graph = _mk(fnx), _mk(nx)
+    fnx_graph[0][6]["weight"] = 3
+    nx_graph[0][6]["weight"] = 3
+    fnx_graph[1][7]["capacity"] = 12
+    nx_graph[1][7]["capacity"] = 12
+
+    assert module.generate_edgelist is not nxb.generate_edgelist
+    assert module.write_edgelist is not nxb.write_edgelist
+    for data in (False, True, ["weight", "capacity"]):
+        assert list(module.generate_edgelist(fnx_graph, data=data)) == list(
+            nxb.generate_edgelist(nx_graph, data=data)
+        )
+        assert list(via_algorithms.generate_edgelist(fnx_graph, data=data)) == list(
+            nxb.generate_edgelist(nx_graph, data=data)
+        )
+
+    actual = io.BytesIO()
+    expected = io.BytesIO()
+    module.write_edgelist(fnx_graph, actual, data=["weight", "capacity"])
+    nxb.write_edgelist(nx_graph, expected, data=["weight", "capacity"])
+    assert actual.getvalue() == expected.getvalue()
 
 
 def test_bipartite_centrality_clustering_redundancy():

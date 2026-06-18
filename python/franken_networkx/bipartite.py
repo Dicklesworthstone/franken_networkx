@@ -18,6 +18,7 @@ from __future__ import annotations
 import networkx as _nx
 from networkx.algorithms.bipartite import *  # noqa: F401,F403
 import networkx.algorithms.bipartite as _nx_bipartite
+from networkx.utils import open_file as _nx_open_file
 
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
@@ -165,6 +166,43 @@ def min_edge_cover(G, matching_algorithm=None, *, backend=None, **backend_kwargs
         if bipartite_cover:
             min_cover.add((v, u))
     return min_cover
+
+
+def generate_edgelist(G, delimiter=" ", data=True):
+    """Generate bipartite edgelist lines from ``bipartite=0`` nodes."""
+    if G.is_directed():
+        raise _fnx.NetworkXNotImplemented("not implemented for directed type")
+    try:
+        part0 = [node for node, attrs in G.nodes.items() if attrs["bipartite"] == 0]
+    except BaseException as err:
+        raise AttributeError("Missing node attribute `bipartite`") from err
+
+    def _lines():
+        if data is True or data is False:
+            for node in part0:
+                for edge in G.edges(node, data=data):
+                    yield delimiter.join(map(str, edge))
+        else:
+            for node in part0:
+                for u, v, attrs in G.edges(node, data=True):
+                    edge = [u, v]
+                    try:
+                        edge.extend(attrs[key] for key in data)
+                    except KeyError:
+                        pass
+                    yield delimiter.join(map(str, edge))
+
+    return _lines()
+
+
+@_nx_open_file(1, mode="wb")
+def write_edgelist(
+    G, path, comments="#", delimiter=" ", data=True, encoding="utf-8"
+):
+    """Write a bipartite edgelist using local ``generate_edgelist``."""
+    for line in generate_edgelist(G, delimiter, data):
+        line += "\n"
+        path.write(line.encode(encoding))
 
 
 def density(B, nodes):
