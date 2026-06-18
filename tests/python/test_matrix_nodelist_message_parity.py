@@ -9,6 +9,8 @@ exporter exactly:
   nodelist order, singular: ``Node {n} in nodelist is not in G``;
 * the dense exporters (``to_numpy_array``, ``to_pandas_adjacency``)
   report the whole missing *set*: ``Nodes {set} in nodelist is not in G``.
+* ``incidence_matrix`` accepts extra nodelist entries that are not in G, but
+  rejects edgelists whose endpoints are absent from the supplied nodelist.
 
 fnx previously emitted the plural set form everywhere. br-r37-c1-6cdtz
 """
@@ -58,6 +60,30 @@ def test_dense_exporters_report_missing_set_plural(fn):
     with pytest.raises(nx.NetworkXError) as exc:
         getattr(fnx, fn)(fg, nodelist=[0, 99])
     assert str(exc.value) == "Nodes {99} in nodelist is not in G"
+
+
+@pytest.mark.parametrize("nodelist", [[0, 1, 2, 99], [99, 0, 1, 2]])
+def test_incidence_matrix_accepts_extra_nodelist_nodes_like_networkx(nodelist):
+    import numpy as np
+
+    fg, ng = _graphs()
+
+    assert np.array_equal(
+        fnx.incidence_matrix(fg, nodelist=nodelist).toarray(),
+        nx.incidence_matrix(ng, nodelist=nodelist).toarray(),
+    )
+
+
+@pytest.mark.parametrize("nodelist", [[0, 99], [2, 99, 0]])
+def test_incidence_matrix_missing_endpoint_message_matches_networkx(nodelist):
+    fg, ng = _graphs()
+
+    with pytest.raises(nx.NetworkXError) as fnx_exc:
+        fnx.incidence_matrix(fg, nodelist=nodelist)
+    with pytest.raises(nx.NetworkXError) as nx_exc:
+        nx.incidence_matrix(ng, nodelist=nodelist)
+
+    assert str(fnx_exc.value) == str(nx_exc.value)
 
 
 def test_valid_nodelist_unaffected():
