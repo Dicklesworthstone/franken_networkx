@@ -114,6 +114,25 @@ def test_convert_module_to_dict_helpers_match_networkx_values():
     ) == nx.to_dict_of_lists(ng, nodelist=["b", "a"])
 
 
+def test_convert_matrix_module_to_numpy_array_matches_networkx_values():
+    module = importlib.import_module("franken_networkx.convert_matrix")
+    fg = fnx.Graph()
+    ng = nx.Graph()
+    for graph in (fg, ng):
+        graph.add_edge("a", "b", weight=2.5)
+        graph.add_edge("b", "c", weight=4.0)
+        graph.add_node("isolated")
+
+    actual = module.to_numpy_array(
+        fg, nodelist=["b", "a", "isolated"], weight="weight"
+    )
+    expected = nx.to_numpy_array(
+        ng, nodelist=["b", "a", "isolated"], weight="weight"
+    )
+
+    assert actual.tolist() == expected.tolist()
+
+
 def test_relabel_module_graph_returning_calls_preserve_fnx_type():
     module = importlib.import_module("franken_networkx.relabel")
 
