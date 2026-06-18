@@ -59,9 +59,20 @@ def test_regular_graph_has_uniform_pagerank(builder, n):
     assert all(abs(v - 1.0 / n) < 1e-6 for v in pr.values())
 
 
-def test_personalization_concentrates_mass():
-    # Personalizing entirely on one node biases PageRank toward it.
+def test_uniform_personalization_equals_default():
+    # Uniform personalization is exactly the default PageRank teleportation,
+    # so it must reproduce the unpersonalized result.
     g = fnx.path_graph(5)
-    pr = fnx.pagerank(g, personalization={0: 1, 1: 0, 2: 0, 3: 0, 4: 0})
-    assert abs(sum(pr.values()) - 1.0) < 1e-6
-    assert pr[0] == max(pr.values())  # the personalized node ranks highest
+    uniform = fnx.pagerank(g, personalization={i: 1 for i in range(5)})
+    default = fnx.pagerank(g)
+    assert all(abs(uniform[k] - default[k]) < 1e-9 for k in g)
+
+
+def test_personalization_biases_toward_seed():
+    # Personalizing on node 0 must give node 0 MORE rank than personalizing on
+    # the far node 4 does — a monotone bias toward the seed.
+    g = fnx.path_graph(5)
+    pr_seed0 = fnx.pagerank(g, personalization={0: 1, 1: 0, 2: 0, 3: 0, 4: 0})
+    pr_seed4 = fnx.pagerank(g, personalization={0: 0, 1: 0, 2: 0, 3: 0, 4: 1})
+    assert abs(sum(pr_seed0.values()) - 1.0) < 1e-6
+    assert pr_seed0[0] > pr_seed4[0]
