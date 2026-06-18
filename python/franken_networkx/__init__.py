@@ -19012,6 +19012,13 @@ def local_reaching_centrality(
             # so this is byte-identical to nx (same fast path proven for
             # global_reaching_centrality, br-r37-c1-04z53). ~8x faster.
             denom = len(G) - 1
+            # br-r37-c1-ai5i9: nx computes paths via ``shortest_path(G, v)``
+            # whose missing-source error is ``Source {v} not in G`` (no "is").
+            # The lrcdist perf path uses single_source_shortest_path_length,
+            # whose error says "is not in G" — reproduce nx's exact wording at
+            # nx's precedence (after the Size-of-G check above).
+            if v not in G:
+                raise NodeNotFound(f"Source {v} not in G")
             dist = single_source_shortest_path_length(G, v)
             if G.is_directed():
                 return (len(dist) - 1) / denom
