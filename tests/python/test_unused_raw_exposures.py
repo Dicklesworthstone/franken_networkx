@@ -23,13 +23,17 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SCRIPT = REPO_ROOT / "scripts" / "find_unused_raw_exposures.py"
 
 
-def _load_triage() -> dict:
+def _load_report_script():
     spec = importlib.util.spec_from_file_location("find_unused", SCRIPT)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     sys.modules["find_unused"] = module
     spec.loader.exec_module(module)
-    return module.TRIAGE
+    return module
+
+
+def _load_triage() -> dict:
+    return _load_report_script().TRIAGE
 
 
 def _find_unused_raw() -> list[str]:
@@ -64,3 +68,15 @@ def test_triage_decisions_are_well_formed():
     for name, (decision, rationale) in triage.items():
         assert decision in valid, f"{name}: unknown decision {decision!r}"
         assert rationale.strip(), f"{name}: empty rationale"
+
+
+def test_unused_raw_exposure_report_is_current(tmp_path):
+    """The checked-in Markdown report must match the generator output."""
+    report_script = _load_report_script()
+    generated = tmp_path / "unused_raw_exposures.md"
+    report_script.write_report(report_script.find_unused_raw_exposures(), generated)
+
+    expected = REPO_ROOT / "docs" / "unused_raw_exposures.md"
+    assert expected.read_text(encoding="utf-8") == generated.read_text(
+        encoding="utf-8"
+    )
