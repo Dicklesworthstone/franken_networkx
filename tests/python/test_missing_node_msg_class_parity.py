@@ -135,6 +135,30 @@ def test_all_shortest_paths_weighted_no_path_message(graph_cls, kwargs):
 
 
 @needs_nx
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"weight": "weight"},
+        {"weight": "weight", "method": "dijkstra"},
+        {"weight": "weight", "method": "bellman-ford"},
+    ],
+)
+def test_all_shortest_paths_weighted_missing_target_message(kwargs):
+    G = fnx.Graph()
+    G.add_edge("a", "b", weight=1)
+    GX = nx.Graph()
+    GX.add_edge("a", "b", weight=1)
+
+    with pytest.raises(fnx.NetworkXNoPath) as fnx_exc:
+        list(fnx.all_shortest_paths(G, "a", "missing", **kwargs))
+    with pytest.raises(nx.NetworkXNoPath) as nx_exc:
+        list(nx.all_shortest_paths(GX, "a", "missing", **kwargs))
+
+    assert str(fnx_exc.value) == "Target missing cannot be reached from given sources"
+    assert str(nx_exc.value) == "Target missing cannot be reached from given sources"
+
+
+@needs_nx
 def test_raw_all_shortest_paths_string_error_messages_match_nx():
     G = fnx.Graph()
     G.add_edge("a", "b", weight=1)
