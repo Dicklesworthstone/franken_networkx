@@ -47414,6 +47414,33 @@ mod tests {
     }
 
     #[test]
+    fn ancestors_matches_networkx_branching_golden_sets() {
+        let mut g = DiGraph::strict();
+        for (left, right) in [
+            ("s", "a"),
+            ("s", "b"),
+            ("a", "c"),
+            ("b", "c"),
+            ("c", "d"),
+            ("a", "e"),
+        ] {
+            g.add_edge(left, right)
+                .expect("directed edge add should succeed");
+        }
+
+        let sorted_ancestors = |node: &str| {
+            let mut result = ancestors(&g, node).into_iter().collect::<Vec<String>>();
+            result.sort();
+            result
+        };
+
+        assert_eq!(sorted_ancestors("d"), vec!["a", "b", "c", "s"]);
+        assert_eq!(sorted_ancestors("c"), vec!["a", "b", "s"]);
+        assert_eq!(sorted_ancestors("e"), vec!["a", "s"]);
+        assert!(sorted_ancestors("s").is_empty());
+    }
+
+    #[test]
     fn descendants_test() {
         let g = make_dag();
         let desc = descendants(&g, "a");
