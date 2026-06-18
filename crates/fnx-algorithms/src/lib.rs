@@ -36849,8 +36849,8 @@ pub fn attribute_assortativity_coefficient(graph: &Graph, attribute: &str) -> f6
 
 /// All shortest paths between all pairs of nodes.
 #[must_use]
-pub fn all_pairs_all_shortest_paths(
-    graph: &Graph,
+pub fn all_pairs_all_shortest_paths<G: GraphView + ?Sized>(
+    graph: &G,
 ) -> std::collections::HashMap<String, std::collections::HashMap<String, Vec<Vec<String>>>> {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
@@ -36868,7 +36868,7 @@ pub fn all_pairs_all_shortest_paths(
         queue.push_back(s);
 
         while let Some(v) = queue.pop_front() {
-            if let Some(nbrs) = graph.neighbors(nodes[v]) {
+            if let Some(nbrs) = graph.neighbors_iter(nodes[v]) {
                 for nb in nbrs {
                     if let Some(&ni) = idx.get(nb) {
                         if dist[ni] == usize::MAX {
@@ -54540,6 +54540,23 @@ mod tests {
         // a→c has 2 shortest paths: direct and via b
         // Actually a-c is direct (1 hop), a-b-c is 2 hops, so only 1 shortest
         assert_eq!(paths["a"]["c"].len(), 1);
+    }
+
+    #[test]
+    fn test_all_pairs_all_shortest_paths_digraph_respects_edge_direction() {
+        let mut d = DiGraph::strict();
+        let _ = d.add_edge("a", "b");
+        let _ = d.add_edge("b", "c");
+
+        let paths = all_pairs_all_shortest_paths(&d);
+
+        assert_eq!(
+            paths["a"]["c"],
+            vec![vec!["a".to_owned(), "b".to_owned(), "c".to_owned()]]
+        );
+        assert_eq!(paths["b"]["c"], vec![vec!["b".to_owned(), "c".to_owned()]]);
+        assert!(!paths["b"].contains_key("a"));
+        assert!(paths["c"].is_empty());
     }
 
     #[test]

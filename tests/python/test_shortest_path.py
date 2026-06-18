@@ -1377,6 +1377,21 @@ class TestShortestPath:
             lambda: dict(nx.all_pairs_all_shortest_paths(G_nx, weight=weight_fn)),
         )
 
+    def test_all_pairs_all_shortest_paths_directed_reachability_matches_networkx(
+        self, fnx, nx
+    ):
+        G_fnx = fnx.DiGraph([(0, 1), (1, 2)])
+        G_nx = nx.DiGraph([(0, 1), (1, 2)])
+
+        _assert_same_result_or_exception(
+            lambda: dict(fnx.all_pairs_all_shortest_paths(G_fnx)),
+            lambda: dict(nx.all_pairs_all_shortest_paths(G_nx)),
+        )
+
+        result = dict(fnx.all_pairs_all_shortest_paths(G_fnx))
+        assert result[1] == {1: [[1]], 2: [[1, 2]]}
+        assert result[2] == {2: [[2]]}
+
     def test_single_source_all_shortest_paths_matches_networkx(self, fnx, nx):
         G_fnx = fnx.DiGraph()
         G_nx = nx.DiGraph()

@@ -18883,8 +18883,13 @@ pub fn all_pairs_all_shortest_paths_rust(
     g: &Bound<'_, PyAny>,
 ) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
-    let inner = gr.undirected();
-    let result = py.allow_threads(|| fnx_algorithms::all_pairs_all_shortest_paths(inner));
+    let result = if gr.is_directed() {
+        let inner = gr.digraph().expect("is_directed checked above");
+        py.allow_threads(|| fnx_algorithms::all_pairs_all_shortest_paths(inner))
+    } else {
+        let inner = gr.undirected();
+        py.allow_threads(|| fnx_algorithms::all_pairs_all_shortest_paths(inner))
+    };
     let outer = PyDict::new(py);
     for (source, targets) in &result {
         let inner_dict = PyDict::new(py);
