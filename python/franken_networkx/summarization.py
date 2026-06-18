@@ -31,7 +31,8 @@ def dedensify(G, threshold, prefix=None, copy=True, *, backend=None, **backend_k
     """Compresses neighborhoods around high-degree nodes.
 
     Wraps ``networkx.algorithms.summarization.dedensify`` and converts
-    the result graph to an fnx graph type for drop-in compatibility.
+    copy-producing results to fnx graph types for drop-in compatibility.
+    ``copy=False`` preserves NetworkX's in-place return identity.
 
     Returns
     -------
@@ -41,9 +42,16 @@ def dedensify(G, threshold, prefix=None, copy=True, *, backend=None, **backend_k
         Set of nodes that were compressed.
     """
     _fnx._validate_backend_dispatch_keywords("dedensify", backend, backend_kwargs)
+    if not copy and isinstance(
+        G, (_fnx.Graph, _fnx.DiGraph, _fnx.MultiGraph, _fnx.MultiDiGraph)
+    ):
+        return _fnx.dedensify(G, threshold, prefix=prefix, copy=False)
+
     nx_graph, contractions = _nx_summarization.dedensify(
         G, threshold, prefix=prefix, copy=copy
     )
+    if not copy:
+        return nx_graph, contractions
     return _from_nx_graph(nx_graph), contractions
 
 
