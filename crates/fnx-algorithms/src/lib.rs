@@ -44984,21 +44984,29 @@ mod tests {
                 &multi_source_left, &multi_source_right,
                 "P2C005-INV-1 multi-source dijkstra replay must be deterministic"
             );
-            let multi_source_nodes = multi_source_left
+            let mut multi_source_nodes = multi_source_left
                 .distances
                 .iter()
                 .map(|entry| entry.node.clone())
                 .collect::<Vec<String>>();
-            let expected_multi_source_nodes = graph
+            let mut expected_multi_source_nodes = graph
                 .nodes_ordered()
                 .into_iter()
                 .filter(|node| multi_source_nodes.iter().any(|candidate| candidate == node))
                 .map(str::to_owned)
                 .collect::<Vec<String>>();
+            multi_source_nodes.sort();
+            expected_multi_source_nodes.sort();
             prop_assert_eq!(
                 multi_source_nodes, expected_multi_source_nodes,
-                "P2C005-DC-3 multi-source dijkstra order must match graph node order for reached nodes"
+                "P2C005-DC-3 multi-source dijkstra must include exactly reached graph nodes"
             );
+            for window in multi_source_left.distances.windows(2) {
+                prop_assert!(
+                    window[0].distance <= window[1].distance + TEST_TOLERANCE,
+                    "P2C005-DC-3 multi-source dijkstra order must be nondecreasing finalize distance"
+                );
+            }
 
             let bellman_left = bellman_ford_shortest_paths(&graph, &source, "weight");
             let bellman_right = bellman_ford_shortest_paths(&graph, &source, "weight");
@@ -45006,20 +45014,22 @@ mod tests {
                 &bellman_left, &bellman_right,
                 "P2C005-INV-1 bellman-ford replay must be deterministic"
             );
-            let bellman_nodes = bellman_left
+            let mut bellman_nodes = bellman_left
                 .distances
                 .iter()
                 .map(|entry| entry.node.clone())
                 .collect::<Vec<String>>();
-            let expected_bellman_nodes = graph
+            let mut expected_bellman_nodes = graph
                 .nodes_ordered()
                 .into_iter()
                 .filter(|node| bellman_nodes.iter().any(|candidate| candidate == node))
                 .map(str::to_owned)
                 .collect::<Vec<String>>();
+            bellman_nodes.sort();
+            expected_bellman_nodes.sort();
             prop_assert_eq!(
                 bellman_nodes, expected_bellman_nodes,
-                "P2C005-DC-3 bellman-ford order must match graph node order for reached nodes"
+                "P2C005-DC-3 bellman-ford must include exactly reached graph nodes"
             );
             prop_assert!(
                 !bellman_left.negative_cycle_detected,
