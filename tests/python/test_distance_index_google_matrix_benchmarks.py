@@ -78,3 +78,16 @@ class TestDistanceIndices:
     def test_nx_schultz_index(self, benchmark, n):
         g = _nx_conn(n)
         benchmark(lambda: nx.schultz_index(g))
+
+
+@pytest.mark.parametrize("n", [300, 800], ids=["n=300", "n=800"])
+class TestGeneralizedDegree:
+    # nodes=None -> native generalized_degree_rust + Counter-wrap, replacing the
+    # Python _triangles_and_degree_iter loop.
+    def test_fnx_generalized_degree(self, benchmark, n):
+        g = _fnx_conn(n)
+        benchmark(lambda: fnx.generalized_degree(g))
+
+    def test_nx_generalized_degree(self, benchmark, n):
+        g = _nx_conn(n)
+        benchmark(lambda: nx.generalized_degree(g))
