@@ -91,6 +91,47 @@ def test_sparse6_directed_multigraph_bytes_match_networkx():
     assert fnx.to_sparse6_bytes(graph) == nx.to_sparse6_bytes(expected)
 
 
+def test_write_sparse6_undirected_graphs_match_networkx(tmp_path: Path):
+    cases = []
+
+    graph = fnx.Graph([(2, 0), (0, 1)])
+    expected = nx.Graph([(2, 0), (0, 1)])
+    cases.append((graph, expected))
+
+    multigraph = fnx.MultiGraph()
+    multi_expected = nx.MultiGraph()
+    for target in (multigraph, multi_expected):
+        target.add_edges_from([("b", "a"), ("b", "a"), ("a", "c")])
+    cases.append((multigraph, multi_expected))
+
+    for index, (graph, expected) in enumerate(cases):
+        fnx_path = tmp_path / f"fnx-{index}.s6"
+        nx_path = tmp_path / f"nx-{index}.s6"
+
+        fnx.write_sparse6(graph, fnx_path, header=False)
+        nx.write_sparse6(expected, nx_path, header=False)
+
+        assert fnx_path.read_bytes() == nx_path.read_bytes()
+
+
+@pytest.mark.parametrize(
+    "fnx_cls,nx_cls",
+    [(fnx.DiGraph, nx.DiGraph), (fnx.MultiDiGraph, nx.MultiDiGraph)],
+)
+def test_write_sparse6_rejects_directed_graphs_like_networkx(fnx_cls, nx_cls):
+    graph = fnx_cls()
+    expected = nx_cls()
+    for target in (graph, expected):
+        target.add_edges_from([(0, 1), (1, 2)])
+
+    with pytest.raises(fnx.NetworkXNotImplemented) as fnx_exc:
+        fnx.write_sparse6(graph, BytesIO())
+    with pytest.raises(nx.NetworkXNotImplemented) as nx_exc:
+        nx.write_sparse6(expected, BytesIO())
+
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+
 def test_graph6_sparse6_nodes_filter_matches_networkx():
     graph = fnx.Graph()
     graph.add_nodes_from([2, 1, 0, 3])
@@ -162,10 +203,12 @@ def test_graph6_sparse6_do_not_import_networkx(monkeypatch):
 
 
 def test_graph6_rejects_directed_and_multigraph_writes():
-    with pytest.raises(fnx.NetworkXNotImplemented):
+    with pytest.raises(fnx.NetworkXNotImplemented, match="not implemented for directed type"):
         fnx.to_graph6_bytes(fnx.DiGraph())
-    with pytest.raises(fnx.NetworkXNotImplemented):
+    with pytest.raises(fnx.NetworkXNotImplemented, match="not implemented for multigraph type"):
         fnx.to_graph6_bytes(fnx.MultiGraph())
+    with pytest.raises(fnx.NetworkXNotImplemented, match="not implemented for multigraph type"):
+        fnx.to_graph6_bytes(fnx.MultiDiGraph())
 
 
 def test_weighted_edgelist_round_trip(tmp_path: Path):

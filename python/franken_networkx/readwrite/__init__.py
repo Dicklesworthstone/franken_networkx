@@ -1526,6 +1526,12 @@ def read_sparse6(path, *, backend=None, **backend_kwargs):
 
 def write_sparse6(G, path, nodes=None, header=True):
     """Write sparse6 data to a path or file-like object."""
+    _ensure_undirected_for_graph6(
+        G,
+        "write_sparse6",
+        reject_multigraph=False,
+        reject_directed=True,
+    )
     return _write_bytes(path, to_sparse6_bytes(G, nodes=nodes, header=header))
 
 
