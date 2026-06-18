@@ -3163,38 +3163,51 @@ impl PyMultiGraph {
             }
             if let Ok(other) = data.extract::<PyRef<'_, PyMultiGraph>>() {
                 g.inner = MultiGraph::with_runtime_policy(other.inner.runtime_policy().clone());
+                // br-r37-c1-tbh4q: single-pass attr crossing via
+                // py_dict_to_attr_map_with_mirror (Rust AttrMap + Python mirror
+                // in ONE dict iteration) instead of py_dict_to_attr_map (pass 1)
+                // + dict.copy() (pass 2) + a duplicate hashmap lookup. The mirror
+                // is a shallow copy with contents/order identical to `.copy()`,
+                // and there is no reciprocal merge on this same-type absorb path
+                // (each node/edge appears once), so the result is byte-identical.
                 for (canonical, py_key) in &other.node_key_map {
-                    let rust_attrs = other
-                        .node_py_attrs
-                        .get(canonical)
-                        .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
-                        .transpose()?
-                        .unwrap_or_default();
-                    g.inner.add_node_with_attrs(canonical.clone(), rust_attrs);
                     g.node_key_map
                         .insert(canonical.clone(), py_key.clone_ref(py));
-                    if let Some(attrs) = other.node_py_attrs.get(canonical) {
-                        g.node_py_attrs
-                            .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
+                    match other.node_py_attrs.get(canonical) {
+                        Some(attrs) => {
+                            let (rust_attrs, mirror) =
+                                py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+                            g.inner.add_node_with_attrs(canonical.clone(), rust_attrs);
+                            g.node_py_attrs.insert(canonical.clone(), mirror);
+                        }
+                        None => {
+                            g.inner
+                                .add_node_with_attrs(canonical.clone(), AttrMap::new());
+                        }
                     }
                 }
                 for edge in other.inner.edges_ordered() {
                     let ek = Self::edge_key(&edge.left, &edge.right, edge.key);
-                    let rust_attrs = other
-                        .edge_py_attrs
-                        .get(&ek)
-                        .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
-                        .transpose()?
-                        .unwrap_or_default();
-                    let _ = g.inner.add_edge_with_key_and_attrs(
-                        edge.left.clone(),
-                        edge.right.clone(),
-                        edge.key,
-                        rust_attrs,
-                    );
-                    if let Some(attrs) = other.edge_py_attrs.get(&ek) {
-                        g.edge_py_attrs
-                            .insert(ek.clone(), attrs.bind(py).copy()?.unbind());
+                    match other.edge_py_attrs.get(&ek) {
+                        Some(attrs) => {
+                            let (rust_attrs, mirror) =
+                                py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+                            let _ = g.inner.add_edge_with_key_and_attrs(
+                                edge.left.clone(),
+                                edge.right.clone(),
+                                edge.key,
+                                rust_attrs,
+                            );
+                            g.edge_py_attrs.insert(ek.clone(), mirror);
+                        }
+                        None => {
+                            let _ = g.inner.add_edge_with_key_and_attrs(
+                                edge.left.clone(),
+                                edge.right.clone(),
+                                edge.key,
+                                AttrMap::new(),
+                            );
+                        }
                     }
                     if let Some(py_key) = other.edge_py_keys.get(&ek) {
                         g.remember_edge_key_object(py, &edge.left, &edge.right, edge.key, py_key);
