@@ -255,6 +255,36 @@ class TestShortestPath:
         ):
             _assert_same_result_or_exception(fnx_call, nx_call)
 
+    def test_single_target_shortest_paths_cutoff_order_matches_networkx(self, fnx, nx):
+        for graph_factory in (fnx.Graph, fnx.DiGraph):
+            G_fnx = graph_factory()
+            G_nx = getattr(nx, graph_factory.__name__)()
+            edges = [
+                ("a", "b"),
+                ("b", "c"),
+                ("a", "d"),
+                ("d", "c"),
+                ("e", "d"),
+                ("f", "e"),
+            ]
+            G_fnx.add_edges_from(edges)
+            G_nx.add_edges_from(edges)
+            G_fnx.add_node("isolated")
+            G_nx.add_node("isolated")
+
+            for cutoff in (None, 0, 1, 2, 3):
+                fnx_paths = fnx.single_target_shortest_path(G_fnx, "c", cutoff=cutoff)
+                nx_paths = nx.single_target_shortest_path(G_nx, "c", cutoff=cutoff)
+                assert list(fnx_paths.items()) == list(nx_paths.items())
+
+                fnx_lengths = fnx.single_target_shortest_path_length(
+                    G_fnx, "c", cutoff=cutoff
+                )
+                nx_lengths = nx.single_target_shortest_path_length(
+                    G_nx, "c", cutoff=cutoff
+                )
+                assert list(fnx_lengths.items()) == list(nx_lengths.items())
+
     def test_average_shortest_path_length(self, fnx, nx, path_graph):
         G_fnx, G_nx = path_graph
         fnx_val = fnx.average_shortest_path_length(G_fnx)
