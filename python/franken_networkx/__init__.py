@@ -10195,9 +10195,18 @@ def minimum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=Fa
             partition=partition,
         )
         return _from_nx_graph(nx_result)
-    result = _raw_minimum_spanning_arborescence(
-        G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
-    )
+    try:
+        result = _raw_minimum_spanning_arborescence(
+            G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
+        )
+    except NetworkXError as exc:
+        # br-r37-c1-6f4uj: nx raises the BASE NetworkXException (not the
+        # NetworkXError subclass) when no spanning arborescence exists; the
+        # native binding raises NetworkXError. Re-raise as the base class so
+        # the exact exception type matches nx.
+        if "spanning arborescence in G" in str(exc):
+            raise NetworkXException(str(exc)) from exc
+        raise
     _restore_branching_edge_attrs(result, G, attr, default, preserve_attrs)
     return result
 
@@ -10248,9 +10257,16 @@ def maximum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=Fa
             partition=partition,
         )
         return _from_nx_graph(nx_result)
-    result = _raw_maximum_spanning_arborescence(
-        G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
-    )
+    try:
+        result = _raw_maximum_spanning_arborescence(
+            G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
+        )
+    except NetworkXError as exc:
+        # br-r37-c1-6f4uj: match nx's base NetworkXException for the
+        # no-arborescence case (see minimum_spanning_arborescence).
+        if "spanning arborescence in G" in str(exc):
+            raise NetworkXException(str(exc)) from exc
+        raise
     _restore_branching_edge_attrs(result, G, attr, default, preserve_attrs)
     return result
 
