@@ -20322,13 +20322,46 @@ pub fn is_weakly_connected(digraph: &DiGraph) -> bool {
 /// Matches `networkx.common_neighbors(G, u, v)`.
 #[must_use]
 pub fn common_neighbors(graph: &Graph, u: &str, v: &str) -> Vec<String> {
-    let u_neighbors: HashSet<&str> = graph.neighbors(u).unwrap_or_default().into_iter().collect();
-    let v_neighbors: HashSet<&str> = graph.neighbors(v).unwrap_or_default().into_iter().collect();
-    let mut result: Vec<String> = u_neighbors
-        .intersection(&v_neighbors)
-        .map(|&s| s.to_owned())
+    let mut result: Vec<String> = common_neighbor_indices(graph, u, v)
+        .into_iter()
+        .map(|idx| {
+            graph
+                .get_node_name(idx)
+                .expect("common neighbor index should resolve to a node name")
+                .to_owned()
+        })
         .collect();
     result.sort_unstable();
+    result
+}
+
+fn common_neighbor_indices(graph: &Graph, u: &str, v: &str) -> Vec<usize> {
+    let Some(u_idx) = graph.get_node_index(u) else {
+        return Vec::new();
+    };
+    let Some(v_idx) = graph.get_node_index(v) else {
+        return Vec::new();
+    };
+    let Some(u_neighbors) = graph.neighbors_indices(u_idx) else {
+        return Vec::new();
+    };
+    let Some(v_neighbors) = graph.neighbors_indices(v_idx) else {
+        return Vec::new();
+    };
+    let (small, large) = if u_neighbors.len() <= v_neighbors.len() {
+        (u_neighbors, v_neighbors)
+    } else {
+        (v_neighbors, u_neighbors)
+    };
+
+    let mut seen = HashSet::with_capacity(small.len());
+    seen.extend(small.iter().copied());
+    let mut result = Vec::with_capacity(small.len().min(large.len()));
+    for &neighbor in large {
+        if seen.contains(&neighbor) {
+            result.push(neighbor);
+        }
+    }
     result
 }
 
@@ -47842,6 +47875,25 @@ mod tests {
         // common_neighbors(a, b) = {c}
         let cn = common_neighbors(&g, "a", "b");
         assert_eq!(cn, vec!["c"]);
+    }
+
+    #[test]
+    fn common_neighbors_sorts_materialized_index_rows() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("u", "z");
+        let _ = g.add_edge("v", "z");
+        let _ = g.add_edge("u", "a");
+        let _ = g.add_edge("v", "a");
+        let _ = g.add_edge("u", "m");
+        let _ = g.add_edge("v", "m");
+        assert_eq!(common_neighbors(&g, "u", "v"), vec!["a", "m", "z"]);
+    }
+
+    #[test]
+    fn common_neighbors_missing_node_is_empty() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("u", "v");
+        assert!(common_neighbors(&g, "u", "missing").is_empty());
     }
 
     #[test]

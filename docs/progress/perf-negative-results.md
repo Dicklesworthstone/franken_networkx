@@ -1,0 +1,15 @@
+# Performance Negative-Evidence Ledger
+
+Campaign: `br-r37-c1-04z53` no-gaps performance domination.
+
+Rule: record every attempted optimization lever before the next batch so slow,
+neutral, and correctness-risky routes do not get retried without new evidence.
+Entries marked `pending` are not performance keeps.
+
+| Date | Scope | Lever | Evidence | Result | Do not repeat / next route |
+| --- | --- | --- | --- | --- | --- |
+| 2026-06-18 | `common_neighbors` raw Rust path | Replace string-keyed neighbor set intersection with integer adjacency-row intersection; materialize names only after intersecting. | Code-first batch. Added criterion row-overlap cases in `crates/fnx-algorithms/benches/algorithm_benchmarks.rs`; conformance/perf run pending by instruction. | Pending. | Keep only if batch benchmark beats previous raw path and conformance remains green. |
+| 2026-06-14 | `structural_holes` | Exact sparse matrix/ULP repair path. | Prior campaign notes: ULP mismatch route produced slower exact matrix behavior and did not close the semantic/perf gap. | Rejected. | Do not retry exact sparse-reduction/ULP route; route to a semantics-first structural-hole proof before optimizing. |
+| 2026-06-03 | `bfs_tree` | Tree-map preallocation. | `tests/artifacts/perf/20260603T-bfs-tree-map-prealloc/isomorphism_proof.md` recorded no real benchmark win. | Rejected. | Do not retry container preallocation alone for BFS tree output maps. |
+| 2026-06-03 | `quotient_graph` raw edge insertion | Direct raw-edge insertion shortcut. | `tests/artifacts/perf/20260603T-quotient-raw-edge-insert/benchmark_report.md` recorded no real speedup under direct timing/hyperfine. | Rejected. | Do not retry raw edge insertion without a different representation-level bottleneck. |
+| 2026-06-06 | attributed DiGraph batch construction | Seen-node/copy/slot descriptor variants. | `tests/artifacts/perf/20260606T-digraph-add-edges-mirror-arena-cod/report.md` recorded regressions across several batch attempts. | Rejected. | Route to contiguous row batches with source PyDict handles and Rust attrs only if a fresh profile still points there. |

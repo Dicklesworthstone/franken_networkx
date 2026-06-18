@@ -10,9 +10,9 @@ use std::collections::BTreeMap;
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use fnx_algorithms::{
     average_shortest_path_length, betweenness_centrality, closeness_centrality,
-    connected_components, degree_centrality, eigenvector_centrality, max_flow_edmonds_karp,
-    minimum_cut_edmonds_karp, minimum_spanning_tree, pagerank, shortest_path_unweighted,
-    shortest_path_weighted, single_source_dijkstra_path_length,
+    common_neighbors, connected_components, degree_centrality, eigenvector_centrality,
+    max_flow_edmonds_karp, minimum_cut_edmonds_karp, minimum_spanning_tree, pagerank,
+    shortest_path_unweighted, shortest_path_weighted, single_source_dijkstra_path_length,
 };
 use fnx_classes::Graph;
 use fnx_runtime::CgseValue;
@@ -120,6 +120,24 @@ fn build_weighted_grid(rows: usize, cols: usize) -> Graph {
                 );
             }
         }
+    }
+    g
+}
+
+fn build_common_neighbors_graph(left_only: usize, right_only: usize, common: usize) -> Graph {
+    let mut g = Graph::strict();
+    let _ = g.add_node("u");
+    let _ = g.add_node("v");
+    for i in 0..common {
+        let node = format!("c{i}");
+        let _ = g.add_edge("u", node.clone());
+        let _ = g.add_edge("v", node);
+    }
+    for i in 0..left_only {
+        let _ = g.add_edge("u", format!("l{i}"));
+    }
+    for i in 0..right_only {
+        let _ = g.add_edge("v", format!("r{i}"));
     }
     g
 }
@@ -285,6 +303,18 @@ fn bench_pagerank(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_common_neighbors(c: &mut Criterion) {
+    let mut group = c.benchmark_group("common_neighbors");
+    for &(left_only, right_only, common) in &[(64, 64, 64), (32, 512, 32), (512, 512, 256)] {
+        let g = build_common_neighbors_graph(left_only, right_only, common);
+        let label = format!("l{left_only}_r{right_only}_c{common}");
+        group.bench_with_input(BenchmarkId::new("overlap_rows", &label), &label, |b, _| {
+            b.iter(|| common_neighbors(&g, "u", "v"));
+        });
+    }
+    group.finish();
+}
+
 // ---------------------------------------------------------------------------
 // Benchmark: Flow
 // ---------------------------------------------------------------------------
@@ -358,6 +388,7 @@ criterion_group!(
     bench_betweenness_centrality,
     bench_eigenvector_centrality,
     bench_pagerank,
+    bench_common_neighbors,
     bench_max_flow,
     bench_minimum_cut,
     bench_minimum_spanning_tree,
