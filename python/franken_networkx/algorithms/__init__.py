@@ -171,7 +171,18 @@ def _alias_nx_child_modules(nx_dotted, fnx_dotted):
         _sys.modules[fnx_child] = sub
         parent = _sys.modules.get(fnx_dotted)
         if parent is not None:
-            setattr(parent, name, sub)
+            # br-r37-c1-dispclob: do NOT overwrite an existing FUNCTION/class
+            # attribute with a same-named child MODULE. e.g. fnx.centrality has a
+            # ``dispersion`` centrality FUNCTION and a ``dispersion.py`` child
+            # module; clobbering the function breaks ``fnx.centrality.dispersion(
+            # ...)`` (-> "module not callable"). Same class as the isomorphism.
+            # tree_isomorphism clobber (nhbni). The child module stays importable
+            # via ``sys.modules[fnx_child]`` / its dotted path; we just don't let
+            # it shadow the public function attribute.
+            from types import ModuleType as _ModuleType
+            existing = getattr(parent, name, None)
+            if existing is None or isinstance(existing, _ModuleType):
+                setattr(parent, name, sub)
         if info.ispkg:
             _alias_nx_child_modules(nx_child, fnx_child)
 
