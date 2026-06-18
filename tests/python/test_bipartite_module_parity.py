@@ -2,6 +2,7 @@
 vertex cover, centralities, clustering, redundancy, spectral
 bipartivity. Identical fixed bipartite graphs. Zero divergences.
 """
+import importlib
 import random
 
 import networkx as nx
@@ -67,6 +68,36 @@ def test_bipartite_matching_and_cover():
     assert sorted(repr(x) for x in nxb.to_vertex_cover(bf, nxb.maximum_matching(bf, top_nodes=_TOP), _TOP)) == sorted(
         repr(x) for x in nxb.to_vertex_cover(bn, nxb.maximum_matching(bn, top_nodes=_TOP), _TOP)
     )
+
+
+def test_bipartite_min_edge_cover_routes_through_fnx(monkeypatch):
+    module = importlib.import_module("franken_networkx.bipartite")
+    via_algorithms = importlib.import_module("franken_networkx.algorithms.bipartite")
+    graph = fnx.path_graph(4)
+    calls = []
+
+    def fake_hopcroft_karp_matching(G):
+        calls.append(G)
+        return {0: 1, 1: 0, 2: 3, 3: 2}
+
+    monkeypatch.setattr(module, "hopcroft_karp_matching", fake_hopcroft_karp_matching)
+
+    assert module.min_edge_cover(graph) == {(0, 1), (1, 0), (2, 3), (3, 2)}
+    assert via_algorithms.min_edge_cover(graph) == {
+        (0, 1),
+        (1, 0),
+        (2, 3),
+        (3, 2),
+    }
+    assert calls == [graph, graph]
+
+
+def test_bipartite_min_edge_cover_matches_networkx_value():
+    module = importlib.import_module("franken_networkx.bipartite")
+    graph = fnx.path_graph(4)
+    expected_graph = nx.path_graph(4)
+
+    assert module.min_edge_cover(graph) == nxb.min_edge_cover(expected_graph)
 
 
 def test_bipartite_centrality_clustering_redundancy():

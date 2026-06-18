@@ -133,6 +133,40 @@ def eppstein_matching(G, top_nodes=None):
     return _nx_bipartite.eppstein_matching(_matching_nx_view(G), top_nodes)
 
 
+def min_edge_cover(G, matching_algorithm=None, *, backend=None, **backend_kwargs):
+    """Return a bipartite minimum edge cover using fnx-native matching."""
+    _fnx._validate_backend_dispatch_keywords(
+        "min_edge_cover", backend, backend_kwargs
+    )
+    if G.is_multigraph():
+        raise _fnx.NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise _fnx.NetworkXNotImplemented("not implemented for directed type")
+    if len(G) == 0:
+        return set()
+    if any(degree == 0 for _, degree in G.degree()):
+        raise _nx.NetworkXException(
+            "Graph has a node with no edge incident on it, so no edge cover exists."
+        )
+    if matching_algorithm is None:
+        matching_algorithm = hopcroft_karp_matching
+    maximum_matching = matching_algorithm(G)
+    try:
+        min_cover = set(maximum_matching.items())
+        bipartite_cover = True
+    except AttributeError:
+        min_cover = set(maximum_matching)
+        bipartite_cover = False
+
+    covered = {node for edge in min_cover for node in edge}
+    for v in set(G) - covered:
+        u = next(iter(G[v]))
+        min_cover.add((u, v))
+        if bipartite_cover:
+            min_cover.add((v, u))
+    return min_cover
+
+
 def density(B, nodes):
     """Return the density of bipartite graph ``B``.
 
