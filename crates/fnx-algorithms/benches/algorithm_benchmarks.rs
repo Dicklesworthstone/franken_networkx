@@ -13,8 +13,9 @@ use fnx_algorithms::{
     closeness_centrality, cn_soundarajan_hopcroft, common_neighbor_centrality,
     common_neighbors, connected_components, degree_centrality, eigenvector_centrality,
     jaccard_coefficient, max_flow_edmonds_karp, minimum_cut_edmonds_karp,
-    minimum_spanning_tree, pagerank, ra_index_soundarajan_hopcroft, resource_allocation_index,
-    shortest_path_unweighted, shortest_path_weighted, single_source_dijkstra_path_length,
+    minimum_spanning_tree, pagerank, preferential_attachment, ra_index_soundarajan_hopcroft,
+    resource_allocation_index, shortest_path_unweighted, shortest_path_weighted,
+    single_source_dijkstra_path_length,
 };
 use fnx_classes::Graph;
 use fnx_runtime::CgseValue;
@@ -377,6 +378,13 @@ fn bench_link_prediction_scores(c: &mut Criterion) {
             &label,
             |b, _| {
                 b.iter(|| common_neighbor_centrality(&g, &pairs, 0.8));
+            },
+        );
+        group.bench_with_input(
+            BenchmarkId::new("preferential_attachment", &label),
+            &label,
+            |b, _| {
+                b.iter(|| preferential_attachment(&g, &pairs));
             },
         );
 

@@ -20466,11 +20466,20 @@ pub fn preferential_attachment(
     graph: &Graph,
     ebunch: &[(String, String)],
 ) -> Vec<(String, String, f64)> {
+    let degrees: Vec<usize> = (0..graph.node_count())
+        .map(|idx| graph.degree_by_index(idx))
+        .collect();
     ebunch
         .iter()
         .map(|(u, v)| {
-            let u_deg = graph.neighbor_count(u);
-            let v_deg = graph.neighbor_count(v);
+            let u_deg = graph
+                .get_node_index(u)
+                .and_then(|idx| degrees.get(idx).copied())
+                .unwrap_or(0);
+            let v_deg = graph
+                .get_node_index(v)
+                .and_then(|idx| degrees.get(idx).copied())
+                .unwrap_or(0);
             let score = (u_deg * v_deg) as f64;
             (u.clone(), v.clone(), score)
         })
@@ -48009,6 +48018,23 @@ mod tests {
         // deg(0) = 2, deg(1) = 2 => PA = 4.0
         let (_, _, score) = &result[0];
         assert!((score - 4.0).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn preferential_attachment_uses_degree_vector_with_self_loops() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("u", "u");
+        let _ = g.add_edge("u", "x");
+        let _ = g.add_edge("v", "v");
+        let _ = g.add_edge("v", "y");
+        let pairs = vec![
+            ("u".to_owned(), "v".to_owned()),
+            ("u".to_owned(), "missing".to_owned()),
+        ];
+
+        let result = preferential_attachment(&g, &pairs);
+        assert!((result[0].2 - 9.0).abs() < TEST_TOLERANCE);
+        assert!((result[1].2 - 0.0).abs() < TEST_TOLERANCE);
     }
 
     #[test]
