@@ -9441,7 +9441,7 @@ pub fn ancestors(
         let graph_kind = if gr.is_directed() { "digraph" } else { "graph" };
         return Err(NetworkXError::new_err(format!(
             "The node {} is not in the {}.",
-            source.repr()?,
+            source.str()?,
             graph_kind
         )));
     }
@@ -9516,7 +9516,7 @@ pub fn descendants(
         let graph_kind = if gr.is_directed() { "digraph" } else { "graph" };
         return Err(NetworkXError::new_err(format!(
             "The node {} is not in the {}.",
-            source.repr()?,
+            source.str()?,
             graph_kind
         )));
     }

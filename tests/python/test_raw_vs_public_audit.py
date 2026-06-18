@@ -135,6 +135,27 @@ def test_raw_is_chordal_undirected_unchanged():
     assert fnx._raw_is_chordal(fnx.cycle_graph(6)) is False
 
 
+def test_raw_ancestors_descendants_missing_string_node_message_matches_public_and_nx():
+    fg = fnx.DiGraph([("a", "b")])
+    ng = nx.DiGraph([("a", "b")])
+    expected = "The node missing is not in the digraph."
+
+    for raw_func, public_func, nx_func in [
+        (fnx._raw_ancestors, fnx.ancestors, nx.ancestors),
+        (fnx._raw_descendants, fnx.descendants, nx.descendants),
+    ]:
+        with pytest.raises(fnx.NetworkXError) as raw_exc:
+            raw_func(fg, "missing")
+        with pytest.raises(fnx.NetworkXError) as public_exc:
+            public_func(fg, "missing")
+        with pytest.raises(nx.NetworkXError) as nx_exc:
+            nx_func(ng, "missing")
+
+        assert str(raw_exc.value) == expected
+        assert str(public_exc.value) == expected
+        assert str(nx_exc.value) == expected
+
+
 @pytest.mark.parametrize(
     "fn_name",
     [
