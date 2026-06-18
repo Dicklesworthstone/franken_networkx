@@ -41592,6 +41592,7 @@ mod tests {
         diamond_graph,
         // Additional shortest path algorithms
         dijkstra_path_length,
+        dijkstra_path_length_directed,
         dodecahedral_graph,
         dominance_frontiers,
         dominating_set,
@@ -49560,6 +49561,57 @@ mod tests {
                 "d".to_string()
             ]))
         );
+    }
+
+    #[test]
+    fn test_astar_zero_heuristic_replays_dijkstra_tie_order() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge_with_attrs("s", "b", attrs([("weight", "1.0")]));
+        let _ = g.add_edge_with_attrs("b", "t", attrs([("weight", "1.0")]));
+        let _ = g.add_edge_with_attrs("s", "a", attrs([("weight", "1.0")]));
+        let _ = g.add_edge_with_attrs("a", "t", attrs([("weight", "1.0")]));
+        let _ = g.add_edge_with_attrs("s", "z", attrs([("weight", "5.0")]));
+        let _ = g.add_edge_with_attrs("z", "t", attrs([("weight", "5.0")]));
+
+        let zero = |_: &str| Ok::<_, ()>(0.0);
+        let astar = astar_path(&g, "s", "t", "weight", Some(&zero))
+            .expect("zero heuristic should not error")
+            .expect("target should be reachable");
+        let dijkstra = single_source_dijkstra_path(&g, "s", "weight")
+            .into_iter()
+            .find_map(|(node, path)| (node == "t").then_some(path))
+            .expect("Dijkstra should include the reachable target");
+
+        assert_eq!(astar, dijkstra);
+        assert_eq!(astar, vec!["s".to_owned(), "b".to_owned(), "t".to_owned()]);
+    }
+
+    #[test]
+    fn test_astar_directed_length_matches_dijkstra_with_admissible_heuristic() {
+        let mut g = DiGraph::strict();
+        let _ = g.add_edge_with_attrs("s", "a", attrs([("weight", "2.0")]));
+        let _ = g.add_edge_with_attrs("a", "t", attrs([("weight", "2.0")]));
+        let _ = g.add_edge_with_attrs("s", "b", attrs([("weight", "1.0")]));
+        let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "1.0")]));
+        let _ = g.add_edge_with_attrs("c", "t", attrs([("weight", "4.0")]));
+        let _ = g.add_edge_with_attrs("t", "s", attrs([("weight", "1.0")]));
+
+        let h = |node: &str| {
+            Ok::<_, ()>(match node {
+                "s" => 3.0,
+                "a" => 1.0,
+                "b" => 2.0,
+                "c" => 1.0,
+                "t" => 0.0,
+                _ => 0.0,
+            })
+        };
+        let astar_length = astar_path_length(&g, "s", "t", "weight", Some(&h))
+            .expect("admissible heuristic should not error");
+        let dijkstra_length = dijkstra_path_length_directed(&g, "s", "t", "weight");
+
+        assert_eq!(astar_length, dijkstra_length);
+        assert_eq!(astar_length, Some(4.0));
     }
 
     #[test]
