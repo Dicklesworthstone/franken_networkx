@@ -11,6 +11,7 @@ chordal completion H and elimination ordering alpha are byte-identical to nx.
 import time
 
 import networkx as nx
+import pytest
 
 import franken_networkx as fnx
 
@@ -28,6 +29,28 @@ def _canon(H, alpha):
         sorted(tuple(sorted(e)) for e in H.edges()),
         {repr(k): v for k, v in alpha.items()},
     )
+
+
+@pytest.mark.parametrize(
+    ("graph_factory", "expected_factory"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_not_implemented_guard_order_matches_networkx(
+    graph_factory, expected_factory
+):
+    graph = graph_factory([(0, 1), (1, 2)])
+    expected_graph = expected_factory([(0, 1), (1, 2)])
+
+    with pytest.raises(nx.NetworkXNotImplemented) as fnx_exc:
+        fnx.complete_to_chordal_graph(graph)
+    with pytest.raises(nx.NetworkXNotImplemented) as nx_exc:
+        nx.complete_to_chordal_graph(expected_graph)
+
+    assert str(fnx_exc.value) == str(nx_exc.value)
 
 
 def test_parity_random_graphs():

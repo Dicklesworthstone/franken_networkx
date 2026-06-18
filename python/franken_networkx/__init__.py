@@ -41430,14 +41430,14 @@ def onion_layers(G):
     instead of delegating to nx avoids the full ``_fnx_to_nx`` graph
     conversion (the dominant cost of the old delegated path).
 
-    nx is ``@not_implemented_for('multigraph', 'directed')`` and rejects
+    nx reports directed before multigraph on MultiDiGraph inputs and rejects
     self-loops; match those error contracts before dispatching.
     """
     G = _coerce_arg_to_fnx_graph(G)
-    if G.is_multigraph():
-        raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
     if number_of_selfloops(G) > 0:
         raise NetworkXNotImplemented(
             "Input graph contains self loops which is not permitted; "
@@ -44417,6 +44417,10 @@ def complete_to_chordal_graph(G):
     reaches that branch; mirror that selective raise pattern by
     delegating any self-loop input to nx.
     """
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
     if number_of_selfloops(G) > 0:  # br-r37-c1-5i5gb: native O(|V|) check, not O(|E|) EdgeView pass
         from franken_networkx.readwrite import _from_nx_graph
         nx_graph, alpha = _call_networkx_for_parity("complete_to_chordal_graph", G)

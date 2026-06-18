@@ -117,3 +117,26 @@ def test_error_contracts():
     with pytest.raises(Exception) as e3:
         fnx.onion_layers(gs)
     assert "self loop" in str(e3.value).lower()
+
+
+@needs_nx
+@pytest.mark.parametrize(
+    ("graph_factory", "expected_factory"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_not_implemented_guard_order_matches_networkx(
+    graph_factory, expected_factory
+):
+    graph = graph_factory([(0, 1), (1, 2)])
+    expected_graph = expected_factory([(0, 1), (1, 2)])
+
+    with pytest.raises(nx.NetworkXNotImplemented) as fnx_exc:
+        fnx.onion_layers(graph)
+    with pytest.raises(nx.NetworkXNotImplemented) as nx_exc:
+        nx.onion_layers(expected_graph)
+
+    assert str(fnx_exc.value) == str(nx_exc.value)
