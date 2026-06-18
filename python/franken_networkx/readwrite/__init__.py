@@ -2990,4 +2990,14 @@ def __dir__():
     return sorted(set(globals()) | set(dir(_src)))
 
 
+def _readwrite_exports():
+    import networkx.readwrite as _src
+
+    exports = getattr(_src, "__all__", None)
+    if exports:
+        return list(exports)
+    return [name for name in dir(_src) if not name.startswith("_")]
+
+
 _install_readwrite_submodule_aliases()
+__all__ = _readwrite_exports()

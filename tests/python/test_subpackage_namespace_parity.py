@@ -41,6 +41,7 @@ ROOT_MIRROR_MODULE_EXPORTS = [
     ("franken_networkx.convert_matrix", "networkx.convert_matrix"),
     ("franken_networkx.generators", "networkx.generators"),
     ("franken_networkx.linalg", "networkx.linalg"),
+    ("franken_networkx.readwrite", "networkx.readwrite"),
     ("franken_networkx.relabel", "networkx.relabel"),
     ("franken_networkx.utils", "networkx.utils"),
 ]
