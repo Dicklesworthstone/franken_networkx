@@ -7632,20 +7632,28 @@ impl PyDiGraph {
     /// Convert to undirected PyGraph — merges parallel directed edges.
     fn to_undirected(&self, py: Python<'_>) -> PyResult<PyGraph> {
         let mut ug = PyGraph::new_empty_with_policy(py, self.inner.runtime_policy().clone())?;
-        // Copy nodes.
+        // Copy nodes. br-r37-c1-tbh4q: build the Rust AttrMap and the Python
+        // mirror dict in a SINGLE dict pass via py_dict_to_attr_map_with_mirror,
+        // instead of py_dict_to_attr_map (pass 1) + a redundant dict.copy()
+        // (pass 2) plus a duplicate node_py_attrs lookup. The mirror is a
+        // shallow copy with contents/order identical to `.copy()`, so node
+        // attrs stay byte-identical — locked by
+        // tests/python/test_copy_family_conformance_guard.py +
+        // test_to_undirected_conformance_guard.py.
         for (canonical, py_key) in &self.node_key_map {
-            let rust_attrs = self
-                .node_py_attrs
-                .get(canonical)
-                .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
-                .transpose()?
-                .unwrap_or_default();
-            ug.inner.add_node_with_attrs(canonical.clone(), rust_attrs);
             ug.node_key_map
                 .insert(canonical.clone(), py_key.clone_ref(py));
-            if let Some(attrs) = self.node_py_attrs.get(canonical) {
-                ug.node_py_attrs
-                    .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
+            match self.node_py_attrs.get(canonical) {
+                Some(attrs) => {
+                    let (rust_attrs, mirror) =
+                        py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+                    ug.inner.add_node_with_attrs(canonical.clone(), rust_attrs);
+                    ug.node_py_attrs.insert(canonical.clone(), mirror);
+                }
+                None => {
+                    ug.inner
+                        .add_node_with_attrs(canonical.clone(), AttrMap::new());
+                }
             }
         }
         // br-r37-c1-78os5: copy edges in canonical node->successor order
