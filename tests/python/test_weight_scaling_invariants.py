@@ -9,8 +9,9 @@ Multiplying every edge weight by a constant ``c > 0``:
 * leaves min/max spanning-edge iterator choices unchanged under the same scaling
 * relabels spanning-tree edge/weight outputs in lockstep
 
-Adding the same constant to every edge leaves min/max spanning-tree choices
-unchanged and shifts total tree weight by that constant times ``n - 1``.
+Adding the same constant to every edge leaves min/max spanning-tree and
+spanning-edge choices unchanged and shifts total tree weight by that constant
+times ``n - 1``.
 
 These exercise the weighted code paths without any networkx oracle.
 
@@ -20,6 +21,7 @@ br-r37-c1-pvstf
 br-r37-c1-0g5x6
 br-r37-c1-u1ot8
 br-r37-c1-fdti4
+br-r37-c1-rjwkl
 """
 
 from __future__ import annotations
@@ -148,6 +150,33 @@ def test_spanning_tree_outputs_shift_uniformly(k, seed):
     assert _tree_weight(shifted_max) == pytest.approx(
         _tree_weight(base_max) + expected_shift
     )
+
+
+@pytest.mark.parametrize("algorithm", ["kruskal", "prim", "boruvka"])
+@pytest.mark.parametrize("k", [1, 5, 11])
+@pytest.mark.parametrize("seed", range(30))
+def test_spanning_edge_iterators_shift_invariant(algorithm, k, seed):
+    res = _connected_weighted(seed, distinct=True)
+    if res is None:
+        pytest.skip("disconnected")
+    g, _ = res
+    shifted = _shifted(g, k)
+
+    base_min = fnx.minimum_spanning_edges(
+        g, algorithm=algorithm, weight="weight", data=True
+    )
+    shifted_min = fnx.minimum_spanning_edges(
+        shifted, algorithm=algorithm, weight="weight", data=True
+    )
+    assert _edge_record_set(base_min) == _edge_record_set(shifted_min)
+
+    base_max = fnx.maximum_spanning_edges(
+        g, algorithm=algorithm, weight="weight", data=True
+    )
+    shifted_max = fnx.maximum_spanning_edges(
+        shifted, algorithm=algorithm, weight="weight", data=True
+    )
+    assert _edge_record_set(base_max) == _edge_record_set(shifted_max)
 
 
 @pytest.mark.parametrize("c", [2, 3, 7])
