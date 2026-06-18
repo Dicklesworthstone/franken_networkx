@@ -550,7 +550,7 @@ pub(crate) fn attr_map_to_pydict(py: Python<'_>, attrs: &AttrMap) -> PyResult<Py
 /// discards a `PyErr`). Non-exact types — `dict`, numpy scalars, anything with a
 /// custom `__float__`/`__index__` — fall through to the original chain, so the
 /// resulting `CgseValue` is byte-for-byte identical to the previous behavior.
-fn py_value_to_cgse(v: &Bound<'_, PyAny>) -> PyResult<CgseValue> {
+pub(crate) fn py_value_to_cgse(v: &Bound<'_, PyAny>) -> PyResult<CgseValue> {
     // Exact-type fast paths (bool before int: Python bool subclasses int).
     if v.is_exact_instance_of::<PyBool>() {
         return Ok(CgseValue::Bool(v.extract::<bool>()?));

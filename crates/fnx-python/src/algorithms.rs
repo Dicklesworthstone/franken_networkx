@@ -437,6 +437,43 @@ impl<'py> GraphRef<'py> {
             _ => None,
         }
     }
+
+    fn dijkstra_weighted_undirected_projection(
+        &self,
+        py: Python<'_>,
+        weight_attr: &str,
+    ) -> PyResult<WeightedGraphProjection<'_>> {
+        match self {
+            GraphRef::Undirected(pg) => Ok(WeightedGraphProjection::Owned(Box::new(
+                dijkstra_single_weight_graph_projection(py, pg, weight_attr)?,
+            ))),
+            GraphRef::Directed { .. } => Ok(WeightedGraphProjection::Borrowed(self.undirected())),
+            GraphRef::MultiUndirected { mg, .. } => Ok(WeightedGraphProjection::Owned(Box::new(
+                multigraph_to_weighted_simple_graph(&mg.inner, weight_attr),
+            ))),
+            GraphRef::MultiDirected { .. } => {
+                Ok(WeightedGraphProjection::Borrowed(self.undirected()))
+            }
+        }
+    }
+
+    fn dijkstra_weighted_digraph_projection(
+        &self,
+        py: Python<'_>,
+        weight_attr: &str,
+    ) -> PyResult<Option<WeightedDiGraphProjection<'_>>> {
+        match self {
+            GraphRef::Directed { dg, .. } => Ok(Some(WeightedDiGraphProjection::Owned(Box::new(
+                dijkstra_single_weight_digraph_projection(py, dg, weight_attr)?,
+            )))),
+            GraphRef::MultiDirected { mdg, .. } => {
+                Ok(Some(WeightedDiGraphProjection::Owned(Box::new(
+                    multidigraph_to_weighted_simple_digraph(&mdg.inner, weight_attr),
+                ))))
+            }
+            _ => Ok(None),
+        }
+    }
 }
 
 /// Extract a `PyGraph`, `PyDiGraph`, `PyMultiGraph`, or `PyMultiDiGraph` from
@@ -486,6 +523,100 @@ fn sync_rust_attrs_if_available(g: &Bound<'_, PyAny>) -> PyResult<()> {
             }
         }
     }
+}
+
+fn sync_rust_attrs_for_non_simple(g: &Bound<'_, PyAny>) -> PyResult<()> {
+    let is_simple_graph = g.extract::<PyRef<'_, PyGraph>>().is_ok();
+    let is_simple_digraph = !is_simple_graph && g.extract::<PyRef<'_, PyDiGraph>>().is_ok();
+    if is_simple_graph || is_simple_digraph {
+        return Ok(());
+    }
+    sync_rust_attrs_if_available(g)
+}
+
+fn dijkstra_single_weight_attrs(
+    py: Python<'_>,
+    weight_attr: &str,
+    value: Option<PyObject>,
+) -> PyResult<AttrMap> {
+    let mut attrs = AttrMap::new();
+    if let Some(value) = value {
+        attrs.insert(
+            weight_attr.to_owned(),
+            crate::py_value_to_cgse(value.bind(py))?,
+        );
+    }
+    Ok(attrs)
+}
+
+fn dijkstra_single_weight_graph_projection(
+    py: Python<'_>,
+    pg: &PyGraph,
+    weight_attr: &str,
+) -> PyResult<fnx_classes::Graph> {
+    let nodes: Vec<String> = pg
+        .inner
+        .nodes_ordered()
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    let edge_indices = pg.inner.edges_ordered_indices();
+    let mut edges: Vec<(usize, usize, AttrMap)> = Vec::with_capacity(edge_indices.len());
+    for (left_idx, right_idx) in edge_indices {
+        let left = pg
+            .inner
+            .get_node_name(left_idx)
+            .expect("edge index endpoint refers to an existing node");
+        let right = pg
+            .inner
+            .get_node_name(right_idx)
+            .expect("edge index endpoint refers to an existing node");
+        let attrs = dijkstra_single_weight_attrs(
+            py,
+            weight_attr,
+            pg.edge_attr_py_value(py, left, right, weight_attr)?,
+        )?;
+        edges.push((left_idx, right_idx, attrs));
+    }
+
+    let mut projection = fnx_classes::Graph::new(pg.inner.mode());
+    let _ = projection.extend_fresh_index_edges_with_attrs_unrecorded(nodes, edges);
+    Ok(projection)
+}
+
+fn dijkstra_single_weight_digraph_projection(
+    py: Python<'_>,
+    dg: &PyDiGraph,
+    weight_attr: &str,
+) -> PyResult<fnx_classes::digraph::DiGraph> {
+    let nodes: Vec<String> = dg
+        .inner
+        .nodes_ordered()
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    let edge_indices = dg.inner.edges_ordered_indices();
+    let mut edges: Vec<(usize, usize, AttrMap)> = Vec::with_capacity(edge_indices.len());
+    for (source_idx, target_idx) in edge_indices {
+        let source = dg
+            .inner
+            .get_node_name(source_idx)
+            .expect("edge index endpoint refers to an existing node");
+        let target = dg
+            .inner
+            .get_node_name(target_idx)
+            .expect("edge index endpoint refers to an existing node");
+        let attrs = dijkstra_single_weight_attrs(
+            py,
+            weight_attr,
+            dg.edge_attr_py_value(py, source, target, weight_attr)?,
+        )?;
+        edges.push((source_idx, target_idx, attrs));
+    }
+
+    let mut projection = fnx_classes::digraph::DiGraph::new(dg.inner.mode());
+    let _ = projection.extend_fresh_index_edges_with_attrs_unrecorded(nodes, edges);
+    Ok(projection)
 }
 
 /// generators-matrix follow-up 2026-06-06: every projection below builds
@@ -3473,27 +3604,28 @@ pub fn dijkstra_path(
     target: &Bound<'_, PyAny>,
     weight: &str,
 ) -> PyResult<Vec<PyObject>> {
-    sync_rust_attrs_if_available(g)?;
+    sync_rust_attrs_for_non_simple(g)?;
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, target)?;
     validate_node(&gr, &s, source, "Source")?;
     validate_node(&gr, &t, target, "Target")?;
 
-    let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
-        {
-            let __wp = weighted_projection.as_ref();
-            py.allow_threads(|| {
-                fnx_algorithms::shortest_path_weighted_directed(__wp, &s, &t, weight)
-            })
-        }
-    } else {
-        let weighted_projection = gr.weighted_undirected_projection(weight);
-        {
-            let __wp = weighted_projection.as_ref();
-            py.allow_threads(|| fnx_algorithms::shortest_path_weighted(__wp, &s, &t, weight))
-        }
-    };
+    let result =
+        if let Some(weighted_projection) = gr.dijkstra_weighted_digraph_projection(py, weight)? {
+            {
+                let __wp = weighted_projection.as_ref();
+                py.allow_threads(|| {
+                    fnx_algorithms::shortest_path_weighted_directed(__wp, &s, &t, weight)
+                })
+            }
+        } else {
+            let weighted_projection = gr.dijkstra_weighted_undirected_projection(py, weight)?;
+            {
+                let __wp = weighted_projection.as_ref();
+                py.allow_threads(|| fnx_algorithms::shortest_path_weighted(__wp, &s, &t, weight))
+            }
+        };
     match result.path {
         Some(p) => Ok(p.iter().map(|n| gr.py_node_key(py, n)).collect()),
         None => Err(NetworkXNoPath::new_err(format!(
@@ -3588,7 +3720,7 @@ pub fn multi_source_dijkstra(
     sources: &Bound<'_, PyAny>,
     weight: &str,
 ) -> PyResult<(PyObject, PyObject)> {
-    sync_rust_attrs_if_available(g)?;
+    sync_rust_attrs_for_non_simple(g)?;
     let gr = extract_graph(g)?;
     let iter = pyo3::types::PyIterator::from_object(sources)?;
     let mut source_strs = Vec::new();
@@ -3607,7 +3739,9 @@ pub fn multi_source_dijkstra(
     }
     let source_refs: Vec<&str> = source_strs.iter().map(String::as_str).collect();
 
-    let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
+    let result = if let Some(weighted_projection) =
+        gr.dijkstra_weighted_digraph_projection(py, weight)?
+    {
         {
             let __wp = weighted_projection.as_ref();
             py.allow_threads(|| {
@@ -3615,7 +3749,7 @@ pub fn multi_source_dijkstra(
             })
         }
     } else {
-        let weighted_projection = gr.weighted_undirected_projection(weight);
+        let weighted_projection = gr.dijkstra_weighted_undirected_projection(py, weight)?;
         {
             let __wp = weighted_projection.as_ref();
             py.allow_threads(|| fnx_algorithms::multi_source_dijkstra(__wp, &source_refs, weight))
@@ -19969,6 +20103,87 @@ mod tests {
     }
 
     #[test]
+    fn dijkstra_simple_graph_projection_reads_live_weight_dict() {
+        ensure_python();
+        Python::attach(|py| {
+            let mut graph = PyGraph::new_empty(py).expect("graph should initialize");
+            let weighted_edge = |weight: f64| {
+                let mut attrs = AttrMap::new();
+                attrs.insert("weight".to_owned(), weight.into());
+                attrs
+            };
+            graph
+                .inner
+                .add_edge_with_attrs("a".to_owned(), "b".to_owned(), weighted_edge(100.0))
+                .expect("edge should add");
+            graph
+                .inner
+                .add_edge_with_attrs("a".to_owned(), "c".to_owned(), weighted_edge(1.0))
+                .expect("edge should add");
+            graph
+                .inner
+                .add_edge_with_attrs("c".to_owned(), "b".to_owned(), weighted_edge(1.0))
+                .expect("edge should add");
+
+            let live_attrs = PyDict::new(py);
+            live_attrs
+                .set_item("weight", 0.25)
+                .expect("weight attr should set");
+            graph
+                .edge_py_attrs
+                .insert(PyGraph::edge_key("a", "b"), live_attrs.unbind());
+            graph.edges_dirty.store(true, Ordering::Relaxed);
+
+            let projection = dijkstra_single_weight_graph_projection(py, &graph, "weight")
+                .expect("projection should build");
+            let result = fnx_algorithms::shortest_path_weighted(&projection, "a", "b", "weight");
+
+            assert_eq!(result.path, Some(vec!["a".to_owned(), "b".to_owned()]));
+        });
+    }
+
+    #[test]
+    fn dijkstra_simple_digraph_projection_reads_live_weight_dict() {
+        ensure_python();
+        Python::attach(|py| {
+            let mut graph = PyDiGraph::new_empty(py).expect("digraph should initialize");
+            let weighted_edge = |weight: f64| {
+                let mut attrs = AttrMap::new();
+                attrs.insert("weight".to_owned(), weight.into());
+                attrs
+            };
+            graph
+                .inner
+                .add_edge_with_attrs("a".to_owned(), "b".to_owned(), weighted_edge(100.0))
+                .expect("edge should add");
+            graph
+                .inner
+                .add_edge_with_attrs("a".to_owned(), "c".to_owned(), weighted_edge(1.0))
+                .expect("edge should add");
+            graph
+                .inner
+                .add_edge_with_attrs("c".to_owned(), "b".to_owned(), weighted_edge(1.0))
+                .expect("edge should add");
+
+            let live_attrs = PyDict::new(py);
+            live_attrs
+                .set_item("weight", 0.25)
+                .expect("weight attr should set");
+            graph
+                .edge_py_attrs
+                .insert(PyDiGraph::edge_key("a", "b"), live_attrs.unbind());
+            graph.edges_dirty.store(true, Ordering::Relaxed);
+
+            let projection = dijkstra_single_weight_digraph_projection(py, &graph, "weight")
+                .expect("projection should build");
+            let result =
+                fnx_algorithms::shortest_path_weighted_directed(&projection, "a", "b", "weight");
+
+            assert_eq!(result.path, Some(vec!["a".to_owned(), "b".to_owned()]));
+        });
+    }
+
+    #[test]
     fn spanning_helpers_preserve_mode() {
         ensure_python();
         Python::attach(|py| {
@@ -20047,7 +20262,10 @@ mod tests {
             // the result's decision log is rebuilt from the tree's own construction.
             let mst_policy = mst.inner.runtime_policy();
             assert_eq!(mst_policy.mode(), expected_multigraph_policy.mode());
-            assert_eq!(mst_policy.allowlist(), expected_multigraph_policy.allowlist());
+            assert_eq!(
+                mst_policy.allowlist(),
+                expected_multigraph_policy.allowlist()
+            );
 
             let mut graph = PyGraph::new_empty(py).expect("graph should initialize");
             graph.inner = fnx_classes::Graph::new(CompatibilityMode::Hardened);

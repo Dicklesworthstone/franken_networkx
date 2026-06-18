@@ -6198,6 +6198,27 @@ impl PyDiGraph {
             .clone_ref(py)
     }
 
+    pub(crate) fn edge_attr_py_value(
+        &self,
+        py: Python<'_>,
+        source: &str,
+        target: &str,
+        attr: &str,
+    ) -> PyResult<Option<PyObject>> {
+        let key = Self::edge_key(source, target);
+        if let Some(dict) = self.edge_py_attrs.get(&key) {
+            return Ok(dict.bind(py).get_item(attr)?.map(|value| value.unbind()));
+        }
+        match self
+            .inner
+            .edge_attrs(source, target)
+            .and_then(|attrs| attrs.get(attr))
+        {
+            Some(value) => Ok(Some(crate::cgse_value_to_py(py, value)?)),
+            None => Ok(None),
+        }
+    }
+
     fn cached_succ_set_edge(&mut self, py: Python<'_>, owner: &str, nbr: &str) -> PyResult<()> {
         let Some(row) = self.succ_row_py.get(owner).map(|row| row.clone_ref(py)) else {
             return Ok(());
