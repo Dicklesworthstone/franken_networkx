@@ -79,6 +79,19 @@ for _name in _FNX_NATIVE_TREE_CLASSES:
         globals()[_name] = getattr(_fnx, _name)
 
 
+def center(G):
+    """Return the center of an undirected tree using fnx's center wrapper."""
+    if G.is_directed():
+        raise _fnx.NetworkXNotImplemented("not implemented for directed type")
+    try:
+        is_tree = _fnx.is_tree(G)
+    except _fnx.NetworkXPointlessConcept:
+        is_tree = False
+    if not is_tree:
+        raise _fnx.NotATree("input graph is not a tree")
+    return _fnx.center(G)
+
+
 def from_prufer_sequence(sequence, *, backend=None, **backend_kwargs):
     """Return the tree corresponding to the given Prüfer sequence.
 
