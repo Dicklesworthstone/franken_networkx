@@ -213,6 +213,57 @@ def test_raw_bfs_missing_string_source_message_matches_public_and_nx():
         assert str(nx_exc.value) == expected
 
 
+def test_raw_dfs_missing_string_source_message_matches_public_and_nx():
+    fg = fnx.path_graph(["a", "b"])
+    ng = nx.path_graph(["a", "b"])
+    expected = "The node missing is not in the graph."
+
+    cases = [
+        (
+            lambda: fnx._dfs_edges_raw(fg, "missing"),
+            lambda: list(fnx.dfs_edges(fg, "missing")),
+            lambda: list(nx.dfs_edges(ng, "missing")),
+        ),
+        (
+            lambda: fnx._dfs_tree_raw(fg, "missing"),
+            lambda: fnx.dfs_tree(fg, "missing"),
+            lambda: nx.dfs_tree(ng, "missing"),
+        ),
+        (
+            lambda: fnx._dfs_predecessors_raw(fg, "missing"),
+            lambda: fnx.dfs_predecessors(fg, "missing"),
+            lambda: nx.dfs_predecessors(ng, "missing"),
+        ),
+        (
+            lambda: fnx._dfs_successors_raw(fg, "missing"),
+            lambda: fnx.dfs_successors(fg, "missing"),
+            lambda: nx.dfs_successors(ng, "missing"),
+        ),
+        (
+            lambda: fnx._dfs_preorder_nodes_raw(fg, "missing"),
+            lambda: list(fnx.dfs_preorder_nodes(fg, "missing")),
+            lambda: list(nx.dfs_preorder_nodes(ng, "missing")),
+        ),
+        (
+            lambda: fnx._dfs_postorder_nodes_raw(fg, "missing"),
+            lambda: list(fnx.dfs_postorder_nodes(fg, "missing")),
+            lambda: list(nx.dfs_postorder_nodes(ng, "missing")),
+        ),
+    ]
+
+    for raw_call, public_call, nx_call in cases:
+        with pytest.raises(fnx.NodeNotFound) as raw_exc:
+            raw_call()
+        with pytest.raises(fnx.NetworkXError) as public_exc:
+            public_call()
+        with pytest.raises(nx.NetworkXError) as nx_exc:
+            nx_call()
+
+        assert str(raw_exc.value) == expected
+        assert str(public_exc.value) == expected
+        assert str(nx_exc.value) == expected
+
+
 @pytest.mark.parametrize(
     "fn_name",
     [

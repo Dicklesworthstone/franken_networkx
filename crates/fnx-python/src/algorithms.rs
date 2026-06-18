@@ -8567,7 +8567,7 @@ pub fn dfs_edges(
             if !gr.has_node(&k) {
                 return Err(NodeNotFound::new_err(format!(
                     "The node {} is not in the graph.",
-                    s.repr()?
+                    s.str()?
                 )));
             }
             Some(k)
@@ -8737,7 +8737,7 @@ pub fn dfs_tree(
             if !gr.has_node(&k) {
                 return Err(NodeNotFound::new_err(format!(
                     "The node {} is not in the graph.",
-                    s.repr()?
+                    s.str()?
                 )));
             }
             Some(k)
@@ -8817,7 +8817,7 @@ pub fn dfs_predecessors(
             if !gr.has_node(&k) {
                 return Err(NodeNotFound::new_err(format!(
                     "The node {} is not in the graph.",
-                    s.repr()?
+                    s.str()?
                 )));
             }
             Some(k)
@@ -8924,7 +8924,7 @@ pub fn dfs_successors(
             if !gr.has_node(&k) {
                 return Err(NodeNotFound::new_err(format!(
                     "The node {} is not in the graph.",
-                    s.repr()?
+                    s.str()?
                 )));
             }
             Some(k)
@@ -9038,7 +9038,7 @@ pub fn dfs_preorder_nodes(
             if !gr.has_node(&k) {
                 return Err(NodeNotFound::new_err(format!(
                     "The node {} is not in the graph.",
-                    s.repr()?
+                    s.str()?
                 )));
             }
             Some(k)
@@ -9148,7 +9148,7 @@ pub fn dfs_postorder_nodes(
             if !gr.has_node(&k) {
                 return Err(NodeNotFound::new_err(format!(
                     "The node {} is not in the graph.",
-                    s.repr()?
+                    s.str()?
                 )));
             }
             Some(k)
