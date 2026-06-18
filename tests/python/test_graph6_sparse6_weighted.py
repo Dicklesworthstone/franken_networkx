@@ -72,6 +72,25 @@ def test_sparse6_known_networkx_encodings():
     assert fnx.to_sparse6_bytes(fnx.complete_graph(4), header=False) == b":CcKI\n"
 
 
+def test_sparse6_directed_graph_bytes_match_networkx():
+    graph = fnx.DiGraph([(0, 1), (1, 2), (2, 0)])
+    expected = nx.DiGraph([(0, 1), (1, 2), (2, 0)])
+
+    assert fnx.to_sparse6_bytes(graph) == nx.to_sparse6_bytes(expected)
+    assert fnx.to_sparse6_bytes(graph, header=False) == nx.to_sparse6_bytes(
+        expected, header=False
+    )
+
+
+def test_sparse6_directed_multigraph_bytes_match_networkx():
+    graph = fnx.MultiDiGraph()
+    expected = nx.MultiDiGraph()
+    for target in (graph, expected):
+        target.add_edges_from([(0, 1), (1, 0), (1, 0), (1, 2)])
+
+    assert fnx.to_sparse6_bytes(graph) == nx.to_sparse6_bytes(expected)
+
+
 def test_graph6_sparse6_nodes_filter_matches_networkx():
     graph = fnx.Graph()
     graph.add_nodes_from([2, 1, 0, 3])

@@ -792,7 +792,9 @@ def _format_nodes_for_sparse6(G, nodes):
     return sorted(node for node in G.nodes() if node in requested)
 
 
-def _ensure_undirected_for_graph6(G, operation, *, reject_multigraph):
+def _ensure_undirected_for_graph6(
+    G, operation, *, reject_multigraph, reject_directed=True
+):
     """Raise NetworkX-compatible errors for unsupported graph6/sparse6 writes."""
     import franken_networkx as fnx
 
@@ -801,7 +803,7 @@ def _ensure_undirected_for_graph6(G, operation, *, reject_multigraph):
     # both apply on a MultiDiGraph.
     if reject_multigraph and G.is_multigraph():
         raise fnx.NetworkXNotImplemented("not implemented for multigraph type")
-    if G.is_directed():
+    if reject_directed and G.is_directed():
         raise fnx.NetworkXNotImplemented("not implemented for directed type")
 
 
@@ -1454,8 +1456,13 @@ def from_sparse6_bytes(string, *, backend=None, **backend_kwargs):
 
 
 def to_sparse6_bytes(G, nodes=None, header=True):
-    """Serialize an undirected FrankenNetworkX graph to sparse6 bytes."""
-    _ensure_undirected_for_graph6(G, "to_sparse6_bytes", reject_multigraph=False)
+    """Serialize a FrankenNetworkX graph to sparse6 bytes."""
+    _ensure_undirected_for_graph6(
+        G,
+        "to_sparse6_bytes",
+        reject_multigraph=False,
+        reject_directed=False,
+    )
 
     ordered_nodes = _format_nodes_for_sparse6(G, nodes)
     n = len(ordered_nodes)
