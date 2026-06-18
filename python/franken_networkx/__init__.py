@@ -51200,17 +51200,31 @@ def within_inter_cluster(G, ebunch=None, delta=0.001, community="community"):
     else:
         ebunch_iter = ebunch
 
+    adjacency_cache = {}
+    community_cache = {}
+
+    def _neighbors(node):
+        cached = adjacency_cache.get(node)
+        if cached is None:
+            cached = set(G.neighbors(node))
+            adjacency_cache[node] = cached
+        return cached
+
     def _community_of(node):
         # br-shcomm: nx raises NetworkXAlgorithmError, not NetworkXError,
         # with a specific message. Match the contract so callers catching
         # the algorithm-error base class don't diverge.
+        if node in community_cache:
+            return community_cache[node]
         attrs = G.nodes[node]
         try:
-            return attrs[community]
+            value = attrs[community]
         except (KeyError, TypeError) as err:
             raise NetworkXAlgorithmError(
                 f"No community information available for Node {node}"
             ) from err
+        community_cache[node] = value
+        return value
 
     def _generate():
         for u, v in ebunch_iter:
@@ -51219,10 +51233,10 @@ def within_inter_cluster(G, ebunch=None, delta=0.001, community="community"):
             if cu != cv:
                 yield (u, v, 0)
                 continue
-            cnbors = set(common_neighbors(G, u, v))
-            within = {w for w in cnbors if _community_of(w) == cu}
-            inter = cnbors - within
-            yield (u, v, len(within) / (len(inter) + delta))
+            common = (_neighbors(u) & _neighbors(v)) - {u, v}
+            within_count = sum(1 for w in common if _community_of(w) == cu)
+            inter_count = len(common) - within_count
+            yield (u, v, within_count / (inter_count + delta))
 
     return _generate()
 

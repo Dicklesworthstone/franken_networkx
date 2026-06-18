@@ -66,6 +66,23 @@ def test_explicit_ebunch_matches_networkx(fn, seed):
     )
 
 
+def test_within_inter_cluster_cached_adjacency_delta_reference():
+    fg = fnx.Graph()
+    ng = nx.Graph()
+    edges = [(0, 1), (0, 2), (0, 3), (1, 4), (2, 4), (3, 4)]
+    fg.add_edges_from(edges)
+    ng.add_edges_from(edges)
+    communities = {0: 0, 1: 1, 2: 0, 3: 0, 4: 0}
+    for node, value in communities.items():
+        fg.nodes[node]["community"] = value
+        ng.nodes[node]["community"] = value
+
+    ebunch = [(0, 4), (1, 2)]
+    assert _materialize(fnx.within_inter_cluster(fg, ebunch, delta=0.5)) == _materialize(
+        nx.within_inter_cluster(ng, ebunch, delta=0.5)
+    )
+
+
 @pytest.mark.parametrize("fn", _FUNCS)
 def test_returns_lazy_iterator(fn):
     fg, _, _ = _community_pair(0)
