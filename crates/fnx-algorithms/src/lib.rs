@@ -41583,6 +41583,7 @@ mod tests {
         desargues_graph,
         descendants,
         descendants_at_distance,
+        descendants_at_distance_directed,
         dfs_edges,
         dfs_edges_directed,
         dfs_postorder_nodes,
@@ -47368,6 +47369,27 @@ mod tests {
         g.add_edge("a", "b").expect("edge");
         let result = descendants_at_distance(&g, "a", 0);
         assert_eq!(result, vec!["a"]);
+    }
+
+    #[test]
+    fn descendants_at_distance_directed_matches_networkx_golden_layers() {
+        let mut g = DiGraph::strict();
+        for (left, right) in [
+            ("s", "a"),
+            ("s", "b"),
+            ("a", "c"),
+            ("b", "c"),
+            ("c", "d"),
+            ("a", "e"),
+        ] {
+            g.add_edge(left, right)
+                .expect("directed edge add should succeed");
+        }
+
+        assert_eq!(descendants_at_distance_directed(&g, "s", 0), vec!["s"]);
+        assert_eq!(descendants_at_distance_directed(&g, "s", 1), vec!["a", "b"]);
+        assert_eq!(descendants_at_distance_directed(&g, "s", 2), vec!["c", "e"]);
+        assert_eq!(descendants_at_distance_directed(&g, "s", 3), vec!["d"]);
     }
 
     // -----------------------------------------------------------------------
