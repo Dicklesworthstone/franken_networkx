@@ -12412,22 +12412,79 @@ def chordal_graph_cliques(G):
         # parallels nx raises NetworkXError("Input graph is not
         # chordal."). Delegate to nx so both behaviours match exactly.
         return _call_networkx_for_parity("chordal_graph_cliques", G)
-    # br-r37-c1-8saye: nx raises NetworkXError("Input graph is not chordal.")
-    # on non-chordal input (lazily, per connected component); the native
-    # _raw_chordal_graph_cliques kernel instead returned an EMPTY result. Gate
-    # on is_chordal: chordal graphs keep the fast native path; non-chordal
-    # delegate to nx so the exact message and per-component
-    # partial-yield-then-raise behaviour match (verified byte-exact across
-    # complete/path/tree/cycle4/watts/mixed-disconnected).
+    # br-r37-c1-9vzvv: nx's chordal_graph_cliques does NOT raise on every
+    # non-chordal graph — it runs MCS per connected component and yields the
+    # maximal cliques it finds (e.g. C4 -> [{0,1},{1,2},{0,2,3}]), raising
+    # NetworkXError only when the MCS clique-completeness check fails mid-walk.
+    # The native _raw_chordal_graph_cliques returns EMPTY for non-chordal, and
+    # the previous fix delegated to nx (which the no-fallback conformance test
+    # forbids). For non-chordal input, run nx's exact MCS algorithm in-process
+    # on the fnx graph (no nx call) so the output and partial-yield-then-raise
+    # behaviour match byte-for-byte. Chordal input keeps the fast native path.
     if not is_chordal(G):
-        def _gen_nonchordal():
-            yield from _call_networkx_for_parity("chordal_graph_cliques", G)
-        return _gen_nonchordal()
+        return _chordal_graph_cliques_inprocess(G)
     cliques = _raw_chordal_graph_cliques(G)
     def _gen():
         for c in cliques:
             yield frozenset(c)
     return _gen()
+
+
+def _is_complete_simple_graph(G):
+    """True iff the simple graph ``G`` is complete (nx ``_is_complete_graph``)."""
+    n = G.number_of_nodes()
+    if n < 2:
+        return True
+    return G.number_of_edges() == n * (n - 1) // 2
+
+
+def _max_cardinality_node_local(G, choices, wanna_connect):
+    """Port of nx ``_max_cardinality_node``: most connections into
+    ``wanna_connect``, ties broken by ``choices`` iteration order."""
+    max_number = -1
+    max_cardinality_node = None
+    for x in choices:
+        number = len([y for y in G[x] if y in wanna_connect])
+        if number > max_number:
+            max_number = number
+            max_cardinality_node = x
+    return max_cardinality_node
+
+
+def _chordal_graph_cliques_inprocess(G):
+    """In-process port of nx ``chordal_graph_cliques`` (br-r37-c1-9vzvv).
+
+    Runs maximum-cardinality search per connected component on the fnx graph,
+    yielding maximal cliques as frozensets and raising NetworkXError if the
+    graph is found non-chordal during the walk — identical to nx, but without
+    calling ``nx.chordal_graph_cliques`` (so the no-fallback contract holds).
+    """
+    for component in connected_components(G):
+        C = G.subgraph(component).copy()
+        if C.number_of_nodes() == 1:
+            if number_of_selfloops(C) > 0:
+                raise NetworkXError("Input graph is not chordal.")
+            yield frozenset(C.nodes())
+            continue
+        unnumbered = set(C.nodes())
+        v = next(iter(C))
+        unnumbered.remove(v)
+        numbered = {v}
+        clique_wanna_be = {v}
+        while unnumbered:
+            v = _max_cardinality_node_local(C, unnumbered, numbered)
+            unnumbered.remove(v)
+            numbered.add(v)
+            new_clique_wanna_be = set(C.neighbors(v)) & numbered
+            sg = C.subgraph(clique_wanna_be)
+            if _is_complete_simple_graph(sg):
+                new_clique_wanna_be.add(v)
+                if not new_clique_wanna_be >= clique_wanna_be:
+                    yield frozenset(clique_wanna_be)
+                clique_wanna_be = new_clique_wanna_be
+            else:
+                raise NetworkXError("Input graph is not chordal.")
+        yield frozenset(clique_wanna_be)
 
 
 # br-ringlabels: the Rust ring_of_cliques used string labels like
