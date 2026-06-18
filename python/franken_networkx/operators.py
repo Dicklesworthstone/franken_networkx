@@ -41,6 +41,66 @@ __all__ = list(
     or [name for name in dir(_nx_operators) if not name.startswith("_")]
 )
 
+# br-r37-c1-2qsqf: the ``from networkx.algorithms.operators import *`` above left
+# the binary operators bound to nx's pure-Python versions, which run on the fnx
+# graph and return an **nx.Graph** (drop-in type bug) and are slower than the
+# fnx-native top-level implementations. The product / *_all functions below
+# already route to fnx natives via explicit overrides; do the same for the
+# binary operators. These are explicit ``def`` wrappers (not an import-time
+# alias loop) so they reference ``_fnx.<fn>`` at CALL time — immune to the
+# import-order in which franken_networkx defines these names during its own
+# package initialization.
+
+
+def union(G, H, rename=(), *, backend=None, **backend_kwargs):
+    """Return the union of graphs G and H (fnx-native, returns an fnx graph)."""
+    _fnx._validate_backend_dispatch_keywords("union", backend, backend_kwargs)
+    return _fnx.union(G, H, rename=rename)
+
+
+def compose(G, H, *, backend=None, **backend_kwargs):
+    """Return the composition of graphs G and H (fnx-native, fnx graph)."""
+    _fnx._validate_backend_dispatch_keywords("compose", backend, backend_kwargs)
+    return _fnx.compose(G, H)
+
+
+def complement(G, *, backend=None, **backend_kwargs):
+    """Return the graph complement of G (fnx-native, fnx graph)."""
+    _fnx._validate_backend_dispatch_keywords("complement", backend, backend_kwargs)
+    return _fnx.complement(G)
+
+
+def difference(G, H, *, backend=None, **backend_kwargs):
+    """Return the edge difference of G and H (fnx-native, fnx graph)."""
+    _fnx._validate_backend_dispatch_keywords("difference", backend, backend_kwargs)
+    return _fnx.difference(G, H)
+
+
+def intersection(G, H, *, backend=None, **backend_kwargs):
+    """Return the edge intersection of G and H (fnx-native, fnx graph)."""
+    _fnx._validate_backend_dispatch_keywords("intersection", backend, backend_kwargs)
+    return _fnx.intersection(G, H)
+
+
+def symmetric_difference(G, H, *, backend=None, **backend_kwargs):
+    """Return the symmetric edge difference of G and H (fnx-native, fnx graph)."""
+    _fnx._validate_backend_dispatch_keywords(
+        "symmetric_difference", backend, backend_kwargs
+    )
+    return _fnx.symmetric_difference(G, H)
+
+
+def reverse(G, copy=True, *, backend=None, **backend_kwargs):
+    """Return the reverse (transpose) of directed graph G (fnx-native)."""
+    _fnx._validate_backend_dispatch_keywords("reverse", backend, backend_kwargs)
+    return _fnx.reverse(G, copy=copy)
+
+
+def full_join(G, H, rename=(None, None), *, backend=None, **backend_kwargs):
+    """Return the full join of G and H (fnx-native, fnx graph)."""
+    _fnx._validate_backend_dispatch_keywords("full_join", backend, backend_kwargs)
+    return _fnx.full_join(G, H, rename=rename)
+
 
 def disjoint_union(G, H, *, backend=None, **backend_kwargs):
     """Return the disjoint union of graphs G and H.
