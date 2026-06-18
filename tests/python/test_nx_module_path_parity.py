@@ -117,6 +117,7 @@ def test_convert_module_to_dict_helpers_match_networkx_values():
 
 def test_convert_matrix_module_to_numpy_array_matches_networkx_values():
     module = importlib.import_module("franken_networkx.convert_matrix")
+    scipy_sparse = pytest.importorskip("scipy.sparse")
     fg = fnx.Graph()
     ng = nx.Graph()
     for graph in (fg, ng):
@@ -131,7 +132,42 @@ def test_convert_matrix_module_to_numpy_array_matches_networkx_values():
         ng, nodelist=["b", "a", "isolated"], weight="weight"
     )
 
-    assert actual.tolist() == expected.tolist()
+    _expect(
+        module.to_numpy_array is fnx.to_numpy_array,
+        "convert_matrix.to_numpy_array must route through fnx",
+    )
+    _expect(
+        actual.tolist() == expected.tolist(),
+        "convert_matrix.to_numpy_array weighted values must match networkx",
+    )
+
+    actual_sparse = module.to_scipy_sparse_array(
+        fg,
+        nodelist=["b", "a", "isolated"],
+        dtype=float,
+        weight="weight",
+        format="csr",
+    )
+    expected_sparse = nx.to_scipy_sparse_array(
+        ng,
+        nodelist=["b", "a", "isolated"],
+        dtype=float,
+        weight="weight",
+        format="csr",
+    )
+
+    _expect(
+        module.to_scipy_sparse_array is fnx.to_scipy_sparse_array,
+        "convert_matrix.to_scipy_sparse_array must route through fnx",
+    )
+    _expect(
+        scipy_sparse.issparse(actual_sparse),
+        "convert_matrix.to_scipy_sparse_array must return a scipy sparse array",
+    )
+    _expect(
+        actual_sparse.toarray().tolist() == expected_sparse.toarray().tolist(),
+        "convert_matrix.to_scipy_sparse_array weighted values must match networkx",
+    )
 
 
 def test_convert_matrix_module_graph_builders_preserve_fnx_type():
