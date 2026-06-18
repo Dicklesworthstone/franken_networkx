@@ -45717,6 +45717,20 @@ def non_edges(graph):
                 yield (u, v)
         return
 
+    native_keys = getattr(graph, "_native_node_keys", None)
+    if native_keys is not None:
+        nodes = set(native_keys())
+        _raw_nbrs = _raw_neighbors_dispatch(graph)
+        while nodes:
+            u = nodes.pop()
+            if _raw_nbrs is not None:
+                nbrs = set(_raw_nbrs(graph, u))
+            else:
+                nbrs = set(graph[u])
+            for v in nodes - nbrs:
+                yield (u, v)
+        return
+
     nodes = set(graph)
     while nodes:
         u = nodes.pop()
