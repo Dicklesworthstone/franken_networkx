@@ -42,6 +42,35 @@ def test_astar_path_node_not_found_matches_networkx(source, target):
     assert str(fnx_exc.value) == str(nx_exc.value)
 
 
+@pytest.mark.parametrize(
+    ("fnx_graph_factory", "nx_graph_factory"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+@pytest.mark.parametrize(
+    "source,target",
+    [
+        ("x", 1),
+        (0, "y"),
+        ("x", "y"),
+    ],
+)
+def test_astar_path_directed_node_not_found_matches_networkx(
+    fnx_graph_factory, nx_graph_factory, source, target
+):
+    fg = fnx_graph_factory([(0, 1), (1, 2)])
+    ng = nx_graph_factory([(0, 1), (1, 2)])
+
+    with pytest.raises(nx.NodeNotFound) as fnx_exc:
+        fnx.astar_path(fg, source, target)
+    with pytest.raises(nx.NodeNotFound) as nx_exc:
+        nx.astar_path(ng, source, target)
+
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+
 def test_astar_path_message_is_unquoted_string_form():
     fg, _ = _graphs()
     with pytest.raises(nx.NodeNotFound) as exc:
