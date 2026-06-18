@@ -17,6 +17,21 @@ import networkx.algorithms.euler as _nx_euler
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
 
+__all__ = list(
+    getattr(
+        _nx_euler,
+        "__all__",
+        (
+            "is_eulerian",
+            "eulerian_circuit",
+            "eulerize",
+            "is_semieulerian",
+            "has_eulerian_path",
+            "eulerian_path",
+        ),
+    )
+)
+
 
 def eulerize(G, *, backend=None, **backend_kwargs):
     """Transform a graph into an Eulerian graph.

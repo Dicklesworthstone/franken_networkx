@@ -33,6 +33,30 @@ v_structures = _nx_dag.v_structures
 # dag.__all__, so the star import skips it.  Re-export for parity.
 root_to_leaf_paths = _nx_dag.root_to_leaf_paths
 
+__all__ = list(
+    getattr(
+        _nx_dag,
+        "__all__",
+        (
+            "descendants",
+            "ancestors",
+            "topological_sort",
+            "lexicographical_topological_sort",
+            "all_topological_sorts",
+            "topological_generations",
+            "is_directed_acyclic_graph",
+            "is_aperiodic",
+            "transitive_closure",
+            "transitive_closure_dag",
+            "transitive_reduction",
+            "antichains",
+            "dag_longest_path",
+            "dag_longest_path_length",
+            "dag_to_branching",
+        ),
+    )
+)
+
 
 def dag_to_branching(G, *, backend=None, **backend_kwargs):
     """Return a branching representing the DAG.

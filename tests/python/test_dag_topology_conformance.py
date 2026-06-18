@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib
+
 import networkx as nx
 import pytest
 
@@ -17,6 +19,13 @@ DAG_FIXTURE_NAMES = [
     "weighted_choice",
     "cycle",
 ]
+
+
+def test_dag_module_public_surface_matches_networkx():
+    module = importlib.import_module("franken_networkx.dag")
+    expected = importlib.import_module("networkx.algorithms.dag")
+
+    assert set(module.__all__) == set(expected.__all__)
 
 
 def _build_dag(module, fixture_name):

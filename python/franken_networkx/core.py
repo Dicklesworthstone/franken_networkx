@@ -20,6 +20,22 @@ import networkx.algorithms.core as _nx_core
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
 
+__all__ = list(
+    getattr(
+        _nx_core,
+        "__all__",
+        (
+            "core_number",
+            "k_core",
+            "k_shell",
+            "k_crust",
+            "k_corona",
+            "k_truss",
+            "onion_layers",
+        ),
+    )
+)
+
 
 def k_core(G, k=None, core_number=None, *, backend=None, **backend_kwargs):
     """Return the k-core of G.

@@ -24,12 +24,20 @@ is itself a contract this suite locks in.
 
 from __future__ import annotations
 
+import importlib
 import itertools
 
 import pytest
 import networkx as nx
 
 import franken_networkx as fnx
+
+
+def test_euler_module_public_surface_matches_networkx():
+    module = importlib.import_module("franken_networkx.euler")
+    expected = importlib.import_module("networkx.algorithms.euler")
+
+    assert set(module.__all__) == set(expected.__all__)
 
 
 # ---------------------------------------------------------------------------

@@ -21,12 +21,20 @@ flavors.
 
 from __future__ import annotations
 
+import importlib
 import itertools
 
 import pytest
 import networkx as nx
 
 import franken_networkx as fnx
+
+
+def test_core_module_public_surface_matches_networkx():
+    module = importlib.import_module("franken_networkx.core")
+    expected = importlib.import_module("networkx.algorithms.core")
+
+    assert set(module.__all__) == set(expected.__all__)
 
 
 def _pair_undirected(edges, nodes=None, multi=False):
