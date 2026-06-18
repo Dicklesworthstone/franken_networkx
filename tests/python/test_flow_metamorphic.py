@@ -19,10 +19,14 @@ Flow / cut duality and structural invariants:
    satisfies ``0 ≤ f(u, v) ≤ capacity(u, v)``.
 6. **Flow conservation at non-source/sink nodes**: net flow in ==
    net flow out.
+7. **Capacity scaling**: multiplying every finite capacity by ``c > 0``
+   multiplies max-flow and min-cut values by exactly ``c``.
 
 Pairs with the fuzz_flow target (1d23f49d) — the fuzzer drives the
 same identities on arbitrary flow networks; this module pins them at
 deterministic fixtures so any regression is immediately visible.
+
+br-r37-c1-rulk1
 """
 
 from __future__ import annotations
@@ -103,6 +107,14 @@ def _build_k4_directed():
     return g
 
 
+def _scaled_capacities(g, factor):
+    scaled = g.copy()
+    for u, v in scaled.edges():
+        if "capacity" in scaled[u][v]:
+            scaled[u][v]["capacity"] *= factor
+    return scaled
+
+
 # -----------------------------------------------------------------------------
 # Max-flow / min-cut theorem
 # -----------------------------------------------------------------------------
@@ -116,6 +128,27 @@ def test_max_flow_equals_min_cut(name, builder, source, sink):
     assert flow_value == cut_value, (
         f"{name}: max-flow {flow_value} != min-cut {cut_value} "
         f"(violates max-flow / min-cut theorem)"
+    )
+
+
+@pytest.mark.parametrize("factor", [2, 3, 5])
+@pytest.mark.parametrize(("name", "builder", "source", "sink"), FLOW_FIXTURES)
+def test_capacity_scaling_scales_flow_and_cut_values(
+    name, builder, source, sink, factor
+):
+    g = builder()
+    scaled = _scaled_capacities(g, factor)
+
+    base_flow_value = fnx.maximum_flow_value(g, source, sink)
+    scaled_flow_value = fnx.maximum_flow_value(scaled, source, sink)
+    assert scaled_flow_value == pytest.approx(factor * base_flow_value), (
+        f"{name}: max-flow did not scale by {factor}"
+    )
+
+    base_cut_value = fnx.minimum_cut_value(g, source, sink)
+    scaled_cut_value = fnx.minimum_cut_value(scaled, source, sink)
+    assert scaled_cut_value == pytest.approx(factor * base_cut_value), (
+        f"{name}: min-cut did not scale by {factor}"
     )
 
 
