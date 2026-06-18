@@ -7,6 +7,7 @@ the spanning-tree str-node defect lived.
 
 br-r37-c1-rhkmf
 br-r37-c1-o1jjg
+br-r37-c1-ip7l4
 """
 
 from __future__ import annotations
@@ -57,6 +58,18 @@ def _weighted_chain_with_chords(seed, directed):
 
 def _mapped_path(path, mapping):
     return [mapping[node] for node in path]
+
+
+def _mapped_node_sets(sets, mapping):
+    return {frozenset(mapping[node] for node in node_set) for node_set in sets}
+
+
+def _edge_sets(edges):
+    return {frozenset(edge) for edge in edges}
+
+
+def _mapped_edge_sets(edges, mapping):
+    return {frozenset(mapping[node] for node in edge) for edge in edges}
 
 
 _UNDIRECTED_OPS = {
@@ -136,3 +149,39 @@ def test_single_source_path_dict_relabeling_equivariant(directed, seed):
         for target, path in base_paths.items()
     }
     assert relabelled_paths == expected
+
+
+@pytest.mark.parametrize("seed", range(30))
+def test_undirected_set_outputs_relabeling_equivariant(seed):
+    g, n = _random_graph(seed, directed=False, p=0.35)
+    mapping = {i: f"component-{seed}-{i}" for i in range(n)}
+    g_relabelled = fnx.relabel_nodes(g, mapping)
+
+    assert _edge_sets(fnx.bridges(g_relabelled)) == _mapped_edge_sets(
+        fnx.bridges(g), mapping
+    )
+    assert set(fnx.articulation_points(g_relabelled)) == {
+        mapping[node] for node in fnx.articulation_points(g)
+    }
+    assert _mapped_node_sets(fnx.connected_components(g), mapping) == {
+        frozenset(component) for component in fnx.connected_components(g_relabelled)
+    }
+    assert _mapped_node_sets(fnx.biconnected_components(g), mapping) == {
+        frozenset(component) for component in fnx.biconnected_components(g_relabelled)
+    }
+
+
+@pytest.mark.parametrize("seed", range(30))
+def test_directed_component_outputs_relabeling_equivariant(seed):
+    g, n = _random_graph(seed, directed=True, p=0.35)
+    mapping = {i: f"directed-component-{seed}-{i}" for i in range(n)}
+    g_relabelled = fnx.relabel_nodes(g, mapping)
+
+    assert _mapped_node_sets(fnx.strongly_connected_components(g), mapping) == {
+        frozenset(component)
+        for component in fnx.strongly_connected_components(g_relabelled)
+    }
+    assert _mapped_node_sets(fnx.weakly_connected_components(g), mapping) == {
+        frozenset(component)
+        for component in fnx.weakly_connected_components(g_relabelled)
+    }
