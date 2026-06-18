@@ -17,6 +17,23 @@ import networkx.algorithms.clique as _nx_clique
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
 
+__all__ = list(
+    getattr(
+        _nx_clique,
+        "__all__",
+        (
+            "find_cliques",
+            "find_cliques_recursive",
+            "make_max_clique_graph",
+            "make_clique_bipartite",
+            "node_clique_number",
+            "number_of_cliques",
+            "enumerate_all_cliques",
+            "max_weight_clique",
+        ),
+    )
+)
+
 
 def make_clique_bipartite(G, fpos=None, create_using=None, name=None, *, backend=None, **backend_kwargs):
     """Return the bipartite clique graph corresponding to G.

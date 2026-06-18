@@ -17,6 +17,21 @@ import networkx.algorithms.chordal as _nx_chordal
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
 
+__all__ = list(
+    getattr(
+        _nx_chordal,
+        "__all__",
+        (
+            "is_chordal",
+            "find_induced_nodes",
+            "chordal_graph_cliques",
+            "chordal_graph_treewidth",
+            "NetworkXTreewidthBoundExceeded",
+            "complete_to_chordal_graph",
+        ),
+    )
+)
+
 
 def complete_to_chordal_graph(G, *, backend=None, **backend_kwargs):
     """Return a chordal completion of G and the added fill-in edges.

@@ -19,6 +19,7 @@ br-r37-c1-han3d
 
 from __future__ import annotations
 
+import importlib
 import random
 
 import pytest
@@ -43,6 +44,13 @@ def _pair(seed, p=0.45):
 
 def _clique_set(cliques):
     return {frozenset(c) for c in cliques}
+
+
+def test_clique_module_public_surface_matches_networkx():
+    module = importlib.import_module("franken_networkx.clique")
+    expected = importlib.import_module("networkx.algorithms.clique")
+
+    assert set(module.__all__) == set(expected.__all__)
 
 
 # ---------------------------------------------------------------------------

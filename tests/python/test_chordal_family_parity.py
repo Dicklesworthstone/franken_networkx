@@ -22,6 +22,7 @@ br-r37-c1-srsis
 
 from __future__ import annotations
 
+import importlib
 import random
 
 import pytest
@@ -45,6 +46,13 @@ def _pair(seed, p=0.35):
 
 def _edge_set(G):
     return {frozenset(e) for e in G.edges()}
+
+
+def test_chordal_module_public_surface_matches_networkx():
+    module = importlib.import_module("franken_networkx.chordal")
+    expected = importlib.import_module("networkx.algorithms.chordal")
+
+    assert set(module.__all__) == set(expected.__all__)
 
 
 # ---------------------------------------------------------------------------
