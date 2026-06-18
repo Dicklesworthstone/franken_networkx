@@ -10556,6 +10556,8 @@ def all_shortest_paths(
         raise ValueError(f"method not supported: {method}")
     # br-r37-c1-jxvsu: missing source raises eagerly with nx wording.
     if source not in G:
+        if weight is not None and method != "unweighted":
+            raise NodeNotFound(f"Node {source} is not found in the graph")
         raise NodeNotFound(f"Source {source} not in G")
 
     def _gen():
@@ -15644,6 +15646,15 @@ def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=Non
     """
     # br-r37-c1-phy2p: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
+    # br-r37-c1-yx0sh: validate source/target membership up front with nx's
+    # exact wording. The native _raw_astar_path otherwise leaks a repr-quoted
+    # message ("Source 'x' is not in G") while nx emits the unquoted
+    # "Source x is not in G" (source checked first, then target). The wrapper
+    # below only translates the ValueError no-path case, not NodeNotFound.
+    if source not in G:
+        raise NodeNotFound(f"Source {source} is not in G")
+    if target not in G:
+        raise NodeNotFound(f"Target {target} is not in G")
     # br-r37-c1-bzio2: the Rust _raw_astar_path honours edge weights via
     # edge_weight_or_default (verified parity vs nx on weighted graphs);
     # the previous unconditional ``_graph_has_nonunit_weight`` gate was

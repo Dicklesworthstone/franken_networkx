@@ -9602,15 +9602,18 @@ pub fn all_shortest_paths(
     let target_key = node_key_to_string(py, target)?;
 
     if !gr.has_node(&source_key) {
-        return Err(NodeNotFound::new_err(format!(
-            "Source node {} is not in G",
-            source.repr()?
-        )));
+        let source_name = source.str()?;
+        let message = if weight.is_some() && effective_method != "unweighted" {
+            format!("Node {source_name} is not found in the graph")
+        } else {
+            format!("Source {source_name} not in G")
+        };
+        return Err(NodeNotFound::new_err(message));
     }
     if !gr.has_node(&target_key) {
-        return Err(NodeNotFound::new_err(format!(
-            "Target node {} is not in G",
-            target.repr()?
+        return Err(NetworkXNoPath::new_err(format!(
+            "Target {} cannot be reached from given sources",
+            target.str()?
         )));
     }
 
@@ -9696,9 +9699,8 @@ pub fn all_shortest_paths(
 
     if paths.is_empty() {
         return Err(NetworkXNoPath::new_err(format!(
-            "No path between {} and {}.",
-            source.repr()?,
-            target.repr()?
+            "Target {} cannot be reached from given sources",
+            target.str()?
         )));
     }
 

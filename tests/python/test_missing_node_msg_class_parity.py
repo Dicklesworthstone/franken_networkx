@@ -85,6 +85,99 @@ def test_all_shortest_paths_missing_target_raises_no_path():
         list(nx.all_shortest_paths(GX, 1, 99))
 
 
+@needs_nx
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"weight": "weight"},
+        {"weight": "weight", "method": "bellman-ford"},
+    ],
+)
+def test_all_shortest_paths_weighted_missing_source_message(kwargs):
+    G = fnx.Graph()
+    G.add_edge("a", "b", weight=1)
+    GX = nx.Graph()
+    GX.add_edge("a", "b", weight=1)
+
+    with pytest.raises(fnx.NodeNotFound) as fnx_exc:
+        list(fnx.all_shortest_paths(G, "missing", "b", **kwargs))
+    with pytest.raises(nx.NodeNotFound) as nx_exc:
+        list(nx.all_shortest_paths(GX, "missing", "b", **kwargs))
+
+    assert str(fnx_exc.value) == "Node missing is not found in the graph"
+    assert str(nx_exc.value) == "Node missing is not found in the graph"
+
+
+@needs_nx
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"weight": "weight"},
+        {"weight": "weight", "method": "bellman-ford"},
+    ],
+)
+def test_all_shortest_paths_weighted_no_path_message(kwargs):
+    G = fnx.Graph()
+    G.add_edge("a", "b", weight=1)
+    G.add_node("c")
+    GX = nx.Graph()
+    GX.add_edge("a", "b", weight=1)
+    GX.add_node("c")
+
+    with pytest.raises(fnx.NetworkXNoPath) as fnx_exc:
+        list(fnx.all_shortest_paths(G, "a", "c", **kwargs))
+    with pytest.raises(nx.NetworkXNoPath) as nx_exc:
+        list(nx.all_shortest_paths(GX, "a", "c", **kwargs))
+
+    assert str(fnx_exc.value) == "Target c cannot be reached from given sources"
+    assert str(nx_exc.value) == "Target c cannot be reached from given sources"
+
+
+@needs_nx
+def test_raw_all_shortest_paths_string_error_messages_match_nx():
+    G = fnx.Graph()
+    G.add_edge("a", "b", weight=1)
+    G.add_node("c")
+    GX = nx.Graph()
+    GX.add_edge("a", "b", weight=1)
+    GX.add_node("c")
+
+    cases = [
+        (
+            lambda: list(fnx._raw_all_shortest_paths(G, "missing", "b")),
+            lambda: list(nx.all_shortest_paths(GX, "missing", "b")),
+            fnx.NodeNotFound,
+            nx.NodeNotFound,
+        ),
+        (
+            lambda: list(fnx._raw_all_shortest_paths(G, "missing", "b", weight="weight")),
+            lambda: list(nx.all_shortest_paths(GX, "missing", "b", weight="weight")),
+            fnx.NodeNotFound,
+            nx.NodeNotFound,
+        ),
+        (
+            lambda: list(fnx._raw_all_shortest_paths(G, "a", "missing")),
+            lambda: list(nx.all_shortest_paths(GX, "a", "missing")),
+            fnx.NetworkXNoPath,
+            nx.NetworkXNoPath,
+        ),
+        (
+            lambda: list(fnx._raw_all_shortest_paths(G, "a", "c", weight="weight")),
+            lambda: list(nx.all_shortest_paths(GX, "a", "c", weight="weight")),
+            fnx.NetworkXNoPath,
+            nx.NetworkXNoPath,
+        ),
+    ]
+
+    for fnx_call, nx_call, fnx_error, nx_error in cases:
+        with pytest.raises(fnx_error) as fnx_exc:
+            fnx_call()
+        with pytest.raises(nx_error) as nx_exc:
+            nx_call()
+
+        assert str(fnx_exc.value) == str(nx_exc.value)
+
+
 # ---------------------------------------------------------------------------
 # bfs_layers — missing source raises NetworkXError
 # ---------------------------------------------------------------------------
