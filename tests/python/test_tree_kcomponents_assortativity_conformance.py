@@ -209,6 +209,27 @@ def test_junction_tree_matches_networkx_on_chordal_graph():
     assert fr_types == nr_types
 
 
+@pytest.mark.parametrize(
+    ("graph_factory", "expected_factory"),
+    [
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_junction_tree_multigraph_guard_matches_networkx(
+    graph_factory, expected_factory
+):
+    graph = graph_factory([(0, 1), (1, 2)])
+    expected_graph = expected_factory([(0, 1), (1, 2)])
+
+    with pytest.raises(nx.NetworkXNotImplemented) as fnx_exc:
+        fnx.junction_tree(graph)
+    with pytest.raises(nx.NetworkXNotImplemented) as nx_exc:
+        nx.junction_tree(expected_graph)
+
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+
 def test_join_trees_matches_networkx():
     t1 = fnx.balanced_tree(2, 2)
     t2 = fnx.path_graph(3)

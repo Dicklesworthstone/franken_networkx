@@ -44223,6 +44223,8 @@ def junction_tree(G):
     would change the maximum-spanning-tree tie-breaks).
     """
     G = _coerce_arg_to_fnx_graph(G)
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
     return _junction_tree_nx(G)
 
 
