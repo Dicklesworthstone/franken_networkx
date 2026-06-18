@@ -37,6 +37,22 @@ def test_unhashable_node_raises_typeerror_like_networkx(unhashable):
         nx.node_connected_component(ng, unhashable)
 
 
+@pytest.mark.parametrize("node", [0, "missing"])
+def test_directed_input_rejects_before_node_lookup(node):
+    fg = fnx.DiGraph([(0, 1)])
+    ng = nx.DiGraph([(0, 1)])
+
+    with pytest.raises(nx.NetworkXNotImplemented) as fnx_exc:
+        fnx.node_connected_component(fg, node)
+    with pytest.raises(nx.NetworkXNotImplemented) as nx_exc:
+        nx.node_connected_component(ng, node)
+    assert (
+        str(fnx_exc.value)
+        == str(nx_exc.value)
+        == "not implemented for directed type"
+    )
+
+
 def test_valid_query_matches_networkx():
     fg, ng = _graphs()
     assert fnx.node_connected_component(fg, 0) == nx.node_connected_component(ng, 0)

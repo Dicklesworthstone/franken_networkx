@@ -19247,6 +19247,8 @@ def node_connected_component(G, n):
 
     br-r37-c1-c4agn: hash-check for nx-shaped TypeError parity.
     """
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     G = _coerce_arg_to_fnx_graph(G)
     hash(n)
     # br-r37-c1-eun8y: nx's _plain_bfs indexes G._adj[n], so a missing node
