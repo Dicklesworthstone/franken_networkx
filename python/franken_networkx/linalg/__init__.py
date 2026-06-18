@@ -14,6 +14,47 @@ __all__ = list(
     or [name for name in dir(_nx_linalg) if not name.startswith("_")]
 )
 
+# br-r37-c1-f8j44: ``from networkx.linalg import *`` above binds networkx's
+# matrix/spectral builders into this namespace, so ``franken_networkx.linalg.
+# adjacency_matrix`` silently resolved to nx's implementation instead of fnx's
+# native one (values match, but fnx's native path is the intended one). Route
+# the names fnx provides natively to the top-level fnx version — the same fix
+# p55u8 applied to ``convert_matrix``. Guarded by hasattr so a partially
+# initialized package (circular import) just leaves the nx version in place.
+_FNX_NATIVE_LINALG_NAMES = (
+    "adjacency_matrix",
+    "adjacency_spectrum",
+    "algebraic_connectivity",
+    "attr_matrix",
+    "attr_sparse_matrix",
+    "bethe_hessian_matrix",
+    "bethe_hessian_spectrum",
+    "directed_combinatorial_laplacian_matrix",
+    "directed_laplacian_matrix",
+    "directed_modularity_matrix",
+    "fiedler_vector",
+    "incidence_matrix",
+    "laplacian_matrix",
+    "laplacian_spectrum",
+    "modularity_matrix",
+    "modularity_spectrum",
+    "normalized_laplacian_matrix",
+    "normalized_laplacian_spectrum",
+    "spectral_bisection",
+    "spectral_ordering",
+)
+
+
+def _install_fnx_native_linalg_aliases():
+    import franken_networkx as _fnx
+
+    for _name in _FNX_NATIVE_LINALG_NAMES:
+        if hasattr(_fnx, _name):
+            globals()[_name] = getattr(_fnx, _name)
+
+
+_install_fnx_native_linalg_aliases()
+
 
 def _install_linalg_child_aliases():
     import importlib
