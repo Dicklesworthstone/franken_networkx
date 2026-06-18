@@ -7,6 +7,7 @@ networkx with metamorphic checks:
 
 * the Erdős–Gallai and Havel–Hakimi validity tests are equivalent theorems,
   so they must agree (and agree with ``is_graphical``)
+* graphicality depends only on the degree multiset, not input order
 * ``havel_hakimi_graph`` must realize exactly the requested degree sequence
 * a bounded degree sequence is graphical iff its complement sequence is
   graphical
@@ -16,6 +17,7 @@ networkx with metamorphic checks:
 br-r37-c1-xy5mv
 br-r37-c1-clzp1
 br-r37-c1-fmjj4
+br-r37-c1-8fqh6
 """
 
 from __future__ import annotations
@@ -40,6 +42,28 @@ def test_validity_methods_agree_and_match_networkx(seed):
     # And matches networkx.
     assert eg == nx.is_valid_degree_sequence_erdos_gallai(seq)
     assert hh == nx.is_valid_degree_sequence_havel_hakimi(seq)
+
+
+@pytest.mark.parametrize("seed", range(80))
+def test_graphicality_validators_are_permutation_invariant(seed):
+    rng = random.Random(seed * 23 + 17)
+    n = rng.randint(3, 10)
+    seq = [rng.randint(0, n - 1) for _ in range(n)]
+    shuffled = list(seq)
+    rng.shuffle(shuffled)
+
+    assert fnx.is_graphical(seq, method="eg") == fnx.is_graphical(
+        shuffled, method="eg"
+    )
+    assert fnx.is_graphical(seq, method="hh") == fnx.is_graphical(
+        shuffled, method="hh"
+    )
+    assert fnx.is_valid_degree_sequence_erdos_gallai(
+        seq
+    ) == fnx.is_valid_degree_sequence_erdos_gallai(shuffled)
+    assert fnx.is_valid_degree_sequence_havel_hakimi(
+        seq
+    ) == fnx.is_valid_degree_sequence_havel_hakimi(shuffled)
 
 
 @pytest.mark.parametrize("seed", range(60))
