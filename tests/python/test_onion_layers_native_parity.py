@@ -16,6 +16,7 @@ error contracts and view/nx-typed-input handling.
 
 from __future__ import annotations
 
+import importlib
 import random
 
 import pytest
@@ -136,6 +137,30 @@ def test_not_implemented_guard_order_matches_networkx(
 
     with pytest.raises(nx.NetworkXNotImplemented) as fnx_exc:
         fnx.onion_layers(graph)
+    with pytest.raises(nx.NetworkXNotImplemented) as nx_exc:
+        nx.onion_layers(expected_graph)
+
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+
+@needs_nx
+@pytest.mark.parametrize(
+    ("graph_factory", "expected_factory"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_core_module_not_implemented_guard_order_matches_networkx(
+    graph_factory, expected_factory
+):
+    module = importlib.import_module("franken_networkx.core")
+    graph = graph_factory([(0, 1), (1, 2)])
+    expected_graph = expected_factory([(0, 1), (1, 2)])
+
+    with pytest.raises(nx.NetworkXNotImplemented) as fnx_exc:
+        module.onion_layers(graph)
     with pytest.raises(nx.NetworkXNotImplemented) as nx_exc:
         nx.onion_layers(expected_graph)
 

@@ -8,6 +8,7 @@ adjacency into plain sets once and runs the reachability test locally; the
 chordal completion H and elimination ordering alpha are byte-identical to nx.
 """
 
+import importlib
 import time
 
 import networkx as nx
@@ -47,6 +48,29 @@ def test_not_implemented_guard_order_matches_networkx(
 
     with pytest.raises(nx.NetworkXNotImplemented) as fnx_exc:
         fnx.complete_to_chordal_graph(graph)
+    with pytest.raises(nx.NetworkXNotImplemented) as nx_exc:
+        nx.complete_to_chordal_graph(expected_graph)
+
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+
+@pytest.mark.parametrize(
+    ("graph_factory", "expected_factory"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_chordal_module_guard_order_matches_networkx(
+    graph_factory, expected_factory
+):
+    module = importlib.import_module("franken_networkx.chordal")
+    graph = graph_factory([(0, 1), (1, 2)])
+    expected_graph = expected_factory([(0, 1), (1, 2)])
+
+    with pytest.raises(nx.NetworkXNotImplemented) as fnx_exc:
+        module.complete_to_chordal_graph(graph)
     with pytest.raises(nx.NetworkXNotImplemented) as nx_exc:
         nx.complete_to_chordal_graph(expected_graph)
 

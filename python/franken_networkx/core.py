@@ -10,6 +10,7 @@ Current native overrides:
 - ``k_shell`` — returns fnx.Graph
 - ``k_crust`` — returns fnx.Graph
 - ``k_corona`` — returns fnx.Graph
+- ``onion_layers`` — returns fnx-native layer mapping
 """
 
 from __future__ import annotations
@@ -79,3 +80,12 @@ def k_corona(G, k, core_number=None, *, backend=None, **backend_kwargs):
     _fnx._validate_backend_dispatch_keywords("k_corona", backend, backend_kwargs)
     nx_result = _nx_core.k_corona(G, k, core_number=core_number)
     return _from_nx_graph(nx_result)
+
+
+def onion_layers(G, *, backend=None, **backend_kwargs):
+    """Return the onion layer decomposition via the fnx-native route."""
+    return _fnx.onion_layers(
+        G,
+        backend=backend,
+        **backend_kwargs,
+    )
