@@ -26,6 +26,58 @@ __all__ = list(
     or [name for name in dir(_nx_tree) if not name.startswith("_")]
 )
 
+# br-r37-c1-2qsqf: ``from networkx.algorithms.tree import *`` above left the tree
+# predicates / branching / spanning-tree functions (and the iterator/partition
+# classes) bound to networkx's objects, so ``fnx.tree.is_tree`` etc. silently
+# resolved to nx's instead of fnx's native versions. Route them to the fnx
+# top-level objects: functions via call-time closure wrappers (import-order
+# robust); classes via direct hasattr-guarded alias (call-wrappers would break
+# isinstance / class semantics).
+_FNX_NATIVE_TREE_FUNCS = (
+    "is_arborescence",
+    "is_branching",
+    "is_forest",
+    "is_tree",
+    "join_trees",
+    "maximum_branching",
+    "maximum_spanning_arborescence",
+    "maximum_spanning_edges",
+    "minimum_branching",
+    "minimum_spanning_arborescence",
+    "minimum_spanning_edges",
+    "number_of_spanning_trees",
+    "partition_spanning_tree",
+    "random_spanning_tree",
+    "to_nested_tuple",
+    "to_prufer_sequence",
+)
+_FNX_NATIVE_TREE_CLASSES = (
+    "ArborescenceIterator",
+    "EdgePartition",
+    "SpanningTreeIterator",
+)
+
+
+def _make_fnx_tree_router(_fn_name):
+    def _routed(*args, **kwargs):
+        return getattr(_fnx, _fn_name)(*args, **kwargs)
+
+    _routed.__name__ = _fn_name
+    _routed.__qualname__ = _fn_name
+    _routed.__doc__ = (
+        f"Route to ``franken_networkx.{_fn_name}`` (fnx-native). See "
+        f"``networkx.algorithms.tree.{_fn_name}`` for semantics."
+    )
+    return _routed
+
+
+for _name in _FNX_NATIVE_TREE_FUNCS:
+    globals()[_name] = _make_fnx_tree_router(_name)
+
+for _name in _FNX_NATIVE_TREE_CLASSES:
+    if hasattr(_fnx, _name):
+        globals()[_name] = getattr(_fnx, _name)
+
 
 def from_prufer_sequence(sequence, *, backend=None, **backend_kwargs):
     """Return the tree corresponding to the given Prüfer sequence.
