@@ -89,3 +89,12 @@ def test_all_attr_access_paths_agree_after_lazy_build(builder, seed):
     fa = fnx.to_numpy_array(fb, nodelist=fnodes, weight="weight")
     na = nx.to_numpy_array(nb, nodelist=nnodes, weight="weight")
     assert np.array_equal(fa, na)
+    # NODE-attr consumers — cover the NODE-only fully-lazy fold's risk (n7gxs #1):
+    # if fnx ever serves node attrs from the Rust inner rather than the Python
+    # mirror, a fold that empties the Rust node AttrMap would diverge here. If
+    # these stay green, node attrs are mirror-only => the node fully-lazy fold is
+    # safe (no Rust node-attr consumer to break). nodes(data=True) above reads the
+    # mirror; these are the extra angles.
+    assert fnx.get_node_attributes(fb, "tag") == nx.get_node_attributes(nb, "tag")
+    for node in nnodes:
+        assert fb.nodes[node] == nb.nodes[node]
