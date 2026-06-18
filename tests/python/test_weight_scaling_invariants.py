@@ -6,6 +6,7 @@ Multiplying every edge weight by a constant ``c > 0``:
   (weighted) Wiener index by exactly ``c`` (linearity)
 * leaves the min/max spanning-tree edge sets and the shortest-path node
   sequences unchanged (a positive monotone transform preserves argmin/argmax)
+* leaves min/max spanning-edge iterator choices unchanged under the same scaling
 * relabels spanning-tree edge/weight outputs in lockstep
 
 These exercise the weighted code paths without any networkx oracle.
@@ -14,6 +15,7 @@ br-r37-c1-6fji3
 br-r37-c1-6ws5d
 br-r37-c1-pvstf
 br-r37-c1-0g5x6
+br-r37-c1-u1ot8
 """
 
 from __future__ import annotations
@@ -56,6 +58,10 @@ def _edge_record_weight_set(edge_records):
         (frozenset((u, v)), d["weight"])
         for u, v, d in edge_records
     }
+
+
+def _edge_record_set(edge_records):
+    return {frozenset((u, v)) for u, v, _ in edge_records}
 
 
 def _mapped_edge_record_weight_set(edge_records, mapping):
@@ -136,6 +142,33 @@ def test_argmax_invariant_under_positive_scaling(c, seed):
     scaled_max = sorted(tuple(sorted(e)) for e in
                         fnx.maximum_spanning_tree(gc, weight="weight").edges())
     assert base_max == scaled_max
+
+
+@pytest.mark.parametrize("algorithm", ["kruskal", "prim", "boruvka"])
+@pytest.mark.parametrize("c", [2, 3, 7])
+@pytest.mark.parametrize("seed", range(30))
+def test_spanning_edge_iterators_positive_scaling_invariant(algorithm, c, seed):
+    res = _connected_weighted(seed, distinct=True)
+    if res is None:
+        pytest.skip("disconnected")
+    g, _ = res
+    gc = _scaled(g, c)
+
+    base_min = fnx.minimum_spanning_edges(
+        g, algorithm=algorithm, weight="weight", data=True
+    )
+    scaled_min = fnx.minimum_spanning_edges(
+        gc, algorithm=algorithm, weight="weight", data=True
+    )
+    assert _edge_record_set(base_min) == _edge_record_set(scaled_min)
+
+    base_max = fnx.maximum_spanning_edges(
+        g, algorithm=algorithm, weight="weight", data=True
+    )
+    scaled_max = fnx.maximum_spanning_edges(
+        gc, algorithm=algorithm, weight="weight", data=True
+    )
+    assert _edge_record_set(base_max) == _edge_record_set(scaled_max)
 
 
 @pytest.mark.parametrize("seed", range(30))
