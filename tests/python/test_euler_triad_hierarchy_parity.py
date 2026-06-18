@@ -9,6 +9,11 @@ import networkx as nx
 import franken_networkx as fnx
 
 
+def _expect(condition, message):
+    if not condition:
+        raise AssertionError(message)
+
+
 def _eul(mod):
     g = mod.Graph()
     for u, v in [(0, 1), (1, 2), (2, 0), (2, 3), (3, 4), (4, 2)]:
@@ -34,6 +39,29 @@ def test_eulerian_circuit_and_path_order():
     assert [(repr(u), repr(v)) for u, v in fnx.eulerian_path(sf)] == [
         (repr(u), repr(v)) for u, v in nx.eulerian_path(sn)
     ]
+
+
+def test_euler_module_eulerize_returns_fnx_multigraph_with_edge_parity():
+    from franken_networkx import euler as fnx_euler
+    from networkx.algorithms import euler as nx_euler
+
+    fnx_graph = fnx.path_graph(4)
+    nx_graph = nx.path_graph(4)
+
+    actual = fnx_euler.eulerize(fnx_graph)
+    expected = nx_euler.eulerize(nx_graph)
+
+    actual_edges = sorted(tuple(sorted(edge)) for edge in actual.edges())
+    expected_edges = sorted(tuple(sorted(edge)) for edge in expected.edges())
+
+    _expect(
+        isinstance(actual, fnx.MultiGraph),
+        "franken_networkx.euler.eulerize must return fnx.MultiGraph",
+    )
+    _expect(
+        actual_edges == expected_edges,
+        "franken_networkx.euler.eulerize edge multiset must match networkx",
+    )
 
 
 def _mkd():
