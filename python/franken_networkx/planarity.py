@@ -6,6 +6,8 @@ overrides specific functions with fnx-native implementations that return
 fnx graph types instead of NetworkX graphs.
 
 Current native overrides:
+- ``is_planar`` — fnx-native predicate
+- ``check_planarity`` — fnx-native predicate/certificate wrapper
 - ``get_counterexample`` — returns fnx.Graph
 - ``get_counterexample_recursive`` — returns fnx.Graph
 """
@@ -35,6 +37,22 @@ __all__ = list(
         ("check_planarity", "is_planar", "PlanarEmbedding"),
     )
 )
+
+
+def is_planar(G, *, backend=None, **backend_kwargs):
+    """Returns True if and only if graph ``G`` is planar."""
+    _fnx._validate_backend_dispatch_keywords("is_planar", backend, backend_kwargs)
+    return _fnx.is_planar(G)
+
+
+def check_planarity(G, counterexample=False, *, backend=None, **backend_kwargs):
+    """Check if a graph is planar and return a certificate."""
+    _fnx._validate_backend_dispatch_keywords(
+        "check_planarity",
+        backend,
+        backend_kwargs,
+    )
+    return _fnx.check_planarity(G, counterexample=counterexample)
 
 
 def get_counterexample(G, *, backend=None, **backend_kwargs):

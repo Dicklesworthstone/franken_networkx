@@ -48,6 +48,35 @@ def test_planarity_module_public_surface_matches_networkx():
     assert set(module.__all__) == set(expected.__all__)
 
 
+@pytest.mark.parametrize("name", ("is_planar", "check_planarity"))
+def test_planarity_module_routes_root_checks_through_fnx(monkeypatch, name):
+    module = importlib.import_module("franken_networkx.planarity")
+    algorithms_module = importlib.import_module("franken_networkx.algorithms.planarity")
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        return marker, args, kwargs
+
+    monkeypatch.setattr(fnx, name, sentinel)
+
+    if name == "is_planar":
+        expected = (marker, ("graph",), {})
+        assert module.is_planar("graph") == expected
+        assert algorithms_module.is_planar("graph") == expected
+    else:
+        expected = (marker, ("graph",), {"counterexample": True})
+        assert module.check_planarity("graph", counterexample=True) == expected
+        assert algorithms_module.check_planarity("graph", counterexample=True) == expected
+
+
+@pytest.mark.parametrize("name", ("is_planar", "check_planarity"))
+def test_planarity_module_root_checks_are_not_networkx_versions(name):
+    module = importlib.import_module("franken_networkx.planarity")
+    expected = importlib.import_module("networkx.algorithms.planarity")
+
+    assert getattr(module, name) is not getattr(expected, name)
+
+
 def _pair(edges, nodes=None):
     fg = fnx.Graph()
     ng = nx.Graph()
