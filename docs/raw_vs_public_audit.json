@@ -2419,7 +2419,7 @@
         "fixture": "path-5",
         "raw": {
           "ok": true,
-          "value": 4.0,
+          "value": 4,
           "error_type": null
         },
         "public": {
@@ -2437,7 +2437,7 @@
         "fixture": "cycle-6",
         "raw": {
           "ok": true,
-          "value": 1.0,
+          "value": 1,
           "error_type": null
         },
         "public": {
@@ -2455,7 +2455,7 @@
         "fixture": "star-5",
         "raw": {
           "ok": true,
-          "value": 1.0,
+          "value": 1,
           "error_type": null
         },
         "public": {
@@ -2473,7 +2473,7 @@
         "fixture": "complete-4",
         "raw": {
           "ok": true,
-          "value": 1.0,
+          "value": 1,
           "error_type": null
         },
         "public": {
@@ -2509,7 +2509,7 @@
         "fixture": "bipartite-3-3",
         "raw": {
           "ok": true,
-          "value": 1.0,
+          "value": 1,
           "error_type": null
         },
         "public": {
@@ -2527,7 +2527,7 @@
         "fixture": "petersen",
         "raw": {
           "ok": true,
-          "value": 2.0,
+          "value": 2,
           "error_type": null
         },
         "public": {
@@ -2545,7 +2545,7 @@
         "fixture": "digraph-chain-5",
         "raw": {
           "ok": true,
-          "value": 4.0,
+          "value": 4,
           "error_type": null
         },
         "public": {
@@ -2563,7 +2563,7 @@
         "fixture": "multigraph-path-5",
         "raw": {
           "ok": true,
-          "value": 4.0,
+          "value": 4,
           "error_type": null
         },
         "public": {
@@ -2581,7 +2581,7 @@
         "fixture": "multidigraph-chain-5",
         "raw": {
           "ok": true,
-          "value": 4.0,
+          "value": 4,
           "error_type": null
         },
         "public": {
@@ -2635,7 +2635,7 @@
         "fixture": "selfloop-path",
         "raw": {
           "ok": true,
-          "value": 2.0,
+          "value": 2,
           "error_type": null
         },
         "public": {
@@ -3725,7 +3725,7 @@
             [
               0,
               {
-                "0": 0.0,
+                "0": 0,
                 "1": 1.5,
                 "2": 4.0,
                 "3": 7.5,
@@ -3735,7 +3735,7 @@
             [
               1,
               {
-                "1": 0.0,
+                "1": 0,
                 "0": 1.5,
                 "2": 2.5,
                 "3": 6.0,
@@ -3745,7 +3745,7 @@
             [
               2,
               {
-                "2": 0.0,
+                "2": 0,
                 "1": 2.5,
                 "3": 3.5,
                 "0": 4.0,
@@ -3755,7 +3755,7 @@
             [
               3,
               {
-                "3": 0.0,
+                "3": 0,
                 "2": 3.5,
                 "4": 4.5,
                 "1": 6.0,
@@ -3765,7 +3765,7 @@
             [
               4,
               {
-                "4": 0.0,
+                "4": 0,
                 "3": 4.5,
                 "2": 8.0,
                 "1": 10.5,
@@ -3881,7 +3881,7 @@
             [
               0,
               {
-                "0": 0.0,
+                "0": 0,
                 "1": 1.5,
                 "2": 4.0,
                 "3": 7.5,
@@ -3891,7 +3891,7 @@
             [
               1,
               {
-                "1": 0.0,
+                "1": 0,
                 "0": 1.5,
                 "2": 2.5,
                 "3": 6.0,
@@ -3901,7 +3901,7 @@
             [
               2,
               {
-                "2": 0.0,
+                "2": 0,
                 "1": 2.5,
                 "3": 3.5,
                 "0": 4.0,
@@ -3911,7 +3911,7 @@
             [
               3,
               {
-                "3": 0.0,
+                "3": 0,
                 "2": 3.5,
                 "4": 4.5,
                 "1": 6.0,
@@ -3921,7 +3921,7 @@
             [
               4,
               {
-                "4": 0.0,
+                "4": 0,
                 "3": 4.5,
                 "2": 8.0,
                 "1": 10.5,
