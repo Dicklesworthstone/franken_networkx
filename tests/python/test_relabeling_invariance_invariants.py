@@ -6,6 +6,7 @@ directly guards against label-type / iteration-order dependence bugs — the
 class that produced the spanning-tree str-node defect.
 
 br-r37-c1-jeohx
+br-r37-c1-j78ld
 """
 
 from __future__ import annotations
@@ -26,6 +27,13 @@ _METRICS = {
     "wiener_index": lambda g: fnx.wiener_index(g),
     "average_clustering": lambda g: round(fnx.average_clustering(g), 10),
     "n_spanning_trees": lambda g: round(fnx.number_of_spanning_trees(g), 4),
+}
+
+_NODE_METRIC_MAPS = {
+    "degree_centrality": lambda g: fnx.degree_centrality(g),
+    "closeness_centrality": lambda g: fnx.closeness_centrality(g),
+    "betweenness_centrality": lambda g: fnx.betweenness_centrality(g),
+    "harmonic_centrality": lambda g: fnx.harmonic_centrality(g),
 }
 
 
@@ -75,3 +83,22 @@ def test_degree_assortativity_invariant_under_relabeling(seed):
     base = round(fnx.degree_assortativity_coefficient(g), 8)
     g_str = fnx.relabel_nodes(g, {i: f"v{i}" for i in range(n)})
     assert round(fnx.degree_assortativity_coefficient(g_str), 8) == base
+
+
+@pytest.mark.parametrize("metric", list(_NODE_METRIC_MAPS))
+@pytest.mark.parametrize("seed", range(30))
+def test_node_metric_maps_relabeling_equivariant(metric, seed):
+    res = _connected_graph(seed, p=0.45)
+    if res is None:
+        pytest.skip("disconnected")
+    g, n = res
+    mapping = {i: f"node-{seed}-{i}" for i in range(n)}
+    g_str = fnx.relabel_nodes(g, mapping)
+    metric_fn = _NODE_METRIC_MAPS[metric]
+
+    base = metric_fn(g)
+    relabelled = metric_fn(g_str)
+
+    assert list(relabelled) == [mapping[node] for node in base]
+    for node, value in base.items():
+        assert relabelled[mapping[node]] == pytest.approx(value)
