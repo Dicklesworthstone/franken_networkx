@@ -127,6 +127,30 @@ def test_bipartite_edgelist_helpers_match_networkx():
     assert actual.getvalue() == expected.getvalue()
 
 
+def test_bipartite_clustering_module_paths_match_networkx():
+    module = importlib.import_module("franken_networkx.bipartite")
+    via_algorithms = importlib.import_module("franken_networkx.algorithms.bipartite")
+    fnx_graph, nx_graph = _mk(fnx), _mk(nx)
+
+    for mode in ("dot", "min", "max"):
+        assert _D(module.clustering(fnx_graph, mode=mode)) == _D(
+            nxb.clustering(nx_graph, mode=mode)
+        )
+        assert _D(via_algorithms.clustering(fnx_graph, nodes=_TOP, mode=mode)) == _D(
+            nxb.clustering(nx_graph, nodes=_TOP, mode=mode)
+        )
+        for nodes in (None, sorted(_TOP), [6, 7, 8]):
+            assert round(
+                module.average_clustering(fnx_graph, nodes=nodes, mode=mode), 12
+            ) == round(nxb.average_clustering(nx_graph, nodes=nodes, mode=mode), 12)
+            assert round(
+                via_algorithms.average_clustering(
+                    fnx_graph, nodes=nodes, mode=mode
+                ),
+                12,
+            ) == round(nxb.average_clustering(nx_graph, nodes=nodes, mode=mode), 12)
+
+
 def test_bipartite_centrality_clustering_redundancy():
     bf, bn = _mk(fnx), _mk(nx)
     assert _D(nxb.degree_centrality(bf, _TOP)) == _D(nxb.degree_centrality(bn, _TOP))
