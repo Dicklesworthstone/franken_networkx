@@ -55,6 +55,20 @@ def test_chordal_module_public_surface_matches_networkx():
     assert set(module.__all__) == set(expected.__all__)
 
 
+def test_chordal_module_complete_to_chordal_graph_returns_fnx_graph():
+    module = importlib.import_module("franken_networkx.chordal")
+    expected = importlib.import_module("networkx.algorithms.chordal")
+    fg = fnx.cycle_graph(5)
+    ng = nx.cycle_graph(5)
+
+    fh, f_alpha = module.complete_to_chordal_graph(fg)
+    nh, n_alpha = expected.complete_to_chordal_graph(ng)
+
+    assert isinstance(fh, fnx.Graph)
+    assert _edge_set(fh) == _edge_set(nh)
+    assert f_alpha == n_alpha
+
+
 # ---------------------------------------------------------------------------
 # is_chordal.
 # ---------------------------------------------------------------------------
