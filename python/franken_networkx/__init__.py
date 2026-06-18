@@ -16094,7 +16094,16 @@ def cut_size(G, S, T=None, weight=None):
             "cut_size", G, S, T=T, weight=weight,
         )
 
-    raw = _raw_cut_size(G, _coerce_nbunch(S), _coerce_nbunch(T), weight=weight)
+    S_nb = _coerce_nbunch(S)
+    T_nb = _coerce_nbunch(T)
+    # br-r37-c1-dy93n: _raw_cut_size shares edge_boundary's strict-boundary
+    # bug (br-r37-c1-dhi0m) — it computes the boundary with the other endpoint
+    # NOT in S, then filters by T, undercounting when S and T overlap. nx
+    # counts an edge whenever one endpoint is in S and the other in T (overlap
+    # included). Delegate the overlapping case; disjoint / T-None stay native.
+    if T_nb is not None and not set(S_nb).isdisjoint(T_nb):
+        return _call_networkx_for_parity("cut_size", G, S, T=T, weight=weight)
+    raw = _raw_cut_size(G, S_nb, T_nb, weight=weight)
     if weight is None or _sp_edge_weights_all_int(G, weight):
         # Result is necessarily an integer (edge _count or sum of int
         # weights); coerce safely.
@@ -16116,7 +16125,15 @@ def normalized_cut_size(G, S, T=None, weight=None):
         return _call_networkx_for_parity(
             "normalized_cut_size", G, S, T=T, weight=weight,
         )
-    return _raw_normalized_cut_size(G, _coerce_nbunch(S), _coerce_nbunch(T), weight=weight)
+    S_nb = _coerce_nbunch(S)
+    T_nb = _coerce_nbunch(T)
+    # br-r37-c1-dy93n: same overlap bug as cut_size — the native kernel
+    # undercounts S↔T crossing edges when S and T overlap. Delegate that case.
+    if T_nb is not None and not set(S_nb).isdisjoint(T_nb):
+        return _call_networkx_for_parity(
+            "normalized_cut_size", G, S, T=T, weight=weight,
+        )
+    return _raw_normalized_cut_size(G, S_nb, T_nb, weight=weight)
 
 
 def node_boundary(G, nbunch1, nbunch2=None):
