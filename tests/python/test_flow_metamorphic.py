@@ -23,6 +23,8 @@ Flow / cut duality and structural invariants:
    multiplies max-flow and min-cut values by exactly ``c``.
 8. **Relabeling invariance**: changing node labels while mapping source and
    sink consistently preserves max-flow and min-cut values.
+9. **Capacity monotonicity**: increasing finite capacities cannot decrease
+   max-flow or min-cut values.
 
 Pairs with the fuzz_flow target (1d23f49d) — the fuzzer drives the
 same identities on arbitrary flow networks; this module pins them at
@@ -30,6 +32,7 @@ deterministic fixtures so any regression is immediately visible.
 
 br-r37-c1-rulk1
 br-r37-c1-sdxka
+br-r37-c1-rngyd
 """
 
 from __future__ import annotations
@@ -118,6 +121,14 @@ def _scaled_capacities(g, factor):
     return scaled
 
 
+def _increased_capacities(g, delta):
+    increased = g.copy()
+    for u, v in increased.edges():
+        if "capacity" in increased[u][v]:
+            increased[u][v]["capacity"] += delta
+    return increased
+
+
 # -----------------------------------------------------------------------------
 # Max-flow / min-cut theorem
 # -----------------------------------------------------------------------------
@@ -167,6 +178,26 @@ def test_relabeling_preserves_flow_and_cut_values(name, builder, source, sink):
     assert fnx.minimum_cut_value(
         relabelled, mapping[source], mapping[sink]
     ) == fnx.minimum_cut_value(g, source, sink)
+
+
+@pytest.mark.parametrize("delta", [1, 4, 9])
+@pytest.mark.parametrize(("name", "builder", "source", "sink"), FLOW_FIXTURES)
+def test_increasing_capacities_cannot_reduce_flow_or_cut(
+    name, builder, source, sink, delta
+):
+    g = builder()
+    increased = _increased_capacities(g, delta)
+
+    assert fnx.maximum_flow_value(
+        increased, source, sink
+    ) >= fnx.maximum_flow_value(g, source, sink), (
+        f"{name}: max-flow decreased after increasing capacities by {delta}"
+    )
+    assert fnx.minimum_cut_value(
+        increased, source, sink
+    ) >= fnx.minimum_cut_value(g, source, sink), (
+        f"{name}: min-cut decreased after increasing capacities by {delta}"
+    )
 
 
 # -----------------------------------------------------------------------------
