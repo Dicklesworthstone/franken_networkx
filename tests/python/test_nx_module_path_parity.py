@@ -17,6 +17,7 @@ subpackages) and ``test_exception_submodule_parity.py``.
 import importlib
 
 import networkx as nx
+import numpy as np
 import franken_networkx as fnx
 import pytest
 
@@ -131,6 +132,55 @@ def test_convert_matrix_module_to_numpy_array_matches_networkx_values():
     )
 
     assert actual.tolist() == expected.tolist()
+
+
+def test_convert_matrix_module_graph_builders_preserve_fnx_type():
+    module = importlib.import_module("franken_networkx.convert_matrix")
+    scipy_sparse = pytest.importorskip("scipy.sparse")
+
+    dense = np.array([[0, 2, 0], [0, 0, 3], [4, 0, 0]])
+    dense_actual = module.from_numpy_array(
+        dense, create_using=fnx.DiGraph(), nodelist=["a", "b", "c"]
+    )
+    dense_expected = nx.from_numpy_array(
+        dense, create_using=nx.DiGraph(), nodelist=["a", "b", "c"]
+    )
+
+    _expect(
+        module.from_numpy_array is fnx.from_numpy_array,
+        "convert_matrix.from_numpy_array must route through fnx",
+    )
+    _expect(
+        isinstance(dense_actual, fnx.DiGraph),
+        "convert_matrix.from_numpy_array must return an fnx DiGraph",
+    )
+    _expect(
+        list(dense_actual.edges(data=True))
+        == list(dense_expected.edges(data=True)),
+        "convert_matrix.from_numpy_array edge data must match networkx",
+    )
+
+    sparse = scipy_sparse.csr_array(dense)
+    sparse_actual = module.from_scipy_sparse_array(
+        sparse, create_using=fnx.DiGraph()
+    )
+    sparse_expected = nx.from_scipy_sparse_array(
+        sparse, create_using=nx.DiGraph()
+    )
+
+    _expect(
+        module.from_scipy_sparse_array is fnx.from_scipy_sparse_array,
+        "convert_matrix.from_scipy_sparse_array must route through fnx",
+    )
+    _expect(
+        isinstance(sparse_actual, fnx.DiGraph),
+        "convert_matrix.from_scipy_sparse_array must return an fnx DiGraph",
+    )
+    _expect(
+        list(sparse_actual.edges(data=True))
+        == list(sparse_expected.edges(data=True)),
+        "convert_matrix.from_scipy_sparse_array edge data must match networkx",
+    )
 
 
 def test_relabel_module_graph_returning_calls_preserve_fnx_type():
