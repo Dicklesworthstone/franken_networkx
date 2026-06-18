@@ -30088,6 +30088,20 @@ def google_matrix(
     """
     import numpy as np
 
+    # br-r37-c1-distidx: route the common case (default node order, no
+    # personalization/dangling, str weight) to the byte-exact native kernel,
+    # skipping the O(n) Python row-normalization loop. Verified vs nx across
+    # directed/undirected, varied alpha, dangling nodes. Non-default params
+    # (personalization/dangling/custom nodelist/weight=None) keep the Python path.
+    if (
+        personalization is None
+        and dangling is None
+        and nodelist is None
+        and weight is not None
+        and G.number_of_nodes() > 0
+    ):
+        return np.asarray(_fnx.google_matrix_rust(G, alpha, weight), dtype=float)
+
     if nodelist is None:
         nodelist = list(G.nodes())
     n = len(nodelist)
