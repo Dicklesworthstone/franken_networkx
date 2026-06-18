@@ -20566,6 +20566,65 @@ impl<'graph, 'nodes> LinkPredictionEndpointCache<'graph, 'nodes> {
     }
 }
 
+const LINK_PREDICTION_PAIR_SCORE_CACHE_MIN_EBUNCH: usize = 8;
+
+fn canonical_link_prediction_pair(left: usize, right: usize) -> (usize, usize) {
+    if left <= right {
+        (left, right)
+    } else {
+        (right, left)
+    }
+}
+
+struct LinkPredictionPairScoreCache {
+    repeated: HashSet<(usize, usize)>,
+    scores: HashMap<(usize, usize), f64>,
+}
+
+impl LinkPredictionPairScoreCache {
+    fn new<'graph, 'nodes>(
+        endpoint_cache: &mut LinkPredictionEndpointCache<'graph, 'nodes>,
+        ebunch: &'nodes [(String, String)],
+    ) -> Self {
+        if ebunch.len() < LINK_PREDICTION_PAIR_SCORE_CACHE_MIN_EBUNCH {
+            return Self {
+                repeated: HashSet::new(),
+                scores: HashMap::new(),
+            };
+        }
+
+        let mut seen = HashSet::with_capacity(ebunch.len());
+        let mut repeated = HashSet::new();
+        for (u, v) in ebunch {
+            if let (Some(ui), Some(vi)) =
+                (endpoint_cache.get(u.as_str()), endpoint_cache.get(v.as_str()))
+            {
+                let key = canonical_link_prediction_pair(ui, vi);
+                if !seen.insert(key) {
+                    repeated.insert(key);
+                }
+            }
+        }
+
+        let scores = HashMap::with_capacity(repeated.len());
+        Self { repeated, scores }
+    }
+
+    fn get(&self, key: (usize, usize)) -> Option<f64> {
+        if self.repeated.contains(&key) {
+            self.scores.get(&key).copied()
+        } else {
+            None
+        }
+    }
+
+    fn insert(&mut self, key: (usize, usize), score: f64) {
+        if self.repeated.contains(&key) {
+            self.scores.insert(key, score);
+        }
+    }
+}
+
 fn neighbor_indices_by_index_or_empty(graph: &Graph, node_idx: Option<usize>) -> &[usize] {
     node_idx
         .and_then(|idx| graph.neighbors_indices(idx))
@@ -20606,18 +20665,34 @@ pub fn jaccard_coefficient(
 ) -> Vec<(String, String, f64)> {
     let mut scratch = CommonNeighborScratch::new(graph.node_count());
     let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
+    let mut score_cache = LinkPredictionPairScoreCache::new(&mut endpoint_cache, ebunch);
     ebunch
         .iter()
         .map(|(u, v)| {
-            let u_nbrs = neighbor_indices_by_index_or_empty(graph, endpoint_cache.get(u.as_str()));
-            let v_nbrs = neighbor_indices_by_index_or_empty(graph, endpoint_cache.get(v.as_str()));
-            scratch.collect_from_rows(u_nbrs, v_nbrs);
-            let common = scratch.common_len();
-            let union = u_nbrs.len() + v_nbrs.len() - common;
-            let score = if union == 0 {
-                0.0
+            let u_idx = endpoint_cache.get(u.as_str());
+            let v_idx = endpoint_cache.get(v.as_str());
+            let key = u_idx
+                .zip(v_idx)
+                .map(|(ui, vi)| canonical_link_prediction_pair(ui, vi));
+            let score = if let Some(key) = key
+                && let Some(score) = score_cache.get(key)
+            {
+                score
             } else {
-                common as f64 / union as f64
+                let u_nbrs = neighbor_indices_by_index_or_empty(graph, u_idx);
+                let v_nbrs = neighbor_indices_by_index_or_empty(graph, v_idx);
+                scratch.collect_from_rows(u_nbrs, v_nbrs);
+                let common = scratch.common_len();
+                let union = u_nbrs.len() + v_nbrs.len() - common;
+                let score = if union == 0 {
+                    0.0
+                } else {
+                    common as f64 / union as f64
+                };
+                if let Some(key) = key {
+                    score_cache.insert(key, score);
+                }
+                score
             };
             (u.clone(), v.clone(), score)
         })
@@ -20633,18 +20708,34 @@ pub fn adamic_adar_index(graph: &Graph, ebunch: &[(String, String)]) -> Vec<(Str
     let mut scratch = CommonNeighborScratch::new(graph.node_count());
     let mut weights = CommonNeighborWeightCache::new(graph.node_count());
     let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
+    let mut score_cache = LinkPredictionPairScoreCache::new(&mut endpoint_cache, ebunch);
     ebunch
         .iter()
         .map(|(u, v)| {
-            // HashSet iteration order is randomized per process and float addition is
-            // non-associative, so summing in set order makes the last ULP of the score
-            // vary run-to-run. Sort the terms before summing so identical inputs always
-            // produce bit-identical scores.
-            scratch.collect_from_rows(
-                neighbor_indices_by_index_or_empty(graph, endpoint_cache.get(u.as_str())),
-                neighbor_indices_by_index_or_empty(graph, endpoint_cache.get(v.as_str())),
-            );
-            let score = scratch.adamic_adar_score(graph, &mut weights);
+            let u_idx = endpoint_cache.get(u.as_str());
+            let v_idx = endpoint_cache.get(v.as_str());
+            let key = u_idx
+                .zip(v_idx)
+                .map(|(ui, vi)| canonical_link_prediction_pair(ui, vi));
+            let score = if let Some(key) = key
+                && let Some(score) = score_cache.get(key)
+            {
+                score
+            } else {
+                // HashSet iteration order is randomized per process and float addition is
+                // non-associative, so summing in set order makes the last ULP of the score
+                // vary run-to-run. Sort the terms before summing so identical inputs always
+                // produce bit-identical scores.
+                scratch.collect_from_rows(
+                    neighbor_indices_by_index_or_empty(graph, u_idx),
+                    neighbor_indices_by_index_or_empty(graph, v_idx),
+                );
+                let score = scratch.adamic_adar_score(graph, &mut weights);
+                if let Some(key) = key {
+                    score_cache.insert(key, score);
+                }
+                score
+            };
             (u.clone(), v.clone(), score)
         })
         .collect()
@@ -20663,18 +20754,28 @@ pub fn preferential_attachment(
         .map(|idx| graph.degree_by_index(idx))
         .collect();
     let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
+    let mut score_cache = LinkPredictionPairScoreCache::new(&mut endpoint_cache, ebunch);
     ebunch
         .iter()
         .map(|(u, v)| {
-            let u_deg = endpoint_cache
-                .get(u.as_str())
-                .and_then(|idx| degrees.get(idx).copied())
-                .unwrap_or(0);
-            let v_deg = endpoint_cache
-                .get(v.as_str())
-                .and_then(|idx| degrees.get(idx).copied())
-                .unwrap_or(0);
-            let score = (u_deg * v_deg) as f64;
+            let u_idx = endpoint_cache.get(u.as_str());
+            let v_idx = endpoint_cache.get(v.as_str());
+            let key = u_idx
+                .zip(v_idx)
+                .map(|(ui, vi)| canonical_link_prediction_pair(ui, vi));
+            let score = if let Some(key) = key
+                && let Some(score) = score_cache.get(key)
+            {
+                score
+            } else {
+                let u_deg = u_idx.and_then(|idx| degrees.get(idx).copied()).unwrap_or(0);
+                let v_deg = v_idx.and_then(|idx| degrees.get(idx).copied()).unwrap_or(0);
+                let score = (u_deg * v_deg) as f64;
+                if let Some(key) = key {
+                    score_cache.insert(key, score);
+                }
+                score
+            };
             (u.clone(), v.clone(), score)
         })
         .collect()
@@ -20692,15 +20793,31 @@ pub fn resource_allocation_index(
     let mut scratch = CommonNeighborScratch::new(graph.node_count());
     let mut weights = CommonNeighborWeightCache::new(graph.node_count());
     let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
+    let mut score_cache = LinkPredictionPairScoreCache::new(&mut endpoint_cache, ebunch);
     ebunch
         .iter()
         .map(|(u, v)| {
-            // Sorted-term summation for run-to-run bit determinism; see adamic_adar_index.
-            scratch.collect_from_rows(
-                neighbor_indices_by_index_or_empty(graph, endpoint_cache.get(u.as_str())),
-                neighbor_indices_by_index_or_empty(graph, endpoint_cache.get(v.as_str())),
-            );
-            let score = scratch.resource_allocation_score(graph, &mut weights);
+            let u_idx = endpoint_cache.get(u.as_str());
+            let v_idx = endpoint_cache.get(v.as_str());
+            let key = u_idx
+                .zip(v_idx)
+                .map(|(ui, vi)| canonical_link_prediction_pair(ui, vi));
+            let score = if let Some(key) = key
+                && let Some(score) = score_cache.get(key)
+            {
+                score
+            } else {
+                // Sorted-term summation for run-to-run bit determinism; see adamic_adar_index.
+                scratch.collect_from_rows(
+                    neighbor_indices_by_index_or_empty(graph, u_idx),
+                    neighbor_indices_by_index_or_empty(graph, v_idx),
+                );
+                let score = scratch.resource_allocation_score(graph, &mut weights);
+                if let Some(key) = key {
+                    score_cache.insert(key, score);
+                }
+                score
+            };
             (u.clone(), v.clone(), score)
         })
         .collect()
@@ -34019,6 +34136,7 @@ pub fn common_neighbor_centrality(
     let mut queue = VecDeque::new();
     let mut scratch = CommonNeighborScratch::new(n);
     let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
+    let mut score_cache = LinkPredictionPairScoreCache::new(&mut endpoint_cache, ebunch);
     let mut source_reuse_counts = HashMap::with_capacity(ebunch.len().min(n));
     for (u, _) in ebunch {
         if let Some(source_idx) = endpoint_cache.get(u.as_str()) {
@@ -34030,34 +34148,47 @@ pub fn common_neighbor_centrality(
     for (u, v) in ebunch {
         let u_idx = endpoint_cache.get(u.as_str());
         let v_idx = endpoint_cache.get(v.as_str());
-        let (cn, sp) = if let (Some(ui), Some(vi)) = (u_idx, v_idx) {
-            scratch.collect_from_rows_excluding(
-                neighbor_indices_by_index_or_empty(graph, u_idx),
-                neighbor_indices_by_index_or_empty(graph, v_idx),
-                ui,
-                vi,
-            );
-            let cn = scratch.common_len() as f64;
-            let cacheable_source = source_reuse_counts.get(&ui).copied().unwrap_or(0) > 1;
-            let sp = distance_cache.shortest_path_length(
-                graph,
-                ui,
-                vi,
-                cacheable_source,
-                &mut dist,
-                &mut touched,
-                &mut queue,
-            );
-            (cn, sp)
+        let key = u_idx
+            .zip(v_idx)
+            .map(|(ui, vi)| canonical_link_prediction_pair(ui, vi));
+        let score = if let Some(key) = key
+            && let Some(score) = score_cache.get(key)
+        {
+            score
         } else {
-            (0.0, None)
-        };
-
-        let score = alpha * cn
-            + match sp {
-                Some(p) if p > 0 => (1.0 - alpha) * (n as f64 / p as f64),
-                _ => 0.0,
+            let (cn, sp) = if let (Some(ui), Some(vi)) = (u_idx, v_idx) {
+                scratch.collect_from_rows_excluding(
+                    neighbor_indices_by_index_or_empty(graph, u_idx),
+                    neighbor_indices_by_index_or_empty(graph, v_idx),
+                    ui,
+                    vi,
+                );
+                let cn = scratch.common_len() as f64;
+                let cacheable_source = source_reuse_counts.get(&ui).copied().unwrap_or(0) > 1;
+                let sp = distance_cache.shortest_path_length(
+                    graph,
+                    ui,
+                    vi,
+                    cacheable_source,
+                    &mut dist,
+                    &mut touched,
+                    &mut queue,
+                );
+                (cn, sp)
+            } else {
+                (0.0, None)
             };
+
+            let score = alpha * cn
+                + match sp {
+                    Some(p) if p > 0 => (1.0 - alpha) * (n as f64 / p as f64),
+                    _ => 0.0,
+                };
+            if let Some(key) = key {
+                score_cache.insert(key, score);
+            }
+            score
+        };
         result.push((u.clone(), v.clone(), score));
     }
 
@@ -35843,22 +35974,37 @@ pub fn ra_index_soundarajan_hopcroft(
     let mut scratch = CommonNeighborScratch::new(graph.node_count());
     let mut weights = CommonNeighborWeightCache::new(graph.node_count());
     let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
+    let mut score_cache = LinkPredictionPairScoreCache::new(&mut endpoint_cache, ebunch);
 
     for (u, v) in ebunch {
         let u_idx = endpoint_cache.get(u.as_str());
         let v_idx = endpoint_cache.get(v.as_str());
-        let u_comm = u_idx.and_then(|idx| communities.get(idx).and_then(Option::as_ref));
-        let v_comm = v_idx.and_then(|idx| communities.get(idx).and_then(Option::as_ref));
-        let same_endpoint_community = matches!((u_comm, v_comm), (Some(u), Some(v)) if u == v);
-        let mut score = 0.0;
+        let key = u_idx
+            .zip(v_idx)
+            .map(|(ui, vi)| canonical_link_prediction_pair(ui, vi));
+        let score = if let Some(key) = key
+            && let Some(score) = score_cache.get(key)
+        {
+            score
+        } else {
+            let u_comm = u_idx.and_then(|idx| communities.get(idx).and_then(Option::as_ref));
+            let v_comm = v_idx.and_then(|idx| communities.get(idx).and_then(Option::as_ref));
+            let same_endpoint_community = matches!((u_comm, v_comm), (Some(u), Some(v)) if u == v);
+            let mut score = 0.0;
 
-        if same_endpoint_community {
-            scratch.collect_from_rows(
-                neighbor_indices_by_index_or_empty(graph, u_idx),
-                neighbor_indices_by_index_or_empty(graph, v_idx),
-            );
-            score = scratch.soundarajan_resource_score(graph, &communities, u_comm, &mut weights);
-        }
+            if same_endpoint_community {
+                scratch.collect_from_rows(
+                    neighbor_indices_by_index_or_empty(graph, u_idx),
+                    neighbor_indices_by_index_or_empty(graph, v_idx),
+                );
+                score =
+                    scratch.soundarajan_resource_score(graph, &communities, u_comm, &mut weights);
+            }
+            if let Some(key) = key {
+                score_cache.insert(key, score);
+            }
+            score
+        };
 
         result.push((u.clone(), v.clone(), score));
     }
@@ -36244,20 +36390,34 @@ pub fn cn_soundarajan_hopcroft(
     let mut result = Vec::with_capacity(ebunch.len());
     let mut scratch = CommonNeighborScratch::new(graph.node_count());
     let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
+    let mut score_cache = LinkPredictionPairScoreCache::new(&mut endpoint_cache, ebunch);
     for (u, v) in ebunch {
         let u_idx = endpoint_cache.get(u.as_str());
         let v_idx = endpoint_cache.get(v.as_str());
-        scratch.collect_from_rows(
-            neighbor_indices_by_index_or_empty(graph, u_idx),
-            neighbor_indices_by_index_or_empty(graph, v_idx),
-        );
-        let u_comm = u_idx.and_then(|idx| communities.get(idx).and_then(Option::as_ref));
-        let v_comm = v_idx.and_then(|idx| communities.get(idx).and_then(Option::as_ref));
-        let same_endpoint_community = matches!((u_comm, v_comm), (Some(u), Some(v)) if u == v);
-        let mut score = scratch.common_len() as f64;
-        if same_endpoint_community {
-            score += scratch.count_with_community(&communities, u_comm) as f64;
-        }
+        let key = u_idx
+            .zip(v_idx)
+            .map(|(ui, vi)| canonical_link_prediction_pair(ui, vi));
+        let score = if let Some(key) = key
+            && let Some(score) = score_cache.get(key)
+        {
+            score
+        } else {
+            scratch.collect_from_rows(
+                neighbor_indices_by_index_or_empty(graph, u_idx),
+                neighbor_indices_by_index_or_empty(graph, v_idx),
+            );
+            let u_comm = u_idx.and_then(|idx| communities.get(idx).and_then(Option::as_ref));
+            let v_comm = v_idx.and_then(|idx| communities.get(idx).and_then(Option::as_ref));
+            let same_endpoint_community = matches!((u_comm, v_comm), (Some(u), Some(v)) if u == v);
+            let mut score = scratch.common_len() as f64;
+            if same_endpoint_community {
+                score += scratch.count_with_community(&communities, u_comm) as f64;
+            }
+            if let Some(key) = key {
+                score_cache.insert(key, score);
+            }
+            score
+        };
         result.push((u.clone(), v.clone(), score));
     }
     result
@@ -48552,6 +48712,120 @@ mod tests {
         assert_eq!(soundarajan[0].2.to_bits(), soundarajan[4].2.to_bits());
         assert_eq!(soundarajan[2].2, 0.0);
         assert_eq!(soundarajan[3].2, 0.0);
+    }
+
+    #[test]
+    fn link_prediction_pair_score_cache_preserves_repeated_and_reversed_scores() {
+        fn community_attrs(value: &str) -> AttrMap {
+            let mut attrs = AttrMap::new();
+            attrs.insert(
+                "community".to_owned(),
+                CgseValue::String(value.to_owned()),
+            );
+            attrs
+        }
+
+        let mut g = Graph::strict();
+        let _ = g.add_node_with_attrs("u", community_attrs("core"));
+        let _ = g.add_node_with_attrs("v", community_attrs("core"));
+        let _ = g.add_node_with_attrs("c0", community_attrs("core"));
+        let _ = g.add_node_with_attrs("c1", community_attrs("outer"));
+        let _ = g.add_edge("u", "c0");
+        let _ = g.add_edge("v", "c0");
+        let _ = g.add_edge("c0", "x0");
+        let _ = g.add_edge("c0", "x1");
+        let _ = g.add_edge("u", "c1");
+        let _ = g.add_edge("v", "c1");
+        let _ = g.add_edge("c1", "y0");
+        let pairs = vec![
+            ("u".to_owned(), "v".to_owned()),
+            ("v".to_owned(), "u".to_owned()),
+            ("u".to_owned(), "missing".to_owned()),
+            ("missing".to_owned(), "v".to_owned()),
+            ("u".to_owned(), "v".to_owned()),
+            ("v".to_owned(), "u".to_owned()),
+            ("u".to_owned(), "v".to_owned()),
+            ("v".to_owned(), "u".to_owned()),
+        ];
+
+        let jaccard = jaccard_coefficient(&g, &pairs);
+        assert_eq!(
+            jaccard
+                .iter()
+                .map(|(u, v, _)| (u.as_str(), v.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("u", "v"),
+                ("v", "u"),
+                ("u", "missing"),
+                ("missing", "v"),
+                ("u", "v"),
+                ("v", "u"),
+                ("u", "v"),
+                ("v", "u"),
+            ]
+        );
+        assert_eq!(jaccard[0].2, 1.0);
+        assert_eq!(jaccard[0].2.to_bits(), jaccard[1].2.to_bits());
+        assert_eq!(jaccard[0].2.to_bits(), jaccard[4].2.to_bits());
+        assert_eq!(jaccard[0].2.to_bits(), jaccard[7].2.to_bits());
+        assert_eq!(jaccard[2].2, 0.0);
+        assert_eq!(jaccard[3].2, 0.0);
+
+        let expected_adamic = 1.0 / 4.0_f64.ln() + 1.0 / 3.0_f64.ln();
+        let adamic = adamic_adar_index(&g, &pairs);
+        assert!((adamic[0].2 - expected_adamic).abs() < TEST_TOLERANCE);
+        assert_eq!(adamic[0].2.to_bits(), adamic[1].2.to_bits());
+        assert_eq!(adamic[0].2.to_bits(), adamic[5].2.to_bits());
+        assert_eq!(adamic[2].2, 0.0);
+        assert_eq!(adamic[3].2, 0.0);
+
+        let resource = resource_allocation_index(&g, &pairs);
+        assert!((resource[0].2 - (1.0 / 4.0 + 1.0 / 3.0)).abs() < TEST_TOLERANCE);
+        assert_eq!(resource[0].2.to_bits(), resource[1].2.to_bits());
+        assert_eq!(resource[0].2.to_bits(), resource[6].2.to_bits());
+        assert_eq!(resource[2].2, 0.0);
+        assert_eq!(resource[3].2, 0.0);
+
+        let preferential = preferential_attachment(&g, &pairs);
+        assert_eq!(preferential[0].2, 4.0);
+        assert_eq!(preferential[0].2.to_bits(), preferential[1].2.to_bits());
+        assert_eq!(preferential[0].2.to_bits(), preferential[7].2.to_bits());
+        assert_eq!(preferential[2].2, 0.0);
+        assert_eq!(preferential[3].2, 0.0);
+
+        let ccpa = common_neighbor_centrality(&g, &pairs, 0.5);
+        assert!((ccpa[0].2 - 2.75).abs() < TEST_TOLERANCE);
+        assert_eq!(ccpa[0].2.to_bits(), ccpa[1].2.to_bits());
+        assert_eq!(ccpa[0].2.to_bits(), ccpa[4].2.to_bits());
+        assert_eq!(ccpa[2].2, 0.0);
+        assert_eq!(ccpa[3].2, 0.0);
+
+        let cn_soundarajan = cn_soundarajan_hopcroft(&g, &pairs, "community");
+        assert_eq!(cn_soundarajan[0].2, 3.0);
+        assert_eq!(
+            cn_soundarajan[0].2.to_bits(),
+            cn_soundarajan[1].2.to_bits()
+        );
+        assert_eq!(
+            cn_soundarajan[0].2.to_bits(),
+            cn_soundarajan[6].2.to_bits()
+        );
+        assert_eq!(cn_soundarajan[2].2, 0.0);
+        assert_eq!(cn_soundarajan[3].2, 0.0);
+
+        let ra_soundarajan = ra_index_soundarajan_hopcroft(&g, &pairs, "community");
+        assert!((ra_soundarajan[0].2 - 0.25).abs() < TEST_TOLERANCE);
+        assert_eq!(
+            ra_soundarajan[0].2.to_bits(),
+            ra_soundarajan[1].2.to_bits()
+        );
+        assert_eq!(
+            ra_soundarajan[0].2.to_bits(),
+            ra_soundarajan[5].2.to_bits()
+        );
+        assert_eq!(ra_soundarajan[2].2, 0.0);
+        assert_eq!(ra_soundarajan[3].2, 0.0);
     }
 
     #[test]
