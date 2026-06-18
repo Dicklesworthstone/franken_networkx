@@ -40,6 +40,39 @@ def test_algorithms_regular_import_routes_to_same_module():
     assert fnx.algorithms.regular is direct
 
 
+@pytest.mark.parametrize("name", PUBLIC_FUNCTIONS)
+def test_regular_module_routes_through_top_level_fnx(monkeypatch, name):
+    module = importlib.import_module("franken_networkx.regular")
+    algorithms_module = importlib.import_module("franken_networkx.algorithms.regular")
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        return marker, args, kwargs
+
+    monkeypatch.setattr(fnx, name, sentinel)
+
+    if name == "is_regular":
+        expected = (marker, ("graph",), {})
+        assert module.is_regular("graph") == expected
+        assert algorithms_module.is_regular("graph") == expected
+    elif name == "is_k_regular":
+        expected = (marker, ("graph", 2), {})
+        assert module.is_k_regular("graph", 2) == expected
+        assert algorithms_module.is_k_regular("graph", 2) == expected
+    else:
+        expected = (marker, ("graph", 1), {"matching_weight": "score"})
+        assert module.k_factor("graph", 1, matching_weight="score") == expected
+        assert algorithms_module.k_factor("graph", 1, matching_weight="score") == expected
+
+
+@pytest.mark.parametrize("name", PUBLIC_FUNCTIONS)
+def test_regular_module_function_is_not_networkx_version(name):
+    module = importlib.import_module("franken_networkx.regular")
+    expected = importlib.import_module("networkx.algorithms.regular")
+
+    assert getattr(module, name) is not getattr(expected, name)
+
+
 def test_regular_function_signatures_match_networkx():
     module = importlib.import_module("franken_networkx.regular")
     expected = importlib.import_module("networkx.algorithms.regular")
