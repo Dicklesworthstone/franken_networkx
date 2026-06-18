@@ -8,8 +8,11 @@ networkx with metamorphic checks:
 * the Erdős–Gallai and Havel–Hakimi validity tests are equivalent theorems,
   so they must agree (and agree with ``is_graphical``)
 * ``havel_hakimi_graph`` must realize exactly the requested degree sequence
+* the complement of a realization must have degree sequence
+  ``n - 1 - d`` and the complementary edge count
 
 br-r37-c1-xy5mv
+br-r37-c1-clzp1
 """
 
 from __future__ import annotations
@@ -44,6 +47,27 @@ def test_havel_hakimi_graph_realizes_sequence(seed):
         pytest.skip("not graphical")
     h = fnx.havel_hakimi_graph(seq)
     assert sorted((d for _, d in h.degree()), reverse=True) == seq
+
+
+@pytest.mark.parametrize("seed", range(50))
+def test_havel_hakimi_complement_degree_invariant(seed):
+    rng = random.Random(seed * 13 + 5)
+    n = rng.randint(4, 10)
+    source = nx.gnp_random_graph(n, 0.45, seed=seed)
+    seq = sorted((d for _, d in source.degree()), reverse=True)
+
+    realized = fnx.havel_hakimi_graph(seq)
+    complement = fnx.complement(realized)
+
+    expected_complement_seq = sorted((n - 1 - d for d in seq), reverse=True)
+    actual_complement_seq = sorted(
+        (d for _, d in complement.degree()), reverse=True
+    )
+    assert actual_complement_seq == expected_complement_seq
+    assert (
+        realized.number_of_edges() + complement.number_of_edges()
+        == n * (n - 1) // 2
+    )
 
 
 def test_degree_sequence_goldens():
