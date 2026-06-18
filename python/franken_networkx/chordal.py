@@ -15,7 +15,6 @@ from networkx.algorithms.chordal import *  # noqa: F401,F403
 import networkx.algorithms.chordal as _nx_chordal
 
 import franken_networkx as _fnx
-from franken_networkx.readwrite import _from_nx_graph
 
 __all__ = list(
     getattr(
@@ -36,9 +35,12 @@ __all__ = list(
 def complete_to_chordal_graph(G, *, backend=None, **backend_kwargs):
     """Return a chordal completion of G and the added fill-in edges.
 
-    Wraps ``networkx.algorithms.chordal.complete_to_chordal_graph`` and converts
-    the graph in the result tuple to an fnx graph type for drop-in compatibility.
+    Routes through the fnx top-level implementation so the standalone chordal
+    module path returns the same native graph type and alpha map as
+    ``franken_networkx.complete_to_chordal_graph``.
     """
-    _fnx._validate_backend_dispatch_keywords("complete_to_chordal_graph", backend, backend_kwargs)
-    nx_graph, fill_in = _nx_chordal.complete_to_chordal_graph(G)
-    return _from_nx_graph(nx_graph), fill_in
+    return _fnx.complete_to_chordal_graph(
+        G,
+        backend=backend,
+        **backend_kwargs,
+    )

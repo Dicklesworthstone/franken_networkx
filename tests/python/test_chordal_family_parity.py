@@ -48,14 +48,19 @@ def _edge_set(G):
     return {frozenset(e) for e in G.edges()}
 
 
+def _expect(condition, message):
+    if not condition:
+        pytest.fail(message)
+
+
 def test_chordal_module_public_surface_matches_networkx():
     module = importlib.import_module("franken_networkx.chordal")
     expected = importlib.import_module("networkx.algorithms.chordal")
 
-    assert set(module.__all__) == set(expected.__all__)
+    _expect(set(module.__all__) == set(expected.__all__), "chordal __all__ must match networkx")
 
 
-def test_chordal_module_complete_to_chordal_graph_returns_fnx_graph():
+def test_chordal_module_complete_to_chordal_graph_returns_fnx_graph(monkeypatch):
     module = importlib.import_module("franken_networkx.chordal")
     expected = importlib.import_module("networkx.algorithms.chordal")
     fg = fnx.cycle_graph(5)
@@ -64,9 +69,23 @@ def test_chordal_module_complete_to_chordal_graph_returns_fnx_graph():
     fh, f_alpha = module.complete_to_chordal_graph(fg)
     nh, n_alpha = expected.complete_to_chordal_graph(ng)
 
-    assert isinstance(fh, fnx.Graph)
-    assert _edge_set(fh) == _edge_set(nh)
-    assert f_alpha == n_alpha
+    _expect(isinstance(fh, fnx.Graph), "complete_to_chordal_graph must return an fnx Graph")
+    _expect(_edge_set(fh) == _edge_set(nh), "chordal completion edges must match networkx")
+    _expect(f_alpha == n_alpha, "chordal alpha map must match networkx")
+
+    sentinel = object()
+
+    def fake_complete_to_chordal_graph(graph, *, backend=None, **kwargs):
+        _expect(graph is fg, "complete_to_chordal_graph must forward the original graph")
+        _expect(backend == "sentinel", "complete_to_chordal_graph must forward backend")
+        _expect(kwargs == {"strict": True}, "complete_to_chordal_graph must forward backend kwargs")
+        return sentinel
+
+    monkeypatch.setattr(fnx, "complete_to_chordal_graph", fake_complete_to_chordal_graph)
+    _expect(
+        module.complete_to_chordal_graph(fg, backend="sentinel", strict=True) is sentinel,
+        "chordal.complete_to_chordal_graph must route through fnx",
+    )
 
 
 # ---------------------------------------------------------------------------
