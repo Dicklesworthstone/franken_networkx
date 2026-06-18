@@ -149,6 +149,20 @@ pub trait GraphView {
     fn in_neighbors_iter(&self, node: &str) -> Option<Box<dyn Iterator<Item = &str> + '_>>;
     fn neighbor_count(&self, node: &str) -> usize;
     fn edge_weight(&self, source: &str, target: &str, weight_attr: Option<&str>) -> f64;
+    fn edge_weight_by_indices(
+        &self,
+        source_idx: usize,
+        target_idx: usize,
+        weight_attr: Option<&str>,
+    ) -> f64 {
+        let Some(source) = self.get_node_name(source_idx) else {
+            return 1.0;
+        };
+        let Some(target) = self.get_node_name(target_idx) else {
+            return 1.0;
+        };
+        self.edge_weight(source, target, weight_attr)
+    }
     fn has_node(&self, node: &str) -> bool;
     fn has_edge(&self, u: &str, v: &str) -> bool;
     fn is_directed(&self) -> bool;
@@ -190,6 +204,21 @@ impl GraphView for Graph {
             .filter(|value| value.is_finite())
             .unwrap_or(1.0)
     }
+    fn edge_weight_by_indices(
+        &self,
+        source_idx: usize,
+        target_idx: usize,
+        weight_attr: Option<&str>,
+    ) -> f64 {
+        let Some(weight_attr) = weight_attr else {
+            return 1.0;
+        };
+        self.edge_attrs_by_indices(source_idx, target_idx)
+            .and_then(|attrs| attrs.get(weight_attr))
+            .and_then(|val| val.as_f64())
+            .filter(|value| value.is_finite())
+            .unwrap_or(1.0)
+    }
     fn has_node(&self, node: &str) -> bool {
         self.has_node(node)
     }
@@ -217,6 +246,9 @@ impl GraphView for DiGraph {
     fn get_node_name(&self, index: usize) -> Option<&str> {
         self.get_node_name(index)
     }
+    fn neighbors_indices(&self, node_idx: usize) -> Option<&[usize]> {
+        self.successors_indices(node_idx)
+    }
     fn neighbors_iter(&self, node: &str) -> Option<Box<dyn Iterator<Item = &str> + '_>> {
         self.neighbors_iter(node)
             .map(|iter| Box::new(iter) as Box<dyn Iterator<Item = &str> + '_>)
@@ -233,6 +265,21 @@ impl GraphView for DiGraph {
             return 1.0;
         };
         self.edge_attrs(source, target)
+            .and_then(|attrs| attrs.get(weight_attr))
+            .and_then(|val| val.as_f64())
+            .filter(|value| value.is_finite())
+            .unwrap_or(1.0)
+    }
+    fn edge_weight_by_indices(
+        &self,
+        source_idx: usize,
+        target_idx: usize,
+        weight_attr: Option<&str>,
+    ) -> f64 {
+        let Some(weight_attr) = weight_attr else {
+            return 1.0;
+        };
+        self.edge_attrs_by_indices(source_idx, target_idx)
             .and_then(|attrs| attrs.get(weight_attr))
             .and_then(|val| val.as_f64())
             .filter(|value| value.is_finite())
@@ -22391,7 +22438,7 @@ pub fn astar_path<G: GraphView + ?Sized, E>(
         f_score: f64,
         g_score: f64,
         counter: u64,
-        node: String,
+        node: usize,
     }
 
     impl Eq for State {}
@@ -22410,66 +22457,78 @@ pub fn astar_path<G: GraphView + ?Sized, E>(
         }
     }
 
-    let mut g_scores: HashMap<String, f64> = HashMap::new();
-    let mut came_from: HashMap<String, String> = HashMap::new();
+    let Some(source_idx) = graph.get_node_index(source) else {
+        return Ok(None);
+    };
+    let Some(target_idx) = graph.get_node_index(target) else {
+        return Ok(None);
+    };
+    let names = graph.nodes_ordered();
+    let node_count = names.len();
+    let mut g_scores: Vec<f64> = vec![f64::INFINITY; node_count];
+    let mut came_from: Vec<usize> = vec![usize::MAX; node_count];
     let mut heap = BinaryHeap::new();
-    let mut visited: HashSet<String> = HashSet::new();
+    let mut visited = vec![false; node_count];
     let mut counter: u64 = 0;
 
-    g_scores.insert(source.to_string(), 0.0);
+    g_scores[source_idx] = 0.0;
     heap.push(State {
         f_score: h(source)?,
         g_score: 0.0,
         counter,
-        node: source.to_string(),
+        node: source_idx,
     });
     counter += 1;
 
     while let Some(State { node, g_score, .. }) = heap.pop() {
-        if node == target {
-            let mut path = vec![target.to_string()];
-            let mut current = target.to_string();
-            while let Some(prev) = came_from.get(&current) {
-                path.push(prev.clone());
-                current = prev.clone();
+        if node == target_idx {
+            let mut path_indices = vec![target_idx];
+            let mut current = target_idx;
+            while current != source_idx {
+                let prev = came_from[current];
+                if prev == usize::MAX {
+                    return Ok(None);
+                }
+                path_indices.push(prev);
+                current = prev;
             }
-            path.reverse();
-            return Ok(Some(path));
+            path_indices.reverse();
+            return Ok(Some(
+                path_indices
+                    .into_iter()
+                    .map(|idx| names[idx].to_owned())
+                    .collect(),
+            ));
         }
 
-        if !visited.insert(node.clone()) {
+        if visited[node] {
+            continue;
+        }
+        visited[node] = true;
+
+        if g_score > g_scores[node] {
             continue;
         }
 
-        if g_score > *g_scores.get(&node).unwrap_or(&f64::INFINITY) {
-            continue;
-        }
-
-        // GraphView::neighbors_iter yields successors for DiGraph (directed)
-        // and neighbors for Graph (undirected), so this kernel is correct for
-        // both. Collect to owned strings to avoid holding the graph borrow
-        // across the g_scores/heap mutations below.
-        let nbrs: Vec<String> = graph
-            .neighbors_iter(&node)
-            .map(|it| it.map(str::to_owned).collect())
-            .unwrap_or_default();
-        {
-            for nbr in &nbrs {
-                let nbr = nbr.as_str();
-                if visited.contains(nbr) {
+        // GraphView::neighbors_indices yields successors for DiGraph and
+        // neighbors for Graph. Keeping the hot loop on integer rows avoids the
+        // small-graph String hashing tax that dominated this single-pair path.
+        if let Some(nbrs) = graph.neighbors_indices(node) {
+            for &nbr in nbrs {
+                if visited[nbr] {
                     continue;
                 }
-                let w = graph.edge_weight(&node, nbr, Some(weight_attr));
+                let w = graph.edge_weight_by_indices(node, nbr, Some(weight_attr));
                 let tentative_g = g_score + w;
-                let current_g = *g_scores.get(nbr).unwrap_or(&f64::INFINITY);
+                let current_g = g_scores[nbr];
                 if tentative_g < current_g {
-                    g_scores.insert(nbr.to_string(), tentative_g);
-                    came_from.insert(nbr.to_string(), node.clone());
+                    g_scores[nbr] = tentative_g;
+                    came_from[nbr] = node;
                     heap.push(State {
-                        f_score: tentative_g + h(nbr)?,
+                        f_score: tentative_g + h(names[nbr])?,
                         g_score: tentative_g,
                         counter,
-                        node: nbr.to_string(),
+                        node: nbr,
                     });
                     counter += 1;
                 }
@@ -49479,6 +49538,26 @@ mod tests {
                 "a".to_string(),
                 "b".to_string(),
                 "c".to_string()
+            ]))
+        );
+    }
+
+    #[test]
+    fn test_astar_path_directed_uses_successor_indices() {
+        let mut g = DiGraph::strict();
+        let _ = g.add_edge_with_attrs("d", "a", attrs([("weight", "1.0")]));
+        let _ = g.add_edge_with_attrs("a", "b", attrs([("weight", "1.0")]));
+        let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "1.0")]));
+        let _ = g.add_edge_with_attrs("c", "d", attrs([("weight", "1.0")]));
+
+        let path = astar_path::<_, ()>(&g, "a", "d", "weight", None);
+        assert_eq!(
+            path,
+            Ok(Some(vec![
+                "a".to_string(),
+                "b".to_string(),
+                "c".to_string(),
+                "d".to_string()
             ]))
         );
     }
