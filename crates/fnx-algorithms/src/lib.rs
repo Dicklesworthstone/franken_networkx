@@ -34085,12 +34085,15 @@ fn indexed_shortest_path_length(
 /// Degree mixing dictionary: count edges by (source_degree, target_degree).
 #[must_use]
 pub fn degree_mixing_dict(graph: &Graph) -> std::collections::HashMap<(usize, usize), usize> {
-    let mut mixing = std::collections::HashMap::new();
-    for edge in graph.edges_ordered() {
-        let du = graph.degree(&edge.left);
-        let dv = graph.degree(&edge.right);
+    let node_count = graph.node_count();
+    let degrees: Vec<usize> = (0..node_count).map(|idx| graph.degree_by_index(idx)).collect();
+    let mut mixing = std::collections::HashMap::with_capacity(graph.edge_count().saturating_mul(2));
+
+    for (left_idx, right_idx, _) in graph.edges_storage_order_index_iter() {
+        let du = degrees[left_idx];
+        let dv = degrees[right_idx];
         *mixing.entry((du, dv)).or_insert(0) += 1;
-        if edge.left != edge.right {
+        if left_idx != right_idx {
             *mixing.entry((dv, du)).or_insert(0) += 1;
         }
     }
@@ -34102,11 +34105,23 @@ pub fn degree_mixing_dict(graph: &Graph) -> std::collections::HashMap<(usize, us
 pub fn degree_mixing_dict_directed(
     digraph: &DiGraph,
 ) -> std::collections::HashMap<(usize, usize), usize> {
-    let mut mixing = std::collections::HashMap::new();
-    for edge in digraph.edges_ordered() {
-        let du = digraph.out_degree(&edge.left);
-        let dv = digraph.in_degree(&edge.right);
-        *mixing.entry((du, dv)).or_insert(0) += 1;
+    let node_count = digraph.node_count();
+    let out_degrees: Vec<usize> = (0..node_count)
+        .map(|idx| digraph.out_degree_by_index(idx))
+        .collect();
+    let in_degrees: Vec<usize> = (0..node_count)
+        .map(|idx| digraph.in_degree_by_index(idx))
+        .collect();
+    let mut mixing = std::collections::HashMap::with_capacity(digraph.edge_count());
+
+    for source_idx in 0..node_count {
+        let du = out_degrees[source_idx];
+        if let Some(successors) = digraph.successors_indices(source_idx) {
+            for &target_idx in successors {
+                let dv = in_degrees[target_idx];
+                *mixing.entry((du, dv)).or_insert(0) += 1;
+            }
+        }
     }
     mixing
 }
@@ -41891,6 +41906,7 @@ mod tests {
         degree_centrality,
         degree_histogram,
         degree_mixing_dict,
+        degree_mixing_dict_directed,
         desargues_graph,
         descendants,
         descendants_at_distance,
@@ -54869,6 +54885,43 @@ mod tests {
         let _ = g.add_edge("b", "c");
         let m = degree_mixing_dict(&g);
         assert!(m.contains_key(&(1, 2)) || m.contains_key(&(2, 1)));
+    }
+
+    #[test]
+    fn test_degree_mixing_dict_self_loop_uses_public_degree_semantics() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "a");
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+
+        let da = g.degree("a");
+        let db = g.degree("b");
+        let dc = g.degree("c");
+        let m = degree_mixing_dict(&g);
+
+        assert_eq!(m.values().sum::<usize>(), 5);
+        assert_eq!(m.get(&(da, da)), Some(&1));
+        assert_eq!(m.get(&(da, db)), Some(&1));
+        assert_eq!(m.get(&(db, da)), Some(&1));
+        assert_eq!(m.get(&(db, dc)), Some(&1));
+        assert_eq!(m.get(&(dc, db)), Some(&1));
+    }
+
+    #[test]
+    fn test_degree_mixing_dict_directed_uses_out_in_degrees() {
+        let mut dg = DiGraph::strict();
+        let _ = dg.add_edge("a", "b");
+        let _ = dg.add_edge("a", "c");
+        let _ = dg.add_edge("b", "c");
+        let _ = dg.add_edge("c", "a");
+
+        let m = degree_mixing_dict_directed(&dg);
+
+        assert_eq!(m.values().sum::<usize>(), 4);
+        assert_eq!(m.get(&(dg.out_degree("a"), dg.in_degree("b"))), Some(&1));
+        assert_eq!(m.get(&(dg.out_degree("a"), dg.in_degree("c"))), Some(&1));
+        assert_eq!(m.get(&(dg.out_degree("b"), dg.in_degree("c"))), Some(&1));
+        assert_eq!(m.get(&(dg.out_degree("c"), dg.in_degree("a"))), Some(&1));
     }
 
     #[test]

@@ -11,8 +11,8 @@ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use fnx_algorithms::{
     adamic_adar_index, average_shortest_path_length, betweenness_centrality,
     closeness_centrality, cn_soundarajan_hopcroft, common_neighbor_centrality,
-    common_neighbors, connected_components, degree_centrality, eigenvector_centrality,
-    jaccard_coefficient, max_flow_edmonds_karp, minimum_cut_edmonds_karp,
+    common_neighbors, connected_components, degree_centrality, degree_mixing_dict,
+    eigenvector_centrality, jaccard_coefficient, max_flow_edmonds_karp, minimum_cut_edmonds_karp,
     minimum_spanning_tree, pagerank, preferential_attachment, ra_index_soundarajan_hopcroft,
     resource_allocation_index, shortest_path_unweighted, shortest_path_weighted,
     single_source_dijkstra_path_length,
@@ -196,6 +196,22 @@ fn build_link_prediction_shared_source_pairs(
         .collect()
 }
 
+fn build_degree_mixing_hubs(hubs: usize, spokes_per_hub: usize) -> Graph {
+    let mut g = Graph::strict();
+    for hub in 0..hubs {
+        let hub_node = format!("h{hub}");
+        let _ = g.add_node(hub_node.clone());
+        if hub > 0 {
+            let _ = g.add_edge(format!("h{}", hub - 1), hub_node.clone());
+        }
+        for spoke in 0..spokes_per_hub {
+            let spoke_node = format!("h{hub}_s{spoke}");
+            let _ = g.add_edge(hub_node.clone(), spoke_node);
+        }
+    }
+    g
+}
+
 fn bench_single_source_dijkstra(c: &mut Criterion) {
     let mut group = c.benchmark_group("single_source_dijkstra");
     for &side in &[20usize, 45, 64] {
@@ -369,6 +385,18 @@ fn bench_common_neighbors(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_degree_mixing_dict(c: &mut Criterion) {
+    let mut group = c.benchmark_group("degree_mixing_dict");
+    for &(hubs, spokes) in &[(64usize, 32usize), (256, 16), (512, 32)] {
+        let g = build_degree_mixing_hubs(hubs, spokes);
+        let label = format!("h{hubs}_s{spokes}");
+        group.bench_with_input(BenchmarkId::new("hub_spokes", &label), &label, |b, _| {
+            b.iter(|| degree_mixing_dict(&g));
+        });
+    }
+    group.finish();
+}
+
 fn bench_link_prediction_scores(c: &mut Criterion) {
     let mut group = c.benchmark_group("link_prediction_scores");
     for &(left_only, right_only, common, repeats) in
@@ -513,6 +541,7 @@ criterion_group!(
     bench_eigenvector_centrality,
     bench_pagerank,
     bench_common_neighbors,
+    bench_degree_mixing_dict,
     bench_link_prediction_scores,
     bench_max_flow,
     bench_minimum_cut,
