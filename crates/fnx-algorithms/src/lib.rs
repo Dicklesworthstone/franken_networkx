@@ -41521,6 +41521,7 @@ mod tests {
         barycenter,
         bellman_ford_path_length,
         bellman_ford_shortest_paths,
+        bellman_ford_shortest_paths_directed,
         betweenness_centrality,
         betweenness_centrality_directed_with_params,
         betweenness_centrality_with_params,
@@ -42305,6 +42306,39 @@ mod tests {
         ];
         let dijkstra_result = multi_source_dijkstra(&graph, &["n1"], "weight");
         let bellman_ford_result = bellman_ford_shortest_paths(&graph, "n1", "weight");
+        let dijkstra_order = dijkstra_result
+            .distances
+            .iter()
+            .map(|entry| (entry.node.as_str(), entry.distance))
+            .collect::<Vec<(&str, f64)>>();
+        let bellman_ford_order = bellman_ford_result
+            .distances
+            .iter()
+            .map(|entry| (entry.node.as_str(), entry.distance))
+            .collect::<Vec<(&str, f64)>>();
+
+        assert_eq!(dijkstra_order, expected);
+        assert_eq!(bellman_ford_order, expected);
+    }
+
+    #[test]
+    fn directed_shortest_path_weighted_order_matches_networkx_golden() {
+        let mut graph = DiGraph::strict();
+        for (left, right) in [("n1", "n4"), ("n2", "n0"), ("n4", "n2"), ("n4", "n5")] {
+            graph
+                .add_edge(left, right)
+                .expect("directed packet 005 edge add should succeed");
+        }
+
+        let expected = vec![
+            ("n1", 0.0_f64),
+            ("n4", 1.0_f64),
+            ("n2", 2.0_f64),
+            ("n5", 2.0_f64),
+            ("n0", 3.0_f64),
+        ];
+        let dijkstra_result = multi_source_dijkstra_directed(&graph, &["n1"], "weight");
+        let bellman_ford_result = bellman_ford_shortest_paths_directed(&graph, "n1", "weight");
         let dijkstra_order = dijkstra_result
             .distances
             .iter()
