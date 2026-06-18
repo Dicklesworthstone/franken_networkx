@@ -1,15 +1,8 @@
-"""Differential parity for ``franken_networkx.distance_regular.diameter``.
-
-This namespace re-exports the general ``diameter`` (via its ``__getattr__``
-fallback to networkx). Native routing was deferred here because the module
-is imported during package init and its attribute resolution makes
-submodule-level routing unreliable (same class as the ``convert``
-namespace, 2qsqf). The values still match networkx, which this pins.
-
-br-r37-c1-2qsqf
-"""
+"""Differential parity for ``franken_networkx.distance_regular.diameter``."""
 
 from __future__ import annotations
+
+import importlib
 
 import pytest
 import networkx as nx
@@ -27,3 +20,25 @@ from franken_networkx import distance_regular as fnx_dr
 def test_diameter_values_match_networkx(builder, expected):
     assert fnx_dr.diameter(builder(fnx)) == expected
     assert fnx_dr.diameter(builder(fnx)) == nx.diameter(builder(nx))
+
+
+def test_diameter_routes_through_fnx_top_level(monkeypatch):
+    via_algorithms = importlib.import_module(
+        "franken_networkx.algorithms.distance_regular"
+    )
+    graph = fnx.path_graph(4)
+    sentinel = object()
+    calls = []
+
+    def fake_diameter(G, e=None, usebounds=False, weight=None):
+        calls.append((G, e, usebounds, weight))
+        return sentinel
+
+    monkeypatch.setattr(fnx, "diameter", fake_diameter)
+
+    assert fnx_dr.diameter(graph, usebounds=True, weight="weight") is sentinel
+    assert via_algorithms.diameter(graph, e={"x": 1}) is sentinel
+    assert calls == [
+        (graph, None, True, "weight"),
+        (graph, {"x": 1}, False, None),
+    ]

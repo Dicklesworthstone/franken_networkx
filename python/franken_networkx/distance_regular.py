@@ -51,6 +51,14 @@ def global_parameters(b, c):
     return _fnx.global_parameters(b, c)
 
 
+def diameter(
+    G, e=None, usebounds=False, weight=None, *, backend=None, **backend_kwargs
+):
+    """Return the diameter through the fnx top-level parity wrapper."""
+    _fnx._validate_backend_dispatch_keywords("diameter", backend, backend_kwargs)
+    return _fnx.diameter(G, e=e, usebounds=usebounds, weight=weight)
+
+
 def __getattr__(name):
     try:
         return getattr(_nx_distance_regular, name)
