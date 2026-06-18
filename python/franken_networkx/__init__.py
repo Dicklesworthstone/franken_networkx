@@ -34178,6 +34178,24 @@ def group_betweenness_centrality(
         "group_betweenness_centrality", backend, backend_kwargs
     )
 
+    # br-r37-c1-ejuhf: both the native fast path and the in-process slow path
+    # below mishandle the inclusion-exclusion correction for shortest paths
+    # that traverse THREE OR MORE members of a group, undercounting the group
+    # score (size 1 and 2 are exact). Delegate any group with >=3 members to
+    # nx, the correct reference. Single/pair groups keep the fast paths.
+    _gbc_groups = (
+        C if (len(C) > 0 and not any(element in G for element in C)) else [C]
+    )
+    if any(len(set(group)) >= 3 for group in _gbc_groups):
+        return _call_networkx_for_parity(
+            "group_betweenness_centrality",
+            G,
+            C,
+            normalized=normalized,
+            weight=weight,
+            endpoints=endpoints,
+        )
+
     if not G.is_directed() and weight is None and not endpoints:
         # Detect list-of-groups vs single group, mirroring the slow path
         # below (br-r37-c1-q49py): nx returns a list of per-group scores
