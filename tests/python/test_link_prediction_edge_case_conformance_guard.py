@@ -76,3 +76,5 @@ def test_community_scorers_repeated_reversed(seed):
     ebunch = [(0, 1), (1, 0), (0, 1), (2, 3), (3, 2)]
     for fn in ("cn_soundarajan_hopcroft", "ra_index_soundarajan_hopcroft"):
         _eq(getattr(fnx, fn)(fg, ebunch), getattr(nx, fn)(ng, ebunch))
+    # within_inter_cluster (ledger 9141) — repeated/reversed pairs too.
+    _eq(fnx.within_inter_cluster(fg, ebunch), nx.within_inter_cluster(ng, ebunch))
