@@ -3955,6 +3955,35 @@ def test_edge_subgraph_matches_networkx_without_fallback(monkeypatch, fnx_cls, n
     assert result.is_directed() == expected_result.is_directed()
     assert result.is_multigraph() == expected_result.is_multigraph()
     assert _graph_snapshot(result) == expected_snapshot
+    assert result.number_of_edges() == expected_result.number_of_edges()
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.MultiGraph, nx.MultiGraph),
+    ],
+)
+def test_undirected_edge_subgraph_number_of_edges_deduplicates_reversed_edges(
+    fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    if graph.is_multigraph():
+        selected_edges = [("a", "b", 1), ("b", "a", 1), ("b", "c", 1)]
+    else:
+        selected_edges = [("a", "b"), ("b", "a"), ("b", "c")]
+    result = graph.edge_subgraph(selected_edges)
+    expected_result = expected.edge_subgraph(selected_edges)
+
+    assert result.number_of_edges() == expected_result.number_of_edges()
+    if graph.is_multigraph():
+        result_edge_len = len(result.edges(keys=True))
+        expected_edge_len = len(expected_result.edges(keys=True))
+    else:
+        result_edge_len = len(result.edges())
+        expected_edge_len = len(expected_result.edges())
+    assert result_edge_len == expected_edge_len == expected_result.number_of_edges()
 
 
 @pytest.mark.parametrize(
@@ -4012,6 +4041,8 @@ def test_edge_subgraph_tracks_mutations_like_networkx_without_fallback(
 
     result = fnx.edge_subgraph(graph, selected_edges)
 
+    assert result.number_of_edges() == expected_result.number_of_edges()
+
     graph.nodes["a"]["color"] = "black"
     expected.nodes["a"]["color"] = "black"
     result_builder(graph)
@@ -4021,6 +4052,7 @@ def test_edge_subgraph_tracks_mutations_like_networkx_without_fallback(
     assert result.is_multigraph() == expected_result.is_multigraph()
     assert sorted(result.nodes(data=True)) == sorted(expected_result.nodes(data=True))
     assert edge_snapshot(result) == edge_snapshot(expected_result)
+    assert result.number_of_edges() == expected_result.number_of_edges()
 
 
 @pytest.mark.parametrize(

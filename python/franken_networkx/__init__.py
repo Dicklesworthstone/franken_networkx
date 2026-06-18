@@ -36986,6 +36986,9 @@ class _FilteredGraphView:
 
     def number_of_edges(self, u=None, v=None):
         if u is None and v is None:
+            edge_subgraph_count = self._edge_subgraph_number_of_edges()
+            if edge_subgraph_count is not None:
+                return edge_subgraph_count
             return len(self.edges(keys=True)) if self.is_multigraph() else len(self.edges())
         if v is None:
             if u not in self:
@@ -37000,6 +37003,49 @@ class _FilteredGraphView:
                 if self._edge_visible(u, v, edge_key)
             )
         return 1 if self.has_edge(u, v) else 0
+
+    def _edge_subgraph_number_of_edges(self):
+        selected_edges = getattr(
+            self._filter_edge, "_fnx_edge_subgraph_selected_edges", None
+        )
+        if selected_edges is None:
+            return None
+
+        parent = self._graph
+        if self.is_multigraph():
+            if self.is_directed():
+                return sum(
+                    1
+                    for u, v, key in selected_edges
+                    if parent.has_edge(u, v, key)
+                )
+
+            count = 0
+            seen = set()
+            for u, v, key in selected_edges:
+                edge = (u, v, key)
+                if edge in seen:
+                    continue
+                seen.add(edge)
+                seen.add((v, u, key))
+                if parent.has_edge(u, v, key):
+                    count += 1
+            return count
+
+        if self.is_directed():
+            return sum(1 for u, v in selected_edges if parent.has_edge(u, v))
+
+        count = 0
+        seen = set()
+        for u, v in selected_edges:
+            edge = (u, v)
+            if edge in seen:
+                continue
+            seen.add(edge)
+            seen.add((v, u))
+            if parent.has_edge(u, v):
+                count += 1
+        return count
 
     def size(self, weight=None):
         # br-r37-c1-fgv-size: the canonical Graph.size inherited from
@@ -45300,6 +45346,8 @@ def edge_subgraph(G, edges):
 
             def filter_edge(u, v):
                 return (u, v) in visible_edges
+
+    filter_edge._fnx_edge_subgraph_selected_edges = edges
 
     return subgraph_view(
         G,
