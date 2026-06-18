@@ -9,9 +9,10 @@ use std::collections::BTreeMap;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use fnx_algorithms::{
-    average_shortest_path_length, betweenness_centrality, closeness_centrality,
-    common_neighbors, connected_components, degree_centrality, eigenvector_centrality,
-    max_flow_edmonds_karp, minimum_cut_edmonds_karp, minimum_spanning_tree, pagerank,
+    adamic_adar_index, average_shortest_path_length, betweenness_centrality,
+    closeness_centrality, common_neighbors, connected_components, degree_centrality,
+    eigenvector_centrality, jaccard_coefficient, max_flow_edmonds_karp,
+    minimum_cut_edmonds_karp, minimum_spanning_tree, pagerank, resource_allocation_index,
     shortest_path_unweighted, shortest_path_weighted, single_source_dijkstra_path_length,
 };
 use fnx_classes::Graph;
@@ -140,6 +141,12 @@ fn build_common_neighbors_graph(left_only: usize, right_only: usize, common: usi
         let _ = g.add_edge("v", format!("r{i}"));
     }
     g
+}
+
+fn build_link_prediction_pairs(repeats: usize) -> Vec<(String, String)> {
+    (0..repeats)
+        .map(|_| ("u".to_owned(), "v".to_owned()))
+        .collect()
 }
 
 fn bench_single_source_dijkstra(c: &mut Criterion) {
@@ -315,6 +322,31 @@ fn bench_common_neighbors(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_link_prediction_scores(c: &mut Criterion) {
+    let mut group = c.benchmark_group("link_prediction_scores");
+    for &(left_only, right_only, common, repeats) in
+        &[(64, 64, 64, 128), (32, 512, 32, 128), (512, 512, 256, 64)]
+    {
+        let g = build_common_neighbors_graph(left_only, right_only, common);
+        let pairs = build_link_prediction_pairs(repeats);
+        let label = format!("l{left_only}_r{right_only}_c{common}_p{repeats}");
+        group.bench_with_input(BenchmarkId::new("jaccard", &label), &label, |b, _| {
+            b.iter(|| jaccard_coefficient(&g, &pairs));
+        });
+        group.bench_with_input(BenchmarkId::new("adamic_adar", &label), &label, |b, _| {
+            b.iter(|| adamic_adar_index(&g, &pairs));
+        });
+        group.bench_with_input(
+            BenchmarkId::new("resource_allocation", &label),
+            &label,
+            |b, _| {
+                b.iter(|| resource_allocation_index(&g, &pairs));
+            },
+        );
+    }
+    group.finish();
+}
+
 // ---------------------------------------------------------------------------
 // Benchmark: Flow
 // ---------------------------------------------------------------------------
@@ -389,6 +421,7 @@ criterion_group!(
     bench_eigenvector_centrality,
     bench_pagerank,
     bench_common_neighbors,
+    bench_link_prediction_scores,
     bench_max_flow,
     bench_minimum_cut,
     bench_minimum_spanning_tree,

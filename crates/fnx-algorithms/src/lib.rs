@@ -20335,19 +20335,21 @@ pub fn common_neighbors(graph: &Graph, u: &str, v: &str) -> Vec<String> {
     result
 }
 
+fn neighbor_indices_or_empty<'a>(graph: &'a Graph, node: &str) -> &'a [usize] {
+    graph
+        .get_node_index(node)
+        .and_then(|idx| graph.neighbors_indices(idx))
+        .unwrap_or(&[])
+}
+
 fn common_neighbor_indices(graph: &Graph, u: &str, v: &str) -> Vec<usize> {
-    let Some(u_idx) = graph.get_node_index(u) else {
-        return Vec::new();
-    };
-    let Some(v_idx) = graph.get_node_index(v) else {
-        return Vec::new();
-    };
-    let Some(u_neighbors) = graph.neighbors_indices(u_idx) else {
-        return Vec::new();
-    };
-    let Some(v_neighbors) = graph.neighbors_indices(v_idx) else {
-        return Vec::new();
-    };
+    common_neighbor_indices_from_rows(
+        neighbor_indices_or_empty(graph, u),
+        neighbor_indices_or_empty(graph, v),
+    )
+}
+
+fn common_neighbor_indices_from_rows(u_neighbors: &[usize], v_neighbors: &[usize]) -> Vec<usize> {
     let (small, large) = if u_neighbors.len() <= v_neighbors.len() {
         (u_neighbors, v_neighbors)
     } else {
@@ -20378,12 +20380,10 @@ pub fn jaccard_coefficient(
     ebunch
         .iter()
         .map(|(u, v)| {
-            let u_nbrs: HashSet<&str> =
-                graph.neighbors(u).unwrap_or_default().into_iter().collect();
-            let v_nbrs: HashSet<&str> =
-                graph.neighbors(v).unwrap_or_default().into_iter().collect();
-            let common = u_nbrs.intersection(&v_nbrs).count();
-            let union = u_nbrs.union(&v_nbrs).count();
+            let u_nbrs = neighbor_indices_or_empty(graph, u);
+            let v_nbrs = neighbor_indices_or_empty(graph, v);
+            let common = common_neighbor_indices_from_rows(u_nbrs, v_nbrs).len();
+            let union = u_nbrs.len() + v_nbrs.len() - common;
             let score = if union == 0 {
                 0.0
             } else {
@@ -20403,18 +20403,14 @@ pub fn adamic_adar_index(graph: &Graph, ebunch: &[(String, String)]) -> Vec<(Str
     ebunch
         .iter()
         .map(|(u, v)| {
-            let u_nbrs: HashSet<&str> =
-                graph.neighbors(u).unwrap_or_default().into_iter().collect();
-            let v_nbrs: HashSet<&str> =
-                graph.neighbors(v).unwrap_or_default().into_iter().collect();
             // HashSet iteration order is randomized per process and float addition is
             // non-associative, so summing in set order makes the last ULP of the score
             // vary run-to-run. Sort the terms before summing so identical inputs always
             // produce bit-identical scores.
-            let mut terms: Vec<f64> = u_nbrs
-                .intersection(&v_nbrs)
-                .map(|&w| {
-                    let deg = graph.neighbor_count(w);
+            let mut terms: Vec<f64> = common_neighbor_indices(graph, u, v)
+                .into_iter()
+                .map(|w| {
+                    let deg = graph.neighbors_indices(w).map_or(0, <[usize]>::len);
                     if deg > 1 {
                         1.0 / (deg as f64).ln()
                     } else {
@@ -20461,15 +20457,11 @@ pub fn resource_allocation_index(
     ebunch
         .iter()
         .map(|(u, v)| {
-            let u_nbrs: HashSet<&str> =
-                graph.neighbors(u).unwrap_or_default().into_iter().collect();
-            let v_nbrs: HashSet<&str> =
-                graph.neighbors(v).unwrap_or_default().into_iter().collect();
             // Sorted-term summation for run-to-run bit determinism; see adamic_adar_index.
-            let mut terms: Vec<f64> = u_nbrs
-                .intersection(&v_nbrs)
-                .map(|&w| {
-                    let deg = graph.neighbor_count(w);
+            let mut terms: Vec<f64> = common_neighbor_indices(graph, u, v)
+                .into_iter()
+                .map(|w| {
+                    let deg = graph.neighbors_indices(w).map_or(0, <[usize]>::len);
                     if deg > 0 { 1.0 / deg as f64 } else { 0.0 }
                 })
                 .collect();
@@ -47924,6 +47916,29 @@ mod tests {
         // Jaccard = 1/1 = 1.0
         let (_, _, score) = &result[0];
         assert!((score - 1.0).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn link_prediction_scores_use_common_neighbor_row_set() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("u", "c0");
+        let _ = g.add_edge("u", "c1");
+        let _ = g.add_edge("u", "left");
+        let _ = g.add_edge("v", "c0");
+        let _ = g.add_edge("v", "c1");
+        let _ = g.add_edge("v", "right");
+        let _ = g.add_edge("c0", "extra");
+        let pairs = vec![("u".to_owned(), "v".to_owned())];
+
+        let (_, _, jaccard) = jaccard_coefficient(&g, &pairs)[0];
+        assert!((jaccard - 0.5).abs() < TEST_TOLERANCE);
+
+        let (_, _, adamic_adar) = adamic_adar_index(&g, &pairs)[0];
+        let expected_adamic_adar = 1.0 / 3.0_f64.ln() + 1.0 / 2.0_f64.ln();
+        assert!((adamic_adar - expected_adamic_adar).abs() < TEST_TOLERANCE);
+
+        let (_, _, resource_allocation) = resource_allocation_index(&g, &pairs)[0];
+        assert!((resource_allocation - (1.0 / 3.0 + 1.0 / 2.0)).abs() < TEST_TOLERANCE);
     }
 
     #[test]
