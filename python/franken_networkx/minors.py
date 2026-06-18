@@ -34,6 +34,26 @@ __all__ = list(
     )
 )
 
+# br-r37-c1-2qsqf: ``from networkx.algorithms.minors import *`` above left
+# ``equivalence_classes`` bound to networkx's implementation, so
+# ``fnx.minors.equivalence_classes`` silently resolved to nx's instead of fnx's
+# native version. Route it to the fnx top-level function via a call-time closure
+# wrapper (import-order robust).
+def _make_fnx_minors_router(_fn_name):
+    def _routed(*args, **kwargs):
+        return getattr(_fnx, _fn_name)(*args, **kwargs)
+
+    _routed.__name__ = _fn_name
+    _routed.__qualname__ = _fn_name
+    _routed.__doc__ = (
+        f"Route to ``franken_networkx.{_fn_name}`` (fnx-native). See "
+        f"``networkx.algorithms.minors.{_fn_name}`` for semantics."
+    )
+    return _routed
+
+
+equivalence_classes = _make_fnx_minors_router("equivalence_classes")
+
 
 def _convert_contraction_result(nx_result, *, copy):
     if not copy:
