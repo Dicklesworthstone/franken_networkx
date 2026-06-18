@@ -17,6 +17,11 @@ import networkx.algorithms.flow as _nx_flow
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
 
+__all__ = list(
+    getattr(_nx_flow, "__all__", ())
+    or [name for name in dir(_nx_flow) if not name.startswith("_")]
+)
+
 
 def gomory_hu_tree(G, capacity="capacity", flow_func=None, *, backend=None, **backend_kwargs):
     """Return the Gomory-Hu tree of an undirected graph.

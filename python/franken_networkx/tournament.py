@@ -19,6 +19,11 @@ import networkx.algorithms.tournament as _nx_tournament
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
 
+__all__ = list(
+    getattr(_nx_tournament, "__all__", ())
+    or [name for name in dir(_nx_tournament) if not name.startswith("_")]
+)
+
 
 def score_sequence(G, *, backend=None, **backend_kwargs):
     """Return the sorted list of out-degrees of the tournament's nodes.

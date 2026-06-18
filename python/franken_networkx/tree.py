@@ -21,6 +21,11 @@ import networkx.algorithms.tree as _nx_tree
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
 
+__all__ = list(
+    getattr(_nx_tree, "__all__", ())
+    or [name for name in dir(_nx_tree) if not name.startswith("_")]
+)
+
 
 def from_prufer_sequence(sequence, *, backend=None, **backend_kwargs):
     """Return the tree corresponding to the given Prüfer sequence.

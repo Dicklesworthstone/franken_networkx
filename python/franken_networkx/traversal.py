@@ -18,6 +18,11 @@ import networkx.algorithms.traversal as _nx_traversal
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
 
+__all__ = list(
+    getattr(_nx_traversal, "__all__", ())
+    or [name for name in dir(_nx_traversal) if not name.startswith("_")]
+)
+
 
 def bfs_tree(G, source, reverse=False, depth_limit=None, sort_neighbors=None, *, backend=None, **backend_kwargs):
     """Return an oriented tree constructed from a breadth-first search.

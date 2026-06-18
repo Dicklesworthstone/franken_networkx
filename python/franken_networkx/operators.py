@@ -32,8 +32,14 @@ equivalent result; the contract (returns the fnx-graph product) is unchanged.
 from __future__ import annotations
 
 from networkx.algorithms.operators import *  # noqa: F401,F403
+import networkx.algorithms.operators as _nx_operators
 
 import franken_networkx as _fnx
+
+__all__ = list(
+    getattr(_nx_operators, "__all__", ())
+    or [name for name in dir(_nx_operators) if not name.startswith("_")]
+)
 
 
 def disjoint_union(G, H, *, backend=None, **backend_kwargs):

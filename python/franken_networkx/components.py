@@ -12,8 +12,14 @@ Current native overrides:
 from __future__ import annotations
 
 from networkx.algorithms.components import *  # noqa: F401,F403
+import networkx.algorithms.components as _nx_components
 
 import franken_networkx as _fnx
+
+__all__ = list(
+    getattr(_nx_components, "__all__", ())
+    or [name for name in dir(_nx_components) if not name.startswith("_")]
+)
 
 
 def condensation(G, scc=None, *, backend=None, **backend_kwargs):

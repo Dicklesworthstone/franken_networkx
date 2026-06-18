@@ -18,6 +18,11 @@ import networkx.algorithms.connectivity as _nx_connectivity
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
 
+__all__ = list(
+    getattr(_nx_connectivity, "__all__", ())
+    or [name for name in dir(_nx_connectivity) if not name.startswith("_")]
+)
+
 
 def build_auxiliary_node_connectivity(G):
     """Return auxiliary digraph for computing node connectivity.

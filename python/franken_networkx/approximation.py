@@ -20,6 +20,11 @@ import networkx.algorithms.approximation as _nx_approx
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
 
+__all__ = list(
+    getattr(_nx_approx, "__all__", ())
+    or [name for name in dir(_nx_approx) if not name.startswith("_")]
+)
+
 
 def steiner_tree(G, terminal_nodes, weight="weight", method=None, *, backend=None, **backend_kwargs):
     """Return an approximate minimum Steiner tree of G.
