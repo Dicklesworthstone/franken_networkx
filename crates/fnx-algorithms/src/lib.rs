@@ -20368,6 +20368,15 @@ fn common_neighbor_indices_from_rows(u_neighbors: &[usize], v_neighbors: &[usize
     result
 }
 
+fn common_neighbor_indices_excluding_endpoints(graph: &Graph, u: usize, v: usize) -> Vec<usize> {
+    let mut common = common_neighbor_indices_from_rows(
+        graph.neighbors_indices(u).unwrap_or(&[]),
+        graph.neighbors_indices(v).unwrap_or(&[]),
+    );
+    common.retain(|&neighbor| neighbor != u && neighbor != v);
+    common
+}
+
 fn community_key_from_value(value: &CgseValue) -> Cow<'_, str> {
     match value {
         CgseValue::String(value) => Cow::Borrowed(value.as_str()),
@@ -33743,64 +33752,82 @@ pub fn ego_graph_directed(digraph: &DiGraph, center: &str, radius: usize) -> DiG
 
 /// Common Neighbor Centrality (CCPA) link prediction index.
 ///
-/// For each pair (u, v), score = |common_neighbors(u,v)| + f(shortest_path(u,v))
-/// where f(p) = alpha * (N / p) when a path exists.
+/// For each pair (u, v), score = alpha * |common_neighbors(u,v)|
+/// + (1 - alpha) * (N / p) when a path exists.
 pub fn common_neighbor_centrality(
     graph: &Graph,
     ebunch: &[(String, String)],
     alpha: f64,
 ) -> Vec<(String, String, f64)> {
-    let nodes = graph.nodes_ordered();
-    let n = nodes.len();
-    let idx: std::collections::HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
-
+    let n = graph.node_count();
+    let mut dist = vec![usize::MAX; n];
+    let mut touched = Vec::with_capacity(n.min(1024));
+    let mut queue = VecDeque::new();
     let mut result = Vec::with_capacity(ebunch.len());
     for (u, v) in ebunch {
-        let u_nbrs: std::collections::HashSet<&str> =
-            graph.neighbors(u).unwrap_or_default().into_iter().collect();
-        let v_nbrs: std::collections::HashSet<&str> =
-            graph.neighbors(v).unwrap_or_default().into_iter().collect();
-        let cn = u_nbrs.intersection(&v_nbrs).count() as f64;
-
-        // BFS shortest path length
-        let sp = if let (Some(&ui), Some(&vi)) = (idx.get(u.as_str()), idx.get(v.as_str())) {
-            let mut dist = vec![usize::MAX; n];
-            dist[ui] = 0;
-            let mut queue = std::collections::VecDeque::new();
-            queue.push_back(ui);
-            while let Some(w) = queue.pop_front() {
-                if w == vi {
-                    break;
-                }
-                if let Some(nbrs) = graph.neighbors(nodes[w]) {
-                    for nb in nbrs {
-                        if let Some(&ni) = idx.get(nb)
-                            && dist[ni] == usize::MAX
-                        {
-                            dist[ni] = dist[w] + 1;
-                            queue.push_back(ni);
-                        }
-                    }
-                }
-            }
-            if dist[vi] < usize::MAX {
-                Some(dist[vi])
-            } else {
-                None
-            }
+        let u_idx = graph.get_node_index(u);
+        let v_idx = graph.get_node_index(v);
+        let (cn, sp) = if let (Some(ui), Some(vi)) = (u_idx, v_idx) {
+            let cn = common_neighbor_indices_excluding_endpoints(graph, ui, vi).len() as f64;
+            let sp = indexed_shortest_path_length(
+                graph,
+                ui,
+                vi,
+                &mut dist,
+                &mut touched,
+                &mut queue,
+            );
+            (cn, sp)
         } else {
-            None
+            (0.0, None)
         };
 
-        let score = cn
+        let score = alpha * cn
             + match sp {
-                Some(p) if p > 0 => alpha * (n as f64 / p as f64),
+                Some(p) if p > 0 => (1.0 - alpha) * (n as f64 / p as f64),
                 _ => 0.0,
             };
         result.push((u.clone(), v.clone(), score));
     }
 
+    result
+}
+
+fn indexed_shortest_path_length(
+    graph: &Graph,
+    source: usize,
+    target: usize,
+    dist: &mut [usize],
+    touched: &mut Vec<usize>,
+    queue: &mut VecDeque<usize>,
+) -> Option<usize> {
+    queue.clear();
+    touched.clear();
+    dist[source] = 0;
+    touched.push(source);
+    queue.push_back(source);
+
+    while let Some(node) = queue.pop_front() {
+        if node == target {
+            break;
+        }
+        let next_distance = dist[node] + 1;
+        if let Some(neighbors) = graph.neighbors_indices(node) {
+            for &neighbor in neighbors {
+                if dist[neighbor] == usize::MAX {
+                    dist[neighbor] = next_distance;
+                    touched.push(neighbor);
+                    queue.push_back(neighbor);
+                }
+            }
+        }
+    }
+
+    let result = (dist[target] != usize::MAX).then_some(dist[target]);
+    for node in touched.drain(..) {
+        dist[node] = usize::MAX;
+    }
+    queue.clear();
     result
 }
 
@@ -41600,6 +41627,7 @@ mod tests {
         closeness_vitality_single,
         clustering_coefficient,
         cn_soundarajan_hopcroft,
+        common_neighbor_centrality,
         common_neighbors,
         communicability_betweenness_centrality,
         complement,
@@ -48032,6 +48060,28 @@ mod tests {
         // RA = 1/3
         let (_, _, score) = &result[0];
         assert!((score - 1.0 / 3.0).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn common_neighbor_centrality_uses_index_rows_and_networkx_formula() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("u", "v");
+        let _ = g.add_edge("u", "a");
+        let _ = g.add_edge("v", "a");
+        let _ = g.add_edge("u", "u");
+        let _ = g.add_edge("v", "v");
+        let _ = g.add_node("isolated");
+
+        let pairs = vec![
+            ("u".to_owned(), "v".to_owned()),
+            ("u".to_owned(), "isolated".to_owned()),
+        ];
+        let scores = common_neighbor_centrality(&g, &pairs, 0.25);
+
+        // common_neighbors excludes the endpoints even when self-loops are present.
+        // N = 4, d(u, v) = 1: 0.25 * 1 + 0.75 * 4 / 1 = 3.25.
+        assert!((scores[0].2 - 3.25).abs() < TEST_TOLERANCE);
+        assert!((scores[1].2 - 0.0).abs() < TEST_TOLERANCE);
     }
 
     #[test]

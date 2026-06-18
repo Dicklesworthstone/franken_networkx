@@ -10,11 +10,11 @@ use std::collections::BTreeMap;
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use fnx_algorithms::{
     adamic_adar_index, average_shortest_path_length, betweenness_centrality,
-    closeness_centrality, cn_soundarajan_hopcroft, common_neighbors, connected_components,
-    degree_centrality, eigenvector_centrality, jaccard_coefficient, max_flow_edmonds_karp,
-    minimum_cut_edmonds_karp, minimum_spanning_tree, pagerank, ra_index_soundarajan_hopcroft,
-    resource_allocation_index, shortest_path_unweighted, shortest_path_weighted,
-    single_source_dijkstra_path_length,
+    closeness_centrality, cn_soundarajan_hopcroft, common_neighbor_centrality,
+    common_neighbors, connected_components, degree_centrality, eigenvector_centrality,
+    jaccard_coefficient, max_flow_edmonds_karp, minimum_cut_edmonds_karp,
+    minimum_spanning_tree, pagerank, ra_index_soundarajan_hopcroft, resource_allocation_index,
+    shortest_path_unweighted, shortest_path_weighted, single_source_dijkstra_path_length,
 };
 use fnx_classes::Graph;
 use fnx_runtime::CgseValue;
@@ -370,6 +370,13 @@ fn bench_link_prediction_scores(c: &mut Criterion) {
             &label,
             |b, _| {
                 b.iter(|| resource_allocation_index(&g, &pairs));
+            },
+        );
+        group.bench_with_input(
+            BenchmarkId::new("common_neighbor_centrality", &label),
+            &label,
+            |b, _| {
+                b.iter(|| common_neighbor_centrality(&g, &pairs, 0.8));
             },
         );
 
