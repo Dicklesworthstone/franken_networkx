@@ -38,13 +38,16 @@ def _build(cls, seed):
 
 
 def _edata(g):
-    """Order-insensitive (endpoints, sorted-attrs) multiset of edges(data=True)."""
-    if g.is_multigraph():
-        key = lambda u, v: (u, v) if g.is_directed() else tuple(sorted((u, v)))
-        return sorted((key(u, v), tuple(sorted(d.items())))
-                      for u, v, d in g.edges(data=True))
-    key = lambda u, v: (u, v) if g.is_directed() else tuple(sorted((u, v)))
-    return sorted((key(u, v), tuple(sorted(d.items()))) for u, v, d in g.edges(data=True))
+    """Order-insensitive (endpoints, sorted-attrs) multiset of edges(data=True).
+
+    The undirected orientation sort uses ``key=str`` so it is robust to mixed
+    node-key types; original endpoint values are preserved in the tuple.
+    """
+    def key(u, v):
+        return (u, v) if g.is_directed() else tuple(sorted((u, v), key=str))
+    return sorted(
+        (key(u, v), tuple(sorted(d.items()))) for u, v, d in g.edges(data=True)
+    )
 
 
 @pytest.mark.parametrize("cls", _TYPES)
@@ -61,10 +64,11 @@ def test_edges_data_reflects_mutations(cls, seed):
             (("weight", 42),)) in _edata(g)
 
     # 2) change an existing edge's attr -> MUST be reflected (staleness-prone).
-    some = next(iter(g.edges()))
-    u, v = some[0], some[1]
-    g[u][v]["weight"] = 777 if not g.is_multigraph() else g[u][v]
+    #    Only for simple graphs, where g[u][v] IS the edge attr dict.
     if not g.is_multigraph():
+        some = next(iter(g.edges()))
+        u, v = some[0], some[1]
+        g[u][v]["weight"] = 777
         assert any(attrs == (("weight", 777),) for _, attrs in _edata(g))
 
     # 3) remove an edge.
@@ -72,9 +76,10 @@ def test_edges_data_reflects_mutations(cls, seed):
     ek = (0, n - 1) if g.is_directed() else tuple(sorted((0, n - 1)))
     assert all(not (k == ek and attrs == (("weight", 42),)) for k, attrs in _edata(g))
 
-    # 4) add node + incident edge.
-    g.add_node("Z")
-    g.add_edge("Z", 0, weight=1)
+    # 4) add node + incident edge (int node -> no mixed-type key sort).
+    znode = n + 100
+    g.add_node(znode)
+    g.add_edge(znode, 0, weight=1)
 
     # Cross-check vs a freshly built graph with the same edges+data.
     fresh = cls()

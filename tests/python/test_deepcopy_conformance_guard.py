@@ -45,8 +45,9 @@ def _build(fcls, ncls, seed):
     for u in range(n):
         for v in range(n):
             if (u < v or (directed and u != v)) and r.random() < 0.4:
-                fg.add_edge(u, v, weight=r.randint(1, 9), meta={"k": u})
-                ng.add_edge(u, v, weight=fg[u][v]["weight"], meta={"k": u})
+                w = r.randint(1, 9)  # local: G[u][v]["weight"] is invalid on MultiGraph
+                fg.add_edge(u, v, weight=w, meta={"k": u})
+                ng.add_edge(u, v, weight=w, meta={"k": u})
     fg.graph["info"] = {"name": "g"}
     ng.graph["info"] = {"name": "g"}
     return fg, ng, n

@@ -42,7 +42,7 @@ def _adj(g):
     """Order-insensitive neighbor map from dict(adjacency())."""
     out = {}
     for node, nbrs in g.adjacency():
-        out[node] = sorted(nbrs.keys())
+        out[node] = sorted(nbrs.keys(), key=str)  # key=str: robust to mixed types
     return out
 
 
@@ -66,16 +66,21 @@ def test_adjacency_reflects_edge_mutations(cls, seed):
     d = dict(g.adjacency())
     assert (n - 1) in dict(d[0])
 
-    # 3) remove an edge -> neighbor gone.
+    # 3) remove an edge -> cache reflects it (matches a fresh recompute).
+    #    (For multigraphs a parallel edge may remain, so compare to fresh rather
+    #    than assert the neighbor is fully gone.)
     g.remove_edge(0, n - 1)
-    a = _adj(g)
-    assert (n - 1) not in a[0]
+    fresh3 = cls()
+    fresh3.add_nodes_from(g.nodes())
+    fresh3.add_edges_from(g.edges())
+    assert _adj(g) == _adj(fresh3)
 
-    # 4) add a node + incident edge -> reflected.
-    g.add_node("Z")
-    g.add_edge("Z", 0)
+    # 4) add a node + incident edge -> reflected (int node: no mixed-type sort).
+    znode = n + 100
+    g.add_node(znode)
+    g.add_edge(znode, 0)
     a = _adj(g)
-    assert 0 in a["Z"]
+    assert 0 in a[znode]
 
     # Cross-check vs a freshly built graph at the same edge set.
     fresh = cls()
