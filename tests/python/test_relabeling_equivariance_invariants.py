@@ -8,6 +8,7 @@ the spanning-tree str-node defect lived.
 br-r37-c1-rhkmf
 br-r37-c1-o1jjg
 br-r37-c1-ip7l4
+br-r37-c1-ndbm2
 """
 
 from __future__ import annotations
@@ -72,6 +73,10 @@ def _mapped_edge_sets(edges, mapping):
     return {frozenset(mapping[node] for node in edge) for edge in edges}
 
 
+def _prediction_scores(triples):
+    return {frozenset((u, v)): score for u, v, score in triples}
+
+
 _UNDIRECTED_OPS = {
     "complement": lambda g: fnx.complement(g),
     "k_core": lambda g: fnx.k_core(g),
@@ -82,6 +87,13 @@ _DIRECTED_OPS = {
     "reverse": lambda g: fnx.reverse(g),
     "transitive_closure": lambda g: fnx.transitive_closure(g),
     "condensation": lambda g: fnx.condensation(g),
+}
+
+_LINK_PREDICTORS = {
+    "jaccard_coefficient": lambda g: fnx.jaccard_coefficient(g),
+    "adamic_adar_index": lambda g: fnx.adamic_adar_index(g),
+    "preferential_attachment": lambda g: fnx.preferential_attachment(g),
+    "resource_allocation_index": lambda g: fnx.resource_allocation_index(g),
 }
 
 
@@ -185,3 +197,23 @@ def test_directed_component_outputs_relabeling_equivariant(seed):
         frozenset(component)
         for component in fnx.weakly_connected_components(g_relabelled)
     }
+
+
+@pytest.mark.parametrize("predictor_name", list(_LINK_PREDICTORS))
+@pytest.mark.parametrize("seed", range(30))
+def test_link_prediction_triples_relabeling_equivariant(predictor_name, seed):
+    g, n = _random_graph(seed, directed=False, p=0.35)
+    mapping = {i: f"prediction-{seed}-{i}" for i in range(n)}
+    g_relabelled = fnx.relabel_nodes(g, mapping)
+    predictor = _LINK_PREDICTORS[predictor_name]
+
+    base = _prediction_scores(predictor(g))
+    relabelled = _prediction_scores(predictor(g_relabelled))
+    expected = {
+        frozenset(mapping[node] for node in pair): score
+        for pair, score in base.items()
+    }
+
+    assert set(relabelled) == set(expected)
+    for pair, score in expected.items():
+        assert relabelled[pair] == pytest.approx(score)
