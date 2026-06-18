@@ -10,6 +10,7 @@ from pathlib import Path
 import sys
 from typing import Any, NamedTuple
 
+from franken_networkx import apply_matplotlib_colors
 from franken_networkx.drawing.layout import (
     _to_nx,
     bipartite_layout,
@@ -22,6 +23,26 @@ from franken_networkx.drawing.layout import (
     spectral_layout,
     spring_layout,
 )
+
+__all__ = [
+    "display",
+    "apply_matplotlib_colors",
+    "draw",
+    "draw_networkx",
+    "draw_networkx_nodes",
+    "draw_networkx_edges",
+    "draw_networkx_labels",
+    "draw_networkx_edge_labels",
+    "draw_bipartite",
+    "draw_circular",
+    "draw_kamada_kawai",
+    "draw_random",
+    "draw_spectral",
+    "draw_spring",
+    "draw_planar",
+    "draw_shell",
+    "draw_forceatlas2",
+]
 
 _DOC_WRAPPER_TIKZ = (
     "\\documentclass{{report}}\n"

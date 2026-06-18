@@ -14,6 +14,7 @@ signature, name, and docstring.
 
 from __future__ import annotations
 
+import importlib
 import inspect
 
 import pytest
@@ -44,6 +45,22 @@ DRAWING_NAMES = [
     "draw_networkx_labels",
     "draw_networkx_edge_labels",
 ]
+
+DRAWING_CHILD_MODULES = [
+    ("franken_networkx.drawing.layout", "networkx.drawing.layout"),
+    ("franken_networkx.drawing.nx_pylab", "networkx.drawing.nx_pylab"),
+]
+
+
+@needs_nx
+@pytest.mark.parametrize(("fnx_name", "nx_name"), DRAWING_CHILD_MODULES)
+def test_drawing_child_module_star_exports_match_networkx(fnx_name, nx_name):
+    f = importlib.import_module(fnx_name)
+    n = importlib.import_module(nx_name)
+
+    assert list(f.__all__) == list(n.__all__)
+    missing = [name for name in n.__all__ if not hasattr(f, name)]
+    assert not missing
 
 
 @needs_nx
