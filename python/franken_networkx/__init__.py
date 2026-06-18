@@ -19242,6 +19242,11 @@ def node_connected_component(G, n):
     """
     G = _coerce_arg_to_fnx_graph(G)
     hash(n)
+    # br-r37-c1-eun8y: nx's _plain_bfs indexes G._adj[n], so a missing node
+    # surfaces as a bare KeyError(n) — not the native binding's
+    # NodeNotFound("Node 'n' is not in G"). Match nx's exception type/args.
+    if n not in G:
+        raise KeyError(n)
     result = _raw_node_connected_component(G, n)
     return set(result) if not isinstance(result, set) else result
 
