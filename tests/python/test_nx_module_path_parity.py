@@ -97,6 +97,23 @@ def test_callables_actually_execute():
     _expect(arr.shape == (4, 4), "to_numpy_array shape must match graph order")
 
 
+def test_convert_module_to_dict_helpers_match_networkx_values():
+    module = importlib.import_module("franken_networkx.convert")
+    fg = fnx.Graph()
+    ng = nx.Graph()
+    for graph in (fg, ng):
+        graph.add_edge("a", "b", weight=3, color="red")
+        graph.add_edge("b", "c", weight=5, color="blue")
+        graph.add_node("isolated")
+
+    assert module.to_dict_of_dicts(
+        fg, nodelist=["b", "a"], edge_data="edge"
+    ) == nx.to_dict_of_dicts(ng, nodelist=["b", "a"], edge_data="edge")
+    assert module.to_dict_of_lists(
+        fg, nodelist=["b", "a"]
+    ) == nx.to_dict_of_lists(ng, nodelist=["b", "a"])
+
+
 def test_relabel_module_graph_returning_calls_preserve_fnx_type():
     module = importlib.import_module("franken_networkx.relabel")
 
