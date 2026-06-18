@@ -119,6 +119,16 @@ def test_minimum_cut_partition_covers_all_nodes():
 # ---------------------------------------------------------------------------
 
 
+def test_native_network_simplex_module_star_exports_only_port():
+    import franken_networkx._network_simplex_native as native_network_simplex
+
+    assert native_network_simplex.__all__ == ["network_simplex"]
+    namespace = {}
+    exec("from franken_networkx._network_simplex_native import *", namespace)
+    assert namespace["network_simplex"] is native_network_simplex.network_simplex
+    assert "_FastG" not in namespace
+
+
 def test_network_simplex_diamond_matches_networkx():
     fg, ng = _min_cost_demand()
     f_cost, f_flow = fnx.network_simplex(fg)

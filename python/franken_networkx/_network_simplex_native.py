@@ -13,6 +13,8 @@ import numbers as _numbers
 import networkx as nx
 from networkx.utils import not_implemented_for
 
+__all__ = ["network_simplex"]
+
 try:  # br-r37-c1-8foqi: native integer network-simplex pivot kernel
     from ._fnx import network_simplex_int as _native_ns_int
 except Exception:  # pragma: no cover - native ext always present in practice
