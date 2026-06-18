@@ -46,6 +46,82 @@ def test_triads_module_public_surface_matches_networkx():
     assert set(module.__all__) == set(expected.__all__)
 
 
+def test_triads_module_routes_through_top_level_fnx(monkeypatch):
+    module = importlib.import_module("franken_networkx.triads")
+    algorithms_module = importlib.import_module("franken_networkx.algorithms.triads")
+    calls = []
+    outputs = {
+        name: object()
+        for name in (
+            "triadic_census",
+            "is_triad",
+            "triads_by_type",
+            "triad_type",
+        )
+    }
+
+    def sentinel(name):
+        def routed(*args, **kwargs):
+            calls.append((name, args, kwargs))
+            return outputs[name]
+
+        return routed
+
+    for name in outputs:
+        monkeypatch.setattr(fnx, name, sentinel(name))
+    monkeypatch.setattr(fnx, "all_triads", lambda *args, **kwargs: iter(("triad",)))
+
+    assert module.triadic_census("graph", nodelist=["a"]) is outputs["triadic_census"]
+    assert algorithms_module.triadic_census("graph", nodelist=["a"]) is outputs["triadic_census"]
+    assert module.is_triad("graph") is outputs["is_triad"]
+    assert algorithms_module.is_triad("graph") is outputs["is_triad"]
+    assert list(module.all_triads("graph")) == ["triad"]
+    assert list(algorithms_module.all_triads("graph")) == ["triad"]
+    assert module.triads_by_type("graph") is outputs["triads_by_type"]
+    assert algorithms_module.triads_by_type("graph") is outputs["triads_by_type"]
+    assert module.triad_type("graph") is outputs["triad_type"]
+    assert algorithms_module.triad_type("graph") is outputs["triad_type"]
+
+    assert [name for name, _args, _kwargs in calls] == [
+        "triadic_census",
+        "triadic_census",
+        "is_triad",
+        "is_triad",
+        "triads_by_type",
+        "triads_by_type",
+        "triad_type",
+        "triad_type",
+    ]
+
+
+@pytest.mark.parametrize(
+    "name",
+    ("triadic_census", "is_triad", "all_triads", "triads_by_type", "triad_type"),
+)
+def test_triads_module_functions_are_not_networkx_versions(name):
+    module = importlib.import_module("franken_networkx.triads")
+    expected = importlib.import_module("networkx.algorithms.triads")
+
+    assert getattr(module, name) is not getattr(expected, name)
+
+
+def test_triads_module_values_match_networkx():
+    module = importlib.import_module("franken_networkx.triads")
+    algorithms_module = importlib.import_module("franken_networkx.algorithms.triads")
+    edges = [(0, 1), (1, 2), (2, 0), (2, 1)]
+    fg, ng = _pair_directed(edges, [0, 1, 2, 3])
+
+    assert module.triadic_census(fg) == nx.triadic_census(ng)
+    assert module.is_triad(fg.subgraph([0, 1, 2]).copy())
+    assert module.triad_type(fg.subgraph([0, 1, 2]).copy()) == nx.triad_type(
+        ng.subgraph([0, 1, 2]).copy()
+    )
+    assert sorted(tuple(sorted(t.nodes())) for t in module.all_triads(fg)) == sorted(
+        tuple(sorted(t.nodes())) for t in nx.all_triads(ng)
+    )
+    assert set(algorithms_module.triads_by_type(fg)) == set(nx.triads_by_type(ng))
+
+
 def _pair_directed(edges, nodes=None):
     fg = fnx.DiGraph()
     ng = nx.DiGraph()
