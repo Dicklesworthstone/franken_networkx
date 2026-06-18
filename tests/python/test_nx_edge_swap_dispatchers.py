@@ -147,3 +147,21 @@ def test_swap_module_directed_edge_swap_returns_original_nx_input():
     assert result is graph
     assert expected is expected_graph
     assert sorted(result.edges()) == sorted(expected.edges())
+
+
+@needs_nx
+def test_algorithms_swap_alias_preserves_mutating_return_identity():
+    from franken_networkx.algorithms import swap as algorithms_swap
+
+    graph = fnx.cycle_graph(8)
+    directed = _directed_swap_graph(fnx)
+
+    result = algorithms_swap.double_edge_swap(
+        graph, nswap=1, max_tries=100, seed=7
+    )
+    directed_result = algorithms_swap.directed_edge_swap(
+        directed, nswap=1, max_tries=100, seed=3
+    )
+
+    assert result is graph
+    assert directed_result is directed
