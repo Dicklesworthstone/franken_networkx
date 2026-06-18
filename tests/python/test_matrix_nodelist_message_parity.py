@@ -54,6 +54,21 @@ def test_sparse_exporters_report_first_missing_singular(fn):
     assert str(exc.value) == "Node 99 in nodelist is not in G"
 
 
+@pytest.mark.parametrize("fn", _SINGULAR)
+def test_sparse_exporters_report_string_first_missing_without_repr(fn):
+    fg = fnx.Graph([("a", "b")])
+    ng = nx.Graph([("a", "b")])
+    nodelist = ["a", "missing", "other"]
+
+    with pytest.raises(nx.NetworkXError) as fnx_exc:
+        getattr(fnx, fn)(fg, nodelist=nodelist)
+    with pytest.raises(nx.NetworkXError) as nx_exc:
+        getattr(nx, fn)(ng, nodelist=nodelist)
+
+    assert str(fnx_exc.value) == "Node missing in nodelist is not in G"
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+
 @pytest.mark.parametrize("fn", _PLURAL)
 def test_dense_exporters_report_missing_set_plural(fn):
     fg, _ = _graphs()
