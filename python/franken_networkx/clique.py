@@ -34,6 +34,38 @@ __all__ = list(
     )
 )
 
+# br-r37-c1-2qsqf: ``from networkx.algorithms.clique import *`` above left these
+# clique functions bound to networkx's implementations, so ``fnx.clique.find_cliques``
+# etc. silently resolved to nx's instead of fnx's native versions. ``make_clique_bipartite``
+# already overrides below; route the rest to the fnx top-level functions via
+# call-time closure wrappers (import-order robust).
+_FNX_NATIVE_CLIQUE_NAMES = (
+    "find_cliques",
+    "find_cliques_recursive",
+    "make_max_clique_graph",
+    "node_clique_number",
+    "number_of_cliques",
+    "enumerate_all_cliques",
+    "max_weight_clique",
+)
+
+
+def _make_fnx_clique_router(_fn_name):
+    def _routed(*args, **kwargs):
+        return getattr(_fnx, _fn_name)(*args, **kwargs)
+
+    _routed.__name__ = _fn_name
+    _routed.__qualname__ = _fn_name
+    _routed.__doc__ = (
+        f"Route to ``franken_networkx.{_fn_name}`` (fnx-native). See "
+        f"``networkx.algorithms.clique.{_fn_name}`` for semantics."
+    )
+    return _routed
+
+
+for _name in _FNX_NATIVE_CLIQUE_NAMES:
+    globals()[_name] = _make_fnx_clique_router(_name)
+
 
 def make_clique_bipartite(G, fpos=None, create_using=None, name=None, *, backend=None, **backend_kwargs):
     """Return the bipartite clique graph corresponding to G.
