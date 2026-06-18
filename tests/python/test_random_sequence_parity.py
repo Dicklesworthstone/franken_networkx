@@ -7,6 +7,8 @@ exist in networkx.utils) match nx output bit-for-bit when seeded.
 ``is_valid_tree_degree_sequence`` is a fnx-only helper that validates
 a degree sequence describes a tree (the upstream PR proposed a similar
 helper in networkx; not yet merged).
+
+br-r37-c1-r2n2h
 """
 
 from __future__ import annotations
@@ -120,6 +122,29 @@ def test_is_valid_tree_degree_sequence(sequence, valid):
         assert result[0] == valid, f"seq={sequence}: got {result}, expected valid={valid}"
     else:
         assert result == valid
+
+
+@pytest.mark.parametrize(
+    "sequence",
+    [
+        [1, 1],
+        [1, 2, 2, 1],
+        [4, 1, 1, 1],
+        [3, 3, 1, 1, 1, 1],
+        [2, 2, 2],
+        [4, 2, 2, 1, 1],
+    ],
+)
+def test_is_valid_tree_degree_sequence_is_permutation_invariant(sequence):
+    expected_valid, _ = fnx.utils.is_valid_tree_degree_sequence(sequence)
+    reversed_valid, _ = fnx.utils.is_valid_tree_degree_sequence(
+        list(reversed(sequence))
+    )
+    rotated = sequence[1:] + sequence[:1]
+    rotated_valid, _ = fnx.utils.is_valid_tree_degree_sequence(rotated)
+
+    assert reversed_valid is expected_valid
+    assert rotated_valid is expected_valid
 
 
 def test_is_valid_tree_degree_sequence_returns_tuple_with_reason():
