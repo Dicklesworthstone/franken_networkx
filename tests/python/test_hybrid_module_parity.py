@@ -16,6 +16,11 @@ def _canonical_edges(graph):
     return sorted(tuple(sorted(edge)) for edge in graph.edges())
 
 
+def _expect(condition, message):
+    if not condition:
+        raise AssertionError(message)
+
+
 def _assert_same_graph(actual, expected):
     assert isinstance(actual, fnx.Graph)
     assert not actual.is_directed()
@@ -54,6 +59,79 @@ def test_hybrid_function_signatures_match_networkx():
             )
 
 
+def test_hybrid_module_routes_through_fnx_top_level(monkeypatch):
+    module = importlib.import_module("franken_networkx.hybrid")
+    graph = fnx.cycle_graph(4)
+    connected_sentinel = object()
+    subgraph_sentinel = object()
+
+    def fake_is_kl_connected(
+        actual_graph,
+        k,
+        l,
+        low_memory=False,
+        *,
+        backend=None,
+        **kwargs,
+    ):
+        _expect(actual_graph is graph, "is_kl_connected must forward the graph")
+        _expect((k, l) == (2, 2), "is_kl_connected must forward k/l")
+        _expect(low_memory, "is_kl_connected must forward low_memory")
+        _expect(backend == "sentinel", "is_kl_connected must forward backend")
+        _expect(kwargs == {"strict": True}, "is_kl_connected must forward backend kwargs")
+        return connected_sentinel
+
+    def fake_kl_connected_subgraph(
+        actual_graph,
+        k,
+        l,
+        low_memory=False,
+        same_as_graph=False,
+        *,
+        backend=None,
+        **kwargs,
+    ):
+        _expect(actual_graph is graph, "kl_connected_subgraph must forward the graph")
+        _expect((k, l) == (2, 2), "kl_connected_subgraph must forward k/l")
+        _expect(low_memory, "kl_connected_subgraph must forward low_memory")
+        _expect(same_as_graph, "kl_connected_subgraph must forward same_as_graph")
+        _expect(backend == "sentinel", "kl_connected_subgraph must forward backend")
+        _expect(
+            kwargs == {"strict": True},
+            "kl_connected_subgraph must forward backend kwargs",
+        )
+        return subgraph_sentinel
+
+    monkeypatch.setattr(fnx, "is_kl_connected", fake_is_kl_connected)
+    monkeypatch.setattr(fnx, "kl_connected_subgraph", fake_kl_connected_subgraph)
+
+    _expect(
+        module.is_kl_connected(
+            graph,
+            2,
+            2,
+            low_memory=True,
+            backend="sentinel",
+            strict=True,
+        )
+        is connected_sentinel,
+        "hybrid.is_kl_connected must route through fnx",
+    )
+    _expect(
+        module.kl_connected_subgraph(
+            graph,
+            2,
+            2,
+            low_memory=True,
+            same_as_graph=True,
+            backend="sentinel",
+            strict=True,
+        )
+        is subgraph_sentinel,
+        "hybrid.kl_connected_subgraph must route through fnx",
+    )
+
+
 @pytest.mark.parametrize(
     ("fnx_graph", "nx_graph", "expected_connected"),
     [
@@ -72,15 +150,25 @@ def test_hybrid_kl_connected_family_matches_networkx(
     actual_connected = module.is_kl_connected(
         fnx_graph, 2, 2, low_memory=low_memory
     )
-    expected = nx.is_kl_connected(nx_graph, 2, 2, low_memory=low_memory)
+    try:
+        expected = nx.is_kl_connected(nx_graph, 2, 2, low_memory=low_memory)
+    except nx.NetworkXError as exc:
+        if not low_memory or "Frozen graph can't be modified" not in str(exc):
+            raise
+        expected = expected_connected
     assert actual_connected == expected == expected_connected
 
     actual_subgraph = module.kl_connected_subgraph(
         fnx_graph, 2, 2, low_memory=low_memory
     )
-    expected_subgraph = nx.kl_connected_subgraph(
-        nx_graph, 2, 2, low_memory=low_memory
-    )
+    try:
+        expected_subgraph = nx.kl_connected_subgraph(
+            nx_graph, 2, 2, low_memory=low_memory
+        )
+    except nx.NetworkXError as exc:
+        if not low_memory or "Frozen graph can't be modified" not in str(exc):
+            raise
+        expected_subgraph = nx.kl_connected_subgraph(nx_graph, 2, 2)
     _assert_same_graph(actual_subgraph, expected_subgraph)
 
 

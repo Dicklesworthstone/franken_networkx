@@ -7,6 +7,7 @@ fnx graph types instead of NetworkX graphs.
 
 Current native overrides:
 - ``kl_connected_subgraph`` — returns fnx.Graph
+- ``is_kl_connected`` — returns fnx-native boolean parity
 """
 
 from __future__ import annotations
@@ -15,7 +16,6 @@ from networkx.algorithms.hybrid import *  # noqa: F401,F403
 import networkx.algorithms.hybrid as _nx_hybrid
 
 import franken_networkx as _fnx
-from franken_networkx.readwrite import _from_nx_graph
 
 __all__ = list(
     getattr(
@@ -26,14 +26,32 @@ __all__ = list(
 )
 
 
+def is_kl_connected(G, k, l, low_memory=False, *, backend=None, **backend_kwargs):
+    """Return whether G is locally (k, l)-connected via the fnx-native route."""
+    return _fnx.is_kl_connected(
+        G,
+        k,
+        l,
+        low_memory=low_memory,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
 def kl_connected_subgraph(
     G, k, l, low_memory=False, same_as_graph=False, *, backend=None, **backend_kwargs
 ):
     """Return the maximum locally (k, l)-connected subgraph of G.
 
-    Wraps ``networkx.algorithms.hybrid.kl_connected_subgraph`` and converts
-    the result to an fnx graph type for drop-in compatibility.
+    Routes through ``franken_networkx.kl_connected_subgraph`` so the standalone
+    hybrid module path preserves fnx graph types without a NetworkX round trip.
     """
-    _fnx._validate_backend_dispatch_keywords("kl_connected_subgraph", backend, backend_kwargs)
-    nx_result = _nx_hybrid.kl_connected_subgraph(G, k, l, low_memory=low_memory, same_as_graph=same_as_graph)
-    return _from_nx_graph(nx_result)
+    return _fnx.kl_connected_subgraph(
+        G,
+        k,
+        l,
+        low_memory=low_memory,
+        same_as_graph=same_as_graph,
+        backend=backend,
+        **backend_kwargs,
+    )
