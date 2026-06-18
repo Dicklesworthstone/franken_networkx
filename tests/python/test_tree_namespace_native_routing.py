@@ -31,7 +31,12 @@ def test_tree_object_is_not_networkx_version(name):
     obj = getattr(fnx_tree, name)
     if hasattr(nx, name):
         assert obj is not getattr(nx, name)
-    assert obj is getattr(fnx, name)
+    # Classes are routed by direct alias, so they ARE the fnx object. Functions
+    # are routed via call-time closure wrappers (the namespace object is a
+    # wrapper that forwards to fnx's native fn — value-forwarding is checked in
+    # test_tree_function_values_match_networkx), so only "not nx" is asserted.
+    if name in _CLASSES:
+        assert obj is getattr(fnx, name)
 
 
 def test_tree_function_values_match_networkx():
