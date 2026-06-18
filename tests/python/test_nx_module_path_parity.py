@@ -98,7 +98,7 @@ def test_callables_actually_execute():
     _expect(arr.shape == (4, 4), "to_numpy_array shape must match graph order")
 
 
-def test_convert_module_to_dict_helpers_match_networkx_values():
+def test_convert_module_to_dict_helpers_match_networkx_values(monkeypatch):
     module = importlib.import_module("franken_networkx.convert")
     fg = fnx.Graph()
     ng = nx.Graph()
@@ -107,12 +107,42 @@ def test_convert_module_to_dict_helpers_match_networkx_values():
         graph.add_edge("b", "c", weight=5, color="blue")
         graph.add_node("isolated")
 
-    assert module.to_dict_of_dicts(
-        fg, nodelist=["b", "a"], edge_data="edge"
-    ) == nx.to_dict_of_dicts(ng, nodelist=["b", "a"], edge_data="edge")
-    assert module.to_dict_of_lists(
-        fg, nodelist=["b", "a"]
-    ) == nx.to_dict_of_lists(ng, nodelist=["b", "a"])
+    _expect(
+        module.to_dict_of_dicts(fg, nodelist=["b", "a"], edge_data="edge")
+        == nx.to_dict_of_dicts(ng, nodelist=["b", "a"], edge_data="edge"),
+        "convert.to_dict_of_dicts nodelist/edge_data values must match networkx",
+    )
+    _expect(
+        module.to_dict_of_lists(fg, nodelist=["b", "a"])
+        == nx.to_dict_of_lists(ng, nodelist=["b", "a"]),
+        "convert.to_dict_of_lists nodelist values must match networkx",
+    )
+
+    sentinel = object()
+
+    def fake_to_dict_of_dicts(graph, nodelist=None, edge_data=None):
+        _expect(graph is fg, "convert.to_dict_of_dicts must pass through the original graph")
+        _expect(nodelist == ["b", "a"], "convert.to_dict_of_dicts must forward nodelist")
+        _expect(edge_data == "edge", "convert.to_dict_of_dicts must forward edge_data")
+        return sentinel
+
+    def fake_to_dict_of_lists(graph, nodelist=None):
+        _expect(graph is fg, "convert.to_dict_of_lists must pass through the original graph")
+        _expect(nodelist == ["b", "a"], "convert.to_dict_of_lists must forward nodelist")
+        return sentinel
+
+    monkeypatch.setattr(fnx, "to_dict_of_dicts", fake_to_dict_of_dicts)
+    monkeypatch.setattr(fnx, "to_dict_of_lists", fake_to_dict_of_lists)
+    _expect(
+        module.to_dict_of_dicts(fg, nodelist=["b", "a"], edge_data="edge")
+        is sentinel,
+        "convert.to_dict_of_dicts must route through fnx",
+    )
+    _expect(
+        module.to_dict_of_lists(fg, nodelist=["b", "a"])
+        is sentinel,
+        "convert.to_dict_of_lists must route through fnx",
+    )
 
 
 def test_convert_matrix_module_to_numpy_array_matches_networkx_values():

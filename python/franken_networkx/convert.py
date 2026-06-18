@@ -29,6 +29,18 @@ def to_dict_of_dicts(G, nodelist=None, edge_data=None):
     return _fnx.to_dict_of_dicts(G, nodelist=nodelist, edge_data=edge_data)
 
 
+def to_dict_of_lists(G, nodelist=None):
+    """Return adjacency representation of graph as a dictionary of lists.
+
+    Keep the standalone ``franken_networkx.convert`` route on the same native
+    implementation as ``franken_networkx.to_dict_of_lists`` rather than the
+    NetworkX star-imported function.
+    """
+    import franken_networkx as _fnx
+
+    return _fnx.to_dict_of_lists(G, nodelist=nodelist)
+
+
 def __getattr__(name):
     import networkx.convert as _src
 
