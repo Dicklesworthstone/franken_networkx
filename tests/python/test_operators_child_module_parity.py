@@ -7,6 +7,7 @@ import importlib
 import franken_networkx as fnx
 import networkx as nx
 import pytest
+from franken_networkx.algorithms import operators as fnx_algorithms_operators
 from franken_networkx import operators as fnx_operators
 from networkx.algorithms import operators as nx_operators
 
@@ -67,55 +68,111 @@ def _path_graph(module, n, *, label):
     return graph
 
 
+OPERATOR_CASES = [
+    (
+        "disjoint_union",
+        lambda: (_path_graph(fnx, 2, label="left"), _path_graph(fnx, 3, label="right")),
+        lambda: (_path_graph(nx, 2, label="left"), _path_graph(nx, 3, label="right")),
+    ),
+    (
+        "cartesian_product",
+        lambda: (_path_graph(fnx, 2, label="left"), _path_graph(fnx, 3, label="right")),
+        lambda: (_path_graph(nx, 2, label="left"), _path_graph(nx, 3, label="right")),
+    ),
+    (
+        "tensor_product",
+        lambda: (_path_graph(fnx, 2, label="left"), _path_graph(fnx, 3, label="right")),
+        lambda: (_path_graph(nx, 2, label="left"), _path_graph(nx, 3, label="right")),
+    ),
+    (
+        "lexicographic_product",
+        lambda: (_path_graph(fnx, 2, label="left"), _path_graph(fnx, 3, label="right")),
+        lambda: (_path_graph(nx, 2, label="left"), _path_graph(nx, 3, label="right")),
+    ),
+    (
+        "strong_product",
+        lambda: (_path_graph(fnx, 2, label="left"), _path_graph(fnx, 3, label="right")),
+        lambda: (_path_graph(nx, 2, label="left"), _path_graph(nx, 3, label="right")),
+    ),
+    (
+        "modular_product",
+        lambda: (_path_graph(fnx, 2, label="left"), _path_graph(fnx, 3, label="right")),
+        lambda: (_path_graph(nx, 2, label="left"), _path_graph(nx, 3, label="right")),
+    ),
+    (
+        "rooted_product",
+        lambda: (_path_graph(fnx, 2, label="left"), _path_graph(fnx, 3, label="right"), 0),
+        lambda: (_path_graph(nx, 2, label="left"), _path_graph(nx, 3, label="right"), 0),
+    ),
+    (
+        "corona_product",
+        lambda: (_path_graph(fnx, 2, label="left"), _path_graph(fnx, 2, label="right")),
+        lambda: (_path_graph(nx, 2, label="left"), _path_graph(nx, 2, label="right")),
+    ),
+    (
+        "power",
+        lambda: (_path_graph(fnx, 4, label="graph"), 2),
+        lambda: (_path_graph(nx, 4, label="graph"), 2),
+    ),
+    (
+        "union_all",
+        lambda: (
+            [_path_graph(fnx, [0, 1], label="left"), _path_graph(fnx, [2, 3], label="right")],
+        ),
+        lambda: (
+            [_path_graph(nx, [0, 1], label="left"), _path_graph(nx, [2, 3], label="right")],
+        ),
+    ),
+    (
+        "intersection_all",
+        lambda: (
+            [
+                _path_graph(fnx, [0, 1, 2], label="left"),
+                _path_graph(fnx, [1, 2, 3], label="right"),
+            ],
+        ),
+        lambda: (
+            [
+                _path_graph(nx, [0, 1, 2], label="left"),
+                _path_graph(nx, [1, 2, 3], label="right"),
+            ],
+        ),
+    ),
+    (
+        "compose_all",
+        lambda: ([_path_graph(fnx, 2, label="left"), _path_graph(fnx, [1, 2], label="right")],),
+        lambda: ([_path_graph(nx, 2, label="left"), _path_graph(nx, [1, 2], label="right")],),
+    ),
+    (
+        "disjoint_union_all",
+        lambda: ([_path_graph(fnx, 2, label="left"), _path_graph(fnx, 3, label="right")],),
+        lambda: ([_path_graph(nx, 2, label="left"), _path_graph(nx, 3, label="right")],),
+    ),
+]
+
+
 @pytest.mark.parametrize(
     ("name", "fnx_args", "nx_args"),
-    [
-        (
-            "disjoint_union",
-            lambda: (_path_graph(fnx, 2, label="left"), _path_graph(fnx, 3, label="right")),
-            lambda: (_path_graph(nx, 2, label="left"), _path_graph(nx, 3, label="right")),
-        ),
-        (
-            "cartesian_product",
-            lambda: (_path_graph(fnx, 2, label="left"), _path_graph(fnx, 3, label="right")),
-            lambda: (_path_graph(nx, 2, label="left"), _path_graph(nx, 3, label="right")),
-        ),
-        (
-            "tensor_product",
-            lambda: (_path_graph(fnx, 2, label="left"), _path_graph(fnx, 3, label="right")),
-            lambda: (_path_graph(nx, 2, label="left"), _path_graph(nx, 3, label="right")),
-        ),
-        (
-            "rooted_product",
-            lambda: (_path_graph(fnx, 2, label="left"), _path_graph(fnx, 3, label="right"), 0),
-            lambda: (_path_graph(nx, 2, label="left"), _path_graph(nx, 3, label="right"), 0),
-        ),
-        (
-            "corona_product",
-            lambda: (_path_graph(fnx, 2, label="left"), _path_graph(fnx, 2, label="right")),
-            lambda: (_path_graph(nx, 2, label="left"), _path_graph(nx, 2, label="right")),
-        ),
-        (
-            "power",
-            lambda: (_path_graph(fnx, 4, label="graph"), 2),
-            lambda: (_path_graph(nx, 4, label="graph"), 2),
-        ),
-        (
-            "compose_all",
-            lambda: ([_path_graph(fnx, 2, label="left"), _path_graph(fnx, [1, 2], label="right")],),
-            lambda: ([_path_graph(nx, 2, label="left"), _path_graph(nx, [1, 2], label="right")],),
-        ),
-        (
-            "disjoint_union_all",
-            lambda: ([_path_graph(fnx, 2, label="left"), _path_graph(fnx, 3, label="right")],),
-            lambda: ([_path_graph(nx, 2, label="left"), _path_graph(nx, 3, label="right")],),
-        ),
-    ],
+    OPERATOR_CASES,
 )
 def test_operators_module_wrappers_match_networkx_on_fnx_inputs(
     name, fnx_args, nx_args
 ):
     result = getattr(fnx_operators, name)(*fnx_args())
+    expected = getattr(nx_operators, name)(*nx_args())
+
+    assert isinstance(result, fnx.Graph)
+    assert _graph_snapshot(result) == _graph_snapshot(expected)
+
+
+@pytest.mark.parametrize(
+    ("name", "fnx_args", "nx_args"),
+    OPERATOR_CASES,
+)
+def test_algorithms_operators_alias_matches_networkx_on_fnx_inputs(
+    name, fnx_args, nx_args
+):
+    result = getattr(fnx_algorithms_operators, name)(*fnx_args())
     expected = getattr(nx_operators, name)(*nx_args())
 
     assert isinstance(result, fnx.Graph)
