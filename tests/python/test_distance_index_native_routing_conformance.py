@@ -62,3 +62,30 @@ def test_multigraph_directed_rejected(fn):
         ffn(fnx.MultiGraph([(0, 1), (1, 2)]))
     with pytest.raises(fnx.NetworkXNotImplemented):
         ffn(fnx.DiGraph([(0, 1), (1, 2)]))
+
+
+@pytest.mark.parametrize("seed", range(20))
+def test_generalized_degree_native_routing(seed):
+    import collections
+    r = random.Random(seed)
+    n = r.randint(5, 11)
+    edges = [(u, v) for u in range(n) for v in range(u + 1, n) if r.random() < 0.45]
+    fg = fnx.Graph(list(edges)); fg.add_nodes_from(range(n))
+    ng = nx.Graph(list(edges)); ng.add_nodes_from(range(n))
+
+    fr = fnx.generalized_degree(fg)   # nodes=None -> native kernel path
+    nr = nx.generalized_degree(ng)
+    assert fr == nr                                   # value
+    # nx returns Counter values; routing must preserve the type.
+    for node in fg:
+        assert isinstance(fr[node], collections.Counter)
+    # nbunch filter (Python path) still matches.
+    sub = list(range(min(3, n)))
+    assert fnx.generalized_degree(fg, sub) == nx.generalized_degree(ng, sub)
+
+
+def test_generalized_degree_directed_multigraph_rejected():
+    with pytest.raises(fnx.NetworkXNotImplemented):
+        fnx.generalized_degree(fnx.DiGraph([(0, 1), (1, 2)]))
+    with pytest.raises(fnx.NetworkXNotImplemented):
+        fnx.generalized_degree(fnx.MultiGraph([(0, 1), (1, 2)]))

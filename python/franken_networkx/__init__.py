@@ -27603,6 +27603,15 @@ def generalized_degree(G, nodes=None):
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
 
+    if nodes is None:
+        # br-r37-c1-distidx: native triangle-distribution kernel for the
+        # all-nodes case instead of the Python _triangles_and_degree_iter_local
+        # neighbor-intersection loop. Wrap each value as Counter to match nx's
+        # return type and iterate G to preserve node order. Verified vs nx.
+        from collections import Counter as _gd_counter
+        kr = dict(_fnx.generalized_degree_rust(G))
+        return {node: _gd_counter(dict(kr[node])) for node in G}
+
     selected_nodes, single_node = _triangle_selection(G, nodes)
     generalized_degrees = {
         node: generalized_degree_counter
