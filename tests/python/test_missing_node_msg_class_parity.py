@@ -116,11 +116,12 @@ def test_all_shortest_paths_weighted_missing_source_message(kwargs):
         {"weight": "weight", "method": "bellman-ford"},
     ],
 )
-def test_all_shortest_paths_weighted_no_path_message(kwargs):
-    G = fnx.Graph()
+@pytest.mark.parametrize("graph_cls", [fnx.Graph, fnx.DiGraph])
+def test_all_shortest_paths_weighted_no_path_message(graph_cls, kwargs):
+    G = graph_cls()
     G.add_edge("a", "b", weight=1)
     G.add_node("c")
-    GX = nx.Graph()
+    GX = getattr(nx, graph_cls.__name__)()
     GX.add_edge("a", "b", weight=1)
     GX.add_node("c")
 

@@ -10621,7 +10621,13 @@ def all_shortest_paths(
                 "all_shortest_paths", G, source, target, **kwargs
             )
             return
-        yield from _raw_all_shortest_paths(G, source, target, weight=weight, method=method)
+        try:
+            paths = _raw_all_shortest_paths(G, source, target, weight=weight, method=method)
+        except NetworkXNoPath:
+            raise NetworkXNoPath(
+                f"Target {target} cannot be reached from given sources"
+            )
+        yield from paths
 
     return _gen()
 
