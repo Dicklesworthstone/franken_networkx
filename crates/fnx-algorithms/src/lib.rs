@@ -12,6 +12,7 @@ use mt19937::{MT19937, gen_res53};
 use mwmatching::{Matching as BlossomMatching, SENTINEL as BLOSSOM_SENTINEL};
 use rand_core::Rng;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque};
 use std::fmt;
 
@@ -20367,6 +20368,28 @@ fn common_neighbor_indices_from_rows(u_neighbors: &[usize], v_neighbors: &[usize
     result
 }
 
+fn community_key_from_value(value: &CgseValue) -> Cow<'_, str> {
+    match value {
+        CgseValue::String(value) => Cow::Borrowed(value.as_str()),
+        _ => Cow::Owned(value.as_str()),
+    }
+}
+
+fn community_keys_by_index<'a>(
+    graph: &'a Graph,
+    community_attr: &str,
+) -> Vec<Option<Cow<'a, str>>> {
+    (0..graph.node_count())
+        .map(|idx| {
+            graph
+                .get_node_name(idx)
+                .and_then(|node| graph.node_attrs(node))
+                .and_then(|attrs| attrs.get(community_attr))
+                .map(community_key_from_value)
+        })
+        .collect()
+}
+
 /// Compute the Jaccard coefficient for pairs of nodes.
 ///
 /// For each `(u, v)` pair, returns `|common_neighbors(u,v)| / |N(u) ∪ N(v)|`.
@@ -35443,49 +35466,41 @@ pub fn get_edge_attributes(
 
 /// RA-index Soundarajan-Hopcroft link prediction.
 ///
-/// Like resource_allocation_index but with community bonus: common
-/// neighbors in the same community as BOTH u and v get extra weight.
+/// Like resource_allocation_index but only common neighbors in the same
+/// community as BOTH u and v contribute.
 pub fn ra_index_soundarajan_hopcroft(
     graph: &Graph,
     ebunch: &[(String, String)],
     community_attr: &str,
 ) -> Vec<(String, String, f64)> {
+    let communities = community_keys_by_index(graph, community_attr);
     let mut result = Vec::with_capacity(ebunch.len());
 
     for (u, v) in ebunch {
-        let u_nbrs: std::collections::HashSet<&str> =
-            graph.neighbors(u).unwrap_or_default().into_iter().collect();
-        let v_nbrs: std::collections::HashSet<&str> =
-            graph.neighbors(v).unwrap_or_default().into_iter().collect();
-
-        let u_comm = graph
-            .node_attrs(u)
-            .and_then(|a| a.get(community_attr))
-            .map(|v| v.as_str());
-        let v_comm = graph
-            .node_attrs(v)
-            .and_then(|a| a.get(community_attr))
-            .map(|v| v.as_str());
-
-        let common: Vec<&str> = u_nbrs.intersection(&v_nbrs).copied().collect();
+        let u_idx = graph.get_node_index(u);
+        let v_idx = graph.get_node_index(v);
+        let u_comm = u_idx.and_then(|idx| communities.get(idx).and_then(Option::as_ref));
+        let v_comm = v_idx.and_then(|idx| communities.get(idx).and_then(Option::as_ref));
+        let same_endpoint_community = matches!((u_comm, v_comm), (Some(u), Some(v)) if u == v);
         let mut score = 0.0;
-        for &w in &common {
-            let deg_w = graph.neighbors(w).unwrap_or_default().len();
-            if deg_w == 0 {
-                continue;
-            }
-            let w_comm = graph
-                .node_attrs(w)
-                .and_then(|a| a.get(community_attr))
-                .map(|v| v.as_str());
 
-            // Bonus only if u, v, and w all share the same community
-            let bonus = if u_comm.is_some() && u_comm == v_comm && u_comm == w_comm {
-                1.0
-            } else {
-                0.0
-            };
-            score += (1.0 + bonus) / deg_w as f64;
+        if same_endpoint_community {
+            let common = common_neighbor_indices_from_rows(
+                u_idx.and_then(|idx| graph.neighbors_indices(idx)).unwrap_or(&[]),
+                v_idx.and_then(|idx| graph.neighbors_indices(idx)).unwrap_or(&[]),
+            );
+            let mut terms = Vec::with_capacity(common.len());
+            for w in common {
+                let w_comm = communities.get(w).and_then(Option::as_ref);
+                if w_comm == u_comm {
+                    let deg_w = graph.degree_by_index(w);
+                    if deg_w > 0 {
+                        terms.push(1.0 / deg_w as f64);
+                    }
+                }
+            }
+            terms.sort_unstable_by(f64::total_cmp);
+            score = terms.iter().sum();
         }
 
         result.push((u.clone(), v.clone(), score));
@@ -35868,29 +35883,25 @@ pub fn cn_soundarajan_hopcroft(
     ebunch: &[(String, String)],
     community_attr: &str,
 ) -> Vec<(String, String, f64)> {
+    let communities = community_keys_by_index(graph, community_attr);
     let mut result = Vec::with_capacity(ebunch.len());
     for (u, v) in ebunch {
-        let u_nbrs: std::collections::HashSet<&str> =
-            graph.neighbors(u).unwrap_or_default().into_iter().collect();
-        let v_nbrs: std::collections::HashSet<&str> =
-            graph.neighbors(v).unwrap_or_default().into_iter().collect();
-        let u_comm = graph
-            .node_attrs(u)
-            .and_then(|a| a.get(community_attr))
-            .map(|v| v.as_str());
-        let v_comm = graph
-            .node_attrs(v)
-            .and_then(|a| a.get(community_attr))
-            .map(|v| v.as_str());
-        let common: Vec<&str> = u_nbrs.intersection(&v_nbrs).copied().collect();
+        let u_idx = graph.get_node_index(u);
+        let v_idx = graph.get_node_index(v);
+        let common = common_neighbor_indices_from_rows(
+            u_idx.and_then(|idx| graph.neighbors_indices(idx)).unwrap_or(&[]),
+            v_idx.and_then(|idx| graph.neighbors_indices(idx)).unwrap_or(&[]),
+        );
+        let u_comm = u_idx.and_then(|idx| communities.get(idx).and_then(Option::as_ref));
+        let v_comm = v_idx.and_then(|idx| communities.get(idx).and_then(Option::as_ref));
+        let same_endpoint_community = matches!((u_comm, v_comm), (Some(u), Some(v)) if u == v);
         let mut score = common.len() as f64;
-        for &w in &common {
-            let w_comm = graph
-                .node_attrs(w)
-                .and_then(|a| a.get(community_attr))
-                .map(|v| v.as_str());
-            if u_comm.is_some() && u_comm == v_comm && u_comm == w_comm {
-                score += 1.0;
+        if same_endpoint_community {
+            for w in common {
+                let w_comm = communities.get(w).and_then(Option::as_ref);
+                if w_comm == u_comm {
+                    score += 1.0;
+                }
             }
         }
         result.push((u.clone(), v.clone(), score));
@@ -41588,6 +41599,7 @@ mod tests {
         closeness_vitality,
         closeness_vitality_single,
         clustering_coefficient,
+        cn_soundarajan_hopcroft,
         common_neighbors,
         communicability_betweenness_centrality,
         complement,
@@ -41846,6 +41858,7 @@ mod tests {
         predecessor,
         preferential_attachment,
         quotient_graph,
+        ra_index_soundarajan_hopcroft,
         random_spanning_tree,
         random_spanning_tree_directed,
         random_tree,
@@ -48019,6 +48032,33 @@ mod tests {
         // RA = 1/3
         let (_, _, score) = &result[0];
         assert!((score - 1.0 / 3.0).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn soundarajan_hopcroft_uses_index_rows_and_networkx_formula() {
+        let mut g = Graph::strict();
+        let _ = g.add_node_with_attrs("u".to_owned(), single_attr("community", "red"));
+        let _ = g.add_node_with_attrs("v".to_owned(), single_attr("community", "red"));
+        let _ = g.add_node_with_attrs("x".to_owned(), single_attr("community", "blue"));
+        let _ = g.add_node_with_attrs("a".to_owned(), single_attr("community", "red"));
+        let _ = g.add_node_with_attrs("b".to_owned(), single_attr("community", "blue"));
+        let _ = g.add_edge("u", "a");
+        let _ = g.add_edge("v", "a");
+        let _ = g.add_edge("x", "a");
+        let _ = g.add_edge("u", "b");
+        let _ = g.add_edge("v", "b");
+
+        let pairs = vec![
+            ("u".to_owned(), "v".to_owned()),
+            ("u".to_owned(), "x".to_owned()),
+        ];
+        let cn = cn_soundarajan_hopcroft(&g, &pairs, "community");
+        assert!((cn[0].2 - 3.0).abs() < TEST_TOLERANCE);
+        assert!((cn[1].2 - 1.0).abs() < TEST_TOLERANCE);
+
+        let ra = ra_index_soundarajan_hopcroft(&g, &pairs, "community");
+        assert!((ra[0].2 - (1.0 / 3.0)).abs() < TEST_TOLERANCE);
+        assert!((ra[1].2 - 0.0).abs() < TEST_TOLERANCE);
     }
 
     #[test]

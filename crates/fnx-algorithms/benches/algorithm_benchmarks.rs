@@ -10,10 +10,11 @@ use std::collections::BTreeMap;
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use fnx_algorithms::{
     adamic_adar_index, average_shortest_path_length, betweenness_centrality,
-    closeness_centrality, common_neighbors, connected_components, degree_centrality,
-    eigenvector_centrality, jaccard_coefficient, max_flow_edmonds_karp,
-    minimum_cut_edmonds_karp, minimum_spanning_tree, pagerank, resource_allocation_index,
-    shortest_path_unweighted, shortest_path_weighted, single_source_dijkstra_path_length,
+    closeness_centrality, cn_soundarajan_hopcroft, common_neighbors, connected_components,
+    degree_centrality, eigenvector_centrality, jaccard_coefficient, max_flow_edmonds_karp,
+    minimum_cut_edmonds_karp, minimum_spanning_tree, pagerank, ra_index_soundarajan_hopcroft,
+    resource_allocation_index, shortest_path_unweighted, shortest_path_weighted,
+    single_source_dijkstra_path_length,
 };
 use fnx_classes::Graph;
 use fnx_runtime::CgseValue;
@@ -139,6 +140,34 @@ fn build_common_neighbors_graph(left_only: usize, right_only: usize, common: usi
     }
     for i in 0..right_only {
         let _ = g.add_edge("v", format!("r{i}"));
+    }
+    g
+}
+
+fn build_community_common_neighbors_graph(
+    left_only: usize,
+    right_only: usize,
+    common: usize,
+) -> Graph {
+    let mut g = Graph::strict();
+    let _ = g.add_node_with_attrs("u", attr("community", "core"));
+    let _ = g.add_node_with_attrs("v", attr("community", "core"));
+    for i in 0..common {
+        let node = format!("c{i}");
+        let community = if i % 2 == 0 { "core" } else { "outer" };
+        let _ = g.add_node_with_attrs(node.clone(), attr("community", community));
+        let _ = g.add_edge("u", node.clone());
+        let _ = g.add_edge("v", node);
+    }
+    for i in 0..left_only {
+        let node = format!("l{i}");
+        let _ = g.add_node_with_attrs(node.clone(), attr("community", "left"));
+        let _ = g.add_edge("u", node);
+    }
+    for i in 0..right_only {
+        let node = format!("r{i}");
+        let _ = g.add_node_with_attrs(node.clone(), attr("community", "right"));
+        let _ = g.add_edge("v", node);
     }
     g
 }
@@ -341,6 +370,23 @@ fn bench_link_prediction_scores(c: &mut Criterion) {
             &label,
             |b, _| {
                 b.iter(|| resource_allocation_index(&g, &pairs));
+            },
+        );
+
+        let community_graph =
+            build_community_common_neighbors_graph(left_only, right_only, common);
+        group.bench_with_input(
+            BenchmarkId::new("cn_soundarajan_hopcroft", &label),
+            &label,
+            |b, _| {
+                b.iter(|| cn_soundarajan_hopcroft(&community_graph, &pairs, "community"));
+            },
+        );
+        group.bench_with_input(
+            BenchmarkId::new("ra_index_soundarajan_hopcroft", &label),
+            &label,
+            |b, _| {
+                b.iter(|| ra_index_soundarajan_hopcroft(&community_graph, &pairs, "community"));
             },
         );
     }
