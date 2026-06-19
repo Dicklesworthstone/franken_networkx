@@ -40,6 +40,7 @@ fnx 35.5ms vs nx 1143ms (n=1500, 32.20x, scales better). The aggregate answer to
 | MultiDiGraph | descendants/ancestors (zid1b) succ/pred-BFS | **0.03x -> 0.71-0.74x** (24-25x faster) |
 | MultiDiGraph | is_directed_acyclic_graph (zid1b2) Kahn CSR | **0.34x -> 8.46x** (25x swing) |
 | MultiDiGraph | number_strongly_connected_components (11m92) Kosaraju CSR | **0.15x -> 4.31x** (29x swing) |
+| MultiDiGraph | topological_sort (11m92) native CSR Kahn | **0.18x -> 5.63x** (31x swing) |
 | Link-pred | preferential_attachment / RA / AA degree-batch (pa-degbatch) | PA **0.78x->0.99x**, RA/AA neutral->**1.05-1.06x WIN** |
 | Code-first batch | assortativity 9147-52 (degree_assort 78x) / expansion-cut-flow 9153-55 (flow_hierarchy 219x) | 2.4-219x, parity-verified |
 
