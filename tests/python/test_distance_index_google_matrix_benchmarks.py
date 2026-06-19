@@ -92,6 +92,22 @@ class TestLaplacianSpectrum:
         g = nx.gnp_random_graph(n, 0.05, 7)
         benchmark(lambda: nx.laplacian_spectrum(g))
 
+    def test_fnx_adjacency_spectrum(self, benchmark, n):
+        g = fnx.gnp_random_graph(n, 0.05, 7)
+        benchmark(lambda: fnx.adjacency_spectrum(g))
+
+    def test_nx_adjacency_spectrum(self, benchmark, n):
+        g = nx.gnp_random_graph(n, 0.05, 7)
+        benchmark(lambda: nx.adjacency_spectrum(g))
+
+    def test_fnx_modularity_spectrum(self, benchmark, n):
+        g = fnx.gnp_random_graph(n, 0.05, 7)
+        benchmark(lambda: fnx.modularity_spectrum(g))
+
+    def test_nx_modularity_spectrum(self, benchmark, n):
+        g = nx.gnp_random_graph(n, 0.05, 7)
+        benchmark(lambda: nx.modularity_spectrum(g))
+
 
 @pytest.mark.parametrize("n", [300, 800], ids=["n=300", "n=800"])
 class TestGeneralizedDegree:
