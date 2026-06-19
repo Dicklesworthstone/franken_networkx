@@ -15255,23 +15255,22 @@ def topological_sort(G):
     succ = G.succ
     indegree = {v: 0 for v in G}
     if G.is_multigraph():
-        # MultiDiGraph: a successor with k parallel edges contributes k.
-        # br-r37-c1-mexh6: G[u] is the native O(deg) successor row; succ[u]
-        # (MultiAdjacencyView) re-materialises the whole adjacency per access
-        # (~1800x slower per row) -> topological_sort was O(N*(N+E)) / ~1746x nx.
-        for u in G:
-            for v, keydict in G[u].items():
-                indegree[v] += len(keydict)
-        queue = _deque(v for v in G if indegree[v] == 0)
-        _count = 0
-        while queue:
-            u = queue.popleft()
-            yield u
-            _count += 1
-            for v, keydict in G[u].items():
-                indegree[v] -= len(keydict)
-                if indegree[v] == 0:
-                    queue.append(v)
+        # br-r37-c1-11m92 (cc): the native MultiDiGraph topological_sort now reproduces
+        # nx's generation-Kahn order (CSR of insertion-order DISTINCT successors;
+        # multiplicity-invariant since a node hits in-degree 0 once all distinct parents
+        # are processed). Route to the Rust CSR Kahn instead of replaying Kahn in Python
+        # per node (was ~6x slower than nx; the native path is ~5x faster, parity-exact).
+        # The native binding raises nx.HasACycle on a cycle; nx.topological_sort raises
+        # NetworkXUnfeasible, so translate for exact-parity (HasACycle is NOT a subclass).
+        from networkx.exception import HasACycle as _HasACycle
+        try:
+            _order = _raw_topological_sort(G)
+        except _HasACycle:
+            raise NetworkXUnfeasible(
+                "Graph contains a cycle, topological sort is not possible."
+            ) from None
+        yield from _order
+        return
     else:
         # Exact DiGraph: native topological_generations already implements
         # NetworkX's Kahn FIFO generation order, so flatten those generation

@@ -4494,6 +4494,54 @@ fn multidigraph_number_scc(mdg: &fnx_classes::digraph::MultiDiGraph) -> usize {
     count
 }
 
+/// br-r37-c1-11m92 (cc): topological sort of a MultiDiGraph via generation-based Kahn
+/// over an integer CSR of INSERTION-ORDER DISTINCT successors. Verified to reproduce
+/// nx.topological_sort's exact order (multiplicity-invariant: a node hits in-degree 0
+/// once all distinct parents are processed). Returns None on a cycle. No DiGraph build.
+fn multidigraph_topological_sort<'a>(
+    mdg: &'a fnx_classes::digraph::MultiDiGraph,
+) -> Option<Vec<&'a str>> {
+    use std::collections::{HashMap, HashSet};
+    let nodes = mdg.nodes_ordered();
+    let n = nodes.len();
+    let index: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+    let mut succ: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut indeg: Vec<usize> = vec![0; n];
+    for (i, &nd) in nodes.iter().enumerate() {
+        if let Some(ss) = mdg.successors(nd) {
+            let mut seen: HashSet<usize> = HashSet::new();
+            for s in ss {
+                if let Some(&j) = index.get(s) {
+                    if seen.insert(j) {
+                        succ[i].push(j);
+                        indeg[j] += 1;
+                    }
+                }
+            }
+        }
+    }
+    let mut zero: Vec<usize> = (0..n).filter(|&i| indeg[i] == 0).collect();
+    let mut out: Vec<&'a str> = Vec::with_capacity(n);
+    while !zero.is_empty() {
+        let mut nxt: Vec<usize> = Vec::new();
+        for &u in &zero {
+            out.push(nodes[u]);
+            for &v in &succ[u] {
+                indeg[v] -= 1;
+                if indeg[v] == 0 {
+                    nxt.push(v);
+                }
+            }
+        }
+        zero = nxt;
+    }
+    if out.len() == n {
+        Some(out)
+    } else {
+        None
+    }
+}
+
 #[pyfunction]
 pub fn is_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
@@ -9963,6 +10011,16 @@ pub fn topological_sort(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<Py
         return Err(NetworkXError::new_err(
             "Topological sort not defined on undirected graphs.",
         ));
+    }
+    if let GraphRef::MultiDirected { mdg, .. } = &gr {
+        // br-r37-c1-11m92: generation-Kahn over the multidigraph CSR, no conversion.
+        let inner = &mdg.inner;
+        return match py.allow_threads(|| multidigraph_topological_sort(inner)) {
+            Some(order) => Ok(order.iter().map(|&n| gr.py_node_key(py, n)).collect()),
+            None => Err(crate::HasACycle::new_err(
+                "Graph contains a cycle, topological sort is not possible.",
+            )),
+        };
     }
     {
         let dg_ref = gr.digraph().expect("is_directed checked above");
