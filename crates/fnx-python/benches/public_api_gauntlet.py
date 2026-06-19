@@ -10,6 +10,7 @@ import networkx as nx
 
 gc.disable()
 
+
 def _weighted_flow_edges(node_count: int) -> list[tuple[int, int, float]]:
     edges: list[tuple[int, int, float]] = []
     for i in range(node_count - 1):
@@ -122,4 +123,66 @@ def networkx_within_inter_cluster_explicit_community() -> float:
     total = 0.0
     for _ in range(_WIC_REPEAT):
         total += _consume_link_scores(nx.within_inter_cluster(_NX_WIC_GRAPH, _WIC_EBUNCH))
+    return total
+
+
+def _sparse_undirected_edges(node_count: int, probability: float, seed: int):
+    rng = random.Random(seed)
+    for u in range(node_count):
+        for v in range(u + 1, node_count):
+            if rng.random() < probability:
+                yield (u, v)
+
+
+def _build_sparse_undirected_graph(module, node_count: int, probability: float, seed: int):
+    graph = module.Graph()
+    graph.add_nodes_from(range(node_count))
+    graph.add_edges_from(_sparse_undirected_edges(node_count, probability, seed))
+    return graph
+
+
+def _consume_non_edges(pairs) -> float:
+    total = 0
+    count = 0
+    for u, v in pairs:
+        count += 1
+        total = (
+            total
+            + count * 1_315_423_911
+            + int(u) * 2_654_435_761
+            + int(v) * 97_531
+        ) & ((1 << 63) - 1)
+    return float(total + count)
+
+
+_NON_EDGES_NODE_COUNT = 900
+_NON_EDGES_PROBABILITY = 0.008
+_NON_EDGES_SEED = 9143
+_NON_EDGES_REPEAT = 4
+_FNX_NON_EDGES_GRAPH = _build_sparse_undirected_graph(
+    fnx, _NON_EDGES_NODE_COUNT, _NON_EDGES_PROBABILITY, _NON_EDGES_SEED
+)
+_NX_NON_EDGES_GRAPH = _build_sparse_undirected_graph(
+    nx, _NON_EDGES_NODE_COUNT, _NON_EDGES_PROBABILITY, _NON_EDGES_SEED
+)
+
+_EXPECTED_NON_EDGES = _consume_non_edges(nx.non_edges(_NX_NON_EDGES_GRAPH))
+_FNX_NON_EDGES = _consume_non_edges(fnx.non_edges(_FNX_NON_EDGES_GRAPH))
+if _FNX_NON_EDGES != _EXPECTED_NON_EDGES:
+    raise AssertionError(
+        f"non_edges parity drift: fnx={_FNX_NON_EDGES!r}, nx={_EXPECTED_NON_EDGES!r}"
+    )
+
+
+def fnx_non_edges_sparse_undirected() -> float:
+    total = 0.0
+    for _ in range(_NON_EDGES_REPEAT):
+        total += _consume_non_edges(fnx.non_edges(_FNX_NON_EDGES_GRAPH))
+    return total
+
+
+def networkx_non_edges_sparse_undirected() -> float:
+    total = 0.0
+    for _ in range(_NON_EDGES_REPEAT):
+        total += _consume_non_edges(nx.non_edges(_NX_NON_EDGES_GRAPH))
     return total

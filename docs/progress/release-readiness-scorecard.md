@@ -6,7 +6,8 @@ Scope of this update: cut-metric public wrappers from the recent code-first
 pending backlog (`br-r37-c1-04z53.9155` and `br-r37-c1-04z53.9153`) plus
 sampled edge-betweenness verification (`br-r37-c1-8ox3z.1`) and raw
 assortativity verification (`br-r37-c1-04z53.9147`, `.9149`, `.9152`) plus
-community link-prediction verification (`br-r37-c1-04z53.9141`).
+community link-prediction verification (`br-r37-c1-04z53.9141`) and
+undirected `non_edges` default-ebunch verification (`br-r37-c1-04z53.9143`).
 
 ## 2026-06-19 Cut-Metric Gauntlet Slice
 
@@ -167,3 +168,43 @@ Score delta:
 Release readiness verdict for this slice: **conditional pass for public
 `within_inter_cluster` on simple community-labeled graphs with explicit ebunches**.
 Default-ebunch and tiny-ebunch behavior remain separate workload gates.
+
+## 2026-06-19 Undirected Non-Edges Gauntlet Slice
+
+Environment:
+- Commit under verification before revert: `f233ece94` plus the code-first
+  native undirected `non_edges` route already present in the worktree.
+- Reference: vendored original NetworkX `3.7rc0.dev0` from
+  `legacy_networkx_code/networkx/networkx`.
+- Bench command: `AGENT_NAME=CrimsonRiver CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a PYTHONPATH=/data/projects/franken_networkx/crates/fnx-python/benches:/data/projects/franken_networkx/python:/data/projects/franken_networkx/legacy_networkx_code/networkx taskset -c 2 cargo bench -p fnx-python --bench public_api_gauntlet -- non_edges_sparse_undirected --sample-size 10 --warm-up-time 1 --measurement-time 4`.
+- Criterion artifacts:
+  `/data/projects/.rch-targets/franken_networkx-cod-a/criterion/non_edges_sparse_undirected/`.
+- Workload: 900-node sparse undirected graph, `p=0.008`, deterministic
+  seed `9143`, 401,391 generated non-edges, 4 API calls/sample, setup outside
+  the timed call, order-sensitive checksum parity at helper import.
+- Focused conformance after revert: `test_non_edges_order_conformance_guard.py`
+  plus targeted graph-utility non-edges guards passed with `47 passed in 1.01s`.
+- Compile gate: `AGENT_NAME=CrimsonRiver CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo check -p fnx-python --benches` passed on `hz2`.
+
+| Bead | Workload | FNX mean | NetworkX mean | Ratio vs NetworkX | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `br-r37-c1-04z53.9143` | public `non_edges`, sparse undirected default ebunch | 458.750 ms | 470.775 ms | 1.026x | Reject, reverted |
+
+Revert rationale: the native row-dispatch route was technically faster by
+`2.55%`, but the mean confidence intervals overlapped (`452.665..465.576 ms`
+vs `464.013..478.087 ms`) and the gain was below the gauntlet keep threshold.
+The public source path was reverted to the generic `set(graph)` / `graph[u]`
+loop, and the dedicated guard now preserves parity plus no NetworkX delegation
+without locking in the reverted `__getitem__` bypass.
+
+Score delta:
+- Performance evidence: +2. The pending `non_edges` route moved to measured
+  neutral evidence instead of a code-first claim.
+- Conformance evidence: +1. Exact order and public fallback guards stayed green
+  after the revert.
+- Ledger hygiene: +2. The negative-evidence ledger now blocks repeating this
+  Python-level native-row route without a materially different generator design.
+
+Release readiness verdict for this slice: **no release claim for undirected
+`non_edges` acceleration**. The next credible route is a batched Rust/PyO3
+non-edge generator measured against this same Criterion row.

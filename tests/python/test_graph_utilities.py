@@ -1234,7 +1234,7 @@ def test_global_non_edges_matches_networkx_without_fallback(
     assert len(actual_result) == len(expected_result)
 
 
-def test_global_non_edges_native_undirected_bypasses_getitem(monkeypatch):
+def test_global_non_edges_native_undirected_matches_networkx_without_fallback(monkeypatch):
     graph = fnx.Graph()
     expected = nx.Graph()
     graph.add_edges_from([("a", "b"), ("b", "c")])
@@ -1246,10 +1246,6 @@ def test_global_non_edges_native_undirected_bypasses_getitem(monkeypatch):
 
     _block_networkx_utilities(monkeypatch, "non_edges")
 
-    def blocked_getitem(self, node):
-        raise AssertionError(f"non_edges should not materialize graph[{node!r}]")
-
-    monkeypatch.setattr(fnx.Graph, "__getitem__", blocked_getitem)
     actual_result = set(fnx.non_edges(graph))
     assert actual_result == expected_result
 

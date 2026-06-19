@@ -54,6 +54,16 @@ fn bench_public_api_gauntlet(c: &mut Criterion) {
                 "networkx",
                 "networkx_within_inter_cluster_explicit_community",
             ),
+            (
+                "non_edges_sparse_undirected",
+                "fnx",
+                "fnx_non_edges_sparse_undirected",
+            ),
+            (
+                "non_edges_sparse_undirected",
+                "networkx",
+                "networkx_non_edges_sparse_undirected",
+            ),
         ] {
             let callable = helper
                 .getattr(callable_name)
