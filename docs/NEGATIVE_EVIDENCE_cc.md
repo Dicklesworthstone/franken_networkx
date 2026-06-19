@@ -77,6 +77,19 @@ PYTHON dijkstra loop (heap+dict ops per node), not adjacency — k4p0b needs a N
 bidirectional kernel (the undirected _native_bidirectional_dijkstra is undirected-only,
 374/1043 on directed). lc2qy (single-pair early-exit). Undirected path family already WINS 1.3-3.4x.
 
+## less-common centralities/assortativity sweep — all WIN, 0 losses
+
+Swept load_centrality 29.59x, communicability_betweenness 128.05x, communicability 23.66x,
+katz_centrality_numpy 16.63x, subgraph_centrality 9.56x, information_centrality 5.46x,
+numeric_assortativity 2.19x, voterank 1.89x, attribute_assortativity 1.84x, dispersion
+1.71x — all WINS, 0 losses. Plus flow/connectivity/degree-seq: flow_hierarchy 126x,
+s_metric 58x, degree_assortativity 39x, is_digraphical 18x, max_flow/min_cut 3.8-4.0x;
+is_graphical(eg) FIXED 0.64x->1.20-1.45x (egsweep Durfee-corner break). The accessible-win
+surface is now comprehensively swept; remaining residuals are the filed deep levers
+(6spkb dirty-sync, tbh4q construction, lc2qy/2z0mw single-pair, order-sensitive 8hjsu/lmqwv),
+marginal delegated taxes (bipartite.clustering 0.92x), and inherently-exponential
+(dag_to_branching). fnx dominates the algorithm surface 1.2-1000x.
+
 ## DAG/distance/line-graph sweep — all WIN, 1 inherently-exponential near-parity
 
 Swept DAG/distance/line-graph: eccentricity 13.79x, wiener_index 13.63x,
