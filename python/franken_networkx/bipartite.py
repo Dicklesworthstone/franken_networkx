@@ -383,6 +383,53 @@ def robins_alexander_clustering(G):
     )
 
 
+def latapy_clustering(G, nodes=None, mode="dot"):
+    """Bipartite clustering coefficient (br-r37-c1-bipclust, cc).
+
+    nx re-materialises ``set(G[u])`` for every (v, second-order-neighbour u) pair, i.e.
+    O(V * |N(N(v))|) adjacency-view materialisations — the dominant cost on an fnx graph
+    (the re-export ran nx's loop over the slow fnx views -> 0.84x). Snapshot each node's
+    neighbour set ONCE (O(V)) and reuse it. Neighbour lists keep G's adjacency order, so
+    ``nbrs2`` (a set comprehension) and the float-accumulation order are byte-identical to
+    nx.
+    """
+
+    def cc_dot(nu, nv):
+        return len(nu & nv) / len(nu | nv)
+
+    def cc_min(nu, nv):
+        return len(nu & nv) / min(len(nu), len(nv))
+
+    def cc_max(nu, nv):
+        return len(nu & nv) / max(len(nu), len(nv))
+
+    modes = {"dot": cc_dot, "min": cc_min, "max": cc_max}
+    try:
+        cc_func = modes[mode]
+    except KeyError as err:
+        raise _nx.NetworkXError(
+            "Mode for bipartite clustering must be: dot, min or max"
+        ) from err
+
+    adj = {n: list(nbrs) for n, nbrs in G.adjacency()}
+    adj_set = {n: set(lst) for n, lst in adj.items()}
+    if nodes is None:
+        nodes = G
+    ccs = {}
+    for v in nodes:
+        cc = 0.0
+        nbrs2 = {u for nbr in adj[v] for u in adj[nbr]} - {v}
+        for u in nbrs2:
+            cc += cc_func(adj_set[u], adj_set[v])
+        if cc > 0.0:  # len(nbrs2)>0
+            cc /= len(nbrs2)
+        ccs[v] = cc
+    return ccs
+
+
+clustering = latapy_clustering
+
+
 def node_redundancy(G, nodes=None):
     """Node redundancy coefficients ``{node: rc(v)}`` for bipartite ``G``.
 
