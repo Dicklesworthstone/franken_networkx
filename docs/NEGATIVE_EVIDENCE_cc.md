@@ -69,8 +69,13 @@ ties; bidirectional routing -> 1043/1043). dijkstra_path 1043/1043, shortest_pat
 1043/1043. PERF residual: directed PATH variants lose (dijkstra_path 0.56x, shortest_path
 0.20x) — fnx's bidirectional_dijkstra is SLOW for directed (in-process Python reimpl's
 succ/pred adjacency tax, k4p0b; native 0.42ms vs bidirectional 0.75ms vs nx 0.22ms).
-Parity is correct (priority); perf needs k4p0b (native directed bidirectional kernel) +
-lc2qy (single-pair early-exit). Undirected path family already WINS 1.3-3.4x.
+Parity is correct (priority); perf needs k4p0b. ATTEMPTED+REVERTED (cc, ~0 gain): routing
+the directed _bidirectional_dijkstra_local adjacency through _native_successor/predecessor
+_row_dict (32x faster in isolation for dict(view), but the loop uses view.items() iteration
+with NO materialization, so no gain — 0.20x->0.19-0.23x noise). The real bottleneck is the
+PYTHON dijkstra loop (heap+dict ops per node), not adjacency — k4p0b needs a NATIVE directed
+bidirectional kernel (the undirected _native_bidirectional_dijkstra is undirected-only,
+374/1043 on directed). lc2qy (single-pair early-exit). Undirected path family already WINS 1.3-3.4x.
 
 ## Fresh simple-graph sweep (tree/flow/community/centrality) — 1 loss, j5u29-class
 
