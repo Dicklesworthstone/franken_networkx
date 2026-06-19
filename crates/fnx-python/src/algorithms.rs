@@ -4379,6 +4379,46 @@ fn multidigraph_bfs_edges_reverse(
     edges
 }
 
+/// br-r37-c1-zid1b2 (cc): is a MultiDiGraph a DAG? Kahn's algorithm over an integer CSR
+/// of DISTINCT successors (parallel edges don't affect acyclicity; a self-loop does).
+/// Order-invariant boolean — no simple-DiGraph build. True iff all nodes get removed.
+fn multidigraph_is_dag(mdg: &fnx_classes::digraph::MultiDiGraph) -> bool {
+    use std::collections::{HashMap, HashSet, VecDeque};
+    let nodes = mdg.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return true;
+    }
+    let index: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+    let mut succ: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut indeg: Vec<usize> = vec![0; n];
+    for (i, &nd) in nodes.iter().enumerate() {
+        if let Some(ss) = mdg.successors(nd) {
+            let mut seen: HashSet<usize> = HashSet::new();
+            for s in ss {
+                if let Some(&j) = index.get(s) {
+                    if seen.insert(j) {
+                        succ[i].push(j);
+                        indeg[j] += 1;
+                    }
+                }
+            }
+        }
+    }
+    let mut queue: VecDeque<usize> = (0..n).filter(|&i| indeg[i] == 0).collect();
+    let mut processed = 0usize;
+    while let Some(u) = queue.pop_front() {
+        processed += 1;
+        for &v in &succ[u] {
+            indeg[v] -= 1;
+            if indeg[v] == 0 {
+                queue.push_back(v);
+            }
+        }
+    }
+    processed == n
+}
+
 #[pyfunction]
 pub fn is_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
@@ -10009,6 +10049,11 @@ pub fn is_directed_acyclic_graph(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResu
     let gr = extract_graph(g)?;
     if !gr.is_directed() {
         return Ok(false);
+    }
+    if let GraphRef::MultiDirected { mdg, .. } = &gr {
+        // br-r37-c1-zid1b2: direct Kahn's over the multidigraph adjacency, no conversion.
+        let inner = &mdg.inner;
+        return Ok(py.allow_threads(|| multidigraph_is_dag(inner)));
     }
     {
         let dg_ref = gr.digraph().expect("is_directed checked above");
