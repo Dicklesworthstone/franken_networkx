@@ -97,6 +97,15 @@ raises and the assert errors. fnx is byte-correct. 35 'failures' = one unguarded
 DIAGNOSTIC: a conformance failure that reproduces IDENTICALLY in nx is a test bug, not a
 port gap — always compare the fnx error to nx's before filing as an fnx regression.
 
+## IO-reader residuals: from_dict_of_dicts 0.84x already-batched substrate; to_dict_of_lists WINS
+
+to_dict_of_lists 2.11x (sweep 0.19x was the in-lambda fnx-graph build, artifact). from_sparse6
+1.48x, from_dict_of_lists 1.91x WIN. from_dict_of_dicts 0.84x: simple-Graph path ALREADY
+batches add_edges_from((u,v,attrs)) (br-nlanb) — residual is attributed-batch-construction
+substrate (dual AttrMap+mirror). parse_multiline_adjlist 0.74x = parse, same edge-case-
+divergence risk as read_edgelist (do not route). IO clean wins were from_graph6 (g6batch);
+rest are parse-divergence or attributed-construction substrate.
+
 ## read_edgelist 0.40x: parse_edgelist NOT a drop-in (REVERTED)
 
 read_edgelist(kwargs) delegates to nx + nx->fnx convert (0.40x). Routing to fnx.parse_edgelist
