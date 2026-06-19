@@ -97,6 +97,15 @@ raises and the assert errors. fnx is byte-correct. 35 'failures' = one unguarded
 DIAGNOSTIC: a conformance failure that reproduces IDENTICALLY in nx is a test bug, not a
 port gap — always compare the fnx error to nx's before filing as an fnx regression.
 
+## read_edgelist 0.40x: parse_edgelist NOT a drop-in (REVERTED)
+
+read_edgelist(kwargs) delegates to nx + nx->fnx convert (0.40x). Routing to fnx.parse_edgelist
+hit 1.73x BUT broke 13 conformance tests: fnx.parse_edgelist DIVERGES from nx on edge cases
+(blank lines "a b\n\nc d", lonely 1-token lines, mid-line comments "a b # tail", self-loops,
+dup edges) AND bypasses the native fast-path test. try/except cannot catch VALUE divergences.
+Delegation is required for correctness. To fix: make fnx.parse_edgelist byte-match nx on edge
+cases first (separate, risky). Filed-as-substrate/parse-divergence.
+
 ## normalized_laplacian weighted 0.90x = to_scipy edge-sync substrate (unweighted WINS 3.18x)
 
 normalized_laplacian_matrix: UNWEIGHTED 3.18x (native vectorized COO from index arrays, no
