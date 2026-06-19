@@ -101,6 +101,33 @@ losses to WINS: to_directed 0.75x->1.14x, to_undirected 0.71x->1.24x, copy
 fnx's former weakest area now BEATS nx. (Subgraph .copy() also benefits.) The
 residual reciprocal-edge-merge tax in to_undirected is CrimsonRiver's tbh4q.
 
+## Graph operators — measured vs nx (attributed gnp(1500), warm min-of-6)
+
+| Operator | fnx | nx | ratio | Verdict |
+| --- | --- | --- | --- | --- |
+| complement | 16.5ms | 43.9ms | 2.66x | WIN |
+| cartesian_product | 1.72ms | 4.06ms | 2.37x | WIN |
+| disjoint_union | 19.7ms | 22.2ms | 1.13x | WIN |
+| union (rename) | 35.8ms | 23.2ms | 0.65x | LOSS |
+| compose | 18.6ms | 9.1ms | 0.49x | LOSS |
+| relabel_nodes | 11.6ms | 4.8ms | 0.41x | LOSS |
+
+CONSTRUCTION-SUBSTRATE FRONTIER (consolidated): the operator + construction LOSSES
+all share one root — per-node/edge PyO3 materialization + slow native build/clone
+methods, NOT algorithm gaps:
+- relabel_nodes 0.41x: per-node label PyO3 round-trips (native clone+rename was
+  attempted + reverted 2026-06-09 — correct but 1.33x slower, parity-bound by the
+  same round-trips).
+- compose 0.49x: routes to a native _native_compose (Graph x Graph) that is itself
+  slow — same shape as MultiGraph._native_copy (jelx1): slow native build method.
+- union 0.65x: union_all construction tax.
+- MultiGraph.copy 0.45x (jelx1), __deepcopy__ walk (489mp).
+This is fnx's residual weak frontier. Algorithms/spectral/centrality/IO DOMINATE
+(13-1031x); the substrate is where the remaining vs-nx losses live. bjomp proved
+the substrate CAN be beaten where the cost is copy.deepcopy (to_directed/copy now
+WIN); the rest need native build-method optimization + killing the per-node label
+materialization wall.
+
 ## MultiGraph.copy() — measured LOSS 0.45x (native inner-clone, separate from deepcopy)
 
 MultiGraph.copy 0.45x vs nx (DiGraph.copy is 1.72x WIN). cProfile: 100% in native
