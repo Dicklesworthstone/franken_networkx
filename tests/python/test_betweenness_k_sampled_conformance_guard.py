@@ -73,3 +73,24 @@ def test_k_sampled_edge_betweenness_matches_nx(seed, k):
     assert set(fr) == set(nr)
     for e in nr:
         assert fr[e] == pytest.approx(nr[e], abs=1e-9)
+
+
+@pytest.mark.parametrize("normalized", [True, False])
+def test_k_sampled_edge_betweenness_uses_native_route(monkeypatch, normalized):
+    fg, ng, n = _g(111, 30)
+
+    def fail_networkx_parity(*args, **kwargs):
+        raise AssertionError("k-sampled edge betweenness must not delegate to NetworkX")
+
+    monkeypatch.setattr(fnx, "_call_networkx_for_parity", fail_networkx_parity)
+    fr = fnx.edge_betweenness_centrality(
+        fg, k=7, seed=321, normalized=normalized
+    )
+    nr = nx.edge_betweenness_centrality(
+        ng, k=7, seed=321, normalized=normalized
+    )
+    nr = {tuple(sorted(e)): v for e, v in nr.items()}
+    fr = {tuple(sorted(e)): v for e, v in fr.items()}
+    assert set(fr) == set(nr)
+    for e in nr:
+        assert fr[e] == pytest.approx(nr[e], abs=1e-9)

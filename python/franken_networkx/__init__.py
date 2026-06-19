@@ -21614,6 +21614,29 @@ def edge_betweenness_centrality(
                     reordered[(u, v)] = raw[(v, u)]
             return reordered
 
+    # br-r37-c1-8ox3z.1: k-sampled unweighted edge betweenness has the same
+    # shape as edge_betweenness_centrality_subset(sources=sampled, targets=all)
+    # plus nx's sampled-edge rescale. Keep sampling in Python so seed semantics
+    # stay identical, then reuse the existing native subset edge-Brandes kernel.
+    if k is not None and weight is None and not G.is_multigraph():
+        from networkx.utils import create_py_random_state as _create_py_random_state
+
+        rng = _create_py_random_state(seed)
+        sampled_nodes = rng.sample(list(G.nodes()), k)
+        if len(G) < 2:
+            return dict.fromkeys(G.edges(), 0.0)
+        scores = edge_betweenness_centrality_subset(
+            G,
+            sampled_nodes,
+            list(G.nodes()),
+            normalized=normalized,
+            weight=None,
+        )
+        scale = len(G) / len(sampled_nodes)
+        if scale != 1:
+            scores = {edge: value * scale for edge, value in scores.items()}
+        return scores
+
     # Delegate to NetworkX for unsupported parameters
     if k is not None or not normalized or weight is not None or seed is not None:
         return _call_networkx_for_parity(
