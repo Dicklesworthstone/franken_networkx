@@ -45,6 +45,37 @@ def score_sequence(G, *, backend=None, **backend_kwargs):
     return sorted(d for _v, d in G.out_degree())
 
 
+def hamiltonian_path(G, *, backend=None, **backend_kwargs):
+    """Return a Hamiltonian path in the tournament ``G`` (br-r37-c1-tourham, cc).
+
+    The ``import *`` re-export ran nx's recursive algorithm — remove a node, recurse on
+    ``G.subgraph(rest)``, re-insert — which builds ``len(G)`` nested subgraph views over the
+    slow fnx adjacency (0.63x at n=80). Build the same path iteratively on a one-shot
+    adjacency snapshot: seed with the last node, then insert each earlier node before the
+    first path node that beats it. Same insertion order and positions as nx's recursion, so
+    the produced path is byte-identical.
+    """
+    _fnx._validate_backend_dispatch_keywords("hamiltonian_path", backend, backend_kwargs)
+    if G.is_multigraph():
+        raise _fnx.NetworkXNotImplemented("not implemented for multigraph type")
+    if not G.is_directed():
+        raise _fnx.NetworkXNotImplemented("not implemented for undirected type")
+    nodes = list(G)
+    if not nodes:
+        return []
+    # out-adjacency snapshot: ``v in adj[u]`` iff u -> v (u beats v).
+    adj = {n: set(G.successors(n)) for n in nodes}
+    hampath = [nodes[-1]]
+    for v in reversed(nodes[:-1]):
+        # nx inserts v before the first path node it BEATS (``v not in G[u]`` ==> v -> u),
+        # giving ...prev -> v -> u...; default to the end if v beats nothing remaining.
+        index = next(
+            (i for i, u in enumerate(hampath) if v not in adj[u]), len(hampath)
+        )
+        hampath.insert(index, v)
+    return hampath
+
+
 def is_tournament(G, *, backend=None, **backend_kwargs):
     """Return ``True`` iff ``G`` is a tournament.
 
