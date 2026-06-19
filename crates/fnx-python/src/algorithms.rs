@@ -3964,21 +3964,27 @@ pub fn density(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
 pub fn connected_components(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "connected_components")?;
-    let owned_simple = match &gr {
+    // br-r37-c1-fyxma (cc): MultiGraph BFSes DIRECTLY over the adjacency (a visited
+    // HashSet of node keys) instead of first building a full simple Graph via
+    // multigraph_to_simple_graph_structure_only. That conversion cloned every
+    // node+edge key to String and rebuilt the IndexMap/IndexSet adjacency
+    // (~8ms / 114x slower than the Graph path on 1500n/6000e). Multiplicity is
+    // irrelevant to connectivity, so the direct BFS is identical to nx's own
+    // multigraph walk and skips the intermediate Graph entirely.
+    //
+    // br-r37-c1-anace: the simple path routes through the borrowed BFS variant --
+    // skips the ~|V| String::to_owned allocations the public API performs to wrap
+    // the result in Vec<Vec<String>>; emit Python sets directly.
+    let components: Vec<Vec<&str>> = match &gr {
         GraphRef::MultiUndirected { mg, .. } => {
-            Some(multigraph_to_simple_graph_structure_only(&mg.inner))
+            let inner = &mg.inner;
+            py.allow_threads(|| multigraph_connected_components_borrowed(inner))
         }
-        _ => None,
+        _ => {
+            let inner = gr.undirected();
+            py.allow_threads(|| fnx_algorithms::connected_components_borrowed(inner).0)
+        }
     };
-    let inner = owned_simple.as_ref().unwrap_or_else(|| gr.undirected());
-    // br-r37-c1-anace: route through the borrowed BFS variant -- skips
-    // the ~|V| String::to_owned allocations the public
-    // ``connected_components`` API performs to wrap the result in
-    // ``Vec<Vec<String>>``. Emit Python sets directly so the public
-    // generator does not build a temporary list only to copy it into
-    // a set on every component.
-    let (components, _, _, _) =
-        py.allow_threads(|| fnx_algorithms::connected_components_borrowed(inner));
     components
         .iter()
         .map(|comp| {
@@ -3991,6 +3997,37 @@ pub fn connected_components(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Ve
             .map(|set| set.into_any().unbind())
         })
         .collect()
+}
+
+/// br-r37-c1-fyxma: connected components of a MultiGraph by direct BFS over the
+/// adjacency (no intermediate simple-Graph construction). Multiplicity does not
+/// affect connectivity, so visiting each distinct neighbor once via a node-key
+/// HashSet yields the same components as networkx — at int-CSR-class speed.
+fn multigraph_connected_components_borrowed(mg: &fnx_classes::MultiGraph) -> Vec<Vec<&str>> {
+    use std::collections::{HashSet, VecDeque};
+    let nodes = mg.nodes_ordered();
+    let mut visited: HashSet<&str> = HashSet::with_capacity(nodes.len());
+    let mut components: Vec<Vec<&str>> = Vec::new();
+    for &start in &nodes {
+        if !visited.insert(start) {
+            continue;
+        }
+        let mut comp: Vec<&str> = vec![start];
+        let mut queue: VecDeque<&str> = VecDeque::new();
+        queue.push_back(start);
+        while let Some(node) = queue.pop_front() {
+            if let Some(nbrs) = mg.neighbors(node) {
+                for v in nbrs {
+                    if visited.insert(v) {
+                        comp.push(v);
+                        queue.push_back(v);
+                    }
+                }
+            }
+        }
+        components.push(comp);
+    }
+    components
 }
 
 /// Return the number of connected components.
