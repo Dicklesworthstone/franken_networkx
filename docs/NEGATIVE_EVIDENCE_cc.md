@@ -61,6 +61,17 @@ SCC components must match nx's exact completion order for condensation; needs an
 nx-ordered Tarjan over the CSR, not the order-invariant BFS lever). pagerank 0.71x
 separate (numeric).
 
+## DIRECTED weighted single-pair path — PARITY fixed (spw routing), perf k4p0b-bound
+
+Verified DiGraph weighted shortest paths: my shortest_path spw routing ALSO fixed the
+DIRECTED divergence (native _raw_shortest_path is 1021/1043 on directed too — diverges on
+ties; bidirectional routing -> 1043/1043). dijkstra_path 1043/1043, shortest_path_length
+1043/1043. PERF residual: directed PATH variants lose (dijkstra_path 0.56x, shortest_path
+0.20x) — fnx's bidirectional_dijkstra is SLOW for directed (in-process Python reimpl's
+succ/pred adjacency tax, k4p0b; native 0.42ms vs bidirectional 0.75ms vs nx 0.22ms).
+Parity is correct (priority); perf needs k4p0b (native directed bidirectional kernel) +
+lc2qy (single-pair early-exit). Undirected path family already WINS 1.3-3.4x.
+
 ## Fresh simple-graph sweep (tree/flow/community/centrality) — 1 loss, j5u29-class
 
 Swept tree/flow/community/centrality: WINS dominate (second_order_centrality 153x,
