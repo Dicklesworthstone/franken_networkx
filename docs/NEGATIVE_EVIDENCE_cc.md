@@ -97,6 +97,20 @@ raises and the assert errors. fnx is byte-correct. 35 'failures' = one unguarded
 DIAGNOSTIC: a conformance failure that reproduces IDENTICALLY in nx is a test bug, not a
 port gap — always compare the fnx error to nx's before filing as an fnx regression.
 
+## SUBSTRATE FRONTIER MAPPED (cc) — remaining losses are per-node/small-input PyO3 tax
+
+The accessible de-delegation / snapshot / batch-native wins are largely MINED. The residual
+LOSSES cluster into ONE root cause: fnx accesses neighbours/degree across the PyO3 boundary
+PER NODE, while nx reads native Python _adj/_degree dicts. fnx WINS at scale (amortised) but
+loses on small/per-node access:
+- dominating_set 0.94x(n150)->0.81x(n500): greedy touches ~V/deg nodes, each one set(_raw_nbrs
+  (G,v)) PyO3; snapshot wastes O(V+E) for the few touched; native kernel diverges (set-order).
+- maximal_independent_set 0.88x(n150)->1.16x(n500): small-input only, WINS at scale.
+- selfloop_edges/number_of_selfloops (up5ig), is_path (ykqs0), link-pred small-ebunch,
+  common_neighbors single: all the same per-node PyO3 vs nx Python-dict tax.
+The RADICAL fix for the whole class is the persistent ordered Python adjacency mirror (4b5ie)
+— one big substrate change would flip all of these. Not attempted (large/risky for one turn).
+
 ## link-pred small-ebunch 0.47-0.89x = same small-input PyO3 tax
 
 preferential_attachment(ebunch) 0.47x, resource 0.62x, adamic 0.65x, jaccard 0.89x on a
