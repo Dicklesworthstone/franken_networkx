@@ -77,6 +77,18 @@ PYTHON dijkstra loop (heap+dict ops per node), not adjacency — k4p0b needs a N
 bidirectional kernel (the undirected _native_bidirectional_dijkstra is undirected-only,
 374/1043 on directed). lc2qy (single-pair early-exit). Undirected path family already WINS 1.3-3.4x.
 
+## DAG/distance/line-graph sweep — all WIN, 1 inherently-exponential near-parity
+
+Swept DAG/distance/line-graph: eccentricity 13.79x, wiener_index 13.63x,
+closeness_centrality 11.20x, local_reaching_centrality 8.79x, reciprocity 8.12x,
+attracting_components 4.37x, line_graph 4.33x, is_aperiodic 2.72x, transitive_reduction
+1.38x WINS. dag_to_branching 0.68x on a dense DAG / 0.96x near-parity on a sparse DAG —
+it enumerates ALL root-to-leaf paths (exponential) then prefix_tree's them; both fnx and
+nx are bound by the path explosion (36ms even on a 200-node sparse DAG, 0.96x). The 0.68x
+dense-DAG gap is prefix_tree on exponentially-many paths — inherent + less-common, not a
+clean lever. VERIFIED undirected bidirectional unaffected by the p60i1 binding branch
+(weighted clean 2.30x, no regression). Surface stays comprehensively dominated.
+
 ## Native bidirectional MUTATED-weight per-call sync (filed br-r37-c1-6spkb)
 
 The directed kernel (p60i1) WINS the COMMON case (clean/add_edge graphs: directed
