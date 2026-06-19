@@ -18,7 +18,7 @@ Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin
 | **gutman_index native routing** | conn(200) | 5.43ms | 11.73ms | **2.16x** | WIN | keep |
 | **schultz_index native routing** | conn(200) | 5.44ms | 11.96ms | **2.20x** | WIN | keep |
 | **generalized_degree native routing** | conn(400) | 0.60ms | 1.93ms | **3.23x** | WIN | keep |
-| **google_matrix native routing** | gnp(500,.05) digraph | 15.58ms | 5.46ms | **0.34x** | **LOSS** | **REVERT** (kernel returns list-of-lists; np.asarray conversion dominates. Old Python path = 0.80x, much better. Keep the separate dangling-redistribution BUG FIX.) |
+| ~~google_matrix native routing~~ REVERTED | gnp(500,.05) digraph | 15.58ms->3.31ms | 5.46ms->3.06ms | 0.34x->**0.93x** | **REVERTED 30d99dcaf** | DONE — removed routing, numpy path restored (0.78x@200/0.93x@500, up from 0.34x). Dangling bug fix retained, conformance 58 pass. |
 
 ## Pre-existing losses surfaced by profiling (not cc optimizations — to investigate/file)
 

@@ -23,7 +23,7 @@ Status of perf claims that were committed `code-first batch-test pending`.
 
 | Area | Optimization | Measured | Action |
 | --- | --- | --- | --- |
-| Link analysis | google_matrix native routing | 0.34x | REVERT (pending — __init__.py held by peer; exact block + numbers sent twice; bug fix retained) |
+| Link analysis | google_matrix native routing | 0.34x->0.93x | **REVERTED** 30d99dcaf — routing removed (was list-of-lists conversion tax), numpy path 0.93x@n=500, dangling fix kept, conformance green |
 | Link-pred | preferential_attachment (9142) | 0.55x | FLAGGED to CrimsonRiver (their kernel; not a cc file) |
 
 ## Open gaps surfaced (file/investigate)
