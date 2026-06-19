@@ -2,9 +2,9 @@
 
 Scope: code-first perf backlog verification for `br-r37-c1-04z53`.
 
-Current verdict: not release-ready for the full campaign. Six backlog beads now
-have measured head-to-head evidence; the remaining pending rows still need the
-same treatment.
+Current verdict: not release-ready for the full campaign. Seven backlog beads
+are represented here with measured head-to-head evidence; the remaining pending
+rows still need the same treatment.
 
 ## Measured Rows
 
@@ -16,6 +16,7 @@ same treatment.
 | 2026-06-19 | `br-r37-c1-04z53.9147` | raw/public `degree_mixing_dict` on hub-spoke h512/s32 | raw `_fnx` mean `0.568 ms`; public fnx mean `12.165 ms` | NetworkX means `112.368 ms` raw-group, `107.249 ms` public-group | raw `197.68x`; public `8.82x` | Pass | focused assortativity conformance: `234 passed` | Keep |
 | 2026-06-19 | `br-r37-c1-04z53.9149` | raw/public `node_degree_xy` on hub-spoke h512/s32 and directed fan l512/f32 | raw means `2.468 ms` undirected, `4.413 ms` directed; public means `579.651 ms`, `360.700 ms` | NetworkX means `116.486 ms`, `124.292 ms`, `113.781 ms`, `115.593 ms` | raw `47.20x`/`28.17x` but invalid; public `0.196x`/`0.320x` | Fail: raw output drift and public loss | focused public conformance stayed green; raw source reverted | Reject |
 | 2026-06-19 | `br-r37-c1-04z53.9152` | raw/public `average_degree_connectivity` on hub-spoke/isolate h512/s32/i256 | raw `_fnx` mean `0.149 ms`; public fnx mean `27.992 ms` | NetworkX means `52.729 ms` raw-group, `52.300 ms` public-group | raw `354.68x`; public `1.87x` | Pass | focused assortativity conformance: `234 passed` | Keep |
+| 2026-06-19 | `br-r37-c1-04z53.9140` | public `common_neighbor_centrality` on a 600-node sparse undirected graph with 2000 explicit non-edge pairs | fnx mean `38.862787 ms`, CV `1.895%` | vendored NetworkX mean `143.846328 ms`, CV `1.316%` | `3.701x` | Pass | focused link-prediction conformance: `397 passed` | Keep |
 
 ## Method
 
@@ -27,10 +28,14 @@ same treatment.
 - Assortativity benchmark commands:
   `PYTHONHASHSEED=0 OMP_NUM_THREADS=1 VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b cargo bench -p fnx-python --bench networkx_head_to_head -- networkx_head_to_head_assortativity --sample-size 20 --warm-up-time 1 --measurement-time 2`
   and the same command filtered to `networkx_head_to_head_assortativity_raw`.
+- CCPA benchmark command:
+  `AGENT_NAME=CrimsonRiver PYTHONHASHSEED=0 OMP_NUM_THREADS=1 VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b taskset -c 2 cargo bench -p fnx-python --bench networkx_head_to_head -- networkx_head_to_head_link_prediction --sample-size 10 --warm-up-time 3 --measurement-time 15`
 - Criterion estimates:
   `/data/projects/.rch-targets/franken_networkx-cod-a/criterion/flow_hierarchy_weighted_cyclic_dag/{fnx,networkx}/new/estimates.json`.
   Assortativity estimates:
   `/data/projects/.rch-targets/franken_networkx-cod-b/criterion/networkx_head_to_head_assortativity*/`.
+  CCPA estimates:
+  `/data/projects/.rch-targets/franken_networkx-cod-b/criterion/networkx_head_to_head_link_prediction/`.
 - Host context: 64 logical CPUs; load average during the pinned run was
   `27.43, 43.55, 29.56`.
 - Python oracle identity: `legacy_networkx_code/networkx/networkx/__init__.py`,
@@ -40,10 +45,10 @@ same treatment.
 
 | Pillar | Score | Notes |
 | --- | ---: | --- |
-| Performance evidence | 4 keeps / 6 measured rows | Edge expansion, weighted flow hierarchy, degree mixing, and average degree connectivity beat NetworkX; node expansion and node_degree_xy lost or drifted and were reverted. |
-| Conformance evidence | focused guards green for kept rows | Edge expansion reports `197 passed`; flow hierarchy reports `99 passed`; assortativity reports `234 passed`. |
-| Negative-evidence discipline | 6 / 6 updated | The ledger records keep, reject, noisy, contaminated, and invalid-output measurement attempts. |
-| Backlog conversion | 6 measured rows; 17 June pending rows remain | Campaign remains red until the rest of the pending code-first rows are measured or reverted. |
+| Performance evidence | 5 keeps / 7 measured rows | Edge expansion, weighted flow hierarchy, degree mixing, average degree connectivity, and CCPA beat NetworkX; node expansion and node_degree_xy lost or drifted and were reverted. |
+| Conformance evidence | focused guards green for kept rows | Edge expansion reports `197 passed`; flow hierarchy reports `99 passed`; assortativity reports `234 passed`; CCPA reports `397 passed`. |
+| Negative-evidence discipline | 7 / 7 updated | The ledger records keep, reject, noisy, contaminated, and invalid-output measurement attempts. |
+| Backlog conversion | 7 measured rows represented here; pending rows remain | Campaign remains red until the rest of the pending code-first rows are measured or reverted. |
 
-Next required rows: the cod-a link-prediction `.9139..9151` cluster and the
-remaining June pending rows in `docs/progress/perf-negative-results.md`.
+Next required rows: the remaining link-prediction `.9139..9151` cluster and
+the rest of the June pending rows in `docs/progress/perf-negative-results.md`.

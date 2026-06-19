@@ -41,6 +41,11 @@ struct AssortativityWorkloads {
     nx_average_degree_connectivity: Py<PyAny>,
 }
 
+struct LinkPredictionWorkloads {
+    fnx_common_neighbor_centrality: Py<PyAny>,
+    nx_common_neighbor_centrality: Py<PyAny>,
+}
+
 fn prepare_cut_metric_workloads(py: Python<'_>) -> PyResult<CutMetricWorkloads> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
@@ -48,12 +53,14 @@ fn prepare_cut_metric_workloads(py: Python<'_>) -> PyResult<CutMetricWorkloads> 
         .and_then(Path::parent)
         .expect("fnx-python crate must live under crates/");
     let python_dir = repo_root.join("python");
+    let legacy_dir = repo_root.join("legacy_networkx_code").join("networkx");
 
     let sys = py.import("sys")?;
     let path = sys.getattr("path")?;
     let path = path.cast::<PyList>()?;
-    path.insert(0, python_dir.to_str().expect("repo path must be UTF-8"))?;
     path.insert(0, repo_root.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, python_dir.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, legacy_dir.to_str().expect("repo path must be UTF-8"))?;
 
     let locals = PyDict::new(py);
     py.run(
@@ -131,12 +138,14 @@ fn prepare_assortativity_workloads(py: Python<'_>) -> PyResult<AssortativityWork
         .and_then(Path::parent)
         .expect("fnx-python crate must live under crates/");
     let python_dir = repo_root.join("python");
+    let legacy_dir = repo_root.join("legacy_networkx_code").join("networkx");
 
     let sys = py.import("sys")?;
     let path = sys.getattr("path")?;
     let path = path.cast::<PyList>()?;
-    path.insert(0, python_dir.to_str().expect("repo path must be UTF-8"))?;
     path.insert(0, repo_root.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, python_dir.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, legacy_dir.to_str().expect("repo path must be UTF-8"))?;
 
     let locals = PyDict::new(py);
     py.run(
@@ -256,6 +265,112 @@ assert fnx_raw_average_degree_connectivity() == nx_average_degree_connectivity()
         fnx_average_degree_connectivity: callable("fnx_average_degree_connectivity")?,
         fnx_raw_average_degree_connectivity: callable("fnx_raw_average_degree_connectivity")?,
         nx_average_degree_connectivity: callable("nx_average_degree_connectivity")?,
+    })
+}
+
+fn prepare_link_prediction_workloads(py: Python<'_>) -> PyResult<LinkPredictionWorkloads> {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("fnx-python crate must live under crates/");
+    let python_dir = repo_root.join("python");
+    let legacy_dir = repo_root.join("legacy_networkx_code").join("networkx");
+
+    let sys = py.import("sys")?;
+    let path = sys.getattr("path")?;
+    let path = path.cast::<PyList>()?;
+    path.insert(0, repo_root.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, python_dir.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, legacy_dir.to_str().expect("repo path must be UTF-8"))?;
+
+    let locals = PyDict::new(py);
+    py.run(
+        cstring(
+            r#"
+import math
+import random
+import sys
+
+for _name in list(sys.modules):
+    if _name == "networkx" or _name.startswith("networkx."):
+        del sys.modules[_name]
+
+import networkx as nx
+import franken_networkx as fnx
+
+if "legacy_networkx_code" not in getattr(nx, "__file__", ""):
+    raise AssertionError(f"expected vendored NetworkX oracle, got {nx.__file__!r}")
+
+def _sparse_edges(node_count, probability, seed):
+    rng = random.Random(seed)
+    for u in range(node_count):
+        for v in range(u + 1, node_count):
+            if rng.random() < probability:
+                yield (u, v)
+
+def _paired_sparse_graph(node_count, probability, seed):
+    edges = list(_sparse_edges(node_count, probability, seed))
+    fnx_graph = fnx.Graph()
+    nx_graph = nx.Graph()
+    fnx_graph.add_nodes_from(range(node_count))
+    nx_graph.add_nodes_from(range(node_count))
+    fnx_graph.add_edges_from(edges)
+    nx_graph.add_edges_from(edges)
+    return fnx_graph, nx_graph
+
+def _sample_non_edges(nx_graph, count, seed):
+    nodes = list(nx_graph)
+    pairs = []
+    for left_pos, u in enumerate(nodes):
+        for v in nodes[left_pos + 1:]:
+            if not nx_graph.has_edge(u, v):
+                pairs.append((u, v))
+    rng = random.Random(seed)
+    rng.shuffle(pairs)
+    return pairs[:count]
+
+def _consume_scores(scores):
+    total = 0.0
+    count = 0
+    for u, v, score in scores:
+        count += 1
+        total += (count * 0.000001) + (int(u) * 0.0000001) + (int(v) * 0.00000001) + float(score)
+    return total
+
+ccpa_fnx_graph, ccpa_nx_graph = _paired_sparse_graph(600, 0.03, 9140)
+ccpa_ebunch = _sample_non_edges(ccpa_nx_graph, 2000, 914001)
+
+_fnx_ccpa = list(fnx.common_neighbor_centrality(ccpa_fnx_graph, ccpa_ebunch, alpha=0.8))
+_nx_ccpa = list(nx.common_neighbor_centrality(ccpa_nx_graph, ccpa_ebunch, alpha=0.8))
+assert len(_fnx_ccpa) == len(_nx_ccpa)
+for (fu, fv, fs), (nu, nv, ns) in zip(_fnx_ccpa, _nx_ccpa):
+    assert (fu, fv) == (nu, nv)
+    assert math.isclose(fs, ns, rel_tol=0.0, abs_tol=1e-12)
+
+fnx_common_neighbor_centrality = lambda: _consume_scores(
+    fnx.common_neighbor_centrality(ccpa_fnx_graph, ccpa_ebunch, alpha=0.8)
+)
+nx_common_neighbor_centrality = lambda: _consume_scores(
+    nx.common_neighbor_centrality(ccpa_nx_graph, ccpa_ebunch, alpha=0.8)
+)
+"#,
+        )
+        .as_c_str(),
+        Some(&locals),
+        Some(&locals),
+    )?;
+
+    let callable = |name: &str| -> PyResult<Py<PyAny>> {
+        let callable = locals.get_item(name)?.ok_or_else(|| {
+            pyo3::exceptions::PyKeyError::new_err(format!("missing Python callable {name}"))
+        })?;
+        Ok(callable.unbind())
+    };
+
+    Ok(LinkPredictionWorkloads {
+        fnx_common_neighbor_centrality: callable("fnx_common_neighbor_centrality")?,
+        nx_common_neighbor_centrality: callable("nx_common_neighbor_centrality")?,
     })
 }
 
@@ -431,10 +546,32 @@ fn assortativity_raw_head_to_head(c: &mut Criterion) {
     group.finish();
 }
 
+fn link_prediction_head_to_head(c: &mut Criterion) {
+    Python::initialize();
+    let workloads = Python::attach(prepare_link_prediction_workloads)
+        .expect("failed to prepare link-prediction Python workloads");
+    let mut group = c.benchmark_group("networkx_head_to_head_link_prediction");
+    group.sample_size(20);
+
+    bench_python_callable(
+        &mut group,
+        "fnx_common_neighbor_centrality_g600_p003_e2000",
+        &workloads.fnx_common_neighbor_centrality,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_common_neighbor_centrality_g600_p003_e2000",
+        &workloads.nx_common_neighbor_centrality,
+    );
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     cut_metric_head_to_head,
     assortativity_head_to_head,
-    assortativity_raw_head_to_head
+    assortativity_raw_head_to_head,
+    link_prediction_head_to_head
 );
 criterion_main!(benches);

@@ -7,7 +7,8 @@ pending backlog (`br-r37-c1-04z53.9155` and `br-r37-c1-04z53.9153`) plus
 sampled edge-betweenness verification (`br-r37-c1-8ox3z.1`) and raw
 assortativity verification (`br-r37-c1-04z53.9147`, `.9149`, `.9152`) plus
 community link-prediction verification (`br-r37-c1-04z53.9141`) and
-undirected `non_edges` default-ebunch verification (`br-r37-c1-04z53.9143`).
+undirected `non_edges` default-ebunch verification (`br-r37-c1-04z53.9143`)
+plus CCPA link-prediction verification (`br-r37-c1-04z53.9140`).
 
 ## 2026-06-19 Cut-Metric Gauntlet Slice
 
@@ -208,3 +209,49 @@ Score delta:
 Release readiness verdict for this slice: **no release claim for undirected
 `non_edges` acceleration**. The next credible route is a batched Rust/PyO3
 non-edge generator measured against this same Criterion row.
+
+## 2026-06-19 CCPA Link-Prediction Gauntlet Slice
+
+Environment:
+- Commit under verification: working tree with the existing
+  `br-r37-c1-04z53.9140` raw CCPA scoring lever.
+- Reference: vendored original NetworkX from `legacy_networkx_code/networkx`,
+  asserted by the Criterion setup before timing.
+- Subject: editable local `franken_networkx` with release `_fnx.abi3.so`
+  rebuilt by `maturin develop --release -m crates/fnx-python/Cargo.toml
+  --features pyo3/abi3-py310`.
+- Bench command: `AGENT_NAME=CrimsonRiver PYTHONHASHSEED=0 OMP_NUM_THREADS=1 VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b taskset -c 2 cargo bench -p fnx-python --bench networkx_head_to_head -- networkx_head_to_head_link_prediction --sample-size 10 --warm-up-time 3 --measurement-time 15`.
+- Criterion artifacts:
+  `/data/projects/.rch-targets/franken_networkx-cod-b/criterion/networkx_head_to_head_link_prediction/`.
+- Workload: public `common_neighbor_centrality`, 600-node sparse undirected
+  graph, `p=0.03`, 2000 deterministic explicit non-edge pairs, `alpha=0.8`,
+  setup outside the timed calls.
+- Focused conformance: `tests/python/test_link_prediction_conformance.py`
+  and `tests/python/test_link_prediction_edge_case_conformance_guard.py`
+  passed with `397 passed in 1.05s`.
+- Compile gate: `AGENT_NAME=CrimsonRiver CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo check -p fnx-python --benches`
+  passed on `hz1`.
+
+| Bead | Workload | FNX mean | NetworkX mean | Ratio vs NetworkX | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `br-r37-c1-04z53.9140` | public `common_neighbor_centrality`, explicit 2000-pair ebunch | 38.862787 ms | 143.846328 ms | 3.701x | Keep |
+
+Noise gate:
+- A shorter local row was positive (`37.418 ms` vs `163.987 ms`, `4.383x`)
+  but noisy (`6.358%`/`10.509%` CV), and a first pinned row was still above
+  the FNX CV gate (`5.844%`). The keep decision uses the final pinned row
+  (`1.895%`/`1.316%` CV).
+
+Score delta:
+- Performance evidence: +4. The CCPA raw scoring lever moved from code-first
+  pending to a measured public head-to-head keep.
+- Conformance evidence: +2. Focused link-prediction parity and edge-case guards
+  stayed green against the rebuilt extension.
+- Benchmark rigor: +2. The final row is pinned to one CPU, reports sub-2% CVs,
+  asserts the vendored NetworkX oracle, and records the discarded noisy rows.
+- Ledger hygiene: +2. The pending CCPA ledger row is retired with artifact path,
+  ratio, and a specific next-route condition.
+
+Release readiness verdict for this slice: **conditional pass for public
+`common_neighbor_centrality` on simple undirected graphs with explicit ebunches**.
+Default-ebunch and all-pairs/source-block reuse remain separate workload gates.
