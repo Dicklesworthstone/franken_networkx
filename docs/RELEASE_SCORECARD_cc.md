@@ -20,6 +20,7 @@ Status of perf claims that were committed `code-first batch-test pending`.
 | Generator | barabasi_albert / watts_strogatz | 1.31x / 1.12x |
 | Construction | to_directed / to_undirected / copy (bjomp) | 1.14x / 1.24x / 2.14x |
 | Centrality | betweenness k-sampled (8ox3z, scaffold-validated) | **49.78x** |
+| Code-first batch | assortativity 9147-52 (degree_assort 78x) / expansion-cut-flow 9153-55 (flow_hierarchy 219x) | 2.4-219x, parity-verified |
 
 ## Verified LOSSES → action
 
@@ -36,7 +37,7 @@ Status of perf claims that were committed `code-first batch-test pending`.
 | ~~attributed construction~~ RESOLVED | 0.71x->**1.24x** | FIXED via bjomp immutable-attr deepcopy fast-path (6f9854787): to_directed 1.14x, to_undirected 1.24x, copy 2.14x. Was fnx's weakest area; now WINS. Residual to_undirected reciprocal-merge = tbh4q. |
 | waxman_graph | 0.87x | marginal; residual O(n^2) distance vs nx; batch was self-win not nx-win. |
 | adamic_adar / resource_allocation | ~0.95x | neutral at scale; fine. |
-| **CONSTRUCTION-SUBSTRATE FRONTIER** | 0.41-0.70x | The residual loss cluster, all ONE root (per-node/edge PyO3 materialization + slow native build/clone methods): relabel_nodes 0.41x (label round-trips; native attempt reverted), compose 0.49x (slow _native_compose), union 0.65x, MultiGraph.copy 0.45x (jelx1), __deepcopy__ walk (489mp). bjomp PROVED this frontier is beatable where the cost is copy.deepcopy (to_directed/copy reversed to WINS). |
+| **CONSTRUCTION-SUBSTRATE FRONTIER** | 0.41-0.70x | EXACT ROOT isolated (cc): the per-node/edge attr-dict PyO3 shallow-copy. compose WITHOUT attrs is a 1.36x WIN (structure+keys already beat nx); WITH attrs 0.54x (attrs = ~6000 dict copies). So relabel 0.41x / compose 0.49x / union 0.65x / MultiGraph.copy 0.45x are all the attr-copy wall, NOT keys/structure. EXACT FIX: copy-on-write attr mirrors (tbh4q). bjomp already reversed the adjacent deepcopy case (to_directed/copy WIN). |
 
 ## Broad domain sweep (7 domains profiled, fnx dominates)
 
