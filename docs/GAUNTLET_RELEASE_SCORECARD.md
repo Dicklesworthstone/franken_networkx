@@ -3,7 +3,7 @@
 Scope: code-first perf backlog verification for `br-r37-c1-04z53` plus
 `br-r37-c1-tbh4q`.
 
-Current verdict: not release-ready for the full campaign. Eight backlog beads
+Current verdict: not release-ready for the full campaign. Nine backlog beads
 are represented here with measured head-to-head evidence; the remaining pending
 rows still need the same treatment.
 
@@ -18,6 +18,7 @@ rows still need the same treatment.
 | 2026-06-19 | `br-r37-c1-04z53.9149` | raw/public `node_degree_xy` on hub-spoke h512/s32 and directed fan l512/f32 | raw means `2.468 ms` undirected, `4.413 ms` directed; public means `579.651 ms`, `360.700 ms` | NetworkX means `116.486 ms`, `124.292 ms`, `113.781 ms`, `115.593 ms` | raw `47.20x`/`28.17x` but invalid; public `0.196x`/`0.320x` | Fail: raw output drift and public loss | focused public conformance stayed green; raw source reverted | Reject |
 | 2026-06-19 | `br-r37-c1-04z53.9152` | raw/public `average_degree_connectivity` on hub-spoke/isolate h512/s32/i256 | raw `_fnx` mean `0.149 ms`; public fnx mean `27.992 ms` | NetworkX means `52.729 ms` raw-group, `52.300 ms` public-group | raw `354.68x`; public `1.87x` | Pass | focused assortativity conformance: `234 passed` | Keep |
 | 2026-06-19 | `br-r37-c1-04z53.9140` | public `common_neighbor_centrality` on a 600-node sparse undirected graph with 2000 explicit non-edge pairs | fnx mean `38.862787 ms`, CV `1.895%` | vendored NetworkX mean `143.846328 ms`, CV `1.316%` | `3.701x` | Pass | focused link-prediction conformance: `397 passed` | Keep |
+| 2026-06-19 | `br-r37-c1-04z53.9139` | raw `cn_soundarajan_hopcroft` and `ra_index_soundarajan_hopcroft` on the 800-node repeated-overlap explicit ebunch public-gauntlet fixture | CN-SH FNX mean `413.047 ms`; RA-SH FNX mean `468.675 ms` | CN-SH NetworkX mean `1535.405 ms`; RA-SH NetworkX mean `2077.587 ms` | CN-SH `3.72x`; RA-SH `4.43x` | Pass: disjoint Criterion CIs; direct-loop checksums matched | focused community/link-prediction conformance: `634 passed` | Keep |
 | 2026-06-19 | `br-r37-c1-tbh4q` | `DiGraph.to_undirected()` attr-heavy 3000-node/12000-edge directed graph, 100 calls/sample, direct pinned loop | fnx mean `31.144 ms/call`, CV `3.551%` | vendored NetworkX `3.7rc0.dev0` mean `38.003 ms/call`, CV `2.403%` | `1.220x` | Pass | focused to-undirected/reverse guards: `133 passed`; copy/lazy stress: `245 passed` | Keep |
 
 ## Method
@@ -32,6 +33,9 @@ rows still need the same treatment.
   and the same command filtered to `networkx_head_to_head_assortativity_raw`.
 - CCPA benchmark command:
   `AGENT_NAME=CrimsonRiver PYTHONHASHSEED=0 OMP_NUM_THREADS=1 VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b taskset -c 2 cargo bench -p fnx-python --bench networkx_head_to_head -- networkx_head_to_head_link_prediction --sample-size 10 --warm-up-time 3 --measurement-time 15`
+- Soundarajan-Hopcroft benchmark command:
+  `AGENT_NAME=CrimsonRiver PYTHONHASHSEED=0 OMP_NUM_THREADS=1 VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH PYTHONPATH=/data/projects/.scratch/franken_networkx-cod-a-20260619T053601Z/crates/fnx-python/benches:/data/projects/.scratch/franken_networkx-cod-a-20260619T053601Z/python:/data/projects/.scratch/franken_networkx-cod-a-20260619T053601Z/legacy_networkx_code/networkx CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a taskset -c 4 cargo bench -p fnx-python --bench public_api_gauntlet -- 'raw_.*soundarajan' --sample-size 10 --warm-up-time 1 --measurement-time 8`
+  RCH note: `rch exec -- cargo bench -p fnx-python --bench public_api_gauntlet -- 'raw_.*soundarajan' ...` built successfully on `hz1` but failed before measurement with `ModuleNotFoundError("No module named 'public_api_gauntlet'")`; the local Criterion run above is the keep gate.
 - `to_undirected` benchmark command:
   `AGENT_NAME=CrimsonRiver PYTHONHASHSEED=0 OMP_NUM_THREADS=1 VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH PYTHONPATH=/data/projects/franken_networkx/crates/fnx-python/benches:/data/projects/franken_networkx/python:/data/projects/franken_networkx/legacy_networkx_code/networkx taskset -c 4 .venv/bin/python` using the `digraph_to_undirected_attr_heavy` helper from `crates/fnx-python/benches/public_api_gauntlet.py`.
 - `to_undirected` diagnostic Criterion artifacts:
@@ -43,6 +47,8 @@ rows still need the same treatment.
   `/data/projects/.rch-targets/franken_networkx-cod-b/criterion/networkx_head_to_head_assortativity*/`.
   CCPA estimates:
   `/data/projects/.rch-targets/franken_networkx-cod-b/criterion/networkx_head_to_head_link_prediction/`.
+  Soundarajan-Hopcroft estimates:
+  `/data/projects/.rch-targets/franken_networkx-cod-a/criterion/raw_*soundarajan_hopcroft_repeated_overlap/`.
 - Host context: 64 logical CPUs; load average during the pinned run was
   `27.43, 43.55, 29.56`.
 - Python oracle identity: `legacy_networkx_code/networkx/networkx/__init__.py`,
@@ -52,10 +58,10 @@ rows still need the same treatment.
 
 | Pillar | Score | Notes |
 | --- | ---: | --- |
-| Performance evidence | 6 keeps / 8 measured rows | Edge expansion, weighted flow hierarchy, degree mixing, average degree connectivity, CCPA, and attr-heavy `to_undirected` beat NetworkX; node expansion and node_degree_xy lost or drifted and were reverted. |
-| Conformance evidence | focused guards green for kept rows | Edge expansion reports `197 passed`; flow hierarchy reports `99 passed`; assortativity reports `234 passed`; CCPA reports `397 passed`; `to_undirected` reports `133 + 245 passed`. |
-| Negative-evidence discipline | 8 / 8 updated | The ledger records keep, reject, noisy, contaminated, post-analysis-crash, and invalid-output measurement attempts. |
-| Backlog conversion | 8 measured rows represented here; pending rows remain | Campaign remains red until the rest of the pending code-first rows are measured or reverted. |
+| Performance evidence | 7 keeps / 9 measured rows | Edge expansion, weighted flow hierarchy, degree mixing, average degree connectivity, CCPA, raw Soundarajan-Hopcroft, and attr-heavy `to_undirected` beat NetworkX; node expansion and node_degree_xy lost or drifted and were reverted. |
+| Conformance evidence | focused guards green for kept rows | Edge expansion reports `197 passed`; flow hierarchy reports `99 passed`; assortativity reports `234 passed`; CCPA reports `397 passed`; Soundarajan-Hopcroft reports `634 passed`; `to_undirected` reports `133 + 245 passed`. |
+| Negative-evidence discipline | 9 / 9 updated | The ledger records keep, reject, noisy, contaminated, remote-runtime, post-analysis-crash, and invalid-output measurement attempts. |
+| Backlog conversion | 9 measured rows represented here; pending rows remain | Campaign remains red until the rest of the pending code-first rows are measured or reverted. |
 
-Next required rows: the remaining link-prediction `.9139..9151` cluster and
+Next required rows: the remaining link-prediction `.9144..9151` cluster and
 the rest of the June pending rows in `docs/progress/perf-negative-results.md`.

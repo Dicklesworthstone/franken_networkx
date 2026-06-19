@@ -194,7 +194,8 @@ def _build_link_prediction_overlap_graph(
     rng = random.Random(seed)
     graph = module.Graph()
     node_count = clusters * size
-    graph.add_nodes_from(range(node_count))
+    for node in range(node_count):
+        graph.add_node(node, community=node // size)
     for cluster in range(clusters):
         start = cluster * size
         for node in range(start, start + size - 1):
@@ -294,6 +295,30 @@ if abs(_FNX_RAW_PA - _EXPECTED_RAW_PA) > 1e-9:
         f"raw preferential_attachment parity drift: fnx={_FNX_RAW_PA!r}, nx={_EXPECTED_RAW_PA!r}"
     )
 
+_EXPECTED_RAW_CN_SH = _consume_link_scores(
+    nx.cn_soundarajan_hopcroft(_NX_RAW_LINK_GRAPH, _RAW_LINK_EBUNCH)
+)
+_FNX_RAW_CN_SH = _consume_link_scores(
+    fnx._fnx.cn_soundarajan_hopcroft_rust(_FNX_RAW_LINK_GRAPH, _RAW_LINK_EBUNCH)
+)
+if abs(_FNX_RAW_CN_SH - _EXPECTED_RAW_CN_SH) > 1e-9:
+    raise AssertionError(
+        "raw cn_soundarajan_hopcroft parity drift: "
+        f"fnx={_FNX_RAW_CN_SH!r}, nx={_EXPECTED_RAW_CN_SH!r}"
+    )
+
+_EXPECTED_RAW_RA_SH = _consume_link_scores(
+    nx.ra_index_soundarajan_hopcroft(_NX_RAW_LINK_GRAPH, _RAW_LINK_EBUNCH)
+)
+_FNX_RAW_RA_SH = _consume_link_scores(
+    fnx._fnx.ra_index_soundarajan_hopcroft_rust(_FNX_RAW_LINK_GRAPH, _RAW_LINK_EBUNCH)
+)
+if abs(_FNX_RAW_RA_SH - _EXPECTED_RAW_RA_SH) > 1e-9:
+    raise AssertionError(
+        "raw ra_index_soundarajan_hopcroft parity drift: "
+        f"fnx={_FNX_RAW_RA_SH!r}, nx={_EXPECTED_RAW_RA_SH!r}"
+    )
+
 
 def fnx_raw_adamic_adar_repeated_overlap() -> float:
     total = 0.0
@@ -327,6 +352,44 @@ def networkx_resource_allocation_repeated_overlap() -> float:
     for _ in range(_RAW_LINK_API_REPEATS):
         total += _consume_link_scores(
             nx.resource_allocation_index(_NX_RAW_LINK_GRAPH, _RAW_LINK_EBUNCH)
+        )
+    return total
+
+
+def fnx_raw_cn_soundarajan_hopcroft_repeated_overlap() -> float:
+    total = 0.0
+    for _ in range(_RAW_LINK_API_REPEATS):
+        total += _consume_link_scores(
+            fnx._fnx.cn_soundarajan_hopcroft_rust(_FNX_RAW_LINK_GRAPH, _RAW_LINK_EBUNCH)
+        )
+    return total
+
+
+def networkx_cn_soundarajan_hopcroft_repeated_overlap() -> float:
+    total = 0.0
+    for _ in range(_RAW_LINK_API_REPEATS):
+        total += _consume_link_scores(
+            nx.cn_soundarajan_hopcroft(_NX_RAW_LINK_GRAPH, _RAW_LINK_EBUNCH)
+        )
+    return total
+
+
+def fnx_raw_ra_index_soundarajan_hopcroft_repeated_overlap() -> float:
+    total = 0.0
+    for _ in range(_RAW_LINK_API_REPEATS):
+        total += _consume_link_scores(
+            fnx._fnx.ra_index_soundarajan_hopcroft_rust(
+                _FNX_RAW_LINK_GRAPH, _RAW_LINK_EBUNCH
+            )
+        )
+    return total
+
+
+def networkx_ra_index_soundarajan_hopcroft_repeated_overlap() -> float:
+    total = 0.0
+    for _ in range(_RAW_LINK_API_REPEATS):
+        total += _consume_link_scores(
+            nx.ra_index_soundarajan_hopcroft(_NX_RAW_LINK_GRAPH, _RAW_LINK_EBUNCH)
         )
     return total
 

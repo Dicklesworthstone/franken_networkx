@@ -95,6 +95,26 @@ fn bench_public_api_gauntlet(c: &mut Criterion) {
                 "networkx_preferential_attachment_repeated_overlap",
             ),
             (
+                "raw_cn_soundarajan_hopcroft_repeated_overlap",
+                "fnx",
+                "fnx_raw_cn_soundarajan_hopcroft_repeated_overlap",
+            ),
+            (
+                "raw_cn_soundarajan_hopcroft_repeated_overlap",
+                "networkx",
+                "networkx_cn_soundarajan_hopcroft_repeated_overlap",
+            ),
+            (
+                "raw_ra_index_soundarajan_hopcroft_repeated_overlap",
+                "fnx",
+                "fnx_raw_ra_index_soundarajan_hopcroft_repeated_overlap",
+            ),
+            (
+                "raw_ra_index_soundarajan_hopcroft_repeated_overlap",
+                "networkx",
+                "networkx_ra_index_soundarajan_hopcroft_repeated_overlap",
+            ),
+            (
                 "digraph_to_undirected_attr_heavy",
                 "fnx",
                 "fnx_digraph_to_undirected_attr_heavy",

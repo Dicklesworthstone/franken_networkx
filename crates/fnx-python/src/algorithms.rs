@@ -18527,21 +18527,44 @@ pub fn to_dict_of_lists_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<P
 
 /// CN Soundarajan-Hopcroft link prediction.
 #[pyfunction]
-#[pyo3(signature = (g, ebunch, community="community"))]
+#[pyo3(signature = (g, ebunch=None, community="community"))]
 pub fn cn_soundarajan_hopcroft_rust(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
-    ebunch: Vec<(Bound<'_, PyAny>, Bound<'_, PyAny>)>,
+    ebunch: Option<&Bound<'_, PyAny>>,
     community: &str,
 ) -> PyResult<Vec<(PyObject, PyObject, f64)>> {
     let gr = extract_graph(g)?;
+    require_not_multigraph(&gr)?;
+    require_undirected(&gr, "cn_soundarajan_hopcroft")?;
+    let pairs = extract_ebunch(py, &gr, ebunch)?;
+    validate_link_prediction_pairs(&gr, &pairs)?;
     let inner = gr.undirected();
-    let pairs: Vec<(String, String)> = ebunch
-        .iter()
-        .map(|(u, v)| Ok((node_key_to_string(py, u)?, node_key_to_string(py, v)?)))
-        .collect::<PyResult<_>>()?;
     let result =
         py.allow_threads(|| fnx_algorithms::cn_soundarajan_hopcroft(inner, &pairs, community));
+    Ok(result
+        .into_iter()
+        .map(|(u, v, s)| (gr.py_node_key(py, &u), gr.py_node_key(py, &v), s))
+        .collect())
+}
+
+/// RA-index Soundarajan-Hopcroft link prediction.
+#[pyfunction]
+#[pyo3(signature = (g, ebunch=None, community="community"))]
+pub fn ra_index_soundarajan_hopcroft_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    ebunch: Option<&Bound<'_, PyAny>>,
+    community: &str,
+) -> PyResult<Vec<(PyObject, PyObject, f64)>> {
+    let gr = extract_graph(g)?;
+    require_not_multigraph(&gr)?;
+    require_undirected(&gr, "ra_index_soundarajan_hopcroft")?;
+    let pairs = extract_ebunch(py, &gr, ebunch)?;
+    validate_link_prediction_pairs(&gr, &pairs)?;
+    let inner = gr.undirected();
+    let result = py
+        .allow_threads(|| fnx_algorithms::ra_index_soundarajan_hopcroft(inner, &pairs, community));
     Ok(result
         .into_iter()
         .map(|(u, v, s)| (gr.py_node_key(py, &u), gr.py_node_key(py, &v), s))
@@ -20221,8 +20244,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(nodes_with_selfloops_rust, m)?)?;
     // To dict of lists
     m.add_function(wrap_pyfunction!(to_dict_of_lists_rust, m)?)?;
-    // CN Soundarajan-Hopcroft
+    // Soundarajan-Hopcroft link prediction
     m.add_function(wrap_pyfunction!(cn_soundarajan_hopcroft_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(ra_index_soundarajan_hopcroft_rust, m)?)?;
     // Triad type
     m.add_function(wrap_pyfunction!(triad_type_rust, m)?)?;
     // BFS beam edges
