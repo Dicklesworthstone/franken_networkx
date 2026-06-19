@@ -283,6 +283,17 @@ if abs(_FNX_RAW_RA - _EXPECTED_RAW_RA) > 1e-9:
         f"raw resource_allocation_index parity drift: fnx={_FNX_RAW_RA!r}, nx={_EXPECTED_RAW_RA!r}"
     )
 
+_EXPECTED_RAW_PA = _consume_link_scores(
+    nx.preferential_attachment(_NX_RAW_LINK_GRAPH, _RAW_LINK_EBUNCH)
+)
+_FNX_RAW_PA = _consume_link_scores(
+    fnx._fnx.preferential_attachment(_FNX_RAW_LINK_GRAPH, _RAW_LINK_EBUNCH)
+)
+if abs(_FNX_RAW_PA - _EXPECTED_RAW_PA) > 1e-9:
+    raise AssertionError(
+        f"raw preferential_attachment parity drift: fnx={_FNX_RAW_PA!r}, nx={_EXPECTED_RAW_PA!r}"
+    )
+
 
 def fnx_raw_adamic_adar_repeated_overlap() -> float:
     total = 0.0
@@ -316,5 +327,117 @@ def networkx_resource_allocation_repeated_overlap() -> float:
     for _ in range(_RAW_LINK_API_REPEATS):
         total += _consume_link_scores(
             nx.resource_allocation_index(_NX_RAW_LINK_GRAPH, _RAW_LINK_EBUNCH)
+        )
+    return total
+
+
+def _attr_digraph_edges(node_count: int, edge_count: int):
+    idx = 0
+    for step in range(1, node_count):
+        for u in range(node_count):
+            v = (u + step) % node_count
+            for left, right in ((u, v), (v, u)):
+                idx += 1
+                yield (left, right, idx)
+                if idx >= edge_count:
+                    return
+
+
+def _build_attr_digraph(module, node_count: int, edge_count: int):
+    graph = module.DiGraph()
+    for node in range(node_count):
+        graph.add_node(
+            node,
+            color=f"c{node % 17}",
+            size=node,
+            group=node % 31,
+        )
+    for u, v, idx in _attr_digraph_edges(node_count, edge_count):
+        graph.add_edge(
+            u,
+            v,
+            weight=float((idx % 23) + 1),
+            label=f"e{idx % 257}",
+            bucket=idx % 13,
+        )
+    graph.graph["name"] = "to-undirected-attr-heavy"
+    graph.graph["nodes"] = node_count
+    graph.graph["edges"] = edge_count
+    return graph
+
+
+def _to_undirected_record(graph) -> tuple:
+    undirected = graph.to_undirected()
+    nodes = tuple(sorted((node, tuple(sorted(data.items()))) for node, data in undirected.nodes(data=True)))
+    edges = tuple(
+        sorted(
+            (
+                min(u, v),
+                max(u, v),
+                tuple(sorted(data.items())),
+            )
+            for u, v, data in undirected.edges(data=True)
+        )
+    )
+    return nodes, edges, tuple(sorted(undirected.graph.items()))
+
+
+def _records_match(left: tuple, right: tuple) -> bool:
+    return left == right
+
+
+def _consume_to_undirected(graph) -> float:
+    undirected = graph.to_undirected()
+    return float(
+        undirected.number_of_nodes()
+        + undirected.number_of_edges()
+        + len(undirected.graph)
+    )
+
+
+_TO_UNDIRECTED_NODE_COUNT = 3000
+_TO_UNDIRECTED_EDGE_COUNT = 12000
+_TO_UNDIRECTED_REPEAT = 100
+_FNX_TO_UNDIRECTED_GRAPH = _build_attr_digraph(
+    fnx, _TO_UNDIRECTED_NODE_COUNT, _TO_UNDIRECTED_EDGE_COUNT
+)
+_NX_TO_UNDIRECTED_GRAPH = _build_attr_digraph(
+    nx, _TO_UNDIRECTED_NODE_COUNT, _TO_UNDIRECTED_EDGE_COUNT
+)
+
+_ORACLE_TO_UNDIRECTED = _to_undirected_record(_NX_TO_UNDIRECTED_GRAPH)
+_FNX_TO_UNDIRECTED = _to_undirected_record(_FNX_TO_UNDIRECTED_GRAPH)
+if not _records_match(_FNX_TO_UNDIRECTED, _ORACLE_TO_UNDIRECTED):
+    raise AssertionError("DiGraph.to_undirected attr-heavy parity drift")
+
+
+def fnx_digraph_to_undirected_attr_heavy() -> float:
+    total = 0.0
+    for _ in range(_TO_UNDIRECTED_REPEAT):
+        total += _consume_to_undirected(_FNX_TO_UNDIRECTED_GRAPH)
+    return total
+
+
+def networkx_digraph_to_undirected_attr_heavy() -> float:
+    total = 0.0
+    for _ in range(_TO_UNDIRECTED_REPEAT):
+        total += _consume_to_undirected(_NX_TO_UNDIRECTED_GRAPH)
+    return total
+
+
+def fnx_raw_preferential_attachment_repeated_overlap() -> float:
+    total = 0.0
+    for _ in range(_RAW_LINK_API_REPEATS):
+        total += _consume_link_scores(
+            fnx._fnx.preferential_attachment(_FNX_RAW_LINK_GRAPH, _RAW_LINK_EBUNCH)
+        )
+    return total
+
+
+def networkx_preferential_attachment_repeated_overlap() -> float:
+    total = 0.0
+    for _ in range(_RAW_LINK_API_REPEATS):
+        total += _consume_link_scores(
+            nx.preferential_attachment(_NX_RAW_LINK_GRAPH, _RAW_LINK_EBUNCH)
         )
     return total

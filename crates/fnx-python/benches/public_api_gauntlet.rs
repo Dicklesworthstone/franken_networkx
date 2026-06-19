@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use pyo3::types::PyAnyMethods;
 use pyo3::{Py, PyAny, Python};
 
@@ -83,6 +83,26 @@ fn bench_public_api_gauntlet(c: &mut Criterion) {
                 "raw_resource_allocation_repeated_overlap",
                 "networkx",
                 "networkx_resource_allocation_repeated_overlap",
+            ),
+            (
+                "raw_preferential_attachment_repeated_overlap",
+                "fnx",
+                "fnx_raw_preferential_attachment_repeated_overlap",
+            ),
+            (
+                "raw_preferential_attachment_repeated_overlap",
+                "networkx",
+                "networkx_preferential_attachment_repeated_overlap",
+            ),
+            (
+                "digraph_to_undirected_attr_heavy",
+                "fnx",
+                "fnx_digraph_to_undirected_attr_heavy",
+            ),
+            (
+                "digraph_to_undirected_attr_heavy",
+                "networkx",
+                "networkx_digraph_to_undirected_attr_heavy",
             ),
         ] {
             let callable = helper
