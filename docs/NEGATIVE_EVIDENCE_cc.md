@@ -77,6 +77,16 @@ PYTHON dijkstra loop (heap+dict ops per node), not adjacency — k4p0b needs a N
 bidirectional kernel (the undirected _native_bidirectional_dijkstra is undirected-only,
 374/1043 on directed). lc2qy (single-pair early-exit). Undirected path family already WINS 1.3-3.4x.
 
+## broad centrality sweep (group/percolation/communicability) — all WIN/neutral
+
+Swept: communicability_betweenness 106.33x, percolation_centrality(weight) 13.67x,
+group_closeness 7.05x, katz_centrality_numpy 3.57x, subgraph_centrality_exp 2.85x,
+current_flow_betweenness(weight) 1.66x WINS; group_betweenness 0.96x / harmonic_centrality
+(distance) 0.96x neutral. harmonic(distance) DELEGATES (parity 0.96x, not a loss); de-
+delegation via per-source single_source_dijkstra loop ATTEMPTED+REVERTED (0.81x — V
+single-source SETUPS cost more than the delegation's single conversion; all_pairs would
+amortize but it is parity, not worth the accumulate-cost risk). No real new loss.
+
 ## weighted-centrality audit — all WIN/neutral after scipy-mirror vein
 
 After the scipy-matvec vein (pagerank prscipy, eigenvector eigscipy, katz katzscipy), swept
