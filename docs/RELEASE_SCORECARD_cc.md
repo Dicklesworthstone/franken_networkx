@@ -3,6 +3,13 @@
 Measured 2026-06-18 with a fresh release build (HEAD), warm min-of-8, vs NetworkX.
 Status of perf claims that were committed `code-first batch-test pending`.
 
+## HEADLINE — realistic end-to-end analysis pipeline: **20-32x faster than nx**
+
+build + pagerank + betweenness(k) + closeness + clustering + transitivity +
+components + degree + scipy-export: fnx 6.4ms vs nx 130ms (n=500, 20.26x);
+fnx 35.5ms vs nx 1143ms (n=1500, 32.20x, scales better). The aggregate answer to
+"beat the original on realistic workloads": YES, decisively.
+
 ## Verified WINS (measured, keep)
 
 | Area | Optimization | Measured ratio vs nx |

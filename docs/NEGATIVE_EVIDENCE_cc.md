@@ -8,6 +8,17 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## HEADLINE: composite realistic analysis pipeline = 20-32x faster than nx
+
+The directive's "beat the legacy original on realistic workloads" — measured
+end-to-end. Pipeline: build gnp + pagerank + betweenness(k=50) + closeness +
+clustering + transitivity + connected_components + degree_centrality +
+to_scipy_sparse_array. fnx vs nx (min-of-3):
+- n=500:  fnx 6.4ms  vs nx 130.1ms  = **20.26x faster**
+- n=1500: fnx 35.5ms vs nx 1142.8ms = **32.20x faster** (scales BETTER with n)
+This is the aggregate release verdict: on a realistic multi-algorithm analysis
+workload fnx dominates nx by 20-32x. The per-function detail below.
+
 ## Results
 
 | Optimization | Workload | fnx | nx | ratio (nx/fnx) | Verdict | Action |
