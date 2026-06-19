@@ -31830,20 +31830,26 @@ def is_valid_degree_sequence_erdos_gallai(deg_sequence):
     # with p = max(k, #{d : d >= k}). 27x on a 400-degree sequence (matches nx);
     # the boolean result is bit-identical to the previous code (verified across
     # thousands of graphical / non-graphical / edge-case sequences).
-    import bisect
-
     prefix = [0] * (n + 1)
     for i in range(n):
         prefix[i + 1] = prefix[i] + seq[i]
     total = prefix[n]
-    seq_ascending = seq[::-1]
+    # br-r37-c1-egsweep (cc): ``m`` = count of degrees >= k, tracked with a single
+    # descending pointer (seq is non-increasing, so the elements >= k are the prefix
+    # seq[0..m-1]) — O(n) total instead of a per-k ``bisect`` (O(n log n)). AND break
+    # at the Durfee corner: by Tripathi-Vijay the Erdos-Gallai inequalities only need
+    # checking for k up to s = max{k : d_k >= k} (the h-index); once m < k every
+    # remaining k holds automatically. For low-max-degree sequences s << n, so this
+    # checks ~s rows not n — the default eg method was ~0.64x of nx (it looped all n).
+    m = n
     for k in range(1, n + 1):
-        lhs = prefix[k]
-        count_ge_k = n - bisect.bisect_left(seq_ascending, k)
-        p = k if count_ge_k < k else count_ge_k
-        sum_min = (p - k) * k + (total - prefix[p])
+        while m > 0 and seq[m - 1] < k:
+            m -= 1
+        if m < k:
+            break
+        sum_min = (m - k) * k + (total - prefix[m])
         rhs = k * (k - 1) + sum_min
-        if lhs > rhs:
+        if prefix[k] > rhs:
             return False
     return True
 
