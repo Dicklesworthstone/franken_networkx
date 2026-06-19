@@ -3,7 +3,8 @@
 Target: FrankenNetworkX no-gaps performance gauntlet.
 
 Scope of this update: cut-metric public wrappers from the recent code-first
-pending backlog (`br-r37-c1-04z53.9155` and `br-r37-c1-04z53.9153`).
+pending backlog (`br-r37-c1-04z53.9155` and `br-r37-c1-04z53.9153`) plus
+sampled edge-betweenness verification (`br-r37-c1-8ox3z.1`).
 
 ## 2026-06-19 Cut-Metric Gauntlet Slice
 
@@ -44,3 +45,35 @@ Score:
 Release readiness verdict for this slice: **conditional pass for `edge_expansion`;
 no release claim for `node_expansion`**. Full project release readiness remains blocked
 on the broader pending perf backlog and full conformance matrix.
+
+## 2026-06-19 Sampled Edge-Betweenness Gauntlet Slice
+
+Environment:
+- Commit under verification: `2032eb47b`.
+- Reference: upstream `networkx 3.6.1` from `.venv`.
+- Subject: editable local `franken_networkx` with release `_fnx.abi3.so`
+  rebuilt by `maturin develop --release`.
+- Bench command: filtered Criterion `fnx-python` bench for
+  `edge_betweenness_centrality(gnp_random_graph(600, 0.03, seed=1), k=50, seed=1)`.
+- Criterion artifacts:
+  `/data/projects/.rch-targets/franken_networkx-cod-a/criterion/networkx_head_to_head_edge_betweenness/`.
+- Focused conformance: `test_betweenness_k_sampled_conformance_guard.py` passed
+  with `19 passed in 0.44s`.
+- Compile gate: `AGENT_NAME=CrimsonRiver CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo check -p fnx-python --benches` passed.
+
+| Bead | Workload | FNX mean | NetworkX mean | FNX speedup | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `br-r37-c1-8ox3z.1` | `edge_betweenness_centrality`, gnp600 p=0.03, `k=50`, `seed=1` | 36.214 ms | 149.119 ms | 4.12x | Keep |
+
+Score delta:
+- Performance evidence: +4. The sibling edge sampled route now has a real
+  Criterion head-to-head keep instead of a pending code-first note.
+- Conformance evidence: +2. The no-delegation sampled betweenness guard remains
+  green for node and edge variants.
+- Ledger hygiene: +2. The pending `br-r37-c1-8ox3z.1` row is retired with a
+  concrete retry condition and artifact path.
+
+Release readiness verdict for this slice: **conditional pass for sampled
+`edge_betweenness_centrality` on unweighted simple graphs**. Weighted, multigraph,
+and unsupported parameter combinations still intentionally route through the
+NetworkX parity path.
