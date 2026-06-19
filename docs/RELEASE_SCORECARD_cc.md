@@ -26,6 +26,7 @@ Status of perf claims that were committed `code-first batch-test pending`.
 | --- | --- | --- |
 | dijkstra_path(u,v) single-pair | 0.49x | conversion/weighted-setup tax; in-process single-pair candidate |
 | betweenness_centrality k-sampled | ~0.89x | delegates to nx; native k-sampling lever filed br-r37-c1-8ox3z (CrimsonRiver implementing) |
+| attributed construction/conversion | 0.59-0.98x | subgraph/copy ~parity; to_directed 0.83x, to_undirected 0.59x. Substrate tax (PyDict alloc + PyO3 labels); CrimsonRiver tbh4q. fnx's weakest area vs nx. |
 
 ## Broad domain sweep (7 domains profiled, fnx dominates)
 

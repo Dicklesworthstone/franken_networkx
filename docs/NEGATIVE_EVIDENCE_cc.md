@@ -27,6 +27,25 @@ Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin
 | dijkstra_path(u,v) single-pair | gnp(400,.04) | 1.16ms | 0.57ms | **0.49x** | single-pair likely pays full fnx->nx conversion or weighted-setup overhead while unweighted shortest_path (2.47x) / astar (6.34x) WIN. Candidate: in-process single-pair dijkstra. FILE. |
 | max_weight_matching | gnp(300,.05) weighted | 86ms | 81ms | 0.94x | order-blocked native kernel (kpnc8); marginal, known. |
 
+## Construction folds (with_mirror) — measured NEUTRAL-to-LOSS vs nx (substrate tax)
+
+Attributed graph n=2000 (node attrs + edge attrs), warm min-of-6:
+
+| Fold | fnx | nx | ratio | Verdict |
+| --- | --- | --- | --- | --- |
+| subgraph().copy() | 8.46ms | 7.79ms | 0.92x | NEUTRAL |
+| G.copy() | 10.06ms | 9.83ms | 0.98x | NEUTRAL |
+| to_directed() | 44.92ms | 37.45ms | 0.83x | LOSS |
+| to_undirected() | 102.24ms | 60.31ms | 0.59x | LOSS |
+
+**Do NOT revert**: the with_mirror folds collapsed a double dict-crossing into one
+pass — strictly <= the pre-fold cost (self-improvement, byte-identical). The
+vs-nx loss is the **construction substrate tax** (per-node/edge PyDict alloc +
+PyO3 label round-trips), NOT the folds. to_undirected (0.59x) additionally pays
+the reciprocal-edge merge — CrimsonRiver's tbh4q lazy-AttrMap lever (in progress).
+RELEASE NOTE: attributed graph construction/conversion is fnx's weakest area vs nx;
+it is the substrate-tax frontier, not a routing/algorithm gap.
+
 ## Eigensolver-gate detail (the headline reversal)
 
 `symmetric_eigvals_rust` (safe-Rust eig) was used unconditionally on the general
