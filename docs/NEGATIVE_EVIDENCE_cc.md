@@ -30,6 +30,17 @@ intersection) would push to WINS. preferential_attachment 0.78x is a SEPARATE lo
 kernel 9142). The stamp-mark fix lives in fnx-algorithms/src/lib.rs (TealSpring's file,
 NOT a cc file) — baseline recorded here as the peer's measured bench target.
 
+## Multigraph biconnected family + MST 6-10x slower — FILED br-r37-c1-ij951 (parallel-edge-dependent, deeper)
+
+Post-fyxma2 multigraph sweep found another cluster: articulation_points 0.12x,
+is_biconnected 0.10x, biconnected_components 0.15x, MST 0.26x, bfs_edges 0.82x — all
+CORRECT (20/20 parity w/ parallel edges) but slow. ROOT: gr.undirected() (118) runs
+multigraph_to_simple_graph (attr-copy conversion) before the simple kernel. UNLIKE
+connectivity, biconnectivity/MST DEPEND on parallel edges (cycle vs bridge; min
+parallel edge), so the fyxma dedup-BFS trick is UNSAFE here — needs a multigraph-aware
+int-CSR biconnected/MST kernel (deeper/riskier). Filed br-r37-c1-ij951. bridges 1.41x already WINS
+(handles multigraphs natively). Simple-graph biconnected already fast.
+
 ## SHIPPED fyxma2: multigraph connectivity siblings 12-50x slower -> WIN/parity
 
 The fyxma fix (connected_components direct-adjacency BFS) had THREE unfixed siblings
