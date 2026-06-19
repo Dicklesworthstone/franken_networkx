@@ -27,6 +27,21 @@ Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin
 | dijkstra_path(u,v) single-pair WEIGHTED | gnp(400,.04) wt | 5.85ms | 0.72ms | **0.12x** | DIAGNOSED + FILED br-r37-c1-j5u29. ROOT CAUSE: fnx `_raw_dijkstra_path` computes the FULL single-source SSSP (fnx dijkstra_path time ~= single_source time) then extracts path; nx early-TERMINATES when target is popped from heap. dijkstra_path_length same (4x). bidirectional_dijkstra (2.29ms) better but still 3x nx. Needs target-aware early-exit native dijkstra (Rust kernel, fnx-algorithms). Values already match nx. |
 | max_weight_matching | gnp(300,.05) weighted | 86ms | 81ms | 0.94x | order-blocked native kernel (kpnc8); marginal, known. |
 
+## Link-prediction scorers (CrimsonRiver 9142-9152) — measured (explicit ebunch 2000 pairs, gnp(800,.03))
+
+| Scorer | fnx | nx | ratio | Verdict |
+| --- | --- | --- | --- | --- |
+| jaccard_coefficient | 7.50ms | 11.47ms | 1.53x | WIN |
+| common_neighbor_centrality | 76.7ms | 205.8ms | 2.68x | WIN |
+| adamic_adar_index | 5.28ms | 5.03ms | 0.95x | NEUTRAL |
+| resource_allocation_index | 5.22ms | 5.00ms | 0.96x | NEUTRAL |
+| **preferential_attachment** | 2.61ms | 1.43ms | **0.55x** | **LOSS** |
+
+preferential_attachment (1.8x slower, persists at scale) is the simplest scorer
+(deg(u)*deg(v)); nx is a trivial Python degree product. fnx's path (CrimsonRiver
+9142 raw kernel) is slower — likely binding/per-pair overhead exceeding nx's
+lightweight loop. CrimsonRiver's area (flagged via mail). Not a cc file.
+
 ## Construction folds (with_mirror) — measured NEUTRAL-to-LOSS vs nx (substrate tax)
 
 Attributed graph n=2000 (node attrs + edge attrs), warm min-of-6:
