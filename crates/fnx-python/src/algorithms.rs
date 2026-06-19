@@ -6158,11 +6158,59 @@ pub fn transitivity(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
     Ok(py.allow_threads(|| fnx_algorithms::clustering_coefficient(inner).transitivity))
 }
 
+/// br-r37-c1-lzh3n (cc): triangle count per node of a MultiGraph by a direct dedup
+/// integer-CSR count (no simple-Graph build). Multiplicity-invariant (a triangle uses
+/// distinct edges; parallel edges and self-loops form none). Matches nx: per node v,
+/// (sum over distinct neighbours w of |N(v) ∩ N(w)|) / 2.
+fn multigraph_triangles(mg: &fnx_classes::MultiGraph) -> Vec<(String, usize)> {
+    use std::collections::{HashMap, HashSet};
+    let nodes = mg.nodes_ordered();
+    let n = nodes.len();
+    let index: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+    let mut adj: Vec<HashSet<usize>> = vec![HashSet::new(); n];
+    for (i, &nd) in nodes.iter().enumerate() {
+        if let Some(nbrs) = mg.neighbors(nd) {
+            for v in nbrs {
+                if let Some(&j) = index.get(v) {
+                    if j != i {
+                        adj[i].insert(j);
+                    }
+                }
+            }
+        }
+    }
+    let mut out: Vec<(String, usize)> = Vec::with_capacity(n);
+    for (i, &nd) in nodes.iter().enumerate() {
+        let mut t = 0usize;
+        for &w in &adj[i] {
+            // iterate the smaller set for the intersection count
+            let (a, b) = if adj[i].len() <= adj[w].len() {
+                (&adj[i], &adj[w])
+            } else {
+                (&adj[w], &adj[i])
+            };
+            t += a.iter().filter(|x| b.contains(*x)).count();
+        }
+        out.push((nd.to_owned(), t / 2));
+    }
+    out
+}
+
 /// Return the number of triangles for each node.
 #[pyfunction]
 pub fn triangles(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "triangles")?;
+    if let GraphRef::MultiUndirected { mg, .. } = &gr {
+        // br-r37-c1-lzh3n: direct dedup triangle count over the multigraph adjacency.
+        let inner = &mg.inner;
+        let result = py.allow_threads(|| multigraph_triangles(inner));
+        let dict = PyDict::new(py);
+        for (node, count) in &result {
+            dict.set_item(gr.py_node_key(py, node), *count)?;
+        }
+        return Ok(dict.unbind());
+    }
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::triangles(inner));
     let dict = PyDict::new(py);
