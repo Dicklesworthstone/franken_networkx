@@ -15,8 +15,13 @@ greedy_color 10.5x, maximal_matching 10.9x, is_planar 6.85x, chain_decomposition
 min_weighted_vertex_cover 6.65x). simple_cycles APPEARED 0.61x but that was the
 islice(100) ORDER artifact (fnx/nx enumerate cycles in different order, so the first
 100 differ) — measured fairly (ALL cycles, same count) it is 0.93-0.97x NEUTRAL.
-5TH setup-artifact. dominating_set 0.70x is sub-0.1ms noise. min_edge_cover is a REAL
-~1.2x loss (0.80x vs rebuilt, 0.86x vs generator) — a less-common function; recorded.
+5TH setup-artifact. dominating_set 0.70x is sub-0.1ms noise. min_edge_cover is a REAL ~1.2x loss (0.80x vs rebuilt) — TRACED (cProfile): it
+delegates to max_weight_matching -> nx's Python blossom (the native blossom is
+order-blocked, kpnc8). The loss is the fnx->nx conversion tax for the parity-required
+nx blossom. De-delegation would be WORSE: the blossom is adjacency-heavy and fnx's
+PyO3 adjacency access inside nx's algorithm would exceed the conversion. So it is
+near-optimal given the order-blocked native blossom; the only real fix is fixing the
+native blossom's tuple orientation (kpnc8). Less-common + deep. NOT a quick lever.
 
 ## CONSOLIDATED: after rigorous re-measurement, fnx's ONLY real loss surface is construction
 
