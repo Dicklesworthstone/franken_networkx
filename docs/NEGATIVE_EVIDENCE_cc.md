@@ -30,6 +30,15 @@ intersection) would push to WINS. preferential_attachment 0.78x is a SEPARATE lo
 kernel 9142). The stamp-mark fix lives in fnx-algorithms/src/lib.rs (TealSpring's file,
 NOT a cc file) — baseline recorded here as the peer's measured bench target.
 
+## 3rd + 4th broad sweeps (link-pred family, structural holes, reciprocity, etc.) — all WINS
+
+Post-degree-batch verification: Soundarajan community link-pred (cn_soundarajan 1.46x,
+ra_index 1.12x, within_inter_cluster 1.14x), structural holes (constraint 8.46x,
+effective_size 10.33x), dispersion(all) 11.15x, rich_club_coefficient 79.91x, s_metric
+177.30x, reciprocity 7.18x, overall_reciprocity 6.69x, voterank 1.60x, pagerank 2.63x,
+hits 1.36x — ALL WINS, zero new losses. The link-pred family is uniformly winning after
+the degree-batch fix. Cumulative ~140 functions measured; fnx dominates the surface.
+
 ## 2nd broad sweep (distance/traversal/tree/community/dominance) — 12/12 WINS, no new losses
 
 Swept 12 more unmeasured functions, ALL WINS: greedy_modularity_communities 20.67x,
