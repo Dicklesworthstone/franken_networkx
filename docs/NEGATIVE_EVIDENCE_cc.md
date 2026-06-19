@@ -30,12 +30,14 @@ intersection) would push to WINS. preferential_attachment 0.78x is a SEPARATE lo
 kernel 9142). The stamp-mark fix lives in fnx-algorithms/src/lib.rs (TealSpring's file,
 NOT a cc file) — baseline recorded here as the peer's measured bench target.
 
-## PRE-EXISTING (not cc): generalized_degree Graph-selfloop parity
+## FIXED (cc): generalized_degree Graph-selfloop parity (was pre-existing)
 
-test_clustering.py::TestGeneralizedDegreeParity::test_matches_networkx_without_fallback
-[Graph-Graph-selfloop-kwargs4] FAILS — VERIFIED pre-existing (fails identically on the
-build BEFORE my multigraph-triangles change). generalized_degree on a simple Graph with
-self-loops; cc never touched it. Flagged, not a cc regression.
+test_clustering.py::TestGeneralizedDegreeParity[Graph-Graph-selfloop-kwargs4] FAILED
+(pre-existing) — the native generalized_degree kernel counted a self-loop as a neighbour
+(spurious triangle-distribution entries); nx excludes self-loops. FIXED: gate the native
+path on number_of_selfloops==0, else the self-loop-correct Python triangle iterator.
+30/30 parity, test_clustering.py 83 passed. Common (no-selfloop) case keeps the native
+3.23x.
 
 ## PRE-EXISTING (not cc): 3 coverage/mixing test failures unrelated to MultiDiGraph work
 
