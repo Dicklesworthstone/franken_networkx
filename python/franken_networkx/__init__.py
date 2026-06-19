@@ -27978,6 +27978,14 @@ def _voronoi_nearest_centers(G, sources, *, weight):
     for s in sources:
         if s not in G:
             raise NodeNotFound(f"Node {s} not found in graph")
+    # br-r37-c1-2z0mw (cc): native source-propagating multi_source — returns {node: source}
+    # directly in finalize (distance) order, skipping the all-paths String construction
+    # (~the bulk of _raw_multi_source_dijkstra's cost) that voronoi throws away. The binding
+    # self-syncs via the weighted projection, so mutated weights are handled. Undirected
+    # only; directed keeps the path kernel below.
+    _mns = getattr(_fnx, "multi_source_nearest_source", None)
+    if _mns is not None and not G.is_directed() and isinstance(weight, str):
+        return dict(_mns(G, sources, weight))
     dists, paths = _raw_multi_source_dijkstra(G, sources, weight=weight)
     order = _reorder_by_distance(dists)
     return {node: paths[node][0] for node in order if node in paths}

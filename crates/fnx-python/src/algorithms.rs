@@ -3760,6 +3760,41 @@ pub fn bellman_ford_path(
 
 #[pyfunction]
 #[pyo3(signature = (g, sources, weight="weight"))]
+/// br-r37-c1-2z0mw (cc): for each reachable node, the nearest SOURCE (center) on its
+/// shortest path — what ``voronoi_cells`` consumes (``path[0]`` of multi_source) — without
+/// building any paths. Returns a list of ``(node, source)`` in finalize (distance) order,
+/// byte-identical to ``{v: paths[v][0]}``. Undirected only; the wrapper falls back for
+/// directed / callable weight.
+pub fn multi_source_nearest_source(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    sources: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<Py<pyo3::types::PyList>> {
+    let gr = extract_graph(g)?;
+    let iter = pyo3::types::PyIterator::from_object(sources)?;
+    let mut source_strs: Vec<String> = Vec::new();
+    for item in iter {
+        let item = item?;
+        source_strs.push(node_key_to_string(py, &item)?);
+    }
+    let source_refs: Vec<&str> = source_strs.iter().map(String::as_str).collect();
+    let weighted_projection = gr.dijkstra_weighted_undirected_projection(py, weight)?;
+    let result = {
+        let __wp = weighted_projection.as_ref();
+        py.allow_threads(|| {
+            fnx_algorithms::multi_source_dijkstra_nearest_source(__wp, &source_refs, weight)
+        })
+    };
+    let out = pyo3::types::PyList::empty(py);
+    for (node, source) in &result {
+        out.append((gr.py_node_key(py, node), gr.py_node_key(py, source)))?;
+    }
+    Ok(out.unbind())
+}
+
+#[pyfunction]
+#[pyo3(signature = (g, sources, weight="weight"))]
 pub fn multi_source_dijkstra(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
@@ -20520,6 +20555,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(graph_has_any_attrs, m)?)?;
     m.add_function(wrap_pyfunction!(bellman_ford_path, m)?)?;
     m.add_function(wrap_pyfunction!(multi_source_dijkstra, m)?)?;
+    m.add_function(wrap_pyfunction!(multi_source_nearest_source, m)?)?;
     m.add_function(wrap_pyfunction!(bidirectional_dijkstra, m)?)?;
     m.add_function(wrap_pyfunction!(dijkstra_path_to_target, m)?)?;
     // Connectivity

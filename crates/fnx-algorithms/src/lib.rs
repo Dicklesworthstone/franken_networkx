@@ -1358,6 +1358,85 @@ pub fn shortest_path_weighted_directed(
 }
 
 #[must_use]
+/// br-r37-c1-2z0mw (cc): multi-source Dijkstra returning, for each reachable node, the
+/// SOURCE (center) on its shortest path — i.e. ``path[0]`` of [`multi_source_dijkstra`] —
+/// WITHOUT building any paths. ``voronoi_cells`` only needs this mapping; propagating the
+/// source label (``source[v] = source[u]`` on each relaxation, exactly where the path
+/// kernel does ``path[v] = path[u] + [v]``) and skipping the all-paths String construction
+/// is the fix. Emitted in finalize (distance, push-seq) order — identical to the path
+/// kernel's key order — so ``{node: source}`` is byte-identical to ``{v: paths[v][0]}``.
+#[must_use]
+pub fn multi_source_dijkstra_nearest_source(
+    graph: &Graph,
+    sources: &[&str],
+    weight_attr: &str,
+) -> Vec<(String, String)> {
+    let ordered_nodes = graph.nodes_ordered();
+    let n = ordered_nodes.len();
+    let mut distances = vec![f64::INFINITY; n];
+    let mut source_of: Vec<usize> = vec![usize::MAX; n];
+    let mut pq: BinaryHeap<DijkstraState<usize>> = BinaryHeap::new();
+    let mut seq_counter: u64 = 0;
+    let mut finalize_order: Vec<usize> = Vec::with_capacity(n);
+    let mut finalized = vec![false; n];
+
+    for source_name in sources {
+        if let Some(s_idx) = graph.get_node_index(source_name)
+            && distances[s_idx].is_infinite()
+        {
+            distances[s_idx] = 0.0;
+            source_of[s_idx] = s_idx;
+            seq_counter += 1;
+            pq.push(DijkstraState {
+                dist: 0.0,
+                seq: seq_counter,
+                node: s_idx,
+            });
+        }
+    }
+
+    while let Some(DijkstraState { dist: d, node: u_idx, .. }) = pq.pop() {
+        if d > distances[u_idx] {
+            continue;
+        }
+        if !finalized[u_idx] {
+            finalized[u_idx] = true;
+            finalize_order.push(u_idx);
+        }
+        if let Some(neighbors) = graph.neighbors_indices(u_idx) {
+            for &v_idx in neighbors {
+                let edge_weight = graph
+                    .edge_attrs_by_indices(u_idx, v_idx)
+                    .and_then(|attrs| attrs.get(weight_attr))
+                    .and_then(|val| val.as_f64())
+                    .filter(|value| value.is_finite() && *value >= 0.0)
+                    .unwrap_or(1.0);
+                let next_dist = d + edge_weight;
+                if next_dist < distances[v_idx] - DISTANCE_COMPARISON_EPSILON {
+                    distances[v_idx] = next_dist;
+                    source_of[v_idx] = source_of[u_idx];
+                    seq_counter += 1;
+                    pq.push(DijkstraState {
+                        dist: next_dist,
+                        seq: seq_counter,
+                        node: v_idx,
+                    });
+                }
+            }
+        }
+    }
+
+    finalize_order
+        .into_iter()
+        .map(|idx| {
+            (
+                ordered_nodes[idx].to_owned(),
+                ordered_nodes[source_of[idx]].to_owned(),
+            )
+        })
+        .collect()
+}
+
 pub fn multi_source_dijkstra(
     graph: &Graph,
     sources: &[&str],
