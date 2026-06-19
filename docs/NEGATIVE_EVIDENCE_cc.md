@@ -30,6 +30,25 @@ intersection) would push to WINS. preferential_attachment 0.78x is a SEPARATE lo
 kernel 9142). The stamp-mark fix lives in fnx-algorithms/src/lib.rs (TealSpring's file,
 NOT a cc file) — baseline recorded here as the peer's measured bench target.
 
+## SHIPPED ubizp(partial): multigraph single_source_shortest_path 0.04x->0.59x (15x)
+
+Extended fyxma3 to PATHS: multigraph_sssp_paths BFS over the adjacency, building each
+node's path from its discovery-parent's path (&str refs -> cheap clones, materialized
+to String once at emit), matching nx's BFS-tree paths exactly (30/30 + cutoff). 0.04x
+-> 0.38x (String clones) -> 0.59x (&str). Residual 1.7x loss = path String
+materialization (nx uses native list-of-int-refs); index-based emit (like the simple
+single_source_shortest_path_index path) could close it further. 15x improvement of a
+25x loss; single-pair shortest_path/length still in ubizp.
+
+## PRE-EXISTING (not cc): dijkstra_path weighted tie-break divergence (seed 50)
+
+test_dijkstra_path_and_length_parity[False] fails: fnx dijkstra_path returns [0,1,2],
+nx [0,4,2] (both valid shortest paths, weighted tie). VERIFIED PRE-EXISTING on committed
+HEAD (cc_wheel6, before my single_source_shortest_path change) — NOT a cc regression.
+Same tie-break class as max_weight_matching (lmqwv) — fnx's dijkstra picks a different
+valid shortest path on weight ties than nx's exact relaxation order. Deep (match nx
+heap/relaxation tie-break). Flagged as a real conformance gap (weighted-path tie).
+
 ## Multigraph biconnected family + MST 6-10x slower — FILED br-r37-c1-ij951 (parallel-edge-dependent, deeper)
 
 Post-fyxma2 multigraph sweep found another cluster: articulation_points 0.12x,
