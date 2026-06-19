@@ -157,6 +157,19 @@ Python _graph_deepcopy which WALKS nodes/edges views + out[u][v] per element —
 substrate walk is the residual bottleneck. Unlike copy()/to_directed (now WINS via
 the native path), __deepcopy__ has no native same-type deep-copy. Filed br-r37-c1-489mp.
 
+## Broad differential conformance sweep — CLEAN (23 functions x 8 seeds)
+
+Swept 23 functions vs nx (triangles, clustering, square_clustering, core_number,
+closeness/harmonic/degree centrality, pagerank, katz_numpy, constraint,
+effective_size [undirected], eccentricity, average_clustering, transitivity,
+node_clique_number, number_of_cliques, local/global_efficiency, s_metric,
+wiener_index, estrada_index, degree_assortativity, rich_club). RESULT: all match nx.
+Two apparent divergences were FALSE POSITIVES: rich_club_coefficient default
+normalized=True is RANDOMIZED (normalized=False matches exactly); wiener_index on a
+disconnected graph is inf in both (comparison artifact: inf-inf=nan). No real
+regressions beyond effective_size (qbj9u, caught+reverted). The function surface is
+conformance-correct.
+
 ## Assortativity kernels (9147-9152) — VERIFIED correct + all WINS (fresh build)
 
 Measured head-to-head (attributed gnp(2000), warm min-of-6); parity verified.
