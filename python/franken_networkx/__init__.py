@@ -21893,6 +21893,46 @@ def edge_betweenness_centrality(
     return reordered
 
 
+def _katz_centrality_scipy(G, alpha, beta, max_iter, tol, nstart, normalized, weight):
+    """scipy.sparse matvec mirror of ``networkx.katz_centrality`` (br-r37-c1-katzscipy, cc).
+
+    nx's Katz power iteration is ``x <- alpha * A^T x + beta`` (L2-normalised when
+    ``normalized``), converging when the L1 delta < ``N * tol``. This rebuilds it on
+    fnx's fast ``to_scipy_sparse_array`` instead of delegating to nx (the full conversion
+    + nx's pure-Python loop made every non-default call 0.66-0.85x).
+    """
+    import numpy as _np
+
+    nodelist = list(G)
+    N = len(nodelist)
+    if N == 0:
+        return {}
+    A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight, dtype=float)
+    a_t = A.T.tocsr()
+    if nstart is None:
+        x = _np.zeros(N)
+    else:
+        x = _np.array([nstart.get(v, 0) for v in nodelist], dtype=float)
+    if isinstance(beta, dict):
+        if set(beta) != set(nodelist):
+            raise NetworkXError("beta dictionary must have a value for every node")
+        b = _np.array([beta[v] for v in nodelist], dtype=float)
+    else:
+        b = _np.full(N, float(beta))
+
+    for _ in range(max_iter):
+        xlast = x
+        x = alpha * (a_t @ xlast) + b
+        if _np.absolute(x - xlast).sum() < N * tol:
+            if normalized:
+                norm = _np.hypot.reduce(x)
+                if norm == 0:
+                    norm = 1.0
+                x = x / norm
+            return dict(zip(nodelist, map(float, x)))
+    raise PowerIterationFailedConvergence(max_iter)
+
+
 def katz_centrality(
     G,
     alpha=0.1,
@@ -21951,6 +21991,26 @@ def katz_centrality(
         or not normalized
         or weight is not None
     ):
+        # br-r37-c1-katzscipy (cc): scipy matvec mirror of nx's Katz power iteration
+        # (x <- alpha * A^T x + beta) for the non-default case, replacing the fnx->nx
+        # delegation (which paid the full conversion + nx's pure-Python loop: 0.66-0.85x).
+        # Gated to simple Graph/DiGraph, str/None weight, dict/None nstart, scalar/dict beta.
+        if (
+            not G.is_multigraph()
+            and isinstance(G, (Graph, DiGraph))
+            and (weight is None or isinstance(weight, str))
+            and (nstart is None or isinstance(nstart, dict))
+            and isinstance(beta, (int, float, dict))
+            and isinstance(normalized, bool)
+        ):
+            try:
+                return _katz_centrality_scipy(
+                    G, alpha, beta, max_iter, tol, nstart, normalized, weight
+                )
+            except PowerIterationFailedConvergence:
+                raise
+            except (ValueError, ZeroDivisionError, FloatingPointError, NetworkXError):
+                pass
         return _call_networkx_for_parity(
             "katz_centrality",
             G,
