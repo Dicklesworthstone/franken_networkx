@@ -6113,22 +6113,39 @@ def _graph_deepcopy(self, memo=None):
     """
     from copy import copy as _copy, deepcopy as _dc
 
+    # perf (br-r37-c1-bjomp, cc): when every value in an attrs dict is an
+    # immutable scalar (None/bool/int/float/str), copy.deepcopy is observably
+    # identical to a shallow dict copy — immutables are never copied and there
+    # are no nested containers for the memo to matter. Fast-path those to a plain
+    # `dict(attrs)`, falling back to copy.deepcopy (with the shared memo) for ANY
+    # non-scalar value so nested-mutable + cross-attr memo sharing is unchanged.
+    # Mirrors the deepcopy_py_dict Rust fast-path; cProfile showed copy.deepcopy
+    # dominating __deepcopy__ (269k calls / 1.42s on attributed DiGraph(1500)).
+    _immut = (bool, int, float, str)
+
+    def _dc_attrs(attrs):
+        d = dict(attrs)
+        for v in d.values():
+            if v is not None and type(v) not in _immut:
+                return _dc(d, memo)
+        return d
+
     out = _copy(self)
     vars(out)[_GRAPH_ATTR_OVERRIDE] = _dc(dict(self.graph), memo)
     for node, attrs in self.nodes(data=True):
         out_attrs = out.nodes[node]
         out_attrs.clear()
-        out_attrs.update(_dc(dict(attrs), memo))
+        out_attrs.update(_dc_attrs(attrs))
     if self.is_multigraph():
         for u, v, key, attrs in self.edges(keys=True, data=True):
             out_attrs = out[u][v][key]
             out_attrs.clear()
-            out_attrs.update(_dc(dict(attrs), memo))
+            out_attrs.update(_dc_attrs(attrs))
     else:
         for u, v, attrs in self.edges(data=True):
             out_attrs = out[u][v]
             out_attrs.clear()
-            out_attrs.update(_dc(dict(attrs), memo))
+            out_attrs.update(_dc_attrs(attrs))
     # br-r37-c1-9e7gd: nx preserves the frozen-graph flag (and its
     # mutator overrides) across deepcopy because it copies the
     # instance __dict__. fnx's _graph_deepcopy constructs a fresh
