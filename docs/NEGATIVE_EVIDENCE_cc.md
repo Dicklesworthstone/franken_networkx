@@ -97,6 +97,14 @@ raises and the assert errors. fnx is byte-correct. 35 'failures' = one unguarded
 DIAGNOSTIC: a conformance failure that reproduces IDENTICALLY in nx is a test bug, not a
 port gap — always compare the fnx error to nx's before filing as an fnx regression.
 
+## triangular/hexagonal_lattice 0.30-0.37x = tuple-key construction, need native kernel (br-r37-c1-ap7at)
+
+Products/lattice sweep mostly WIN (hypercube 19x, grid_graph 14x, lexicographic_product 3.5x,
+windmill 5x). triangular_lattice 0.30x + hexagonal 0.37x: _try_add_edges_from_batch with TUPLE
+keys (i,j) = 53pct (per-edge tuple-canonical conversion). grid_2d_graph WINS 14x via NATIVE
+_fnx.grid_2d_graph_simple kernel; triangular/hexagonal use pure-Python add_edges_from -> tax.
+Need native Rust kernels like grid. Combining 4 add_edges_from into 1 does NOT help. Rust-side.
+
 ## weighted matrix exports LOSE at scale n2000 (FILED wvuf7)
 
 BIG: at n=2000 WEIGHTED pagerank 0.54x, to_scipy 0.68x, adjacency_matrix 0.67x (unweighted
