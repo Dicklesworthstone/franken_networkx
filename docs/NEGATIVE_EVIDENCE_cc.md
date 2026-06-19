@@ -30,6 +30,17 @@ intersection) would push to WINS. preferential_attachment 0.78x is a SEPARATE lo
 kernel 9142). The stamp-mark fix lives in fnx-algorithms/src/lib.rs (TealSpring's file,
 NOT a cc file) — baseline recorded here as the peer's measured bench target.
 
+## zid1b MOSTLY SHIPPED: MultiDiGraph surface reclaimed (6 fns 24-114x); SCC is the deep remainder
+
+MultiDiGraph conversion-tax vein: SHIPPED sssp_length 0.03x->1.05x, weakly-connected
+family 0.04x->1.00-1.16x, single-pair shortest_path_length/has_path 0.00x->0.98-1.17x,
+is_strongly_connected 0.02x->3.87x(SC), descendants 0.03x->0.74x, ancestors 0.03x->0.71x
+(all direct successors/predecessors/CSR BFS, parity-verified, conformance green).
+REMAINING: strongly_connected_components 0.13x — FILED br-r37-c1-8hjsu as deep+order-sensitive (the
+SCC components must match nx's exact completion order for condensation; needs an
+nx-ordered Tarjan over the CSR, not the order-invariant BFS lever). pagerank 0.71x
+separate (numeric).
+
 ## MultiDiGraph surface 7-50x slower — FILED br-r37-c1-zid1b (mirror MultiGraph direct-adjacency)
 
 Swept MultiDiGraph: the ENTIRE shortest-path + connectivity + reachability surface
