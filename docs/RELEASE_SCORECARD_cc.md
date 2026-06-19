@@ -62,6 +62,7 @@ losses. Residual lc2qy = single-pair early-exit kernel variant (far-target 0.58x
 | MultiDiGraph | number_strongly_connected_components (11m92) Kosaraju CSR | **0.15x -> 4.31x** (29x swing) |
 | MultiDiGraph | topological_sort (11m92) native CSR Kahn | **0.18x -> 5.63x** (31x swing) |
 | Traversal | descendants_at_distance chain set-expansion (dadchain) | **0.32x -> 1.39-1.62x** (k-hop) |
+| Shortest-path | DIRECTED bidirectional_dijkstra native CSR kernel (p60i1) | **0.20x -> 2.43x** (12x swing) |
 | Link-pred | preferential_attachment / RA / AA degree-batch (pa-degbatch) | PA **0.78x->0.99x**, RA/AA neutral->**1.05-1.06x WIN** |
 | Code-first batch | assortativity 9147-52 (degree_assort 78x) / expansion-cut-flow 9153-55 (flow_hierarchy 219x) | 2.4-219x, parity-verified |
 
