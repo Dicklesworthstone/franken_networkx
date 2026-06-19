@@ -97,6 +97,15 @@ raises and the assert errors. fnx is byte-correct. 35 'failures' = one unguarded
 DIAGNOSTIC: a conformance failure that reproduces IDENTICALLY in nx is a test bug, not a
 port gap — always compare the fnx error to nx's before filing as an fnx regression.
 
+## bounded-query sweep DOMINATED; 2 substrate residuals
+
+Cutoff/depth-limit queries WIN (cutoff respected, native): sssp_length(cutoff) 1.94x,
+descendants_at_distance 1.88x, ego_graph(r=2) 1.68x, bfs_tree(depth) 1.97x, dfs_tree 1.81x,
+has_path 5.32x, shortest_path_length(s,t) 2.97x. LOSSES both substrate: single_target_
+shortest_path(cutoff) 0.48x = path-construction (wjc8m, filed); all_neighbors(single) 0.44x
+= is_directed() PyO3 check per call (~0.5us) + neighbors view vs nx Python attr — micro-op,
+rarely hot (algos use _raw_neighbors internally). No clean win.
+
 ## single-node clustering family: clean ego wins + substrate losses
 
 SWEPT single-node queries: node_clique_number 0.15x->1.56x + number_of_cliques single->10.63x
