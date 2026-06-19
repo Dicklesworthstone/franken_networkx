@@ -77,6 +77,16 @@ PYTHON dijkstra loop (heap+dict ops per node), not adjacency — k4p0b needs a N
 bidirectional kernel (the undirected _native_bidirectional_dijkstra is undirected-only,
 374/1043 on directed). lc2qy (single-pair early-exit). Undirected path family already WINS 1.3-3.4x.
 
+## Fresh cycles/cliques/coloring/connectivity sweep — all WIN, 0 losses
+
+Swept cycles/cliques/coloring/chordal/connectivity/matching: node_connectivity 35.55x,
+greedy_color 7.71x, find_cycle 7.06x, maximal_matching 5.02x, is_eulerian 3.94x,
+cycle_basis 2.50x, is_chordal 1.74x; neutral find_cliques 0.99x / simple_cycles 1.00x /
+dominating_set 0.90x (order/enumeration-bound, at parity). NO losses. Also swept
+neighborhood/layer: ego_graph 1.27-1.56x, descendants/ancestors 1.16-1.37x,
+single_source_spl 2.18-4.00x — all WIN (descendants_at_distance was the lone loss, FIXED
+dadchain 0.32x->1.45x). Domain comprehensively dominated.
+
 ## Fresh simple-graph sweep (tree/flow/community/centrality) — 1 loss, j5u29-class
 
 Swept tree/flow/community/centrality: WINS dominate (second_order_centrality 153x,
