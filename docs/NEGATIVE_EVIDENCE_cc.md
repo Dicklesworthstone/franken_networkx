@@ -30,6 +30,17 @@ intersection) would push to WINS. preferential_attachment 0.78x is a SEPARATE lo
 kernel 9142). The stamp-mark fix lives in fnx-algorithms/src/lib.rs (TealSpring's file,
 NOT a cc file) — baseline recorded here as the peer's measured bench target.
 
+## PRE-EXISTING (not cc): 3 coverage/mixing test failures unrelated to MultiDiGraph work
+
+test_coverage_gaps.py: test_public_coverage_has_no_networkx_delegated_exports,
+test_generated_coverage_matrix_document_is_current, and
+test_mixing_and_resistance_helpers_match_networkx_without_to_nx_fallback FAIL — VERIFIED
+PRE-EXISTING (fail identically on cc_wheelI, the build BEFORE number_scc) and in domains
+cc never touched (coverage-doc generation + degree-mixing/resistance helpers, not the
+MultiGraph/MultiDiGraph BFS routing this campaign did). My native routing only REMOVES
+delegation, so it cannot add NX_DELEGATED exports. Peer-domain / stale generated doc;
+flagged, not a cc regression.
+
 ## zid1b MOSTLY SHIPPED: MultiDiGraph surface reclaimed (6 fns 24-114x); SCC is the deep remainder
 
 MultiDiGraph conversion-tax vein: SHIPPED sssp_length 0.03x->1.05x, weakly-connected
