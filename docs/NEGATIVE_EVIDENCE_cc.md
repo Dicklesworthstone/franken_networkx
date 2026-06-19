@@ -285,6 +285,21 @@ formula (mutual-weight / redundancy normalization). Full guard suite after fix:
 1480 pass, 0 fail. LESSON: file-the-lever + ship-the-scaffold WORKS — the guard
 caught a wrong kernel implementation before it could ship.
 
+## CORRECTION: dijkstra_path single-pair — kernel ALREADY early-exits; cost is projection build
+
+HONEST CORRECTION (cc) of the j5u29 diagnosis: I claimed dijkstra_path computed full
+SSSP with no target early-exit. WRONG — the kernel shortest_path_weighted (lib.rs:1117)
+DOES early-exit (`if u == target { break; }` line ~1189). Re-measured built-with-weights
+(not the mutation-artifact): 0.22x@n=400 / 0.54x@n=1000, parity True. cProfile: 100% in
+_fnx.dijkstra_path (21ms/call). The REAL bottleneck is the per-call O(E)
+dijkstra_weighted_undirected_projection build — fnx builds the full weighted projection
+(O(E)) before the early-exit dijkstra, while nx reads weights lazily per edge. For a
+near target the projection build dwarfs the tiny BFS. FIX (revised j5u29): either cache
+the weighted projection (keyed by the existing dijkstra_weight_cache_token, amortizing
+repeated single-pair queries on the same graph) or read weights lazily during traversal
+(no pre-build). NOT an early-exit issue. THIRD honest correction (after node_link_data +
+weighted-pagerank) — measuring honestly enough to falsify my own prior diagnosis.
+
 ## NEGATIVE: __deepcopy__ -> to_directed routing is a DEAD END (tested 2026-06-18)
 
 Tested the obvious 489mp shortcut — route DiGraph.__deepcopy__ to the existing
