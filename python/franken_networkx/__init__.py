@@ -28057,6 +28057,22 @@ def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
             nbunch=nbunch,
             flow_func=flow_func,
         )
+    # br-r37-c1-apncnbunch (cc): all_pairs_node_connectivity_rust computes the FULL
+    # O(V^2) pair set regardless of nbunch; for a small nbunch that is hugely wasteful
+    # (a 4-node nbunch on n=120 computed all 7140 pairs -> 2839ms vs nx's 6ms, which runs
+    # only C(k,2) flows on a reused auxiliary graph). Delegate clean small-subset nbunch
+    # to nx; keep the native kernel for the all-pairs / near-full case where its Rust
+    # per-flow speed dominates. Gate on all-in-G so the KeyError contract is unchanged.
+    if nbunch is not None:
+        wanted = set(nbunch)
+        in_g = [n for n in wanted if n in G]
+        if len(in_g) == len(wanted) and len(in_g) <= len(G) // 2:
+            return _call_networkx_for_parity(
+                "all_pairs_node_connectivity",
+                G,
+                nbunch=nbunch,
+                flow_func=flow_func,
+            )
     flat = _fnx.all_pairs_node_connectivity_rust(G)
     if nbunch is None:
         nodes = list(G)
