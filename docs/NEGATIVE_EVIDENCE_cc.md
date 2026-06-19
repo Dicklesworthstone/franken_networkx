@@ -97,6 +97,17 @@ raises and the assert errors. fnx is byte-correct. 35 'failures' = one unguarded
 DIAGNOSTIC: a conformance failure that reproduces IDENTICALLY in nx is a test bug, not a
 port gap — always compare the fnx error to nx's before filing as an fnx regression.
 
+## min_edge_cover/max_weight_matching = order-sensitive blossom (NOT clean loss)
+
+RE-CHARACTERIZED (cc): min_edge_cover + max_weight_matching(maxcardinality) vary 0.54-1.04x
+across seeds (median 0.85x) — the HIGH VARIANCE is the blossom adjacency-order sensitivity
+(fnx internal adj order vs nx in the traversal), NOT just the rebuild artifact and NOT a
+consistent loss. nx.Graph(fnx.edges()) does NOT control the order (fnx vs nx internal structs
+differ). Cover result always correct (same size). min_edge_cover is locked to max_weight_
+matching for parity (specific matching edges). fnx adj order is on avg slightly less favorable;
+fixable only via an adjacency-order-matching substrate. NOT a clean win. Asteroidal/planarity/
+covering domain otherwise DOMINATED (find_asteroidal_triple 850x, is_at_free 826x).
+
 ## bounded-query sweep DOMINATED; 2 substrate residuals
 
 Cutoff/depth-limit queries WIN (cutoff respected, native): sssp_length(cutoff) 1.94x,
