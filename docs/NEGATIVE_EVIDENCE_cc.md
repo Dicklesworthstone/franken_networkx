@@ -26,7 +26,12 @@ is 8.8x FASTER (2.7ms vs nx 23.7ms) + valid (same weight) but diverges on ties (
 exact); test_matching_conformance needs bit-for-bit frozensets. Aligning the native
 blossom's processing order to nx's (gnodes=list(G) + adjacency order) would kill the
 6/20 divergence -> 8.8x WIN on the whole matching family (max_weight/min_weight/
-min_edge_cover). Deep (replicate nx blossom tie-breaks) but high-value.
+min_edge_cover). Deep (replicate nx blossom tie-breaks) but high-value. ASSESSED (cc): the node
+indexing (lib.rs:8059 node_names.sort_unstable() — lexicographic STRING sort) vs nx's
+insertion order (list(G)) is ONE divergence source — using sort==insertion labels
+lifts parity 14/20 -> 17/20, but 3/20 DEEPER divergences remain (augmenting-path /
+blossom-formation order). So the node-order fix is necessary-but-not-sufficient; full
+nx tie-break alignment is genuinely deep. Confirmed not a tractable single fix.
 
 ## CONSOLIDATED: after rigorous re-measurement, fnx's ONLY real loss surface is construction
 

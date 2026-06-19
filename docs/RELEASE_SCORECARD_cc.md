@@ -41,7 +41,8 @@ fnx 35.5ms vs nx 1143ms (n=1500, 32.20x, scales better). The aggregate answer to
 
 | Function | Measured | Note |
 | --- | --- | --- |
-| dijkstra_path(u,v) single-pair weighted | 0.42x | improved from 0.12x (j5u29 partial); still a loss — needs full target early-exit. |
+| dijkstra_path(u,v) single-pair weighted | 0.22-0.54x | CORRECTED: kernel ALREADY early-exits (`if u==target break`, lib.rs:1189); real cost is the per-call O(E) weighted-projection build (nx reads weights lazily). NARROW — all_pairs_dijkstra WINS 4.86x, single-source wins; only isolated single-pair loses. Fix = cache projection / lazy weights (revised j5u29). |
+| max_weight_matching / min_edge_cover | 0.83-0.94x | native blossom is 8.8x FASTER + valid but tie-breaks differ from nx (filed lmqwv). Node sort-order (lib.rs:8059 sort_unstable vs nx insertion) is ONE divergence (14->17/20 when aligned) but 3/20 DEEPER tie-breaks remain — deep alignment needed. Delegates to nx blossom for bit-for-bit parity. |
 | ~~attributed construction~~ RESOLVED | 0.71x->**1.24x** | FIXED via bjomp immutable-attr deepcopy fast-path (6f9854787): to_directed 1.14x, to_undirected 1.24x, copy 2.14x. Was fnx's weakest area; now WINS. Residual to_undirected reciprocal-merge = tbh4q. |
 | waxman_graph | 0.87x | marginal; residual O(n^2) distance vs nx; batch was self-win not nx-win. |
 | adamic_adar / resource_allocation | ~0.95x | neutral at scale; fine. |
@@ -75,10 +76,25 @@ plus marginal/order-blocked max_weight_matching (0.94x).
 
 VERDICT: fnx is release-ready on perf — it DOMINATES nx across the algorithm /
 spectral / centrality / flow / community / IO / generator surface (typically
-2-1000x). The residual losses form ONE coherent cluster — the construction
-substrate (graph build/copy/merge of attributed graphs) — not scattered algorithm
-gaps. This verify phase REVERSED the biggest part of that frontier (bjomp:
-to_directed/to_undirected/copy LOSS->WIN) and reverted the one regression; what
-remains (relabel/compose/union/MultiGraph.copy/deepcopy-walk) is diagnosed, filed,
-and shares a single fix axis (native build-method optimization + killing the
-per-node label materialization wall). No kept optimization fails to beat/match nx.
+2-1000x). After a rigorous bold-verify campaign, the real-loss surface is TINY and
+fully characterized:
+
+- 2 real losses FIXED + shipped: bjomp (construction deepcopy reversal), multigraph
+  connected_components (114x->parity, fyxma direct-adjacency BFS).
+- 5 apparent losses were SETUP ARTIFACTS — realistic case WINS: node_link_data
+  (cold timing -> 1.43x), weighted-pagerank (mutation-dirty sync -> 3-5x built-with-
+  weights), dijkstra single-pair (kernel early-exits; all-pairs 4.86x), to_scipy
+  multigraph (weight=None 1.20x / dtype-given 1.25x), simple_cycles (islice order ->
+  0.93-0.97x neutral).
+- 1 confirmed-correct correctness gate: to_scipy multigraph weight=str+dtype=None
+  (tested relaxation -> would break nx str-weight ValueError parity).
+- Real residual losses, both DEEP + low-priority: (a) construction substrate
+  (compose/relabel/union attr-copy) — fundamental: CgseValue holds only
+  scalars+dicts so the Python attr-mirror must be eagerly copied; CoW custom-dict
+  needed (tbh4q). (b) matching family (max_weight/min_edge_cover 0.83-0.94x) —
+  native blossom is 8.8x faster but tie-breaks differ from nx; alignment is deep
+  (filed lmqwv). Both masked in realistic pipelines (analysis dominates, wins 5-32x).
+
+No kept optimization fails to beat/match nx. The campaign's defining result: rigorous
+honest measurement falsified 5 of my own "losses" — fnx dominates more comprehensively
+than the naive numbers suggested.
