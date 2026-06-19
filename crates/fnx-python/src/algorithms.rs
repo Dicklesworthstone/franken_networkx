@@ -4317,6 +4317,37 @@ fn multidigraph_is_strongly_connected(mdg: &fnx_classes::digraph::MultiDiGraph) 
     csr_reach_count(&pred, 0, n) == n
 }
 
+/// br-r37-c1-zid1b (cc): BFS tree edges (parent, child) from `source` over a
+/// MultiDiGraph's successor adjacency — mirrors bfs_edges_directed for descendants,
+/// processing successors in order so discovery parents match nx. No simple-DiGraph build.
+fn multidigraph_bfs_edges(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+    source: &str,
+) -> Vec<(String, String)> {
+    use std::collections::{HashSet, VecDeque};
+    let mut edges: Vec<(String, String)> = Vec::new();
+    let nodes = mdg.nodes_ordered();
+    let source_ref = match nodes.iter().copied().find(|&n| n == source) {
+        Some(s) => s,
+        None => return edges,
+    };
+    let mut visited: HashSet<&str> = HashSet::new();
+    visited.insert(source_ref);
+    let mut queue: VecDeque<&str> = VecDeque::new();
+    queue.push_back(source_ref);
+    while let Some(node) = queue.pop_front() {
+        if let Some(succs) = mdg.successors(node) {
+            for v in succs {
+                if visited.insert(v) {
+                    edges.push((node.to_owned(), v.to_owned()));
+                    queue.push_back(v);
+                }
+            }
+        }
+    }
+    edges
+}
+
 #[pyfunction]
 pub fn is_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
@@ -10064,6 +10095,32 @@ pub fn descendants(
             }
             if v != source_key {
                 result.insert(v);
+            }
+        }
+        let py_nodes: Vec<PyObject> = result
+            .iter()
+            .map(|n| gr.disp_or_node_key(py, &disp, n))
+            .collect();
+        return pyo3::types::PySet::new(py, &py_nodes).map(|s| s.unbind());
+    }
+
+    if let GraphRef::MultiDirected { mdg, .. } = &gr {
+        // br-r37-c1-zid1b: descendants via direct successor-BFS tree edges, no conversion.
+        let inner = &mdg.inner;
+        let edges = py.allow_threads(|| multidigraph_bfs_edges(inner, &source_key));
+        let disp = gr.discovery_map(
+            py,
+            &edges,
+            Some((&source_key, source.clone().unbind())),
+            false,
+        );
+        let mut result: HashSet<String> = HashSet::new();
+        for (u, v) in &edges {
+            if u != &source_key {
+                result.insert(u.clone());
+            }
+            if v != &source_key {
+                result.insert(v.clone());
             }
         }
         let py_nodes: Vec<PyObject> = result
