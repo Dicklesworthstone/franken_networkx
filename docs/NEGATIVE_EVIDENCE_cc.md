@@ -8,6 +8,15 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## 2nd broad sweep (distance/traversal/tree/community/dominance) — 12/12 WINS, no new losses
+
+Swept 12 more unmeasured functions, ALL WINS: greedy_modularity_communities 20.67x,
+harmonic_centrality 14.18x, eccentricity/center/periphery 11.9-12.3x, transitive_closure
+5.57x, immediate_dominators 3.88x, label_propagation 1.90x, bfs_tree/dfs_tree 2.41x,
+minimum_spanning_tree 1.38x. Zero new losses. Cumulative: ~120 functions across ~14
+domains measured; fnx WINS everywhere except the 2 deep residuals (construction,
+matching) + the 5 corrected artifacts. Domination confirmed broad + deep.
+
 ## Broad less-common-function sweep — mostly WINS; simple_cycles is the 5th artifact
 
 Swept 12 less-common functions: WINS dominate (bridges 268x, articulation_points 38x,
