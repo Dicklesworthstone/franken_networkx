@@ -67,12 +67,12 @@ distance compute + construction). Batch stays (better than per-edge); not a reve
 | to_dict_of_dicts | 0.24ms | 0.28ms | 1.15x | WIN |
 | generate_edgelist | 5.90ms | 5.95ms | 1.01x | NEUTRAL |
 | generate_adjlist | 1.85ms | 1.83ms | 0.99x | NEUTRAL |
-| node_link_data | 4.64ms | 2.81ms | 0.61x | LOSS |
+| node_link_data | 2.37ms | 3.39ms | 1.43x | WIN (corrected: earlier 0.61x was cold-measurement NOISE; clean warm min-of-8 = 1.24x no-attrs / 1.43x attrs) |
 
-node_link_data 0.61x: pays the nodes(data=True)+edges(data=True) **view-
-materialization substrate tax** (same root as nodes(data=attr) 0.20x / dict(adjacency())
-0.19x — needs a persistent ordered Python node/adj mirror). Substrate-bound, not a
-quick routing fix. Tracked.
+node_link_data is a WIN (correction): edges(data=True) is at PARITY with nx
+(3.26ms vs 3.30ms, inherent O(E)), and clean re-measurement of node_link_data
+shows 1.24-1.43x WIN. The earlier 0.61x was a noisy cold measurement — HONEST
+CORRECTION. Lesson: warm min-of-8, not min-of-5, for these.
 
 ## dijkstra_path early-exit — confirmed (near vs far target)
 
@@ -87,10 +87,10 @@ Attributed graph n=2000 (node attrs + edge attrs), warm min-of-6:
 
 | Fold | fnx | nx | ratio | Verdict |
 | --- | --- | --- | --- | --- |
-| subgraph().copy() | 8.46ms | 7.79ms | 0.92x | NEUTRAL |
+| subgraph().copy() | 7.78ms | 6.26ms | 0.80x | LOSS (clean re-measure; was 0.92x) |
 | G.copy() | 10.06ms | 9.83ms | 0.98x | NEUTRAL |
-| to_directed() | 44.92ms | 37.45ms | 0.83x | LOSS |
-| to_undirected() | 102.24ms | 60.31ms | 0.59x | LOSS |
+| to_directed() | 38.83ms | 29.23ms | 0.75x | LOSS (confirmed clean) |
+| to_undirected() | 80.36ms | 57.10ms | 0.71x | LOSS (confirmed clean) |
 
 **Do NOT revert**: the with_mirror folds collapsed a double dict-crossing into one
 pass — strictly <= the pre-fold cost (self-improvement, byte-identical). The
