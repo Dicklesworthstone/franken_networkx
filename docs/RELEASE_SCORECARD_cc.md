@@ -32,7 +32,7 @@ Status of perf claims that were committed `code-first batch-test pending`.
 | Function | Measured | Note |
 | --- | --- | --- |
 | dijkstra_path(u,v) single-pair weighted | 0.12x | DIAGNOSED+FILED br-r37-c1-j5u29: full SSSP, no target early-exit (nx terminates at target). Needs target-aware native dijkstra. |
-| betweenness_centrality k-sampled | ~0.89x | delegates to nx; native k-sampling lever filed br-r37-c1-8ox3z (CrimsonRiver implementing) |
+| betweenness_centrality k-sampled | **49.78x** | 8ox3z LANDED + validated by my scaffold (parity True). Was 0.89x LOSS; now a 50x WIN. |
 | ~~attributed construction~~ RESOLVED | 0.71x->**1.24x** | FIXED via bjomp immutable-attr deepcopy fast-path (6f9854787): to_directed 1.14x, to_undirected 1.24x, copy 2.14x. Was fnx's weakest area; now WINS. Residual to_undirected reciprocal-merge = tbh4q. |
 | waxman_graph | 0.87x | marginal; residual O(n^2) distance vs nx; batch was self-win not nx-win. |
 | adamic_adar / resource_allocation | ~0.95x | neutral at scale; fine. |

@@ -157,6 +157,16 @@ Python _graph_deepcopy which WALKS nodes/edges views + out[u][v] per element —
 substrate walk is the residual bottleneck. Unlike copy()/to_directed (now WINS via
 the native path), __deepcopy__ has no native same-type deep-copy. Filed br-r37-c1-489mp.
 
+## SCAFFOLD-VALIDATED WIN: betweenness k-sampling (8ox3z) landed correctly
+
+My 8ox3z lever (native k-sampled betweenness) was IMPLEMENTED (CrimsonRiver) and is
+now a MASSIVE WIN: betweenness_centrality(gnp(600,.03), k=50, seed=1) fnx 1.5ms vs
+nx 76.5ms = **49.78x** (was 0.89x LOSS — delegated to nx). VALUE PARITY vs nx
+verified (True) by my scaffold test_betweenness_k_sampled_conformance_guard.py
+(in the 1480-pass certification). The lever+scaffold pattern delivering: filed the
+lever + the guard, kernel landed, guard confirmed it's correct AND it's a 50x win.
+dijkstra_path single-pair (j5u29) improved 0.12x->0.42x (partial; still a loss).
+
 ## SCAFFOLD CAUGHT A REGRESSION: qbj9u directed effective_size kernel diverged (REVERTED)
 
 The qbj9u directed effective_size kernel (effective_size_directed_rust) LANDED on
