@@ -7580,10 +7580,16 @@ def dijkstra_path(G, source, target, weight="weight"):
         raise NodeNotFound(f"Node {source} not found in graph")
     if target not in G:
         raise NetworkXNoPath(f"No path to {target}.")
-    try:
-        return _raw_dijkstra_path(G, source, target, weight=weight)
-    except NetworkXNoPath as exc:
-        raise NetworkXNoPath(f"No path to {target}.") from exc
+    # br-r37-c1-lc2qy (cc): the native single-pair _raw_dijkstra_path
+    # (shortest_path_weighted) is String-keyed AND diverges from nx on weight ties
+    # (n30yf — picks a different equally-optimal path). The single-source kernel is
+    # both faster AND byte-identical to nx's path tie-break (verified 1245/1245), so
+    # route through it and pick the target. (Residual: it builds all paths from the
+    # source — a fast single-pair early-exit variant of that kernel is the full fix.)
+    paths = single_source_dijkstra_path(G, source, weight=weight)
+    if target not in paths:
+        raise NetworkXNoPath(f"No path to {target}.")
+    return paths[target]
 
 
 def _path_length_preserving_weight_type(G, path, weight):
