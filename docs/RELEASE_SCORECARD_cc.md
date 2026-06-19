@@ -18,6 +18,7 @@ Status of perf claims that were committed `code-first batch-test pending`.
 | Generator | gnp_random_graph | 2.37x |
 | Generator | random_geometric_graph | 2.38x |
 | Generator | barabasi_albert / watts_strogatz | 1.31x / 1.12x |
+| Construction | to_directed / to_undirected / copy (bjomp) | 1.14x / 1.24x / 2.14x |
 
 ## Verified LOSSES → action
 
@@ -32,7 +33,7 @@ Status of perf claims that were committed `code-first batch-test pending`.
 | --- | --- | --- |
 | dijkstra_path(u,v) single-pair weighted | 0.12x | DIAGNOSED+FILED br-r37-c1-j5u29: full SSSP, no target early-exit (nx terminates at target). Needs target-aware native dijkstra. |
 | betweenness_centrality k-sampled | ~0.89x | delegates to nx; native k-sampling lever filed br-r37-c1-8ox3z (CrimsonRiver implementing) |
-| attributed construction/conversion | 0.59-0.98x | subgraph/copy ~parity; to_directed 0.83x, to_undirected 0.59x. Substrate tax (PyDict alloc + PyO3 labels); CrimsonRiver tbh4q. fnx's weakest area vs nx. |
+| ~~attributed construction~~ RESOLVED | 0.71x->**1.24x** | FIXED via bjomp immutable-attr deepcopy fast-path (6f9854787): to_directed 1.14x, to_undirected 1.24x, copy 2.14x. Was fnx's weakest area; now WINS. Residual to_undirected reciprocal-merge = tbh4q. |
 | waxman_graph | 0.87x | marginal; residual O(n^2) distance vs nx; batch was self-win not nx-win. |
 | adamic_adar / resource_allocation | ~0.95x | neutral at scale; fine. |
 
