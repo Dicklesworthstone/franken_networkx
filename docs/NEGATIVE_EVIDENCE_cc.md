@@ -128,8 +128,13 @@ methods, NOT algorithm gaps:
 This is fnx's residual weak frontier. Algorithms/spectral/centrality/IO DOMINATE
 (13-1031x); the substrate is where the remaining vs-nx losses live. bjomp proved
 the substrate CAN be beaten where the cost is copy.deepcopy (to_directed/copy now
-WIN); the rest are the per-node PyO3 materialization wall (py_node_key + attr-mirror
-crossing per node/edge), Rust-confirmed in _native_compose/_native_copy. That wall
+WIN); the rest are the per-node attr-dict PyO3 copy wall. ISOLATED via micro-benchmark
+(cc): compose WITHOUT attrs is a 1.36x WIN (fnx 8.17ms vs nx 11.13ms — structure +
+py_node_key handling is FAST), but WITH attrs it is 0.54x (30.59ms; the attrs add
+~22ms = ~6000 per-node attr-dict .copy() PyO3 round-trips). So the wall is
+SPECIFICALLY the per-node/edge attr-mirror shallow-copy, NOT the node keys/structure
+(those win). The fix is lazy/copy-on-write attr mirrors (tbh4q) — share the source
+attr dict until mutated, avoiding the eager per-node PyO3 copy. That wall
 is a fundamental substrate redesign (avoid materializing a Python label object +
 attr dict per node), NOT a quick fix — bjomp only worked because copy.deepcopy was
 a REMOVABLE cost layered on top. This is the honest floor of fnx-vs-nx on attributed
