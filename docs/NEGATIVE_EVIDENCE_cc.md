@@ -157,6 +157,18 @@ Python _graph_deepcopy which WALKS nodes/edges views + out[u][v] per element —
 substrate walk is the residual bottleneck. Unlike copy()/to_directed (now WINS via
 the native path), __deepcopy__ has no native same-type deep-copy. Filed br-r37-c1-489mp.
 
+## NEGATIVE: __deepcopy__ -> to_directed routing is a DEAD END (tested 2026-06-18)
+
+Tested the obvious 489mp shortcut — route DiGraph.__deepcopy__ to the existing
+native _native_to_directed_deepcopy (which makes to_directed a 1.14x WIN). RESULT:
+to_directed is structurally + deep-semantically identical to deepcopy (verified),
+BUT it is actually SLOWER than the current _graph_deepcopy (20.96ms vs 17.44ms on
+DiGraph(1500)) AND drops the frozen flag (to_directed preserves frozen=False;
+deepcopy must preserve it). So reusing existing native build methods for __deepcopy__
+is a regression + a correctness break. DO NOT retry. 489mp requires a NEW dedicated
+native same-type deep-copy binding (not a reuse); the Python _graph_deepcopy with the
+immutable fast-path (928875302) remains the best available (DiGraph 0.70x).
+
 ## Eigensolver-gate detail (the headline reversal)
 
 `symmetric_eigvals_rust` (safe-Rust eig) was used unconditionally on the general
