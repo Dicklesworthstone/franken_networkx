@@ -4267,6 +4267,56 @@ fn multidigraph_target_bfs_distance(
     None
 }
 
+/// br-r37-c1-zid1b (cc): BFS reachable-count over an integer CSR adjacency from `start`.
+fn csr_reach_count(adj: &[Vec<usize>], start: usize, n: usize) -> usize {
+    use std::collections::VecDeque;
+    let mut visited = vec![false; n];
+    visited[start] = true;
+    let mut count = 1usize;
+    let mut queue: VecDeque<usize> = VecDeque::new();
+    queue.push_back(start);
+    while let Some(node) = queue.pop_front() {
+        for &v in &adj[node] {
+            if !visited[v] {
+                visited[v] = true;
+                count += 1;
+                queue.push_back(v);
+            }
+        }
+    }
+    count
+}
+
+/// br-r37-c1-zid1b (cc): is a MultiDiGraph strongly connected? Build an integer CSR
+/// once (one String->index pass), then forward + reverse reachability from node 0 over
+/// the integer adjacency (no per-BFS String hashing / Vec allocs, no simple-DiGraph
+/// build). Multiplicity-invariant. Mirrors strongly_connected_via_reachability.
+fn multidigraph_is_strongly_connected(mdg: &fnx_classes::digraph::MultiDiGraph) -> bool {
+    use std::collections::HashMap;
+    let nodes = mdg.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return true;
+    }
+    let index: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+    let mut succ: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut pred: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (i, &nd) in nodes.iter().enumerate() {
+        if let Some(ss) = mdg.successors(nd) {
+            for s in ss {
+                if let Some(&j) = index.get(s) {
+                    succ[i].push(j);
+                    pred[j].push(i);
+                }
+            }
+        }
+    }
+    if csr_reach_count(&succ, 0, n) != n {
+        return false;
+    }
+    csr_reach_count(&pred, 0, n) == n
+}
+
 #[pyfunction]
 pub fn is_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
@@ -11525,16 +11575,19 @@ pub fn is_strongly_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<b
             "is_strongly_connected is not defined for undirected graphs. Use is_connected instead.",
         ));
     }
+    if let GraphRef::MultiDirected { mdg, .. } = &gr {
+        // br-r37-c1-zid1b: direct forward+reverse reachability over the multidigraph
+        // adjacency instead of building a simple DiGraph first (was ~50x slower).
+        let inner = &mdg.inner;
+        if inner.nodes_ordered().is_empty() {
+            return Err(crate::NetworkXPointlessConcept::new_err(
+                "Connectivity is undefined for the null graph.",
+            ));
+        }
+        return Ok(py.allow_threads(|| multidigraph_is_strongly_connected(inner)));
+    }
     {
-        let owned = match &gr {
-            GraphRef::MultiDirected { mdg, .. } => {
-                Some(multidigraph_to_simple_digraph_structure_only(&mdg.inner))
-            }
-            _ => None,
-        };
-        let dg_ref = owned
-            .as_ref()
-            .unwrap_or_else(|| gr.digraph().expect("is_directed checked above"));
+        let dg_ref = gr.digraph().expect("is_directed checked above");
         if dg_ref.node_count() == 0 {
             return Err(crate::NetworkXPointlessConcept::new_err(
                 "Connectivity is undefined for the null graph.",
