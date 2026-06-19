@@ -8,6 +8,20 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## CONSOLIDATED: after rigorous re-measurement, fnx's ONLY real loss surface is construction
+
+FOUR of my initial "losses" were setup/benchmark artifacts where the REALISTIC case
+WINS: node_link_data (cold measurement -> 1.43x), weighted-pagerank (mutation-dirty
+sync -> 3-5x built-with-weights), dijkstra single-pair (kernel DOES early-exit; all-
+pairs 4.86x; misdiagnosed), to_scipy multigraph (weight=None 1.20x / dtype-given
+1.25x; only weight=str+dtype=None default falls to Python for dtype correctness).
+TWO were real + FIXED: bjomp (construction deepcopy reversal), multigraph CC (114x).
+The ONE genuinely-real, unfixed loss surface is the CONSTRUCTION SUBSTRATE
+(compose/relabel/union/copy/subgraph attr-copy) — fundamental: CgseValue stores only
+scalars+dicts (no list/tuple/exotic), so the Python attr-mirror MUST be eagerly
+copied; the only fix is CoW custom-dict mirrors (tbh4q, deep redesign). Everything
+else fnx WINS on realistic workloads.
+
 ## HEADLINE: composite realistic analysis pipeline = 20-32x faster than nx
 
 The directive's "beat the legacy original on realistic workloads" — measured
@@ -211,10 +225,9 @@ The third graph type. MultiGraph analysis pipeline: fnx 0.56x@n=500 / 0.50x@n=15
 _raw_connected_components MultiGraph path is pathologically slow (should use int-CSR
 like Graph since connectivity ignores multiplicity). FILED br-r37-c1-fyxma. Plus the
 construction-substrate losses: copy 0.57x (jelx1), subgraph 0.47x, to_scipy 0.39x.
-MULTIGRAPH was fnx's one genuinely-losing realistic surface; CC now FIXED (0.07x->1.06x, parity 15/15) — residual loss is to_scipy_sparse_array (0.39x: cProfile shows _native_edge_view_list
+MULTIGRAPH was fnx's one genuinely-losing realistic surface; CC now FIXED (0.07x->1.06x, parity 15/15) — residual loss is to_scipy_sparse_array ONLY in the weight=str+dtype=None default (0.41x: cProfile shows _native_edge_view_list
 materializes all edge instances + a Python COO loop with dict.get/append per
-instance — fix = native multigraph COO that sums parallel edges in Rust, like the
-Graph native COO path) + construction (copy/subgraph = tbh4q attr-copy wall) — driven by the
+instance — fix = the _probe_native_missing_default_weight pattern the Graph path uses, routing unweighted multigraphs to the EXISTING native adjacency_arrays_multigraph). NOTE: weight=None=1.20x WIN + dtype=float=1.25x WIN — the native multigraph COO already wins; only weight=str+dtype=None falls to Python for nx dtype-inference correctness (4th setup-artifact). + construction (copy/subgraph = tbh4q attr-copy wall) — driven by the
 connected_components kernel + the attr-copy construction wall.
 
 ## Broad differential conformance sweep — CLEAN (undirected 23fn + directed 14fn + multigraph 3fn)
