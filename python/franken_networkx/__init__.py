@@ -27746,8 +27746,17 @@ def generalized_degree(G, nodes=None):
         # neighbor-intersection loop. Wrap each value as Counter to match nx's
         # return type and iterate G to preserve node order. Verified vs nx.
         from collections import Counter as _gd_counter
-        kr = dict(_fnx.generalized_degree_rust(G))
-        return {node: _gd_counter(dict(kr[node])) for node in G}
+        if number_of_selfloops(G) == 0:
+            kr = dict(_fnx.generalized_degree_rust(G))
+            return {node: _gd_counter(dict(kr[node])) for node in G}
+        # br-r37-c1-gdself (cc): the native kernel counts a self-loop as a neighbour
+        # (spurious triangles in the distribution); nx excludes self-loops. For the
+        # rare self-loop case fall to the self-loop-correct Python triangle iterator
+        # (the same one the nbunch path uses), preserving G's node order.
+        return {
+            node: _gd
+            for node, _deg, _t, _gd in _triangles_and_degree_iter_local(G, G)
+        }
 
     selected_nodes, single_node = _triangle_selection(G, nodes)
     generalized_degrees = {
