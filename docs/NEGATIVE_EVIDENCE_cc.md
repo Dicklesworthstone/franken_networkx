@@ -8,6 +8,16 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## Broad less-common-function sweep — mostly WINS; simple_cycles is the 5th artifact
+
+Swept 12 less-common functions: WINS dominate (bridges 268x, articulation_points 38x,
+greedy_color 10.5x, maximal_matching 10.9x, is_planar 6.85x, chain_decomposition 7.3x,
+min_weighted_vertex_cover 6.65x). simple_cycles APPEARED 0.61x but that was the
+islice(100) ORDER artifact (fnx/nx enumerate cycles in different order, so the first
+100 differ) — measured fairly (ALL cycles, same count) it is 0.93-0.97x NEUTRAL.
+5TH setup-artifact. dominating_set 0.70x is sub-0.1ms noise. min_edge_cover is a REAL
+~1.2x loss (0.80x vs rebuilt, 0.86x vs generator) — a less-common function; recorded.
+
 ## CONSOLIDATED: after rigorous re-measurement, fnx's ONLY real loss surface is construction
 
 FOUR of my initial "losses" were setup/benchmark artifacts where the REALISTIC case
