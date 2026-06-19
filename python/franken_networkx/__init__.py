@@ -31366,9 +31366,20 @@ def flow_hierarchy(G, weight=None):
         # raised "flow_hierarchy requires a DiGraph", which broke
         # drop-in code matching nx's wording.
         raise NetworkXError("G must be a digraph in flow_hierarchy")
+    if isinstance(weight, str) and type(G) in (DiGraph, MultiDiGraph):
+        return _flow_hierarchy_weighted_scc_fold(G, weight)
     if weight is not None:
         return _call_networkx_for_parity("flow_hierarchy", G, weight=weight)
     return _fnx.flow_hierarchy_rust(G)
+
+
+def _flow_hierarchy_weighted_scc_fold(G, weight):
+    total_weight = G.size(weight=weight)
+    cyclic_weight = sum(
+        G.subgraph(component).size(weight=weight)
+        for component in strongly_connected_components(G)
+    )
+    return 1 - cyclic_weight / total_weight
 
 
 # ---------------------------------------------------------------------------

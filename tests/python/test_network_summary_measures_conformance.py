@@ -194,6 +194,30 @@ def test_flow_hierarchy_weighted_matches_networkx():
     assert _equiv(fr, nr), f"weighted flow_hierarchy: fnx={fr} nx={nr}"
 
 
+def test_flow_hierarchy_weighted_scc_fold_does_not_bridge_to_networkx(monkeypatch):
+    fg = fnx.DiGraph()
+    ng = nx.DiGraph()
+    weighted_edges = [
+        (0, 0, 4),
+        (0, 1, 2),
+        (1, 0, 3),
+        (1, 2, 5),
+        (2, 3, 7),
+    ]
+    for u, v, weight in weighted_edges:
+        fg.add_edge(u, v, weight=weight)
+        ng.add_edge(u, v, weight=weight)
+
+    expected = nx.flow_hierarchy(ng, weight="weight")
+
+    def fail_networkx_bridge(*_args, **_kwargs):
+        raise AssertionError("weighted flow_hierarchy should stay in-process")
+
+    monkeypatch.setattr(fnx, "_call_networkx_for_parity", fail_networkx_bridge)
+
+    assert fnx.flow_hierarchy(fg, weight="weight") == pytest.approx(expected)
+
+
 # ---------------------------------------------------------------------------
 # reciprocity / overall_reciprocity
 # ---------------------------------------------------------------------------
