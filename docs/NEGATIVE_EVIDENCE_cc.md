@@ -77,6 +77,16 @@ PYTHON dijkstra loop (heap+dict ops per node), not adjacency — k4p0b needs a N
 bidirectional kernel (the undirected _native_bidirectional_dijkstra is undirected-only,
 374/1043 on directed). lc2qy (single-pair early-exit). Undirected path family already WINS 1.3-3.4x.
 
+## hbhli non-min audit — astar was the ONLY weighted fn using gr.undirected()
+
+After fixing astar (gr.undirected() structure projection collapses parallel multigraph edges
+to a NON-MIN weight -> use weighted_undirected_projection like dijkstra), audited other
+weighted functions on parallel-edge multigraphs: minimum_spanning_tree, single_source_
+dijkstra_path_length, dijkstra_path_length, bidirectional_dijkstra all 40/40 correct (they
+use the weighted/min projection or delegate). Most gr.undirected() callers are UNWEIGHTED
+(connectivity/BFS, multiplicity-invariant) so the non-min collapse is harmless there. astar
+was the isolated case; fix complete.
+
 ## generators/IO/conversions sweep — all WIN/neutral, 0 new losses
 
 random_lobster 2.92x, random_regular_graph 2.25x, to_dict_of_lists 2.08x, from_dict_of_lists
