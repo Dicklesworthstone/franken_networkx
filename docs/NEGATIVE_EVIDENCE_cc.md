@@ -30,6 +30,15 @@ intersection) would push to WINS. preferential_attachment 0.78x is a SEPARATE lo
 kernel 9142). The stamp-mark fix lives in fnx-algorithms/src/lib.rs (TealSpring's file,
 NOT a cc file) — baseline recorded here as the peer's measured bench target.
 
+## Degree-batch vein audit — link-pred scorer was the ONLY loss; others win/already-batch
+
+Grepped all per-node G.degree(/G.neighbors( call sites in __init__.py for the same
+lazy-PyO3 pattern the link-pred fix addressed. Findings: is_forest 177x / is_tree 44x
+WINS (the sum(G.degree(n)) loop is gated behind a fast edge-count path); rich_club
+already snapshots (br-smetricdegcache); adjacency-building sites (11957, 12777) already
+batch {n: list(G.neighbors(n)) for n in G}. So the lazy-deg loss was UNIQUE to the
+link-prediction scorer — fixed (pa-degbatch). Vein exhausted: no other batchable loss.
+
 ## 3rd + 4th broad sweeps (link-pred family, structural holes, reciprocity, etc.) — all WINS
 
 Post-degree-batch verification: Soundarajan community link-pred (cn_soundarajan 1.46x,
