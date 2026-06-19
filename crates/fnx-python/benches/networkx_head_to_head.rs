@@ -26,6 +26,21 @@ struct CutMetricWorkloads {
     nx_node_ws: Py<PyAny>,
 }
 
+struct AssortativityWorkloads {
+    fnx_degree_mixing: Py<PyAny>,
+    fnx_raw_degree_mixing: Py<PyAny>,
+    nx_degree_mixing: Py<PyAny>,
+    fnx_node_degree_xy: Py<PyAny>,
+    fnx_raw_node_degree_xy: Py<PyAny>,
+    nx_node_degree_xy: Py<PyAny>,
+    fnx_node_degree_xy_directed: Py<PyAny>,
+    fnx_raw_node_degree_xy_directed: Py<PyAny>,
+    nx_node_degree_xy_directed: Py<PyAny>,
+    fnx_average_degree_connectivity: Py<PyAny>,
+    fnx_raw_average_degree_connectivity: Py<PyAny>,
+    nx_average_degree_connectivity: Py<PyAny>,
+}
+
 fn prepare_cut_metric_workloads(py: Python<'_>) -> PyResult<CutMetricWorkloads> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
@@ -91,10 +106,10 @@ assert fnx_node_ws() == nx_node_ws()
     )?;
 
     let callable = |name: &str| -> PyResult<Py<PyAny>> {
-        Ok(locals
-            .get_item(name)?
-            .unwrap_or_else(|| panic!("missing Python callable {name}"))
-            .unbind())
+        let callable = locals.get_item(name)?.ok_or_else(|| {
+            pyo3::exceptions::PyKeyError::new_err(format!("missing Python callable {name}"))
+        })?;
+        Ok(callable.unbind())
     };
 
     Ok(CutMetricWorkloads {
@@ -106,6 +121,141 @@ assert fnx_node_ws() == nx_node_ws()
         nx_node_ba: callable("nx_node_ba")?,
         fnx_node_ws: callable("fnx_node_ws")?,
         nx_node_ws: callable("nx_node_ws")?,
+    })
+}
+
+fn prepare_assortativity_workloads(py: Python<'_>) -> PyResult<AssortativityWorkloads> {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("fnx-python crate must live under crates/");
+    let python_dir = repo_root.join("python");
+
+    let sys = py.import("sys")?;
+    let path = sys.getattr("path")?;
+    let path = path.cast::<PyList>()?;
+    path.insert(0, python_dir.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, repo_root.to_str().expect("repo path must be UTF-8"))?;
+
+    let locals = PyDict::new(py);
+    py.run(
+        cstring(
+            r#"
+import networkx as nx
+import franken_networkx as fnx
+import franken_networkx._fnx as raw
+
+def _paired_graph_from_edges(nodes, edges, directed=False):
+    graph_type = nx.DiGraph if directed else nx.Graph
+    fnx_type = fnx.DiGraph if directed else fnx.Graph
+    g_nx = graph_type()
+    g_fnx = fnx_type()
+    g_nx.add_nodes_from(nodes)
+    g_fnx.add_nodes_from(nodes)
+    g_nx.add_edges_from(edges)
+    g_fnx.add_edges_from(edges)
+    return g_fnx, g_nx
+
+def _degree_mixing_hubs(hubs, spokes_per_hub):
+    nodes = []
+    edges = []
+    for hub in range(hubs):
+        hub_node = f"h{hub}"
+        nodes.append(hub_node)
+        if hub > 0:
+            edges.append((f"h{hub - 1}", hub_node))
+        for spoke in range(spokes_per_hub):
+            spoke_node = f"h{hub}_s{spoke}"
+            nodes.append(spoke_node)
+            edges.append((hub_node, spoke_node))
+    return _paired_graph_from_edges(nodes, edges)
+
+def _average_degree_connectivity_mix(hubs, spokes_per_hub, isolates):
+    fnx_g, nx_g = _degree_mixing_hubs(hubs, spokes_per_hub)
+    for hub in range(min(hubs, 32)):
+        hub_node = f"h{hub}"
+        fnx_g.add_edge(hub_node, hub_node)
+        nx_g.add_edge(hub_node, hub_node)
+    isolate_nodes = [f"iso{i}" for i in range(isolates)]
+    fnx_g.add_nodes_from(isolate_nodes)
+    nx_g.add_nodes_from(isolate_nodes)
+    return fnx_g, nx_g
+
+def _directed_degree_xy_fan(layers, fanout):
+    nodes = []
+    edges = []
+    for layer in range(layers):
+        source = f"s{layer}"
+        sink = f"t{layer}"
+        nodes.extend([source, sink])
+        for spoke in range(fanout):
+            mid = f"m{layer}_{spoke}"
+            nodes.append(mid)
+            edges.append((source, mid))
+            edges.append((mid, sink))
+        if layer > 0:
+            edges.append((f"t{layer - 1}", source))
+    return _paired_graph_from_edges(nodes, edges, directed=True)
+
+dm_fnx, dm_nx = _degree_mixing_hubs(512, 32)
+adc_fnx, adc_nx = _average_degree_connectivity_mix(512, 32, 256)
+xy_fnx, xy_nx = _degree_mixing_hubs(512, 32)
+xy_dir_fnx, xy_dir_nx = _directed_degree_xy_fan(512, 32)
+
+def _raw_mixing_to_nested(flat):
+    result = {}
+    for (left, right), count in flat.items():
+        inner = result.setdefault(left, {})
+        inner[right] = count
+    return result
+
+fnx_degree_mixing = lambda: fnx.degree_mixing_dict(dm_fnx)
+fnx_raw_degree_mixing = lambda: _raw_mixing_to_nested(raw.degree_mixing_dict_rust(dm_fnx))
+nx_degree_mixing = lambda: nx.degree_mixing_dict(dm_nx)
+fnx_node_degree_xy = lambda: list(fnx.node_degree_xy(xy_fnx))
+fnx_raw_node_degree_xy = lambda: list(raw.node_degree_xy_rust(xy_fnx))
+nx_node_degree_xy = lambda: list(nx.node_degree_xy(xy_nx))
+fnx_node_degree_xy_directed = lambda: list(fnx.node_degree_xy(xy_dir_fnx, x="out", y="in"))
+fnx_raw_node_degree_xy_directed = lambda: list(raw.node_degree_xy_rust(xy_dir_fnx, x="out", y="in"))
+nx_node_degree_xy_directed = lambda: list(nx.node_degree_xy(xy_dir_nx, x="out", y="in"))
+fnx_average_degree_connectivity = lambda: fnx.average_degree_connectivity(adc_fnx)
+fnx_raw_average_degree_connectivity = lambda: raw.average_degree_connectivity(adc_fnx)
+nx_average_degree_connectivity = lambda: nx.average_degree_connectivity(adc_nx)
+
+assert fnx_degree_mixing() == nx_degree_mixing()
+assert fnx_raw_degree_mixing() == nx_degree_mixing()
+assert fnx_node_degree_xy() == nx_node_degree_xy()
+assert fnx_node_degree_xy_directed() == nx_node_degree_xy_directed()
+assert fnx_average_degree_connectivity() == nx_average_degree_connectivity()
+assert fnx_raw_average_degree_connectivity() == nx_average_degree_connectivity()
+"#,
+        )
+        .as_c_str(),
+        Some(&locals),
+        Some(&locals),
+    )?;
+
+    let callable = |name: &str| -> PyResult<Py<PyAny>> {
+        let callable = locals.get_item(name)?.ok_or_else(|| {
+            pyo3::exceptions::PyKeyError::new_err(format!("missing Python callable {name}"))
+        })?;
+        Ok(callable.unbind())
+    };
+
+    Ok(AssortativityWorkloads {
+        fnx_degree_mixing: callable("fnx_degree_mixing")?,
+        fnx_raw_degree_mixing: callable("fnx_raw_degree_mixing")?,
+        nx_degree_mixing: callable("nx_degree_mixing")?,
+        fnx_node_degree_xy: callable("fnx_node_degree_xy")?,
+        fnx_raw_node_degree_xy: callable("fnx_raw_node_degree_xy")?,
+        nx_node_degree_xy: callable("nx_node_degree_xy")?,
+        fnx_node_degree_xy_directed: callable("fnx_node_degree_xy_directed")?,
+        fnx_raw_node_degree_xy_directed: callable("fnx_raw_node_degree_xy_directed")?,
+        nx_node_degree_xy_directed: callable("nx_node_degree_xy_directed")?,
+        fnx_average_degree_connectivity: callable("fnx_average_degree_connectivity")?,
+        fnx_raw_average_degree_connectivity: callable("fnx_raw_average_degree_connectivity")?,
+        nx_average_degree_connectivity: callable("nx_average_degree_connectivity")?,
     })
 }
 
@@ -179,5 +329,112 @@ fn cut_metric_head_to_head(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, cut_metric_head_to_head);
+fn assortativity_head_to_head(c: &mut Criterion) {
+    Python::initialize();
+    let workloads = Python::attach(prepare_assortativity_workloads)
+        .expect("failed to prepare assortativity Python workloads");
+    let mut group = c.benchmark_group("networkx_head_to_head_assortativity");
+    group.sample_size(20);
+
+    bench_python_callable(
+        &mut group,
+        "fnx_degree_mixing_dict_h512_s32",
+        &workloads.fnx_degree_mixing,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_degree_mixing_dict_h512_s32",
+        &workloads.nx_degree_mixing,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_node_degree_xy_h512_s32",
+        &workloads.fnx_node_degree_xy,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_node_degree_xy_h512_s32",
+        &workloads.nx_node_degree_xy,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_node_degree_xy_directed_l512_f32",
+        &workloads.fnx_node_degree_xy_directed,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_node_degree_xy_directed_l512_f32",
+        &workloads.nx_node_degree_xy_directed,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_average_degree_connectivity_h512_s32_i256",
+        &workloads.fnx_average_degree_connectivity,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_average_degree_connectivity_h512_s32_i256",
+        &workloads.nx_average_degree_connectivity,
+    );
+
+    group.finish();
+}
+
+fn assortativity_raw_head_to_head(c: &mut Criterion) {
+    Python::initialize();
+    let workloads = Python::attach(prepare_assortativity_workloads)
+        .expect("failed to prepare raw assortativity Python workloads");
+    let mut group = c.benchmark_group("networkx_head_to_head_assortativity_raw");
+    group.sample_size(20);
+
+    bench_python_callable(
+        &mut group,
+        "fnx_raw_degree_mixing_dict_h512_s32",
+        &workloads.fnx_raw_degree_mixing,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_degree_mixing_dict_h512_s32",
+        &workloads.nx_degree_mixing,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_raw_node_degree_xy_h512_s32",
+        &workloads.fnx_raw_node_degree_xy,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_node_degree_xy_h512_s32",
+        &workloads.nx_node_degree_xy,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_raw_node_degree_xy_directed_l512_f32",
+        &workloads.fnx_raw_node_degree_xy_directed,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_node_degree_xy_directed_l512_f32",
+        &workloads.nx_node_degree_xy_directed,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_raw_average_degree_connectivity_h512_s32_i256",
+        &workloads.fnx_raw_average_degree_connectivity,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_average_degree_connectivity_h512_s32_i256",
+        &workloads.nx_average_degree_connectivity,
+    );
+
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    cut_metric_head_to_head,
+    assortativity_head_to_head,
+    assortativity_raw_head_to_head
+);
 criterion_main!(benches);
