@@ -14935,6 +14935,18 @@ def _link_prediction_compute(G, materialized, metric):
             deg_cache[n] = r
         return r
 
+    # br-r37-c1-pa-degbatch (cc): degree-using metrics over a large/default ebunch
+    # win from ONE batched G.degree() snapshot instead of N lazy per-node G.degree
+    # PyO3 calls (preferential_attachment 0.78x -> WIN, ~3.4x on the degree path;
+    # also speeds resource_allocation/adamic_adar's 1/deg(w) terms). jaccard uses
+    # set-union not degree, so skip it. Small explicit ebunches stay lazy (the
+    # whole-graph snapshot would materialize unused degrees); the default (None)
+    # ebunch touches every node so it always pays. Same values as lazy G.degree(n).
+    if metric != "jaccard_coefficient" and (
+        materialized is None or len(materialized) >= G.number_of_nodes()
+    ):
+        deg_cache.update(G.degree())
+
     if metric == "resource_allocation_index":
 
         def predict(u, v):

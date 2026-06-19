@@ -8,6 +8,18 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## SHIPPED: link-prediction degree-batch — PA 0.78x->0.99x, RA/AA neutral->WIN
+
+The PA 0.78x loss + RA/AA 0.97-0.98x neutral were in MY pure-Python scorer
+(_link_prediction_compute), NOT the raw kernels: deg(n) lazily called G.degree(n)
+(a PyO3 call) per unique node. For a large/default ebunch that is N PyO3 calls; one
+batched G.degree() snapshot (0.08ms for all V) replaces them. Gated on
+metric!=jaccard (jaccard uses set-union) AND (ebunch is None OR len>=V) so small
+explicit ebunches stay lazy. MEASURED: PA 0.78x->0.99x, resource_allocation
+0.98x->1.06x WIN, adamic_adar 0.97x->1.05x WIN; parity 96/96 + 1080 link-pred
+conformance tests green. The deg-product PA loss is GONE (it was a cc-file Python
+tax, separate from the stamp-mark common-neighbor kernel lever).
+
 ## Link-prediction stamp-mark baseline (04z53.9144, cod-b/TealSpring's kernel) — measured target
 
 Benched link-pred over a 3000-pair explicit ebunch (the stamp-mark use case): jaccard
