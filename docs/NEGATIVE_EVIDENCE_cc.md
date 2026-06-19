@@ -157,6 +157,19 @@ Python _graph_deepcopy which WALKS nodes/edges views + out[u][v] per element —
 substrate walk is the residual bottleneck. Unlike copy()/to_directed (now WINS via
 the native path), __deepcopy__ has no native same-type deep-copy. Filed br-r37-c1-489mp.
 
+## SCAFFOLD CAUGHT A REGRESSION: qbj9u directed effective_size kernel diverged (REVERTED)
+
+The qbj9u directed effective_size kernel (effective_size_directed_rust) LANDED on
+HEAD and DIVERGED from networkx by ~0.2/node on simple unweighted DiGraphs (node 0:
+fnx 2.6 vs nx 2.8; 12 of 20 random seeds failed). Caught by
+test_effective_size_directed_conformance_guard.py — the scaffold I filed WITH the
+qbj9u lever, exactly as designed. REVERTED the directed routing in __init__.py
+(d95c18bc0); directed now flows through the nx-correct matrix/parity fallback
+(verified 0 divergences over 20 seeds). Flagged CrimsonRiver to fix the kernel
+formula (mutual-weight / redundancy normalization). Full guard suite after fix:
+1480 pass, 0 fail. LESSON: file-the-lever + ship-the-scaffold WORKS — the guard
+caught a wrong kernel implementation before it could ship.
+
 ## NEGATIVE: __deepcopy__ -> to_directed routing is a DEAD END (tested 2026-06-18)
 
 Tested the obvious 489mp shortcut — route DiGraph.__deepcopy__ to the existing
