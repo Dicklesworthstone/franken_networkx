@@ -430,6 +430,39 @@ def latapy_clustering(G, nodes=None, mode="dot"):
 clustering = latapy_clustering
 
 
+def average_clustering(G, nodes=None, mode="dot"):
+    """Average bipartite clustering coefficient (br-r37-c1-bipclust, cc).
+
+    Re-exported from nx it ran nx's slow latapy_clustering (0.86x); routing through the
+    concrete fast ``latapy_clustering`` above makes it a win. Byte-identical: same per-node
+    ccs, same ``sum(...)/len(nodes)`` reduction.
+    """
+    if nodes is None:
+        nodes = G
+    ccs = latapy_clustering(G, nodes=nodes, mode=mode)
+    return sum(ccs[v] for v in nodes) / len(nodes)
+
+
+def degree_centrality(G, nodes):
+    """Bipartite degree centrality (br-r37-c1-bipdc, cc).
+
+    nx calls ``G.degree(top)`` then ``G.degree(bottom)`` — two per-nbunch DegreeView
+    walks (~30us each on fnx) — re-export ran that at 0.41x. One batch ``dict(G.degree())``
+    is native (~12us); filter it in G-node order, which is exactly the order nx's
+    ``G.degree(nbunch)`` (nbunch_iter) yields, so the result dict is byte-identical.
+    """
+    top = set(nodes)
+    bottom = set(G) - top
+    all_deg = dict(G.degree())
+    s = 1.0 / len(bottom)
+    # nx yields G.degree(top) in nbunch_iter order = set(top) iteration order (filtered to
+    # G), then G.degree(bottom); mirror that exactly so the result dict is byte-identical.
+    centrality = {n: all_deg[n] * s for n in top if n in all_deg}
+    s = 1.0 / len(top)
+    centrality.update({n: all_deg[n] * s for n in bottom if n in all_deg})
+    return centrality
+
+
 def node_redundancy(G, nodes=None):
     """Node redundancy coefficients ``{node: rc(v)}`` for bipartite ``G``.
 
