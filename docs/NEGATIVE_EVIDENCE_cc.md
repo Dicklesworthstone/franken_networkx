@@ -211,7 +211,10 @@ The third graph type. MultiGraph analysis pipeline: fnx 0.56x@n=500 / 0.50x@n=15
 _raw_connected_components MultiGraph path is pathologically slow (should use int-CSR
 like Graph since connectivity ignores multiplicity). FILED br-r37-c1-fyxma. Plus the
 construction-substrate losses: copy 0.57x (jelx1), subgraph 0.47x, to_scipy 0.39x.
-MULTIGRAPH was fnx's one genuinely-losing realistic surface; CC now FIXED (0.07x->1.06x, parity 15/15) — residual loss is to_scipy_sparse_array (0.39x) + construction (copy/subgraph) — driven by the
+MULTIGRAPH was fnx's one genuinely-losing realistic surface; CC now FIXED (0.07x->1.06x, parity 15/15) — residual loss is to_scipy_sparse_array (0.39x: cProfile shows _native_edge_view_list
+materializes all edge instances + a Python COO loop with dict.get/append per
+instance — fix = native multigraph COO that sums parallel edges in Rust, like the
+Graph native COO path) + construction (copy/subgraph = tbh4q attr-copy wall) — driven by the
 connected_components kernel + the attr-copy construction wall.
 
 ## Broad differential conformance sweep — CLEAN (undirected 23fn + directed 14fn + multigraph 3fn)
