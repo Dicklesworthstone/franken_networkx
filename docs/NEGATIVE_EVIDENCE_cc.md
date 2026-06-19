@@ -8,6 +8,16 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## Link-prediction stamp-mark baseline (04z53.9144, cod-b/TealSpring's kernel) — measured target
+
+Benched link-pred over a 3000-pair explicit ebunch (the stamp-mark use case): jaccard
+1.51x WIN, but adamic_adar 0.97x + resource_allocation 0.98x are NEUTRAL — exactly the
+pairs the reusable stamp-marked scratch-vector lever (replace per-pair HashSet
+intersection) would push to WINS. preferential_attachment 0.78x is a SEPARATE loss
+(deg(u)*deg(v), no common-neighbor intersection — stamp-mark doesn't apply; CrimsonRiver
+kernel 9142). The stamp-mark fix lives in fnx-algorithms/src/lib.rs (TealSpring's file,
+NOT a cc file) — baseline recorded here as the peer's measured bench target.
+
 ## 2nd broad sweep (distance/traversal/tree/community/dominance) — 12/12 WINS, no new losses
 
 Swept 12 more unmeasured functions, ALL WINS: greedy_modularity_communities 20.67x,
