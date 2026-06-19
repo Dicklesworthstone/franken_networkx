@@ -50,6 +50,21 @@ def test_single_source_shortest_path_cutoff_matches_networkx():
     ) == nx.single_source_shortest_path(ng, 0, cutoff=2)
 
 
+def test_single_source_shortest_path_multigraph_matches_networkx():
+    fg = fnx.MultiGraph()
+    ng = nx.MultiGraph()
+    edges = [(0, 1), (0, 1), (0, 2), (1, 3), (2, 3), (3, 4), (2, 4)]
+    for graph in (fg, ng):
+        graph.add_edges_from(edges)
+
+    assert fnx.single_source_shortest_path(fg, 0) == nx.single_source_shortest_path(
+        ng, 0
+    )
+    assert fnx.single_source_shortest_path(
+        fg, 0, cutoff=2
+    ) == nx.single_source_shortest_path(ng, 0, cutoff=2)
+
+
 def test_single_source_shortest_path_directed_matches_networkx():
     fg = fnx.DiGraph()
     ng = nx.DiGraph()

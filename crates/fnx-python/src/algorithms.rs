@@ -4121,49 +4121,113 @@ fn multigraph_sssp_length_with_parents<'a>(
     out
 }
 
-/// br-r37-c1-ubizp (cc): single-source shortest PATHS over a MultiGraph's adjacency
-/// directly (no simple-Graph build). Builds each node's path incrementally from its
-/// discovery parent's path (paths[v] = paths[parent] + [v]), processing neighbors in
-/// adjacency order to match nx's BFS-tree paths. Returns (node, path) in BFS order.
-fn multigraph_sssp_paths<'a>(
+/// br-r37-c1-ubizp (cod-a): single-source shortest PATHS over a MultiGraph's
+/// adjacency directly (no simple-Graph build). Keep the BFS in node-index space:
+/// store one predecessor per discovered node and let the Python emitter stream
+/// path reconstruction from that parent table. This avoids cloning every
+/// parent's path for every child and skips String materialization in the kernel.
+fn multigraph_sssp_predecessors_index<'a>(
     mg: &'a fnx_classes::MultiGraph,
     source: &str,
     cutoff: Option<usize>,
-) -> Vec<(String, Vec<String>)> {
-    use std::collections::{HashMap, VecDeque};
-    let mut out: Vec<(String, Vec<String>)> = Vec::new();
+) -> (Vec<&'a str>, Option<usize>, Vec<usize>, Vec<usize>) {
+    use std::collections::HashMap;
     let nodes = mg.nodes_ordered();
-    let source_ref: &'a str = match nodes.iter().copied().find(|&n| n == source) {
-        Some(s) => s,
-        None => return out,
+    let node_indices: HashMap<&'a str, usize> = nodes
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(idx, node)| (node, idx))
+        .collect();
+    let Some(&source_idx) = node_indices.get(source) else {
+        return (nodes, None, Vec::new(), Vec::new());
     };
-    // paths held as &str (clone = cheap pointer copies, like nx's list-of-refs);
-    // materialized into owned Strings exactly once, at push time.
-    let mut path_of: HashMap<&'a str, Vec<&'a str>> = HashMap::new();
-    path_of.insert(source_ref, vec![source_ref]);
-    out.push((source_ref.to_owned(), vec![source_ref.to_owned()]));
-    let mut queue: VecDeque<(&'a str, usize)> = VecDeque::new();
-    queue.push_back((source_ref, 0));
-    while let Some((node, dist)) = queue.pop_front() {
-        if let Some(c) = cutoff {
-            if dist >= c {
-                continue;
-            }
+
+    let n = nodes.len();
+    let mut seen = vec![false; n];
+    let mut predecessor = vec![usize::MAX; n];
+    let mut discovery = Vec::with_capacity(n);
+    let mut frontier = vec![source_idx];
+    let mut next = Vec::new();
+    let mut depth = 0usize;
+
+    seen[source_idx] = true;
+    discovery.push(source_idx);
+
+    while !frontier.is_empty() {
+        if cutoff.is_some_and(|limit| depth >= limit) {
+            break;
         }
-        if let Some(nbrs) = mg.neighbors(node) {
-            let parent_path = path_of[node].clone();
+        next.clear();
+        for &node_idx in &frontier {
+            let node = nodes[node_idx];
+            let Some(nbrs) = mg.neighbors(node) else {
+                continue;
+            };
             for v in nbrs {
-                if !path_of.contains_key(v) {
-                    let mut p = parent_path.clone();
-                    p.push(v);
-                    out.push((v.to_owned(), p.iter().map(|s| s.to_string()).collect()));
-                    path_of.insert(v, p);
-                    queue.push_back((v, dist + 1));
+                if let Some(&nbr_idx) = node_indices.get(v) {
+                    if !seen[nbr_idx] {
+                        seen[nbr_idx] = true;
+                        predecessor[nbr_idx] = node_idx;
+                        discovery.push(nbr_idx);
+                        next.push(nbr_idx);
+                    }
                 }
             }
         }
+        std::mem::swap(&mut frontier, &mut next);
+        depth += 1;
     }
-    out
+
+    (nodes, Some(source_idx), discovery, predecessor)
+}
+
+fn emit_paths_dict_discovery_parent_index(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    nodes: &[&str],
+    source_idx: usize,
+    source_obj: PyObject,
+    discovery: &[usize],
+    predecessor: &[usize],
+) -> PyResult<pyo3::Py<PyDict>> {
+    let mut disp: Vec<Option<PyObject>> =
+        std::iter::repeat_with(|| None).take(nodes.len()).collect();
+    disp[source_idx] = Some(source_obj);
+    for &node_idx in discovery {
+        if node_idx != source_idx {
+            let parent_idx = predecessor[node_idx];
+            disp[node_idx] = Some(gr.py_row_key(py, nodes[parent_idx], nodes[node_idx]));
+        }
+    }
+
+    let dict = PyDict::new(py);
+    let mut stack = Vec::new();
+    for &node_idx in discovery {
+        stack.clear();
+        let mut current = node_idx;
+        loop {
+            stack.push(current);
+            if current == source_idx {
+                break;
+            }
+            current = predecessor[current];
+        }
+        let py_path: Vec<PyObject> = stack
+            .iter()
+            .rev()
+            .map(|&idx| match &disp[idx] {
+                Some(obj) => obj.clone_ref(py),
+                None => gr.py_node_key(py, nodes[idx]),
+            })
+            .collect();
+        let key = match &disp[node_idx] {
+            Some(obj) => obj.clone_ref(py),
+            None => gr.py_node_key(py, nodes[node_idx]),
+        };
+        dict.set_item(key, py_path)?;
+    }
+    Ok(dict.unbind())
 }
 
 /// br-r37-c1-ubizp (cc): unweighted single-pair distance over a MultiGraph by a
@@ -11678,9 +11742,20 @@ pub fn single_source_shortest_path(
     // the gr.undirected() simple-Graph conversion (was ~25x slower).
     if let GraphRef::MultiUndirected { mg, .. } = &gr {
         let inner = &mg.inner;
-        let paths = py.allow_threads(|| multigraph_sssp_paths(inner, &source_key, cutoff));
-        let dict =
-            emit_paths_dict_discovery(py, &gr, &paths, &source_key, source.clone().unbind())?;
+        let (nodes, source_idx, discovery, predecessor) =
+            py.allow_threads(|| multigraph_sssp_predecessors_index(inner, &source_key, cutoff));
+        let Some(source_idx) = source_idx else {
+            return Ok(PyDict::new(py).into_any().unbind());
+        };
+        let dict = emit_paths_dict_discovery_parent_index(
+            py,
+            &gr,
+            &nodes,
+            source_idx,
+            source.clone().unbind(),
+            &discovery,
+            &predecessor,
+        )?;
         return Ok(dict.into_any());
     }
     // br-r37-c1-ssspidx: undirected path returns node INDICES from the kernel and
