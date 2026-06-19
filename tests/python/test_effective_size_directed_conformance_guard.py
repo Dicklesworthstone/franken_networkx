@@ -40,6 +40,13 @@ def test_directed_effective_size_matches_networkx(seed):
     _approx_dict(fnx.effective_size(fg), nx.effective_size(ng))
 
 
+@pytest.mark.skip(
+    reason="br-r37-c1-qbj9u: native effective_size_directed_rust diverged from nx "
+    "(~0.2/node, fnx 2.6 vs nx 2.8) — caught by the value tests below. The native "
+    "directed route was REVERTED to the nx-correct fallback pending a kernel fix. "
+    "Re-enable this route-enforcement test once the directed kernel matches nx "
+    "(the value tests are the gate; this one only asserts the routing)."
+)
 def test_directed_effective_size_uses_native_route(monkeypatch):
     fg = fnx.DiGraph([(0, 1), (1, 2), (2, 0), (2, 3), (3, 1)])
     ng = nx.DiGraph([(0, 1), (1, 2), (2, 0), (2, 3), (3, 1)])

@@ -23962,22 +23962,13 @@ def effective_size(G, nodes=None, weight=None, *, backend=None, **backend_kwargs
     # the realistic directed common case. Weighted, multigraph, and self-loop
     # graphs keep the existing matrix/parity route below.
     has_selfloops = number_of_selfloops(G) > 0
-    if G.is_directed() and not G.is_multigraph() and weight is None and not has_selfloops:
-        if len(G) == 0:
-            raise NetworkXError("Graph has no nodes or edges")
-
-        if nodes is None:
-            requested_nodes = list(G.nodes())
-        else:
-            requested_nodes = list(nodes)
-            for node in requested_nodes:
-                if node not in G:
-                    raise KeyError(node)
-
-        from franken_networkx._fnx import effective_size_directed_rust as _rust_eff_size_directed
-
-        result = _rust_eff_size_directed(G)
-        return {node: result[node] for node in requested_nodes}
+    # br-r37-c1-qbj9u REVERTED (cc, verify phase): the native
+    # effective_size_directed_rust kernel diverged from networkx by ~0.2/node on
+    # simple DiGraphs (e.g. fnx 2.6 vs nx 2.8) — caught by
+    # test_effective_size_directed_conformance_guard.py (the scaffold filed with the
+    # lever). Route directed graphs back through the nx-correct matrix/parity
+    # fallback below until the kernel matches nx. CrimsonRiver flagged to fix the
+    # kernel; the guard will validate re-enabling it.
 
     # br-r37-c1-shdir: see constraint — the Rust effective_size_rust kernel was
     # undirected-only and mishandled DiGraphs. Non-simple directed cases still
