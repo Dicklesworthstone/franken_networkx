@@ -80,6 +80,7 @@ losses. Residual lc2qy = single-pair early-exit kernel variant (far-target 0.58x
 | Tree | prefix_tree batch DiGraph construction (preftreebatch) | **0.43x -> 0.62x** |
 | Connectivity | all_pairs_node_connectivity small-nbunch delegation (apncnbunch) | **0.002x -> 0.69x** (345x) |
 | Structural holes | local_constraint scale-once (localconstraint) | **0.27x -> 4.08x** |
+| Bipartite | bipartite.clustering adjacency snapshot (bipclust) | **0.84x -> 2.43x** |
 | Degree-seq | is_graphical eg Durfee-corner break + O(n) sweep (egsweep) | **0.64x -> 1.20-1.45x** |
 | Link-pred | preferential_attachment / RA / AA degree-batch (pa-degbatch) | PA **0.78x->0.99x**, RA/AA neutral->**1.05-1.06x WIN** |
 | Code-first batch | assortativity 9147-52 (degree_assort 78x) / expansion-cut-flow 9153-55 (flow_hierarchy 219x) | 2.4-219x, parity-verified |
