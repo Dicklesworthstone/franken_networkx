@@ -80,6 +80,19 @@ class TestDistanceIndices:
         benchmark(lambda: nx.schultz_index(g))
 
 
+@pytest.mark.parametrize("n", [150, 300], ids=["n=150", "n=300"])
+class TestLaplacianSpectrum:
+    # general dense path eigensolver n-gate: LAPACK eigvalsh for n>64 instead of
+    # the 2.3-4x-slower safe-Rust eigensolver (fixed laplacian_spectrum 2.4x gap).
+    def test_fnx_laplacian_spectrum(self, benchmark, n):
+        g = fnx.gnp_random_graph(n, 0.05, 7)
+        benchmark(lambda: fnx.laplacian_spectrum(g))
+
+    def test_nx_laplacian_spectrum(self, benchmark, n):
+        g = nx.gnp_random_graph(n, 0.05, 7)
+        benchmark(lambda: nx.laplacian_spectrum(g))
+
+
 @pytest.mark.parametrize("n", [300, 800], ids=["n=300", "n=800"])
 class TestGeneralizedDegree:
     # nodes=None -> native generalized_degree_rust + Counter-wrap, replacing the

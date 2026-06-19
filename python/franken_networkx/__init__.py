@@ -22806,14 +22806,21 @@ def laplacian_spectrum(G, weight="weight"):
     L = laplacian_matrix(G, weight=weight)
     dense = L.toarray()
     n = dense.shape[0]
-    # br-r37-c1-04z53.9109: remaining dense symmetric Laplacians use the
-    # safe-Rust eigensolver after exact matrix construction. NumPy LAPACK remains
-    # only as the missing-binding/non-convergence guard.
-    native = getattr(_fnx, "symmetric_eigvals_rust", None)
-    if native is not None:
-        values = native(np.ascontiguousarray(dense, dtype=np.float64).ravel(), n)
-        if values is not None:
-            return np.asarray(values, dtype=np.float64)
+    # br-r37-c1-04z53.9109: small dense symmetric Laplacians use the safe-Rust
+    # eigensolver after exact matrix construction.
+    # br-r37-c1 (cc, laplacian-spectrum-eigsolver): the safe-Rust eigensolver is
+    # 2.3-4x SLOWER than LAPACK eigvalsh at EVERY measured n>=30 (profiled
+    # crossover) — it has no win on the general dense path, only added cost (it
+    # made laplacian_spectrum 2.4x slower than networkx at n=300). Gate it to
+    # small n where the absolute cost is negligible; route larger Laplacians to
+    # LAPACK eigvalsh (values match to 1e-8, and it is already the fallback, so
+    # the tolerance-based spectral tests are unaffected).
+    if n <= _LAPLACIAN_DENSE_EIGSOLVER_NATIVE_MAX_N:
+        native = getattr(_fnx, "symmetric_eigvals_rust", None)
+        if native is not None:
+            values = native(np.ascontiguousarray(dense, dtype=np.float64).ravel(), n)
+            if values is not None:
+                return np.asarray(values, dtype=np.float64)
     return np.sort(np.linalg.eigvalsh(dense))
 
 
@@ -22823,6 +22830,7 @@ def laplacian_spectrum(G, weight="weight"):
 # subclass, and larger cases continue through the exact matrix builder before
 # the native dense eigensolver.
 _LAPLACIAN_SPECTRUM_NATIVE_MAX_N = 32
+_LAPLACIAN_DENSE_EIGSOLVER_NATIVE_MAX_N = 64
 
 
 def _complete_laplacian_spectrum_sorted_value_safe(G, weight):
@@ -23885,12 +23893,36 @@ def effective_size(G, nodes=None, weight=None, *, backend=None, **backend_kwargs
         ``{node: effective_size}``
     """
     _validate_backend_dispatch_keywords("effective_size", backend, backend_kwargs)
-    # br-r37-c1-shdir: see constraint — the Rust effective_size_rust kernel is
-    # undirected-only and mishandled DiGraphs. Delegate directed graphs to nx.
+    # br-r37-c1-qbj9u: simple unweighted DiGraphs now use a native kernel with
+    # NetworkX's directed mutual-neighbor semantics (successors ∪ predecessors,
+    # mutual weight I(u->v)+I(v->u)), removing the matrix/delegation path for
+    # the realistic directed common case. Weighted, multigraph, and self-loop
+    # graphs keep the existing matrix/parity route below.
+    has_selfloops = number_of_selfloops(G) > 0
+    if G.is_directed() and not G.is_multigraph() and weight is None and not has_selfloops:
+        if len(G) == 0:
+            raise NetworkXError("Graph has no nodes or edges")
+
+        if nodes is None:
+            requested_nodes = list(G.nodes())
+        else:
+            requested_nodes = list(nodes)
+            for node in requested_nodes:
+                if node not in G:
+                    raise KeyError(node)
+
+        from franken_networkx._fnx import effective_size_directed_rust as _rust_eff_size_directed
+
+        result = _rust_eff_size_directed(G)
+        return {node: result[node] for node in requested_nodes}
+
+    # br-r37-c1-shdir: see constraint — the Rust effective_size_rust kernel was
+    # undirected-only and mishandled DiGraphs. Non-simple directed cases still
+    # use the matrix/delegated parity path.
     # br-r37-c1-1boe3: the Rust kernel also ignores self-loops, but nx folds a
     # self-loop into the mutual-weight normalization, so delegate self-loop
     # graphs to nx (same reasoning as constraint).
-    if weight is not None or G.is_directed() or number_of_selfloops(G) > 0:
+    if weight is not None or G.is_directed() or has_selfloops:
         # br-r37-c1-qurfc: nx's effective_size(nodes=None) uses a deterministic
         # MATRIX path, byte-reproducible in-process over the native
         # adjacency_matrix (proven 0/320 exact), dropping the fnx->nx conversion.
