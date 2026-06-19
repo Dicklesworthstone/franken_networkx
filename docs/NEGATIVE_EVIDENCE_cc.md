@@ -30,6 +30,18 @@ intersection) would push to WINS. preferential_attachment 0.78x is a SEPARATE lo
 kernel 9142). The stamp-mark fix lives in fnx-algorithms/src/lib.rs (TealSpring's file,
 NOT a cc file) — baseline recorded here as the peer's measured bench target.
 
+## SHIPPED fyxma2: multigraph connectivity siblings 12-50x slower -> WIN/parity
+
+The fyxma fix (connected_components direct-adjacency BFS) had THREE unfixed siblings
+that still built a full simple Graph first: number_connected_components 0.08x (12x
+slower), is_connected 0.09x (11x), node_connected_component 0.02x (50x!). Extended the
+same lever (early-exit multigraph_is_connected, single-source
+multigraph_node_connected_component, number_cc via the components helper). MEASURED:
+number_cc 0.08x->1.24x WIN, is_connected 0.09x->1.26x WIN, node_cc 0.02x->0.97x parity;
+multigraph parity 45/45 + simple 45/45 + empty-graph PointlessConcept preserved + 98
+component conformance green. LESSON: when fixing a multigraph slow-path, audit ALL
+siblings sharing multigraph_to_simple_graph_structure_only — they have the same tax.
+
 ## Small-input delegation sweep — all WINS except order-gated common_neighbors
 
 Swept single-node/pair inputs: single_source_shortest_path_length 3.47x, has_path
