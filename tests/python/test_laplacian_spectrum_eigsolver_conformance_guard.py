@@ -33,6 +33,27 @@ def test_laplacian_spectrum_matches_nx_across_gate(n):
     assert np.allclose(fv, nv, atol=1e-8)
 
 
+@pytest.mark.parametrize("n", [40, 64, 65, 150])
+def test_adjacency_spectrum_matches_nx_across_gate(n):
+    # Same eigensolver gate (safe-Rust <= 64, LAPACK eigvalsh above). Spectra are
+    # order-insensitive vs nx (fnx returns ascending; nx returns dgeev order), so
+    # compare sorted. The swap preserves fnx's own ascending order + values.
+    fg = fnx.gnp_random_graph(n, 0.08, 7)
+    ng = nx.gnp_random_graph(n, 0.08, 7)
+    fv = np.sort(np.real(np.asarray(fnx.adjacency_spectrum(fg), dtype=complex)))
+    nv = np.sort(np.real(np.asarray(nx.adjacency_spectrum(ng), dtype=complex)))
+    assert np.allclose(fv, nv, atol=1e-7)
+
+
+@pytest.mark.parametrize("n", [40, 65, 150])
+def test_modularity_spectrum_matches_nx_across_gate(n):
+    fg = fnx.gnp_random_graph(n, 0.08, 7)
+    ng = nx.gnp_random_graph(n, 0.08, 7)
+    fv = np.sort(np.real(np.asarray(fnx.modularity_spectrum(fg), dtype=complex)))
+    nv = np.sort(np.real(np.asarray(nx.modularity_spectrum(ng), dtype=complex)))
+    assert np.allclose(fv, nv, atol=1e-7)
+
+
 @pytest.mark.parametrize("n", [50, 120])
 def test_weighted_laplacian_spectrum_matches_nx(n):
     import random

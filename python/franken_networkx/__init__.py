@@ -23223,9 +23223,17 @@ def adjacency_spectrum(G, weight="weight"):
             # nan/inf edge weights make scipy.linalg.eigvals raise ValueError;
             # fall through to SciPy so the native route preserves that contract.
             if np.isfinite(dense).all():
-                values = native(dense.ravel(), dense.shape[0])
-                if values is not None:
-                    return np.asarray(values, dtype=np.float64).astype(np.complex128)
+                # br-r37-c1 (cc, dense-eigsolver-gate): safe-Rust eig is 2.3-4x
+                # slower than LAPACK eigvalsh at every n (same ascending order +
+                # values to 1e-7), so gate it to small n and route larger dense
+                # symmetric spectra to eigvalsh.
+                an = dense.shape[0]
+                if an <= _LAPLACIAN_DENSE_EIGSOLVER_NATIVE_MAX_N:
+                    values = native(dense.ravel(), an)
+                    if values is not None:
+                        return np.asarray(values, dtype=np.float64).astype(np.complex128)
+                else:
+                    return np.linalg.eigvalsh(dense).astype(np.complex128)
 
     import scipy as sp
 
@@ -41174,9 +41182,16 @@ def modularity_spectrum(G):
             # that with ValueError. Fall through to SciPy so the native route
             # never silently returns NaN where nx raises.
             if np.isfinite(B).all():
-                values = native(B.ravel(), B.shape[0])
-                if values is not None:
-                    return np.asarray(values, dtype=np.float64).astype(np.complex128)
+                # br-r37-c1 (cc, dense-eigsolver-gate): LAPACK eigvalsh beats the
+                # safe-Rust eig 2.3-4x at every n (same ascending order + values),
+                # and both beat nx's non-Hermitian dgeev. Gate safe-Rust to small n.
+                bn = B.shape[0]
+                if bn <= _LAPLACIAN_DENSE_EIGSOLVER_NATIVE_MAX_N:
+                    values = native(B.ravel(), bn)
+                    if values is not None:
+                        return np.asarray(values, dtype=np.float64).astype(np.complex128)
+                else:
+                    return np.linalg.eigvalsh(B).astype(np.complex128)
 
     import scipy.linalg
 
