@@ -13073,6 +13073,17 @@ def node_clique_number(G, nodes=None, cliques=None, separate_nodes=False):
     if cliques is None:
         if G.is_directed():
             raise NetworkXNotImplemented("not implemented for directed type")
+        # br-r37-c1-ncliqueego (cc): for a single node, the maximal cliques containing it
+        # all live in its ego graph (v + neighbours, where v is universal so every maximal
+        # clique contains it). Enumerate cliques of that small graph instead of EVERY
+        # maximal clique of the whole graph (was 0.15x). max-size is order-invariant.
+        if nodes is not None:
+            try:
+                single = nodes in G
+            except TypeError:
+                single = False
+            if single:
+                return max(len(c) for c in find_cliques(ego_graph(G, nodes)))
         cliques = list(find_cliques(G))
         if nodes is not None:
             if nodes in G:
