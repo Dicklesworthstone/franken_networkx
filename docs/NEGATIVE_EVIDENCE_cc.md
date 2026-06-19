@@ -77,6 +77,16 @@ PYTHON dijkstra loop (heap+dict ops per node), not adjacency — k4p0b needs a N
 bidirectional kernel (the undirected _native_bidirectional_dijkstra is undirected-only,
 374/1043 on directed). lc2qy (single-pair early-exit). Undirected path family already WINS 1.3-3.4x.
 
+## weighted-centrality audit — all WIN/neutral after scipy-mirror vein
+
+After the scipy-matvec vein (pagerank prscipy, eigenvector eigscipy, katz katzscipy), swept
+weighted centralities: betweenness_centrality(weight) 13.92x, edge_betweenness 13.51x,
+load_centrality 9.61x, current_flow_closeness 7.46x, closeness(distance) 3.61x WINS;
+harmonic 0.95x / eigenvector_numpy(weight) 0.94x neutral. pagerank(dangling) APPEARED 0.65x
+in the sweep but is 1.16x WIN on clean warm measurement (the scipy path IS taken; sweep
+0.65x was cold/dict-creation noise). katz_centrality_numpy(weight) 0.89x marginal (numpy
+linalg variant; the power-iteration katz now WINS 8x). Centrality surface dominated.
+
 ## bellman-ford/johnson/floyd/dijkstra weighted sweep — wins dominate, 2 kernel-bound losses
 
 WINS: floyd_warshall 41.50x, all_pairs_dijkstra_path_length 2.68x, all_pairs_bellman_ford 2.35x,
