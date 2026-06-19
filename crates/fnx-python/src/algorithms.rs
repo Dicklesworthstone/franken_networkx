@@ -2329,6 +2329,22 @@ pub fn shortest_path_length(
             }
         }
     } else {
+        // br-r37-c1-ubizp: unweighted MultiGraph single-pair uses a target-early-exit
+        // BFS over the adjacency instead of the gr.undirected() simple-Graph conversion
+        // (was ~huge for single-pair). Distance is multiplicity-invariant.
+        if weight.is_none() {
+            if let GraphRef::MultiUndirected { mg, .. } = &gr {
+                let inner = &mg.inner;
+                let dist = py.allow_threads(|| multigraph_target_bfs_distance(inner, &s, &t));
+                return match dist {
+                    Some(d) => Ok(d.into_pyobject(py)?.into_any().unbind()),
+                    None => Err(NetworkXNoPath::new_err(format!(
+                        "No path between {} and {}.",
+                        s, t
+                    ))),
+                };
+            }
+        }
         let inner = gr.undirected();
         if let Some(_w) = weight {
             let weighted_projection = gr.weighted_undirected_projection(_w);
@@ -2386,6 +2402,14 @@ pub fn has_path(
         let result = py.allow_threads(|| fnx_algorithms::has_path_directed(inner, &s, &t));
         Ok(result.has_path)
     } else {
+        // br-r37-c1-ubizp: MultiGraph reachability via target-early-exit BFS over the
+        // adjacency instead of the gr.undirected() conversion (multiplicity-invariant).
+        if let GraphRef::MultiUndirected { mg, .. } = &gr {
+            let inner = &mg.inner;
+            let reachable =
+                py.allow_threads(|| multigraph_target_bfs_distance(inner, &s, &t).is_some());
+            return Ok(reachable);
+        }
         let inner = gr.undirected();
         let result = py.allow_threads(|| fnx_algorithms::has_path(inner, &s, &t));
         Ok(result.has_path)
@@ -4027,6 +4051,48 @@ fn multigraph_sssp_paths<'a>(
         }
     }
     out
+}
+
+/// br-r37-c1-ubizp (cc): unweighted single-pair distance over a MultiGraph by a
+/// target-early-exit BFS over the adjacency (no simple-Graph build). Distance is
+/// multiplicity-invariant. Returns Some(distance) or None if target is unreachable.
+fn multigraph_target_bfs_distance(
+    mg: &fnx_classes::MultiGraph,
+    source: &str,
+    target: &str,
+) -> Option<usize> {
+    use std::collections::{HashSet, VecDeque};
+    if source == target {
+        return Some(0);
+    }
+    // O(1) source resolution: seed the BFS from source's neighbors directly (one hash
+    // lookup) instead of an O(|V|) scan to find the borrowed source &str. The source
+    // never re-enters the frontier (skip neighbors equal to it), so no revisit loop.
+    let mut visited: HashSet<&str> = HashSet::new();
+    let mut queue: VecDeque<(&str, usize)> = VecDeque::new();
+    if let Some(nbrs) = mg.neighbors(source) {
+        for v in nbrs {
+            if v == target {
+                return Some(1);
+            }
+            if v != source && visited.insert(v) {
+                queue.push_back((v, 1));
+            }
+        }
+    }
+    while let Some((node, dist)) = queue.pop_front() {
+        if let Some(nbrs) = mg.neighbors(node) {
+            for v in nbrs {
+                if v == target {
+                    return Some(dist + 1);
+                }
+                if v != source && visited.insert(v) {
+                    queue.push_back((v, dist + 1));
+                }
+            }
+        }
+    }
+    None
 }
 
 #[pyfunction]
