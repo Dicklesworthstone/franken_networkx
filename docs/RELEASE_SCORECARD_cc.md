@@ -13,20 +13,28 @@ Status of perf claims that were committed `code-first batch-test pending`.
 | Distance index | gutman_index native | 2.16x |
 | Distance index | schultz_index native | 2.20x |
 | Distance index | generalized_degree native | 3.23x |
+| Link-pred | jaccard_coefficient | 1.53x |
+| Link-pred | common_neighbor_centrality | 2.68x |
+| Generator | gnp_random_graph | 2.37x |
+| Generator | random_geometric_graph | 2.38x |
+| Generator | barabasi_albert / watts_strogatz | 1.31x / 1.12x |
 
 ## Verified LOSSES → action
 
 | Area | Optimization | Measured | Action |
 | --- | --- | --- | --- |
-| Link analysis | google_matrix native routing | 0.34x | REVERT (revert pending — __init__.py held by peer; bug fix retained) |
+| Link analysis | google_matrix native routing | 0.34x | REVERT (pending — __init__.py held by peer; exact block + numbers sent twice; bug fix retained) |
+| Link-pred | preferential_attachment (9142) | 0.55x | FLAGGED to CrimsonRiver (their kernel; not a cc file) |
 
 ## Open gaps surfaced (file/investigate)
 
 | Function | Measured | Note |
 | --- | --- | --- |
-| dijkstra_path(u,v) single-pair | 0.49x | conversion/weighted-setup tax; in-process single-pair candidate |
+| dijkstra_path(u,v) single-pair weighted | 0.12x | DIAGNOSED+FILED br-r37-c1-j5u29: full SSSP, no target early-exit (nx terminates at target). Needs target-aware native dijkstra. |
 | betweenness_centrality k-sampled | ~0.89x | delegates to nx; native k-sampling lever filed br-r37-c1-8ox3z (CrimsonRiver implementing) |
 | attributed construction/conversion | 0.59-0.98x | subgraph/copy ~parity; to_directed 0.83x, to_undirected 0.59x. Substrate tax (PyDict alloc + PyO3 labels); CrimsonRiver tbh4q. fnx's weakest area vs nx. |
+| waxman_graph | 0.87x | marginal; residual O(n^2) distance vs nx; batch was self-win not nx-win. |
+| adamic_adar / resource_allocation | ~0.95x | neutral at scale; fine. |
 
 ## Broad domain sweep (7 domains profiled, fnx dominates)
 
@@ -36,7 +44,20 @@ dense-linalg (second_order 1031x, current_flow_betw 48x, katz 25x), combinatoria
 realistic workloads across the surface; the only measured losses are the two above
 plus marginal/order-blocked max_weight_matching (0.94x).
 
-## Net
+## Net (measured, ~40 functions across 8 domains + generators + link-pred)
 
-6 measured WINS kept, 1 measured LOSS reverting, 2 open gaps tracked. fnx is
-release-ready on perf for the swept domains; remaining items are tracked beads.
+- **WINS kept**: 11+ measured (eigensolver gate 1.32/39.7/18x, distance-indices
+  2.16-3.23x, link-pred jaccard 1.53x / CCPA 2.68x, generators gnp/geom/BA/WS
+  2.37/2.38/1.31/1.12x) plus the broad-sweep domain dominance (dense-linalg
+  1031x, is_isomorphic 47x, etc.).
+- **LOSSES → action**: google_matrix routing 0.34x (REVERT pending, coordinated);
+  preferential_attachment 0.55x (flagged, peer kernel).
+- **Open gaps (filed/tracked)**: dijkstra_path single-pair (j5u29),
+  betweenness k-sampled (8ox3z), construction substrate (tbh4q), waxman marginal.
+- **Neutral**: gnm/dual_ba generators, adamic_adar/resource_allocation, copy/subgraph.
+
+VERDICT: fnx is release-ready on perf across the measured surface — it dominates
+nx on the vast majority of realistic workloads. The honest exceptions are 1
+cc-introduced regression (google_matrix, reverting) and a handful of tracked gaps
+(single-pair dijkstra early-exit, PA kernel, attributed-construction substrate).
+No measured optimization is being kept that doesn't beat or match nx.
