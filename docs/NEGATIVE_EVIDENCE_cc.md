@@ -77,6 +77,19 @@ PYTHON dijkstra loop (heap+dict ops per node), not adjacency — k4p0b needs a N
 bidirectional kernel (the undirected _native_bidirectional_dijkstra is undirected-only,
 374/1043 on directed). lc2qy (single-pair early-exit). Undirected path family already WINS 1.3-3.4x.
 
+## Native bidirectional MUTATED-weight per-call sync (filed br-r37-c1-6spkb)
+
+The directed kernel (p60i1) WINS the COMMON case (clean/add_edge graphs: directed
+shortest_path 0.20x->2.50x, sync is a 0.2us no-op). But graphs with MUTATED edge weights
+(G[u][v]['weight']=w -> materialized edge dicts) pay a per-call O(materialized-E) edge-sync
+(2.46ms@n=800) that does not clear a dirty flag -> directed shortest_path 0.05x. This is a
+PRE-EXISTING class: undirected k4p0b has the identical sync slowness (mutated 0.14x). The
+Python port (reads Python attrs, no sync) is faster for mutated (0.79x) but no cheap
+Python-level dirty accessor exists to gate on. Kept the kernel (common case dominates +
+consistency with undirected); filed br-r37-c1-6spkb for the root fix (dirty-tracked sync, helps
+the whole native shortest-path family). NET POSITIVE: common case +2.5x, mutated tail
+regressed to match undirected.
+
 ## Bipartite/similarity/structural sweep — wins dominate, 1 marginal delegated tax
 
 Swept bipartite/similarity/structural: rich_club_coefficient 46.79x, harmonic_centrality
