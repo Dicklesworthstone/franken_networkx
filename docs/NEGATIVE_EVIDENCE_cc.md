@@ -66,11 +66,13 @@ separate (numeric).
 Swept tree/flow/community/centrality: WINS dominate (second_order_centrality 153x,
 greedy_modularity 24x, harmonic 19x, label_propagation 2.37x, asyn_lpa 2.29x,
 percolation 1.80x, minimum_cut 1.29x). ONE loss: voronoi_cells 0.69x — cProfile shows
-it is dominated by the native multi_source_dijkstra_path (0.93ms/call), the SAME
-dijkstra weighted-projection-build class as single-pair dijkstra (j5u29). Not a
-Python-layer fix (the wrapper cell-assignment is 0.004s); the lever is caching/lazy
-weights in the multi_source dijkstra projection (would help voronoi + all dijkstra).
-Marginal + less-common. Simple-graph surface overwhelmingly WINS.
+it is dominated by the raw multi_source_dijkstra. CORRECTED: the weighted projection is
+BORROWED for simple graphs (no build), so this is NOT the j5u29 projection class — the
+cost is the FULL {node: path} String path construction while voronoi only uses path[0]
+(the source/nearest center). Same path-materialization substrate as single_source_
+shortest_path (ubizp). LEVER (filed br-r37-c1-2z0mw): a source-PROPAGATING multi_source
+kernel returning {node: source}, skipping full paths. Marginal + less-common.
+Simple-graph surface overwhelmingly WINS.
 
 ## MultiDiGraph OPERATOR/CONVERSION sweep — all trace to known walls (not new)
 
