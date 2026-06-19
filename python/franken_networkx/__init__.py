@@ -15424,28 +15424,42 @@ def dag_longest_path(G, weight="weight", default_weight=1, topo_order=None):
 
     is_multi = G.is_multigraph()
     dist = {}  # {v: (length, u)}
-    for v in topo_order:
-        us = []
-        pred_items = G.pred[v].items()
-        for u, data in pred_items:
-            if is_multi:
-                # Pick the heaviest parallel edge between u and v.
-                edge_weight = max(
+    multi_pred = None
+    if is_multi:
+        # br-r37-c1-11m92 (cc): snapshot the predecessor adjacency ONCE by iterating
+        # G.pred.items() a single time (one materialisation, preserving each row's
+        # row-ordered order which matches nx's G.pred[v] exactly so the max() tie-break
+        # is byte-identical) instead of re-indexing G.pred[v] per node — the
+        # MultiAdjacencyView re-materialises the whole adjacency on every G.pred[v]
+        # access (~1800x per row). The heaviest parallel-edge weight collapses the
+        # keydict. (The native edge list is faster but raw-insertion-order, which
+        # diverges from the row-ordered G.pred on ties — see br-r37-c1 follow-up.)
+        multi_pred = {}
+        for _v, _preds in G.pred.items():
+            _pw = {}
+            for _u, _keydict in _preds.items():
+                _pw[_u] = max(
                     (
                         attrs.get(weight, default_weight)
                         if isinstance(attrs, dict)
                         else default_weight
-                        for attrs in data.values()
+                        for attrs in _keydict.values()
                     ),
                     default=default_weight,
                 )
-            else:
+            multi_pred[_v] = _pw
+    for v in topo_order:
+        if is_multi:
+            us = [(dist[u][0] + _w, u) for u, _w in multi_pred[v].items()]
+        else:
+            us = []
+            for u, data in G.pred[v].items():
                 edge_weight = (
                     data.get(weight, default_weight)
                     if isinstance(data, dict)
                     else default_weight
                 )
-            us.append((dist[u][0] + edge_weight, u))
+                us.append((dist[u][0] + edge_weight, u))
         # nx's tie-break: max with key=x[0] returns the FIRST element
         # with the max first component (Python's max stability).
         maxu = max(us, key=lambda x: x[0]) if us else (0, v)
