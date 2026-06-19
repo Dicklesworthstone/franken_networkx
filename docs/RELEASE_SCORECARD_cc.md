@@ -83,6 +83,7 @@ losses. Residual lc2qy = single-pair early-exit kernel variant (far-target 0.58x
 | Bipartite | bipartite.clustering adjacency snapshot (bipclust) | **0.84x -> 2.43x** |
 | Bipartite | bipartite.average_clustering / degree_centrality de-delegate | **0.86x->2.4x / 0.41x->1.04x** |
 | Euler | eulerian_circuit snapshot Hierholzer (eulcirc) | **0.63x -> 9.19x** |
+| Isomorphism | could_be_isomorphic batch degree (cbiso) | **0.74x -> 1.04x** |
 | Degree-seq | is_graphical eg Durfee-corner break + O(n) sweep (egsweep) | **0.64x -> 1.20-1.45x** |
 | Link-pred | preferential_attachment / RA / AA degree-batch (pa-degbatch) | PA **0.78x->0.99x**, RA/AA neutral->**1.05-1.06x WIN** |
 | Code-first batch | assortativity 9147-52 (degree_assort 78x) / expansion-cut-flow 9153-55 (flow_hierarchy 219x) | 2.4-219x, parity-verified |
