@@ -97,6 +97,14 @@ raises and the assert errors. fnx is byte-correct. 35 'failures' = one unguarded
 DIAGNOSTIC: a conformance failure that reproduces IDENTICALLY in nx is a test bug, not a
 port gap — always compare the fnx error to nx's before filing as an fnx regression.
 
+## subgraph/induced_subgraph 0.70x = creation-only micro-artifact (usage WINS 2.60x)
+
+subgraph(nbunch) view CREATION is 0.70x (fnx 16.4us vs nx 11.5us, ~5us) but subgraph +
+list(edges()) is 2.60x WIN — fnx's heavier eager setup pays off the moment the view is
+USED (the realistic pattern). Bare-creation timing is misleading, like the order-sensitive
+rebuild artifact. NOT a real loss; do not trim creation (would hurt iteration). edge_subgraph
+0.90x same shape.
+
 ## broad centrality sweep (group/percolation/communicability) — all WIN/neutral
 
 Swept: communicability_betweenness 106.33x, percolation_centrality(weight) 13.67x,
