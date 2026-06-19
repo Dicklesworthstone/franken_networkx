@@ -7721,6 +7721,17 @@ def shortest_path(
         # already matches nx exactly (incl. the NetworkXNoPath wording and the
         # source==target single-node path), so delegate to it.
         return bidirectional_shortest_path(G, source, target)
+    if isinstance(weight, str) and source is not None and target is not None:
+        # br-r37-c1-spw (cc): the weighted SINGLE-PAIR case must match nx's path
+        # tie-break. nx.shortest_path routes weighted point-to-point through
+        # bidirectional_dijkstra (dijkstra) / bellman_ford_path — whose specific path
+        # among equal-weight alternatives differs from the native _raw_shortest_path
+        # single-pair kernel (n30yf class). fnx's bidirectional_dijkstra /
+        # bellman_ford_path are byte-identical to nx, so route through them. Source-only
+        # / target-only / all-pairs keep the native batch kernel below.
+        if method == "bellman-ford":
+            return bellman_ford_path(G, source, target, weight=weight)
+        return bidirectional_dijkstra(G, source, target, weight=weight)[1]
     if isinstance(weight, str):
         # br-gauntlet-sp-weightsync: the weighted path runs the native
         # ``_raw_shortest_path`` kernel, which reads edge weights from the Rust
