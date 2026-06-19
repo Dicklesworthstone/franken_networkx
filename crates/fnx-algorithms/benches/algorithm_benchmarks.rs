@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use fnx_algorithms::{
     adamic_adar_index, average_degree_connectivity, average_shortest_path_length,
     betweenness_centrality, closeness_centrality, cn_soundarajan_hopcroft,
@@ -17,7 +17,7 @@ use fnx_algorithms::{
     preferential_attachment, ra_index_soundarajan_hopcroft, resource_allocation_index,
     shortest_path_unweighted, shortest_path_weighted, single_source_dijkstra_path_length,
 };
-use fnx_classes::{DiGraph, Graph};
+use fnx_classes::{Graph, digraph::DiGraph};
 use fnx_runtime::CgseValue;
 
 fn attr(key: &str, val: &str) -> BTreeMap<String, CgseValue> {

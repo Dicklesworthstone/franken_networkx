@@ -34470,11 +34470,9 @@ struct CcpaSourceDistanceCache {
 
 impl CcpaSourceDistanceCache {
     fn new(node_count: usize, pair_count: usize) -> Self {
-        let cell_budget_sources = if node_count == 0 {
-            0
-        } else {
-            CCPA_DISTANCE_CACHE_MAX_CELLS / node_count
-        };
+        let cell_budget_sources = CCPA_DISTANCE_CACHE_MAX_CELLS
+            .checked_div(node_count)
+            .unwrap_or(0);
         let limit = pair_count
             .min(node_count)
             .min(CCPA_DISTANCE_CACHE_MAX_SOURCES)

@@ -7659,10 +7659,10 @@ impl PyDiGraph {
             let v = snapshot.right;
             let ek = PyGraph::edge_key(&u, &v);
             let src = self.edge_py_attrs.get(&(u.clone(), v.clone()));
-            if let Some(d) = src {
-                if !d.bind(py).is_empty() {
-                    needs_edge_attr_sync = true;
-                }
+            if let Some(d) = src
+                && !d.bind(py).is_empty()
+            {
+                needs_edge_attr_sync = true;
             }
             // Inner topology only; Python side below keeps nx's latter-wins
             // attr merge. Weighted native callers will sync from the mirrors.

@@ -30,11 +30,11 @@ fn arb_graph(max_nodes: usize, max_edges: usize) -> impl Strategy<Value = Graph>
         prop::collection::vec((0..n, 0..n), m).prop_map(move |edges| {
             let mut g = Graph::new(default_mode());
             for i in 0..n {
-                g.add_node(&i.to_string());
+                g.add_node(i.to_string());
             }
             for (u, v) in edges {
                 if u != v {
-                    g.add_edge(&u.to_string(), &v.to_string());
+                    let _ = g.add_edge(u.to_string(), v.to_string());
                 }
             }
             g
@@ -49,11 +49,11 @@ fn arb_digraph(max_nodes: usize, max_edges: usize) -> impl Strategy<Value = DiGr
         prop::collection::vec((0..n, 0..n), m).prop_map(move |edges| {
             let mut g = DiGraph::new(default_mode());
             for i in 0..n {
-                g.add_node(&i.to_string());
+                g.add_node(i.to_string());
             }
             for (u, v) in edges {
                 if u != v {
-                    g.add_edge(&u.to_string(), &v.to_string());
+                    let _ = g.add_edge(u.to_string(), v.to_string());
                 }
             }
             g
@@ -68,15 +68,15 @@ fn arb_connected_graph(max_nodes: usize, extra_edges: usize) -> impl Strategy<Va
             let mut g = Graph::new(default_mode());
             // Build a path to ensure connectivity
             for i in 0..n {
-                g.add_node(&i.to_string());
+                g.add_node(i.to_string());
             }
             for i in 0..(n - 1) {
-                g.add_edge(&i.to_string(), &(i + 1).to_string());
+                let _ = g.add_edge(i.to_string(), (i + 1).to_string());
             }
             // Add random extra edges
             for (u, v) in extra {
                 if u != v {
-                    g.add_edge(&u.to_string(), &v.to_string());
+                    let _ = g.add_edge(u.to_string(), v.to_string());
                 }
             }
             g
@@ -97,10 +97,10 @@ proptest! {
         let mut relabeled = Graph::new(default_mode());
         let nodes: Vec<_> = g.nodes_ordered().into_iter().map(|s| s.to_owned()).collect();
         for node in &nodes {
-            relabeled.add_node(&format!("r_{}", node));
+            relabeled.add_node(format!("r_{}", node));
         }
         for (u, v, _) in g.edges_ordered_borrowed() {
-            relabeled.add_edge(&format!("r_{}", u), &format!("r_{}", v));
+            let _ = relabeled.add_edge(format!("r_{}", u), format!("r_{}", v));
         }
 
         let orig_cc = number_connected_components(&g).count;
@@ -115,10 +115,10 @@ proptest! {
         let mut relabeled = Graph::new(default_mode());
         let nodes: Vec<_> = g.nodes_ordered().into_iter().map(|s| s.to_owned()).collect();
         for node in &nodes {
-            relabeled.add_node(&format!("r_{}", node));
+            relabeled.add_node(format!("r_{}", node));
         }
         for (u, v, _) in g.edges_ordered_borrowed() {
-            relabeled.add_edge(&format!("r_{}", u), &format!("r_{}", v));
+            let _ = relabeled.add_edge(format!("r_{}", u), format!("r_{}", v));
         }
 
         // Compare degree sequences (sorted)
@@ -141,10 +141,10 @@ proptest! {
         let mut relabeled = Graph::new(default_mode());
         let nodes: Vec<_> = g.nodes_ordered().into_iter().map(|s| s.to_owned()).collect();
         for node in &nodes {
-            relabeled.add_node(&format!("r_{}", node));
+            relabeled.add_node(format!("r_{}", node));
         }
         for (u, v, _) in g.edges_ordered_borrowed() {
-            relabeled.add_edge(&format!("r_{}", u), &format!("r_{}", v));
+            let _ = relabeled.add_edge(format!("r_{}", u), format!("r_{}", v));
         }
 
         let orig_result = clustering_coefficient(&g);
@@ -194,7 +194,7 @@ proptest! {
             g_with_isolate.add_node(node);
         }
         for (u, v, _) in g.edges_ordered_borrowed() {
-            g_with_isolate.add_edge(u, v);
+            let _ = g_with_isolate.add_edge(u, v);
         }
         g_with_isolate.add_node("__isolated__");
 
@@ -220,7 +220,7 @@ proptest! {
             g_with_isolate.add_node(node);
         }
         for (u, v, _) in g.edges_ordered_borrowed() {
-            g_with_isolate.add_edge(u, v);
+            let _ = g_with_isolate.add_edge(u, v);
         }
         g_with_isolate.add_node("__isolated__");
 
@@ -247,7 +247,7 @@ proptest! {
             reversed.add_node(node);
         }
         for (u, v, _) in dg.edges_ordered_borrowed() {
-            reversed.add_edge(v, u); // reverse direction
+            let _ = reversed.add_edge(v, u); // reverse direction
         }
 
         // Reverse again
@@ -256,7 +256,7 @@ proptest! {
             double_reversed.add_node(node);
         }
         for (u, v, _) in reversed.edges_ordered_borrowed() {
-            double_reversed.add_edge(v, u); // reverse again
+            let _ = double_reversed.add_edge(v, u); // reverse again
         }
 
         // Should have same edges as original
@@ -280,7 +280,7 @@ proptest! {
             reversed.add_node(node);
         }
         for (u, v, _) in dg.edges_ordered_borrowed() {
-            reversed.add_edge(v, u);
+            let _ = reversed.add_edge(v, u);
         }
 
         prop_assert_eq!(dg.node_count(), reversed.node_count(),
@@ -317,7 +317,7 @@ proptest! {
             subgraph.add_node(node);
         }
         for (u, v) in &edges[1..] {
-            subgraph.add_edge(u.as_str(), v.as_str());
+            let _ = subgraph.add_edge(u.as_str(), v.as_str());
         }
 
         let new_cc = number_connected_components(&subgraph).count;
@@ -342,9 +342,9 @@ proptest! {
             supergraph.add_node(node);
         }
         for (u, v, _) in g.edges_ordered_borrowed() {
-            supergraph.add_edge(u, v);
+            let _ = supergraph.add_edge(u, v);
         }
-        supergraph.add_edge(&nodes[0], &nodes[1]);
+        let _ = supergraph.add_edge(&nodes[0], &nodes[1]);
 
         let new_cc = number_connected_components(&supergraph).count;
 
@@ -372,7 +372,7 @@ proptest! {
         }
         for (u, v, _) in g.edges_ordered_borrowed() {
             if subset.contains(u) && subset.contains(v) {
-                induced.add_edge(u, v);
+                let _ = induced.add_edge(u, v);
             }
         }
 
@@ -422,7 +422,7 @@ proptest! {
             iso.add_node(&perm_map[node.as_str()]);
         }
         for (u, v, _) in g.edges_ordered_borrowed() {
-            iso.add_edge(&perm_map[u], &perm_map[v]);
+            let _ = iso.add_edge(&perm_map[u], &perm_map[v]);
         }
 
         // Check invariants match
@@ -479,11 +479,11 @@ proptest! {
     fn complete_graph_is_connected(n in 2usize..15) {
         let mut g = Graph::new(default_mode());
         for i in 0..n {
-            g.add_node(&i.to_string());
+            g.add_node(i.to_string());
         }
         for i in 0..n {
             for j in (i + 1)..n {
-                g.add_edge(&i.to_string(), &j.to_string());
+                let _ = g.add_edge(i.to_string(), j.to_string());
             }
         }
 
@@ -498,10 +498,10 @@ proptest! {
     fn path_graph_has_n_minus_1_edges(n in 2usize..20) {
         let mut g = Graph::new(default_mode());
         for i in 0..n {
-            g.add_node(&i.to_string());
+            g.add_node(i.to_string());
         }
         for i in 0..(n - 1) {
-            let _ = g.add_edge(&i.to_string(), &(i + 1).to_string());
+            let _ = g.add_edge(i.to_string(), (i + 1).to_string());
         }
 
         prop_assert_eq!(g.edge_count(), n - 1,
@@ -514,10 +514,10 @@ proptest! {
     fn cycle_graph_has_n_edges(n in 3usize..20) {
         let mut g = Graph::new(default_mode());
         for i in 0..n {
-            g.add_node(&i.to_string());
+            g.add_node(i.to_string());
         }
         for i in 0..n {
-            let _ = g.add_edge(&i.to_string(), &((i + 1) % n).to_string());
+            let _ = g.add_edge(i.to_string(), ((i + 1) % n).to_string());
         }
 
         prop_assert_eq!(g.edge_count(), n,

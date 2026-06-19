@@ -2430,7 +2430,7 @@ fn run_fixture(
             }
             Operation::RichClubCoefficientQuery => {
                 let result = fnx_algorithms::rich_club_coefficient(&context.graph);
-                context.rich_club_coefficient_result = Some(result);
+                context.rich_club_coefficient_result = Some(result.into_iter().collect());
             }
             Operation::DispatchResolve {
                 operation,
