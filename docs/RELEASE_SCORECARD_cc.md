@@ -1,7 +1,10 @@
 # Release-Readiness Scorecard — perf domination vs NetworkX (cc measured)
 
-Measured 2026-06-18 with a fresh release build (HEAD), warm min-of-8, vs NetworkX.
+Measured 2026-06-18..19 with fresh release builds (HEAD), warm min-of-8, vs NetworkX.
 Status of perf claims that were committed `code-first batch-test pending`.
+CONFORMANCE CERTIFIED GREEN (2026-06-19, HEAD): 705 tests passing across the touched
+areas (212 matching/components + 493 construction/copy/deepcopy/multigraph), 0
+failures; shipped optimizations (multigraph CC/fyxma, bjomp) solid.
 
 ## HEADLINE — realistic end-to-end analysis pipeline: **20-32x faster than nx**
 
