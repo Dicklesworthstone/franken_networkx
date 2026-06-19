@@ -4134,6 +4134,78 @@ fn multidigraph_sssp_length_with_parents<'a>(
     out
 }
 
+/// br-r37-c1-zid1b (cc): weakly-connected components of a MultiDiGraph by direct BFS
+/// over the UNDIRECTED adjacency (successors ∪ predecessors) — no simple-DiGraph build.
+/// Multiplicity is irrelevant to weak connectivity. Components in node-iteration order.
+fn multidigraph_weak_components_borrowed<'a>(
+    mdg: &'a fnx_classes::digraph::MultiDiGraph,
+) -> Vec<Vec<&'a str>> {
+    use std::collections::{HashSet, VecDeque};
+    let nodes = mdg.nodes_ordered();
+    let mut visited: HashSet<&'a str> = HashSet::with_capacity(nodes.len());
+    let mut components: Vec<Vec<&'a str>> = Vec::new();
+    for &start in &nodes {
+        if !visited.insert(start) {
+            continue;
+        }
+        let mut comp: Vec<&'a str> = vec![start];
+        let mut queue: VecDeque<&'a str> = VecDeque::new();
+        queue.push_back(start);
+        while let Some(node) = queue.pop_front() {
+            if let Some(succs) = mdg.successors(node) {
+                for v in succs {
+                    if visited.insert(v) {
+                        comp.push(v);
+                        queue.push_back(v);
+                    }
+                }
+            }
+            if let Some(preds) = mdg.predecessors(node) {
+                for v in preds {
+                    if visited.insert(v) {
+                        comp.push(v);
+                        queue.push_back(v);
+                    }
+                }
+            }
+        }
+        components.push(comp);
+    }
+    components
+}
+
+/// br-r37-c1-zid1b (cc): is a MultiDiGraph weakly connected? early-exit BFS over the
+/// undirected adjacency (successors ∪ predecessors) from the first node.
+fn multidigraph_is_weakly_connected(mdg: &fnx_classes::digraph::MultiDiGraph) -> bool {
+    use std::collections::{HashSet, VecDeque};
+    let nodes = mdg.nodes_ordered();
+    if nodes.is_empty() {
+        return true;
+    }
+    let mut visited: HashSet<&str> = HashSet::with_capacity(nodes.len());
+    let start = nodes[0];
+    visited.insert(start);
+    let mut queue: VecDeque<&str> = VecDeque::new();
+    queue.push_back(start);
+    while let Some(node) = queue.pop_front() {
+        if let Some(succs) = mdg.successors(node) {
+            for v in succs {
+                if visited.insert(v) {
+                    queue.push_back(v);
+                }
+            }
+        }
+        if let Some(preds) = mdg.predecessors(node) {
+            for v in preds {
+                if visited.insert(v) {
+                    queue.push_back(v);
+                }
+            }
+        }
+    }
+    visited.len() == nodes.len()
+}
+
 #[pyfunction]
 pub fn is_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
@@ -11607,6 +11679,18 @@ pub fn weakly_connected_components(
             "weakly_connected_components is not defined for undirected graphs. Use connected_components instead.",
         ));
     }
+    if let GraphRef::MultiDirected { mdg, .. } = &gr {
+        // br-r37-c1-zid1b: direct undirected BFS over the multidigraph adjacency.
+        let inner = &mdg.inner;
+        let result = py.allow_threads(|| multidigraph_weak_components_borrowed(inner));
+        return result
+            .iter()
+            .map(|comp| {
+                let py_set: Vec<PyObject> = comp.iter().map(|n| gr.py_node_key(py, n)).collect();
+                py_set.into_pyobject(py).map(|obj| obj.into_any().unbind())
+            })
+            .collect();
+    }
     {
         let dg_ref = gr.digraph().expect("is_directed checked above");
         let result = py.allow_threads(|| fnx_algorithms::weakly_connected_components(dg_ref));
@@ -11629,6 +11713,10 @@ pub fn number_weakly_connected_components(py: Python<'_>, g: &Bound<'_, PyAny>) 
             "number_weakly_connected_components is not defined for undirected graphs.",
         ));
     }
+    if let GraphRef::MultiDirected { mdg, .. } = &gr {
+        let inner = &mdg.inner;
+        return Ok(py.allow_threads(|| multidigraph_weak_components_borrowed(inner).len()));
+    }
     {
         let dg_ref = gr.digraph().expect("is_directed checked above");
         Ok(py.allow_threads(|| fnx_algorithms::number_weakly_connected_components(dg_ref)))
@@ -11643,6 +11731,15 @@ pub fn is_weakly_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<boo
         return Err(crate::NetworkXNotImplemented::new_err(
             "is_weakly_connected is not defined for undirected graphs. Use is_connected instead.",
         ));
+    }
+    if let GraphRef::MultiDirected { mdg, .. } = &gr {
+        let inner = &mdg.inner;
+        if inner.nodes_ordered().is_empty() {
+            return Err(crate::NetworkXPointlessConcept::new_err(
+                "Connectivity is undefined for the null graph.",
+            ));
+        }
+        return Ok(py.allow_threads(|| multidigraph_is_weakly_connected(inner)));
     }
     {
         let dg_ref = gr.digraph().expect("is_directed checked above");
