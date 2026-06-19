@@ -1315,14 +1315,15 @@ def from_graph6_bytes(bytes_in, *, backend=None, **backend_kwargs):
             f"Expected {n * (n - 1) // 2} bits but got {len(values) * 6} in graph6"
         )
 
+    # br-r37-c1-g6batch (cc): batch add_nodes_from + add_edges_from instead of per-node
+    # add_node + per-edge add_edge (PyO3 construction tax made it 0.63x). nx builds in the
+    # same node/edge order, so the result is byte-identical.
     graph = fnx.Graph()
-    for node in range(n):
-        graph.add_node(node)
-    for (i, j), bit in zip(
-        ((i, j) for j in range(1, n) for i in range(j)), _graph6_bits(values)
-    ):
-        if bit:
-            graph.add_edge(i, j)
+    graph.add_nodes_from(range(n))
+    pair_gen = ((i, j) for j in range(1, n) for i in range(j))
+    graph.add_edges_from(
+        pair for pair, bit in zip(pair_gen, _graph6_bits(values)) if bit
+    )
     return graph
 
 
