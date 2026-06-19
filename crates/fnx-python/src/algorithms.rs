@@ -4419,6 +4419,81 @@ fn multidigraph_is_dag(mdg: &fnx_classes::digraph::MultiDiGraph) -> bool {
     processed == n
 }
 
+/// br-r37-c1-11m92 (cc): number of strongly-connected components of a MultiDiGraph via
+/// Kosaraju over an integer CSR (forward DFS finish order, then reverse DFS counting
+/// trees). The COUNT is order-invariant (no nx-order matching needed, unlike the
+/// component LISTING / 8hjsu). Iterative DFS (no recursion). No simple-DiGraph build.
+fn multidigraph_number_scc(mdg: &fnx_classes::digraph::MultiDiGraph) -> usize {
+    use std::collections::HashMap;
+    let nodes = mdg.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return 0;
+    }
+    let index: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+    let mut succ: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut pred: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (i, &nd) in nodes.iter().enumerate() {
+        if let Some(ss) = mdg.successors(nd) {
+            for s in ss {
+                if let Some(&j) = index.get(s) {
+                    succ[i].push(j);
+                    pred[j].push(i);
+                }
+            }
+        }
+    }
+    // forward iterative DFS, record finish (post) order
+    let mut visited = vec![false; n];
+    let mut finish: Vec<usize> = Vec::with_capacity(n);
+    let mut stack: Vec<usize> = Vec::new();
+    let mut idx: Vec<usize> = Vec::new();
+    for s in 0..n {
+        if visited[s] {
+            continue;
+        }
+        stack.push(s);
+        idx.push(0);
+        visited[s] = true;
+        while let Some(&node) = stack.last() {
+            let ci = *idx.last().unwrap();
+            if ci < succ[node].len() {
+                *idx.last_mut().unwrap() += 1;
+                let v = succ[node][ci];
+                if !visited[v] {
+                    visited[v] = true;
+                    stack.push(v);
+                    idx.push(0);
+                }
+            } else {
+                finish.push(node);
+                stack.pop();
+                idx.pop();
+            }
+        }
+    }
+    // reverse DFS over pred in reverse-finish order; each tree is one SCC
+    let mut visited2 = vec![false; n];
+    let mut count = 0usize;
+    for &s in finish.iter().rev() {
+        if visited2[s] {
+            continue;
+        }
+        count += 1;
+        let mut st = vec![s];
+        visited2[s] = true;
+        while let Some(node) = st.pop() {
+            for &v in &pred[node] {
+                if !visited2[v] {
+                    visited2[v] = true;
+                    st.push(v);
+                }
+            }
+        }
+    }
+    count
+}
+
 #[pyfunction]
 pub fn is_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
@@ -11718,6 +11793,11 @@ pub fn number_strongly_connected_components(
         return Err(crate::NetworkXNotImplemented::new_err(
             "number_strongly_connected_components is not defined for undirected graphs.",
         ));
+    }
+    if let GraphRef::MultiDirected { mdg, .. } = &gr {
+        // br-r37-c1-11m92: Kosaraju SCC count over the multidigraph CSR, no conversion.
+        let inner = &mdg.inner;
+        return Ok(py.allow_threads(|| multidigraph_number_scc(inner)));
     }
     {
         let dg_ref = gr.digraph().expect("is_directed checked above");
