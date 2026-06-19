@@ -518,10 +518,12 @@ DOES early-exit (`if u == target { break; }` line ~1189). Re-measured built-with
 _fnx.dijkstra_path (21ms/call). The REAL bottleneck is the per-call O(E)
 dijkstra_weighted_undirected_projection build — fnx builds the full weighted projection
 (O(E)) before the early-exit dijkstra, while nx reads weights lazily per edge. For a
-near target the projection build dwarfs the tiny BFS. FIX (revised j5u29): either cache
-the weighted projection (keyed by the existing dijkstra_weight_cache_token, amortizing
-repeated single-pair queries on the same graph) or read weights lazily during traversal
-(no pre-build). NOT an early-exit issue. THIRD honest correction (after node_link_data +
+near target the projection build dwarfs the tiny BFS. FIX — CORRECTED AGAIN (cc): NOT the projection build either — weighted_undirected_projection
+BORROWS the inner for SIMPLE graphs (algorithms.rs:416, no build). The real cost is that
+shortest_path_weighted (lib.rs:1117) is STRING-KEYED (HashMap<&str,f64> distances + heap);
+the per-node String hashing is the tax. LEVER (filed br-r37-c1-lc2qy): integer-relabel the
+weighted dijkstra (CSR), like the Edmonds-Karp flow fix. LENGTH is order-invariant (safe);
+PATH needs nx's counter-based tie-break (also fixes n30yf). 3rd dijkstra correction. THIRD honest correction (after node_link_data +
 weighted-pagerank) — measuring honestly enough to falsify my own prior diagnosis.
 
 ## NEGATIVE: __deepcopy__ -> to_directed routing is a DEAD END (tested 2026-06-18)
