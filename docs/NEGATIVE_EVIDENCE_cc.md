@@ -77,6 +77,16 @@ PYTHON dijkstra loop (heap+dict ops per node), not adjacency — k4p0b needs a N
 bidirectional kernel (the undirected _native_bidirectional_dijkstra is undirected-only,
 374/1043 on directed). lc2qy (single-pair early-exit). Undirected path family already WINS 1.3-3.4x.
 
+## average_neighbor_degree(weight) bincount 2.35x WIN blocked by lazy-key COO (l0bdz)
+
+avg(weight) 0.63x = G.adj[node].items() edge-data view materialization. scipy matvec
+(A@deg)/rowsum CORRECT but only 0.75x (CSR-build capped). Native COO + bincount = 2.35x
+WIN but parity BREAKS 2/70 — default-order COO indices != G.degree()/list(G) order (lazy
+display-key vs canonical, qq6hi). Both REVERTED. LEVER: canonical-order weighted COO
+accessor unlocks bincount 2x. NOTE: conformance (849) PASSED even with the WRONG bincount
+result -> the avg_neighbor_degree weighted conformance is too weak to catch a 2.26-abs
+divergence; trust the random head-to-head parity test over conformance here.
+
 ## node_disjoint_paths 35-failure conformance gap = TEST bug, NOT fnx (kfyyf RESOLVED)
 
 test_directed_node_connectivity_satisfies_menger (owner Dicklesworthstone, NOT cc) asserts
