@@ -50852,6 +50852,19 @@ def from_numpy_array(
         if len(nodelist) != n:
             raise ValueError("nodelist must have the same length as A.shape[0]")
 
+    if (
+        default_nodes
+        and type(graph) in (Graph, DiGraph)
+        and isinstance(edge_attr, str)
+        and not edge_attr.startswith("__fnx_incompatible")
+        and dtype.kind in ("f", "i", "u", "b")
+    ):
+        rows, cols = A.nonzero()
+        if graph._native_fill_weighted_int_edges(
+            n, rows.tolist(), cols.tolist(), A[rows, cols].tolist(), edge_attr
+        ):
+            return graph
+
     graph.add_nodes_from(nodelist)
     edges = ((int(u), int(v)) for u, v in zip(*A.nonzero()))
     if python_type == "void":
@@ -51287,9 +51300,20 @@ def from_scipy_sparse_array(
     if n != m:
         raise NetworkXError(f"Adjacency matrix not square: nx,ny={A.shape}")
 
-    graph.add_nodes_from(range(n))
     coo = A.tocoo()
     python_type = kind_to_python_type.get(A.dtype.kind)
+    if (
+        type(graph) in (Graph, DiGraph)
+        and isinstance(edge_attribute, str)
+        and not edge_attribute.startswith("__fnx_incompatible")
+        and A.dtype.kind in ("f", "i", "u", "b")
+    ):
+        if graph._native_fill_weighted_int_edges(
+            n, coo.row.tolist(), coo.col.tolist(), coo.data.tolist(), edge_attribute
+        ):
+            return graph
+
+    graph.add_nodes_from(range(n))
     triples = (
         (
             int(u),
@@ -51330,6 +51354,27 @@ def from_scipy_sparse_array(
         # result (edges + weight attr) is byte-identical.
         graph.add_edges_from((u, v, {edge_attribute: w}) for u, v, w in triples)
     return graph
+
+
+def _install_convert_matrix_native_aliases():
+    import importlib as _importlib
+
+    module = _importlib.import_module(f"{__name__}.convert_matrix")
+    for name in (
+        "from_numpy_array",
+        "from_pandas_adjacency",
+        "from_pandas_edgelist",
+        "from_scipy_sparse_array",
+        "to_numpy_array",
+        "to_pandas_adjacency",
+        "to_pandas_edgelist",
+        "to_scipy_sparse_array",
+    ):
+        setattr(module, name, globals()[name])
+    globals()["convert_matrix"] = module
+
+
+_install_convert_matrix_native_aliases()
 
 
 def from_dict_of_dicts(d, create_using=None, multigraph_input=False):
@@ -54807,6 +54852,7 @@ def _bulk_add_backend_dispatch_kwargs():
 
 
 _bulk_add_backend_dispatch_kwargs()
+_install_convert_matrix_native_aliases()
 
 
 def _resync_isomorphism_module_exports():
@@ -55259,7 +55305,18 @@ def __getattr__(name):
     # br-r37-c1-als7z: for submodules that fnx has its own version of,
     # return the fnx submodule instead of nx's so fnx.generators.balanced_tree
     # returns fnx types instead of nx types.
-    _fnx_submodules = {"generators", "algorithms", "readwrite", "linalg", "utils", "drawing", "classes", "connectivity", "broadcasting"}
+    _fnx_submodules = {
+        "algorithms",
+        "broadcasting",
+        "classes",
+        "connectivity",
+        "convert_matrix",
+        "drawing",
+        "generators",
+        "linalg",
+        "readwrite",
+        "utils",
+    }
     if name in _fnx_submodules:
         import importlib
         try:

@@ -584,6 +584,50 @@ pub(crate) fn py_value_to_cgse(v: &Bound<'_, PyAny>) -> PyResult<CgseValue> {
     }
 }
 
+pub(crate) fn collect_index_weight_attr_edges(
+    rows: &Bound<'_, PyAny>,
+    cols: &Bound<'_, PyAny>,
+    values: &Bound<'_, PyAny>,
+    node_count: usize,
+    edge_attr: &str,
+) -> PyResult<Vec<(usize, usize, AttrMap)>> {
+    let mut row_iter = PyIterator::from_object(rows)?;
+    let mut col_iter = PyIterator::from_object(cols)?;
+    let mut value_iter = PyIterator::from_object(values)?;
+    let mut edges = Vec::new();
+
+    loop {
+        let row = row_iter.next();
+        let col = col_iter.next();
+        let value = value_iter.next();
+        match (row, col, value) {
+            (None, None, None) => break,
+            (Some(Ok(row)), Some(Ok(col)), Some(Ok(value))) => {
+                let row = row.extract::<usize>()?;
+                let col = col.extract::<usize>()?;
+                if row >= node_count || col >= node_count {
+                    return Err(PyValueError::new_err(
+                        "matrix coordinate is outside graph node range",
+                    ));
+                }
+                let mut attrs = AttrMap::new();
+                attrs.insert(edge_attr.to_owned(), py_value_to_cgse(&value)?);
+                edges.push((row, col, attrs));
+            }
+            (Some(Err(err)), _, _) | (_, Some(Err(err)), _) | (_, _, Some(Err(err))) => {
+                return Err(err);
+            }
+            _ => {
+                return Err(PyValueError::new_err(
+                    "matrix coordinate and value arrays must have equal length",
+                ));
+            }
+        }
+    }
+
+    Ok(edges)
+}
+
 pub(crate) fn deepcopy_py_dict(
     py: Python<'_>,
     deepcopy: &Bound<'_, PyAny>,
@@ -5808,8 +5852,7 @@ impl PyMultiGraph {
         for node in self.inner.nodes_ordered() {
             match self.node_py_attrs.get(node) {
                 Some(attrs) => {
-                    let (rust_attrs, mirror) =
-                        py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+                    let (rust_attrs, mirror) = py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
                     new_graph
                         .inner
                         .add_node_with_attrs(node.to_owned(), rust_attrs);
@@ -6165,8 +6208,7 @@ impl PyMultiGraph {
             // byte-identical to .copy(); conditional node_key_map insert preserved.
             match self.node_py_attrs.get(canonical) {
                 Some(attrs) => {
-                    let (rust_attrs, mirror) =
-                        py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+                    let (rust_attrs, mirror) = py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
                     new_graph
                         .inner
                         .add_node_with_attrs(canonical.clone(), rust_attrs);
@@ -6284,8 +6326,7 @@ impl PyMultiGraph {
                 let ek = Self::edge_key(u, v, k);
                 if let Some(attrs) = self.edge_py_attrs.get(&ek) {
                     // br-r37-c1-tbh4q: single-pass Rust AttrMap + Python mirror.
-                    let (rust_attrs, mirror) =
-                        py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+                    let (rust_attrs, mirror) = py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
                     let _ = new_graph.inner.add_edge_with_key_and_attrs(
                         u.clone(),
                         v.clone(),
@@ -6314,8 +6355,7 @@ impl PyMultiGraph {
             // node_key_map insert preserved.
             match self.node_py_attrs.get(canonical) {
                 Some(attrs) => {
-                    let (rust_attrs, mirror) =
-                        py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+                    let (rust_attrs, mirror) = py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
                     new_graph
                         .inner
                         .add_node_with_attrs(canonical.clone(), rust_attrs);
@@ -7752,6 +7792,50 @@ impl PyGraph {
         Ok(())
     }
 
+    fn _native_fill_weighted_int_edges(
+        &mut self,
+        py: Python<'_>,
+        node_count: usize,
+        rows: &Bound<'_, PyAny>,
+        cols: &Bound<'_, PyAny>,
+        values: &Bound<'_, PyAny>,
+        edge_attr: &str,
+    ) -> PyResult<bool> {
+        if edge_attr.starts_with("__fnx_incompatible")
+            || self.inner.node_count() != 0
+            || self.inner.edge_count() != 0
+            || self.lazy_int_node_stop != 0
+            || !self.node_key_map.is_empty()
+            || !self.adj_py_keys.is_empty()
+            || !self.node_py_attrs.is_empty()
+            || !self.edge_py_attrs.is_empty()
+            || !self.adj_row_py.is_empty()
+        {
+            return Ok(false);
+        }
+
+        let Ok(stop) = i64::try_from(node_count) else {
+            return Ok(false);
+        };
+        let edges = collect_index_weight_attr_edges(rows, cols, values, node_count, edge_attr)?;
+        let edge_bumps = u64::try_from(edges.len())
+            .unwrap_or(u64::MAX)
+            .wrapping_add(1);
+        let node_bumps = u64::try_from(node_count).unwrap_or(u64::MAX);
+        let node_labels: Vec<String> = (0..node_count).map(|node| node.to_string()).collect();
+
+        self.lazy_int_node_stop = stop;
+        for canonical in &node_labels {
+            self.node_iter_mirror_insert(py, canonical)?;
+        }
+        let _ = self
+            .inner
+            .extend_fresh_index_edges_with_attrs_unrecorded(node_labels, edges);
+        self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
+        self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
+        Ok(true)
+    }
+
     fn _fast_add_int_nodes(&mut self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<()> {
         // br-r37-c1-u2jod: bulk fast path for `add_nodes_from(list_of_ints)`,
         // mirroring `_fast_add_int_nodes_range_stop` (lazy attrs + a single
@@ -8933,8 +9017,7 @@ impl PyGraph {
                 .insert(canonical.clone(), self.py_node_key(py, canonical));
             match self.node_py_attrs.get(canonical) {
                 Some(attrs) => {
-                    let (rust_attrs, mirror) =
-                        py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+                    let (rust_attrs, mirror) = py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
                     new_graph
                         .inner
                         .add_node_with_attrs(canonical.clone(), rust_attrs);
@@ -8956,16 +9039,20 @@ impl PyGraph {
                     Some(py_attrs) => {
                         let (rust_attrs, mirror) =
                             py_dict_to_attr_map_with_mirror(py, py_attrs.bind(py))?;
-                        let _ = new_graph
-                            .inner
-                            .add_edge_with_attrs(u.to_owned(), v.to_owned(), rust_attrs);
+                        let _ = new_graph.inner.add_edge_with_attrs(
+                            u.to_owned(),
+                            v.to_owned(),
+                            rust_attrs,
+                        );
                         new_graph.edge_py_attrs.insert(key, mirror);
                     }
                     None => {
                         // No Python mirror -> reuse the Rust edge attrs directly.
-                        let _ = new_graph
-                            .inner
-                            .add_edge_with_attrs(u.to_owned(), v.to_owned(), attrs.clone());
+                        let _ = new_graph.inner.add_edge_with_attrs(
+                            u.to_owned(),
+                            v.to_owned(),
+                            attrs.clone(),
+                        );
                     }
                 }
             }
@@ -9028,8 +9115,7 @@ impl PyGraph {
         for canonical in &nodes_needed {
             match self.node_py_attrs.get(canonical) {
                 Some(attrs) => {
-                    let (rust_attrs, mirror) =
-                        py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+                    let (rust_attrs, mirror) = py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
                     new_graph
                         .inner
                         .add_node_with_attrs(canonical.clone(), rust_attrs);
@@ -9050,8 +9136,7 @@ impl PyGraph {
         for (u, v) in &keep_edges {
             match self.edge_py_attrs.get(&(u.clone(), v.clone())) {
                 Some(attrs) => {
-                    let (rust_attrs, mirror) =
-                        py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+                    let (rust_attrs, mirror) = py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
                     let _ = new_graph
                         .inner
                         .add_edge_with_attrs(u.clone(), v.clone(), rust_attrs);
@@ -9060,9 +9145,10 @@ impl PyGraph {
                         .insert((u.clone(), v.clone()), mirror);
                 }
                 None => {
-                    let _ = new_graph
-                        .inner
-                        .add_edge_with_attrs(u.clone(), v.clone(), AttrMap::new());
+                    let _ =
+                        new_graph
+                            .inner
+                            .add_edge_with_attrs(u.clone(), v.clone(), AttrMap::new());
                 }
             }
         }
@@ -9093,8 +9179,7 @@ impl PyGraph {
         for canonical in self.inner.nodes_ordered() {
             match self.node_py_attrs.get(canonical) {
                 Some(attrs) => {
-                    let (rust_attrs, mirror) =
-                        py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+                    let (rust_attrs, mirror) = py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
                     dg.inner
                         .add_node_with_attrs(canonical.to_owned(), rust_attrs);
                     dg.node_py_attrs.insert(canonical.to_owned(), mirror);

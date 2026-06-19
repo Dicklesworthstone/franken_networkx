@@ -6,8 +6,9 @@
 //! - Additional methods: `predecessors`, `successors`, `in_degree`, `out_degree`.
 
 use crate::{
-    NetworkXError, NodeNotFound, PyGraph, PyObject, attr_map_to_pydict, compatibility_mode_from_py,
-    compatibility_mode_name, edge_key_lookup_string, node_key_to_string, py_dict_to_attr_map,
+    NetworkXError, NodeNotFound, PyGraph, PyObject, attr_map_to_pydict,
+    collect_index_weight_attr_edges, compatibility_mode_from_py, compatibility_mode_name,
+    edge_key_lookup_string, node_key_to_string, py_dict_to_attr_map,
     py_dict_to_attr_map_with_mirror, runtime_policy_from_state, runtime_policy_json,
     unwrap_infallible, weighted_edge_triplet,
 };
@@ -6983,6 +6984,54 @@ impl PyDiGraph {
             self.bump_edges_seq();
         }
         Ok(())
+    }
+
+    fn _native_fill_weighted_int_edges(
+        &mut self,
+        py: Python<'_>,
+        node_count: usize,
+        rows: &Bound<'_, PyAny>,
+        cols: &Bound<'_, PyAny>,
+        values: &Bound<'_, PyAny>,
+        edge_attr: &str,
+    ) -> PyResult<bool> {
+        if edge_attr.starts_with("__fnx_incompatible")
+            || self.inner.node_count() != 0
+            || self.inner.edge_count() != 0
+            || !self.node_key_map.is_empty()
+            || !self.node_py_attrs.is_empty()
+            || !self.edge_py_attrs.is_empty()
+            || !self.succ_py_keys.is_empty()
+            || !self.pred_py_keys.is_empty()
+            || !self.succ_row_py.is_empty()
+            || !self.pred_row_py.is_empty()
+        {
+            return Ok(false);
+        }
+
+        let edges = collect_index_weight_attr_edges(rows, cols, values, node_count, edge_attr)?;
+        let edge_bumps = u64::try_from(edges.len())
+            .unwrap_or(u64::MAX)
+            .wrapping_add(1);
+        let node_bumps = u64::try_from(node_count).unwrap_or(u64::MAX);
+        let node_labels: Vec<String> = (0..node_count).map(|node| node.to_string()).collect();
+        let mirror_active = self.node_iter_mirror_active();
+
+        for (index, canonical) in node_labels.iter().enumerate() {
+            let py_node = unwrap_infallible((index as i64).into_pyobject(py))
+                .into_any()
+                .unbind();
+            self.node_key_map.insert(canonical.clone(), py_node);
+            if mirror_active {
+                self.node_iter_mirror_insert(py, canonical)?;
+            }
+        }
+        let _ = self
+            .inner
+            .extend_fresh_index_edges_with_attrs_unrecorded(node_labels, edges);
+        self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
+        self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
+        Ok(true)
     }
 
     fn remove_nodes_from(&mut self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<()> {

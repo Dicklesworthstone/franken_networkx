@@ -98,6 +98,19 @@ def test_callables_actually_execute():
     _expect(arr.shape == (4, 4), "to_numpy_array shape must match graph order")
 
 
+def test_convert_matrix_package_attribute_routes_to_fnx_module():
+    module = importlib.import_module("franken_networkx.convert_matrix")
+    _expect(fnx.convert_matrix is module, "fnx.convert_matrix must be the fnx shim")
+    _expect(
+        fnx.convert_matrix.from_numpy_array is fnx.from_numpy_array,
+        "fnx.convert_matrix.from_numpy_array must route through fnx",
+    )
+    _expect(
+        fnx.convert_matrix.from_scipy_sparse_array is fnx.from_scipy_sparse_array,
+        "fnx.convert_matrix.from_scipy_sparse_array must route through fnx",
+    )
+
+
 def test_convert_module_to_dict_helpers_match_networkx_values(monkeypatch):
     module = importlib.import_module("franken_networkx.convert")
     fg = fnx.Graph()
