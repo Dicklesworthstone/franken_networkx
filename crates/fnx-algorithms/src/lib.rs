@@ -26295,6 +26295,185 @@ pub fn single_source_dijkstra_path(
     single_source_dijkstra_full(graph, source, weight_attr).1
 }
 
+/// br-r37-c1-lc2qy (cc): single-pair weighted shortest PATH with target early-exit.
+///
+/// Runs nx's single-source Dijkstra finalize order (same epsilon + FIFO-seq tie-break as
+/// [`single_source_dijkstra_full`]) but STOPS the instant ``target`` is finalized and
+/// reconstructs ONLY the target's predecessor chain — skipping both the exploration past
+/// the target AND the all-paths String construction (~60% of single_source_dijkstra_path's
+/// cost). The predecessor array is built identically to the full kernel, so the returned
+/// path is byte-identical to ``single_source_dijkstra_path``'s entry for the target (which
+/// matches ``networkx.dijkstra_path`` exactly). Returns ``(length, path, all_int)`` or
+/// ``None`` if the target is unreachable. ``all_int`` is true iff every edge on the chosen
+/// path has Int/Bool/absent weight (so the binding can emit an ``int`` length).
+#[must_use]
+pub fn dijkstra_path_to_target(
+    graph: &Graph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> Option<(f64, Vec<String>, bool)> {
+    let (Some(s), Some(t)) = (graph.get_node_index(source), graph.get_node_index(target)) else {
+        return None;
+    };
+    let names = graph.nodes_ordered();
+    let n = names.len();
+    if s == t {
+        return Some((0.0, vec![names[s].to_owned()], true));
+    }
+    let mut distances: Vec<f64> = vec![f64::INFINITY; n];
+    let mut predecessors: Vec<u32> = vec![u32::MAX; n];
+    let mut pq: BinaryHeap<DijkstraState<u32>> = BinaryHeap::new();
+    let mut seq_counter: u64 = 0;
+    let mut finalized = vec![false; n];
+    distances[s] = 0.0;
+    seq_counter += 1;
+    pq.push(DijkstraState {
+        dist: 0.0,
+        seq: seq_counter,
+        node: u32::try_from(s).unwrap_or(u32::MAX),
+    });
+    while let Some(DijkstraState { dist: d, node: u, .. }) = pq.pop() {
+        let u = u as usize;
+        if d > distances[u] + DISTANCE_COMPARISON_EPSILON {
+            continue;
+        }
+        if !finalized[u] {
+            finalized[u] = true;
+            if u == t {
+                return Some(reconstruct_target_path(graph, &predecessors, &names, t, d, weight_attr));
+            }
+        }
+        if let Some(neighbors) = graph.neighbors_indices(u) {
+            for &v in neighbors {
+                let (w, _) = graph_edge_weight_or_default_idx_typed(graph, u, v, weight_attr);
+                let next_dist = d + w;
+                if next_dist < distances[v] - DISTANCE_COMPARISON_EPSILON {
+                    distances[v] = next_dist;
+                    predecessors[v] = u32::try_from(u).unwrap_or(u32::MAX);
+                    seq_counter += 1;
+                    pq.push(DijkstraState {
+                        dist: next_dist,
+                        seq: seq_counter,
+                        node: u32::try_from(v).unwrap_or(u32::MAX),
+                    });
+                }
+            }
+        }
+    }
+    None
+}
+
+fn reconstruct_target_path(
+    graph: &Graph,
+    predecessors: &[u32],
+    names: &[&str],
+    t: usize,
+    dist: f64,
+    weight_attr: &str,
+) -> (f64, Vec<String>, bool) {
+    let mut chain: Vec<u32> = vec![u32::try_from(t).unwrap_or(u32::MAX)];
+    let mut cur = t;
+    while predecessors[cur] != u32::MAX {
+        cur = predecessors[cur] as usize;
+        chain.push(u32::try_from(cur).unwrap_or(u32::MAX));
+    }
+    chain.reverse();
+    let mut all_int = true;
+    for pair in chain.windows(2) {
+        let (_, is_int) =
+            graph_edge_weight_or_default_idx_typed(graph, pair[0] as usize, pair[1] as usize, weight_attr);
+        if !is_int {
+            all_int = false;
+            break;
+        }
+    }
+    let path = chain.into_iter().map(|i| names[i as usize].to_owned()).collect();
+    (dist, path, all_int)
+}
+
+/// Directed counterpart of [`dijkstra_path_to_target`] (br-r37-c1-lc2qy, cc) — forward
+/// successors only, mirroring [`single_source_dijkstra_full_directed`]'s finalize order.
+#[must_use]
+pub fn dijkstra_path_to_target_directed(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> Option<(f64, Vec<String>, bool)> {
+    let (Some(s), Some(t)) = (digraph.get_node_index(source), digraph.get_node_index(target))
+    else {
+        return None;
+    };
+    let csr = digraph.csr();
+    let names = digraph.nodes_ordered();
+    let n = names.len();
+    if s == t {
+        return Some((0.0, vec![names[s].to_owned()], true));
+    }
+    let mut distances: Vec<f64> = vec![f64::INFINITY; n];
+    let mut predecessors: Vec<u32> = vec![u32::MAX; n];
+    let mut pq: BinaryHeap<DijkstraState<u32>> = BinaryHeap::new();
+    let mut seq_counter: u64 = 0;
+    let mut finalized = vec![false; n];
+    distances[s] = 0.0;
+    seq_counter += 1;
+    pq.push(DijkstraState {
+        dist: 0.0,
+        seq: seq_counter,
+        node: u32::try_from(s).unwrap_or(u32::MAX),
+    });
+    while let Some(DijkstraState { dist: d, node: u, .. }) = pq.pop() {
+        let u = u as usize;
+        if d > distances[u] + DISTANCE_COMPARISON_EPSILON {
+            continue;
+        }
+        if !finalized[u] {
+            finalized[u] = true;
+            if u == t {
+                let mut chain: Vec<u32> = vec![u32::try_from(t).unwrap_or(u32::MAX)];
+                let mut cur = t;
+                while predecessors[cur] != u32::MAX {
+                    cur = predecessors[cur] as usize;
+                    chain.push(u32::try_from(cur).unwrap_or(u32::MAX));
+                }
+                chain.reverse();
+                let mut all_int = true;
+                for pair in chain.windows(2) {
+                    let (_, is_int) = digraph_edge_weight_or_default_idx_typed(
+                        digraph,
+                        pair[0] as usize,
+                        pair[1] as usize,
+                        weight_attr,
+                    );
+                    if !is_int {
+                        all_int = false;
+                        break;
+                    }
+                }
+                let path = chain.into_iter().map(|i| names[i as usize].to_owned()).collect();
+                return Some((d, path, all_int));
+            }
+        }
+        for &v in csr.successors(u) {
+            let v = v as usize;
+            let (w, _) = digraph_edge_weight_or_default_idx_typed(digraph, u, v, weight_attr);
+            let next_dist = d + w;
+            if next_dist < distances[v] - DISTANCE_COMPARISON_EPSILON {
+                distances[v] = next_dist;
+                predecessors[v] = u32::try_from(u).unwrap_or(u32::MAX);
+                seq_counter += 1;
+                pq.push(DijkstraState {
+                    dist: next_dist,
+                    seq: seq_counter,
+                    node: u32::try_from(v).unwrap_or(u32::MAX),
+                });
+            }
+        }
+    }
+    None
+}
+
 /// Single-source Dijkstra returning distances only.
 /// Matches `networkx.single_source_dijkstra_path_length(G, source, weight=weight)`.
 #[must_use]

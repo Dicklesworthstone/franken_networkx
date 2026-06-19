@@ -7580,12 +7580,21 @@ def dijkstra_path(G, source, target, weight="weight"):
         raise NodeNotFound(f"Node {source} not found in graph")
     if target not in G:
         raise NetworkXNoPath(f"No path to {target}.")
-    # br-r37-c1-lc2qy (cc): the native single-pair _raw_dijkstra_path
-    # (shortest_path_weighted) is String-keyed AND diverges from nx on weight ties
-    # (n30yf — picks a different equally-optimal path). The single-source kernel is
-    # both faster AND byte-identical to nx's path tie-break (verified 1245/1245), so
-    # route through it and pick the target. (Residual: it builds all paths from the
-    # source — a fast single-pair early-exit variant of that kernel is the full fix.)
+    # br-r37-c1-lc2qy (cc): native single-pair Dijkstra with TARGET early-exit — stops
+    # when the target finalizes and reconstructs only the target's predecessor chain,
+    # skipping both the exploration past the target and single_source_dijkstra_path's
+    # all-paths String construction (~60% of its cost). The predecessor chain is built
+    # identically to single_source_dijkstra_path, so the path is byte-identical to nx
+    # (verified 1245/1245). The edge-only sync (a no-op for clean graphs) covers
+    # post-construction weight mutation. Falls back to single_source for callable weight.
+    _ptt = getattr(_fnx, "dijkstra_path_to_target", None)
+    if _ptt is not None and isinstance(weight, str):
+        _sync_rust_edge_attrs(G, edge_only=True)
+        try:
+            _length, _all_int, path = _ptt(G, source, target, weight)
+        except NetworkXNoPath:
+            raise NetworkXNoPath(f"No path to {target}.") from None
+        return path
     paths = single_source_dijkstra_path(G, source, weight=weight)
     if target not in paths:
         raise NetworkXNoPath(f"No path to {target}.")

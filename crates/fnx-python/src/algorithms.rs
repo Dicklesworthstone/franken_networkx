@@ -3925,6 +3925,50 @@ pub fn bidirectional_dijkstra(
     }
 }
 
+/// br-r37-c1-lc2qy (cc): single-pair weighted Dijkstra PATH with target early-exit.
+///
+/// Returns ``(length, all_int, path)`` or raises ``NetworkXNoPath`` if the target is
+/// unreachable. Routes directed/undirected to the matching target-early-exit kernel, which
+/// stops when the target finalizes and reconstructs ONLY the target path (skipping the
+/// all-paths construction that made single-pair ``single_source_dijkstra_path[target]``
+/// slow). Byte-identical to ``networkx.dijkstra_path``. The wrapper has already validated
+/// the source and edge-only-synced post-construction weight mutations.
+#[pyfunction]
+pub fn dijkstra_path_to_target(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    target: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<(f64, bool, PyObject)> {
+    let gr = extract_graph(g)?;
+    let source_str = node_key_to_string(py, source)?;
+    let target_str = node_key_to_string(py, target)?;
+    let outcome = if let Some(projection) = gr.weighted_digraph_projection(weight) {
+        let inner = projection.as_ref();
+        py.allow_threads(|| {
+            fnx_algorithms::dijkstra_path_to_target_directed(inner, &source_str, &target_str, weight)
+        })
+    } else {
+        let projection = gr.weighted_undirected_projection(weight);
+        let inner = projection.as_ref();
+        py.allow_threads(|| {
+            fnx_algorithms::dijkstra_path_to_target(inner, &source_str, &target_str, weight)
+        })
+    };
+    match outcome {
+        Some((length, path, all_int)) => {
+            let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
+            Ok((
+                length,
+                all_int,
+                py_path.into_pyobject(py)?.into_any().unbind(),
+            ))
+        }
+        None => Err(NetworkXNoPath::new_err(format!("No path to {}.", target_str))),
+    }
+}
+
 // ===========================================================================
 // Connectivity algorithms
 // ===========================================================================
@@ -20477,6 +20521,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(bellman_ford_path, m)?)?;
     m.add_function(wrap_pyfunction!(multi_source_dijkstra, m)?)?;
     m.add_function(wrap_pyfunction!(bidirectional_dijkstra, m)?)?;
+    m.add_function(wrap_pyfunction!(dijkstra_path_to_target, m)?)?;
     // Connectivity
     m.add_function(wrap_pyfunction!(is_connected, m)?)?;
     m.add_function(wrap_pyfunction!(connected_components, m)?)?;
