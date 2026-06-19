@@ -3761,6 +3761,26 @@ pub fn betweenness_centrality_directed_with_params(
     betweenness_centrality_generic(graph, normalized, endpoints)
 }
 
+#[must_use]
+pub fn betweenness_centrality_sampled_with_params(
+    graph: &Graph,
+    sources: &[&str],
+    normalized: bool,
+    endpoints: bool,
+) -> BetweennessCentralityResult {
+    betweenness_centrality_sampled_generic(graph, sources, normalized, endpoints)
+}
+
+#[must_use]
+pub fn betweenness_centrality_sampled_directed_with_params(
+    graph: &DiGraph,
+    sources: &[&str],
+    normalized: bool,
+    endpoints: bool,
+) -> BetweennessCentralityResult {
+    betweenness_centrality_sampled_generic(graph, sources, normalized, endpoints)
+}
+
 /// Reusable per-worker scratch buffers for one Brandes single-source pass.
 /// Allocated once per rayon worker (via `map_init`) and cleared per source so
 /// the parallel path matches the sequential path's allocation profile.
@@ -3867,6 +3887,168 @@ fn brandes_source_delta(
     }
 
     (delta, edges_scanned, nodes_touched, queue_peak)
+}
+
+fn betweenness_centrality_sampled_generic<G: GraphView>(
+    graph: &G,
+    sources: &[&str],
+    normalized: bool,
+    endpoints: bool,
+) -> BetweennessCentralityResult {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let empty_witness = || ComplexityWitness {
+        algorithm: "brandes_betweenness_centrality_sampled".to_owned(),
+        complexity_claim: "O(|S| * |E|)".to_owned(),
+        nodes_touched: 0,
+        edges_scanned: 0,
+        queue_peak: 0,
+    };
+    if n == 0 {
+        return BetweennessCentralityResult {
+            scores: Vec::new(),
+            witness: empty_witness(),
+        };
+    }
+
+    let source_idx: Vec<usize> = sources
+        .iter()
+        .filter_map(|source| graph.get_node_index(source))
+        .collect();
+
+    let adjacency = nodes
+        .iter()
+        .map(|&node| {
+            let mut indexed_neighbors = Vec::with_capacity(graph.neighbor_count(node));
+            if let Some(neighbors) = graph.neighbors_iter(node) {
+                for neighbor in neighbors {
+                    indexed_neighbors.push(
+                        graph
+                            .get_node_index(neighbor)
+                            .expect("graph neighbor must exist in node index"),
+                    );
+                }
+            }
+            indexed_neighbors
+        })
+        .collect::<Vec<Vec<usize>>>();
+
+    let mut centrality = vec![0.0; n];
+    let mut total_nodes_touched = 0usize;
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 0usize;
+
+    if n >= 500 && source_idx.len() > 1 {
+        use rayon::prelude::*;
+
+        let bytes_per_delta = n.max(1).saturating_mul(std::mem::size_of::<f64>());
+        let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, source_idx.len());
+
+        let mut start = 0usize;
+        while start < source_idx.len() {
+            let end = (start + chunk).min(source_idx.len());
+            let chunk_results: Vec<(Vec<f64>, usize, usize, usize)> = source_idx[start..end]
+                .par_iter()
+                .map_init(
+                    || BrandesScratch::new(n),
+                    |scratch, &source| {
+                        brandes_source_delta(scratch, &adjacency, source, endpoints, n)
+                    },
+                )
+                .collect();
+
+            for (delta, src_edges, src_touched, src_peak) in chunk_results {
+                for (acc, contribution) in centrality.iter_mut().zip(delta.iter()) {
+                    *acc += *contribution;
+                }
+                edges_scanned += src_edges;
+                total_nodes_touched += src_touched;
+                queue_peak = queue_peak.max(src_peak);
+            }
+            start = end;
+        }
+    } else {
+        let mut scratch = BrandesScratch::new(n);
+        for &source in &source_idx {
+            let (delta, src_edges, src_touched, src_peak) =
+                brandes_source_delta(&mut scratch, &adjacency, source, endpoints, n);
+            for (acc, contribution) in centrality.iter_mut().zip(delta.iter()) {
+                *acc += *contribution;
+            }
+            edges_scanned += src_edges;
+            total_nodes_touched += src_touched;
+            queue_peak = queue_peak.max(src_peak);
+        }
+    }
+
+    let pair_nodes = if endpoints { n } else { n.saturating_sub(1) };
+    if pair_nodes >= 2 {
+        let source_count = source_idx.len();
+        let source_count_f = source_count as f64;
+        let pair_nodes_f = pair_nodes as f64;
+        let correction = if graph.is_directed() { 1.0 } else { 2.0 };
+
+        if endpoints {
+            let scale = if normalized {
+                1.0 / (source_count_f * (pair_nodes_f - 1.0))
+            } else {
+                pair_nodes_f / (source_count_f * correction)
+            };
+            if scale != 1.0 {
+                for score in &mut centrality {
+                    *score *= scale;
+                }
+            }
+        } else {
+            let scale_source = if normalized {
+                if source_count > 1 {
+                    1.0 / (((source_count - 1) as f64) * (pair_nodes_f - 1.0))
+                } else {
+                    f64::NAN
+                }
+            } else if source_count > 1 {
+                pair_nodes_f / (((source_count - 1) as f64) * correction)
+            } else {
+                f64::NAN
+            };
+            let scale_nonsource = if normalized {
+                1.0 / (source_count_f * (pair_nodes_f - 1.0))
+            } else {
+                pair_nodes_f / (source_count_f * correction)
+            };
+            let mut sampled = vec![false; n];
+            for &source in &source_idx {
+                sampled[source] = true;
+            }
+            for (i, score) in centrality.iter_mut().enumerate() {
+                *score *= if sampled[i] {
+                    scale_source
+                } else {
+                    scale_nonsource
+                };
+            }
+        }
+    }
+
+    let ordered_scores = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, node)| CentralityScore {
+            node: (*node).to_owned(),
+            score: centrality[i],
+        })
+        .collect();
+
+    BetweennessCentralityResult {
+        scores: ordered_scores,
+        witness: ComplexityWitness {
+            algorithm: "brandes_betweenness_centrality_sampled".to_owned(),
+            complexity_claim: "O(|S| * |E|)".to_owned(),
+            nodes_touched: total_nodes_touched,
+            edges_scanned,
+            queue_peak,
+        },
+    }
 }
 
 fn betweenness_centrality_generic<G: GraphView>(

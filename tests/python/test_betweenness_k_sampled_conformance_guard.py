@@ -47,6 +47,19 @@ def test_k_sampled_betweenness_endpoints_unnormalized(seed):
         assert fr[node] == pytest.approx(nr[node], abs=1e-9)
 
 
+def test_k_sampled_betweenness_uses_native_route(monkeypatch):
+    fg, ng, n = _g(99, 30)
+
+    def fail_networkx_parity(*args, **kwargs):
+        raise AssertionError("k-sampled betweenness must not delegate to NetworkX")
+
+    monkeypatch.setattr(fnx, "_call_networkx_for_parity", fail_networkx_parity)
+    fr = fnx.betweenness_centrality(fg, k=6, seed=123)
+    nr = nx.betweenness_centrality(ng, k=6, seed=123)
+    for node in nr:
+        assert fr[node] == pytest.approx(nr[node], abs=1e-9)
+
+
 @pytest.mark.parametrize("seed", [1, 7, 42])
 @pytest.mark.parametrize("k", [5, 10])
 def test_k_sampled_edge_betweenness_matches_nx(seed, k):

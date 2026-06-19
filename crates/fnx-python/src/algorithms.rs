@@ -4470,6 +4470,60 @@ pub fn betweenness_centrality(
     centrality_to_dict(py, &gr, &result.scores)
 }
 
+/// Compute unweighted betweenness centrality from a sampled source list.
+#[pyfunction]
+#[pyo3(signature = (g, sources, normalized=true, endpoints=false))]
+pub fn betweenness_centrality_sampled_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    sources: Vec<Bound<'_, PyAny>>,
+    normalized: bool,
+    endpoints: bool,
+) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    let source_keys: Vec<String> = sources
+        .iter()
+        .map(|n| node_key_to_string(py, n))
+        .collect::<PyResult<_>>()?;
+    let src_refs: Vec<&str> = source_keys.iter().map(String::as_str).collect();
+    let result = match &gr {
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            py.allow_threads(|| {
+                fnx_algorithms::betweenness_centrality_sampled_with_params(
+                    inner, &src_refs, normalized, endpoints,
+                )
+            })
+        }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            py.allow_threads(|| {
+                fnx_algorithms::betweenness_centrality_sampled_directed_with_params(
+                    inner, &src_refs, normalized, endpoints,
+                )
+            })
+        }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().expect("is_directed checked above");
+                py.allow_threads(|| {
+                    fnx_algorithms::betweenness_centrality_sampled_directed_with_params(
+                        inner, &src_refs, normalized, endpoints,
+                    )
+                })
+            } else {
+                let inner = gr.undirected();
+                py.allow_threads(|| {
+                    fnx_algorithms::betweenness_centrality_sampled_with_params(
+                        inner, &src_refs, normalized, endpoints,
+                    )
+                })
+            }
+        }
+    };
+    centrality_to_dict(py, &gr, &result.scores)
+}
+
 /// Return the edge betweenness centrality for all edges.
 #[pyfunction]
 pub fn edge_betweenness_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
@@ -19493,6 +19547,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(harmonic_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(katz_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(betweenness_centrality, m)?)?;
+    m.add_function(wrap_pyfunction!(betweenness_centrality_sampled_rust, m)?)?;
     m.add_function(wrap_pyfunction!(edge_betweenness_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(edge_betweenness_centrality_weighted, m)?)?;
     m.add_function(wrap_pyfunction!(betweenness_centrality_subset_rust, m)?)?;

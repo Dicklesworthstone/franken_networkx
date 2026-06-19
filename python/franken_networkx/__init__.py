@@ -8375,6 +8375,7 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None):
 from franken_networkx._fnx import (
     average_neighbor_degree as _raw_average_neighbor_degree,
     betweenness_centrality as _raw_betweenness_centrality,
+    betweenness_centrality_sampled_rust as _betweenness_centrality_sampled_rust,
     betweenness_centrality_subset_rust as _betweenness_centrality_subset_rust,
     betweenness_centrality_subset_weighted_rust as _betweenness_centrality_subset_weighted_rust,
     closeness_centrality as _raw_closeness_centrality,
@@ -8882,7 +8883,6 @@ def betweenness_centrality(
     # all finite, non-negative and numeric (nx requires weights > 0 for
     # betweenness); a callable/non-string weight, a multigraph, or any
     # negative / +inf / non-numeric weight delegates to nx for exact parity.
-    # `k`/`seed` always delegate (sampling estimator).
     if k is None and seed is None and isinstance(weight, str) and not G.is_multigraph():
         _sync_rust_edge_attrs(G)
         if not (
@@ -8898,6 +8898,32 @@ def betweenness_centrality(
                 endpoints=endpoints,
                 seed=None,
             )
+
+    # br-r37-c1-8ox3z: k-sampled unweighted betweenness was the remaining common
+    # slow path: fnx converted the whole graph to nx and ran pure-Python Brandes,
+    # even though the native full Brandes kernel is already the fast/correct
+    # substrate. Keep nx's exact source sampling semantics in Python, then run the
+    # sampled source list through native Brandes with nx's sampled rescale.
+    if k is not None and weight is None and not G.is_multigraph():
+        from networkx.utils import create_py_random_state as _create_py_random_state
+
+        rng = _create_py_random_state(seed)
+        if k == len(G):
+            return _raw_betweenness_centrality(
+                G,
+                k=None,
+                normalized=normalized,
+                weight=None,
+                endpoints=endpoints,
+                seed=None,
+            )
+        sampled_nodes = rng.sample(list(G.nodes()), k)
+        return _betweenness_centrality_sampled_rust(
+            G,
+            sampled_nodes,
+            normalized=normalized,
+            endpoints=endpoints,
+        )
 
     if k is not None or weight is not None or seed is not None:
         return _call_networkx_for_parity(
