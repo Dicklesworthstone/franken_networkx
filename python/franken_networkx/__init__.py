@@ -26554,13 +26554,13 @@ def bidirectional_dijkstra(G, source, target, weight="weight"):
         raise NodeNotFound(f"Source {source} is not in G")
     if target not in G:
         raise NodeNotFound(f"Target {target} is not in G")
-    # br-r37-c1-k4p0b: undirected simple graphs run the all-Rust CSR kernel,
-    # which eliminates the per-explored-node Python AdjacencyView/PyDict tax
-    # (~30µs/node) that left the in-process port ~6-10x slower than nx. The
-    # native kernel reproduces nx's bidirectional meeting-node tie-break, shared
-    # FIFO counter, and path reconstruction byte-for-byte. Directed graphs keep
-    # the in-process port (no in-neighbour CSR accessor on the DiGraph kernel).
-    if _native_bidirectional_dijkstra is not None and not G.is_directed():
+    # br-r37-c1-k4p0b / p60i1: simple graphs run the all-Rust CSR kernel, which
+    # eliminates the per-explored-node Python AdjacencyView/PyDict tax (~30µs/node)
+    # that left the in-process port ~6-10x slower than nx. The native kernel
+    # reproduces nx's bidirectional meeting-node tie-break, shared FIFO counter, and
+    # path reconstruction byte-for-byte. p60i1 (cc) added the DIRECTED kernel (forward
+    # successors / backward predecessors CSR), so directed simple graphs use it too.
+    if _native_bidirectional_dijkstra is not None:
         # Push any post-creation edge-attr mutations into the Rust inner graph
         # (edge-only + dirty-gated: a no-op for graphs that were never mutated
         # after construction, which keeps the single-pair query fast). We avoid

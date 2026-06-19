@@ -3876,8 +3876,20 @@ pub fn bidirectional_dijkstra(
     validate_node_str(&gr, &source_str, "Source")?;
     validate_node_str(&gr, &target_str, "Target")?;
 
-    let projection = gr.weighted_undirected_projection(weight);
-    let outcome = {
+    // br-r37-c1-p60i1 (cc): directed graphs route to the directed kernel (forward
+    // successors / backward predecessors); undirected keep the original kernel.
+    let outcome = if let Some(projection) = gr.weighted_digraph_projection(weight) {
+        let inner = projection.as_ref();
+        py.allow_threads(|| {
+            fnx_algorithms::bidirectional_dijkstra_directed(
+                inner,
+                &source_str,
+                &target_str,
+                weight,
+            )
+        })
+    } else {
+        let projection = gr.weighted_undirected_projection(weight);
         let inner = projection.as_ref();
         py.allow_threads(|| {
             fnx_algorithms::bidirectional_dijkstra_undirected(

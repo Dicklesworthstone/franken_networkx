@@ -1781,6 +1781,155 @@ pub fn bidirectional_dijkstra_undirected(
     BidirectionalDijkstraOutcome::NoPath
 }
 
+/// Directed counterpart of [`bidirectional_dijkstra_undirected`] (br-r37-c1-p60i1, cc).
+///
+/// The forward fringe expands successors (edge `v -> w`); the backward fringe expands
+/// predecessors (edge `w -> v`). Otherwise byte-identical to
+/// `networkx.bidirectional_dijkstra` on a `DiGraph` — shared monotonic counter for the
+/// FIFO tie-break, plain `<` distance comparisons, the same finaldist/meetnode update and
+/// path reconstruction. Mirrors the Python `_bidirectional_dijkstra_local` directed branch
+/// (`neighbors = [G.succ, G.pred]`), which is verified byte-identical to nx (1474/1474), so
+/// the chosen path among equal-weight alternatives matches exactly.
+#[must_use]
+pub fn bidirectional_dijkstra_directed(
+    graph: &DiGraph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> BidirectionalDijkstraOutcome {
+    let (Some(s), Some(t)) = (graph.get_node_index(source), graph.get_node_index(target)) else {
+        return BidirectionalDijkstraOutcome::NodeMissing;
+    };
+    let ordered = graph.nodes_ordered();
+    if s == t {
+        return BidirectionalDijkstraOutcome::Found(0.0, true, vec![ordered[s].to_owned()]);
+    }
+
+    // [forward, backward]
+    let mut dists: [HashMap<usize, f64>; 2] = [HashMap::new(), HashMap::new()];
+    let mut preds: [HashMap<usize, Option<usize>>; 2] = [HashMap::new(), HashMap::new()];
+    preds[0].insert(s, None);
+    preds[1].insert(t, None);
+    let mut seen: [HashMap<usize, f64>; 2] = [HashMap::new(), HashMap::new()];
+    seen[0].insert(s, 0.0);
+    seen[1].insert(t, 0.0);
+    let mut fringe: [BinaryHeap<DijkstraState<usize>>; 2] = [BinaryHeap::new(), BinaryHeap::new()];
+    let mut counter: u64 = 0;
+    fringe[0].push(DijkstraState { dist: 0.0, seq: counter, node: s });
+    counter += 1;
+    fringe[1].push(DijkstraState { dist: 0.0, seq: counter, node: t });
+    counter += 1;
+
+    let mut finaldist: Option<f64> = None;
+    let mut meetnode: Option<usize> = None;
+    let mut direction = 1usize;
+
+    while !fringe[0].is_empty() && !fringe[1].is_empty() {
+        direction = 1 - direction;
+        let DijkstraState { dist, node: v, .. } =
+            fringe[direction].pop().expect("fringe checked non-empty");
+        if dists[direction].contains_key(&v) {
+            continue;
+        }
+        dists[direction].insert(v, dist);
+        if dists[1 - direction].contains_key(&v) {
+            let meet = meetnode.expect("meetnode set before fringes overlap");
+            let mut path: Vec<usize> = Vec::new();
+            let mut curr = Some(meet);
+            while let Some(c) = curr {
+                path.push(c);
+                curr = preds[0][&c];
+            }
+            path.reverse(); // forward: source .. meet
+            let mut curr = preds[1][&meet];
+            while let Some(c) = curr {
+                path.push(c);
+                curr = preds[1][&c];
+            }
+            // Length is int iff every weight summed along the path is Int/Bool
+            // (or absent => default int 1). The path is source..target, so every
+            // consecutive pair is a forward edge `pair[0] -> pair[1]`.
+            let mut all_int = true;
+            for pair in path.windows(2) {
+                let kind = graph
+                    .edge_attrs_by_indices(pair[0], pair[1])
+                    .and_then(|attrs| attrs.get(weight_attr));
+                match kind {
+                    None => {}
+                    Some(CgseValue::Int(_) | CgseValue::Bool(_)) => {}
+                    Some(_) => {
+                        all_int = false;
+                        break;
+                    }
+                }
+            }
+            let names = path.into_iter().map(|i| ordered[i].to_owned()).collect();
+            return BidirectionalDijkstraOutcome::Found(
+                finaldist.expect("finaldist set with meetnode"),
+                all_int,
+                names,
+            );
+        }
+
+        // Forward expands out-edges (v -> w); backward expands in-edges (w -> v).
+        let neighbors = if direction == 0 {
+            graph.successors_indices(v)
+        } else {
+            graph.predecessors_indices(v)
+        };
+        if let Some(neighbors) = neighbors {
+            for &w in neighbors {
+                let cost = if direction == 0 {
+                    directed_edge_weight_or_default(graph, v, w, weight_attr)
+                } else {
+                    directed_edge_weight_or_default(graph, w, v, weight_attr)
+                };
+                let vw_length = dist + cost;
+                if let Some(&existing) = dists[direction].get(&w) {
+                    if vw_length < existing {
+                        return BidirectionalDijkstraOutcome::Contradiction;
+                    }
+                } else if seen[direction].get(&w).is_none_or(|&sw| vw_length < sw) {
+                    seen[direction].insert(w, vw_length);
+                    let seq = counter;
+                    counter += 1;
+                    fringe[direction].push(DijkstraState {
+                        dist: vw_length,
+                        seq,
+                        node: w,
+                    });
+                    preds[direction].insert(w, Some(v));
+                    if let Some(&other) = seen[1 - direction].get(&w) {
+                        let total = vw_length + other;
+                        if finaldist.is_none_or(|fd| fd > total) {
+                            finaldist = Some(total);
+                            meetnode = Some(w);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    BidirectionalDijkstraOutcome::NoPath
+}
+
+/// Weight of the directed edge `src_idx -> tgt_idx` (default 1.0 if the edge has no
+/// `weight_attr`), discarding the int/bool flag (computed separately at path build).
+fn directed_edge_weight_or_default(
+    graph: &DiGraph,
+    src_idx: usize,
+    tgt_idx: usize,
+    weight_attr: &str,
+) -> f64 {
+    weight_value_or_default_typed(
+        graph
+            .edge_attrs_by_indices(src_idx, tgt_idx)
+            .and_then(|attrs| attrs.get(weight_attr)),
+    )
+    .0
+}
+
 #[must_use]
 pub fn bellman_ford_shortest_paths(
     graph: &Graph,
