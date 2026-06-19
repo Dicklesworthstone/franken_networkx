@@ -10,6 +10,40 @@ community link-prediction verification (`br-r37-c1-04z53.9141`) and
 undirected `non_edges` default-ebunch verification (`br-r37-c1-04z53.9143`)
 plus CCPA link-prediction verification (`br-r37-c1-04z53.9140`).
 
+## 2026-06-19 BOLD-VERIFY PA/Node-Expansion Slice
+
+Environment:
+- Agent: `CrimsonRiver` / `cod-b`.
+- Target dir: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+- Release extension rebuilt with `maturin develop --release --features pyo3/abi3-py310`.
+- RCH note: `public_api_gauntlet` ran on `ovh-a`; `networkx_head_to_head`
+  cut-metric rows require a remote worker with `numpy` in `.venv`. `hz1`/`hz2`
+  failed before timing on `ModuleNotFoundError: numpy`, so local direct timing
+  was used only for the rejected after-patch route and the source was reverted.
+
+| Bead | Workload | FNX mean | NetworkX mean | FNX speedup | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `br-r37-c1-04z53.9156` | raw `preferential_attachment` repeated-overlap, current re-baseline | 378.79 ms | 586.12 ms | 1.55x | No-op; current row already winning/no source change |
+| `br-r37-c1-21yfw` | `node_expansion`, BA2500/S1250 baseline | 773.11 us | 348.66 us | 0.45x | Loss confirmed |
+| `br-r37-c1-21yfw` | `node_expansion`, WS2500/S625 baseline | 372.80 us | 190.48 us | 0.51x | Loss confirmed |
+| `br-r37-c1-21yfw` | minimal raw-boundary guard, BA local direct after-patch | 466.56 us | 297.17 us | 0.64x | Rejected/reverted |
+| `br-r37-c1-21yfw` | minimal raw-boundary guard, WS local direct after-patch | 213.18 us | 147.31 us | 0.69x | Rejected/reverted |
+
+Score:
+- Win/loss/neutral accounting: `1` current measured win/no-op, `1` attempted
+  loss rejected, `0` shipped perf keeps.
+- Conformance evidence: focused graph expansion/conformance route passed `10`
+  tests while the patch was applied; source was reverted after the keep gate
+  failed. Final post-revert focused graph/link-prediction route passed `14`
+  tests, so no new conformance surface remains.
+- Ledger hygiene: both the PA no-op and `node_expansion` rejection are recorded
+  in `docs/progress/perf-negative-results.md`.
+
+Release readiness verdict for this slice: **no new release claim**. PA is not a
+current measured gap on the raw gauntlet row; `node_expansion` still needs a
+single PyO3 validate+compute primitive or a worker-env-normalized Criterion row
+before public dispatch can beat NetworkX.
+
 ## 2026-06-19 Cut-Metric Gauntlet Slice
 
 Environment:
