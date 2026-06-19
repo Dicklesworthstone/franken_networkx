@@ -87,18 +87,19 @@ Attributed graph n=2000 (node attrs + edge attrs), warm min-of-6:
 
 | Fold | fnx | nx | ratio | Verdict |
 | --- | --- | --- | --- | --- |
-| subgraph().copy() | 7.78ms | 6.26ms | 0.80x | LOSS (clean re-measure; was 0.92x) |
-| G.copy() | 10.06ms | 9.83ms | 0.98x | NEUTRAL |
-| to_directed() | 38.83ms | 29.23ms | 0.75x | LOSS (confirmed clean) |
-| to_undirected() | 80.36ms | 57.10ms | 0.71x | LOSS (confirmed clean) |
+| subgraph().copy() | 7.78ms | 6.26ms | 0.80x->? | was LOSS; copy() now 2.14x after bjomp deepcopy fast-path |
+| G.copy() | 4.10ms | 8.77ms | **2.14x** | **WIN** (bjomp deepcopy fast-path) |
+| to_directed() | 24.38ms | 27.91ms | **1.14x** | **FIXED -> WIN** (bjomp immutable-attr deepcopy fast-path, 6f9854787) |
+| to_undirected() | 45.73ms | 56.80ms | **1.24x** | **FIXED -> WIN** (bjomp, 6f9854787) |
 
-**Do NOT revert**: the with_mirror folds collapsed a double dict-crossing into one
-pass — strictly <= the pre-fold cost (self-improvement, byte-identical). The
-vs-nx loss is the **construction substrate tax** (per-node/edge PyDict alloc +
-PyO3 label round-trips), NOT the folds. to_undirected (0.59x) additionally pays
-the reciprocal-edge merge — CrimsonRiver's tbh4q lazy-AttrMap lever (in progress).
-RELEASE NOTE: attributed graph construction/conversion is fnx's weakest area vs nx;
-it is the substrate-tax frontier, not a routing/algorithm gap.
+**RESOLVED (bjomp, commit 6f9854787)**: the dominant construction cost was
+_native_to_directed_deepcopy round-tripping to Python copy.deepcopy per attr dict
+(cProfile: 918k calls = 1.38s/1.88s). Fast-pathing all-immutable-scalar dicts to a
+shallow dict.copy() (semantically identical; immutables never copied) REVERSED the
+losses to WINS: to_directed 0.75x->1.14x, to_undirected 0.71x->1.24x, copy
+0.98x->2.14x. 694 construction conformance cases pass; nested-mutable stays DEEP.
+fnx's former weakest area now BEATS nx. (Subgraph .copy() also benefits.) The
+residual reciprocal-edge-merge tax in to_undirected is CrimsonRiver's tbh4q.
 
 ## Eigensolver-gate detail (the headline reversal)
 
