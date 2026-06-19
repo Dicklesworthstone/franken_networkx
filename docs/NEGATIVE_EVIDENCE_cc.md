@@ -77,6 +77,16 @@ PYTHON dijkstra loop (heap+dict ops per node), not adjacency — k4p0b needs a N
 bidirectional kernel (the undirected _native_bidirectional_dijkstra is undirected-only,
 374/1043 on directed). lc2qy (single-pair early-exit). Undirected path family already WINS 1.3-3.4x.
 
+## generators/IO/conversions sweep — all WIN/neutral, 0 new losses
+
+random_lobster 2.92x, random_regular_graph 2.25x, to_dict_of_lists 2.08x, from_dict_of_lists
+1.73x, to_dict_of_dicts 1.16x, powerlaw_cluster 1.15x WINS; adjacency_data/cytoscape_data/
+generate_graphml neutral (~1.0x). The two apparent losses are ARTIFACTS: tree_data was a
+no-op lambda (timing noise); freeze 0.69x is the fnx.Graph(edges) CONSTRUCTION tax (tbh4q),
+not freeze (which is O(1) mark-frozen). astar_path_length now WINS (yo37g 4.1-4.3x). No new
+accessible loss; surface remains dominated. Remaining real losses all filed: single_target
+(wjc8m), adjacency view-materialization, multigraph astar value (hbhli), 6spkb, tbh4q.
+
 ## path-construction + view sweep — 3 losses (1 filed, 2 known)
 
 has_path 8.56x, resistance_distance 23.17x, all_pairs_spl 3.98x, single_source_sp 1.57x WINS.
