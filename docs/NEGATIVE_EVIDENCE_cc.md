@@ -77,6 +77,18 @@ PYTHON dijkstra loop (heap+dict ops per node), not adjacency — k4p0b needs a N
 bidirectional kernel (the undirected _native_bidirectional_dijkstra is undirected-only,
 374/1043 on directed). lc2qy (single-pair early-exit). Undirected path family already WINS 1.3-3.4x.
 
+## Bipartite/similarity/structural sweep — wins dominate, 1 marginal delegated tax
+
+Swept bipartite/similarity/structural: rich_club_coefficient 46.79x, harmonic_centrality
+15.15x, local_efficiency 13.85x, bipartite.density 7.11x, effective_size 6.48x, constraint
+5.70x WINS; simrank 0.92x / panther 0.97x / WL-hash 0.96x neutral. ONE marginal loss:
+bipartite.clustering 0.92x — it DELEGATES to nx's own algorithm run on the fnx graph
+(module networkx.algorithms.bipartite.cluster), so the gap is the fnx-graph-adjacency-as-
+nx-backend tax (nx's Python iterates fnx's views slightly slower than native dicts).
+Convert-first (nx.Graph(fb.edges()) then nx algo) only reaches 0.98x — still ~parity, NOT
+a win; a native Rust kernel would be needed but bipartite.clustering is less-common. Marginal
+delegated tax, not worth a kernel. Surface comprehensively dominated.
+
 ## Fresh cycles/cliques/coloring/connectivity sweep — all WIN, 0 losses
 
 Swept cycles/cliques/coloring/chordal/connectivity/matching: node_connectivity 35.55x,
