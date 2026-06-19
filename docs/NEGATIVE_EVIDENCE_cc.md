@@ -157,6 +157,19 @@ Python _graph_deepcopy which WALKS nodes/edges views + out[u][v] per element —
 substrate walk is the residual bottleneck. Unlike copy()/to_directed (now WINS via
 the native path), __deepcopy__ has no native same-type deep-copy. Filed br-r37-c1-489mp.
 
+## Assortativity kernels (9147-9152) — VERIFIED correct + all WINS (fresh build)
+
+Measured head-to-head (attributed gnp(2000), warm min-of-6); parity verified.
+
+| Function | fnx | nx | ratio | Verdict |
+| --- | --- | --- | --- | --- |
+| degree_assortativity_coefficient | 0.53ms | 41.15ms | 78.3x | WIN |
+| average_neighbor_degree | 0.36ms | 5.64ms | 15.82x | WIN |
+| average_degree_connectivity (9152) | 7.18ms | 18.98ms | 2.64x | WIN |
+| degree_pearson_correlation | 28.9ms | 70.2ms | 2.43x | WIN |
+
+All parity-correct. Another healthy code-first batch (CrimsonRiver 9147-9152).
+
 ## Recent code-first kernels (9153-9155) — VERIFIED correct + wins (fresh build)
 
 Measured the latest code-first 'batch-test pending' kernels head-to-head (parity +
