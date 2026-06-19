@@ -61,6 +61,20 @@ SCC components must match nx's exact completion order for condensation; needs an
 nx-ordered Tarjan over the CSR, not the order-invariant BFS lever). pagerank 0.71x
 separate (numeric).
 
+## MultiDiGraph OPERATOR/CONVERSION sweep — all trace to known walls (not new)
+
+Swept MultiDiGraph operators/conversions: reverse 0.58x, copy 0.45x, subgraph 0.54x,
+to_scipy/adjacency_matrix 0.58-0.61x. DIAGNOSED (not new gaps):
+- reverse/copy/subgraph = the CONSTRUCTION/MIRROR-DICT substrate (tbh4q). reverse even
+  HAS the integer-transpose fast path (inner.reversed()) gated on mirrors_all_empty, but
+  add_edge eagerly allocs EMPTY node_py_attrs/edge_py_attrs dicts, so the all-empty CHECK
+  scans O(V+E) PyO3 is_empty() calls. Root = eager-mirror-alloc (w1dm8/tbh4q); lazy mirror
+  alloc would make the check O(1) + the fast path fast. Fundamental substrate.
+- to_scipy_sparse_array/adjacency_matrix 0.58-0.61x = the weight=str+dtype=None
+  correctness-GATE (verified: weight=None 1.59x WIN, dtype=float 0.98x). nx str-weight
+  raises; the Python fallback is correctness-required (not fixable). Same as MultiGraph.
+ALGORITHM surface dominated; OPERATOR/CONVERSION residuals are the substrate + gate walls.
+
 ## MultiDiGraph surface 7-50x slower — FILED br-r37-c1-zid1b (mirror MultiGraph direct-adjacency)
 
 Swept MultiDiGraph: the ENTIRE shortest-path + connectivity + reachability surface
