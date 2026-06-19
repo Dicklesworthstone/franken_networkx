@@ -97,6 +97,15 @@ raises and the assert errors. fnx is byte-correct. 35 'failures' = one unguarded
 DIAGNOSTIC: a conformance failure that reproduces IDENTICALLY in nx is a test bug, not a
 port gap — always compare the fnx error to nx's before filing as an fnx regression.
 
+## link-pred small-ebunch 0.47-0.89x = same small-input PyO3 tax
+
+preferential_attachment(ebunch) 0.47x, resource 0.62x, adamic 0.65x, jaccard 0.89x on a
+5-pair ebunch; whole-graph WINS (jaccard 2.15x). _link_prediction_compute ALREADY memoizes
+lazily (small ebunch touches only endpoints) so it is NOT a snapshot-waste bug — it is the
+PyO3 per-node G.neighbors/G.degree access losing to nx pure-Python dict for tiny inputs.
+Batch dict(G.degree()) does NOT help (per-node 3.3us < batch 11us for ~10 nodes). Same
+substrate class as up5ig/ykqs0. Tiny absolute times; needs a native batch kernel to win.
+
 ## selfloop native-scan STALE + is_path PyO3 tax (br-r37-c1-up5ig, br-r37-c1-ykqs0)
 
 selfloop_edges 0.44-0.65x / number_of_selfloops 0.74-0.76x: native nodes_with_selfloops_rust
