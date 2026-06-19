@@ -97,6 +97,15 @@ raises and the assert errors. fnx is byte-correct. 35 'failures' = one unguarded
 DIAGNOSTIC: a conformance failure that reproduces IDENTICALLY in nx is a test bug, not a
 port gap — always compare the fnx error to nx's before filing as an fnx regression.
 
+## clustering(single,weighted) 0.28x max_weight edges-view substrate-capped
+
+clustering(G,v,weight) builds whole-graph adj_snapshot(77us)+weight_cache(242us)+max_weight
+(187us) for ONE node. The snapshot/cache (319us) ARE removable waste (local-sliver lever),
+but max_weight ALONE (187us, slow edges(data=True) view) EXCEEDS nx full 169us -> even the
+local fix only reaches ~0.59x. max_weight via edges-view is fnx FASTEST (to_scipy 418us,
+native+sync 319us slower). Substrate (4b5ie edges-view mat). Niche (all-nodes has native
+fast path). Not shipping the parity-closer.
+
 ## matrix-converter from_* substrate; to_* all WIN (sweep artifacts)
 
 to_dict_of_dicts 1.17x, to_numpy_array 1.49x, to_scipy_sparse_array 2.28x WIN (sweep losses
