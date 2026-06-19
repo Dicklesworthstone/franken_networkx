@@ -97,6 +97,16 @@ raises and the assert errors. fnx is byte-correct. 35 'failures' = one unguarded
 DIAGNOSTIC: a conformance failure that reproduces IDENTICALLY in nx is a test bug, not a
 port gap — always compare the fnx error to nx's before filing as an fnx regression.
 
+## weighted matrix exports LOSE at scale n2000 (FILED wvuf7)
+
+BIG: at n=2000 WEIGHTED pagerank 0.54x, to_scipy 0.68x, adjacency_matrix 0.67x (unweighted
+WIN 3x). to_scipy weighted profile: _sync_rust_edge_attrs = 6.87ms of 10.4ms (75pct); nx
+whole weighted to_scipy = 7ms, less than fnx sync ALONE. sync pushes ALL edge dicts to read
+one weight attr. edges(data=weight) bulk read = 3.35ms (HALF the sync). FIX: build weighted
+COO from edges-view not sync, matrix order-invariant so any edge order works, 0.68x to ~2.7x.
+CORE fn (pagerank/laplacian/adjacency all use it); needs careful focused impl + full
+conformance. Degrades with scale (won 2.28x at n250). LARGE-N sweeps find what small-N misses.
+
 ## re-export hunt: asyn_fluidc 0.77x parity-bound pure-Python; rest WIN 7-32x
 
 Hunted re-exported (module=nx) functions: rich_club 32x, harmonic 17x, triadic_census 13x,
