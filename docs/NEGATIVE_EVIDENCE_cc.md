@@ -97,6 +97,15 @@ raises and the assert errors. fnx is byte-correct. 35 'failures' = one unguarded
 DIAGNOSTIC: a conformance failure that reproduces IDENTICALLY in nx is a test bug, not a
 port gap — always compare the fnx error to nx's before filing as an fnx regression.
 
+## matrix-converter from_* substrate; to_* all WIN (sweep artifacts)
+
+to_dict_of_dicts 1.17x, to_numpy_array 1.49x, to_scipy_sparse_array 2.28x WIN (sweep losses
+were the in-lambda from_dict_of_dicts build). from_pandas_edgelist 1.76x WIN. LOSSES:
+from_scipy_sparse_array 0.62x, from_numpy_array 0.78x — BOTH already use vectorized extraction
+(coo / np.nonzero) AND batch add_edges_from((u,v,{attr:w})); residual = attributed-construction
+substrate + necessary per-edge int(u),int(v) (fnx node keys type-sensitive, numpy-int
+endpoints must canonicalise to Python int or duplicate nodes). Substrate-bound, no clean win.
+
 ## IO-reader residuals: from_dict_of_dicts 0.84x already-batched substrate; to_dict_of_lists WINS
 
 to_dict_of_lists 2.11x (sweep 0.19x was the in-lambda fnx-graph build, artifact). from_sparse6
