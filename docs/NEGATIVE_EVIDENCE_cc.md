@@ -97,6 +97,15 @@ raises and the assert errors. fnx is byte-correct. 35 'failures' = one unguarded
 DIAGNOSTIC: a conformance failure that reproduces IDENTICALLY in nx is a test bug, not a
 port gap — always compare the fnx error to nx's before filing as an fnx regression.
 
+## single-node clustering family: clean ego wins + substrate losses
+
+SWEPT single-node queries: node_clique_number 0.15x->1.56x + number_of_cliques single->10.63x
+SHIPPED (ego-graph lever, whole-graph->ego). REMAINING single-node losses are SUBSTRATE not
+whole-graph-waste: square_clustering(single) 0.55x = lazy _raw_neighbors(G,node) per-node PyO3
+(node+nbrs+2hop), same frontier as dominating_set/link-pred. clustering(single) 0.87x same.
+WINS in the sweep: closeness(single) 3.13x, eccentricity(single) 2.75x, communicability 21.6x,
+local_reaching 6.76x, harmonic(nbunch) 2.65x.
+
 ## clustering(single,weighted) 0.28x max_weight edges-view substrate-capped
 
 clustering(G,v,weight) builds whole-graph adj_snapshot(77us)+weight_cache(242us)+max_weight
