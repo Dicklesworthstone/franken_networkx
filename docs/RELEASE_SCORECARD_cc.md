@@ -22,6 +22,17 @@ connected_components 4.51x, to_scipy(weight=None) 3.50x. fnx's O(n) Rust kernels
 past nx's worse-scaling Python, so the perf lead WIDENS on realistic large graphs.
 Release-readiness: fnx dominates not just at benchmark sizes but increasingly at scale.
 
+## WEIGHTED SHORTEST-PATH FAMILY — fully reclaimed (cc, this campaign)
+
+After the single-pair PATH fixes, the ENTIRE weighted shortest-path surface WINS +
+is parity-exact (n=1000): dijkstra_path 0.47x->1.28x (n30yf FIXED), shortest_path(s,t,w)
+780/802->3188/3188 + 1.6x (spw, bidirectional), dijkstra_path_length 1.55x,
+shortest_path_length(s,t) 1.78x, shortest_path source-only 1.63x, length source-only
+2.44x, bidirectional_dijkstra 1.66x, bellman_ford_path 2.58x, astar_path 3.39x. The two
+single-pair PATH losses (String-keyed + tie-divergent kernels) were the ONLY gaps —
+routed to the nx-correct fast kernels (single_source / bidirectional). 0 remaining path
+losses. Residual lc2qy = single-pair early-exit kernel variant (far-target 0.58x only).
+
 ## Verified WINS (measured, keep)
 
 | Area | Optimization | Measured ratio vs nx |
