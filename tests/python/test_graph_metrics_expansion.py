@@ -150,6 +150,20 @@ class TestEdgeExpansion:
         # edge_expansion = 1/2 = 0.5
         assert fnx.edge_expansion(path5, [0, 1]) == pytest.approx(0.5)
 
+    def test_edge_expansion_native_path_skips_cut_size(self, path5, monkeypatch):
+        def fail_cut_size(*args, **kwargs):
+            raise AssertionError("edge_expansion should use the native sized-set path")
+
+        monkeypatch.setattr(fnx, "cut_size", fail_cut_size)
+        assert fnx.edge_expansion(path5, [0, 1]) == pytest.approx(0.5)
+
+    @needs_nx
+    def test_edge_expansion_duplicate_s_matches_nx(self, path5):
+        G_nx = nx.path_graph(5)
+        assert fnx.edge_expansion(path5, [0, 0]) == pytest.approx(
+            nx.edge_expansion(G_nx, [0, 0])
+        )
+
     def test_edge_expansion_complete(self, k4):
         # S={0}, complement={1,2,3}
         # boundary edges = 3, min(1,3) = 1

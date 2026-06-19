@@ -14544,7 +14544,7 @@ from franken_networkx._fnx import (
     volume,
     boundary_expansion,
     conductance,
-    edge_expansion,
+    edge_expansion as _raw_edge_expansion,
     node_expansion as _raw_node_expansion,
     mixing_expansion,
     non_edges as _raw_non_edges,
@@ -16388,6 +16388,22 @@ def volume(G, S, weight=None):
 
 def edge_expansion(G, S, T=None, weight=None):
     """Return the edge expansion between two node sets."""
+    if T is None and weight is None and hasattr(S, "__len__") and len(S) > 0:
+        G = _coerce_arg_to_fnx_graph(G)
+        s_nodes = list(S)
+        try:
+            unique_s = set(s_nodes)
+        except TypeError:
+            unique_s = None
+        if (
+            unique_s is not None
+            and len(unique_s) == len(s_nodes)
+            and not G.is_multigraph()
+            and not G.is_directed()
+            and len(s_nodes) < G.number_of_nodes()
+            and all(node in G for node in s_nodes)
+        ):
+            return _raw_edge_expansion(G, s_nodes)
     if T is None:
         T = list(set(G) - set(S))
     num_cut_edges = cut_size(G, S, T=T, weight=weight)

@@ -16787,6 +16787,9 @@ fn edge_expansion(
     g: &Bound<'_, PyAny>,
     nodes: Vec<Bound<'_, PyAny>>,
 ) -> PyResult<f64> {
+    if nodes.is_empty() {
+        return Err(PyZeroDivisionError::new_err("division by zero"));
+    }
     let gr = extract_graph(g)?;
     let node_strs: Vec<String> = nodes
         .iter()

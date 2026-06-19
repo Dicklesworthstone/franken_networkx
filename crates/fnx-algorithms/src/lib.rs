@@ -30959,20 +30959,31 @@ pub fn conductance(graph: &Graph, nodes: &[&str]) -> f64 {
 /// edge_expansion(G, S) = |edge_boundary(S)| / min(|S|, |V-S|)
 #[must_use]
 pub fn edge_expansion(graph: &Graph, nodes: &[&str]) -> f64 {
-    let node_set: HashSet<&str> = nodes.iter().copied().collect();
-    let n = graph.nodes_ordered().len();
-    let s = node_set.len();
-    let complement_size = n - s;
-    let min_size = s.min(complement_size);
+    let n = graph.node_count();
+    let mut in_set = vec![false; n];
+    let mut source_count = 0usize;
+    for &node in nodes {
+        if let Some(node_idx) = graph.get_node_index(node)
+            && !in_set[node_idx]
+        {
+            in_set[node_idx] = true;
+            source_count += 1;
+        }
+    }
+
+    let complement_size = n.saturating_sub(source_count);
+    let min_size = source_count.min(complement_size);
     if min_size == 0 {
         return 0.0;
     }
 
     let mut boundary_edges = 0;
-    for &nd in &node_set {
-        if let Some(nbrs) = graph.neighbors_iter(nd) {
-            for nbr in nbrs {
-                if !node_set.contains(nbr) {
+    for node_idx in 0..n {
+        if in_set[node_idx]
+            && let Some(neighbors) = graph.neighbors_indices(node_idx)
+        {
+            for &neighbor_idx in neighbors {
+                if !in_set[neighbor_idx] {
                     boundary_edges += 1;
                 }
             }
@@ -54479,6 +54490,18 @@ mod tests {
         // edge_expansion({a,b}) = 1 / min(2,2) = 0.5
         let ee = edge_expansion(&g, &["a", "b"]);
         assert!((ee - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_edge_expansion_index_scan_counts_crossing_edges_once() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("b", "d");
+        let _ = g.add_edge("c", "d");
+
+        let ee = edge_expansion(&g, &["a", "b"]);
+        assert!((ee - 1.0).abs() < 1e-6);
     }
 
     #[test]
