@@ -97,6 +97,14 @@ raises and the assert errors. fnx is byte-correct. 35 'failures' = one unguarded
 DIAGNOSTIC: a conformance failure that reproduces IDENTICALLY in nx is a test bug, not a
 port gap — always compare the fnx error to nx's before filing as an fnx regression.
 
+## normalized_laplacian weighted 0.90x = to_scipy edge-sync substrate (unweighted WINS 3.18x)
+
+normalized_laplacian_matrix: UNWEIGHTED 3.18x (native vectorized COO from index arrays, no
+weights/sync). WEIGHTED 0.90x byte-exact but falls back to to_scipy_sparse_array(weight) +
+D^-1/2 L D^-1/2 matmuls (mirrors nx). The gap IS to_scipy weighted (native COO + edge-attr
+sync ~2x vs nx pure-numpy) — same sync-tax class as l0bdz. Native weighted-COO path would
+need the O(E) sync, erasing the gain. Marginal; unweighted (common) already dominates.
+
 ## SUBSTRATE FRONTIER MAPPED (cc) — remaining losses are per-node/small-input PyO3 tax
 
 The accessible de-delegation / snapshot / batch-native wins are largely MINED. The residual
