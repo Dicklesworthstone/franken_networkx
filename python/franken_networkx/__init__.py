@@ -9686,6 +9686,11 @@ def diameter(G, e=None, usebounds=False, weight=None):
     # br-r37-c1-eg0jk: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     # Delegate cases where the native path does not yet preserve nx contracts.
+    # br-r37-c1-eccallpairs (cc): the plain weighted case is just max(eccentricity), and
+    # fnx's eccentricity now has a fast all-pairs path — compute it in-process instead of
+    # the fnx->nx delegation (was ~parity 0.98x).
+    if weight is not None and isinstance(weight, str) and e is None and not usebounds and len(G) > 0:
+        return max(eccentricity(G, weight=weight).values())
     if e is not None or usebounds or weight is not None or len(G) == 0:
         return _call_networkx_for_parity(
             "diameter", G, e=e, usebounds=usebounds, weight=weight
@@ -9724,6 +9729,9 @@ def radius(G, e=None, usebounds=False, weight=None):
     # br-r37-c1-eg0jk: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     # Delegate cases where the native path does not yet preserve nx contracts.
+    # br-r37-c1-eccallpairs (cc): weighted radius = min(eccentricity), now fast in-process.
+    if weight is not None and isinstance(weight, str) and e is None and not usebounds and len(G) > 0:
+        return min(eccentricity(G, weight=weight).values())
     if e is not None or usebounds or weight is not None or len(G) == 0:
         return _call_networkx_for_parity(
             "radius", G, e=e, usebounds=usebounds, weight=weight
@@ -9759,6 +9767,13 @@ def center(G, e=None, usebounds=False, weight=None):
     # br-r37-c1-eg0jk: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     # Delegate cases where the native path does not yet preserve nx contracts.
+    # br-r37-c1-eccallpairs (cc): weighted center filters eccentricity by min, now fast.
+    if weight is not None and isinstance(weight, str) and e is None and not usebounds and len(G) > 0:
+        ecc = eccentricity(G, weight=weight)
+        if not ecc:
+            return []
+        radius_w = min(ecc.values())
+        return [n for n in G.nodes() if ecc[n] == radius_w]
     if e is not None or usebounds or weight is not None or len(G) == 0:
         return _call_networkx_for_parity(
             "center", G, e=e, usebounds=usebounds, weight=weight
@@ -9803,6 +9818,13 @@ def periphery(G, e=None, usebounds=False, weight=None):
     # br-r37-c1-eg0jk: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     # Delegate cases where the native path does not yet preserve nx contracts.
+    # br-r37-c1-eccallpairs (cc): weighted periphery filters eccentricity by max, now fast.
+    if weight is not None and isinstance(weight, str) and e is None and not usebounds and len(G) > 0:
+        ecc = eccentricity(G, weight=weight)
+        if not ecc:
+            return []
+        diameter_w = max(ecc.values())
+        return [n for n in G.nodes() if ecc[n] == diameter_w]
     if e is not None or usebounds or weight is not None or len(G) == 0:
         return _call_networkx_for_parity(
             "periphery", G, e=e, usebounds=usebounds, weight=weight
