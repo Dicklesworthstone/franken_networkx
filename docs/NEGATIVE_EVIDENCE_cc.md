@@ -30,6 +30,17 @@ intersection) would push to WINS. preferential_attachment 0.78x is a SEPARATE lo
 kernel 9142). The stamp-mark fix lives in fnx-algorithms/src/lib.rs (TealSpring's file,
 NOT a cc file) — baseline recorded here as the peer's measured bench target.
 
+## Small-input delegation sweep — all WINS except order-gated common_neighbors
+
+Swept single-node/pair inputs: single_source_shortest_path_length 3.47x, has_path
+5.43x, shortest_path 1.98x, resistance_distance 2.41x, node_connectivity 1.33x,
+ego_graph 1.41x, descendants 1.12x — all WINS. ONLY common_neighbors(u,v) loses
+(0.82x at ~1.5us). TESTED routing to the native _fnx.common_neighbors binding (1.07us,
+faster than nx): UNSAFE — its ORDER-parity vs nx is only 110/158, while the current
+wrapper (dict.keys() & dict.keys() preserves u's adjacency order like nx) is 154/158,
+and there is an order conformance test. The microsecond loss is the PRICE of order
+correctness; the wrapper is right. Another test-before-ship catch — not routed.
+
 ## Degree-batch vein audit — link-pred scorer was the ONLY loss; others win/already-batch
 
 Grepped all per-node G.degree(/G.neighbors( call sites in __init__.py for the same
