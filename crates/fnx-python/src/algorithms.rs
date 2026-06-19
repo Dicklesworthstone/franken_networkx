@@ -13811,8 +13811,12 @@ fn run_astar_path_length<G: fnx_algorithms::GraphView + ?Sized + Sync>(
     target: &Bound<'_, PyAny>,
     heuristic: Option<&Bound<'_, PyAny>>,
     weight: &str,
-) -> PyResult<Option<f64>> {
-    if let Some(callable) = heuristic {
+) -> PyResult<Option<(f64, Vec<String>)>> {
+    // br-r37-c1-yo37g (cc): compute the path ONCE via astar_path and sum it, returning the
+    // path so the wrapper can type-check the length (int-vs-float) without a SECOND A*
+    // search (the old astar_path_length kernel built+discarded the path, forcing the
+    // wrapper to re-run astar_path for the int check — 0.50x on int-weighted graphs).
+    let path = if let Some(callable) = heuristic {
         let tgt_obj = target.clone().unbind();
         let callable_obj = callable.clone().unbind();
         let h = |node_str: &str| -> PyResult<f64> {
@@ -13823,12 +13827,20 @@ fn run_astar_path_length<G: fnx_algorithms::GraphView + ?Sized + Sync>(
                 .call1((node_py, tgt_bound))
                 .and_then(|r| r.extract::<f64>())
         };
-        fnx_algorithms::astar_path_length(inner, src_key, tgt_key, weight, Some(&h))
+        fnx_algorithms::astar_path(inner, src_key, tgt_key, weight, Some(&h))?
     } else {
         py.allow_threads(|| {
-            fnx_algorithms::astar_path_length::<G, PyErr>(inner, src_key, tgt_key, weight, None)
-        })
+            fnx_algorithms::astar_path::<G, PyErr>(inner, src_key, tgt_key, weight, None)
+        })?
+    };
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    let mut total = 0.0;
+    for i in 0..path.len().saturating_sub(1) {
+        total += inner.edge_weight(&path[i], &path[i + 1], Some(weight));
     }
+    Ok(Some((total, path)))
 }
 
 /// A* shortest path from source to target.
@@ -13896,7 +13908,7 @@ fn astar_path_length(
     target: &Bound<'_, PyAny>,
     heuristic: Option<&Bound<'_, PyAny>>,
     weight: &str,
-) -> PyResult<f64> {
+) -> PyResult<(f64, PyObject)> {
     let gr = extract_graph(g)?;
     let src_key = node_key_to_string(py, source)?;
     let tgt_key = node_key_to_string(py, target)?;
@@ -13927,7 +13939,40 @@ fn astar_path_length(
     };
 
     match result {
-        Ok(Some(length)) => Ok(length),
+        Ok(Some((length, path))) => {
+            // br-r37-c1-yo37g (cc): for SIMPLE graphs, type-check the length in Rust over
+            // the inner CgseValue weights (no Python per-edge walk) and return a bool — nx
+            // returns int iff every chosen-path edge weight is Int/Bool (or absent => 1).
+            // For multigraphs (rare; the min-parallel-edge type is non-trivial) return the
+            // path so the wrapper int-checks via G.get_edge_data.
+            let extra: PyObject = match &gr {
+                GraphRef::Undirected(_) | GraphRef::Directed { .. } => {
+                    let all_int = path.windows(2).all(|w| {
+                        let typed = match &gr {
+                            GraphRef::Undirected(pg) => {
+                                pg.inner.edge_attrs(&w[0], &w[1]).and_then(|a| a.get(weight))
+                            }
+                            GraphRef::Directed { dg, .. } => {
+                                dg.inner.edge_attrs(&w[0], &w[1]).and_then(|a| a.get(weight))
+                            }
+                            _ => None,
+                        };
+                        matches!(
+                            typed,
+                            None | Some(fnx_runtime::CgseValue::Int(_))
+                                | Some(fnx_runtime::CgseValue::Bool(_))
+                        )
+                    });
+                    all_int.into_pyobject(py)?.to_owned().into_any().unbind()
+                }
+                _ => {
+                    let py_path: Vec<PyObject> =
+                        path.iter().map(|n| gr.py_node_key(py, n)).collect();
+                    py_path.into_pyobject(py)?.into_any().unbind()
+                }
+            };
+            Ok((length, extra))
+        }
         Ok(None) => Err(pyo3::exceptions::PyValueError::new_err(format!(
             "No path between {} and {}.",
             src_key, tgt_key
