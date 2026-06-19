@@ -46,6 +46,13 @@ struct LinkPredictionWorkloads {
     nx_common_neighbor_centrality: Py<PyAny>,
 }
 
+struct MultiDiGraphConnectivityWorkloads {
+    fnx_strongly_connected_components: Py<PyAny>,
+    nx_strongly_connected_components: Py<PyAny>,
+    fnx_descendants: Py<PyAny>,
+    nx_descendants: Py<PyAny>,
+}
+
 fn prepare_cut_metric_workloads(py: Python<'_>) -> PyResult<CutMetricWorkloads> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
@@ -374,6 +381,119 @@ nx_common_neighbor_centrality = lambda: _consume_scores(
     })
 }
 
+fn prepare_multidigraph_connectivity_workloads(
+    py: Python<'_>,
+) -> PyResult<MultiDiGraphConnectivityWorkloads> {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("fnx-python crate must live under crates/");
+    let python_dir = repo_root.join("python");
+    let legacy_dir = repo_root.join("legacy_networkx_code").join("networkx");
+
+    let sys = py.import("sys")?;
+    let path = sys.getattr("path")?;
+    let path = path.cast::<PyList>()?;
+    path.insert(0, repo_root.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, python_dir.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, legacy_dir.to_str().expect("repo path must be UTF-8"))?;
+
+    let locals = PyDict::new(py);
+    py.run(
+        cstring(
+            r#"
+import sys
+
+for _name in list(sys.modules):
+    if _name == "networkx" or _name.startswith("networkx."):
+        del sys.modules[_name]
+
+import networkx as nx
+import franken_networkx as fnx
+
+if "legacy_networkx_code" not in getattr(nx, "__file__", ""):
+    raise AssertionError(f"expected vendored NetworkX oracle, got {nx.__file__!r}")
+
+def _paired_multidigraph_scc_workload(node_count, block_size):
+    fnx_graph = fnx.MultiDiGraph()
+    nx_graph = nx.MultiDiGraph()
+    nodes = list(range(node_count))
+    fnx_graph.add_nodes_from(nodes)
+    nx_graph.add_nodes_from(nodes)
+    for block_start in range(0, node_count, block_size):
+        block = nodes[block_start:block_start + block_size]
+        if not block:
+            continue
+        for offset, u in enumerate(block):
+            v = block[(offset + 1) % len(block)]
+            fnx_graph.add_edge(u, v)
+            fnx_graph.add_edge(u, v)
+            nx_graph.add_edge(u, v)
+            nx_graph.add_edge(u, v)
+            if offset % 3 == 0:
+                fnx_graph.add_edge(u, u)
+                nx_graph.add_edge(u, u)
+        next_block = block_start + block_size
+        if next_block < node_count:
+            fnx_graph.add_edge(block[-1], next_block)
+            fnx_graph.add_edge(block[-1], next_block)
+            nx_graph.add_edge(block[-1], next_block)
+            nx_graph.add_edge(block[-1], next_block)
+    return fnx_graph, nx_graph
+
+def _component_checksum(components):
+    total = 0
+    for idx, component in enumerate(components):
+        subtotal = 0
+        for node in component:
+            subtotal += int(node) + 1
+        total += (idx + 1) * subtotal + len(component) * 17
+    return total
+
+def _node_set_checksum(nodes):
+    total = 0
+    for idx, node in enumerate(sorted(nodes)):
+        total += (idx + 1) * (int(node) + 1)
+    return total + len(nodes) * 17
+
+mdg_fnx, mdg_nx = _paired_multidigraph_scc_workload(1800, 6)
+_fnx_scc = list(fnx.strongly_connected_components(mdg_fnx))
+_nx_scc = list(nx.strongly_connected_components(mdg_nx))
+assert [set(c) for c in _fnx_scc] == [set(c) for c in _nx_scc]
+assert _component_checksum(_fnx_scc) == _component_checksum(_nx_scc)
+assert fnx.descendants(mdg_fnx, 0) == nx.descendants(mdg_nx, 0)
+
+fnx_strongly_connected_components = lambda: _component_checksum(
+    fnx.strongly_connected_components(mdg_fnx)
+)
+nx_strongly_connected_components = lambda: _component_checksum(
+    nx.strongly_connected_components(mdg_nx)
+)
+fnx_descendants = lambda: _node_set_checksum(fnx.descendants(mdg_fnx, 0))
+nx_descendants = lambda: _node_set_checksum(nx.descendants(mdg_nx, 0))
+"#,
+        )
+        .as_c_str(),
+        Some(&locals),
+        Some(&locals),
+    )?;
+
+    let callable = |name: &str| -> PyResult<Py<PyAny>> {
+        let callable = locals.get_item(name)?.ok_or_else(|| {
+            pyo3::exceptions::PyKeyError::new_err(format!("missing Python callable {name}"))
+        })?;
+        Ok(callable.unbind())
+    };
+
+    Ok(MultiDiGraphConnectivityWorkloads {
+        fnx_strongly_connected_components: callable("fnx_strongly_connected_components")?,
+        nx_strongly_connected_components: callable("nx_strongly_connected_components")?,
+        fnx_descendants: callable("fnx_descendants")?,
+        nx_descendants: callable("nx_descendants")?,
+    })
+}
+
 fn bench_python_callable(
     group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
     name: &str,
@@ -567,11 +687,43 @@ fn link_prediction_head_to_head(c: &mut Criterion) {
     group.finish();
 }
 
+fn multidigraph_connectivity_head_to_head(c: &mut Criterion) {
+    Python::initialize();
+    let workloads = Python::attach(prepare_multidigraph_connectivity_workloads)
+        .expect("failed to prepare MultiDiGraph connectivity Python workloads");
+    let mut group = c.benchmark_group("networkx_head_to_head_multidigraph_connectivity");
+    group.sample_size(20);
+
+    bench_python_callable(
+        &mut group,
+        "fnx_strongly_connected_components_mdg1800_b6",
+        &workloads.fnx_strongly_connected_components,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_strongly_connected_components_mdg1800_b6",
+        &workloads.nx_strongly_connected_components,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_descendants_mdg1800_b6_source0",
+        &workloads.fnx_descendants,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_descendants_mdg1800_b6_source0",
+        &workloads.nx_descendants,
+    );
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     cut_metric_head_to_head,
     assortativity_head_to_head,
     assortativity_raw_head_to_head,
-    link_prediction_head_to_head
+    link_prediction_head_to_head,
+    multidigraph_connectivity_head_to_head
 );
 criterion_main!(benches);

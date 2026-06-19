@@ -4408,15 +4408,16 @@ fn multidigraph_is_strongly_connected(mdg: &fnx_classes::digraph::MultiDiGraph) 
     csr_reach_count(&pred, 0, n) == n
 }
 
-/// br-r37-c1-zid1b (cc): BFS tree edges (parent, child) from `source` over a
-/// MultiDiGraph's successor adjacency — mirrors bfs_edges_directed for descendants,
-/// processing successors in order so discovery parents match nx. No simple-DiGraph build.
-fn multidigraph_bfs_edges(
-    mdg: &fnx_classes::digraph::MultiDiGraph,
+/// br-r37-c1-zid1b (cc): borrowed BFS tree edges (parent, child) from `source`
+/// over a MultiDiGraph's successor adjacency. Descendants only need the first
+/// discovery parent for each child; returning borrowed node keys avoids cloning
+/// every tree edge before Python set materialization.
+fn multidigraph_bfs_edges<'a>(
+    mdg: &'a fnx_classes::digraph::MultiDiGraph,
     source: &str,
-) -> Vec<(String, String)> {
+) -> Vec<(&'a str, &'a str)> {
     use std::collections::{HashSet, VecDeque};
-    let mut edges: Vec<(String, String)> = Vec::new();
+    let mut edges: Vec<(&'a str, &'a str)> = Vec::new();
     let nodes = mdg.nodes_ordered();
     let source_ref = match nodes.iter().copied().find(|&n| n == source) {
         Some(s) => s,
@@ -4430,7 +4431,7 @@ fn multidigraph_bfs_edges(
         if let Some(succs) = mdg.successors(node) {
             for v in succs {
                 if visited.insert(v) {
-                    edges.push((node.to_owned(), v.to_owned()));
+                    edges.push((node, v));
                     queue.push_back(v);
                 }
             }
@@ -10482,24 +10483,9 @@ pub fn descendants(
         // br-r37-c1-zid1b: descendants via direct successor-BFS tree edges, no conversion.
         let inner = &mdg.inner;
         let edges = py.allow_threads(|| multidigraph_bfs_edges(inner, &source_key));
-        let disp = gr.discovery_map(
-            py,
-            &edges,
-            Some((&source_key, source.clone().unbind())),
-            false,
-        );
-        let mut result: HashSet<String> = HashSet::new();
-        for (u, v) in &edges {
-            if u != &source_key {
-                result.insert(u.clone());
-            }
-            if v != &source_key {
-                result.insert(v.clone());
-            }
-        }
-        let py_nodes: Vec<PyObject> = result
+        let py_nodes: Vec<PyObject> = edges
             .iter()
-            .map(|n| gr.disp_or_node_key(py, &disp, n))
+            .map(|&(parent, child)| gr.py_row_key(py, parent, child))
             .collect();
         return pyo3::types::PySet::new(py, &py_nodes).map(|s| s.unbind());
     }
@@ -11845,6 +11831,22 @@ pub fn strongly_connected_components(
             "strongly_connected_components is not defined for undirected graphs. Use connected_components instead.",
         ));
     }
+    if let GraphRef::MultiDirected { mdg, .. } = &gr {
+        // br-r37-c1-zid1b: SCC listing is multiplicity-invariant, so walk the
+        // MultiDiGraph successor rows directly instead of first projecting to a
+        // simple DiGraph.
+        let inner = &mdg.inner;
+        let result =
+            py.allow_threads(|| multidigraph_strongly_connected_components_nx_ordered(inner));
+        return result
+            .iter()
+            .map(|comp| {
+                let py_nodes: Vec<PyObject> =
+                    comp.iter().map(|node| gr.py_node_key(py, node)).collect();
+                pyo3::types::PySet::new(py, py_nodes).map(|set| set.into_any().unbind())
+            })
+            .collect();
+    }
     let dg_ref = gr.digraph().expect("is_directed checked above");
     let result = py.allow_threads(|| strongly_connected_components_nx_ordered(dg_ref));
     result
@@ -11879,6 +11881,111 @@ fn strongly_connected_components_nx_ordered(
                     Some(succ_index)
                 })
                 .collect()
+            })
+        })
+        .collect();
+
+    if nodes.is_empty() {
+        return Vec::new();
+    }
+    if reaches_every_node(0, &successors) && reaches_every_node(0, &predecessors) {
+        return vec![nodes.into_iter().map(str::to_owned).collect()];
+    }
+
+    let mut preorder = vec![0usize; nodes.len()];
+    let mut lowlink = vec![0usize; nodes.len()];
+    let mut scc_found = vec![false; nodes.len()];
+    let mut scc_queue = Vec::<usize>::new();
+    let mut neighbor_pos = vec![0usize; nodes.len()];
+    let mut preorder_counter = 0usize;
+    let mut result = Vec::new();
+
+    for source in 0..nodes.len() {
+        if scc_found[source] {
+            continue;
+        }
+        let mut queue = vec![source];
+        while let Some(&v) = queue.last() {
+            if preorder[v] == 0 {
+                preorder_counter += 1;
+                preorder[v] = preorder_counter;
+            }
+
+            let mut done = true;
+            while neighbor_pos[v] < successors[v].len() {
+                let w = successors[v][neighbor_pos[v]];
+                neighbor_pos[v] += 1;
+                if preorder[w] == 0 {
+                    queue.push(w);
+                    done = false;
+                    break;
+                }
+            }
+
+            if done {
+                lowlink[v] = preorder[v];
+                for &w in &successors[v] {
+                    if !scc_found[w] {
+                        if preorder[w] > preorder[v] {
+                            lowlink[v] = lowlink[v].min(lowlink[w]);
+                        } else {
+                            lowlink[v] = lowlink[v].min(preorder[w]);
+                        }
+                    }
+                }
+                queue.pop();
+                if lowlink[v] == preorder[v] {
+                    let mut component_indices = vec![v];
+                    while scc_queue
+                        .last()
+                        .is_some_and(|&queued| preorder[queued] > preorder[v])
+                    {
+                        if let Some(queued) = scc_queue.pop() {
+                            component_indices.push(queued);
+                        }
+                    }
+                    for &idx in &component_indices {
+                        scc_found[idx] = true;
+                    }
+                    let component = component_indices
+                        .into_iter()
+                        .map(|idx| nodes[idx].to_owned())
+                        .collect();
+                    result.push(component);
+                } else {
+                    scc_queue.push(v);
+                }
+            }
+        }
+    }
+
+    result
+}
+
+fn multidigraph_strongly_connected_components_nx_ordered(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+) -> Vec<Vec<String>> {
+    let nodes = mdg.nodes_ordered();
+    let node_indices: HashMap<&str, usize> = nodes
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(index, node)| (node, index))
+        .collect();
+    let mut predecessors = vec![Vec::<usize>::new(); nodes.len()];
+    let successors: Vec<Vec<usize>> = nodes
+        .iter()
+        .enumerate()
+        .map(|(index, &node)| {
+            mdg.successors(node).map_or_else(Vec::new, |succs| {
+                succs
+                    .into_iter()
+                    .filter_map(|succ| {
+                        let succ_index = node_indices.get(succ).copied()?;
+                        predecessors[succ_index].push(index);
+                        Some(succ_index)
+                    })
+                    .collect()
             })
         })
         .collect();

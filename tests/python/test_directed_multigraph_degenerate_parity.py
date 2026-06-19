@@ -100,3 +100,47 @@ def test_multidigraph_parallel_arcs():
     assert dict(m.in_degree()) == dict(nm.in_degree())
     assert dict(m.out_degree()) == dict(nm.out_degree())
     assert m.number_of_edges() == nm.number_of_edges() == 3
+
+
+@pytest.mark.parametrize(
+    "nodes,edges",
+    [
+        (
+            list(range(7)),
+            [
+                (0, 1),
+                (0, 1),
+                (1, 0),
+                (1, 2),
+                (2, 3),
+                (3, 2),
+                (3, 4),
+                (4, 4),
+                (5, 6),
+                (6, 5),
+            ],
+        ),
+        (
+            ["s", "a", "b", "c", "z"],
+            [
+                ("s", "a"),
+                ("s", "a"),
+                ("a", "s"),
+                ("a", "b"),
+                ("b", "c"),
+                ("c", "b"),
+                ("c", "c"),
+            ],
+        ),
+    ],
+)
+def test_multidigraph_strongly_connected_components_matches_networkx(nodes, edges):
+    m = fnx.MultiDiGraph()
+    nm = nx.MultiDiGraph()
+    m.add_nodes_from(nodes)
+    nm.add_nodes_from(nodes)
+    m.add_edges_from(edges)
+    nm.add_edges_from(edges)
+    assert [set(c) for c in fnx.strongly_connected_components(m)] == [
+        set(c) for c in nx.strongly_connected_components(nm)
+    ]

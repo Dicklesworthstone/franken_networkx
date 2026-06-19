@@ -10,6 +10,57 @@ community link-prediction verification (`br-r37-c1-04z53.9141`) and
 undirected `non_edges` default-ebunch verification (`br-r37-c1-04z53.9143`)
 plus CCPA link-prediction verification (`br-r37-c1-04z53.9140`).
 
+## 2026-06-19 MultiDiGraph Connectivity BOLD-VERIFY Slice
+
+Environment:
+- Agent: `CrimsonRiver` / `cod-b`.
+- Target dir: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+- Release extension rebuilt with `maturin develop --release --features pyo3/abi3-py310`.
+- RCH Criterion worker: `vmi1227854`.
+- Compile gate: `AGENT_NAME=CrimsonRiver CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo check -p fnx-python --benches` passed.
+- Focused conformance:
+  - `tests/python/test_directed_multigraph_degenerate_parity.py tests/python/test_strongly_connected_conformance.py -q` passed with `391 passed in 0.97s`.
+  - `tests/python/test_directed_multigraph_degenerate_parity.py tests/python/test_traversal.py tests/python/test_multigraph_algorithms.py -q` passed with `187 passed in 0.84s`.
+  - Relevant dicsr traversal checks passed with `2 passed in 0.45s`.
+- Broad conformance note: full `test_dicsr_cache_parity.py` currently has an unrelated pre-existing `test_multi_source_dijkstra_directed_finalize_order` failure; this route does not touch multi-source Dijkstra.
+- Formatting note: workspace `cargo fmt --check` is currently blocked by pre-existing rustfmt drift in shared files, including `crates/fnx-algorithms/src/lib.rs`; no workspace formatter was run over peer-owned changes.
+
+| Bead | Workload | FNX mean | NetworkX mean | FNX speedup | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `br-r37-c1-zid1b` | `strongly_connected_components`, MultiDiGraph 1800 nodes, block size 6, parallel arcs | 925.39 us | 2.2594 ms | 2.44x | Keep |
+| `br-r37-c1-zid1b` | `descendants`, same MultiDiGraph, source `0` | 579.76 us | 1.0212 ms | 1.76x | Keep |
+
+Surface sweep after both routes, same 1800-node MultiDiGraph shape:
+
+| Function | Ratio vs NetworkX | Decision |
+| --- | ---: | --- |
+| `single_source_shortest_path_length` | 1.29x | Win |
+| `shortest_path_length` | 2.85x | Win |
+| `has_path` | 3.08x | Win |
+| `weakly_connected_components` | 1.02x | Neutral |
+| `number_weakly_connected_components` | 1.31x | Win |
+| `is_weakly_connected` | 1.68x | Win |
+| `strongly_connected_components` | 2.27x local probe; 2.44x RCH Criterion | Keep |
+| `number_strongly_connected_components` | 4.53x | Win |
+| `is_strongly_connected` | 1.23x | Win |
+| `descendants` | 1.45x local probe; 1.76x RCH Criterion | Keep |
+
+Score:
+- Win/loss/neutral accounting: `9` wins, `1` neutral, `0` losses on the sampled
+  MultiDiGraph reachability/connectivity surface.
+- Performance evidence: `strongly_connected_components(MultiDiGraph)` and
+  `descendants(MultiDiGraph, source)` now have same-worker RCH Criterion keep
+  rows and reusable benchmark rows in `networkx_head_to_head`.
+- Conformance evidence: focused directed/MultiDiGraph SCC, traversal, and
+  adjacency-row discovery conformance is green.
+- Ledger hygiene: keeps and the remaining neutral weak-component row are recorded in
+  `docs/progress/perf-negative-results.md`.
+
+Release readiness verdict for this slice: **conditional pass for
+MultiDiGraph connectivity/reachability**. The sampled surface has no remaining
+losses; only `weakly_connected_components` is neutral rather than a decisive
+win.
+
 ## 2026-06-19 BOLD-VERIFY PA/Node-Expansion Slice
 
 Environment:

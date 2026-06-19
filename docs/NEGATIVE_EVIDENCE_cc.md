@@ -97,6 +97,13 @@ raises and the assert errors. fnx is byte-correct. 35 'failures' = one unguarded
 DIAGNOSTIC: a conformance failure that reproduces IDENTICALLY in nx is a test bug, not a
 port gap — always compare the fnx error to nx's before filing as an fnx regression.
 
+## selfloop native-scan STALE + is_path PyO3 tax (br-r37-c1-up5ig, br-r37-c1-ykqs0)
+
+selfloop_edges 0.44-0.65x / number_of_selfloops 0.74-0.76x: native nodes_with_selfloops_rust
+scan (PyO3) now SLOWER than nx native Python _adj dict scan — my bd7a0c856 win is STALE.
+Substrate (no persistent Python adj mirror). is_path 0.23x = per-step PyO3 has_edge tax
+(has_edge swap ~0 gain, reverted). Both substrate/per-call-bound, filed.
+
 ## subgraph/induced_subgraph 0.70x = creation-only micro-artifact (usage WINS 2.60x)
 
 subgraph(nbunch) view CREATION is 0.70x (fnx 16.4us vs nx 11.5us, ~5us) but subgraph +
