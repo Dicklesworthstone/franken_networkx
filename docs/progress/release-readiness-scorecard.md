@@ -255,3 +255,49 @@ Score delta:
 Release readiness verdict for this slice: **conditional pass for public
 `common_neighbor_centrality` on simple undirected graphs with explicit ebunches**.
 Default-ebunch and all-pairs/source-block reuse remain separate workload gates.
+
+## 2026-06-19 Raw AA/RA Link-Prediction Gauntlet Slice
+
+Environment:
+- Commit under verification: `ad5dba875` plus this harness-only working tree.
+- Reference: vendored original NetworkX `3.7rc0.dev0` from
+  `legacy_networkx_code/networkx/networkx`.
+- Subject: editable local `franken_networkx`; release extension rebuilt with
+  `AGENT_NAME=CrimsonRiver CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- .venv/bin/maturin develop --release --features pyo3/abi3-py310`.
+- Bench command: `AGENT_NAME=CrimsonRiver CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a PYTHONPATH=/data/projects/franken_networkx/crates/fnx-python/benches:/data/projects/franken_networkx/python:/data/projects/franken_networkx/legacy_networkx_code/networkx taskset -c 2 cargo bench -p fnx-python --bench public_api_gauntlet -- raw_ --sample-size 10 --warm-up-time 1 --measurement-time 8`.
+- Criterion artifacts:
+  `/data/projects/.rch-targets/franken_networkx-cod-a/criterion/raw_adamic_adar_repeated_overlap/`
+  and `/data/projects/.rch-targets/franken_networkx-cod-a/criterion/raw_resource_allocation_repeated_overlap/`.
+- Workload: 800-node clustered sparse graph, 2,414 edges, 1,600
+  high-common-neighbor candidate pairs repeated to 6,400 explicit ebunch
+  entries, 80 raw API calls/sample, setup outside the timed call. Helper import
+  asserts FNX/NetworkX checksum parity for both scorers.
+- Focused conformance: `test_link_prediction_edge_case_conformance_guard.py`
+  and `test_link_prediction_no_conversion_parity.py` passed with
+  `153 passed in 2.05s`.
+- Compile gate: `AGENT_NAME=CrimsonRiver CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo check -p fnx-python --benches` passed on `hz1`.
+
+| Bead | Workload | FNX mean | NetworkX mean | Ratio vs NetworkX | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `br-r37-c1-04z53.9148` | raw `_fnx.adamic_adar_index`, repeated-overlap explicit ebunch | 337.308 ms | 1581.235 ms | 4.69x | Keep |
+| `br-r37-c1-04z53.9148` | raw `_fnx.resource_allocation_index`, repeated-overlap explicit ebunch | 338.691 ms | 1523.139 ms | 4.50x | Keep |
+
+Noise gate:
+- The first 40-call pass was positive (`5.36x` AA, `4.10x` RA) but had
+  CV above the 5% keep gate on several rows. The final 80-call row above is the
+  keep evidence: CVs are `1.42%`, `1.02%`, `0.78%`, and `2.70%`.
+
+Score delta:
+- Performance evidence: +4. The AA/RA common-neighbor weight memo moved from
+  code-first pending to measured head-to-head keeps.
+- Conformance evidence: +2. Public Python link-prediction parity and repeated
+  edge-case guards remain green after the release rebuild.
+- Benchmark rigor: +2. The noisy first row is recorded and discarded; the final
+  row uses pinned CPU, same graph/ebunch, same process, vendored NetworkX, and
+  all CVs under 5%.
+- Ledger hygiene: +2. The negative-evidence ledger now records the keep and the
+  activation-threshold retry condition for tiny ebunches.
+
+Release readiness verdict for this slice: **conditional pass for raw AA/RA
+repeated-overlap explicit-ebunch scoring**. Public wrapper routing and tiny
+ebunch activation thresholds remain separate workload gates.

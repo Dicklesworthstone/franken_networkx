@@ -64,6 +64,26 @@ fn bench_public_api_gauntlet(c: &mut Criterion) {
                 "networkx",
                 "networkx_non_edges_sparse_undirected",
             ),
+            (
+                "raw_adamic_adar_repeated_overlap",
+                "fnx",
+                "fnx_raw_adamic_adar_repeated_overlap",
+            ),
+            (
+                "raw_adamic_adar_repeated_overlap",
+                "networkx",
+                "networkx_adamic_adar_repeated_overlap",
+            ),
+            (
+                "raw_resource_allocation_repeated_overlap",
+                "fnx",
+                "fnx_raw_resource_allocation_repeated_overlap",
+            ),
+            (
+                "raw_resource_allocation_repeated_overlap",
+                "networkx",
+                "networkx_resource_allocation_repeated_overlap",
+            ),
         ] {
             let callable = helper
                 .getattr(callable_name)

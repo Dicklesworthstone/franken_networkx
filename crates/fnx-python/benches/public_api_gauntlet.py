@@ -186,3 +186,135 @@ def networkx_non_edges_sparse_undirected() -> float:
     for _ in range(_NON_EDGES_REPEAT):
         total += _consume_non_edges(nx.non_edges(_NX_NON_EDGES_GRAPH))
     return total
+
+
+def _build_link_prediction_overlap_graph(
+    module, clusters: int, size: int, probability: float, seed: int
+):
+    rng = random.Random(seed)
+    graph = module.Graph()
+    node_count = clusters * size
+    graph.add_nodes_from(range(node_count))
+    for cluster in range(clusters):
+        start = cluster * size
+        for node in range(start, start + size - 1):
+            graph.add_edge(node, node + 1)
+        for u in range(start, start + size):
+            for v in range(u + 2, start + size):
+                if rng.random() < probability:
+                    graph.add_edge(u, v)
+    for cluster in range(clusters - 1):
+        for _ in range(4):
+            u = cluster * size + rng.randrange(size)
+            v = (cluster + 1) * size + rng.randrange(size)
+            graph.add_edge(u, v)
+    return graph
+
+
+def _link_prediction_overlap_ebunch(
+    graph, clusters: int, size: int, target_count: int, repeats: int
+):
+    scored = []
+    for cluster in range(clusters):
+        start = cluster * size
+        for u in range(start, start + size):
+            u_neighbors = set(graph.neighbors(u))
+            for v in range(u + 1, start + size):
+                if not graph.has_edge(u, v):
+                    common = len(u_neighbors & set(graph.neighbors(v)))
+                    if common:
+                        scored.append((common, u, v))
+    scored.sort(reverse=True)
+    ebunch = []
+    for _, u, v in scored[:target_count]:
+        for _ in range(repeats):
+            ebunch.append((u, v))
+    return ebunch
+
+
+_RAW_LINK_CLUSTERS = 10
+_RAW_LINK_CLUSTER_SIZE = 80
+_RAW_LINK_PROBABILITY = 0.05
+_RAW_LINK_TARGET_PAIRS = 1600
+_RAW_LINK_PAIR_REPEATS = 4
+_RAW_LINK_API_REPEATS = 80
+_RAW_LINK_SEED = 9148
+_FNX_RAW_LINK_GRAPH = _build_link_prediction_overlap_graph(
+    fnx,
+    _RAW_LINK_CLUSTERS,
+    _RAW_LINK_CLUSTER_SIZE,
+    _RAW_LINK_PROBABILITY,
+    _RAW_LINK_SEED,
+)
+_NX_RAW_LINK_GRAPH = _build_link_prediction_overlap_graph(
+    nx,
+    _RAW_LINK_CLUSTERS,
+    _RAW_LINK_CLUSTER_SIZE,
+    _RAW_LINK_PROBABILITY,
+    _RAW_LINK_SEED,
+)
+_RAW_LINK_EBUNCH = _link_prediction_overlap_ebunch(
+    _NX_RAW_LINK_GRAPH,
+    _RAW_LINK_CLUSTERS,
+    _RAW_LINK_CLUSTER_SIZE,
+    _RAW_LINK_TARGET_PAIRS,
+    _RAW_LINK_PAIR_REPEATS,
+)
+
+_EXPECTED_RAW_AA = _consume_link_scores(
+    nx.adamic_adar_index(_NX_RAW_LINK_GRAPH, _RAW_LINK_EBUNCH)
+)
+_FNX_RAW_AA = _consume_link_scores(
+    fnx._fnx.adamic_adar_index(_FNX_RAW_LINK_GRAPH, _RAW_LINK_EBUNCH)
+)
+if abs(_FNX_RAW_AA - _EXPECTED_RAW_AA) > 1e-9:
+    raise AssertionError(
+        f"raw adamic_adar_index parity drift: fnx={_FNX_RAW_AA!r}, nx={_EXPECTED_RAW_AA!r}"
+    )
+
+_EXPECTED_RAW_RA = _consume_link_scores(
+    nx.resource_allocation_index(_NX_RAW_LINK_GRAPH, _RAW_LINK_EBUNCH)
+)
+_FNX_RAW_RA = _consume_link_scores(
+    fnx._fnx.resource_allocation_index(_FNX_RAW_LINK_GRAPH, _RAW_LINK_EBUNCH)
+)
+if abs(_FNX_RAW_RA - _EXPECTED_RAW_RA) > 1e-9:
+    raise AssertionError(
+        f"raw resource_allocation_index parity drift: fnx={_FNX_RAW_RA!r}, nx={_EXPECTED_RAW_RA!r}"
+    )
+
+
+def fnx_raw_adamic_adar_repeated_overlap() -> float:
+    total = 0.0
+    for _ in range(_RAW_LINK_API_REPEATS):
+        total += _consume_link_scores(
+            fnx._fnx.adamic_adar_index(_FNX_RAW_LINK_GRAPH, _RAW_LINK_EBUNCH)
+        )
+    return total
+
+
+def networkx_adamic_adar_repeated_overlap() -> float:
+    total = 0.0
+    for _ in range(_RAW_LINK_API_REPEATS):
+        total += _consume_link_scores(
+            nx.adamic_adar_index(_NX_RAW_LINK_GRAPH, _RAW_LINK_EBUNCH)
+        )
+    return total
+
+
+def fnx_raw_resource_allocation_repeated_overlap() -> float:
+    total = 0.0
+    for _ in range(_RAW_LINK_API_REPEATS):
+        total += _consume_link_scores(
+            fnx._fnx.resource_allocation_index(_FNX_RAW_LINK_GRAPH, _RAW_LINK_EBUNCH)
+        )
+    return total
+
+
+def networkx_resource_allocation_repeated_overlap() -> float:
+    total = 0.0
+    for _ in range(_RAW_LINK_API_REPEATS):
+        total += _consume_link_scores(
+            nx.resource_allocation_index(_NX_RAW_LINK_GRAPH, _RAW_LINK_EBUNCH)
+        )
+    return total
