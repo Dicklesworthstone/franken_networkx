@@ -157,6 +157,22 @@ Python _graph_deepcopy which WALKS nodes/edges views + out[u][v] per element —
 substrate walk is the residual bottleneck. Unlike copy()/to_directed (now WINS via
 the native path), __deepcopy__ has no native same-type deep-copy. Filed br-r37-c1-489mp.
 
+## Recent code-first kernels (9153-9155) — VERIFIED correct + wins (fresh build)
+
+Measured the latest code-first 'batch-test pending' kernels head-to-head (parity +
+perf). All correct (45/45 expansion/cut parity, flow_hierarchy clean) — unlike
+effective_size (the one that diverged). Perf (attributed gnp(2000), warm min-of-6):
+
+| Kernel (bead) | fnx | nx | ratio | Verdict |
+| --- | --- | --- | --- | --- |
+| flow_hierarchy (9154) | 0.012ms | 2.60ms | 219x | WIN |
+| edge_expansion (9155) | 0.39ms | 5.97ms | 15.33x | WIN |
+| cut_size (9155) | 3.23ms | 5.28ms | 1.63x | WIN |
+| node_expansion (9153) | 0.78ms | 0.77ms | 0.99x | NEUTRAL |
+
+These are correct + (mostly) big wins — the code-first kernel pipeline is healthy;
+effective_size (qbj9u) was the lone diverger, caught by the scaffold + reverted.
+
 ## SCAFFOLD-VALIDATED WIN: betweenness k-sampling (8ox3z) landed correctly
 
 My 8ox3z lever (native k-sampled betweenness) was IMPLEMENTED (CrimsonRiver) and is
