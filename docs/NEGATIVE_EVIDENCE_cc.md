@@ -19,6 +19,12 @@ to_scipy_sparse_array. fnx vs nx (min-of-3):
 This is the aggregate release verdict: on a realistic multi-algorithm analysis
 workload fnx dominates nx by 20-32x. The per-function detail below.
 
+DIRECTED pipeline (build + pagerank + hits + in/out-degree + SCC/WCC + transitivity
++ reciprocity + triadic_census): fnx 5.68x@n=500 / 9.40x@n=1500 faster (triadic_census
++ directed algos dominate the cost; still a decisive win). New within_inter_cluster
+kernel (91d8ff92f) verified 10/10 parity; full guard suite 1480 pass on the rebuilt
+extension — the new commit is clean.
+
 ## Results
 
 | Optimization | Workload | fnx | nx | ratio (nx/fnx) | Verdict | Action |

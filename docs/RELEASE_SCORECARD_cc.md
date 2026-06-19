@@ -8,7 +8,7 @@ Status of perf claims that were committed `code-first batch-test pending`.
 build + pagerank + betweenness(k) + closeness + clustering + transitivity +
 components + degree + scipy-export: fnx 6.4ms vs nx 130ms (n=500, 20.26x);
 fnx 35.5ms vs nx 1143ms (n=1500, 32.20x, scales better). The aggregate answer to
-"beat the original on realistic workloads": YES, decisively.
+"beat the original on realistic workloads": YES, decisively. (DIRECTED pipeline: 5.68-9.40x.)
 
 ## Verified WINS (measured, keep)
 
