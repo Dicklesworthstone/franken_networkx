@@ -528,8 +528,11 @@ WINS 1.81x and single_source_dijkstra_path_length WINS 2.48x (fast kernels); ONL
 single-pair dijkstra_PATH loses 0.47x. That path variant is BOTH String-keyed-slow AND
 tie-divergent vs nx (n30yf) — lc2qy (integer-relabel + nx counter tie-break) fixes both
 at once. Routing dijkstra_path to the fast length kernel does NOT help: its predecessors
-still need nx's exact tie-break. So lc2qy is scoped to ONLY the shortest_path_weighted
-path kernel; the rest of the weighted-dijkstra surface already DOMINATES. THIRD honest correction (after node_link_data +
+still need nx's exact tie-break. SHIPPED (cc): routed dijkstra_path -> single_source_dijkstra_path[target] (nx-correct,
+1245/1245 + 2332/2332 parity) — FIXES n30yf (conformance) + 0.47x->1.28x (moderate
+target). RESIDUAL lc2qy: single_source has no early-exit, so far targets are 0.58x; a
+single-pair EARLY-EXIT variant of the fast kernel (integer + nx tie-break) is the full
+win. n30yf RESOLVED via the routing. THIRD honest correction (after node_link_data +
 weighted-pagerank) — measuring honestly enough to falsify my own prior diagnosis.
 
 ## NEGATIVE: __deepcopy__ -> to_directed routing is a DEAD END (tested 2026-06-18)
