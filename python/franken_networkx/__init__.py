@@ -16747,15 +16747,21 @@ def _treewidth_decomp(graph, heuristic):
         del graph_dict[elim_node]
         elim_node = heuristic(graph_dict)
 
-    decomp = Graph()
     first_bag = frozenset(graph_dict.keys())
-    decomp.add_node(first_bag)
     treewidth = len(first_bag) - 1
+
+    # br-r37-c1-twdecomp (cc): scan bags via a plain Python list in insertion order (==
+    # decomp node order) instead of ``for bag in decomp`` (iterating the fnx Graph crosses
+    # PyO3 per node, O(V^2)), and collect the decomp edges to build the result Graph in ONE
+    # add_edges_from at the end instead of per-bag add_edge. Same first-match bag + same
+    # node/edge insertion order, so the decomposition is byte-identical.
+    decomp_bags = [first_bag]
+    decomp_edges = []
 
     while node_stack:
         curr_node, nbrs = node_stack.pop()
         old_bag = None
-        for bag in decomp:
+        for bag in decomp_bags:
             if nbrs <= bag:
                 old_bag = bag
                 break
@@ -16766,7 +16772,12 @@ def _treewidth_decomp(graph, heuristic):
         nbrs.add(curr_node)
         new_bag = frozenset(nbrs)
         treewidth = max(treewidth, len(new_bag) - 1)
-        decomp.add_edge(old_bag, new_bag)
+        decomp_edges.append((old_bag, new_bag))
+        decomp_bags.append(new_bag)
+
+    decomp = Graph()
+    decomp.add_node(first_bag)
+    decomp.add_edges_from(decomp_edges)
 
     return treewidth, decomp
 
