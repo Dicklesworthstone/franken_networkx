@@ -35,6 +35,7 @@ fnx 35.5ms vs nx 1143ms (n=1500, 32.20x, scales better). The aggregate answer to
 | MultiGraph | single_source_shortest_path + single-pair sppl/has_path (ubizp) direct BFS | 0.04x->0.59x / 0.00x->0.4-0.8x (15x+) |
 | MultiDiGraph | single_source_shortest_path_length (zid1b) successor-BFS | **0.03x -> 1.05x** (33x faster) |
 | MultiDiGraph | weakly_connected family (zid1b) succ∪pred BFS | **0.04x -> 1.00-1.16x** (25x faster) |
+| MultiDiGraph | single-pair shortest_path_length/has_path (zid1b) successor-BFS | **0.00x -> 0.98-1.17x** |
 | Link-pred | preferential_attachment / RA / AA degree-batch (pa-degbatch) | PA **0.78x->0.99x**, RA/AA neutral->**1.05-1.06x WIN** |
 | Code-first batch | assortativity 9147-52 (degree_assort 78x) / expansion-cut-flow 9153-55 (flow_hierarchy 219x) | 2.4-219x, parity-verified |
 
