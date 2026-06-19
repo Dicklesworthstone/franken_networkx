@@ -20,8 +20,12 @@ This is the aggregate release verdict: on a realistic multi-algorithm analysis
 workload fnx dominates nx by 20-32x. The per-function detail below.
 
 DIRECTED pipeline (build + pagerank + hits + in/out-degree + SCC/WCC + transitivity
-+ reciprocity + triadic_census): fnx 5.68x@n=500 / 9.40x@n=1500 faster (triadic_census
-+ directed algos dominate the cost; still a decisive win). New within_inter_cluster
++ reciprocity + triadic_census): fnx 5.68x@n=500 / 9.40x@n=1500 faster. Per-op
+breakdown (n=1500) confirms NO hidden directed loss — ALL WINS: pagerank 26.73x,
+triadic_census 17.14x (dominates fnx cost at 139ms but nx is 2387ms), reciprocity
+5.43x, transitivity 3.01x, SCC 2.90x, WCC 1.99x, hits 1.69x. The lower aggregate
+ratio is only because triadic_census is intrinsically the expensive op (fnx wins it
+17x). Decisive win. New within_inter_cluster
 kernel (91d8ff92f) verified 10/10 parity; full guard suite 1480 pass on the rebuilt
 extension — the new commit is clean.
 
