@@ -3944,6 +3944,46 @@ fn multigraph_node_connected_component<'a>(
     comp
 }
 
+/// br-r37-c1-fyxma3 (cc): single-source BFS distances + discovery parents over a
+/// MultiGraph's adjacency directly (no intermediate simple-Graph build). Distance is
+/// multiplicity-invariant, and processing mg.neighbors() in adjacency order yields the
+/// same discovery parents as nx's BFS over the converted simple graph. Returns
+/// (node, length, parent) in BFS-discovery order, matching the simple-graph kernel.
+fn multigraph_sssp_length_with_parents<'a>(
+    mg: &'a fnx_classes::MultiGraph,
+    source: &str,
+    cutoff: Option<usize>,
+) -> Vec<(&'a str, usize, Option<&'a str>)> {
+    use std::collections::{HashSet, VecDeque};
+    let mut out: Vec<(&'a str, usize, Option<&'a str>)> = Vec::new();
+    let nodes = mg.nodes_ordered();
+    let source_ref: &'a str = match nodes.iter().copied().find(|&n| n == source) {
+        Some(s) => s,
+        None => return out,
+    };
+    let mut visited: HashSet<&'a str> = HashSet::new();
+    visited.insert(source_ref);
+    out.push((source_ref, 0, None));
+    let mut queue: VecDeque<(&'a str, usize)> = VecDeque::new();
+    queue.push_back((source_ref, 0));
+    while let Some((node, dist)) = queue.pop_front() {
+        if let Some(c) = cutoff {
+            if dist >= c {
+                continue;
+            }
+        }
+        if let Some(nbrs) = mg.neighbors(node) {
+            for v in nbrs {
+                if visited.insert(v) {
+                    out.push((v, dist + 1, Some(node)));
+                    queue.push_back((v, dist + 1));
+                }
+            }
+        }
+    }
+    out
+}
+
 #[pyfunction]
 pub fn is_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
@@ -10928,6 +10968,19 @@ pub fn single_source_shortest_path_length(
                 cutoff,
             )
         });
+        for (node, length, parent) in &result {
+            let key = match parent {
+                Some(p) => gr.py_row_key(py, p, node),
+                None => source.clone().unbind(),
+            };
+            dict.set_item(key, *length)?;
+        }
+    } else if let GraphRef::MultiUndirected { mg, .. } = &gr {
+        // br-r37-c1-fyxma3: BFS directly over the multigraph adjacency instead of
+        // building a full simple Graph first (was ~33x slower than the Graph path).
+        let inner = &mg.inner;
+        let result =
+            py.allow_threads(|| multigraph_sssp_length_with_parents(inner, &source_key, cutoff));
         for (node, length, parent) in &result {
             let key = match parent {
                 Some(p) => gr.py_row_key(py, p, node),
