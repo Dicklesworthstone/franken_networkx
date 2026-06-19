@@ -13876,16 +13876,24 @@ fn astar_path(
             heuristic,
             weight,
         ),
-        None => run_astar_path(
-            py,
-            &gr,
-            gr.undirected(),
-            &src_key,
-            &tgt_key,
-            target,
-            heuristic,
-            weight,
-        ),
+        None => {
+            // br-r37-c1-hbhli (cc): use the WEIGHTED undirected projection, which collapses
+            // parallel multigraph edges to the MIN weight (matching nx's weight function),
+            // instead of gr.undirected() (structure-only — it kept a non-min parallel edge,
+            // giving the wrong path/length on multigraphs). Identical for simple graphs
+            // (the projection borrows the inner Graph).
+            let projection = gr.weighted_undirected_projection(weight);
+            run_astar_path(
+                py,
+                &gr,
+                projection.as_ref(),
+                &src_key,
+                &tgt_key,
+                target,
+                heuristic,
+                weight,
+            )
+        }
     };
 
     match result {
@@ -13929,7 +13937,7 @@ fn astar_path_length(
         None => run_astar_path_length(
             py,
             &gr,
-            gr.undirected(),
+            gr.weighted_undirected_projection(weight).as_ref(),
             &src_key,
             &tgt_key,
             target,
