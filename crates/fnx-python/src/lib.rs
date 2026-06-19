@@ -600,6 +600,34 @@ pub(crate) fn deepcopy_py_dict(
     if bound.is_empty() {
         return Ok(PyDict::new(py).unbind());
     }
+    // perf (br-r37-c1-bjomp, cc): when EVERY value is an immutable scalar
+    // (None/bool/int/float/str), `copy.deepcopy` is observably identical to a
+    // shallow dict copy — immutables are never actually copied (deepcopy returns
+    // the same object for them, and `_deepcopy_atomic` is a no-op), and there are
+    // no nested containers for the memo to matter. A shallow `dict.copy()` then
+    // produces a dict that is `==` to the deepcopy with the same (immutable,
+    // hence safely shared) values, skipping the Python copy.deepcopy round-trip
+    // that cProfile showed dominating to_directed (918k calls / 1.38s of 1.88s on
+    // attributed gnp(2000)). Conservative: ANY non-scalar value (list/dict/set/
+    // tuple/custom object) falls through to the exact copy.deepcopy path, so
+    // nested-mutable + memo-sharing semantics are unchanged.
+    let mut all_immutable_scalars = true;
+    for value in bound.values().iter() {
+        // PyBool is a subclass of PyInt in CPython, so the PyInt check covers it;
+        // it is listed explicitly for clarity.
+        let immutable = value.is_none()
+            || value.is_instance_of::<PyBool>()
+            || value.is_instance_of::<PyInt>()
+            || value.is_instance_of::<PyFloat>()
+            || value.is_instance_of::<PyString>();
+        if !immutable {
+            all_immutable_scalars = false;
+            break;
+        }
+    }
+    if all_immutable_scalars {
+        return Ok(bound.copy()?.unbind());
+    }
     Ok(deepcopy
         .call1((bound,))?
         .downcast_into::<PyDict>()?
