@@ -24,7 +24,7 @@ Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin
 
 | Function | Workload | fnx | nx | ratio | Note |
 | --- | --- | --- | --- | --- | --- |
-| dijkstra_path(u,v) single-pair | gnp(400,.04) | 1.16ms | 0.57ms | **0.49x** | single-pair likely pays full fnx->nx conversion or weighted-setup overhead while unweighted shortest_path (2.47x) / astar (6.34x) WIN. Candidate: in-process single-pair dijkstra. FILE. |
+| dijkstra_path(u,v) single-pair WEIGHTED | gnp(400,.04) wt | 5.85ms | 0.72ms | **0.12x** | DIAGNOSED + FILED br-r37-c1-j5u29. ROOT CAUSE: fnx `_raw_dijkstra_path` computes the FULL single-source SSSP (fnx dijkstra_path time ~= single_source time) then extracts path; nx early-TERMINATES when target is popped from heap. dijkstra_path_length same (4x). bidirectional_dijkstra (2.29ms) better but still 3x nx. Needs target-aware early-exit native dijkstra (Rust kernel, fnx-algorithms). Values already match nx. |
 | max_weight_matching | gnp(300,.05) weighted | 86ms | 81ms | 0.94x | order-blocked native kernel (kpnc8); marginal, known. |
 
 ## Construction folds (with_mirror) — measured NEUTRAL-to-LOSS vs nx (substrate tax)
