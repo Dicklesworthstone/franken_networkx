@@ -2300,6 +2300,21 @@ pub fn shortest_path_length(
     let t = node_key_to_string(py, target)?;
     validate_node(&gr, &s, source, "Source")?;
     validate_node(&gr, &t, target, "Target")?;
+    // br-r37-c1-zid1b: unweighted MultiDiGraph single-pair uses a target-early-exit BFS
+    // over the successor adjacency instead of the gr.digraph() conversion.
+    if weight.is_none() {
+        if let GraphRef::MultiDirected { mdg, .. } = &gr {
+            let inner = &mdg.inner;
+            let dist = py.allow_threads(|| multidigraph_target_bfs_distance(inner, &s, &t));
+            return match dist {
+                Some(d) => Ok(d.into_pyobject(py)?.into_any().unbind()),
+                None => Err(NetworkXNoPath::new_err(format!(
+                    "No path between {} and {}.",
+                    s, t
+                ))),
+            };
+        }
+    }
     if let Some(inner) = gr.digraph() {
         if let Some(w) = weight {
             let weighted_projection = gr.weighted_digraph_projection(w).expect("directed graph");
@@ -2398,6 +2413,13 @@ pub fn has_path(
     let t = node_key_to_string(py, target)?;
     validate_node(&gr, &s, source, "Source")?;
     validate_node(&gr, &t, target, "Target")?;
+    if let GraphRef::MultiDirected { mdg, .. } = &gr {
+        // br-r37-c1-zid1b: MultiDiGraph reachability via successor target-BFS.
+        let inner = &mdg.inner;
+        let reachable =
+            py.allow_threads(|| multidigraph_target_bfs_distance(inner, &s, &t).is_some());
+        return Ok(reachable);
+    }
     if let Some(inner) = gr.digraph() {
         let result = py.allow_threads(|| fnx_algorithms::has_path_directed(inner, &s, &t));
         Ok(result.has_path)
@@ -4204,6 +4226,45 @@ fn multidigraph_is_weakly_connected(mdg: &fnx_classes::digraph::MultiDiGraph) ->
         }
     }
     visited.len() == nodes.len()
+}
+
+/// br-r37-c1-zid1b (cc): unweighted single-pair directed distance over a MultiDiGraph
+/// by a target-early-exit BFS over the SUCCESSOR adjacency (no simple-DiGraph build),
+/// O(1) source seeding. Multiplicity-invariant. Some(distance) or None if unreachable.
+fn multidigraph_target_bfs_distance(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+    source: &str,
+    target: &str,
+) -> Option<usize> {
+    use std::collections::{HashSet, VecDeque};
+    if source == target {
+        return Some(0);
+    }
+    let mut visited: HashSet<&str> = HashSet::new();
+    let mut queue: VecDeque<(&str, usize)> = VecDeque::new();
+    if let Some(succs) = mdg.successors(source) {
+        for v in succs {
+            if v == target {
+                return Some(1);
+            }
+            if v != source && visited.insert(v) {
+                queue.push_back((v, 1));
+            }
+        }
+    }
+    while let Some((node, dist)) = queue.pop_front() {
+        if let Some(succs) = mdg.successors(node) {
+            for v in succs {
+                if v == target {
+                    return Some(dist + 1);
+                }
+                if v != source && visited.insert(v) {
+                    queue.push_back((v, dist + 1));
+                }
+            }
+        }
+    }
+    None
 }
 
 #[pyfunction]
