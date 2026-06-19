@@ -29866,11 +29866,16 @@ def prefix_tree(paths):
     upstream (e.g. ``for leaf in tree.predecessors(-1): ...``) found
     no terminals and silently produced empty results.
     """
-    tree = DiGraph()
+    # br-r37-c1-preftreebatch (cc): collect every node/edge during the DFS then build the
+    # tree in ONE add_nodes_from + add_edges_from instead of per-node add_node/add_edge
+    # (the PyO3 construction tax made prefix_tree 0.43x). The integer name is just a DFS
+    # counter (the old ``len(tree) - 1`` increments 1,2,3,...), so node ids, edges, source
+    # attrs and NIL terminals stay byte-identical to nx.
     root = 0
-    tree.add_node(root, source=None)
     NIL = -1
-    tree.add_node(NIL, source="NIL")
+    node_specs = [(root, None), (NIL, "NIL")]
+    edge_specs = []
+    next_name = 1
 
     # br-r37-c1-6y9sr / br-r37-c1-vuzc5: mirror nx's algorithm EXACTLY — group
     # each parent's remaining paths by their first element (insertion order) and
@@ -29886,7 +29891,7 @@ def prefix_tree(paths):
         for path in child_paths:
             if not path:
                 # Empty path: this prefix ends here -> edge to NIL terminal.
-                tree.add_edge(parent, NIL)
+                edge_specs.append((parent, NIL))
                 continue
             child, *rest = path
             children[child].append(rest)
@@ -29901,13 +29906,18 @@ def prefix_tree(paths):
         except StopIteration:
             stack.pop()
             continue
-        # Relabel each child with the next unused integer name (NIL at -1 is
-        # always counted, so ``len(tree) - 1`` yields 1, 2, 3, ... in DFS order).
-        new_name = len(tree) - 1
-        tree.add_node(new_name, source=child)
-        tree.add_edge(parent, new_name)
+        # Relabel each child with the next unused integer name in DFS order
+        # (1, 2, 3, ...) — matches the old ``len(tree) - 1`` exactly.
+        new_name = next_name
+        next_name += 1
+        node_specs.append((new_name, child))
+        edge_specs.append((parent, new_name))
         grandchildren = _get_children(new_name, remaining_paths)
         stack.append((new_name, iter(grandchildren.items())))
+
+    tree = DiGraph()
+    tree.add_nodes_from((n, {"source": s}) for n, s in node_specs)
+    tree.add_edges_from(edge_specs)
     return tree
 
 
