@@ -3887,17 +3887,79 @@ pub fn bidirectional_dijkstra(
 /// ------
 /// NetworkXNotImplemented
 ///     If the graph is directed.
+/// br-r37-c1-fyxma2 (cc): is a MultiGraph connected? early-exit BFS from the first
+/// node over the adjacency (no intermediate simple-Graph build, multiplicity is
+/// irrelevant to connectivity) — same lever that fixed connected_components.
+fn multigraph_is_connected(mg: &fnx_classes::MultiGraph) -> bool {
+    use std::collections::{HashSet, VecDeque};
+    let nodes = mg.nodes_ordered();
+    if nodes.is_empty() {
+        return true; // null graph; caller raises before reaching here
+    }
+    let mut visited: HashSet<&str> = HashSet::with_capacity(nodes.len());
+    let start = nodes[0];
+    visited.insert(start);
+    let mut queue: VecDeque<&str> = VecDeque::new();
+    queue.push_back(start);
+    while let Some(node) = queue.pop_front() {
+        if let Some(nbrs) = mg.neighbors(node) {
+            for v in nbrs {
+                if visited.insert(v) {
+                    queue.push_back(v);
+                }
+            }
+        }
+    }
+    visited.len() == nodes.len()
+}
+
+/// br-r37-c1-fyxma2 (cc): the connected component containing `start` in a MultiGraph,
+/// by direct BFS over the adjacency.
+fn multigraph_node_connected_component<'a>(
+    mg: &'a fnx_classes::MultiGraph,
+    start: &str,
+) -> Vec<&'a str> {
+    use std::collections::{HashSet, VecDeque};
+    let mut comp: Vec<&'a str> = Vec::new();
+    let nodes = mg.nodes_ordered();
+    let start_ref: &'a str = match nodes.iter().copied().find(|&n| n == start) {
+        Some(s) => s,
+        None => return comp,
+    };
+    let mut visited: HashSet<&'a str> = HashSet::new();
+    visited.insert(start_ref);
+    comp.push(start_ref);
+    let mut queue: VecDeque<&'a str> = VecDeque::new();
+    queue.push_back(start_ref);
+    while let Some(node) = queue.pop_front() {
+        if let Some(nbrs) = mg.neighbors(node) {
+            for v in nbrs {
+                if visited.insert(v) {
+                    comp.push(v);
+                    queue.push_back(v);
+                }
+            }
+        }
+    }
+    comp
+}
+
 #[pyfunction]
 pub fn is_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "is_connected")?;
-    let owned_simple = match &gr {
-        GraphRef::MultiUndirected { mg, .. } => {
-            Some(multigraph_to_simple_graph_structure_only(&mg.inner))
+    // br-r37-c1-fyxma2: MultiGraph uses a direct-adjacency BFS (early-exit) instead
+    // of building a full simple Graph first (was 11x slower than the Graph path).
+    if let GraphRef::MultiUndirected { mg, .. } = &gr {
+        let inner = &mg.inner;
+        if inner.nodes_ordered().is_empty() {
+            return Err(crate::NetworkXPointlessConcept::new_err(
+                "Connectivity is undefined for the null graph.",
+            ));
         }
-        _ => None,
-    };
-    let inner = owned_simple.as_ref().unwrap_or_else(|| gr.undirected());
+        return Ok(py.allow_threads(|| multigraph_is_connected(inner)));
+    }
+    let inner = gr.undirected();
     if inner.node_count() == 0 {
         return Err(crate::NetworkXPointlessConcept::new_err(
             "Connectivity is undefined for the null graph.",
@@ -4036,13 +4098,13 @@ fn multigraph_connected_components_borrowed(mg: &fnx_classes::MultiGraph) -> Vec
 pub fn number_connected_components(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "number_connected_components")?;
-    let owned_simple = match &gr {
-        GraphRef::MultiUndirected { mg, .. } => {
-            Some(multigraph_to_simple_graph_structure_only(&mg.inner))
-        }
-        _ => None,
-    };
-    let inner = owned_simple.as_ref().unwrap_or_else(|| gr.undirected());
+    // br-r37-c1-fyxma2: MultiGraph counts components via direct-adjacency BFS
+    // instead of building a full simple Graph first (was 12x slower).
+    if let GraphRef::MultiUndirected { mg, .. } = &gr {
+        let inner = &mg.inner;
+        return Ok(py.allow_threads(|| multigraph_connected_components_borrowed(inner).len()));
+    }
+    let inner = gr.undirected();
     Ok(py.allow_threads(|| fnx_algorithms::number_connected_components(inner).count))
 }
 
@@ -16131,9 +16193,18 @@ pub fn node_connected_component(
 ) -> PyResult<Vec<PyObject>> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "node_connected_component")?;
-    let inner = gr.undirected();
     let node = node_key_to_string(py, n)?;
     validate_node(&gr, &node, n, "Node")?;
+    // br-r37-c1-fyxma2: MultiGraph uses a direct single-source BFS over the
+    // adjacency instead of the slow simple-Graph path (was 50x slower).
+    if let GraphRef::MultiUndirected { mg, .. } = &gr {
+        let inner = &mg.inner;
+        let node_ref = node.as_str();
+        let comp =
+            py.allow_threads(|| multigraph_node_connected_component(inner, node_ref));
+        return Ok(comp.iter().map(|&s| gr.py_node_key(py, s)).collect());
+    }
+    let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::node_connected_component(inner, &node));
     Ok(result.iter().map(|s| gr.py_node_key(py, s)).collect())
 }
