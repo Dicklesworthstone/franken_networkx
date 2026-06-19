@@ -21,7 +21,12 @@ order-blocked, kpnc8). The loss is the fnx->nx conversion tax for the parity-req
 nx blossom. De-delegation would be WORSE: the blossom is adjacency-heavy and fnx's
 PyO3 adjacency access inside nx's algorithm would exceed the conversion. So it is
 near-optimal given the order-blocked native blossom; the only real fix is fixing the
-native blossom's tuple orientation (kpnc8). Less-common + deep. NOT a quick lever.
+native blossom's tuple orientation (kpnc8). Less-common + deep. BOLD LEVER FILED br-r37-c1-lmqwv: the native _fnx.max_weight_matching blossom
+is 8.8x FASTER (2.7ms vs nx 23.7ms) + valid (same weight) but diverges on ties (14/20
+exact); test_matching_conformance needs bit-for-bit frozensets. Aligning the native
+blossom's processing order to nx's (gnodes=list(G) + adjacency order) would kill the
+6/20 divergence -> 8.8x WIN on the whole matching family (max_weight/min_weight/
+min_edge_cover). Deep (replicate nx blossom tie-breaks) but high-value.
 
 ## CONSOLIDATED: after rigorous re-measurement, fnx's ONLY real loss surface is construction
 
