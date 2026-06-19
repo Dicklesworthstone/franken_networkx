@@ -30,6 +30,17 @@ intersection) would push to WINS. preferential_attachment 0.78x is a SEPARATE lo
 kernel 9142). The stamp-mark fix lives in fnx-algorithms/src/lib.rs (TealSpring's file,
 NOT a cc file) — baseline recorded here as the peer's measured bench target.
 
+## MultiDiGraph surface 7-50x slower — FILED br-r37-c1-zid1b (mirror MultiGraph direct-adjacency)
+
+Swept MultiDiGraph: the ENTIRE shortest-path + connectivity + reachability surface
+loses via the multidigraph->simple-digraph conversion: sssp_length 0.03x,
+shortest_path_length 0.00x, has_path 0.00x, weakly_connected_components 0.04x,
+strongly_connected_components 0.13x, is_strongly_connected 0.02x, is_weakly_connected
+0.04x, number_weakly 0.04x, descendants 0.03x. All multiplicity-invariant -> the fyxma
+direct-adjacency-BFS lever applies (MultiDiGraph has successors/predecessors/
+successors_iter, digraph.rs:297+). Filed br-r37-c1-zid1b; cc implementing incrementally. pagerank
+0.71x separate (numeric).
+
 ## SHIPPED ubizp: multigraph single-pair shortest_path_length + has_path — ms conversion eliminated
 
 shortest_path_length(u,v) + has_path(u,v) unweighted on a MultiGraph ran the ms-level
