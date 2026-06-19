@@ -3984,6 +3984,51 @@ fn multigraph_sssp_length_with_parents<'a>(
     out
 }
 
+/// br-r37-c1-ubizp (cc): single-source shortest PATHS over a MultiGraph's adjacency
+/// directly (no simple-Graph build). Builds each node's path incrementally from its
+/// discovery parent's path (paths[v] = paths[parent] + [v]), processing neighbors in
+/// adjacency order to match nx's BFS-tree paths. Returns (node, path) in BFS order.
+fn multigraph_sssp_paths<'a>(
+    mg: &'a fnx_classes::MultiGraph,
+    source: &str,
+    cutoff: Option<usize>,
+) -> Vec<(String, Vec<String>)> {
+    use std::collections::{HashMap, VecDeque};
+    let mut out: Vec<(String, Vec<String>)> = Vec::new();
+    let nodes = mg.nodes_ordered();
+    let source_ref: &'a str = match nodes.iter().copied().find(|&n| n == source) {
+        Some(s) => s,
+        None => return out,
+    };
+    // paths held as &str (clone = cheap pointer copies, like nx's list-of-refs);
+    // materialized into owned Strings exactly once, at push time.
+    let mut path_of: HashMap<&'a str, Vec<&'a str>> = HashMap::new();
+    path_of.insert(source_ref, vec![source_ref]);
+    out.push((source_ref.to_owned(), vec![source_ref.to_owned()]));
+    let mut queue: VecDeque<(&'a str, usize)> = VecDeque::new();
+    queue.push_back((source_ref, 0));
+    while let Some((node, dist)) = queue.pop_front() {
+        if let Some(c) = cutoff {
+            if dist >= c {
+                continue;
+            }
+        }
+        if let Some(nbrs) = mg.neighbors(node) {
+            let parent_path = path_of[node].clone();
+            for v in nbrs {
+                if !path_of.contains_key(v) {
+                    let mut p = parent_path.clone();
+                    p.push(v);
+                    out.push((v.to_owned(), p.iter().map(|s| s.to_string()).collect()));
+                    path_of.insert(v, p);
+                    queue.push_back((v, dist + 1));
+                }
+            }
+        }
+    }
+    out
+}
+
 #[pyfunction]
 pub fn is_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
@@ -10922,6 +10967,15 @@ pub fn single_source_shortest_path(
         });
         let dict =
             emit_paths_dict_discovery(py, &gr, &result, &source_key, source.clone().unbind())?;
+        return Ok(dict.into_any());
+    }
+    // br-r37-c1-ubizp: MultiGraph builds paths via direct-adjacency BFS instead of
+    // the gr.undirected() simple-Graph conversion (was ~25x slower).
+    if let GraphRef::MultiUndirected { mg, .. } = &gr {
+        let inner = &mg.inner;
+        let paths = py.allow_threads(|| multigraph_sssp_paths(inner, &source_key, cutoff));
+        let dict =
+            emit_paths_dict_discovery(py, &gr, &paths, &source_key, source.clone().unbind())?;
         return Ok(dict.into_any());
     }
     // br-r37-c1-ssspidx: undirected path returns node INDICES from the kernel and
