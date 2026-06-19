@@ -167,6 +167,21 @@ Python _graph_deepcopy which WALKS nodes/edges views + out[u][v] per element —
 substrate walk is the residual bottleneck. Unlike copy()/to_directed (now WINS via
 the native path), __deepcopy__ has no native same-type deep-copy. Filed br-r37-c1-489mp.
 
+## Weighted pagerank — WIN when built-with-weights; my "loss" was a benchmark artifact
+
+HONEST CORRECTION (cc): an initial measurement showed weighted pagerank 0.68-0.91x
+LOSS. ROOT CAUSE: my benchmark set weights via `fg[u][v]["weight"]=w` (POST-
+CONSTRUCTION mutation), which materializes the edge mirror + marks the graph dirty,
+triggering `_fnx_sync_edge_attrs_to_inner` (O(E), ~10ms@1k edges, the cProfile
+bottleneck). Re-measured on graphs BUILT with weights (add_edge(weight=w), the
+realistic case): weighted pagerank is a **3.16x (n=400) / 5.00x (n=1000) WIN**
+(parity True). The narrow REAL gap is mutated-weight pagerank (0.45-0.81x) — the
+dirty-edge sync is all-or-nothing (syncs ALL edges when any is mutated). Potential
+future lever: incremental/per-edge dirty sync. But the realistic build-with-weights
+path WINS. LESSON (again): how you set up the graph in a benchmark can BE the
+result — node_link_data + weighted-pagerank both bit me; warm + realistic
+construction matters.
+
 ## Broad differential conformance sweep — CLEAN (undirected 23fn + directed 14fn + multigraph 3fn)
 
 Swept 23 functions vs nx (triangles, clustering, square_clustering, core_number,
