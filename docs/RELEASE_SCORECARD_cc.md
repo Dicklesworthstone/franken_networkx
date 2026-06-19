@@ -31,6 +31,7 @@ fnx 35.5ms vs nx 1143ms (n=1500, 32.20x, scales better). The aggregate answer to
 | Construction | to_directed / to_undirected / copy (bjomp) | 1.14x / 1.24x / 2.14x |
 | Centrality | betweenness k-sampled (8ox3z, scaffold-validated) | **49.78x** |
 | MultiGraph | connected_components (fyxma) + number_cc/is_connected/node_cc (fyxma2) direct BFS | **0.02-0.08x -> 0.97-1.26x** (12-114x faster) |
+| MultiGraph | single_source_shortest_path_length (fyxma3) direct BFS | **0.03x -> 1.00x** (33x faster) |
 | Link-pred | preferential_attachment / RA / AA degree-batch (pa-degbatch) | PA **0.78x->0.99x**, RA/AA neutral->**1.05-1.06x WIN** |
 | Code-first batch | assortativity 9147-52 (degree_assort 78x) / expansion-cut-flow 9153-55 (flow_hierarchy 219x) | 2.4-219x, parity-verified |
 
