@@ -101,6 +101,19 @@ losses to WINS: to_directed 0.75x->1.14x, to_undirected 0.71x->1.24x, copy
 fnx's former weakest area now BEATS nx. (Subgraph .copy() also benefits.) The
 residual reciprocal-edge-merge tax in to_undirected is CrimsonRiver's tbh4q.
 
+## __deepcopy__ (copy.deepcopy(G)) — PARTIAL fix, still substrate-walk-bound
+
+| Type | fnx | nx | ratio | Note |
+| --- | --- | --- | --- | --- |
+| DiGraph.deepcopy | 16.7ms | 11.7ms | 0.70x | improved from 0.53x via immutable fast-path (928875302) |
+| Graph.deepcopy | 22.8ms | 9.9ms | 0.43x | LOSS |
+| MultiGraph.deepcopy | 39.7ms | 15.2ms | 0.38x | LOSS |
+
+The copy.deepcopy fast-path (same lever as bjomp) helps, but __deepcopy__ uses the
+Python _graph_deepcopy which WALKS nodes/edges views + out[u][v] per element — the
+substrate walk is the residual bottleneck. Unlike copy()/to_directed (now WINS via
+the native path), __deepcopy__ has no native same-type deep-copy. Filed br-r37-c1-489mp.
+
 ## Eigensolver-gate detail (the headline reversal)
 
 `symmetric_eigvals_rust` (safe-Rust eig) was used unconditionally on the general
