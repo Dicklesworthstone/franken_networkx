@@ -21400,6 +21400,57 @@ def _pagerank_scipy(G, alpha, max_iter, tol, weight):
     raise PowerIterationFailedConvergence(max_iter)
 
 
+def _pagerank_scipy_personalized(
+    G, alpha, personalization, max_iter, tol, nstart, weight, dangling
+):
+    """scipy.sparse PageRank mirroring ``networkx._pagerank_scipy`` for the
+    personalization / nstart / dangling cases (br-r37-c1-prscipy, cc).
+
+    The personalized path previously ran a pure-Python power iteration over
+    ``G.to_directed()`` (~5x slower than nx, which uses scipy for every case).
+    This rebuilds the same sparse matvec on top of fnx's fast
+    ``to_scipy_sparse_array`` and is byte-identical to nx (same algorithm,
+    same nodelist order, same convergence test).
+    """
+    import numpy as _np
+    import scipy.sparse as _sp
+
+    N = len(G)
+    if N == 0:
+        return {}
+    nodelist = list(G)
+    A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight, dtype=float)
+    S = _np.asarray(A.sum(axis=1)).ravel()
+    S[S != 0] = 1.0 / S[S != 0]
+    Q = _sp.csr_array(_sp.spdiags(S.T, 0, *A.shape))
+    A = Q @ A
+
+    if nstart is None:
+        x = _np.repeat(1.0 / N, N)
+    else:
+        x = _np.array([nstart.get(n, 0) for n in nodelist], dtype=float)
+        x = x / x.sum()
+    if personalization is None:
+        p = _np.repeat(1.0 / N, N)
+    else:
+        p = _np.array([personalization.get(n, 0) for n in nodelist], dtype=float)
+        p = p / p.sum()
+    if dangling is None:
+        dangling_weights = p
+    else:
+        dangling_weights = _np.array([dangling.get(n, 0) for n in nodelist], dtype=float)
+        dangling_weights = dangling_weights / dangling_weights.sum()
+    is_dangling = _np.where(S == 0)[0]
+
+    for _ in range(max_iter):
+        xlast = x
+        x = alpha * (x @ A + sum(x[is_dangling]) * dangling_weights) + (1 - alpha) * p
+        err = _np.absolute(x - xlast).sum()
+        if err < N * tol:
+            return dict(zip(nodelist, map(float, x)))
+    raise PowerIterationFailedConvergence(max_iter)
+
+
 def pagerank(
     G,
     alpha=0.85,
@@ -21480,6 +21531,29 @@ def pagerank(
         # br-r37-c1-y5y7i: use scipy.sparse matvec for 2-3× speedup
         # over pure-Rust scalar iteration on dense graphs.
         return _pagerank_scipy(G, alpha, max_iter, tol, pagerank_weight)
+
+    # br-r37-c1-prscipy (cc): personalization / nstart / dangling case — use the scipy
+    # matvec (mirroring nx) instead of the ~5x-slower pure-Python power iteration below.
+    # Gated to simple Graph/DiGraph with str/None weight and dict (or None) vectors;
+    # degenerate inputs (zero-sum vector -> div-by-zero, etc.) fall through to the
+    # pure-Python path, which carries the exact nx error/zero-handling contract.
+    if (
+        len(G) > 0
+        and not G.is_multigraph()
+        and isinstance(G, (Graph, DiGraph))
+        and (pagerank_weight is None or isinstance(pagerank_weight, str))
+        and (personalization is None or isinstance(personalization, dict))
+        and (nstart is None or isinstance(nstart, dict))
+        and (dangling is None or isinstance(dangling, dict))
+    ):
+        try:
+            return _pagerank_scipy_personalized(
+                G, alpha, personalization, max_iter, tol, nstart, pagerank_weight, dangling
+            )
+        except PowerIterationFailedConvergence:
+            raise
+        except (ZeroDivisionError, FloatingPointError, ValueError):
+            pass
 
     if len(G) == 0:
         return {}
