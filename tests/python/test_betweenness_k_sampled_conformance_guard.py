@@ -45,3 +45,18 @@ def test_k_sampled_betweenness_endpoints_unnormalized(seed):
     nr = nx.betweenness_centrality(ng, k=8, seed=seed, endpoints=True, normalized=False)
     for node in nr:
         assert fr[node] == pytest.approx(nr[node], abs=1e-9)
+
+
+@pytest.mark.parametrize("seed", [1, 7, 42])
+@pytest.mark.parametrize("k", [5, 10])
+def test_k_sampled_edge_betweenness_matches_nx(seed, k):
+    # Same gap + same planned native k-sampling fix (br-r37-c1-8ox3z sibling):
+    # edge_betweenness_centrality k-sampling also delegates to nx (~0.89x).
+    fg, ng, n = _g(seed, 25)
+    fr = fnx.edge_betweenness_centrality(fg, k=k, seed=seed)
+    nr = nx.edge_betweenness_centrality(ng, k=k, seed=seed)
+    nr = {tuple(sorted(e)): v for e, v in nr.items()}
+    fr = {tuple(sorted(e)): v for e, v in fr.items()}
+    assert set(fr) == set(nr)
+    for e in nr:
+        assert fr[e] == pytest.approx(nr[e], abs=1e-9)
