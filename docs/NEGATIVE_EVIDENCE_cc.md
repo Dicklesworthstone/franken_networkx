@@ -207,12 +207,11 @@ construction matters.
 
 The third graph type. MultiGraph analysis pipeline: fnx 0.56x@n=500 / 0.50x@n=1500
 (vs undirected 20-32x / directed 5-9x WINS). Per-op (n=1500): degree_centrality
-1.02x NEUT, density/number_of_edges trivial WINS, but: **connected_components 0.07x
-(14x SLOWER)** — isolated to 7.99ms vs same-structure Graph 0.07ms = 114x; the
+1.02x NEUT, density/number_of_edges trivial WINS, but: **connected_components 0.07x -> 1.06x FIXED (a844588e1)** — isolated to 7.99ms vs same-structure Graph 0.07ms = 114x; the
 _raw_connected_components MultiGraph path is pathologically slow (should use int-CSR
 like Graph since connectivity ignores multiplicity). FILED br-r37-c1-fyxma. Plus the
 construction-substrate losses: copy 0.57x (jelx1), subgraph 0.47x, to_scipy 0.39x.
-MULTIGRAPH is fnx's one genuinely-losing realistic surface — driven by the
+MULTIGRAPH was fnx's one genuinely-losing realistic surface; CC now FIXED (0.07x->1.06x, parity 15/15) — residual loss is to_scipy_sparse_array (0.39x) + construction (copy/subgraph) — driven by the
 connected_components kernel + the attr-copy construction wall.
 
 ## Broad differential conformance sweep — CLEAN (undirected 23fn + directed 14fn + multigraph 3fn)
