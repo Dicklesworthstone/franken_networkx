@@ -58,6 +58,29 @@ waxman 0.87x: the batch optimization (memory: "3.8x") was a SELF-speedup vs the 
 per-edge add_edge path, NOT vs nx — vs nx it's marginally slower (residual O(n^2)
 distance compute + construction). Batch stays (better than per-edge); not a revert.
 
+## IO / export — measured vs nx (gnp(1500,.01), warm min-of-5)
+
+| Function | fnx | nx | ratio | Verdict |
+| --- | --- | --- | --- | --- |
+| to_scipy_sparse_array | 2.40ms | 6.29ms | 2.62x | WIN |
+| to_dict_of_lists | 1.10ms | 2.08ms | 1.90x | WIN |
+| to_dict_of_dicts | 0.24ms | 0.28ms | 1.15x | WIN |
+| generate_edgelist | 5.90ms | 5.95ms | 1.01x | NEUTRAL |
+| generate_adjlist | 1.85ms | 1.83ms | 0.99x | NEUTRAL |
+| node_link_data | 4.64ms | 2.81ms | 0.61x | LOSS |
+
+node_link_data 0.61x: pays the nodes(data=True)+edges(data=True) **view-
+materialization substrate tax** (same root as nodes(data=attr) 0.20x / dict(adjacency())
+0.19x — needs a persistent ordered Python node/adj mirror). Substrate-bound, not a
+quick routing fix. Tracked.
+
+## dijkstra_path early-exit — confirmed (near vs far target)
+
+nx dijkstra_path NEAR 0.72ms / FAR 1.60ms (2.2x — strong target early-exit). fnx
+dijkstra_path NEAR 2.68ms / FAR 3.32ms (~flat = full SSSP, no early-exit).
+bidirectional_dijkstra flat 2.39ms (explores both ends). Confirms j5u29: needs a
+forward target-early-exit native dijkstra with path-parity tie-breaking.
+
 ## Construction folds (with_mirror) — measured NEUTRAL-to-LOSS vs nx (substrate tax)
 
 Attributed graph n=2000 (node attrs + edge attrs), warm min-of-6:
