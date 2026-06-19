@@ -24693,13 +24693,41 @@ pub fn edge_boundary(
 ) -> Vec<(String, String)> {
     let set1: HashSet<&str> = nbunch1.iter().copied().collect();
     if let Some(nodes2) = nbunch2 {
-        let set2 = nodes2.iter().copied().collect::<HashSet<&str>>();
+        let n = graph.node_count();
+        let mut in_set1 = vec![false; n];
+        for &node in nbunch1 {
+            if let Some(idx) = graph.get_node_index(node) {
+                in_set1[idx] = true;
+            }
+        }
+        let mut in_set2 = vec![false; n];
+        for &node in nodes2 {
+            if let Some(idx) = graph.get_node_index(node) {
+                in_set2[idx] = true;
+            }
+        }
+        let names = graph.nodes_ordered();
+        let mut seen_sources = vec![false; n];
+        let mut seen_edges: HashSet<(usize, usize)> = HashSet::new();
         let mut result = Vec::new();
-        for (left, right, _) in graph.edges_ordered_borrowed() {
-            if (set1.contains(left) && set2.contains(right))
-                || (set1.contains(right) && set2.contains(left))
-            {
-                result.push((left.to_string(), right.to_string()));
+        for &node in nbunch1 {
+            let Some(u) = graph.get_node_index(node) else {
+                continue;
+            };
+            if seen_sources[u] {
+                continue;
+            }
+            seen_sources[u] = true;
+            if let Some(neighbors) = graph.neighbors_indices(u) {
+                for &v in neighbors {
+                    let edge_key = if u <= v { (u, v) } else { (v, u) };
+                    if !seen_edges.insert(edge_key) {
+                        continue;
+                    }
+                    if (in_set1[u] && in_set2[v]) || (in_set1[v] && in_set2[u]) {
+                        result.push((names[u].to_owned(), names[v].to_owned()));
+                    }
+                }
             }
         }
         return result;
@@ -24786,6 +24814,40 @@ pub fn edge_boundary_directed(
     let set2: Option<HashSet<&str>> = nbunch2.map(|s| s.iter().copied().collect());
 
     let mut result = Vec::new();
+    if let Some(nodes2) = nbunch2 {
+        let n = graph.node_count();
+        let mut in_set1 = vec![false; n];
+        for &node in nbunch1 {
+            if let Some(idx) = graph.get_node_index(node) {
+                in_set1[idx] = true;
+            }
+        }
+        let mut in_set2 = vec![false; n];
+        for &node in nodes2 {
+            if let Some(idx) = graph.get_node_index(node) {
+                in_set2[idx] = true;
+            }
+        }
+        let names = graph.nodes_ordered();
+        let mut seen_sources = vec![false; n];
+        for &node in nbunch1 {
+            let Some(u) = graph.get_node_index(node) else {
+                continue;
+            };
+            if seen_sources[u] {
+                continue;
+            }
+            seen_sources[u] = true;
+            if let Some(succs) = graph.successors_indices(u) {
+                for &v in succs {
+                    if (in_set1[u] && in_set2[v]) || (in_set1[v] && in_set2[u]) {
+                        result.push((names[u].to_owned(), names[v].to_owned()));
+                    }
+                }
+            }
+        }
+        return result;
+    }
     for &node in nbunch1 {
         if let Some(succs) = graph.successors(node) {
             for &succ in &succs {

@@ -14545,7 +14545,6 @@ from franken_networkx._fnx import (
     boundary_expansion,
     conductance,
     edge_expansion as _raw_edge_expansion,
-    node_expansion as _raw_node_expansion,
     mixing_expansion,
     non_edges as _raw_non_edges,
     average_node_connectivity as _raw_average_node_connectivity,
@@ -16422,15 +16421,6 @@ def mixing_expansion(G, S, T=None, weight=None):
 
 def node_expansion(G, S):
     """Return the node expansion of a set."""
-    if hasattr(S, "__len__") and len(S) > 0:
-        G = _coerce_arg_to_fnx_graph(G)
-        s_nodes = list(S)
-        if (
-            not G.is_multigraph()
-            and not G.is_directed()
-            and all(node in G for node in s_nodes)
-        ):
-            return _raw_node_expansion(G, s_nodes)
     neighborhood = set(_itertools.chain.from_iterable(G.neighbors(v) for v in S))
     return len(neighborhood) / len(S)
 

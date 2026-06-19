@@ -913,6 +913,7 @@ dependencies = [
 name = "fnx-python"
 version = "0.1.0"
 dependencies = [
+ "criterion",
  "fnx-algorithms",
  "fnx-cgse",
  "fnx-classes",

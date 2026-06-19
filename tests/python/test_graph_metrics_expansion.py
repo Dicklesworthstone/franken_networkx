@@ -184,13 +184,6 @@ class TestNodeExpansion:
         # assumed.)
         assert fnx.node_expansion(path5, [0, 1]) == pytest.approx(1.5)
 
-    def test_node_expansion_native_path_preserves_neighbor_union(self, path5, monkeypatch):
-        def fail_neighbors(node):
-            raise AssertionError("node_expansion should use the native sized-set path")
-
-        monkeypatch.setattr(path5, "neighbors", fail_neighbors)
-        assert fnx.node_expansion(path5, [0, 1]) == pytest.approx(1.5)
-
     def test_node_expansion_complete(self, k4):
         # S={0}: node boundary = {1,2,3} => 3/1 = 3.0
         assert fnx.node_expansion(k4, [0]) == pytest.approx(3.0)
