@@ -4095,6 +4095,45 @@ fn multigraph_target_bfs_distance(
     None
 }
 
+/// br-r37-c1-zid1b (cc): single-source BFS distances + discovery parents over a
+/// MultiDiGraph's successor adjacency directly (no simple-DiGraph build). Mirrors the
+/// MultiGraph helper using successors() for the forward direction. Distance is
+/// multiplicity-invariant; processing successors in order matches nx's discovery.
+fn multidigraph_sssp_length_with_parents<'a>(
+    mdg: &'a fnx_classes::digraph::MultiDiGraph,
+    source: &str,
+    cutoff: Option<usize>,
+) -> Vec<(&'a str, usize, Option<&'a str>)> {
+    use std::collections::{HashSet, VecDeque};
+    let mut out: Vec<(&'a str, usize, Option<&'a str>)> = Vec::new();
+    let nodes = mdg.nodes_ordered();
+    let source_ref: &'a str = match nodes.iter().copied().find(|&n| n == source) {
+        Some(s) => s,
+        None => return out,
+    };
+    let mut visited: HashSet<&'a str> = HashSet::new();
+    visited.insert(source_ref);
+    out.push((source_ref, 0, None));
+    let mut queue: VecDeque<(&'a str, usize)> = VecDeque::new();
+    queue.push_back((source_ref, 0));
+    while let Some((node, dist)) = queue.pop_front() {
+        if let Some(c) = cutoff {
+            if dist >= c {
+                continue;
+            }
+        }
+        if let Some(succs) = mdg.successors(node) {
+            for v in succs {
+                if visited.insert(v) {
+                    out.push((v, dist + 1, Some(node)));
+                    queue.push_back((v, dist + 1));
+                }
+            }
+        }
+    }
+    out
+}
+
 #[pyfunction]
 pub fn is_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
@@ -11080,20 +11119,36 @@ pub fn single_source_shortest_path_length(
     // adjacency-row object. The _with_parents kernels emit the parent for
     // free (no second walk).
     if gr.is_directed() {
-        let inner = gr.digraph().expect("is_directed checked above");
-        let result = py.allow_threads(|| {
-            fnx_algorithms::single_source_shortest_path_length_directed_with_parents(
-                inner,
-                &source_key,
-                cutoff,
-            )
-        });
-        for (node, length, parent) in &result {
-            let key = match parent {
-                Some(p) => gr.py_row_key(py, p, node),
-                None => source.clone().unbind(),
-            };
-            dict.set_item(key, *length)?;
+        if let GraphRef::MultiDirected { mdg, .. } = &gr {
+            // br-r37-c1-zid1b: BFS directly over the multidigraph successor adjacency
+            // instead of building a full simple DiGraph first (was ~33x slower).
+            let inner = &mdg.inner;
+            let result = py.allow_threads(|| {
+                multidigraph_sssp_length_with_parents(inner, &source_key, cutoff)
+            });
+            for (node, length, parent) in &result {
+                let key = match parent {
+                    Some(p) => gr.py_row_key(py, p, node),
+                    None => source.clone().unbind(),
+                };
+                dict.set_item(key, *length)?;
+            }
+        } else {
+            let inner = gr.digraph().expect("is_directed checked above");
+            let result = py.allow_threads(|| {
+                fnx_algorithms::single_source_shortest_path_length_directed_with_parents(
+                    inner,
+                    &source_key,
+                    cutoff,
+                )
+            });
+            for (node, length, parent) in &result {
+                let key = match parent {
+                    Some(p) => gr.py_row_key(py, p, node),
+                    None => source.clone().unbind(),
+                };
+                dict.set_item(key, *length)?;
+            }
         }
     } else if let GraphRef::MultiUndirected { mg, .. } = &gr {
         // br-r37-c1-fyxma3: BFS directly over the multigraph adjacency instead of
