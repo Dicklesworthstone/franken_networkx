@@ -82,7 +82,7 @@ parity-verified + conformance-green:
   sssp_length 33x, single_source_shortest_path 15x, single-pair sppl/has_path ms->us.
 - MultiDiGraph: sssp_length 33x, weakly-connected family 25x, single-pair parity/win,
   is_strongly_connected 3.87x(SC), descendants/ancestors 24-25x, is_dag 8.46x,
-  number_strongly_connected_components 4.31x, topological_sort 5.63x, dag_longest_path 2x, triangles 0.27x->2.16x.
+  number_strongly_connected_components 4.31x, topological_sort 5.63x, dag_longest_path 0.21x->1.57x, triangles 0.27x->2.16x.
 FILED (order-sensitive / native-kernel / deep): strongly_connected_components 8hjsu,
 biconnected/MST ij951, matching lmqwv, dijkstra-tie n30yf, dag_longest_path-full 5m18w,
 triangles br-r37-c1-lzh3n, construction-substrate tbh4q. The order-INVARIANT functions are
