@@ -15426,28 +15426,43 @@ def dag_longest_path(G, weight="weight", default_weight=1, topo_order=None):
     dist = {}  # {v: (length, u)}
     multi_pred = None
     if is_multi:
-        # br-r37-c1-11m92 (cc): snapshot the predecessor adjacency ONCE by iterating
-        # G.pred.items() a single time (one materialisation, preserving each row's
-        # row-ordered order which matches nx's G.pred[v] exactly so the max() tie-break
-        # is byte-identical) instead of re-indexing G.pred[v] per node — the
-        # MultiAdjacencyView re-materialises the whole adjacency on every G.pred[v]
-        # access (~1800x per row). The heaviest parallel-edge weight collapses the
-        # keydict. (The native edge list is faster but raw-insertion-order, which
-        # diverges from the row-ordered G.pred on ties — see br-r37-c1 follow-up.)
+        # br-r37-c1-5m18w (cc): build the predecessor adjacency (heaviest parallel-edge
+        # weight per (u, v)) via the native _native_predecessor_row_dict(v) per node —
+        # a row-ordered {u: keydict} that MATCHES G.pred[v]'s order exactly (so the
+        # max() tie-break is byte-identical) and is ~3.5x faster than iterating the
+        # MultiAdjacencyView (G.pred.items()), which re-materialises the whole adjacency
+        # per row. (The native EDGE list is faster still but raw-insertion-order, which
+        # diverges from the row-ordered G.pred on ties — this per-row accessor is both.)
         multi_pred = {}
-        for _v, _preds in G.pred.items():
-            _pw = {}
-            for _u, _keydict in _preds.items():
-                _pw[_u] = max(
-                    (
-                        attrs.get(weight, default_weight)
-                        if isinstance(attrs, dict)
-                        else default_weight
-                        for attrs in _keydict.values()
-                    ),
-                    default=default_weight,
-                )
-            multi_pred[_v] = _pw
+        _prd = getattr(G, "_native_predecessor_row_dict", None)
+        if _prd is not None:
+            for _v in G:
+                _pw = {}
+                for _u, _keydict in _prd(_v).items():
+                    _pw[_u] = max(
+                        (
+                            attrs.get(weight, default_weight)
+                            if isinstance(attrs, dict)
+                            else default_weight
+                            for attrs in _keydict.values()
+                        ),
+                        default=default_weight,
+                    )
+                multi_pred[_v] = _pw
+        else:
+            for _v, _preds in G.pred.items():
+                _pw = {}
+                for _u, _keydict in _preds.items():
+                    _pw[_u] = max(
+                        (
+                            attrs.get(weight, default_weight)
+                            if isinstance(attrs, dict)
+                            else default_weight
+                            for attrs in _keydict.values()
+                        ),
+                        default=default_weight,
+                    )
+                multi_pred[_v] = _pw
     for v in topo_order:
         if is_multi:
             us = [(dist[u][0] + _w, u) for u, _w in multi_pred[v].items()]
