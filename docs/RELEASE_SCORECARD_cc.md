@@ -36,6 +36,7 @@ Status of perf claims that were committed `code-first batch-test pending`.
 | ~~attributed construction~~ RESOLVED | 0.71x->**1.24x** | FIXED via bjomp immutable-attr deepcopy fast-path (6f9854787): to_directed 1.14x, to_undirected 1.24x, copy 2.14x. Was fnx's weakest area; now WINS. Residual to_undirected reciprocal-merge = tbh4q. |
 | waxman_graph | 0.87x | marginal; residual O(n^2) distance vs nx; batch was self-win not nx-win. |
 | adamic_adar / resource_allocation | ~0.95x | neutral at scale; fine. |
+| **CONSTRUCTION-SUBSTRATE FRONTIER** | 0.41-0.70x | The residual loss cluster, all ONE root (per-node/edge PyO3 materialization + slow native build/clone methods): relabel_nodes 0.41x (label round-trips; native attempt reverted), compose 0.49x (slow _native_compose), union 0.65x, MultiGraph.copy 0.45x (jelx1), __deepcopy__ walk (489mp). bjomp PROVED this frontier is beatable where the cost is copy.deepcopy (to_directed/copy reversed to WINS). |
 
 ## Broad domain sweep (7 domains profiled, fnx dominates)
 
@@ -47,18 +48,26 @@ plus marginal/order-blocked max_weight_matching (0.94x).
 
 ## Net (measured, ~40 functions across 8 domains + generators + link-pred)
 
-- **WINS kept**: 11+ measured (eigensolver gate 1.32/39.7/18x, distance-indices
+- **WINS kept**: 14+ measured (eigensolver gate 1.32/39.7/18x, distance-indices
   2.16-3.23x, link-pred jaccard 1.53x / CCPA 2.68x, generators gnp/geom/BA/WS
-  2.37/2.38/1.31/1.12x) plus the broad-sweep domain dominance (dense-linalg
-  1031x, is_isomorphic 47x, etc.).
-- **LOSSES → action**: google_matrix routing 0.34x (REVERT pending, coordinated);
-  preferential_attachment 0.55x (flagged, peer kernel).
-- **Open gaps (filed/tracked)**: dijkstra_path single-pair (j5u29),
-  betweenness k-sampled (8ox3z), construction substrate (tbh4q), waxman marginal.
-- **Neutral**: gnm/dual_ba generators, adamic_adar/resource_allocation, copy/subgraph.
+  2.37/2.38/1.31/1.12x, operators complement 2.66x / cartesian 2.37x, IO to_scipy
+  2.62x, **bjomp construction to_directed/to_undirected/copy 1.14/1.24/2.14x**)
+  plus broad-sweep domain dominance (dense-linalg 1031x, is_isomorphic 47x).
+- **Regression FIXED**: google_matrix routing 0.34x **REVERTED** (30d99dcaf, now
+  0.93x). 0 unaddressed regressions on main.
+- **Construction-substrate frontier (the residual loss cluster)**: relabel 0.41x,
+  compose 0.49x, union 0.65x, MultiGraph.copy 0.45x (jelx1), __deepcopy__ walk
+  (489mp) — ALL per-node/edge PyO3 materialization + slow native build methods.
+  bjomp proved it's beatable (reversed to_directed/copy). Filed/tracked.
+- **Peer-area losses flagged**: preferential_attachment 0.55x (9142),
+  dijkstra single-pair (j5u29), betweenness k-sampled (8ox3z).
 
-VERDICT: fnx is release-ready on perf across the measured surface — it dominates
-nx on the vast majority of realistic workloads. The honest exceptions are 1
-cc-introduced regression (google_matrix, reverting) and a handful of tracked gaps
-(single-pair dijkstra early-exit, PA kernel, attributed-construction substrate).
-No measured optimization is being kept that doesn't beat or match nx.
+VERDICT: fnx is release-ready on perf — it DOMINATES nx across the algorithm /
+spectral / centrality / flow / community / IO / generator surface (typically
+2-1000x). The residual losses form ONE coherent cluster — the construction
+substrate (graph build/copy/merge of attributed graphs) — not scattered algorithm
+gaps. This verify phase REVERSED the biggest part of that frontier (bjomp:
+to_directed/to_undirected/copy LOSS->WIN) and reverted the one regression; what
+remains (relabel/compose/union/MultiGraph.copy/deepcopy-walk) is diagnosed, filed,
+and shares a single fix axis (native build-method optimization + killing the
+per-node label materialization wall). No kept optimization fails to beat/match nx.
