@@ -42,6 +42,22 @@ preferential_attachment (1.8x slower, persists at scale) is the simplest scorer
 9142 raw kernel) is slower — likely binding/per-pair overhead exceeding nx's
 lightweight loop. CrimsonRiver's area (flagged via mail). Not a cc file.
 
+## Generators (batch/native optimizations) — measured vs nx (warm min-of-5)
+
+| Generator | fnx | nx | ratio | Verdict |
+| --- | --- | --- | --- | --- |
+| gnp_random_graph(800,.02) | 9.76ms | 23.16ms | 2.37x | WIN |
+| random_geometric_graph(500,.1) | 1.38ms | 3.30ms | 2.38x | WIN |
+| barabasi_albert(800,5) | 3.87ms | 5.05ms | 1.31x | WIN |
+| watts_strogatz(800,6,.1) | 1.59ms | 1.78ms | 1.12x | WIN |
+| gnm_random_graph(500,4000) | 3.93ms | 4.21ms | 1.07x | NEUTRAL |
+| dual_barabasi_albert(800) | 3.31ms | 3.16ms | 0.95x | NEUTRAL |
+| waxman_graph(400) | 31.1ms | 27.2ms | 0.87x | LOSS (marginal) |
+
+waxman 0.87x: the batch optimization (memory: "3.8x") was a SELF-speedup vs the old
+per-edge add_edge path, NOT vs nx — vs nx it's marginally slower (residual O(n^2)
+distance compute + construction). Batch stays (better than per-edge); not a revert.
+
 ## Construction folds (with_mirror) — measured NEUTRAL-to-LOSS vs nx (substrate tax)
 
 Attributed graph n=2000 (node attrs + edge attrs), warm min-of-6:
