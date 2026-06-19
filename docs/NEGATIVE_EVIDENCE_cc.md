@@ -77,6 +77,16 @@ PYTHON dijkstra loop (heap+dict ops per node), not adjacency — k4p0b needs a N
 bidirectional kernel (the undirected _native_bidirectional_dijkstra is undirected-only,
 374/1043 on directed). lc2qy (single-pair early-exit). Undirected path family already WINS 1.3-3.4x.
 
+## tournament/tree/planarity/boundary sweep — all WIN, 1 marginal native loss
+
+Swept: diameter(tree) 38.50x, min_edge_dominating_set 7.20x, tournament.is_tournament 6.58x,
+is_planar 5.83x, is_distance_regular 4.54x, node_boundary 1.74x, score_sequence 1.23x,
+center 1.22x WINS; edge_boundary 1.08x neutral. ONE marginal loss: tree_broadcast_center
+0.79x — a PURE native-kernel call (_raw_tree_broadcast_center, no wrapper overhead), so the
+kernel itself is a constant-factor behind nx on a less-common tree function (peer-crate,
+not worth a chase). Also confirmed dijkstra_path_length wins all targets (1.16-2.82x, no
+near gap) so lc2qy completed the weighted shortest-path family.
+
 ## less-common centralities/assortativity sweep — all WIN, 0 losses
 
 Swept load_centrality 29.59x, communicability_betweenness 128.05x, communicability 23.66x,
