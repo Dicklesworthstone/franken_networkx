@@ -77,6 +77,16 @@ PYTHON dijkstra loop (heap+dict ops per node), not adjacency — k4p0b needs a N
 bidirectional kernel (the undirected _native_bidirectional_dijkstra is undirected-only,
 374/1043 on directed). lc2qy (single-pair early-exit). Undirected path family already WINS 1.3-3.4x.
 
+## path-construction + view sweep — 3 losses (1 filed, 2 known)
+
+has_path 8.56x, resistance_distance 23.17x, all_pairs_spl 3.98x, single_source_sp 1.57x WINS.
+LOSSES: (1) astar_path_length 0.50x (int-weight) — runs a 2nd A* search to type-check;
+Python walk-fix REVERTED (regressed float 0.06x); filed br-r37-c1-yo37g (kernel returns all_int).
+(2) single_target_shortest_path(dir) 0.65x — returns ALL paths to target (the user needs
+them all, so not a sliver-lever); fnx path String construction vs nx. (3) dict(G.adjacency())
+0.56x — the known view-materialization substrate (4b5ie/9hkgu), needs a persistent ordered
+adj mirror. edges(data) 1.04x / nodes(data) 0.90x now neutral (mirror caches landed).
+
 ## tournament/tree/planarity/boundary sweep — all WIN, 1 marginal native loss
 
 Swept: diameter(tree) 38.50x, min_edge_dominating_set 7.20x, tournament.is_tournament 6.58x,
