@@ -77,6 +77,15 @@ PYTHON dijkstra loop (heap+dict ops per node), not adjacency — k4p0b needs a N
 bidirectional kernel (the undirected _native_bidirectional_dijkstra is undirected-only,
 374/1043 on directed). lc2qy (single-pair early-exit). Undirected path family already WINS 1.3-3.4x.
 
+## node_disjoint_paths 35-failure conformance gap = TEST bug, NOT fnx (kfyyf RESOLVED)
+
+test_directed_node_connectivity_satisfies_menger (owner Dicklesworthstone, NOT cc) asserts
+nc == len(list(node_disjoint_paths(s,t))) without guarding nc==0. When t is unreachable
+node_disjoint_paths raises NetworkXNoPath in BOTH nx and fnx (verified identical), so list()
+raises and the assert errors. fnx is byte-correct. 35 'failures' = one unguarded test case.
+DIAGNOSTIC: a conformance failure that reproduces IDENTICALLY in nx is a test bug, not a
+port gap — always compare the fnx error to nx's before filing as an fnx regression.
+
 ## broad centrality sweep (group/percolation/communicability) — all WIN/neutral
 
 Swept: communicability_betweenness 106.33x, percolation_centrality(weight) 13.67x,
