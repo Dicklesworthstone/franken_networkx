@@ -227,7 +227,12 @@ like Graph since connectivity ignores multiplicity). FILED br-r37-c1-fyxma. Plus
 construction-substrate losses: copy 0.57x (jelx1), subgraph 0.47x, to_scipy 0.39x.
 MULTIGRAPH was fnx's one genuinely-losing realistic surface; CC now FIXED (0.07x->1.06x, parity 15/15) — residual loss is to_scipy_sparse_array ONLY in the weight=str+dtype=None default (0.41x: cProfile shows _native_edge_view_list
 materializes all edge instances + a Python COO loop with dict.get/append per
-instance — fix = the _probe_native_missing_default_weight pattern the Graph path uses, routing unweighted multigraphs to the EXISTING native adjacency_arrays_multigraph). NOTE: weight=None=1.20x WIN + dtype=float=1.25x WIN — the native multigraph COO already wins; only weight=str+dtype=None falls to Python for nx dtype-inference correctness (4th setup-artifact). + construction (copy/subgraph = tbh4q attr-copy wall) — driven by the
+instance — fix = the _probe_native_missing_default_weight pattern the Graph path uses, routing unweighted multigraphs to the EXISTING native adjacency_arrays_multigraph). NOTE: weight=None=1.20x WIN + dtype=float=1.25x WIN — the native multigraph COO already wins; only weight=str+dtype=None falls to Python — and that is CORRECTNESS-REQUIRED, not
+a missed optimization: TESTED relaxing the gate and it is UNSAFE — for str weights
+the native adjacency_arrays_multigraph silently returns 1.0 while nx RAISES
+ValueError. The gate (dtype given for weight=str) is correct; the Python fallback
+matches nx's str-weight error. 4th setup-artifact; the residual case is
+correctness-gated, NOT fixable. + construction (copy/subgraph = tbh4q attr-copy wall) — driven by the
 connected_components kernel + the attr-copy construction wall.
 
 ## Broad differential conformance sweep — CLEAN (undirected 23fn + directed 14fn + multigraph 3fn)
