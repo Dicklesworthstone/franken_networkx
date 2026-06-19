@@ -514,22 +514,22 @@ Functions audited: **51**
 
 | fixture | raw | public | nx |
 |---------|-----|--------|-----|
-| path-5 | `4.0` | `4` | `4` |
-| cycle-6 | `1.0` | `1` | `1` |
-| star-5 | `1.0` | `1` | `1` |
-| complete-4 | `1.0` | `1` | `1` |
-| weighted-path-5 | `12.0` | `12.0` | `12.0` |
-| weighted-postmut-5 | `4.0` | `12.0` | `12.0` |
-| bipartite-3-3 | `1.0` | `1` | `1` |
-| petersen | `2.0` | `2` | `2` |
-| digraph-chain-5 | `4.0` | `4` | `4` |
-| multigraph-path-5 | `4.0` | `4` | `4` |
-| multidigraph-chain-5 | `4.0` | `4` | `4` |
+| path-5 | `(4.0, True)` | `4` | `4` |
+| cycle-6 | `(1.0, True)` | `1` | `1` |
+| star-5 | `(1.0, True)` | `1` | `1` |
+| complete-4 | `(1.0, True)` | `1` | `1` |
+| weighted-path-5 | `(12.0, False)` | `12.0` | `12.0` |
+| weighted-postmut-5 | `(4.0, True)` | `12.0` | `12.0` |
+| bipartite-3-3 | `(1.0, True)` | `1` | `1` |
+| petersen | `(2.0, True)` | `2` | `2` |
+| digraph-chain-5 | `(4.0, True)` | `4` | `4` |
+| multigraph-path-5 | `(4.0, [0, 1, 2, 3, 4])` | `4` | `4` |
+| multidigraph-chain-5 | `(4.0, [0, 1, 2, 3, 4])` | `4` | `4` |
 | empty | raises TypeError | raises TypeError | raises TypeError |
 | single-node | raises TypeError | raises TypeError | raises TypeError |
-| selfloop-path | `2.0` | `2` | `2` |
+| selfloop-path | `(2.0, True)` | `2` | `2` |
 | two-components | raises ValueError | raises NetworkXNoPath | raises NetworkXNoPath |
-| negative-weights-digraph | `-3.0` | `-3.0` | `-3.0` |
+| negative-weights-digraph | `(-3.0, False)` | `-3.0` | `-3.0` |
 
 ### `barycenter`
 

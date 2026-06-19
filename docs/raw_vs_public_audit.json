@@ -2698,7 +2698,10 @@
         "fixture": "path-5",
         "raw": {
           "ok": true,
-          "value": 4.0,
+          "value": [
+            4.0,
+            true
+          ],
           "error_type": null
         },
         "public": {
@@ -2716,7 +2719,10 @@
         "fixture": "cycle-6",
         "raw": {
           "ok": true,
-          "value": 1.0,
+          "value": [
+            1.0,
+            true
+          ],
           "error_type": null
         },
         "public": {
@@ -2734,7 +2740,10 @@
         "fixture": "star-5",
         "raw": {
           "ok": true,
-          "value": 1.0,
+          "value": [
+            1.0,
+            true
+          ],
           "error_type": null
         },
         "public": {
@@ -2752,7 +2761,10 @@
         "fixture": "complete-4",
         "raw": {
           "ok": true,
-          "value": 1.0,
+          "value": [
+            1.0,
+            true
+          ],
           "error_type": null
         },
         "public": {
@@ -2770,7 +2782,10 @@
         "fixture": "weighted-path-5",
         "raw": {
           "ok": true,
-          "value": 12.0,
+          "value": [
+            12.0,
+            false
+          ],
           "error_type": null
         },
         "public": {
@@ -2788,7 +2803,10 @@
         "fixture": "weighted-postmut-5",
         "raw": {
           "ok": true,
-          "value": 4.0,
+          "value": [
+            4.0,
+            true
+          ],
           "error_type": null
         },
         "public": {
@@ -2806,7 +2824,10 @@
         "fixture": "bipartite-3-3",
         "raw": {
           "ok": true,
-          "value": 1.0,
+          "value": [
+            1.0,
+            true
+          ],
           "error_type": null
         },
         "public": {
@@ -2824,7 +2845,10 @@
         "fixture": "petersen",
         "raw": {
           "ok": true,
-          "value": 2.0,
+          "value": [
+            2.0,
+            true
+          ],
           "error_type": null
         },
         "public": {
@@ -2842,7 +2866,10 @@
         "fixture": "digraph-chain-5",
         "raw": {
           "ok": true,
-          "value": 4.0,
+          "value": [
+            4.0,
+            true
+          ],
           "error_type": null
         },
         "public": {
@@ -2860,7 +2887,16 @@
         "fixture": "multigraph-path-5",
         "raw": {
           "ok": true,
-          "value": 4.0,
+          "value": [
+            4.0,
+            [
+              0,
+              1,
+              2,
+              3,
+              4
+            ]
+          ],
           "error_type": null
         },
         "public": {
@@ -2878,7 +2914,16 @@
         "fixture": "multidigraph-chain-5",
         "raw": {
           "ok": true,
-          "value": 4.0,
+          "value": [
+            4.0,
+            [
+              0,
+              1,
+              2,
+              3,
+              4
+            ]
+          ],
           "error_type": null
         },
         "public": {
@@ -2932,7 +2977,10 @@
         "fixture": "selfloop-path",
         "raw": {
           "ok": true,
-          "value": 2.0,
+          "value": [
+            2.0,
+            true
+          ],
           "error_type": null
         },
         "public": {
@@ -2968,7 +3016,10 @@
         "fixture": "negative-weights-digraph",
         "raw": {
           "ok": true,
-          "value": -3.0,
+          "value": [
+            -3.0,
+            false
+          ],
           "error_type": null
         },
         "public": {
