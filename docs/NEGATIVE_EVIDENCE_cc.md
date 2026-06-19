@@ -203,6 +203,18 @@ path WINS. LESSON (again): how you set up the graph in a benchmark can BE the
 result — node_link_data + weighted-pagerank both bit me; warm + realistic
 construction matters.
 
+## MULTIGRAPH pipeline — measured LOSS 0.50x (connected_components 114x + construction)
+
+The third graph type. MultiGraph analysis pipeline: fnx 0.56x@n=500 / 0.50x@n=1500
+(vs undirected 20-32x / directed 5-9x WINS). Per-op (n=1500): degree_centrality
+1.02x NEUT, density/number_of_edges trivial WINS, but: **connected_components 0.07x
+(14x SLOWER)** — isolated to 7.99ms vs same-structure Graph 0.07ms = 114x; the
+_raw_connected_components MultiGraph path is pathologically slow (should use int-CSR
+like Graph since connectivity ignores multiplicity). FILED br-r37-c1-fyxma. Plus the
+construction-substrate losses: copy 0.57x (jelx1), subgraph 0.47x, to_scipy 0.39x.
+MULTIGRAPH is fnx's one genuinely-losing realistic surface — driven by the
+connected_components kernel + the attr-copy construction wall.
+
 ## Broad differential conformance sweep — CLEAN (undirected 23fn + directed 14fn + multigraph 3fn)
 
 Swept 23 functions vs nx (triangles, clustering, square_clustering, core_number,
