@@ -13054,6 +13054,17 @@ def number_of_cliques(G, nodes=None, cliques=None):
     if cliques is None:
         if G.is_directed():
             raise NetworkXNotImplemented("not implemented for directed type")
+        # br-r37-c1-ncliqueego (cc): a single node's maximal cliques are exactly the
+        # maximal cliques of its ego graph (v universal -> every ego clique contains v, and
+        # such a clique can't extend outside the ego graph since outside nodes aren't v-
+        # adjacent). Count them on the small ego graph instead of every whole-graph clique.
+        if nodes is not None and not isinstance(nodes, list):
+            try:
+                single = nodes in G
+            except TypeError:
+                single = False
+            if single:
+                return sum(1 for _ in find_cliques(ego_graph(G, nodes)))
         cliques = find_cliques(G)
 
     if nodes is None:
