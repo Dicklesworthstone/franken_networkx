@@ -293,6 +293,13 @@ def test_node_expansion_matches_networkx(name, edges, S, T, nodes):
     assert _equiv(fnx.node_expansion(fg, S), nx.node_expansion(ng, S))
 
 
+def test_node_expansion_native_route_counts_neighbors_inside_s():
+    fg = fnx.path_graph(5)
+    ng = nx.path_graph(5)
+
+    assert _equiv(fnx.node_expansion(fg, [0, 1]), nx.node_expansion(ng, [0, 1]))
+
+
 @pytest.mark.parametrize(
     "name,edges,S,T,nodes",
     CUT_FIXTURES,

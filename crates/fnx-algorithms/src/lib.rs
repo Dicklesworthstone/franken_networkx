@@ -30983,24 +30983,25 @@ pub fn edge_expansion(graph: &Graph, nodes: &[&str]) -> f64 {
 }
 
 /// Return the node expansion of a set S.
-/// node_expansion(G, S) = |node_boundary(S)| / |S|
+/// node_expansion(G, S) = |union(N(v) for v in S)| / |S|
 #[must_use]
 pub fn node_expansion(graph: &Graph, nodes: &[&str]) -> f64 {
-    if nodes.is_empty() {
-        return 0.0;
-    }
-    let node_set: HashSet<&str> = nodes.iter().copied().collect();
-    let mut node_boundary: HashSet<&str> = HashSet::new();
-    for &nd in &node_set {
-        if let Some(nbrs) = graph.neighbors_iter(nd) {
-            for nbr in nbrs {
-                if !node_set.contains(nbr) {
-                    node_boundary.insert(nbr);
+    let n = graph.node_count();
+    let mut seen_neighbor = vec![false; n];
+    let mut neighbor_count = 0usize;
+    for &node in nodes {
+        if let Some(node_idx) = graph.get_node_index(node)
+            && let Some(neighbors) = graph.neighbors_indices(node_idx)
+        {
+            for &neighbor_idx in neighbors {
+                if !seen_neighbor[neighbor_idx] {
+                    seen_neighbor[neighbor_idx] = true;
+                    neighbor_count += 1;
                 }
             }
         }
     }
-    node_boundary.len() as f64 / nodes.len() as f64
+    neighbor_count as f64 / nodes.len() as f64
 }
 
 /// Return the mixing expansion of a set S.
@@ -54486,9 +54487,21 @@ mod tests {
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
         let _ = g.add_edge("c", "d");
-        // node_expansion({a,b}) = |{c}| / |{a,b}| = 0.5
+        // node_expansion({a,b}) = |N(a) union N(b)| / |{a,b}| = |{a,b,c}| / 2.
         let ne = node_expansion(&g, &["a", "b"]);
-        assert!((ne - 0.5).abs() < 1e-6);
+        assert!((ne - 1.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_node_expansion_index_union_dedups_neighbors() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("a", "c");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "d");
+
+        let ne = node_expansion(&g, &["a", "b"]);
+        assert!((ne - 1.5).abs() < 1e-6);
     }
 
     #[test]
