@@ -46357,11 +46357,20 @@ def local_constraint(G, u, v, weight=None, *, backend=None, **backend_kwargs):
     if u not in G:
         raise NetworkXError(f"The node {u} is not in the {graph_kind}.")
 
-    direct = _normalized_mutual_weight(G, u, v, weight=weight)
+    # br-r37-c1-localconstraint (cc): the old form re-derived ``set(all_neighbors(G, u))``
+    # and its normalisation scale inside every ``_normalized_mutual_weight(G, u, .)`` call
+    # (deg(u)+1 times -> O(deg(u)^2) slow fnx adjacency walks). Snapshot u's neighbours and
+    # its scale ONCE; ``nmw_u`` is byte-identical to ``_normalized_mutual_weight(G, u, x)``.
+    nbrs_u = set(all_neighbors(G, u))
+    scale_u = sum(_mutual_weight(G, u, w, weight) for w in nbrs_u)
+
+    def nmw_u(x):
+        return 0 if scale_u == 0 else _mutual_weight(G, u, x, weight) / scale_u
+
+    direct = nmw_u(v)
     indirect = sum(
-        _normalized_mutual_weight(G, u, w, weight=weight)
-        * _normalized_mutual_weight(G, w, v, weight=weight)
-        for w in set(all_neighbors(G, u))
+        nmw_u(w) * _normalized_mutual_weight(G, w, v, weight=weight)
+        for w in nbrs_u
     )
     return (direct + indirect) ** 2
 
