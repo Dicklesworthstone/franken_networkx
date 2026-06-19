@@ -82,8 +82,9 @@ bidirectional kernel (the undirected _native_bidirectional_dijkstra is undirecte
 avg(weight) 0.63x = G.adj[node].items() edge-data view materialization. scipy matvec
 (A@deg)/rowsum CORRECT but only 0.75x (CSR-build capped). Native COO + bincount = 2.35x
 WIN but parity BREAKS 2/70 — default-order COO indices != G.degree()/list(G) order (lazy
-display-key vs canonical, qq6hi). Both REVERTED. LEVER: canonical-order weighted COO
-accessor unlocks bincount 2x. NOTE: conformance (849) PASSED even with the WRONG bincount
+display-key vs canonical, qq6hi). Both REVERTED. RESOLVED: bincount needs _sync_rust_edge_attrs (O(E) Python->inner) for correct weights;
+WITH the sync it is 0.41-0.83x (sync erases the speedup). The 2.35x was the WRONG (unsynced
+data=1.0) result. No clean win; needs a native weighted-avg-neighbor-degree kernel. NOTE: conformance (849) PASSED even with the WRONG bincount
 result -> the avg_neighbor_degree weighted conformance is too weak to catch a 2.26-abs
 divergence; trust the random head-to-head parity test over conformance here.
 
