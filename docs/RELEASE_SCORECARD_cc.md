@@ -19,6 +19,7 @@ Status of perf claims that were committed `code-first batch-test pending`.
 | Generator | random_geometric_graph | 2.38x |
 | Generator | barabasi_albert / watts_strogatz | 1.31x / 1.12x |
 | Construction | to_directed / to_undirected / copy (bjomp) | 1.14x / 1.24x / 2.14x |
+| Centrality | betweenness k-sampled (8ox3z, scaffold-validated) | **49.78x** |
 
 ## Verified LOSSES → action
 
@@ -31,8 +32,7 @@ Status of perf claims that were committed `code-first batch-test pending`.
 
 | Function | Measured | Note |
 | --- | --- | --- |
-| dijkstra_path(u,v) single-pair weighted | 0.12x | DIAGNOSED+FILED br-r37-c1-j5u29: full SSSP, no target early-exit (nx terminates at target). Needs target-aware native dijkstra. |
-| betweenness_centrality k-sampled | **49.78x** | 8ox3z LANDED + validated by my scaffold (parity True). Was 0.89x LOSS; now a 50x WIN. |
+| dijkstra_path(u,v) single-pair weighted | 0.42x | improved from 0.12x (j5u29 partial); still a loss — needs full target early-exit. |
 | ~~attributed construction~~ RESOLVED | 0.71x->**1.24x** | FIXED via bjomp immutable-attr deepcopy fast-path (6f9854787): to_directed 1.14x, to_undirected 1.24x, copy 2.14x. Was fnx's weakest area; now WINS. Residual to_undirected reciprocal-merge = tbh4q. |
 | waxman_graph | 0.87x | marginal; residual O(n^2) distance vs nx; batch was self-win not nx-win. |
 | adamic_adar / resource_allocation | ~0.95x | neutral at scale; fine. |
@@ -59,8 +59,10 @@ plus marginal/order-blocked max_weight_matching (0.94x).
   compose 0.49x, union 0.65x, MultiGraph.copy 0.45x (jelx1), __deepcopy__ walk
   (489mp) — ALL per-node/edge PyO3 materialization + slow native build methods.
   bjomp proved it's beatable (reversed to_directed/copy). Filed/tracked.
-- **Peer-area losses flagged**: preferential_attachment 0.55x (9142),
-  dijkstra single-pair (j5u29), betweenness k-sampled (8ox3z).
+- **Scaffold-validated lever WINS** (filed by cc, implemented by peers): betweenness
+  k-sampled (8ox3z) 49.78x. Caught+reverted a regression too: effective_size
+  directed kernel (qbj9u) diverged — scaffold caught it.
+- **Peer-area losses flagged**: preferential_attachment 0.55x (9142), dijkstra single-pair (j5u29).
 
 VERDICT: fnx is release-ready on perf — it DOMINATES nx across the algorithm /
 spectral / centrality / flow / community / IO / generator surface (typically
