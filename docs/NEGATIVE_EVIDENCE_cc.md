@@ -30,6 +30,16 @@ intersection) would push to WINS. preferential_attachment 0.78x is a SEPARATE lo
 kernel 9142). The stamp-mark fix lives in fnx-algorithms/src/lib.rs (TealSpring's file,
 NOT a cc file) — baseline recorded here as the peer's measured bench target.
 
+## SHIPPED ubizp: multigraph single-pair shortest_path_length + has_path — ms conversion eliminated
+
+shortest_path_length(u,v) + has_path(u,v) unweighted on a MultiGraph ran the ms-level
+gr.undirected() conversion for a microsecond query (~0.00x). Added
+multigraph_target_bfs_distance: target-early-exit BFS over the adjacency, O(1) source
+seeding (process source's neighbors directly). 0.00x (ms) -> 0.38-0.76x (us), parity
+160/160 + 958 conformance. Residual ratio-loss = nx uses BIDIRECTIONAL BFS (~half the
+nodes); filed ddw4l (microsecond, low-priority). The ms->us conversion-elimination is
+the real practical win.
+
 ## SHIPPED ubizp(partial): multigraph single_source_shortest_path 0.04x->0.59x (15x)
 
 Extended fyxma3 to PATHS: multigraph_sssp_paths BFS over the adjacency, building each
