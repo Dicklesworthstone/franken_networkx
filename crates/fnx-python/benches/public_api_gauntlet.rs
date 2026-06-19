@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use pyo3::types::PyAnyMethods;
 use pyo3::{Py, PyAny, Python};
 
@@ -43,6 +43,16 @@ fn bench_public_api_gauntlet(c: &mut Criterion) {
                 "flow_hierarchy_weighted_cyclic_dag",
                 "networkx",
                 "networkx_flow_hierarchy_weighted_cyclic_dag",
+            ),
+            (
+                "within_inter_cluster_explicit_community",
+                "fnx",
+                "fnx_within_inter_cluster_explicit_community",
+            ),
+            (
+                "within_inter_cluster_explicit_community",
+                "networkx",
+                "networkx_within_inter_cluster_explicit_community",
             ),
         ] {
             let callable = helper

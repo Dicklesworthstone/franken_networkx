@@ -4,7 +4,9 @@ Target: FrankenNetworkX no-gaps performance gauntlet.
 
 Scope of this update: cut-metric public wrappers from the recent code-first
 pending backlog (`br-r37-c1-04z53.9155` and `br-r37-c1-04z53.9153`) plus
-sampled edge-betweenness verification (`br-r37-c1-8ox3z.1`).
+sampled edge-betweenness verification (`br-r37-c1-8ox3z.1`) and raw
+assortativity verification (`br-r37-c1-04z53.9147`, `.9149`, `.9152`) plus
+community link-prediction verification (`br-r37-c1-04z53.9141`).
 
 ## 2026-06-19 Cut-Metric Gauntlet Slice
 
@@ -77,3 +79,91 @@ Release readiness verdict for this slice: **conditional pass for sampled
 `edge_betweenness_centrality` on unweighted simple graphs**. Weighted, multigraph,
 and unsupported parameter combinations still intentionally route through the
 NetworkX parity path.
+
+## 2026-06-19 Assortativity Raw/Public Gauntlet Slice
+
+Environment:
+- Commit under verification: `2032eb47b` plus working-tree revert for the
+  rejected `node_degree_xy` raw source.
+- Reference: upstream `networkx 3.6.1` from `.venv`.
+- Subject: editable local `franken_networkx` with release `_fnx.abi3.so`
+  rebuilt by `maturin develop --release`.
+- Bench commands:
+  - Public group: `cargo bench -p fnx-python --bench networkx_head_to_head -- networkx_head_to_head_assortativity --sample-size 20 --warm-up-time 1 --measurement-time 2`.
+  - Raw group: `cargo bench -p fnx-python --bench networkx_head_to_head -- networkx_head_to_head_assortativity_raw --sample-size 20 --warm-up-time 1 --measurement-time 2`.
+- Criterion artifacts:
+  `/data/projects/.rch-targets/franken_networkx-cod-b/criterion/networkx_head_to_head_assortativity*/`.
+- Focused conformance: `test_node_degree_xy_iter_order_parity.py`,
+  `test_assortativity_scalars_parity.py`, and
+  `test_assortativity_extensions_parity.py` passed with `234 passed in 1.57s`.
+- Compile gate: `AGENT_NAME=CrimsonRiver CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo check -p fnx-python --benches` passed on `hz1`.
+- Remote bench note: `rch exec -- cargo bench ... networkx_head_to_head_assortativity`
+  built on `ovh-a` but failed at runtime because that worker lacks Python
+  `networkx`; the timed Criterion runs therefore used the local `.venv`.
+
+| Bead | Workload | FNX mean | NetworkX mean | Ratio vs NetworkX | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `br-r37-c1-04z53.9147` | raw `_fnx.degree_mixing_dict_rust`, h512/s32 | 0.568 ms | 112.368 ms | 197.68x | Keep |
+| `br-r37-c1-04z53.9147` | public `fnx.degree_mixing_dict`, h512/s32 | 12.165 ms | 107.249 ms | 8.82x | Keep |
+| `br-r37-c1-04z53.9149` | raw `_fnx.node_degree_xy_rust`, h512/s32 | 2.468 ms | 116.486 ms | 47.20x, invalid | Reject, reverted |
+| `br-r37-c1-04z53.9149` | raw directed `_fnx.node_degree_xy_rust`, l512/f32 | 4.413 ms | 124.292 ms | 28.17x, invalid | Reject, reverted |
+| `br-r37-c1-04z53.9149` | public `fnx.node_degree_xy`, h512/s32 | 579.651 ms | 113.781 ms | 0.196x | Follow-up needed |
+| `br-r37-c1-04z53.9149` | public directed `fnx.node_degree_xy`, l512/f32 | 360.700 ms | 115.593 ms | 0.320x | Follow-up needed |
+| `br-r37-c1-04z53.9152` | raw `_fnx.average_degree_connectivity`, h512/s32/i256 | 0.149 ms | 52.729 ms | 354.68x | Keep |
+| `br-r37-c1-04z53.9152` | public `fnx.average_degree_connectivity`, h512/s32/i256 | 27.992 ms | 52.300 ms | 1.87x | Keep |
+
+Revert rationale for `.9149`: the raw fast path emitted the wrong NetworkX
+contract on the measured graph. Undirected raw emitted `16895` tuples vs
+NetworkX `33790` and started `(33, 1)` vs `(1, 34)`; directed started
+`(32, 1)` vs `(1, 32)`. The optimization was fast but not a valid substitute.
+
+Score delta:
+- Performance evidence: +6. Two assortativity rows moved from pending to real
+  keeps, and one row moved to a measured rejection with a source revert.
+- Conformance evidence: +3. Public assortativity conformance stayed green after
+  the raw rejection/revert.
+- Ledger hygiene: +3. Raw and public wins/losses are all recorded with ratios
+  and retry guidance.
+
+Release readiness verdict for this slice: **conditional pass for
+`degree_mixing_dict` and `average_degree_connectivity`; no release claim for
+`node_degree_xy` acceleration**.
+
+## 2026-06-19 Community Link-Prediction Gauntlet Slice
+
+Environment:
+- Commit under verification: `dc9b8d5b`.
+- Reference: upstream `networkx 3.6.1` from `.venv`.
+- Subject: editable local `franken_networkx`; the measured WIC route is
+  Python-level and used the existing local release `_fnx.abi3.so`.
+- Bench command: `AGENT_NAME=CrimsonRiver CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a PYTHONPATH=/data/projects/franken_networkx/crates/fnx-python/benches:/data/projects/franken_networkx/python:/data/projects/franken_networkx/.venv/lib/python3.13/site-packages taskset -c 2 cargo bench -p fnx-python --bench public_api_gauntlet -- within_inter_cluster --sample-size 10 --warm-up-time 1 --measurement-time 4`.
+- Criterion artifacts:
+  `/data/projects/.rch-targets/franken_networkx-cod-a/criterion/within_inter_cluster_explicit_community/`.
+- Workload: 480-node community-labeled sparse block graph, 6000 explicit
+  candidate non-edges, 100 API calls/sample.
+- Focused conformance: `tests/python/test_community_link_prediction_parity.py`
+  passed with `217 passed in 0.64s`.
+- Compile gate: `AGENT_NAME=CrimsonRiver CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo check -p fnx-python --benches` passed on `hz2`.
+
+| Bead | Workload | FNX mean | NetworkX mean | Ratio vs NetworkX | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `br-r37-c1-04z53.9141` | public `within_inter_cluster`, explicit 6000-pair community ebunch | 340.828 ms | 570.661 ms | 1.67x | Keep |
+
+Noise gate:
+- A preliminary 25-call Criterion row was also positive (`94.609 ms` vs
+  `162.547 ms`, `1.72x`) but failed the CV threshold (`7.44%`/`8.60%`), so the
+  keep decision uses the 100-call row above (`0.99%`/`2.39%` CV).
+
+Score delta:
+- Performance evidence: +4. The public WIC cached-adjacency row moved from
+  code-first pending to a measured head-to-head keep.
+- Conformance evidence: +2. The community link-prediction parity guard remains
+  green across default, explicit, delta, laziness, and error cases.
+- Benchmark rigor: +2. The final row is pinned to one CPU, reports CV below the
+  5% gate, and records the discarded noisy row.
+- Ledger hygiene: +2. The pending WIC ledger row is retired with a concrete
+  retry condition and artifact path.
+
+Release readiness verdict for this slice: **conditional pass for public
+`within_inter_cluster` on simple community-labeled graphs with explicit ebunches**.
+Default-ebunch and tiny-ebunch behavior remain separate workload gates.
