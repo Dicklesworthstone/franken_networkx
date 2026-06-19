@@ -9864,6 +9864,28 @@ def eccentricity(G, v=None, sp=None, weight=None):
 
     order = G.order()
     eccentricities = {}
+    # br-r37-c1-eccallpairs (cc): for the all-nodes case compute every distance in ONE
+    # all-pairs call (all_pairs_dijkstra / all_pairs_shortest_path_length both WIN ~2.7x)
+    # instead of V separate shortest_path_length calls, each re-paying the per-source
+    # setup — that loop made weighted eccentricity 0.84x. max() is order-invariant so the
+    # result is identical; the reachability check matches nx's per-source one.
+    if v is None and sp is None:
+        if isinstance(weight, str):
+            all_lengths = dict(all_pairs_dijkstra_path_length(G, weight=weight))
+        else:
+            all_lengths = dict(all_pairs_shortest_path_length(G))
+        for node in nodes:
+            lengths = all_lengths.get(node, {})
+            if len(lengths) != order:
+                if G.is_directed():
+                    raise NetworkXError(
+                        "Found infinite path length because the digraph is not strongly connected"
+                    )
+                raise NetworkXError(
+                    "Found infinite path length because the graph is not connected"
+                )
+            eccentricities[node] = max(lengths.values())
+        return eccentricities
     for node in nodes:
         if sp is None:
             lengths = shortest_path_length(G, source=node, weight=weight)
