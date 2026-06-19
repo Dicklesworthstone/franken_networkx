@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use fnx_algorithms::{
     adamic_adar_index, average_degree_connectivity, average_shortest_path_length,
     betweenness_centrality, closeness_centrality, cn_soundarajan_hopcroft,
@@ -15,8 +15,7 @@ use fnx_algorithms::{
     degree_mixing_dict, eigenvector_centrality, jaccard_coefficient, max_flow_edmonds_karp,
     minimum_cut_edmonds_karp, minimum_spanning_tree, node_degree_xy, pagerank,
     preferential_attachment, ra_index_soundarajan_hopcroft, resource_allocation_index,
-    shortest_path_unweighted, shortest_path_weighted,
-    single_source_dijkstra_path_length,
+    shortest_path_unweighted, shortest_path_weighted, single_source_dijkstra_path_length,
 };
 use fnx_classes::{DiGraph, Graph};
 use fnx_runtime::CgseValue;
@@ -433,11 +432,8 @@ fn bench_degree_mixing_dict(c: &mut Criterion) {
 
 fn bench_average_degree_connectivity(c: &mut Criterion) {
     let mut group = c.benchmark_group("average_degree_connectivity");
-    for &(hubs, spokes, isolates) in &[
-        (64usize, 32usize, 64usize),
-        (256, 16, 128),
-        (512, 32, 256),
-    ] {
+    for &(hubs, spokes, isolates) in &[(64usize, 32usize, 64usize), (256, 16, 128), (512, 32, 256)]
+    {
         let g = build_average_degree_connectivity_mix(hubs, spokes, isolates);
         let label = format!("h{hubs}_s{spokes}_i{isolates}");
         group.bench_with_input(
@@ -456,9 +452,13 @@ fn bench_node_degree_xy(c: &mut Criterion) {
     for &(hubs, spokes) in &[(64usize, 32usize), (256, 16), (512, 32)] {
         let g = build_degree_mixing_hubs(hubs, spokes);
         let label = format!("h{hubs}_s{spokes}");
-        group.bench_with_input(BenchmarkId::new("undirected_hub_spokes", &label), &label, |b, _| {
-            b.iter(|| node_degree_xy(&g));
-        });
+        group.bench_with_input(
+            BenchmarkId::new("undirected_hub_spokes", &label),
+            &label,
+            |b, _| {
+                b.iter(|| node_degree_xy(&g));
+            },
+        );
     }
     for &(layers, fanout) in &[(64usize, 32usize), (256, 16), (512, 32)] {
         let dg = build_directed_degree_xy_fan(layers, fanout);
@@ -472,14 +472,12 @@ fn bench_node_degree_xy(c: &mut Criterion) {
 
 fn bench_link_prediction_scores(c: &mut Criterion) {
     let mut group = c.benchmark_group("link_prediction_scores");
-    for &(left_only, right_only, common, repeats) in
-        &[
-            (64, 64, 64, 128),
-            (32, 512, 32, 128),
-            (512, 512, 256, 64),
-            (32, 512, 32, 2048),
-        ]
-    {
+    for &(left_only, right_only, common, repeats) in &[
+        (64, 64, 64, 128),
+        (32, 512, 32, 128),
+        (512, 512, 256, 64),
+        (32, 512, 32, 2048),
+    ] {
         let g = build_common_neighbors_graph(left_only, right_only, common);
         let pairs = build_link_prediction_pairs(repeats);
         let label = format!("l{left_only}_r{right_only}_c{common}_p{repeats}");
@@ -520,8 +518,7 @@ fn bench_link_prediction_scores(c: &mut Criterion) {
             },
         );
 
-        let community_graph =
-            build_community_common_neighbors_graph(left_only, right_only, common);
+        let community_graph = build_community_common_neighbors_graph(left_only, right_only, common);
         group.bench_with_input(
             BenchmarkId::new("cn_soundarajan_hopcroft", &label),
             &label,
