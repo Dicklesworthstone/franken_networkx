@@ -523,7 +523,13 @@ BORROWS the inner for SIMPLE graphs (algorithms.rs:416, no build). The real cost
 shortest_path_weighted (lib.rs:1117) is STRING-KEYED (HashMap<&str,f64> distances + heap);
 the per-node String hashing is the tax. LEVER (filed br-r37-c1-lc2qy): integer-relabel the
 weighted dijkstra (CSR), like the Edmonds-Karp flow fix. LENGTH is order-invariant (safe);
-PATH needs nx's counter-based tie-break (also fixes n30yf). 3rd dijkstra correction. THIRD honest correction (after node_link_data +
+PATH needs nx's counter-based tie-break (also fixes n30yf). 3rd dijkstra correction. REFINED: the dijkstra loss is NARROW — dijkstra_path_LENGTH
+WINS 1.81x and single_source_dijkstra_path_length WINS 2.48x (fast kernels); ONLY the
+single-pair dijkstra_PATH loses 0.47x. That path variant is BOTH String-keyed-slow AND
+tie-divergent vs nx (n30yf) — lc2qy (integer-relabel + nx counter tie-break) fixes both
+at once. Routing dijkstra_path to the fast length kernel does NOT help: its predecessors
+still need nx's exact tie-break. So lc2qy is scoped to ONLY the shortest_path_weighted
+path kernel; the rest of the weighted-dijkstra surface already DOMINATES. THIRD honest correction (after node_link_data +
 weighted-pagerank) — measuring honestly enough to falsify my own prior diagnosis.
 
 ## NEGATIVE: __deepcopy__ -> to_directed routing is a DEAD END (tested 2026-06-18)
