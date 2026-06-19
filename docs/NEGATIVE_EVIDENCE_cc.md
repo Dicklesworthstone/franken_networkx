@@ -118,15 +118,23 @@ methods, NOT algorithm gaps:
 - relabel_nodes 0.41x: per-node label PyO3 round-trips (native clone+rename was
   attempted + reverted 2026-06-09 — correct but 1.33x slower, parity-bound by the
   same round-trips).
-- compose 0.49x: routes to a native _native_compose (Graph x Graph) that is itself
-  slow — same shape as MultiGraph._native_copy (jelx1): slow native build method.
+- compose 0.49x: routes to native _native_compose (cProfile: 100% there). Rust
+  read (lib.rs:9170) confirms the cost is per-node `py_node_key(py, node)` creation
+  + per-node/edge `attrs.bind(py).copy()` (shallow Python mirror) + node_attrs
+  clone — i.e. the per-node PyO3 MATERIALIZATION WALL, not a removable copy.deepcopy
+  (so bjomp's trick does NOT apply). Same root as relabel + MultiGraph.copy.
 - union 0.65x: union_all construction tax.
 - MultiGraph.copy 0.45x (jelx1), __deepcopy__ walk (489mp).
 This is fnx's residual weak frontier. Algorithms/spectral/centrality/IO DOMINATE
 (13-1031x); the substrate is where the remaining vs-nx losses live. bjomp proved
 the substrate CAN be beaten where the cost is copy.deepcopy (to_directed/copy now
-WIN); the rest need native build-method optimization + killing the per-node label
-materialization wall.
+WIN); the rest are the per-node PyO3 materialization wall (py_node_key + attr-mirror
+crossing per node/edge), Rust-confirmed in _native_compose/_native_copy. That wall
+is a fundamental substrate redesign (avoid materializing a Python label object +
+attr dict per node), NOT a quick fix — bjomp only worked because copy.deepcopy was
+a REMOVABLE cost layered on top. This is the honest floor of fnx-vs-nx on attributed
+construction: fnx pays a Rust<->Python round-trip per node/edge that pure-Python nx
+does not.
 
 ## MultiGraph.copy() — measured LOSS 0.45x (native inner-clone, separate from deepcopy)
 
