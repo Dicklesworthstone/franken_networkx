@@ -30192,20 +30192,11 @@ def google_matrix(
     """
     import numpy as np
 
-    # br-r37-c1-distidx: route the common case (default node order, no
-    # personalization/dangling, str weight) to the byte-exact native kernel,
-    # skipping the O(n) Python row-normalization loop. Verified vs nx across
-    # directed/undirected, varied alpha, dangling nodes. Non-default params
-    # (personalization/dangling/custom nodelist/weight=None) keep the Python path.
-    if (
-        personalization is None
-        and dangling is None
-        and nodelist is None
-        and weight is not None
-        and G.number_of_nodes() > 0
-    ):
-        return np.asarray(_fnx.google_matrix_rust(G, alpha, weight), dtype=float)
-
+    # br-r37-c1 (cc, verify phase): the google_matrix_rust native routing was a
+    # MEASURED 3x REGRESSION (0.34x vs nx, gnp(500,.05): fnx 15.6ms vs nx 5.5ms).
+    # The kernel returns a Python list-of-lists; the np.asarray conversion of n^2
+    # floats dwarfs nx's pure-numpy path. The numpy path below (0.80x) is much
+    # better. Reverted. (The dangling-redistribution bug fix below is retained.)
     if nodelist is None:
         nodelist = list(G.nodes())
     n = len(nodelist)
