@@ -141,8 +141,13 @@ does not.
 MultiGraph.copy 0.45x vs nx (DiGraph.copy is 1.72x WIN). cProfile: 100% in native
 _native_copy (no Python children). ASYMMETRY: PyGraph._native_copy is optimized
 (with_mirror single-pass); PyMultiGraph._native_copy just delegates to the generic
-copy() — never optimized. Bottleneck is the native MultiGraph inner-structure clone
-(keydicts), not node-attr crossing. Filed br-r37-c1-jelx1.
+copy() — never optimized. REFINED (cc): MultiGraph.copy ALREADY bulk-clones the inner via
+inner.clone_with_fresh_policy() (br-copyclone) — it is NOT missing the bulk path.
+The residual ~23ms is the unavoidable per-element work: ~6000 shallow Python
+attr-dict copies (node_py_attrs + edge_py_attrs keyed by (u,v,key)) + MultiGraph's
+heavier keydict/edge-key structure (vs DiGraph's flat (u,v)). This is the per-element
+PyO3 materialization wall again, NOT a simple bulk-clone fix. jelx1 reduces to the
+same fundamental frontier as compose/relabel.
 
 ## __deepcopy__ (copy.deepcopy(G)) — PARTIAL fix, still substrate-walk-bound
 
