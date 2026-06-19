@@ -32398,6 +32398,115 @@ pub fn effective_size(graph: &Graph) -> std::collections::HashMap<String, f64> {
     result
 }
 
+/// Burt's effective size for unweighted simple directed graphs.
+///
+/// NetworkX treats directed structural-hole ego neighborhoods as
+/// predecessors union successors and uses the mutual weight
+/// `I(u -> v) + I(v -> u)`. This kernel is intentionally unweighted and
+/// self-loop-free; weighted/self-loop directed graphs keep the matrix parity
+/// route in Python.
+#[must_use]
+pub fn effective_size_directed(graph: &DiGraph) -> std::collections::HashMap<String, f64> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let mut successor_sets: Vec<HashSet<usize>> = Vec::with_capacity(n);
+    for ui in 0..n {
+        successor_sets.push(
+            graph
+                .successors_indices(ui)
+                .unwrap_or(&[])
+                .iter()
+                .copied()
+                .filter(|&vi| vi != ui)
+                .collect(),
+        );
+    }
+
+    let mut mark = vec![false; n];
+    let mut mutual_neighbors: Vec<Vec<usize>> = Vec::with_capacity(n);
+    for ui in 0..n {
+        let mut row = Vec::new();
+        for &vi in graph.successors_indices(ui).unwrap_or(&[]) {
+            if vi != ui && !mark[vi] {
+                mark[vi] = true;
+                row.push(vi);
+            }
+        }
+        for &vi in graph.predecessors_indices(ui).unwrap_or(&[]) {
+            if vi != ui && !mark[vi] {
+                mark[vi] = true;
+                row.push(vi);
+            }
+        }
+        row.sort_unstable();
+        for &vi in &row {
+            mark[vi] = false;
+        }
+        mutual_neighbors.push(row);
+    }
+
+    let mutual_weight = |ui: usize, vi: usize| -> f64 {
+        (if successor_sets[ui].contains(&vi) {
+            1.0
+        } else {
+            0.0
+        }) + if successor_sets[vi].contains(&ui) {
+            1.0
+        } else {
+            0.0
+        }
+    };
+
+    let mut row_sum = vec![0.0_f64; n];
+    let mut row_max = vec![0.0_f64; n];
+    for ui in 0..n {
+        for &vi in &mutual_neighbors[ui] {
+            let weight = mutual_weight(ui, vi);
+            row_sum[ui] += weight;
+            row_max[ui] = row_max[ui].max(weight);
+        }
+    }
+
+    let mut result = std::collections::HashMap::with_capacity(n);
+    for ui in 0..n {
+        let u_neighbors = &mutual_neighbors[ui];
+        if u_neighbors.is_empty() || row_sum[ui] == 0.0 {
+            result.insert(nodes[ui].to_owned(), f64::NAN);
+            continue;
+        }
+
+        let mut effective = 0.0_f64;
+        for &vi in u_neighbors {
+            let v_neighbors = &mutual_neighbors[vi];
+            let denominator = row_sum[ui] * row_max[vi];
+            if denominator == 0.0 {
+                effective += 1.0;
+                continue;
+            }
+
+            let mut dot = 0.0_f64;
+            let mut u_pos = 0usize;
+            let mut v_pos = 0usize;
+            while u_pos < u_neighbors.len() && v_pos < v_neighbors.len() {
+                let uw = u_neighbors[u_pos];
+                let vw = v_neighbors[v_pos];
+                if uw == vw {
+                    dot += mutual_weight(ui, uw) * mutual_weight(vi, vw);
+                    u_pos += 1;
+                    v_pos += 1;
+                } else if uw < vw {
+                    u_pos += 1;
+                } else {
+                    v_pos += 1;
+                }
+            }
+            effective += 1.0 - dot / denominator;
+        }
+        result.insert(nodes[ui].to_owned(), effective);
+    }
+    result
+}
+
 // ---------------------------------------------------------------------------
 // Dispersion (Backstrom & Kleinberg)
 // ---------------------------------------------------------------------------
@@ -54883,6 +54992,24 @@ mod tests {
         let _ = g.add_node("a");
         let es = effective_size(&g);
         assert!((es["a"] - 0.0).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn test_effective_size_directed_uses_mutual_neighbor_semantics() {
+        let mut g = DiGraph::strict();
+        for (u, v) in [("0", "1"), ("1", "2"), ("2", "0"), ("2", "3"), ("3", "1")] {
+            g.add_edge(u, v).expect("edge add should succeed");
+        }
+        let es = effective_size_directed(&g);
+        let expected = [
+            ("0", 1.0_f64),
+            ("1", 5.0 / 3.0),
+            ("2", 5.0 / 3.0),
+            ("3", 1.0_f64),
+        ];
+        for (node, value) in expected {
+            assert!((es[node] - value).abs() < TEST_TOLERANCE);
+        }
     }
 
     #[test]

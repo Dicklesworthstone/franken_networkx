@@ -1,12 +1,9 @@
 """Conformance guard for effective_size on DIRECTED / weighted / self-loop graphs.
 
-effective_size routes the unweighted-undirected-no-selfloop common case to the
-native effective_size_rust kernel; directed / weighted / self-loop graphs
-currently delegate to nx (the kernel is undirected-only). This locks byte-exact
-parity for those delegated paths so:
-  * the current delegation stays correct, and
-  * the planned directed native kernel (br-r37-c1-qbj9u) has a ready conformance
-    scaffold to validate against.
+effective_size routes the unweighted-undirected-no-selfloop common case to a
+native kernel. br-r37-c1-qbj9u adds the same no-delegation native route for
+simple unweighted DiGraphs using NetworkX's directed mutual-neighbor semantics;
+weighted / self-loop graphs still keep matrix/parity routing.
 
 No mocks: real fnx vs real networkx 3.x.
 """
@@ -41,6 +38,19 @@ def test_directed_effective_size_matches_networkx(seed):
             if u != v and r.random() < 0.3:
                 fg.add_edge(u, v); ng.add_edge(u, v)
     _approx_dict(fnx.effective_size(fg), nx.effective_size(ng))
+
+
+def test_directed_effective_size_uses_native_route(monkeypatch):
+    fg = fnx.DiGraph([(0, 1), (1, 2), (2, 0), (2, 3), (3, 1)])
+    ng = nx.DiGraph([(0, 1), (1, 2), (2, 0), (2, 3), (3, 1)])
+
+    def fail_fallback(*args, **kwargs):
+        raise AssertionError("directed unweighted effective_size must use native route")
+
+    monkeypatch.setattr(fnx, "_structural_holes_effective_size_matrix", fail_fallback)
+    monkeypatch.setattr(fnx, "_call_networkx_submodule_for_parity", fail_fallback)
+    _approx_dict(fnx.effective_size(fg), nx.effective_size(ng))
+    _approx_dict(fnx.effective_size(fg, nodes=[0, 2]), nx.effective_size(ng, nodes=[0, 2]))
 
 
 @pytest.mark.parametrize("seed", range(15))

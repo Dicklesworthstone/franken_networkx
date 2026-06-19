@@ -17382,6 +17382,22 @@ pub fn effective_size_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<
     Ok(dict.unbind())
 }
 
+/// Return Burt's effective size for unweighted simple directed graphs.
+#[pyfunction]
+pub fn effective_size_directed_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.digraph().expect("directed graph expected");
+    let result = py.allow_threads(|| fnx_algorithms::effective_size_directed(inner));
+    let dict = PyDict::new(py);
+    for (node, val) in &result {
+        dict.set_item(gr.py_node_key(py, node), val)?;
+    }
+    Ok(dict.unbind())
+}
+
 // ---------------------------------------------------------------------------
 // Dispersion
 // ---------------------------------------------------------------------------
@@ -19960,6 +19976,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(constraint_rust, m)?)?;
     m.add_function(wrap_pyfunction!(local_constraint_rust, m)?)?;
     m.add_function(wrap_pyfunction!(effective_size_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(effective_size_directed_rust, m)?)?;
     m.add_function(wrap_pyfunction!(dispersion_full_rust, m)?)?;
     m.add_function(wrap_pyfunction!(dispersion_node_rust, m)?)?;
     // Voronoi cells
