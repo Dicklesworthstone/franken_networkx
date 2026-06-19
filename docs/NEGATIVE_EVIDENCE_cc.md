@@ -101,6 +101,14 @@ losses to WINS: to_directed 0.75x->1.14x, to_undirected 0.71x->1.24x, copy
 fnx's former weakest area now BEATS nx. (Subgraph .copy() also benefits.) The
 residual reciprocal-edge-merge tax in to_undirected is CrimsonRiver's tbh4q.
 
+## MultiGraph.copy() — measured LOSS 0.45x (native inner-clone, separate from deepcopy)
+
+MultiGraph.copy 0.45x vs nx (DiGraph.copy is 1.72x WIN). cProfile: 100% in native
+_native_copy (no Python children). ASYMMETRY: PyGraph._native_copy is optimized
+(with_mirror single-pass); PyMultiGraph._native_copy just delegates to the generic
+copy() — never optimized. Bottleneck is the native MultiGraph inner-structure clone
+(keydicts), not node-attr crossing. Filed br-r37-c1-jelx1.
+
 ## __deepcopy__ (copy.deepcopy(G)) — PARTIAL fix, still substrate-walk-bound
 
 | Type | fnx | nx | ratio | Note |
