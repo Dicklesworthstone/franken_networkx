@@ -77,6 +77,15 @@ PYTHON dijkstra loop (heap+dict ops per node), not adjacency — k4p0b needs a N
 bidirectional kernel (the undirected _native_bidirectional_dijkstra is undirected-only,
 374/1043 on directed). lc2qy (single-pair early-exit). Undirected path family already WINS 1.3-3.4x.
 
+## bellman-ford/johnson/floyd/dijkstra weighted sweep — wins dominate, 2 kernel-bound losses
+
+WINS: floyd_warshall 41.50x, all_pairs_dijkstra_path_length 2.68x, all_pairs_bellman_ford 2.35x,
+single_source_bellman_ford 2.16x, single_source_bellman_ford_path 1.97x, johnson 1.57x,
+floyd_warshall_numpy 1.47x, negative_edge_cycle 1.28x. LOSSES (filed br-r37-c1-0opkc, both
+kernel/coercion-bound NOT Python-fixable): bellman_ford_path_length 0.73x (SPFA single-pair;
+reroute ~0 gain) + single_source_dijkstra(combined) 0.77x (per-node f64->int coercion ~20%;
+the _path variant WINS 1.57x). Need int-typed-distance kernels. Less-common, small.
+
 ## hbhli non-min audit — astar was the ONLY weighted fn using gr.undirected()
 
 After fixing astar (gr.undirected() structure projection collapses parallel multigraph edges
