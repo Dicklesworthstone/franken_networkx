@@ -97,6 +97,16 @@ raises and the assert errors. fnx is byte-correct. 35 'failures' = one unguarded
 DIAGNOSTIC: a conformance failure that reproduces IDENTICALLY in nx is a test bug, not a
 port gap — always compare the fnx error to nx's before filing as an fnx regression.
 
+## re-export hunt: asyn_fluidc 0.77x parity-bound pure-Python; rest WIN 7-32x
+
+Hunted re-exported (module=nx) functions: rich_club 32x, harmonic 17x, triadic_census 13x,
+avg_neighbor_degree(unweighted) 8.75x, reciprocity 7.7x WIN; girvan_newman/dag_to_branching
+neutral. asyn_fluidc 0.77x LOSS: re-exported, runs nx pure-Python fluid-communities on slow
+fnx adjacency (max_iter*V G[node] PyO3). Conformance checks INVARIANTS (coverage/disjoint/
+modularity), not exact (already 0/19 vs nx, order-sensitive). But PURE-PYTHON algo -> fnx can
+at best MATCH nx (delegate=convert+nx ~0.9x, snapshot-reimpl ~parity), never beat it; native
+acceleration impossible (no Rust kernel for fluid communities). Parity-bound, not a clean win.
+
 ## min_edge_cover/max_weight_matching = order-sensitive blossom (NOT clean loss)
 
 RE-CHARACTERIZED (cc): min_edge_cover + max_weight_matching(maxcardinality) vary 0.54-1.04x
