@@ -77,6 +77,7 @@ losses. Residual lc2qy = single-pair early-exit kernel variant (far-target 0.58x
 | Centrality | katz_centrality non-default scipy matvec (katzscipy) | **0.66-0.85x -> 8x** |
 | Distance | eccentricity all-pairs fast path (eccallpairs) | **0.84x -> 3.05x** (weighted) |
 | Distance | diameter/radius/center/periphery weighted in-process (eccallpairs) | **1.0x -> 3.0x** |
+| Tree | prefix_tree batch DiGraph construction (preftreebatch) | **0.43x -> 0.62x** |
 | Degree-seq | is_graphical eg Durfee-corner break + O(n) sweep (egsweep) | **0.64x -> 1.20-1.45x** |
 | Link-pred | preferential_attachment / RA / AA degree-batch (pa-degbatch) | PA **0.78x->0.99x**, RA/AA neutral->**1.05-1.06x WIN** |
 | Code-first batch | assortativity 9147-52 (degree_assort 78x) / expansion-cut-flow 9153-55 (flow_hierarchy 219x) | 2.4-219x, parity-verified |
