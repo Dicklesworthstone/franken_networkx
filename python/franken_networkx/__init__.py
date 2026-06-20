@@ -51862,7 +51862,10 @@ def from_dict_of_dicts(d, create_using=None, multigraph_input=False):
         # object (the symmetric case produced by to_dict_of_dicts), halving the
         # batch. An asymmetric reverse (different dict) is still emitted so the
         # later one wins exactly as nx's add_edges_from does — byte-identical
-        # result, ~2x less batch work.
+        # result, ~2x less batch work. (The existing-nodes attr index batch,
+        # br-r37-c1-dodattrbatch, only fires when node labels equal their indices;
+        # a graph from to_dict_of_dicts of a non-0..n-ordered source falls back to
+        # the String-keyed batch, where halving the work still helps.)
         seen = set()
         batch = []
         for u, nbrs in d.items():

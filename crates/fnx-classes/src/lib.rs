@@ -1295,6 +1295,65 @@ impl Graph {
         inserted
     }
 
+    /// br-r37-c1-dodattrbatch: bulk-add ATTRIBUTED edges by EXISTING node index
+    /// — the attributed sibling of [`extend_existing_index_edges_unrecorded`].
+    /// All endpoints MUST already exist (callers gate on a contiguous-int node
+    /// prefix). A new edge takes the given AttrMap; a duplicate edge MERGES
+    /// (last-writer-wins per key) exactly like `add_edge_with_attrs`. Replaces
+    /// the per-edge ledger with one batch summary; no String hashing for the
+    /// endpoints (they arrive as integer indices).
+    pub fn extend_existing_index_edges_with_attrs_unrecorded<I>(&mut self, edges: I) -> usize
+    where
+        I: IntoIterator<Item = (usize, usize, AttrMap)>,
+    {
+        let iterator = edges.into_iter();
+        let (lower_bound, _) = iterator.size_hint();
+        self.edges.reserve(lower_bound);
+        self.edge_index_endpoints.reserve(lower_bound);
+
+        let mut inserted = 0usize;
+        for (left_idx, right_idx, attrs) in iterator {
+            debug_assert!(left_idx < self.nodes.len());
+            debug_assert!(right_idx < self.nodes.len());
+
+            let edge_key = Self::canon_pair(left_idx, right_idx);
+            if let Some(existing) = self.edges.get_mut(&edge_key) {
+                // Duplicate edge within the batch: merge attrs (last wins).
+                for (key, value) in attrs {
+                    existing.insert(key, value);
+                }
+                continue;
+            }
+
+            let left_name = self
+                .nodes
+                .get_index(left_idx)
+                .expect("validated left node index")
+                .0
+                .as_str();
+            let right_name = self
+                .nodes
+                .get_index(right_idx)
+                .expect("validated right node index")
+                .0
+                .as_str();
+            if left_name <= right_name {
+                self.edge_index_endpoints.push((left_idx, right_idx));
+            } else {
+                self.edge_index_endpoints.push((right_idx, left_idx));
+            }
+            self.edges.insert(edge_key, attrs);
+
+            self.adj_indices[left_idx].push(right_idx);
+            if left_idx != right_idx {
+                self.adj_indices[right_idx].push(left_idx);
+            }
+            inserted += 1;
+        }
+        self.record_bulk_edge_summary(inserted, false);
+        inserted
+    }
+
     /// br-r37-c1-pr8q6: bulk-add ATTRIBUTED edges without per-edge ledger
     /// records — the attributed sibling of [`extend_edges_unrecorded`].
     ///

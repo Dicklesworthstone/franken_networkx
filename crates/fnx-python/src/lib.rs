@@ -1385,6 +1385,118 @@ impl PyGraph {
         Ok(Some(edges))
     }
 
+    /// br-r37-c1-dodattrbatch: attributed sibling of
+    /// `collect_existing_exact_int_edge_indices` — collect `(u, v, dict)` triples
+    /// as `(u_idx, v_idx, AttrMap)` against an EXISTING contiguous-int node
+    /// prefix. Bails (per-edge fallback) on any non-int endpoint, a non-dict
+    /// third element, an out-of-range index, or a FailClosed attr key.
+    fn collect_existing_exact_int_attr_edge_indices<'py, I>(
+        &self,
+        items: I,
+        len: usize,
+    ) -> PyResult<Option<Vec<(usize, usize, AttrMap)>>>
+    where
+        I: IntoIterator<Item = Bound<'py, PyAny>>,
+    {
+        if !self.inner.nodes_are_contiguous_int_prefix() {
+            return Ok(None);
+        }
+        let node_count = self.inner.node_count();
+        let mut edges = Vec::with_capacity(len);
+        for item in items {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(None);
+            };
+            if tuple.len() != 3 {
+                return Ok(None);
+            }
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            if !u.is_exact_instance_of::<PyInt>()
+                || !v.is_exact_instance_of::<PyInt>()
+                || u.is_exact_instance_of::<PyBool>()
+                || v.is_exact_instance_of::<PyBool>()
+            {
+                return Ok(None);
+            }
+            let Ok(u_value) = u.extract::<i64>() else {
+                return Ok(None);
+            };
+            let Ok(v_value) = v.extract::<i64>() else {
+                return Ok(None);
+            };
+            let Ok(u_index) = usize::try_from(u_value) else {
+                return Ok(None);
+            };
+            let Ok(v_index) = usize::try_from(v_value) else {
+                return Ok(None);
+            };
+            if u_index >= node_count || v_index >= node_count {
+                return Ok(None);
+            }
+            let third = tuple.get_item(2)?;
+            let Ok(dict) = third.downcast::<PyDict>() else {
+                return Ok(None);
+            };
+            let Ok(attrs) = py_dict_to_attr_map(dict) else {
+                return Ok(None);
+            };
+            if attrs
+                .keys()
+                .any(|key| key.starts_with("__fnx_incompatible"))
+            {
+                return Ok(None);
+            }
+            edges.push((u_index, v_index, attrs));
+        }
+        Ok(Some(edges))
+    }
+
+    /// br-r37-c1-dodattrbatch: fast bulk add of ATTRIBUTED int edges onto a graph
+    /// whose nodes already exist as a contiguous-int prefix with no edges yet —
+    /// e.g. from_dict_of_dicts / from_dict_of_lists, which `add_nodes_from(d)`
+    /// BEFORE `add_edges_from`, defeating the FRESH attr fast path (node_count==0).
+    /// Edge attrs stay LAZY in the inner AttrMap (no eager py mirror), matching
+    /// the fresh path.
+    fn try_add_existing_exact_int_attr_edge_index_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        const EXACT_INT_ATTR_INDEX_BATCH_MIN: usize = 8;
+        if self.inner.edge_count() != 0
+            || !self.adj_row_py.is_empty()
+            || !self.edge_py_attrs.is_empty()
+            || !self.int_prefix_display_keys_are_plain_ints(py)
+        {
+            return Ok(false);
+        }
+        let edges = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+            if list.len() < EXACT_INT_ATTR_INDEX_BATCH_MIN {
+                return Ok(false);
+            }
+            self.collect_existing_exact_int_attr_edge_indices(list.iter(), list.len())?
+        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+            if tuple.len() < EXACT_INT_ATTR_INDEX_BATCH_MIN {
+                return Ok(false);
+            }
+            self.collect_existing_exact_int_attr_edge_indices(tuple.iter(), tuple.len())?
+        } else {
+            return Ok(false);
+        };
+        let Some(edges) = edges else {
+            return Ok(false);
+        };
+        let edge_bumps = u64::try_from(edges.len())
+            .unwrap_or(u64::MAX)
+            .wrapping_add(1);
+        let _ = self
+            .inner
+            .extend_existing_index_edges_with_attrs_unrecorded(edges);
+        self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
+        Ok(true)
+    }
+
     fn try_add_existing_exact_int_edge_index_batch(
         &mut self,
         py: Python<'_>,
@@ -1877,6 +1989,15 @@ impl PyGraph {
         }
         if global_attr.is_none_or(|attrs| attrs.is_empty())
             && self.try_add_fresh_exact_int_attr_edge_batch(py, ebunch_to_add)?
+        {
+            return Ok(true);
+        }
+        // br-r37-c1-dodattrbatch: attributed edges onto a graph whose nodes were
+        // pre-added as a contiguous-int prefix (from_dict_of_dicts etc.) — the
+        // fresh path above bails because node_count != 0, so use the existing-
+        // nodes index batch instead of the ~4x-slower String-keyed general path.
+        if global_attr.is_none_or(|attrs| attrs.is_empty())
+            && self.try_add_existing_exact_int_attr_edge_index_batch(py, ebunch_to_add)?
         {
             return Ok(true);
         }
