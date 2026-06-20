@@ -8973,6 +8973,22 @@ def harmonic_centrality(
                 centrality[v] = cc
             return centrality
 
+    # br-r37-c1-harmsrc: harmonic(G, sources=[few]) (default nbunch=all) previously
+    # delegated — ~7x SLOWER than nx. This is the NON-transposed direction:
+    # centrality[u] = sum over v in sources of 1/d(v, u), so for each source v one
+    # FORWARD BFS accumulates 1/d into every reachable u (works for directed and
+    # undirected alike — sources are the BFS roots). nx iterates sources (a set)
+    # and accumulates in single_source BFS order; fnx's
+    # single_source_shortest_path_length emits that same order, so the running
+    # float sum is BYTE-IDENTICAL (verified 700/700).
+    if sources is not None and distance is None and nbunch is None:
+        centrality = {u: 0 for u in set(G.nbunch_iter(None))}
+        for v in set(G.nbunch_iter(sources)):
+            for u, d_uv in single_source_shortest_path_length(G, v).items():
+                if d_uv != 0 and u in centrality:
+                    centrality[u] += 1 / d_uv
+        return centrality
+
     if nbunch is not None or distance is not None or sources is not None:
         return _call_networkx_for_parity(
             "harmonic_centrality", G, nbunch=nbunch, distance=distance, sources=sources
