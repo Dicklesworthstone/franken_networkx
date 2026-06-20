@@ -525,6 +525,27 @@ fn sync_rust_attrs_if_available(g: &Bound<'_, PyAny>) -> PyResult<()> {
     }
 }
 
+fn sync_rust_edge_attrs_if_available(g: &Bound<'_, PyAny>) -> PyResult<()> {
+    let Ok(sync) = g.getattr("_fnx_sync_edge_attrs_to_inner") else {
+        return sync_rust_attrs_if_available(g);
+    };
+    if !sync.is_callable() {
+        return sync_rust_attrs_if_available(g);
+    }
+    match sync.call0() {
+        Ok(_) => Ok(()),
+        Err(err) => {
+            if err.is_instance_of::<PyRuntimeError>(g.py())
+                && err.to_string().contains("Already borrowed")
+            {
+                Ok(())
+            } else {
+                Err(err)
+            }
+        }
+    }
+}
+
 fn sync_rust_attrs_for_non_simple(g: &Bound<'_, PyAny>) -> PyResult<()> {
     let is_simple_graph = g.extract::<PyRef<'_, PyGraph>>().is_ok();
     let is_simple_digraph = !is_simple_graph && g.extract::<PyRef<'_, PyDiGraph>>().is_ok();
@@ -16082,7 +16103,7 @@ fn dijkstra_path_length(
     target: &Bound<'_, PyAny>,
     weight: &str,
 ) -> PyResult<PyObject> {
-    sync_rust_attrs_if_available(g)?;
+    sync_rust_edge_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, target)?;
@@ -16092,14 +16113,18 @@ fn dijkstra_path_length(
         {
             let __wp = weighted_projection.as_ref();
             py.allow_threads(|| {
-                fnx_algorithms::dijkstra_path_length_typed_directed(__wp, &s, &t, weight)
+                fnx_algorithms::dijkstra_path_to_target_directed(__wp, &s, &t, weight)
+                    .map(|(distance, _path, all_int)| (distance, all_int))
             })
         }
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         {
             let __wp = weighted_projection.as_ref();
-            py.allow_threads(|| fnx_algorithms::dijkstra_path_length_typed(__wp, &s, &t, weight))
+            py.allow_threads(|| {
+                fnx_algorithms::dijkstra_path_to_target(__wp, &s, &t, weight)
+                    .map(|(distance, _path, all_int)| (distance, all_int))
+            })
         }
     };
     match result {

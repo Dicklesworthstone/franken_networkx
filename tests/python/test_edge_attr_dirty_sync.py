@@ -35,6 +35,7 @@ def _set_ab_bc_to_short_path(graph, is_multi, edge_attrs):
 
 def _assert_weighted_kernel_sees_mutation(graph):
     assert fnx.shortest_path_length(graph, "a", "c", weight="weight") == 2
+    assert fnx.dijkstra_path_length(graph, "a", "c", weight="weight") == 2
 
 
 @pytest.mark.parametrize(("graph_cls", "is_multi"), GRAPH_CASES)
