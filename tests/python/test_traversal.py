@@ -63,6 +63,31 @@ class TestBFS:
         assert 2 in nodes_reached
         assert 3 not in nodes_reached
 
+    def test_bfs_edges_multigraph_parallel_order_matches_networkx(self):
+        fnx_graph = fnx.MultiGraph()
+        nx_graph = nx.MultiGraph()
+        nodes = ["root", "b", "a", "c", "d", "tail"]
+        edges = [
+            ("root", "b", {"weight": 1.0}),
+            ("root", "a", {"weight": 2.0}),
+            ("root", "b", {"weight": 3.0}),
+            ("a", "c", {"weight": 4.0}),
+            ("b", "d", {"weight": 5.0}),
+            ("c", "tail", {"weight": 6.0}),
+            ("d", "tail", {"weight": 7.0}),
+        ]
+        fnx_graph.add_nodes_from(nodes)
+        nx_graph.add_nodes_from(nodes)
+        fnx_graph.add_edges_from(edges)
+        nx_graph.add_edges_from(edges)
+
+        assert list(fnx.bfs_edges(fnx_graph, "root")) == list(
+            nx.bfs_edges(nx_graph, "root")
+        )
+        assert list(fnx.bfs_edges(fnx_graph, "root", depth_limit=1)) == list(
+            nx.bfs_edges(nx_graph, "root", depth_limit=1)
+        )
+
     def test_bfs_tree(self, diamond):
         tree = fnx.bfs_tree(diamond, 0)
         assert tree.number_of_nodes() == 4

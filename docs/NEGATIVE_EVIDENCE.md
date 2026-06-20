@@ -2,6 +2,83 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-20 MultiGraph BFS Direct Borrowed Row Route (`br-r37-c1-1jm15`)
+
+Scope: close the remaining dense-parallel `MultiGraph`
+`bfs_edges(source=0)` loss split from `br-r37-c1-ij951`, preserving
+NetworkX discovery order and Python-visible node display objects.
+
+Environment:
+- Agent Mail identity: `CrimsonRiver`; CLI actor: `AGENT_NAME=cod-a`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-a-bfs-20260620T1133Z`.
+- Requested target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- Exact release install against the requested shared target dir hit
+  incompatible-rustc E0514 because older target artifacts were present. No
+  cleanup, deletion, or target reset was performed. Release proof used fresh
+  non-destructive target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-a-bfs-f20a92ec0`.
+- Alien route applied: GraphBLAS/CSR frontier guidance and cache-local row
+  traversal translated to a narrower primitive: avoid per-call full
+  `Vec<Vec<usize>>` adjacency indexing and endpoint `String` clones for
+  row-local `MultiGraph` BFS.
+
+Baseline before this lever:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `bfs_edges(source=0)`, 1000-node / 5000-edge `MultiGraph`, same-process release loop | `0.684275 ms` | `0.499728 ms` | `0.730x` | loss |
+| Prior `ij951` pinned sweep for the same residual | `0.796 ms` | `0.657 ms` | `0.825x` | loss |
+
+Kept lever:
+- Add a borrowed `MultiGraph::neighbors_iter` row iterator and route
+  undirected `MultiGraph` `bfs_edges` through direct borrowed distinct-neighbor
+  traversal. The PyO3 boundary keeps the discovered parent display object and
+  emits the child row-display object, matching NetworkX's visible tuple order
+  without rebuilding a full indexed adjacency map.
+
+Final accepted release timing:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| Same-process release loop after borrowed helper | `0.489809 ms` | `0.530343 ms` | `1.083x` | win |
+| Same-process release loop after `neighbors_iter` | `0.472939 ms` | `0.519132 ms` | `1.098x` | win |
+| RCH Criterion `bfs_edges_mg1000_e5000` on `ovh-a` | `441.08 us` | `548.47 us` | `1.243x` | win |
+
+Neutral/noisy evidence:
+- An earlier RCH Criterion row on a different worker after only the borrowed
+  helper was positive but marginal: FNX median `666.71 us` vs NetworkX
+  `672.28 us` (`1.008x`). It was treated as routing evidence, not the final
+  keep gate; the final `neighbors_iter` row above is the accepted benchmark.
+
+Conformance and gates:
+- `cargo fmt --check` passed.
+- `rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310` passed.
+- `rch exec -- cargo clippy -p fnx-python --all-targets --features pyo3/abi3-py310 -- -D warnings`
+  passed.
+- `rch exec -- cargo test -p fnx-classes` reported `68 passed, 2 ignored`.
+- Release `maturin develop --release --features pyo3/abi3-py310` passed with
+  the fresh target dir above.
+- Focused traversal conformance reported `204 passed`, then broader
+  BFS/traversal parity reported `136 passed`.
+- A too-broad `test_dicsr_cache_parity.py` run exposed unrelated directed
+  multi-source Dijkstra finalize-order drift; follow-up bead
+  `br-r37-c1-syrw5` records that work.
+
+Decision:
+- Keep. This converts the active `MultiGraph bfs_edges(source=0)` residual from
+  a measured loss (`0.730x` in this clean worktree, `0.825x` in the earlier
+  pinned sweep) to a measured win (`1.098x` same-process, `1.243x` Criterion).
+- Final bead score: `1` win / `0` losses / `0` neutral vs NetworkX.
+
+Do not repeat:
+- Do not rebuild full indexed adjacency and `String` endpoint vectors for
+  undirected `MultiGraph` BFS. Row-local borrowed traversal is the measured
+  primitive for this surface.
+- Do not treat the unrelated Dijkstra finalize-order failure as BFS evidence;
+  it is tracked separately by `br-r37-c1-syrw5`.
+
 ## 2026-06-20 MultiDiGraph Weighted Sparse Export Live-Dict Slice (`br-r37-c1-wvuf7`)
 
 Scope: target the measured weighted sparse/matrix exporter loss where
@@ -298,24 +375,23 @@ Conformance and gates:
 Decision:
 - Keep. The MST residual flips from a measured `0.313x` loss to a `1.124x`
   win on the bead fixture and `1.214x` in Criterion.
-- Current `ij951` surface accounting after this follow-up is `4` measured wins
+- Current `ij951` surface accounting at this point was `4` measured wins
   (`is_biconnected`, `articulation_points`, `biconnected_components`,
   `minimum_spanning_tree`) / `1` measured loss (`bfs_edges`) / `0` neutral in
-  the current pinned same-process sweep. Including the previously measured
-  `biconnected_component_edges` side row yields `5` wins / `1` loss / `0`
-  neutral.
+  the pinned same-process sweep. The `bfs_edges` residual was split and later
+  closed by `br-r37-c1-1jm15`.
 
 Do not repeat:
 - Do not route ordinary numeric MultiGraph MST through `_networkx_graph_for_parity`;
   that old route remains a `0.313x` loss on the bead fixture.
 - Do not collapse keyed MultiGraph MST to a simple `Graph`; the result must
   preserve `MultiGraph` type, selected edge keys, and attrs.
-- Do not claim `ij951` as fully dominated until the remaining `bfs_edges`
-  dense-parallel loss is either flipped or split into its own routed bead.
+- Do not treat this MST section as the final `ij951` state; it is historical
+  evidence before the separate `br-r37-c1-1jm15` BFS closeout.
 
 Next route:
-- Split or continue with the remaining MultiGraph `bfs_edges(source=0)` loss
-  (`0.825x` on the current bead fixture). The MST residual is closed.
+- See `br-r37-c1-1jm15` above for the subsequent MultiGraph
+  `bfs_edges(source=0)` closeout. The MST residual is closed here.
 
 ## 2026-06-20 MultiGraph Biconnected Family Native Route (`br-r37-c1-ij951`)
 

@@ -2280,6 +2280,12 @@ impl MultiGraph {
             .map(|neighbors| neighbors.keys().map(String::as_str).collect::<Vec<&str>>())
     }
 
+    pub fn neighbors_iter(&self, node: &str) -> Option<impl Iterator<Item = &str> + '_> {
+        self.adjacency
+            .get(node)
+            .map(|neighbors| neighbors.keys().map(String::as_str))
+    }
+
     #[must_use]
     pub fn edge_keys_vec(&self, left: &str, right: &str) -> Vec<usize> {
         self.edges

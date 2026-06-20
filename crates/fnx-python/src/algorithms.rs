@@ -4647,6 +4647,42 @@ fn multidigraph_bfs_edges<'a>(
     edges
 }
 
+/// br-r37-c1-1jm15: borrowed BFS tree edges over a MultiGraph's distinct
+/// neighbor rows. The public bfs_edges residual was dominated by rebuilding an
+/// indexed adjacency Vec<Vec<usize>> plus cloning String edge endpoints on every
+/// call. BFS only needs one row at a time, so walk the IndexMap-backed rows
+/// directly and leave Python object materialization to the caller.
+fn multigraph_bfs_edges_borrowed<'a>(
+    mg: &'a fnx_classes::MultiGraph,
+    source: &str,
+    depth_limit: Option<usize>,
+) -> Vec<(&'a str, &'a str)> {
+    let max_depth = depth_limit.unwrap_or(usize::MAX);
+    let mut edges: Vec<(&'a str, &'a str)> = Vec::new();
+    let nodes = mg.nodes_ordered();
+    let Some(source_ref) = nodes.iter().copied().find(|&n| n == source) else {
+        return edges;
+    };
+    let mut visited: HashSet<&str> = HashSet::with_capacity(nodes.len());
+    visited.insert(source_ref);
+    let mut queue: VecDeque<(&str, usize)> = VecDeque::new();
+    queue.push_back((source_ref, 0));
+    while let Some((node, depth)) = queue.pop_front() {
+        if depth >= max_depth {
+            continue;
+        }
+        if let Some(neighbors) = mg.neighbors_iter(node) {
+            for neighbor in neighbors {
+                if visited.insert(neighbor) {
+                    edges.push((node, neighbor));
+                    queue.push_back((neighbor, depth + 1));
+                }
+            }
+        }
+    }
+    edges
+}
+
 /// br-r37-c1-zid1b (cc): reverse BFS tree edges (node, predecessor) from `source` over
 /// a MultiDiGraph's PREDECESSOR adjacency — mirrors bfs_edges_directed_reverse for
 /// ancestors. No simple-DiGraph build.
@@ -8904,6 +8940,28 @@ pub fn bfs_edges(
             "The node {} is not in the graph.",
             source.str()?
         )));
+    }
+
+    if let GraphRef::MultiUndirected { mg, .. } = &gr {
+        let inner = &mg.inner;
+        let edges =
+            py.allow_threads(|| multigraph_bfs_edges_borrowed(inner, &source_key, depth_limit));
+        let mut disp: HashMap<&str, PyObject> = HashMap::with_capacity(edges.len() + 1);
+        disp.insert(source_key.as_str(), source.clone().unbind());
+        let mut result: Vec<(PyObject, PyObject)> = Vec::with_capacity(edges.len());
+        for &(parent, child) in &edges {
+            if !disp.contains_key(parent) {
+                disp.insert(parent, gr.py_node_key(py, parent));
+            }
+            let py_parent = disp
+                .get(parent)
+                .expect("BFS parent must be discovered before its child")
+                .clone_ref(py);
+            let py_child = gr.py_row_key(py, parent, child);
+            disp.insert(child, py_child.clone_ref(py));
+            result.push((py_parent, py_child));
+        }
+        return Ok(result);
     }
 
     let edges = match &gr {

@@ -12,7 +12,47 @@ plus CCPA link-prediction verification (`br-r37-c1-04z53.9140`) and
 MultiDiGraph SCC stale-loss closeout (`br-r37-c1-8hjsu`) plus
 MultiDiGraph DAG conversion-tax closeout (`br-r37-c1-11m92`) and
 MultiGraph biconnected-family verification plus keyed MST follow-up
-(`br-r37-c1-ij951`).
+(`br-r37-c1-ij951`) and MultiGraph BFS residual closeout
+(`br-r37-c1-1jm15`).
+
+## 2026-06-20 MultiGraph BFS Follow-Up
+
+Environment:
+- Agent Mail identity: `CrimsonRiver`; CLI actor: `AGENT_NAME=cod-a`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-a-bfs-20260620T1133Z`.
+- Requested RCH target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- Exact requested release install hit incompatible-rustc E0514 in the shared
+  target dir; no cleanup or file deletion was performed.
+- Release extension and RCH gates used fresh non-destructive target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-a-bfs-f20a92ec0`.
+- RCH Criterion final command:
+  `rch exec -- cargo bench -p fnx-python --bench networkx_head_to_head -- bfs_edges_mg1000_e5000 --noplot`.
+
+Measured decision:
+
+| Bead | Workload | Baseline ratio | Final ratio | Decision |
+| --- | --- | ---: | ---: | --- |
+| `br-r37-c1-1jm15` | `bfs_edges(source=0)`, MultiGraph 1000 nodes / 5000 edges | `0.730x` clean-worktree release loop; prior `ij951` sweep `0.825x` | `1.098x` same-process release loop; `1.243x` RCH Criterion | Keep; loss flipped |
+
+Score:
+- Current BFS accounting: `1` win, `0` losses, `0` neutral.
+- Performance evidence: borrowed `MultiGraph::neighbors_iter` plus direct
+  borrowed row BFS removes full indexed adjacency rebuild and endpoint string
+  clones while preserving NetworkX discovery/display order.
+- Conformance evidence: focused traversal parity `204 passed`; broader
+  BFS/traversal parity `136 passed`; Rust `fnx-classes` tests `68 passed,
+  2 ignored`.
+- Build evidence: `cargo fmt --check`, `rch exec -- cargo check -p fnx-python
+  --features pyo3/abi3-py310`, and `rch exec -- cargo clippy -p fnx-python
+  --all-targets --features pyo3/abi3-py310 -- -D warnings` passed.
+- Ledger hygiene: the baseline loss, final win, E0514 target-dir caveat, and
+  unrelated Dijkstra follow-up `br-r37-c1-syrw5` are recorded in
+  `docs/NEGATIVE_EVIDENCE.md` and `docs/progress/perf-negative-results.md`.
+
+Release readiness verdict for this slice: **keep BFS follow-up; active
+MultiGraph BFS residual closed**.
 
 ## 2026-06-20 MultiGraph Keyed MST Follow-Up
 
@@ -39,7 +79,7 @@ Measured decision:
 | `br-r37-c1-ij951` side surface | `is_biconnected` | previous keep | `6.801x` current pinned sweep; `10.454x` Criterion | Win |
 | `br-r37-c1-ij951` side surface | `articulation_points` | previous keep | `4.868x` current pinned sweep; `6.401x` Criterion | Win |
 | `br-r37-c1-ij951` side surface | `biconnected_components` | previous keep | `2.839x` current pinned sweep; `4.065x` Criterion | Win |
-| `br-r37-c1-ij951` residual | `bfs_edges(source=0)` | `0.407x` prior baseline | `0.825x` current pinned sweep | Loss, route next |
+| `br-r37-c1-ij951` residual | `bfs_edges(source=0)` | `0.407x` prior baseline | `0.825x` current pinned sweep | Historical loss; split to `br-r37-c1-1jm15` and closed above |
 
 Score:
 - Current pinned `ij951` accounting: `4` wins, `1` loss, `0` neutral; including
@@ -56,8 +96,8 @@ Score:
   caveat, and residual BFS loss are recorded in `docs/NEGATIVE_EVIDENCE.md`
   and `docs/progress/perf-negative-results.md`.
 
-Release readiness verdict for this slice: **keep MST follow-up; residual BFS
-still blocks full `ij951` closure**.
+Release readiness verdict for this slice: **keep MST follow-up**. The residual
+BFS row was split out and closed by `br-r37-c1-1jm15` above.
 
 ## 2026-06-20 MultiDiGraph DAG Closeout
 
@@ -145,8 +185,8 @@ Baseline and final decision:
 | `br-r37-c1-ij951` | `articulation_points`, same fixture | `0.103x` | `6.553x` RCH Criterion | Keep |
 | `br-r37-c1-ij951` | `biconnected_components`, same fixture | `0.196x` | `3.619x` RCH Criterion | Keep |
 | `br-r37-c1-ij951` side surface | `biconnected_component_edges`, same fixture | n/a | `1.396x` direct release sweep | Keep |
-| `br-r37-c1-ij951` residual | `minimum_spanning_tree`, same fixture | `0.320x` | `0.296x` direct release sweep | Loss, not touched |
-| `br-r37-c1-ij951` residual | `bfs_edges(source=0)`, same fixture | `0.407x` | `0.399x` direct release sweep | Loss, not touched |
+| `br-r37-c1-ij951` residual | `minimum_spanning_tree`, same fixture | `0.320x` | `0.296x` direct release sweep | Historical loss; closed by keyed MST follow-up |
+| `br-r37-c1-ij951` residual | `bfs_edges(source=0)`, same fixture | `0.407x` | `0.399x` direct release sweep | Historical loss; closed by BFS follow-up |
 
 Score:
 - Win/loss/neutral accounting: `4` wins, `2` losses, `0` neutral on the
@@ -159,7 +199,8 @@ Score:
   `docs/NEGATIVE_EVIDENCE.md` and `docs/progress/perf-negative-results.md`.
 
 Release readiness verdict for this slice: **conditional pass for MultiGraph
-biconnected-family queries; MST/BFS still block full ij951 closure**.
+biconnected-family queries**. The historical MST/BFS residuals are closed by
+the follow-up sections above.
 
 ## 2026-06-20 MultiDiGraph SCC Stale-Loss Closeout
 

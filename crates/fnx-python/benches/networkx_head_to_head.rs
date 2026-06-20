@@ -60,6 +60,8 @@ struct MultiGraphBiconnectedWorkloads {
     nx_articulation_points: Py<PyAny>,
     fnx_biconnected_components: Py<PyAny>,
     nx_biconnected_components: Py<PyAny>,
+    fnx_bfs_edges: Py<PyAny>,
+    nx_bfs_edges: Py<PyAny>,
     fnx_minimum_spanning_tree: Py<PyAny>,
     nx_minimum_spanning_tree: Py<PyAny>,
 }
@@ -567,6 +569,7 @@ mg_fnx, mg_nx = _paired_multigraph_biconnected_workload(1000, 3000, 1000, 202606
 assert fnx.is_biconnected(mg_fnx) == nx.is_biconnected(mg_nx)
 assert list(fnx.articulation_points(mg_fnx)) == list(nx.articulation_points(mg_nx))
 assert [set(c) for c in fnx.biconnected_components(mg_fnx)] == [set(c) for c in nx.biconnected_components(mg_nx)]
+assert list(fnx.bfs_edges(mg_fnx, 0)) == list(nx.bfs_edges(mg_nx, 0))
 
 def _mst_signature(tree):
     return [
@@ -594,6 +597,8 @@ fnx_articulation_points = lambda: len(list(fnx.articulation_points(mg_fnx)))
 nx_articulation_points = lambda: len(list(nx.articulation_points(mg_nx)))
 fnx_biconnected_components = lambda: _component_checksum(fnx.biconnected_components(mg_fnx))
 nx_biconnected_components = lambda: _component_checksum(nx.biconnected_components(mg_nx))
+fnx_bfs_edges = lambda: len(list(fnx.bfs_edges(mg_fnx, 0)))
+nx_bfs_edges = lambda: len(list(nx.bfs_edges(mg_nx, 0)))
 fnx_minimum_spanning_tree = lambda: fnx.minimum_spanning_tree(mg_fnx, weight="weight")
 nx_minimum_spanning_tree = lambda: nx.minimum_spanning_tree(mg_nx, weight="weight")
 "#,
@@ -617,6 +622,8 @@ nx_minimum_spanning_tree = lambda: nx.minimum_spanning_tree(mg_nx, weight="weigh
         nx_articulation_points: callable("nx_articulation_points")?,
         fnx_biconnected_components: callable("fnx_biconnected_components")?,
         nx_biconnected_components: callable("nx_biconnected_components")?,
+        fnx_bfs_edges: callable("fnx_bfs_edges")?,
+        nx_bfs_edges: callable("nx_bfs_edges")?,
         fnx_minimum_spanning_tree: callable("fnx_minimum_spanning_tree")?,
         nx_minimum_spanning_tree: callable("nx_minimum_spanning_tree")?,
     })
@@ -882,6 +889,16 @@ fn multigraph_biconnected_head_to_head(c: &mut Criterion) {
         &mut group,
         "nx_biconnected_components_mg1000_e5000",
         &workloads.nx_biconnected_components,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_bfs_edges_mg1000_e5000",
+        &workloads.fnx_bfs_edges,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_bfs_edges_mg1000_e5000",
+        &workloads.nx_bfs_edges,
     );
     bench_python_callable(
         &mut group,
