@@ -15,7 +15,61 @@ MultiGraph biconnected-family verification plus keyed MST follow-up
 (`br-r37-c1-ij951`) and MultiGraph BFS residual closeout
 (`br-r37-c1-1jm15`) plus max-weight matching raw-native tie-break
 verification (`br-r37-c1-lmqwv`) plus dirty `MultiDiGraph` sparse exporter
-boundary verification (`br-r37-c1-kqh2u`).
+boundary verification (`br-r37-c1-kqh2u`) plus cod-b precise dirty-key
+dirty sparse-export verification (`br-r37-c1-04z53`).
+
+## 2026-06-20 Cod-B MultiDiGraph Precise Dirty-Key Sparse Reject
+
+Environment:
+- Agent Mail identity and CLI actor: `CrimsonRiver`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-b-20260620T181919`.
+- Requested RCH target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+- Per-crate RCH release build passed with
+  `rch exec -- cargo build -p fnx-python --release --features pyo3/abi3-py310`;
+  RCH rewrote the target to a worker-scoped cache.
+- Local release install against the exact requested target hit
+  incompatible-rustc E0514 from stale artifacts. No cleanup, deletion, or reset
+  was performed. Candidate and control installs used fresh non-destructive
+  target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-b-f20a92ec0-precise`.
+- Oracle: vendored NetworkX `3.7rc0.dev0`, Python `3.13`,
+  `PYTHONHASHSEED=0`, `OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`.
+- Fixture: deterministic 2,000-node / 12,000-keyed-edge `MultiDiGraph` with
+  388 post-construction public dirty weight mutations. Payload digest:
+  `558129dd98de2c818c51c16c33e6ec18786afaec48f8d3eddab018c0a24b3cdc`.
+
+Measured decision:
+
+| Bead | Workload | FNX route | NetworkX | Ratio vs NetworkX | Candidate vs control | Decision |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| `br-r37-c1-04z53` | control `to_scipy_sparse_array`, dirty 12k-edge MDG | 9.680769 ms | 7.469069 ms | 0.772x | baseline | loss |
+| `br-r37-c1-04z53` | control `adjacency_matrix`, dirty 12k-edge MDG | 10.238225 ms | 7.189950 ms | 0.702x | baseline | loss |
+| `br-r37-c1-04z53` | precise dirty-key `to_scipy_sparse_array` candidate | 7.275282 ms | 6.754456 ms | 0.928x | 1.331x faster | Reject; still loss |
+| `br-r37-c1-04z53` | precise dirty-key `adjacency_matrix` candidate | 11.222841 ms | 7.623773 ms | 0.679x | 0.912x regression | Reject; regression |
+
+Score:
+- Target accounting: `0` wins, `2` losses, `0` neutral vs NetworkX.
+- Self accounting: `1` improvement, `1` regression.
+- Reverted lever: when `edge_dirty_keys` was precise, the default-order
+  `MultiDiGraph` COO/CSR helpers read stored Rust attrs for untouched edges and
+  live Python dicts only for dirty keys. It improved direct
+  `to_scipy_sparse_array` but did not beat NetworkX and regressed the sibling
+  `adjacency_matrix` public route.
+- Conformance evidence: candidate `rch exec -- cargo check -p fnx-python
+  --features pyo3/abi3-py310` passed. Final reverted-source gates passed
+  `cargo fmt --check`, `git diff --check`, and focused sparse exporter parity
+  `304 passed`.
+- Ledger hygiene: control rows, candidate rows, digest, E0514 caveat, and next
+  route are recorded in `docs/NEGATIVE_EVIDENCE.md` and
+  `docs/progress/perf-negative-results.md`.
+
+Release readiness verdict for this slice: **reject/no-ship**. Leave source on
+the control route. Do not retry precise dirty-key stored-attr bypass alone; the
+next viable route is a true native sparse-array/CSR boundary that removes the
+Python/SciPy handoff cost while preserving dtype inference and live attr
+semantics.
 
 ## 2026-06-20 MultiDiGraph Dirty Sparse Boundary No-Ship
 

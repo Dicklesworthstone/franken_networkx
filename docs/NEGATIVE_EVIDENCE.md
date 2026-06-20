@@ -2,6 +2,71 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-20 MultiDiGraph Precise Dirty-Key Sparse Reject (`br-r37-c1-04z53`, cod-b)
+
+Scope: test a narrower dirty/live sparse-export lever than the prior
+borrowed-index rejection. `MultiDiGraph` already tracks exact dirty edge keys
+for `G[u][v][k]` accesses, but the default-order sparse helpers treated any
+dirty flag as "all edges dirty" and read every weight through the live Python
+edge-attr dict path. The candidate made those helpers read stored Rust attrs
+for untouched edges and use live dicts only for keys in the precise dirty set.
+
+Environment:
+- Agent Mail identity and CLI actor: `CrimsonRiver`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-b-20260620T181919`.
+- Requested target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+- Per-crate RCH release build passed:
+  `rch exec -- cargo build -p fnx-python --release --features pyo3/abi3-py310`.
+  RCH rewrote the remote target to a worker-scoped cache.
+- Local release install through the requested target hit incompatible-rustc
+  E0514 from stale artifacts; no cleanup or deletion was performed. Candidate
+  and control installs used fresh non-destructive target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-b-f20a92ec0-precise`.
+- Oracle: vendored NetworkX `3.7rc0.dev0`, Python `3.13`, `PYTHONHASHSEED=0`,
+  `OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`.
+- Fixture: deterministic 2,000-node / 12,000-edge `MultiDiGraph`, 388 public
+  post-construction `G[u][v][k]["weight"] = ...` mutations, default nodelist,
+  default `weight="weight"`, sparse payload digest
+  `558129dd98de2c818c51c16c33e6ec18786afaec48f8d3eddab018c0a24b3cdc`.
+
+Control source on the same fixture:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `to_scipy_sparse_array`, dirty 12k-edge MDG | `9.680769 ms` | `7.469069 ms` | `0.772x` | loss |
+| `adjacency_matrix`, dirty 12k-edge MDG | `10.238225 ms` | `7.189950 ms` | `0.702x` | loss |
+
+Candidate timing after release rebuild:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Candidate vs control | Verdict |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `to_scipy_sparse_array`, dirty 12k-edge MDG | `7.275282 ms` | `6.754456 ms` | `0.928x` | `1.331x` faster | still loss |
+| `adjacency_matrix`, dirty 12k-edge MDG | `11.222841 ms` | `7.623773 ms` | `0.679x` | `0.912x` regression | regression/loss |
+
+Decision:
+- Reject/no-ship. The candidate improved the direct sparse row but did not beat
+  NetworkX, and it regressed the sibling `adjacency_matrix` row that routes
+  through the same public sparse exporter.
+- Source hunk reverted; final source has no code diff from the control route.
+- Score on the target dirty slice: `0` wins / `2` losses / `0` neutral vs
+  NetworkX; self-score `1` improvement / `1` regression.
+- Candidate `rch exec -- cargo check -p fnx-python --features
+  pyo3/abi3-py310` passed. Reverted-source gates passed: `cargo fmt --check`,
+  `git diff --check`, focused sparse parity
+  `304 passed` (`test_to_scipy_sparse_native_weighted_parity.py` plus
+  `test_to_scipy_sparse_default_native_parity.py`).
+
+Do not repeat:
+- Do not use precise dirty-key stored-attr bypass as a standalone lever for the
+  dirty `MultiDiGraph` sparse exporter. It moves one row closer to parity but
+  still loses and regresses `adjacency_matrix`.
+- Next route needs a true native sparse-array/CSR boundary or a design that
+  removes the Python/SciPy handoff cost while preserving dtype inference and
+  live attr semantics; do not spend another patch on per-edge live-dict lookup
+  selection alone.
+
 ## 2026-06-20 MultiDiGraph Dirty Sparse Boundary Borrowed-Index Reject (`br-r37-c1-kqh2u`)
 
 Scope: re-baseline the large sparse multigraph exporter residual and test one
