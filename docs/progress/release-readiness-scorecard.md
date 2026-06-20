@@ -13,7 +13,51 @@ MultiDiGraph SCC stale-loss closeout (`br-r37-c1-8hjsu`) plus
 MultiDiGraph DAG conversion-tax closeout (`br-r37-c1-11m92`) and
 MultiGraph biconnected-family verification plus keyed MST follow-up
 (`br-r37-c1-ij951`) and MultiGraph BFS residual closeout
-(`br-r37-c1-1jm15`).
+(`br-r37-c1-1jm15`) plus max-weight matching raw-native tie-break
+verification (`br-r37-c1-lmqwv`).
+
+## 2026-06-20 Max-Weight Matching No-Ship Slice
+
+Environment:
+- Agent Mail identity: `CrimsonRiver`; CLI actor: `AGENT_NAME=cod-a`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-a-next-20260620T131825Z`.
+- Requested RCH target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- Exact requested release install hit incompatible-rustc E0514 in the shared
+  target dir; no cleanup or file deletion was performed.
+- Release extension and proof runs used fresh non-destructive target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-a-f20a92ec0-20260620`.
+- Oracle: vendored NetworkX `3.7rc0.dev0`, same-process release timing,
+  `PYTHONHASHSEED=0`.
+
+Measured decision:
+
+| Bead | Workload | FNX route | NetworkX | Ratio vs NetworkX | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `br-r37-c1-lmqwv` | public `max_weight_matching`, weighted `gnp(300,0.05,seed=11)` | 228.398618 ms | 223.508232 ms | 0.979x | Active loss; exact delegate |
+| `br-r37-c1-lmqwv` | raw `_fnx.max_weight_matching`, same graph | 5.494071 ms | 223.508232 ms | 40.68x | Reject as public route; exact edge set differs |
+| `br-r37-c1-lmqwv` | full insertion-order raw variant | 4.954032 ms | 225.624950 ms | 45.54x | Reject; exact drift worsened to `6/20` seeds |
+| `br-r37-c1-lmqwv` | insertion-order raw variant with sorted solver edges | 6.292802 ms | 239.127194 ms | 38.00x | Reject; exact drift worsened to `8/20` seeds |
+
+Score:
+- Current matching accounting: `0` wins, `1` loss, `0` neutral.
+- Performance evidence: raw native blossom is a major speed route, but only as
+  routing evidence while exact NetworkX tie-break parity fails.
+- Conformance evidence: after reverting both no-ship experiments, focused
+  matching tests passed `184` cases:
+  `test_matching_conformance.py`,
+  `test_max_weight_matching_tuple_direction_parity.py`, and
+  `test_flow_cut_matching_value_parity.py`.
+- Ledger hygiene: public loss, raw invalid win, both rejected ordering
+  variants, E0514 target-dir caveat, and the next viable route are recorded in
+  `docs/NEGATIVE_EVIDENCE.md` and
+  `docs/progress/perf-negative-results.md`.
+
+Release readiness verdict for this slice: **reject/no-ship**. Do not route the
+public wrapper to raw `_fnx.max_weight_matching` until the native solver can
+preserve NetworkX's per-vertex adjacency scan order, or until a formal
+uniqueness-gated dispatch declines tied-optimum cases.
 
 ## 2026-06-20 MultiGraph BFS Follow-Up
 

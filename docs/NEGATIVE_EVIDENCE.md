@@ -699,3 +699,69 @@ Do not repeat:
   than NetworkX on the dirty workload.
 - Do not rebuild keyed reverse copies through Python per-edge insertion or
   eagerly materialize all Python edge-attr dict mirrors.
+
+## 2026-06-20 Max-Weight Matching Native Tie-Break No-Ship
+
+Scope: `br-r37-c1-lmqwv`, public `max_weight_matching` on a weighted
+`gnp(300, 0.05)` simple graph with deterministic integer-like weights. The
+public top-level wrapper still delegates to NetworkX for exact matching-choice
+and tuple-direction parity. The raw `_fnx.max_weight_matching` blossom kernel
+is much faster, but its tie-break policy does not match NetworkX on all tied
+maximum-weight optima.
+
+Environment:
+- Agent: `CrimsonRiver` / `cod-a`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-a-next-20260620T131825Z`.
+- Requested target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- The requested shared target hit incompatible-rustc E0514 (`cc`,
+  `target_lexicon`, and `serde` were compiled by a different nightly). No
+  cleanup was performed; release proof runs used fresh target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-a-f20a92ec0-20260620`.
+- NetworkX oracle: vendored `3.7rc0.dev0`; `PYTHONHASHSEED=0`.
+
+Baseline/current public API and raw native measurement on seed `11`:
+
+| Route | FNX mean | NetworkX mean | Ratio vs NetworkX | Exact edge set | Verdict |
+| --- | ---: | ---: | ---: | --- | --- |
+| public `fnx.max_weight_matching` delegate | 228.398618 ms | 223.508232 ms | 0.979x | yes | active loss |
+| raw `_fnx.max_weight_matching` | 5.494071 ms | 223.508232 ms | 40.68x | no | invalid keep |
+
+Raw native exactness sweep:
+- Baseline raw canonical/sorted solver route: `4 / 20` seeds differed from
+  NetworkX by edge set, with identical total matching weight in every case.
+- Full insertion-order candidate/node/edge mapping experiment:
+  raw FNX `4.954032 ms` vs NetworkX `225.624950 ms` (`45.54x`) but exact
+  mismatches worsened to `6 / 20` seeds (`3, 11, 13, 18, 19, 20`).
+- Insertion-order candidates/nodes with restored sorted solver edges:
+  raw FNX `6.292802 ms` vs NetworkX `239.127194 ms` (`38.00x`) but exact
+  mismatches worsened to `8 / 20` seeds
+  (`3, 4, 5, 11, 13, 18, 19, 20`).
+
+Rejected lever:
+- Do not route the public wrapper to the existing raw `mwmatching` crate by
+  merely changing candidate sorting. The crate derives each vertex's neighbor
+  scan order from one global edge sequence, while NetworkX scans each
+  adjacency row directly during blossom search. That structural tie-break
+  mismatch is enough to choose different valid maximum matchings.
+
+Conformance after reverting the no-ship experiments:
+- Focused matching gate:
+  `tests/python/test_matching_conformance.py`,
+  `tests/python/test_max_weight_matching_tuple_direction_parity.py`, and
+  `tests/python/test_flow_cut_matching_value_parity.py` passed
+  `184 passed`.
+
+Decision:
+- Reject/no-ship for this session. The public `max_weight_matching` row remains
+  an active `0.979x` loss because exact NetworkX tie-break parity blocks the
+  raw native `40x+` route.
+- Scorecard accounting for this slice: `0` wins / `1` loss / `0` neutral.
+
+Do not repeat:
+- Do not retry endpoint canonicalization, insertion-order node remapping, or
+  solver-edge sorting as standalone fixes for this bead. The next viable route
+  is a NetworkX-order blossom port/fork that can scan per-vertex adjacency rows
+  exactly, or a formally exact uniqueness-gated native dispatch that declines
+  tied-optimum cases before public routing.
