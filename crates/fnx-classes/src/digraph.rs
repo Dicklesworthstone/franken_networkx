@@ -2437,6 +2437,72 @@ impl MultiDiGraph {
         ordered
     }
 
+    /// Return a reversed copy with NetworkX-compatible node/edge row order.
+    ///
+    /// This is the directed-multigraph sibling of `DiGraph::reversed`, but it
+    /// cannot simply swap `successors` and `predecessors`: NetworkX materializes
+    /// `MultiDiGraph.reverse(copy=True)` by walking `G.edges(keys=True, data=True)`
+    /// in source-node order and adding `(v, u, key)` to the result. Predecessor
+    /// rows may have been formed by historical edge insertion order, which is not
+    /// always the same as that source-major edge stream. Rebuild the two row maps
+    /// from the observed edge stream while avoiding the expensive per-edge
+    /// `add_edge` policy path.
+    #[must_use]
+    pub fn reversed(&self) -> Self {
+        let mut successors: IndexMap<String, IndexMap<String, IndexSet<usize>>> =
+            IndexMap::with_capacity(self.nodes.len());
+        let mut predecessors: IndexMap<String, IndexMap<String, IndexSet<usize>>> =
+            IndexMap::with_capacity(self.nodes.len());
+        for node in self.nodes.keys() {
+            successors.insert(node.clone(), IndexMap::new());
+            predecessors.insert(node.clone(), IndexMap::new());
+        }
+
+        let mut edges: IndexMap<DirectedEdgeKey, IndexMap<usize, AttrMap>> =
+            IndexMap::with_capacity(self.edges.len());
+        let mut edge_count = 0usize;
+        for source in self.nodes.keys() {
+            let Some(neighbors) = self.successors.get(source) else {
+                continue;
+            };
+            for target in neighbors.keys() {
+                let pair = DirectedEdgeKeyRef::new(source, target);
+                let Some(edge_bucket) = self.edges.get(&pair) else {
+                    continue;
+                };
+                let reversed_pair = DirectedEdgeKey::new(target, source);
+                let reversed_bucket = edges.entry(reversed_pair).or_default();
+                let reversed_succ_keys = successors
+                    .get_mut(target.as_str())
+                    .expect("target row exists")
+                    .entry(source.clone())
+                    .or_default();
+                let reversed_pred_keys = predecessors
+                    .get_mut(source.as_str())
+                    .expect("source row exists")
+                    .entry(target.clone())
+                    .or_default();
+                for (key, attrs) in edge_bucket {
+                    reversed_bucket.insert(*key, attrs.clone());
+                    reversed_succ_keys.insert(*key);
+                    reversed_pred_keys.insert(*key);
+                    edge_count += 1;
+                }
+            }
+        }
+
+        Self {
+            mode: self.mode,
+            revision: 0,
+            nodes: self.nodes.clone(),
+            successors,
+            predecessors,
+            edges,
+            runtime_policy: self.runtime_policy.clone(),
+            edge_count,
+        }
+    }
+
     /// Out-edges of a single source node in nx adjacency order
     /// (successors[node].keys() then key-bucket order), borrowing attrs.
     ///

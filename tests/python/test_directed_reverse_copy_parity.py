@@ -91,3 +91,40 @@ def test_reverse_default_is_copy(fnx_ctor):
     r = fg.reverse()
     assert not fnx.is_frozen(r)
     assert sorted(r.edges()) == [(2, 1), (3, 2)]
+
+
+def test_multidigraph_reverse_copy_preserves_keys_attrs_and_row_order():
+    fg = fnx.MultiDiGraph()
+    ng = nx.MultiDiGraph()
+    edges = [
+        ("a", "b", "k1", {"weight": 1}),
+        ("c", "b", "k2", {"weight": 2}),
+        ("a", "b", "k3", {"weight": 3}),
+        ("b", "a", "k4", {"weight": 4}),
+    ]
+    fg.add_edges_from(edges)
+    ng.add_edges_from(edges)
+    fg["a"]["b"]["k1"]["weight"] = 11
+    ng["a"]["b"]["k1"]["weight"] = 11
+
+    fr = fg.reverse(copy=True)
+    nr = ng.reverse(copy=True)
+
+    assert list(fr.edges(keys=True, data="weight")) == list(
+        nr.edges(keys=True, data="weight")
+    )
+    assert {
+        node: {
+            "succ": list(fr.succ[node]),
+            "pred": list(fr.pred[node]),
+        }
+        for node in fr
+    } == {
+        node: {
+            "succ": list(nr.succ[node]),
+            "pred": list(nr.pred[node]),
+        }
+        for node in nr
+    }
+    fr["b"]["a"]["k1"]["weight"] = 101
+    assert fg["a"]["b"]["k1"]["weight"] == 11

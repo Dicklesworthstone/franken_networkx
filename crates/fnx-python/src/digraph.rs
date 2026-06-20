@@ -4408,9 +4408,10 @@ impl PyMultiDiGraph {
     }
 
     fn reverse(&self, py: Python<'_>) -> PyResult<Self> {
+        let source_edges_dirty = self.edges_dirty.load(Ordering::Relaxed);
         let mut new_graph = Self {
-            inner: MultiDiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
-            node_key_map: HashMap::new(),
+            inner: self.inner.reversed(),
+            node_key_map: HashMap::with_capacity(self.node_key_map.len()),
             // br-r37-c1-z6uka: nx reverse walks edges(keys=True, data=True)
             // u-major and adds (v, u) — the new succ cells get NODE objects,
             // the new pred cells get the OLD succ-row objects (transpose).
@@ -4418,7 +4419,7 @@ impl PyMultiDiGraph {
             pred_py_keys: PyDiGraph::clone_row_keys(py, &self.succ_py_keys),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
-            edge_py_keys: HashMap::new(),
+            edge_py_keys: HashMap::with_capacity(self.edge_py_keys.len()),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -4430,51 +4431,46 @@ impl PyMultiDiGraph {
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
+
         for canonical in self.inner.nodes_ordered() {
-            let rust_attrs = self
-                .node_py_attrs
-                .get(canonical)
-                .map(|attrs| crate::py_dict_to_attr_map(attrs.bind(py)))
-                .transpose()?
-                .unwrap_or_default();
-            new_graph
-                .inner
-                .add_node_with_attrs(canonical.to_owned(), rust_attrs);
             new_graph
                 .node_key_map
                 .insert(canonical.to_owned(), self.py_node_key(py, canonical));
-            if let Some(attrs) = self.node_py_attrs.get(canonical) {
-                new_graph
-                    .node_py_attrs
-                    .insert(canonical.to_owned(), attrs.bind(py).copy()?.unbind());
-            }
         }
-        // Reverse in source graph edge-iteration order to match NetworkX.
-        for edge in self.inner.edges_ordered() {
-            let u = &edge.source;
-            let v = &edge.target;
-            let key = edge.key;
-            let edge_key = Self::edge_key(u, v, key);
-            let rust_attrs = if let Some(attrs) = self.edge_py_attrs.get(&edge_key) {
-                crate::py_dict_to_attr_map(attrs.bind(py))?
-            } else {
-                edge.attrs.clone()
-            };
-            let new_key = new_graph
-                .inner
-                .add_edge_with_key_and_attrs(v.clone(), u.clone(), key, rust_attrs)
-                .map_err(|e| NetworkXError::new_err(e.to_string()))?;
-            let copied_attrs = if let Some(attrs) = self.edge_py_attrs.get(&edge_key) {
-                attrs.bind(py).copy()?.unbind()
-            } else {
-                PyDict::new(py).unbind()
-            };
+
+        // Node attr dictionaries are mutable Python mirrors. They do not have a
+        // dirty bit, so copy them and refresh the transposed inner store exactly
+        // as the old per-node rebuild did.
+        for (canonical, attrs) in &self.node_py_attrs {
+            let copied_attrs = attrs.bind(py).copy()?.unbind();
+            let rust_attrs = crate::py_dict_to_attr_map(copied_attrs.bind(py))?;
+            new_graph.inner.replace_node_attrs(canonical, rust_attrs);
+            new_graph
+                .node_py_attrs
+                .insert(canonical.clone(), copied_attrs);
+        }
+
+        // Preserve explicit edge-key display objects under the transposed
+        // endpoints. Missing entries naturally display as the internal usize,
+        // so they do not need eager materialization.
+        for ((u, v, key), py_key) in &self.edge_py_keys {
+            new_graph.remember_edge_key_object(py, v, u, *key, py_key);
+        }
+
+        // Edge attr mirrors are copied for Python object identity/isolation.
+        // When the source mirror was dirtied after creation, also push that
+        // authoritative Python dict into the already-transposed inner graph.
+        for ((u, v, key), attrs) in &self.edge_py_attrs {
+            let copied_attrs = attrs.bind(py).copy()?.unbind();
+            if source_edges_dirty {
+                let rust_attrs = crate::py_dict_to_attr_map(copied_attrs.bind(py))?;
+                new_graph.inner.replace_edge_attrs(v, u, *key, rust_attrs);
+            }
             new_graph
                 .edge_py_attrs
-                .insert((v.clone(), u.clone(), new_key), copied_attrs);
-            let py_key = self.py_edge_key(py, u, v, key);
-            new_graph.remember_edge_key_object(py, v, u, new_key, &py_key);
+                .insert((v.clone(), u.clone(), *key), copied_attrs);
         }
+
         Ok(new_graph)
     }
 
