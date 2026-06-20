@@ -51834,9 +51834,28 @@ def from_dict_of_dicts(d, create_using=None, multigraph_input=False):
         # divergence: the old loop added the edge BEFORE update() raised,
         # while nx's add_edges_from leaves nodes-but-no-edge (datadict is
         # only linked into _adj after a successful update).
-        graph.add_edges_from(
-            [(u, v, edge_attrs) for u, nbrs in d.items() for v, edge_attrs in nbrs.items()]
-        )
+        #
+        # br-r37-c1-dodsymdedup: an UNDIRECTED dict-of-dicts lists every edge
+        # twice (u->v and v->u). nx feeds both to add_edges_from (the reverse is
+        # a redundant no-op update). Skip the reverse when it is the SAME attrs
+        # object (the symmetric case produced by to_dict_of_dicts), halving the
+        # batch. An asymmetric reverse (different dict) is still emitted so the
+        # later one wins exactly as nx's add_edges_from does — byte-identical
+        # result, ~2x less batch work.
+        seen = set()
+        batch = []
+        for u, nbrs in d.items():
+            for v, edge_attrs in nbrs.items():
+                if (
+                    u != v
+                    and (v, u) in seen
+                    and v in d
+                    and d[v].get(u) is edge_attrs
+                ):
+                    continue
+                batch.append((u, v, edge_attrs))
+                seen.add((u, v))
+        graph.add_edges_from(batch)
     else:
         # Subclasses / DiGraph keep the inline loop: their add_edges_from
         # raw paths have different malformed-input contracts.
