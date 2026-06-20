@@ -1549,3 +1549,27 @@ Do not retry:
 - Do not micro-tweak the `MultiDiGraph.bfs_edges` kernel for the `0.84x` residual;
   it is String-keyed-successor-substrate-bound, only an integer-CSR MultiDiGraph
   adjacency would move it (deferred, peer-confirmed no-ship class).
+
+## 2026-06-20 `all_pairs_node_connectivity(nbunch=[few])` small-subset delegation tax (`br-r37-c1-apncnbunch` residual, BlackThrush)
+
+Pinned (`taskset -c 2`, `PYTHONHASHSEED=0`, min-of-12) on `Graph(400 nodes, 1600
+edges)`, `nbunch=[0,1,2]`: FNX `17.8 ms` vs NetworkX `14.4 ms`, `0.81x`, parity
+true. The wrapper already (correctly) delegates a small nbunch (`<= |V|/2`) to nx
+because the native `all_pairs_node_connectivity_rust` computes the FULL `O(V^2)`
+pair set regardless of nbunch (a 4-node nbunch on n=120 was `2839 ms` vs nx `6 ms`).
+So the residual `0.81x` is the `fnx->nx` whole-graph conversion the delegation pays
+before nx runs only `C(k,2)` flows on one reused auxiliary graph.
+
+Dead-ends confirmed (do not retry):
+- There is NO correct native per-pair local node-connectivity binding:
+  `_fnx.node_connectivity(g)` is GLOBAL-only; passing `(g, u, v)` SILENTLY returns
+  garbage (`_fnx.node_connectivity(g,0,2)=0` where nx local `(0,2)=3`) — the `u,v`
+  args are ignored. Per-pair routing diverges 52/200. (Latent binding foot-gun.)
+- Using the bulk `all_pairs_node_connectivity_rust` for a small nbunch is far
+  worse (full `O(V^2)` flows).
+
+Only viable lever (substantial, not a verify-quick win): either add an
+nbunch-restricted native kernel that builds the auxiliary node-connectivity digraph
+once and runs only the `C(k,2)` requested max-flows, or reimplement nx's
+`build_auxiliary_node_connectivity` + `local_node_connectivity` in-process over fnx
+adjacency to skip the `fnx->nx` conversion (max-flow tie-break parity required).
