@@ -1600,3 +1600,31 @@ Do not retry: do not micro-tweak `_fnx_to_nx` (node-attr skip, etc.) for the del
 tax — the gain is ~0 and the blast radius (175 delegating functions) is large. A real
 lever would need the native bulk crossing to emit original node objects AND
 pre-aligned rows so the Python remap+align passes disappear entirely.
+
+## 2026-06-20 `within_inter_cluster` bulk-community pre-fill REVERTED (net regression) (`br-r37-c1-wicbulk`, BlackThrush)
+
+`within_inter_cluster` (cut/link-prediction gauntlet, `within_inter_cluster_explicit_community`)
+on `Graph(400, 2000)` measured `0.54-0.61x` for a small explicit ebunch (50 pairs).
+Profiling blamed the per-node `G.nodes[w][community]` AtlasView read (vars/
+_private_override/__getitem__) over every ebunch endpoint AND common neighbor.
+
+Attempt: pre-fill the community cache in ONE bulk `nodes(data=community, default=MISS)`
+crossing (exact Graph only), raise lazily on first MISS access. Byte-exact 800/800
+incl default/explicit/missing-community.
+
+Pinned A/B (`taskset -c 2`, same window) — NET REGRESSION:
+- default ebunch (non_edges) n=200: `1.74x -> 1.55x` (WORSE)
+- 500-pair explicit: `1.57x -> 1.52x` (WORSE)
+- 50-pair explicit: `0.56x -> 0.61x` (better, the only win)
+
+Root cause: the existing per-node community_cache ALREADY amortizes repeated access
+(each distinct node read once, then cached), so the bulk read only helps when the
+ebunch+common-neighbors touch ~all of V AND each node is read once — which the cache
+already covers. The bulk read of all |V| communities is pure overhead when the
+accessed set < |V| (concentrated ebunch), and the added per-call `is _WIC_MISSING`
+branch taxes the O(V^2) default path. REVERTED per ~0-gain/regression.
+
+Do not retry: do not bulk-prefill node attrs for within_inter_cluster (or similar
+already-cached per-node-attr link-prediction scorers) — the lazy cache wins. The
+50-pair gap is the irreducible `G.neighbors` PyO3 per-node cost vs nx's dict (raw
+neighbors measured SLOWER, 158us vs 122us).
