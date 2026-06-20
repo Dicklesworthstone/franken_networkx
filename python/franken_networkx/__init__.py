@@ -17960,18 +17960,12 @@ def find_cycle(G, source=None, orientation=None):
         if cycle is None:
             raise NetworkXNoCycle("No cycle found.")
         return cycle
-    # br-r37-c1-fcmg: native fast path for the common undirected-MultiGraph case.
-    # The verbatim Python edge_dfs port (below) pays an fnx EdgeView per visited
-    # node (~14x nx); the kernel runs the keyed DFS entirely in Rust and returns
-    # (u, v, key) triples with user-facing key objects, early-exiting on the first
-    # cycle. Directed multigraph / explicit source / non-None orientation keep the
-    # Python port.
-    if (
-        source is None
-        and orientation is None
-        and G.is_multigraph()
-        and not G.is_directed()
-    ):
+    # br-r37-c1-fcmg: native fast path for the common MultiGraph / MultiDiGraph
+    # case. The verbatim Python edge_dfs port (below) pays an fnx EdgeView per
+    # visited node (~14x nx); the kernel runs the keyed DFS entirely in Rust and
+    # returns (u, v, key) triples with user-facing key objects, early-exiting on
+    # the first cycle. Explicit source / non-None orientation keep the Python port.
+    if source is None and orientation is None and G.is_multigraph():
         cycle = _raw_find_cycle_multigraph_simple(G)
         if cycle is None:
             raise NetworkXNoCycle("No cycle found.")

@@ -15579,14 +15579,21 @@ fn find_cycle_simple(
 /// `(tail, head, key)` index/key triples in nx's traversal order, or `None`.
 fn find_cycle_multigraph_dfs<'a>(
     nodes: &[&'a str],
+    directed: bool,
     mut compute_row: impl FnMut(&'a str) -> Vec<(&'a str, usize)>,
 ) -> Option<Vec<(&'a str, &'a str, usize)>> {
     let mut explored: HashSet<&'a str> = HashSet::new();
-    // Canonical PARALLEL-edge identity: unordered pair + key. Two parallel edges
-    // between the same pair differ in `key`, so each is a distinct traversable
-    // edge — making a parallel pair a 2-cycle exactly like nx's edge_dfs.
+    // PARALLEL-edge identity. Undirected: unordered pair + key, so two parallel
+    // edges between a pair differ in `key` and each is a distinct traversable
+    // edge (a parallel pair is a 2-cycle, exactly like nx's edge_dfs). Directed:
+    // the ordered triple (the edge keeps its direction), matching edge_dfs's
+    // `edge_id = edge` for directed graphs.
     let edge_id = |u: &'a str, v: &'a str, key: usize| -> (&'a str, &'a str, usize) {
-        if u <= v { (u, v, key) } else { (v, u, key) }
+        if directed || u <= v {
+            (u, v, key)
+        } else {
+            (v, u, key)
+        }
     };
     // br-r37-c1-fcmg: keyed adjacency rows are materialized ON DEMAND (only for
     // nodes the DFS actually reaches), so an early-exit cycle costs only the rows
@@ -15708,10 +15715,30 @@ fn multigraph_keyed_row<'a>(
     row
 }
 
-/// `find_cycle(G)` fast path for an undirected MultiGraph (orientation=None,
+/// br-r37-c1-fcmg: keyed OUT-edge row for one MultiDiGraph node, in
+/// `G.edges(node, keys=True)` (successor) order. Directed `find_cycle` follows
+/// out-edges; built on demand so only visited nodes pay.
+fn multidigraph_keyed_row<'a>(
+    mdg: &'a fnx_classes::digraph::MultiDiGraph,
+    node: &'a str,
+) -> Vec<(&'a str, usize)> {
+    let mut row: Vec<(&'a str, usize)> = Vec::new();
+    if let Some(successors) = mdg.successors(node) {
+        for successor in successors {
+            if let Some(keys) = mdg.edge_keys(node, successor) {
+                for key in keys {
+                    row.push((successor, key));
+                }
+            }
+        }
+    }
+    row
+}
+
+/// `find_cycle(G)` fast path for a MultiGraph or MultiDiGraph (orientation=None,
 /// source=None). Returns the cycle as `(u, v, key)` triples with the user-facing
 /// key object, or `None` if acyclic. The Python wrapper raises `NetworkXNoCycle`
-/// on `None` and keeps the verbatim Python port for directed / explicit source /
+/// on `None` and keeps the verbatim Python port for explicit source /
 /// non-None orientation.
 #[pyfunction]
 #[pyo3(signature = (g,))]
@@ -15720,41 +15747,66 @@ fn find_cycle_multigraph_simple(
     g: &Bound<'_, PyAny>,
 ) -> PyResult<Option<Vec<(PyObject, PyObject, PyObject)>>> {
     let gr = extract_graph(g)?;
-    let GraphRef::MultiUndirected { mg, .. } = &gr else {
-        return Ok(None);
-    };
-    let inner = &mg.inner;
-    let nodes = inner.nodes_ordered();
-    let cycle = py.allow_threads(|| {
-        find_cycle_multigraph_dfs(&nodes, |node| multigraph_keyed_row(inner, node))
-    });
-    // Map the internal usize key back to the user-facing key object (fnx
-    // multigraph keys may be arbitrary Python objects), mirroring
-    // PyMultiGraph::py_edge_key. nodes map via the GraphRef display helper.
-    let py_edge_key = |py: Python<'_>, u: &str, v: &str, key: usize| -> PyObject {
-        mg.edge_py_keys
-            .get(&crate::PyMultiGraph::edge_key(u, v, key))
-            .map_or_else(
-                || {
-                    crate::unwrap_infallible(key.into_pyobject(py))
-                        .into_any()
-                        .unbind()
-                },
-                |obj| obj.clone_ref(py),
-            )
-    };
-    Ok(cycle.map(|edges| {
-        edges
-            .iter()
-            .map(|&(u, v, key)| {
-                (
-                    gr.py_node_key(py, u),
-                    gr.py_node_key(py, v),
-                    py_edge_key(py, u, v, key),
-                )
+    // Run the keyed edge-DFS in node-key space, then map nodes + the internal
+    // usize key back to user-facing objects (fnx multigraph keys may be arbitrary
+    // Python objects), mirroring py_edge_key on the respective graph type.
+    let mapped = match &gr {
+        GraphRef::MultiUndirected { mg, .. } => {
+            let inner = &mg.inner;
+            let nodes = inner.nodes_ordered();
+            let cycle = py.allow_threads(|| {
+                find_cycle_multigraph_dfs(&nodes, false, |node| multigraph_keyed_row(inner, node))
+            });
+            cycle.map(|edges| {
+                edges
+                    .iter()
+                    .map(|&(u, v, key)| {
+                        let key_obj = mg
+                            .edge_py_keys
+                            .get(&crate::PyMultiGraph::edge_key(u, v, key))
+                            .map_or_else(
+                                || {
+                                    crate::unwrap_infallible(key.into_pyobject(py))
+                                        .into_any()
+                                        .unbind()
+                                },
+                                |obj| obj.clone_ref(py),
+                            );
+                        (gr.py_node_key(py, u), gr.py_node_key(py, v), key_obj)
+                    })
+                    .collect::<Vec<_>>()
             })
-            .collect::<Vec<_>>()
-    }))
+        }
+        GraphRef::MultiDirected { mdg, .. } => {
+            let inner = &mdg.inner;
+            let nodes = inner.nodes_ordered();
+            let cycle = py.allow_threads(|| {
+                find_cycle_multigraph_dfs(&nodes, true, |node| multidigraph_keyed_row(inner, node))
+            });
+            cycle.map(|edges| {
+                edges
+                    .iter()
+                    .map(|&(u, v, key)| {
+                        // Directed key identity is the ordered (u, v, key) triple.
+                        let key_obj = mdg
+                            .edge_py_keys
+                            .get(&(u.to_owned(), v.to_owned(), key))
+                            .map_or_else(
+                                || {
+                                    crate::unwrap_infallible(key.into_pyobject(py))
+                                        .into_any()
+                                        .unbind()
+                                },
+                                |obj| obj.clone_ref(py),
+                            );
+                        (gr.py_node_key(py, u), gr.py_node_key(py, v), key_obj)
+                    })
+                    .collect::<Vec<_>>()
+            })
+        }
+        _ => return Ok(None),
+    };
+    Ok(mapped)
 }
 
 // ===========================================================================

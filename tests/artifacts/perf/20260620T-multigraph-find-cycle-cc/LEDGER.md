@@ -51,8 +51,24 @@ Two measured iterations were required (recorded as honest negative evidence):
 - `pytest -k find_cycle`: 75 passed. (`test_threshold_module_parity` failure is
   pre-existing nx-version drift: `nx.find_creation_sequence` absent in 3.6.1.)
 
+## Follow-up: directed MultiDiGraph (same commit family)
+
+Extended the kernel to directed MultiDiGraph (orientation=None, source=None):
+`directed` flag flips the edge identity to the ordered `(u, v, key)` triple and
+the row computer follows successors (`multidigraph_keyed_row`). Measured:
+
+| Workload | Before | After | Verdict |
+| --- | ---: | ---: | --- |
+| MDG find_cycle n=1500 | 0.28x | **3.39x** | WIN |
+| MDG find_cycle n=5000 | — | **2.69x** | WIN |
+
+Parity: 3000 random MultiDiGraphs incl. parallel edges + string/int keys +
+acyclic, 0 mismatches. orientation {ignore,reverse,original} + explicit source
+keep the Python port (0 fails / ~2400 checks).
+
 ## Next route
 
-Directed MultiDiGraph `find_cycle` (~0.28x) and the orientation/source variants
-still use the Python port; a keyed directed edge-DFS with the `reverse`/`ignore`
-orientation tags would extend this win.
+Only the orientation/source variants still use the Python port (a keyed edge-DFS
+with `reverse`/`ignore` orientation tags would extend further), plus the
+`is_biconnected` upfront-adjacency residual (0.55x) which the same lazy
+node-key-space lever would close.
