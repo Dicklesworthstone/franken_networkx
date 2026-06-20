@@ -1525,3 +1525,27 @@ Do not retry:
   count (it feeds `conductance`); any volume self-loop fix belongs in a caller.
 - Next viable route would need a Python-object-native or integer-index degree-sum
   that skips canonical String conversion entirely.
+
+
+## 2026-06-20 MultiGraph/MultiDiGraph `bfs_edges` pinned re-measure (`br-r37-c1-1jm15`, BlackThrush)
+
+Pinned (`taskset -c 2`, `PYTHONHASHSEED=0`, warm min-of-40) on the bead's exact
+`MultiGraph(1000 nodes, 5000 edges)` fixture, fresh release build at `8b459515f`:
+
+- `MultiGraph.bfs_edges(0)`: FNX `0.50 ms` vs NetworkX `0.51 ms`, `1.01x` across 3
+  pinned trials (edge sequence identical, 999 edges). The `0.825x` recorded when
+  `1jm15` was split does NOT reproduce — a later build flipped it to parity. The
+  bead is effectively RESOLVED; recommend a pinned confirm + close.
+- `MultiDiGraph.bfs_edges(0)` (same shape): FNX `0.507 ms` vs NetworkX `0.425 ms`,
+  `0.84x` — a real residual. 100% in the native `_fnx.bfs_edges` kernel (cProfile:
+  zero Python overhead beyond the per-edge generator). Root cause is the
+  String-keyed directed-multigraph successor BFS substrate (the MultiGraph kernel
+  is already at parity), i.e. the same int-CSR migration class peers recorded as
+  no-ship for multidigraph CSR. Not a contained win.
+
+Do not retry:
+- Do not chase `MultiGraph.bfs_edges` as a loss without a pinned re-measure first;
+  it is at parity on the current build.
+- Do not micro-tweak the `MultiDiGraph.bfs_edges` kernel for the `0.84x` residual;
+  it is String-keyed-successor-substrate-bound, only an integer-CSR MultiDiGraph
+  adjacency would move it (deferred, peer-confirmed no-ship class).
