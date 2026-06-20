@@ -21680,6 +21680,20 @@ except ImportError:  # pragma: no cover — defensive for partial builds
 
 try:
     from franken_networkx._fnx import (
+        adjacency_arrays_multigraph_default_order_live_finite_checked as _native_adjacency_arrays_multigraph_default_order_live_checked,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_adjacency_arrays_multigraph_default_order_live_checked = None
+
+try:
+    from franken_networkx._fnx import (
+        adjacency_csr_multidigraph_default_order_live_finite_checked as _native_adjacency_csr_multidigraph_default_order_live_checked,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_adjacency_csr_multidigraph_default_order_live_checked = None
+
+try:
+    from franken_networkx._fnx import (
         graph_has_nonfinite_edge_weight_multigraph as _native_has_nonfinite_edge_weight_multigraph,
     )
 except ImportError:  # pragma: no cover — defensive for partial builds
@@ -51111,6 +51125,32 @@ def to_numpy_array(
     import numpy as np
 
     if nodelist is None:
+        if (
+            _native_adjacency_arrays_multigraph_default_order_live_checked is not None
+            and multigraph_weight is sum
+            and nonedge == 0
+            and isinstance(G, MultiDiGraph)
+            and G.is_multigraph()
+            and isinstance(weight, str)
+        ):
+            _mg_default = _native_adjacency_arrays_multigraph_default_order_live_checked(
+                G, weight, 1.0
+            )
+            if _mg_default is not None:
+                rows, cols, data = _mg_default
+                matrix = np.full(
+                    (len(G), len(G)),
+                    nonedge,
+                    dtype=dtype,
+                    order=order,
+                )
+                if rows:
+                    np.add.at(
+                        matrix,
+                        (np.asarray(rows), np.asarray(cols)),
+                        np.asarray(data, dtype=matrix.dtype),
+                    )
+                return matrix
         nodelist = list(G)
     else:
         nodelist = list(nodelist)
@@ -51394,6 +51434,74 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
         raise NetworkXError("Graph has no nodes or edges")
 
     default_nodelist = nodelist is None
+    if (
+        default_nodelist
+        and _native_adjacency_csr_multidigraph_default_order_live_checked is not None
+        and G.is_multigraph()
+        and isinstance(G, MultiDiGraph)
+        and isinstance(weight, str)
+        and dtype is None
+        and format == "csr"
+    ):
+        _mdg_csr = _native_adjacency_csr_multidigraph_default_order_live_checked(
+            G, weight, 1.0
+        )
+        if _mdg_csr is not None:
+            import numpy as _np
+
+            indptr, indices, data = _mdg_csr
+            n = len(G)
+            if data:
+                data_arr = _np.asarray(data)
+                if _np.array_equal(data_arr, data_arr.astype(_np.int64)):
+                    data_arr = data_arr.astype(_np.int64)
+            else:
+                data_arr = _np.asarray(data, dtype=_np.float64)
+            matrix = scipy.sparse.csr_array(
+                (
+                    data_arr,
+                    _np.asarray(indices, dtype=_np.intp),
+                    _np.asarray(indptr, dtype=_np.intp),
+                ),
+                shape=(n, n),
+            )
+            return matrix
+
+    if (
+        default_nodelist
+        and _native_adjacency_arrays_multigraph_default_order_live_checked is not None
+        and G.is_multigraph()
+        and isinstance(G, MultiDiGraph)
+        and isinstance(weight, str)
+        and dtype is None
+    ):
+        _mg_default = _native_adjacency_arrays_multigraph_default_order_live_checked(
+            G, weight, 1.0
+        )
+        if _mg_default is not None:
+            import numpy as _np
+
+            rows, cols, data = _mg_default
+            n = len(G)
+            if data:
+                data_arr = _np.asarray(data)
+                if _np.array_equal(data_arr, data_arr.astype(_np.int64)):
+                    matrix = scipy.sparse.coo_array(
+                        (data_arr.astype(_np.int64), (rows, cols)),
+                        shape=(n, n),
+                    )
+                else:
+                    matrix = scipy.sparse.coo_array(
+                        (data_arr, (rows, cols)),
+                        shape=(n, n),
+                    )
+            else:
+                matrix = scipy.sparse.coo_array(
+                    (data, (rows, cols)),
+                    shape=(n, n),
+                )
+            return matrix.asformat(format)
+
     if default_nodelist:
         nodelist = list(G)
     else:

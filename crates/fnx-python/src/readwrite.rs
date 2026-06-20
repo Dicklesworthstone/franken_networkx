@@ -25,7 +25,7 @@ use pyo3::types::PyList;
 use pyo3::types::PyString;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Read the file content from a path-like or file-like Python object.
 fn read_input(py: Python<'_>, source: &Bound<'_, PyAny>) -> PyResult<String> {
@@ -1952,6 +1952,17 @@ fn live_multigraph_weight(
     })
 }
 
+fn stored_multigraph_weight(
+    attrs: &fnx_classes::AttrMap,
+    weight_attr: &str,
+    default_weight: f64,
+) -> Option<f64> {
+    match attrs.get(weight_attr) {
+        Some(raw) => raw.as_f64().filter(|value| value.is_finite()),
+        None => Some(default_weight),
+    }
+}
+
 /// br-r37-c1-wvuf7: live-dict sibling of
 /// `adjacency_arrays_multigraph_finite_checked` for weighted sparse exporters.
 ///
@@ -2042,6 +2053,197 @@ pub fn adjacency_arrays_multigraph_live_finite_checked(
         GraphRef::Undirected(_) | GraphRef::Directed { .. } => return Ok(None),
     };
     Ok(Some((rows, cols, data)))
+}
+
+/// br-r37-c1-iyu0a: default-nodelist sibling of
+/// `adjacency_arrays_multigraph_live_finite_checked`.
+///
+/// The Python wrappers' common matrix-export route is `nodelist=None`, whose
+/// order is exactly `inner.nodes_ordered()`. The checked/live helper above still
+/// first materializes `list(G)` in Python and canonicalizes every node back to a
+/// Rust string solely to build `node -> row` indices. This helper builds that
+/// map directly from the native node order, then walks the same edge order and
+/// live edge-attr mirrors. It preserves the same fallback contract: a present
+/// non-numeric or non-finite weight returns `None`.
+#[pyfunction]
+pub fn adjacency_arrays_multigraph_default_order_live_finite_checked(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight_attr: &str,
+    default_weight: f64,
+) -> PyResult<Option<(Vec<usize>, Vec<usize>, Vec<f64>)>> {
+    let gr = extract_graph(g)?;
+    let (rows, cols, data) = match &gr {
+        GraphRef::MultiUndirected { mg, .. } => {
+            let inner = &mg.inner;
+            let mut index: std::collections::HashMap<&str, usize> =
+                std::collections::HashMap::with_capacity(inner.node_count());
+            for (row, node) in inner.nodes_ordered().into_iter().enumerate() {
+                index.insert(node, row);
+            }
+
+            let edge_count = inner.edge_count();
+            let mut rows: Vec<usize> = Vec::with_capacity(edge_count * 2);
+            let mut cols: Vec<usize> = Vec::with_capacity(edge_count * 2);
+            let mut data: Vec<f64> = Vec::with_capacity(edge_count * 2);
+            let use_stored_attrs = !mg.edges_dirty.load(Ordering::Relaxed);
+            for (u, v, key, attrs) in inner.edges_ordered_borrowed() {
+                let Some(&ui) = index.get(u) else { continue };
+                let Some(&vi) = index.get(v) else { continue };
+                let w = if use_stored_attrs {
+                    stored_multigraph_weight(attrs, weight_attr, default_weight)
+                } else {
+                    let mirror_key = PyMultiGraph::edge_key(u, v, key);
+                    live_multigraph_weight(
+                        py,
+                        mg.edge_py_attrs.get(&mirror_key),
+                        attrs,
+                        weight_attr,
+                        default_weight,
+                    )?
+                };
+                let Some(w) = w else {
+                    return Ok(None);
+                };
+                rows.push(ui);
+                cols.push(vi);
+                data.push(w);
+                if ui != vi {
+                    rows.push(vi);
+                    cols.push(ui);
+                    data.push(w);
+                }
+            }
+            (rows, cols, data)
+        }
+        GraphRef::MultiDirected { mdg, .. } => {
+            let inner = &mdg.inner;
+            let mut index: std::collections::HashMap<&str, usize> =
+                std::collections::HashMap::with_capacity(inner.node_count());
+            for (row, node) in inner.nodes_ordered().into_iter().enumerate() {
+                index.insert(node, row);
+            }
+
+            let edge_count = inner.edge_count();
+            let mut rows: Vec<usize> = Vec::with_capacity(edge_count);
+            let mut cols: Vec<usize> = Vec::with_capacity(edge_count);
+            let mut data: Vec<f64> = Vec::with_capacity(edge_count);
+            let use_stored_attrs = !mdg.edges_dirty.load(Ordering::Relaxed);
+            for (u, v, key, attrs) in inner.edges_ordered_borrowed() {
+                let Some(&ui) = index.get(u) else { continue };
+                let Some(&vi) = index.get(v) else { continue };
+                let w = if use_stored_attrs {
+                    stored_multigraph_weight(attrs, weight_attr, default_weight)
+                } else {
+                    let mirror_key = (u.to_owned(), v.to_owned(), key);
+                    live_multigraph_weight(
+                        py,
+                        mdg.edge_py_attrs.get(&mirror_key),
+                        attrs,
+                        weight_attr,
+                        default_weight,
+                    )?
+                };
+                let Some(w) = w else {
+                    return Ok(None);
+                };
+                rows.push(ui);
+                cols.push(vi);
+                data.push(w);
+            }
+            (rows, cols, data)
+        }
+        GraphRef::Undirected(_) | GraphRef::Directed { .. } => return Ok(None),
+    };
+    Ok(Some((rows, cols, data)))
+}
+
+/// br-r37-c1-iyu0a: CSR-specialized default-order MultiDiGraph matrix export.
+///
+/// The COO helper has to return a row vector as long as the edge stream and lets
+/// SciPy sum parallel duplicates during COO->CSR conversion. The default sparse
+/// exporter asks for CSR, so this helper streams the same source-major edge
+/// order into CSR arrays directly, summing only contiguous parallel `(u, v)`
+/// buckets. It is intentionally directed-only: COO duplicate visibility for
+/// other formats and undirected symmetric emission remain on the existing path.
+#[pyfunction]
+pub fn adjacency_csr_multidigraph_default_order_live_finite_checked(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight_attr: &str,
+    default_weight: f64,
+) -> PyResult<Option<(Vec<usize>, Vec<usize>, Vec<f64>)>> {
+    let gr = extract_graph(g)?;
+    let GraphRef::MultiDirected { mdg, .. } = &gr else {
+        return Ok(None);
+    };
+    let inner = &mdg.inner;
+    let node_count = inner.node_count();
+    let mut index: std::collections::HashMap<&str, usize> =
+        std::collections::HashMap::with_capacity(node_count);
+    for (row, node) in inner.nodes_ordered().into_iter().enumerate() {
+        index.insert(node, row);
+    }
+
+    let mut indptr: Vec<usize> = Vec::with_capacity(node_count + 1);
+    let mut indices: Vec<usize> = Vec::with_capacity(inner.edge_count());
+    let mut data: Vec<f64> = Vec::with_capacity(inner.edge_count());
+    indptr.push(0);
+
+    let use_stored_attrs = !mdg.edges_dirty.load(Ordering::Relaxed);
+    let mut current_row = 0usize;
+    let mut emitted = 0usize;
+    let mut pending: Option<(usize, f64)> = None;
+    for (u, v, key, attrs) in inner.edges_ordered_borrowed() {
+        let Some(&ui) = index.get(u) else { continue };
+        let Some(&vi) = index.get(v) else { continue };
+        let w = if use_stored_attrs {
+            stored_multigraph_weight(attrs, weight_attr, default_weight)
+        } else {
+            let mirror_key = (u.to_owned(), v.to_owned(), key);
+            live_multigraph_weight(
+                py,
+                mdg.edge_py_attrs.get(&mirror_key),
+                attrs,
+                weight_attr,
+                default_weight,
+            )?
+        };
+        let Some(w) = w else {
+            return Ok(None);
+        };
+
+        while current_row < ui {
+            if let Some((col, value)) = pending.take() {
+                indices.push(col);
+                data.push(value);
+                emitted += 1;
+            }
+            current_row += 1;
+            indptr.push(emitted);
+        }
+
+        if let Some((col, value)) = pending.as_mut()
+            && *col == vi
+        {
+            *value += w;
+            continue;
+        }
+        if let Some((col, value)) = pending.replace((vi, w)) {
+            indices.push(col);
+            data.push(value);
+            emitted += 1;
+        }
+    }
+    if let Some((col, value)) = pending {
+        indices.push(col);
+        data.push(value);
+        emitted += 1;
+    }
+    while indptr.len() <= node_count {
+        indptr.push(emitted);
+    }
+    Ok(Some((indptr, indices, data)))
 }
 
 /// br-r37-c1-fb9td: native O(|E|) non-finite-weight scan for MultiGraph /
@@ -2466,6 +2668,14 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     m.add_function(wrap_pyfunction!(
         adjacency_arrays_multigraph_live_finite_checked,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        adjacency_arrays_multigraph_default_order_live_finite_checked,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        adjacency_csr_multidigraph_default_order_live_finite_checked,
         m
     )?)?;
     m.add_function(wrap_pyfunction!(

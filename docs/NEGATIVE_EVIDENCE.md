@@ -856,3 +856,103 @@ Do not repeat:
   is a NetworkX-order blossom port/fork that can scan per-vertex adjacency rows
   exactly, or a formally exact uniqueness-gated native dispatch that declines
   tied-optimum cases before public routing.
+
+## 2026-06-20 Default-Order Multigraph Matrix Exporter Keep + Residual
+
+Scope: `br-r37-c1-iyu0a`, public `to_numpy_array` /
+`to_scipy_sparse_array` on exact `MultiGraph` / `MultiDiGraph`, default
+`nodelist=None`, `weight="weight"`, and `dtype=None`.
+
+Environment:
+- Agent: `CrimsonRiver` / `cod-a`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-a-bold-20260620T1345`.
+- Requested target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- The requested shared target hit incompatible-rustc E0514 (`cc`,
+  `target_lexicon`, and `serde` were compiled by a different nightly). No
+  cleanup was performed; release proof used fresh target
+  `/data/projects/.rch-targets/franken_networkx-cod-a-f20a92ec0-iyu0a-20260620T1349`.
+- Post-rebase release install used a second fresh target after the first fresh
+  target also hit E0514:
+  `/data/projects/.rch-targets/franken_networkx-cod-a-f20a92ec0-iyu0a-postrebase-20260620T1832`.
+- NetworkX oracle: vendored import via
+  `PYTHONPATH=<worktree>/python:<worktree>/legacy_networkx_code`;
+  `PYTHONHASHSEED=0`, `OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`.
+
+Kept lever:
+- Added a default-order native multigraph COO helper that avoids Python
+  `list(G)` node canonicalization and reads stored Rust attrs directly when
+  `edges_dirty` is false, falling back to live PyDict mirrors when dirty.
+- Added a `MultiDiGraph` default-order CSR helper for `format="csr"` that
+  pre-sums contiguous parallel edges before constructing the SciPy CSR array.
+
+Baseline in this clean worktree:
+
+| Workload | Baseline ratio vs NetworkX |
+| --- | ---: |
+| n=500 `to_numpy MultiGraph` | 1.249x |
+| n=500 `to_scipy MultiGraph` | 1.136x |
+| n=500 `to_numpy MultiDiGraph` | 1.188x |
+| n=500 `to_scipy MultiDiGraph` | 0.938x |
+| n=2000 `to_numpy MultiGraph` | 0.853x |
+| n=2000 `to_scipy MultiGraph` | 0.847x |
+| n=2000 `to_numpy MultiDiGraph` | 1.049x |
+| n=2000 `to_scipy MultiDiGraph` | 0.645x |
+
+Final measured proof:
+
+| Workload | FNX | NetworkX | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| n=500 `to_numpy MultiGraph` | 1.76 ms | 2.38 ms | 1.352x | win |
+| n=500 `to_scipy MultiGraph` | 1.89 ms | 2.18 ms | 1.155x | win |
+| n=500 `to_numpy MultiDiGraph` | 2.43 ms | 4.23 ms | 1.741x | win |
+| n=500 `to_scipy MultiDiGraph` | 1.99 ms | 3.00 ms | 1.508x | win |
+| n=2000 `to_numpy MultiGraph` | 8.199 ms | 7.888 ms | 0.962x | active loss |
+| n=2000 `to_scipy MultiGraph` | 6.004 ms | 5.007 ms | 0.834x | active loss |
+| n=2000 `to_numpy MultiDiGraph` | 11.797 ms | 13.844 ms | 1.174x | win |
+| n=2000 `to_scipy MultiDiGraph` min-of-9 | 8.097 ms | 7.005 ms | 0.865x | active loss |
+| n=2000 `to_scipy MultiDiGraph` 50-run min | 5.790 ms | 6.793 ms | 1.173x | noisy win |
+| n=2000 `to_scipy MultiDiGraph` 50-run median | 9.290 ms | 8.276 ms | 0.891x | active loss |
+
+Conformance:
+- `cargo fmt --check`, `git diff --check`, and
+  `python3 -m py_compile python/franken_networkx/__init__.py` passed.
+- Per-crate RCH gates passed for `fnx-python`:
+  `cargo check -p fnx-python --features pyo3/abi3-py310`,
+  `cargo clippy -p fnx-python --all-targets --features pyo3/abi3-py310 -- -D warnings`,
+  `cargo build -p fnx-python --release --features pyo3/abi3-py310`, and
+  `cargo bench -p fnx-python --features pyo3/abi3-py310 --no-run`.
+- Focused Python exporter suite passed before and after rebase: `604 passed`.
+- `ubs` on touched files reached existing file-wide findings in the large
+  pre-existing Python/Rust files; no new UBS-specific code issue was kept.
+- `tests/artifacts/perf/20260620T-multigraph-matrix-coo-cc/bench_and_parity.py`
+  stayed green: `160` configs x `2` exporters, `0` fails, golden
+  `bff9639b02900c23d43c585672cddf6a3e39676fa40c631efccec93bfeb44307`.
+- Focused dirty finite-weight mutation parity for default-order
+  `MultiDiGraph` dense/CSR/COO paths passed before the nonnumeric fallback
+  probe hit a pre-existing exception-class mismatch outside this fast path.
+
+Rejected sub-levers:
+- Broadly enabling the default-order helper for undirected `MultiGraph` at
+  larger scale regressed `to_scipy MultiGraph` (`0.777x` on the n=2000 probe);
+  final Python dispatch is narrowed to `MultiDiGraph` for the new default-order
+  helpers.
+- A streaming-successor CSR rewrite that avoided `edges_ordered_borrowed()`
+  regressed the n=500 fixture (`to_scipy MultiDiGraph` fell to `0.808x`) and
+  was manually reverted.
+
+Decision:
+- Keep as a measured partial closeout for the original default-order
+  n≈400/500 matrix-exporter gap: `4` wins / `0` losses / `0` neutral on the
+  artifact harness.
+- Do not claim large-scale sparse domination: n=2000 sparse median rows remain
+  active losses and need a deeper boundary/layout route.
+
+Do not repeat:
+- Do not re-enable the undirected `MultiGraph` default-order helper without a
+  new large-scale undirected sparse proof.
+- Do not retry the streaming-successor CSR accessor path; the allocated
+  `edges_ordered_borrowed()` version is the measured keep.
+- Next route for the residual: reduce PyO3 Vec-to-NumPy handoff cost or add a
+  native array/CSR buffer boundary for large sparse multigraph exporters.

@@ -296,8 +296,11 @@ def test_dtype_none_bool_string_weight_keeps_fallback_dtype():
 
 @needs_nx
 def test_multidigraph_dtype_none_live_checked_route_skips_sync(monkeypatch):
+    native_csr = getattr(
+        fnx, "_native_adjacency_csr_multidigraph_default_order_live_checked", None
+    )
     native_live = getattr(fnx, "_native_adjacency_arrays_multigraph_live_checked", None)
-    if native_live is None:
+    if native_csr is None and native_live is None:
         pytest.skip("live multigraph sparse helper unavailable")
 
     ng, fg = nx.MultiDiGraph(), fnx.MultiDiGraph()
@@ -312,21 +315,37 @@ def test_multidigraph_dtype_none_live_checked_route_skips_sync(monkeypatch):
 
     calls = []
 
-    def wrapped_live(graph, nodelist, weight, default_weight):
-        calls.append((graph, tuple(nodelist), weight, default_weight))
-        return native_live(graph, nodelist, weight, default_weight)
+    if native_csr is not None:
+        def wrapped_native(graph, weight, default_weight):
+            calls.append((graph, weight, default_weight))
+            return native_csr(graph, weight, default_weight)
+
+        expected_calls = [(fg, "weight", 1.0)]
+        monkeypatch.setattr(
+            fnx,
+            "_native_adjacency_csr_multidigraph_default_order_live_checked",
+            wrapped_native,
+        )
+    else:
+        def wrapped_native(graph, nodelist, weight, default_weight):
+            calls.append((graph, tuple(nodelist), weight, default_weight))
+            return native_live(graph, nodelist, weight, default_weight)
+
+        expected_calls = [(fg, (0, 1, 2, 3), "weight", 1.0)]
+        monkeypatch.setattr(
+            fnx, "_native_adjacency_arrays_multigraph_live_checked", wrapped_native
+        )
 
     def fail_sync(*_args, **_kwargs):
         raise AssertionError("live checked multigraph route must not sync")
 
-    monkeypatch.setattr(fnx, "_native_adjacency_arrays_multigraph_live_checked", wrapped_live)
     monkeypatch.setattr(fnx, "_sync_rust_edge_attrs", fail_sync)
 
     expected = nx.to_scipy_sparse_array(ng, dtype=None, weight="weight")
     actual = fnx.to_scipy_sparse_array(fg, dtype=None, weight="weight")
 
     _assert_csr_payload_equal(actual, expected)
-    assert calls == [(fg, (0, 1, 2, 3), "weight", 1.0)]
+    assert calls == expected_calls
 
 
 @needs_nx

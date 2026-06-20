@@ -411,46 +411,76 @@ live-dict route is worth keeping for directed multigraph exporter sync removal,
 but this bead stays open for a default-order integer-index COO/boundary
 specialization.
 
-## 2026-06-20 Multigraph Matrix Exporter BOLD-VERIFY Slice
+## 2026-06-20 Default-Order Multigraph Matrix Exporter BOLD-VERIFY Slice
 
 Environment:
-- Agent: `CrimsonRiver` / `cod-b`.
-- Target dir: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
-- Release gates: `cargo fmt --check`; `rch exec -- cargo check -p fnx-python --benches`;
-  `rch exec -- cargo clippy -p fnx-python --all-targets -- -D warnings`;
-  `rch exec -- cargo build --release -p fnx-python`.
-- Release extension rebuilt with `maturin develop --release --features pyo3/abi3-py310`
-  using fresh target dir `/data/projects/.rch-targets/franken_networkx-cod-b-maturin-clean-f20a92ec0`.
+- Agent: `CrimsonRiver` / `cod-a`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-a-bold-20260620T1345`.
+- Requested target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- The requested shared target hit incompatible-rustc E0514 and was not
+  cleaned. Release proof used fresh target
+  `/data/projects/.rch-targets/franken_networkx-cod-a-f20a92ec0-iyu0a-20260620T1349`.
+- Post-rebase release install used second fresh target
+  `/data/projects/.rch-targets/franken_networkx-cod-a-f20a92ec0-iyu0a-postrebase-20260620T1832`
+  after the first fresh target also hit E0514. No target cleanup was performed.
+- Gates: `cargo fmt --check`; `git diff --check`;
+  `python3 -m py_compile python/franken_networkx/__init__.py`;
+  `rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`;
+  `rch exec -- cargo clippy -p fnx-python --all-targets --features pyo3/abi3-py310 -- -D warnings`;
+  `rch exec -- cargo build -p fnx-python --release --features pyo3/abi3-py310`;
+  `rch exec -- cargo bench -p fnx-python --features pyo3/abi3-py310 --no-run`;
+  release `maturin develop --release --features pyo3/abi3-py310`;
+  focused exporter pytest `604 passed` before and after rebase.
 - Harness: `tests/artifacts/perf/20260620T-multigraph-matrix-coo-cc/bench_and_parity.py`.
-- Focused conformance: every run reported `160` configs x `2` exporters,
+- Focused conformance: final run reported `160` configs x `2` exporters,
   `0` fails, golden `bff9639b02900c23d43c585672cddf6a3e39676fa40c631efccec93bfeb44307`.
 
-Clean final repeat medians:
+Kept route:
+- Native default-order multigraph COO helper for `nodelist=None`, avoiding
+  Python nodelist canonicalization and reading stored attrs directly when
+  `edges_dirty` is false.
+- `MultiDiGraph` default CSR helper for `format="csr"` that pre-sums parallel
+  edge buckets before SciPy construction.
 
-| Bead | Workload | FNX median | NetworkX median | Ratio vs NetworkX | Decision |
+Final artifact harness:
+
+| Bead | Workload | FNX | NetworkX | Ratio vs NetworkX | Decision |
 | --- | --- | ---: | ---: | ---: | --- |
-| `br-r37-c1-iyu0a` | `to_numpy_array`, `MultiGraph` | 2.72 ms | 2.72 ms | 1.003x | Neutral/no release claim |
-| `br-r37-c1-iyu0a` | `to_scipy_sparse_array`, `MultiGraph` | 2.67 ms | 2.35 ms | 0.880x | Loss |
-| `br-r37-c1-iyu0a` | `to_numpy_array`, `MultiDiGraph` | 8.75 ms | 5.40 ms | 0.617x | Loss |
-| `br-r37-c1-iyu0a` | `to_scipy_sparse_array`, `MultiDiGraph` | 8.35 ms | 3.66 ms | 0.439x | Loss |
+| `br-r37-c1-iyu0a` | n=500 `to_numpy_array`, `MultiGraph` | 1.76 ms | 2.38 ms | 1.352x | Win |
+| `br-r37-c1-iyu0a` | n=500 `to_scipy_sparse_array`, `MultiGraph` | 1.89 ms | 2.18 ms | 1.155x | Win |
+| `br-r37-c1-iyu0a` | n=500 `to_numpy_array`, `MultiDiGraph` | 2.43 ms | 4.23 ms | 1.741x | Win |
+| `br-r37-c1-iyu0a` | n=500 `to_scipy_sparse_array`, `MultiDiGraph` | 1.99 ms | 3.00 ms | 1.508x | Win |
 
-Rejected subattempt:
-- A precise `MultiDiGraph` dirty-key scaffold was measured before commit and
-  removed. Best repeated dirty-key ratios still lost: `to_numpy MultiDiGraph`
-  `0.852x`, `to_scipy MultiDiGraph` `0.551x`.
+Large residual probe:
+
+| Workload | FNX | NetworkX | Ratio vs NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| n=2000 `to_numpy MultiGraph` | 8.199 ms | 7.888 ms | 0.962x | Residual loss |
+| n=2000 `to_scipy MultiGraph` | 6.004 ms | 5.007 ms | 0.834x | Residual loss |
+| n=2000 `to_numpy MultiDiGraph` | 11.797 ms | 13.844 ms | 1.174x | Win |
+| n=2000 `to_scipy MultiDiGraph`, min-of-9 | 8.097 ms | 7.005 ms | 0.865x | Residual loss |
+| n=2000 `to_scipy MultiDiGraph`, 50-run min | 5.790 ms | 6.793 ms | 1.173x | Noisy win |
+| n=2000 `to_scipy MultiDiGraph`, 50-run median | 9.290 ms | 8.276 ms | 0.891x | Residual loss |
+
+Rejected subattempts:
+- Broad undirected default-order dispatch regressed large `MultiGraph`
+  `to_scipy_sparse_array` (`0.777x`) and was narrowed away.
+- Streaming-successor CSR accessors regressed the n=500 fixture
+  (`to_scipy MultiDiGraph` `0.808x`) and were manually reverted.
 
 Score:
-- Win/loss/neutral accounting: `0` wins, `3` losses, `1` neutral for the
-  clean multigraph exporter slice.
-- Performance evidence: parity is green, but NetworkX domination is not achieved.
-- Ledger hygiene: the attempted dirty-key route and clean final losses are
+- Win/loss/neutral accounting for original n≈400/500 exporter gap:
+  `4` wins, `0` losses, `0` neutral.
+- Performance evidence: large sparse median rows are improved but not dominated.
+- Ledger hygiene: kept route, residual losses, and reverted subattempts are
   recorded in `docs/NEGATIVE_EVIDENCE.md` and
   `docs/progress/perf-negative-results.md`.
 
-Release readiness verdict for this slice: **fail/no-ship**. Do not claim this
-row from self-speedup or noisy `to_numpy MultiGraph` samples. Next route should
-fuse finite-weight validation into `adjacency_arrays_multigraph`, then measure
-whether default-order integer-index multigraph COO is still needed.
+Release readiness verdict for this slice: **partial keep**. Close the original
+default-order exporter gap, but keep a follow-up for large sparse multigraph
+matrix exporter boundary/layout work.
 
 ## 2026-06-19 MultiDiGraph Connectivity BOLD-VERIFY Slice
 
