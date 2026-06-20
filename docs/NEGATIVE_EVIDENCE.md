@@ -1573,3 +1573,30 @@ nbunch-restricted native kernel that builds the auxiliary node-connectivity digr
 once and runs only the `C(k,2)` requested max-flows, or reimplement nx's
 `build_auxiliary_node_connectivity` + `local_node_connectivity` in-process over fnx
 adjacency to skip the `fnx->nx` conversion (max-flow tie-break parity required).
+
+## 2026-06-20 Delegation-tax root cause: `_fnx_to_nx` conversion is 5x `nx.Graph(edges)` (BlackThrush)
+
+Context for the residual small-input delegation losses (e.g. all_pairs_node_connectivity
+above). Pinned (`taskset -c 2`): `_networkx_graph_for_parity` -> `backend._fnx_to_nx`
+costs `3.1 ms` (n=400) / `16.4 ms` (n=1500/7000e) vs `nx.Graph(g.edges())` `0.73 ms` /
+`3.4 ms` — ~5x. cProfile of `_fnx_to_nx` (n=1500): body `9.8 ms` + nx `add_edges_from`
+`5.8 ms` + native `fnx_to_nx_adjacency` `2 ms` + `_align_rows` `2 ms`; ~500k `dict.update`
++ 254k `dict.get` per 30 calls.
+
+Why it is NOT a verify-quick win:
+- The body cost is dominated by (a) the parity-REQUIRED adjacency-row alignment
+  (`_align_inline`/`_align_rows` reorder nx `_adj`/`_succ`/`_pred` rows to match fnx
+  insertion order — REQUIRED or every order-dependent delegated algo diverges:
+  greedy_color, ego_graph, BFS/DFS variants) and (b) the canonical-key -> original-
+  Python-object remap (the native bulk returns interned canonical strings, not the
+  user's node objects). Both are inherent to faithful delegation, not waste.
+- The node-attr materialization (`dict(node_view[node])` per node) is only `0.39 ms`
+  of the `16.4 ms` (gating it on the cheap native `graph_has_any_attrs` saves ~3%,
+  i.e. ~0-gain), so it is NOT worth a critical-path edit.
+- Per-function payoff is small: the delegated algorithm usually dominates; halving
+  the conversion would still leave all_pairs_node_connectivity(small nbunch) a loss.
+
+Do not retry: do not micro-tweak `_fnx_to_nx` (node-attr skip, etc.) for the delegation
+tax — the gain is ~0 and the blast radius (175 delegating functions) is large. A real
+lever would need the native bulk crossing to emit original node objects AND
+pre-aligned rows so the Python remap+align passes disappear entirely.
