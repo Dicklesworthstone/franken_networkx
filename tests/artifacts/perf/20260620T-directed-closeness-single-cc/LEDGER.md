@@ -19,3 +19,14 @@ hop sum -> byte-identical.
 
 700 random Graph+DiGraph, single u: 0 mismatches, byte-exact float (600/600
 isolated single_target check too). pytest -k closeness: 371 passed.
+
+## Follow-up: weighted single-u closeness (br-r37-c1-closedir)
+
+The weighted single-u path also delegated. Mirrored the whole-graph weighted path
+(reverse + single_source_dijkstra) for a single u, keeping nx's weight contract.
+| closeness(distance='weight', u=0) | before | after |
+| --- | ---: | ---: |
+| Graph | (delegated) | **2.76x** |
+| DiGraph | 0.58x | 0.78x (residual = G.reverse() build; needs single_target_dijkstra) |
+Parity: 700 random Graph+DiGraph single-u INCL bad weights (negative/inf/non-numeric
+all raise/handle identically), 0 mismatches.

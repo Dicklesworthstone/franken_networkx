@@ -22149,6 +22149,23 @@ def closeness_centrality(
             closeness *= (len(sp) - 1.0) / (len_G - 1)
         return closeness
 
+    # br-r37-c1-closedir: weighted single-u closeness (a ``distance`` attr) — the
+    # whole-graph weighted path below already handles u=None via reverse + dijkstra
+    # byte-exactly; mirror it for a single u so it stops delegating (~2x nx). The
+    # single_source_dijkstra_path_length wrapper keeps nx's weight contract
+    # (negative / +inf / non-numeric weights raise/delegate identically), so bad
+    # weights surface the same error as nx; clean weights give byte-exact sums.
+    if u is not None and distance is not None and wf_improved and u in G:
+        H = G.reverse() if G.is_directed() else G
+        sp = single_source_dijkstra_path_length(H, u, weight=distance)
+        totsp = sum(sp.values())
+        len_G = len(G)
+        closeness = 0.0
+        if totsp > 0.0 and len_G > 1:
+            closeness = (len(sp) - 1.0) / totsp
+            closeness *= (len(sp) - 1.0) / (len_G - 1)
+        return closeness
+
     # br-clwdijkstra: weighted closeness (a ``distance`` edge attribute) for the
     # whole-graph case previously delegated to networkx — a full fnx->nx
     # conversion plus nx's single-threaded per-node Python Dijkstra (~2.5 s on
