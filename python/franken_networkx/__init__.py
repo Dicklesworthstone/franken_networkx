@@ -21694,6 +21694,13 @@ except ImportError:  # pragma: no cover — defensive for partial builds
 
 try:
     from franken_networkx._fnx import (
+        adjacency_csr_bytes_multidigraph_default_order_live_finite_checked as _native_adjacency_csr_bytes_multidigraph_default_order_live_checked,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_adjacency_csr_bytes_multidigraph_default_order_live_checked = None
+
+try:
+    from franken_networkx._fnx import (
         graph_has_nonfinite_edge_weight_multigraph as _native_has_nonfinite_edge_weight_multigraph,
     )
 except ImportError:  # pragma: no cover — defensive for partial builds
@@ -51434,6 +51441,38 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
         raise NetworkXError("Graph has no nodes or edges")
 
     default_nodelist = nodelist is None
+    if (
+        default_nodelist
+        and _native_adjacency_csr_bytes_multidigraph_default_order_live_checked is not None
+        and G.is_multigraph()
+        and isinstance(G, MultiDiGraph)
+        and isinstance(weight, str)
+        and dtype is None
+        and format == "csr"
+    ):
+        _mdg_csr = _native_adjacency_csr_bytes_multidigraph_default_order_live_checked(
+            G, weight, 1.0
+        )
+        if _mdg_csr is not None:
+            import numpy as _np
+
+            indptr_bytes, indices_bytes, data_bytes = _mdg_csr
+            n = len(G)
+            data_arr = _np.frombuffer(data_bytes, dtype=_np.float64)
+            if data_arr.size:
+                int_data_arr = data_arr.astype(_np.int64)
+                if _np.array_equal(data_arr, int_data_arr):
+                    data_arr = int_data_arr
+            matrix = scipy.sparse.csr_array(
+                (
+                    data_arr,
+                    _np.frombuffer(indices_bytes, dtype=_np.intp),
+                    _np.frombuffer(indptr_bytes, dtype=_np.intp),
+                ),
+                shape=(n, n),
+            )
+            return matrix
+
     if (
         default_nodelist
         and _native_adjacency_csr_multidigraph_default_order_live_checked is not None

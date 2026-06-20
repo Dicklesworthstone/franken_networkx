@@ -2478,6 +2478,56 @@ impl MultiDiGraph {
         ordered
     }
 
+    pub fn try_for_each_edge_ordered_borrowed<E>(
+        &self,
+        mut visit: impl FnMut(&str, &str, usize, &AttrMap) -> Result<(), E>,
+    ) -> Result<(), E> {
+        for node in self.nodes.keys() {
+            if let Some(neighbors) = self.successors.get(node) {
+                for target in neighbors.keys() {
+                    let pair = DirectedEdgeKeyRef::new(node, target);
+                    if let Some(edge_bucket) = self.edges.get(&pair) {
+                        for (key, attrs) in edge_bucket {
+                            visit(node.as_str(), target.as_str(), *key, attrs)?;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn try_for_each_indexed_edge_ordered_borrowed<E>(
+        &self,
+        mut visit: impl FnMut(usize, usize, &str, &str, usize, &AttrMap) -> Result<(), E>,
+    ) -> Result<(), E> {
+        for (source_index, node) in self.nodes.keys().enumerate() {
+            if let Some(neighbors) = self.successors.get(node) {
+                for target in neighbors.keys() {
+                    let Some(target_index) = self.nodes.get_index_of(target.as_str()) else {
+                        continue;
+                    };
+                    let pair = DirectedEdgeKeyRef::new(node, target);
+                    if let Some(edge_bucket) = self.edges.get(&pair) {
+                        for (key, attrs) in edge_bucket {
+                            visit(
+                                source_index,
+                                target_index,
+                                node.as_str(),
+                                target.as_str(),
+                                *key,
+                                attrs,
+                            )?;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Return a reversed copy with NetworkX-compatible node/edge row order.
     ///
     /// This is the directed-multigraph sibling of `DiGraph::reversed`, but it

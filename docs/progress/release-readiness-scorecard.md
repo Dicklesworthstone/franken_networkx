@@ -18,7 +18,57 @@ verification (`br-r37-c1-lmqwv`) plus dirty `MultiDiGraph` sparse exporter
 boundary verification (`br-r37-c1-kqh2u`) plus cod-b precise dirty-key
 dirty sparse-export verification (`br-r37-c1-04z53`) plus cod-a default-order
 `MultiDiGraph` CSR row-streaming verification (`br-r37-c1-04z53`) and cod-b
-CSR boundary snapshot verification (`br-r37-c1-04z53`).
+CSR boundary snapshot verification (`br-r37-c1-04z53`) plus
+cod-a indexed bytearray CSR boundary verification (`br-r37-c1-q2w4t`).
+
+## 2026-06-20 Cod-A Indexed Bytearray CSR Boundary Keep
+
+Environment:
+- Agent Mail identity: `CrimsonRiver`; CLI actor: `cod-a`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-a-boldverify-20260620T2025Z`.
+- Requested RCH target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- Release extension installed from fresh non-destructive target leaf
+  `/data/projects/.rch-targets/franken_networkx-cod-a/f20a-local`; final RCH
+  check/test/clippy/build used the requested target with worker-scoped remotes.
+- Oracle: vendored NetworkX from this worktree, Python `3.13.7`, pinned source
+  `PYTHONPATH`, `PYTHONHASHSEED=0`, `OMP_NUM_THREADS=1`,
+  `OPENBLAS_NUM_THREADS=1`, `taskset -c 4`.
+
+Measured decision:
+
+| Bead | Workload | FNX route | NetworkX | Ratio vs NetworkX | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `br-r37-c1-q2w4t` | n=500, 3k-edge `to_scipy_sparse_array`, default-order MDG | 0.355143 ms | 1.217437 ms | 3.428x | Keep |
+| `br-r37-c1-q2w4t` | n=1000, 6k-edge `to_scipy_sparse_array`, default-order MDG | 0.740944 ms | 2.475911 ms | 3.342x | Keep |
+| `br-r37-c1-q2w4t` | n=2000, 12k-edge `to_scipy_sparse_array`, default-order MDG | 1.729036 ms | 5.001066 ms | 2.892x | Keep |
+
+Score:
+- Target accounting: `3` wins, `0` losses, `0` neutral vs NetworkX.
+- Same-process n=2000 fallback comparison: new indexed bytearray CSR path
+  `2.3780405 ms`, old list-returning CSR fallback `3.3666895 ms`, NetworkX
+  `5.228357 ms`; new path is `1.416x` faster than old and `2.199x` vs
+  NetworkX.
+- Rejected subattempts: immutable `bytes` buffers failed because SciPy may
+  write back during CSR canonicalization; non-indexed `PyByteArray` handoff was
+  only a partial self-speedup and stayed below NetworkX in the pinned n=2000
+  direct `to_scipy_sparse_array` row.
+- Conformance evidence: sparse payload `diff_nnz=0` and sums matched on every
+  final sweep row; focused sparse exporter parity `304 passed`; `cargo fmt
+  --check`; RCH `cargo check`, `cargo test`, `cargo clippy -D warnings`, and
+  `cargo build --release` for `fnx-classes` + `fnx-python` passed.
+- UBS completed with exit `0` on the changed Rust files and focused Python
+  parity test. The all-touched-file UBS run was stopped after the Python pass
+  spent roughly nine minutes on the pre-existing 56k-line public wrapper file;
+  focused pytest and `py_compile` are the wrapper-path gates for this slice.
+- Ledger hygiene: kept route and rejected subattempts are recorded in
+  `docs/NEGATIVE_EVIDENCE.md` and
+  `docs/progress/perf-negative-results.md`.
+
+Release readiness verdict for this slice: **keep**. The clean default-order
+directed CSR sparse-export residual is closed. Dirty/live sparse exporter rows
+remain separate active work.
 
 ## 2026-06-20 Cod-A MultiDiGraph CSR Row-Streaming Reject
 

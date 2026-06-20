@@ -296,11 +296,16 @@ def test_dtype_none_bool_string_weight_keeps_fallback_dtype():
 
 @needs_nx
 def test_multidigraph_dtype_none_live_checked_route_skips_sync(monkeypatch):
+    native_csr_bytes = getattr(
+        fnx,
+        "_native_adjacency_csr_bytes_multidigraph_default_order_live_checked",
+        None,
+    )
     native_csr = getattr(
         fnx, "_native_adjacency_csr_multidigraph_default_order_live_checked", None
     )
     native_live = getattr(fnx, "_native_adjacency_arrays_multigraph_live_checked", None)
-    if native_csr is None and native_live is None:
+    if native_csr_bytes is None and native_csr is None and native_live is None:
         pytest.skip("live multigraph sparse helper unavailable")
 
     ng, fg = nx.MultiDiGraph(), fnx.MultiDiGraph()
@@ -315,7 +320,18 @@ def test_multidigraph_dtype_none_live_checked_route_skips_sync(monkeypatch):
 
     calls = []
 
-    if native_csr is not None:
+    if native_csr_bytes is not None:
+        def wrapped_native(graph, weight, default_weight):
+            calls.append((graph, weight, default_weight))
+            return native_csr_bytes(graph, weight, default_weight)
+
+        expected_calls = [(fg, "weight", 1.0)]
+        monkeypatch.setattr(
+            fnx,
+            "_native_adjacency_csr_bytes_multidigraph_default_order_live_checked",
+            wrapped_native,
+        )
+    elif native_csr is not None:
         def wrapped_native(graph, weight, default_weight):
             calls.append((graph, weight, default_weight))
             return native_csr(graph, weight, default_weight)

@@ -18,6 +18,7 @@ use fnx_readwrite::{DiReadWriteReport, EdgeListEngine, ReadWriteError, ReadWrite
 use fnx_runtime::CompatibilityMode;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
+use pyo3::types::PyByteArray;
 use pyo3::types::PyBytes;
 use pyo3::types::PyDict;
 use pyo3::types::PyInt;
@@ -2246,6 +2247,116 @@ pub fn adjacency_csr_multidigraph_default_order_live_finite_checked(
     Ok(Some((indptr, indices, data)))
 }
 
+fn append_csr_intp_bytes(out: &mut Vec<u8>, value: usize) -> PyResult<()> {
+    let value = isize::try_from(value)
+        .map_err(|_| PyRuntimeError::new_err("CSR index exceeds platform intp range"))?;
+    out.extend_from_slice(&value.to_ne_bytes());
+    Ok(())
+}
+
+fn append_csr_f64_bytes(out: &mut Vec<u8>, value: f64) {
+    out.extend_from_slice(&value.to_ne_bytes());
+}
+
+/// br-r37-c1-q2w4t: byte-backed CSR handoff for default-order MultiDiGraph.
+///
+/// The tuple-valued CSR helper is already native, but PyO3 still materializes
+/// three Python lists before NumPy re-copies them. This variant keeps the same
+/// semantics and mutation guards while handing Python native-endian `intp` and
+/// `float64` buffers that can be consumed with `numpy.frombuffer`.
+#[pyfunction]
+pub fn adjacency_csr_bytes_multidigraph_default_order_live_finite_checked(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight_attr: &str,
+    default_weight: f64,
+) -> PyResult<Option<(Py<PyByteArray>, Py<PyByteArray>, Py<PyByteArray>)>> {
+    let gr = extract_graph(g)?;
+    let GraphRef::MultiDirected { mdg, .. } = &gr else {
+        return Ok(None);
+    };
+    let inner = &mdg.inner;
+    let node_count = inner.node_count();
+
+    let intp_width = std::mem::size_of::<isize>();
+    let mut indptr: Vec<u8> = Vec::with_capacity((node_count + 1) * intp_width);
+    let mut indices: Vec<u8> = Vec::with_capacity(inner.edge_count() * intp_width);
+    let mut data: Vec<u8> = Vec::with_capacity(inner.edge_count() * std::mem::size_of::<f64>());
+    append_csr_intp_bytes(&mut indptr, 0)?;
+
+    let use_stored_attrs = !mdg.edges_dirty.load(Ordering::Relaxed);
+    let mut current_row = 0usize;
+    let mut emitted = 0usize;
+    let mut pending: Option<(usize, f64)> = None;
+
+    enum CsrBuildStop {
+        Unsupported,
+        Error(PyErr),
+    }
+
+    let build_result: Result<(), CsrBuildStop> =
+        inner.try_for_each_indexed_edge_ordered_borrowed(|ui, vi, u, v, key, attrs| {
+            let w = if use_stored_attrs {
+                stored_multigraph_weight(attrs, weight_attr, default_weight)
+            } else {
+                let mirror_key = (u.to_owned(), v.to_owned(), key);
+                live_multigraph_weight(
+                    py,
+                    mdg.edge_py_attrs.get(&mirror_key),
+                    attrs,
+                    weight_attr,
+                    default_weight,
+                )
+                .map_err(CsrBuildStop::Error)?
+            };
+            let Some(w) = w else {
+                return Err(CsrBuildStop::Unsupported);
+            };
+
+            while current_row < ui {
+                if let Some((col, value)) = pending.take() {
+                    append_csr_intp_bytes(&mut indices, col).map_err(CsrBuildStop::Error)?;
+                    append_csr_f64_bytes(&mut data, value);
+                    emitted += 1;
+                }
+                current_row += 1;
+                append_csr_intp_bytes(&mut indptr, emitted).map_err(CsrBuildStop::Error)?;
+            }
+
+            if let Some((col, value)) = pending.as_mut()
+                && *col == vi
+            {
+                *value += w;
+                return Ok(());
+            }
+            if let Some((col, value)) = pending.replace((vi, w)) {
+                append_csr_intp_bytes(&mut indices, col).map_err(CsrBuildStop::Error)?;
+                append_csr_f64_bytes(&mut data, value);
+                emitted += 1;
+            }
+            Ok(())
+        });
+    match build_result {
+        Ok(()) => {}
+        Err(CsrBuildStop::Unsupported) => return Ok(None),
+        Err(CsrBuildStop::Error(err)) => return Err(err),
+    }
+    if let Some((col, value)) = pending {
+        append_csr_intp_bytes(&mut indices, col)?;
+        append_csr_f64_bytes(&mut data, value);
+        emitted += 1;
+    }
+    while indptr.len() / intp_width <= node_count {
+        append_csr_intp_bytes(&mut indptr, emitted)?;
+    }
+
+    Ok(Some((
+        PyByteArray::new(py, &indptr).unbind(),
+        PyByteArray::new(py, &indices).unbind(),
+        PyByteArray::new(py, &data).unbind(),
+    )))
+}
+
 /// br-r37-c1-fb9td: native O(|E|) non-finite-weight scan for MultiGraph /
 /// MultiDiGraph — the multigraph sibling of `graph_has_nonfinite_edge_weight`
 /// (which returns `None` for multigraphs, forcing `pagerank`'s weight-parity
@@ -2676,6 +2787,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     m.add_function(wrap_pyfunction!(
         adjacency_csr_multidigraph_default_order_live_finite_checked,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        adjacency_csr_bytes_multidigraph_default_order_live_finite_checked,
         m
     )?)?;
     m.add_function(wrap_pyfunction!(

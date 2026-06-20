@@ -2,6 +2,90 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-20 MultiDiGraph Indexed CSR Bytearray Boundary Keep (`br-r37-c1-q2w4t`, cod-a)
+
+Scope: revisit the large default-order `MultiDiGraph.to_scipy_sparse_array`
+residual after the row-streaming-only rejection. The kept route combines the
+alien-graveyard sparse-boundary/CSR guidance with two concrete boundary
+changes: Rust emits mutable bytearray-backed CSR buffers for NumPy
+`frombuffer`, and `MultiDiGraph` exposes an indexed ordered-edge visitor so the
+CSR helper avoids both `edges_ordered_borrowed()` materialization and a second
+node-index `HashMap`.
+
+Environment:
+- Agent Mail identity: `CrimsonRiver`; CLI actor: `cod-a`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-a-boldverify-20260620T2025Z`.
+- Requested target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- Oracle import pinned to this worktree's vendored NetworkX path:
+  `legacy_networkx_code/networkx`; Python `3.13.7`, `PYTHONHASHSEED=0`,
+  `OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`, `taskset -c 4`.
+- Release extension installs used the fresh non-destructive target leaf
+  `/data/projects/.rch-targets/franken_networkx-cod-a/f20a-local` because the
+  shared requested target contained incompatible-rustc artifacts during
+  `maturin develop`. No cleanup or deletion was performed. Final per-crate RCH
+  check/test/clippy/build used the requested target and worker-scoped remotes.
+
+Negative subattempts:
+- Immutable `bytes` buffers were rejected immediately: SciPy may canonicalize
+  CSR arrays in place, and `numpy.frombuffer(bytes)` produced
+  `ValueError: WRITEBACKIFCOPY base is read-only` during sparse payload checks.
+  The fix was to return `PyByteArray` so NumPy sees writable buffers.
+- Mutable bytearray handoff without indexed storage traversal was only a
+  partial route. Pinned same-process n=2000 timing improved the old fallback
+  from `9.0834035 ms` to `6.5314375 ms` (`1.391x` self-speedup) but still
+  trailed NetworkX `6.201046 ms` (`0.949x`). Kept only after adding the indexed
+  visitor.
+
+Final pinned release timing on deterministic default-order fixtures:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| n=500, 3k-edge `to_scipy MultiDiGraph` | `0.355143 ms` | `1.217437 ms` | `3.428x` | win |
+| n=1000, 6k-edge `to_scipy MultiDiGraph` | `0.740944 ms` | `2.475911 ms` | `3.342x` | win |
+| n=2000, 12k-edge `to_scipy MultiDiGraph` | `1.729036 ms` | `5.001066 ms` | `2.892x` | win |
+
+Same-process fallback comparison for the n=2000 target:
+- New indexed bytearray path: `2.3780405 ms`.
+- Old list-returning CSR fallback with the new helper disabled: `3.3666895 ms`.
+- NetworkX: `5.228357 ms`.
+- Result: new path is `1.416x` faster than the old fallback and `2.199x`
+  faster than NetworkX on the direct old/new/NX A/B loop.
+
+Conformance and gates:
+- Sparse payload parity: `diff_nnz=0` on every final sweep row; sums matched
+  (`12002.0`, `24002.0`, `48003.0`). Existing dtype behavior remains unchanged:
+  FNX old/new infer `int64` for integral float payloads while NetworkX reports
+  `float64` on this synthetic fixture; sparse values match exactly.
+- Focused sparse exporter parity:
+  `pytest tests/python/test_to_scipy_sparse_default_native_parity.py
+  tests/python/test_to_scipy_sparse_native_weighted_parity.py -q`:
+  `304 passed`.
+- `cargo fmt --check`: pass.
+- `rch exec -- cargo check -p fnx-classes -p fnx-python --features
+  pyo3/abi3-py310`: pass.
+- `rch exec -- cargo test -p fnx-classes -p fnx-python --features
+  pyo3/abi3-py310`: pass (`fnx-classes` `68 passed, 2 ignored`; `_fnx`
+  `27 passed`).
+- `rch exec -- cargo clippy -p fnx-classes -p fnx-python --all-targets
+  --features pyo3/abi3-py310 -- -D warnings`: pass.
+- `rch exec -- cargo build --release -p fnx-python --features
+  pyo3/abi3-py310`: pass.
+- UBS completed with exit `0` on the changed Rust sources and the focused
+  Python parity test file. The all-touched-file UBS run was stopped after the
+  Python pass spent roughly nine minutes on the pre-existing 56k-line public
+  wrapper file with no findings emitted; focused pytest and `py_compile` cover
+  that wrapper path for this slice.
+
+Decision:
+- Keep. The final indexed bytearray CSR boundary turns the current pinned
+  default-order `MultiDiGraph.to_scipy_sparse_array` sweep into `3` wins /
+  `0` losses / `0` neutral vs NetworkX, including the prior 12k-edge residual.
+- Do not retry immutable `bytes` buffers for SciPy CSR arrays. Keep buffer
+  handoff mutable, and route future sparse work toward dirty/live attr sync or
+  full native sparse-array construction rather than Python list boundaries.
+
 ## 2026-06-20 MultiDiGraph CSR Row-Streaming Boundary Reject (`br-r37-c1-04z53`, cod-a)
 
 Scope: test the next large sparse multigraph residual route after the prior
