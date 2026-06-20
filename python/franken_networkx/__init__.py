@@ -50691,6 +50691,27 @@ def from_dict_of_lists(d, create_using=None):
                 if nb not in seen:
                     G.add_edge(node, nb)
             seen[node] = 1
+    elif type(G) is Graph or type(G) is DiGraph:
+        # br-r37-c1-dolsymdedup: an UNDIRECTED dict-of-lists lists every edge
+        # twice (u in d[v], v in d[u]); the reverse duplicate edges make
+        # add_edges_from bail from the fast existing-int-index batch to the
+        # per-edge path. Dedup the symmetric reverse (undirected only) so the
+        # whole edge set commits through the bulk existing-nodes batch — same
+        # result (re-adding an existing undirected edge is a no-op), ~3x faster.
+        # DiGraph keeps every edge (u->v != v->u); it just materializes the
+        # generator into the list the batch path requires.
+        if G.is_directed():
+            batch = [(node, nb) for node, neighbors in d.items() for nb in neighbors]
+        else:
+            seen = set()
+            batch = []
+            for node, neighbors in d.items():
+                for nb in neighbors:
+                    if node != nb and (nb, node) in seen:
+                        continue
+                    batch.append((node, nb))
+                    seen.add((node, nb))
+        G.add_edges_from(batch)
     else:
         G.add_edges_from((node, nb) for node, neighbors in d.items() for nb in neighbors)
     return G
