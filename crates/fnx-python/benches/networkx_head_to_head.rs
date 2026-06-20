@@ -53,6 +53,15 @@ struct MultiDiGraphConnectivityWorkloads {
     nx_descendants: Py<PyAny>,
 }
 
+struct MultiGraphBiconnectedWorkloads {
+    fnx_is_biconnected: Py<PyAny>,
+    nx_is_biconnected: Py<PyAny>,
+    fnx_articulation_points: Py<PyAny>,
+    nx_articulation_points: Py<PyAny>,
+    fnx_biconnected_components: Py<PyAny>,
+    nx_biconnected_components: Py<PyAny>,
+}
+
 fn prepare_cut_metric_workloads(py: Python<'_>) -> PyResult<CutMetricWorkloads> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
@@ -494,6 +503,108 @@ nx_descendants = lambda: _node_set_checksum(nx.descendants(mdg_nx, 0))
     })
 }
 
+fn prepare_multigraph_biconnected_workloads(
+    py: Python<'_>,
+) -> PyResult<MultiGraphBiconnectedWorkloads> {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("fnx-python crate must live under crates/");
+    let python_dir = repo_root.join("python");
+    let legacy_dir = repo_root.join("legacy_networkx_code").join("networkx");
+
+    let sys = py.import("sys")?;
+    let path = sys.getattr("path")?;
+    let path = path.cast::<PyList>()?;
+    path.insert(0, repo_root.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, python_dir.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, legacy_dir.to_str().expect("repo path must be UTF-8"))?;
+
+    let locals = PyDict::new(py);
+    py.run(
+        cstring(
+            r#"
+import random
+import sys
+
+for _name in list(sys.modules):
+    if _name == "networkx" or _name.startswith("networkx."):
+        del sys.modules[_name]
+
+import networkx as nx
+import franken_networkx as fnx
+
+if "legacy_networkx_code" not in getattr(nx, "__file__", ""):
+    raise AssertionError(f"expected vendored NetworkX oracle, got {nx.__file__!r}")
+
+def _paired_multigraph_biconnected_workload(node_count, extra_edges, parallel_edges, seed):
+    rng = random.Random(seed)
+    edges = []
+    for i in range(node_count):
+        edges.append((i, (i + 1) % node_count, {"weight": float((i * 17) % 101) + 0.25}))
+    for k in range(extra_edges):
+        u = rng.randrange(node_count)
+        v = rng.randrange(node_count - 1)
+        if v >= u:
+            v += 1
+        edges.append((u, v, {"weight": float((u * 31 + v * 17 + k) % 257) + 0.5}))
+    for k in range(parallel_edges):
+        u, v, _ = edges[rng.randrange(len(edges))]
+        edges.append((u, v, {"weight": float((u * 13 + v * 19 + k) % 113) + 0.125}))
+
+    fnx_graph = fnx.MultiGraph()
+    nx_graph = nx.MultiGraph()
+    fnx_graph.add_nodes_from(range(node_count))
+    nx_graph.add_nodes_from(range(node_count))
+    fnx_graph.add_edges_from(edges)
+    nx_graph.add_edges_from(edges)
+    return fnx_graph, nx_graph
+
+mg_fnx, mg_nx = _paired_multigraph_biconnected_workload(1000, 3000, 1000, 20260620)
+assert fnx.is_biconnected(mg_fnx) == nx.is_biconnected(mg_nx)
+assert list(fnx.articulation_points(mg_fnx)) == list(nx.articulation_points(mg_nx))
+assert [set(c) for c in fnx.biconnected_components(mg_fnx)] == [set(c) for c in nx.biconnected_components(mg_nx)]
+
+def _component_checksum(components):
+    total = 0
+    for idx, component in enumerate(components):
+        subtotal = 0
+        for node in component:
+            subtotal += int(node) + 1
+        total += (idx + 1) * subtotal + len(component) * 17
+    return total
+
+fnx_is_biconnected = lambda: fnx.is_biconnected(mg_fnx)
+nx_is_biconnected = lambda: nx.is_biconnected(mg_nx)
+fnx_articulation_points = lambda: len(list(fnx.articulation_points(mg_fnx)))
+nx_articulation_points = lambda: len(list(nx.articulation_points(mg_nx)))
+fnx_biconnected_components = lambda: _component_checksum(fnx.biconnected_components(mg_fnx))
+nx_biconnected_components = lambda: _component_checksum(nx.biconnected_components(mg_nx))
+"#,
+        )
+        .as_c_str(),
+        Some(&locals),
+        Some(&locals),
+    )?;
+
+    let callable = |name: &str| -> PyResult<Py<PyAny>> {
+        let callable = locals.get_item(name)?.ok_or_else(|| {
+            pyo3::exceptions::PyKeyError::new_err(format!("missing Python callable {name}"))
+        })?;
+        Ok(callable.unbind())
+    };
+
+    Ok(MultiGraphBiconnectedWorkloads {
+        fnx_is_biconnected: callable("fnx_is_biconnected")?,
+        nx_is_biconnected: callable("nx_is_biconnected")?,
+        fnx_articulation_points: callable("fnx_articulation_points")?,
+        nx_articulation_points: callable("nx_articulation_points")?,
+        fnx_biconnected_components: callable("fnx_biconnected_components")?,
+        nx_biconnected_components: callable("nx_biconnected_components")?,
+    })
+}
+
 fn bench_python_callable(
     group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
     name: &str,
@@ -718,12 +829,54 @@ fn multidigraph_connectivity_head_to_head(c: &mut Criterion) {
     group.finish();
 }
 
+fn multigraph_biconnected_head_to_head(c: &mut Criterion) {
+    Python::initialize();
+    let workloads = Python::attach(prepare_multigraph_biconnected_workloads)
+        .expect("failed to prepare MultiGraph biconnected Python workloads");
+    let mut group = c.benchmark_group("networkx_head_to_head_multigraph_biconnected");
+    group.sample_size(20);
+
+    bench_python_callable(
+        &mut group,
+        "fnx_is_biconnected_mg1000_e5000",
+        &workloads.fnx_is_biconnected,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_is_biconnected_mg1000_e5000",
+        &workloads.nx_is_biconnected,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_articulation_points_mg1000_e5000",
+        &workloads.fnx_articulation_points,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_articulation_points_mg1000_e5000",
+        &workloads.nx_articulation_points,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_biconnected_components_mg1000_e5000",
+        &workloads.fnx_biconnected_components,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_biconnected_components_mg1000_e5000",
+        &workloads.nx_biconnected_components,
+    );
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     cut_metric_head_to_head,
     assortativity_head_to_head,
     assortativity_raw_head_to_head,
     link_prediction_head_to_head,
-    multidigraph_connectivity_head_to_head
+    multidigraph_connectivity_head_to_head,
+    multigraph_biconnected_head_to_head
 );
 criterion_main!(benches);

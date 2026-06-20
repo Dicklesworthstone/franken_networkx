@@ -95,6 +95,34 @@ class TestMultiGraphConnectivity:
         assert not fnx.is_connected(G)
         assert fnx.number_connected_components(G) == 2
 
+    @needs_nx
+    @pytest.mark.parametrize(
+        ("nodes", "edges"),
+        [
+            ([0, 1], [(0, 1), (0, 1)]),
+            ([0, 1, 2], [(0, 1), (0, 1), (1, 2)]),
+            ([0, 1, 2, 3, 4], [(0, 1), (1, 2), (2, 0), (2, 3), (3, 4), (4, 2)]),
+            ([0, 1, 2, 3, 4, 5], [(0, 1), (1, 2), (2, 0), (3, 4), (4, 5), (5, 3)]),
+        ],
+    )
+    def test_is_biconnected_matches_networkx_multigraph(self, nodes, edges):
+        graph = fnx.MultiGraph()
+        expected = nx.MultiGraph()
+        graph.add_nodes_from(nodes)
+        expected.add_nodes_from(nodes)
+        graph.add_edges_from(edges)
+        expected.add_edges_from(edges)
+        assert fnx.is_biconnected(graph) is nx.is_biconnected(expected)
+        assert list(fnx.articulation_points(graph)) == list(
+            nx.articulation_points(expected)
+        )
+        assert [set(c) for c in fnx.biconnected_components(graph)] == [
+            set(c) for c in nx.biconnected_components(expected)
+        ]
+        assert list(fnx.biconnected_component_edges(graph)) == list(
+            nx.biconnected_component_edges(expected)
+        )
+
     def test_bridges(self, mg_path):
         # br-zzcm9: parallel edges are not bridges (removing one leaves
         # the other intact). mg_path has parallel (0, 1) + simple (1, 2),

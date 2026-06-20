@@ -10,7 +10,8 @@ community link-prediction verification (`br-r37-c1-04z53.9141`) and
 undirected `non_edges` default-ebunch verification (`br-r37-c1-04z53.9143`)
 plus CCPA link-prediction verification (`br-r37-c1-04z53.9140`) and
 MultiDiGraph SCC stale-loss closeout (`br-r37-c1-8hjsu`) plus
-MultiDiGraph DAG conversion-tax closeout (`br-r37-c1-11m92`).
+MultiDiGraph DAG conversion-tax closeout (`br-r37-c1-11m92`) and
+MultiGraph biconnected-family verification (`br-r37-c1-ij951`).
 
 ## 2026-06-20 MultiDiGraph DAG Closeout
 
@@ -64,6 +65,55 @@ Release readiness verdict for this slice: **keep/stale-loss closed**. Do not
 retry Python edge-by-edge transitive closure or full-path materialization for
 directed-multigraph longest-path length; route effort to still-losing measured
 surfaces.
+
+## 2026-06-20 MultiGraph Biconnected Family BOLD-VERIFY Slice
+
+Environment:
+- Agent Mail identity: `CrimsonRiver`; CLI actor: `AGENT_NAME=cod-b`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-b-ij951-boldverify-20260620T061230Z`.
+- Target dir requested for RCH:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+- Release install used fresh target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-b-f20a92ec0` after the shared
+  target dir hit incompatible-rustc E0514; no cleanup was performed.
+- RCH Criterion:
+  `rch exec -- cargo bench -p fnx-python --bench networkx_head_to_head multigraph_biconnected -- --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`
+  on `hz1`.
+- RCH release build:
+  `rch exec -- cargo build -p fnx-python --release` on `vmi1153651`.
+- Clippy:
+  `rch exec -- cargo clippy -p fnx-python --all-targets -- -D warnings` completed
+  green via local fallback after rch remote sync timeout.
+- Focused conformance:
+  `tests/python/test_multigraph_algorithms.py`,
+  `test_matching_flow_cross_type.py::test_is_biconnected_nx`, and
+  `test_parity_conformance.py -k biconnected` passed with
+  `8 passed, 235 deselected`.
+
+Baseline and final decision:
+
+| Bead | Workload | Baseline ratio | Final ratio | Decision |
+| --- | --- | ---: | ---: | --- |
+| `br-r37-c1-ij951` | `is_biconnected`, MultiGraph 1000 nodes / 5000 edges | `0.230x` | `10.584x` RCH Criterion | Keep |
+| `br-r37-c1-ij951` | `articulation_points`, same fixture | `0.103x` | `6.553x` RCH Criterion | Keep |
+| `br-r37-c1-ij951` | `biconnected_components`, same fixture | `0.196x` | `3.619x` RCH Criterion | Keep |
+| `br-r37-c1-ij951` side surface | `biconnected_component_edges`, same fixture | n/a | `1.396x` direct release sweep | Keep |
+| `br-r37-c1-ij951` residual | `minimum_spanning_tree`, same fixture | `0.320x` | `0.296x` direct release sweep | Loss, not touched |
+| `br-r37-c1-ij951` residual | `bfs_edges(source=0)`, same fixture | `0.407x` | `0.399x` direct release sweep | Loss, not touched |
+
+Score:
+- Win/loss/neutral accounting: `4` wins, `2` losses, `0` neutral on the
+  expanded MultiGraph biconnected/MST/BFS surface.
+- Performance evidence: direct ordered-adjacency MultiGraph biconnected kernels
+  remove simple-Graph materialization and NetworkX delegation while preserving
+  row order and component-edge orientation.
+- Conformance evidence: focused biconnected/MultiGraph parity is green.
+- Ledger hygiene: both wins and residual losses are recorded in
+  `docs/NEGATIVE_EVIDENCE.md` and `docs/progress/perf-negative-results.md`.
+
+Release readiness verdict for this slice: **conditional pass for MultiGraph
+biconnected-family queries; MST/BFS still block full ij951 closure**.
 
 ## 2026-06-20 MultiDiGraph SCC Stale-Loss Closeout
 

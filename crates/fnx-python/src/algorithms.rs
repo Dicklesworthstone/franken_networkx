@@ -18,7 +18,7 @@ use pyo3::exceptions::{
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyInt, PyIterator, PyList, PySet, PyTuple};
 use std::cell::OnceCell;
-use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 type SpanningEdgeSamples = (Vec<(String, String)>, Vec<f64>);
@@ -5168,6 +5168,11 @@ pub fn edge_connectivity(
 pub fn articulation_points(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "articulation_points")?;
+    if let GraphRef::MultiUndirected { mg, .. } = &gr {
+        let inner = &mg.inner;
+        let result = py.allow_threads(|| multigraph_articulation_points(inner));
+        return Ok(result.iter().map(|&n| gr.py_node_key(py, n)).collect());
+    }
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::articulation_points(inner));
     Ok(result.nodes.iter().map(|n| gr.py_node_key(py, n)).collect())
@@ -17716,6 +17721,10 @@ pub fn node_connected_component(
 pub fn is_biconnected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "is_biconnected")?;
+    if let GraphRef::MultiUndirected { mg, .. } = &gr {
+        let inner = &mg.inner;
+        return Ok(py.allow_threads(|| multigraph_is_biconnected(inner)));
+    }
     let inner = gr.undirected();
     Ok(py.allow_threads(|| fnx_algorithms::is_biconnected(inner)))
 }
@@ -17725,6 +17734,22 @@ pub fn is_biconnected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
 pub fn biconnected_components(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "biconnected_components")?;
+    if let GraphRef::MultiUndirected { mg, .. } = &gr {
+        let inner = &mg.inner;
+        let nodes = inner.nodes_ordered();
+        let adjacency = build_index_adjacency(&nodes, |u| inner.neighbors(u).unwrap_or_default());
+        let result = py.allow_threads(|| biconnected_components_from_adjacency(&adjacency));
+        return result
+            .iter()
+            .map(|comp| {
+                let py_set: Vec<PyObject> = comp
+                    .iter()
+                    .map(|&idx| gr.py_node_key(py, nodes[idx]))
+                    .collect();
+                py_set.into_pyobject(py).map(|obj| obj.into_any().unbind())
+            })
+            .collect();
+    }
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::biconnected_components(inner));
     result
@@ -17749,6 +17774,20 @@ pub fn biconnected_component_edges(
     // wrapper to delegate to nx via a full fnx->nx conversion (~3x slower).
     let gr = extract_graph(g)?;
     require_undirected(&gr, "biconnected_component_edges")?;
+    if let GraphRef::MultiUndirected { mg, .. } = &gr {
+        let inner = &mg.inner;
+        let nodes = inner.nodes_ordered();
+        let adjacency = build_index_adjacency(&nodes, |u| inner.neighbors(u).unwrap_or_default());
+        let result = py.allow_threads(|| biconnected_component_edges_dfs(&adjacency));
+        return Ok(result
+            .iter()
+            .map(|comp| {
+                comp.iter()
+                    .map(|&(u, v)| (gr.py_node_key(py, nodes[u]), gr.py_node_key(py, nodes[v])))
+                    .collect()
+            })
+            .collect());
+    }
     let inner = gr.undirected();
     let nodes = inner.nodes_ordered();
     let adjacency = graph_shortest_path_adjacency_indices(inner, &nodes);
@@ -17830,6 +17869,164 @@ fn biconnected_component_edges_dfs(adjacency: &[Vec<usize>]) -> Vec<Vec<(usize, 
         }
     }
     out
+}
+
+fn biconnected_components_from_adjacency(adjacency: &[Vec<usize>]) -> Vec<Vec<usize>> {
+    biconnected_component_edges_dfs(adjacency)
+        .into_iter()
+        .map(|edges| {
+            let mut nodes = BTreeSet::new();
+            for (u, v) in edges {
+                nodes.insert(u);
+                nodes.insert(v);
+            }
+            nodes.into_iter().collect()
+        })
+        .collect()
+}
+
+/// Direct `MultiGraph` articulation points over distinct-neighbor adjacency.
+fn multigraph_articulation_points(mg: &fnx_classes::MultiGraph) -> Vec<&str> {
+    let nodes = mg.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let adjacency = build_index_adjacency(&nodes, |u| mg.neighbors(u).unwrap_or_default());
+    let undiscovered = usize::MAX;
+    let mut discovery = vec![undiscovered; n];
+    let mut low = vec![undiscovered; n];
+    let mut parent: Vec<Option<usize>> = vec![None; n];
+    let mut is_articulation = vec![false; n];
+    let mut articulation_order: Vec<usize> = Vec::new();
+    let mut time = 0usize;
+
+    struct Frame {
+        node: usize,
+        neighbor_idx: usize,
+    }
+
+    for root in 0..n {
+        if discovery[root] != undiscovered {
+            continue;
+        }
+        time += 1;
+        discovery[root] = time;
+        low[root] = time;
+        let mut root_children = 0usize;
+        let mut stack: Vec<Frame> = vec![Frame {
+            node: root,
+            neighbor_idx: 0,
+        }];
+
+        while let Some(frame) = stack.last_mut() {
+            let node = frame.node;
+            if frame.neighbor_idx < adjacency[node].len() {
+                let child = adjacency[node][frame.neighbor_idx];
+                frame.neighbor_idx += 1;
+                if discovery[child] == undiscovered {
+                    parent[child] = Some(node);
+                    time += 1;
+                    discovery[child] = time;
+                    low[child] = time;
+                    stack.push(Frame {
+                        node: child,
+                        neighbor_idx: 0,
+                    });
+                } else if parent[node] != Some(child) && discovery[child] < low[node] {
+                    low[node] = discovery[child];
+                }
+            } else {
+                let finished = stack.pop().expect("non-empty");
+                if let Some(parent_frame) = stack.last() {
+                    let parent_idx = parent_frame.node;
+                    low[parent_idx] = low[parent_idx].min(low[finished.node]);
+                    if parent[parent_idx].is_some() {
+                        if low[finished.node] >= discovery[parent_idx]
+                            && !is_articulation[parent_idx]
+                        {
+                            is_articulation[parent_idx] = true;
+                            articulation_order.push(parent_idx);
+                        }
+                    } else {
+                        root_children += 1;
+                    }
+                }
+            }
+        }
+
+        if root_children > 1 && !is_articulation[root] {
+            is_articulation[root] = true;
+            articulation_order.push(root);
+        }
+    }
+
+    articulation_order
+        .into_iter()
+        .map(|idx| nodes[idx])
+        .collect()
+}
+
+/// Direct `MultiGraph` biconnectivity over distinct-neighbor adjacency rows.
+///
+/// Vertex biconnectivity is multiplicity-invariant once NetworkX's null/single
+/// node rule is honored; parallel edges must not force the slow simple-Graph
+/// materialization path just to run the same low-link check.
+fn multigraph_is_biconnected(mg: &fnx_classes::MultiGraph) -> bool {
+    let nodes = mg.nodes_ordered();
+    let n = nodes.len();
+    if n < 2 {
+        return false;
+    }
+    let adjacency = build_index_adjacency(&nodes, |u| mg.neighbors(u).unwrap_or_default());
+    let undiscovered = usize::MAX;
+    let mut discovery = vec![undiscovered; n];
+    let mut low = vec![0usize; n];
+    let mut parent = vec![undiscovered; n];
+    let mut time = 1usize;
+    let mut visited_count = 1usize;
+    let mut root_children = 0usize;
+
+    discovery[0] = 0;
+    low[0] = 0;
+    let mut stack: Vec<(usize, usize, usize)> = vec![(undiscovered, 0, 0)];
+
+    while let Some(&(grandparent, node, pos)) = stack.last() {
+        if pos < adjacency[node].len() {
+            stack.last_mut().expect("non-empty").2 = pos + 1;
+            let child = adjacency[node][pos];
+            if child == grandparent || child == node {
+                continue;
+            }
+            if discovery[child] == undiscovered {
+                parent[child] = node;
+                discovery[child] = time;
+                low[child] = time;
+                time += 1;
+                visited_count += 1;
+                if node == 0 {
+                    root_children += 1;
+                    if root_children > 1 {
+                        return false;
+                    }
+                }
+                stack.push((node, child, 0));
+            } else {
+                low[node] = low[node].min(discovery[child]);
+            }
+        } else {
+            let finished = stack.pop().expect("non-empty").1;
+            let p = parent[finished];
+            if p != undiscovered {
+                low[p] = low[p].min(low[finished]);
+                if parent[p] != undiscovered && low[finished] >= discovery[p] {
+                    return false;
+                }
+            }
+        }
+    }
+
+    visited_count == n
 }
 
 /// Return True if the directed graph is semiconnected.

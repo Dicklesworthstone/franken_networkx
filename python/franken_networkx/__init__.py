@@ -8032,12 +8032,6 @@ def articulation_points(G):
         raise NetworkXNotImplemented("not implemented for directed type")
 
     def _gen():
-        if G.is_multigraph():
-            # The Rust impl is a simple-graph DFS; multigraph parallel
-            # edges need nx's chain-decomposition path for correct AP
-            # detection on parallel-edge cycles.
-            yield from _call_networkx_for_parity("articulation_points", G)
-            return
         yield from _raw_articulation_points(G)
 
     return _gen()

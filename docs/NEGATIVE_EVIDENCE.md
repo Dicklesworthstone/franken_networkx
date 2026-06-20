@@ -96,6 +96,93 @@ Next route:
   path-heavy Dijkstra rows, or MultiGraph biconnected/MST surfaces; this DAG
   conversion-tax bead is closed.
 
+## 2026-06-20 MultiGraph Biconnected Family Native Route (`br-r37-c1-ij951`)
+
+Scope: target the open MultiGraph biconnected/MST loss cluster on current
+`origin/main` from a clean detached worktree. The kept lever is a direct
+ordered-adjacency MultiGraph biconnected-family route for vertex/edge-stack
+queries; keyed MST construction is intentionally untouched and remains a loss.
+
+Environment:
+- Agent Mail identity: `CrimsonRiver`; CLI actor: `AGENT_NAME=cod-b`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-b-ij951-boldverify-20260620T061230Z`.
+- Requested target dir: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+- Local `maturin develop` against the exact requested target dir failed with
+  incompatible-rustc E0514 (`beae78130` artifacts vs current `f20a92ec0`).
+  No cleanup or file deletion was performed. Release installs used fresh
+  non-destructive target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-b-f20a92ec0`.
+- Per-crate RCH bench:
+  `rch exec -- cargo bench -p fnx-python --bench networkx_head_to_head multigraph_biconnected -- --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`
+  on `hz1`.
+- Per-crate RCH release build:
+  `rch exec -- cargo build -p fnx-python --release` on `vmi1153651`.
+- Clippy gate:
+  `rch exec -- cargo clippy -p fnx-python --all-targets -- -D warnings`
+  completed green after rch remote sync timed out and fell back locally.
+- Focused conformance:
+  `pytest tests/python/test_multigraph_algorithms.py tests/python/test_matching_flow_cross_type.py::test_is_biconnected_nx tests/python/test_parity_conformance.py -k 'biconnected' -q`
+  reported `8 passed, 235 deselected`.
+
+Baseline direct release timing on a 1000-node / 5000-edge MultiGraph fixture
+(1000-cycle + 3000 random edges + 1000 parallel edges, same graph objects for
+FNX and NetworkX):
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Baseline verdict |
+| --- | ---: | ---: | ---: | --- |
+| `is_biconnected` | `12.605 ms` | `2.901 ms` | `0.230x` | loss |
+| `articulation_points` | `18.118 ms` | `1.874 ms` | `0.103x` | loss |
+| `biconnected_components` | `14.892 ms` | `2.920 ms` | `0.196x` | loss |
+| `minimum_spanning_tree` | `29.697 ms` | `9.516 ms` | `0.320x` | loss |
+| `bfs_edges(source=0)` | `1.492 ms` | `0.607 ms` | `0.407x` | loss |
+
+Kept route:
+- `articulation_points`, `is_biconnected`, `biconnected_components`, and
+  `biconnected_component_edges` now walk the MultiGraph's ordered distinct
+  adjacency directly instead of materializing a simple `Graph` or delegating
+  public `articulation_points` through NetworkX.
+- This is the cache-local/CSR-style lever from the optimization pass, but kept
+  in exact NetworkX row order: vertex biconnectivity is multiplicity-invariant
+  for these contracts, while component-edge output still follows NetworkX's
+  `_biconnected_dfs` edge-stack orientation.
+
+RCH Criterion final rows:
+
+| Workload | FNX mean | NetworkX mean | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `is_biconnected` | `0.85370 ms` | `9.0354 ms` | `10.584x` | win |
+| `articulation_points` | `0.96998 ms` | `6.3562 ms` | `6.553x` | win |
+| `biconnected_components` | `2.1240 ms` | `7.6859 ms` | `3.619x` | win |
+
+Same-process final release sweep on the original baseline fixture:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `is_biconnected` | `1.249 ms` | `2.981 ms` | `2.387x` | win |
+| `articulation_points` | `1.337 ms` | `1.950 ms` | `1.459x` | win |
+| `biconnected_components` | `1.650 ms` | `2.945 ms` | `1.785x` | win |
+| `biconnected_component_edges` | `2.087 ms` | `2.914 ms` | `1.396x` | win |
+| `minimum_spanning_tree` | `31.015 ms` | `9.184 ms` | `0.296x` | loss |
+| `bfs_edges(source=0)` | `1.668 ms` | `0.666 ms` | `0.399x` | loss |
+
+Decision:
+- Keep. Scorecard accounting for this slice: `4` wins / `2` losses / `0`
+  neutral on the expanded biconnected/MST/BFS surface; `3` RCH Criterion wins
+  for the committed biconnected-family benchmark rows.
+- Residual losses are explicit: MultiGraph keyed MST still delegates to
+  NetworkX to preserve result type/keys, and `bfs_edges` still loses on this
+  particular dense parallel fixture despite prior direct-MultiGraph traversal
+  work.
+
+Do not repeat:
+- Do not reintroduce `gr.undirected()` simple-Graph materialization for
+  MultiGraph biconnected-family queries.
+- Do not route public MultiGraph `articulation_points` through NetworkX parity
+  delegation for these exact contracts.
+- Do not claim the MST row until a keyed MultiGraph MST constructor preserves
+  NetworkX type/key/attr semantics and beats the current `0.296x` loss.
+
 ## 2026-06-20 MultiDiGraph SCC Stale-Loss Closeout (`br-r37-c1-8hjsu`)
 
 Scope: re-baseline the open `MultiDiGraph` `strongly_connected_components`
