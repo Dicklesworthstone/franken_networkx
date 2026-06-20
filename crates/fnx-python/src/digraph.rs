@@ -929,18 +929,29 @@ impl PyMultiDiGraph {
                 return Ok(false);
             };
             let tuple_len = tuple.len();
-            if tuple_len != 3 && tuple_len != 4 {
+            // br-r37-c1-ctor2tuple: accept bare `(u, v)` edges too. nx's
+            // from_edgelist (and the Rust constructor's per-edge fallback) treat a
+            // 2-tuple as `add_edge(u, v)` with an AUTO integer key. Previously only
+            // 3/4-tuples hit this batch path, so a plain `MultiDiGraph([(u, v), ...])`
+            // fell through to the per-edge add_edge loop (~2x nx); 3/4-tuples keep
+            // their explicit string-key dedup semantics unchanged.
+            if !(2..=4).contains(&tuple_len) {
                 return Ok(false);
             }
             let u = tuple.get_item(0)?;
             let v = tuple.get_item(1)?;
-            let key = tuple.get_item(2)?;
-            if !u.is_exact_instance_of::<PyInt>()
-                || !v.is_exact_instance_of::<PyInt>()
-                || !key.is_exact_instance_of::<PyString>()
-            {
+            if !u.is_exact_instance_of::<PyInt>() || !v.is_exact_instance_of::<PyInt>() {
                 return Ok(false);
             }
+            let key = if tuple_len >= 3 {
+                let key = tuple.get_item(2)?;
+                if !key.is_exact_instance_of::<PyString>() {
+                    return Ok(false);
+                }
+                Some(key)
+            } else {
+                None
+            };
             let Ok(u_value) = u.extract::<i64>() else {
                 return Ok(false);
             };
@@ -957,38 +968,67 @@ impl PyMultiDiGraph {
             }
 
             let pair = (u_canonical.clone(), v_canonical.clone());
-            let public_lookup = edge_key_lookup_string(py, &key)?;
-            let lookup_key = (pair.0.clone(), pair.1.clone(), public_lookup);
-            let internal_key = if let Some(existing) = public_to_internal.get(&lookup_key) {
-                *existing
-            } else {
-                let occupied = occupied_keys.entry(pair).or_default();
-                let mut candidate = occupied.len();
-                while occupied.contains(&candidate) {
-                    candidate += 1;
+            let internal_key = match &key {
+                // Auto-key: each bare (u, v) is a distinct parallel edge; assign the
+                // next free integer key for the pair (matches `add_edge` / nx).
+                None => {
+                    let occupied = occupied_keys.entry(pair).or_default();
+                    let mut candidate = occupied.len();
+                    while occupied.contains(&candidate) {
+                        candidate += 1;
+                    }
+                    occupied.insert(candidate);
+                    candidate
                 }
-                occupied.insert(candidate);
-                public_to_internal.insert(lookup_key, candidate);
-                candidate
+                Some(key) => {
+                    let public_lookup = edge_key_lookup_string(py, key)?;
+                    let lookup_key = (pair.0.clone(), pair.1.clone(), public_lookup);
+                    if let Some(existing) = public_to_internal.get(&lookup_key) {
+                        *existing
+                    } else {
+                        let occupied = occupied_keys.entry(pair).or_default();
+                        let mut candidate = occupied.len();
+                        while occupied.contains(&candidate) {
+                            candidate += 1;
+                        }
+                        occupied.insert(candidate);
+                        public_to_internal.insert(lookup_key, candidate);
+                        candidate
+                    }
+                }
             };
 
             let edge_key = Self::edge_key(&u_canonical, &v_canonical, internal_key);
-            let py_attrs = edge_attrs
-                .entry(edge_key.clone())
-                .or_insert_with(|| PyDict::new(py).unbind());
             let rust_attrs = if tuple_len == 4 {
                 let fourth = tuple.get_item(3)?;
                 let Ok(dict) = fourth.downcast::<PyDict>() else {
                     return Ok(false);
                 };
+                let py_attrs = edge_attrs
+                    .entry(edge_key.clone())
+                    .or_insert_with(|| PyDict::new(py).unbind());
                 py_attrs.bind(py).update(dict.as_mapping())?;
                 py_dict_to_attr_map(dict)?
+            } else if tuple_len == 3 {
+                // Unchanged: 3-tuples eagerly allocate the empty py attr dict.
+                edge_attrs
+                    .entry(edge_key.clone())
+                    .or_insert_with(|| PyDict::new(py).unbind());
+                AttrMap::new()
             } else {
+                // br-r37-c1-ctor2tuple: bare 2-tuple, no attrs — leave the py attr
+                // dict LAZY (the mirror materializes an empty dict on demand),
+                // matching add_edge and skipping a per-edge PyDict alloc.
                 AttrMap::new()
             };
-            edge_keys
-                .entry(edge_key)
-                .or_insert_with(|| key.clone().unbind());
+            // Only 3/4-tuples carry an explicit (string) key object; bare 2-tuple
+            // auto-keys stay LAZY — py_edge_key falls back to the integer key,
+            // exactly as nx surfaces an auto integer key.
+            if let Some(key) = key {
+                edge_keys
+                    .entry(edge_key)
+                    .or_insert_with(|| key.clone().unbind());
+            }
             edge_batch.push((u_canonical, v_canonical, internal_key, rust_attrs));
         }
 
