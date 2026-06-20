@@ -3,20 +3,27 @@
 Measured head-to-head vs NetworkX (warm, min-of-N / interleaved). Pure-Python
 lane (no peer Rust crates touched).
 
-## Shipped wins (3 commits, main+master)
+## Shipped wins (4 commits, main+master)
 
 | fn | variants | before | after | commit |
 |----|----------|--------|-------|--------|
 | `node_degree_xy` | undir / dir whole-graph | 0.113x / 0.231x | **4.43x / 3.43x** | 3dd80d3ad |
 | `average_degree_connectivity` | all dir + weighted | 0.013x–0.26x | **1.05x–2.49x** | 543b9d9bf |
 | `average_neighbor_degree` | weighted (4 variants) | 0.47x–0.57x | **0.77x–1.31x** (3/4 ≥1.0) | e22d53874 |
+| `to_numpy_array` / `to_scipy_sparse_array` / `adjacency_matrix` | Multi(Di)Graph weighted | 0.39x–0.56x | **0.58x–1.00x** (loss→parity) | 855a4a705 |
 
-Common lever: pure-Python algos that walk per-node fnx VIEWS (DegreeView /
-EdgeView / AtlasView) pay a substrate tax nx avoids with dict walks. Replace with
-bulk degree dicts + one native adjacency snapshot (`_native_adjacency_keys` /
-`_native_adjacency_dict`) or a `to_scipy` mat-vec. Per-bucket-sum results are
-order-invariant. All proven byte/value-exact: node_degree_xy 192 checks, adc 1500,
-anb 2000 — **0 fails**, golden shas in each artifact dir. Conformance green
+Two levers:
+1. **Per-node-view substrate tax** (assortativity family): pure-Python algos that
+   walk fnx VIEWS (DegreeView/EdgeView/AtlasView) per node pay a tax nx avoids
+   with dict walks. Replace with bulk degree dicts + one native adjacency snapshot
+   (`_native_adjacency_keys`/`_native_adjacency_dict`) or a `to_scipy` mat-vec.
+   Per-bucket-sum results are order-invariant.
+2. **Unused native kernel reroute** (multigraph matrices): a native COO kernel
+   (`adjacency_arrays_multigraph`) existed but was gated out of the default call —
+   admit it (guarded by the non-finite/non-numeric scan).
+
+All proven byte/value-exact: node_degree_xy 192, adc 1500, anb 2000, multigraph
+matrices 320 — **0 fails**, golden shas in each artifact dir. Conformance green
 (family suites pass; pre-existing unrelated `node_connectivity` Menger failures
 confirmed failing on clean HEAD).
 
@@ -24,12 +31,14 @@ confirmed failing on clean HEAD).
 
 | fn | variant | ratio | root cause | bead |
 |----|---------|-------|------------|------|
-| `to_numpy_array` / `to_scipy_sparse_array` | MultiGraph weighted | 0.47x | no native multigraph COO kernel; `to_scipy.toarray` (3.2ms) & `_native_adjacency_dict` (3.8ms) BOTH slower than nx (1.8ms) — fnx multigraph edge-iteration substrate | br-r37-c1-iyu0a |
-| `pagerank` | MultiDiGraph weighted | 0.60x | same multigraph `to_scipy` substrate | (iyu0a) |
+| `to_*` matrix exporters | MultiDiGraph residual | 0.58–0.69x | native `_sync_rust_edge_attrs` 2.5ms for MDG (no dirty-flag) + `adjacency_arrays_multigraph` stringifies every node | br-r37-c1-iyu0a (P3) |
+| `reverse(copy=True)` | MultiDiGraph | 0.43x | native kernel substrate; DiGraph integer-space `reversed()` not ported to MDG | br-r37-c1-nooou |
+| `pagerank` | MultiDiGraph weighted | 0.60x | multigraph `to_scipy` substrate | (iyu0a) |
 | `average_neighbor_degree` | dir out/in weighted | 0.77x | residual: weighted `to_scipy` construction ≈ nx total (= br-r37-c1-wvuf7) | wvuf7 |
 
-These need native Rust COO/degree-pair kernels (fnx-convert/fnx-python crates),
-out of the pure-Python lane.
+These need native Rust kernels (fnx-python/fnx-classes crates), out of the
+pure-Python lane. The pure-Python reroute already converted the multigraph
+matrix-exporter losses (0.39–0.56x) to near-parity/win (shipped 855a4a705).
 
 ## Neutral / already-winning (sampled, no action)
 
