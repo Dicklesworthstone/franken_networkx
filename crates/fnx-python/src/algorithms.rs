@@ -12430,14 +12430,78 @@ pub fn condensation_nx_ordered(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult
         ));
     }
 
+    // br-r37-c1-condmdg: for a MultiDiGraph, gr.digraph() projects to a simple
+    // DiGraph (multidigraph_to_simple_digraph) cloning every edge AttrMap — ~7x
+    // nx. SCC and the cross-SCC edge set are multiplicity-invariant, so build the
+    // condensation directly on the multidigraph's integer successor rows using
+    // the native nx-ordered multidigraph SCC kernel. The (cu, cv) first-seen
+    // dedup matches nx's `for u, v in G.edges()` (parallel edges collapse).
+    if let GraphRef::MultiDirected { mdg, .. } = &gr {
+        let inner = &mdg.inner;
+        let nodes = inner.nodes_ordered();
+        let node_indices: HashMap<&str, usize> = nodes
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(index, node)| (node, index))
+            .collect();
+        // Lightweight distinct-successor index adjacency — far cheaper than the
+        // simple-DiGraph projection (no AttrMap clones, no String IndexMaps).
+        let succ_adj: Vec<Vec<usize>> = nodes
+            .iter()
+            .map(|&node| {
+                inner.successors(node).map_or_else(Vec::new, |succs| {
+                    succs
+                        .into_iter()
+                        .filter_map(|s| node_indices.get(s).copied())
+                        .collect()
+                })
+            })
+            .collect();
+        let components =
+            py.allow_threads(|| multidigraph_strongly_connected_components_nx_ordered(inner));
+        return build_condensation_py(
+            py,
+            &gr,
+            components,
+            inner.node_count(),
+            inner.runtime_policy(),
+            |node| node_indices.get(node).copied(),
+            |u_idx| succ_adj.get(u_idx).map(Vec::as_slice),
+        );
+    }
+
     let dg_ref = gr.digraph().expect("is_directed checked above");
     let components = py.allow_threads(|| strongly_connected_components_nx_ordered(dg_ref));
+    build_condensation_py(
+        py,
+        &gr,
+        components,
+        dg_ref.node_count(),
+        dg_ref.runtime_policy(),
+        |node| dg_ref.get_node_index(node),
+        |u_idx| dg_ref.successors_indices(u_idx),
+    )
+}
 
-    let mut py_dg = PyDiGraph::new_empty_with_policy(py, dg_ref.runtime_policy().clone())?;
+/// br-r37-c1-condmdg: assemble the condensation PyDiGraph from nx-ordered SCC
+/// components plus a node-index / successor-row view of the source graph. Shared
+/// by the simple-DiGraph and direct-MultiDiGraph paths so neither pays a
+/// simple-graph projection. `successors` rows are walked in source-major order
+/// (nx's `for u, v in G.edges()`); `(cu, cv)` first-seen dedup yields a
+/// byte-identical condensation DAG and edge order.
+#[allow(clippy::too_many_arguments)]
+fn build_condensation_py<'a>(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    components: Vec<Vec<String>>,
+    n: usize,
+    runtime_policy: &fnx_runtime::RuntimePolicy,
+    get_node_index: impl Fn(&str) -> Option<usize>,
+    successors: impl Fn(usize) -> Option<&'a [usize]>,
+) -> PyResult<PyObject> {
+    let mut py_dg = PyDiGraph::new_empty_with_policy(py, runtime_policy.clone())?;
     let mapping = PyDict::new(py);
-    // br-r37-c1-cond-csr: index the SCC map by integer node index (Vec) instead
-    // of hashing the String endpoints per edge.
-    let n = dg_ref.node_count();
     let mut scc_of = vec![usize::MAX; n];
 
     for (idx, component) in components.iter().enumerate() {
@@ -12455,7 +12519,7 @@ pub fn condensation_nx_ordered(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult
         py_dg.node_py_attrs.insert(label, attrs.unbind());
 
         for node in component {
-            if let Some(ni) = dg_ref.get_node_index(node) {
+            if let Some(ni) = get_node_index(node) {
                 scc_of[ni] = idx;
             }
             mapping.set_item(gr.py_node_key(py, node), idx)?;
@@ -12466,15 +12530,11 @@ pub fn condensation_nx_ordered(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult
         py_dg.inner.add_node(idx.to_string());
     }
 
-    // br-r37-c1-cond-csr: walk the integer successor rows in source-major order
-    // (exactly nx's ``for u, v in G.edges()`` order) instead of
-    // ``edges_ordered()``, which clones every edge's AttrMap. Same edge set,
-    // same first-seen dedup, same order -> byte-identical condensation DAG.
     let mut seen = HashSet::new();
     let mut cond_edges = Vec::new();
     for u_idx in 0..n {
         let cu = scc_of[u_idx];
-        let Some(succs) = dg_ref.successors_indices(u_idx) else {
+        let Some(succs) = successors(u_idx) else {
             continue;
         };
         for &v_idx in succs {
