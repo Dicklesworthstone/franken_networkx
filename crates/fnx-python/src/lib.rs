@@ -2668,18 +2668,27 @@ impl PyMultiGraph {
                 return Ok(false);
             };
             let tuple_len = tuple.len();
-            if tuple_len != 3 && tuple_len != 4 {
+            // br-r37-c1-ctor2tuple: accept bare `(u, v)` edges too (auto integer
+            // key, like add_edge) — a plain `MultiGraph([(u, v), ...])` otherwise
+            // fell through to the per-edge add_edge loop (~1.5x nx). 3/4-tuples keep
+            // their explicit string-key dedup semantics unchanged.
+            if !(2..=4).contains(&tuple_len) {
                 return Ok(false);
             }
             let u = tuple.get_item(0)?;
             let v = tuple.get_item(1)?;
-            let key = tuple.get_item(2)?;
-            if !u.is_exact_instance_of::<PyInt>()
-                || !v.is_exact_instance_of::<PyInt>()
-                || !key.is_exact_instance_of::<PyString>()
-            {
+            if !u.is_exact_instance_of::<PyInt>() || !v.is_exact_instance_of::<PyInt>() {
                 return Ok(false);
             }
+            let key = if tuple_len >= 3 {
+                let key = tuple.get_item(2)?;
+                if !key.is_exact_instance_of::<PyString>() {
+                    return Ok(false);
+                }
+                Some(key)
+            } else {
+                None
+            };
             let Ok(u_value) = u.extract::<i64>() else {
                 return Ok(false);
             };
@@ -2695,43 +2704,65 @@ impl PyMultiGraph {
                 node_entries.push((v_canonical.clone(), v.clone().unbind()));
             }
 
+            // Undirected: key counter is per UNORDERED pair (min, max).
             let pair = if u_canonical <= v_canonical {
                 (u_canonical.clone(), v_canonical.clone())
             } else {
                 (v_canonical.clone(), u_canonical.clone())
             };
-            let public_lookup = edge_key_lookup_string(py, &key)?;
-            let lookup_key = (pair.0.clone(), pair.1.clone(), public_lookup);
-            let internal_key = if let Some(existing) = public_to_internal.get(&lookup_key) {
-                *existing
-            } else {
-                let occupied = occupied_keys.entry(pair).or_default();
-                let mut candidate = occupied.len();
-                while occupied.contains(&candidate) {
-                    candidate += 1;
+            let internal_key = match &key {
+                None => {
+                    let occupied = occupied_keys.entry(pair).or_default();
+                    let mut candidate = occupied.len();
+                    while occupied.contains(&candidate) {
+                        candidate += 1;
+                    }
+                    occupied.insert(candidate);
+                    candidate
                 }
-                occupied.insert(candidate);
-                public_to_internal.insert(lookup_key, candidate);
-                candidate
+                Some(key) => {
+                    let public_lookup = edge_key_lookup_string(py, key)?;
+                    let lookup_key = (pair.0.clone(), pair.1.clone(), public_lookup);
+                    if let Some(existing) = public_to_internal.get(&lookup_key) {
+                        *existing
+                    } else {
+                        let occupied = occupied_keys.entry(pair).or_default();
+                        let mut candidate = occupied.len();
+                        while occupied.contains(&candidate) {
+                            candidate += 1;
+                        }
+                        occupied.insert(candidate);
+                        public_to_internal.insert(lookup_key, candidate);
+                        candidate
+                    }
+                }
             };
 
             let edge_key = Self::edge_key(&u_canonical, &v_canonical, internal_key);
-            let py_attrs = edge_attrs
-                .entry(edge_key.clone())
-                .or_insert_with(|| PyDict::new(py).unbind());
             let rust_attrs = if tuple_len == 4 {
                 let fourth = tuple.get_item(3)?;
                 let Ok(dict) = fourth.downcast::<PyDict>() else {
                     return Ok(false);
                 };
+                let py_attrs = edge_attrs
+                    .entry(edge_key.clone())
+                    .or_insert_with(|| PyDict::new(py).unbind());
                 py_attrs.bind(py).update(dict.as_mapping())?;
                 py_dict_to_attr_map(dict)?
+            } else if tuple_len == 3 {
+                edge_attrs
+                    .entry(edge_key.clone())
+                    .or_insert_with(|| PyDict::new(py).unbind());
+                AttrMap::new()
             } else {
+                // br-r37-c1-ctor2tuple: bare 2-tuple, lazy attr dict (no per-edge alloc).
                 AttrMap::new()
             };
-            edge_keys
-                .entry(edge_key)
-                .or_insert_with(|| key.clone().unbind());
+            if let Some(key) = key {
+                edge_keys
+                    .entry(edge_key)
+                    .or_insert_with(|| key.clone().unbind());
+            }
             edge_batch.push((u_canonical, v_canonical, internal_key, rust_attrs));
         }
 
