@@ -1828,6 +1828,98 @@ pub fn adjacency_arrays_multigraph(
     Ok(Some((rows, cols, data)))
 }
 
+/// br-r37-c1-iyu0a: single-pass COO + finiteness guard for weighted multigraph
+/// matrix exporters. `adjacency_arrays_multigraph` silently coerces a
+/// non-numeric / non-finite weight to `default_weight`, so the Python
+/// `to_numpy_array` / `to_scipy_sparse_array` fast paths had to precede it with a
+/// SEPARATE `graph_has_nonfinite_edge_weight_multigraph` edge scan (two O(|E|)
+/// passes). This fuses them: it builds the COO and, on the FIRST present weight
+/// that is non-numeric or non-finite, returns `None` so the caller falls back to
+/// the exact Python loop — one edge pass instead of two. Absent key => default
+/// (matches nx); returns `None` for non-multigraph inputs.
+#[pyfunction]
+pub fn adjacency_arrays_multigraph_finite_checked(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    nodelist: &Bound<'_, PyAny>,
+    weight_attr: &str,
+    default_weight: f64,
+) -> PyResult<Option<(Vec<u32>, Vec<u32>, Vec<f64>)>> {
+    let nodes_iter = pyo3::types::PyIterator::from_object(nodelist)?;
+    let mut index: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    for (count, item) in (0_u32..).zip(nodes_iter) {
+        let item = item?;
+        let canonical = node_key_to_string(py, &item)?;
+        index.entry(canonical).or_insert(count);
+    }
+
+    let gr = extract_graph(g)?;
+    // Resolve a present weight to a finite f64, or signal a fallback.
+    enum W {
+        Val(f64),
+        Default,
+        Bail,
+    }
+    let resolve = |attrs: &fnx_classes::AttrMap| -> W {
+        match attrs.get(weight_attr) {
+            Some(raw) => match raw.as_f64() {
+                Some(v) if v.is_finite() => W::Val(v),
+                _ => W::Bail,
+            },
+            None => W::Default,
+        }
+    };
+    let (rows, cols, data) = match &gr {
+        GraphRef::MultiUndirected { mg, .. } => {
+            let inner = &mg.inner;
+            let edge_count = inner.edge_count();
+            let mut rows: Vec<u32> = Vec::with_capacity(edge_count * 2);
+            let mut cols: Vec<u32> = Vec::with_capacity(edge_count * 2);
+            let mut data: Vec<f64> = Vec::with_capacity(edge_count * 2);
+            for (u, v, _key, attrs) in inner.edges_ordered_borrowed() {
+                let Some(&ui) = index.get(u) else { continue };
+                let Some(&vi) = index.get(v) else { continue };
+                let w = match resolve(attrs) {
+                    W::Val(v) => v,
+                    W::Default => default_weight,
+                    W::Bail => return Ok(None),
+                };
+                rows.push(ui);
+                cols.push(vi);
+                data.push(w);
+                if ui != vi {
+                    rows.push(vi);
+                    cols.push(ui);
+                    data.push(w);
+                }
+            }
+            (rows, cols, data)
+        }
+        GraphRef::MultiDirected { mdg, .. } => {
+            let inner = &mdg.inner;
+            let edge_count = inner.edge_count();
+            let mut rows: Vec<u32> = Vec::with_capacity(edge_count);
+            let mut cols: Vec<u32> = Vec::with_capacity(edge_count);
+            let mut data: Vec<f64> = Vec::with_capacity(edge_count);
+            for (u, v, _key, attrs) in inner.edges_ordered_borrowed() {
+                let Some(&ui) = index.get(u) else { continue };
+                let Some(&vi) = index.get(v) else { continue };
+                let w = match resolve(attrs) {
+                    W::Val(v) => v,
+                    W::Default => default_weight,
+                    W::Bail => return Ok(None),
+                };
+                rows.push(ui);
+                cols.push(vi);
+                data.push(w);
+            }
+            (rows, cols, data)
+        }
+        GraphRef::Undirected(_) | GraphRef::Directed { .. } => return Ok(None),
+    };
+    Ok(Some((rows, cols, data)))
+}
+
 /// br-r37-c1-fb9td: native O(|E|) non-finite-weight scan for MultiGraph /
 /// MultiDiGraph — the multigraph sibling of `graph_has_nonfinite_edge_weight`
 /// (which returns `None` for multigraphs, forcing `pagerank`'s weight-parity
@@ -2244,6 +2336,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(edges_nbunch_count, m)?)?;
     m.add_function(wrap_pyfunction!(to_dict_of_lists_undirected, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_arrays_multigraph, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        adjacency_arrays_multigraph_finite_checked,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(
         graph_has_nonfinite_edge_weight_multigraph,
         m

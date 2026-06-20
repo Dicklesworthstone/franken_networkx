@@ -21523,6 +21523,15 @@ except ImportError:  # pragma: no cover — defensive for partial builds
     _native_adjacency_arrays_multigraph = None
 
 try:
+    # br-r37-c1-iyu0a: single-pass COO + finiteness guard (folds the separate
+    # graph_has_nonfinite_edge_weight_multigraph scan into the COO build).
+    from franken_networkx._fnx import (
+        adjacency_arrays_multigraph_finite_checked as _native_adjacency_arrays_multigraph_checked,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_adjacency_arrays_multigraph_checked = None
+
+try:
     from franken_networkx._fnx import (
         graph_has_nonfinite_edge_weight_multigraph as _native_has_nonfinite_edge_weight_multigraph,
     )
@@ -50978,31 +50987,33 @@ def to_numpy_array(
             multigraph_weight is sum
             and nonedge == 0
             and isinstance(G, (MultiGraph, MultiDiGraph))
-            and _native_adjacency_arrays_multigraph is not None
             and (weight is None or isinstance(weight, str))
         ):
-            _ok = weight is None
-            if not _ok and _native_has_nonfinite_edge_weight_multigraph is not None:
+            # br-r37-c1-iyu0a: weight=None uses unit weights (no finiteness
+            # concern); weight=str uses the fused COO+finiteness kernel — ONE
+            # edge pass instead of a separate non-finite scan + COO. The checked
+            # kernel returns None on a non-numeric/non-finite weight, falling
+            # through to the exact Python loop.
+            _mg = None
+            if weight is None and _native_adjacency_arrays_multigraph is not None:
+                _mg = _native_adjacency_arrays_multigraph(G, nodelist, None, 1.0)
+            elif (
+                isinstance(weight, str)
+                and _native_adjacency_arrays_multigraph_checked is not None
+            ):
                 _sync_rust_edge_attrs(G, edge_only=True)
-                try:
-                    _ok = (
-                        _native_has_nonfinite_edge_weight_multigraph(G, weight) is False
-                    )
-                except Exception:
-                    _ok = False
-            if _ok:
-                _mg = _native_adjacency_arrays_multigraph(
-                    G, nodelist, weight if isinstance(weight, str) else None, 1.0
+                _mg = _native_adjacency_arrays_multigraph_checked(
+                    G, nodelist, weight, 1.0
                 )
-                if _mg is not None:
-                    rows, cols, data = _mg
-                    if rows:
-                        np.add.at(
-                            matrix,
-                            (np.asarray(rows), np.asarray(cols)),
-                            np.asarray(data, dtype=matrix.dtype),
-                        )
-                    return matrix
+            if _mg is not None:
+                rows, cols, data = _mg
+                if rows:
+                    np.add.at(
+                        matrix,
+                        (np.asarray(rows), np.asarray(cols)),
+                        np.asarray(data, dtype=matrix.dtype),
+                    )
+                return matrix
         edge_values = {}
         for u, v, _, edge_attrs in G.edges(keys=True, data=True):
             if u not in index or v not in index:
@@ -51427,64 +51438,62 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
     # admit ``dtype=None`` only when the native non-finite/non-numeric scan
     # confirms every present weight is finite-numeric (absent => default 1,
     # matching nx). Byte-identical to nx across int/float/missing/self-loop.
-    _mg_weighted_dtype_none_ok = False
-    if (
-        isinstance(weight, str)
-        and dtype is None
-        and G.is_multigraph()
-        and isinstance(G, (MultiGraph, MultiDiGraph))
-        and _native_adjacency_arrays_multigraph is not None
-        and _native_has_nonfinite_edge_weight_multigraph is not None
-    ):
-        _sync_rust_edge_attrs(G, edge_only=True)
-        try:
-            _mg_weighted_dtype_none_ok = (
-                _native_has_nonfinite_edge_weight_multigraph(G, weight) is False
-            )
-        except Exception:
-            _mg_weighted_dtype_none_ok = False
-
-    if (
-        _native_adjacency_arrays_multigraph is not None
-        and G.is_multigraph()
-        and isinstance(G, (MultiGraph, MultiDiGraph))
-        and (
-            weight is None
-            or (isinstance(weight, str) and dtype is not None)
-            or _mg_weighted_dtype_none_ok
-        )
-    ):
-        if weight is not None and not _mg_weighted_dtype_none_ok:
+    # br-r37-c1-iyu0a: native multigraph COO for the default weighted call.
+    #   weight=None              -> unit weights, plain kernel
+    #   weight=str, dtype set    -> plain kernel (pinned dtype removes nx's
+    #                               int/float inference ambiguity)
+    #   weight=str, dtype=None   -> FUSED COO + finiteness kernel: ONE edge pass
+    #                               instead of a separate non-finite scan + COO;
+    #                               returns None on a non-numeric/non-finite
+    #                               weight so we fall through to the exact Python
+    #                               loop. The body reproduces nx's int/float
+    #                               inference (array_equal(data, data.astype int)).
+    _mg_native = None
+    if G.is_multigraph() and isinstance(G, (MultiGraph, MultiDiGraph)):
+        if weight is None and _native_adjacency_arrays_multigraph is not None:
+            _mg_native = _native_adjacency_arrays_multigraph(G, nodelist, None, 1.0)
+        elif (
+            isinstance(weight, str)
+            and dtype is not None
+            and _native_adjacency_arrays_multigraph is not None
+        ):
             _sync_rust_edge_attrs(G, edge_only=True)
-        _mg_native = _native_adjacency_arrays_multigraph(
-            G, nodelist, weight if isinstance(weight, str) else None, 1.0
-        )
-        if _mg_native is not None:
-            import numpy as _np
-            rows, cols, data = _mg_native
-            if dtype is None and data:
-                data_arr = _np.asarray(data)
-                if _np.array_equal(data_arr, data_arr.astype(_np.int64)):
-                    matrix = scipy.sparse.coo_array(
-                        (data_arr.astype(_np.int64), (rows, cols)),
-                        shape=(len(nodelist), len(nodelist)),
-                    )
-                else:
-                    matrix = scipy.sparse.coo_array(
-                        (data_arr, (rows, cols)),
-                        shape=(len(nodelist), len(nodelist)),
-                    )
-            else:
-                if dtype is not None:
-                    rows = _np.asarray(rows, dtype=_np.intp)
-                    cols = _np.asarray(cols, dtype=_np.intp)
-                    data = _np.asarray(data, dtype=dtype)
+            _mg_native = _native_adjacency_arrays_multigraph(G, nodelist, weight, 1.0)
+        elif (
+            isinstance(weight, str)
+            and dtype is None
+            and _native_adjacency_arrays_multigraph_checked is not None
+        ):
+            _sync_rust_edge_attrs(G, edge_only=True)
+            _mg_native = _native_adjacency_arrays_multigraph_checked(
+                G, nodelist, weight, 1.0
+            )
+    if _mg_native is not None:
+        import numpy as _np
+        rows, cols, data = _mg_native
+        if dtype is None and data:
+            data_arr = _np.asarray(data)
+            if _np.array_equal(data_arr, data_arr.astype(_np.int64)):
                 matrix = scipy.sparse.coo_array(
-                    (data, (rows, cols)),
+                    (data_arr.astype(_np.int64), (rows, cols)),
                     shape=(len(nodelist), len(nodelist)),
-                    dtype=dtype,
                 )
-            return matrix.asformat(format)
+            else:
+                matrix = scipy.sparse.coo_array(
+                    (data_arr, (rows, cols)),
+                    shape=(len(nodelist), len(nodelist)),
+                )
+        else:
+            if dtype is not None:
+                rows = _np.asarray(rows, dtype=_np.intp)
+                cols = _np.asarray(cols, dtype=_np.intp)
+                data = _np.asarray(data, dtype=dtype)
+            matrix = scipy.sparse.coo_array(
+                (data, (rows, cols)),
+                shape=(len(nodelist), len(nodelist)),
+                dtype=dtype,
+            )
+        return matrix.asformat(format)
 
     # br-r37-c1-tssaperf: Python fallback path — multigraph (which
     # needs parallel-edge sum dedup), non-string weight key, or
