@@ -15571,6 +15571,192 @@ fn find_cycle_simple(
     Ok(result)
 }
 
+/// br-r37-c1-fcmg: keyed undirected-multigraph edge-DFS find_cycle. Mirrors
+/// `find_cycle_simple_dfs` but the adjacency rows carry `(neighbor, key)` pairs
+/// in nx's `G.edges(node, keys=True)` order, and `visited_edges` keys on the
+/// PARALLEL edge identity `(min, max, key)` — so two parallel edges between the
+/// same pair form a 2-cycle exactly like nx. Returns the cycle as
+/// `(tail, head, key)` index/key triples in nx's traversal order, or `None`.
+fn find_cycle_multigraph_dfs<'a>(
+    nodes: &[&'a str],
+    mut compute_row: impl FnMut(&'a str) -> Vec<(&'a str, usize)>,
+) -> Option<Vec<(&'a str, &'a str, usize)>> {
+    let mut explored: HashSet<&'a str> = HashSet::new();
+    // Canonical PARALLEL-edge identity: unordered pair + key. Two parallel edges
+    // between the same pair differ in `key`, so each is a distinct traversable
+    // edge — making a parallel pair a 2-cycle exactly like nx's edge_dfs.
+    let edge_id = |u: &'a str, v: &'a str, key: usize| -> (&'a str, &'a str, usize) {
+        if u <= v { (u, v, key) } else { (v, u, key) }
+    };
+    // br-r37-c1-fcmg: keyed adjacency rows are materialized ON DEMAND (only for
+    // nodes the DFS actually reaches), so an early-exit cycle costs only the rows
+    // visited — NOT an O(V+E) whole-graph keyed-adjacency build (which regressed
+    // the common dense case ~30x, exactly the trap the simple kernel avoids).
+    // Working in node-key space avoids the O(V) index-map build entirely (nx
+    // never indexes either).
+    let mut rows: HashMap<&'a str, Vec<(&'a str, usize)>> = HashMap::new();
+
+    for &start in nodes {
+        if explored.contains(start) {
+            continue;
+        }
+
+        // find_cycle per-start consumer state
+        let mut edges: Vec<(&'a str, &'a str, usize)> = Vec::new();
+        let mut seen: HashSet<&'a str> = HashSet::new();
+        seen.insert(start);
+        let mut active_nodes: HashSet<&'a str> = HashSet::new();
+        active_nodes.insert(start);
+        let mut previous_head: Option<&'a str> = None;
+
+        // edge_dfs per-start state (fresh for each start, like nx)
+        let mut visited_edges: HashSet<(&'a str, &'a str, usize)> = HashSet::new();
+        let mut visited_nodes: HashSet<&'a str> = HashSet::new();
+        let mut pos: HashMap<&'a str, usize> = HashMap::new();
+        let mut stack: Vec<&'a str> = vec![start];
+
+        while let Some(&current) = stack.last() {
+            if !visited_nodes.contains(current) {
+                visited_nodes.insert(current);
+                pos.insert(current, 0);
+            }
+            let p = *pos.get(current).expect("pos initialized above");
+            if !rows.contains_key(current) {
+                rows.insert(current, compute_row(current));
+            }
+            let row = rows.get(current).expect("row materialized above");
+            if p >= row.len() {
+                stack.pop();
+                continue;
+            }
+            *pos.get_mut(current).expect("pos initialized above") = p + 1;
+            let (nbr, key) = row[p];
+            let eid = edge_id(current, nbr, key);
+            if visited_edges.contains(&eid) {
+                continue;
+            }
+            visited_edges.insert(eid);
+            stack.push(nbr);
+
+            // === yield (current, nbr, key) into the find_cycle consumer ===
+            let (tail, head) = (current, nbr);
+            if explored.contains(head) {
+                continue;
+            }
+            if let Some(ph) = previous_head
+                && tail != ph
+            {
+                loop {
+                    match edges.pop() {
+                        None => {
+                            edges.clear();
+                            active_nodes.clear();
+                            active_nodes.insert(tail);
+                            break;
+                        }
+                        Some(popped) => {
+                            active_nodes.remove(popped.1);
+                        }
+                    }
+                    if let Some(last) = edges.last()
+                        && tail == last.1
+                    {
+                        break;
+                    }
+                }
+            }
+            edges.push((tail, head, key));
+
+            if active_nodes.contains(head) {
+                let final_node = head;
+                let start_idx = edges
+                    .iter()
+                    .position(|&(t, _, _)| t == final_node)
+                    .unwrap_or(0);
+                return Some(edges[start_idx..].to_vec());
+            }
+            seen.insert(head);
+            active_nodes.insert(head);
+            previous_head = Some(head);
+        }
+
+        for &node in &seen {
+            explored.insert(node);
+        }
+    }
+
+    None
+}
+
+/// br-r37-c1-fcmg: keyed adjacency row for one MultiGraph node, in
+/// `G.edges(node, keys=True)` order — neighbor rows in adjacency order, each
+/// neighbor's parallel keys in edge-bucket order. Called on demand by the keyed
+/// DFS so only visited nodes pay the cost; node keys stay borrowed (no index
+/// map, no allocation beyond the row itself).
+fn multigraph_keyed_row<'a>(
+    mg: &'a fnx_classes::MultiGraph,
+    node: &'a str,
+) -> Vec<(&'a str, usize)> {
+    let mut row: Vec<(&'a str, usize)> = Vec::new();
+    if let Some(neighbors) = mg.neighbors(node) {
+        for neighbor in neighbors {
+            for key in mg.edge_keys_vec(node, neighbor) {
+                row.push((neighbor, key));
+            }
+        }
+    }
+    row
+}
+
+/// `find_cycle(G)` fast path for an undirected MultiGraph (orientation=None,
+/// source=None). Returns the cycle as `(u, v, key)` triples with the user-facing
+/// key object, or `None` if acyclic. The Python wrapper raises `NetworkXNoCycle`
+/// on `None` and keeps the verbatim Python port for directed / explicit source /
+/// non-None orientation.
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn find_cycle_multigraph_simple(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Option<Vec<(PyObject, PyObject, PyObject)>>> {
+    let gr = extract_graph(g)?;
+    let GraphRef::MultiUndirected { mg, .. } = &gr else {
+        return Ok(None);
+    };
+    let inner = &mg.inner;
+    let nodes = inner.nodes_ordered();
+    let cycle = py.allow_threads(|| {
+        find_cycle_multigraph_dfs(&nodes, |node| multigraph_keyed_row(inner, node))
+    });
+    // Map the internal usize key back to the user-facing key object (fnx
+    // multigraph keys may be arbitrary Python objects), mirroring
+    // PyMultiGraph::py_edge_key. nodes map via the GraphRef display helper.
+    let py_edge_key = |py: Python<'_>, u: &str, v: &str, key: usize| -> PyObject {
+        mg.edge_py_keys
+            .get(&crate::PyMultiGraph::edge_key(u, v, key))
+            .map_or_else(
+                || {
+                    crate::unwrap_infallible(key.into_pyobject(py))
+                        .into_any()
+                        .unbind()
+                },
+                |obj| obj.clone_ref(py),
+            )
+    };
+    Ok(cycle.map(|edges| {
+        edges
+            .iter()
+            .map(|&(u, v, key)| {
+                (
+                    gr.py_node_key(py, u),
+                    gr.py_node_key(py, v),
+                    py_edge_key(py, u, v, key),
+                )
+            })
+            .collect::<Vec<_>>()
+    }))
+}
+
 // ===========================================================================
 // Tree recognition — is_arborescence, is_branching
 // ===========================================================================
@@ -21676,6 +21862,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Barycenter
     m.add_function(wrap_pyfunction!(barycenter, m)?)?;
     m.add_function(wrap_pyfunction!(find_cycle_simple, m)?)?;
+    m.add_function(wrap_pyfunction!(find_cycle_multigraph_simple, m)?)?;
     // Approximation algorithms
     m.add_function(wrap_pyfunction!(min_weighted_vertex_cover, m)?)?;
     m.add_function(wrap_pyfunction!(maximal_independent_set, m)?)?;

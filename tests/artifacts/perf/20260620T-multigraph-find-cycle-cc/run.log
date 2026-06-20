@@ -1,0 +1,12 @@
+# br-r37-c1-fcmg — undirected MultiGraph find_cycle: native lazy keyed edge-DFS
+# Agent: BlackThrush. 2026-06-20. NetworkX 3.6.1. Base origin/main 5c9e62a2e
+
+## Perf (warm min-of-N) vs NetworkX
+MG find_cycle (dense, n=1500)        fnx    0.023ms nx    0.061ms   2.61x WIN
+MG find_cycle (dense, n=5000)        fnx    0.227ms nx    0.354ms   1.56x WIN
+MG find_cycle (sparse tree+1)        fnx    0.014ms nx    0.043ms   3.06x WIN
+
+## Parity
+undirected MultiGraph find_cycle parity: 0/2000 fail (325 no-cycle agreed)
+directed MDG / orientation(ignore,reverse,original) / explicit-source: 0 fails / ~2500 checks (unrouted paths unchanged)
+pytest -k find_cycle: 75 passed

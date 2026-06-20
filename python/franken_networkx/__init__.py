@@ -16144,6 +16144,9 @@ def is_planar(G, *, backend=None, **backend_kwargs):
 # Barycenter
 from franken_networkx._fnx import barycenter as _raw_barycenter
 from franken_networkx._fnx import find_cycle_simple as _raw_find_cycle_simple
+from franken_networkx._fnx import (
+    find_cycle_multigraph_simple as _raw_find_cycle_multigraph_simple,
+)
 
 
 def barycenter(G, weight=None, attr=None, sp=None, *, backend=None, **backend_kwargs):
@@ -17954,6 +17957,22 @@ def find_cycle(G, source=None, orientation=None):
     # non-None orientation keep the verbatim Python port below.
     if source is None and orientation is None and not G.is_multigraph():
         cycle = _raw_find_cycle_simple(G)
+        if cycle is None:
+            raise NetworkXNoCycle("No cycle found.")
+        return cycle
+    # br-r37-c1-fcmg: native fast path for the common undirected-MultiGraph case.
+    # The verbatim Python edge_dfs port (below) pays an fnx EdgeView per visited
+    # node (~14x nx); the kernel runs the keyed DFS entirely in Rust and returns
+    # (u, v, key) triples with user-facing key objects, early-exiting on the first
+    # cycle. Directed multigraph / explicit source / non-None orientation keep the
+    # Python port.
+    if (
+        source is None
+        and orientation is None
+        and G.is_multigraph()
+        and not G.is_directed()
+    ):
+        cycle = _raw_find_cycle_multigraph_simple(G)
         if cycle is None:
             raise NetworkXNoCycle("No cycle found.")
         return cycle
