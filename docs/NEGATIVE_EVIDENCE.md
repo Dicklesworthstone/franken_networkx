@@ -1489,3 +1489,39 @@ Do not repeat:
   `edges_ordered_borrowed()` version is the measured keep.
 - Next route for the residual: reduce PyO3 Vec-to-NumPy handoff cost or add a
   native array/CSR buffer boundary for large sparse multigraph exporters.
+
+## 2026-06-20 `volume(G, S)` native-binding routing rejected (`br-r37-c1-volnative`, BlackThrush)
+
+Scope: the public `volume(G, S)` cut-metric wrapper. Direct same-process timing
+vs NetworkX 3.6.1 on `barabasi_albert_graph(2500, 3, seed=1)` showed the current
+full-degree-dict fast path (`deg = dict(G.degree()); sum(deg.get(v,0) for v in S)`)
+loses because it scales with `|V|`, not `|S|`: `|S|=250` `0.15x`, `|S|=1250`
+`0.62x`, `|S|=2250` `0.95x` (it builds all 2500 degrees just to sum a subset).
+
+Attempt: route exact fnx simple `Graph` inputs to the native `_fnx.volume`
+binding. The shared core `fnx_algorithms::volume` kernel counts an undirected
+self-loop ONCE (it is also used by `conductance`, so it was left untouched);
+NetworkX's `sum(G.degree(v) for v in S)` counts each self-loop TWICE. Fixed this
+in the binding with an `O(|S|)` `Graph::degree` sum (row length + self-loop probe,
+already nx-correct) over the distinct nodes of `S`. Byte-exact vs NetworkX:
+`1500/1500` random graphs including self-loops, missing nodes (degree 0),
+generator `S`, and empty `S`.
+
+Result: `0.86x` / `0.80x` / `0.76x` at `|S|=250/1250/2250` — STILL A LOSS, and the
+large-`S` row regressed vs the full-dict path (`0.95x -> 0.76x`). Root cause: the
+binding pays `node_key_to_string` (Python object -> canonical String) per node in
+`S`, an `O(|S|)` conversion tax that NetworkX's native Python-dict `degree(nbunch)`
+view avoids; that tax dominates a sub-millisecond degree-sum. Measured under host
+load 13+, but the loss is structural, not noise.
+
+Verdict: reverted (`~0-gain`, no clear win at any `|S|`). `volume` is
+String-conversion-substrate-bound, the same class as multigraph copy/to_undirected.
+
+Do not retry:
+- Do not route `volume`/degree-sum-over-nbunch ops through the per-node
+  `node_key_to_string` native binding; the String-conversion tax exceeds the
+  degree-sum it replaces.
+- Do not change the shared core `fnx_algorithms::volume` kernel's single self-loop
+  count (it feeds `conductance`); any volume self-loop fix belongs in a caller.
+- Next viable route would need a Python-object-native or integer-index degree-sum
+  that skips canonical String conversion entirely.
