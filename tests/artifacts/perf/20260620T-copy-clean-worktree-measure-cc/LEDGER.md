@@ -41,3 +41,19 @@ Graph/DiGraph copy already WINS 3.8-13x precisely because they are integer-CSR.
 No code shipped: every sub-migration lever (pred-clone elimination, reorder
 transpose) is clone-dominated and measures neutral. Reserved for a focused
 integer-CSR migration effort.
+
+## Update — third pred lever empirically ruled out (clean worktree, binding unlocked)
+
+With the binding files released, I implemented + measured the full
+pred-clone-elimination: a `clone_for_nx_copy_walk()` that clones nodes/succ/edges
+and builds predecessors FRESH by transposing successors in nx copy-walk order
+(one pred pass instead of clone-pred + reorder = two passes). Parity 0/600 vs nx
+(node/succ/pred order + edges/keys/attrs). Perf: MDG.copy 0.53x (no-attr) /
+0.44x (attr) — IDENTICAL to baseline within noise. NEUTRAL, not shipped.
+
+Conclusion is now empirically locked: copy is bound by the SUCCESSORS + EDGES
+String-keyed clone (+ the binding's per-edge Python work), NOT predecessors. All
+three pred-side levers (reorder transpose, pred-clone elimination) measure
+neutral. The only remaining lever is the full integer-CSR migration of the
+multigraph successors + edges maps (large, multi-file, multi-session) — or node-
+name string interning. Do NOT attempt further pred-side micro-optimizations.
