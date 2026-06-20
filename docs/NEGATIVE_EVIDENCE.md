@@ -87,6 +87,92 @@ Next route:
   CSR export, or bypass Python tuple/list construction with a true native sparse
   array boundary for dirty `MultiDiGraph` rows.
 
+## 2026-06-20 Default-Order Matrix Export + Dijkstra Emitter No-Ships (`br-r37-c1-04z53`)
+
+Scope: test two radical-but-narrow boundary levers from the current loss
+frontier before touching broader graph semantics: default-order multigraph
+matrix export without repeated nodelist lookup, and path-heavy Dijkstra Python
+object emission without duplicate display-key lookups. Both routes were
+measured, reverted, and left as routing evidence only.
+
+Environment:
+- Agent Mail identity: `CrimsonRiver`; CLI actor: `AGENT_NAME=CrimsonRiver`
+  / cod-b.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-b-20260620T181919`.
+- Requested target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+- Exact requested target dir hit incompatible-rustc E0514 from older artifacts
+  during the matrix bench setup. No cleanup, deletion, or reset was performed.
+  Release and benchmark proof used fresh non-destructive target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-b-f20a92ec0`.
+- RCH needed absolute `PYTHONPATH` entries for the public-gauntlet Python
+  module and vendored NetworkX. The worker image did not have SciPy, so the
+  sparse exporter row failed with `ModuleNotFoundError: No module named
+  'scipy'` and the dense `to_numpy_array` sibling became the measurable route.
+
+Matrix exporter evidence:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Candidate vs FNX baseline | Verdict |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Baseline `MultiDiGraph.to_numpy_array(default weight)`, 2000 nodes, RCH Criterion on `vmi1167313` | `98.274 ms` | `136.28 ms` | `1.3867x` | baseline | current win |
+| Default-order COO/nodelist bypass candidate, same worker | `102.83 ms` | `142.91 ms` | `1.3896x` | `0.956x` | reject |
+| Dense f64 slab default-order candidate, same worker | `104.63 ms` | `141.14 ms` | `1.349x` | `0.939x` | reject |
+
+Dijkstra emitter evidence:
+
+Fixture: synthetic directed integer-weight graph with a chain plus random
+directed edges, source `0`, seed `20260620`, vendored NetworkX
+`3.7rc0.dev0`, source-tree extension built by release `maturin build`.
+The candidate cached finalized display-key objects and streamed each path
+through `PyList::new` instead of first building a Rust `Vec<PyObject>`.
+Parity digests matched for every row.
+
+| Workload | Baseline FNX p50 | Candidate FNX p50 | NetworkX p50 | Baseline ratio vs NetworkX | Candidate ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Directed Dijkstra combined distance+path, n=600 / e=2999 | `0.457727 ms` | `0.601329 ms` | baseline `1.084615 ms`; candidate `1.519348 ms` | `2.3696x` | `2.5267x` | reject; FNX self-regression |
+| Directed Dijkstra combined distance+path, n=1400 / e=6999 | `1.152663 ms` | `1.531261 ms` | baseline `4.482733 ms`; candidate `4.954216 ms` | `3.8890x` | `3.2354x` | reject; FNX self-regression |
+| Directed Dijkstra combined distance+path, n=2600 / e=12999 | `5.737650 ms` | `5.246430 ms` | baseline `9.946764 ms`; candidate `9.730325 ms` | `1.7336x` | `1.8547x` | reject; noisy already-winning synthetic row |
+
+Supplemental routing evidence:
+- The existing undirected Dijkstra artifact harness
+  `tests/artifacts/perf/20260615T-dijkstra-pred-boldfalcon/dijkstra_family_pass.py`
+  on n=1400 / extra=6400 also showed a current win:
+  `single_source_dijkstra` FNX p50 `1.992756 ms` vs NetworkX `5.079183 ms`
+  (`2.550x`), with digest parity. That does not close the historical
+  `br-r37-c1-0opkc` directed path-heavy loss because it is a different
+  fixture.
+
+Conformance and gates:
+- Matrix dense-slab candidate focused parity passed:
+  `tests/python/test_to_scipy_sparse_default_native_parity.py` reported
+  `9 passed` before the candidate was reverted.
+- `rch exec -- cargo check -p fnx-python --all-targets --features pyo3/abi3-py310`
+  passed during the Dijkstra emitter candidate.
+- Release `maturin build --release --features pyo3/abi3-py310` completed for
+  both the candidate and reverted baseline extension used in the Dijkstra A/B.
+- Current source after both experiments has no code diff from the pre-probe
+  baseline.
+
+Decision:
+- Reject and fully revert both matrix-export candidates. The measurable dense
+  default-order row was already faster than NetworkX, and both candidates
+  slowed FNX versus its own baseline.
+- Reject and fully revert the Dijkstra display-key/PyList emitter candidate.
+  It regressed the smaller two rows and only improved the largest synthetic
+  row by roughly `1.09x` on a fixture that already beat NetworkX.
+- Score impact for current release rows: `0` new wins / `0` new active losses /
+  `0` neutral. This is negative evidence, not a kept performance entry.
+
+Do not repeat:
+- Do not retry default-order multigraph COO/nodelist bypass or dense f64 slab
+  export for `to_numpy_array` unless a fresh fixture shows an active
+  NetworkX-relative loss on that exact dense path.
+- Do not retry the Dijkstra display-key cache / `PyList::new` streaming lever
+  alone. Recover or port the exact `br-r37-c1-0opkc` directed residual fixture
+  into a per-crate head-to-head bench first; only attack path emission there if
+  the current baseline still loses.
+
 ## 2026-06-20 Node Expansion Raw-Kernel Public Route + Node-Degree XY Rebaseline (`br-r37-c1-04z53`)
 
 Scope: target the active simple-undirected `node_expansion(G, S)` loss on the
