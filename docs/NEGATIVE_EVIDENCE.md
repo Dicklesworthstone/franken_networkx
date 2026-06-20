@@ -2,6 +2,100 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-20 MultiDiGraph DAG Closeout (`br-r37-c1-11m92`)
+
+Scope: re-baseline the claimed `MultiDiGraph` DAG losses on current `origin/main`
+before trying another conversion-tax rewrite, then keep only measured wins. The
+current source had already made `topological_sort`, `dag_longest_path`, and SCC
+counting stale wins; the real remaining losses were `transitive_closure` and
+`dag_longest_path_length`.
+
+Environment:
+- Agent: `CrimsonRiver` / `cod-a`.
+- Worktree: `/data/projects/franken_networkx-cod-a-land`.
+- Requested target dir for RCH gates:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- Exact requested local `maturin develop --release --features pyo3/abi3-py310`
+  install hit incompatible-rustc E0514 in that shared target dir; no cleanup or
+  file deletion was performed.
+- Release install used fresh non-destructive target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-a-local-f20a92ec0`.
+- Per-crate RCH build/check/clippy/test gates completed for `fnx-python`.
+- Per-crate RCH bench gate completed on `vmi1149989`:
+  `rch exec -- cargo bench -p fnx-python --bench networkx_head_to_head multidigraph_connectivity_head_to_head -- --noplot`.
+  The retrieved transcript reported exit `0` but did not include Criterion
+  timing rows for this DAG surface, so the ratio evidence below comes from the
+  same-process release harness.
+- Head-to-head harness: same-process Python release timing against NetworkX
+  `3.6.1`, `PYTHONHASHSEED=0`, identical 420-node / 1329-edge deterministic
+  `MultiDiGraph` DAG with parallel keyed arcs and digest parity for every row.
+
+Baseline before this lever:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `topological_sort` | `0.255564 ms` | `1.488430 ms` | `5.824x` | stale win |
+| `dag_longest_path` | `1.446391 ms` | `2.216259 ms` | `1.532x` | stale win |
+| `dag_longest_path_length` | `4.409575 ms` | `3.083493 ms` | `0.699x` | loss |
+| `transitive_closure` | `1164.244211 ms` | `660.420907 ms` | `0.567x` | loss |
+| `number_strongly_connected_components` | `0.125618 ms` | `0.426938 ms` | `3.399x` | stale win |
+
+Kept levers:
+- `transitive_closure` now uses a native `MultiDiGraph` distinct-successor CSR
+  reachability pass for `reflexive=False`, then bulk-inserts missing keyed
+  closure edges while preserving NetworkX node/edge/attr/order snapshots. Cases
+  with row-key override mirrors fall back to the existing NetworkX-compatible
+  path.
+- `dag_longest_path_length` now computes the length directly from the
+  predecessor dynamic program for directed multigraphs, avoiding a full
+  `dag_longest_path` list allocation followed by Python multiedge re-indexing.
+
+Final release timing:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Digest | Verdict |
+| --- | ---: | ---: | ---: | --- | --- |
+| `topological_sort` | `0.197824 ms` | `1.052203 ms` | `5.319x` | `a3fe6d8438cc328f` | win |
+| `dag_longest_path` | `1.330331 ms` | `2.036158 ms` | `1.531x` | `a3fe6d8438cc328f` | win |
+| `dag_longest_path_length` | `1.303539 ms` | `2.718360 ms` | `2.085x` | `cef5838d118dccd9` | win |
+| `transitive_closure` | `265.605101 ms` | `627.405576 ms` | `2.362x` | `1c46fd2646166806` | win |
+| `number_strongly_connected_components` | `0.116190 ms` | `0.356205 ms` | `3.066x` | `db55da3fc3098e9c` | win |
+
+Self-speedups:
+- `transitive_closure`: `1164.244211 ms -> 265.605101 ms`, `4.383x`.
+- `dag_longest_path_length`: `4.409575 ms -> 1.303539 ms`, `3.383x`.
+
+Conformance and gates:
+- `pytest tests/python/test_transitive_closure_attrs.py tests/python/test_dag_additional.py -q`
+  reported `35 passed`.
+- `pytest tests/python/test_parity_conformance.py tests/python/test_transitive_closure_attrs.py tests/python/test_dag_additional.py -q`
+  reported `230 passed`.
+- `cargo fmt --check` passed.
+- `rch exec -- cargo build -p fnx-python --release --features pyo3/abi3-py310`
+  passed.
+- `rch exec -- cargo check -p fnx-python --all-targets --features pyo3/abi3-py310`
+  passed.
+- `rch exec -- cargo clippy -p fnx-python --all-targets --features pyo3/abi3-py310 -- -D warnings`
+  passed.
+- `rch exec -- cargo test -p fnx-python --features pyo3/abi3-py310` reported
+  `27 passed`.
+
+Decision:
+- Keep both levers. The measured DAG surface is now `5` wins / `0` losses /
+  `0` neutral vs NetworkX, and both true baseline losses flipped to wins.
+
+Do not repeat:
+- Do not route `MultiDiGraph` transitive closure through Python edge-by-edge
+  graph copies when `reflexive=False` and keyed-row mirrors are ordinary.
+- Do not compute `dag_longest_path_length` by first materializing the full
+  longest-path node list for directed multigraphs.
+- Do not spend more time on the stale topological-sort, longest-path, or SCC
+  count notes until a fresh same-process head-to-head row shows a real loss.
+
+Next route:
+- Move to remaining measured losses such as multigraph matrix exporters,
+  path-heavy Dijkstra rows, or MultiGraph biconnected/MST surfaces; this DAG
+  conversion-tax bead is closed.
+
 ## 2026-06-20 MultiDiGraph SCC Stale-Loss Closeout (`br-r37-c1-8hjsu`)
 
 Scope: re-baseline the open `MultiDiGraph` `strongly_connected_components`

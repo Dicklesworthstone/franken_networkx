@@ -18,7 +18,7 @@ use pyo3::exceptions::{
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyInt, PyIterator, PyList, PySet, PyTuple};
 use std::cell::OnceCell;
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 type SpanningEdgeSamples = (Vec<(String, String)>, Vec<f64>);
@@ -12584,6 +12584,127 @@ pub fn is_weakly_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<boo
 // Transitive Closure / Reduction
 // ===========================================================================
 
+/// Return a native transitive closure for ordinary directed multigraphs.
+///
+/// br-r37-c1-11m92: avoid fnx->nx->fnx conversion for MultiDiGraph closure.
+/// NetworkX implements ``reflexive=False`` as ``TC = G.copy()`` followed by
+/// per-source ``edge_bfs`` and one default-key edge for each missing reachable
+/// target. For the common no-row-override case, a distinct-successor BFS has
+/// the same target first-discovery order as ``edge_bfs`` but avoids per-edge
+/// Python iterator overhead and rebuilds the closure with a bulk keyed insert.
+#[pyfunction]
+pub fn multidigraph_transitive_closure(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Option<PyObject>> {
+    let gr = extract_graph(g)?;
+    let GraphRef::MultiDirected { mdg, .. } = &gr else {
+        return Ok(None);
+    };
+    if !mdg.succ_py_keys.is_empty() || !mdg.pred_py_keys.is_empty() {
+        return Ok(None);
+    }
+
+    let nodes = mdg.inner.nodes_ordered();
+    let n = nodes.len();
+    let index: HashMap<&str, usize> = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, &node)| (node, i))
+        .collect();
+    let mut succ: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut pair_exists: HashSet<(usize, usize)> = HashSet::new();
+    for (i, &node) in nodes.iter().enumerate() {
+        if let Some(targets) = mdg.inner.successors(node) {
+            for target in targets {
+                if let Some(&j) = index.get(target) {
+                    succ[i].push(j);
+                    pair_exists.insert((i, j));
+                }
+            }
+        }
+    }
+
+    let mut closure_edges: Vec<(String, String, usize, AttrMap)> = Vec::new();
+    for source in 0..n {
+        let mut visited = vec![false; n];
+        visited[source] = true;
+        let mut queue = VecDeque::from([source]);
+        while let Some(parent) = queue.pop_front() {
+            for &child in &succ[parent] {
+                if !visited[child] {
+                    visited[child] = true;
+                    queue.push_back(child);
+                }
+                if pair_exists.insert((source, child)) {
+                    closure_edges.push((
+                        nodes[source].to_owned(),
+                        nodes[child].to_owned(),
+                        0,
+                        AttrMap::new(),
+                    ));
+                }
+            }
+        }
+    }
+
+    let mut inner = mdg.inner.clone_with_fresh_policy();
+    inner.reorder_pred_rows_for_nx_copy_walk();
+    inner.extend_keyed_edges_with_attrs_unrecorded(closure_edges);
+
+    let mut result = PyMultiDiGraph {
+        inner,
+        node_key_map: HashMap::with_capacity(mdg.node_key_map.len()),
+        succ_py_keys: PyDiGraph::clone_row_keys(py, &mdg.succ_py_keys),
+        pred_py_keys: HashMap::new(),
+        node_py_attrs: HashMap::with_capacity(mdg.node_py_attrs.len()),
+        edge_py_attrs: HashMap::with_capacity(mdg.edge_py_attrs.len()),
+        edge_py_keys: HashMap::with_capacity(mdg.edge_py_keys.len()),
+        graph_attrs: mdg.graph_attrs.bind(py).copy()?.unbind(),
+        nodes_seq: 0,
+        edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
+        edge_dirty_keys: PyMultiDiGraph::clean_edge_dirty_keys(),
+        node_keys_cache: std::sync::Mutex::new(None),
+        node_data_mirror: std::sync::Mutex::new(None),
+        dict_of_dicts_cache: None,
+        edges_with_data_cache: None,
+        edges_with_keys_cache: None,
+        node_iter_mirror: std::sync::Mutex::new(None),
+    };
+
+    for (canonical, py_key) in &mdg.node_key_map {
+        result
+            .node_key_map
+            .insert(canonical.clone(), py_key.clone_ref(py));
+        if let Some(attrs) = mdg.node_py_attrs.get(canonical) {
+            let bound = attrs.bind(py);
+            result
+                .inner
+                .replace_node_attrs(canonical, crate::py_dict_to_attr_map(bound)?);
+            result
+                .node_py_attrs
+                .insert(canonical.clone(), bound.copy()?.unbind());
+        }
+    }
+    for (key, attrs) in &mdg.edge_py_attrs {
+        let bound = attrs.bind(py);
+        result
+            .inner
+            .replace_edge_attrs(&key.0, &key.1, key.2, crate::py_dict_to_attr_map(bound)?);
+        result
+            .edge_py_attrs
+            .insert(key.clone(), bound.copy()?.unbind());
+    }
+    for (key, py_key) in &mdg.edge_py_keys {
+        result
+            .edge_py_keys
+            .insert(key.clone(), py_key.clone_ref(py));
+    }
+
+    Ok(Some(result.into_pyobject(py)?.into_any().unbind()))
+}
+
 /// Return the transitive closure of a directed graph.
 #[pyfunction]
 #[pyo3(signature = (g, reflexive=false))]
@@ -21242,6 +21363,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(number_weakly_connected_components, m)?)?;
     m.add_function(wrap_pyfunction!(is_weakly_connected, m)?)?;
     // Transitive closure/reduction
+    m.add_function(wrap_pyfunction!(multidigraph_transitive_closure, m)?)?;
     m.add_function(wrap_pyfunction!(transitive_closure, m)?)?;
     m.add_function(wrap_pyfunction!(transitive_reduction, m)?)?;
     // All-pairs shortest paths

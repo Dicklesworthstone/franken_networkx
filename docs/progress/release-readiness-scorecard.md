@@ -9,7 +9,61 @@ assortativity verification (`br-r37-c1-04z53.9147`, `.9149`, `.9152`) plus
 community link-prediction verification (`br-r37-c1-04z53.9141`) and
 undirected `non_edges` default-ebunch verification (`br-r37-c1-04z53.9143`)
 plus CCPA link-prediction verification (`br-r37-c1-04z53.9140`) and
-MultiDiGraph SCC stale-loss closeout (`br-r37-c1-8hjsu`).
+MultiDiGraph SCC stale-loss closeout (`br-r37-c1-8hjsu`) plus
+MultiDiGraph DAG conversion-tax closeout (`br-r37-c1-11m92`).
+
+## 2026-06-20 MultiDiGraph DAG Closeout
+
+Environment:
+- Agent: `CrimsonRiver` / `cod-a`.
+- Worktree: `/data/projects/franken_networkx-cod-a-land`.
+- Requested RCH target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- Exact requested local release install hit incompatible-rustc E0514 in the
+  shared target dir; no cleanup or file deletion was performed.
+- Release extension rebuilt with fresh target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-a-local-f20a92ec0`.
+- Harness: same-process release timing against NetworkX `3.6.1`,
+  `PYTHONHASHSEED=0`, identical deterministic 420-node / 1329-edge
+  parallel-keyed `MultiDiGraph` DAG with digest parity on every row.
+
+Measured release medians:
+
+| Bead | Workload | Baseline Ratio | Final FNX | Final NetworkX | Final Ratio | Decision |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| `br-r37-c1-11m92` | `topological_sort` | 5.824x | 0.197824 ms | 1.052203 ms | 5.319x | Win |
+| `br-r37-c1-11m92` | `dag_longest_path` | 1.532x | 1.330331 ms | 2.036158 ms | 1.531x | Win |
+| `br-r37-c1-11m92` | `dag_longest_path_length` | 0.699x | 1.303539 ms | 2.718360 ms | 2.085x | Keep; loss flipped |
+| `br-r37-c1-11m92` | `transitive_closure` | 0.567x | 265.605101 ms | 627.405576 ms | 2.362x | Keep; loss flipped |
+| `br-r37-c1-11m92` | `number_strongly_connected_components` | 3.399x | 0.116190 ms | 0.356205 ms | 3.066x | Win |
+
+Kept levers:
+- Native `MultiDiGraph` `transitive_closure(reflexive=False)` distinct-successor
+  reachability plus bulk keyed-edge insertion. Row-key override mirrors still
+  use the fallback path.
+- Direct directed-multigraph `dag_longest_path_length` dynamic-program length
+  emission, avoiding full path materialization and Python multiedge re-indexing.
+
+Score:
+- Win/loss/neutral accounting: `5` wins, `0` losses, `0` neutral for the final
+  DAG surface.
+- Self-speedups: `transitive_closure` `4.383x`; `dag_longest_path_length`
+  `3.383x`.
+- Gates: `cargo fmt --check`; `rch exec -- cargo build -p fnx-python --release --features pyo3/abi3-py310`;
+  `rch exec -- cargo check -p fnx-python --all-targets --features pyo3/abi3-py310`;
+  `rch exec -- cargo clippy -p fnx-python --all-targets --features pyo3/abi3-py310 -- -D warnings`;
+  `rch exec -- cargo test -p fnx-python --features pyo3/abi3-py310` (`27 passed`);
+  `rch exec -- cargo bench -p fnx-python --bench networkx_head_to_head multidigraph_connectivity_head_to_head -- --noplot`
+  exit `0` on `vmi1149989` with no Criterion timing rows retrieved for this
+  DAG surface; focused DAG/closure/parity pytest `230 passed`.
+- Ledger hygiene: the baseline losses, final wins, E0514 target-dir note, and
+  no-repeat guidance are recorded in `docs/NEGATIVE_EVIDENCE.md` and
+  `docs/progress/perf-negative-results.md`.
+
+Release readiness verdict for this slice: **keep/stale-loss closed**. Do not
+retry Python edge-by-edge transitive closure or full-path materialization for
+directed-multigraph longest-path length; route effort to still-losing measured
+surfaces.
 
 ## 2026-06-20 MultiDiGraph SCC Stale-Loss Closeout
 

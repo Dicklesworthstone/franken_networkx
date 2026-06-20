@@ -178,6 +178,32 @@ class TestAntichains:
 
 
 # ---------------------------------------------------------------------------
+# dag_longest_path_length
+# ---------------------------------------------------------------------------
+
+class TestDagLongestPathLength:
+    def test_multidigraph_parallel_weighted_matches_networkx(self):
+        fg = fnx.MultiDiGraph()
+        ng = nx.MultiDiGraph()
+        for graph in (fg, ng):
+            graph.add_edge("a", "b", key=0, weight=1)
+            graph.add_edge("a", "b", key=1, weight=5)
+            graph.add_edge("b", "c", key=0, weight=7)
+            graph.add_edge("a", "c", key=0, weight=2)
+
+        assert fnx.dag_longest_path_length(fg) == nx.dag_longest_path_length(ng)
+
+    def test_multidigraph_negative_path_resets_like_networkx(self):
+        fg = fnx.MultiDiGraph()
+        ng = nx.MultiDiGraph()
+        for graph in (fg, ng):
+            graph.add_edge("a", "b", weight=-4)
+            graph.add_edge("b", "c", weight=-5)
+
+        assert fnx.dag_longest_path_length(fg) == nx.dag_longest_path_length(ng)
+
+
+# ---------------------------------------------------------------------------
 # immediate_dominators
 # ---------------------------------------------------------------------------
 
