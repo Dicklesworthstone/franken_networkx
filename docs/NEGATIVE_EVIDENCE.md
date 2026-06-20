@@ -1628,3 +1628,24 @@ Do not retry: do not bulk-prefill node attrs for within_inter_cluster (or simila
 already-cached per-node-attr link-prediction scorers) — the lazy cache wins. The
 50-pair gap is the irreducible `G.neighbors` PyO3 per-node cost vs nx's dict (raw
 neighbors measured SLOWER, 158us vs 122us).
+
+## 2026-06-20 I/O sweep: `adjacency_data` attr-heavy residual (substrate) + `tree_data` FIXED (BlackThrush)
+
+Pinned I/O sweep (`taskset -c 2`) found two losses; `tree_data` fixed (commit
+aedc783ed, 0.40x -> 1.12x via bulk adjacency/attr snapshot + transpose-pred). The
+other:
+- `adjacency_data(Graph, attr-heavy)` `0.79x` (1.758ms vs nx 1.383ms) — but the
+  native `_fnx.adjacency_data_simple` fast path IS already used (returns non-None);
+  no-attr is `1.19x`. The attr-heavy residual is the native per-edge attr-dict
+  CONSTRUCTION (PyO3) being slower than nx's C dict copy — the same
+  view-materialization substrate as `nodes(data=attr)` 0.20x / `dict(adjacency())`.
+  NOT a contained win (the native kernel is already the path; the gap is the
+  Python-dict-from-Rust materialization floor).
+
+Rest of the I/O surface WINS or neutral (pinned): generate_edgelist 1.30x,
+parse_edgelist 1.72x, to_dict_of_lists 1.91x, node_link_data 1.28x, generate_gml
+0.98x, generate_graphml 0.98x, cytoscape_data 0.97x, parse_adjlist 1.14x.
+
+Do not retry adjacency_data attr-heavy: the native fast path is already used; the
+residual needs the broader Rust-dict-to-Python materialization lever (persistent
+ordered Python adj/attr mirror), not a kernel tweak.
