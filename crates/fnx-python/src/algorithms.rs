@@ -705,6 +705,7 @@ fn multigraph_to_simple_graph(mg: &fnx_classes::MultiGraph) -> fnx_classes::Grap
 /// the STRUCTURE, so build with the ledger-free bulk unrecorded inserts and no
 /// attrs. Node order (nodes_ordered) is preserved so the connected_components
 /// component ORDER matches nx; self-loops are kept (harmless for connectivity).
+#[allow(dead_code)]
 fn multigraph_to_simple_graph_structure_only(mg: &fnx_classes::MultiGraph) -> fnx_classes::Graph {
     let mut g = fnx_classes::Graph::with_runtime_policy(mg.runtime_policy().clone());
     let nodes = mg.nodes_ordered();
@@ -906,6 +907,7 @@ fn multidigraph_to_simple_digraph(
 /// order-INVARIANT directed algorithms (is_strongly_connected etc.). Skips the
 /// attr clones + per-element ledger of multidigraph_to_simple_digraph (~61x nx
 /// on is_strongly_connected). No apply_row_orders (callers are order-invariant).
+#[allow(dead_code)]
 fn multidigraph_to_simple_digraph_structure_only(
     mdg: &fnx_classes::digraph::MultiDiGraph,
 ) -> fnx_classes::digraph::DiGraph {
@@ -2302,18 +2304,18 @@ pub fn shortest_path_length(
     validate_node(&gr, &t, target, "Target")?;
     // br-r37-c1-zid1b: unweighted MultiDiGraph single-pair uses a target-early-exit BFS
     // over the successor adjacency instead of the gr.digraph() conversion.
-    if weight.is_none() {
-        if let GraphRef::MultiDirected { mdg, .. } = &gr {
-            let inner = &mdg.inner;
-            let dist = py.allow_threads(|| multidigraph_target_bfs_distance(inner, &s, &t));
-            return match dist {
-                Some(d) => Ok(d.into_pyobject(py)?.into_any().unbind()),
-                None => Err(NetworkXNoPath::new_err(format!(
-                    "No path between {} and {}.",
-                    s, t
-                ))),
-            };
-        }
+    if weight.is_none()
+        && let GraphRef::MultiDirected { mdg, .. } = &gr
+    {
+        let inner = &mdg.inner;
+        let dist = py.allow_threads(|| multidigraph_target_bfs_distance(inner, &s, &t));
+        return match dist {
+            Some(d) => Ok(d.into_pyobject(py)?.into_any().unbind()),
+            None => Err(NetworkXNoPath::new_err(format!(
+                "No path between {} and {}.",
+                s, t
+            ))),
+        };
     }
     if let Some(inner) = gr.digraph() {
         if let Some(w) = weight {
@@ -2347,18 +2349,18 @@ pub fn shortest_path_length(
         // br-r37-c1-ubizp: unweighted MultiGraph single-pair uses a target-early-exit
         // BFS over the adjacency instead of the gr.undirected() simple-Graph conversion
         // (was ~huge for single-pair). Distance is multiplicity-invariant.
-        if weight.is_none() {
-            if let GraphRef::MultiUndirected { mg, .. } = &gr {
-                let inner = &mg.inner;
-                let dist = py.allow_threads(|| multigraph_target_bfs_distance(inner, &s, &t));
-                return match dist {
-                    Some(d) => Ok(d.into_pyobject(py)?.into_any().unbind()),
-                    None => Err(NetworkXNoPath::new_err(format!(
-                        "No path between {} and {}.",
-                        s, t
-                    ))),
-                };
-            }
+        if weight.is_none()
+            && let GraphRef::MultiUndirected { mg, .. } = &gr
+        {
+            let inner = &mg.inner;
+            let dist = py.allow_threads(|| multigraph_target_bfs_distance(inner, &s, &t));
+            return match dist {
+                Some(d) => Ok(d.into_pyobject(py)?.into_any().unbind()),
+                None => Err(NetworkXNoPath::new_err(format!(
+                    "No path between {} and {}.",
+                    s, t
+                ))),
+            };
         }
         let inner = gr.undirected();
         if let Some(_w) = weight {
@@ -3916,12 +3918,7 @@ pub fn bidirectional_dijkstra(
     let outcome = if let Some(projection) = gr.weighted_digraph_projection(weight) {
         let inner = projection.as_ref();
         py.allow_threads(|| {
-            fnx_algorithms::bidirectional_dijkstra_directed(
-                inner,
-                &source_str,
-                &target_str,
-                weight,
-            )
+            fnx_algorithms::bidirectional_dijkstra_directed(inner, &source_str, &target_str, weight)
         })
     } else {
         let projection = gr.weighted_undirected_projection(weight);
@@ -3982,7 +3979,12 @@ pub fn dijkstra_path_to_target(
     let outcome = if let Some(projection) = gr.weighted_digraph_projection(weight) {
         let inner = projection.as_ref();
         py.allow_threads(|| {
-            fnx_algorithms::dijkstra_path_to_target_directed(inner, &source_str, &target_str, weight)
+            fnx_algorithms::dijkstra_path_to_target_directed(
+                inner,
+                &source_str,
+                &target_str,
+                weight,
+            )
         })
     } else {
         let projection = gr.weighted_undirected_projection(weight);
@@ -4000,7 +4002,10 @@ pub fn dijkstra_path_to_target(
                 py_path.into_pyobject(py)?.into_any().unbind(),
             ))
         }
-        None => Err(NetworkXNoPath::new_err(format!("No path to {}.", target_str))),
+        None => Err(NetworkXNoPath::new_err(format!(
+            "No path to {}.",
+            target_str
+        ))),
     }
 }
 
@@ -4104,10 +4109,10 @@ fn multigraph_sssp_length_with_parents<'a>(
     let mut queue: VecDeque<(&'a str, usize)> = VecDeque::new();
     queue.push_back((source_ref, 0));
     while let Some((node, dist)) = queue.pop_front() {
-        if let Some(c) = cutoff {
-            if dist >= c {
-                continue;
-            }
+        if let Some(c) = cutoff
+            && dist >= c
+        {
+            continue;
         }
         if let Some(nbrs) = mg.neighbors(node) {
             for v in nbrs {
@@ -4165,13 +4170,13 @@ fn multigraph_sssp_predecessors_index<'a>(
                 continue;
             };
             for v in nbrs {
-                if let Some(&nbr_idx) = node_indices.get(v) {
-                    if !seen[nbr_idx] {
-                        seen[nbr_idx] = true;
-                        predecessor[nbr_idx] = node_idx;
-                        discovery.push(nbr_idx);
-                        next.push(nbr_idx);
-                    }
+                if let Some(&nbr_idx) = node_indices.get(v)
+                    && !seen[nbr_idx]
+                {
+                    seen[nbr_idx] = true;
+                    predecessor[nbr_idx] = node_idx;
+                    discovery.push(nbr_idx);
+                    next.push(nbr_idx);
                 }
             }
         }
@@ -4228,6 +4233,82 @@ fn emit_paths_dict_discovery_parent_index(
         dict.set_item(key, py_path)?;
     }
     Ok(dict.unbind())
+}
+
+fn emit_dijkstra_indexed_full(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    nodes: &[&str],
+    result: &fnx_algorithms::IndexedDijkstraFull,
+    source_obj: PyObject,
+) -> PyResult<(PyObject, PyObject)> {
+    let mut disp: Vec<Option<PyObject>> =
+        std::iter::repeat_with(|| None).take(nodes.len()).collect();
+    disp[result.source_idx] = Some(source_obj);
+    for &node in &result.finalize_order {
+        let node_idx = node as usize;
+        if node_idx == result.source_idx {
+            continue;
+        }
+        let pred = result.predecessors[node_idx];
+        if pred != u32::MAX {
+            let pred_idx = pred as usize;
+            disp[node_idx] = Some(gr.py_row_key(py, nodes[pred_idx], nodes[node_idx]));
+        }
+    }
+
+    let dist_dict = PyDict::new(py);
+    for &node in &result.finalize_order {
+        let node_idx = node as usize;
+        let key = match &disp[node_idx] {
+            Some(obj) => obj.clone_ref(py),
+            None => gr.py_node_key(py, nodes[node_idx]),
+        };
+        let distance = result.distances[node_idx];
+        if result.all_int_paths[node_idx]
+            && distance.is_finite()
+            && distance.fract() == 0.0
+            && distance >= i128::MIN as f64
+            && distance <= i128::MAX as f64
+        {
+            dist_dict.set_item(key, PyInt::new(py, distance as i128))?;
+        } else {
+            dist_dict.set_item(key, distance)?;
+        }
+    }
+
+    let path_dict = PyDict::new(py);
+    let mut stack = Vec::new();
+    for &node in &result.finalize_order {
+        stack.clear();
+        let mut current = node as usize;
+        loop {
+            stack.push(current);
+            if current == result.source_idx {
+                break;
+            }
+            let pred = result.predecessors[current];
+            if pred == u32::MAX {
+                break;
+            }
+            current = pred as usize;
+        }
+        let py_path: Vec<PyObject> = stack
+            .iter()
+            .rev()
+            .map(|&idx| match &disp[idx] {
+                Some(obj) => obj.clone_ref(py),
+                None => gr.py_node_key(py, nodes[idx]),
+            })
+            .collect();
+        let key = match &disp[node as usize] {
+            Some(obj) => obj.clone_ref(py),
+            None => gr.py_node_key(py, nodes[node as usize]),
+        };
+        path_dict.set_item(key, py_path)?;
+    }
+
+    Ok((dist_dict.into_any().unbind(), path_dict.into_any().unbind()))
 }
 
 /// br-r37-c1-ubizp (cc): unweighted single-pair distance over a MultiGraph by a
@@ -4294,10 +4375,10 @@ fn multidigraph_sssp_length_with_parents<'a>(
     let mut queue: VecDeque<(&'a str, usize)> = VecDeque::new();
     queue.push_back((source_ref, 0));
     while let Some((node, dist)) = queue.pop_front() {
-        if let Some(c) = cutoff {
-            if dist >= c {
-                continue;
-            }
+        if let Some(c) = cutoff
+            && dist >= c
+        {
+            continue;
         }
         if let Some(succs) = mdg.successors(node) {
             for v in succs {
@@ -4552,11 +4633,11 @@ fn multidigraph_is_dag(mdg: &fnx_classes::digraph::MultiDiGraph) -> bool {
         if let Some(ss) = mdg.successors(nd) {
             let mut seen: HashSet<usize> = HashSet::new();
             for s in ss {
-                if let Some(&j) = index.get(s) {
-                    if seen.insert(j) {
-                        succ[i].push(j);
-                        indeg[j] += 1;
-                    }
+                if let Some(&j) = index.get(s)
+                    && seen.insert(j)
+                {
+                    succ[i].push(j);
+                    indeg[j] += 1;
                 }
             }
         }
@@ -4667,11 +4748,11 @@ fn multidigraph_topological_sort<'a>(
         if let Some(ss) = mdg.successors(nd) {
             let mut seen: HashSet<usize> = HashSet::new();
             for s in ss {
-                if let Some(&j) = index.get(s) {
-                    if seen.insert(j) {
-                        succ[i].push(j);
-                        indeg[j] += 1;
-                    }
+                if let Some(&j) = index.get(s)
+                    && seen.insert(j)
+                {
+                    succ[i].push(j);
+                    indeg[j] += 1;
                 }
             }
         }
@@ -4691,11 +4772,7 @@ fn multidigraph_topological_sort<'a>(
         }
         zero = nxt;
     }
-    if out.len() == n {
-        Some(out)
-    } else {
-        None
-    }
+    if out.len() == n { Some(out) } else { None }
 }
 
 #[pyfunction]
@@ -6327,10 +6404,10 @@ fn multigraph_triangles(mg: &fnx_classes::MultiGraph) -> Vec<(String, usize)> {
     for (i, &nd) in nodes.iter().enumerate() {
         if let Some(nbrs) = mg.neighbors(nd) {
             for v in nbrs {
-                if let Some(&j) = index.get(v) {
-                    if j != i {
-                        adj[i].insert(j);
-                    }
+                if let Some(&j) = index.get(v)
+                    && j != i
+                {
+                    adj[i].insert(j);
                 }
             }
         }
@@ -12251,9 +12328,7 @@ fn strongly_connected_via_reachability(dg: &fnx_classes::digraph::DiGraph) -> bo
     }
 
     // Backward reachability from node 0 (forward over the transpose).
-    for s in &mut seen {
-        *s = false;
-    }
+    seen.fill(false);
     seen[0] = true;
     stack.push(0);
     count = 1;
@@ -14139,12 +14214,14 @@ fn astar_path_length(
                 GraphRef::Undirected(_) | GraphRef::Directed { .. } => {
                     let all_int = path.windows(2).all(|w| {
                         let typed = match &gr {
-                            GraphRef::Undirected(pg) => {
-                                pg.inner.edge_attrs(&w[0], &w[1]).and_then(|a| a.get(weight))
-                            }
-                            GraphRef::Directed { dg, .. } => {
-                                dg.inner.edge_attrs(&w[0], &w[1]).and_then(|a| a.get(weight))
-                            }
+                            GraphRef::Undirected(pg) => pg
+                                .inner
+                                .edge_attrs(&w[0], &w[1])
+                                .and_then(|a| a.get(weight)),
+                            GraphRef::Directed { dg, .. } => dg
+                                .inner
+                                .edge_attrs(&w[0], &w[1])
+                                .and_then(|a| a.get(weight)),
                             _ => None,
                         };
                         matches!(
@@ -16107,38 +16184,32 @@ fn single_source_dijkstra(
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s, "Source")?;
-    let (dists, paths) = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
+    if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
         let __wp = weighted_projection.as_ref();
-        py.allow_threads(|| fnx_algorithms::single_source_dijkstra_full_directed(__wp, &s, weight))
+        let nodes = __wp.nodes_ordered();
+        let Some(result) = py.allow_threads(|| {
+            fnx_algorithms::single_source_dijkstra_indexed_full_directed(__wp, &s, weight)
+        }) else {
+            return Ok((
+                PyDict::new(py).into_any().unbind(),
+                PyDict::new(py).into_any().unbind(),
+            ));
+        };
+        emit_dijkstra_indexed_full(py, &gr, &nodes, &result, source.clone().unbind())
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
-        py.allow_threads(|| fnx_algorithms::single_source_dijkstra_full(__wp, &s, weight))
-    };
-    // weighted sp batch: discovery objects (a node displays as its
-    // path's second-to-last element's row object; source as passed)
-    // for BOTH the distance and path dicts, in kernel finalize order.
-    let mut disp: std::collections::HashMap<String, PyObject> =
-        std::collections::HashMap::with_capacity(paths.len() + 1);
-    disp.insert(s.clone(), source.clone().unbind());
-    for (node, p) in &paths {
-        if p.len() >= 2 {
-            disp.insert(node.clone(), gr.py_row_key(py, &p[p.len() - 2], node));
-        }
+        let nodes = __wp.nodes_ordered();
+        let Some(result) = py.allow_threads(|| {
+            fnx_algorithms::single_source_dijkstra_indexed_full(__wp, &s, weight)
+        }) else {
+            return Ok((
+                PyDict::new(py).into_any().unbind(),
+                PyDict::new(py).into_any().unbind(),
+            ));
+        };
+        emit_dijkstra_indexed_full(py, &gr, &nodes, &result, source.clone().unbind())
     }
-    let dist_dict = PyDict::new(py);
-    for (node, d) in &dists {
-        dist_dict.set_item(gr.disp_or_node_key(py, &disp, node), d)?;
-    }
-    let path_dict = PyDict::new(py);
-    for (node, path) in &paths {
-        let py_path: Vec<PyObject> = path
-            .iter()
-            .map(|n| gr.disp_or_node_key(py, &disp, n))
-            .collect();
-        path_dict.set_item(gr.disp_or_node_key(py, &disp, node), py_path)?;
-    }
-    Ok((dist_dict.into_any().unbind(), path_dict.into_any().unbind()))
 }
 
 /// Return paths from a single source using Dijkstra.
@@ -17310,8 +17381,7 @@ pub fn node_connected_component(
     if let GraphRef::MultiUndirected { mg, .. } = &gr {
         let inner = &mg.inner;
         let node_ref = node.as_str();
-        let comp =
-            py.allow_threads(|| multigraph_node_connected_component(inner, node_ref));
+        let comp = py.allow_threads(|| multigraph_node_connected_component(inner, node_ref));
         return Ok(comp.iter().map(|&s| gr.py_node_key(py, s)).collect());
     }
     let inner = gr.undirected();
@@ -18608,10 +18678,7 @@ pub fn effective_size_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<
 
 /// Return Burt's effective size for unweighted simple directed graphs.
 #[pyfunction]
-pub fn effective_size_directed_rust(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-) -> PyResult<Py<PyDict>> {
+pub fn effective_size_directed_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
     let inner = gr.digraph().expect("directed graph expected");
     let result = py.allow_threads(|| fnx_algorithms::effective_size_directed(inner));

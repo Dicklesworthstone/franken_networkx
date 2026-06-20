@@ -505,12 +505,8 @@ def test_weighted_single_source_dijkstra_public_hides_raw_order_contract() -> No
     )
 
     assert (public_dists, public_paths) == (nx_dists, nx_paths)
-    # br-r37-c1-rn0je: previously this assertion was
-    # ``list(raw_paths.items()) != list(nx_paths.items())`` to guard
-    # that the Rust _raw_X needed reordering. With current Rust
-    # input ordering, raw matches nx exactly on this case — the
-    # order-divergence guard no longer holds. The wrapper's other
-    # responsibility (int→float type coercion) is still tested below.
-    assert type(raw_dists["a"]).__name__ == "float"
-    assert type(nx_dists["a"]).__name__ == "int"
+    # br-r37-c1-0opkc: the raw binding now emits from index-space
+    # predecessor metadata and preserves nx's integer distance type directly.
+    assert (raw_dists, raw_paths) == (nx_dists, nx_paths)
+    assert type(raw_dists["a"]).__name__ == type(nx_dists["a"]).__name__
     assert type(public_dists["a"]).__name__ == "int"

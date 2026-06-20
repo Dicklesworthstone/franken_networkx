@@ -1357,7 +1357,6 @@ pub fn shortest_path_weighted_directed(
     }
 }
 
-#[must_use]
 /// br-r37-c1-2z0mw (cc): multi-source Dijkstra returning, for each reachable node, the
 /// SOURCE (center) on its shortest path — i.e. ``path[0]`` of [`multi_source_dijkstra`] —
 /// WITHOUT building any paths. ``voronoi_cells`` only needs this mapping; propagating the
@@ -1395,7 +1394,12 @@ pub fn multi_source_dijkstra_nearest_source(
         }
     }
 
-    while let Some(DijkstraState { dist: d, node: u_idx, .. }) = pq.pop() {
+    while let Some(DijkstraState {
+        dist: d,
+        node: u_idx,
+        ..
+    }) = pq.pop()
+    {
         if d > distances[u_idx] {
             continue;
         }
@@ -1894,9 +1898,17 @@ pub fn bidirectional_dijkstra_directed(
     seen[1].insert(t, 0.0);
     let mut fringe: [BinaryHeap<DijkstraState<usize>>; 2] = [BinaryHeap::new(), BinaryHeap::new()];
     let mut counter: u64 = 0;
-    fringe[0].push(DijkstraState { dist: 0.0, seq: counter, node: s });
+    fringe[0].push(DijkstraState {
+        dist: 0.0,
+        seq: counter,
+        node: s,
+    });
     counter += 1;
-    fringe[1].push(DijkstraState { dist: 0.0, seq: counter, node: t });
+    fringe[1].push(DijkstraState {
+        dist: 0.0,
+        seq: counter,
+        node: t,
+    });
     counter += 1;
 
     let mut finaldist: Option<f64> = None;
@@ -20901,11 +20913,7 @@ impl CommonNeighborScratch {
         self.common.len()
     }
 
-    fn adamic_adar_score(
-        &mut self,
-        graph: &Graph,
-        weights: &mut CommonNeighborWeightCache,
-    ) -> f64 {
+    fn adamic_adar_score(&mut self, graph: &Graph, weights: &mut CommonNeighborWeightCache) -> f64 {
         self.terms.clear();
         self.terms.reserve(self.common.len());
         for &w in &self.common {
@@ -20994,7 +21002,11 @@ impl LinkPredictionEndpointPairs {
         let mut endpoint_cache = LinkPredictionEndpointCache::new(graph, ebunch.len());
         let indices = ebunch
             .iter()
-            .map(|(u, v)| endpoint_cache.get(u.as_str()).zip(endpoint_cache.get(v.as_str())))
+            .map(|(u, v)| {
+                endpoint_cache
+                    .get(u.as_str())
+                    .zip(endpoint_cache.get(v.as_str()))
+            })
             .collect();
         Self { indices }
     }
@@ -26155,6 +26167,16 @@ type OrderedTypedDistances = Vec<(String, f64, bool)>;
 /// Ordered `(node, predecessor-list)` entries for NetworkX predecessor dicts.
 type OrderedPredecessorLists = Vec<(String, Vec<String>)>;
 
+/// Index-space single-source Dijkstra output for PyO3 path emission.
+#[derive(Debug, Clone, PartialEq)]
+pub struct IndexedDijkstraFull {
+    pub source_idx: usize,
+    pub finalize_order: Vec<u32>,
+    pub predecessors: Vec<u32>,
+    pub distances: Vec<f64>,
+    pub all_int_paths: Vec<bool>,
+}
+
 /// Single-source Dijkstra returning distances only (directed graph).
 /// Returns `(node, distance)` pairs in networkx finalize order.
 #[must_use]
@@ -26363,6 +26385,142 @@ pub fn single_source_dijkstra_full(graph: &Graph, source: &str, weight_attr: &st
     (distances, paths)
 }
 
+/// Single-source Dijkstra metadata in index space for direct Python emission.
+///
+/// This carries the same finalize order and predecessor chain as
+/// [`single_source_dijkstra_full`] without materializing every path as
+/// `Vec<String>` inside the algorithm crate.
+#[must_use]
+pub fn single_source_dijkstra_indexed_full(
+    graph: &Graph,
+    source: &str,
+    weight_attr: &str,
+) -> Option<IndexedDijkstraFull> {
+    let source_idx = graph.get_node_index(source)?;
+    let names = graph.nodes_ordered();
+    let n = names.len();
+    let mut offsets = Vec::with_capacity(n + 1);
+    let mut targets: Vec<u32> = Vec::new();
+    let mut weights: Vec<f64> = Vec::new();
+    let mut weight_is_int: Vec<bool> = Vec::new();
+    offsets.push(0);
+    for u in 0..n {
+        if let Some(row) = graph.neighbors_indices(u) {
+            for &v in row {
+                let (weight, is_int) =
+                    graph_edge_weight_or_default_idx_typed(graph, u, v, weight_attr);
+                targets.push(u32::try_from(v).unwrap_or(u32::MAX));
+                weights.push(weight);
+                weight_is_int.push(is_int);
+            }
+        }
+        offsets.push(targets.len());
+    }
+
+    Some(single_source_dijkstra_indexed_csr(
+        source_idx,
+        &offsets,
+        &targets,
+        &weights,
+        &weight_is_int,
+    ))
+}
+
+/// Directed twin of [`single_source_dijkstra_indexed_full`].
+#[must_use]
+pub fn single_source_dijkstra_indexed_full_directed(
+    digraph: &DiGraph,
+    source: &str,
+    weight_attr: &str,
+) -> Option<IndexedDijkstraFull> {
+    let source_idx = digraph.get_node_index(source)?;
+    let csr = digraph.csr();
+    let names = digraph.nodes_ordered();
+    let mut weights: Vec<f64> = Vec::with_capacity(csr.succ_targets.len());
+    let mut weight_is_int: Vec<bool> = Vec::with_capacity(csr.succ_targets.len());
+    for u in 0..names.len() {
+        for &v in csr.successors(u) {
+            let (weight, is_int) =
+                digraph_edge_weight_or_default_idx_typed(digraph, u, v as usize, weight_attr);
+            weights.push(weight);
+            weight_is_int.push(is_int);
+        }
+    }
+
+    Some(single_source_dijkstra_indexed_csr(
+        source_idx,
+        &csr.succ_offsets,
+        &csr.succ_targets,
+        &weights,
+        &weight_is_int,
+    ))
+}
+
+fn single_source_dijkstra_indexed_csr(
+    source_idx: usize,
+    offsets: &[usize],
+    targets: &[u32],
+    weights: &[f64],
+    weight_is_int: &[bool],
+) -> IndexedDijkstraFull {
+    let n = offsets.len().saturating_sub(1);
+    let mut distances: Vec<f64> = vec![f64::INFINITY; n];
+    let mut predecessors: Vec<u32> = vec![u32::MAX; n];
+    let mut all_int_paths = vec![false; n];
+    let mut pq = BinaryHeap::new();
+    let mut seq_counter: u64 = 0;
+    let mut finalize_order: Vec<u32> = Vec::with_capacity(n);
+    let mut finalized = vec![false; n];
+
+    distances[source_idx] = 0.0;
+    all_int_paths[source_idx] = true;
+    seq_counter += 1;
+    pq.push(DijkstraState {
+        dist: 0.0,
+        seq: seq_counter,
+        node: u32::try_from(source_idx).unwrap_or(u32::MAX),
+    });
+
+    while let Some(DijkstraState {
+        dist: d, node: u, ..
+    }) = pq.pop()
+    {
+        let u_usize = u as usize;
+        if d > distances[u_usize] + DISTANCE_COMPARISON_EPSILON {
+            continue;
+        }
+        if !finalized[u_usize] {
+            finalized[u_usize] = true;
+            finalize_order.push(u);
+        }
+
+        for edge_offset in offsets[u_usize]..offsets[u_usize + 1] {
+            let v = targets[edge_offset];
+            let v_usize = v as usize;
+            let next_dist = d + weights[edge_offset];
+            if next_dist < distances[v_usize] - DISTANCE_COMPARISON_EPSILON {
+                distances[v_usize] = next_dist;
+                predecessors[v_usize] = u;
+                all_int_paths[v_usize] = all_int_paths[u_usize] && weight_is_int[edge_offset];
+                seq_counter += 1;
+                pq.push(DijkstraState {
+                    dist: next_dist,
+                    seq: seq_counter,
+                    node: v,
+                });
+            }
+        }
+    }
+
+    IndexedDijkstraFull {
+        source_idx,
+        finalize_order,
+        predecessors,
+        distances,
+        all_int_paths,
+    }
+}
+
 /// Single-source Dijkstra returning paths only.
 /// Matches `networkx.single_source_dijkstra_path(G, source, weight=weight)`.
 #[must_use]
@@ -26412,7 +26570,10 @@ pub fn dijkstra_path_to_target(
         seq: seq_counter,
         node: u32::try_from(s).unwrap_or(u32::MAX),
     });
-    while let Some(DijkstraState { dist: d, node: u, .. }) = pq.pop() {
+    while let Some(DijkstraState {
+        dist: d, node: u, ..
+    }) = pq.pop()
+    {
         let u = u as usize;
         if d > distances[u] + DISTANCE_COMPARISON_EPSILON {
             continue;
@@ -26420,7 +26581,14 @@ pub fn dijkstra_path_to_target(
         if !finalized[u] {
             finalized[u] = true;
             if u == t {
-                return Some(reconstruct_target_path(graph, &predecessors, &names, t, d, weight_attr));
+                return Some(reconstruct_target_path(
+                    graph,
+                    &predecessors,
+                    &names,
+                    t,
+                    d,
+                    weight_attr,
+                ));
             }
         }
         if let Some(neighbors) = graph.neighbors_indices(u) {
@@ -26460,14 +26628,21 @@ fn reconstruct_target_path(
     chain.reverse();
     let mut all_int = true;
     for pair in chain.windows(2) {
-        let (_, is_int) =
-            graph_edge_weight_or_default_idx_typed(graph, pair[0] as usize, pair[1] as usize, weight_attr);
+        let (_, is_int) = graph_edge_weight_or_default_idx_typed(
+            graph,
+            pair[0] as usize,
+            pair[1] as usize,
+            weight_attr,
+        );
         if !is_int {
             all_int = false;
             break;
         }
     }
-    let path = chain.into_iter().map(|i| names[i as usize].to_owned()).collect();
+    let path = chain
+        .into_iter()
+        .map(|i| names[i as usize].to_owned())
+        .collect();
     (dist, path, all_int)
 }
 
@@ -26480,8 +26655,10 @@ pub fn dijkstra_path_to_target_directed(
     target: &str,
     weight_attr: &str,
 ) -> Option<(f64, Vec<String>, bool)> {
-    let (Some(s), Some(t)) = (digraph.get_node_index(source), digraph.get_node_index(target))
-    else {
+    let (Some(s), Some(t)) = (
+        digraph.get_node_index(source),
+        digraph.get_node_index(target),
+    ) else {
         return None;
     };
     let csr = digraph.csr();
@@ -26502,7 +26679,10 @@ pub fn dijkstra_path_to_target_directed(
         seq: seq_counter,
         node: u32::try_from(s).unwrap_or(u32::MAX),
     });
-    while let Some(DijkstraState { dist: d, node: u, .. }) = pq.pop() {
+    while let Some(DijkstraState {
+        dist: d, node: u, ..
+    }) = pq.pop()
+    {
         let u = u as usize;
         if d > distances[u] + DISTANCE_COMPARISON_EPSILON {
             continue;
@@ -26530,7 +26710,10 @@ pub fn dijkstra_path_to_target_directed(
                         break;
                     }
                 }
-                let path = chain.into_iter().map(|i| names[i as usize].to_owned()).collect();
+                let path = chain
+                    .into_iter()
+                    .map(|i| names[i as usize].to_owned())
+                    .collect();
                 return Some((d, path, all_int));
             }
         }
@@ -35061,7 +35244,9 @@ fn indexed_shortest_path_length(
 #[must_use]
 pub fn degree_mixing_dict(graph: &Graph) -> std::collections::HashMap<(usize, usize), usize> {
     let node_count = graph.node_count();
-    let degrees: Vec<usize> = (0..node_count).map(|idx| graph.degree_by_index(idx)).collect();
+    let degrees: Vec<usize> = (0..node_count)
+        .map(|idx| graph.degree_by_index(idx))
+        .collect();
     let mut mixing = std::collections::HashMap::with_capacity(graph.edge_count().saturating_mul(2));
 
     for (left_idx, right_idx, _) in graph.edges_storage_order_index_iter() {
@@ -42797,8 +42982,8 @@ mod tests {
         BranchingEdge,
         CGSE_WITNESS_LEDGER_PATH,
         CGSE_WITNESS_POLICY_SPEC_PATH,
-        CgseValue,
         CentralityScore,
+        CgseValue,
         ChordalGraphTreewidthError,
         ComplexityWitness,
         FlowEdgeValue,
@@ -42939,8 +43124,8 @@ mod tests {
         edge_dfs_directed,
         edge_disjoint_paths,
         edge_expansion,
-        effective_size_directed,
         effective_size,
+        effective_size_directed,
         efficiency,
         ego_graph,
         ego_graph_directed,
@@ -49242,10 +49427,7 @@ mod tests {
     fn link_prediction_stamp_scratch_preserves_repeated_pair_scores() {
         fn community_attrs(value: &str) -> AttrMap {
             let mut attrs = AttrMap::new();
-            attrs.insert(
-                "community".to_owned(),
-                CgseValue::String(value.to_owned()),
-            );
+            attrs.insert("community".to_owned(), CgseValue::String(value.to_owned()));
             attrs
         }
 
@@ -49346,10 +49528,7 @@ mod tests {
     fn link_prediction_endpoint_cache_preserves_order_and_missing_zero() {
         fn community_attrs(value: &str) -> AttrMap {
             let mut attrs = AttrMap::new();
-            attrs.insert(
-                "community".to_owned(),
-                CgseValue::String(value.to_owned()),
-            );
+            attrs.insert("community".to_owned(), CgseValue::String(value.to_owned()));
             attrs
         }
 
@@ -49430,10 +49609,7 @@ mod tests {
     fn link_prediction_weight_cache_preserves_repeated_common_neighbor_scores() {
         fn community_attrs(value: &str) -> AttrMap {
             let mut attrs = AttrMap::new();
-            attrs.insert(
-                "community".to_owned(),
-                CgseValue::String(value.to_owned()),
-            );
+            attrs.insert("community".to_owned(), CgseValue::String(value.to_owned()));
             attrs
         }
 
@@ -49519,10 +49695,7 @@ mod tests {
     fn link_prediction_pair_score_cache_preserves_repeated_and_reversed_scores() {
         fn community_attrs(value: &str) -> AttrMap {
             let mut attrs = AttrMap::new();
-            attrs.insert(
-                "community".to_owned(),
-                CgseValue::String(value.to_owned()),
-            );
+            attrs.insert("community".to_owned(), CgseValue::String(value.to_owned()));
             attrs
         }
 
@@ -49604,27 +49777,15 @@ mod tests {
 
         let cn_soundarajan = cn_soundarajan_hopcroft(&g, &pairs, "community");
         assert_eq!(cn_soundarajan[0].2, 3.0);
-        assert_eq!(
-            cn_soundarajan[0].2.to_bits(),
-            cn_soundarajan[1].2.to_bits()
-        );
-        assert_eq!(
-            cn_soundarajan[0].2.to_bits(),
-            cn_soundarajan[6].2.to_bits()
-        );
+        assert_eq!(cn_soundarajan[0].2.to_bits(), cn_soundarajan[1].2.to_bits());
+        assert_eq!(cn_soundarajan[0].2.to_bits(), cn_soundarajan[6].2.to_bits());
         assert_eq!(cn_soundarajan[2].2, 0.0);
         assert_eq!(cn_soundarajan[3].2, 0.0);
 
         let ra_soundarajan = ra_index_soundarajan_hopcroft(&g, &pairs, "community");
         assert!((ra_soundarajan[0].2 - 0.25).abs() < TEST_TOLERANCE);
-        assert_eq!(
-            ra_soundarajan[0].2.to_bits(),
-            ra_soundarajan[1].2.to_bits()
-        );
-        assert_eq!(
-            ra_soundarajan[0].2.to_bits(),
-            ra_soundarajan[5].2.to_bits()
-        );
+        assert_eq!(ra_soundarajan[0].2.to_bits(), ra_soundarajan[1].2.to_bits());
+        assert_eq!(ra_soundarajan[0].2.to_bits(), ra_soundarajan[5].2.to_bits());
         assert_eq!(ra_soundarajan[2].2, 0.0);
         assert_eq!(ra_soundarajan[3].2, 0.0);
     }

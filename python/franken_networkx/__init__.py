@@ -18819,8 +18819,7 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
     # OBSOLETE — its comment ("the Rust single_source_dijkstra ignores the
     # weight attribute") is stale: `_raw_single_source_dijkstra(G, weight=...)`
     # respects weights, and the native path below already reproduces nx's
-    # distances, int/float typing (_sp_coerce_dist_to_int /
-    # _sp_propagate_int_types), cutoff, and heap-pop order. Forcing every
+    # distances, int/float typing, cutoff, and heap-pop order. Forcing every
     # weighted graph through the fnx->nx conversion + nx Python Dijkstra made
     # weighted single_source_dijkstra ~2.6x slower than nx for no reason.
     # Verified byte-exact (repr incl. type+order) on a 50-case int/float/mixed
@@ -18844,25 +18843,15 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
         raise NodeNotFound(f"Node {source} not found in graph")
     dists, paths = _raw_single_source_dijkstra(G, source, weight=weight)
     dists, paths = _single_source_dijkstra_cutoff_view(source, dists, paths, cutoff)
-    # br-ssintfloat: preserve nx's int/float parity — if every edge
-    # weight is int, distances are ints.
-    if _sp_edge_weights_all_int(G, weight):
-        dists = _sp_coerce_dist_to_int(dists)
-    else:
-        # br-r37-c1-srczero: per-path int-type propagation (see helper).
-        dists = _sp_propagate_int_types(G, weight, dists, paths)
+    # br-r37-c1-0opkc: the raw binding now emits distances with nx's
+    # observable int/float type directly from the selected path metadata, so
+    # this combined API no longer needs a Python-side edge scan or path walk.
     if target is not None:
         if target not in dists:
             raise NetworkXNoPath(f"No path to {target}.")
         return dists[target], paths[target]
-    # br-r37-c1-k9q6q: the Rust kernel now emits entries in nx's Dijkstra
-    # finalize (heap-pop) order — sorted by (distance, push-seq). A plain
-    # stable sort by distance preserves that push-seq tie-break on equal
-    # distances, which BFS-hop order (the old _reorder_by_distance(G=...,
-    # source=...) tiebreak) did NOT reproduce. Trust the kernel order.
-    order = _reorder_by_distance(dists)
-    dists = {k: dists[k] for k in order}
-    paths = {k: paths[k] for k in order if k in paths}
+    # br-r37-c1-0opkc: the raw binding emits both dicts in nx's Dijkstra
+    # finalize (heap-pop) order. Preserve that insertion order directly.
     return dists, paths
 
 

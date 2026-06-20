@@ -57,6 +57,7 @@ def test_scalar_int_weight_type_matches_networkx(name):
 
 _DICT = {
     "degree_weighted": lambda m, g: dict(g.degree(weight="weight")),
+    "dijkstra_combined_all": lambda m, g: dict(m.single_source_dijkstra(g, 0, weight="weight")[0]),
     "dijkstra_path_length_all": lambda m, g: dict(m.single_source_dijkstra_path_length(g, 0, weight="weight")),
     "bellman_path_length_all": lambda m, g: dict(m.single_source_bellman_ford_path_length(g, 0, weight="weight")),
     "eccentricity_weighted": lambda m, g: m.eccentricity(g, weight="weight"),
