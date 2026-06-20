@@ -38,6 +38,20 @@ def test_bidirectional_shortest_path_multidigraph_matches_nx():
     assert fnx.bidirectional_shortest_path(g, 0, 2) == nx.bidirectional_shortest_path(gx, 0, 2)
 
 
+@needs_nx
+def test_bidirectional_shortest_path_multigraph_tiebreak_matches_nx():
+    g = fnx.MultiGraph()
+    gx = nx.MultiGraph()
+    for edge in [("s", "a"), ("s", "b"), ("b", "t"), ("a", "t"), ("s", "a")]:
+        g.add_edge(*edge)
+        gx.add_edge(*edge)
+
+    assert fnx.bidirectional_shortest_path(g, "s", "t") == (
+        nx.bidirectional_shortest_path(gx, "s", "t")
+    )
+    assert fnx.shortest_path(g, "s", "t") == nx.shortest_path(gx, "s", "t")
+
+
 def test_bidirectional_shortest_path_undirected_unchanged():
     g = fnx.path_graph(5)
     assert fnx.bidirectional_shortest_path(g, 0, 4) == [0, 1, 2, 3, 4]

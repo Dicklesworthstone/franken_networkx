@@ -17075,6 +17075,168 @@ fn emit_bidirectional_index_path(
         .collect()
 }
 
+fn bidirectional_index_meta_from_rows(
+    source_idx: usize,
+    target_idx: usize,
+    node_count: usize,
+    succ_row: impl Fn(usize) -> Vec<usize>,
+    pred_row: impl Fn(usize) -> Vec<usize>,
+) -> Option<Vec<(usize, Option<usize>, bool)>> {
+    if source_idx == target_idx {
+        return Some(vec![(source_idx, None, false)]);
+    }
+
+    let mut pred_seen = vec![false; node_count];
+    let mut succ_seen = vec![false; node_count];
+    let mut pred_parent = vec![None; node_count];
+    let mut succ_parent = vec![None; node_count];
+    pred_seen[source_idx] = true;
+    succ_seen[target_idx] = true;
+
+    let mut forward = vec![source_idx];
+    let mut reverse = vec![target_idx];
+    let mut meet = None;
+
+    'outer: while !forward.is_empty() && !reverse.is_empty() {
+        if forward.len() <= reverse.len() {
+            let this_level = std::mem::take(&mut forward);
+            for &v in &this_level {
+                for w in succ_row(v) {
+                    if !pred_seen[w] {
+                        pred_seen[w] = true;
+                        pred_parent[w] = Some(v);
+                        forward.push(w);
+                    }
+                    if succ_seen[w] {
+                        meet = Some((w, v, false));
+                        break 'outer;
+                    }
+                }
+            }
+        } else {
+            let this_level = std::mem::take(&mut reverse);
+            for &v in &this_level {
+                for w in pred_row(v) {
+                    if !succ_seen[w] {
+                        succ_seen[w] = true;
+                        succ_parent[w] = Some(v);
+                        reverse.push(w);
+                    }
+                    if pred_seen[w] {
+                        meet = Some((w, v, true));
+                        break 'outer;
+                    }
+                }
+            }
+        }
+    }
+
+    let (w, returning_v, from_reverse) = meet?;
+
+    let mut back = Vec::new();
+    let mut cur = Some(w);
+    while let Some(c) = cur {
+        back.push(c);
+        if c == source_idx {
+            break;
+        }
+        cur = pred_parent[c];
+    }
+    if back.last().copied() != Some(source_idx) {
+        return None;
+    }
+    back.reverse();
+
+    let mut out = Vec::with_capacity(back.len() + 4);
+    for &node in &back {
+        if node == w {
+            out.push((node, Some(returning_v), from_reverse));
+        } else {
+            out.push((node, pred_parent[node], false));
+        }
+    }
+
+    let mut cur = succ_parent[w];
+    while let Some(c) = cur {
+        out.push((c, succ_parent[c], true));
+        cur = succ_parent[c];
+    }
+
+    Some(out)
+}
+
+fn multigraph_bidirectional_shortest_path_index_meta<'a>(
+    mg: &'a fnx_classes::MultiGraph,
+    source: &str,
+    target: &str,
+) -> Option<(Vec<&'a str>, Vec<(usize, Option<usize>, bool)>)> {
+    let nodes = mg.nodes_ordered();
+    let node_indices: std::collections::HashMap<&'a str, usize> = nodes
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(idx, node)| (node, idx))
+        .collect();
+    let source_idx = *node_indices.get(source)?;
+    let target_idx = *node_indices.get(target)?;
+    let path = bidirectional_index_meta_from_rows(
+        source_idx,
+        target_idx,
+        nodes.len(),
+        |v| {
+            mg.neighbors(nodes[v])
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|node| node_indices.get(node).copied())
+                .collect()
+        },
+        |v| {
+            mg.neighbors(nodes[v])
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|node| node_indices.get(node).copied())
+                .collect()
+        },
+    )?;
+    Some((nodes, path))
+}
+
+fn multidigraph_bidirectional_shortest_path_index_meta<'a>(
+    mdg: &'a fnx_classes::digraph::MultiDiGraph,
+    source: &str,
+    target: &str,
+) -> Option<(Vec<&'a str>, Vec<(usize, Option<usize>, bool)>)> {
+    let nodes = mdg.nodes_ordered();
+    let node_indices: std::collections::HashMap<&'a str, usize> = nodes
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(idx, node)| (node, idx))
+        .collect();
+    let source_idx = *node_indices.get(source)?;
+    let target_idx = *node_indices.get(target)?;
+    let path = bidirectional_index_meta_from_rows(
+        source_idx,
+        target_idx,
+        nodes.len(),
+        |v| {
+            mdg.successors(nodes[v])
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|node| node_indices.get(node).copied())
+                .collect()
+        },
+        |v| {
+            mdg.predecessors(nodes[v])
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|node| node_indices.get(node).copied())
+                .collect()
+        },
+    )?;
+    Some((nodes, path))
+}
+
 /// Return shortest path between source and target using bidirectional BFS.
 #[pyfunction]
 #[pyo3(signature = (g, source, target))]
@@ -17095,7 +17257,21 @@ fn bidirectional_shortest_path(
     // the tie-break: br-r37-c1-w7nn3) and exact DISCOVERY objects
     // (forward = succ-row, reverse = pred-row, endpoints as passed,
     // meet node from the returning frontier).
-    let result = if gr.is_directed() {
+    let result = if let GraphRef::MultiDirected { mdg, .. } = &gr {
+        let inner = &mdg.inner;
+        let indexed =
+            py.allow_threads(|| multidigraph_bidirectional_shortest_path_index_meta(inner, &s, &t));
+        indexed.map(|(nodes, path)| {
+            emit_bidirectional_index_path(py, &gr, &nodes, &path, source, target)
+        })
+    } else if let GraphRef::MultiUndirected { mg, .. } = &gr {
+        let inner = &mg.inner;
+        let indexed =
+            py.allow_threads(|| multigraph_bidirectional_shortest_path_index_meta(inner, &s, &t));
+        indexed.map(|(nodes, path)| {
+            emit_bidirectional_index_path(py, &gr, &nodes, &path, source, target)
+        })
+    } else if gr.is_directed() {
         let inner = gr.digraph().expect("is_directed checked above");
         let indexed = py.allow_threads(|| {
             fnx_algorithms::bidirectional_shortest_path_directed_index_meta(inner, &s, &t)
