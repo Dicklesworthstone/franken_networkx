@@ -22125,14 +22125,22 @@ def closeness_centrality(
     # ~25x SLOWER than nx for one node on n=1500. Compute the single BFS from u
     # directly instead. The total path length is a sum of INTEGER hop counts, so
     # the result is byte-identical to nx (and to _raw_closeness_centrality[u]).
+    # br-r37-c1-closedir: directed single-u closeness previously delegated (the
+    # gate was `not G.is_directed()`), ~2x nx. A directed graph's closeness of u
+    # uses INCOMING distances — nx reverses G and runs single-source from u, i.e.
+    # distances TO u, which `single_target_shortest_path_length` computes directly
+    # in the same finalisation order. Integer hop sum -> byte-identical (600/600).
     if (
         u is not None
         and distance is None
         and wf_improved
-        and not G.is_directed()
         and u in G
     ):
-        sp = single_source_shortest_path_length(G, u)
+        sp = (
+            single_target_shortest_path_length(G, u)
+            if G.is_directed()
+            else single_source_shortest_path_length(G, u)
+        )
         totsp = sum(sp.values())
         len_G = len(G)
         closeness = 0.0
