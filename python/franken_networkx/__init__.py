@@ -50966,6 +50966,43 @@ def to_numpy_array(
 
     index = {node: i for i, node in enumerate(nodelist)}
     if G.is_multigraph():
+        # br-r37-c1-iyu0a: native multigraph COO fast path for the default
+        # ``multigraph_weight=sum`` aggregation. The native helper emits one
+        # entry per parallel edge (symmetric for undirected non-self-loops);
+        # ``np.add.at`` accumulates duplicates into the matrix exactly like
+        # ``sum(parallel weights)``. Gated to ``nonedge == 0`` (add.at sums onto
+        # the matrix base) and a finite-numeric weight scan (the f64 helper
+        # coerces non-numeric/non-finite weights to the default). ~2x over the
+        # Python parallel-edge dict-of-lists loop; byte-identical to nx.
+        if (
+            multigraph_weight is sum
+            and nonedge == 0
+            and isinstance(G, (MultiGraph, MultiDiGraph))
+            and _native_adjacency_arrays_multigraph is not None
+            and (weight is None or isinstance(weight, str))
+        ):
+            _ok = weight is None
+            if not _ok and _native_has_nonfinite_edge_weight_multigraph is not None:
+                _sync_rust_edge_attrs(G, edge_only=True)
+                try:
+                    _ok = (
+                        _native_has_nonfinite_edge_weight_multigraph(G, weight) is False
+                    )
+                except Exception:
+                    _ok = False
+            if _ok:
+                _mg = _native_adjacency_arrays_multigraph(
+                    G, nodelist, weight if isinstance(weight, str) else None, 1.0
+                )
+                if _mg is not None:
+                    rows, cols, data = _mg
+                    if rows:
+                        np.add.at(
+                            matrix,
+                            (np.asarray(rows), np.asarray(cols)),
+                            np.asarray(data, dtype=matrix.dtype),
+                        )
+                    return matrix
         edge_values = {}
         for u, v, _, edge_attrs in G.edges(keys=True, data=True):
             if u not in index or v not in index:
@@ -51381,13 +51418,43 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
     # ambiguity that the f64-returning native helper cannot reproduce. The
     # native helper reads the Rust inner AttrMap, stale after G[u][v][k]=v
     # mutations, so sync edge attrs first when a weight key is used.
+    # br-r37-c1-iyu0a: the default weighted call ``weight='weight', dtype=None``
+    # used to skip the native multigraph COO builder (gated on a pinned dtype to
+    # dodge nx's int/float inference), falling to the ~2x-slower Python
+    # parallel-edge-sum loop. The body below ALREADY reproduces nx's inference
+    # (``array_equal(data, data.astype(int64))``), and the f64-returning native
+    # helper silently coerces non-numeric/non-finite weights to the default — so
+    # admit ``dtype=None`` only when the native non-finite/non-numeric scan
+    # confirms every present weight is finite-numeric (absent => default 1,
+    # matching nx). Byte-identical to nx across int/float/missing/self-loop.
+    _mg_weighted_dtype_none_ok = False
+    if (
+        isinstance(weight, str)
+        and dtype is None
+        and G.is_multigraph()
+        and isinstance(G, (MultiGraph, MultiDiGraph))
+        and _native_adjacency_arrays_multigraph is not None
+        and _native_has_nonfinite_edge_weight_multigraph is not None
+    ):
+        _sync_rust_edge_attrs(G, edge_only=True)
+        try:
+            _mg_weighted_dtype_none_ok = (
+                _native_has_nonfinite_edge_weight_multigraph(G, weight) is False
+            )
+        except Exception:
+            _mg_weighted_dtype_none_ok = False
+
     if (
         _native_adjacency_arrays_multigraph is not None
         and G.is_multigraph()
         and isinstance(G, (MultiGraph, MultiDiGraph))
-        and (weight is None or (isinstance(weight, str) and dtype is not None))
+        and (
+            weight is None
+            or (isinstance(weight, str) and dtype is not None)
+            or _mg_weighted_dtype_none_ok
+        )
     ):
-        if weight is not None:
+        if weight is not None and not _mg_weighted_dtype_none_ok:
             _sync_rust_edge_attrs(G, edge_only=True)
         _mg_native = _native_adjacency_arrays_multigraph(
             G, nodelist, weight if isinstance(weight, str) else None, 1.0
