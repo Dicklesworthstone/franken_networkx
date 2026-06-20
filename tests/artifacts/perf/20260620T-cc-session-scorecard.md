@@ -36,9 +36,24 @@ confirmed failing on clean HEAD).
 | `pagerank` | MultiDiGraph weighted | 0.60x | multigraph `to_scipy` substrate | (iyu0a) |
 | `average_neighbor_degree` | dir out/in weighted | 0.77x | residual: weighted `to_scipy` construction ≈ nx total (= br-r37-c1-wvuf7) | wvuf7 |
 
+| `get_edge_attributes` | Graph weighted | 0.50x | EdgeView substrate; native kernel lossy (`val.as_str()`), `edge_py_attrs` lazily materialized so a typed Python-dict kernel would miss bulk-built attrs | br-r37-c1-w868y |
+| `ramsey_R2`, `treewidth_*` (approx) | undirected | 0.75–0.81x | set-iteration-order-dependent → must stay delegated (conversion tax) | — |
+
 These need native Rust kernels (fnx-python/fnx-classes crates), out of the
 pure-Python lane. The pure-Python reroute already converted the multigraph
 matrix-exporter losses (0.39–0.56x) to near-parity/win (shipped 855a4a705).
+
+### Diagnosis depth (this pass)
+
+Traced the MDG matrix residual to a precise 1-method Rust fix
+(`_fnx_sync_edge_attrs_to_inner` on PyMultiDiGraph — MDG `add_edge` populates
+`node_py_attrs` so the full sync's unconditional node walk costs 2.5ms; MG is
+free) — **handed to CrimsonRiver** (digraph.rs is their exclusive lock) with the
+exact patch in bead iyu0a + mail. Verified `get_edge_attributes` is genuinely
+substrate-bound (native kernel lossy; `edge_py_attrs` lazy) rather than a missed
+reroute. Swept ~135 functions total across assortativity, distance, centrality,
+clustering, similarity, operators, generators, flow, tree, spectral, IO,
+matrix, small-input/multigraph, and the approximation namespace.
 
 ## Neutral / already-winning (sampled, no action)
 
