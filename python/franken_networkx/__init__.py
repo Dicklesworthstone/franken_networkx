@@ -35386,12 +35386,43 @@ def node_degree_xy(G, x="out", y="in", weight=None, nodes=None):
     else:
         xdeg = ydeg = G.degree
 
+    # br-r37-c1-wqhqr: nx recomputes each neighbor's y-degree via a FRESH
+    # DegreeView per source node (``ydeg(neighbors)``) — O(E) degree
+    # recomputations, each a per-node round-trip. Precompute the full
+    # y-degree map ONCE (single bulk pass) and replace the inner view with
+    # a dict lookup. ``dy[v]`` is identical to ``ydeg(v)`` for every node,
+    # so this is byte-exact in both VALUE and ITERATION ORDER: the outer
+    # ``xdeg(node_set)`` (source order + degu) and per-node ``G.edges(u)``
+    # (neighbor order, multigraph parallel-edge multiplicity, self-loops)
+    # are unchanged.
+    dy = dict(ydeg(weight=weight))
+
+    # Whole-graph fast path: nx's per-node ``G.edges(u)`` builds a fresh
+    # EdgeView per source node (O(V) PyO3 view allocations on the fnx
+    # substrate). For the default (nodes=None), non-multigraph case, snapshot
+    # the entire adjacency with ONE native ``_native_adjacency_keys`` call
+    # (verified to yield neighbours in exact ``G.edges(u)`` order, self-loops
+    # included) and iterate it as a pure-Python dict — identical emission
+    # order to nx (source order via ``set(G)``; neighbour order via the
+    # snapshot). Multigraph (no native keys snapshot) and the ``nodes``
+    # subset case keep the per-node path above.
+    nak = getattr(G, "_native_adjacency_keys", None)
+    if nodes is None and nak is not None and type(G) in (Graph, DiGraph):
+        # undirected: xdeg is ydeg, so reuse dy (one degree pass instead of two)
+        dx = dy if not G.is_directed() else dict(xdeg(weight=weight))
+        adj = dict(nak())
+        for u in node_set:
+            degu = dx[u]
+            for nbr in adj[u]:
+                yield degu, dy[nbr]
+        return
+
     for u, degu in xdeg(node_set, weight=weight):
         # use G.edges to treat multigraphs correctly (each
         # parallel edge yields a separate tuple).
-        neighbors = (nbr for _, nbr in G.edges(u) if nbr in node_set)
-        for _, degv in ydeg(neighbors, weight=weight):
-            yield degu, degv
+        for _, nbr in G.edges(u):
+            if nbr in node_set:
+                yield degu, dy[nbr]
 
 
 def number_of_walks(G, walk_length, *, backend=None, **backend_kwargs):
