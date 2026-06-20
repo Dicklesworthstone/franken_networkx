@@ -8682,6 +8682,46 @@ def average_neighbor_degree(
 
     target_degrees = dict(target_degree())
 
+    # br-r37-c1-wqhqr-and: weighted fast path. The fallback walks
+    # ``G.adj[n].items()`` / ``G.succ``/``G.pred`` AtlasViews per node AND uses
+    # the slow ``source_degree(weight=...)`` view as the divisor (undir/dir
+    # weighted measured 0.51x / 0.47x vs nx). Vectorize: k_{nn,i}^w =
+    # (1/s_i) Σ_j w_ij k_j is a sparse mat-vec. Build the weighted adjacency
+    # ONCE (``to_scipy_sparse_array``); the numerator is ``A @ k`` (successor
+    # side) and/or ``Aᵀ @ k`` (predecessor side), the weighted source degree is
+    # the matching row/col sum. Undirected self-loops sit once on the diagonal
+    # but count twice in the weighted degree, so add the diagonal back. Validation
+    # already ran above (undirected => source==target=="out"). Byte-identical.
+    if (
+        weight is not None
+        and nodes is None
+        and type(G) in (Graph, DiGraph)
+        and G.number_of_edges() > 0
+    ):
+        import numpy as _np
+
+        nodelist = list(G)
+        A = to_scipy_sparse_array(
+            G, nodelist=nodelist, weight=weight, dtype=float
+        ).tocsr()
+        kvec = _np.array([target_degrees[n] for n in nodelist], dtype=float)
+        num = _np.zeros(len(nodelist), dtype=float)
+        sw = _np.zeros(len(nodelist), dtype=float)
+        if G.is_directed():
+            if "out" in source:
+                num += A @ kvec
+                sw += _np.asarray(A.sum(axis=1)).ravel()
+            if "in" in source:
+                a_t = A.T.tocsr()
+                num += a_t @ kvec
+                sw += _np.asarray(a_t.sum(axis=1)).ravel()
+        else:
+            num = A @ kvec
+            sw = _np.asarray(A.sum(axis=1)).ravel() + A.diagonal()
+        with _np.errstate(divide="ignore", invalid="ignore"):
+            avg_arr = _np.where(sw == 0, 0.0, num / sw)
+        return {n: float(avg_arr[i]) for i, n in enumerate(nodelist)}
+
     pred_neighbors = succ_neighbors = {n: {} for n in G}
     if G.is_directed():
         if "in" in source:
