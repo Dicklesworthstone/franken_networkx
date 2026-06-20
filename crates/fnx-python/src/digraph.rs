@@ -4591,6 +4591,37 @@ impl PyMultiDiGraph {
         Ok(())
     }
 
+    /// br-r37-c1-iyu0a: edge-only attr sync mirroring `PyDiGraph` /
+    /// `PyGraph::_fnx_sync_edge_attrs_to_inner`. The full
+    /// `_fnx_sync_attrs_to_inner` above walks ALL `node_py_attrs`
+    /// unconditionally (MultiDiGraph `add_edge` eagerly creates empty per-node
+    /// attr dicts), costing ~2.5ms even for an unmutated graph — the tax behind
+    /// MultiDiGraph matrix exporters / pagerank / weighted shortest paths
+    /// losing to NetworkX. Callers that only need edge attrs (the
+    /// `_sync_rust_edge_attrs(..., edge_only=True)` path) get the cheap
+    /// `edges_dirty` short-circuit and skip the node walk entirely.
+    fn _fnx_sync_edge_attrs_to_inner(&mut self, py: Python<'_>) -> PyResult<()> {
+        if !self.edges_dirty.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+        let edges: Vec<(String, String, usize, AttrMap)> = self
+            .edge_py_attrs
+            .iter()
+            .map(|((u, v, key), dict)| {
+                Ok((
+                    u.clone(),
+                    v.clone(),
+                    *key,
+                    py_dict_to_attr_map(dict.bind(py))?,
+                ))
+            })
+            .collect::<PyResult<_>>()?;
+        for (u, v, key, attrs) in edges {
+            self.inner.replace_edge_attrs(&u, &v, key, attrs);
+        }
+        Ok(())
+    }
+
     /// Return edge attributes. If key is None, returns dict of key -> attrs.
     #[pyo3(signature = (u, v, key=None, default=None))]
     fn get_edge_data(
