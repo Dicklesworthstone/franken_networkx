@@ -10,6 +10,47 @@ community link-prediction verification (`br-r37-c1-04z53.9141`) and
 undirected `non_edges` default-ebunch verification (`br-r37-c1-04z53.9143`)
 plus CCPA link-prediction verification (`br-r37-c1-04z53.9140`).
 
+## 2026-06-20 Multigraph Matrix Exporter BOLD-VERIFY Slice
+
+Environment:
+- Agent: `CrimsonRiver` / `cod-b`.
+- Target dir: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+- Release gates: `cargo fmt --check`; `rch exec -- cargo check -p fnx-python --benches`;
+  `rch exec -- cargo clippy -p fnx-python --all-targets -- -D warnings`;
+  `rch exec -- cargo build --release -p fnx-python`.
+- Release extension rebuilt with `maturin develop --release --features pyo3/abi3-py310`
+  using fresh target dir `/data/projects/.rch-targets/franken_networkx-cod-b-maturin-clean-f20a92ec0`.
+- Harness: `tests/artifacts/perf/20260620T-multigraph-matrix-coo-cc/bench_and_parity.py`.
+- Focused conformance: every run reported `160` configs x `2` exporters,
+  `0` fails, golden `bff9639b02900c23d43c585672cddf6a3e39676fa40c631efccec93bfeb44307`.
+
+Clean final repeat medians:
+
+| Bead | Workload | FNX median | NetworkX median | Ratio vs NetworkX | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `br-r37-c1-iyu0a` | `to_numpy_array`, `MultiGraph` | 2.72 ms | 2.72 ms | 1.003x | Neutral/no release claim |
+| `br-r37-c1-iyu0a` | `to_scipy_sparse_array`, `MultiGraph` | 2.67 ms | 2.35 ms | 0.880x | Loss |
+| `br-r37-c1-iyu0a` | `to_numpy_array`, `MultiDiGraph` | 8.75 ms | 5.40 ms | 0.617x | Loss |
+| `br-r37-c1-iyu0a` | `to_scipy_sparse_array`, `MultiDiGraph` | 8.35 ms | 3.66 ms | 0.439x | Loss |
+
+Rejected subattempt:
+- A precise `MultiDiGraph` dirty-key scaffold was measured before commit and
+  removed. Best repeated dirty-key ratios still lost: `to_numpy MultiDiGraph`
+  `0.852x`, `to_scipy MultiDiGraph` `0.551x`.
+
+Score:
+- Win/loss/neutral accounting: `0` wins, `3` losses, `1` neutral for the
+  clean multigraph exporter slice.
+- Performance evidence: parity is green, but NetworkX domination is not achieved.
+- Ledger hygiene: the attempted dirty-key route and clean final losses are
+  recorded in `docs/NEGATIVE_EVIDENCE.md` and
+  `docs/progress/perf-negative-results.md`.
+
+Release readiness verdict for this slice: **fail/no-ship**. Do not claim this
+row from self-speedup or noisy `to_numpy MultiGraph` samples. Next route should
+fuse finite-weight validation into `adjacency_arrays_multigraph`, then measure
+whether default-order integer-index multigraph COO is still needed.
+
 ## 2026-06-19 MultiDiGraph Connectivity BOLD-VERIFY Slice
 
 Environment:
