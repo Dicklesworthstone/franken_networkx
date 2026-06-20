@@ -21619,6 +21619,13 @@ except ImportError:  # pragma: no cover — defensive for partial builds
 
 try:
     from franken_networkx._fnx import (
+        adjacency_arrays_multigraph_live_finite_checked as _native_adjacency_arrays_multigraph_live_checked,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_adjacency_arrays_multigraph_live_checked = None
+
+try:
+    from franken_networkx._fnx import (
         graph_has_nonfinite_edge_weight_multigraph as _native_has_nonfinite_edge_weight_multigraph,
     )
 except ImportError:  # pragma: no cover — defensive for partial builds
@@ -51087,10 +51094,18 @@ def to_numpy_array(
                 isinstance(weight, str)
                 and _native_adjacency_arrays_multigraph_checked is not None
             ):
-                _sync_rust_edge_attrs(G, edge_only=True)
-                _mg = _native_adjacency_arrays_multigraph_checked(
-                    G, nodelist, weight, 1.0
-                )
+                if (
+                    isinstance(G, MultiDiGraph)
+                    and _native_adjacency_arrays_multigraph_live_checked is not None
+                ):
+                    _mg = _native_adjacency_arrays_multigraph_live_checked(
+                        G, nodelist, weight, 1.0
+                    )
+                if _mg is None:
+                    _sync_rust_edge_attrs(G, edge_only=True)
+                    _mg = _native_adjacency_arrays_multigraph_checked(
+                        G, nodelist, weight, 1.0
+                    )
             if _mg is not None:
                 rows, cols, data = _mg
                 if rows:
@@ -51550,10 +51565,18 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
             and dtype is None
             and _native_adjacency_arrays_multigraph_checked is not None
         ):
-            _sync_rust_edge_attrs(G, edge_only=True)
-            _mg_native = _native_adjacency_arrays_multigraph_checked(
-                G, nodelist, weight, 1.0
-            )
+            if (
+                isinstance(G, MultiDiGraph)
+                and _native_adjacency_arrays_multigraph_live_checked is not None
+            ):
+                _mg_native = _native_adjacency_arrays_multigraph_live_checked(
+                    G, nodelist, weight, 1.0
+                )
+            if _mg_native is None:
+                _sync_rust_edge_attrs(G, edge_only=True)
+                _mg_native = _native_adjacency_arrays_multigraph_checked(
+                    G, nodelist, weight, 1.0
+                )
     if _mg_native is not None:
         import numpy as _np
         rows, cols, data = _mg_native

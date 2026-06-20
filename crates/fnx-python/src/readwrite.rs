@@ -1920,6 +1920,130 @@ pub fn adjacency_arrays_multigraph_finite_checked(
     Ok(Some((rows, cols, data)))
 }
 
+fn finite_py_weight(raw: &Bound<'_, PyAny>) -> Option<f64> {
+    if let Ok(value) = raw.extract::<f64>() {
+        return value.is_finite().then_some(value);
+    }
+    if let Ok(value) = raw.extract::<String>()
+        && let Ok(parsed) = value.parse::<f64>()
+    {
+        return parsed.is_finite().then_some(parsed);
+    }
+    None
+}
+
+fn live_multigraph_weight(
+    py: Python<'_>,
+    mirror: Option<&Py<PyDict>>,
+    attrs: &fnx_classes::AttrMap,
+    weight_attr: &str,
+    default_weight: f64,
+) -> PyResult<Option<f64>> {
+    if let Some(dict) = mirror {
+        let bound = dict.bind(py);
+        return match bound.get_item(weight_attr)? {
+            Some(raw) => Ok(finite_py_weight(&raw)),
+            None => Ok(Some(default_weight)),
+        };
+    }
+    Ok(match attrs.get(weight_attr) {
+        Some(raw) => raw.as_f64().filter(|value| value.is_finite()),
+        None => Some(default_weight),
+    })
+}
+
+/// br-r37-c1-wvuf7: live-dict sibling of
+/// `adjacency_arrays_multigraph_finite_checked` for weighted sparse exporters.
+///
+/// The checked COO builder above reads Rust `inner` edge attrs, so the Python
+/// wrapper must first call `_sync_rust_edge_attrs(..., edge_only=True)`. On
+/// multigraphs whose edge attr dicts have been handed out or built with weights,
+/// that dirty flag intentionally stays conservative, making every export rebuild
+/// AttrMaps before immediately reading them back. This helper walks the same
+/// `inner` edge order but resolves each weight from the live `edge_py_attrs`
+/// mirror when present, falling back to `inner` only when no mirror exists.
+/// Missing weights still use `default_weight`; non-numeric or non-finite present
+/// weights return `None` so the wrapper keeps the exact Python fallback.
+#[pyfunction]
+pub fn adjacency_arrays_multigraph_live_finite_checked(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    nodelist: &Bound<'_, PyAny>,
+    weight_attr: &str,
+    default_weight: f64,
+) -> PyResult<Option<(Vec<u32>, Vec<u32>, Vec<f64>)>> {
+    let nodes_iter = pyo3::types::PyIterator::from_object(nodelist)?;
+    let mut index: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    for (count, item) in (0_u32..).zip(nodes_iter) {
+        let item = item?;
+        let canonical = node_key_to_string(py, &item)?;
+        index.entry(canonical).or_insert(count);
+    }
+
+    let gr = extract_graph(g)?;
+    let (rows, cols, data) = match &gr {
+        GraphRef::MultiUndirected { mg, .. } => {
+            let inner = &mg.inner;
+            let edge_count = inner.edge_count();
+            let mut rows: Vec<u32> = Vec::with_capacity(edge_count * 2);
+            let mut cols: Vec<u32> = Vec::with_capacity(edge_count * 2);
+            let mut data: Vec<f64> = Vec::with_capacity(edge_count * 2);
+            for (u, v, key, attrs) in inner.edges_ordered_borrowed() {
+                let Some(&ui) = index.get(u) else { continue };
+                let Some(&vi) = index.get(v) else { continue };
+                let mirror_key = PyMultiGraph::edge_key(u, v, key);
+                let Some(w) = live_multigraph_weight(
+                    py,
+                    mg.edge_py_attrs.get(&mirror_key),
+                    attrs,
+                    weight_attr,
+                    default_weight,
+                )?
+                else {
+                    return Ok(None);
+                };
+                rows.push(ui);
+                cols.push(vi);
+                data.push(w);
+                if ui != vi {
+                    rows.push(vi);
+                    cols.push(ui);
+                    data.push(w);
+                }
+            }
+            (rows, cols, data)
+        }
+        GraphRef::MultiDirected { mdg, .. } => {
+            let inner = &mdg.inner;
+            let edge_count = inner.edge_count();
+            let mut rows: Vec<u32> = Vec::with_capacity(edge_count);
+            let mut cols: Vec<u32> = Vec::with_capacity(edge_count);
+            let mut data: Vec<f64> = Vec::with_capacity(edge_count);
+            for (u, v, key, attrs) in inner.edges_ordered_borrowed() {
+                let Some(&ui) = index.get(u) else { continue };
+                let Some(&vi) = index.get(v) else { continue };
+                let mirror_key = (u.to_owned(), v.to_owned(), key);
+                let Some(w) = live_multigraph_weight(
+                    py,
+                    mdg.edge_py_attrs.get(&mirror_key),
+                    attrs,
+                    weight_attr,
+                    default_weight,
+                )?
+                else {
+                    return Ok(None);
+                };
+                rows.push(ui);
+                cols.push(vi);
+                data.push(w);
+            }
+            (rows, cols, data)
+        }
+        GraphRef::Undirected(_) | GraphRef::Directed { .. } => return Ok(None),
+    };
+    Ok(Some((rows, cols, data)))
+}
+
 /// br-r37-c1-fb9td: native O(|E|) non-finite-weight scan for MultiGraph /
 /// MultiDiGraph — the multigraph sibling of `graph_has_nonfinite_edge_weight`
 /// (which returns `None` for multigraphs, forcing `pagerank`'s weight-parity
@@ -2338,6 +2462,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(adjacency_arrays_multigraph, m)?)?;
     m.add_function(wrap_pyfunction!(
         adjacency_arrays_multigraph_finite_checked,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        adjacency_arrays_multigraph_live_finite_checked,
         m
     )?)?;
     m.add_function(wrap_pyfunction!(

@@ -213,6 +213,73 @@ Release readiness verdict for this slice: **keep**. Do not repeat the
 sparse-only dirty-key attempt as a standalone lever; it was measured and
 rejected.
 
+## 2026-06-20 MultiDiGraph Weighted Sparse Export Live-Dict Slice
+
+Environment:
+- Agent: `CrimsonRiver` / `cod-b`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-b-wvuf7-20260620T1045Z`.
+- Target dir: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+- Release extension rebuilt with `maturin develop --release --features pyo3/abi3-py310`
+  using fresh target dir `/data/projects/.rch-targets/franken_networkx-cod-b-maturin-f20a`
+  after the shared target dir hit incompatible-rustc E0514. No cleanup or file
+  deletion was performed.
+- Harness: same-process release Python timing against vendored NetworkX
+  `3.7rc0.dev0`, public weighted graph construction, and parity checks before
+  every timing row.
+- Gates: `cargo fmt --check`; `rch exec -- cargo check -p fnx-python --benches`;
+  `rch exec -- cargo clippy -p fnx-python --all-targets -- -D warnings`;
+  `rch exec -- cargo build -p fnx-python --release`; focused sparse-export
+  parity `297 passed`; sparse plus numpy weighted exporter parity `305 passed`.
+
+Final accepted medians after narrowing the live-dict route to `MultiDiGraph`:
+
+| Bead | Workload | FNX median | NetworkX median | Ratio vs NetworkX | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `br-r37-c1-wvuf7` | `MultiGraph n=250 to_scipy_sparse_array` | 0.637 ms | 0.779 ms | 1.224x | Win |
+| `br-r37-c1-wvuf7` | `MultiGraph n=250 adjacency_matrix` | 0.684 ms | 0.800 ms | 1.170x | Win |
+| `br-r37-c1-wvuf7` | `MultiGraph n=1000 to_scipy_sparse_array` | 2.576 ms | 3.114 ms | 1.209x | Win |
+| `br-r37-c1-wvuf7` | `MultiGraph n=1000 adjacency_matrix` | 3.283 ms | 3.835 ms | 1.168x | Win |
+| `br-r37-c1-wvuf7` | `MultiGraph n=2000 to_scipy_sparse_array` | 7.559 ms | 8.444 ms | 1.117x | Win |
+| `br-r37-c1-wvuf7` | `MultiGraph n=2000 adjacency_matrix` | 7.823 ms | 6.312 ms | 0.807x | Loss |
+| `br-r37-c1-wvuf7` | `MultiDiGraph n=250 to_scipy_sparse_array` | 0.489 ms | 0.545 ms | 1.113x | Win |
+| `br-r37-c1-wvuf7` | `MultiDiGraph n=250 adjacency_matrix` | 0.494 ms | 0.553 ms | 1.119x | Win |
+| `br-r37-c1-wvuf7` | `MultiDiGraph n=1000 to_scipy_sparse_array` | 1.946 ms | 2.190 ms | 1.125x | Win |
+| `br-r37-c1-wvuf7` | `MultiDiGraph n=1000 adjacency_matrix` | 2.013 ms | 2.724 ms | 1.353x | Win |
+| `br-r37-c1-wvuf7` | `MultiDiGraph n=2000 to_scipy_sparse_array` | 8.707 ms | 6.324 ms | 0.726x | Loss |
+| `br-r37-c1-wvuf7` | `MultiDiGraph n=2000 adjacency_matrix` | 11.363 ms | 8.008 ms | 0.705x | Loss |
+
+Focused largest directed repeat:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| `MultiDiGraph n=2000 to_scipy_sparse_array` | 7.838 ms | 5.392 ms | 0.688x | Residual loss |
+| `MultiDiGraph n=2000 adjacency_matrix` | 9.171 ms | 5.652 ms | 0.616x | Residual loss |
+
+Rejected subattempt:
+- Routing the live-dict helper for both `MultiGraph` and `MultiDiGraph`
+  regressed measured `MultiGraph` rows (`0.750x`, `0.663x`, `0.638x`,
+  `0.608x` on representative exporter rows), so the final code keeps
+  `MultiGraph` on the existing checked native sync path.
+
+Score:
+- Win/loss/neutral accounting: `9` wins, `3` losses, `0` neutral for the final
+  expanded slice; the target largest directed rows remain `0` wins, `2` losses
+  on focused repeat.
+- Performance evidence: target `MultiDiGraph n=2000 to_scipy_sparse_array`
+  moved from `17.289 ms` to `8.707 ms` in the expanded sweep (`1.985x` FNX
+  self-speedup), and `adjacency_matrix` moved from `14.045 ms` to `11.363 ms`
+  (`1.236x` self-speedup). Focused repeat improves those self-speedups to
+  `2.206x` and `1.531x`, but NetworkX is still faster.
+- Ledger hygiene: baseline, accepted route, rejected all-multigraph route, and
+  residual n=2000 losses are recorded in `docs/NEGATIVE_EVIDENCE.md` and
+  `docs/progress/perf-negative-results.md`.
+
+Release readiness verdict for this slice: **partial keep / not dominated**. The
+live-dict route is worth keeping for directed multigraph exporter sync removal,
+but this bead stays open for a default-order integer-index COO/boundary
+specialization.
+
 ## 2026-06-20 Multigraph Matrix Exporter BOLD-VERIFY Slice
 
 Environment:

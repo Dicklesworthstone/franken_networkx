@@ -2,6 +2,125 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-20 MultiDiGraph Weighted Sparse Export Live-Dict Slice (`br-r37-c1-wvuf7`)
+
+Scope: target the measured weighted sparse/matrix exporter loss where
+`_sync_rust_edge_attrs(..., edge_only=True)` dominated `MultiDiGraph`
+`to_scipy_sparse_array` / `adjacency_matrix` at scale. The kept lever is a
+native live-dict weight reader for `MultiDiGraph` dtype-`None` multigraph
+exporters: walk the existing inner edge order, read live Python edge-attr
+mirrors for the requested weight, fall back to Rust attrs only when no mirror is
+present, and return to the exact Python fallback for present nonnumeric or
+nonfinite weights.
+
+Environment:
+- Agent Mail identity: `CrimsonRiver`; CLI actor: `AGENT_NAME=cod-b`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-b-wvuf7-20260620T1045Z`.
+- Requested target dir: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+- Exact requested local `maturin develop --release --features pyo3/abi3-py310`
+  against the shared target dir failed with incompatible-rustc E0514. No
+  cleanup or file deletion was performed.
+- Release extension install used fresh non-destructive target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-b-maturin-f20a`.
+- Per-crate RCH gates completed for `fnx-python`: `cargo check -p fnx-python
+  --benches`, `cargo clippy -p fnx-python --all-targets -- -D warnings`, and
+  `cargo build -p fnx-python --release`.
+- Head-to-head harness: same-process Python release timing against vendored
+  NetworkX `3.7rc0.dev0`, `PYTHONHASHSEED=0`, public weighted graph
+  construction with parity checked before timing for every row.
+
+Baseline before this lever:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `MultiGraph n=250 to_scipy_sparse_array` | `0.699 ms` | `0.878 ms` | `1.256x` | win |
+| `MultiGraph n=250 adjacency_matrix` | `0.734 ms` | `0.863 ms` | `1.176x` | win |
+| `MultiGraph n=1000 to_scipy_sparse_array` | `3.299 ms` | `3.396 ms` | `1.029x` | win |
+| `MultiGraph n=1000 adjacency_matrix` | `4.101 ms` | `3.658 ms` | `0.892x` | loss |
+| `MultiGraph n=2000 to_scipy_sparse_array` | `14.671 ms` | `10.535 ms` | `0.718x` | loss |
+| `MultiGraph n=2000 adjacency_matrix` | `13.482 ms` | `11.038 ms` | `0.819x` | loss |
+| `MultiDiGraph n=250 to_scipy_sparse_array` | `0.856 ms` | `0.623 ms` | `0.728x` | loss |
+| `MultiDiGraph n=250 adjacency_matrix` | `0.596 ms` | `0.594 ms` | `0.996x` | neutral |
+| `MultiDiGraph n=1000 to_scipy_sparse_array` | `5.454 ms` | `2.513 ms` | `0.461x` | loss |
+| `MultiDiGraph n=1000 adjacency_matrix` | `8.244 ms` | `2.681 ms` | `0.325x` | loss |
+| `MultiDiGraph n=2000 to_scipy_sparse_array` | `17.289 ms` | `5.295 ms` | `0.306x` | loss |
+| `MultiDiGraph n=2000 adjacency_matrix` | `14.045 ms` | `6.491 ms` | `0.462x` | loss |
+
+Rejected subattempt:
+- Routing the live-dict helper for both `MultiGraph` and `MultiDiGraph`
+  improved directed rows but regressed undirected multigraph rows. Measured
+  post-attempt ratios included `MultiGraph n=250 adjacency_matrix` `0.750x`,
+  `MultiGraph n=1000 to_scipy_sparse_array` `0.663x`,
+  `MultiGraph n=2000 to_scipy_sparse_array` `0.638x`, and
+  `MultiGraph n=2000 adjacency_matrix` `0.608x`. That route was narrowed before
+  commit; `MultiGraph` stays on the existing checked native sync path.
+
+Final accepted release timing after narrowing the route to `MultiDiGraph`:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `MultiGraph n=250 to_scipy_sparse_array` | `0.637 ms` | `0.779 ms` | `1.224x` | win |
+| `MultiGraph n=250 adjacency_matrix` | `0.684 ms` | `0.800 ms` | `1.170x` | win |
+| `MultiGraph n=1000 to_scipy_sparse_array` | `2.576 ms` | `3.114 ms` | `1.209x` | win |
+| `MultiGraph n=1000 adjacency_matrix` | `3.283 ms` | `3.835 ms` | `1.168x` | win |
+| `MultiGraph n=2000 to_scipy_sparse_array` | `7.559 ms` | `8.444 ms` | `1.117x` | win |
+| `MultiGraph n=2000 adjacency_matrix` | `7.823 ms` | `6.312 ms` | `0.807x` | loss |
+| `MultiDiGraph n=250 to_scipy_sparse_array` | `0.489 ms` | `0.545 ms` | `1.113x` | win |
+| `MultiDiGraph n=250 adjacency_matrix` | `0.494 ms` | `0.553 ms` | `1.119x` | win |
+| `MultiDiGraph n=1000 to_scipy_sparse_array` | `1.946 ms` | `2.190 ms` | `1.125x` | win |
+| `MultiDiGraph n=1000 adjacency_matrix` | `2.013 ms` | `2.724 ms` | `1.353x` | win |
+| `MultiDiGraph n=2000 to_scipy_sparse_array` | `8.707 ms` | `6.324 ms` | `0.726x` | loss |
+| `MultiDiGraph n=2000 adjacency_matrix` | `11.363 ms` | `8.008 ms` | `0.705x` | loss |
+
+Focused repeat on the largest directed workload:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `MultiDiGraph n=2000 to_scipy_sparse_array` | `7.838 ms` | `5.392 ms` | `0.688x` | loss |
+| `MultiDiGraph n=2000 adjacency_matrix` | `9.171 ms` | `5.652 ms` | `0.616x` | loss |
+
+Self-speedups on targeted `MultiDiGraph n=2000` rows:
+- `to_scipy_sparse_array`: `17.289 ms -> 8.707 ms`, `1.985x` in the expanded
+  sweep; focused repeat `7.838 ms` gives `2.206x` vs baseline.
+- `adjacency_matrix`: `14.045 ms -> 11.363 ms`, `1.236x` in the expanded
+  sweep; focused repeat `9.171 ms` gives `1.531x` vs baseline.
+
+Conformance and gates:
+- `cargo fmt --check` passed.
+- `rch exec -- cargo check -p fnx-python --benches` passed.
+- `rch exec -- cargo clippy -p fnx-python --all-targets -- -D warnings`
+  passed.
+- `rch exec -- cargo build -p fnx-python --release` passed after retrying
+  remotely; an earlier local fallback against the shared target dir hit E0514.
+- `maturin develop --release --features pyo3/abi3-py310` passed with the fresh
+  target dir noted above.
+- Focused sparse-export parity reported `297 passed`.
+- Sparse plus numpy weighted exporter parity reported `305 passed`.
+
+Decision:
+- Keep the `MultiDiGraph` live-dict route as a measured partial: expanded final
+  slice score `9` wins / `3` losses / `0` neutral vs NetworkX, and the target
+  directed `n=2000` rows roughly halved their FNX runtime.
+- Do not close the bead as fully dominated. The largest directed rows remain
+  losses (`0.688x` and `0.616x` on focused repeat), so the next route must
+  attack index construction and SciPy/NumPy boundary cost rather than edge-attr
+  sync alone.
+
+Do not repeat:
+- Do not route `MultiGraph` through the live-dict helper without a different
+  undirected COO strategy; the all-multigraph attempt regressed measured rows.
+- Do not retry Python edges-view COO construction; prior evidence on this bead
+  showed parity but net regression at small/medium sizes.
+- Do not claim the scale row as solved from self-speedup. The largest
+  `MultiDiGraph` exporter rows still lose to NetworkX.
+
+Next route:
+- Specialize default-order integer-index `MultiDiGraph` COO emission to avoid
+  Python nodelist canonicalization, Python list handoff, and avoidable
+  sparse-matrix construction overhead for the common `nodelist=None`,
+  integer-node path.
+
 ## 2026-06-20 MultiDiGraph DAG Closeout (`br-r37-c1-11m92`)
 
 Scope: re-baseline the claimed `MultiDiGraph` DAG losses on current `origin/main`
