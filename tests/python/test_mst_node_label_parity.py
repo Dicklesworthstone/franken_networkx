@@ -20,6 +20,16 @@ def _signature(G):
     return (sorted(G.nodes()), sorted(tuple(sorted(e)) for e in G.edges()))
 
 
+def _multi_signature(G):
+    return (
+        type(G).__name__,
+        G.is_multigraph(),
+        list(G.nodes(data=True)),
+        list(G.edges(keys=True, data=True)),
+        dict(G.graph),
+    )
+
+
 def test_range_built_graph_preserves_int_node_labels():
     g = fnx.Graph()
     g.add_nodes_from(range(6))
@@ -69,3 +79,34 @@ def test_node_and_graph_attrs_preserved():
     nmst = nx.minimum_spanning_tree(ng, weight="weight")
     assert dict(fmst.nodes(data=True)) == dict(nmst.nodes(data=True))
     assert fmst.graph == nmst.graph
+
+
+def test_multigraph_mst_preserves_keys_type_attrs_and_matches_networkx():
+    fg = fnx.MultiGraph()
+    ng = nx.MultiGraph()
+    for g in (fg, ng):
+        g.graph["name"] = "keyed-mst"
+        g.add_node(0, color="red")
+        g.add_node(1, color="blue")
+        g.add_node(2, color="green")
+        g.add_node(3, color="yellow")
+        g.add_edge(0, 1, key="slow", weight=10.0, tag="drop")
+        g.add_edge(0, 1, key="fast", weight=1.0, tag="keep")
+        g.add_edge(1, 2, key="mid", weight=2.0, tag="keep")
+        g.add_edge(0, 2, key="heavy", weight=3.0, tag="drop")
+        g.add_edge(2, 3, weight=1.5, tag="auto")
+        g.add_edge(0, 3, key="expensive", weight=99.0, tag="drop")
+
+    assert _multi_signature(fnx.minimum_spanning_tree(fg, weight="weight")) == _multi_signature(
+        nx.minimum_spanning_tree(ng, weight="weight")
+    )
+
+
+def test_multigraph_mst_nonnumeric_weight_uses_networkx_error_contract():
+    g = fnx.MultiGraph()
+    g.add_edge(0, 1, key="a", weight="1")
+    g.add_edge(1, 2, key="b", weight="2")
+    g.add_edge(0, 2, key="c", weight="3")
+
+    with pytest.raises(TypeError, match="must be real number"):
+        fnx.minimum_spanning_tree(g, weight="weight")

@@ -215,6 +215,108 @@ Next route:
   path-heavy Dijkstra rows, or MultiGraph biconnected/MST surfaces; this DAG
   conversion-tax bead is closed.
 
+## 2026-06-20 MultiGraph Keyed MST Native Route (`br-r37-c1-ij951`)
+
+Scope: close the residual MultiGraph `minimum_spanning_tree` loss left by the
+earlier biconnected-family route, preserving the NetworkX-observable
+`MultiGraph` result type, selected parallel edge keys, graph/node/edge attrs,
+and stable Kruskal tie order.
+
+Environment:
+- Agent Mail identity: `CrimsonRiver`; CLI actor: `AGENT_NAME=cod-a`.
+- Worktree: `/data/projects/franken_networkx`.
+- Requested target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- Local release install against the requested shared target failed with
+  incompatible-rustc E0514 (`beae78130` artifacts vs current `f20a92ec0`).
+  No cleanup or file deletion was performed. The local release extension was
+  installed with fresh non-destructive target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-a-f20a92ec0-mst`.
+- Exact-target RCH release build passed:
+  `rch exec -- cargo build --release -p fnx-python --features pyo3/abi3-py310`
+  on `vmi1149989`.
+- Exact-target RCH bench attempt first fell back locally because no workers were
+  admissible and hit the same shared-target E0514. The measured Criterion bench
+  used the fresh non-destructive target dir:
+  `rch exec -- cargo bench -p fnx-python --bench networkx_head_to_head multigraph_biconnected -- --sample-size 10 --measurement-time 2`.
+- Direct same-process Python sweeps pinned
+  `PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx`
+  after an unpinned probe resolved the editable package to a sibling scratch
+  worktree; only pinned-current-checkout timings are used below.
+
+Baseline before this lever:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `minimum_spanning_tree` old parity route on 1000-node / 5000-edge `MultiGraph` | `32.322 ms` | `10.103 ms` | `0.313x` | loss |
+| `minimum_spanning_tree` old parity route on keyed custom fixture | `40.035 ms` | `12.915 ms` | `0.323x` | loss |
+
+Kept lever:
+- Add a PyO3 `multigraph_minimum_spanning_tree` helper that scans the
+  `MultiGraph` edge snapshots directly, rejects nonnumeric/nonfinite or
+  row-display-override cases back to the existing parity path, runs stable
+  Kruskal with a compact union-find, and builds a new keyed `PyMultiGraph`
+  result without a full fnx-to-NetworkX conversion.
+- The public wrapper syncs edge attrs first, then accepts the native result only
+  when the helper returns a `MultiGraph`; unsupported cases keep the previous
+  NetworkX parity behavior.
+
+Final same-process release sweep on the bead fixture (1000 nodes, 5000 edges,
+seed `20260620`, NetworkX `3.6.1`, parity matched every row):
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `is_biconnected` | `0.358 ms` | `2.432 ms` | `6.801x` | win |
+| `articulation_points` | `0.358 ms` | `1.743 ms` | `4.868x` | win |
+| `biconnected_components` | `0.869 ms` | `2.468 ms` | `2.839x` | win |
+| `minimum_spanning_tree` native | `8.040 ms` | `9.039 ms` | `1.124x` | win |
+| `minimum_spanning_tree` old parity route | `32.322 ms` | `10.103 ms` | `0.313x` | rejected baseline |
+| `bfs_edges(source=0)` | `0.796 ms` | `0.657 ms` | `0.825x` | loss |
+
+Additional evidence:
+- Custom keyed/attr-heavy `MultiGraph` fixture, same process:
+  `minimum_spanning_tree` moved from `0.323x` old parity to `2.035x` native
+  (`8.070 ms` FNX vs `16.426 ms` NetworkX), with exact digest parity.
+- Criterion `networkx_head_to_head_multigraph_biconnected` final rows:
+  `is_biconnected` `10.454x`, `articulation_points` `6.401x`,
+  `biconnected_components` `4.065x`, and `minimum_spanning_tree` `1.214x`
+  on the bench fixture.
+
+Conformance and gates:
+- `pytest tests/python/test_mst_node_label_parity.py -q` reported `55 passed`.
+- `pytest tests/python/test_tree_bipartite.py -q` reported `63 passed`.
+- `pytest tests/python/test_parity_conformance.py -q` reported `195 passed`.
+- `cargo fmt --check` passed.
+- `rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310` passed.
+- `rch exec -- cargo build --release -p fnx-python --features pyo3/abi3-py310`
+  passed with the exact requested target dir through RCH remote execution.
+- `rch exec -- cargo clippy -p fnx-python --all-targets --features pyo3/abi3-py310 -- -D warnings`
+  passed.
+- `rch exec -- cargo test -p fnx-python --features pyo3/abi3-py310` reported
+  `27 passed`.
+
+Decision:
+- Keep. The MST residual flips from a measured `0.313x` loss to a `1.124x`
+  win on the bead fixture and `1.214x` in Criterion.
+- Current `ij951` surface accounting after this follow-up is `4` measured wins
+  (`is_biconnected`, `articulation_points`, `biconnected_components`,
+  `minimum_spanning_tree`) / `1` measured loss (`bfs_edges`) / `0` neutral in
+  the current pinned same-process sweep. Including the previously measured
+  `biconnected_component_edges` side row yields `5` wins / `1` loss / `0`
+  neutral.
+
+Do not repeat:
+- Do not route ordinary numeric MultiGraph MST through `_networkx_graph_for_parity`;
+  that old route remains a `0.313x` loss on the bead fixture.
+- Do not collapse keyed MultiGraph MST to a simple `Graph`; the result must
+  preserve `MultiGraph` type, selected edge keys, and attrs.
+- Do not claim `ij951` as fully dominated until the remaining `bfs_edges`
+  dense-parallel loss is either flipped or split into its own routed bead.
+
+Next route:
+- Split or continue with the remaining MultiGraph `bfs_edges(source=0)` loss
+  (`0.825x` on the current bead fixture). The MST residual is closed.
+
 ## 2026-06-20 MultiGraph Biconnected Family Native Route (`br-r37-c1-ij951`)
 
 Scope: target the open MultiGraph biconnected/MST loss cluster on current

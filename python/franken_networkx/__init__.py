@@ -9985,6 +9985,7 @@ from franken_networkx._fnx import (
     prim_spanning_edges as _raw_prim_spanning_edges,
     minimum_branching as _raw_minimum_branching,
     minimum_spanning_arborescence as _raw_minimum_spanning_arborescence,
+    multigraph_minimum_spanning_tree as _raw_multigraph_minimum_spanning_tree,
     minimum_spanning_tree as _raw_minimum_spanning_tree,
     partition_spanning_tree as _raw_partition_spanning_tree,
     random_spanning_tree as _raw_random_spanning_tree,
@@ -12269,11 +12270,6 @@ def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
         return T
     if algorithm != "kruskal" or ignore_nan or not isinstance(weight, str):
         return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
-    # MultiGraph inputs must come back as MultiGraph (parallel edges,
-    # keyed adjacency); the Rust kernel collapses to plain Graph.
-    # Route through nx parity to preserve type.
-    if isinstance(G, MultiGraph):
-        return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
     # br-r37-c1-mstsync: previously we routed ANY graph with a weight
     # attribute through the nx parity path because the Rust kernel
     # read stale weights for post-construction mutations
@@ -12304,6 +12300,16 @@ def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
             if _has_nan_or_inf_edge_weight(G, weight):
                 return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
     elif _has_nan_or_inf_edge_weight(G, weight):
+        return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
+    # br-r37-c1-ij951: MultiGraph must return a keyed MultiGraph, not the
+    # simple Graph produced by _raw_minimum_spanning_tree. The native helper
+    # runs stable Kruskal directly over MultiGraph storage and returns None for
+    # unsupported parity-sensitive shapes (row-display overrides, nonnumeric
+    # weights), preserving the previous nx parity fallback.
+    if isinstance(G, MultiGraph):
+        result = _raw_multigraph_minimum_spanning_tree(G, weight=weight)
+        if result is not None:
+            return result
         return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
     result = _raw_minimum_spanning_tree(G, weight=weight)
     # br-r37-c1-esr5k: for graphs built via ``add_nodes_from(range(n))`` (lazy

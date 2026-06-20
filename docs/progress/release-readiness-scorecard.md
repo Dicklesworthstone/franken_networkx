@@ -11,7 +11,53 @@ undirected `non_edges` default-ebunch verification (`br-r37-c1-04z53.9143`)
 plus CCPA link-prediction verification (`br-r37-c1-04z53.9140`) and
 MultiDiGraph SCC stale-loss closeout (`br-r37-c1-8hjsu`) plus
 MultiDiGraph DAG conversion-tax closeout (`br-r37-c1-11m92`) and
-MultiGraph biconnected-family verification (`br-r37-c1-ij951`).
+MultiGraph biconnected-family verification plus keyed MST follow-up
+(`br-r37-c1-ij951`).
+
+## 2026-06-20 MultiGraph Keyed MST Follow-Up
+
+Environment:
+- Agent Mail identity: `CrimsonRiver`; CLI actor: `AGENT_NAME=cod-a`.
+- Worktree: `/data/projects/franken_networkx`.
+- Requested RCH target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- Exact requested local release install hit incompatible-rustc E0514 in the
+  shared target dir; no cleanup or file deletion was performed.
+- Release extension for local Python timing used fresh target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-a-f20a92ec0-mst`.
+- Exact-target RCH release build passed:
+  `rch exec -- cargo build --release -p fnx-python --features pyo3/abi3-py310`.
+- Exact-target bench first fell back locally because no RCH workers were
+  admissible and hit shared-target E0514; the measured Criterion bench used the
+  fresh target dir without deleting shared artifacts.
+
+Measured decision:
+
+| Bead | Workload | Baseline ratio | Final ratio | Decision |
+| --- | --- | ---: | ---: | --- |
+| `br-r37-c1-ij951` | `minimum_spanning_tree`, MultiGraph 1000 nodes / 5000 edges | `0.313x` old parity route | `1.124x` pinned release sweep; `1.214x` Criterion | Keep; loss flipped |
+| `br-r37-c1-ij951` side surface | `is_biconnected` | previous keep | `6.801x` current pinned sweep; `10.454x` Criterion | Win |
+| `br-r37-c1-ij951` side surface | `articulation_points` | previous keep | `4.868x` current pinned sweep; `6.401x` Criterion | Win |
+| `br-r37-c1-ij951` side surface | `biconnected_components` | previous keep | `2.839x` current pinned sweep; `4.065x` Criterion | Win |
+| `br-r37-c1-ij951` residual | `bfs_edges(source=0)` | `0.407x` prior baseline | `0.825x` current pinned sweep | Loss, route next |
+
+Score:
+- Current pinned `ij951` accounting: `4` wins, `1` loss, `0` neutral; including
+  the previously measured `biconnected_component_edges` side row gives
+  `5` wins, `1` loss, `0` neutral.
+- Performance evidence: native PyO3 keyed MultiGraph MST avoids
+  `_networkx_graph_for_parity`, scans edge snapshots directly, runs stable
+  Kruskal union-find, and returns a real `MultiGraph` with selected keys and
+  attrs preserved.
+- Conformance evidence: MST regression file `55 passed`; tree/bipartite
+  `63 passed`; parity conformance `195 passed`; Rust `fnx-python` tests
+  `27 passed`.
+- Ledger hygiene: the old parity loss, native keep, exact-target E0514 bench
+  caveat, and residual BFS loss are recorded in `docs/NEGATIVE_EVIDENCE.md`
+  and `docs/progress/perf-negative-results.md`.
+
+Release readiness verdict for this slice: **keep MST follow-up; residual BFS
+still blocks full `ij951` closure**.
 
 ## 2026-06-20 MultiDiGraph DAG Closeout
 

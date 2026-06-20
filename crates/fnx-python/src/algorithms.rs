@@ -780,6 +780,47 @@ fn projected_weight(attrs: &AttrMap, weight_attr: &str) -> f64 {
         .unwrap_or(1.0)
 }
 
+#[derive(Clone)]
+struct MultiMstEdge {
+    left: String,
+    right: String,
+    key: usize,
+    left_idx: usize,
+    right_idx: usize,
+    weight: f64,
+    seq: usize,
+    attrs: AttrMap,
+}
+
+fn dsu_find(parent: &mut [usize], mut node: usize) -> usize {
+    let mut root = node;
+    while parent[root] != root {
+        root = parent[root];
+    }
+    while parent[node] != node {
+        let next = parent[node];
+        parent[node] = root;
+        node = next;
+    }
+    root
+}
+
+fn dsu_union(parent: &mut [usize], rank: &mut [u8], left: usize, right: usize) -> bool {
+    let mut left_root = dsu_find(parent, left);
+    let mut right_root = dsu_find(parent, right);
+    if left_root == right_root {
+        return false;
+    }
+    if rank[left_root] < rank[right_root] {
+        std::mem::swap(&mut left_root, &mut right_root);
+    }
+    parent[right_root] = left_root;
+    if rank[left_root] == rank[right_root] {
+        rank[left_root] = rank[left_root].saturating_add(1);
+    }
+    true
+}
+
 fn pagerank_projected_weight(attrs: &AttrMap, weight_attr: Option<&str>) -> f64 {
     let Some(weight_attr) = weight_attr else {
         return 1.0;
@@ -7542,6 +7583,134 @@ pub fn minimum_spanning_tree(
         }
     }
     Ok(new_graph)
+}
+
+/// Native keyed MultiGraph minimum spanning tree.
+///
+/// This is deliberately a binding-level specialization rather than a core
+/// `fnx_algorithms` API: the performance loss being removed is the Python
+/// wrapper's forced fnx->nx parity conversion for MultiGraphs, and correctness
+/// requires preserving Python-visible edge keys and attr dictionaries.
+#[pyfunction]
+#[pyo3(signature = (g, weight="weight"))]
+pub fn multigraph_minimum_spanning_tree(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    let GraphRef::MultiUndirected { mg, .. } = gr else {
+        return Ok(py.None());
+    };
+    if !mg.adj_py_keys.is_empty() {
+        return Ok(py.None());
+    }
+
+    let nodes: Vec<String> = mg
+        .inner
+        .nodes_ordered()
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    let mut node_index = HashMap::with_capacity(nodes.len());
+    for (idx, node) in nodes.iter().enumerate() {
+        node_index.insert(node.clone(), idx);
+    }
+
+    let source_edges = mg.inner.edges_ordered_borrowed();
+    let mut candidates = Vec::with_capacity(source_edges.len());
+    for (seq, (left, right, key, attrs)) in source_edges.into_iter().enumerate() {
+        let weight_value = match attrs.get(weight) {
+            Some(raw) => {
+                if !raw.is_strictly_numeric() {
+                    return Ok(py.None());
+                }
+                let Some(value) = raw.as_f64() else {
+                    return Ok(py.None());
+                };
+                if !value.is_finite() {
+                    return Ok(py.None());
+                }
+                value
+            }
+            None => 1.0,
+        };
+        let Some(&left_idx) = node_index.get(left) else {
+            return Ok(py.None());
+        };
+        let Some(&right_idx) = node_index.get(right) else {
+            return Ok(py.None());
+        };
+        candidates.push(MultiMstEdge {
+            left: left.to_owned(),
+            right: right.to_owned(),
+            key,
+            left_idx,
+            right_idx,
+            weight: weight_value,
+            seq,
+            attrs: attrs.clone(),
+        });
+    }
+    candidates.sort_by(|left, right| {
+        left.weight
+            .partial_cmp(&right.weight)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| left.seq.cmp(&right.seq))
+    });
+
+    let mut parent: Vec<usize> = (0..nodes.len()).collect();
+    let mut rank = vec![0u8; nodes.len()];
+    let mut selected = Vec::with_capacity(nodes.len().saturating_sub(1));
+    for edge in candidates {
+        if dsu_union(&mut parent, &mut rank, edge.left_idx, edge.right_idx) {
+            selected.push(edge);
+        }
+    }
+
+    let mut tree = PyMultiGraph::new_empty_with_mode(py, mg.inner.mode())?;
+    tree.graph_attrs = mg.graph_attrs.bind(py).copy()?.unbind();
+    for node in &nodes {
+        let rust_attrs = mg.inner.node_attrs(node).cloned().unwrap_or_default();
+        tree.inner.add_node_with_attrs(node.clone(), rust_attrs);
+        if let Some(py_key) = mg.node_key_map.get(node) {
+            tree.node_key_map.insert(node.clone(), py_key.clone_ref(py));
+        }
+        if let Some(attrs) = mg.node_py_attrs.get(node) {
+            tree.node_py_attrs
+                .insert(node.clone(), attrs.bind(py).copy()?.unbind());
+        }
+    }
+
+    for edge in selected {
+        tree.inner
+            .add_edge_with_key_and_attrs(
+                edge.left.clone(),
+                edge.right.clone(),
+                edge.key,
+                edge.attrs.clone(),
+            )
+            .map_err(|err| NetworkXError::new_err(err.to_string()))?;
+        let src_key = PyMultiGraph::edge_key(&edge.left, &edge.right, edge.key);
+        let dst_key = PyMultiGraph::edge_key(&edge.left, &edge.right, edge.key);
+        if let Some(attrs) = mg.edge_py_attrs.get(&src_key) {
+            tree.edge_py_attrs
+                .insert(dst_key.clone(), attrs.bind(py).copy()?.unbind());
+        }
+        if let Some(py_key) = mg.edge_py_keys.get(&src_key) {
+            tree.edge_py_keys
+                .insert(dst_key.clone(), py_key.clone_ref(py));
+        } else {
+            tree.edge_py_keys.insert(
+                dst_key.clone(),
+                crate::unwrap_infallible(edge.key.into_pyobject(py))
+                    .into_any()
+                    .unbind(),
+            );
+        }
+    }
+
+    Ok(Py::new(py, tree)?.into_any())
 }
 
 /// br-r37-c1-approxacc: byte-exact native
@@ -21774,6 +21943,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(partition_spanning_tree, m)?)?;
     m.add_function(wrap_pyfunction!(random_spanning_tree, m)?)?;
     m.add_function(wrap_pyfunction!(minimum_spanning_tree, m)?)?;
+    m.add_function(wrap_pyfunction!(multigraph_minimum_spanning_tree, m)?)?;
     m.add_function(wrap_pyfunction!(minimum_spanning_edges, m)?)?;
     m.add_function(wrap_pyfunction!(prim_spanning_edges, m)?)?;
     m.add_function(wrap_pyfunction!(bipartite_hopcroft_karp_matching, m)?)?;

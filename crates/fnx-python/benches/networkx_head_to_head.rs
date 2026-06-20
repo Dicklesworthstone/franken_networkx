@@ -60,6 +60,8 @@ struct MultiGraphBiconnectedWorkloads {
     nx_articulation_points: Py<PyAny>,
     fnx_biconnected_components: Py<PyAny>,
     nx_biconnected_components: Py<PyAny>,
+    fnx_minimum_spanning_tree: Py<PyAny>,
+    nx_minimum_spanning_tree: Py<PyAny>,
 }
 
 fn prepare_cut_metric_workloads(py: Python<'_>) -> PyResult<CutMetricWorkloads> {
@@ -566,6 +568,17 @@ assert fnx.is_biconnected(mg_fnx) == nx.is_biconnected(mg_nx)
 assert list(fnx.articulation_points(mg_fnx)) == list(nx.articulation_points(mg_nx))
 assert [set(c) for c in fnx.biconnected_components(mg_fnx)] == [set(c) for c in nx.biconnected_components(mg_nx)]
 
+def _mst_signature(tree):
+    return [
+        (u, v, k, data.get("weight"))
+        for u, v, k, data in tree.edges(keys=True, data=True)
+    ]
+
+fnx_mst_sig = _mst_signature(fnx.minimum_spanning_tree(mg_fnx, weight="weight"))
+nx_mst_sig = _mst_signature(nx.minimum_spanning_tree(mg_nx, weight="weight"))
+if not all(pair[0].__eq__(pair[1]) for pair in zip(fnx_mst_sig, nx_mst_sig, strict=True)):
+    raise AssertionError((fnx_mst_sig, nx_mst_sig))
+
 def _component_checksum(components):
     total = 0
     for idx, component in enumerate(components):
@@ -581,6 +594,8 @@ fnx_articulation_points = lambda: len(list(fnx.articulation_points(mg_fnx)))
 nx_articulation_points = lambda: len(list(nx.articulation_points(mg_nx)))
 fnx_biconnected_components = lambda: _component_checksum(fnx.biconnected_components(mg_fnx))
 nx_biconnected_components = lambda: _component_checksum(nx.biconnected_components(mg_nx))
+fnx_minimum_spanning_tree = lambda: fnx.minimum_spanning_tree(mg_fnx, weight="weight")
+nx_minimum_spanning_tree = lambda: nx.minimum_spanning_tree(mg_nx, weight="weight")
 "#,
         )
         .as_c_str(),
@@ -602,6 +617,8 @@ nx_biconnected_components = lambda: _component_checksum(nx.biconnected_component
         nx_articulation_points: callable("nx_articulation_points")?,
         fnx_biconnected_components: callable("fnx_biconnected_components")?,
         nx_biconnected_components: callable("nx_biconnected_components")?,
+        fnx_minimum_spanning_tree: callable("fnx_minimum_spanning_tree")?,
+        nx_minimum_spanning_tree: callable("nx_minimum_spanning_tree")?,
     })
 }
 
@@ -865,6 +882,16 @@ fn multigraph_biconnected_head_to_head(c: &mut Criterion) {
         &mut group,
         "nx_biconnected_components_mg1000_e5000",
         &workloads.nx_biconnected_components,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_minimum_spanning_tree_mg1000_e5000",
+        &workloads.fnx_minimum_spanning_tree,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_minimum_spanning_tree_mg1000_e5000",
+        &workloads.nx_minimum_spanning_tree,
     );
 
     group.finish();
