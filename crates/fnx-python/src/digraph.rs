@@ -147,6 +147,9 @@ pub struct PyMultiDiGraph {
     pub(crate) edges_seq: u64,
     /// See PyGraph::edges_dirty.
     pub(crate) edges_dirty: AtomicBool,
+    /// Precise maybe-dirty keys for keyed live edge-dict access. `None` means
+    /// a broad mutable edge-attr view escaped, so every mirror must be replayed.
+    pub(crate) edge_dirty_keys: std::sync::Mutex<Option<HashSet<(String, String, usize)>>>,
     pub(crate) node_keys_cache:
         std::sync::Mutex<Option<(u64, Py<pyo3::types::PyTuple>, Py<pyo3::types::PySet>)>>,
     /// br-r37-c1-4b5ie: see PyGraph::node_data_mirror — nodes_seq-keyed
@@ -331,6 +334,37 @@ impl PyMultiDiGraph {
 impl PyMultiDiGraph {
     fn edge_key(u: &str, v: &str, key: usize) -> (String, String, usize) {
         (u.to_owned(), v.to_owned(), key)
+    }
+
+    pub(crate) fn clean_edge_dirty_keys()
+    -> std::sync::Mutex<Option<HashSet<(String, String, usize)>>> {
+        std::sync::Mutex::new(Some(HashSet::new()))
+    }
+
+    fn cloned_edge_dirty_keys(&self) -> std::sync::Mutex<Option<HashSet<(String, String, usize)>>> {
+        std::sync::Mutex::new(self.edge_dirty_keys.lock().unwrap().clone())
+    }
+
+    fn should_sync_dirty_edge(
+        dirty_keys: &Option<HashSet<(String, String, usize)>>,
+        u: &str,
+        v: &str,
+        key: usize,
+    ) -> bool {
+        match dirty_keys {
+            None => true,
+            Some(keys) => keys.contains(&Self::edge_key(u, v, key)),
+        }
+    }
+
+    fn py_dict_is_lossless_attr_map(attrs: &Bound<'_, PyDict>) -> bool {
+        attrs.iter().all(|(key, value)| {
+            key.is_exact_instance_of::<PyString>()
+                && (value.is_exact_instance_of::<PyBool>()
+                    || value.is_exact_instance_of::<PyInt>()
+                    || value.is_exact_instance_of::<PyFloat>()
+                    || value.is_exact_instance_of::<PyString>())
+        })
     }
 
     fn ensure_edge_py_attrs(
@@ -834,6 +868,7 @@ impl PyMultiDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            edge_dirty_keys: Self::clean_edge_dirty_keys(),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
@@ -858,6 +893,14 @@ impl PyMultiDiGraph {
     #[inline]
     pub(crate) fn mark_edges_dirty(&self) {
         self.edges_dirty.store(true, Ordering::Relaxed);
+        *self.edge_dirty_keys.lock().unwrap() = None;
+    }
+
+    fn mark_edge_dirty(&self, u: &str, v: &str, key: usize) {
+        self.edges_dirty.store(true, Ordering::Relaxed);
+        if let Some(keys) = self.edge_dirty_keys.lock().unwrap().as_mut() {
+            keys.insert(Self::edge_key(u, v, key));
+        }
     }
 
     fn try_absorb_exact_int_str_keyed_ctor_edges(
@@ -1501,17 +1544,21 @@ impl MultiDiKeyDictView {
 #[pymethods]
 impl MultiDiKeyDictView {
     fn __getitem__(&self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
-        let g = self.graph.borrow(py);
-        let Some(internal_key) =
-            g.resolve_internal_edge_key(py, &self.source, &self.target, key)?
-        else {
-            return Err(PyKeyError::new_err((key.clone().unbind(),)));
+        let internal_key = {
+            let g = self.graph.borrow(py);
+            let Some(internal_key) =
+                g.resolve_internal_edge_key(py, &self.source, &self.target, key)?
+            else {
+                return Err(PyKeyError::new_err((key.clone().unbind(),)));
+            };
+            internal_key
         };
-        g.mark_edges_dirty();
-        let edge_key = PyMultiDiGraph::edge_key(&self.source, &self.target, internal_key);
-        Ok(g.edge_py_attrs
-            .get(&edge_key)
-            .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py)))
+        let mut g = self.graph.borrow_mut(py);
+        g.mark_edge_dirty(&self.source, &self.target, internal_key);
+        Ok(
+            g.ensure_edge_py_attrs(py, &self.source, &self.target, internal_key)
+                .clone_ref(py),
+        )
     }
 
     fn __contains__(&self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<bool> {
@@ -3757,6 +3804,7 @@ impl PyMultiDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            edge_dirty_keys: Self::clean_edge_dirty_keys(),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
@@ -3828,6 +3876,7 @@ impl PyMultiDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            edge_dirty_keys: Self::clean_edge_dirty_keys(),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
@@ -4038,6 +4087,7 @@ impl PyMultiDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
+            edge_dirty_keys: self.cloned_edge_dirty_keys(),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
@@ -4123,6 +4173,7 @@ impl PyMultiDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
+            edge_dirty_keys: self.cloned_edge_dirty_keys(),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
@@ -4166,6 +4217,7 @@ impl PyMultiDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            edge_dirty_keys: Self::clean_edge_dirty_keys(),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
@@ -4245,6 +4297,7 @@ impl PyMultiDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            edge_dirty_keys: Self::clean_edge_dirty_keys(),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
@@ -4409,6 +4462,11 @@ impl PyMultiDiGraph {
 
     fn reverse(&self, py: Python<'_>) -> PyResult<Self> {
         let source_edges_dirty = self.edges_dirty.load(Ordering::Relaxed);
+        let dirty_edge_keys = if source_edges_dirty {
+            self.edge_dirty_keys.lock().unwrap().clone()
+        } else {
+            Some(HashSet::new())
+        };
         let mut new_graph = Self {
             inner: self.inner.reversed(),
             node_key_map: HashMap::with_capacity(self.node_key_map.len()),
@@ -4424,6 +4482,7 @@ impl PyMultiDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            edge_dirty_keys: Self::clean_edge_dirty_keys(),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
@@ -4461,14 +4520,19 @@ impl PyMultiDiGraph {
         // When the source mirror was dirtied after creation, also push that
         // authoritative Python dict into the already-transposed inner graph.
         for ((u, v, key), attrs) in &self.edge_py_attrs {
-            let copied_attrs = attrs.bind(py).copy()?.unbind();
-            if source_edges_dirty {
-                let rust_attrs = crate::py_dict_to_attr_map(copied_attrs.bind(py))?;
-                new_graph.inner.replace_edge_attrs(v, u, *key, rust_attrs);
+            let should_sync =
+                source_edges_dirty && Self::should_sync_dirty_edge(&dirty_edge_keys, u, v, *key);
+            let bound_attrs = attrs.bind(py);
+            if should_sync || !Self::py_dict_is_lossless_attr_map(bound_attrs) {
+                let copied_attrs = bound_attrs.copy()?.unbind();
+                if should_sync {
+                    let rust_attrs = crate::py_dict_to_attr_map(copied_attrs.bind(py))?;
+                    new_graph.inner.replace_edge_attrs(v, u, *key, rust_attrs);
+                }
+                new_graph
+                    .edge_py_attrs
+                    .insert((v.clone(), u.clone(), *key), copied_attrs);
             }
-            new_graph
-                .edge_py_attrs
-                .insert((v.clone(), u.clone(), *key), copied_attrs);
         }
 
         Ok(new_graph)
@@ -4573,9 +4637,11 @@ impl PyMultiDiGraph {
         if !self.edges_dirty.load(Ordering::Relaxed) {
             return Ok(());
         }
+        let dirty_keys = self.edge_dirty_keys.lock().unwrap().clone();
         let edges: Vec<(String, String, usize, AttrMap)> = self
             .edge_py_attrs
             .iter()
+            .filter(|((u, v, key), _)| Self::should_sync_dirty_edge(&dirty_keys, u, v, *key))
             .map(|((u, v, key), dict)| {
                 Ok((
                     u.clone(),
@@ -4604,9 +4670,11 @@ impl PyMultiDiGraph {
         if !self.edges_dirty.load(Ordering::Relaxed) {
             return Ok(());
         }
+        let dirty_keys = self.edge_dirty_keys.lock().unwrap().clone();
         let edges: Vec<(String, String, usize, AttrMap)> = self
             .edge_py_attrs
             .iter()
+            .filter(|((u, v, key), _)| Self::should_sync_dirty_edge(&dirty_keys, u, v, *key))
             .map(|((u, v, key), dict)| {
                 Ok((
                     u.clone(),

@@ -128,3 +128,18 @@ def test_multidigraph_reverse_copy_preserves_keys_attrs_and_row_order():
     }
     fr["b"]["a"]["k1"]["weight"] = 101
     assert fg["a"]["b"]["k1"]["weight"] == 11
+
+
+def test_multidigraph_reverse_copy_preserves_non_lossless_python_attrs():
+    fg = fnx.MultiDiGraph()
+    payload = []
+    tuple_key = ("tuple-key", 1)
+    fg.add_edge("a", "b", key="k", payload=payload)
+    fg["a"]["b"]["k"][tuple_key] = "kept"
+
+    fr = fg.reverse(copy=True)
+
+    assert fr["b"]["a"]["k"]["payload"] is payload
+    assert fr["b"]["a"]["k"][tuple_key] == "kept"
+    fr["b"]["a"]["k"]["new"] = 1
+    assert "new" not in fg["a"]["b"]["k"]

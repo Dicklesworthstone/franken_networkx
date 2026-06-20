@@ -10,6 +10,56 @@ community link-prediction verification (`br-r37-c1-04z53.9141`) and
 undirected `non_edges` default-ebunch verification (`br-r37-c1-04z53.9143`)
 plus CCPA link-prediction verification (`br-r37-c1-04z53.9140`).
 
+## 2026-06-20 MultiDiGraph Reverse Copy BOLD-VERIFY Slice
+
+Environment:
+- Agent: `CrimsonRiver` / `cod-a`.
+- Target dirs:
+  `/data/projects/.rch-targets/franken_networkx-cod-a-local-check` for local
+  release install and
+  `/data/projects/.rch-targets/franken_networkx-cod-a-reverify-f20a` for RCH
+  release build verification.
+- Harness: direct `MultiDiGraph.reverse(copy=True)` loop, 300 nodes, 2936 keyed
+  edges, weighted/tagged attrs, dirty variant mutating every 31st edge.
+- Runtime: Python `3.13.7`, NetworkX `3.6.1`, `PYTHONHASHSEED=0`, core pinned
+  with `taskset -c 4`, 31 timed runs after 8 warmups.
+
+Final measured medians:
+
+| Bead | Workload | FNX median | NetworkX median | Ratio vs NetworkX | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `br-r37-c1-nooou` | clean keyed attrs | 7.348492 ms | 9.740804 ms | 1.326x | Keep |
+| `br-r37-c1-nooou` | dirty post attrs | 7.264913 ms | 9.253100 ms | 1.274x | Keep |
+
+Post-rebase smoke after clean-tree release install:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Digest |
+| --- | ---: | ---: | ---: | --- |
+| clean keyed attrs | 4.980806 ms | 8.641853 ms | 1.735x | `5987af29b718da04` |
+| dirty post attrs | 5.853450 ms | 9.164683 ms | 1.566x | `1d35fe579cedf7b5` |
+
+Rejected subattempt:
+- Sparse keyed-edge dirty tracking without lazy edge-attr mirror materialization
+  still lost on dirty attrs: `13.222951 ms` vs NetworkX `10.718466 ms`
+  (`0.811x`). The final kept lever adds lazy mirror materialization for
+  lossless scalar/string-keyed attr dicts while still copying dirty or
+  non-lossless Python mirrors.
+
+Score:
+- Win/loss/neutral accounting: `2` wins, `0` losses, `0` neutral for the final
+  clean and dirty reverse-copy workloads.
+- Performance evidence: dirty reverse-copy mirror loss moved from `0.849x` to
+  `1.274x`; clean keyed attrs improved from `1.177x` to `1.326x`.
+- Focused conformance: reverse/adjacency/dirty-attr parity `53 passed`; clean
+  hash64 `7657081794215802141`, dirty hash64 `7376594841975813130`.
+- Gates: `cargo fmt --check`; `cargo check -p fnx-python --benches`;
+  `cargo clippy -p fnx-python --all-targets -- -D warnings`;
+  `rch exec -- cargo build --release -p fnx-python`; `ubs` on touched files.
+
+Release readiness verdict for this slice: **keep**. Do not repeat the
+sparse-only dirty-key attempt as a standalone lever; it was measured and
+rejected.
+
 ## 2026-06-20 Multigraph Matrix Exporter BOLD-VERIFY Slice
 
 Environment:

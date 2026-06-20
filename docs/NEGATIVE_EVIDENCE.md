@@ -83,3 +83,85 @@ Next route:
 - Add an integer-index/default-order multigraph COO path only after the fused
   edge-pass route is measured; current evidence suggests stringification is
   secondary.
+
+## 2026-06-20 MultiDiGraph Reverse Copy Dirty-Attr Mirror
+
+Scope: `br-r37-c1-nooou`, `MultiDiGraph.reverse(copy=True)` on a directed
+multigraph with 300 nodes, 2936 keyed edges, explicit weights/tags, and a
+dirty variant mutating every 31st edge after construction.
+
+Environment:
+- Agent: `CrimsonRiver` / `cod-a`.
+- Rust target dirs: `/data/projects/.rch-targets/franken_networkx-cod-a-local-check`
+  for local release install and
+  `/data/projects/.rch-targets/franken_networkx-cod-a-reverify-f20a` for RCH
+  release build verification.
+- Python `3.13.7`, NetworkX `3.6.1`, `PYTHONHASHSEED=0`, core pinned with
+  `taskset -c 4`, 31 timed runs after 8 warmups.
+- Release install: `maturin develop --release --features pyo3/abi3-py310`.
+- RCH gate: `rch exec -- cargo build --release -p fnx-python`.
+
+Baseline/current-main measurement after the earlier native transpose substrate
+showed that the old `0.43x` bead note was stale for the Rust reverse substrate,
+but a real dirty Python attr-mirror loss remained:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| clean keyed attrs | 10.200708 ms | 12.005438 ms | 1.177x | win |
+| dirty post attrs | 12.148397 ms | 10.310096 ms | 0.849x | loss |
+
+Rejected subattempt:
+- Sparse dirty-edge tracking alone reduced the sync surface but still copied
+  every Python edge-attr mirror during reverse construction. It was not enough
+  to dominate NetworkX.
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| clean keyed attrs | 12.005304 ms | 12.486636 ms | 1.040x | weak/noisy win |
+| dirty post attrs | 13.222951 ms | 10.718466 ms | 0.811x | reject |
+
+Kept lever:
+- Keep sparse keyed-edge dirty tracking plus lazy reverse-copy edge mirror
+  materialization. Lossless edge attr dicts with exact string keys and simple
+  scalar values stay in Rust storage until Python asks for the dict; non-lossless
+  mirrors and explicitly dirty mirrors are still copied to preserve NetworkX
+  object semantics.
+
+| Workload | FNX min | FNX median | FNX p95 | NetworkX min | NetworkX median | NetworkX p95 | Ratio vs NetworkX |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| clean keyed attrs | 5.862346 ms | 7.348492 ms | 8.686637 ms | 9.146017 ms | 9.740804 ms | 10.464004 ms | 1.326x median / 1.560x min |
+| dirty post attrs | 6.318381 ms | 7.264913 ms | 8.310785 ms | 8.952791 ms | 9.253100 ms | 9.817109 ms | 1.274x median / 1.417x min |
+
+Post-rebase clean-tree smoke after installing from
+`/data/projects/franken_networkx-cod-a-land`:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Digest |
+| --- | ---: | ---: | ---: | --- |
+| clean keyed attrs | 4.980806 ms | 8.641853 ms | 1.735x | `5987af29b718da04` |
+| dirty post attrs | 5.853450 ms | 9.164683 ms | 1.566x | `1d35fe579cedf7b5` |
+
+Parity:
+- Clean digest/order hash64: `7657081794215802141`.
+- Dirty digest/order hash64: `7376594841975813130`.
+- Added non-lossless Python edge-attr parity coverage for tuple attr keys and
+  mutable payload object identity.
+
+Gates:
+- `cargo fmt --check`
+- `cargo check -p fnx-python --benches`
+- `cargo clippy -p fnx-python --all-targets -- -D warnings`
+- `rch exec -- cargo build --release -p fnx-python`
+- focused Python reverse/attr parity: `53 passed`
+
+Decision:
+- Keep. This converts the remaining dirty reverse-copy mirror row from `0.849x`
+  to `1.274x` vs NetworkX while preserving the clean row as a stronger `1.326x`
+  win.
+- Scorecard accounting for this slice: `2` wins / `0` losses / `0` neutral for
+  the final measured clean and dirty workloads.
+
+Do not repeat:
+- Do not claim sparse dirty-key tracking by itself as a keep; it stayed slower
+  than NetworkX on the dirty workload.
+- Do not rebuild keyed reverse copies through Python per-edge insertion or
+  eagerly materialize all Python edge-attr dict mirrors.

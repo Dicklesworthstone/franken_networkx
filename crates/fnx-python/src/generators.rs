@@ -116,6 +116,7 @@ fn report_to_pymultidigraph(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        edge_dirty_keys: PyMultiDiGraph::clean_edge_dirty_keys(),
         node_keys_cache: std::sync::Mutex::new(None),
         node_data_mirror: std::sync::Mutex::new(None),
         dict_of_dicts_cache: None,
