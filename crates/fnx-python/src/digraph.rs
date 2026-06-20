@@ -6056,6 +6056,143 @@ impl PyDiGraph {
         Ok(true)
     }
 
+    /// br-r37-c1-dodattrbatch: every node display key is a plain int matching its
+    /// canonical label, and no per-row display overrides — the precondition for
+    /// resolving int edge endpoints by label.
+    fn di_int_prefix_display_keys_are_plain_ints(&self, py: Python<'_>) -> bool {
+        if !self.succ_py_keys.is_empty() || !self.pred_py_keys.is_empty() {
+            return false;
+        }
+        for (canonical, obj) in &self.node_key_map {
+            let bound = obj.bind(py);
+            if !bound.is_exact_instance_of::<PyInt>() {
+                return false;
+            }
+            let Ok(value) = bound.extract::<i64>() else {
+                return false;
+            };
+            if value.to_string() != canonical.as_str() {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// br-r37-c1-dodattrbatch: collect `(u, v, dict)` triples as
+    /// `(source_idx, target_idx, AttrMap)` against EXISTING int-labeled nodes via
+    /// a one-time int-label -> index map (one int hash per endpoint vs String
+    /// hashing). Bails on any non-int node, a new (not-present) endpoint, or a
+    /// non-3-tuple — those route to the slow path that owns node creation.
+    fn collect_existing_int_label_attr_edge_indices<'py, I>(
+        &self,
+        items: I,
+        len: usize,
+    ) -> PyResult<Option<Vec<(usize, usize, AttrMap)>>>
+    where
+        I: IntoIterator<Item = Bound<'py, PyAny>>,
+    {
+        let nodes = self.inner.nodes_ordered();
+        let mut label_to_index: HashMap<i64, usize> = HashMap::with_capacity(nodes.len());
+        for (idx, name) in nodes.iter().enumerate() {
+            let Ok(label) = name.parse::<i64>() else {
+                return Ok(None);
+            };
+            label_to_index.insert(label, idx);
+        }
+        let mut edges = Vec::with_capacity(len);
+        for item in items {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(None);
+            };
+            if tuple.len() != 3 {
+                return Ok(None);
+            }
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            if !u.is_exact_instance_of::<PyInt>()
+                || !v.is_exact_instance_of::<PyInt>()
+                || u.is_exact_instance_of::<PyBool>()
+                || v.is_exact_instance_of::<PyBool>()
+            {
+                return Ok(None);
+            }
+            let Ok(u_value) = u.extract::<i64>() else {
+                return Ok(None);
+            };
+            let Ok(v_value) = v.extract::<i64>() else {
+                return Ok(None);
+            };
+            let Some(&u_index) = label_to_index.get(&u_value) else {
+                return Ok(None);
+            };
+            let Some(&v_index) = label_to_index.get(&v_value) else {
+                return Ok(None);
+            };
+            let third = tuple.get_item(2)?;
+            let Ok(dict) = third.downcast::<PyDict>() else {
+                return Ok(None);
+            };
+            let Ok(attrs) = crate::py_dict_to_attr_map(dict) else {
+                return Ok(None);
+            };
+            if attrs
+                .keys()
+                .any(|key| key.starts_with("__fnx_incompatible"))
+            {
+                return Ok(None);
+            }
+            edges.push((u_index, v_index, attrs));
+        }
+        Ok(Some(edges))
+    }
+
+    /// br-r37-c1-dodattrbatch: fast bulk add of ATTRIBUTED int edges onto a
+    /// DiGraph whose int-labeled nodes already exist with no edges yet (e.g.
+    /// relabel_nodes / convert_node_labels_to_integers / from_dict_of_dicts).
+    /// Attrs stay LAZY in the inner AttrMap.
+    fn try_add_existing_int_label_attr_edge_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+        final_edge_bump: bool,
+    ) -> PyResult<bool> {
+        const INT_LABEL_ATTR_BATCH_MIN: usize = 8;
+        if self.inner.edge_count() != 0
+            || !self.edge_py_attrs.is_empty()
+            || !self.succ_row_py.is_empty()
+            || !self.pred_row_py.is_empty()
+            || !self.di_int_prefix_display_keys_are_plain_ints(py)
+        {
+            return Ok(false);
+        }
+        let edges = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+            if list.len() < INT_LABEL_ATTR_BATCH_MIN {
+                return Ok(false);
+            }
+            self.collect_existing_int_label_attr_edge_indices(list.iter(), list.len())?
+        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+            if tuple.len() < INT_LABEL_ATTR_BATCH_MIN {
+                return Ok(false);
+            }
+            self.collect_existing_int_label_attr_edge_indices(tuple.iter(), tuple.len())?
+        } else {
+            return Ok(false);
+        };
+        let Some(edges) = edges else {
+            return Ok(false);
+        };
+        let edge_bumps = u64::try_from(edges.len())
+            .unwrap_or(u64::MAX)
+            .wrapping_add(1);
+        let _ = self
+            .inner
+            .extend_existing_index_edges_with_attrs_unrecorded(edges);
+        if final_edge_bump {
+            self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
+        }
+        Ok(true)
+    }
+
     fn add_attr_edge_batch(
         &mut self,
         py: Python<'_>,
@@ -6121,6 +6258,13 @@ impl PyDiGraph {
             return Ok(false);
         }
         if self.try_add_fresh_exact_int_attr_edge_batch(py, ebunch_to_add, final_edge_bump)? {
+            return Ok(true);
+        }
+        // br-r37-c1-dodattrbatch: attributed edges onto a DiGraph whose int nodes
+        // were pre-added (relabel / convert_node_labels / from_dict_of_dicts) —
+        // the fresh path bails (node_count != 0), so resolve endpoints by int
+        // label instead of the ~4x-slower String-keyed general batch.
+        if self.try_add_existing_int_label_attr_edge_batch(py, ebunch_to_add, final_edge_bump)? {
             return Ok(true);
         }
         if let Ok(list) = ebunch_to_add.downcast::<PyList>() {

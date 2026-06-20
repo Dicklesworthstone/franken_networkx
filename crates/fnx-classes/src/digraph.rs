@@ -1139,6 +1139,47 @@ impl DiGraph {
     /// target_idx)`. Duplicate directed edges merge attributes without appending
     /// another successor/predecessor entry, matching `DiGraph.add_edges_from`.
     #[must_use]
+    /// br-r37-c1-dodattrbatch: bulk-add ATTRIBUTED directed edges by EXISTING
+    /// node index. All endpoints MUST already exist (callers gate on int-labeled
+    /// nodes). A new edge takes the AttrMap; a duplicate (source, target) MERGES
+    /// last-wins like add_edge_with_attrs. Sibling of the fresh-index attr extend
+    /// minus node creation; integer index rows only (no String hashing).
+    pub fn extend_existing_index_edges_with_attrs_unrecorded<I>(&mut self, edges: I) -> usize
+    where
+        I: IntoIterator<Item = (usize, usize, AttrMap)>,
+    {
+        let node_count = self.nodes.len();
+        let edges = edges.into_iter();
+        self.edges.reserve(edges.size_hint().0);
+        let mut inserted = 0usize;
+        let mut merged_changed = false;
+        for (source_idx, target_idx, attrs) in edges {
+            debug_assert!(source_idx < node_count && target_idx < node_count);
+            let edge_key = (source_idx, target_idx);
+            if let Some(existing) = self.edges.get_mut(&edge_key) {
+                if !attrs.is_empty()
+                    && attrs
+                        .iter()
+                        .any(|(key, value)| existing.get(key) != Some(value))
+                {
+                    merged_changed = true;
+                }
+                existing.extend(attrs);
+                continue;
+            }
+            self.edges.insert(edge_key, attrs);
+            self.succ_indices[source_idx].push(target_idx);
+            self.pred_indices[target_idx].push(source_idx);
+            inserted += 1;
+        }
+        if inserted > 0 || merged_changed {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+        }
+        inserted
+    }
+
     pub fn extend_fresh_index_edges_with_attrs_unrecorded<I, N>(
         &mut self,
         nodes: N,
