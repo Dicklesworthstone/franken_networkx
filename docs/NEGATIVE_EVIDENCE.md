@@ -2,6 +2,72 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-20 MultiDiGraph CSR Row-Streaming Boundary Reject (`br-r37-c1-04z53`, cod-a)
+
+Scope: test the next large sparse multigraph residual route after the prior
+dirty-key and default-order exporter probes. The candidate added a storage-level
+`MultiDiGraph` row-streaming helper so the default-order CSR exporter could
+avoid materializing `edges_ordered_borrowed()` and avoid rebuilding a node-index
+hash map before summing parallel `(u, v)` buckets.
+
+Environment:
+- Agent Mail identity: `CrimsonRiver`; CLI actor: `cod-a`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-a-boldverify-20260620T2000`.
+- Requested target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- The requested target hit incompatible-rustc E0514 (`cc`, `target_lexicon`,
+  and `serde` compiled by rustc `beae78130` while this checkout uses
+  `f20a92ec0`). No cleanup or deletion was performed. Candidate/control release
+  installs used fresh target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-a-f20a92ec0-boldverify-20260620T2001`.
+- Oracle: vendored NetworkX `3.7rc0.dev0`, Python `3.13.7`,
+  `PYTHONHASHSEED=0`, `OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`.
+
+Control source on deterministic default-order fixtures:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| n=500 `to_numpy MultiGraph` | `1.816 ms` | `2.398 ms` | `1.321x` | win |
+| n=500 `to_scipy MultiGraph` | `1.868 ms` | `2.186 ms` | `1.170x` | win |
+| n=2000 `to_numpy MultiGraph` | `21.265 ms` | `19.065 ms` | `0.897x` | loss |
+| n=2000 `to_scipy MultiGraph` | `18.061 ms` | `15.779 ms` | `0.874x` | loss |
+| n=500 `to_numpy MultiDiGraph` | `5.169 ms` | `5.372 ms` | `1.039x` | win |
+| n=500 `to_scipy MultiDiGraph` | `4.687 ms` | `3.838 ms` | `0.819x` | loss |
+| n=2000 `to_numpy MultiDiGraph` | `29.262 ms` | `34.027 ms` | `1.163x` | win |
+| n=2000 `to_scipy MultiDiGraph` | `26.248 ms` | `21.473 ms` | `0.818x` | loss |
+
+Candidate timing after release rebuild:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Candidate vs control | Verdict |
+| --- | ---: | ---: | ---: | ---: | --- |
+| n=500 `to_scipy MultiDiGraph` | `4.408 ms` | `3.927 ms` | `0.891x` | `1.063x` faster | still loss |
+| n=2000 `to_scipy MultiDiGraph` | `21.973 ms` | `17.132 ms` | `0.780x` | `1.195x` faster | still loss |
+| n=500 native CSR helper | `4.163 ms` | n/a | n/a | `1.038x` faster | routing only |
+| n=2000 native CSR helper | `21.330 ms` | n/a | n/a | `1.102x` faster | routing only |
+
+Decision:
+- Reject/no-ship. The storage streaming scan produced small-to-moderate FNX
+  self-speedups, but it did not beat NetworkX on either public sparse exporter
+  row; the n=2000 public ratio was still a clear `0.780x` loss.
+- Source hunk manually reverted; `git diff` on
+  `crates/fnx-classes/src/digraph.rs` and `crates/fnx-python/src/readwrite.rs`
+  is empty.
+- Candidate `rch exec -- cargo check -p fnx-python --features
+  pyo3/abi3-py310` passed before rejection.
+- Reverted-source release install passed from the fresh target. The focused
+  artifact harness remained parity-green: `160` configs x `2` exporters,
+  `0` fails, golden
+  `bff9639b02900c23d43c585672cddf6a3e39676fa40c631efccec93bfeb44307`.
+
+Do not repeat:
+- Do not add a storage-level row-streaming CSR scan as a standalone lever for
+  default-order `MultiDiGraph.to_scipy_sparse_array`; it trims native helper time
+  but leaves the public row slower than NetworkX.
+- Next route needs a real sparse boundary/layout change: direct NumPy/SciPy
+  buffer handoff, cached CSR arrays with mutation guards, or an algorithmic
+  bypass of SciPy construction cost for callers that immediately consume CSR.
+
 ## 2026-06-20 MultiDiGraph Precise Dirty-Key Sparse Reject (`br-r37-c1-04z53`, cod-b)
 
 Scope: test a narrower dirty/live sparse-export lever than the prior

@@ -16,7 +16,46 @@ MultiGraph biconnected-family verification plus keyed MST follow-up
 (`br-r37-c1-1jm15`) plus max-weight matching raw-native tie-break
 verification (`br-r37-c1-lmqwv`) plus dirty `MultiDiGraph` sparse exporter
 boundary verification (`br-r37-c1-kqh2u`) plus cod-b precise dirty-key
-dirty sparse-export verification (`br-r37-c1-04z53`).
+dirty sparse-export verification (`br-r37-c1-04z53`) plus cod-a default-order
+`MultiDiGraph` CSR row-streaming verification (`br-r37-c1-04z53`).
+
+## 2026-06-20 Cod-A MultiDiGraph CSR Row-Streaming Reject
+
+Environment:
+- Agent Mail identity: `CrimsonRiver`; CLI actor: `cod-a`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-a-boldverify-20260620T2000`.
+- Requested target dir
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a` hit
+  incompatible-rustc E0514 (`cc`, `target_lexicon`, `serde`). No cleanup or
+  deletion was performed. Candidate/control installs used fresh target
+  `/data/projects/.rch-targets/franken_networkx-cod-a-f20a92ec0-boldverify-20260620T2001`.
+- Oracle: vendored NetworkX `3.7rc0.dev0`, Python `3.13.7`,
+  `PYTHONHASHSEED=0`, `OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`.
+
+Measured result:
+- Control n=500 `to_scipy MultiDiGraph`: FNX `4.687 ms`, NetworkX
+  `3.838 ms`, ratio `0.819x`.
+- Candidate n=500 `to_scipy MultiDiGraph`: FNX `4.408 ms`, NetworkX
+  `3.927 ms`, ratio `0.891x`, self-speedup `1.063x`, still a loss.
+- Control n=2000 `to_scipy MultiDiGraph`: FNX `26.248 ms`, NetworkX
+  `21.473 ms`, ratio `0.818x`.
+- Candidate n=2000 `to_scipy MultiDiGraph`: FNX `21.973 ms`, NetworkX
+  `17.132 ms`, ratio `0.780x`, self-speedup `1.195x`, still a loss.
+
+Outcome:
+- Performance evidence: fail as a keep. Score `0` wins / `2` losses /
+  `0` neutral against NetworkX. The storage-level row-streaming helper improved
+  FNX self-time but did not close the public sparse-export gap.
+- Negative evidence: source hunk manually reverted; do not retry row-streaming
+  CSR alone. Next route must change the sparse boundary/layout: direct
+  NumPy/SciPy buffer handoff, mutation-guarded cached CSR arrays, or a
+  caller-specific algorithmic bypass.
+- Verification: candidate `rch exec -- cargo check -p fnx-python --features
+  pyo3/abi3-py310` passed; reverted-source release install passed from the
+  fresh target; focused artifact parity remained `160` configs x `2` exporters,
+  `0` fails, golden
+  `bff9639b02900c23d43c585672cddf6a3e39676fa40c631efccec93bfeb44307`.
 
 ## 2026-06-20 Cod-B MultiDiGraph Precise Dirty-Key Sparse Reject
 
