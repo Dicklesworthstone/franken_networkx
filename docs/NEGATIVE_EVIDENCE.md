@@ -2,6 +2,91 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-20 MultiDiGraph Dirty Sparse Boundary Borrowed-Index Reject (`br-r37-c1-kqh2u`)
+
+Scope: re-baseline the large sparse multigraph exporter residual and test one
+dirty/live edge-attribute boundary lever. The clean default-order integer-index
+fixture is already a win; the active loss reproduced only on the dirty
+`MultiDiGraph` path with public edge-attribute mutations.
+
+Environment:
+- Agent Mail identity: `CrimsonRiver`; CLI actor: `AGENT_NAME=cod-a`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-a-boldverify-20260620T184133Z`.
+- Requested target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- The exact requested target hit incompatible-rustc E0514 from older artifacts.
+  No cleanup, deletion, or reset was performed. Release and benchmark proof used
+  fresh non-destructive target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-a-f20a92ec0-kqh2u`.
+- Oracle: NetworkX `3.6.1`, Python `3.13.7`, `PYTHONHASHSEED=0`,
+  `taskset` core `4`.
+- Alien route applied: cache/layout/Swiss-table guidance translated to a
+  borrowed live-weight index attempt intended to avoid per-edge owned
+  `(u, v, key)` tuple construction and hash lookup on the dirty exporter path.
+
+Clean fixture sanity, not the target loss:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `to_scipy_sparse_array`, clean default-order n=2000 | `1.390486 ms` | `3.557171 ms` | `2.558x` | win |
+| `adjacency_matrix`, clean default-order n=2000 | `1.518057 ms` | `3.632664 ms` | `2.393x` | win |
+
+Dirty/live baseline on the active residual fixture:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `to_scipy_sparse_array`, dirty 12k-edge MDG | `11.083094 ms` | `7.516955 ms` | `0.678x` | loss |
+| `adjacency_matrix`, dirty 12k-edge MDG | `11.440620 ms` | `6.928440 ms` | `0.606x` | loss |
+
+Rejected lever:
+- Pre-index `edge_py_attrs` live weights by borrowed `(&str, &str, usize)`
+  once inside the Rust helper, then stream CSR without per-edge string clones or
+  owned lookup-tuple construction.
+
+Candidate timing after release rebuild:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `to_scipy_sparse_array`, dirty 12k-edge MDG | `14.510345 ms` | `6.259952 ms` | `0.431x` | regression |
+| `adjacency_matrix`, dirty 12k-edge MDG | `9.431321 ms` | `5.827642 ms` | `0.618x` | still loss |
+
+Decision:
+- Reject/no-ship. The source hunk was reverted because the target
+  `to_scipy_sparse_array` row regressed from `0.678x` to `0.431x`, and the
+  `adjacency_matrix` row remained a loss.
+- Score on the target dirty slice: `0` wins / `2` losses / `0` neutral.
+- Parity digest matched in the candidate probe.
+- `rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310` passed on
+  the candidate; `cargo fmt --check` passed after revert. Final source has no
+  code diff.
+- Post-revert release reinstall from the fresh target confirmed the installed
+  extension was back on the final source and still losing on the same dirty
+  fixture shape with digest parity:
+  `to_scipy_sparse_array` FNX `12.386839 ms` vs NetworkX `7.455365 ms`
+  (`0.602x`), `adjacency_matrix` FNX `18.037455 ms` vs NetworkX `7.471376 ms`
+  (`0.414x`), digest
+  `c29d2099856ac22e34cb12781f7d70f407c40512ca621cfe74e071c843115c44`.
+- Final gates on the reverted source: `cargo fmt --check`, `git diff --check`,
+  `python -m py_compile python/franken_networkx/__init__.py`,
+  focused sparse exporter parity `297 passed`,
+  `rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`,
+  `rch exec -- cargo build -p fnx-python --release --features pyo3/abi3-py310`,
+  and
+  `rch exec -- cargo bench -p fnx-python --features pyo3/abi3-py310 --no-run`
+  all passed.
+
+Do not repeat:
+- Do not front-load all live weight dictionary lookups into a borrowed index for
+  dirty `MultiDiGraph` sparse export as a standalone lever.
+- Do not claim the clean default-order sparse wins as closure for dirty/live
+  boundary losses.
+
+Next route:
+- Sync only dirty weight keys into inner attrs and clear the dirty state before
+  CSR export, or bypass Python tuple/list construction with a true native sparse
+  array boundary for dirty `MultiDiGraph` rows.
+
 ## 2026-06-20 Node Expansion Raw-Kernel Public Route + Node-Degree XY Rebaseline (`br-r37-c1-04z53`)
 
 Scope: target the active simple-undirected `node_expansion(G, S)` loss on the

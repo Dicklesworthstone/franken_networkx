@@ -14,7 +14,65 @@ MultiDiGraph DAG conversion-tax closeout (`br-r37-c1-11m92`) and
 MultiGraph biconnected-family verification plus keyed MST follow-up
 (`br-r37-c1-ij951`) and MultiGraph BFS residual closeout
 (`br-r37-c1-1jm15`) plus max-weight matching raw-native tie-break
-verification (`br-r37-c1-lmqwv`).
+verification (`br-r37-c1-lmqwv`) plus dirty `MultiDiGraph` sparse exporter
+boundary verification (`br-r37-c1-kqh2u`).
+
+## 2026-06-20 MultiDiGraph Dirty Sparse Boundary No-Ship
+
+Environment:
+- Agent Mail identity: `CrimsonRiver`; CLI actor: `AGENT_NAME=cod-a`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-a-boldverify-20260620T184133Z`.
+- Requested RCH target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- Exact requested release install hit incompatible-rustc E0514 in the shared
+  target dir; no cleanup or file deletion was performed.
+- Release extension and proof runs used fresh non-destructive target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-a-f20a92ec0-kqh2u`.
+- Oracle: NetworkX `3.6.1`, Python `3.13.7`, same-process release timing,
+  `PYTHONHASHSEED=0`, `taskset` core `4`.
+
+Measured decision:
+
+| Bead | Workload | FNX route | NetworkX | Ratio vs NetworkX | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `br-r37-c1-kqh2u` | clean `to_scipy_sparse_array`, default-order n=2000 | 1.390486 ms | 3.557171 ms | 2.558x | Sanity win; not active loss |
+| `br-r37-c1-kqh2u` | clean `adjacency_matrix`, default-order n=2000 | 1.518057 ms | 3.632664 ms | 2.393x | Sanity win; not active loss |
+| `br-r37-c1-kqh2u` | dirty/live `to_scipy_sparse_array`, 12k-edge MDG baseline | 11.083094 ms | 7.516955 ms | 0.678x | Active loss reproduced |
+| `br-r37-c1-kqh2u` | dirty/live `adjacency_matrix`, 12k-edge MDG baseline | 11.440620 ms | 6.928440 ms | 0.606x | Active loss reproduced |
+| `br-r37-c1-kqh2u` | dirty/live `to_scipy_sparse_array`, borrowed live-weight index candidate | 14.510345 ms | 6.259952 ms | 0.431x | Reject; regression |
+| `br-r37-c1-kqh2u` | dirty/live `adjacency_matrix`, borrowed live-weight index candidate | 9.431321 ms | 5.827642 ms | 0.618x | Reject; still loss |
+| `br-r37-c1-kqh2u` | dirty/live `to_scipy_sparse_array`, post-revert release reinstall | 12.386839 ms | 7.455365 ms | 0.602x | Final source still loses |
+| `br-r37-c1-kqh2u` | dirty/live `adjacency_matrix`, post-revert release reinstall | 18.037455 ms | 7.471376 ms | 0.414x | Final source still loses |
+
+Score:
+- Dirty-boundary candidate accounting: `0` wins, `2` losses, `0` neutral.
+- Performance evidence: the clean default-order integer-index sparse exporter
+  surface already wins, but dirty/live edge-attribute mirrors still dominate the
+  largest `MultiDiGraph` sparse exporter residual.
+- Reverted lever: borrowed live-weight pre-indexing avoided owned lookup tuples
+  but moved too much live dictionary work up front and regressed the primary
+  `to_scipy_sparse_array` target row.
+- Conformance evidence: candidate parity digest matched; the candidate passed
+  `rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`; final
+  source was restored and `cargo fmt --check` passed after revert. Post-revert
+  release reinstall matched sparse digest
+  `c29d2099856ac22e34cb12781f7d70f407c40512ca621cfe74e071c843115c44`.
+- Final gates on the reverted source: `git diff --check`,
+  `python -m py_compile python/franken_networkx/__init__.py`, focused sparse
+  exporter parity `297 passed`,
+  `rch exec -- cargo build -p fnx-python --release --features pyo3/abi3-py310`,
+  and
+  `rch exec -- cargo bench -p fnx-python --features pyo3/abi3-py310 --no-run`.
+- Ledger hygiene: the clean sanity win, dirty baseline losses, rejected
+  candidate losses, E0514 target-dir caveat, and next route are recorded in
+  `docs/NEGATIVE_EVIDENCE.md` and
+  `docs/progress/perf-negative-results.md`.
+
+Release readiness verdict for this slice: **reject/no-ship**. Keep the residual
+open. The next viable route is weight-only dirty-key sync/clear before CSR or a
+true native sparse-array boundary for dirty `MultiDiGraph` rows; do not retry
+borrowed live-weight pre-indexing as a standalone lever.
 
 ## 2026-06-20 Max-Weight Matching No-Ship Slice
 
