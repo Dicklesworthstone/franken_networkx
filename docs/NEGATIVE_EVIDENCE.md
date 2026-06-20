@@ -2,6 +2,97 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-20 Node Expansion Raw-Kernel Public Route + Node-Degree XY Rebaseline (`br-r37-c1-04z53`)
+
+Scope: target the active simple-undirected `node_expansion(G, S)` loss on the
+BA2500/S1250 and WS2500/S625 cut-metric rows, then recheck the stale
+`node_degree_xy` public-loss rows before spending another lever there.
+
+Environment:
+- Agent Mail identity: `CrimsonRiver`; CLI actor: `AGENT_NAME=cod-b`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-b-20260620T1318`.
+- Requested target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+- Exact requested target dir hit incompatible-rustc E0514 from older artifacts.
+  No cleanup, deletion, or reset was performed. Release and benchmark proof used
+  fresh non-destructive target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-b-f20a92ec0-1318`.
+- Alien route applied: cache-local bitmap/set-union guidance translated to a
+  single PyO3 validate+compute primitive. The public wrapper now dispatches
+  simple undirected `node_expansion` into the existing Rust indexed-neighbor
+  union kernel; the Rust binding validates every node and raises NetworkX's
+  missing-node error before the bitmap pass.
+
+Baseline before this lever:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `node_expansion`, BA2500/S1250, RCH Criterion baseline on `vmi1149989` | `1.7826 ms` | `629.01 us` | `0.353x` | loss |
+| `node_expansion`, WS2500/S625, RCH Criterion baseline on `vmi1149989` | `776.82 us` | `380.16 us` | `0.489x` | loss |
+
+Kept lever:
+- Import `_fnx.node_expansion` as `_raw_node_expansion` and route the public
+  function to it for simple undirected nonempty sized `S`.
+- Move missing-node validation into the Rust binding so the hot path does not
+  pay a Python `all(node in G for node in S)` scan; missing nodes still raise
+  `NetworkXError("The node X is not in the graph.")`.
+
+Final accepted release timing:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `node_expansion`, BA2500/S1250, RCH Criterion on `vmi1152480` | `213.68 us` | `527.47 us` | `2.469x` | win |
+| `node_expansion`, WS2500/S625, RCH Criterion on `vmi1152480` | `94.674 us` | `292.24 us` | `3.087x` | win |
+| Local release sanity, BA2500/S1250 | `196.962 us` | `298.657 us` | `1.516x` | win |
+| Local release sanity, WS2500/S625 | `73.424 us` | `137.229 us` | `1.869x` | win |
+
+Fresh `node_degree_xy` rebaseline:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| public `fnx.node_degree_xy`, h512/s32, RCH Criterion on `vmi1153651` | `116.87 ms` | `336.80 ms` | `2.882x` | stale loss closed |
+| public directed `fnx.node_degree_xy`, l512/f32, RCH Criterion on `vmi1153651` | `158.65 ms` | `336.86 ms` | `2.123x` | stale loss closed |
+| raw `_fnx.node_degree_xy_rust`, h512/s32, RCH Criterion on `vmi1153651` | `29.948 ms` | `362.97 ms` | `12.120x` | valid win |
+| raw directed `_fnx.node_degree_xy_rust`, l512/f32, RCH Criterion on `vmi1153651` | `38.594 ms` | `443.04 ms` | `11.479x` | valid win |
+
+Conformance and gates:
+- Release `maturin develop --release --features pyo3/abi3-py310` passed with
+  the fresh target dir above.
+- Focused graph-metrics expansion tests passed: `55 passed`.
+- Focused graph-metrics expansion + conformance tests passed: `199 passed`.
+- `cargo fmt --check` passed.
+- `rch exec -- cargo check -p fnx-python --all-targets --features pyo3/abi3-py310`
+  passed.
+- `rch exec -- cargo clippy -p fnx-python --all-targets --features pyo3/abi3-py310 -- -D warnings`
+  passed.
+- `rch exec -- cargo test -p fnx-python --features pyo3/abi3-py310` reported
+  `27 passed`.
+- `ubs --only=rust crates/fnx-python/src/algorithms.rs` completed with exit
+  `0` (`0` critical issues; existing broad warning inventory remained).
+- `ubs --only=python tests/python/test_graph_metrics_expansion.py` completed
+  with exit `0` (`0` critical, `0` warning issues).
+- `ubs --only=python python/franken_networkx/__init__.py tests/python/test_graph_metrics_expansion.py`
+  timed out after `300s` in the large public module; Python syntax was still
+  checked with `py_compile`, and focused pytest/bench parity gates are green.
+- The head-to-head Criterion benches assert `node_expansion` and
+  `node_degree_xy` result parity before timing.
+
+Decision:
+- Keep the `node_expansion` public raw-kernel route. The active rows flip from
+  measured losses (`0.353x`, `0.489x`) to measured wins (`2.469x`, `3.087x`).
+- Treat the old `node_degree_xy` public-loss rows as stale. The current public
+  path wins on the same RCH head-to-head harness, and the raw path is now
+  parity-checked by the bench before timing.
+- Focused score for this pass: `4` public wins / `0` active losses / `0`
+  neutral; raw side evidence adds `2` valid wins.
+
+Do not repeat:
+- Do not reintroduce a Python membership pre-scan before `node_expansion`; it
+  measured as the dominant remaining overhead and kept BA below NetworkX.
+- Do not spend another `node_degree_xy` lever until a fresh head-to-head row
+  shows a current loss. The prior public-loss scorecard rows are stale.
+
 ## 2026-06-20 MultiGraph BFS Direct Borrowed Row Route (`br-r37-c1-1jm15`)
 
 Scope: close the remaining dense-parallel `MultiGraph`

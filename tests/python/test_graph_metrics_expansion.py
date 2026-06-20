@@ -188,6 +188,17 @@ class TestNodeExpansion:
         # S={0}: node boundary = {1,2,3} => 3/1 = 3.0
         assert fnx.node_expansion(k4, [0]) == pytest.approx(3.0)
 
+    @needs_nx
+    def test_node_expansion_duplicate_s_matches_networkx(self, path5):
+        nx_path = nx.path_graph(5)
+        assert fnx.node_expansion(path5, [0, 0, 1]) == pytest.approx(
+            nx.node_expansion(nx_path, [0, 0, 1])
+        )
+
+    def test_node_expansion_missing_node_raises_like_networkx(self, path5):
+        with pytest.raises(fnx.NetworkXError, match="The node 99 is not in the graph."):
+            fnx.node_expansion(path5, [99])
+
     def test_node_expansion_empty_raises_like_networkx(self, path5):
         """Upstream divides by len(S) without a guard on empty S."""
         with pytest.raises(ZeroDivisionError):

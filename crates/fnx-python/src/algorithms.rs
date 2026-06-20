@@ -19151,10 +19151,15 @@ fn node_expansion(
         .map(|n| node_key_to_string(py, n))
         .collect::<PyResult<_>>()?;
     let refs: Vec<&str> = node_strs.iter().map(|s| s.as_str()).collect();
-    Ok({
-        let __gr_undirected = gr.undirected();
-        py.allow_threads(|| fnx_algorithms::node_expansion(__gr_undirected, &refs))
-    })
+    let __gr_undirected = gr.undirected();
+    for node in &refs {
+        if !__gr_undirected.has_node(node) {
+            return Err(NetworkXError::new_err(format!(
+                "The node {node} is not in the graph."
+            )));
+        }
+    }
+    Ok(py.allow_threads(|| fnx_algorithms::node_expansion(__gr_undirected, &refs)))
 }
 
 /// Return the mixing expansion of a set of nodes.

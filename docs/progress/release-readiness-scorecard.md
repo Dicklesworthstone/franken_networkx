@@ -503,6 +503,52 @@ MultiDiGraph connectivity/reachability**. The sampled surface has no remaining
 losses; only `weakly_connected_components` is neutral rather than a decisive
 win.
 
+## 2026-06-20 BOLD-VERIFY Node Expansion + Node-Degree XY Closeout
+
+Environment:
+- Agent: `CrimsonRiver` / `cod-b`.
+- Worktree: `/data/projects/.scratch/franken_networkx-cod-b-20260620T1318`.
+- Requested target dir: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+- RCH note: the exact requested target dir hit incompatible-rustc E0514 from
+  older artifacts. No cleanup, deletion, or reset was performed. Release and
+  benchmark proof used fresh target
+  `/data/projects/.rch-targets/franken_networkx-cod-b-f20a92ec0-1318`.
+- Release extension rebuilt with
+  `rch exec -- maturin develop --release --features pyo3/abi3-py310`.
+
+| Bead | Workload | FNX median | NetworkX median | FNX speedup | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `br-r37-c1-04z53` | `node_expansion`, BA2500/S1250 baseline, RCH Criterion on `vmi1149989` | 1.7826 ms | 629.01 us | 0.353x | Loss confirmed |
+| `br-r37-c1-04z53` | `node_expansion`, WS2500/S625 baseline, RCH Criterion on `vmi1149989` | 776.82 us | 380.16 us | 0.489x | Loss confirmed |
+| `br-r37-c1-04z53` | `node_expansion`, BA2500/S1250 after Rust validate+bitmap public route, RCH Criterion on `vmi1152480` | 213.68 us | 527.47 us | 2.469x | Keep |
+| `br-r37-c1-04z53` | `node_expansion`, WS2500/S625 after Rust validate+bitmap public route, RCH Criterion on `vmi1152480` | 94.674 us | 292.24 us | 3.087x | Keep |
+| `br-r37-c1-04z53` | public `fnx.node_degree_xy`, h512/s32, fresh RCH rebaseline on `vmi1153651` | 116.87 ms | 336.80 ms | 2.882x | Stale loss closed |
+| `br-r37-c1-04z53` | public directed `fnx.node_degree_xy`, l512/f32, fresh RCH rebaseline on `vmi1153651` | 158.65 ms | 336.86 ms | 2.123x | Stale loss closed |
+| `br-r37-c1-04z53` | raw `_fnx.node_degree_xy_rust`, h512/s32, same RCH rebaseline | 29.948 ms | 362.97 ms | 12.120x | Valid side win |
+| `br-r37-c1-04z53` | raw directed `_fnx.node_degree_xy_rust`, l512/f32, same RCH rebaseline | 38.594 ms | 443.04 ms | 11.479x | Valid side win |
+
+Score:
+- Win/loss/neutral accounting: `4` public wins, `0` active public losses,
+  `0` neutral for the current pass; raw side evidence adds `2` valid wins.
+- Conformance evidence: focused graph-metrics expansion route passed
+  `55` tests; focused graph-metrics expansion + conformance passed `199`
+  tests; `fnx-python` Rust tests reported `27 passed`; `cargo fmt --check`,
+  per-crate `fnx-python` check, and per-crate `fnx-python` clippy passed.
+  UBS completed on the Rust binding file and the focused Python test file; the
+  large public `python/franken_networkx/__init__.py` Python-only UBS pass timed
+  out after `300s`, with `py_compile`, focused pytest, and Criterion parity
+  used as the Python public-wrapper gates.
+  The Criterion harness asserts `node_expansion` and
+  `node_degree_xy` parity before timing. Missing-node `node_expansion`
+  still raises `NetworkXError("The node 99 is not in the graph.")`.
+- Ledger hygiene: baseline losses, final wins, `node_degree_xy` stale-loss
+  closeout, and the target-dir E0514 caveat are recorded in
+  `docs/NEGATIVE_EVIDENCE.md`.
+
+Release readiness verdict for this slice: **keep/stale-loss closed**.
+`node_expansion` is no longer an active loss; `node_degree_xy` should not be
+reworked again without a fresh head-to-head row showing a current regression.
+
 ## 2026-06-19 BOLD-VERIFY PA/Node-Expansion Slice
 
 Environment:
