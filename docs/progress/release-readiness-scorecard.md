@@ -17,7 +17,8 @@ MultiGraph biconnected-family verification plus keyed MST follow-up
 verification (`br-r37-c1-lmqwv`) plus dirty `MultiDiGraph` sparse exporter
 boundary verification (`br-r37-c1-kqh2u`) plus cod-b precise dirty-key
 dirty sparse-export verification (`br-r37-c1-04z53`) plus cod-a default-order
-`MultiDiGraph` CSR row-streaming verification (`br-r37-c1-04z53`).
+`MultiDiGraph` CSR row-streaming verification (`br-r37-c1-04z53`) and cod-b
+CSR boundary snapshot verification (`br-r37-c1-04z53`).
 
 ## 2026-06-20 Cod-A MultiDiGraph CSR Row-Streaming Reject
 
@@ -56,6 +57,62 @@ Outcome:
   fresh target; focused artifact parity remained `160` configs x `2` exporters,
   `0` fails, golden
   `bff9639b02900c23d43c585672cddf6a3e39676fa40c631efccec93bfeb44307`.
+
+## 2026-06-20 Cod-B MultiDiGraph CSR Boundary Snapshot Reject
+
+Environment:
+- Agent Mail identity and CLI actor: `CrimsonRiver`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-b-20260620T1956`.
+- Requested RCH target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+- Per-crate RCH gates before editing passed:
+  `rch exec -- cargo build -p fnx-python --release --features pyo3/abi3-py310`
+  and
+  `rch exec -- cargo bench -p fnx-python --features pyo3/abi3-py310 --no-run`.
+- Local release installs against the exact requested target hit incompatible
+  rustc E0514 from stale artifacts. No cleanup, deletion, or reset was
+  performed. Candidate installs used fresh non-destructive target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-b-f20a92ec0-csrrow`.
+- Oracle: vendored NetworkX `3.7rc0.dev0`, Python `3.13`,
+  `PYTHONHASHSEED=0`, `OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`.
+- Fixture: deterministic seed `1`, 2,000 integer nodes, 12,000 keyed random
+  edges, 388 public dirty weight mutations, canonical CSR digest
+  `f50fd3dec9442adb9b48b2392cf3c63305b314eca3a1e3e3b99f28c63e3d9e36`,
+  `11974` canonical nonzeros.
+- Profile: 40 calls to the native default-order live finite CSR helper consumed
+  `0.563 s` cumulative, about `14 ms` per call.
+
+Measured decision:
+
+| Bead | Workload | FNX route | NetworkX | Ratio vs NetworkX | Candidate vs control | Decision |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| `br-r37-c1-04z53` | control `to_scipy_sparse_array`, dirty high-unique 12k-edge MDG | 14.974176 ms | 12.004329 ms | 0.802x | baseline | loss |
+| `br-r37-c1-04z53` | control `adjacency_matrix`, dirty high-unique 12k-edge MDG | 14.922177 ms | 11.647203 ms | 0.781x | baseline | loss |
+| `br-r37-c1-04z53` | source-row stream + Rust dtype flag `to_scipy_sparse_array` candidate | 15.520080 ms | 12.520007 ms | 0.807x | 0.965x self-regression | Reject; loss |
+| `br-r37-c1-04z53` | source-row stream + Rust dtype flag `adjacency_matrix` candidate | 13.147295 ms | 11.581038 ms | 0.881x | 1.135x faster | Reject; still loss |
+| `br-r37-c1-04z53` | in-call dirty weight snapshot `to_scipy_sparse_array` candidate | 15.587537 ms | 12.611771 ms | 0.809x | 0.961x self-regression | Reject; loss |
+| `br-r37-c1-04z53` | in-call dirty weight snapshot `adjacency_matrix` candidate | 15.118008 ms | 12.087389 ms | 0.800x | 0.987x self-regression | Reject; loss |
+
+Score:
+- Target accounting: `0` wins, `2` losses, `0` neutral vs NetworkX.
+- Candidate 1 improved only the sibling `adjacency_matrix` row and still lost.
+  Candidate 2 lost both rows and did not improve the target slice.
+- Reverted levers: source-row hashing removal, Python dtype-scan elimination,
+  and in-call precise dirty weight snapshot before CSR streaming.
+- Conformance evidence: each candidate passed `rch exec -- cargo check -p
+  fnx-python --features pyo3/abi3-py310`; each candidate focused sparse parity
+  run reported `304 passed`.
+- Ledger hygiene: control rows, candidate rows, digest, profile note, E0514
+  caveat, and no-repeat guidance are recorded in
+  `docs/NEGATIVE_EVIDENCE.md` and
+  `docs/progress/perf-negative-results.md`.
+
+Release readiness verdict for this slice: **reject/no-ship**. Leave source on
+the control route. Do not retry source-row hashing removal, Python dtype-scan
+elimination, or in-call dirty weight snapshot as standalone CSR levers; the
+next viable route is a true native sparse-array/CSR buffer boundary or a
+compact numeric edge-weight mirror.
 
 ## 2026-06-20 Cod-B MultiDiGraph Precise Dirty-Key Sparse Reject
 
