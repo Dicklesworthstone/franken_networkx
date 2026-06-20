@@ -66,6 +66,13 @@ struct MultiGraphBiconnectedWorkloads {
     nx_minimum_spanning_tree: Py<PyAny>,
 }
 
+struct LatticeGeneratorWorkloads {
+    fnx_triangular: Py<PyAny>,
+    nx_triangular: Py<PyAny>,
+    fnx_hexagonal: Py<PyAny>,
+    nx_hexagonal: Py<PyAny>,
+}
+
 fn prepare_cut_metric_workloads(py: Python<'_>) -> PyResult<CutMetricWorkloads> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
@@ -629,6 +636,81 @@ nx_minimum_spanning_tree = lambda: nx.minimum_spanning_tree(mg_nx, weight="weigh
     })
 }
 
+fn prepare_lattice_generator_workloads(py: Python<'_>) -> PyResult<LatticeGeneratorWorkloads> {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("fnx-python crate must live under crates/");
+    let python_dir = repo_root.join("python");
+    let legacy_dir = repo_root.join("legacy_networkx_code").join("networkx");
+
+    let sys = py.import("sys")?;
+    let path = sys.getattr("path")?;
+    let path = path.cast::<PyList>()?;
+    path.insert(0, repo_root.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, python_dir.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, legacy_dir.to_str().expect("repo path must be UTF-8"))?;
+
+    let locals = PyDict::new(py);
+    py.run(
+        cstring(
+            r#"
+import hashlib
+import json
+import networkx as nx
+import franken_networkx as fnx
+from franken_networkx.backend import _fnx_to_nx
+
+def _canon(g):
+    payload = {
+        "nodes": [repr(n) for n in g.nodes()],
+        "edges": [(repr(u), repr(v)) for u, v in g.edges()],
+        "pos": sorted((repr(k), repr(v)) for k, v in nx.get_node_attributes(g, "pos").items()),
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+def _fnx_triangular():
+    return fnx.triangular_lattice_graph(60, 60)
+
+def _nx_triangular():
+    return nx.triangular_lattice_graph(60, 60)
+
+def _fnx_hexagonal():
+    return fnx.hexagonal_lattice_graph(60, 60)
+
+def _nx_hexagonal():
+    return nx.hexagonal_lattice_graph(60, 60)
+
+assert _canon(_fnx_to_nx(_fnx_triangular())) == _canon(_nx_triangular())
+assert _canon(_fnx_to_nx(_fnx_hexagonal())) == _canon(_nx_hexagonal())
+
+fnx_triangular = _fnx_triangular
+nx_triangular = _nx_triangular
+fnx_hexagonal = _fnx_hexagonal
+nx_hexagonal = _nx_hexagonal
+"#,
+        )
+        .as_c_str(),
+        Some(&locals),
+        Some(&locals),
+    )?;
+
+    let callable = |name: &str| -> PyResult<Py<PyAny>> {
+        let callable = locals.get_item(name)?.ok_or_else(|| {
+            pyo3::exceptions::PyKeyError::new_err(format!("missing Python callable {name}"))
+        })?;
+        Ok(callable.unbind())
+    };
+
+    Ok(LatticeGeneratorWorkloads {
+        fnx_triangular: callable("fnx_triangular")?,
+        nx_triangular: callable("nx_triangular")?,
+        fnx_hexagonal: callable("fnx_hexagonal")?,
+        nx_hexagonal: callable("nx_hexagonal")?,
+    })
+}
+
 fn bench_python_callable(
     group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
     name: &str,
@@ -914,6 +996,37 @@ fn multigraph_biconnected_head_to_head(c: &mut Criterion) {
     group.finish();
 }
 
+fn lattice_generators_head_to_head(c: &mut Criterion) {
+    Python::initialize();
+    let workloads = Python::attach(prepare_lattice_generator_workloads)
+        .expect("failed to prepare lattice generator Python workloads");
+    let mut group = c.benchmark_group("networkx_head_to_head_lattice_generators");
+    group.sample_size(20);
+
+    bench_python_callable(
+        &mut group,
+        "fnx_triangular_lattice_graph_60_60",
+        &workloads.fnx_triangular,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_triangular_lattice_graph_60_60",
+        &workloads.nx_triangular,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_hexagonal_lattice_graph_60_60",
+        &workloads.fnx_hexagonal,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_hexagonal_lattice_graph_60_60",
+        &workloads.nx_hexagonal,
+    );
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     cut_metric_head_to_head,
@@ -921,6 +1034,7 @@ criterion_group!(
     assortativity_raw_head_to_head,
     link_prediction_head_to_head,
     multidigraph_connectivity_head_to_head,
-    multigraph_biconnected_head_to_head
+    multigraph_biconnected_head_to_head,
+    lattice_generators_head_to_head
 );
 criterion_main!(benches);

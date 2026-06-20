@@ -19,7 +19,9 @@ boundary verification (`br-r37-c1-kqh2u`) plus cod-b precise dirty-key
 dirty sparse-export verification (`br-r37-c1-04z53`) plus cod-a default-order
 `MultiDiGraph` CSR row-streaming verification (`br-r37-c1-04z53`) and cod-b
 CSR boundary snapshot verification (`br-r37-c1-04z53`) plus
-cod-a indexed bytearray CSR boundary verification (`br-r37-c1-q2w4t`).
+cod-a indexed bytearray CSR boundary verification (`br-r37-c1-q2w4t`) plus
+default non-periodic tuple-key lattice generator verification
+(`br-r37-c1-ap7at`).
 
 ## 2026-06-20 Cod-A Indexed Bytearray CSR Boundary Keep
 
@@ -69,6 +71,60 @@ Score:
 Release readiness verdict for this slice: **keep**. The clean default-order
 directed CSR sparse-export residual is closed. Dirty/live sparse exporter rows
 remain separate active work.
+
+
+## 2026-06-20 Cod-B Native Tuple Lattice Generator Keep
+
+Environment:
+- Agent Mail identity and CLI actor: `CrimsonRiver`; bead actor: `cod-b`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-b-20260620T204139Z`.
+- Requested RCH target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+- Local release install against the exact requested target hit incompatible
+  rustc E0514 from stale artifacts. No cleanup, deletion, or reset was
+  performed. Local installs used fresh non-destructive target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-b-local-f20a92ec-lattice`.
+- Oracle: vendored NetworkX `3.7rc0.dev0`, Python `3.13`,
+  `PYTHONHASHSEED=0`, `OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`.
+- Profile: before the final native-position materialization, cProfile showed
+  the old fallback spending most wall time in Python batch edge insertion and
+  the first native candidate spending the remaining default-row time in Python
+  node-position attribute loops.
+
+Measured decision:
+
+| Bead | Workload | Old FNX fallback | Final FNX native | NetworkX | Final ratio vs NetworkX | Decision |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| `br-r37-c1-ap7at` | `triangular_lattice_graph(60, 60)` | 14.366951 ms | 2.859337 ms | 5.038766 ms | 1.762x | keep |
+| `br-r37-c1-ap7at` | `hexagonal_lattice_graph(60, 60)` | 40.929678 ms | 11.023525 ms | 14.777368 ms | 1.341x | keep |
+| `br-r37-c1-ap7at` | `triangular_lattice_graph(60, 60, with_positions=False)` | 10.185578 ms | 2.063670 ms | 4.104106 ms | 1.989x | keep |
+| `br-r37-c1-ap7at` | `hexagonal_lattice_graph(60, 60, with_positions=False)` | 23.653816 ms | 6.158808 ms | 8.533418 ms | 1.386x | keep |
+
+Score:
+- Focused accounting: `4` wins, `0` losses, `0` neutral vs NetworkX.
+- Rejected subattempt: native structure-only construction still routed default
+  position assignment through Python `set_node_attributes`; it measured
+  triangular default at only `0.903x` vs NetworkX and hexagonal default at
+  `0.698x`, so it was not enough to ship.
+- Supplemental RCH Criterion:
+  `rch exec -- cargo bench -p fnx-python --bench networkx_head_to_head lattice_generators -- --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`
+  exited `0` on `vmi1153651`; estimates were triangular `3.584x` and
+  hexagonal `1.206x`. Shared-worker outliers make the pinned direct loop the
+  keep gate.
+- Conformance evidence: focused lattice pytest `24 passed`; per-crate RCH
+  `cargo check`, `cargo clippy -D warnings`, `cargo test -p fnx-python`
+  (`27 passed`), and release build passed; `cargo fmt --check` and
+  `git diff --check` passed.
+- Ledger hygiene: control losses, rejected structure-only subattempt, final
+  wins, Criterion supplemental rows, and E0514 target-dir caveat are recorded
+  in `docs/NEGATIVE_EVIDENCE.md` and
+  `docs/progress/perf-negative-results.md`.
+
+Release readiness verdict for this slice: **keep**. Default non-periodic
+tuple-key lattice generator construction is no longer an active NetworkX loss.
+Do not restore Python tuple-key edge insertion or Python `set_node_attributes`
+for this default path; periodic acceleration needs its own parity proof.
 
 ## 2026-06-20 Cod-A MultiDiGraph CSR Row-Streaming Reject
 

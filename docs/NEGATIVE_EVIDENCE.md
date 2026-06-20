@@ -86,6 +86,72 @@ Decision:
   handoff mutable, and route future sparse work toward dirty/live attr sync or
   full native sparse-array construction rather than Python list boundaries.
 
+## 2026-06-20 Native Tuple Lattice Generator Keep (`br-r37-c1-ap7at`, cod-b)
+
+Scope: close the public default non-periodic tuple-key lattice generator losses
+for `triangular_lattice_graph` and `hexagonal_lattice_graph`. The final keep
+routes only the default `create_using=None`, `periodic=False`, nonnegative
+integer shape path through native Rust construction; all periodic, custom
+graph-factory, boolean-shape, and negative-shape cases remain on the existing
+NetworkX-compatible Python fallback.
+
+Environment:
+- Agent Mail identity: `CrimsonRiver`; CLI actor: `cod-b`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-b-20260620T204139Z`.
+- Requested target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+- Local release installs through the requested target hit incompatible-rustc
+  E0514 from stale artifacts. No cleanup or deletion was performed. Local
+  release installs used fresh non-destructive target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-b-local-f20a92ec-lattice`.
+- Oracle: vendored NetworkX `3.7rc0.dev0`, Python `3.13`,
+  `PYTHONHASHSEED=0`, `OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`.
+- Direct timing command: pinned same-process release loop on core `4` with
+  identical public FNX/NetworkX generator calls at shape `60x60`, parity digest
+  asserted before timing.
+
+Control and candidate rows:
+
+| Workload | Old FNX fallback median | NetworkX median | Old ratio vs NetworkX | Candidate median | Candidate ratio vs NetworkX | Candidate vs old FNX | Verdict |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `triangular_lattice_graph(60, 60)` | `14.366951 ms` | `5.038766 ms` | `0.351x` | `2.859337 ms` | `1.762x` | `5.025x` faster | keep |
+| `hexagonal_lattice_graph(60, 60)` | `40.929678 ms` | `14.777368 ms` | `0.361x` | `11.023525 ms` | `1.341x` | `3.713x` faster | keep |
+| `triangular_lattice_graph(60, 60, with_positions=False)` | `10.185578 ms` | `4.104106 ms` | `0.403x` | `2.063670 ms` | `1.989x` | `4.936x` faster | keep |
+| `hexagonal_lattice_graph(60, 60, with_positions=False)` | `23.653816 ms` | `8.533418 ms` | `0.361x` | `6.158808 ms` | `1.386x` | `3.841x` faster | keep |
+
+Rejected subattempt:
+- Native edge construction with Python `set_node_attributes` position
+  materialization was not enough for the default-position public rows:
+  triangular default reached only `0.903x` vs NetworkX and hexagonal default
+  reached only `0.698x`. The final keep moved tuple-key node labels and `pos`
+  attributes into the native constructor result instead of looping in Python.
+
+Supplemental RCH Criterion evidence:
+- Command:
+  `rch exec -- cargo bench -p fnx-python --bench networkx_head_to_head lattice_generators -- --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`.
+- Worker: `vmi1153651`; exit `0`.
+- Criterion estimates: triangular FNX `15.017 ms` vs NetworkX `53.823 ms`
+  (`3.584x`); hexagonal FNX `83.563 ms` vs NetworkX `100.74 ms` (`1.206x`).
+  FNX rows had high outliers on the shared worker, so the pinned same-process
+  loop above is the keep gate and Criterion is supplemental bench coverage.
+
+Conformance and gates:
+- Focused lattice conformance: `tests/python/test_lattice_generators.py -q`,
+  `24 passed`.
+- Per-crate RCH gates: `cargo check -p fnx-python --all-targets --features
+  pyo3/abi3-py310`; `cargo clippy -p fnx-python --all-targets --features
+  pyo3/abi3-py310 -- -D warnings`; `cargo test -p fnx-python --features
+  pyo3/abi3-py310` (`27 passed`); `cargo build --release -p fnx-python
+  --features pyo3/abi3-py310`.
+- Local gates: `cargo fmt --check`; `git diff --check`.
+
+Decision:
+- Keep. Final focused score: `4` wins / `0` losses / `0` neutral vs NetworkX.
+- Do not retry the Python `set_node_attributes` position loop for default
+  lattice rows. If periodic lattice cases become an active loss, route them as
+  a separate parity problem because NetworkX relabeling semantics differ.
+
 ## 2026-06-20 MultiDiGraph CSR Row-Streaming Boundary Reject (`br-r37-c1-04z53`, cod-a)
 
 Scope: test the next large sparse multigraph residual route after the prior

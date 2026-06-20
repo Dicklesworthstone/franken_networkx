@@ -53132,6 +53132,18 @@ def hexagonal_lattice_graph(
         )
 
     height = 2 * m
+    if (
+        not periodic
+        and create_using is None
+        and _fnx is not None
+        and hasattr(_fnx, "hexagonal_lattice_graph_simple")
+        and type(m) is int
+        and type(n) is int
+        and m >= 0
+        and n >= 0
+    ):
+        return _fnx.hexagonal_lattice_graph_simple(m, n, with_positions)
+
     rows = range(height + 2)
     cols = range(n + 1)
 
@@ -53192,6 +53204,18 @@ def triangular_lattice_graph(
         raise NetworkXError(f"m > 2 and n > 4 required for periodic. m={m}, n={n}")
 
     width = (n + 1) // 2
+    if (
+        not periodic
+        and create_using is None
+        and _fnx is not None
+        and hasattr(_fnx, "triangular_lattice_graph_simple")
+        and type(m) is int
+        and type(n) is int
+        and m >= 0
+        and n >= 0
+    ):
+        return _fnx.triangular_lattice_graph_simple(m, n, with_positions)
+
     rows = range(m + 1)
     cols = range(width + 1)
 

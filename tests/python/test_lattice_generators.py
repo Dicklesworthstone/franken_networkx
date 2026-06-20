@@ -114,6 +114,62 @@ def test_triangular_lattice_graph_does_not_delegate_to_networkx(monkeypatch):
         )
 
 
+def test_lattice_native_default_matches_fallback_and_networkx():
+    def canon(graph):
+        return (
+            [repr(node) for node in graph.nodes()],
+            [(repr(u), repr(v)) for u, v in graph.edges()],
+            {
+                repr(node): [repr(neighbor) for neighbor in graph[node]]
+                for node in graph
+            },
+            sorted(
+                (repr(node), repr(pos))
+                for node, pos in nx.get_node_attributes(graph, "pos").items()
+            ),
+        )
+
+    assert hasattr(fnx._fnx, "hexagonal_lattice_graph_simple")
+    assert hasattr(fnx._fnx, "triangular_lattice_graph_simple")
+
+    hex_native = fnx.hexagonal_lattice_graph(3, 4)
+    hex_fallback = fnx.hexagonal_lattice_graph(
+        3,
+        4,
+        create_using=fnx.Graph,
+    )
+    hex_nx = nx.hexagonal_lattice_graph(3, 4)
+    assert canon(_to_nx(hex_native)) == canon(hex_nx)
+    assert canon(_to_nx(hex_native)) == canon(_to_nx(hex_fallback))
+
+    tri_native = fnx.triangular_lattice_graph(4, 5)
+    tri_fallback = fnx.triangular_lattice_graph(
+        4,
+        5,
+        create_using=fnx.Graph,
+    )
+    tri_nx = nx.triangular_lattice_graph(4, 5)
+    assert canon(_to_nx(tri_native)) == canon(tri_nx)
+    assert canon(_to_nx(tri_native)) == canon(_to_nx(tri_fallback))
+
+
+def test_lattice_native_tuple_keys_and_mutation_match_networkx():
+    fnx_graph = fnx.triangular_lattice_graph(3, 4)
+    nx_graph = nx.triangular_lattice_graph(3, 4)
+
+    key = next(iter(fnx_graph))
+    assert type(key) is tuple
+    assert all(type(part) is int for part in key)
+    assert "pos" in fnx_graph.nodes[key]
+
+    for graph in (fnx_graph, nx_graph):
+        graph.add_edge((0, 0), (2, 2), weight=7)
+        graph.remove_node((1, 1))
+
+    assert sorted(_to_nx(fnx_graph).edges()) == sorted(nx_graph.edges())
+    assert dict(fnx_graph[(0, 0)][(2, 2)]) == dict(nx_graph[(0, 0)][(2, 2)])
+
+
 def test_grid_graph_matches_networkx():
     graph = fnx.grid_graph([2, 3], periodic=False)
     graph_nx = nx.grid_graph([2, 3], periodic=False)

@@ -247,6 +247,159 @@ pub fn grid_2d_graph_simple(py: Python<'_>, m: usize, n: usize) -> PyResult<PyGr
     })
 }
 
+fn tuple2_label(i: usize, j: usize) -> String {
+    format!("({i}, {j})")
+}
+
+fn tuple_lattice_pygraph(
+    py: Python<'_>,
+    graph: fnx_classes::Graph,
+    max_i: usize,
+    max_j: usize,
+    position: impl Fn(usize, usize) -> Option<(f64, f64)>,
+) -> PyResult<PyGraph> {
+    let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(graph.node_count());
+    let mut node_py_attrs: HashMap<String, Py<PyDict>> = HashMap::new();
+    for i in 0..=max_i {
+        for j in 0..=max_j {
+            let label = tuple2_label(i, j);
+            if graph.has_node(&label) {
+                let tuple = PyTuple::new(py, [i, j])?;
+                node_key_map.insert(label, tuple.into_any().unbind());
+                if let Some((x, y)) = position(i, j) {
+                    let attrs = PyDict::new(py);
+                    attrs.set_item("pos", PyTuple::new(py, [x, y])?)?;
+                    node_py_attrs.insert(tuple2_label(i, j), attrs.unbind());
+                }
+            }
+        }
+    }
+    Ok(PyGraph {
+        inner: graph,
+        node_key_map,
+        lazy_int_node_stop: 0,
+        node_py_attrs,
+        edge_py_attrs: HashMap::new(),
+        adj_py_keys: HashMap::new(),
+        dict_of_dicts_cache: None,
+        adj_row_py: HashMap::new(),
+        graph_attrs: PyDict::new(py).unbind(),
+        nodes_seq: 0,
+        edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
+        node_keys_cache: std::sync::Mutex::new(None),
+        node_iter_mirror: std::sync::Mutex::new(None),
+        node_data_mirror: std::sync::Mutex::new(None),
+    })
+}
+
+/// Build the default non-periodic hexagonal lattice without Python tuple-key
+/// edge insertion.
+#[pyfunction]
+#[pyo3(signature = (m, n, with_positions=false))]
+pub fn hexagonal_lattice_graph_simple(
+    py: Python<'_>,
+    m: usize,
+    n: usize,
+    with_positions: bool,
+) -> PyResult<PyGraph> {
+    let height = 2 * m;
+    let mut graph = fnx_classes::Graph::new(CompatibilityMode::Strict);
+
+    let mut col_edges = Vec::with_capacity((n + 1).saturating_mul(height + 1));
+    for i in 0..=n {
+        for j in 0..=height {
+            col_edges.push((tuple2_label(i, j), tuple2_label(i, j + 1)));
+        }
+    }
+    let _ = graph.extend_edges_unrecorded(col_edges);
+
+    let mut row_edges = Vec::with_capacity(n.saturating_mul(height + 2).div_ceil(2));
+    for i in 0..n {
+        for j in 0..=(height + 1) {
+            if i % 2 == j % 2 {
+                row_edges.push((tuple2_label(i, j), tuple2_label(i + 1, j)));
+            }
+        }
+    }
+    let _ = graph.extend_edges_unrecorded(row_edges);
+
+    graph.remove_node(&tuple2_label(0, height + 1));
+    graph.remove_node(&tuple2_label(n, (height + 1) * (n % 2)));
+    let sqrt3_over_2 = 3.0_f64.sqrt() / 2.0;
+    tuple_lattice_pygraph(py, graph, n, height + 1, |i, j| {
+        if with_positions {
+            let x = 0.5 + i as f64 + (i / 2) as f64 + (j % 2) as f64 * ((i % 2) as f64 - 0.5);
+            let y = sqrt3_over_2 * j as f64;
+            Some((x, y))
+        } else {
+            None
+        }
+    })
+}
+
+/// Build the default non-periodic triangular lattice without Python tuple-key
+/// edge insertion.
+#[pyfunction]
+#[pyo3(signature = (m, n, with_positions=false))]
+pub fn triangular_lattice_graph_simple(
+    py: Python<'_>,
+    m: usize,
+    n: usize,
+    with_positions: bool,
+) -> PyResult<PyGraph> {
+    let width = n.div_ceil(2);
+    let mut graph = fnx_classes::Graph::new(CompatibilityMode::Strict);
+
+    let mut horizontal = Vec::with_capacity((m + 1).saturating_mul(width));
+    for j in 0..=m {
+        for i in 0..width {
+            horizontal.push((tuple2_label(i, j), tuple2_label(i + 1, j)));
+        }
+    }
+    let _ = graph.extend_edges_unrecorded(horizontal);
+
+    let mut vertical = Vec::with_capacity(m.saturating_mul(width + 1));
+    for j in 0..m {
+        for i in 0..=width {
+            vertical.push((tuple2_label(i, j), tuple2_label(i, j + 1)));
+        }
+    }
+    let _ = graph.extend_edges_unrecorded(vertical);
+
+    let mut down_right = Vec::with_capacity(m.div_ceil(2).saturating_mul(width));
+    for j in (1..m).step_by(2) {
+        for i in 0..width {
+            down_right.push((tuple2_label(i, j), tuple2_label(i + 1, j + 1)));
+        }
+    }
+    let _ = graph.extend_edges_unrecorded(down_right);
+
+    let mut up_left = Vec::with_capacity(m.div_ceil(2).saturating_mul(width));
+    for j in (0..m).step_by(2) {
+        for i in 0..width {
+            up_left.push((tuple2_label(i + 1, j), tuple2_label(i, j + 1)));
+        }
+    }
+    let _ = graph.extend_edges_unrecorded(up_left);
+
+    if n % 2 == 1 {
+        for j in (1..=m).step_by(2) {
+            graph.remove_node(&tuple2_label(width, j));
+        }
+    }
+    let sqrt3_over_2 = 3.0_f64.sqrt() / 2.0;
+    tuple_lattice_pygraph(py, graph, width, m, |i, j| {
+        if with_positions {
+            let x = 0.5 * (j % 2) as f64 + i as f64;
+            let y = sqrt3_over_2 * j as f64;
+            Some((x, y))
+        } else {
+            None
+        }
+    })
+}
+
 /// br-r37-c1-edmwo: n-D integer grid/cycle product built natively.
 ///
 /// Canonicals use NetworkX's flattened tuple repr (or bare integer for the
@@ -980,6 +1133,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(circular_ladder_graph_native, m)?)?;
     m.add_function(wrap_pyfunction!(complete_graph, m)?)?;
     m.add_function(wrap_pyfunction!(grid_2d_graph_simple, m)?)?;
+    m.add_function(wrap_pyfunction!(hexagonal_lattice_graph_simple, m)?)?;
+    m.add_function(wrap_pyfunction!(triangular_lattice_graph_simple, m)?)?;
     m.add_function(wrap_pyfunction!(grid_graph_native, m)?)?;
     m.add_function(wrap_pyfunction!(kneser_graph_native, m)?)?; // br-r37-c1-z2eaa
     m.add_function(wrap_pyfunction!(caveman_graph_native, m)?)?;
