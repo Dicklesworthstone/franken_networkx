@@ -2,7 +2,63 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
-Scope for this ledger entry: `br-r37-c1-iyu0a`, multigraph matrix exporters,
+## 2026-06-20 MultiDiGraph SCC Stale-Loss Closeout (`br-r37-c1-8hjsu`)
+
+Scope: re-baseline the open `MultiDiGraph` `strongly_connected_components`
+loss on current `origin/main` (`cdf8d86d8`) before inventing another SCC
+substrate. The current source already contains the direct native
+successor-row Tarjan/Nuutila route, so no code was kept or reverted in this
+slice.
+
+Environment:
+- Agent: `CrimsonRiver` / `cod-b`.
+- Worktree: `/data/projects/.scratch/franken_networkx-cod-b-scc-boldverify-20260620`.
+- Requested target dir: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+- Exact requested release install failed with Rust E0514 because that target dir
+  contained artifacts from incompatible nightly `beae78130`; no cleanup or file
+  deletion was performed.
+- Release install used fresh non-destructive target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-b-f20a92ec0-scc`:
+  `rch exec -- maturin develop --release --features pyo3/abi3-py310`.
+- Per-crate RCH bench/build gate completed:
+  `rch exec -- cargo bench -p fnx-python --bench networkx_head_to_head multidigraph_connectivity_head_to_head -- --noplot`
+  on `vmi1152480`; the retrieved RCH transcript did not include Criterion timing
+  rows, so the ratio evidence below comes from the same-process Python harness
+  against the freshly installed release extension.
+- Focused conformance:
+  `pytest tests/python/test_strongly_connected_components_order_parity.py tests/python/test_directed_multigraph_degenerate_parity.py::test_multidigraph_strongly_connected_components_matches_networkx tests/python/test_scc_condensation_invariants.py tests/python/test_networkx_interop_directed_multi.py::test_multidigraph_interop -q`
+  reported `212 passed in 1.01s`.
+
+Head-to-head timing on identical 1800-node block/parallel-arc `MultiDiGraph`
+with block size `6`, parity checksum matched for every row:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `strongly_connected_components` | `0.642898 ms` | `1.717424 ms` | `2.671x` | win |
+| `descendants(source=0)` | `0.457607 ms` | `0.750663 ms` | `1.640x` | win |
+| `number_strongly_connected_components` | `0.338000 ms` | `1.542392 ms` | `4.563x` | win |
+
+Decision:
+- Keep current code as-is and close `br-r37-c1-8hjsu` as a stale loss. The
+  current native SCC route beats NetworkX on the open-loss fixture; no radical
+  SCC rewrite is justified by this target.
+- Scorecard accounting for this slice: `3` wins / `0` losses / `0` neutral on
+  the measured SCC/count/descendant side surface; `1` win / `0` losses /
+  `0` neutral for the focused SCC bead row.
+
+Do not repeat:
+- Do not reintroduce MultiDiGraph SCC projection through a simple `DiGraph`.
+- Do not route public SCC to NetworkX-on-FNX delegation: a quick probe showed it
+  is not a native keep and does not improve the release claim.
+- Do not clear the shared `cod-b` target dir to fix E0514; use a toolchain-tagged
+  target subdir instead.
+
+Next route:
+- Remaining open MultiGraph/MultiDiGraph losses are not SCC. Prioritize
+  measured residuals such as matrix-exporter sync cost and MultiGraph
+  biconnected/MST rows instead of spending more time on this SCC lane.
+
+Scope for the following ledger entry: `br-r37-c1-iyu0a`, multigraph matrix exporters,
 `tests/artifacts/perf/20260620T-multigraph-matrix-coo-cc/bench_and_parity.py`.
 
 Environment:

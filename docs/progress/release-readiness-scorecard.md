@@ -8,7 +8,56 @@ sampled edge-betweenness verification (`br-r37-c1-8ox3z.1`) and raw
 assortativity verification (`br-r37-c1-04z53.9147`, `.9149`, `.9152`) plus
 community link-prediction verification (`br-r37-c1-04z53.9141`) and
 undirected `non_edges` default-ebunch verification (`br-r37-c1-04z53.9143`)
-plus CCPA link-prediction verification (`br-r37-c1-04z53.9140`).
+plus CCPA link-prediction verification (`br-r37-c1-04z53.9140`) and
+MultiDiGraph SCC stale-loss closeout (`br-r37-c1-8hjsu`).
+
+## 2026-06-20 MultiDiGraph SCC Stale-Loss Closeout
+
+Environment:
+- Agent: `CrimsonRiver` / `cod-b`.
+- Worktree: `/data/projects/.scratch/franken_networkx-cod-b-scc-boldverify-20260620`.
+- Baseline/current source: `origin/main` at `cdf8d86d8`.
+- Requested target dir: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+- Exact requested release install failed with incompatible-rustc E0514 because
+  the shared target dir contained older nightly artifacts; no cleanup or file
+  deletion was performed.
+- Release extension rebuilt with `rch exec -- maturin develop --release --features pyo3/abi3-py310`
+  using fresh non-destructive target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-b-f20a92ec0-scc`.
+- Per-crate RCH bench/build gate completed on `vmi1152480`:
+  `rch exec -- cargo bench -p fnx-python --bench networkx_head_to_head multidigraph_connectivity_head_to_head -- --noplot`.
+  The retrieved transcript omitted Criterion timing rows, so the release ratio
+  gate used the same-process Python head-to-head harness below.
+- Focused conformance:
+  `tests/python/test_strongly_connected_components_order_parity.py`,
+  `test_directed_multigraph_degenerate_parity.py::test_multidigraph_strongly_connected_components_matches_networkx`,
+  `tests/python/test_scc_condensation_invariants.py`, and
+  `test_networkx_interop_directed_multi.py::test_multidigraph_interop` passed
+  with `212 passed in 1.01s`.
+
+Measured same-process release head-to-head on an identical 1800-node
+block/parallel-arc `MultiDiGraph` with block size `6`:
+
+| Bead | Workload | FNX median | NetworkX median | Ratio vs NetworkX | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `br-r37-c1-8hjsu` | `strongly_connected_components` | 0.642898 ms | 1.717424 ms | 2.671x | Keep current route; close stale loss |
+| `br-r37-c1-8hjsu` side surface | `number_strongly_connected_components` | 0.338000 ms | 1.542392 ms | 4.563x | Win |
+| `br-r37-c1-8hjsu` side surface | `descendants(source=0)` | 0.457607 ms | 0.750663 ms | 1.640x | Win |
+
+Score:
+- Win/loss/neutral accounting: `1` win, `0` losses, `0` neutral for the SCC
+  bead row; `3` wins, `0` losses, `0` neutral for the measured SCC/count/desc
+  side surface.
+- Performance evidence: the current native direct successor-row SCC route beats
+  NetworkX on the open-loss fixture; no new code was needed.
+- Conformance evidence: focused SCC/condensation/interop parity is green.
+- Ledger hygiene: the no-code closeout, E0514 target-dir issue, and no-repeat
+  notes are recorded in `docs/NEGATIVE_EVIDENCE.md` and
+  `docs/progress/perf-negative-results.md`.
+
+Release readiness verdict for this slice: **pass/stale-loss closed**. Do not
+spend another lever on MultiDiGraph SCC until a fresh head-to-head row shows a
+real loss; route effort to remaining measured losses instead.
 
 ## 2026-06-20 MultiDiGraph Reverse Copy BOLD-VERIFY Slice
 
