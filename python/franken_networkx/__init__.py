@@ -20422,6 +20422,29 @@ def read_edgelist(
     honoured. The Rust-native ``read_edgelist`` only accepts ``(path,)``.
     """
     _validate_backend_dispatch_keywords("read_edgelist", backend, backend_kwargs)
+    # br-r37-c1-rdedgenative: route to the native parse_edgelist (bulk build,
+    # byte-exact incl edge data) instead of the nx parse+convert delegation
+    # (0.67x). parse_edgelist covers comments/delimiter/create_using/nodetype/data
+    # exactly; the rare ``edgetype`` arg (not a parse_edgelist param) stays on the
+    # nx path so its conversion contract is preserved.
+    if edgetype is None:
+        from networkx.utils import open_file as _open_file
+
+        from .readwrite import parse_edgelist as _parse_edgelist
+
+        @_open_file(0, mode="rb")
+        def _read(path):
+            lines = (line.decode(encoding) for line in path)
+            return _parse_edgelist(
+                lines,
+                comments=comments,
+                delimiter=delimiter,
+                create_using=create_using,
+                nodetype=nodetype,
+                data=data,
+            )
+
+        return _read(path)
     return _read_edgelist_via_nx(
         path,
         comments=comments,
@@ -20444,18 +20467,29 @@ def read_adjlist(
 ):
     """Read a graph from an adjacency list.
 
-    Delegates to NetworkX's parser (br-rdedge) so ``nodetype``,
-    ``create_using``, etc. are honoured. The Rust-native reader only
-    accepts ``(path,)``.
+    br-r37-c1-rdadjnative: route to the native ``parse_adjlist`` (bulk node +
+    edge construction, byte-exact node/edge order vs nx) instead of delegating
+    the entire parse+build to nx and converting the result — that paid nx's
+    per-node graph ops PLUS an fnx<-nx conversion (~3.8x slower, 0.26x). nx's
+    ``open_file`` still handles the path / gzip / bz2 / encoding edge cases, so
+    behaviour is unchanged; only the parser + builder become native.
     """
-    return _read_adjlist_via_nx(
-        path,
-        comments=comments,
-        delimiter=delimiter,
-        create_using=create_using,
-        nodetype=nodetype,
-        encoding=encoding,
-    )
+    from networkx.utils import open_file as _open_file
+
+    from .readwrite import parse_adjlist as _parse_adjlist
+
+    @_open_file(0, mode="rb")
+    def _read(path):
+        lines = (line.decode(encoding) for line in path)
+        return _parse_adjlist(
+            lines,
+            comments=comments,
+            delimiter=delimiter,
+            create_using=create_using,
+            nodetype=nodetype,
+        )
+
+    return _read(path)
 
 
 def write_adjlist(G, path, comments="#", delimiter=" ", encoding="utf-8"):
