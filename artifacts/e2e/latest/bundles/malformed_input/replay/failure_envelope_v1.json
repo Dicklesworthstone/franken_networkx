@@ -2,7 +2,7 @@
   "schema_version": "1.0.0",
   "artifact_id": "e2e-script-pack-failure-envelope-v1",
   "envelope_id": "e2e-failure-envelope-574e90b3633d4e7c",
-  "generated_at_utc": "2026-02-19T07:01:35.606325+00:00",
+  "generated_at_utc": "2026-06-21T05:23:33.811530+00:00",
   "status": "passed",
   "reason_code": null,
   "scenario_id": "malformed_input",
@@ -11,14 +11,14 @@
   "packet_id": "FNX-P2C-006",
   "fixture_id": "generated/readwrite_hardened_malformed.json",
   "mode": "hardened",
-  "run_id": "e2e-script-pack-20260219T065348Z",
+  "run_id": "e2e-script-pack-20260621T045956Z",
   "bundle_id": "e2e-bundle-8812fedc0fe47217",
   "stable_fingerprint": "04f4b92eac1f9d6b",
   "deterministic_seed": 15798793491341090845,
   "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
   "policy_digest": "fnv1a64:8cdc8c7c182cecd2",
   "deterministic_replay_metadata": {
-    "run_id": "e2e-script-pack-20260219T065348Z",
+    "run_id": "e2e-script-pack-20260621T045956Z",
     "deterministic_seed": 15798793491341090845,
     "bundle_id": "e2e-bundle-8812fedc0fe47217",
     "stable_fingerprint": "04f4b92eac1f9d6b",
@@ -58,9 +58,9 @@
     }
   },
   "forensics_links": {
-    "structured_log_hash_id": "4dd97c964d969a79",
+    "structured_log_hash_id": "71c1d084676fb5b9",
     "forensic_bundle_id": "forensics::FNX-P2C-006::generated::readwrite_hardened_malformed.json",
-    "forensics_bundle_hash_id": "75e08c45b19f7aed",
+    "forensics_bundle_hash_id": "1e97b0f10ba99a73",
     "forensics_bundle_replay_ref": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened"
   },
   "missing_forensics_fields": [],

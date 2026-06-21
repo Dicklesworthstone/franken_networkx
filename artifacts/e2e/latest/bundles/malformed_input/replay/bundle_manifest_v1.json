@@ -13,21 +13,21 @@
   "deterministic_seed": 15798793491341090845,
   "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
   "execution_metadata": {
-    "run_id": "e2e-script-pack-20260219T065348Z",
+    "run_id": "e2e-script-pack-20260621T045956Z",
     "pass_label": "replay",
     "gate_step_id": "step-1",
     "status": "passed",
     "reason_code": null,
-    "start_unix_ms": 1771484486300,
-    "end_unix_ms": 1771484495604,
-    "duration_ms": 9304,
-    "generated_at_utc": "2026-02-19T07:01:35.606110+00:00",
-    "forensics_source": "synthesized_fallback"
+    "start_unix_ms": 1782019382704,
+    "end_unix_ms": 1782019413806,
+    "duration_ms": 31102,
+    "generated_at_utc": "2026-06-21T05:23:33.811169+00:00",
+    "forensics_source": "captured_structured_log"
   },
   "forensics_links": {
-    "structured_log_hash_id": "4dd97c964d969a79",
+    "structured_log_hash_id": "71c1d084676fb5b9",
     "forensic_bundle_id": "forensics::FNX-P2C-006::generated::readwrite_hardened_malformed.json",
-    "forensics_bundle_hash_id": "75e08c45b19f7aed",
+    "forensics_bundle_hash_id": "1e97b0f10ba99a73",
     "forensics_bundle_replay_ref": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened"
   },
   "forensics_index_path": "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json",

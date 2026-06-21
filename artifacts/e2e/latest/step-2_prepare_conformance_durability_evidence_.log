@@ -1,0 +1,7 @@
+generated sidecar: artifact_id=smoke_report source_hash=blake3:e4ab2c8b25bbe53168b43172d0d9f44bfc26f8e78a0fef2295192988ae105342 packets=80
+generated sidecar: artifact_id=structured_logs source_hash=blake3:fb1e866549ac62bc64ae9c69d898807d0b679eaae3e9210c5e0352a46d72ca96 packets=203
+scrub status: Ok, decode_proofs=0
+scrub status: Ok, decode_proofs=0
+decode drill complete: recovered_output=artifacts/conformance/latest/smoke_report.recovered.json decode_proofs=1
+decode drill complete: recovered_output=artifacts/conformance/latest/structured_logs.recovered.json decode_proofs=1
+durability_report:artifacts/conformance/latest/durability_pipeline_report.json

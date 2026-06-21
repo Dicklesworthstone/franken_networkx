@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
-  "run_id": "conformance-1771371117350-hardened",
-  "ts_unix_ms": 1771371117351,
+  "run_id": "conformance-1782014222000-strict",
+  "ts_unix_ms": 1782014222075,
   "crate_name": "fnx-conformance",
   "suite_id": "smoke",
   "packet_id": "FNX-P2C-002",
@@ -17,17 +17,17 @@
     "hardened_allowlisted_count": "0",
     "oracle_present": "true",
     "os": "linux",
-    "run_id": "conformance-1771371117350-hardened",
-    "strict_mode_default": "false",
+    "run_id": "conformance-1782014222000-strict",
+    "strict_mode_default": "true",
     "strict_violation_count": "0",
     "suite": "smoke"
   },
-  "env_fingerprint": "f4044ea962cb6b4a",
+  "env_fingerprint": "38518915236164cc",
   "duration_ms": 0,
   "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/view_neighbors_strict.json --mode strict",
   "artifact_refs": [
-    "/data/projects/franken_networkx/crates/fnx-conformance/../../artifacts/conformance/latest/smoke_report.json",
-    "/data/projects/franken_networkx/crates/fnx-conformance/../../artifacts/conformance/latest/generated_view_neighbors_strict_json.report.json",
+    "/data/projects/.scratch/franken_networkx-release-v020/crates/fnx-conformance/../../artifacts/conformance/latest/smoke_report.json",
+    "/data/projects/.scratch/franken_networkx-release-v020/crates/fnx-conformance/../../artifacts/conformance/latest/generated_view_neighbors_strict_json.report.json",
     "artifacts/phase2c/FNX-P2C-002/parity_report.decode_proof.json",
     "artifacts/phase2c/FNX-P2C-002/parity_report.raptorq.json"
   ],
@@ -39,14 +39,14 @@
   "e2e_step_traces": [],
   "forensics_bundle_index": {
     "bundle_id": "forensics::FNX-P2C-002::generated::view_neighbors_strict.json",
-    "run_id": "conformance-1771371117350-hardened",
+    "run_id": "conformance-1782014222000-strict",
     "test_id": "fixture::generated/view_neighbors_strict.json",
-    "bundle_hash_id": "b5aa665ac10d34c8",
-    "captured_unix_ms": 1771371117351,
+    "bundle_hash_id": "36f33a9ba8f097c8",
+    "captured_unix_ms": 1782014222075,
     "replay_ref": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/view_neighbors_strict.json --mode strict",
     "artifact_refs": [
-      "/data/projects/franken_networkx/crates/fnx-conformance/../../artifacts/conformance/latest/smoke_report.json",
-      "/data/projects/franken_networkx/crates/fnx-conformance/../../artifacts/conformance/latest/generated_view_neighbors_strict_json.report.json"
+      "/data/projects/.scratch/franken_networkx-release-v020/crates/fnx-conformance/../../artifacts/conformance/latest/smoke_report.json",
+      "/data/projects/.scratch/franken_networkx-release-v020/crates/fnx-conformance/../../artifacts/conformance/latest/generated_view_neighbors_strict_json.report.json"
     ],
     "raptorq_sidecar_refs": [
       "artifacts/phase2c/FNX-P2C-002/parity_report.raptorq.json"

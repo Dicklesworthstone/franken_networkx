@@ -1,31 +1,31 @@
 {
   "schema_version": "1.0.0",
   "artifact_id": "e2e-script-pack-failure-envelope-v1",
-  "envelope_id": "e2e-failure-envelope-1af82ab3ea15a15a",
-  "generated_at_utc": "2026-02-19T07:00:39.508531+00:00",
+  "envelope_id": "e2e-failure-envelope-eb36e31291807003",
+  "generated_at_utc": "2026-06-21T05:20:15.921503+00:00",
   "status": "passed",
   "reason_code": null,
   "scenario_id": "edge_path",
   "pass_label": "replay",
   "gate_step_id": "step-1",
   "packet_id": "FNX-P2C-005",
-  "fixture_id": "generated/centrality_degree_strict.json",
+  "fixture_id": "generated/centrality_edge_betweenness_strict.json",
   "mode": "strict",
-  "run_id": "e2e-script-pack-20260219T065348Z",
-  "bundle_id": "e2e-bundle-88629d87f0aacb45",
-  "stable_fingerprint": "628982d6dee8b45f",
-  "deterministic_seed": 11351190574352106388,
-  "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_degree_strict.json --mode strict",
+  "run_id": "e2e-script-pack-20260621T045956Z",
+  "bundle_id": "e2e-bundle-db8bc776bf5cea4f",
+  "stable_fingerprint": "1e37cadb0a0b54f1",
+  "deterministic_seed": 3420695649051788629,
+  "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_edge_betweenness_strict.json --mode strict",
   "policy_digest": "fnv1a64:8cdc8c7c182cecd2",
   "deterministic_replay_metadata": {
-    "run_id": "e2e-script-pack-20260219T065348Z",
-    "deterministic_seed": 11351190574352106388,
-    "bundle_id": "e2e-bundle-88629d87f0aacb45",
-    "stable_fingerprint": "628982d6dee8b45f",
-    "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_degree_strict.json --mode strict",
+    "run_id": "e2e-script-pack-20260621T045956Z",
+    "deterministic_seed": 3420695649051788629,
+    "bundle_id": "e2e-bundle-db8bc776bf5cea4f",
+    "stable_fingerprint": "1e37cadb0a0b54f1",
+    "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_edge_betweenness_strict.json --mode strict",
     "scenario_id": "edge_path",
     "packet_id": "FNX-P2C-005",
-    "fixture_id": "generated/centrality_degree_strict.json",
+    "fixture_id": "generated/centrality_edge_betweenness_strict.json",
     "mode": "strict",
     "reason_code": null,
     "policy_digest": "fnv1a64:8cdc8c7c182cecd2",
@@ -58,10 +58,10 @@
     }
   },
   "forensics_links": {
-    "structured_log_hash_id": "78a3bdc046b0255f",
-    "forensic_bundle_id": "forensics::FNX-P2C-005::generated::centrality_degree_strict.json",
-    "forensics_bundle_hash_id": "21fd611c913708a5",
-    "forensics_bundle_replay_ref": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_degree_strict.json --mode strict"
+    "structured_log_hash_id": "fc616ed61b0998b7",
+    "forensic_bundle_id": "forensics::FNX-P2C-005::generated::centrality_edge_betweenness_strict.json",
+    "forensics_bundle_hash_id": "83147b3a59fbfb40",
+    "forensics_bundle_replay_ref": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_edge_betweenness_strict.json --mode strict"
   },
   "missing_forensics_fields": [],
   "bundle_manifest_path": "artifacts/e2e/latest/bundles/edge_path/replay/bundle_manifest_v1.json",
@@ -146,6 +146,6 @@
   "triage_hints": [
     "No failure detected; replay metadata and forensics links are contract-complete.",
     "Gate stage: step-1",
-    "Run replay command for verification: rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_degree_strict.json --mode strict"
+    "Run replay command for verification: rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_edge_betweenness_strict.json --mode strict"
   ]
 }

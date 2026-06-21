@@ -2,7 +2,7 @@
   "schema_version": "1.0.0",
   "artifact_id": "e2e-script-pack-failure-envelope-v1",
   "envelope_id": "e2e-failure-envelope-028d9341a0cad62a",
-  "generated_at_utc": "2026-02-19T06:58:21.086778+00:00",
+  "generated_at_utc": "2026-06-21T05:13:48.663652+00:00",
   "status": "passed",
   "reason_code": null,
   "scenario_id": "asupersync_recovery_success",
@@ -11,14 +11,14 @@
   "packet_id": "FNX-P2C-008",
   "fixture_id": "generated/runtime_config_optional_strict.json",
   "mode": "strict",
-  "run_id": "e2e-script-pack-20260219T065348Z",
+  "run_id": "e2e-script-pack-20260621T045956Z",
   "bundle_id": "e2e-bundle-a1574ac0c2ec39e8",
   "stable_fingerprint": "323a8c9a4eeaa29b",
   "deterministic_seed": 7592963280906986520,
   "replay_command": "rch exec -- cargo test -q -p fnx-runtime asupersync_adapter_resume_is_deterministic_across_checkpoint_restart -- --exact --nocapture",
   "policy_digest": "fnv1a64:8cdc8c7c182cecd2",
   "deterministic_replay_metadata": {
-    "run_id": "e2e-script-pack-20260219T065348Z",
+    "run_id": "e2e-script-pack-20260621T045956Z",
     "deterministic_seed": 7592963280906986520,
     "bundle_id": "e2e-bundle-a1574ac0c2ec39e8",
     "stable_fingerprint": "323a8c9a4eeaa29b",
@@ -58,9 +58,9 @@
     }
   },
   "forensics_links": {
-    "structured_log_hash_id": "33cb8105790429af",
+    "structured_log_hash_id": "7bf7c459a2178ffe",
     "forensic_bundle_id": "forensics::FNX-P2C-008::generated::runtime_config_optional_strict.json",
-    "forensics_bundle_hash_id": "db5baf283c83b9eb",
+    "forensics_bundle_hash_id": "30753c25444db11f",
     "forensics_bundle_replay_ref": "rch exec -- cargo test -q -p fnx-runtime asupersync_adapter_resume_is_deterministic_across_checkpoint_restart -- --exact --nocapture"
   },
   "missing_forensics_fields": [],

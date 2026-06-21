@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0.0",
   "artifact_id": "e2e-script-pack-bundle-index-v1",
-  "run_id": "e2e-script-pack-gate-20260219T065346Z",
-  "generated_at_utc": "2026-02-19T07:03:23.855739+00:00",
+  "run_id": "e2e-script-pack-gate-20260621T045956Z",
+  "generated_at_utc": "2026-06-21T05:27:14.918064+00:00",
   "gate_step_id": "step-1",
   "forensics_index_path": "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json",
   "retention_policy": {
@@ -506,8 +506,8 @@
     {
       "scenario_id": "edge_path",
       "packet_id": "FNX-P2C-005",
-      "bundle_id": "e2e-bundle-88629d87f0aacb45",
-      "stable_fingerprint": "628982d6dee8b45f",
+      "bundle_id": "e2e-bundle-db8bc776bf5cea4f",
+      "stable_fingerprint": "1e37cadb0a0b54f1",
       "gate_step_id": "step-1",
       "forensics_index_path": "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json",
       "retention_policy": {
@@ -555,8 +555,8 @@
     {
       "scenario_id": "edge_path_hardened",
       "packet_id": "FNX-P2C-005",
-      "bundle_id": "e2e-bundle-5f65c26eec1a6596",
-      "stable_fingerprint": "ac0f2907b50ec556",
+      "bundle_id": "e2e-bundle-19dda3bfabf0d727",
+      "stable_fingerprint": "5216b95d232f8a67",
       "gate_step_id": "step-1",
       "forensics_index_path": "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json",
       "retention_policy": {

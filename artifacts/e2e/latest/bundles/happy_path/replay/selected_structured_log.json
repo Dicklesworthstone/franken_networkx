@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
-  "run_id": "e2e-script-pack-20260219T065348Z",
-  "ts_unix_ms": 1771484373766,
+  "run_id": "conformance-1782014222000-strict",
+  "ts_unix_ms": 1782014222075,
   "crate_name": "fnx-conformance",
   "suite_id": "smoke",
   "packet_id": "FNX-P2C-001",
@@ -10,43 +10,43 @@
   "test_kind": "differential",
   "mode": "strict",
   "fixture_id": "graph_core_shortest_path_strict.json",
-  "seed": 9158789141501386920,
+  "seed": null,
   "environment": {
-    "suite": "smoke",
+    "arch": "x86_64",
+    "fixture_id": "graph_core_shortest_path_strict.json",
+    "hardened_allowlisted_count": "0",
     "oracle_present": "true",
-    "mode": "strict",
-    "scenario_id": "happy_path",
-    "generated_by": "e2e_script_pack_synth_fallback"
+    "os": "linux",
+    "run_id": "conformance-1782014222000-strict",
+    "strict_mode_default": "true",
+    "strict_violation_count": "0",
+    "suite": "smoke"
   },
-  "env_fingerprint": "a4ed8c24867df196",
+  "env_fingerprint": "0850c7e3cc4e2dce",
   "duration_ms": 0,
   "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture graph_core_shortest_path_strict.json --mode strict",
   "artifact_refs": [
-    "artifacts/e2e/latest/bundles/happy_path/replay/smoke_report.json",
-    "artifacts/e2e/latest/bundles/happy_path/replay/fixture_report.json",
-    "artifacts/e2e/latest/bundles/happy_path/replay/structured_logs.jsonl",
+    "/data/projects/.scratch/franken_networkx-release-v020/crates/fnx-conformance/../../artifacts/conformance/latest/smoke_report.json",
+    "/data/projects/.scratch/franken_networkx-release-v020/crates/fnx-conformance/../../artifacts/conformance/latest/graph_core_shortest_path_strict_json.report.json",
     "artifacts/phase2c/FNX-P2C-001/parity_report.decode_proof.json",
     "artifacts/phase2c/FNX-P2C-001/parity_report.raptorq.json"
   ],
   "forensic_bundle_id": "forensics::FNX-P2C-001::graph_core_shortest_path_strict.json",
-  "hash_id": "043988bdc21a4e96",
+  "hash_id": "83291b6cb14ce7f5",
   "status": "passed",
   "reason_code": null,
   "failure_repro": null,
   "e2e_step_traces": [],
   "forensics_bundle_index": {
     "bundle_id": "forensics::FNX-P2C-001::graph_core_shortest_path_strict.json",
-    "run_id": "e2e-script-pack-20260219T065348Z",
+    "run_id": "conformance-1782014222000-strict",
     "test_id": "fixture::graph_core_shortest_path_strict.json",
-    "bundle_hash_id": "e2219d9b4bc03b75",
-    "captured_unix_ms": 1771484373766,
+    "bundle_hash_id": "3435e276d6f6783f",
+    "captured_unix_ms": 1782014222075,
     "replay_ref": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture graph_core_shortest_path_strict.json --mode strict",
     "artifact_refs": [
-      "artifacts/e2e/latest/bundles/happy_path/replay/smoke_report.json",
-      "artifacts/e2e/latest/bundles/happy_path/replay/fixture_report.json",
-      "artifacts/e2e/latest/bundles/happy_path/replay/structured_logs.jsonl",
-      "artifacts/phase2c/FNX-P2C-001/parity_report.decode_proof.json",
-      "artifacts/phase2c/FNX-P2C-001/parity_report.raptorq.json"
+      "/data/projects/.scratch/franken_networkx-release-v020/crates/fnx-conformance/../../artifacts/conformance/latest/smoke_report.json",
+      "/data/projects/.scratch/franken_networkx-release-v020/crates/fnx-conformance/../../artifacts/conformance/latest/graph_core_shortest_path_strict_json.report.json"
     ],
     "raptorq_sidecar_refs": [
       "artifacts/phase2c/FNX-P2C-001/parity_report.raptorq.json"

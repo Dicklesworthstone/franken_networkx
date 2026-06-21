@@ -17,8 +17,8 @@
   "witness": {
     "algorithm": "bfs_shortest_path",
     "complexity_claim": "O(|V| + |E|)",
-    "nodes_touched": 4,
-    "edges_scanned": 4,
-    "queue_peak": 2
+    "nodes_touched": 0,
+    "edges_scanned": 0,
+    "queue_peak": 0
   }
 }

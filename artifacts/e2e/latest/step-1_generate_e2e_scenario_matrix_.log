@@ -1,8 +1,9 @@
+FAILED TO LOAD JSON: /data/projects/.scratch/franken_networkx-release-v020/crates/fnx-conformance/fixtures/adversarial/empty_input.json - returning empty dict
 {
   "status": "ok",
-  "output_json": "/data/projects/franken_networkx/artifacts/e2e/v1/e2e_scenario_matrix_oracle_contract_v1.json",
-  "output_md": "/data/projects/franken_networkx/artifacts/e2e/v1/e2e_scenario_matrix_oracle_contract_v1.md",
-  "journey_count": 10,
-  "fixture_inventory_count": 17,
+  "output_json": "/data/projects/.scratch/franken_networkx-release-v020/artifacts/e2e/v1/e2e_scenario_matrix_oracle_contract_v1.json",
+  "output_md": "/data/projects/.scratch/franken_networkx-release-v020/artifacts/e2e/v1/e2e_scenario_matrix_oracle_contract_v1.md",
+  "journey_count": 12,
+  "fixture_inventory_count": 128,
   "uncovered_fixture_count": 0
 }

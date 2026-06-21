@@ -13,21 +13,21 @@
   "deterministic_seed": 4326461139333007120,
   "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/view_neighbors_strict.json --mode strict",
   "execution_metadata": {
-    "run_id": "e2e-script-pack-20260219T065348Z",
+    "run_id": "e2e-script-pack-20260621T045956Z",
     "pass_label": "replay",
     "gate_step_id": "step-1",
     "status": "passed",
     "reason_code": null,
-    "start_unix_ms": 1771484373768,
-    "end_unix_ms": 1771484382788,
-    "duration_ms": 9020,
-    "generated_at_utc": "2026-02-19T06:59:42.790490+00:00",
+    "start_unix_ms": 1782018940707,
+    "end_unix_ms": 1782018978380,
+    "duration_ms": 37673,
+    "generated_at_utc": "2026-06-21T05:16:18.384554+00:00",
     "forensics_source": "captured_structured_log"
   },
   "forensics_links": {
     "structured_log_hash_id": "a2d423203dd4157f",
     "forensic_bundle_id": "forensics::FNX-P2C-002::generated::view_neighbors_strict.json",
-    "forensics_bundle_hash_id": "b5aa665ac10d34c8",
+    "forensics_bundle_hash_id": "36f33a9ba8f097c8",
     "forensics_bundle_replay_ref": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/view_neighbors_strict.json --mode strict"
   },
   "forensics_index_path": "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json",

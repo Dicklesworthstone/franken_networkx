@@ -18,7 +18,7 @@
     "algorithm": "bfs_number_connected_components",
     "complexity_claim": "O(|V| + |E|)",
     "nodes_touched": 5,
-    "edges_scanned": 8,
+    "edges_scanned": 7,
     "queue_peak": 1
   }
 }
