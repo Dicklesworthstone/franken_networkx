@@ -845,31 +845,33 @@ impl Graph {
     /// row u's original order. Call on a fresh clone inside copy-shaped
     /// constructors; graph content is unchanged, only row order moves.
     pub fn reorder_rows_for_nx_copy_walk(&mut self) {
-        // br-r37-c1-d58s8 P2(c) slice 2: pure integer-row reorder. Early
-        // neighbors (pos(v) < pu) sort by (pos(v), index of u within row
-        // v); late neighbors keep row order.
+        // br-r37-c1-predrebuild: rebuild rows in nx's copy-walk order in O(E),
+        // replacing the per-early-neighbor linear search
+        // `adj_indices[v].position(|w| w == pu)` (O(E * degree) — quadratic on
+        // dense graphs; it erodes dense Graph.copy() wins 9.5x->5.9x as density
+        // climbs). Early neighbors of pu (v < pu) sort by
+        // (pos(v), index-of-pu-within-adj[v]); walking adj in (v, adj-index)
+        // order and appending v to early[pu] when pu > v yields exactly that
+        // order. Late neighbors (v >= pu) keep adj[pu]'s row order. Byte-
+        // identical row order — no search, no sort.
         let n = self.adj_indices.len();
-        let mut new_rows: Vec<Vec<usize>> = Vec::with_capacity(n);
-        for (pu, row) in self.adj_indices.iter().enumerate() {
-            let mut early: Vec<(usize, usize, usize)> = Vec::new();
-            let mut late: Vec<usize> = Vec::new();
-            for &v in row {
-                if v < pu {
-                    let pos_in_v = self.adj_indices[v]
-                        .iter()
-                        .position(|&w| w == pu)
-                        .unwrap_or(usize::MAX);
-                    early.push((v, pos_in_v, v));
-                } else {
-                    late.push(v);
+        let mut early: Vec<Vec<usize>> = vec![Vec::new(); n];
+        for (v, row) in self.adj_indices.iter().enumerate() {
+            for &pu in row {
+                if pu > v {
+                    early[pu].push(v);
                 }
             }
-            early.sort_by_key(|&(pos_v, pos_in_v, _)| (pos_v, pos_in_v));
-            let mut new_row: Vec<usize> = Vec::with_capacity(row.len());
-            for (_, _, v) in early {
-                new_row.push(v);
+        }
+        let mut new_rows: Vec<Vec<usize>> = Vec::with_capacity(n);
+        for (pu, row) in self.adj_indices.iter().enumerate() {
+            let mut new_row = std::mem::take(&mut early[pu]);
+            new_row.reserve(row.len());
+            for &v in row {
+                if v >= pu {
+                    new_row.push(v);
+                }
             }
-            new_row.extend(late);
             new_rows.push(new_row);
         }
         self.adj_indices = new_rows;
