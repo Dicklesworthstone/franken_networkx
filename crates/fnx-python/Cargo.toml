@@ -38,3 +38,7 @@ harness = false
 [[bench]]
 name = "public_api_gauntlet"
 harness = false
+
+[[bench]]
+name = "tree_submodule_head_to_head"
+harness = false

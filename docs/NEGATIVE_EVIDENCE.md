@@ -41,6 +41,67 @@ Decision:
   construction path or a larger algorithmic win that beats NetworkX after
   Python graph materialization.
 
+## 2026-06-21 Cod-A Tree Submodule Diagnostic Bench, Superseded by Revert (`br-r37-c1-04z53.9157`, cod-a)
+
+Scope: partial-resume measurement of the same tree-submodule route before
+rebasing onto the cod-b rejection commit `1f4bc9171`. This records the actual
+cod-a RCH result and setup failures, but it is not a current-source keep: after
+the rebase, `python/franken_networkx/tree.py` again delegates submodule
+MST/maxST through NetworkX plus `_from_nx_graph` conversion.
+
+Evidence:
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-a-treebench-20260621T0156`.
+- Requested target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+  RCH rewrote it to a worker-scoped target on `hz1` for remote execution.
+- Measured command:
+  `AGENT_NAME=CrimsonRiver BR_AGENT_NAME=cod-a CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- env PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH cargo bench -p fnx-python --bench tree_submodule_head_to_head`.
+- The new Criterion bench asserts weighted sparse simple-graph MST/maxST
+  parity before timing and uses vendored NetworkX
+  `legacy_networkx_code/networkx` as the oracle.
+
+Measured release timing on a 900-node / 3,599-edge weighted sparse simple
+graph, four public API calls per Criterion iteration:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `franken_networkx.tree.minimum_spanning_tree` | `25.574 ms` | `39.899 ms` | `1.560x` | win |
+| `franken_networkx.tree.maximum_spanning_tree` | `26.427 ms` | `46.737 ms` | `1.769x` | win |
+
+Setup failures recorded:
+- `cargo bench ... -- --sample-size 10 --warm-up-time 1 --measurement-time 2`
+  built the bench profile but Criterion 0.8 rejected `--sample-size`; no
+  samples were collected.
+- The first registered target attempt was missing `harness = false` and ran as
+  a zero-test harness; no Criterion samples were collected.
+- The next setup attempts reached Python startup but failed before timing
+  because the worker had no installed `_fnx` extension and then no optional
+  `numpy` dependency. The checked-in bench now preloads the bench-built
+  `lib_fnx.so` as `franken_networkx._fnx` and installs a fail-fast dummy
+  `numpy` module so import-time drawing setup does not block this tree-only
+  workload.
+
+Conformance and gates:
+- `rustfmt --check crates/fnx-python/benches/tree_submodule_head_to_head.rs`.
+- `git diff --check`.
+- `rch exec -- cargo check -p fnx-python --benches --features pyo3/abi3-py310`.
+- `ubs $(git diff --name-only --cached)` after replacing the parity `!=`
+  checks with `operator.eq` to avoid a scanner false positive; exit `0`.
+- `python -m py_compile python/franken_networkx/tree.py
+  tests/python/test_algorithms_tree_submodule.py`.
+- Focused tree-submodule pytest with the bench-built release extension
+  preloaded as `franken_networkx._fnx`: `21 passed` after rebasing onto the
+  route-revert source.
+
+Decision:
+- Superseded/no-ship. The cod-a run produced `2` positive diagnostic ratios
+  before the rebase, but the current branch includes the cod-b current-source
+  loss and route revert above. Do not count these rows as active current-source
+  wins.
+- Remaining deeper work: separate fallback/multigraph tree rows if a future
+  profile shows a live loss outside this simple-graph public route.
+
 ## 2026-06-21 MultiDiGraph Lazy Tarjan Strong-Connectivity Keep (`br-r37-c1-1pmou`, cod-a)
 
 Scope: close the measured `MultiDiGraph.is_strongly_connected` negative-case
