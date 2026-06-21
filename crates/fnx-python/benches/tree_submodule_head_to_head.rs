@@ -3,7 +3,7 @@
 //! This measures the public submodule surface, not just the top-level
 //! `franken_networkx.minimum_spanning_tree` functions.
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use std::ffi::CString;

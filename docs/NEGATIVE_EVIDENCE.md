@@ -102,6 +102,46 @@ Decision:
 - Remaining deeper work: separate fallback/multigraph tree rows if a future
   profile shows a live loss outside this simple-graph public route.
 
+## 2026-06-21 Fresh Cod-A Current-Source Tree Submodule Verification (`br-r37-c1-04z53.9157`, cod-a)
+
+Scope: re-authenticated cod-a restart on current `main` after rebasing onto the
+cod-b tree-submodule route revert and the checked-in focused harness. This is
+the live current-source decision for the `franken_networkx.tree`
+minimum/maximum spanning-tree public submodule surface.
+
+Evidence:
+- Agent Mail identity: `CrimsonRiver`; CLI actor: `cod-a`.
+- Requested target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+  RCH rewrote it to worker-scoped target
+  `/data/projects/franken_networkx/.rch-target-hz1-pool-411d55b5f6ed4833c6ebe01f30cd4b74`
+  on `hz1`.
+- Command:
+  `AGENT_NAME=CrimsonRiver CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --bench tree_submodule_head_to_head --features pyo3/abi3-py310 -- --noplot --sample-size 10 --warm-up-time 1 --measurement-time 2`.
+- The harness asserts weighted sparse simple-graph MST/maxST parity against
+  vendored NetworkX before timing and preloads the bench-built `_fnx` extension.
+- Alien route considered: graphic-matroid/DSU work is already in the top-level
+  fnx native kernels; the remaining candidate is boundary/materialization
+  removal for the submodule wrapper. Current source still pays NetworkX
+  delegate plus `_from_nx_graph`, and the direct top-level reroute is already
+  rejected above.
+
+Measured current-source release timing on a 900-node / 3,599-edge weighted
+sparse simple graph, four public API calls per Criterion iteration:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `franken_networkx.tree.minimum_spanning_tree` | `230.97 ms` | `81.677 ms` | `0.354x` | loss |
+| `franken_networkx.tree.maximum_spanning_tree` | `254.50 ms` | `97.596 ms` | `0.383x` | loss |
+
+Decision:
+- Reject/no-ship for current source. The submodule route remains slower than
+  NetworkX after public graph materialization, so no runtime code was changed.
+- Keep the focused bench harness as evidence machinery only.
+- Do not retry the simple reroute family. A future attempt needs a deeper
+  result-construction/materialization primitive that beats NetworkX after
+  preserving graph/node/edge attributes, ordering, and exception behavior.
+
 ## 2026-06-21 MultiDiGraph Lazy Tarjan Strong-Connectivity Keep (`br-r37-c1-1pmou`, cod-a)
 
 Scope: close the measured `MultiDiGraph.is_strongly_connected` negative-case
