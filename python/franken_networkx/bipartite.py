@@ -1051,6 +1051,45 @@ def alternating_havel_hakimi_graph(aseq, bseq, create_using=None, *, backend=Non
     _fnx._validate_backend_dispatch_keywords(
         "alternating_havel_hakimi_graph", backend, backend_kwargs
     )
+    # br-r37-c1-bphhgen: de-delegate the default (MultiGraph). Run nx's deterministic
+    # alternating Havel-Hakimi loop verbatim (largest-a-degree node -> b-stubs
+    # interleaved low/high via zip(large, small)) to collect edges in nx's exact
+    # order, then bulk add. Byte-identical incl. multi-edge keys + graph name.
+    if create_using is None:
+        naseq, nbseq = len(aseq), len(bseq)
+        suma, sumb = sum(aseq), sum(bseq)
+        if suma != sumb:
+            raise _fnx.NetworkXError(
+                f"invalid degree sequences, sum(aseq)!=sum(bseq),{suma},{sumb}"
+            )
+        G = _fnx.MultiGraph()
+        G.add_nodes_from((v, {"bipartite": 0}) for v in range(naseq))
+        G.add_nodes_from((v, {"bipartite": 1}) for v in range(naseq, naseq + nbseq))
+        if naseq == 0 or max(aseq) == 0:
+            return G
+        edges = []
+        astubs = [[aseq[v], v] for v in range(naseq)]
+        bstubs = [[bseq[v - naseq], v] for v in range(naseq, naseq + nbseq)]
+        while astubs:
+            astubs.sort()
+            (degree, u) = astubs.pop()
+            if degree == 0:
+                break
+            bstubs.sort()
+            small = bstubs[0 : degree // 2]
+            large = bstubs[(-degree + degree // 2) :]
+            stubs = [x for z in zip(large, small) for x in z]
+            if len(stubs) < len(small) + len(large):
+                stubs.append(large.pop())
+            for target in stubs:
+                v = target[1]
+                edges.append((u, v))
+                target[0] -= 1
+                if target[0] == 0:
+                    bstubs.remove(target)
+        G.add_edges_from(edges)
+        G.graph["name"] = "bipartite_alternating_havel_hakimi_graph"
+        return G
     nx_result = _nx_bipartite.alternating_havel_hakimi_graph(aseq, bseq, create_using=create_using)
     return _from_nx_graph(nx_result, create_using=create_using)
 
@@ -1169,6 +1208,40 @@ def reverse_havel_hakimi_graph(aseq, bseq, create_using=None, *, backend=None, *
     _fnx._validate_backend_dispatch_keywords(
         "reverse_havel_hakimi_graph", backend, backend_kwargs
     )
+    # br-r37-c1-bphhgen: de-delegate the default (MultiGraph). Run nx's deterministic
+    # reverse Havel-Hakimi loop verbatim (largest-a-degree node -> SMALLEST-degree
+    # b-stubs ``bstubs[0:degree]``, bstubs sorted once up front) to collect edges in
+    # nx's exact order, then bulk add. Byte-identical incl. multi-edge keys + name.
+    if create_using is None:
+        lena, lenb = len(aseq), len(bseq)
+        suma, sumb = sum(aseq), sum(bseq)
+        if suma != sumb:
+            raise _fnx.NetworkXError(
+                f"invalid degree sequences, sum(aseq)!=sum(bseq),{suma},{sumb}"
+            )
+        G = _fnx.MultiGraph()
+        G.add_nodes_from((v, {"bipartite": 0}) for v in range(lena))
+        G.add_nodes_from((v, {"bipartite": 1}) for v in range(lena, lena + lenb))
+        if lena == 0 or max(aseq) == 0:
+            return G
+        edges = []
+        astubs = [[aseq[v], v] for v in range(lena)]
+        bstubs = [[bseq[v - lena], v] for v in range(lena, lena + lenb)]
+        astubs.sort()
+        bstubs.sort()
+        while astubs:
+            (degree, u) = astubs.pop()
+            if degree == 0:
+                break
+            for target in bstubs[0:degree]:
+                v = target[1]
+                edges.append((u, v))
+                target[0] -= 1
+                if target[0] == 0:
+                    bstubs.remove(target)
+        G.add_edges_from(edges)
+        G.graph["name"] = "bipartite_reverse_havel_hakimi_graph"
+        return G
     nx_result = _nx_bipartite.reverse_havel_hakimi_graph(aseq, bseq, create_using=create_using)
     return _from_nx_graph(nx_result, create_using=create_using)
 
