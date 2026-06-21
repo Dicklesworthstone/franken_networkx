@@ -3029,3 +3029,25 @@ LESSON (re-learned the hard way): ALWAYS benchmark the native-target perf on the
 CURRENT install before declaring a route rebuild-gated. A value-equivalent
 passthrough route's target perf must be measured on the same build it will ship
 against, not a stale PYTHONPATH .so (see feedback_stale_install_benchmark_trap).
+
+## 2026-06-21 — is_distance_regular "0.003x gap" is a CORRECTNESS win for fnx, not a perf loss (CopperCliff)
+
+`is_distance_regular(cycle_graph(800))`: fnx `201ms` vs nx `0.53ms` looks like a
+catastrophic `0.003x` loss. It is NOT a perf gap to fix — it is a **correctness
+divergence where fnx is right and nx is wrong**. fnx returns `True` (a cycle C_n
+IS distance-regular for all n — textbook); nx returns `False`. nx's
+`intersection_array` uses a diameter early-exit `(8·log2 n)/3 ≈ 25.7` for n=800,
+but that bound is only valid for valency ≥ 3 distance-regular graphs — a cycle
+(valency 2) has diameter ⌊n/2⌋ = 400 and is wrongly rejected. fnx's native
+`_raw_is_distance_regular` computes the full intersection array (all-source BFS,
+O(V·(V+E))) and gets the correct answer.
+
+Verified: fnx==nx on petersen (DR, valency 3), K20 (DR), random 3-regular
+(not DR) — they diverge ONLY on large cycles (valency 2), where fnx is correct.
+
+DO NOT route fnx.is_distance_regular to nx's fast path — it would adopt nx's bug.
+The slowness is the price of correctness: for a graph that genuinely IS
+distance-regular you cannot early-exit-reject, so the work is unavoidable. The
+only lever is a native single-source-lazy intersection array (vs the current
+all-source) — still O(V^2)-ish for true DR graphs, marginal, rebuild-gated, low
+value (is_distance_regular is algebraic-graph-theory niche). Bead filed.
