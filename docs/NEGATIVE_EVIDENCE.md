@@ -3008,3 +3008,24 @@ nodes) already exceeds nx's whole-call native-dict time (`0.38 ms`). REVERTED (n
 shipped). Lever (rebuild-gated): a native bulk predecessor-keys snapshot (the
 directed sibling of `_native_adjacency_keys`) to get the snapshot below nx's
 native-dict access; only then does an in-process colliders/v_structures beat nx.
+
+## 2026-06-21 — CORRECTION: dag.has_cycle IS cleanly routable; the earlier "is_dag slow on cyclic" was a STALE .so artifact (CopperCliff)
+
+The earlier entry "dag.has_cycle / is_directed_acyclic_graph slow on CYCLIC =
+native no-early-exit gap" (commit e0731148d) was WRONG — a stale-install
+measurement trap. Those `is_directed_acyclic_graph(cyclic) 9.5ms` /
+`find_cycle 9.6ms` numbers were measured via `PYTHONPATH=…/python` against the
+in-tree `_fnx.abi3.so` left over from an earlier to_numpy build, NOT the current
+extension. Re-measured against the current install: `is_directed_acyclic_graph`
+is `0.012 ms` cyclic / `0.018 ms` DAG (the native kernel is Kahn's integer-CSR,
+which naturally terminates on the first stalled peel — there was never a missing
+early-exit). FIXED (no rebuild): `has_cycle(G) == not is_directed_acyclic_graph(G)`
+routed in dag.py for directed graphs — `not is_dag` is `0.009 ms` cyclic (34x nx)
+/ `0.015 ms` DAG (68x nx), value-identical incl. self-loops / parallel edges /
+empty; undirected falls back to nx's `NetworkXNotImplemented`. dag conformance
+130 passed. Bead `br-r37-c1-isdag-cyclic-early-exit-qghjm` closed invalid.
+
+LESSON (re-learned the hard way): ALWAYS benchmark the native-target perf on the
+CURRENT install before declaring a route rebuild-gated. A value-equivalent
+passthrough route's target perf must be measured on the same build it will ship
+against, not a stale PYTHONPATH .so (see feedback_stale_install_benchmark_trap).
