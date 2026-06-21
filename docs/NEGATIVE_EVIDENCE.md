@@ -3051,3 +3051,20 @@ distance-regular you cannot early-exit-reject, so the work is unavoidable. The
 only lever is a native single-source-lazy intersection array (vs the current
 all-source) — still O(V^2)-ish for true DR graphs, marginal, rebuild-gated, low
 value (is_distance_regular is algebraic-graph-theory niche). Bead filed.
+
+### addendum 2 — colliders/v_structures native predecessor-keys BUILT + measured, still loses (CopperCliff 2026-06-21)
+
+Followed up the dag.colliders/v_structures substrate-bound finding by actually
+adding the native `_native_predecessor_keys_bulk` to PyDiGraph (mirroring the
+existing PyMultiDiGraph method) + routing colliders/v_structures through it, full
+warm release build. Correctness PASSED (30/30 random DAG+cyclic + docstring
+examples byte-identical; undirected raises NetworkXNotImplemented). But it STILL
+LOSES: colliders `0.66x` (fnx 2.58ms vs nx 1.72ms), v_structures `0.38x` — an
+improvement over the pure-Python reimpl (~0.42x) but not a win. Root cause: the
+native bulk still materializes EVERY predecessor node-key as a PyObject (O(E)
+`py_pred_key` allocations); nx's `G.predecessors` reuses the already-stored node
+objects, so fnx pays an allocation nx does not. This is the SAME node-key
+PyObject materialization wall that caps graph iteration (~35x) — the live-PyDict /
+interned-display node storage substrate, NOT a colliders-local or snapshot-local
+fix. REVERTED (worktree discarded). DO NOT re-attempt a predecessor-keys route for
+colliders/v_structures; the only lever is the deep node-storage rearchitecture.
