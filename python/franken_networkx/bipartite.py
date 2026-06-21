@@ -781,7 +781,9 @@ def closeness_centrality(G, nodes, normalized=True):
     return closeness
 
 
-def _weighted_projection_inprocess(B, nodes, weight_fn, *, nbrs2_form="minus"):
+def _weighted_projection_inprocess(
+    B, nodes, weight_fn, *, nbrs2_form="minus", allow_directed=False
+):
     """br-r37-c1-0y2fn: in-process weighted bipartite projection for a simple
     undirected fnx Graph (else None to fall back). Snapshots B's adjacency ONCE
     via the native key-only binding instead of paying either an nx round-trip +
@@ -800,13 +802,24 @@ def _weighted_projection_inprocess(B, nodes, weight_fn, *, nbrs2_form="minus"):
     neighbour loop also iterates the ORDER-PRESERVING adjacency LIST (native key
     order == ``B[nbr]`` AtlasView order) rather than a set, so nbrs2's construction
     order matches nx exactly (a set inner-row diverged in hash-collision cases).
+
+    br-r37-c1-bpprojdir: ``allow_directed=True`` also de-delegates DiGraph B (result
+    is a DiGraph; ``_native_adjacency_keys`` yields successors = nx's ``B[u]`` and
+    the vnbrs row is ``B.pred[v]``). Used by weighted / overlap / generic, whose
+    weights are integer counts / order-free ratios -> byte-exact. Collaboration
+    keeps ``allow_directed=False`` (its float SUM over ``un & vn`` is set-iteration-
+    order-locked for directed B and must stay delegated).
     """
     nak = getattr(B, "_native_adjacency_keys", None)
-    if nak is None or type(B) is not _fnx.Graph or B.is_multigraph() or B.is_directed():
+    if nak is None or type(B) not in (_fnx.Graph, _fnx.DiGraph) or B.is_multigraph():
+        return None
+    directed = type(B) is _fnx.DiGraph
+    if directed and not allow_directed:
         return None
     adj_list = {node: list(nbrs) for node, nbrs in nak()}
     adj = {node: set(lst) for node, lst in adj_list.items()}
-    G = _fnx.Graph()
+    vrow = {n: set(B.pred[n]) for n in B} if directed else adj
+    G = _fnx.DiGraph() if directed else _fnx.Graph()
     G.graph.update(B.graph)
     G.add_nodes_from((n, B.nodes[n]) for n in nodes)
     edges = []
@@ -817,7 +830,7 @@ def _weighted_projection_inprocess(B, nodes, weight_fn, *, nbrs2_form="minus"):
         else:
             nbrs2 = {n for nbr in unbrs for n in adj_list[nbr] if n != u}
         for v in nbrs2:
-            edges.append((u, v, {"weight": weight_fn(unbrs, adj[v], adj)}))
+            edges.append((u, v, {"weight": weight_fn(unbrs, vrow[v], adj)}))
     G.add_edges_from(edges)
     return G
 
@@ -943,16 +956,17 @@ def weighted_projected_graph(B, nodes, ratio=False, *, backend=None, **backend_k
     _fnx._validate_backend_dispatch_keywords(
         "weighted_projected_graph", backend, backend_kwargs
     )
-    # br-r37-c1-0y2fn: de-delegate the simple undirected case. nx guards
-    # n_top < 1 (raises) — keep that on the delegation fallback.
-    if type(B) is _fnx.Graph and not B.is_multigraph() and not B.is_directed():
+    # br-r37-c1-0y2fn / bpprojdir: de-delegate simple Graph AND DiGraph (the weight
+    # is an integer count / order-free ratio -> byte-exact for directed too). nx
+    # guards n_top < 1 (raises) — keep that on the delegation fallback.
+    if type(B) in (_fnx.Graph, _fnx.DiGraph) and not B.is_multigraph():
         n_top = len(B) - len(nodes)
         if n_top >= 1:
             if ratio:
                 wf = lambda un, vn, adj: len(un & vn) / n_top
             else:
                 wf = lambda un, vn, adj: len(un & vn)
-            _fast = _weighted_projection_inprocess(B, nodes, wf)
+            _fast = _weighted_projection_inprocess(B, nodes, wf, allow_directed=True)
             if _fast is not None:
                 return _fast
     nx_result = _nx_bipartite.weighted_projected_graph(B, nodes, ratio=ratio)
@@ -973,7 +987,7 @@ def generic_weighted_projected_graph(B, nodes, weight_function=None, *, backend=
     # keeps the nx delegation path.
     if weight_function is None:
         _fast = _weighted_projection_inprocess(
-            B, nodes, lambda un, vn, adj: len(un & vn)
+            B, nodes, lambda un, vn, adj: len(un & vn), allow_directed=True
         )
         if _fast is not None:
             return _fast
@@ -995,7 +1009,7 @@ def overlap_weighted_projected_graph(B, nodes, jaccard=True, *, backend=None, **
         wf = lambda un, vn, adj: len(un & vn) / len(un | vn)
     else:
         wf = lambda un, vn, adj: len(un & vn) / min(len(un), len(vn))
-    _fast = _weighted_projection_inprocess(B, nodes, wf)
+    _fast = _weighted_projection_inprocess(B, nodes, wf, allow_directed=True)
     if _fast is not None:
         return _fast
     nx_result = _nx_bipartite.overlap_weighted_projected_graph(B, nodes, jaccard=jaccard)
