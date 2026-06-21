@@ -2547,7 +2547,13 @@ impl PyMultiGraph {
     fn ensure_node_py_attrs(&mut self, py: Python<'_>, canonical: &str) -> &Py<PyDict> {
         self.node_py_attrs
             .entry(canonical.to_owned())
-            .or_insert_with(|| PyDict::new(py).unbind())
+            // br-r37-c1-lazynodeattr: build the mirror from the inner node AttrMap
+            // lazily (symmetric to PyGraph) so the batch skips the eager alloc+copy.
+            .or_insert_with(|| match self.inner.node_attrs(canonical) {
+                Some(attrs) => attr_map_to_pydict(py, attrs)
+                    .expect("stored node attrs must convert to Python"),
+                None => PyDict::new(py).unbind(),
+            })
     }
 
     fn ensure_edge_py_attrs(
@@ -3169,18 +3175,8 @@ impl PyMultiGraph {
                 let _ = self.node_iter_mirror_insert(py, &c);
             }
         }
-        for (canonical, _, src) in &nodes {
-            if let Some(src) = src {
-                let bound = src.bind(py);
-                if !bound.is_empty() {
-                    self.node_py_attrs
-                        .entry(canonical.clone())
-                        .or_insert_with(|| PyDict::new(py).unbind())
-                        .bind(py)
-                        .update(bound.as_mapping())?;
-                }
-            }
-        }
+        // br-r37-c1-lazynodeattr: no eager per-node mirror — ensure_node_py_attrs
+        // builds it lazily from the inner AttrMap on first read.
         let _inserted = self
             .inner
             .extend_nodes_with_attrs_unrecorded(nodes.into_iter().map(|(c, a, _)| (c, a)));
