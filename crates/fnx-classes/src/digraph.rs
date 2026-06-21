@@ -461,22 +461,22 @@ impl DiGraph {
     /// a fresh clone inside copy-shaped constructors; graph content is
     /// unchanged, only pred row order moves.
     pub fn reorder_pred_rows_for_nx_copy_walk(&mut self) {
-        // br-r37-c1-d58s8 P3: pure integer — pred row of v sorts by
-        // (pos(u), index of v within succ[u]).
-        let mut new_rows: Vec<Vec<usize>> = Vec::with_capacity(self.pred_indices.len());
-        for (v, row) in self.pred_indices.iter().enumerate() {
-            let mut order: Vec<(usize, usize, usize)> = row
-                .iter()
-                .map(|&u| {
-                    let idx_in_succ = self.succ_indices[u]
-                        .iter()
-                        .position(|&w| w == v)
-                        .unwrap_or(usize::MAX);
-                    (u, idx_in_succ, u)
-                })
-                .collect();
-            order.sort_unstable();
-            new_rows.push(order.into_iter().map(|(_, _, u)| u).collect());
+        // br-r37-c1-predrebuild: rebuild pred rows in nx's u-major copy-walk order
+        // DIRECTLY from succ rows in O(E), replacing the prior per-pred-entry
+        // linear search `succ_indices[u].position(|w| w == v)` (O(E * degree) —
+        // quadratic on dense graphs). Iterating succ in (u, succ-index) order and
+        // appending u to pred[v] reproduces exactly the
+        // (pos(u), index-of-v-within-succ[u]) ordering the old sort produced,
+        // including parallel-edge multiplicity — byte-identical pred row order.
+        let mut new_rows: Vec<Vec<usize>> = self
+            .pred_indices
+            .iter()
+            .map(|row| Vec::with_capacity(row.len()))
+            .collect();
+        for (u, succ_row) in self.succ_indices.iter().enumerate() {
+            for &v in succ_row {
+                new_rows[v].push(u);
+            }
         }
         self.pred_indices = new_rows;
     }
@@ -1682,26 +1682,21 @@ impl MultiDiGraph {
     /// sort by `(pos(u), index of v within succ[u])`; succ rows are
     /// recreated in their original order by the u-major walk.
     pub fn reorder_pred_rows_for_nx_copy_walk(&mut self) {
-        let mut orders: Vec<(String, Vec<String>)> = Vec::with_capacity(self.predecessors.len());
-        for (v, row) in &self.predecessors {
-            let mut order: Vec<(usize, usize, String)> = row
-                .keys()
-                .map(|u| {
-                    let pu = self
-                        .successors
-                        .get_index_of(u.as_str())
-                        .unwrap_or(usize::MAX);
-                    let idx = self
-                        .successors
-                        .get(u.as_str())
-                        .and_then(|r| r.get_index_of(v.as_str()))
-                        .unwrap_or(usize::MAX);
-                    (pu, idx, u.clone())
-                })
-                .collect();
-            order.sort_unstable();
-            orders.push((v.clone(), order.into_iter().map(|(_, _, u)| u).collect()));
+        // br-r37-c1-predrebuild: build each pred row's u-major copy-walk order
+        // DIRECTLY by walking succ in pos(u) order, replacing the prior
+        // per-pred-entry double `get_index_of` lookup + per-row sort. Each pred
+        // row holds DISTINCT predecessors u, so pos(u) is the sole ordering key
+        // (the succ-index tiebreak never fires), and appending u to pred[v] while
+        // iterating succ in insertion (= position) order yields the exact same
+        // ordering — byte-identical pred row order, no sort, no index lookups.
+        let mut order_map: IndexMap<String, Vec<String>> =
+            IndexMap::with_capacity(self.predecessors.len());
+        for (u, succ_row) in &self.successors {
+            for v in succ_row.keys() {
+                order_map.entry(v.clone()).or_default().push(u.clone());
+            }
         }
+        let orders: Vec<(String, Vec<String>)> = order_map.into_iter().collect();
         self.apply_row_orders(&orders, true);
     }
 
