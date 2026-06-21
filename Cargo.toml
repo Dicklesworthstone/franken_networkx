@@ -21,6 +21,15 @@ version = "0.2.0"
 license-file = "LICENSE"
 repository = "https://github.com/Dicklesworthstone/franken_networkx"
 
+[profile.release]
+# br-r37-c1-ltolever: the wheel ships via `maturin --release` -> this profile. Cargo's
+# defaults (lto=false, codegen-units=16) leave cross-crate inlining on the table. Thin LTO
+# + a single codegen unit let the optimizer inline across fnx-classes/algorithms/python
+# boundaries (hot kernels call across crates constantly). Semantics-preserving — Rust keeps
+# IEEE FP (no fast-math), so results are byte-identical; only the machine code improves.
+lto = "thin"
+codegen-units = 1
+
 [profile.release-perf]
 inherits = "release"
 debug = "line-tables-only"
