@@ -1734,10 +1734,10 @@ impl DiGraph {
 pub struct MultiDiGraph {
     mode: CompatibilityMode,
     revision: u64,
-    nodes: IndexMap<String, AttrMap>,
-    successors: IndexMap<String, IndexMap<String, IndexSet<usize>>>,
-    predecessors: IndexMap<String, IndexMap<String, IndexSet<usize>>>,
-    edges: IndexMap<DirectedEdgeKey, IndexMap<usize, AttrMap>>,
+    nodes: crate::FxIndexMap<String, AttrMap>,
+    successors: crate::FxIndexMap<String, IndexMap<String, IndexSet<usize>>>,
+    predecessors: crate::FxIndexMap<String, IndexMap<String, IndexSet<usize>>>,
+    edges: crate::FxIndexMap<DirectedEdgeKey, IndexMap<usize, AttrMap>>,
     runtime_policy: RuntimePolicy,
     edge_count: usize,
 }
@@ -1815,10 +1815,10 @@ impl MultiDiGraph {
         Self {
             mode,
             revision: 0,
-            nodes: IndexMap::new(),
-            successors: IndexMap::new(),
-            predecessors: IndexMap::new(),
-            edges: IndexMap::new(),
+            nodes: crate::FxIndexMap::default(),
+            successors: crate::FxIndexMap::default(),
+            predecessors: crate::FxIndexMap::default(),
+            edges: crate::FxIndexMap::default(),
             runtime_policy: RuntimePolicy::new(mode),
             edge_count: 0,
         }
@@ -1830,10 +1830,10 @@ impl MultiDiGraph {
         Self {
             mode,
             revision: 0,
-            nodes: IndexMap::new(),
-            successors: IndexMap::new(),
-            predecessors: IndexMap::new(),
-            edges: IndexMap::new(),
+            nodes: crate::FxIndexMap::default(),
+            successors: crate::FxIndexMap::default(),
+            predecessors: crate::FxIndexMap::default(),
+            edges: crate::FxIndexMap::default(),
             runtime_policy,
             edge_count: 0,
         }
@@ -2681,17 +2681,26 @@ impl MultiDiGraph {
     /// `add_edge` policy path.
     #[must_use]
     pub fn reversed(&self) -> Self {
-        let mut successors: IndexMap<String, IndexMap<String, IndexSet<usize>>> =
-            IndexMap::with_capacity(self.nodes.len());
-        let mut predecessors: IndexMap<String, IndexMap<String, IndexSet<usize>>> =
-            IndexMap::with_capacity(self.nodes.len());
+        let mut successors: crate::FxIndexMap<String, IndexMap<String, IndexSet<usize>>> =
+            crate::FxIndexMap::with_capacity_and_hasher(
+                self.nodes.len(),
+                rustc_hash::FxBuildHasher::default(),
+            );
+        let mut predecessors: crate::FxIndexMap<String, IndexMap<String, IndexSet<usize>>> =
+            crate::FxIndexMap::with_capacity_and_hasher(
+                self.nodes.len(),
+                rustc_hash::FxBuildHasher::default(),
+            );
         for node in self.nodes.keys() {
             successors.insert(node.clone(), IndexMap::new());
             predecessors.insert(node.clone(), IndexMap::new());
         }
 
-        let mut edges: IndexMap<DirectedEdgeKey, IndexMap<usize, AttrMap>> =
-            IndexMap::with_capacity(self.edges.len());
+        let mut edges: crate::FxIndexMap<DirectedEdgeKey, IndexMap<usize, AttrMap>> =
+            crate::FxIndexMap::with_capacity_and_hasher(
+                self.edges.len(),
+                rustc_hash::FxBuildHasher::default(),
+            );
         let mut edge_count = 0usize;
         for source in self.nodes.keys() {
             let Some(neighbors) = self.successors.get(source) else {

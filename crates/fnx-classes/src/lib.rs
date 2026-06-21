@@ -2189,9 +2189,9 @@ impl Graph {
 pub struct MultiGraph {
     mode: CompatibilityMode,
     revision: u64,
-    nodes: IndexMap<String, AttrMap>,
-    adjacency: IndexMap<String, IndexMap<String, IndexSet<usize>>>,
-    edges: IndexMap<EdgeKey, IndexMap<usize, AttrMap>>,
+    nodes: FxIndexMap<String, AttrMap>,
+    adjacency: FxIndexMap<String, IndexMap<String, IndexSet<usize>>>,
+    edges: FxIndexMap<EdgeKey, IndexMap<usize, AttrMap>>,
     runtime_policy: RuntimePolicy,
     edge_count: usize,
 }
@@ -2284,9 +2284,9 @@ impl MultiGraph {
         Self {
             mode,
             revision: 0,
-            nodes: IndexMap::new(),
-            adjacency: IndexMap::new(),
-            edges: IndexMap::new(),
+            nodes: FxIndexMap::default(),
+            adjacency: FxIndexMap::default(),
+            edges: FxIndexMap::default(),
             runtime_policy: RuntimePolicy::new(mode),
             edge_count: 0,
         }
@@ -2298,9 +2298,9 @@ impl MultiGraph {
         Self {
             mode,
             revision: 0,
-            nodes: IndexMap::new(),
-            adjacency: IndexMap::new(),
-            edges: IndexMap::new(),
+            nodes: FxIndexMap::default(),
+            adjacency: FxIndexMap::default(),
+            edges: FxIndexMap::default(),
             runtime_policy,
             edge_count: 0,
         }
