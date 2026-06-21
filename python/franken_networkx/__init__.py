@@ -6130,22 +6130,32 @@ def _graph_deepcopy(self, memo=None):
                 return _dc(d, memo)
         return d
 
-    out = _copy(self)
-    vars(out)[_GRAPH_ATTR_OVERRIDE] = _dc(dict(self.graph), memo)
-    for node, attrs in self.nodes(data=True):
-        out_attrs = out.nodes[node]
-        out_attrs.clear()
-        out_attrs.update(_dc_attrs(attrs))
-    if self.is_multigraph():
-        for u, v, key, attrs in self.edges(keys=True, data=True):
-            out_attrs = out[u][v][key]
-            out_attrs.clear()
-            out_attrs.update(_dc_attrs(attrs))
+    # br-r37-c1-489mp: when the Rust type exposes a native same-type deepcopy, use
+    # it — it clones the structure VERBATIM (matching copy.copy) and deep-copies the
+    # node/edge attr dicts under the shared ``memo`` natively, replacing the
+    # per-node/edge AtlasView walk below (``out[u][v]`` rebuilt the adjacency row
+    # keydict O(E) times — the profiled deepcopy bottleneck). Byte-identical result;
+    # graph attrs + frozen + custom instance attrs are applied by the shared tail.
+    _native_deepcopy = getattr(self, "_native_deepcopy", None)
+    if _native_deepcopy is not None:
+        out = _native_deepcopy(memo)
     else:
-        for u, v, attrs in self.edges(data=True):
-            out_attrs = out[u][v]
+        out = _copy(self)
+        for node, attrs in self.nodes(data=True):
+            out_attrs = out.nodes[node]
             out_attrs.clear()
             out_attrs.update(_dc_attrs(attrs))
+        if self.is_multigraph():
+            for u, v, key, attrs in self.edges(keys=True, data=True):
+                out_attrs = out[u][v][key]
+                out_attrs.clear()
+                out_attrs.update(_dc_attrs(attrs))
+        else:
+            for u, v, attrs in self.edges(data=True):
+                out_attrs = out[u][v]
+                out_attrs.clear()
+                out_attrs.update(_dc_attrs(attrs))
+    vars(out)[_GRAPH_ATTR_OVERRIDE] = _dc(dict(self.graph), memo)
     # br-r37-c1-9e7gd: nx preserves the frozen-graph flag (and its
     # mutator overrides) across deepcopy because it copies the
     # instance __dict__. fnx's _graph_deepcopy constructs a fresh
