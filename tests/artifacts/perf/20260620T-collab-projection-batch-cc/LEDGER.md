@@ -1,24 +1,26 @@
-# Perf lever (code-only, bench deferred) — collaboration_weighted_projected_graph directed batch (br-r37-c1-collabbatch)
+# collaboration_weighted_projected_graph directed — batch shipped, BENCH RESULT (br-r37-c1-collabbatch)
 
-- Agent: `BlackThrush` · 2026-06-20 · File: `python/franken_networkx/bipartite.py`
-- DISK-LOW turn: code-only, no build/bench. Parity verified with existing install.
+- Agent: `BlackThrush` · 2026-06-20 · File: `python/franken_networkx/bipartite.py` (commit 42463a8ce)
 
-`collaboration_weighted_projected_graph` takes a snapshot fast path
-(`_weighted_projection_inprocess`) for undirected simple Graph B, but BAILS for a
-DIRECTED bipartite B (type(B) is not Graph). The directed fallback then rebuilt the
-projection via a per-node `add_node` + per-edge `add_edge` PyO3 round-trip (the
-construction tax). Collect the (node, attrs) and (u, v, weight-dict) tuples and
-commit via add_nodes_from / add_edges_from in one bulk pass each — identical
-node/edge order and weights, only the construction is batched.
+Shipped a construction-tax batch (per-edge add_edge -> add_edges_from) for the
+directed fallback. DEFERRED bench (run after disk recovered, pinned taskset -c 2,
+directed bipartite 150x150 / 2400 edges):
 
-## Parity (existing install, no build)
+- collaboration_weighted_projected_graph(directed): **0.7x** — the batch is BYTE-EXACT
+  but ~0-gain. cProfile/analysis: the bottleneck is NOT the construction but the
+  O(edges) weight loop's repeated per-access `B[u]` / `B[nbr]` / `pred[v]` /
+  `len(B[n])` AtlasView crossings.
 
-500 random DIRECTED bipartite graphs (edges both directions, node attrs, graph
-attrs): 0 mismatches vs networkx (node order, edge order, weights to 1e-12, node
-attrs, graph attrs). Undirected fast path unaffected (sanity-checked).
+PARITY-LOCKED — snapshot rejected: I tried snapshotting succ/pred adjacency to Python
+sets once (the usual lever); it measured **1.11x** but BROKE byte-exact parity
+(968/1000 exact-float, 497/500 at 1e-12). Root cause: nx computes the edge weight as
+`sum(1/(deg-1) for n in set(B[u]) & set(pred[v]))` over FRESH sets, and the
+float-summation order is the set-intersection iteration order of those exact set
+objects. Cached snapshot sets produce a different intersection order -> tiny float
+divergences (the [[reference_parity_blocked_by_set_order]] class). The weight loop
+therefore CANNOT be snapshotted byte-exactly; the directed projection is
+weight-computation-bound and parity-locked to nx's fresh-set order.
 
-## Perf
-
-BENCH DEFERRED (disk-low). Expected win consistent with the construction-tax batch
-lever ([[reference_batch_add_edges_from_construction]]): the per-edge add_edge loop
-is the proven 2x+ tax on graph-building Python wrappers. Measure when disk recovers.
+Verdict: keep the byte-exact construction batch (cleaner, not a regression); the 0.7x
+residual is the floor. A real win would need nx to change its summation, or a native
+kernel reproducing CPython set-intersection order — not worth it for this niche fn.
