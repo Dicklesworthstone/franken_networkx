@@ -32,3 +32,11 @@ ALL three = the dual-storage (Rust inner + lazy Python mirror) architecture. The
 fix is the persistent-Python-dict-mirror project (bead 4b5ie/9hkgu) — deep/core, not a local
 change. Separately: dijkstra single-target early-exit (113x) is in TealSpring's fnx-algorithms
 kernel (flagged via agent-mail). Everything else DOMINATES.
+
+## NEGATIVE: target-cpu=x86-64-v3 (AVX2/FMA) — ruled out (no win)
+Built the whole wheel with RUSTFLAGS=-C target-cpu=x86-64-v3 (on top of thin-LTO) and measured the
+Rust dense-matrix kernels (the only plausible SIMD beneficiaries): communicability 1.009x,
+subgraph_centrality 1.002x, communicability_betweenness 1.002x, estrada 0.991x, katz_numpy 1.023x
+— ALL within noise. The Rust matrix ops (Padé expm, LU) are not AVX-bound (BLAS-routed eig/solve
+dominates, or the i-k-j GEMM isn't auto-vectorized). So target-cpu buys nothing and would only cost
+wheel portability (drops pre-2015 CPUs). NOT shipped. thin-LTO (22d5d5323) stays the build lever.
