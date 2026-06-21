@@ -2939,3 +2939,18 @@ passthrough. A pure-Python reroute via `len(list(node_disjoint_paths(G,s,t)))`
 is NOT cleanly value-equivalent (node_disjoint_paths raises `NetworkXNoPath`
 where local_node_connectivity returns 0, and adjacent-pair semantics differ), so
 it is not a safe my-file lever. Filed as a bead.
+
+## 2026-06-21 — CORRECTION: to_scipy_sparse_array / to_pandas_adjacency do NOT share the to_numpy dirty ceiling (CopperCliff)
+
+The to_numpy_array dirty-weight entry (commit c95567ccb) speculated the same
+dirty-sync ceiling "likely applies to to_scipy_sparse_array and to_pandas_adjacency
+(untested)". Now tested (gnm N=1500/6000e, post-construction `G[u][v]['weight']=w`
+dirty graph):
+- `to_scipy_sparse_array`: dirty `1.01x` (parity), construction `2.76x` WIN — does
+  NOT suffer the to_numpy dirty penalty (it routes the weighted COO without the
+  full AttrMap rebuild dominating).
+- `to_pandas_adjacency`: dirty `0.93x`, construction `1.03x` — both ~parity; the
+  cost is pandas DataFrame construction (~24ms), not the edge sync, so the dirty
+  tax is negligible here.
+Conclusion: the dual-storage dirty-sync ceiling is SPECIFIC to to_numpy_array's
+path; do NOT chase a to_scipy/to_pandas dirty gap — there isn't one.
