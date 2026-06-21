@@ -2579,6 +2579,136 @@ impl PyMultiDiGraph {
         Ok(true)
     }
 
+    /// br-r37-c1-mgcompose: native `(u, v, key, data)` keyed-WITH-data batch on a
+    /// FRESH MultiDiGraph — the with-data sibling of `_native_add_keyed_edges_no_data`,
+    /// for compose/convert paths that replay a source multigraph's exact keys + attrs
+    /// (`add_edges_from((u,v,key,dict(d)) ...)` otherwise pays per-edge
+    /// add_edge_with_key_and_attrs = TWO record_decision/edge -> 0.32x vs nx). The user
+    /// key `k` is stored as the DISPLAY key; the internal storage key is the per-pair
+    /// auto counter (matching how this multigraph keys edges). Bails (Ok(false), NO
+    /// mutation) on anything outside the exact all-4-tuple shape so the per-edge loop
+    /// keeps every error/duplicate contract. Eager empty edge-attr dicts are dropped
+    /// (lazy materialize is identity-preserving, aab122464).
+    fn _native_add_keyed_edges_with_data(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        if self.inner.edge_count() != 0
+            || !self.succ_py_keys.is_empty()
+            || !self.pred_py_keys.is_empty()
+        {
+            return Ok(false);
+        }
+        let Ok(list) = ebunch_to_add.downcast::<PyList>() else {
+            return Ok(false);
+        };
+        let mut edges: Vec<(String, String, usize, fnx_classes::AttrMap)> =
+            Vec::with_capacity(list.len());
+        let mut display_keys: Vec<(String, String, usize, PyObject)> =
+            Vec::with_capacity(list.len());
+        let mut mirrors: Vec<((String, String, usize), Py<PyDict>)> = Vec::new();
+        let mut new_nodes: Vec<(String, PyObject)> = Vec::new();
+        let mut seen_nodes: std::collections::HashSet<String> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let mut batch_first: HashMap<String, PyObject> = HashMap::new();
+        let mut pair_count: HashMap<(String, String), usize> = HashMap::new();
+        let mut seen_edges: std::collections::HashSet<(String, String, String)> =
+            std::collections::HashSet::new();
+        let mut node_bumps = 0_u64;
+
+        for item in list.iter() {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(false);
+            };
+            if tuple.len() != 4 {
+                return Ok(false);
+            }
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            let k = tuple.get_item(2)?;
+            let data = tuple.get_item(3)?;
+            if !PyDiGraph::is_plain_batch_node(&u) || !PyDiGraph::is_plain_batch_node(&v) {
+                return Ok(false);
+            }
+            if k.hash().is_err() {
+                return Ok(false);
+            }
+            let Ok(d) = data.downcast::<PyDict>() else {
+                return Ok(false);
+            };
+            let Ok(rust_attrs) = py_dict_to_attr_map(d) else {
+                return Ok(false);
+            };
+            if rust_attrs
+                .keys()
+                .any(|key| key.starts_with("__fnx_incompatible"))
+            {
+                return Ok(false);
+            }
+            let uc = node_key_to_string(py, &u)?;
+            let vc = node_key_to_string(py, &v)?;
+            if self.batch_display_conflict(py, &uc, &u, &mut batch_first)
+                || self.batch_display_conflict(py, &vc, &v, &mut batch_first)
+            {
+                return Ok(false);
+            }
+            let key_lookup = crate::edge_key_lookup_string(py, &k)?;
+            if !seen_edges.insert((uc.clone(), vc.clone(), key_lookup)) {
+                return Ok(false);
+            }
+            if !seen_nodes.contains(&uc) || !seen_nodes.contains(&vc) {
+                node_bumps = node_bumps.wrapping_add(1);
+            }
+            if seen_nodes.insert(uc.clone()) {
+                new_nodes.push((uc.clone(), u.clone().unbind()));
+            }
+            if seen_nodes.insert(vc.clone()) {
+                new_nodes.push((vc.clone(), v.clone().unbind()));
+            }
+            let counter = pair_count.entry((uc.clone(), vc.clone())).or_insert(0);
+            let internal_key = *counter;
+            *counter += 1;
+            if !d.is_empty() {
+                let mirror = PyDict::new(py);
+                mirror.update(d.as_mapping())?;
+                mirrors.push((Self::edge_key(&uc, &vc, internal_key), mirror.unbind()));
+            }
+            display_keys.push((uc.clone(), vc.clone(), internal_key, k.clone().unbind()));
+            edges.push((uc, vc, internal_key, rust_attrs));
+        }
+
+        let edge_bumps = u64::try_from(edges.len()).unwrap_or(u64::MAX);
+        let mirror_active = self.node_iter_mirror_active();
+        for (canonical, node) in new_nodes {
+            let mirror_key = if mirror_active {
+                Some(canonical.clone())
+            } else {
+                None
+            };
+            self.node_key_map.entry(canonical).or_insert(node);
+            if let Some(c) = mirror_key {
+                let _ = self.node_iter_mirror_insert(py, &c);
+            }
+        }
+        self.inner.extend_keyed_edges_with_attrs_unrecorded(edges);
+        for (ek, dict) in mirrors {
+            self.edge_py_attrs.entry(ek).or_insert(dict);
+        }
+        for (u, v, key, obj) in display_keys {
+            self.edge_py_keys
+                .entry(Self::edge_key(&u, &v, key))
+                .or_insert(obj);
+        }
+        self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
+        self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
+        Ok(true)
+    }
+
     /// br-r37-c1-natdiff: fully-native `difference(G, H)` for MultiDiGraph — builds
     /// the result entirely in Rust (G's nodes, no data; G's edges whose DISPLAY
     /// `(u, v, key)` is not in H), eliminating BOTH the per-edge `add_edge`

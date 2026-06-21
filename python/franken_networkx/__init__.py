@@ -14071,14 +14071,26 @@ def compose(G, H):
         else:
             out.add_node(node, **dict(attrs))
     if G.is_multigraph():
-        out.add_edges_from(
-            (u, v, key, dict(d))
-            for u, v, key, d in G.edges(keys=True, data=True)
-        )
-        out.add_edges_from(
-            (u, v, key, dict(d))
-            for u, v, key, d in H.edges(keys=True, data=True)
-        )
+        # br-r37-c1-mgcompose: pre-merge G's then H's keyed edges in Python (H's data
+        # UPDATES a shared (u,v,key), exactly as nx's second add_edges_from overwrites
+        # in place; new H edges append) so the result has each (u,v,key) ONCE in
+        # G-then-H-new order, then commit them through ONE fresh native keyed-with-data
+        # batch — instead of two add_edges_from where H's runs per-edge on a non-fresh
+        # graph (add_edge_with_key_and_attrs = 2 record_decision/edge). MultiGraph lacks
+        # the native method (getattr -> None) and falls through to add_edges_from.
+        _edge_map = {}
+        for u, v, key, d in G.edges(keys=True, data=True):
+            _edge_map[(u, v, key)] = dict(d)
+        for u, v, key, d in H.edges(keys=True, data=True):
+            _slot = _edge_map.get((u, v, key))
+            if _slot is None:
+                _edge_map[(u, v, key)] = dict(d)
+            else:
+                _slot.update(d)
+        _all_edges = [(u, v, key, data) for (u, v, key), data in _edge_map.items()]
+        _native = getattr(out, "_native_add_keyed_edges_with_data", None)
+        if _native is None or not _native(_all_edges):
+            out.add_edges_from(_all_edges)
     else:
         out.add_edges_from((u, v, dict(d)) for u, v, d in G.edges(data=True))
         out.add_edges_from((u, v, dict(d)) for u, v, d in H.edges(data=True))
