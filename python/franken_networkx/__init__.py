@@ -25382,8 +25382,12 @@ def subgraph_centrality(G, *, normalized=False, backend=None, **backend_kwargs):
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
 
-    if not normalized and G.__class__ is Graph:
-        return _fnx.subgraph_centrality_expdiag_rust(G)
+    # br-r37-c1-sceigh: the native subgraph_centrality_expdiag_rust kernel (matrix-exp
+    # diagonal) is a PESSIMIZATION vs the dense LAPACK eigendecomposition below — the
+    # gap GROWS with n (native 1.3/12/91/290ms vs eigh 0.8/2.8/17/43ms at n=100/200/400/
+    # 600), so it ran 0.69x @100 and 0.19x @300 vs nx. nx's exact path (eigh + sum
+    # exp(lambda)*v^2) is BYTE-identical to nx (0.00e+00) AND faster (eigh-path 1.0-1.08x).
+    # Drop the native route; the dense path below handles every case.
 
     import numpy as np
 
