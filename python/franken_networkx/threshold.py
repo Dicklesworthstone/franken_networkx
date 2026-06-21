@@ -51,5 +51,37 @@ def threshold_graph(creation_sequence, create_using=None, *, backend=None, **bac
     the result to an fnx graph type for drop-in compatibility.
     """
     _fnx._validate_backend_dispatch_keywords("threshold_graph", backend, backend_kwargs)
+    # br-r37-c1-threshnative: for the default (undirected fnx Graph) result, build
+    # DIRECTLY instead of constructing a networkx graph (per-edge add_edge over the
+    # O(V^2) dominating edges) and then paying _from_nx_graph (the fnx<-nx
+    # conversion + row alignment). Replicates nx's exact algorithm verbatim — same
+    # creation-sequence parsing (string / labeled-tuple / compact via nx's own
+    # uncompact), same "dominating node connects to all existing nodes in node
+    # order" edge emission, same node order, same graph name — so node labels,
+    # node order and edge order are byte-identical; only the construction is fnx
+    # (one add_nodes_from + one batched add_edges_from). A non-None create_using
+    # keeps the delegated path (its type/relabel semantics).
+    if create_using is None:
+        first = creation_sequence[0]
+        if isinstance(first, str):
+            ci = list(enumerate(creation_sequence))
+        elif isinstance(first, tuple):
+            ci = list(creation_sequence)
+        elif isinstance(first, int):
+            ci = list(enumerate(_nx_threshold.uncompact(creation_sequence)))
+        else:
+            raise ValueError("not a valid creation sequence")
+        G = _fnx.Graph()
+        G.graph["name"] = "Threshold Graph"
+        node_list = []
+        edges = []
+        for v, node_type in ci:
+            if node_type == "d":  # dominating: connect to all existing nodes
+                for u in node_list:
+                    edges.append((v, u))
+            node_list.append(v)
+        G.add_nodes_from(node_list)
+        G.add_edges_from(edges)
+        return G
     nx_result = _nx_threshold.threshold_graph(creation_sequence, create_using=create_using)
     return _from_nx_graph(nx_result, create_using=create_using)
