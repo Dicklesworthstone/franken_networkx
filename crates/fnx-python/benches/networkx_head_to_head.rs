@@ -4,7 +4,7 @@
 //! raw Rust helpers. The Python setup builds identical NetworkX/FNX graphs once;
 //! Criterion times only repeated algorithm calls.
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, Criterion};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use std::ffi::CString;
@@ -62,6 +62,11 @@ struct MultiGraphBiconnectedWorkloads {
     nx_biconnected_components: Py<PyAny>,
     fnx_bfs_edges: Py<PyAny>,
     nx_bfs_edges: Py<PyAny>,
+    fnx_minimum_spanning_tree: Py<PyAny>,
+    nx_minimum_spanning_tree: Py<PyAny>,
+}
+
+struct TreeSubmoduleWorkloads {
     fnx_minimum_spanning_tree: Py<PyAny>,
     nx_minimum_spanning_tree: Py<PyAny>,
 }
@@ -636,6 +641,92 @@ nx_minimum_spanning_tree = lambda: nx.minimum_spanning_tree(mg_nx, weight="weigh
     })
 }
 
+fn prepare_tree_submodule_workloads(py: Python<'_>) -> PyResult<TreeSubmoduleWorkloads> {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("fnx-python crate must live under crates/");
+    let python_dir = repo_root.join("python");
+    let legacy_dir = repo_root.join("legacy_networkx_code").join("networkx");
+
+    let sys = py.import("sys")?;
+    let path = sys.getattr("path")?;
+    let path = path.cast::<PyList>()?;
+    path.insert(0, repo_root.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, python_dir.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, legacy_dir.to_str().expect("repo path must be UTF-8"))?;
+
+    let locals = PyDict::new(py);
+    py.run(
+        cstring(
+            r#"
+import random
+import sys
+
+for _name in list(sys.modules):
+    if _name == "networkx" or _name.startswith("networkx."):
+        del sys.modules[_name]
+
+import networkx as nx
+import networkx.algorithms.tree as nx_tree
+import franken_networkx as fnx
+import franken_networkx.tree as fnx_tree
+
+if "legacy_networkx_code" not in getattr(nx, "__file__", ""):
+    raise AssertionError(f"expected vendored NetworkX oracle, got {nx.__file__!r}")
+
+def _paired_weighted_graph(node_count, extra_edges, seed):
+    rng = random.Random(seed)
+    edges = []
+    for i in range(node_count - 1):
+        edges.append((i, i + 1, {"weight": float((i * 17) % 101) + 0.25}))
+    for k in range(extra_edges):
+        u = rng.randrange(node_count)
+        v = rng.randrange(node_count - 1)
+        if v >= u:
+            v += 1
+        edges.append((u, v, {"weight": float((u * 31 + v * 17 + k) % 257) + 0.5}))
+
+    fnx_graph = fnx.Graph()
+    nx_graph = nx.Graph()
+    fnx_graph.add_nodes_from(range(node_count))
+    nx_graph.add_nodes_from(range(node_count))
+    fnx_graph.add_edges_from(edges)
+    nx_graph.add_edges_from(edges)
+    return fnx_graph, nx_graph
+
+def _mst_signature(tree):
+    return [(u, v, data.get("weight")) for u, v, data in tree.edges(data=True)]
+
+tree_fnx, tree_nx = _paired_weighted_graph(1000, 4000, 20260621)
+fnx_mst_sig = _mst_signature(fnx_tree.minimum_spanning_tree(tree_fnx, weight="weight"))
+nx_mst_sig = _mst_signature(nx_tree.minimum_spanning_tree(tree_nx, weight="weight"))
+if not all(pair[0].__eq__(pair[1]) for pair in zip(fnx_mst_sig, nx_mst_sig, strict=True)):
+    raise AssertionError((fnx_mst_sig, nx_mst_sig))
+
+fnx_minimum_spanning_tree = lambda: fnx_tree.minimum_spanning_tree(tree_fnx, weight="weight")
+nx_minimum_spanning_tree = lambda: nx_tree.minimum_spanning_tree(tree_nx, weight="weight")
+"#,
+        )
+        .as_c_str(),
+        Some(&locals),
+        Some(&locals),
+    )?;
+
+    let callable = |name: &str| -> PyResult<Py<PyAny>> {
+        let callable = locals.get_item(name)?.ok_or_else(|| {
+            pyo3::exceptions::PyKeyError::new_err(format!("missing Python callable {name}"))
+        })?;
+        Ok(callable.unbind())
+    };
+
+    Ok(TreeSubmoduleWorkloads {
+        fnx_minimum_spanning_tree: callable("fnx_minimum_spanning_tree")?,
+        nx_minimum_spanning_tree: callable("nx_minimum_spanning_tree")?,
+    })
+}
+
 fn prepare_lattice_generator_workloads(py: Python<'_>) -> PyResult<LatticeGeneratorWorkloads> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
@@ -996,6 +1087,27 @@ fn multigraph_biconnected_head_to_head(c: &mut Criterion) {
     group.finish();
 }
 
+fn tree_submodule_head_to_head(c: &mut Criterion) {
+    Python::initialize();
+    let workloads = Python::attach(prepare_tree_submodule_workloads)
+        .expect("failed to prepare tree submodule Python workloads");
+    let mut group = c.benchmark_group("networkx_head_to_head_tree_submodule");
+    group.sample_size(10);
+
+    bench_python_callable(
+        &mut group,
+        "fnx_tree_minimum_spanning_tree_g1000_e4999",
+        &workloads.fnx_minimum_spanning_tree,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_tree_minimum_spanning_tree_g1000_e4999",
+        &workloads.nx_minimum_spanning_tree,
+    );
+
+    group.finish();
+}
+
 fn lattice_generators_head_to_head(c: &mut Criterion) {
     Python::initialize();
     let workloads = Python::attach(prepare_lattice_generator_workloads)
@@ -1035,6 +1147,7 @@ criterion_group!(
     link_prediction_head_to_head,
     multidigraph_connectivity_head_to_head,
     multigraph_biconnected_head_to_head,
+    tree_submodule_head_to_head,
     lattice_generators_head_to_head
 );
 criterion_main!(benches);

@@ -150,61 +150,6 @@ def test_tree_submodule_from_nested_tuple_native_order_parity(
 
 
 @needs_nx
-@pytest.mark.parametrize(
-    ("fname", "nx_func"),
-    [
-        ("minimum_spanning_tree", nx.minimum_spanning_tree),
-        ("maximum_spanning_tree", nx.maximum_spanning_tree),
-    ],
-)
-def test_tree_submodule_spanning_tree_routes_through_fnx_top_level(
-    monkeypatch, fname, nx_func
-):
-    """Submodule spanning-tree wrappers should avoid nx graph conversion."""
-    import franken_networkx.tree as tree_mod
-
-    def _conversion_forbidden(*args, **kwargs):
-        raise AssertionError(f"{fname} should route through franken_networkx.{fname}")
-
-    monkeypatch.setattr(tree_mod, "_from_nx_graph", _conversion_forbidden)
-    monkeypatch.setattr(
-        tree_mod._nx_tree,
-        fname,
-        _conversion_forbidden,
-    )
-
-    fg = fnx.Graph()
-    fg.graph["name"] = "mst-parity"
-    for node in range(5):
-        fg.add_node(node, label=f"n{node}")
-    weighted_edges = [
-        (0, 1, 7),
-        (0, 2, 2),
-        (1, 2, 3),
-        (1, 3, 4),
-        (2, 3, 5),
-        (3, 4, 1),
-    ]
-    for u, v, weight in weighted_edges:
-        fg.add_edge(u, v, weight=weight, tag=f"{u}-{v}")
-
-    ng = nx.Graph()
-    ng.graph["name"] = "mst-parity"
-    for node in range(5):
-        ng.add_node(node, label=f"n{node}")
-    for u, v, weight in weighted_edges:
-        ng.add_edge(u, v, weight=weight, tag=f"{u}-{v}")
-
-    result = getattr(tree_mod, fname)(fg, weight="weight")
-    expected = nx_func(ng, weight="weight")
-
-    assert isinstance(result, fnx.Graph)
-    assert result.graph == expected.graph
-    assert list(result.nodes(data=True)) == list(expected.nodes(data=True))
-    assert sorted(result.edges(data=True)) == sorted(expected.edges(data=True))
-
-
-@needs_nx
 def test_minimum_branching_parity_with_nx():
     """Beyond the dispatcher contract, the result for a simple
     weighted DiGraph should match nx's own value-wise output."""

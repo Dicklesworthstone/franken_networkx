@@ -2,34 +2,44 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
-## 2026-06-21 Tree Submodule Spanning-Tree Route Pending Bench (`br-r37-c1-04z53`, cod-b)
+## 2026-06-21 Tree Submodule Spanning-Tree Route Rejection (`br-r37-c1-04z53`, cod-b)
 
-Scope: disk-low code-only lever for
+Scope: verify and close the disk-low code-only lever that routed
 `franken_networkx.tree.minimum_spanning_tree` and
-`franken_networkx.tree.maximum_spanning_tree`. The submodule wrappers now route
-through the existing top-level fnx implementations instead of calling
-`networkx.algorithms.tree.*_spanning_tree` and converting the result through
+`franken_networkx.tree.maximum_spanning_tree` through the existing top-level fnx
+implementations instead of calling
+`networkx.algorithms.tree.*_spanning_tree` and converting through
 `_from_nx_graph`.
 
 Evidence:
-- No Cargo build, Cargo bench, or release rebuild was started this turn because
-  the repo was under the explicit `DISK-LOW` instruction with 40G available.
-- Lightweight checks passed after rebase:
-  `python -m py_compile python/franken_networkx/tree.py
-  tests/python/test_algorithms_tree_submodule.py`, a direct weighted
-  MST/maxST parity smoke against the currently installed extension while
-  forbidding the old NetworkX delegate and `_from_nx_graph` route, and
-  `git diff --check`.
-- A focused regression now monkeypatches both old detours to raise and compares
-  weighted simple-graph MST/maxST graph attrs, node attrs, and edge attrs with
-  NetworkX.
+- First attempted the exact requested spelling
+  `rch exec -- cargo bench -p fnx-python --release --bench networkx_head_to_head
+  tree_submodule -- --noplot --sample-size 10 --warm-up-time 1
+  --measurement-time 2`, but this Cargo rejected `--release` for `bench`.
+  No benchmark body ran in that failed invocation.
+- The actual one crate-scoped benchmark was
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b
+  rch exec -- cargo bench -p fnx-python --bench networkx_head_to_head
+  tree_submodule -- --noplot --sample-size 10 --warm-up-time 1
+  --measurement-time 2` on `hz1`. RCH rewrote the target dir to a worker-scoped
+  path.
+- The added Criterion setup asserts the tree-submodule MST signature against
+  vendored NetworkX before timing.
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `franken_networkx.tree.minimum_spanning_tree` simple weighted `Graph`, n=1000/e=4999 | `15.807 ms` | `13.331 ms` | `0.843x` | loss |
 
 Decision:
-- Pending. This is not a performance keep until the next turn records
-  head-to-head ratios for the tree submodule MST/maxST workloads vs NetworkX.
-- Resume with per-crate/direct benches for weighted sparse simple graphs and
-  fallback/multigraph rows. Revert if the route does not produce a material
-  measured win or if broader spanning-tree conformance drifts.
+- Reject/no-ship. The submodule route was reverted to the prior NetworkX
+  delegate plus `_from_nx_graph` conversion, and the no-conversion regression
+  test was removed.
+- Keep the narrow `networkx_head_to_head_tree_submodule` bench row so future
+  work can remeasure the public submodule boundary directly.
+- Do not retry top-level fnx wrapper dispatch for simple-graph submodule MST as
+  a standalone lever. A future route needs a faster native simple-graph result
+  construction path or a larger algorithmic win that beats NetworkX after
+  Python graph materialization.
 
 ## 2026-06-21 MultiDiGraph Lazy Tarjan Strong-Connectivity Keep (`br-r37-c1-1pmou`, cod-a)
 
