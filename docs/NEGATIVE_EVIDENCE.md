@@ -2,6 +2,59 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-21 Cod-A Tree Submodule Remeasure + Edge-Boundary Gate (`br-r37-c1-dv0uf`, cod-a)
+
+Scope: fresh BOLD-VERIFY pass after `bv --robot-triage` selected the unowned
+P0 release gate `br-r37-c1-dv0uf`, while the umbrella no-gaps perf bead
+remained owned by `cod-b` and the only explicit unowned perf recommendation was
+blocked. No new perf source lever was shipped in this pass.
+
+Conformance gate:
+- The failing `fnx-algorithms` unit expectation for
+  `edge_boundary_directed(..., nbunch2=...)` was stale. Vendored NetworkX
+  includes `("b", "a")` for overlapping directed `S,T` because
+  `edge_boundary` applies its symmetric overlap predicate after taking DiGraph
+  out-edges from `nbunch1`.
+- Public Python parity check with vendored NetworkX and `PYTHONHASHSEED=0`
+  returned `[("a", "b"), ("b", "a"), ("b", "b"), ("b", "c")]` for both FNX
+  and NetworkX.
+
+Perf probe:
+- Command:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a AGENT_NAME=CrimsonRiver PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH PYTHONPATH=/data/projects/franken_networkx/crates/fnx-python/benches:/data/projects/franken_networkx/python:/data/projects/franken_networkx/legacy_networkx_code/networkx rch exec -- cargo bench -p fnx-python --bench networkx_head_to_head tree_submodule -- --noplot --sample-size 10 --warm-up-time 1 --measurement-time 2`
+- RCH worker: `hz2`; requested target dir was rewritten to the worker-scoped
+  `/data/projects/franken_networkx/.rch-target-hz2-pool-4a7eb17ce3437e25aacd2701aa3351d7`.
+- Focused workload: `franken_networkx.tree.minimum_spanning_tree` on the
+  checked-in `networkx_head_to_head_tree_submodule` simple weighted
+  `Graph`, n=1000/e=4999. The harness asserts parity before timing.
+
+| Workload | FNX estimate | NetworkX estimate | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `fnx_tree.minimum_spanning_tree`, n=1000/e=4999 | `25.729 ms` | `9.9081 ms` | `0.385x` | loss |
+
+Win/loss/neutral accounting for this pass: `0` wins / `1` loss / `0` neutral.
+
+Alien-graveyard / alien-artifact routing:
+- Failure signature: native algorithm work is not enough; the loss sits at the
+  Python graph-result boundary and public submodule materialization path.
+- Matched primitive family: compact CSR/GraphBLAS-style graph representations
+  and zero-copy/batched boundary construction, per the graveyard scan's
+  cache-local sparse-graph and boundary-minimization guidance.
+- Rejected route: another top-level wrapper dispatch through
+  `franken_networkx.minimum_spanning_tree`; current-source scorecard and this
+  fresh row both show it fails after public graph materialization.
+- Next retry predicate: only retry when the lever changes native result
+  construction or graph boundary layout, e.g. emitting the tree graph directly
+  from Rust with Python node/edge attribute mirrors populated in one pass, or a
+  compact edge-stream handoff that avoids `_from_nx_graph` and repeated Python
+  adjacency-row work.
+
+Do not repeat:
+- Do not claim a tree-submodule win from a pre-rebase or different-source row.
+- Do not use cross-worker self-speedup as keep proof for this family.
+- Do not ship a shallow wrapper reroute unless it beats vendored NetworkX on
+  the public submodule API after graph materialization.
+
 ## 2026-06-21 Cod-B MultiDiGraph CSR Int-Data Bold-Verify (`br-r37-c1-04z53`, cod-b)
 
 Scope: fresh re-authed cod-b verification of the sparse-boundary / CSR

@@ -52434,10 +52434,14 @@ mod tests {
         let _ = g.add_edge("b", "b");
         let _ = g.add_edge("b", "c");
         let eb = edge_boundary_directed(&g, &["a", "b"], Some(&["b", "c"]));
+        // NetworkX applies its symmetric overlap predicate after taking
+        // DiGraph out-edges from nbunch1, so b -> a is included because
+        // a is in nbunch1 and b is in nbunch2.
         assert_eq!(
             eb,
             vec![
                 ("a".to_string(), "b".to_string()),
+                ("b".to_string(), "a".to_string()),
                 ("b".to_string(), "b".to_string()),
                 ("b".to_string(), "c".to_string()),
             ],
