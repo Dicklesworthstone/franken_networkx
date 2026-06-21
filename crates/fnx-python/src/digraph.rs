@@ -4234,6 +4234,44 @@ impl PyMultiDiGraph {
         Ok(new_graph)
     }
 
+    /// br-r37-c1-489mp: native same-type deepcopy (see PyGraph variant). VERBATIM
+    /// structure via `__copy__` (preserves source succ/pred row order + the
+    /// row-key override maps) + deep-copied node/edge attr dicts under ONE shared
+    /// memo. The Python `_graph_deepcopy` tail (which routes here via hasattr) adds
+    /// graph attrs, frozen flag and custom instance attrs. Replaces that override's
+    /// per-node/edge AtlasView walk (the deepcopy bottleneck).
+    #[pyo3(signature = (memo=None))]
+    fn _native_deepcopy(&self, py: Python<'_>, memo: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        let mut new_graph = self.__copy__(py)?;
+        let deepcopy = py.import("copy")?.getattr("deepcopy")?;
+        let memo_obj: Bound<'_, PyAny> = match memo {
+            Some(m) if !m.is_none() => m.clone(),
+            _ => PyDict::new(py).into_any(),
+        };
+        let node_keys: Vec<String> = new_graph.node_py_attrs.keys().cloned().collect();
+        for k in node_keys {
+            let deep = crate::deepcopy_py_dict_memo(
+                py,
+                &deepcopy,
+                &new_graph.node_py_attrs[&k],
+                &memo_obj,
+            )?;
+            new_graph.node_py_attrs.insert(k, deep);
+        }
+        let edge_keys: Vec<(String, String, usize)> =
+            new_graph.edge_py_attrs.keys().cloned().collect();
+        for k in edge_keys {
+            let deep = crate::deepcopy_py_dict_memo(
+                py,
+                &deepcopy,
+                &new_graph.edge_py_attrs[&k],
+                &memo_obj,
+            )?;
+            new_graph.edge_py_attrs.insert(k, deep);
+        }
+        Ok(new_graph)
+    }
+
     fn subgraph(&self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<Self> {
         let iter = PyIterator::from_object(nodes)?;
         let mut keep: HashSet<String> = HashSet::new();
@@ -9347,6 +9385,41 @@ impl PyDiGraph {
         // with node objects per nx's u-major walk — deepcopy must not).
         let mut new_graph = self.copy(py)?;
         new_graph.pred_py_keys = Self::clone_row_keys(py, &self.pred_py_keys);
+        Ok(new_graph)
+    }
+
+    /// br-r37-c1-489mp: native same-type deepcopy (see PyGraph variant). VERBATIM
+    /// structure via `__copy__` + deep-copied node/edge attr dicts under ONE shared
+    /// memo; the Python `_graph_deepcopy` tail (routes here via hasattr) adds graph
+    /// attrs, frozen flag and custom instance attrs.
+    #[pyo3(signature = (memo=None))]
+    fn _native_deepcopy(&self, py: Python<'_>, memo: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        let mut new_graph = self.__copy__(py)?;
+        let deepcopy = py.import("copy")?.getattr("deepcopy")?;
+        let memo_obj: Bound<'_, PyAny> = match memo {
+            Some(m) if !m.is_none() => m.clone(),
+            _ => PyDict::new(py).into_any(),
+        };
+        let node_keys: Vec<String> = new_graph.node_py_attrs.keys().cloned().collect();
+        for k in node_keys {
+            let deep = crate::deepcopy_py_dict_memo(
+                py,
+                &deepcopy,
+                &new_graph.node_py_attrs[&k],
+                &memo_obj,
+            )?;
+            new_graph.node_py_attrs.insert(k, deep);
+        }
+        let edge_keys: Vec<(String, String)> = new_graph.edge_py_attrs.keys().cloned().collect();
+        for k in edge_keys {
+            let deep = crate::deepcopy_py_dict_memo(
+                py,
+                &deepcopy,
+                &new_graph.edge_py_attrs[&k],
+                &memo_obj,
+            )?;
+            new_graph.edge_py_attrs.insert(k, deep);
+        }
         Ok(new_graph)
     }
 
