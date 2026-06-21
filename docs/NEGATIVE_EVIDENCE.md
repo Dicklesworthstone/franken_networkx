@@ -2974,3 +2974,22 @@ vs nx `56.7 ms` = `2.69x` (was 0.75x); local_edge_connectivity FNX `4.3 ms` vs n
 pairs and complete/path/cycle/disconnected/dense-adjacent edge cases; connectivity
 conformance `210 passed, 10 skipped`. Two documented losses flipped to wins with no
 Rust change. Bead `br-r37-c1-native-flow-connectivity-zvwck` resolved by routing.
+
+## 2026-06-21 — dag.has_cycle / is_directed_acyclic_graph slow on CYCLIC graphs is a native no-early-exit gap (CopperCliff)
+
+`dag.has_cycle` is a catastrophic nx-passthrough (0.02x cyclic / 0.13x DAG vs nx).
+`has_cycle(G) == not is_directed_acyclic_graph(G)`, and routing to the fnx-native
+`is_directed_acyclic_graph` is a 75x WIN **on DAG inputs** (0.017ms). BUT measured
+(gnm directed N=2000/8000e, actually cyclic):
+- `fnx.is_directed_acyclic_graph(cyclic)` `9.5 ms` vs nx `0.31 ms` = `0.033x`.
+- `fnx.find_cycle(cyclic)` `9.6 ms` vs nx `0.07 ms`.
+The native cycle-detection kernel does a FULL pass instead of returning at the
+first back-edge; nx early-exits. So a pure-Python `has_cycle` route wins only on
+DAGs and stays slow on cyclic — a band-aid in the wrong layer. Prototyped and
+REVERTED.
+
+Real lever (rebuild-gated): add early-exit to the native is_directed_acyclic_graph
+/ find_cycle / topological cycle-detection kernel (return at the first detected
+back-edge). That single native fix makes is_dag, find_cycle, AND has_cycle fast on
+both DAG and cyclic inputs. Bead `br-r37-c1-isdag-cyclic-early-exit-qghjm`.
+Do NOT ship a Python has_cycle route alone — it leaves the cyclic loss.
