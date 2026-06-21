@@ -14383,6 +14383,16 @@ def _transitive_reduction_via_parity(G):
     ``_concrete_class_for(G)`` (same canonical-class resolver as the
     cycle-225 br-r37-c1-k7dct operator fix family).
     """
+    # br-r37-c1-trnoconv: for a concrete fnx DiGraph, nx.transitive_reduction runs
+    # directly over the fnx graph and (being deterministic) returns an fnx DiGraph
+    # byte-identical to the converted path — so skip BOTH the _networkx_graph_for_parity
+    # (fnx->nx) conversion AND the _from_nx_graph (nx->fnx) rebuild. View/synthetic
+    # classes (the blaz5 _FilteredGraphView whose ``type(G)()`` needs args) and any
+    # shape where the result is not an fnx graph fall back to the conversion path.
+    if type(G) is DiGraph:
+        direct = _nx.transitive_reduction(G)
+        if isinstance(direct, DiGraph):
+            return direct
     nx_result = _nx.transitive_reduction(_networkx_graph_for_parity(G))
     from franken_networkx.readwrite import _from_nx_graph
     cls = _concrete_class_for(G)()
