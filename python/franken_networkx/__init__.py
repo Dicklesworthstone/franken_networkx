@@ -26544,9 +26544,17 @@ def ladder_graph(n, create_using=None):
     G = empty_graph(2 * n, create_using)
     if G.is_directed():
         raise NetworkXError("Directed Graph not supported")
-    G.add_edges_from(_itertools.pairwise(range(n)))
-    G.add_edges_from(_itertools.pairwise(range(n, 2 * n)))
-    G.add_edges_from((v, v + n) for v in range(n))
+    # br-r37-c1-ladderbatch: one add_edges_from instead of three — only the first
+    # call hit the native bulk path; the 2nd/3rd saw a non-fresh graph and fell to
+    # the per-edge add_edge tax. chain preserves the exact (rail-0, rail-1, rungs)
+    # emission order so edge + adj order stay byte-identical to nx's three calls.
+    G.add_edges_from(
+        _itertools.chain(
+            _itertools.pairwise(range(n)),
+            _itertools.pairwise(range(n, 2 * n)),
+            ((v, v + n) for v in range(n)),
+        )
+    )
     return G
 
 
@@ -27240,8 +27248,15 @@ def complete_multipartite_graph(*subset_sizes):
     # instead of per-pair calls). Byte-exact — same node/edge stream as nx and
     # edges() is node-iteration-determined.
     graph = Graph()
-    for partition_index, subset in enumerate(subsets):
-        graph.add_nodes_from(subset, subset=partition_index)
+    # br-r37-c1-multipartitenodes: one attributed add_nodes_from instead of a
+    # per-partition loop (only the first call hit the native node-batch; later
+    # calls fell to per-node add_node). Same node order (partition-major) and
+    # ``subset`` attr per node, byte-identical to the per-partition build.
+    graph.add_nodes_from(
+        (node, {"subset": partition_index})
+        for partition_index, subset in enumerate(subsets)
+        for node in subset
+    )
     graph.add_edges_from(
         edge
         for left, right in _itertools.combinations(subsets, 2)
