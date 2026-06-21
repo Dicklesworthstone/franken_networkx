@@ -2993,3 +2993,18 @@ Real lever (rebuild-gated): add early-exit to the native is_directed_acyclic_gra
 back-edge). That single native fix makes is_dag, find_cycle, AND has_cycle fast on
 both DAG and cyclic inputs. Bead `br-r37-c1-isdag-cyclic-early-exit-qghjm`.
 Do NOT ship a Python has_cycle route alone — it leaves the cyclic loss.
+
+### addendum — dag.colliders / v_structures: predecessor-access substrate-bound
+
+Same audit: `dag.colliders` (`0.057x`, fnx 6.73ms vs nx 0.38ms) and
+`dag.v_structures` (`0.083x`, 6.99ms vs 0.58ms) are catastrophic nx-passthroughs
+(nx iterates `G.predecessors(node)` AtlasViews over the fnx per-access substrate).
+An in-process reimplementation snapshotting predecessors once
+(`{n: list(G.predecessors(n)) for n in G}`) + Python `combinations`, byte-identical
+to nx (25/25 random DAG+cyclic + docstring examples, undirected raises
+`NetworkXNotImplemented`), improves them ~8x (colliders 6.73→0.83ms) but STILL
+LOSES (`0.42x` / `0.35x`): the fnx predecessor-snapshot floor (`0.63 ms` for 1500
+nodes) already exceeds nx's whole-call native-dict time (`0.38 ms`). REVERTED (not
+shipped). Lever (rebuild-gated): a native bulk predecessor-keys snapshot (the
+directed sibling of `_native_adjacency_keys`) to get the snapshot below nx's
+native-dict access; only then does an in-process colliders/v_structures beat nx.
