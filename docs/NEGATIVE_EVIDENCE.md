@@ -2,6 +2,58 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-21 Cod-A `non_edges` Exact-Int Lazy Iterator No-Ship (`br-r37-c1-04z53`, cod-a)
+
+Scope: fresh BOLD-VERIFY follow-up on the active
+`non_edges_sparse_undirected` public-gauntlet loss. Reused
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`; no new
+`.scratch` worktree was created.
+
+Radical lever tested and reverted:
+- Alien-graveyard / alien-artifact hypothesis: for the measured simple
+  undirected exact-int `Graph` shape, replace Python `set(graph)` /
+  `set(graph[u])` row arithmetic with a native lazy iterator that snapshots
+  adjacency by node index and emits non-edge Python tuples one at a time.
+- This avoids the previously rejected full `Vec<(u, v)>` pair materialization,
+  but still preserves the `0..n` CPython `set.pop()` observable order used by
+  the gauntlet fixture.
+
+Gates and timing evidence:
+- Candidate source passed:
+  `AGENT_NAME=CrimsonRiver CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a RUSTUP_TOOLCHAIN=nightly-2026-06-10 rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`
+  on RCH worker `vmi1153651`.
+- Candidate release build passed:
+  `AGENT_NAME=CrimsonRiver CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a RUSTUP_TOOLCHAIN=nightly-2026-06-10 rch exec -- cargo build --release -p fnx-python --features pyo3/abi3-py310`
+  on RCH worker `vmi1264463`.
+- Focused direct loop preloaded the built
+  `/data/projects/.rch-targets/franken_networkx-cod-a/release/lib_fnx.so` as
+  `franken_networkx._fnx`, with `PYTHONHASHSEED=0`,
+  `OMP_NUM_THREADS=1`, and `OPENBLAS_NUM_THREADS=1`.
+- Parity matched vendored NetworkX on the 900-node / p=0.008 / seed=9143
+  gauntlet fixture: checksum `4.829200199316912e18` for both engines.
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `non_edges_sparse_undirected`, exact-int lazy iterator candidate | `95.512 ms` | `78.133 ms` | `0.818x` | loss |
+
+Mean timing in the same 15-sample loop: FNX `94.927 ms`, NetworkX
+`78.602 ms`, ratio `0.828x`.
+
+Decision:
+- Reject/no-ship. The source hunk was manually reverted after the native lazy
+  iterator remained slower than NetworkX and slower than the current Python
+  wrapper substrate on the focused direct loop.
+- Candidate score: `0` wins / `1` loss / `0` neutral.
+
+Do not repeat:
+- Do not retry a PyO3 per-pair tuple-yielding `non_edges` iterator for
+  exact-int simple graphs as a standalone lever. It removes full-pair
+  materialization but loses the savings back at the per-yield Python boundary
+  and adjacency snapshot setup.
+- Next credible route should be consumer-fused: score default-ebunch link
+  prediction or another downstream non-edge consumer without exposing every
+  pair as a Python tuple.
+
 ## 2026-06-21 Cod-B Public Gauntlet + `non_edges` Set-Pop No-Ship (`br-r37-c1-04z53`, cod-b)
 
 Scope: fresh BOLD-VERIFY pass after `bv --robot-triage` and `br ready`,
