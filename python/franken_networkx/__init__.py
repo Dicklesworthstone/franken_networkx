@@ -8486,8 +8486,12 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None):
     # value instead (franken_networkx-8ud1m). Strip any capacity attrs
     # into a scrubbed copy so the underlying max-flow reduces to unit
     # capacities and the returned integer is the edge cardinality.
-    has_capacity = any(
-        "capacity" in d for _, _, d in G.edges(data=True)
+    # br-r37-c1-capnative: native inner-aware presence check instead of an O(E)
+    # Python edges(data=True) walk (same decision; sister of br-pagerankhaswt).
+    has_capacity = (
+        _graph_has_edge_attribute(G, "capacity")
+        if isinstance(G, (Graph, DiGraph)) and not G.is_multigraph()
+        else any("capacity" in d for _, _, d in G.edges(data=True))
     )
     if has_capacity:
         scrubbed = type(G)()
