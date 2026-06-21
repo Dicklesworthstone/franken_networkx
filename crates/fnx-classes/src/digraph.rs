@@ -627,6 +627,18 @@ impl DiGraph {
         self.edges.values().any(|attrs| attrs.contains_key(key))
     }
 
+    /// br-r37-c1-hasanyattrlazyfix: any node / any edge carries a Python-visible attr per
+    /// the authoritative inner storage (not the lazy `*_py_attrs` mirrors).
+    #[must_use]
+    pub fn any_node_has_attrs(&self) -> bool {
+        self.nodes.values().any(|attrs| !attrs.is_empty())
+    }
+
+    #[must_use]
+    pub fn any_edge_has_attrs(&self) -> bool {
+        self.edges.values().any(|attrs| !attrs.is_empty())
+    }
+
     /// br-r37-c1-prdir: iterate every directed edge as
     /// `((source_idx, target_idx), &AttrMap)` straight from the index-keyed edge
     /// store, in insertion order. Lets COO/CSR exporters read each edge's weight

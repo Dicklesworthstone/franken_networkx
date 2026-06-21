@@ -3440,55 +3440,39 @@ pub fn graph_has_edge_attr(
 #[pyfunction]
 pub fn graph_has_any_attrs(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<bool>> {
     let gr = extract_graph(g)?;
+    // br-r37-c1-hasanyattrlazyfix: same lazy-mirror trap as graph_has_edge_attr — the
+    // `*_py_attrs` mirrors are unmaterialized on a freshly batch-built graph, so a
+    // mirror-only scan FALSE-NEGATIVES (e.g. add_edges_from(data=True) with no node attrs)
+    // and relabel/product/convert then DROP the attrs via their no-attr fast path. Check
+    // the authoritative inner storage first (short-circuits before any PyO3), then the
+    // mirror for Python-set attrs the inner may not be synced for. (False positives are
+    // harmless: callers only skip attr-copying when this is False.)
+    let dict_nonempty = |d: &Bound<'_, PyDict>| !d.is_empty();
     let has_attrs = match &gr {
-        GraphRef::Undirected(pg) => {
-            let has_node_attrs =
-                pg.node_py_attrs
+        GraphRef::Undirected(pg) => Some(
+            pg.inner.any_node_has_attrs()
+                || pg.inner.any_edge_has_attrs()
+                || pg
+                    .node_py_attrs
                     .values()
-                    .try_fold(false, |found, dict| -> PyResult<bool> {
-                        if found {
-                            return Ok(true);
-                        }
-                        Ok(!dict.bind(py).is_empty())
-                    })?;
-            if has_node_attrs {
-                Some(true)
-            } else {
-                Some(pg.edge_py_attrs.values().try_fold(
-                    false,
-                    |found, dict| -> PyResult<bool> {
-                        if found {
-                            return Ok(true);
-                        }
-                        Ok(!dict.bind(py).is_empty())
-                    },
-                )?)
-            }
-        }
-        GraphRef::Directed { dg, .. } => {
-            let has_node_attrs =
-                dg.node_py_attrs
+                    .any(|d| dict_nonempty(d.bind(py)))
+                || pg
+                    .edge_py_attrs
                     .values()
-                    .try_fold(false, |found, dict| -> PyResult<bool> {
-                        if found {
-                            return Ok(true);
-                        }
-                        Ok(!dict.bind(py).is_empty())
-                    })?;
-            if has_node_attrs {
-                Some(true)
-            } else {
-                Some(dg.edge_py_attrs.values().try_fold(
-                    false,
-                    |found, dict| -> PyResult<bool> {
-                        if found {
-                            return Ok(true);
-                        }
-                        Ok(!dict.bind(py).is_empty())
-                    },
-                )?)
-            }
-        }
+                    .any(|d| dict_nonempty(d.bind(py))),
+        ),
+        GraphRef::Directed { dg, .. } => Some(
+            dg.inner.any_node_has_attrs()
+                || dg.inner.any_edge_has_attrs()
+                || dg
+                    .node_py_attrs
+                    .values()
+                    .any(|d| dict_nonempty(d.bind(py)))
+                || dg
+                    .edge_py_attrs
+                    .values()
+                    .any(|d| dict_nonempty(d.bind(py))),
+        ),
         GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => None,
     };
     Ok(has_attrs)

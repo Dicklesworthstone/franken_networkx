@@ -951,6 +951,20 @@ impl Graph {
         self.edges.values().any(|attrs| attrs.contains_key(key))
     }
 
+    /// br-r37-c1-hasanyattrlazyfix: does ANY node carry a Python-visible attr, per the
+    /// authoritative inner storage (not the lazy `node_py_attrs` mirror)?
+    #[must_use]
+    pub fn any_node_has_attrs(&self) -> bool {
+        self.nodes.values().any(|attrs| !attrs.is_empty())
+    }
+
+    /// br-r37-c1-hasanyattrlazyfix: does ANY edge carry a Python-visible attr, per the
+    /// authoritative inner storage (not the lazy `edge_py_attrs` mirror)?
+    #[must_use]
+    pub fn any_edge_has_attrs(&self) -> bool {
+        self.edges.values().any(|attrs| !attrs.is_empty())
+    }
+
     #[must_use]
     pub fn nodes_are_contiguous_int_prefix(&self) -> bool {
         self.nodes
