@@ -6174,6 +6174,15 @@ impl PyMultiGraph {
     /// (`dict.copy()` — new dict, shared values) to match nx's shallow-copy
     /// contract (br-r37-c1-3tlkj).
     fn _native_copy(&self, py: Python<'_>) -> PyResult<Self> {
+        // br-r37-c1-mdgcopyclone NOTE: the MultiDiGraph clone+reorder fix does NOT
+        // port here. MultiGraph's reorder_rows_for_nx_copy_walk is INPUT-ORDER
+        // DEPENDENT (early neighbours sort by index-of-u-within-adj[v]), so it must
+        // run on the edge-INSERTION-order adjacency that the edges_ordered() rebuild
+        // below guarantees; an inner clone preserves the SOURCE's (possibly already
+        // u-major reordered) row order, which makes copy-of-a-copy diverge
+        // (test_roundtrip_of_copy_keeps_walk_reordered_rows[MultiGraph]). The
+        // directed sibling is safe because reorder_pred rebuilds pred from the
+        // never-reordered succ. Keep the rebuild.
         let mut new_graph = Self {
             // br-r37-c1-7dpyg: fresh ledger, mode only (skip ledger clone)
             inner: MultiGraph::with_runtime_policy(fnx_runtime::RuntimePolicy::new(
