@@ -1064,6 +1064,21 @@ def complete_bipartite_graph(n1, n2, create_using=None, *, backend=None, **backe
     _fnx._validate_backend_dispatch_keywords(
         "complete_bipartite_graph", backend, backend_kwargs
     )
+    # br-r37-c1-bpcompletegen: de-delegate the common integer case (create_using
+    # None -> fnx.Graph). nx (after its nodes_or_number decorator) makes
+    # top=range(n1), bottom=[n1+i for i in range(n2)], tags bipartite 0/1, adds all
+    # top x bottom edges and sets the graph name. Replicate it directly instead of
+    # building an nx graph + _from_nx_graph. Containers / create_using keep the
+    # delegation path (nodes_or_number normalisation + type semantics).
+    if create_using is None and isinstance(n1, int) and isinstance(n2, int):
+        top = range(n1)
+        bottom = [n1 + i for i in range(n2)]
+        G = _fnx.Graph()
+        G.add_nodes_from((v, {"bipartite": 0}) for v in top)
+        G.add_nodes_from((v, {"bipartite": 1}) for v in bottom)
+        G.add_edges_from((u, v) for u in top for v in bottom)
+        G.graph["name"] = f"complete_bipartite_graph({n1}, {n2})"
+        return G
     nx_result = _nx_bipartite.complete_bipartite_graph(n1, n2, create_using=create_using)
     return _from_nx_graph(nx_result, create_using=create_using)
 
