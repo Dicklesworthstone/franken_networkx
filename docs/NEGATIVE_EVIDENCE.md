@@ -1674,3 +1674,23 @@ NOISE CORRECTION: the round-1 I/O sweep ran under host load 27.6; its smaller-ma
 generate_multiline_adjlist 0.94x, pajek 0.86x (borderline). Only tree_graph 0.44x /
 cytoscape_graph 0.27x (big margins) survived noise and were real (now fixed).
 LESSON: trust only big-margin sweep losses under high load; re-verify pinned.
+
+## 2026-06-20 stochastic_graph partial keep — copy fix 0.34x -> 0.64x (still loss) (br-r37-c1-stochcopy, BlackThrush)
+
+stochastic_graph(DiGraph) was 0.34x nx. cProfile: the cost was `_copy_graph_shallow`
+rebuilding the copy via a per-edge `add_edge` loop (3200 add_edge calls = the
+construction tax), NOT the weight passes. KEPT: for an exact DiGraph use the native
+integer-CSR `G.copy()` (independent attr dicts; verified the in-place weight
+normalisation stays isolated from G) and materialise the edge view ONCE (live
+attr-dict refs) instead of two `edges(data=True)` crossings. Multigraph keeps
+`_copy_graph_shallow` (native multi-copy is the slow String-keyed path); subclasses
+keep it.
+
+Pinned best-of-60 x5 (load ~14): 0.34x -> median 0.64x (~1.9x self-speedup), still a
+vs-nx LOSS. Residual: even one `edges(data=True)` materialisation + the native copy
+is slower than nx's plain-dict copy + 2 dict passes — the edges(data=True) view
+materialisation floor ([[reference_warm_saturation_map_and_coldeig_noise]] nodes/adj
+view substrate). MultiDiGraph stays ~0.38x (slow multigraph copy substrate). Parity
+600/600 (simple+multi, copy T/F, no-weight edges, original-unchanged); pytest -k
+stochastic 8 passed. KEEP PARTIAL (real self-speedup); full win needs the persistent
+ordered Python adj/attr mirror (edges(data=True) floor) or a native stochastic kernel.
