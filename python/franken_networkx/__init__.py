@@ -2699,6 +2699,22 @@ def _make_add_nodes_from(
                 return
             except (TypeError, OverflowError):
                 pass
+        # br-r37-c1-digbatch: DiGraph's native int-node fast path (range / int
+        # list / tuple / set). Without it DiGraph.add_nodes_from(range) fell to the
+        # per-node loop (0.33x nx) and the int list hit the attributed batch (0.54x);
+        # PyDiGraph._fast_add_int_nodes does one bulk extend_nodes_unrecorded. Raises
+        # TypeError/OverflowError on any non-int element so a (node, attrs) batch or
+        # mixed input falls through to the attributed batch / per-node loop below.
+        if (
+            not attr
+            and type(self) is DiGraph
+            and type(nodes_for_adding) in (range, list, tuple, set)
+        ):
+            try:
+                self._fast_add_int_nodes(nodes_for_adding)
+                return
+            except (TypeError, OverflowError):
+                pass
         # br-r37-c1-nodebatch: native attributed-node batch on a FRESH simple
         # Graph — one bulk extend_nodes_with_attrs_unrecorded instead of the
         # per-node add_node loop below (~3.4x nx on attributed construction;

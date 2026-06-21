@@ -7613,6 +7613,47 @@ impl PyDiGraph {
         Ok(false)
     }
 
+    /// br-r37-c1-digbatch: bulk fast path for `add_nodes_from(range / int list)` on a
+    /// DiGraph — the directed sibling of `PyGraph::_fast_add_int_nodes`. PyDiGraph has no
+    /// `lazy_int_node_stop`, so Py int objects are stored (not lazy keys). Atomic
+    /// validate-then-mutate: every element must be an EXACT `int` (`is_exact_instance_of`
+    /// excludes `bool`) and fit i64, else raise so the wrapper falls back to the general
+    /// per-node loop before any node is touched. First-occurrence order; dedup on
+    /// `node_key_map`. Was the 0.33x (range) / 0.54x (int list) DiGraph node-add loss.
+    fn _fast_add_int_nodes(&mut self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<()> {
+        let iter = PyIterator::from_object(nodes)?;
+        let mut ints: Vec<i64> = Vec::new();
+        for item in iter {
+            let item = item?;
+            if !item.is_exact_instance_of::<PyInt>() {
+                return Err(PyTypeError::new_err(
+                    "fast int-node path requires exact int elements",
+                ));
+            }
+            ints.push(item.extract::<i64>()?);
+        }
+        let mut fresh_canonicals = Vec::with_capacity(ints.len());
+        for node in ints {
+            let canonical = node.to_string();
+            let was_absent =
+                !self.node_key_map.contains_key(&canonical) && !self.inner.has_node(&canonical);
+            self.node_key_map
+                .entry(canonical.clone())
+                .or_insert_with(|| {
+                    unwrap_infallible(node.into_pyobject(py))
+                        .into_any()
+                        .unbind()
+                });
+            if was_absent {
+                self.node_iter_mirror_insert(py, &canonical)?;
+                fresh_canonicals.push(canonical);
+            }
+            self.bump_nodes_seq();
+        }
+        let _ = self.inner.extend_nodes_unrecorded(fresh_canonicals);
+        Ok(())
+    }
+
     #[pyo3(signature = (ebunch_to_add, weight="weight"))]
     fn add_weighted_edges_from(
         &mut self,

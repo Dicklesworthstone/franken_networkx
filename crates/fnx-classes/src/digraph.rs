@@ -949,6 +949,50 @@ impl DiGraph {
         inserted
     }
 
+    /// br-r37-c1-digbatch: bulk-add plain nodes (no attrs), one summary ledger
+    /// record — the directed sibling of `Graph::extend_nodes_unrecorded`, backing
+    /// PyDiGraph's fast integer-node path (`add_nodes_from(range)` / int list).
+    /// First insertion wins order; existing nodes are skipped.
+    pub fn extend_nodes_unrecorded<I, N>(&mut self, nodes: I) -> usize
+    where
+        I: IntoIterator<Item = N>,
+        N: Into<String>,
+    {
+        let iterator = nodes.into_iter();
+        let (lower_bound, _) = iterator.size_hint();
+        self.nodes.reserve(lower_bound);
+        self.succ_indices.reserve(lower_bound);
+        self.pred_indices.reserve(lower_bound);
+
+        let mut inserted = 0usize;
+        for node in iterator {
+            let node = node.into();
+            if self.nodes.contains_key(&node) {
+                continue;
+            }
+            self.nodes.insert(node.clone(), AttrMap::new());
+            self.succ_indices.push(Vec::new());
+            self.pred_indices.push(Vec::new());
+            inserted += 1;
+        }
+        if inserted > 0 {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_nodes_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_node_count".to_owned(),
+                    observed_value: inserted.to_string(),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+        inserted
+    }
+
     /// br-r37-c1-dgctor: bulk-add nodes WITH attrs, one summary ledger
     /// record — the directed sibling of `Graph::extend_nodes_unrecorded`
     /// extended with per-node AttrMaps. First insertion wins the order;
