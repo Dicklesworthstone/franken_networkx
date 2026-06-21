@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 fnx-runtime = { version = "0.2.0", path = "../fnx-runtime" }
 indexmap = "2.14.0"
+rustc-hash = "2"
 serde = { version = "1.0.228", features = ["derive"] }
 
 [dev-dependencies]

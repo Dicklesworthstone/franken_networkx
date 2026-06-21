@@ -8,6 +8,14 @@ use fnx_runtime::{
 use indexmap::{IndexMap, IndexSet};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+
+// br-r37-c1-fxhash: the node (String) and edge ((usize,usize)) key->index maps use
+// a FAST non-cryptographic hasher instead of std's SipHash. IndexMap keeps insertion
+// order in its Vec, so iteration order (nodes/edges/edges_ordered) is UNCHANGED — only
+// lookup/insert hashing gets faster. The (usize,usize) edge keys especially: SipHash on
+// 16 bytes (~20ns) -> FxHash on a usize (~3ns). Speeds up every has_edge/edge_attrs/
+// get_index_of/construction insert across the library.
+pub(crate) type FxIndexMap<K, V> = IndexMap<K, V, rustc_hash::FxBuildHasher>;
 use std::collections::HashSet;
 use std::fmt;
 
@@ -140,7 +148,7 @@ pub struct Graph {
     // insert (the profiled remaining store tax). Node removal REKEYS
     // via the same remap as the row repair. edge_index_endpoints keeps
     // the string-canonical orientation for snapshot derivation.
-    edges: IndexMap<(usize, usize), AttrMap>,
+    edges: FxIndexMap<(usize, usize), AttrMap>,
     runtime_policy: RuntimePolicy,
 }
 
@@ -154,7 +162,7 @@ impl Graph {
             adj_indices: Vec::new(),
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::new(),
-            edges: IndexMap::new(),
+        edges: FxIndexMap::default(),
             runtime_policy: RuntimePolicy::new(mode),
         }
     }
@@ -169,7 +177,7 @@ impl Graph {
             adj_indices: Vec::new(),
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::new(),
-            edges: IndexMap::new(),
+        edges: FxIndexMap::default(),
             runtime_policy,
         }
     }
@@ -193,7 +201,7 @@ impl Graph {
             adj_indices: vec![Vec::with_capacity(n.saturating_sub(1)); n],
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::with_capacity(edge_capacity),
-            edges: IndexMap::with_capacity(edge_capacity),
+        edges: FxIndexMap::with_capacity_and_hasher(edge_capacity, rustc_hash::FxBuildHasher::default()),
             runtime_policy: RuntimePolicy::new(mode),
         };
 
@@ -249,7 +257,7 @@ impl Graph {
             adj_indices: vec![Vec::with_capacity(4); node_count],
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::with_capacity(edge_capacity),
-            edges: IndexMap::with_capacity(edge_capacity),
+        edges: FxIndexMap::with_capacity_and_hasher(edge_capacity, rustc_hash::FxBuildHasher::default()),
             runtime_policy: RuntimePolicy::new(mode),
         };
         for i in 0..m {
@@ -494,7 +502,10 @@ impl Graph {
             adj_indices: Vec::with_capacity(state.node_count),
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::with_capacity(edge_view.len()),
-            edges: IndexMap::with_capacity(edge_view.len()),
+            edges: FxIndexMap::with_capacity_and_hasher(
+                edge_view.len(),
+                rustc_hash::FxBuildHasher::default(),
+            ),
             runtime_policy: RuntimePolicy::new(mode),
         };
 
@@ -589,7 +600,7 @@ impl Graph {
             adj_indices: Vec::new(),
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::new(),
-            edges: IndexMap::new(),
+        edges: FxIndexMap::default(),
             runtime_policy: RuntimePolicy::new(mode),
         };
         if 2 * k > n {

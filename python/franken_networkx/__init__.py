@@ -43980,7 +43980,13 @@ def katz_centrality_numpy(
     # always loses on these Katz systems). Use the dense solve directly: it is nx's EXACT
     # path (BYTE-identical, not just 1e-8) and faster than nx (the fnx adjacency build wins).
     A = to_numpy_array(G, nodelist=nodelist, weight=weight).T
-    centrality = np.linalg.solve(np.eye(n, n) - (alpha * A), b).squeeze()
+    # br-r37-c1-katzn1: ``.squeeze()`` collapses a single-node (1x1) solve to a 0-d
+    # array, and ``sum(0-d array)`` raises ``TypeError: iteration over a 0-d array``
+    # (nx has the same defect). ``atleast_1d`` keeps n==1 a length-1 vector so the
+    # norm/zip below work; it is a no-op for n>1, so byte-identical there.
+    centrality = np.atleast_1d(
+        np.linalg.solve(np.eye(n, n) - (alpha * A), b).squeeze()
+    )
     norm = np.sign(sum(centrality)) * np.linalg.norm(centrality) if normalized else 1
     return dict(zip(nodelist, (centrality / norm).tolist()))
 

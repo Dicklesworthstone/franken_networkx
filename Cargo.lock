@@ -844,6 +844,7 @@ dependencies = [
  "fnx-runtime",
  "indexmap",
  "proptest",
+ "rustc-hash 2.1.2",
  "serde",
 ]
 

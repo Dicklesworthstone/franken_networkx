@@ -132,7 +132,7 @@ pub struct DiGraph {
     // ORIENTED (source_idx, target_idx) pair — NOT canonicalized
     // (direction IS identity for directed edges). Zero String
     // allocs/hashes per insert; node removal REKEYS via the remap.
-    edges: IndexMap<(usize, usize), AttrMap>,
+    edges: crate::FxIndexMap<(usize, usize), AttrMap>,
     runtime_policy: RuntimePolicy,
     /// br-r37-c1-d58s8 P1: revision-keyed CSR cache. Derived from the
     /// String maps on demand (never eagerly maintained — the I5
@@ -176,7 +176,7 @@ impl DiGraph {
             nodes: IndexMap::new(),
             succ_indices: Vec::new(),
             pred_indices: Vec::new(),
-            edges: IndexMap::new(),
+        edges: crate::FxIndexMap::default(),
             runtime_policy: RuntimePolicy::new(mode),
             csr_cache: std::sync::Arc::default(),
             all_int_cache: std::sync::Arc::default(),
@@ -192,7 +192,7 @@ impl DiGraph {
             nodes: IndexMap::new(),
             succ_indices: Vec::new(),
             pred_indices: Vec::new(),
-            edges: IndexMap::new(),
+        edges: crate::FxIndexMap::default(),
             runtime_policy,
             csr_cache: std::sync::Arc::default(),
             all_int_cache: std::sync::Arc::default(),
@@ -1620,8 +1620,11 @@ impl DiGraph {
             succ_row.reserve(self.pred_indices[i].len());
             pred_row.reserve(self.succ_indices[i].len());
         }
-        let mut edges: IndexMap<(usize, usize), AttrMap> =
-            IndexMap::with_capacity(self.edges.len());
+        let mut edges: crate::FxIndexMap<(usize, usize), AttrMap> =
+            crate::FxIndexMap::with_capacity_and_hasher(
+                self.edges.len(),
+                rustc_hash::FxBuildHasher::default(),
+            );
         for (u, (source_succs, reversed_preds)) in self
             .succ_indices
             .iter()
