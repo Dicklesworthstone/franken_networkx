@@ -95,12 +95,47 @@ def center(G):
 def from_prufer_sequence(sequence, *, backend=None, **backend_kwargs):
     """Return the tree corresponding to the given Prüfer sequence.
 
-    Wraps ``networkx.algorithms.tree.from_prufer_sequence`` and converts
-    the result to an fnx graph type for drop-in compatibility.
+    br-r37-c1-prufernative: decode the Prüfer sequence DIRECTLY into an fnx Graph
+    instead of building an intermediate networkx graph (per-edge ``add_edge``) and
+    then paying ``_from_nx_graph`` (the O(V+E) fnx<-nx conversion + adjacency-row
+    alignment). The decode replicates networkx's exact algorithm
+    (``networkx.algorithms.tree.coding.from_prufer_sequence``) verbatim — same
+    remaining-degree counter, same smallest-available-leaf scan, same final
+    two-orphan join, same ``v`` range validation — so node labels (0..n-1),
+    edge order and the NetworkXError contract are byte-identical; only the
+    construction is fnx-native (one ``add_nodes_from`` + one ``add_edges_from``).
     """
-    _fnx._validate_backend_dispatch_keywords("from_prufer_sequence", backend, backend_kwargs)
-    nx_result = _nx_tree.from_prufer_sequence(sequence)
-    return _from_nx_graph(nx_result)
+    from collections import Counter
+    from itertools import chain
+
+    _fnx._validate_backend_dispatch_keywords(
+        "from_prufer_sequence", backend, backend_kwargs
+    )
+    n = len(sequence) + 2
+    degree = Counter(chain(sequence, range(n)))
+    edges = []
+    not_orphaned = set()
+    index = u = next(k for k in range(n) if degree[k] == 1)
+    for v in sequence:
+        if v < 0 or v > n - 1:
+            raise _fnx.NetworkXError(
+                f"Invalid Prufer sequence: Values must be between 0 and {n - 1}, got {v}"
+            )
+        edges.append((u, v))
+        not_orphaned.add(u)
+        degree[v] -= 1
+        if v < index and degree[v] == 1:
+            u = v
+        else:
+            index = u = next(k for k in range(index + 1, n) if degree[k] == 1)
+    orphans = set(range(n)) - not_orphaned
+    u, v = orphans
+    edges.append((u, v))
+
+    G = _fnx.Graph()
+    G.add_nodes_from(range(n))
+    G.add_edges_from(edges)
+    return G
 
 
 def from_nested_tuple(sequence, sensible_relabeling=False, *, backend=None, **backend_kwargs):
