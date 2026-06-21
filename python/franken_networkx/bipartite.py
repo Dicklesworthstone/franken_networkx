@@ -878,17 +878,19 @@ def projected_graph(B, nodes, multigraph=False, *, backend=None, **backend_kwarg
     _fnx._validate_backend_dispatch_keywords(
         "projected_graph", backend, backend_kwargs
     )
-    # br-r37-c1-bpproj: de-delegate the common case (simple undirected fnx Graph,
-    # no multigraph). The delegated path ran nx's algorithm THROUGH fnx's slow
+    # br-r37-c1-bpproj: de-delegate the common case (simple fnx Graph/DiGraph, no
+    # multigraph). The delegated path ran nx's algorithm THROUGH fnx's slow
     # per-access adjacency views AND rebuilt the result via _from_nx_graph (~61%
     # of the time). Instead snapshot B's adjacency once via the native key-only
-    # binding and build the fnx projection directly — same edge set (two nodes
-    # are joined iff they share a common neighbour; the parity tests compare
-    # sorted edges). Directed / multigraph / nx-typed B keep the delegation path.
+    # binding and build the fnx projection directly — same edge set (two nodes are
+    # joined iff they share a common neighbour; for directed B the result is a
+    # DiGraph and ``_native_adjacency_keys`` yields successors, exactly nx's
+    # ``B[u]``). Projection is UNWEIGHTED so there is no float-summation order to
+    # diverge — byte-exact. Multigraph / nx-typed B keep the delegation path.
     nak = getattr(B, "_native_adjacency_keys", None)
-    if not multigraph and type(B) is _fnx.Graph and nak is not None:
+    if not multigraph and nak is not None and type(B) in (_fnx.Graph, _fnx.DiGraph):
         adj = {node: nbrs for node, nbrs in nak()}
-        G = _fnx.Graph()
+        G = _fnx.DiGraph() if type(B) is _fnx.DiGraph else _fnx.Graph()
         G.graph.update(B.graph)
         G.add_nodes_from((n, B.nodes[n]) for n in nodes)
         for u in nodes:
