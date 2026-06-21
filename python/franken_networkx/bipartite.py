@@ -1030,23 +1030,36 @@ def random_graph(n, m, p, seed=None, directed=False, *, backend=None, **backend_
     # ``create_py_random_state(seed)`` reproduces nx's EXACT draw sequence and the
     # geometric fast-gnp loop (no graph-state dependency) yields nx's exact edges.
     # Collect + bulk add instead of nx build + _from_nx_graph. p<=0 -> nodes only;
-    # p>=1 -> complete_bipartite_graph (native, byte-exact); both match nx incl. the
-    # graph name (complete's name overrides). Directed keeps the delegation path.
-    if not directed:
-        import math as _math
-        from networkx.utils import create_py_random_state
+    # p>=1 -> complete_bipartite_graph (native, byte-exact; nx returns the UNDIRECTED
+    # complete graph even when directed=True — a quirk we replicate). For directed B
+    # nx runs the SAME geometric loop a second time to add the reverse (m->n) edges,
+    # continuing the same rng sequence; reproduce both loops in order. The graph name
+    # matches nx (complete's name overrides on the p>=1 path).
+    import math as _math
+    from networkx.utils import create_py_random_state
 
-        rng = create_py_random_state(seed)
-        G = _fnx.Graph()
-        G.add_nodes_from((v, {"bipartite": 0}) for v in range(n))
-        G.add_nodes_from((v, {"bipartite": 1}) for v in range(n, n + m))
-        G.graph["name"] = f"fast_gnp_random_graph({n},{m},{p})"
-        if p <= 0:
-            return G
-        if p >= 1:
-            return complete_bipartite_graph(n, m)
-        lp = _math.log(1.0 - p)
-        edges = []
+    rng = create_py_random_state(seed)
+    G = _fnx.DiGraph() if directed else _fnx.Graph()
+    G.add_nodes_from((v, {"bipartite": 0}) for v in range(n))
+    G.add_nodes_from((v, {"bipartite": 1}) for v in range(n, n + m))
+    G.graph["name"] = f"fast_gnp_random_graph({n},{m},{p})"
+    if p <= 0:
+        return G
+    if p >= 1:
+        return complete_bipartite_graph(n, m)
+    lp = _math.log(1.0 - p)
+    edges = []
+    v = 0
+    w = -1
+    while v < n:
+        lr = _math.log(1.0 - rng.random())
+        w = w + 1 + int(lr / lp)
+        while w >= m and v < n:
+            w = w - m
+            v = v + 1
+        if v < n:
+            edges.append((v, n + w))
+    if directed:
         v = 0
         w = -1
         while v < n:
@@ -1056,11 +1069,9 @@ def random_graph(n, m, p, seed=None, directed=False, *, backend=None, **backend_
                 w = w - m
                 v = v + 1
             if v < n:
-                edges.append((v, n + w))
-        G.add_edges_from(edges)
-        return G
-    nx_result = _nx_bipartite.random_graph(n, m, p, seed=seed, directed=directed)
-    return _from_nx_graph(nx_result)
+                edges.append((n + w, v))
+    G.add_edges_from(edges)
+    return G
 
 
 def gnmk_random_graph(n, m, k, seed=None, directed=False, *, backend=None, **backend_kwargs):
