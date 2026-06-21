@@ -2,6 +2,49 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-21 Cod-B MultiDiGraph CSR Int-Data Bold-Verify (`br-r37-c1-04z53`, cod-b)
+
+Scope: fresh re-authed cod-b verification of the sparse-boundary / CSR
+handoff route for default-order integer-weighted
+`MultiDiGraph.to_scipy_sparse_array(format="csr", dtype=None)`, under the
+disk-low constraint to reuse
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b` and run
+only a focused per-crate Criterion row.
+
+Focused harness:
+- Added/used `public_api_gauntlet`
+  `multidigraph_to_scipy_sparse_array_csr_int_weights`, a deterministic
+  2,000-node / 16,000-keyed-edge integer-weighted `MultiDiGraph` fixture.
+- The harness asserts sparse parity before timing via shape and
+  `(_FNX_MDG_MATRIX != _NX_MDG_MATRIX).nnz == 0`.
+
+RCH evidence:
+
+| Run | Worker | FNX mean | NetworkX mean | Ratio vs NetworkX | Verdict |
+| --- | --- | ---: | ---: | ---: | --- |
+| baseline/current-row before local typed-source probe | `vmi1227854` | `123.43 ms` | `235.16 ms` | `1.91x` | win |
+| typed int-data probe rerun | `vmi1153651` | `326.29 ms` | `528.00 ms` | `1.62x` | win vs NetworkX, not same-worker self-proof |
+
+Additional local parity smoke after the typed extension install:
+integer-weight and float-weight `MultiDiGraph` sparse exports both matched
+NetworkX and preserved dtype on the focused fixture.
+
+Decision:
+- The focused current-row ratio vs NetworkX is a win. Do not count the
+  cross-worker after/before delta as proof for or against the typed int-data
+  source lever.
+- The cod-b local no-ship/revert was not kept once `main` moved to the
+  committed typed route (`2655e8add`); do not undo current committed peer work
+  from this session.
+
+Do not repeat:
+- Do not use cross-worker Criterion numbers as keep/revert proof for this
+  exporter. Same-worker or same-process release timing is required for a
+  self-speedup claim.
+- Remaining sparse-export work should target dirty/live high-unique
+  `MultiDiGraph` rows or a deeper SciPy/native CSR construction boundary, not
+  another standalone row-streaming or dtype-scan microprobe.
+
 ## 2026-06-21 Tree Submodule Spanning-Tree Route Rejection (`br-r37-c1-04z53`, cod-b)
 
 Scope: verify and close the disk-low code-only lever that routed
