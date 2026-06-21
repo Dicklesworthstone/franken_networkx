@@ -18,6 +18,10 @@ struct TreeSubmoduleWorkloads {
     nx_minimum_spanning_tree: Py<PyAny>,
     fnx_maximum_spanning_tree: Py<PyAny>,
     nx_maximum_spanning_tree: Py<PyAny>,
+    fnx_from_nested_tuple: Py<PyAny>,
+    nx_from_nested_tuple: Py<PyAny>,
+    fnx_from_nested_tuple_sensible: Py<PyAny>,
+    nx_from_nested_tuple_sensible: Py<PyAny>,
 }
 
 fn prepare_tree_submodule_workloads(py: Python<'_>) -> PyResult<TreeSubmoduleWorkloads> {
@@ -173,9 +177,30 @@ def _consume_tree(tree):
     )
 
 
+def _nested_tuple(depth, fanout):
+    if depth == 0:
+        return ()
+    return tuple(_nested_tuple(depth - 1, fanout) for _ in range(fanout))
+
+
+def _unweighted_tree_signature(tree):
+    return tuple(tree.nodes()), tuple(tree.edges())
+
+
+def _consume_unweighted_tree(tree):
+    node_sum = sum(int(node) for node in tree.nodes())
+    return float(
+        tree.number_of_nodes() * 0.001
+        + tree.number_of_edges() * 0.000001
+        + node_sum * 0.000000000001
+    )
+
+
 _NODE_COUNT = 900
 _EXTRA_EDGES = 2700
 _REPEAT = 4
+_FROM_NESTED_REPEAT = 8
+_NESTED_SEQUENCE = _nested_tuple(6, 3)
 _FNX_GRAPH = _build_weighted_sparse_graph(fnx, _NODE_COUNT, _EXTRA_EDGES, 9157)
 _NX_GRAPH = _build_weighted_sparse_graph(nx, _NODE_COUNT, _EXTRA_EDGES, 9157)
 
@@ -196,6 +221,24 @@ _NX_MAX = _tree_signature(
 )
 if not operator.eq(_FNX_MAX, _NX_MAX):
     raise AssertionError("maximum_spanning_tree submodule parity drift")
+
+_FNX_NESTED = _unweighted_tree_signature(
+    fnx_tree.from_nested_tuple(_NESTED_SEQUENCE)
+)
+_NX_NESTED = _unweighted_tree_signature(
+    nx_tree.from_nested_tuple(_NESTED_SEQUENCE)
+)
+if not operator.eq(_FNX_NESTED, _NX_NESTED):
+    raise AssertionError("from_nested_tuple submodule parity drift")
+
+_FNX_NESTED_SENSIBLE = _unweighted_tree_signature(
+    fnx_tree.from_nested_tuple(_NESTED_SEQUENCE, sensible_relabeling=True)
+)
+_NX_NESTED_SENSIBLE = _unweighted_tree_signature(
+    nx_tree.from_nested_tuple(_NESTED_SEQUENCE, sensible_relabeling=True)
+)
+if not operator.eq(_FNX_NESTED_SENSIBLE, _NX_NESTED_SENSIBLE):
+    raise AssertionError("from_nested_tuple sensible submodule parity drift")
 
 
 def fnx_minimum_spanning_tree():
@@ -232,6 +275,42 @@ def nx_maximum_spanning_tree():
             nx_tree.maximum_spanning_tree(_NX_GRAPH, weight="weight")
         )
     return total
+
+
+def fnx_from_nested_tuple():
+    total = 0.0
+    for _ in range(_FROM_NESTED_REPEAT):
+        total += _consume_unweighted_tree(
+            fnx_tree.from_nested_tuple(_NESTED_SEQUENCE)
+        )
+    return total
+
+
+def nx_from_nested_tuple():
+    total = 0.0
+    for _ in range(_FROM_NESTED_REPEAT):
+        total += _consume_unweighted_tree(
+            nx_tree.from_nested_tuple(_NESTED_SEQUENCE)
+        )
+    return total
+
+
+def fnx_from_nested_tuple_sensible():
+    total = 0.0
+    for _ in range(_FROM_NESTED_REPEAT):
+        total += _consume_unweighted_tree(
+            fnx_tree.from_nested_tuple(_NESTED_SEQUENCE, sensible_relabeling=True)
+        )
+    return total
+
+
+def nx_from_nested_tuple_sensible():
+    total = 0.0
+    for _ in range(_FROM_NESTED_REPEAT):
+        total += _consume_unweighted_tree(
+            nx_tree.from_nested_tuple(_NESTED_SEQUENCE, sensible_relabeling=True)
+        )
+    return total
 "#,
         )
         .as_c_str(),
@@ -251,6 +330,10 @@ def nx_maximum_spanning_tree():
         nx_minimum_spanning_tree: callable("nx_minimum_spanning_tree")?,
         fnx_maximum_spanning_tree: callable("fnx_maximum_spanning_tree")?,
         nx_maximum_spanning_tree: callable("nx_maximum_spanning_tree")?,
+        fnx_from_nested_tuple: callable("fnx_from_nested_tuple")?,
+        nx_from_nested_tuple: callable("nx_from_nested_tuple")?,
+        fnx_from_nested_tuple_sensible: callable("fnx_from_nested_tuple_sensible")?,
+        nx_from_nested_tuple_sensible: callable("nx_from_nested_tuple_sensible")?,
     })
 }
 
@@ -298,6 +381,32 @@ fn tree_submodule_head_to_head(c: &mut Criterion) {
         &mut group,
         "nx_maximum_spanning_tree_n900_e3599",
         &workloads.nx_maximum_spanning_tree,
+    );
+
+    group.finish();
+
+    let mut group = c.benchmark_group("tree_submodule_from_nested_tuple");
+    group.sample_size(10);
+
+    bench_python_callable(
+        &mut group,
+        "fnx_from_nested_tuple_depth6_fanout3_repeat8",
+        &workloads.fnx_from_nested_tuple,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_from_nested_tuple_depth6_fanout3_repeat8",
+        &workloads.nx_from_nested_tuple,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_from_nested_tuple_sensible_depth6_fanout3_repeat8",
+        &workloads.fnx_from_nested_tuple_sensible,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_from_nested_tuple_sensible_depth6_fanout3_repeat8",
+        &workloads.nx_from_nested_tuple_sensible,
     );
 
     group.finish();

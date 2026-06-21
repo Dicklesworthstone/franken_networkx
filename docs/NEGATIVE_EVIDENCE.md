@@ -2,6 +2,58 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-21 Cod-B Tree `from_nested_tuple` Native Construction Keep (`br-r37-c1-04z53`, cod-b)
+
+Scope: BOLD-VERIFY the pending tree-submodule `from_nested_tuple` route that
+already builds the `franken_networkx.tree` result graph directly instead of
+constructing a NetworkX graph and converting it back through `_from_nx_graph`.
+Reused existing detached worktree `/data/projects/.worktrees/fnx-bt-3` and
+requested `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`;
+no new `.scratch` or perf-proof worktree was created.
+
+Profile and radical lever verified:
+- Alien-graveyard / alien-artifact hypothesis: eliminate the graph
+  round-trip/substrate conversion tax by constructing the observable node and
+  edge stream directly in the fnx graph representation. This is a
+  representation-level boundary removal, not another wrapper micro-route.
+- Added a checked-in Criterion row to the existing
+  `tree_submodule_head_to_head` bench. The setup asserts exact FNX vs
+  NetworkX node order and edge order for both plain and
+  `sensible_relabeling=True` calls before timing.
+
+Head-to-head timing:
+- RCH worker: `vmi1153651`; requested target
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`,
+  rewritten by RCH to a worker-scoped path.
+- Build gate:
+  `RCH_WORKER=vmi1153651 RCH_REQUIRE_REMOTE=1 AGENT_NAME=CrimsonRiver CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b RUSTUP_TOOLCHAIN=nightly-2026-06-10 rch exec -- cargo build --release -p fnx-python --features pyo3/abi3-py310`
+  passed.
+- Bench command:
+  `RCH_WORKER=vmi1153651 RCH_REQUIRE_REMOTE=1 AGENT_NAME=CrimsonRiver CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b RUSTUP_TOOLCHAIN=nightly-2026-06-10 rch exec -- env PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH PYTHONPATH=/data/projects/.worktrees/fnx-bt-3/crates/fnx-python/benches:/data/projects/.worktrees/fnx-bt-3/python:/data/projects/.worktrees/fnx-bt-3/legacy_networkx_code/networkx cargo bench -p fnx-python --bench tree_submodule_head_to_head -- from_nested_tuple --sample-size 10 --warm-up-time 1 --measurement-time 3`.
+- Workload: nested tuple depth `6`, fanout `3`, eight constructions per timed
+  call, vendored NetworkX oracle.
+
+| Workload | FNX mean | NetworkX mean | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `tree.from_nested_tuple(depth=6, fanout=3)` | `106.194 ms` | `1680.432 ms` | `15.824x` | win |
+| `tree.from_nested_tuple(..., sensible_relabeling=True)` | `94.812 ms` | `1708.492 ms` | `18.020x` | win |
+
+Validation and gates:
+- Bench setup parity asserted exact public node/edge order against vendored
+  NetworkX before timing.
+- Focused tree submodule conformance passed:
+  `tests/python/test_algorithms_tree_submodule.py`, `21 passed`.
+- `cargo fmt --check` passed.
+- `python -m py_compile python/franken_networkx/tree.py` passed via the project
+  venv.
+
+Decision:
+- Keep. Focused score: `2` wins / `0` losses / `0` neutral vs NetworkX.
+- The previous pending row is now measured. Do not route submodule
+  `from_nested_tuple` back through NetworkX graph construction plus
+  `_from_nx_graph`; the direct observable node/edge stream wins by more than an
+  order of magnitude.
+
 ## 2026-06-21 Cod-B `non_edges` Native-Row Regression Recheck (`br-r37-c1-04z53`, cod-b)
 
 Scope: fresh BOLD-VERIFY recheck of the remaining
