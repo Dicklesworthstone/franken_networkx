@@ -4364,6 +4364,12 @@ impl PyMultiGraph {
         let mut batch_first: HashMap<String, PyObject> = HashMap::new();
         let mut pair_count: HashMap<(String, String), usize> = HashMap::new();
         let mut node_bumps = 0_u64;
+        // br-r37-c1-batchstrmemo: memoize node_key_to_string by Python object IDENTITY
+        // within this batch. The same node object recurs across many edges (a star's
+        // hub is in every edge; dense generators reuse cached small ints), so the
+        // canonical-key string was re-formatted O(deg) times per node. Cache it (keyed
+        // by the object pointer, stable within one call) -> O(unique) builds, not O(E).
+        let mut str_memo: HashMap<usize, String> = HashMap::new();
 
         for item in &items {
             let Ok(tuple) = item.downcast::<PyTuple>() else {
@@ -4377,8 +4383,22 @@ impl PyMultiGraph {
             if !PyGraph::is_plain_batch_node(&u) || !PyGraph::is_plain_batch_node(&v) {
                 return Ok(false);
             }
-            let uc = node_key_to_string(py, &u)?;
-            let vc = node_key_to_string(py, &v)?;
+            let uc = match str_memo.get(&(u.as_ptr() as usize)) {
+                Some(s) => s.clone(),
+                None => {
+                    let s = node_key_to_string(py, &u)?;
+                    str_memo.insert(u.as_ptr() as usize, s.clone());
+                    s
+                }
+            };
+            let vc = match str_memo.get(&(v.as_ptr() as usize)) {
+                Some(s) => s.clone(),
+                None => {
+                    let s = node_key_to_string(py, &v)?;
+                    str_memo.insert(v.as_ptr() as usize, s.clone());
+                    s
+                }
+            };
             if self.batch_display_conflict(py, &uc, &u, &mut batch_first)
                 || self.batch_display_conflict(py, &vc, &v, &mut batch_first)
             {
