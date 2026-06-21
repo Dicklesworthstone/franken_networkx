@@ -33889,13 +33889,20 @@ def all_node_cuts(G, k=None, flow_func=None):
         return auxiliary
 
     def residual_after_flow(auxiliary, flow_dict):
+        # br-r37-c1-anodecutsresid: the residual's EDGE attrs (capacity) are never
+        # read downstream — transitive_closure / condensation / antichains and the
+        # cut logic use STRUCTURE plus the *auxiliary* node "id" only. Drop the
+        # per-edge attr copy and batch the insert: lighter adjacency to materialize
+        # (the per-flow _native_adjacency_dict hotspot) + one bulk build instead of
+        # an O(E) add_edge loop. Byte-identical cuts (structure-only consumers).
         residual = DiGraph()
         residual.add_nodes_from(auxiliary.nodes(data=True))
-        for left, right, attrs in auxiliary.edges(data=True):
-            capacity = attrs.get("capacity", 1)
-            flow = flow_dict.get(left, {}).get(right, 0)
-            if capacity != flow and capacity != 0:
-                residual.add_edge(left, right, **dict(attrs))
+        residual.add_edges_from(
+            (left, right)
+            for left, right, attrs in auxiliary.edges(data=True)
+            if (cap := attrs.get("capacity", 1)) != flow_dict.get(left, {}).get(right, 0)
+            and cap != 0
+        )
         return residual
 
     if k is None:
