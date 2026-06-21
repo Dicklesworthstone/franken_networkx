@@ -165,3 +165,30 @@ def is_reachable(G, s, t, *, backend=None, **backend_kwargs):
         s in separating_set and t not in separating_set and is_closed(separating_set)
         for separating_set in (two_neighborhood(v) for v in nodes)
     )
+
+
+def is_strongly_connected(G, *, backend=None, **backend_kwargs):
+    """Decide whether the given tournament is strongly connected.
+
+    br-tscsnap: ``networkx.tournament.is_strongly_connected`` is
+    ``all(is_reachable(G, u, v) for u in G for v in G)`` — O(V^2) tournament
+    reachability calls (the docstring itself notes the "theoretically efficient"
+    bound needs parallelism it does not implement). Run on an fnx graph it is
+    catastrophically slow. For a tournament this predicate is *exactly* general
+    strong connectivity, so route to fnx's native
+    :func:`~franken_networkx.is_strongly_connected` (index-CSR forward+reverse
+    reachability, O(V+E)). Value-identical for tournaments; the empty graph is
+    ``True`` here (``all`` over no pairs) while the generic kernel raises
+    ``NetworkXPointlessConcept``, so special-case it. Undirected / multigraph
+    raise to match nx's stacked ``not_implemented_for`` exactly.
+    """
+    _fnx._validate_backend_dispatch_keywords(
+        "is_strongly_connected", backend, backend_kwargs
+    )
+    if G.is_multigraph():
+        raise _fnx.NetworkXNotImplemented("not implemented for multigraph type")
+    if not G.is_directed():
+        raise _fnx.NetworkXNotImplemented("not implemented for undirected type")
+    if len(G) == 0:
+        return True
+    return _fnx.is_strongly_connected(G)
