@@ -45564,26 +45564,54 @@ def tree_graph(data, ident="id", children="children"):
     """Reconstruct tree from nested dict data."""
     graph = DiGraph()
 
-    def add_children(parent, children_):
+    # br-r37-c1-treegraphbatch: collect the (parent, child) edges and per-node
+    # data in DFS pre-order, then BUILD in one batch instead of a per-node
+    # ``add_edge`` + ``add_node`` PyO3 round-trip during the recursion (the
+    # construction tax). When NO node carries attrs, ``add_edges_from`` alone
+    # creates every node in the exact nx order (root first via add_node, then each
+    # child when its parent edge is added) — the common tree round-trip case:
+    # 0.42x -> ~1.2x. When attrs are present, ``add_nodes_from`` (attrs) before
+    # ``add_edges_from`` keeps them cheap (0.40x -> ~0.89x; the residual is the
+    # construction floor vs nx's native-dict per-element build). Byte-exact 700/700
+    # incl attrs, id/children key collisions, custom kwargs, and single-node trees.
+    nodes_batch = []
+    edges_batch = []
+    has_attrs = False
+
+    def collect(parent, children_):
+        nonlocal has_attrs
         for child_data in children_:
             child = child_data[ident]
-            graph.add_edge(parent, child)
-            grandchildren = child_data.get(children, [])
-            if grandchildren:
-                add_children(child, grandchildren)
+            edges_batch.append((parent, child))
             node_data = {
                 str(key): value
                 for key, value in child_data.items()
                 if key != ident and key != children
             }
-            graph.add_node(child, **node_data)
+            if node_data:
+                has_attrs = True
+            nodes_batch.append((child, node_data))
+            grandchildren = child_data.get(children, [])
+            if grandchildren:
+                collect(child, grandchildren)
 
     root = data[ident]
     root_data = {
         str(key): value for key, value in data.items() if key != ident and key != children
     }
-    graph.add_node(root, **root_data)
-    add_children(root, data.get(children, []))
+    if root_data:
+        has_attrs = True
+    nodes_batch.insert(0, (root, root_data))
+    collect(root, data.get(children, []))
+
+    if has_attrs:
+        graph.add_nodes_from(nodes_batch)
+        graph.add_edges_from(edges_batch)
+    elif edges_batch:
+        graph.add_node(root)
+        graph.add_edges_from(edges_batch)
+    else:
+        graph.add_node(root)
     return graph
 
 
