@@ -27015,8 +27015,17 @@ def circulant_graph(n, offsets, create_using=None):
     """
     offsets_list = list(offsets)
     G = empty_graph(n, create_using)
-    G.add_edges_from((i, (i - j) % n) for i in range(n) for j in offsets_list)
-    G.add_edges_from((i, (i + j) % n) for i in range(n) for j in offsets_list)
+    # br-r37-c1-circulantbatch: combine the two edge passes into ONE add_edges_from.
+    # The previous second call saw a non-fresh graph and fell back to the per-edge
+    # add_edge tax. ``for sign in (-1, 1)`` keeps the exact ``(i-j) pass then (i+j)
+    # pass`` emission order, so the edge insertion (and adj) order stays byte-
+    # identical to nx's two separate calls.
+    G.add_edges_from(
+        (i, (i + sign * j) % n)
+        for sign in (-1, 1)
+        for i in range(n)
+        for j in offsets_list
+    )
     return G
 
 
