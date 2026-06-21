@@ -35248,23 +35248,44 @@ def communicability_betweenness_centrality(G, *, backend=None, **backend_kwargs)
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
 
-    # br-r37-c1-zuly1: nx computes B = (expA - expm(A_r)) / expA element-wise.
-    # On a disconnected graph expA has zero entries between components, so the
-    # raw division yields inf/nan and nx returns nan for the connected nodes
-    # (isolated nodes get 0.0). The Rust kernel guards that division and
-    # returns finite values, so it diverges from nx on every disconnected
-    # graph. Connected graphs already match — delegate the disconnected case
-    # to nx so the nan contract matches.
-    if G.number_of_nodes() > 0 and not is_connected(G):
-        return _call_networkx_for_parity(
-            "communicability_betweenness_centrality", G
-        )
+    # br-r37-c1-cbcexpm: the native communicability_betweenness_centrality_rust kernel
+    # (own LU/Pade expm) is ~2.5x SLOWER than nx's per-node scipy.linalg.expm approach
+    # (n=150: native 693ms vs nx 275ms; n=300: 10.8s vs 4.0s) AND diverged ~1e-12, which is
+    # why it needed a separate disconnected-nan delegation. Run nx's EXACT algorithm
+    # in-process on the fnx graph (fnx's fast to_numpy_array + scipy expm): BYTE-identical
+    # to nx (0.0e+00, incl the disconnected nan contract that falls straight out of the
+    # expA division) and 2.5x faster than the kernel. (The n per-node expm are independent,
+    # but scipy expm does not release the GIL enough for thread parallelism to help here.)
+    import numpy as np
+    import scipy as sp
 
-    raw = _fnx.communicability_betweenness_centrality_rust(G, True)
-    # br-r37-c1-pm78h: the Rust binding returns the dict in arbitrary
-    # internal order; nx iterates in node-insertion order. Reorder so
-    # ``for node, score in result.items():`` matches nx's contract.
-    return {node: raw[node] for node in G if node in raw}  # br-gauntlet-perf4: `for node in G` (fast native Graph.__iter__) not `G.nodes()` (NodeView iterator is ~350x slower; identical order)
+    nodelist = list(G)
+    n = len(nodelist)
+    if n == 0:
+        return {}
+    A = to_numpy_array(G, nodelist)
+    A[np.nonzero(A)] = 1
+    expA = sp.linalg.expm(A)
+    mapping = dict(zip(nodelist, range(n)))
+    cbc = {}
+    for v in G:  # node-insertion order matches nx's contract
+        i = mapping[v]
+        row = A[i, :].copy()
+        col = A[:, i].copy()
+        A[i, :] = 0
+        A[:, i] = 0
+        B = (expA - sp.linalg.expm(A)) / expA
+        B[i, :] = 0
+        B[:, i] = 0
+        B -= np.diag(np.diag(B))
+        cbc[v] = float(B.sum())
+        A[i, :] = row
+        A[:, i] = col
+    order = len(cbc)
+    if order > 2:
+        scale = 1.0 / ((order - 1.0) ** 2 - (order - 1.0))
+        cbc = {node: value * scale for node, value in cbc.items()}
+    return cbc
 
 
 def trophic_levels(G, weight="weight"):
