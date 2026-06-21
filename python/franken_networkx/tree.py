@@ -211,20 +211,22 @@ def junction_tree(G, *, backend=None, **backend_kwargs):
 def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=False, *, backend=None, **backend_kwargs):
     """Return a minimum spanning tree of an undirected graph.
 
-    Wraps ``networkx.algorithms.tree.minimum_spanning_tree`` and converts
-    the result to an fnx graph type for drop-in compatibility.
+    Route through the fnx top-level implementation so the submodule does not
+    rebuild a NetworkX graph and convert it back into fnx storage.
     """
     _fnx._validate_backend_dispatch_keywords("minimum_spanning_tree", backend, backend_kwargs)
-    nx_result = _nx_tree.minimum_spanning_tree(G, weight=weight, algorithm=algorithm, ignore_nan=ignore_nan)
-    return _from_nx_graph(nx_result)
+    return _fnx.minimum_spanning_tree(
+        G, weight=weight, algorithm=algorithm, ignore_nan=ignore_nan
+    )
 
 
 def maximum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=False, *, backend=None, **backend_kwargs):
     """Return a maximum spanning tree of an undirected graph.
 
-    Wraps ``networkx.algorithms.tree.maximum_spanning_tree`` and converts
-    the result to an fnx graph type for drop-in compatibility.
+    Route through the fnx top-level implementation so the submodule does not
+    rebuild a NetworkX graph and convert it back into fnx storage.
     """
     _fnx._validate_backend_dispatch_keywords("maximum_spanning_tree", backend, backend_kwargs)
-    nx_result = _nx_tree.maximum_spanning_tree(G, weight=weight, algorithm=algorithm, ignore_nan=ignore_nan)
-    return _from_nx_graph(nx_result)
+    return _fnx.maximum_spanning_tree(
+        G, weight=weight, algorithm=algorithm, ignore_nan=ignore_nan
+    )
