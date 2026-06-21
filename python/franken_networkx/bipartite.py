@@ -968,9 +968,17 @@ def projected_graph(B, nodes, multigraph=False, *, backend=None, **backend_kwarg
         G = _fnx.DiGraph() if directed else _fnx.Graph()
         G.graph.update(B.graph)
         G.add_nodes_from((n, B.nodes[n]) for n in nodes)
+        # br-r37-c1-bpprojbatch: collect ALL projection edges and add them in ONE
+        # add_edges_from. The previous per-node add_edges_from loop only let the
+        # FIRST node hit the native bulk-edge fast path; every later call saw a
+        # non-fresh graph and fell back to the per-edge add_edge tax (~83k add_edge
+        # calls on an 80-node projection). Same node-major emission order (nodes ->
+        # each node's nbrs2 set) so the edge insertion order stays byte-identical.
+        proj_edges = []
         for u in nodes:
             nbrs2 = {v for nbr in adj[u] for v in adj[nbr] if v != u}
-            G.add_edges_from((u, n) for n in nbrs2)
+            proj_edges.extend((u, n) for n in nbrs2)
+        G.add_edges_from(proj_edges)
         return G
     nx_result = _nx_bipartite.projected_graph(B, nodes, multigraph=multigraph)
     return _from_nx_graph(nx_result)
