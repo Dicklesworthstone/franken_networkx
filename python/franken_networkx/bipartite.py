@@ -1290,6 +1290,48 @@ def preferential_attachment_graph(aseq, p, create_using=None, seed=None, *, back
     _fnx._validate_backend_dispatch_keywords(
         "preferential_attachment_graph", backend, backend_kwargs
     )
+    # br-r37-c1-bprandgen: de-delegate the default (MultiGraph) via the
+    # create_py_random_state lever. This generator reads GRAPH STATE (len(G),
+    # G.degree(b)), so track the node count + per-bottom-node degree as we build.
+    # nx evaluates ``seed.random() < p or len(G) == naseq`` (random() ALWAYS drawn),
+    # creating a fresh bottom node id=len(G) on the if-branch or preferentially
+    # choosing an existing bottom (degree-weighted stub list) on the else-branch.
+    # Reproduce verbatim; node order (top then bottom in creation order), multi-edge
+    # keys, the p>1 NetworkXError and the graph name match nx. Non-None create_using
+    # delegates.
+    if create_using is None:
+        if p > 1:
+            raise _fnx.NetworkXError(f"probability {p} > 1")
+        from functools import reduce as _reduce
+        from networkx.utils import create_py_random_state
+
+        rng = create_py_random_state(seed)
+        naseq = len(aseq)
+        ng = naseq  # current node count (top nodes only, initially)
+        bdeg = {}  # bottom node id -> degree (multiplicity)
+        edges = []
+        vv = [[v] * aseq[v] for v in range(naseq)]
+        while vv:
+            while vv[0]:
+                source = vv[0][0]
+                vv[0].remove(source)
+                if rng.random() < p or ng == naseq:
+                    target = ng
+                    ng += 1
+                    bdeg[target] = 0
+                else:
+                    bb = [[b] * bdeg[b] for b in range(naseq, ng)]
+                    bbstubs = _reduce(lambda x, y: x + y, bb)
+                    target = rng.choice(bbstubs)
+                edges.append((source, target))
+                bdeg[target] += 1
+            vv.remove(vv[0])
+        G = _fnx.MultiGraph()
+        G.add_nodes_from((v, {"bipartite": 0}) for v in range(naseq))
+        G.add_nodes_from((v, {"bipartite": 1}) for v in range(naseq, ng))
+        G.add_edges_from(edges)
+        G.graph["name"] = "bipartite_preferential_attachment_model"
+        return G
     nx_result = _nx_bipartite.preferential_attachment_graph(aseq, p, create_using=create_using, seed=seed)
     return _from_nx_graph(nx_result, create_using=create_using)
 
