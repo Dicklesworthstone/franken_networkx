@@ -21,9 +21,15 @@ to_numpy_array, to_scipy...) on dirty graphs. CLEAN graphs already have weights 
 sync is a no-op -> they win.
 
 ## Why not fixed here
-The clean correct fix is native + risky: either (a) revision-gate the sync (skip when the mirror
-hasn't changed since the last sync — needs a reliable dirty/revision invariant across EVERY edge-
-attr mutation, or stale-inner -> wrong results), or (b) have the COO builder read the mirror
-directly. Both are fnx-classes/binding native changes with correctness surface that outweighs the
-moderate value (the clean path already wins 3.16x; only post-construction-mutated weights pay it).
-Characterized precisely for a focused native pass.
+CONFIRMED architecture-bound, NOT a quick gate: reading `_sync_rust_edge_attrs` (__init__.py:7227)
++ fnx-classes shows there is NO dirty flag and there CANNOT cheaply be one. `G[u][v]` returns the
+SAME persistent `Py<PyDict>` stored in `edge_py_attrs`, so `G[u][v]['weight']=w` mutates that dict
+IN-PLACE, entirely Python-side, with NO Rust callback. Rust cannot observe the mutation -> a
+revision/dirty-gate is INFEASIBLE (nothing bumps a counter on the in-place PyDict write); that is
+exactly why the sync is unconditional + O(E+N) every call. The only correct fixes are deep:
+  (a) native COO/weight readers read the Py mirror dict directly (moves the per-edge PyO3 cost,
+      ~no net win), or
+  (b) the persistent-Python-dict-mirror architecture (bead 4b5ie/9hkgu) where edge-attr mutations
+      flow through Rust so `inner` never goes stale — the SAME root lever as has_edge 0.22x.
+The clean weighted path already wins 3.16x; only post-construction-MUTATED weights pay the sync.
+Recorded so the next pass does NOT waste time on a revision-gate — it cannot work.
