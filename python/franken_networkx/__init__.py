@@ -22294,11 +22294,12 @@ def pagerank(
         and not G.is_multigraph()
         and isinstance(G, (Graph, DiGraph))
     ):
-        has_weight_attr = any(
-            isinstance(attrs, dict) and weight in attrs
-            for _, _, attrs in G.edges(data=True)
-        )
-        if not has_weight_attr:
+        # br-r37-c1-pagerankhaswt: the per-edge ``any(weight in attrs for ... in
+        # G.edges(data=True))`` walk was O(E) Python on EVERY call — and for the
+        # common UNWEIGHTED graph (no edge carries ``weight``) it scanned every edge
+        # to conclude "no weights". Use the native inner-aware presence check
+        # (graph_has_edge_attr) instead: same decision, no Python edge walk.
+        if not _graph_has_edge_attribute(G, weight):
             pagerank_weight = None
 
     # br-gauntlet-pagerank-sync: pagerank reads edge weights from the Rust
