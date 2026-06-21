@@ -72,7 +72,73 @@ Do not repeat:
   fallback is required to preserve NetworkX exception semantics.
 - Do not count this as a `MultiDiGraph` fix; that surface still loses and needs
   a separate native multi-edge substrate.
+## 2026-06-21 Cod-B Borrowed Dirty-Key Sparse Keep (`br-r37-c1-04z53`, cod-b)
 
+Scope: fresh BOLD-VERIFY pass on the dirty/live high-unique
+`MultiDiGraph` sparse-export residual. Reused the existing detached worktree
+`/data/projects/.worktrees/fnx-bt-3` and
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`; no new
+`.scratch` worktree was created and the shared target was not cleaned.
+
+Radical lever kept:
+- Alien-graveyard / alien-artifact hypothesis: treat the dirty edge set as a
+  compact sparse delta, not as a global invalidation bit. Build one borrowed
+  `(&str, &str, key)` dirty-key lookup per export, read stored Rust attrs for
+  untouched edges, and cross the Python dict boundary only for exact dirty
+  `G[u][v][key]` mutations.
+- This is deliberately narrower than the rejected broad live-weight index and
+  different from the earlier stored-attr bypass attempt: the hot loop no longer
+  allocates owned `(u, v, key)` lookup tuples for clean edges in the dirty
+  path, while broad dirty escapes still fall back to authoritative live attrs.
+
+Current-source direct head-to-head:
+- Oracle: vendored NetworkX `3.7rc0.dev0` from
+  `legacy_networkx_code/networkx`, Python `3.13.7`,
+  `PYTHONHASHSEED=0`, `OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`,
+  pinned with `taskset -c 4`.
+- Fixture: deterministic seed `1`, `2,000` nodes, `12,000` unique keyed
+  directed edges, `388` public post-construction
+  `G[u][v][key]["weight"] = ...` mutations, non-integer float weights,
+  default nodelist, default `weight="weight"`.
+- Parity: sorted coordinate sparse payload matched for both
+  `to_scipy_sparse_array` and `adjacency_matrix`; digest
+  `6a308478ec5832944239b9997a05fb7af357a9edac80d494cf22e7db2e2489b1`,
+  `12,000` nnz, float64 data, sum `1056934.0`.
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `to_scipy_sparse_array`, dirty high-unique 12k-edge MDG | `8.491933 ms` | `11.235742 ms` | `1.323x` | win |
+| `adjacency_matrix`, dirty high-unique 12k-edge MDG | `6.873216 ms` | `11.972349 ms` | `1.742x` | win |
+
+Validation:
+- Focused sparse exporter conformance:
+  `tests/python/test_to_scipy_sparse_native_weighted_parity.py` plus
+  `tests/python/test_to_scipy_sparse_default_native_parity.py`: `304 passed`.
+- RCH gates on final source passed before the local ABI rebuild:
+  `cargo clippy -p fnx-python --all-targets --features pyo3/abi3-py310 -- -D warnings`
+  and
+  `cargo build --release -p fnx-python --features pyo3/abi3-py310`.
+- `cargo fmt --check` passed and `ubs crates/fnx-python/src/readwrite.rs`
+  reported no new critical finding for the touched source.
+- Focused RCH Criterion attempts for
+  `multidigraph_to_scipy_sparse_array_csr_int_weights` built the bench binary
+  on workers `vmi1149989` and `vmi1152480`, then failed before sampling with
+  `ModuleNotFoundError("No module named 'public_api_gauntlet'")`; these runs
+  are recorded as worker Python-path failures, not keep evidence.
+
+Decision:
+- Keep. The dirty sparse residual flips to `2` wins / `0` losses / `0`
+  neutral vs NetworkX on the direct vendored-oracle proof.
+- Remaining active no-gaps targets are the ubizp path-returning output loss
+  and the `non_edges_sparse_undirected` public boundary.
+
+Do not repeat:
+- Do not re-test broad live-weight indexing or per-edge owned dirty-key tuple
+  construction for this sparse exporter. The kept shape is a borrowed dirty-set
+  delta plus stored-attr fast path for untouched edges.
+- If this area regresses again, the next route should be native sparse-array
+  handoff or a compact numeric edge-weight mirror, not another all-edges live
+  attr scan.
 ## 2026-06-21 Cod-A `non_edges` Exact-Int Lazy Iterator No-Ship (`br-r37-c1-04z53`, cod-a)
 
 Scope: fresh BOLD-VERIFY follow-up on the active

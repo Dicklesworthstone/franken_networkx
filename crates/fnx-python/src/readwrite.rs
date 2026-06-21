@@ -25,7 +25,7 @@ use pyo3::types::PyInt;
 use pyo3::types::PyList;
 use pyo3::types::PyString;
 use serde_json::Value as JsonValue;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Read the file content from a path-like or file-like Python object.
@@ -1964,6 +1964,52 @@ fn stored_multigraph_weight(
     }
 }
 
+fn borrowed_multidigraph_dirty_keys(
+    dirty_keys: &Option<HashSet<(String, String, usize)>>,
+) -> Option<HashSet<(&str, &str, usize)>> {
+    dirty_keys.as_ref().map(|keys| {
+        keys.iter()
+            .map(|(u, v, key)| (u.as_str(), v.as_str(), *key))
+            .collect()
+    })
+}
+
+fn cloned_multidigraph_dirty_keys(
+    mdg: &crate::digraph::PyMultiDiGraph,
+) -> PyResult<Option<HashSet<(String, String, usize)>>> {
+    mdg.edge_dirty_keys
+        .lock()
+        .map_err(|_| PyRuntimeError::new_err("MultiDiGraph edge dirty key lock poisoned"))
+        .map(|keys| keys.clone())
+}
+
+fn multidigraph_weight_with_precise_dirty(
+    py: Python<'_>,
+    mdg: &crate::digraph::PyMultiDiGraph,
+    precise_dirty_keys: Option<&HashSet<(&str, &str, usize)>>,
+    u: &str,
+    v: &str,
+    key: usize,
+    attrs: &fnx_classes::AttrMap,
+    weight_attr: &str,
+    default_weight: f64,
+) -> PyResult<Option<f64>> {
+    if let Some(dirty_keys) = precise_dirty_keys
+        && !dirty_keys.contains(&(u, v, key))
+    {
+        return Ok(stored_multigraph_weight(attrs, weight_attr, default_weight));
+    }
+
+    let mirror_key = (u.to_owned(), v.to_owned(), key);
+    live_multigraph_weight(
+        py,
+        mdg.edge_py_attrs.get(&mirror_key),
+        attrs,
+        weight_attr,
+        default_weight,
+    )
+}
+
 /// br-r37-c1-wvuf7: live-dict sibling of
 /// `adjacency_arrays_multigraph_finite_checked` for weighted sparse exporters.
 ///
@@ -2130,16 +2176,29 @@ pub fn adjacency_arrays_multigraph_default_order_live_finite_checked(
             let mut cols: Vec<usize> = Vec::with_capacity(edge_count);
             let mut data: Vec<f64> = Vec::with_capacity(edge_count);
             let use_stored_attrs = !mdg.edges_dirty.load(Ordering::Relaxed);
+            let dirty_keys = if use_stored_attrs {
+                Some(HashSet::new())
+            } else {
+                cloned_multidigraph_dirty_keys(mdg)?
+            };
+            let precise_dirty_keys = if use_stored_attrs {
+                None
+            } else {
+                borrowed_multidigraph_dirty_keys(&dirty_keys)
+            };
             for (u, v, key, attrs) in inner.edges_ordered_borrowed() {
                 let Some(&ui) = index.get(u) else { continue };
                 let Some(&vi) = index.get(v) else { continue };
                 let w = if use_stored_attrs {
                     stored_multigraph_weight(attrs, weight_attr, default_weight)
                 } else {
-                    let mirror_key = (u.to_owned(), v.to_owned(), key);
-                    live_multigraph_weight(
+                    multidigraph_weight_with_precise_dirty(
                         py,
-                        mdg.edge_py_attrs.get(&mirror_key),
+                        mdg,
+                        precise_dirty_keys.as_ref(),
+                        u,
+                        v,
+                        key,
                         attrs,
                         weight_attr,
                         default_weight,
@@ -2192,6 +2251,16 @@ pub fn adjacency_csr_multidigraph_default_order_live_finite_checked(
     indptr.push(0);
 
     let use_stored_attrs = !mdg.edges_dirty.load(Ordering::Relaxed);
+    let dirty_keys = if use_stored_attrs {
+        Some(HashSet::new())
+    } else {
+        cloned_multidigraph_dirty_keys(mdg)?
+    };
+    let precise_dirty_keys = if use_stored_attrs {
+        None
+    } else {
+        borrowed_multidigraph_dirty_keys(&dirty_keys)
+    };
     let mut current_row = 0usize;
     let mut emitted = 0usize;
     let mut pending: Option<(usize, f64)> = None;
@@ -2201,10 +2270,13 @@ pub fn adjacency_csr_multidigraph_default_order_live_finite_checked(
         let w = if use_stored_attrs {
             stored_multigraph_weight(attrs, weight_attr, default_weight)
         } else {
-            let mirror_key = (u.to_owned(), v.to_owned(), key);
-            live_multigraph_weight(
+            multidigraph_weight_with_precise_dirty(
                 py,
-                mdg.edge_py_attrs.get(&mirror_key),
+                mdg,
+                precise_dirty_keys.as_ref(),
+                u,
+                v,
+                key,
                 attrs,
                 weight_attr,
                 default_weight,
@@ -2344,6 +2416,16 @@ pub fn adjacency_csr_bytes_multidigraph_default_order_live_finite_checked(
     let mut current_row = 0usize;
     let mut emitted = 0usize;
     let mut pending: Option<(usize, f64)> = None;
+    let dirty_keys = if use_stored_attrs {
+        Some(HashSet::new())
+    } else {
+        cloned_multidigraph_dirty_keys(mdg)?
+    };
+    let precise_dirty_keys = if use_stored_attrs {
+        None
+    } else {
+        borrowed_multidigraph_dirty_keys(&dirty_keys)
+    };
 
     enum CsrBuildStop {
         Unsupported,
@@ -2355,10 +2437,13 @@ pub fn adjacency_csr_bytes_multidigraph_default_order_live_finite_checked(
             let w = if use_stored_attrs {
                 stored_multigraph_weight(attrs, weight_attr, default_weight)
             } else {
-                let mirror_key = (u.to_owned(), v.to_owned(), key);
-                live_multigraph_weight(
+                multidigraph_weight_with_precise_dirty(
                     py,
-                    mdg.edge_py_attrs.get(&mirror_key),
+                    mdg,
+                    precise_dirty_keys.as_ref(),
+                    u,
+                    v,
+                    key,
                     attrs,
                     weight_attr,
                     default_weight,
