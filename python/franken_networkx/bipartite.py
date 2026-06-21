@@ -1196,6 +1196,36 @@ def configuration_model(aseq, bseq, create_using=None, seed=None, *, backend=Non
     _fnx._validate_backend_dispatch_keywords(
         "configuration_model", backend, backend_kwargs
     )
+    # br-r37-c1-bprandgen: de-delegate the default (MultiGraph) via the
+    # create_py_random_state RNG-reproduction lever. nx builds degree-repeated stub
+    # lists, ``seed.shuffle``s both, and pairs astubs[i]<->bstubs[i]. Reproduce the
+    # exact initial stub order + rng so both shuffles match nx byte-for-byte, then
+    # bulk add the paired (multi)edges. Node labels, multi-edge keys, suma!=sumb
+    # NetworkXError and the graph name match nx. Non-None create_using delegates.
+    if create_using is None:
+        lena, lenb = len(aseq), len(bseq)
+        suma, sumb = sum(aseq), sum(bseq)
+        if suma != sumb:
+            raise _fnx.NetworkXError(
+                f"invalid degree sequences, sum(aseq)!=sum(bseq),{suma},{sumb}"
+            )
+        G = _fnx.MultiGraph()
+        G.add_nodes_from((v, {"bipartite": 0}) for v in range(lena))
+        G.add_nodes_from((v, {"bipartite": 1}) for v in range(lena, lena + lenb))
+        if lena == 0 or max(aseq) == 0:
+            return G
+        from networkx.utils import create_py_random_state
+
+        rng = create_py_random_state(seed)
+        stubs = [[v] * aseq[v] for v in range(lena)]
+        astubs = [x for subseq in stubs for x in subseq]
+        stubs = [[v] * bseq[v - lena] for v in range(lena, lena + lenb)]
+        bstubs = [x for subseq in stubs for x in subseq]
+        rng.shuffle(astubs)
+        rng.shuffle(bstubs)
+        G.add_edges_from([astubs[i], bstubs[i]] for i in range(suma))
+        G.graph["name"] = "bipartite_configuration_model"
+        return G
     nx_result = _nx_bipartite.configuration_model(aseq, bseq, create_using=create_using, seed=seed)
     return _from_nx_graph(nx_result, create_using=create_using)
 
