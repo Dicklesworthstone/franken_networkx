@@ -35205,16 +35205,34 @@ def second_order_centrality(G, weight="weight", *, backend=None, **backend_kwarg
         # this specific failure don't catch fnx's NetworkXError. Match nx.
         raise NetworkXException("Graph has negative edge weights.")
 
-    directed = DiGraph(G)
-    in_degree = dict(directed.in_degree(weight=weight))
-    max_in_degree = max(in_degree.values())
-
-    for node, degree in in_degree.items():
-        if degree < max_in_degree:
-            directed.add_edge(node, node, weight=max_in_degree - degree)
-
-    transition = to_numpy_array(directed, nodelist=nodelist)
-    transition /= transition.sum(axis=1)[:, np.newaxis]
+    # br-r37-c1-socindeg: build the Metropolis-Hastings transition matrix DIRECTLY in
+    # numpy from G's edge data, instead of via `DiGraph(G)` + the native in_degree /
+    # to_numpy_array. A batch-built graph leaves G's edge-attr mirror lazy, and the
+    # directed copy's native 'weight'-keyed (default-attr) fast paths then read unit
+    # DEFAULTS -> wrong d_max -> wrong balancing self-loops -> centrality off by ~17 vs nx
+    # (only when second_order is the FIRST op on the fresh graph; any prior weighted read
+    # masked it, and a non-default weight key like 'cost' dodged the stale fast path).
+    # `G.edges(data=True)` returns the correct live weights, so reconstruct nx's exact
+    # algorithm over it: directed adjacency by the 'weight' (default) key — what
+    # nx.to_numpy_array(directed) reads — with each undirected edge in both orientations;
+    # in-degree by `weight`; balancing self-loops (d_max - in_deg) added to the diagonal.
+    index = {node: i for i, node in enumerate(nodelist)}
+    adjacency = np.zeros((n, n))
+    in_weighted = np.zeros(n)
+    for _u, _v, _data in G.edges(data=True):
+        iu, iv = index[_u], index[_v]
+        edge_w = _data.get("weight", 1)
+        in_w = _data.get(weight, 1)
+        adjacency[iu, iv] += edge_w
+        in_weighted[iv] += in_w
+        if iu != iv:  # undirected -> the reverse orientation, except for self-loops
+            adjacency[iv, iu] += edge_w
+            in_weighted[iu] += in_w
+    max_in_degree = in_weighted.max()
+    for i in range(n):
+        if in_weighted[i] < max_in_degree:
+            adjacency[i, i] += max_in_degree - in_weighted[i]
+    transition = adjacency / adjacency.sum(axis=1)[:, np.newaxis]
 
     # br-socwoodbury: the previous code solved (I - Q_idx) x = 1 for every
     # column idx -- n dense O(n^3) solves => O(n^4) overall (catastrophic on a
@@ -51160,16 +51178,18 @@ def _validate_same_graph_family(graphs):
 
 def _graph_has_edge_attribute(G, name):
     """Return True when any edge carries attribute ``name``."""
-    # br-r37-c1-hasattrnative: walking `G.edges(data=True)` materializes the
-    # EdgeDataView (full attr dict per edge) — ~420us on a 1500-edge graph, and this
-    # is a per-call GATE for the weighted-dijkstra/MST delegation checks (4 callers).
-    # The native `graph_has_edge_attr` scans the Rust-side edge_py_attrs (~0.1us, 3000x)
-    # for SIMPLE Graph/DiGraph (returns None for multigraphs -> Python fallback below).
-    # Verified byte-identical 3500/3500 incl copy/subgraph/convert/relabel/weight paths.
-    if isinstance(name, str):
-        native = _native_has_edge_attr(G, name)
-        if native is not None:
-            return native
+    # br-r37-c1-hasattrnative + br-r37-c1-hasattrlazyfix: the native `graph_has_edge_attr`
+    # scans the Rust-side edge_py_attrs mirror (~0.1us vs ~420us for the EdgeDataView walk
+    # — this is a per-call GATE for the weighted-dijkstra/MST/second_order delegation
+    # checks). BUT that mirror is LAZY: a freshly batch-built graph (add_edges_from /
+    # DiGraph(G)) has it unmaterialized, so the native returns False even when the attr
+    # IS present (regression: second_order mis-gated to the unweighted kernel; weighted
+    # dijkstra mis-routed). A native True is reliable (the attr is really there); a native
+    # False/None is NOT (could be an unmaterialized mirror) -> fall back to the correct
+    # `G.edges(data=True)` scan, which materializes. Keeps the fast path for already-read
+    # weighted graphs; pays the scan only when the native can't prove presence.
+    if isinstance(name, str) and _native_has_edge_attr(G, name) is True:
+        return True
     if G.is_multigraph():
         return any(name in attrs for _, _, _, attrs in G.edges(keys=True, data=True))
     return any(name in attrs for _, _, attrs in G.edges(data=True))
