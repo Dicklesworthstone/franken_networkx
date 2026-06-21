@@ -115,6 +115,41 @@ def test_backend_registers_all_four_tree_functions():
 
 
 @needs_nx
+@pytest.mark.parametrize(
+    "sequence",
+    [
+        (),
+        ((),),
+        (((),), ()),
+        (((), ()), ((), ())),
+        ((((),), ()),),
+    ],
+)
+@pytest.mark.parametrize("sensible_relabeling", [False, True])
+def test_tree_submodule_from_nested_tuple_native_order_parity(
+    monkeypatch, sequence, sensible_relabeling
+):
+    """Submodule override should match nx order without fnx<-nx conversion."""
+    import franken_networkx.tree as tree_mod
+
+    def _conversion_forbidden(*args, **kwargs):
+        raise AssertionError("from_nested_tuple should build fnx.Graph directly")
+
+    monkeypatch.setattr(tree_mod, "_from_nx_graph", _conversion_forbidden)
+
+    result = tree_mod.from_nested_tuple(
+        sequence, sensible_relabeling=sensible_relabeling
+    )
+    expected = nx.from_nested_tuple(
+        sequence, sensible_relabeling=sensible_relabeling
+    )
+
+    assert isinstance(result, fnx.Graph)
+    assert list(result.nodes()) == list(expected.nodes())
+    assert list(result.edges()) == list(expected.edges())
+
+
+@needs_nx
 def test_minimum_branching_parity_with_nx():
     """Beyond the dispatcher contract, the result for a simple
     weighted DiGraph should match nx's own value-wise output."""

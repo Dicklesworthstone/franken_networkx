@@ -141,12 +141,60 @@ def from_prufer_sequence(sequence, *, backend=None, **backend_kwargs):
 def from_nested_tuple(sequence, sensible_relabeling=False, *, backend=None, **backend_kwargs):
     """Return the rooted tree corresponding to the given nested tuple.
 
-    Wraps ``networkx.algorithms.tree.from_nested_tuple`` and converts
-    the result to an fnx graph type for drop-in compatibility.
+    br-r37-c1-04z53: build the fnx Graph directly instead of constructing a
+    NetworkX Graph and then converting it back through ``_from_nx_graph``.
+    This mirrors NetworkX's recursive ``join_trees`` label assignment: child
+    subtrees are relabeled into contiguous ranges starting at 1 and the local
+    root node 0 is appended last. The optional sensible relabeling then applies
+    NetworkX's BFS-order mapping to that exact node/edge stream.
     """
     _fnx._validate_backend_dispatch_keywords("from_nested_tuple", backend, backend_kwargs)
-    nx_result = _nx_tree.from_nested_tuple(sequence, sensible_relabeling=sensible_relabeling)
-    return _from_nx_graph(nx_result)
+
+    def _make_tree(subtree):
+        if len(subtree) == 0:
+            return [0], []
+
+        child_parts = [_make_tree(child) for child in subtree]
+        nodes = []
+        edges = []
+        child_roots = []
+        next_label = 1
+        for child_nodes, child_edges in child_parts:
+            labels = {
+                old_label: next_label + index
+                for index, old_label in enumerate(child_nodes)
+            }
+            child_roots.append(labels[0])
+            nodes.extend(labels[node] for node in child_nodes)
+            edges.extend((labels[u], labels[v]) for u, v in child_edges)
+            next_label += len(child_nodes)
+
+        nodes.append(0)
+        edges.extend((0, root) for root in child_roots)
+        return nodes, edges
+
+    nodes, edges = _make_tree(sequence)
+    if sensible_relabeling:
+        adjacency = {node: [] for node in nodes}
+        for u, v in edges:
+            adjacency[u].append(v)
+            adjacency[v].append(u)
+
+        labels = {0: 0}
+        queue = [0]
+        for u in queue:
+            for v in adjacency[u]:
+                if v not in labels:
+                    labels[v] = len(labels)
+                    queue.append(v)
+
+        nodes = [labels[node] for node in nodes]
+        edges = [(labels[u], labels[v]) for u, v in edges]
+
+    graph = _fnx.Graph()
+    graph.add_nodes_from(nodes)
+    graph.add_edges_from(edges)
+    return graph
 
 
 def junction_tree(G, *, backend=None, **backend_kwargs):
