@@ -240,20 +240,23 @@ clique = _fnx_clique  # Override in module globals
 import franken_networkx.connectivity as _fnx_connectivity
 _sys.modules[f"{__name__}.connectivity"] = _fnx_connectivity
 connectivity = _fnx_connectivity  # Override in module globals
+_alias_nx_child_modules(
+    "networkx.algorithms.connectivity", f"{__name__}.connectivity"
+)
 
 import franken_networkx.community as _fnx_community
 _sys.modules[f"{__name__}.community"] = _fnx_community
 community = _fnx_community  # Override in module globals
+_alias_nx_child_modules(
+    "networkx.algorithms.community", f"{__name__}.community"
+)
 
 import franken_networkx.isomorphism as _fnx_isomorphism
 _sys.modules[f"{__name__}.isomorphism"] = _fnx_isomorphism
 isomorphism = _fnx_isomorphism  # Override in module globals
-# NOTE: do NOT call _alias_nx_child_modules here. It does
-# ``setattr(parent, child_name, child_module)`` on the fnx submodule, and nx's
-# isomorphism package has a ``tree_isomorphism`` (and others) CHILD MODULE that
-# would clobber the same-named fnx FUNCTION (``fnx.isomorphism.tree_isomorphism``
-# -> module, breaking callers). The ``_sys.modules`` assignment above already
-# routes ``fnx.algorithms.<sub>`` to the complete fnx submodule.
+_alias_nx_child_modules(
+    "networkx.algorithms.isomorphism", f"{__name__}.isomorphism"
+)
 
 _fnx_cluster = _importlib.import_module("franken_networkx.cluster")
 _sys.modules[f"{__name__}.cluster"] = _fnx_cluster

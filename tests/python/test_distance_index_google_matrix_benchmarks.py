@@ -19,6 +19,8 @@ import pytest
 import networkx as nx
 import franken_networkx as fnx
 
+pytestmark = pytest.mark.benchmark
+
 
 def _fnx_digraph(n, seed=7):
     g = fnx.gnp_random_graph(n, 0.06, seed, directed=True)

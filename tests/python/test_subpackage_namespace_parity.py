@@ -50,8 +50,8 @@ ROOT_MIRROR_MODULE_EXPORTS = [
 def _expected_exports(module):
     exports = getattr(module, "__all__", None)
     if exports:
-        return set(exports)
-    return {name for name in dir(module) if not name.startswith("_")}
+        return {name for name in exports if name != "tests"}
+    return {name for name in dir(module) if not name.startswith("_") and name != "tests"}
 
 
 def test_subpackage_direct_attribute_access_works():

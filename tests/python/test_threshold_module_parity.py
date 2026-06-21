@@ -7,6 +7,7 @@ import inspect
 
 import franken_networkx as fnx
 import networkx as nx
+import networkx.algorithms.threshold as nx_threshold
 import pytest
 
 PUBLIC_FUNCTIONS = (
@@ -77,10 +78,10 @@ def test_threshold_graph_matches_networkx_and_returns_fnx_graph(sequence):
     module = importlib.import_module("franken_networkx.threshold")
 
     actual = module.threshold_graph(sequence)
-    expected = nx.threshold_graph(sequence)
+    expected = nx_threshold.threshold_graph(sequence)
 
     _assert_same_graph(actual, expected)
-    assert module.is_threshold_graph(actual) == nx.is_threshold_graph(expected)
+    assert module.is_threshold_graph(actual) == nx_threshold.is_threshold_graph(expected)
 
 
 def test_find_threshold_graph_matches_networkx_and_returns_fnx_graph():
@@ -90,10 +91,10 @@ def test_find_threshold_graph_matches_networkx_and_returns_fnx_graph():
     nx_graph = _graph_from_edges(nx, edges)
 
     actual = module.find_threshold_graph(fnx_graph)
-    expected = nx.find_threshold_graph(nx_graph)
+    expected = nx_threshold.find_threshold_graph(nx_graph)
 
     _assert_same_graph(actual, expected)
-    assert module.is_threshold_graph(actual) == nx.is_threshold_graph(expected)
+    assert module.is_threshold_graph(actual) == nx_threshold.is_threshold_graph(expected)
 
 
 def test_creation_sequence_and_alternating_cycle_match_networkx():
@@ -101,10 +102,10 @@ def test_creation_sequence_and_alternating_cycle_match_networkx():
     fnx_graph = fnx.path_graph(4)
     nx_graph = nx.path_graph(4)
 
-    assert module.find_creation_sequence(fnx_graph) == nx.find_creation_sequence(
+    assert module.find_creation_sequence(fnx_graph) == nx_threshold.find_creation_sequence(
         nx_graph
     )
-    assert module.find_alternating_4_cycle(fnx_graph) == nx.find_alternating_4_cycle(
+    assert module.find_alternating_4_cycle(fnx_graph) == nx_threshold.find_alternating_4_cycle(
         nx_graph
     )
 

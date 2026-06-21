@@ -85,8 +85,12 @@ try:
 
     _nx_for_fallback_cfg.config.fallback_to_nx = True
     _NETWORKX_GRAPH_DEFAULT = _nx_for_fallback_cfg.Graph
+    from networkx.exception import HasACycle as _NetworkXHasACycle
+    from networkx.utils import create_py_random_state as _create_py_random_state
 except Exception:
     _NETWORKX_GRAPH_DEFAULT = Graph
+    _NetworkXHasACycle = Exception
+    _create_py_random_state = None
 
 try:
     import networkx.lazy_imports as _nx_lazy_imports
@@ -381,7 +385,9 @@ def _remove_edge_with_networkx_missing_edge_error(
                 if not self.has_edge(u, v):
                     raise NetworkXError(missing_edge_message.format(u=u, v=v))
                 raise NetworkXError(f"The edge {u}-{v} with key {key} is not in the graph.")
-            return remove_edge_impl(self, u, v, key)
+            result = remove_edge_impl(self, u, v, key)
+            _invalidate_adjacency_row_caches(self)
+            return result
 
     else:
 
@@ -391,7 +397,9 @@ def _remove_edge_with_networkx_missing_edge_error(
             hash(v)
             if not self.has_edge(u, v):
                 raise NetworkXError(missing_edge_message.format(u=u, v=v))
-            return remove_edge_impl(self, u, v)
+            result = remove_edge_impl(self, u, v)
+            _invalidate_adjacency_row_caches(self)
+            return result
 
     return remove_edge
 
@@ -406,7 +414,9 @@ def _remove_node_with_networkx_missing_node_error(remove_node_impl, *, graph_kin
         hash(n)
         if n not in self:
             raise NetworkXError(f"The node {n} is not in the {graph_kind}.")
-        return remove_node_impl(self, n)
+        result = remove_node_impl(self, n)
+        _invalidate_adjacency_row_caches(self)
+        return result
 
     return remove_node
 
@@ -1625,6 +1635,17 @@ def _multigraph_getitem_from_native_row(self, node):
     return AdjacencyView(lambda: self._native_adjacency_row(node))
 
 
+def _digraph_getitem_from_native_row(self, node):
+    if type(self) is not DiGraph:
+        return _graph_getitem_from_adj(self, node)
+    hash(node)
+    try:
+        self._native_adjacency_dict()[node]
+    except KeyError as exc:
+        raise KeyError(node) from exc
+    return AtlasView(lambda: self._native_adjacency_dict()[node])
+
+
 def _multidigraph_getitem_from_native_row(self, node):
     if type(self) is not MultiDiGraph:
         return _graph_getitem_from_adj(self, node)
@@ -2581,6 +2602,15 @@ def _make_none_rejecting_add_edge(raw_add_edge, is_multigraph=False):
             except TypeError:
                 self.add_node(u_of_edge)
                 raise
+            edge_exists = self.has_edge(u_of_edge, v_of_edge)
+            if edge_exists:
+                if attr:
+                    merged_attr = dict(self[u_of_edge][v_of_edge])
+                    merged_attr.update(attr)
+                    result = raw_add_edge(self, u_of_edge, v_of_edge, **merged_attr)
+                    self[u_of_edge][v_of_edge].update(merged_attr)
+                    return result
+                return None
             return raw_add_edge(self, u_of_edge, v_of_edge, **attr)
 
     return add_edge
@@ -2998,9 +3028,49 @@ _MULTIDIGRAPH_RAW_REMOVE_NODES_FROM = MultiDiGraph.remove_nodes_from
 _ADD_EDGES_UNSET = object()
 
 
+def _simple_add_edges_from_touches_existing_plain_edge(graph, edges):
+    if type(graph) not in (Graph, DiGraph):
+        return False
+    for edge in edges:
+        try:
+            if len(edge) != 2:
+                return False
+            u, v = edge
+        except TypeError:
+            return False
+        try:
+            if graph.has_edge(u, v):
+                return True
+        except TypeError:
+            return False
+    return False
+
+
+def _invalidate_adjacency_row_caches(graph):
+    cache = vars(graph)
+    cache.pop("_fnx_getitem_atlas_cache", None)
+    cache.pop("_fnx_adj_row_keydict_cache", None)
+    cache.pop("_fnx_adj_row_keydict_cache_state", None)
+    for slot in ("_fnx_view_adj", "_fnx_view_succ", "_fnx_view_pred"):
+        view = cache.get(slot)
+        row_cache = getattr(view, "_fnx_atlas_cache", None)
+        if row_cache is None:
+            continue
+        for row_view in row_cache[1].values():
+            if hasattr(row_view, "_fnx_kd_cache"):
+                row_view._fnx_kd_cache = None
+        view._fnx_atlas_cache = None
+
+
 def _add_edges_from_materialized(raw):
     def add_edges_from(self, ebunch_to_add, **attr):
-        if not attr and isinstance(ebunch_to_add, (list, tuple)):
+        if (
+            not attr
+            and isinstance(ebunch_to_add, (list, tuple))
+            and not _simple_add_edges_from_touches_existing_plain_edge(
+                self, ebunch_to_add
+            )
+        ):
             native_batch = getattr(self, "_try_add_edges_from_batch", None)
             if native_batch is not None and native_batch(ebunch_to_add):
                 return None
@@ -3041,7 +3111,13 @@ def _add_edges_from_materialized(raw):
             # non-plain-2-tuple bunch falls through to the exact per-edge
             # parity path below — byte-identical to passing the same list
             # directly (the list gate above already trusts it).
-            if iteration_exc is None and not attr:
+            if (
+                iteration_exc is None
+                and not attr
+                and not _simple_add_edges_from_touches_existing_plain_edge(
+                    self, materialized
+                )
+            ):
                 native_batch = getattr(self, "_try_add_edges_from_batch", None)
                 if native_batch is not None and native_batch(materialized):
                     return None
@@ -3141,6 +3217,12 @@ def _add_edges_from_materialized(raw):
                 break
             materialized[i] = normalized
         if first_error is None:
+            if _simple_add_edges_from_touches_existing_plain_edge(self, materialized):
+                for u, v in materialized:
+                    self.add_edge(u, v, **attr)
+                if iteration_exc is not None:
+                    raise iteration_exc
+                return None
             result = raw(self, materialized, **attr)
             if iteration_exc is not None:
                 raise iteration_exc
@@ -3242,11 +3324,13 @@ def _remove_edges_from_materialized(raw):
                 materialized[i] = tuple(edge)
         if first_error is None:
             result = raw(self, materialized)
+            _invalidate_adjacency_row_caches(self)
             if iteration_exc is not None:
                 raise iteration_exc
             return result
         if valid_count:
             raw(self, materialized[:valid_count])
+            _invalidate_adjacency_row_caches(self)
         raise first_error
 
     return remove_edges_from
@@ -3294,11 +3378,13 @@ def _remove_nodes_from_materialized(raw):
                 break
         if first_error is None:
             result = raw(self, materialized)
+            _invalidate_adjacency_row_caches(self)
             if iteration_exc is not None:
                 raise iteration_exc
             return result
         if valid_count:
             raw(self, materialized[:valid_count])
+            _invalidate_adjacency_row_caches(self)
         raise first_error
 
     return remove_nodes_from
@@ -9101,8 +9187,6 @@ def betweenness_centrality(
     # substrate. Keep nx's exact source sampling semantics in Python, then run the
     # sampled source list through native Brandes with nx's sampled rescale.
     if k is not None and weight is None and not G.is_multigraph():
-        from networkx.utils import create_py_random_state as _create_py_random_state
-
         rng = _create_py_random_state(seed)
         if k == len(G):
             return _raw_betweenness_centrality(
@@ -9588,6 +9672,7 @@ def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
             "maximum_flow", flowG, _s, _t, capacity=capacity,
             flow_func=flow_func, **kwargs,
         )
+    _sync_rust_edge_attrs(flowG, edge_only=True)
     flow_value, flow_dict = _raw_maximum_flow(flowG, _s, _t, capacity)
     return _coerce_flow_value(flow_value, all_int), _coerce_flow_dict(flow_dict, all_int)
 
@@ -9610,6 +9695,7 @@ def maximum_flow_value(flowG, _s, _t, capacity="capacity", flow_func=None, **kwa
             "maximum_flow_value", flowG, _s, _t, capacity=capacity,
             flow_func=flow_func, **kwargs,
         )
+    _sync_rust_edge_attrs(flowG, edge_only=True)
     return _coerce_flow_value(
         _raw_maximum_flow_value(flowG, _s, _t, capacity),
         all_int,
@@ -9677,6 +9763,7 @@ def minimum_cut(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
             flow_func=flow_func,
             **kwargs,
         )
+    _sync_rust_edge_attrs(flowG, edge_only=True)
     value, partition = _minimum_cut_raw(flowG, _s, _t, capacity=capacity)
     return _coerce_flow_value(value, all_int), partition
 
@@ -9712,6 +9799,7 @@ def minimum_cut_value(flowG, _s, _t, capacity="capacity", flow_func=None, **kwar
             flow_func=flow_func,
             **kwargs,
         )
+    _sync_rust_edge_attrs(flowG, edge_only=True)
     return _coerce_flow_value(
         _minimum_cut_value_raw(flowG, _s, _t, capacity=capacity),
         all_int,
@@ -10235,6 +10323,7 @@ def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
             and isinstance(weight, str)
             and not G.is_multigraph()
         ):
+            _sync_rust_edge_attrs(G, edge_only=True)
             yield from _raw_minimum_spanning_edges(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
             return
         # br-r37-c1-primidx: native byte-exact Prim. nx's set(G).pop() start
@@ -10247,6 +10336,7 @@ def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
             and isinstance(weight, str)
             and not G.is_multigraph()
         ):
+            _sync_rust_edge_attrs(G, edge_only=True)
             _edges = _prim_spanning_edges_native(G, weight, True, ignore_nan)
             if _edges is not None:
                 if data:
@@ -10315,6 +10405,7 @@ def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
             and isinstance(weight, str)
             and not G.is_multigraph()
         ):
+            _sync_rust_edge_attrs(G, edge_only=True)
             _edges = _prim_spanning_edges_native(G, weight, False, ignore_nan)
             if _edges is not None:
                 if data:
@@ -15711,10 +15802,9 @@ def topological_sort(G):
         # per node (was ~6x slower than nx; the native path is ~5x faster, parity-exact).
         # The native binding raises nx.HasACycle on a cycle; nx.topological_sort raises
         # NetworkXUnfeasible, so translate for exact-parity (HasACycle is NOT a subclass).
-        from networkx.exception import HasACycle as _HasACycle
         try:
             _order = _raw_topological_sort(G)
-        except _HasACycle:
+        except _NetworkXHasACycle:
             raise NetworkXUnfeasible(
                 "Graph contains a cycle, topological sort is not possible."
             ) from None
@@ -16604,8 +16694,6 @@ def maximal_independent_set(G, nodes=None, seed=None, *, backend=None, **backend
     # Match nx's @py_random_state(2): None/`random` -> the global instance,
     # int -> random.Random(int), random.Random -> itself, anything else
     # (e.g. a float / NaN) -> ValueError.
-    from networkx.utils import create_py_random_state as _create_py_random_state
-
     seed = _create_py_random_state(seed)
 
     # Touch adjacency lazily (only the seed nodes plus each chosen node), the
@@ -16846,6 +16934,21 @@ def edge_boundary(G, nbunch1, nbunch2=None, data=False, keys=False, default=None
     """
     # br-r37-c1-e861i: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
+    if not G.is_multigraph() and type(G) in (Graph, DiGraph):
+        nset1 = {n for n in nbunch1 if n in G}
+        edges = G.edges(nset1, data=data, default=default)
+        if nbunch2 is None:
+            for edge in edges:
+                if (edge[0] in nset1) ^ (edge[1] in nset1):
+                    yield edge
+            return
+        nset2 = set(nbunch2)
+        for edge in edges:
+            if (edge[0] in nset1 and edge[1] in nset2) or (
+                edge[1] in nset1 and edge[0] in nset2
+            ):
+                yield edge
+        return
     nb1 = _coerce_nbunch(nbunch1)
     nb2 = _coerce_nbunch(nbunch2)
     if data is False and not keys and default is None and not G.is_multigraph():
@@ -18035,20 +18138,7 @@ def simple_cycles(G, length_bound=None):
     if isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)) and not (
         G.is_multigraph() and not G.is_directed()
     ):
-        if G.is_multigraph():
-            H = _nx.MultiDiGraph()
-            H.add_nodes_from(G)
-            H.add_edges_from(G.edges(keys=True))
-        else:
-            H = _nx.DiGraph() if G.is_directed() else _nx.Graph()
-            H.add_nodes_from(G)
-            H.add_edges_from(G.edges())
-        try:
-            yield from _nx.simple_cycles(
-                H, length_bound=length_bound, backend="networkx"
-            )
-        except Exception as exc:
-            _raise_translated_networkx_exception(exc)
+        yield from _simple_cycles_structure_only_via_networkx(G, length_bound)
         return
     if length_bound is not None or not G.is_directed():
         yield from _call_networkx_for_parity(
@@ -18056,6 +18146,23 @@ def simple_cycles(G, length_bound=None):
         )
         return
     yield from _call_networkx_for_parity("simple_cycles", G)
+
+
+def _simple_cycles_structure_only_via_networkx(G, length_bound):
+    if G.is_multigraph():
+        H = _nx.MultiDiGraph()
+        H.add_nodes_from(G)
+        H.add_edges_from(G.edges(keys=True))
+    else:
+        H = _nx.DiGraph() if G.is_directed() else _nx.Graph()
+        H.add_nodes_from(G)
+        H.add_edges_from(G.edges())
+    try:
+        yield from _nx.simple_cycles(
+            H, length_bound=length_bound, backend="networkx"
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
 
 
 def find_cycle(G, source=None, orientation=None):
@@ -22011,7 +22118,10 @@ def _pagerank_scipy_personalized(
         p = _np.repeat(1.0 / N, N)
     else:
         p = _np.array([personalization.get(n, 0) for n in nodelist], dtype=float)
-        p = p / p.sum()
+        p_sum = p.sum()
+        if p_sum == 0:
+            raise ZeroDivisionError
+        p = p / p_sum
     if dangling is None:
         dangling_weights = p
     else:
@@ -22065,15 +22175,14 @@ def pagerank(
     pagerank_weight = weight
     if (
         isinstance(weight, str)
-        and _native_has_edge_attr is not None
         and not G.is_multigraph()
         and isinstance(G, (Graph, DiGraph))
     ):
-        try:
-            native_has_attr = _native_has_edge_attr(G, weight)
-        except Exception:
-            native_has_attr = None
-        if native_has_attr is False:
+        has_weight_attr = any(
+            isinstance(attrs, dict) and weight in attrs
+            for _, _, attrs in G.edges(data=True)
+        )
+        if not has_weight_attr:
             pagerank_weight = None
 
     # br-gauntlet-pagerank-sync: pagerank reads edge weights from the Rust
@@ -22385,8 +22494,6 @@ def edge_betweenness_centrality(
     # plus nx's sampled-edge rescale. Keep sampling in Python so seed semantics
     # stay identical, then reuse the existing native subset edge-Brandes kernel.
     if k is not None and weight is None and not G.is_multigraph():
-        from networkx.utils import create_py_random_state as _create_py_random_state
-
         rng = _create_py_random_state(seed)
         sampled_nodes = rng.sample(list(G.nodes()), k)
         if len(G) < 2:
@@ -23435,7 +23542,7 @@ def laplacian_matrix(G, nodelist=None, weight="weight"):
         _native_adjacency_index_arrays is not None
         and isinstance(G, (Graph, DiGraph))
         and not G.is_multigraph()
-        and (weight is None or isinstance(weight, str))
+        and weight is None
         and G.number_of_edges() > 0
     ):
         # br-r37-c1-04z53.13: for unit/default-absent weights, assemble
@@ -23534,7 +23641,7 @@ def normalized_laplacian_matrix(G, nodelist=None, weight="weight"):
         _native_adjacency_index_arrays is not None
         and isinstance(G, (Graph, DiGraph))
         and not G.is_multigraph()
-        and (weight is None or isinstance(weight, str))
+        and weight is None
     ):
         # br-r37-c1-04z53.12: for unit/default-absent weights, build
         # D^{-1/2}(D-A)D^{-1/2} directly from native COO indices. This preserves
@@ -28590,12 +28697,19 @@ def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
         wanted = set(nbunch)
         in_g = [n for n in wanted if n in G]
         if len(in_g) == len(wanted) and len(in_g) <= len(G) // 2:
-            return _call_networkx_for_parity(
-                "all_pairs_node_connectivity",
-                G,
-                nbunch=nbunch,
-                flow_func=flow_func,
-            )
+            nodes = [node for node in G if node in wanted]
+            nak = getattr(G, "_native_adjacency_keys", None)
+            if nak is not None and type(G) is Graph:
+                adj = {node: list(nbrs) for node, nbrs in nak()}
+                deg = {node: len(nbrs) for node, nbrs in adj.items()}
+                result = {node: {} for node in nodes}
+                for left, right in _itertools.combinations(nodes, 2):
+                    conn = _approx_local_node_connectivity_dict(
+                        adj, deg, left, right, None
+                    )
+                    result[left][right] = conn
+                    result[right][left] = conn
+                return result
     flat = _fnx.all_pairs_node_connectivity_rust(G)
     if nbunch is None:
         nodes = list(G)
@@ -28733,6 +28847,7 @@ def _voronoi_nearest_centers(G, sources, *, weight):
     if (
         callable(weight)
         or _should_delegate_dijkstra_to_networkx(G, weight)
+        or _mst_has_weight_edge_attr(G, weight)
         or _binding_self_syncs_gate(G, weight)
     ):
         paths = multi_source_dijkstra_path(G, sources, weight=weight)
@@ -30680,6 +30795,7 @@ def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight")
     if (
         callable(weight)
         or _should_delegate_dijkstra_to_networkx(G, weight)
+        or _mst_has_weight_edge_attr(G, weight)
         or _binding_self_syncs_gate(G, weight)
     ):
         return _call_networkx_for_parity(
@@ -37392,7 +37508,17 @@ def _fast_pred_row(graph, node):
 def _fast_succ_row(graph, node):
     # br-r37-c1-gchm1: type-correct O(deg) successor row (plain dict-of-dicts)
     # for reverse/filtered views; falls back to G[node] (native succ).
-    if type(graph) in (DiGraph, MultiDiGraph):  # br-r37-c1-kum9v: views -> G[node]
+    if type(graph) is DiGraph:
+        native_adjacency = getattr(graph, "_native_adjacency_dict", None)
+        native_row = getattr(graph, "_native_successor_row_dict", None)
+        if native_adjacency is not None and native_row is not None:
+            fresh_keys = native_adjacency()[node]
+            live_row = native_row(node)
+            return {
+                neighbor: live_row.get(neighbor, attrs)
+                for neighbor, attrs in fresh_keys.items()
+            }
+    if type(graph) is MultiDiGraph:  # br-r37-c1-kum9v: views -> G[node]
         native_dict = getattr(graph, "_native_successor_row_dict", None)
         if native_dict is not None:
             return native_dict(node)
@@ -38681,7 +38807,20 @@ def _cached_adj_row_keydict(owner, row_kind, row_node, row_getter):
     cache_key = (row_kind, row_node)
     keydict = cache.get(cache_key)
     if keydict is None:
-        if native_name is not None:
+        if row_kind == "succ" and type(owner) is DiGraph:
+            native_adjacency = getattr(owner, "_native_adjacency_dict", None)
+            native_row = getattr(owner, "_native_successor_row_dict", None)
+            if native_adjacency is not None and native_row is not None:
+                try:
+                    fresh_keys = native_adjacency()[row_node]
+                    live_row = native_row(row_node)
+                except KeyError:
+                    return None
+                keydict = {
+                    neighbor: live_row.get(neighbor, attrs)
+                    for neighbor, attrs in fresh_keys.items()
+                }
+        if keydict is None and native_name is not None:
             native_row = getattr(owner, native_name, None)
             if native_row is not None:
                 try:
@@ -51801,20 +51940,21 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
         native_weight = weight if _use_native_weighted else None
         native_index_result = None
         if native_weight is None and _native_adjacency_index_arrays is not None:
-            absent_weight_attr = weight if _probe_native_missing_default_weight else None
-            if (
-                default_nodelist
-                and format == "csr"
-                and type(G) is Graph
-                and _native_adjacency_default_order_index_arrays is not None
-            ):
-                native_index_result = _native_adjacency_default_order_index_arrays(
-                    G, absent_weight_attr
-                )
-            else:
-                native_index_result = _native_adjacency_index_arrays(
-                    G, nodelist, absent_weight_attr
-                )
+            if not _probe_native_missing_default_weight:
+                absent_weight_attr = weight if _probe_native_missing_default_weight else None
+                if (
+                    default_nodelist
+                    and format == "csr"
+                    and type(G) is Graph
+                    and _native_adjacency_default_order_index_arrays is not None
+                ):
+                    native_index_result = _native_adjacency_default_order_index_arrays(
+                        G, absent_weight_attr
+                    )
+                else:
+                    native_index_result = _native_adjacency_index_arrays(
+                        G, nodelist, absent_weight_attr
+                    )
             if native_index_result is not None:
                 rows, cols = native_index_result
                 import numpy as _np

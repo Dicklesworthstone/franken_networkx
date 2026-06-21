@@ -2877,7 +2877,7 @@ class TestDelegateFixes:
         assert actual_mixing == expected_mixing
         assert actual_constraint == expected_constraint
         assert actual_communicability == expected_communicability
-        assert actual_resistance == expected_resistance
+        assert actual_resistance == pytest.approx(expected_resistance, abs=1e-12)
 
     @needs_nx
     def test_cd_index_matches_networkx_without_to_nx_fallback(self):

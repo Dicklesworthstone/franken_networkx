@@ -50,7 +50,11 @@ def test_directed_node_connectivity_satisfies_menger(seed):
             if s == t:
                 continue
             nc = fnx.node_connectivity(fg, s, t)
-            assert nc == len(list(fnx.node_disjoint_paths(fg, s, t)))
+            try:
+                path_count = len(list(fnx.node_disjoint_paths(fg, s, t)))
+            except nx.NetworkXNoPath:
+                path_count = 0
+            assert nc == path_count
 
 
 def test_regression_undercounted_pair():

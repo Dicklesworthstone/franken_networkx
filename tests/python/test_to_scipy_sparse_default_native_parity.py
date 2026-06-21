@@ -41,12 +41,17 @@ def test_default_missing_weight_attr_routes_to_native_unweighted(monkeypatch):
         calls.append((actual_graph, absent_weight_attr))
         return [0, 1, 1, 2], [1, 0, 2, 1]
 
+    def fake_typed(actual_graph, weight_attr, default_weight):
+        calls.append((actual_graph, weight_attr, default_weight))
+        return [0, 1, 1, 2], [1, 0, 2, 1], [1, 1, 1, 1], False
+
     monkeypatch.setattr(fnx, "_native_adjacency_index_arrays", fail_generic_index)
     monkeypatch.setattr(fnx, "_native_adjacency_default_order_index_arrays", fake_native)
+    monkeypatch.setattr(fnx, "_native_adjacency_default_order_typed_arrays", fake_typed)
 
     matrix = fnx.to_scipy_sparse_array(graph)
 
-    assert calls == [(graph, "weight")]
+    assert calls == [(graph, "weight", 1.0)]
     assert matrix.dtype == np.dtype("int64")
     assert matrix.toarray().tolist() == [[0, 1, 0], [1, 0, 1], [0, 1, 0]]
 
@@ -63,14 +68,19 @@ def test_explicit_nodelist_keeps_generic_native_index(monkeypatch):
         calls.append((actual_graph, tuple(nodelist), absent_weight_attr))
         return [0, 1, 1, 2], [1, 0, 2, 1]
 
+    def fake_typed(actual_graph, nodelist, weight_attr, default_weight):
+        calls.append((actual_graph, tuple(nodelist), weight_attr, default_weight))
+        return [0, 1, 1, 2], [1, 0, 2, 1], [1, 1, 1, 1], False
+
     monkeypatch.setattr(
         fnx, "_native_adjacency_default_order_index_arrays", fail_default_order
     )
     monkeypatch.setattr(fnx, "_native_adjacency_index_arrays", fake_native)
+    monkeypatch.setattr(fnx, "_native_adjacency_nodelist_typed_arrays", fake_typed)
 
     matrix = fnx.to_scipy_sparse_array(graph, nodelist=[2, 1, 0])
 
-    assert calls == [(graph, (2, 1, 0), "weight")]
+    assert calls == [(graph, (2, 1, 0), "weight", 1.0)]
     assert matrix.dtype == np.dtype("int64")
     assert matrix.toarray().tolist() == [[0, 1, 0], [1, 0, 1], [0, 1, 0]]
 

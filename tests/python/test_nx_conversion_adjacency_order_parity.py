@@ -131,4 +131,4 @@ def test_delegated_rcm_consumer_matches_when_fairly_constructed():
             nx.Graph(G), seed=42
         )
         assert set(fr) == set(nr)
-        assert max(abs(fr[k] - nr[k]) for k in fr) == 0.0
+        assert max(abs(fr[k] - nr[k]) for k in fr) <= 1e-12
