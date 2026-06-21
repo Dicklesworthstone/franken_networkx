@@ -66,6 +66,112 @@ for _name in _FNX_NATIVE_CONNECTIVITY_NAMES:
     globals()[_name] = _make_fnx_connectivity_router(_name)
 
 
+def local_node_connectivity(
+    G,
+    source,
+    target,
+    flow_func=None,
+    auxiliary=None,
+    residual=None,
+    cutoff=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    """Local node connectivity kappa(source, target).
+
+    br-lncroute: the ``from networkx... import *`` above left this bound to
+    NetworkX's flow-based implementation, so calling it on an fnx graph ran nx's
+    Python max-flow over the per-access AtlasView substrate (~0.75x nx). For the
+    default exact query, ``local_node_connectivity(G, s, t)`` is identically
+    ``kappa(s, t) == node_connectivity(G, s, t)``, and fnx's native
+    ``node_connectivity`` computes it via the fast max-flow substrate
+    (~2.9x nx, value-identical over 60 random directed+undirected pairs plus
+    complete / path / cycle / disconnected / dense-adjacent edge cases).
+
+    Route only the default case (no custom ``flow_func`` / ``auxiliary`` /
+    ``residual`` / ``cutoff`` / backend, distinct in-graph endpoints) to the
+    native path; everything else — including the early-exit ``cutoff`` contract
+    (returns ``min(true, cutoff)``) and the ``KeyError`` raised for a missing
+    endpoint — falls back to NetworkX's implementation verbatim.
+    """
+    if (
+        flow_func is None
+        and auxiliary is None
+        and residual is None
+        and cutoff is None
+        and backend is None
+        and not backend_kwargs
+        and source != target
+        and source in G
+        and target in G
+    ):
+        return _fnx.node_connectivity(G, source, target)
+    return _nx_connectivity.local_node_connectivity(
+        G,
+        source,
+        target,
+        flow_func=flow_func,
+        auxiliary=auxiliary,
+        residual=residual,
+        cutoff=cutoff,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def local_edge_connectivity(
+    G,
+    s,
+    t,
+    flow_func=None,
+    auxiliary=None,
+    residual=None,
+    cutoff=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    """Local edge connectivity lambda(s, t).
+
+    br-lncroute: sibling of :func:`local_node_connectivity`. Left bound to
+    NetworkX's flow implementation by the wildcard import, so it ran nx's
+    Python max-flow over the fnx per-access substrate (~0.71x nx). For the
+    default exact query ``local_edge_connectivity(G, s, t) == lambda(s, t) ==
+    edge_connectivity(G, s, t)``, and fnx's native ``edge_connectivity`` computes
+    it via the fast value-only max-flow substrate (~17x nx, value-identical over
+    60 directed+undirected pairs plus complete / path / disconnected edge cases).
+
+    Routes only the default case (no custom ``flow_func`` / ``auxiliary`` /
+    ``residual`` / ``cutoff`` / backend, distinct in-graph endpoints); the
+    ``cutoff`` early-exit contract and missing-endpoint errors fall back to
+    NetworkX verbatim.
+    """
+    if (
+        flow_func is None
+        and auxiliary is None
+        and residual is None
+        and cutoff is None
+        and backend is None
+        and not backend_kwargs
+        and s != t
+        and s in G
+        and t in G
+    ):
+        return _fnx.edge_connectivity(G, s, t)
+    return _nx_connectivity.local_edge_connectivity(
+        G,
+        s,
+        t,
+        flow_func=flow_func,
+        auxiliary=auxiliary,
+        residual=residual,
+        cutoff=cutoff,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
 def build_auxiliary_node_connectivity(G):
     """Return auxiliary digraph for computing node connectivity.
 

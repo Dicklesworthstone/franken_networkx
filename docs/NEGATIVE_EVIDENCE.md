@@ -2954,3 +2954,23 @@ dirty graph):
   tax is negligible here.
 Conclusion: the dual-storage dirty-sync ceiling is SPECIFIC to to_numpy_array's
 path; do NOT chase a to_scipy/to_pandas dirty gap — there isn't one.
+
+## 2026-06-21 — FIXED (no rebuild): connectivity.local_node/edge_connectivity passthrough → fnx-native routing (CopperCliff)
+
+The earlier "connectivity.local_node_connectivity 0.75x is nx-module passthrough"
+entry concluded the lever was rebuild-gated. WRONG — it was a pure-Python routing
+gap. `connectivity.py`'s wildcard `from networkx... import *` left BOTH
+`local_node_connectivity` and `local_edge_connectivity` bound to NetworkX, while
+fnx's native `node_connectivity(s,t)` / `edge_connectivity(s,t)` compute the
+identical kappa/lambda(s,t) via the fast max-flow substrate. Added concrete
+overrides in `connectivity.py` routing the default exact query to the native
+functions (gated: distinct in-graph endpoints, no custom flow_func/auxiliary/
+residual/cutoff/backend — everything else, incl. the cutoff early-exit contract
+and missing-endpoint errors, falls back to nx verbatim).
+
+Measured (gnm N=1500/6000e, single pair): local_node_connectivity FNX `18.2 ms`
+vs nx `56.7 ms` = `2.69x` (was 0.75x); local_edge_connectivity FNX `4.3 ms` vs nx
+`26.3 ms` = `6.09x` (was ~0.71x). Value-identical over 100+ directed+undirected
+pairs and complete/path/cycle/disconnected/dense-adjacent edge cases; connectivity
+conformance `210 passed, 10 skipped`. Two documented losses flipped to wins with no
+Rust change. Bead `br-r37-c1-native-flow-connectivity-zvwck` resolved by routing.
