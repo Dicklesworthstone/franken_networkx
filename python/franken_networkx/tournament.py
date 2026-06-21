@@ -107,8 +107,21 @@ def random_tournament(n, seed=None, *, backend=None, **backend_kwargs):
     the result to an fnx graph type for drop-in compatibility.
     """
     _fnx._validate_backend_dispatch_keywords("random_tournament", backend, backend_kwargs)
-    nx_result = _nx_tournament.random_tournament(n, seed=seed)
-    return _from_nx_graph(nx_result)
+    # br-r37-c1-tournrandgen: de-delegate via the create_py_random_state RNG-
+    # reproduction lever. nx flips one coin per distinct pair in combinations(range
+    # (n), 2) order, orienting u->v if r<0.5 else v->u, and builds nx.DiGraph(edges)
+    # (node order = edge appearance). Reproduce the exact draw sequence + edge
+    # construction directly instead of nx build + _from_nx_graph.
+    from itertools import combinations as _combinations
+    from networkx.utils import create_py_random_state
+
+    rng = create_py_random_state(seed)
+    coins = (rng.random() for _ in range((n * (n - 1)) // 2))
+    pairs = _combinations(range(n), 2)
+    edges = [(u, v) if r < 0.5 else (v, u) for (u, v), r in zip(pairs, coins)]
+    G = _fnx.DiGraph()
+    G.add_edges_from(edges)
+    return G
 
 
 def is_reachable(G, s, t, *, backend=None, **backend_kwargs):
