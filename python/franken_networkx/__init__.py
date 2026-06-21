@@ -13990,15 +13990,20 @@ def intersection(G, H):
         node_intersection &= set(H.nodes)
         R.add_nodes_from(node_intersection)
 
-        g_edges = set(G.edges)
-        edge_witness = set(H.edges)
-        edge_witness.update((v, u) for u, v in list(edge_witness))
-        edge_intersection = {
-            edge
-            for edge in edge_witness
-            if edge in g_edges or (edge[1], edge[0]) in g_edges
-        }
-        R.add_edges_from(list(edge_intersection))
+        # br-r37-c1-interorder: replicate nx.intersection_all's EXACT edge-set
+        # construction so the projected EDGE ORDER matches nx byte-for-byte. nx
+        # builds each graph's undirected edge set WITH both orientations, then
+        # intersects (``edge_intersection = G_set; edge_intersection &= H_set``).
+        # The prior comprehension over only H's witness set diverged from nx's
+        # set-& iteration order in hash-collision cases (~0.2%; the edge SET was
+        # always correct, only list(edges()) order differed).
+        g_set = set(G.edges)
+        g_set.update((v, u) for u, v in list(g_set))
+        h_set = set(H.edges)
+        h_set.update((v, u) for u, v in list(h_set))
+        edge_intersection = g_set
+        edge_intersection &= h_set
+        R.add_edges_from(edge_intersection)
         return _finalize_operator_result(R)
     return intersection_all([G, H])
 
