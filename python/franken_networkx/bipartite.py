@@ -846,10 +846,17 @@ def collaboration_weighted_projected_graph(B, nodes, *, backend=None, **backend_
         pred = B.adj
         G = _fnx.Graph()
 
+    # br-r37-c1-collabbatch: the undirected case takes the snapshot fast path
+    # above; this fallback (directed B, since _weighted_projection_inprocess bails
+    # on type(B) is not Graph) still paid a per-node ``add_node`` + per-edge
+    # ``add_edge`` PyO3 round-trip (the construction tax). Collect the (node, attrs)
+    # and (u, v, weight-dict) tuples and commit them via add_nodes_from /
+    # add_edges_from in one bulk pass each — identical node/edge order and weights,
+    # only the construction is batched. Code-only; bench deferred (disk-low).
     G.graph.update(B.graph)
-    for node in nodes:
-        G.add_node(node, **dict(B.nodes[node]))
+    G.add_nodes_from((node, dict(B.nodes[node])) for node in nodes)
 
+    edges = []
     for u in nodes:
         unbrs = set(B[u])
         nbrs2 = {n for nbr in unbrs for n in B[nbr] if n != u}
@@ -857,7 +864,8 @@ def collaboration_weighted_projected_graph(B, nodes, *, backend=None, **backend_
             vnbrs = set(pred[v])
             common_degree = (len(B[n]) for n in unbrs & vnbrs)
             weight = sum(1.0 / (deg - 1) for deg in common_degree if deg > 1)
-            G.add_edge(u, v, weight=weight)
+            edges.append((u, v, {"weight": weight}))
+    G.add_edges_from(edges)
     return G
 
 
