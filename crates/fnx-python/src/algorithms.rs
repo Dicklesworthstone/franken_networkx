@@ -3452,26 +3452,14 @@ pub fn graph_has_any_attrs(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Opt
         GraphRef::Undirected(pg) => Some(
             pg.inner.any_node_has_attrs()
                 || pg.inner.any_edge_has_attrs()
-                || pg
-                    .node_py_attrs
-                    .values()
-                    .any(|d| dict_nonempty(d.bind(py)))
-                || pg
-                    .edge_py_attrs
-                    .values()
-                    .any(|d| dict_nonempty(d.bind(py))),
+                || pg.node_py_attrs.values().any(|d| dict_nonempty(d.bind(py)))
+                || pg.edge_py_attrs.values().any(|d| dict_nonempty(d.bind(py))),
         ),
         GraphRef::Directed { dg, .. } => Some(
             dg.inner.any_node_has_attrs()
                 || dg.inner.any_edge_has_attrs()
-                || dg
-                    .node_py_attrs
-                    .values()
-                    .any(|d| dict_nonempty(d.bind(py)))
-                || dg
-                    .edge_py_attrs
-                    .values()
-                    .any(|d| dict_nonempty(d.bind(py))),
+                || dg.node_py_attrs.values().any(|d| dict_nonempty(d.bind(py)))
+                || dg.edge_py_attrs.values().any(|d| dict_nonempty(d.bind(py))),
         ),
         GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => None,
     };

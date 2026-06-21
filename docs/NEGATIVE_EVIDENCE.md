@@ -2,6 +2,75 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-21 Cod-B `ubizp` MultiGraph SSSP Parent-Copy No-Ship (`br-r37-c1-04z53`, cod-b)
+
+Scope: fresh BOLD-VERIFY revisit of the remaining `ubizp`
+`MultiGraph.single_source_shortest_path` path-emission loss. Reused existing
+detached worktree `/data/projects/.worktrees/fnx-bt-3` and
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`; no new
+`.scratch` or perf-proof worktree was created.
+
+Profile and radical lever tested:
+- Alien-graveyard / alien-artifact hypothesis: the current predecessor-table
+  route still pays a Python list materialization pass after BFS. Try keeping
+  BFS and path construction fused under the GIL, copying the already-built
+  parent Python list and appending the discovered child immediately. This
+  attempts to trade the second reconstruction pass for CPython's optimized
+  `list.copy()` path.
+- Implementation sketch tested in `crates/fnx-python/src/algorithms.rs`:
+  native MultiGraph BFS over `mg.neighbors`, one `Vec<Option<PyObject>>` of
+  parent path objects, and per-child `parent_path.copy(); append(child)` before
+  inserting into the result dict.
+- The source hunk was reverted after measurement. The only final source diff
+  left in this session is rustfmt's wrapping normalization in the same reserved
+  file.
+
+Head-to-head timing:
+- Oracle: vendored NetworkX `3.7rc0.dev0` from
+  `legacy_networkx_code/networkx`, Python `3.13`, `PYTHONHASHSEED=0`,
+  `OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`, pinned with `taskset -c 4`.
+- Fixture: identical FNX/NetworkX `MultiGraph`, `1,600` integer nodes,
+  `6,354` edges: parallel chain edges plus `+7` and `+37` shortcuts. Source
+  node `0`; output parity asserted before every timing pass.
+- Checked-in Criterion benches still do not contain this exact MultiGraph SSSP
+  path-returning surface, so this pinned vendored-oracle loop remains the
+  keep/reject proof path for `ubizp` path emission.
+
+| State | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| pre-lever current source, same loop | `0.875438 ms` | `0.703192 ms` | `0.803x` | active loss reproduced |
+| parent-copy candidate | `2.449591 ms` | `0.867754 ms` | `0.354x` | reject |
+| restored source rerun 1, noisy host | `2.316699 ms` | `1.033589 ms` | `0.446x` | parity restored; still active loss |
+| restored source rerun 2, noisy host | `1.710842 ms` | `0.825284 ms` | `0.482x` | parity restored; still active loss |
+
+Validation and gates:
+- Candidate parity matched vendored NetworkX on all `1,600` paths before
+  timing; output length was `1,600`.
+- Candidate `AGENT_NAME=cod-b CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b RUSTUP_TOOLCHAIN=nightly-2026-06-13 rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`
+  passed before rejection. It emitted expected dead-code warnings because the
+  old predecessor emitter became unused.
+- Candidate and restored-source release installs used
+  `maturin develop --release --features pyo3/abi3-py310` against the prescribed
+  warm target. The first local install hit stale-artifact `E0514`; the target
+  was not cleaned. Switching to `nightly-2026-06-10` matched the existing
+  `beae78130` artifacts and avoided destructive cleanup.
+- Restored source conformance:
+  `pytest -q tests/python/test_single_source_shortest_path_parity.py tests/python/test_single_source_shortest_bfs_order_parity.py tests/python/test_exact_path_tiebreak_parity.py tests/python/test_shortest_path.py tests/python/test_shortest_path_algorithms.py tests/python/test_shortest_path_conformance_matrix.py tests/python/test_shortest_path_variants_parity.py tests/python/test_shortest_path_cross_type.py tests/python/test_multigraph_algorithms.py`
+  passed: `358 passed, 5 skipped`.
+- Final gates after revert: `cargo fmt --check` passed;
+  `rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310` passed on
+  `hz2`; `rch exec -- cargo build --release -p fnx-python --features pyo3/abi3-py310`
+  passed on `hz1`.
+
+Decision:
+- Reject/no-ship. Final focused score for this attempted lever: `0` wins /
+  `1` loss / `0` neutral.
+- Do not repeat Python-list parent copying for MultiGraph SSSP. It increases
+  GIL-held Python object churn and regresses the already-losing row.
+- Next route must attack the path-output substrate itself: for example a
+  lazy/fused consumer route, compact path-span representation, or API-specific
+  sink that avoids public dict-of-full-list materialization when possible.
+
 ## 2026-06-21 Cod-A `stochastic_graph` Exact-MultiDiGraph Native Copy Keep (`br-r37-c1-04z53.9160`, cod-a)
 
 Scope: fresh BOLD-VERIFY child bead for the active no-gaps campaign, focused on
