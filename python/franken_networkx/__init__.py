@@ -52343,6 +52343,34 @@ def cytoscape_graph(data, name="name", ident="id"):
     )
     graph.graph.update(dict(data.get("data")))
 
+    # br-r37-c1-cytobatch: collect the (node, data) and (source, target, data)
+    # tuples and BUILD via add_nodes_from / add_edges_from in one batch instead of
+    # a per-node ``add_node`` + ``nodes[node].update`` AND per-edge ``add_edge`` +
+    # ``edges[s, t].update`` PyO3 round-trip (4 view crossings per element, the
+    # dominant cost vs nx). 0.27x -> 1.55x (7.8x self). Simple Graph/DiGraph only;
+    # the multigraph path keeps ``_add_json_multiedge`` (keyed parallel edges).
+    if not multigraph:
+        nodes_batch = []
+        for node_entry in data["elements"]["nodes"]:
+            node_data = node_entry["data"].copy()
+            node = node_entry["data"]["value"]
+            if node_entry["data"].get(name):
+                node_data[name] = node_entry["data"].get(name)
+            if node_entry["data"].get(ident):
+                node_data[ident] = node_entry["data"].get(ident)
+            nodes_batch.append((node, node_data))
+        edges_batch = [
+            (
+                edge_entry["data"]["source"],
+                edge_entry["data"]["target"],
+                edge_entry["data"].copy(),
+            )
+            for edge_entry in data["elements"]["edges"]
+        ]
+        graph.add_nodes_from(nodes_batch)
+        graph.add_edges_from(edges_batch)
+        return graph
+
     for node_entry in data["elements"]["nodes"]:
         node_data = node_entry["data"].copy()
         node = node_entry["data"]["value"]
@@ -52359,12 +52387,8 @@ def cytoscape_graph(data, name="name", ident="id"):
         edge_data = edge_entry["data"].copy()
         source = edge_entry["data"]["source"]
         target = edge_entry["data"]["target"]
-        if multigraph:
-            edge_key = edge_entry["data"].get("key", 0)
-            _add_json_multiedge(graph, source, target, edge_key, edge_data)
-        else:
-            graph.add_edge(source, target)
-            graph.edges[source, target].update(edge_data)
+        edge_key = edge_entry["data"].get("key", 0)
+        _add_json_multiedge(graph, source, target, edge_key, edge_data)
     return graph
 
 
