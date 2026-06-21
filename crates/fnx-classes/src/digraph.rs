@@ -880,37 +880,51 @@ impl DiGraph {
         S: Into<String>,
         T: Into<String>,
     {
+        // br-r37-c1-digbatch: compute each endpoint's index ONCE via match-insert
+        // (mirroring Graph::extend_edges_unrecorded) instead of contains_key + TWO
+        // get_index_of per endpoint. The old form did ~6 IndexMap hashes/edge, so
+        // DiGraph.add_edges_from ran 4x slower than Graph's (taxing every DiGraph-
+        // returning constructor). Reserve the collections up front as well.
+        let iterator = edges.into_iter();
+        let (lower_bound, _) = iterator.size_hint();
+        self.nodes.reserve(lower_bound);
+        self.succ_indices.reserve(lower_bound);
+        self.pred_indices.reserve(lower_bound);
+        self.edges.reserve(lower_bound);
+
         let mut inserted = 0usize;
-        for (source, target) in edges {
+        for (source, target) in iterator {
             let source = source.into();
             let target = target.into();
-            if !self.nodes.contains_key(&source) {
-                self.nodes.insert(source.clone(), AttrMap::new());
-                self.succ_indices.push(Vec::new());
-                self.pred_indices.push(Vec::new());
-            }
-            if source != target && !self.nodes.contains_key(&target) {
-                self.nodes.insert(target.clone(), AttrMap::new());
-                self.succ_indices.push(Vec::new());
-                self.pred_indices.push(Vec::new());
-            }
-            let edge_key = (
-                self.nodes.get_index_of(&source).expect("created above"),
-                self.nodes.get_index_of(&target).expect("created above"),
-            );
+            let s_idx = match self.nodes.get_index_of(&source) {
+                Some(index) => index,
+                None => {
+                    let index = self.nodes.len();
+                    self.nodes.insert(source.clone(), AttrMap::new());
+                    self.succ_indices.push(Vec::new());
+                    self.pred_indices.push(Vec::new());
+                    index
+                }
+            };
+            let t_idx = if source == target {
+                s_idx
+            } else {
+                match self.nodes.get_index_of(&target) {
+                    Some(index) => index,
+                    None => {
+                        let index = self.nodes.len();
+                        self.nodes.insert(target.clone(), AttrMap::new());
+                        self.succ_indices.push(Vec::new());
+                        self.pred_indices.push(Vec::new());
+                        index
+                    }
+                }
+            };
+            let edge_key = (s_idx, t_idx);
             if self.edges.contains_key(&edge_key) {
                 continue;
             }
-
             self.edges.insert(edge_key, AttrMap::new());
-            let s_idx = self
-                .nodes
-                .get_index_of(&source)
-                .expect("source node exists");
-            let t_idx = self
-                .nodes
-                .get_index_of(&target)
-                .expect("target node exists");
             self.succ_indices[s_idx].push(t_idx);
             self.pred_indices[t_idx].push(s_idx);
             inserted += 1;
