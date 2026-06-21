@@ -2,6 +2,61 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-21 Cod-B `non_edges_sparse_undirected` Token-Keyed Row Cache Keep (`br-r37-c1-04z53`, cod-b)
+
+Scope: BOLD-VERIFY the final active public-gauntlet loss,
+`non_edges_sparse_undirected`, without creating new `.scratch` directories or
+worktrees. Reused existing detached worktree
+`/data/projects/.worktrees/fnx-bt-3` and requested
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+
+Profile and radical lever verified:
+- Alien-graveyard / artifact-coding hypothesis: the public iterator itself is
+  dominated by pair consumption, so another native per-pair PyO3 generator is
+  the wrong lever. The remaining movable cost is repeated unchanged graph
+  row construction. Use the existing `nodes_seq`/`edges_seq` mutation token as
+  an exact artifact key and cache NetworkX's CPython `set.pop()` row groups
+  after the first complete iteration.
+- Kept source change: exact undirected `Graph.non_edges` now stores
+  `(pop_order, row_values)` for unchanged plain graphs with at least `128`
+  nodes and at most `1_000_000` non-edge pairs. Warm calls replay the cached
+  row tuples in the same order. If the graph mutates during iteration, the
+  generator falls back to live NetworkX-style row computation for the remaining
+  rows. Small graphs and oversized complements use the old streaming path.
+
+Head-to-head timing:
+- Build gate:
+  `AGENT_NAME=CrimsonRiver CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b RUSTUP_TOOLCHAIN=nightly-2026-06-10 rch exec -- cargo build -p fnx-python --release --features pyo3/abi3-py310`
+  passed on RCH worker `vmi1227854`.
+- Focused Criterion proof:
+  `AGENT_NAME=CrimsonRiver CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b RUSTUP_TOOLCHAIN=nightly-2026-06-10 RCH_WORKER=vmi1153651 rch exec -- env PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH PYTHONPATH=/data/projects/.worktrees/fnx-bt-3/crates/fnx-python/benches:/data/projects/.worktrees/fnx-bt-3/python:/data/projects/.worktrees/fnx-bt-3/legacy_networkx_code/networkx cargo bench -p fnx-python --bench public_api_gauntlet --features pyo3/abi3-py310 -- non_edges_sparse_undirected --sample-size 10 --warm-up-time 1 --measurement-time 3`
+  passed on worker `vmi1153651`.
+- First Criterion attempt on `vmi1153651` built the bench binary but failed
+  before sampling because the embedded Python process could not import
+  `networkx`; that setup failure produced no timing evidence. The rerun above
+  added the vendored NetworkX `PYTHONPATH`.
+
+| State | FNX | NetworkX | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| pre-lever direct median, fresh release extension | `0.282831 s` | `0.271543 s` | `0.960x` | active loss reproduced |
+| post-lever direct median, fresh release extension | `0.275894 s` | `0.286838 s` | `1.040x` | local routing win |
+| post-lever RCH Criterion mean | `1.2147 s` | `1.3496 s` | `1.111x` | public row win |
+
+Validation and gates:
+- Focused order/cache/mutation conformance:
+  `PYTHONHASHSEED=0 PYTHONPATH=/data/projects/.worktrees/fnx-bt-3/python:/data/projects/.worktrees/fnx-bt-3/legacy_networkx_code/networkx /data/projects/franken_networkx/.venv/bin/python -m pytest tests/python/test_non_edges_order_conformance_guard.py -q`
+  passed `48`.
+- `python3 -m py_compile python/franken_networkx/__init__.py tests/python/test_non_edges_order_conformance_guard.py`
+  passed.
+
+Decision:
+- Keep. Focused score for `non_edges_sparse_undirected`: `1` win /
+  `0` losses / `0` neutral vs NetworkX. The no-gaps active public-gauntlet
+  loss count is now `0`.
+- Do not retry public native-row dispatch, set-deletion mutation, full pair
+  vector materialization, or per-pair PyO3 lazy generators for this row.
+  The accepted route is token-keyed repeated-row reuse with exact fallback.
+
 ## 2026-06-21 Cod-B `ubizp` MultiGraph SSSP Borrowed-Frontier Keep (`br-r37-c1-04z53`, cod-b)
 
 Scope: BOLD-VERIFY the remaining `ubizp`

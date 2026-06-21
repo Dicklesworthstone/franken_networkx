@@ -47293,6 +47293,72 @@ def non_neighbors(graph, node):
     return set(graph.adj) - set(graph.adj[node]) - {node}
 
 
+_NON_EDGES_ROW_CACHE_MIN_NODES = 128
+_NON_EDGES_ROW_CACHE_MAX_PAIRS = 1_000_000
+
+
+def _non_edges_undirected_row_cached(graph):
+    if len(graph) < _NON_EDGES_ROW_CACHE_MIN_NODES:
+        nodes = set(graph)
+        while nodes:
+            u = nodes.pop()
+            for v in nodes - set(graph[u]):
+                yield (u, v)
+        return
+
+    token = (graph.nodes_seq, graph.edges_seq)
+    graph_vars = vars(graph)
+    cached = graph_vars.get("_fnx_non_edges_row_cache")
+    if cached is not None and cached[0] == token:
+        pop_order, row_values = cached[1], cached[2]
+        remaining = set(pop_order)
+        for index, u in enumerate(pop_order):
+            remaining.remove(u)
+            if (graph.nodes_seq, graph.edges_seq) == token:
+                for v in row_values[index]:
+                    yield (u, v)
+                continue
+
+            for v in remaining - set(graph[u]):
+                yield (u, v)
+            for u in pop_order[index + 1 :]:
+                remaining.remove(u)
+                for v in remaining - set(graph[u]):
+                    yield (u, v)
+            return
+        return
+
+    nodes = set(graph)
+    token = (graph.nodes_seq, graph.edges_seq)
+    cacheable = True
+    pair_count = 0
+    pop_order = []
+    row_values = []
+    while nodes:
+        u = nodes.pop()
+        row = nodes - set(graph[u])
+        if cacheable:
+            row_tuple = tuple(row)
+            pair_count += len(row_tuple)
+            if pair_count <= _NON_EDGES_ROW_CACHE_MAX_PAIRS:
+                pop_order.append(u)
+                row_values.append(row_tuple)
+                for v in row_tuple:
+                    yield (u, v)
+            else:
+                cacheable = False
+                pop_order = None
+                row_values = None
+                for v in row_tuple:
+                    yield (u, v)
+        else:
+            for v in row:
+                yield (u, v)
+
+    if cacheable and (graph.nodes_seq, graph.edges_seq) == token:
+        graph_vars["_fnx_non_edges_row_cache"] = (token, tuple(pop_order), tuple(row_values))
+
+
 def non_edges(graph):
     """Returns the nonexistent edges in the graph."""
     if graph.is_directed():
@@ -47312,6 +47378,15 @@ def non_edges(graph):
         for u in graph:
             for v in non_neighbors(graph, u):
                 yield (u, v)
+        return
+
+    if (
+        type(graph) is Graph
+        and not _has_networkx_private_storage(graph)
+        and hasattr(graph, "nodes_seq")
+        and hasattr(graph, "edges_seq")
+    ):
+        yield from _non_edges_undirected_row_cached(graph)
         return
 
     nodes = set(graph)
