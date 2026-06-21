@@ -16,7 +16,7 @@ use pyo3::exceptions::{
     PyIndexError, PyKeyError, PyRuntimeError, PyValueError, PyZeroDivisionError,
 };
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyInt, PyIterator, PyList, PySet, PyTuple};
+use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyIterator, PyList, PySet, PyTuple};
 use std::cell::OnceCell;
 use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -8901,6 +8901,92 @@ pub fn local_efficiency(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
     Ok(py.allow_threads(|| fnx_algorithms::local_efficiency(inner).efficiency))
+}
+
+fn py_stochastic_numeric(value: &Bound<'_, PyAny>) -> Option<f64> {
+    if value.is_instance_of::<PyBool>() {
+        return value
+            .extract::<bool>()
+            .ok()
+            .map(|flag| if flag { 1.0 } else { 0.0 });
+    }
+    if value.is_instance_of::<PyInt>() || value.is_instance_of::<PyFloat>() {
+        return value.extract::<f64>().ok();
+    }
+    None
+}
+
+fn cgse_stochastic_numeric(value: Option<&fnx_runtime::CgseValue>) -> Option<f64> {
+    match value {
+        None => Some(1.0),
+        Some(fnx_runtime::CgseValue::Bool(flag)) => Some(if *flag { 1.0 } else { 0.0 }),
+        Some(fnx_runtime::CgseValue::Int(value)) => Some(*value as f64),
+        Some(fnx_runtime::CgseValue::Float(value)) => Some(*value),
+        Some(fnx_runtime::CgseValue::String(_)) | Some(fnx_runtime::CgseValue::Map(_)) => None,
+    }
+}
+
+/// Normalize exact DiGraph outgoing weights in-place for ``stochastic_graph``.
+///
+/// Returns ``false`` without mutating if any present weight is nonnumeric; the
+/// Python wrapper then falls back to the legacy loop so NetworkX exception
+/// behavior stays authoritative for object/string weights.
+#[pyfunction]
+#[pyo3(signature = (g, weight))]
+pub fn stochastic_graph_normalize_digraph_inplace(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<bool> {
+    let mut graph = match g.extract::<PyRefMut<'_, PyDiGraph>>() {
+        Ok(graph) => graph,
+        Err(_) => return Ok(false),
+    };
+
+    let edges = graph.inner.edges_ordered();
+    let mut degrees: HashMap<String, f64> = HashMap::with_capacity(graph.inner.node_count());
+    let mut edge_weights: Vec<(String, String, f64)> = Vec::with_capacity(edges.len());
+
+    for edge in &edges {
+        let edge_key = (edge.left.clone(), edge.right.clone());
+        let value = match graph.edge_py_attrs.get(&edge_key) {
+            Some(attrs) => match attrs.bind(py).get_item(weight)? {
+                Some(value) => match py_stochastic_numeric(&value) {
+                    Some(value) => value,
+                    None => return Ok(false),
+                },
+                None => 1.0,
+            },
+            None => match cgse_stochastic_numeric(edge.attrs.get(weight)) {
+                Some(value) => value,
+                None => return Ok(false),
+            },
+        };
+        *degrees.entry(edge.left.clone()).or_insert(0.0) += value;
+        edge_weights.push((edge.left.clone(), edge.right.clone(), value));
+    }
+
+    for (source, target, value) in edge_weights {
+        let degree = degrees.get(&source).copied().unwrap_or(0.0);
+        let normalized = if degree == 0.0 { 0.0 } else { value / degree };
+        let edge_key = (source.clone(), target.clone());
+        if !graph.edge_py_attrs.contains_key(&edge_key) {
+            let attrs = graph.inner.edge_attrs(&source, &target).map_or_else(
+                || Ok(PyDict::new(py).unbind()),
+                |attrs| crate::attr_map_to_pydict(py, attrs),
+            )?;
+            graph.edge_py_attrs.insert(edge_key.clone(), attrs);
+        }
+        let attrs = graph
+            .edge_py_attrs
+            .get(&edge_key)
+            .expect("edge attr dict inserted above");
+        attrs.bind(py).set_item(weight, normalized)?;
+    }
+
+    graph.mark_edges_dirty();
+    graph.bump_edges_seq();
+    Ok(true)
 }
 
 /// Return the broadcast center of a tree.
@@ -22480,6 +22566,11 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(generic_bfs_edges_rust, m)?)?;
     // Graph info
     m.add_function(wrap_pyfunction!(graph_info_rust, m)?)?;
+    // Graph operators
+    m.add_function(wrap_pyfunction!(
+        stochastic_graph_normalize_digraph_inplace,
+        m
+    )?)?;
     // LCA
     m.add_function(wrap_pyfunction!(all_pairs_lca_rust, m)?)?;
     m.add_function(wrap_pyfunction!(tree_all_pairs_lca_rust, m)?)?;

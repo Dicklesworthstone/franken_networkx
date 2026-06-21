@@ -21739,6 +21739,12 @@ def stochastic_graph(G, copy=True, weight="weight"):
         graph = G.copy() if type(G) is DiGraph else _copy_graph_shallow(G)
     else:
         graph = G
+    if (
+        type(graph) is DiGraph
+        and isinstance(weight, str)
+        and _fnx.stochastic_graph_normalize_digraph_inplace(graph, weight)
+    ):
+        return graph
     degree = {node: 0 for node in graph.nodes()}
     if graph.is_multigraph():
         edges = list(graph.edges(keys=True, data=True))

@@ -2,6 +2,77 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-21 Cod-A `stochastic_graph` Exact-DiGraph Native Normalizer Keep (`br-r37-c1-04z53.9159`, cod-a)
+
+Scope: fresh BOLD-VERIFY child bead for the active no-gaps campaign, focused on
+the remaining `stochastic_graph(DiGraph)` head-to-head loss. Reused
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`; no new
+`.scratch` worktree was created.
+
+Baseline and rejected route:
+- Fresh direct release probe before the source lever preserved parity but showed
+  the current exact `DiGraph` route still losing: FNX median `5.080 ms` vs
+  NetworkX `4.512 ms`, ratio `0.888x`, on n=1000/e=3200. The same probe showed
+  `MultiDiGraph` still much worse at FNX `27.498 ms` vs NetworkX `9.993 ms`,
+  ratio `0.363x`.
+- A Python successor-row normalization micro-probe was rejected before editing:
+  current FNX median `4.715 ms`, successor-row loop `11.088 ms`, NetworkX
+  `4.879 ms`. Do not repeat this family.
+
+Radical lever kept:
+- Alien-graveyard / alien-artifact hypothesis: stop paying the Python
+  `edges(data=True)` traversal and row-sum loop for exact `DiGraph`
+  `stochastic_graph`. Instead, run one native PyO3 pass over the stored edge
+  order, accumulate outgoing sums, and mutate the live edge-attribute dicts with
+  the normalized float weight.
+- The helper pre-scans all weights before mutation and returns `false` for
+  nonnumeric/object/string weights so the Python fallback preserves NetworkX
+  exception behavior. Missing weights and bool/int/float weights are handled
+  natively.
+
+Final gates and timing evidence:
+- `AGENT_NAME=cod-a CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a RUSTUP_TOOLCHAIN=nightly-2026-06-10 rch exec -- cargo check -p fnx-python --all-targets --features pyo3/abi3-py310`
+  passed on RCH worker `ovh-a`.
+- `AGENT_NAME=cod-a CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a RUSTUP_TOOLCHAIN=nightly-2026-06-10 rch exec -- cargo clippy -p fnx-python --all-targets --features pyo3/abi3-py310 -- -D warnings`
+  passed on RCH worker `ovh-a`.
+- `AGENT_NAME=cod-a CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a RUSTUP_TOOLCHAIN=nightly-2026-06-10 rch exec -- cargo test -p fnx-python --features pyo3/abi3-py310`
+  passed on RCH worker `ovh-a`: `27 passed`.
+- `AGENT_NAME=cod-a CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a RUSTUP_TOOLCHAIN=nightly-2026-06-10 rch exec -- cargo build --release -p fnx-python --features pyo3/abi3-py310`
+  passed on RCH worker `ovh-a`.
+- `cargo fmt --check` passed locally after formatting `fnx-python`.
+- `python3 -m py_compile python/franken_networkx/__init__.py tests/python/test_graph_operators_parity.py`
+  passed.
+- Focused direct oracle loop preloaded
+  `/data/projects/.rch-targets/franken_networkx-cod-a/release/lib_fnx.so` as
+  `franken_networkx._fnx`, with `PYTHONHASHSEED=0`, `OMP_NUM_THREADS=1`, and
+  `OPENBLAS_NUM_THREADS=1`.
+- Parity matched vendored NetworkX for copy/in-place behavior, missing weights,
+  bool weights, zero row sums, `MultiDiGraph` fallback, and string-weight
+  exception fallback. Focused pytest was blocked by the hard-coded stale
+  in-tree `_fnx.abi3.so` guard in `tests/python/conftest.py`, so the direct
+  preloaded extension loop is the focused Python conformance proof.
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `stochastic_graph` exact `DiGraph`, n=400/e=1200 | `0.960064 ms` | `1.680509 ms` | `1.750x` | win |
+| `stochastic_graph` exact `DiGraph`, n=1000/e=3200 | `2.682792 ms` | `4.570833 ms` | `1.704x` | win |
+| `stochastic_graph` exact `DiGraph`, n=2000/e=7000 | `7.944119 ms` | `10.951245 ms` | `1.379x` | win |
+
+Decision:
+- Keep. Final score: `3` wins / `0` losses / `0` neutral.
+- This flips the fresh exact-`DiGraph` `stochastic_graph` baseline from a
+  `0.888x` loss into measured wins. `MultiDiGraph` remains a separate residual
+  at the pre-lever `0.363x` loss and needs a different native copy/normalizer
+  route.
+
+Do not repeat:
+- Do not retry Python successor-row loops for `stochastic_graph`; the measured
+  micro-probe was slower than both current FNX and NetworkX.
+- Do not route nonnumeric/object/string weights through the native helper; the
+  fallback is required to preserve NetworkX exception semantics.
+- Do not count this as a `MultiDiGraph` fix; that surface still loses and needs
+  a separate native multi-edge substrate.
+
 ## 2026-06-21 Cod-A `non_edges` Exact-Int Lazy Iterator No-Ship (`br-r37-c1-04z53`, cod-a)
 
 Scope: fresh BOLD-VERIFY follow-up on the active

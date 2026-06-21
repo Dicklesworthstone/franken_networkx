@@ -225,6 +225,35 @@ def test_stochastic_graph_matches_networkx_copy_and_in_place_without_fallback(mo
     assert _edge_records(same_object) == _edge_records(expected_same_object)
 
 
+def test_stochastic_graph_digraph_native_normalization_without_fallback(monkeypatch):
+    graph = fnx.DiGraph()
+    graph.add_edge("a", "b", w=2.0)
+    graph.add_edge("a", "c", w=6.0)
+    graph.add_edge("b", "c")
+    graph.add_edge("c", "a", w=True)
+    graph.add_node("isolated")
+
+    expected_input = nx.DiGraph()
+    expected_input.add_edge("a", "b", w=2.0)
+    expected_input.add_edge("a", "c", w=6.0)
+    expected_input.add_edge("b", "c")
+    expected_input.add_edge("c", "a", w=True)
+    expected_input.add_node("isolated")
+    expected = nx.stochastic_graph(expected_input, copy=True, weight="w")
+
+    _block_networkx_operators(monkeypatch, "stochastic_graph")
+    result = fnx.stochastic_graph(graph, copy=True, weight="w")
+
+    assert result is not graph
+    assert _edge_records(result) == _edge_records(expected)
+    assert sorted(graph.edges(data=True)) == [
+        ("a", "b", {"w": 2.0}),
+        ("a", "c", {"w": 6.0}),
+        ("b", "c", {}),
+        ("c", "a", {"w": True}),
+    ]
+
+
 def test_disjoint_union_matches_networkx_for_multigraphs():
     left = fnx.MultiGraph()
     left.graph["side"] = "left"
