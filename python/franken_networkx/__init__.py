@@ -12639,6 +12639,50 @@ def _maximum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan):
     return _from_nx_graph(nx_result, create_using=create_using)
 
 
+def _spanning_tree_int_batch_postcheck(impl):
+    # br-r37-c1-mstlazypostcheck: the native min/max_spanning_tree kruskal kernels read
+    # edge weights from the lazy Python mirror; a freshly batch-built int-node
+    # ``add_edges_from`` graph leaves it UNMATERIALISED so the kernel reads default-1
+    # weights -> a WRONG (effectively unweighted) tree, size (n-1) instead of the
+    # weighted total. Self-correcting POST-check (the to_directed pattern, NOT a
+    # pre-emptive materialise which regressed weighted MST 0.69x->0.57x): if the source
+    # reports attrs yet the result tree came back with NO edge attrs, materialise the
+    # mirror (``edges(data=True)``, the display-key path get_edge_data/dijkstra read
+    # correctly) and redo. The ``any(... if _d)`` probe early-exits on the first
+    # non-empty attr, so a normal weighted graph pays O(1); attr-less graphs and
+    # multigraphs (``graph_has_any_attrs`` -> falsy) skip => no perf regression.
+    import functools as _functools
+
+    @_functools.wraps(impl)
+    def wrapped(G, weight="weight", algorithm="kruskal", ignore_nan=False):
+        T = impl(G, weight=weight, algorithm=algorithm, ignore_nan=ignore_nan)
+        if not isinstance(weight, str):
+            return T
+        # Coerce for the probe so an nx-graph input (whose coercion ALSO yields an
+        # int-batch fnx graph) is covered; the first impl() call already used the
+        # original G, so this only adds work when a redo is actually needed.
+        try:
+            Gc = _coerce_arg_to_fnx_graph(G)
+        except Exception:
+            return T
+        if (
+            type(Gc) in (Graph, DiGraph)  # exact fnx simple type (multigraph/views skip)
+            and Gc.number_of_edges()
+            and _fnx.graph_has_any_attrs(Gc)
+            and not any(True for *_e, _d in T.edges(data=True) if _d)
+        ):
+            for _ in Gc.edges(data=True):
+                pass
+            T = impl(Gc, weight=weight, algorithm=algorithm, ignore_nan=ignore_nan)
+        return T
+
+    return wrapped
+
+
+minimum_spanning_tree = _spanning_tree_int_batch_postcheck(minimum_spanning_tree)
+maximum_spanning_tree = _spanning_tree_int_batch_postcheck(maximum_spanning_tree)
+
+
 def _greedy_color_structural_nx(G, strategy, interchange):
     # br-r37-c1-gcstruct / br-r37-c1-hf7zh: structural-only nx delegation
     # lives in this private helper so the public ``greedy_color`` wrapper
@@ -47145,6 +47189,17 @@ def non_edges(graph):
             for v in non_neighbors(graph, u):
                 yield (u, v)
         return
+
+    if type(graph) is Graph and not _has_networkx_private_storage(graph):
+        native_keys = getattr(graph, "_native_node_keys", None)
+        _raw_nbrs = _raw_neighbors_dispatch(graph)
+        if native_keys is not None and _raw_nbrs is not None:
+            nodes = _cached_native_node_key_set(graph, native_keys).copy()
+            while nodes:
+                u = nodes.pop()
+                for v in nodes - set(_raw_nbrs(graph, u)):
+                    yield (u, v)
+            return
 
     nodes = set(graph)
     while nodes:
