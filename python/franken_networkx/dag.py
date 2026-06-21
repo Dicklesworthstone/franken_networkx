@@ -17,6 +17,23 @@ import networkx.algorithms.dag as _nx_dag
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
 
+
+# br-r37-c1-tcnoconv: transitive_closure / transitive_reduction are NOT fnx
+# backends, so ``nx.transitive_closure(fnx_G)`` runs nx's raw algorithm over the
+# fnx graph — which starts from ``TC = G.copy()`` and so already returns an fnx
+# graph, byte-identical to nx-on-an-nx-graph (verified 1500/1500 each, incl
+# reflexive variants and node/edge attrs). The prior unconditional _from_nx_graph
+# was a pure redundant O(V+E) re-conversion. Skip it when the result is already an
+# fnx graph; a genuine nx-typed input still yields an nx result -> convert.
+# (transitive_closure_dag / dag_to_branching return nx graphs and keep converting.)
+def _fnx_result_or_convert(nx_result):
+    if isinstance(
+        nx_result, (_fnx.Graph, _fnx.DiGraph, _fnx.MultiGraph, _fnx.MultiDiGraph)
+    ):
+        return nx_result
+    return _from_nx_graph(nx_result)
+
+
 # br-r37-c1-4gmg2: has_cycle, colliders and v_structures are module-level
 # public functions of networkx.algorithms.dag but are absent from
 # dag.__all__, so the star import above does not pick them up.  Re-export
@@ -114,7 +131,7 @@ def transitive_closure(G, reflexive=False, *, backend=None, **backend_kwargs):
     """
     _fnx._validate_backend_dispatch_keywords("transitive_closure", backend, backend_kwargs)
     nx_result = _nx_dag.transitive_closure(G, reflexive=reflexive)
-    return _from_nx_graph(nx_result)
+    return _fnx_result_or_convert(nx_result)
 
 
 def transitive_closure_dag(G, topo_order=None, *, backend=None, **backend_kwargs):
@@ -136,4 +153,4 @@ def transitive_reduction(G, *, backend=None, **backend_kwargs):
     """
     _fnx._validate_backend_dispatch_keywords("transitive_reduction", backend, backend_kwargs)
     nx_result = _nx_dag.transitive_reduction(G)
-    return _from_nx_graph(nx_result)
+    return _fnx_result_or_convert(nx_result)
