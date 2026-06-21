@@ -1134,9 +1134,17 @@ impl PyGraph {
         py: Python<'_>,
         canonical: &str,
     ) -> Py<PyDict> {
+        // br-r37-c1-lazynodeattr: lazily build the Python mirror from the inner
+        // node AttrMap on first read (symmetric to materialize_edge_py_attrs /
+        // the edge lever aab122464). This lets the batch constructor store attrs
+        // ONLY in the inner and skip the eager per-node PyDict alloc+copy.
         self.node_py_attrs
             .entry(canonical.to_owned())
-            .or_insert_with(|| PyDict::new(py).unbind())
+            .or_insert_with(|| match self.inner.node_attrs(canonical) {
+                Some(attrs) => attr_map_to_pydict(py, attrs)
+                    .expect("stored node attrs must convert to Python"),
+                None => PyDict::new(py).unbind(),
+            })
             .clone_ref(py)
     }
 
@@ -2282,18 +2290,11 @@ impl PyGraph {
             self.node_key_map.entry(canonical.clone()).or_insert(node);
             self.node_iter_mirror_insert(py, &canonical)?;
         }
-        for (canonical, _, src) in &nodes {
-            if let Some(src) = src {
-                let bound = src.bind(py);
-                if !bound.is_empty() {
-                    self.node_py_attrs
-                        .entry(canonical.clone())
-                        .or_insert_with(|| PyDict::new(py).unbind())
-                        .bind(py)
-                        .update(bound.as_mapping())?;
-                }
-            }
-        }
+        // br-r37-c1-lazynodeattr: do NOT eagerly alloc+copy a mirror PyDict per
+        // node — the values are already parsed into the inner AttrMap below, and
+        // materialize_node_py_attrs now builds the mirror lazily from the inner on
+        // first read (identity-preserving via or_insert cache). Drops O(N) PyDict
+        // alloc + dict-copy from attributed add_nodes_from construction.
         let _inserted = self
             .inner
             .extend_nodes_with_attrs_unrecorded(nodes.into_iter().map(|(c, a, _)| (c, a)));
