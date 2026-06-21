@@ -19165,6 +19165,14 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
     # enough that users matching on the message string break.
     if source not in G:
         raise NodeNotFound(f"Node {source} not found in graph")
+    if target is not None and cutoff is None and isinstance(weight, str):
+        if target not in G:
+            raise NetworkXNoPath(f"No path to {target}.")
+        _ptt = getattr(_fnx, "dijkstra_path_to_target", None)
+        if _ptt is not None:
+            _sync_rust_edge_attrs(G, edge_only=True)
+            length, all_int, path = _ptt(G, source, target, weight)
+            return (int(length) if all_int else float(length), path)
     dists, paths = _raw_single_source_dijkstra(G, source, weight=weight)
     dists, paths = _single_source_dijkstra_cutoff_view(source, dists, paths, cutoff)
     # br-r37-c1-0opkc: the raw binding now emits distances with nx's

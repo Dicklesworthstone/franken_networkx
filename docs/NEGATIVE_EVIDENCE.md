@@ -1694,3 +1694,87 @@ view substrate). MultiDiGraph stays ~0.38x (slow multigraph copy substrate). Par
 600/600 (simple+multi, copy T/F, no-weight edges, original-unchanged); pytest -k
 stochastic 8 passed. KEEP PARTIAL (real self-speedup); full win needs the persistent
 ordered Python adj/attr mirror (edges(data=True) floor) or a native stochastic kernel.
+
+## 2026-06-20 Target-Specific `single_source_dijkstra` Early-Exit Keep (`br-r37-c1-04z53`, cod-b)
+
+Scope: recover the weighted directed Dijkstra residual before trying another
+path-emission micro-lever. Current source already closed the historical
+all-target `br-r37-c1-0opkc` n=1400/n=2600 losses, but
+`single_source_dijkstra(G, source, target=t, weight="weight")` still routed
+through the all-target raw binding and built every distance/path before
+returning one target.
+
+Environment:
+- Agent Mail identity and CLI actor: `CrimsonRiver`; bead assignee `cod-b`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-b-boldverify-20260621T0015`.
+- Requested RCH target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+- `rch exec -- cargo build -p fnx-python --release --features pyo3/abi3-py310`
+  passed on `vmi1149989` with the requested target rewritten to a worker-scoped
+  path.
+- Local release install against the requested target hit incompatible-rustc
+  E0514 from stale artifacts. No cleanup, deletion, or reset was performed.
+  The local extension install used fresh non-destructive target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-b-boldverify-f20a92ec0`.
+- Oracle: vendored NetworkX `3.7rc0.dev0`, Python `3.13`,
+  `PYTHONHASHSEED=0`, `OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`,
+  `taskset -c 4`.
+
+Lever:
+- For `single_source_dijkstra` with a concrete `target`, no `cutoff`, and a
+  string `weight`, dispatch to the existing native
+  `_fnx.dijkstra_path_to_target` binding.
+- Preserve current semantics for `cutoff`, callable/non-string weights,
+  delegated negative/nonfinite/nonnumeric weights, and missing targets.
+
+Baseline observations:
+- Current all-target `single_source_dijkstra` is no longer the `0opkc` active
+  loss: n=1400 all-int `1.337x`, n=1400 mixed `1.821x`, n=2600 all-int
+  `1.466x`, and n=2600 mixed `2.849x` vs NetworkX on the live fixture.
+- Pre-patch target-specific rows still lost on the target surface:
+  n=1400 mixed-near `0.750x`, n=1400 all-int far `0.178x`, n=1400 mixed far
+  `0.196x`, n=2600 all-int near `0.167x`, and n=2600 all-int far `0.371x`.
+
+Final direct-loop evidence:
+
+| Workload | FNX p50 | NetworkX p50 | Ratio vs NetworkX | Digest |
+| --- | ---: | ---: | ---: | --- |
+| n=1400 all-int target-near | `2.058399 ms` | `3.230062 ms` | `1.569x` | `655c27bc64a0bf4d7315015c1593026d1a4872fe51bfc3d217e82f85765967be` |
+| n=1400 all-int target-far | `0.104427 ms` | `0.478805 ms` | `4.585x` | `986783df8d6c8978123962b628a06959c181bcbf99798fcdaa02be4739692442` |
+| n=1400 mixed target-near | `0.329712 ms` | `1.996522 ms` | `6.055x` | `d9aad48926eca4baa01cb9d16f8fab1263406baa415f9d87cd73b7878e068d2d` |
+| n=1400 mixed target-far | `0.096642 ms` | `0.573694 ms` | `5.936x` | `20f52f9afcdd26e41894c56ed93948cbabcc4a6c3a82e62b1561526b33a130db` |
+| n=2600 all-int target-near | `0.278847 ms` | `1.043872 ms` | `3.744x` | `55e9ec91ca54587e55fdfe943e7066055cb43a148af33458f099aeb32f54925b` |
+| n=2600 all-int target-far | `0.253389 ms` | `1.345772 ms` | `5.311x` | `f3fcb25105323d42a4a852b17d8a27be65de3376e9504cac6f8890093aa0f432` |
+| n=2600 mixed target-near | `4.081119 ms` | `8.419554 ms` | `2.063x` | `d776a460c8a4f7e82a0e7231f5e2d300262586effa28f62f439d3c09163baa53` |
+| n=2600 mixed target-far | `0.952880 ms` | `4.902420 ms` | `5.145x` | `89c4424c00f59aadeada968f57088fb1d9518eabeab1247208370768746c0610` |
+
+Batched same-process keep gate:
+
+| Workload | Old raw-all-path p50 | New p50 | NetworkX p50 | New vs NetworkX | New vs old |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| n=1400 all-int far | `2.684641 ms` | `0.103329 ms` | `0.779869 ms` | `7.547x` | `25.982x` |
+| n=1400 mixed far | `3.828867 ms` | `0.126583 ms` | `0.559703 ms` | `4.422x` | `30.248x` |
+| n=2600 all-int near | `4.805508 ms` | `0.232390 ms` | `0.981963 ms` | `4.226x` | `20.679x` |
+| n=2600 all-int far | `6.262417 ms` | `0.239303 ms` | `1.079285 ms` | `4.510x` | `26.169x` |
+| n=2600 mixed far | `5.927624 ms` | `0.617956 ms` | `4.224094 ms` | `6.836x` | `9.592x` |
+
+Conformance and gates:
+- Parity digests matched for every direct-loop and batched row.
+- `python -m py_compile python/franken_networkx/__init__.py` passed.
+- Focused shortest-path pytest passed: `159 passed`.
+- `rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310` passed
+  on `vmi1152480`.
+
+Decision:
+- Keep. Target-specific score is `8` wins / `0` losses / `0` neutral vs
+  NetworkX.
+- Stale-loss closeout: the live all-target `0opkc` n=1400/n=2600 rows are no
+  longer active losses on current source.
+
+Do not repeat:
+- Do not route target-specific `single_source_dijkstra` through full all-target
+  distance/path emission when the native target kernel is available.
+- Do not retry standalone display-key cache or `PyList::new` path streaming for
+  this surface; the live target loss was dispatch shape, not all-target path
+  emission.

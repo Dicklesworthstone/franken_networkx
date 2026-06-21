@@ -21,7 +21,56 @@ dirty sparse-export verification (`br-r37-c1-04z53`) plus cod-a default-order
 CSR boundary snapshot verification (`br-r37-c1-04z53`) plus
 cod-a indexed bytearray CSR boundary verification (`br-r37-c1-q2w4t`) plus
 default non-periodic tuple-key lattice generator verification
-(`br-r37-c1-ap7at`).
+(`br-r37-c1-ap7at`) plus target-specific
+`single_source_dijkstra(..., target=...)` early-exit verification
+(`br-r37-c1-04z53`, cod-b).
+
+## 2026-06-20 Cod-B Target-Specific `single_source_dijkstra` Keep
+
+Environment:
+- Agent Mail identity and CLI actor: `CrimsonRiver`; bead actor: `cod-b`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-b-boldverify-20260621T0015`.
+- Requested RCH target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+- Requested-target RCH release build passed; local release install against that
+  shared target hit incompatible-rustc E0514 and was left untouched. The local
+  extension install used fresh non-destructive target
+  `/data/projects/.rch-targets/franken_networkx-cod-b-boldverify-f20a92ec0`.
+- Oracle: vendored NetworkX `3.7rc0.dev0`, Python `3.13`,
+  `PYTHONHASHSEED=0`, `OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`,
+  `taskset -c 4`.
+
+Measured decision:
+
+| Workload | Baseline route | Final FNX | NetworkX | Ratio vs NetworkX | Decision |
+| --- | ---: | ---: | ---: | ---: | --- |
+| all-target n=1400 all-int | current source already wins | 5.153653 ms | 6.889270 ms | 1.337x | stale-loss closeout |
+| all-target n=2600 all-int | current source already wins | 11.461094 ms | 16.803793 ms | 1.466x | stale-loss closeout |
+| target n=1400 all-int far | old raw-all-path `2.684641 ms` | 0.103329 ms | 0.779869 ms | 7.547x | Keep |
+| target n=1400 mixed far | old raw-all-path `3.828867 ms` | 0.126583 ms | 0.559703 ms | 4.422x | Keep |
+| target n=2600 all-int near | old raw-all-path `4.805508 ms` | 0.232390 ms | 0.981963 ms | 4.226x | Keep |
+| target n=2600 all-int far | old raw-all-path `6.262417 ms` | 0.239303 ms | 1.079285 ms | 4.510x | Keep |
+| target n=2600 mixed far | old raw-all-path `5.927624 ms` | 0.617956 ms | 4.224094 ms | 6.836x | Keep |
+
+Score:
+- Direct post-patch target sweep: `8` wins, `0` losses, `0` neutral vs
+  NetworkX (`1.569x`, `4.585x`, `6.055x`, `5.936x`, `3.744x`, `5.311x`,
+  `2.063x`, `5.145x`).
+- Batched same-process self-speedup over the prior raw all-path target route:
+  `9.592x` to `30.248x`.
+- Stale-loss closeout: the live all-target `0opkc` n=1400/n=2600 rows are now
+  wins on current source, so they are no longer active losses.
+
+Conformance evidence:
+- Parity digests matched every direct-loop and batched row.
+- `python -m py_compile python/franken_networkx/__init__.py` passed.
+- Focused shortest-path pytest passed: `159 passed`.
+- `rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310` passed.
+
+Release readiness verdict for this slice: **keep**. The target-specific Dijkstra
+loss was dispatch shape, not path-emission mechanics; the next weighted
+shortest-path row should be fixture-reverified before editing.
 
 ## 2026-06-20 Cod-A Indexed Bytearray CSR Boundary Keep
 
