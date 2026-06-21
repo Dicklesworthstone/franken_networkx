@@ -1083,19 +1083,21 @@ def gnmk_random_graph(n, m, k, seed=None, directed=False, *, backend=None, **bac
     _fnx._validate_backend_dispatch_keywords(
         "gnmk_random_graph", backend, backend_kwargs
     )
-    # br-r37-c1-bprandgen: de-delegate the undirected main case via the same
+    # br-r37-c1-bprandgen: de-delegate the main case via the same
     # create_py_random_state RNG-reproduction lever. nx draws u=seed.choice(top),
     # v=seed.choice(bottom) and rejects v already in G[u]; replicate exactly with a
     # per-u neighbour set (top u, bottom v), collect accepted edges in order, bulk
     # add. ``bottom = list(set(G) - set(top))`` is reproduced on the fnx graph so the
     # set-iteration order (which drives choice indices) matches nx byte-for-byte.
-    # The n==1/m==1 (no-edge) and k>=max_edges (complete) and directed branches keep
-    # the delegation path (the latter two reuse nx's create_using=G / DiGraph build).
-    if not directed and n > 1 and m > 1 and k < n * m:
+    # Directed B is handled too: every drawn edge is top->bottom, so ``v in G[u]`` is
+    # exactly the successor check tracked by ``nbrs[u]`` -> only the result type
+    # differs. The n==1/m==1 (no-edge) and k>=max_edges (complete; for directed nx
+    # raises in its undirected-only complete builder) branches keep the delegation.
+    if n > 1 and m > 1 and k < n * m:
         from networkx.utils import create_py_random_state
 
         rng = create_py_random_state(seed)
-        G = _fnx.Graph()
+        G = _fnx.DiGraph() if directed else _fnx.Graph()
         G.add_nodes_from((v, {"bipartite": 0}) for v in range(n))
         G.add_nodes_from((v, {"bipartite": 1}) for v in range(n, n + m))
         G.graph["name"] = f"bipartite_gnm_random_graph({n},{m},{k})"
