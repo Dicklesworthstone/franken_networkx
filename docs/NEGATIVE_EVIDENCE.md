@@ -3068,3 +3068,28 @@ PyObject materialization wall that caps graph iteration (~35x) — the live-PyDi
 interned-display node storage substrate, NOT a colliders-local or snapshot-local
 fix. REVERTED (worktree discarded). DO NOT re-attempt a predecessor-keys route for
 colliders/v_structures; the only lever is the deep node-storage rearchitecture.
+
+## 2026-06-21 — submodule-namespace passthrough scan: residuals are routed/substrate/rebuild-gated (CopperCliff)
+
+Comprehensive scan of fnx.SUBMODULE.func vs nx.SUBMODULE.func across 18 namespace
+submodules (the pattern that yielded the connectivity/tournament/dag/threshold
+wins). After filtering scan noise, the genuine sub-1.0x residuals are:
+- ALREADY ROUTED + fast (scan noise): assortativity.degree_mixing_dict 4.4x,
+  degree_mixing_matrix 4.1x, degree_pearson_correlation_coefficient 2.8x,
+  degree_assortativity_coefficient 100x — all route to fnx top-level natives via
+  the existing `_route_to_fnx_toplevel()`; the scan's <0.55x readings were noisy
+  single-shot artifacts (re-measured min-of-N: all wins).
+- SUBSTRATE-BOUND (edge-data access): tree.branching_weight 0.07x. It is exactly
+  G.size(weight=attr), but routing there is STILL 0.45x (fnx edge-data iteration
+  loses to nx's native dict walk) AND diverges in type (int 4831 vs float 4831.0).
+  Not a clean route. Same node/edge-access substrate wall.
+- GENUINE NATIVE GAP (rebuild-gated): google_matrix FNX vs nx `0.38x` (N=400,
+  2.23ms vs 0.97ms) to `0.81x` (N=800, 13.1ms vs 9.6ms), value-correct
+  (np.allclose). fnx's dense Google-matrix construction is fixed-overhead-heavier
+  than nx's to_numpy_array + vectorized normalization; the gap shrinks with N.
+  Native dense-construction lever, low priority (pagerank itself is already a win).
+- NICHE: tournament.tournament_matrix 0.23x (skew-adjacency build).
+
+NO new clean no-rebuild win. The 6 namespace wins already shipped were the
+catastrophic O(n^2+)-brute-force-with-fast-native cases; the rest are routed,
+substrate-bound, or rebuild-gated.
