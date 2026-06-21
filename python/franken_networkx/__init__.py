@@ -10323,6 +10323,22 @@ def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
             and not G.is_multigraph()
         ):
             _sync_rust_edge_attrs(G, edge_only=True)
+            # br-r37-c1-mselazypostcheck: the kruskal kernel reads weights from the lazy
+            # mirror; a fresh int-node add_edges_from graph leaves it unmaterialised ->
+            # default-1 weights -> WRONG edge selection AND dropped edge data (KeyError on
+            # ``d['weight']``). The kruskal path is already EAGER (list_iterator), so buffer
+            # and apply the to_directed-style post-check: if the source has attrs yet every
+            # emitted edge came back with EMPTY data, materialise the mirror (display-key
+            # path) and redo. data=True only (the data probe needs the attr dicts); a normal
+            # weighted graph's first edge has data so the probe is O(1) over the buffer.
+            if data and type(G) in (Graph, DiGraph):
+                _e = list(_raw_minimum_spanning_edges(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan))
+                if _fnx.graph_has_any_attrs(G) and _e and not any(t[-1] for t in _e):
+                    for _ in G.edges(data=True):
+                        pass
+                    _e = list(_raw_minimum_spanning_edges(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan))
+                yield from _e
+                return
             yield from _raw_minimum_spanning_edges(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
             return
         # br-r37-c1-primidx: native byte-exact Prim. nx's set(G).pop() start
@@ -47189,17 +47205,6 @@ def non_edges(graph):
             for v in non_neighbors(graph, u):
                 yield (u, v)
         return
-
-    if type(graph) is Graph and not _has_networkx_private_storage(graph):
-        native_keys = getattr(graph, "_native_node_keys", None)
-        _raw_nbrs = _raw_neighbors_dispatch(graph)
-        if native_keys is not None and _raw_nbrs is not None:
-            nodes = _cached_native_node_key_set(graph, native_keys).copy()
-            while nodes:
-                u = nodes.pop()
-                for v in nodes - set(_raw_nbrs(graph, u)):
-                    yield (u, v)
-            return
 
     nodes = set(graph)
     while nodes:
