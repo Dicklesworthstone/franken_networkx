@@ -118,7 +118,7 @@ type DiAllIntCache = std::sync::Arc<std::sync::RwLock<Option<(u64, String, bool)
 pub struct DiGraph {
     mode: CompatibilityMode,
     revision: u64,
-    nodes: IndexMap<String, AttrMap>,
+    nodes: crate::FxIndexMap<String, AttrMap>,
     // br-r37-c1-d58s8 DiGraph flip P3: String rows GONE — the eager
     // index rows below are the single row store; String views derive
     // through the nodes name table.
@@ -173,7 +173,7 @@ impl DiGraph {
         Self {
             mode,
             revision: 0,
-            nodes: IndexMap::new(),
+            nodes: crate::FxIndexMap::default(),
             succ_indices: Vec::new(),
             pred_indices: Vec::new(),
         edges: crate::FxIndexMap::default(),
@@ -189,7 +189,7 @@ impl DiGraph {
         Self {
             mode,
             revision: 0,
-            nodes: IndexMap::new(),
+            nodes: crate::FxIndexMap::default(),
             succ_indices: Vec::new(),
             pred_indices: Vec::new(),
         edges: crate::FxIndexMap::default(),

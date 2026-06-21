@@ -131,7 +131,7 @@ pub struct MultiGraphSnapshot {
 pub struct Graph {
     mode: CompatibilityMode,
     revision: u64,
-    nodes: IndexMap<String, AttrMap>,
+    nodes: FxIndexMap<String, AttrMap>,
     // br-r37-c1-d58s8 P2(c) slice 2: the String adjacency rows are GONE —
     // adj_indices (order-faithful integer rows) is the single row store;
     // String views derive through the nodes name table.
@@ -158,7 +158,7 @@ impl Graph {
         Self {
             mode,
             revision: 0,
-            nodes: IndexMap::new(),
+            nodes: FxIndexMap::default(),
             adj_indices: Vec::new(),
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::new(),
@@ -173,7 +173,7 @@ impl Graph {
         Self {
             mode,
             revision: 0,
-            nodes: IndexMap::new(),
+            nodes: FxIndexMap::default(),
             adj_indices: Vec::new(),
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::new(),
@@ -197,7 +197,7 @@ impl Graph {
         let mut graph = Self {
             mode,
             revision,
-            nodes: IndexMap::with_capacity(n),
+            nodes: FxIndexMap::with_capacity_and_hasher(n, rustc_hash::FxBuildHasher::default()),
             adj_indices: vec![Vec::with_capacity(n.saturating_sub(1)); n],
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::with_capacity(edge_capacity),
@@ -253,7 +253,7 @@ impl Graph {
         let mut graph = Self {
             mode,
             revision,
-            nodes: IndexMap::with_capacity(node_count),
+            nodes: FxIndexMap::with_capacity_and_hasher(node_count, rustc_hash::FxBuildHasher::default()),
             adj_indices: vec![Vec::with_capacity(4); node_count],
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::with_capacity(edge_capacity),
@@ -498,7 +498,7 @@ impl Graph {
         let mut graph = Self {
             mode,
             revision,
-            nodes: IndexMap::with_capacity(state.node_count),
+            nodes: FxIndexMap::with_capacity_and_hasher(state.node_count, rustc_hash::FxBuildHasher::default()),
             adj_indices: Vec::with_capacity(state.node_count),
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::with_capacity(edge_view.len()),
@@ -596,7 +596,7 @@ impl Graph {
         let mut graph = Self {
             mode,
             revision: u64::try_from(total).unwrap_or(u64::MAX),
-            nodes: IndexMap::with_capacity(total),
+            nodes: FxIndexMap::with_capacity_and_hasher(total, rustc_hash::FxBuildHasher::default()),
             adj_indices: Vec::new(),
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::new(),
