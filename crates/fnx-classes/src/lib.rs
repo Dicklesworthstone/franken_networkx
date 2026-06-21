@@ -941,6 +941,16 @@ impl Graph {
         self.edges.get(&Self::canon_pair(left_idx, right_idx))
     }
 
+    /// br-r37-c1-hasattrlazyfix: does ANY edge carry the attribute `key` in the
+    /// authoritative Rust storage? Unlike the `edge_py_attrs` Python mirror (which is
+    /// LAZILY materialized — a batch-built graph leaves it empty), this scans the inner
+    /// `edges` AttrMaps directly (no node-name resolution, no allocation), so a
+    /// freshly-constructed weighted graph reports True. ~O(E) BTreeMap key checks.
+    #[must_use]
+    pub fn any_edge_has_attr(&self, key: &str) -> bool {
+        self.edges.values().any(|attrs| attrs.contains_key(key))
+    }
+
     #[must_use]
     pub fn nodes_are_contiguous_int_prefix(&self) -> bool {
         self.nodes

@@ -51179,17 +51179,16 @@ def _validate_same_graph_family(graphs):
 def _graph_has_edge_attribute(G, name):
     """Return True when any edge carries attribute ``name``."""
     # br-r37-c1-hasattrnative + br-r37-c1-hasattrlazyfix: the native `graph_has_edge_attr`
-    # scans the Rust-side edge_py_attrs mirror (~0.1us vs ~420us for the EdgeDataView walk
-    # — this is a per-call GATE for the weighted-dijkstra/MST/second_order delegation
-    # checks). BUT that mirror is LAZY: a freshly batch-built graph (add_edges_from /
-    # DiGraph(G)) has it unmaterialized, so the native returns False even when the attr
-    # IS present (regression: second_order mis-gated to the unweighted kernel; weighted
-    # dijkstra mis-routed). A native True is reliable (the attr is really there); a native
-    # False/None is NOT (could be an unmaterialized mirror) -> fall back to the correct
-    # `G.edges(data=True)` scan, which materializes. Keeps the fast path for already-read
-    # weighted graphs; pays the scan only when the native can't prove presence.
-    if isinstance(name, str) and _native_has_edge_attr(G, name) is True:
-        return True
+    # is now RELIABLE for simple Graph/DiGraph — it checks the authoritative Rust inner
+    # edge storage (populated by batch construction) plus the Python attr mirror, so it no
+    # longer false-negatives on a freshly batch-built weighted graph (the earlier lazy-
+    # mirror-only scan returned False there, mis-gating second_order/dijkstra/MST to their
+    # unweighted paths). ~0.1us vs ~420us for the EdgeDataView walk — a per-call gate for
+    # the weighted-delegation checks. Multigraphs return None -> Python keyed-edge fallback.
+    if isinstance(name, str):
+        native = _native_has_edge_attr(G, name)
+        if native is not None:
+            return native
     if G.is_multigraph():
         return any(name in attrs for _, _, _, attrs in G.edges(keys=True, data=True))
     return any(name in attrs for _, _, attrs in G.edges(data=True))

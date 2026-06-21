@@ -3393,25 +3393,39 @@ pub fn graph_has_edge_attr(
     weight_attr: &str,
 ) -> PyResult<Option<bool>> {
     let gr = extract_graph(g)?;
+    // br-r37-c1-hasattrlazyfix: check the AUTHORITATIVE Rust storage
+    // (`inner.any_edge_has_attr`, fast + populated by batch construction) FIRST, then the
+    // lazy `edge_py_attrs` Python mirror (which may hold Python-set attrs the inner is not
+    // yet synced for). The previous mirror-only scan returned False for a freshly batch-
+    // built weighted graph (its mirror is unmaterialized) — a false NEGATIVE that mis-gated
+    // second_order/dijkstra/MST to their unweighted paths. (A false positive is harmless
+    // for those gates: the weighted path with default-1 weights == the unweighted result;
+    // only a false negative corrupts.)
     let has_attr = match &gr {
-        GraphRef::Undirected(pg) => Some(pg.edge_py_attrs.values().try_fold(
-            false,
-            |found, dict| -> PyResult<bool> {
-                if found {
-                    return Ok(true);
-                }
-                dict.bind(py).contains(weight_attr)
-            },
-        )?),
-        GraphRef::Directed { dg, .. } => Some(dg.edge_py_attrs.values().try_fold(
-            false,
-            |found, dict| -> PyResult<bool> {
-                if found {
-                    return Ok(true);
-                }
-                dict.bind(py).contains(weight_attr)
-            },
-        )?),
+        GraphRef::Undirected(pg) => Some(
+            pg.inner.any_edge_has_attr(weight_attr)
+                || pg
+                    .edge_py_attrs
+                    .values()
+                    .try_fold(false, |found, dict| -> PyResult<bool> {
+                        if found {
+                            return Ok(true);
+                        }
+                        dict.bind(py).contains(weight_attr)
+                    })?,
+        ),
+        GraphRef::Directed { dg, .. } => Some(
+            dg.inner.any_edge_has_attr(weight_attr)
+                || dg
+                    .edge_py_attrs
+                    .values()
+                    .try_fold(false, |found, dict| -> PyResult<bool> {
+                        if found {
+                            return Ok(true);
+                        }
+                        dict.bind(py).contains(weight_attr)
+                    })?,
+        ),
         GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => None,
     };
     Ok(has_attr)

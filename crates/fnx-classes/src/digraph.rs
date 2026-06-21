@@ -619,6 +619,14 @@ impl DiGraph {
         self.edges.get(&(source_idx, target_idx))
     }
 
+    /// br-r37-c1-hasattrlazyfix: does ANY directed edge carry the attribute `key` in the
+    /// authoritative Rust storage (the inner `edges` AttrMaps), regardless of whether the
+    /// lazy `edge_py_attrs` Python mirror has been materialized? ~O(E) key checks.
+    #[must_use]
+    pub fn any_edge_has_attr(&self, key: &str) -> bool {
+        self.edges.values().any(|attrs| attrs.contains_key(key))
+    }
+
     /// br-r37-c1-prdir: iterate every directed edge as
     /// `((source_idx, target_idx), &AttrMap)` straight from the index-keyed edge
     /// store, in insertion order. Lets COO/CSR exporters read each edge's weight
