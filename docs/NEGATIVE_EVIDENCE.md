@@ -2871,3 +2871,31 @@ Do not repeat:
 - Do not retry standalone display-key cache or `PyList::new` path streaming for
   this surface; the live target loss was dispatch shape, not all-target path
   emission.
+
+## 2026-06-21 — MultiGraph.subgraph(nodes).copy() 0.72x is construction-substrate-bound (CopperCliff)
+
+Measured (warm min-of-11, MultiGraph N=900 / 3600 edges, keep 400 nodes):
+`G.subgraph(sub).copy()` FNX `6.05 ms` vs NetworkX `4.06 ms` = `0.72x` LOSS.
+Contrast: FULL `G.copy()` is a WIN at FNX `5.19 ms` vs NetworkX `8.27 ms`
+(`1.59x`) via native `_native_copy`.
+
+Root cause: `_FilteredGraphView.copy()` bails the native induced fast path for
+multigraphs and rebuilds via `add_edges_from((u,v,key,dict(attrs)) ...)`. The
+4-tuple explicit-key shape is REJECTED by the native `_try_add_attr_edges_from_batch`
+(verified: returns False / 0 edges), so it falls to the per-edge `add_edge` +
+`get_edge_data().update()` loop (2 PyO3 round-trips x 3600 edges) = the whole gap.
+
+Routes ruled out (no my-file Python lever):
+- Materialize generator->list before `add_edges_from`: no change (batch rejects
+  4-tuples by shape, not iterability).
+- `_native_copy()` + `remove_nodes_from(complement)`: byte-identical to nx AND
+  official, but SLOWER (`6.90 ms`) — multigraph `remove_nodes_from` of 500 nodes
+  costs ~1.7 ms over the 5.2 ms native copy.
+
+Do not repeat:
+- Do not try to close this with a pure-Python copy() change; both feasible Python
+  routes were measured and lose. The only lever is a native keyed-4-tuple batch
+  (`_try_add_attr_edges_from_batch` extended to explicit keys in lib.rs +
+  digraph.rs, then routed from `_copy_induced_simple_fast`) — a Rust change with
+  parallel-edge key-parity risk, deferred as a scoped bead.
+Artifacts: `tests/artifacts/perf/20260621T-mg-subgraph-copy-cc/`.
