@@ -40538,6 +40538,51 @@ MultiDiGraph.to_undirected = _directed_to_undirected_with_view(
 )
 
 
+def _materialize_attrs_before_convert(method):
+    # br-r37-c1-todirmaterialize: the native Graph.to_directed / DiGraph.to_undirected
+    # (and the other simple-type conversions) walk ``edges_ordered`` + the lazy edge
+    # mirror, both of which MISS edge attrs on a freshly batch-built INT-node graph
+    # (``add_edges_from``) — so as a first-op the converted graph silently loses every
+    # edge weight (sibling of the fnx->nx delegation drop fixed in backend.py). Self-
+    # correcting POST-check: run the native conversion, and ONLY if it returned with NO
+    # edge attrs while the source reports attrs, materialise the mirror (iterating
+    # ``edges(data=True)`` syncs inner->mirror via the display-key path get_edge_data/
+    # dijkstra read correctly) and redo. The ``any(... if _data)`` probe early-exits on
+    # the first non-empty attr, so a normal already-materialised graph pays O(1);
+    # multigraphs (``graph_has_any_attrs`` -> None) and attr-less graphs skip entirely.
+    import functools as _functools
+    import inspect as _inspect
+
+    @_functools.wraps(method)
+    def wrapped(self, *args, **kwargs):
+        result = method(self, *args, **kwargs)
+        if (
+            self.number_of_edges()
+            and _fnx.graph_has_any_attrs(self)
+            and not any(True for *_edge, _data in result.edges(data=True) if _data)
+        ):
+            for _ in self.edges(data=True):
+                pass
+            result = method(self, *args, **kwargs)
+        return result
+
+    # ``functools.wraps`` carries ``__wrapped__`` so ``inspect.signature``
+    # resolves to the underlying wrapper's nx-matching signature (the
+    # signature-parity tests read it); keep an explicit copy too in case
+    # ``method`` exposes ``__signature__`` directly.
+    try:
+        wrapped.__signature__ = _inspect.signature(method)
+    except (TypeError, ValueError):
+        pass
+    return wrapped
+
+
+Graph.to_directed = _materialize_attrs_before_convert(Graph.to_directed)
+DiGraph.to_directed = _materialize_attrs_before_convert(DiGraph.to_directed)
+Graph.to_undirected = _materialize_attrs_before_convert(Graph.to_undirected)
+DiGraph.to_undirected = _materialize_attrs_before_convert(DiGraph.to_undirected)
+
+
 # br-r37-c1-methodqualname: align ``method.__qualname__`` (and
 # ``__name__``) on the wrapped Graph methods with nx's canonical
 # ``Graph.method`` form so:

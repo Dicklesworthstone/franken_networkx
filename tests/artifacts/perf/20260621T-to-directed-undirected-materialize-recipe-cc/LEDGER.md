@@ -32,3 +32,17 @@ the DISPLAY-key path (get_edge_data/dijkstra/edges(data=True)) but NOT the CANON
 (edges_ordered, inner.edge_attrs by neighbors_iter keys). Curing the construction key
 consistency (qq6hi sibling) removes the need for any materialise workaround. See
 20260621T-to-directed-lazykey-diagnosis-cc + reference_lazy_key_canonical_divergence.
+
+## IMPLEMENTED (not deferred after all)
+Shipped `_materialize_attrs_before_convert` wrapping Graph/DiGraph .to_directed/.to_undirected
+(__init__.py ~40543). Self-correcting post-check: run the native conversion, and ONLY if it
+returned with NO edge attrs while `graph_has_any_attrs(self)` is True, materialise the mirror
+(`for _ in self.edges(data=True): pass`) and redo. `functools.wraps(method)` + an explicit
+`__signature__` copy keep the nx-matching signature (the signature-parity tests read it).
+VERIFIED: to_directed + to_undirected int-batch 30/30 match nx (was 0/30); signatures identical;
+conformance to_directed/to_undirected/convert/reverse/copy 5708 passed 0 failed.
+Cost profile: edge-attr'd materialised graph -> O(1) early-exit probe (no regression); attr-less
+-> gate skips (no regression); int-batch lazy -> one redo (the fix). KNOWN narrow regression:
+a NODE-attr-only graph (node attrs, no edge attrs) pays one wasted redo (~2x) because
+graph_has_any_attrs can't distinguish node-only from edge-dropped; chose correctness-everywhere
+over a first-edge probe that would miss heterogeneous edge attrs. Multigraphs skip (None gate).
