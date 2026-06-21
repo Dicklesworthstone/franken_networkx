@@ -124,6 +124,16 @@ fn bench_public_api_gauntlet(c: &mut Criterion) {
                 "networkx",
                 "networkx_digraph_to_undirected_attr_heavy",
             ),
+            (
+                "multidigraph_to_scipy_sparse_array_csr_int_weights",
+                "fnx",
+                "fnx_multidigraph_to_scipy_sparse_array_csr_int_weights",
+            ),
+            (
+                "multidigraph_to_scipy_sparse_array_csr_int_weights",
+                "networkx",
+                "networkx_multidigraph_to_scipy_sparse_array_csr_int_weights",
+            ),
         ] {
             let callable = helper
                 .getattr(callable_name)

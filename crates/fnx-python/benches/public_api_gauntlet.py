@@ -488,6 +488,65 @@ def networkx_digraph_to_undirected_attr_heavy() -> float:
     return total
 
 
+def _build_sparse_weighted_multidigraph(module, node_count: int):
+    graph = module.MultiDiGraph()
+    graph.add_nodes_from(range(node_count))
+    steps = (1, 7, 37, 113)
+    for u in range(node_count):
+        for step_index, step in enumerate(steps):
+            v = (u + step) % node_count
+            for key in range(2):
+                weight = ((u * 17 + step_index * 5 + key * 3) % 31) + 1
+                graph.add_edge(u, v, key=key, weight=weight)
+    return graph
+
+
+def _consume_sparse_matrix(matrix) -> float:
+    csr = matrix.tocsr()
+    return float(
+        csr.nnz
+        + int(csr.data.sum())
+        + int(csr.indices.sum() % 1_000_003)
+        + int(csr.indptr[-1])
+    )
+
+
+_MDG_MATRIX_NODE_COUNT = 2000
+_MDG_MATRIX_REPEAT = 24
+_FNX_MDG_MATRIX_GRAPH = _build_sparse_weighted_multidigraph(
+    fnx, _MDG_MATRIX_NODE_COUNT
+)
+_NX_MDG_MATRIX_GRAPH = _build_sparse_weighted_multidigraph(
+    nx, _MDG_MATRIX_NODE_COUNT
+)
+
+_FNX_MDG_MATRIX = fnx.to_scipy_sparse_array(_FNX_MDG_MATRIX_GRAPH)
+_NX_MDG_MATRIX = nx.to_scipy_sparse_array(_NX_MDG_MATRIX_GRAPH)
+if (
+    _FNX_MDG_MATRIX.shape != _NX_MDG_MATRIX.shape
+    or (_FNX_MDG_MATRIX != _NX_MDG_MATRIX).nnz != 0
+):
+    raise AssertionError("MultiDiGraph to_scipy_sparse_array CSR parity drift")
+
+
+def fnx_multidigraph_to_scipy_sparse_array_csr_int_weights() -> float:
+    total = 0.0
+    for _ in range(_MDG_MATRIX_REPEAT):
+        total += _consume_sparse_matrix(
+            fnx.to_scipy_sparse_array(_FNX_MDG_MATRIX_GRAPH)
+        )
+    return total
+
+
+def networkx_multidigraph_to_scipy_sparse_array_csr_int_weights() -> float:
+    total = 0.0
+    for _ in range(_MDG_MATRIX_REPEAT):
+        total += _consume_sparse_matrix(
+            nx.to_scipy_sparse_array(_NX_MDG_MATRIX_GRAPH)
+        )
+    return total
+
+
 def fnx_raw_preferential_attachment_repeated_overlap() -> float:
     total = 0.0
     for _ in range(_RAW_LINK_API_REPEATS):

@@ -51614,13 +51614,10 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
         if _mdg_csr is not None:
             import numpy as _np
 
-            indptr_bytes, indices_bytes, data_bytes = _mdg_csr
+            indptr_bytes, indices_bytes, data_bytes, data_is_int = _mdg_csr
             n = len(G)
-            data_arr = _np.frombuffer(data_bytes, dtype=_np.float64)
-            if data_arr.size:
-                int_data_arr = data_arr.astype(_np.int64)
-                if _np.array_equal(data_arr, int_data_arr):
-                    data_arr = int_data_arr
+            data_dtype = _np.int64 if data_is_int else _np.float64
+            data_arr = _np.frombuffer(data_bytes, dtype=data_dtype)
             matrix = scipy.sparse.csr_array(
                 (
                     data_arr,

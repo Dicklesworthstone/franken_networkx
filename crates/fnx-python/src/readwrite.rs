@@ -2258,19 +2258,75 @@ fn append_csr_f64_bytes(out: &mut Vec<u8>, value: f64) {
     out.extend_from_slice(&value.to_ne_bytes());
 }
 
+fn exact_csr_i64(value: f64) -> Option<i64> {
+    if !value.is_finite()
+        || value.fract() != 0.0
+        || value < i64::MIN as f64
+        || value > i64::MAX as f64
+    {
+        return None;
+    }
+    Some(value as i64)
+}
+
+enum CsrDataBytes {
+    Integral(Vec<i64>),
+    Float(Vec<u8>),
+}
+
+impl CsrDataBytes {
+    fn with_capacity(capacity: usize) -> Self {
+        Self::Integral(Vec::with_capacity(capacity))
+    }
+
+    fn push(&mut self, value: f64) {
+        match self {
+            Self::Integral(values) => {
+                if let Some(value) = exact_csr_i64(value) {
+                    values.push(value);
+                    return;
+                }
+                let previous_values = std::mem::take(values);
+                let mut bytes =
+                    Vec::with_capacity((previous_values.len() + 1) * std::mem::size_of::<f64>());
+                for previous in previous_values {
+                    append_csr_f64_bytes(&mut bytes, previous as f64);
+                }
+                append_csr_f64_bytes(&mut bytes, value);
+                *self = Self::Float(bytes);
+            }
+            Self::Float(bytes) => append_csr_f64_bytes(bytes, value),
+        }
+    }
+
+    fn into_py_bytearray(self, py: Python<'_>) -> (Py<PyByteArray>, bool) {
+        match self {
+            Self::Integral(values) if !values.is_empty() => {
+                let mut bytes = Vec::with_capacity(values.len() * std::mem::size_of::<i64>());
+                for value in values {
+                    bytes.extend_from_slice(&value.to_ne_bytes());
+                }
+                (PyByteArray::new(py, &bytes).unbind(), true)
+            }
+            Self::Integral(_) => (PyByteArray::new(py, &[]).unbind(), false),
+            Self::Float(bytes) => (PyByteArray::new(py, &bytes).unbind(), false),
+        }
+    }
+}
+
 /// br-r37-c1-q2w4t: byte-backed CSR handoff for default-order MultiDiGraph.
 ///
 /// The tuple-valued CSR helper is already native, but PyO3 still materializes
 /// three Python lists before NumPy re-copies them. This variant keeps the same
 /// semantics and mutation guards while handing Python native-endian `intp` and
-/// `float64` buffers that can be consumed with `numpy.frombuffer`.
+/// typed data buffers that can be consumed with `numpy.frombuffer`.
 #[pyfunction]
 pub fn adjacency_csr_bytes_multidigraph_default_order_live_finite_checked(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     weight_attr: &str,
     default_weight: f64,
-) -> PyResult<Option<(Py<PyByteArray>, Py<PyByteArray>, Py<PyByteArray>)>> {
+) -> PyResult<Option<(Py<PyByteArray>, Py<PyByteArray>, Py<PyByteArray>, bool)>> {
     let gr = extract_graph(g)?;
     let GraphRef::MultiDirected { mdg, .. } = &gr else {
         return Ok(None);
@@ -2281,7 +2337,7 @@ pub fn adjacency_csr_bytes_multidigraph_default_order_live_finite_checked(
     let intp_width = std::mem::size_of::<isize>();
     let mut indptr: Vec<u8> = Vec::with_capacity((node_count + 1) * intp_width);
     let mut indices: Vec<u8> = Vec::with_capacity(inner.edge_count() * intp_width);
-    let mut data: Vec<u8> = Vec::with_capacity(inner.edge_count() * std::mem::size_of::<f64>());
+    let mut data = CsrDataBytes::with_capacity(inner.edge_count());
     append_csr_intp_bytes(&mut indptr, 0)?;
 
     let use_stored_attrs = !mdg.edges_dirty.load(Ordering::Relaxed);
@@ -2316,7 +2372,7 @@ pub fn adjacency_csr_bytes_multidigraph_default_order_live_finite_checked(
             while current_row < ui {
                 if let Some((col, value)) = pending.take() {
                     append_csr_intp_bytes(&mut indices, col).map_err(CsrBuildStop::Error)?;
-                    append_csr_f64_bytes(&mut data, value);
+                    data.push(value);
                     emitted += 1;
                 }
                 current_row += 1;
@@ -2331,7 +2387,7 @@ pub fn adjacency_csr_bytes_multidigraph_default_order_live_finite_checked(
             }
             if let Some((col, value)) = pending.replace((vi, w)) {
                 append_csr_intp_bytes(&mut indices, col).map_err(CsrBuildStop::Error)?;
-                append_csr_f64_bytes(&mut data, value);
+                data.push(value);
                 emitted += 1;
             }
             Ok(())
@@ -2343,17 +2399,19 @@ pub fn adjacency_csr_bytes_multidigraph_default_order_live_finite_checked(
     }
     if let Some((col, value)) = pending {
         append_csr_intp_bytes(&mut indices, col)?;
-        append_csr_f64_bytes(&mut data, value);
+        data.push(value);
         emitted += 1;
     }
     while indptr.len() / intp_width <= node_count {
         append_csr_intp_bytes(&mut indptr, emitted)?;
     }
 
+    let (data, data_is_int) = data.into_py_bytearray(py);
     Ok(Some((
         PyByteArray::new(py, &indptr).unbind(),
         PyByteArray::new(py, &indices).unbind(),
-        PyByteArray::new(py, &data).unbind(),
+        data,
+        data_is_int,
     )))
 }
 
