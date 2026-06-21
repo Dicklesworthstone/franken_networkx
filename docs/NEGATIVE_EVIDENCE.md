@@ -2,6 +2,35 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-21 Tree Submodule Spanning-Tree Route Pending Bench (`br-r37-c1-04z53`, cod-b)
+
+Scope: disk-low code-only lever for
+`franken_networkx.tree.minimum_spanning_tree` and
+`franken_networkx.tree.maximum_spanning_tree`. The submodule wrappers now route
+through the existing top-level fnx implementations instead of calling
+`networkx.algorithms.tree.*_spanning_tree` and converting the result through
+`_from_nx_graph`.
+
+Evidence:
+- No Cargo build, Cargo bench, or release rebuild was started this turn because
+  the repo was under the explicit `DISK-LOW` instruction with 40G available.
+- Lightweight checks passed after rebase:
+  `python -m py_compile python/franken_networkx/tree.py
+  tests/python/test_algorithms_tree_submodule.py`, a direct weighted
+  MST/maxST parity smoke against the currently installed extension while
+  forbidding the old NetworkX delegate and `_from_nx_graph` route, and
+  `git diff --check`.
+- A focused regression now monkeypatches both old detours to raise and compares
+  weighted simple-graph MST/maxST graph attrs, node attrs, and edge attrs with
+  NetworkX.
+
+Decision:
+- Pending. This is not a performance keep until the next turn records
+  head-to-head ratios for the tree submodule MST/maxST workloads vs NetworkX.
+- Resume with per-crate/direct benches for weighted sparse simple graphs and
+  fallback/multigraph rows. Revert if the route does not produce a material
+  measured win or if broader spanning-tree conformance drifts.
+
 ## 2026-06-20 MultiDiGraph Indexed CSR Bytearray Boundary Keep (`br-r37-c1-q2w4t`, cod-a)
 
 Scope: revisit the large default-order `MultiDiGraph.to_scipy_sparse_array`
