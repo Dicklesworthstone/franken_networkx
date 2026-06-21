@@ -2,6 +2,7 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+<<<<<<< Updated upstream
 ## 2026-06-21 Cod-A `non_edges` Exact-Int Lazy Iterator No-Ship (`br-r37-c1-04z53`, cod-a)
 
 Scope: fresh BOLD-VERIFY follow-up on the active
@@ -53,6 +54,72 @@ Do not repeat:
 - Next credible route should be consumer-fused: score default-ebunch link
   prediction or another downstream non-edge consumer without exposing every
   pair as a Python tuple.
+=======
+## 2026-06-21 Cod-B Native MultiDiGraph Compose No-Ship (`br-r37-c1-04z53`, cod-b)
+
+Scope: fresh BOLD-VERIFY pass after `bv --robot-triage` and `br ready`,
+targeting the current String-keyed multigraph-attribute compose gap. Reused
+the existing clean worktree `/data/projects/.worktrees/fnx-bt-3` and
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`; no new
+`.scratch` or perf-proof worktree was created.
+
+Alien-graveyard / alien-artifact hypothesis:
+- Apply the boundary-batching primitive: perform the H-wins keyed-edge compose
+  merge directly over Rust multigraph storage instead of materializing both
+  `edges(keys=True, data=True)` views into a Python `_edge_map`.
+- Matched guidance: compact graph representation, batched boundary handoff,
+  and cache-local sparse/graph traversal. The lever was deliberately radical
+  enough to skip the public EdgeView materialization that dominated the prior
+  `compose(MultiDiGraph)` and `compose(MultiGraph)` rows.
+
+Baseline current-source direct head-to-head:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `compose_MultiGraph_string_attr`, 420 nodes / 18,900 result keyed edges | `383.614 ms` | `48.439 ms` | `0.126x` | loss |
+| `compose_MultiDiGraph_string_attr`, 420 nodes / 18,900 result keyed edges | `125.134 ms` | `45.402 ms` | `0.363x` | loss |
+
+Candidate attempts, both reverted:
+
+| Candidate | FNX median | NetworkX median | Ratio vs NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| exact `MultiDiGraph._native_compose` with Rust storage merge and eager Python-dict-to-`AttrMap` conversion | `108.573 ms` | `41.254 ms` | `0.380x` | reject |
+| same native compose with Python edge mirrors authoritative and dirty-marked result attrs | `106.738 ms` | `39.730 ms` | `0.372x` | reject |
+
+Validation:
+- Candidate parity guard ran before timing: `fnx.compose` output matched
+  `networkx.compose` for node attrs, graph attrs, sorted keyed edge attrs, and
+  weighted attr checksum.
+- Candidate compile gates passed:
+  `rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310` on
+  `vmi1153651` and `ovh-a`.
+- Reverted-source release reinstall was run before final conformance checks.
+- Focused compose/operator conformance on the reverted source:
+  `tests/python/test_graph_operators_parity.py`,
+  `tests/python/test_relabel_operator_no_double_build_parity.py`, and
+  `tests/python/test_attribute_preservation_parity.py`: `32 passed`.
+- Post-revert filtered RCH gauntlet rerun for the prior
+  `non_edges_sparse_undirected` gap completed on `vmi1149989` with FNX
+  `474.09 ms` and NetworkX `471.87 ms` (`0.995x`, neutral, overlapping
+  intervals). This is evidence that `non_edges` is not the same clear loss on
+  every worker/run, but it is not a domination win and does not rescue the
+  rejected compose candidate.
+
+Decision:
+- Reject/no-ship. The native compose merge removed some Python edge-map work
+  but the remaining public Python attribute-copy/key-display boundary still
+  leaves `MultiDiGraph.compose` at roughly `0.37x` vs NetworkX.
+- Candidate score: `0` wins / `1` loss / `0` neutral.
+- Current active compose gaps remain `MultiDiGraph` and `MultiGraph`
+  String-keyed attributed compose.
+
+Do not repeat:
+- Do not retry a standalone exact `MultiDiGraph._native_compose` that still
+  returns a fully attributed Python graph by copying every edge attr dict.
+- Do not spend another pass on the same `_edge_map`-avoidance family unless
+  the lever changes the attribute substrate or fuses compose with a downstream
+  consumer so the graph-result boundary is not paid eagerly.
+>>>>>>> Stashed changes
 
 ## 2026-06-21 Cod-B Public Gauntlet + `non_edges` Set-Pop No-Ship (`br-r37-c1-04z53`, cod-b)
 
