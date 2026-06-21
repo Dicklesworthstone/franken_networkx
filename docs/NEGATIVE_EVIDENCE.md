@@ -2,6 +2,65 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-21 Cod-B Public Gauntlet + `non_edges` Set-Pop No-Ship (`br-r37-c1-04z53`, cod-b)
+
+Scope: fresh BOLD-VERIFY pass after `bv --robot-triage` and `br ready`,
+focused on current head-to-head gaps against vendored NetworkX. Reused
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`; no new
+worktree was created.
+
+Baseline/current public-gauntlet evidence:
+- Command family:
+  `AGENT_NAME=CrimsonRiver CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b RUSTUP_TOOLCHAIN=nightly-2026-06-10 VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=.venv/bin:$PATH PYTHONPATH=crates/fnx-python/benches:python:legacy_networkx_code PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --bench public_api_gauntlet --features pyo3/abi3-py310 -- --noplot --sample-size 10 --warm-up-time 1 --measurement-time 2`
+- RCH worker: `vmi1227854`.
+- Current head-to-head score: `9` wins / `1` loss / `0` neutral vs
+  NetworkX.
+
+| Workload | FNX mean | NetworkX mean | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `flow_hierarchy_weighted_cyclic_dag` | `894.53 ms` | `1.3710 s` | `1.53x` | win |
+| `within_inter_cluster_explicit_community` | `477.23 ms` | `875.40 ms` | `1.83x` | win |
+| `non_edges_sparse_undirected` | `453.53 ms` | `419.38 ms` | `0.925x` | loss |
+| `raw_adamic_adar_repeated_overlap` | `549.76 ms` | `1.6527 s` | `3.01x` | win |
+| `raw_resource_allocation_repeated_overlap` | `499.15 ms` | `1.6117 s` | `3.23x` | win |
+| `raw_preferential_attachment_repeated_overlap` | `432.40 ms` | `453.16 ms` | `1.05x` | win |
+| `raw_cn_soundarajan_hopcroft_repeated_overlap` | `421.01 ms` | `1.6991 s` | `4.04x` | win |
+| `raw_ra_index_soundarajan_hopcroft_repeated_overlap` | `587.12 ms` | `2.0254 s` | `3.45x` | win |
+| `digraph_to_undirected_attr_heavy` | `4.4177 s` | `4.8616 s` | `1.10x` | win |
+| `multidigraph_to_scipy_sparse_array_csr_int_weights` | `159.79 ms` | `243.98 ms` | `1.53x` | win |
+
+Radical lever tested and reverted:
+- Alien-graveyard / alien-artifact hypothesis: preserve exact CPython
+  `set.pop()` iteration semantics in a PyO3 helper for simple `Graph`
+  `non_edges`, avoiding public adjacency-row materialization while keeping
+  NetworkX-observable pair order.
+- Candidate source passed `rch exec -- cargo check -p fnx-python --benches
+  --features pyo3/abi3-py310`.
+- Candidate conformance passed
+  `tests/python/test_non_edges_order_conformance_guard.py -q`: `42 passed`.
+- Additional direct seed sweep matched NetworkX output for `60` randomized
+  simple graphs; digest
+  `bc3e06e826bd4aeaa95deb936958006fff3f81257cfe5def9bc938b9687ad020`.
+- Focused RCH timing setup did not produce samples on `hz2`: first with an
+  incorrect vendored NetworkX path, then with NumPy missing on that worker.
+- Same-process local release timing rejected the candidate:
+  FNX median `368.138 ms`, NetworkX median `292.090 ms`, ratio `0.793x`.
+
+Decision:
+- Reject/no-ship. The PyO3 set-pop helper was source-reverted after the
+  measured candidate remained slower than NetworkX.
+- Candidate score: `0` wins / `1` loss / `0` neutral.
+- Current active gap from this pass: `non_edges_sparse_undirected`.
+
+Do not repeat:
+- Do not retry a materializing PyO3 `Vec<(u, v)>` exact-order helper for
+  `non_edges`; it preserves order but moves too much pair materialization cost
+  into the boundary.
+- Next credible route needs a streaming or consumer-fused boundary: either
+  score default-ebunch link-prediction consumers without first creating Python
+  non-edge pairs, or expose an exact-order lazy generator that avoids building
+  the full pair vector while still matching NetworkX `set.pop()` semantics.
+
 ## 2026-06-21 Cod-A Tree Submodule Remeasure + Edge-Boundary Gate (`br-r37-c1-dv0uf`, cod-a)
 
 Scope: fresh BOLD-VERIFY pass after `bv --robot-triage` selected the unowned
