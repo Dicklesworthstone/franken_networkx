@@ -102,6 +102,45 @@ def test_multidigraph_parallel_arcs():
     assert m.number_of_edges() == nm.number_of_edges() == 3
 
 
+def test_multidigraph_is_strongly_connected_tiny_first_scc_matches_networkx():
+    m = fnx.MultiDiGraph()
+    nm = nx.MultiDiGraph()
+    nodes = range(40)
+    m.add_nodes_from(nodes)
+    nm.add_nodes_from(nodes)
+    m.add_edge(0, 0)
+    nm.add_edge(0, 0)
+    for node in range(1, 40):
+        target = 1 if node == 39 else node + 1
+        m.add_edge(node, target)
+        nm.add_edge(node, target)
+
+    fnx_result = fnx.is_strongly_connected(m)
+    assert fnx_result == nx.is_strongly_connected(nm)
+    assert not fnx_result
+
+
+@pytest.mark.parametrize(
+    "nodes,edges",
+    [
+        ([0], [(0, 0)]),
+        ([0, 1, 2], [(0, 1), (1, 2), (2, 0), (0, 2), (0, 2)]),
+        ([0, 1, 2], [(0, 1), (1, 0), (1, 2), (2, 1), (2, 0)]),
+        ([0, 1, 2], [(0, 1), (1, 2), (2, 1)]),
+        ([0, 1, 2, 3], [(0, 1), (1, 0), (2, 3), (3, 2), (1, 2)]),
+    ],
+)
+def test_multidigraph_is_strongly_connected_small_cases_match_networkx(nodes, edges):
+    m = fnx.MultiDiGraph()
+    nm = nx.MultiDiGraph()
+    m.add_nodes_from(nodes)
+    nm.add_nodes_from(nodes)
+    m.add_edges_from(edges)
+    nm.add_edges_from(edges)
+
+    assert fnx.is_strongly_connected(m) == nx.is_strongly_connected(nm)
+
+
 @pytest.mark.parametrize(
     "nodes,edges",
     [

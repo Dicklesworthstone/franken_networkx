@@ -31,6 +31,134 @@ Decision:
   fallback/multigraph rows. Revert if the route does not produce a material
   measured win or if broader spanning-tree conformance drifts.
 
+## 2026-06-21 MultiDiGraph Lazy Tarjan Strong-Connectivity Keep (`br-r37-c1-1pmou`, cod-a)
+
+Scope: close the measured `MultiDiGraph.is_strongly_connected` negative-case
+loss where the first node is a singleton SCC and the remaining graph is large.
+The predecessor path built full successor and predecessor CSR adjacency and ran
+two reachability passes, so it paid for every edge even though NetworkX's
+boolean predicate stops after the first SCC emitted by Tarjan.
+
+Environment:
+- Agent Mail identity: `CrimsonRiver`; CLI actor: `cod-a`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-a-boldverify-20260621T0012`.
+- Requested target dir:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- The requested shared target hit incompatible-rustc E0514 (`cc`,
+  `target_lexicon`, and `serde` were compiled by a different nightly). No
+  cleanup or deletion was performed; release proof runs used fresh target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-a-f20a92ec0-boldverify-20260621T0042`.
+- RCH post-rebase validation used fresh target dir
+  `/data/projects/.rch-targets/franken_networkx-cod-a-f3f2fb025-postrebase`.
+  After RCH artifact retrieval that target was no longer safe for local
+  `maturin develop` under the older nightly, so the final installed-extension
+  pytest proof used fresh local target
+  `/data/projects/.rch-targets/franken_networkx-cod-a-a1e6e7037-local-f20a92`.
+- Oracle: vendored NetworkX `3.7rc0.dev0`; Python `3.13.7`,
+  `PYTHONHASHSEED=0`, `OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`.
+
+Baseline release timing on the tiny-first-SCC fixture:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| 3,000 edges | `0.436805 ms` | `0.237889 ms` | `0.545x` | loss |
+| 6,000 edges | `0.688320 ms` | `0.239062 ms` | `0.347x` | loss |
+| 12,000 edges | `1.220224 ms` | `0.241757 ms` | `0.198x` | loss |
+| 21,000 edges | `1.985319 ms` | `0.246786 ms` | `0.124x` | loss |
+
+Kept lever:
+- Replace full forward+reverse CSR materialization with a lazy iterative
+  Tarjan boolean test over distinct successor rows. Multiplicity is irrelevant
+  for strong connectivity, so the native path returns `false` as soon as the
+  first closed SCC is smaller than `n` and returns `true` only when the first
+  closed SCC spans the graph.
+
+Final release timing:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| 3,000 edges | `0.097704 ms` | `0.391961 ms` | `4.012x` | win |
+| 6,000 edges | `0.096753 ms` | `0.396670 ms` | `4.100x` | win |
+| 12,000 edges | `0.099048 ms` | `0.403423 ms` | `4.073x` | win |
+| 21,000 edges | `0.098226 ms` | `0.265812 ms` | `2.706x` | win |
+| strongly connected control, 6,500 edges | `1.382393 ms` | `7.679361 ms` | `5.555x` | win |
+
+Conformance and gates:
+- Focused pytest:
+  `tests/python/test_directed_multigraph_degenerate_parity.py` and
+  `tests/python/test_strongly_connected_conformance.py` passed `397` after the
+  final rebase.
+- Randomized direct `MultiDiGraph.is_strongly_connected` oracle sweep passed
+  `0` mismatches across `200` deterministic small multigraph cases.
+- `cargo fmt --check`: pass.
+- `python -m py_compile python/franken_networkx/__init__.py
+  tests/python/test_directed_multigraph_degenerate_parity.py`: pass.
+- `rch exec -- cargo check -p fnx-python --all-targets --features
+  pyo3/abi3-py310`: pass.
+- `rch exec -- cargo clippy -p fnx-python --all-targets --features
+  pyo3/abi3-py310 -- -D warnings`: pass.
+- `rch exec -- cargo test -p fnx-python --features pyo3/abi3-py310`: pass
+  (`27 passed`).
+- `rch exec -- cargo build -p fnx-python --release --features
+  pyo3/abi3-py310`: pass.
+- `rch exec -- cargo bench -p fnx-python --features pyo3/abi3-py310
+  --no-run`: pass.
+- `git diff --check`: pass.
+- `ubs` over touched files: exit `0`, `0` critical issues; existing
+  monolithic `algorithms.rs` warning inventory remains outside this lever.
+
+Decision:
+- Keep. The targeted negative row flips from `0.124x`-`0.545x` losses to
+  `2.706x`-`4.100x` wins while the strongly connected control remains a clear
+  win vs NetworkX.
+- Do not reintroduce full forward+reverse CSR for the boolean `MultiDiGraph`
+  predicate. If exact SCC component emission needs work, keep it separate from
+  this boolean fast path.
+
+## 2026-06-21 Max-Weight Matching Public-Loss Stale Correction (`br-r37-c1-88yc4`, cod-a)
+
+Scope: remeasure the previous public `max_weight_matching` loss against the
+vendored NetworkX oracle and decide whether an exact NetworkX-order blossom
+port/fork is still a release blocker. The previous raw native route remains
+invalid for exact edge-set tie-break parity.
+
+Environment:
+- Agent Mail identity: `CrimsonRiver`; CLI actor: `cod-a`.
+- Worktree:
+  `/data/projects/.scratch/franken_networkx-cod-a-boldverify-20260621T0012`.
+- Release extension installed from fresh target
+  `/data/projects/.rch-targets/franken_networkx-cod-a-f20a92ec0-boldverify-20260621T0042`
+  after the requested shared target hit incompatible-rustc E0514. No cleanup or
+  deletion was performed.
+- Oracle: vendored NetworkX `3.7rc0.dev0`; Python `3.13.7`,
+  `PYTHONHASHSEED=0`, `OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`.
+
+Fresh same-process release timing on weighted `gnp(300, 0.05, seed=11)`:
+
+| Route | FNX median | NetworkX median | Ratio vs NetworkX | Exact edge set | Verdict |
+| --- | ---: | ---: | ---: | --- | --- |
+| public `fnx.max_weight_matching` delegate | `429.726415 ms` | `467.559904 ms` | `1.088x` | yes | stale loss closed |
+| NetworkX direct-on-FNX graph object | `439.729672 ms` | `467.559904 ms` | `1.063x` | yes | no-ship; slower than current public |
+| raw `_fnx.max_weight_matching` | `7.510473 ms` | `467.559904 ms` | `62.254x` | no | invalid keep |
+
+Additional matching probes:
+- Direct NetworkX-on-FNX exactness sweep over `120` nodes x `20` seeds reported
+  `0` mismatches, but it was still slower than the current public delegate on
+  the measured `300`-node target.
+- `min_edge_cover` and `min_weight_matching` remain separate matching surfaces:
+  raw native `min_edge_cover` reached `44.88x` speed but exact edge-set parity
+  mismatched on `40 / 40` seeds, while direct NetworkX-on-FNX was exact but
+  slower than the current route. No source change was shipped.
+
+Decision:
+- Close the stale public `max_weight_matching` loss. The currently shipped
+  public API is exact and `1.088x` vs vendored NetworkX on the bead fixture.
+- Keep raw native matching out of the public route until tie-break parity is
+  solved; `62x` raw speed is routing evidence only, not a keep.
+- Do not spend release-blocker time on an exact blossom port for this public row
+  unless a new vendored-oracle measurement again shows a real public loss.
+
 ## 2026-06-20 MultiDiGraph Indexed CSR Bytearray Boundary Keep (`br-r37-c1-q2w4t`, cod-a)
 
 Scope: revisit the large default-order `MultiDiGraph.to_scipy_sparse_array`
@@ -1378,7 +1506,7 @@ Baseline/current public API and raw native measurement on seed `11`:
 
 | Route | FNX mean | NetworkX mean | Ratio vs NetworkX | Exact edge set | Verdict |
 | --- | ---: | ---: | ---: | --- | --- |
-| public `fnx.max_weight_matching` delegate | 228.398618 ms | 223.508232 ms | 0.979x | yes | active loss |
+| public `fnx.max_weight_matching` delegate | 228.398618 ms | 223.508232 ms | 0.979x | yes | historical loss; superseded |
 | raw `_fnx.max_weight_matching` | 5.494071 ms | 223.508232 ms | 40.68x | no | invalid keep |
 
 Raw native exactness sweep:
@@ -1407,10 +1535,14 @@ Conformance after reverting the no-ship experiments:
   `184 passed`.
 
 Decision:
-- Reject/no-ship for this session. The public `max_weight_matching` row remains
-  an active `0.979x` loss because exact NetworkX tie-break parity blocks the
-  raw native `40x+` route.
-- Scorecard accounting for this slice: `0` wins / `1` loss / `0` neutral.
+- Reject/no-ship for this older session. The public `max_weight_matching` row
+  measured as a `0.979x` loss in that run because exact NetworkX tie-break
+  parity blocked the raw native `40x+` route.
+- Superseded by the 2026-06-21 vendored-oracle remeasure above: the current
+  public route is exact and `1.088x` vs NetworkX, so this is no longer an
+  active public loss.
+- Historical scorecard accounting for this slice: `0` wins / `1` loss /
+  `0` neutral.
 
 Do not repeat:
 - Do not retry endpoint canonicalization, insertion-order node remapping, or

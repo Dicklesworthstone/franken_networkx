@@ -4565,30 +4565,12 @@ fn multidigraph_target_bfs_distance(
     None
 }
 
-/// br-r37-c1-zid1b (cc): BFS reachable-count over an integer CSR adjacency from `start`.
-fn csr_reach_count(adj: &[Vec<usize>], start: usize, n: usize) -> usize {
-    use std::collections::VecDeque;
-    let mut visited = vec![false; n];
-    visited[start] = true;
-    let mut count = 1usize;
-    let mut queue: VecDeque<usize> = VecDeque::new();
-    queue.push_back(start);
-    while let Some(node) = queue.pop_front() {
-        for &v in &adj[node] {
-            if !visited[v] {
-                visited[v] = true;
-                count += 1;
-                queue.push_back(v);
-            }
-        }
-    }
-    count
-}
-
-/// br-r37-c1-zid1b (cc): is a MultiDiGraph strongly connected? Build an integer CSR
-/// once (one String->index pass), then forward + reverse reachability from node 0 over
-/// the integer adjacency (no per-BFS String hashing / Vec allocs, no simple-DiGraph
-/// build). Multiplicity-invariant. Mirrors strongly_connected_via_reachability.
+/// br-r37-c1-1pmou: boolean MultiDiGraph strong-connectivity test using a lazy
+/// Tarjan walk. Multiplicity is irrelevant, so successor rows are traversed as
+/// distinct neighbor rows and the function returns false as soon as it closes
+/// any SCC smaller than the graph. This matches nx's order-invariant boolean
+/// contract while avoiding full successor+predecessor CSR materialization for
+/// the common not-strongly-connected case.
 fn multidigraph_is_strongly_connected(mdg: &fnx_classes::digraph::MultiDiGraph) -> bool {
     use std::collections::HashMap;
     let nodes = mdg.nodes_ordered();
@@ -4597,22 +4579,83 @@ fn multidigraph_is_strongly_connected(mdg: &fnx_classes::digraph::MultiDiGraph) 
         return true;
     }
     let index: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
-    let mut succ: Vec<Vec<usize>> = vec![Vec::new(); n];
-    let mut pred: Vec<Vec<usize>> = vec![Vec::new(); n];
-    for (i, &nd) in nodes.iter().enumerate() {
-        if let Some(ss) = mdg.successors(nd) {
-            for s in ss {
-                if let Some(&j) = index.get(s) {
-                    succ[i].push(j);
-                    pred[j].push(i);
+    let mut preorder = vec![0usize; n];
+    let mut lowlink = vec![0usize; n];
+    let mut scc_found = vec![false; n];
+    let mut scc_queue = Vec::<usize>::new();
+    let mut preorder_counter = 0usize;
+
+    for source in 0..n {
+        if scc_found[source] {
+            continue;
+        }
+        let mut queue = vec![(
+            source,
+            mdg.successors(nodes[source]).unwrap_or_default(),
+            0usize,
+        )];
+        while let Some((v_ref, successors, next_successor)) = queue.last_mut() {
+            let v = *v_ref;
+            if preorder[v] == 0 {
+                preorder_counter += 1;
+                preorder[v] = preorder_counter;
+            }
+
+            let mut descended = false;
+            while *next_successor < successors.len() {
+                let successor = successors[*next_successor];
+                *next_successor += 1;
+                let Some(&w) = index.get(successor) else {
+                    continue;
+                };
+                if preorder[w] == 0 {
+                    queue.push((w, mdg.successors(nodes[w]).unwrap_or_default(), 0));
+                    descended = true;
+                    break;
                 }
             }
+            if descended {
+                continue;
+            }
+
+            lowlink[v] = preorder[v];
+            if let Some(successors) = mdg.successors(nodes[v]) {
+                for successor in successors {
+                    let Some(&w) = index.get(successor) else {
+                        continue;
+                    };
+                    if scc_found[w] {
+                        continue;
+                    }
+                    if preorder[w] > preorder[v] {
+                        lowlink[v] = lowlink[v].min(lowlink[w]);
+                    } else {
+                        lowlink[v] = lowlink[v].min(preorder[w]);
+                    }
+                }
+            }
+
+            queue.pop();
+            if lowlink[v] == preorder[v] {
+                let mut component_size = 1usize;
+                while scc_queue
+                    .last()
+                    .is_some_and(|&queued| preorder[queued] > preorder[v])
+                {
+                    let Some(queued) = scc_queue.pop() else {
+                        break;
+                    };
+                    scc_found[queued] = true;
+                    component_size += 1;
+                }
+                scc_found[v] = true;
+                return component_size == n;
+            }
+            scc_queue.push(v);
         }
     }
-    if csr_reach_count(&succ, 0, n) != n {
-        return false;
-    }
-    csr_reach_count(&pred, 0, n) == n
+
+    false
 }
 
 /// br-r37-c1-zid1b (cc): borrowed BFS tree edges (parent, child) from `source`
@@ -12524,8 +12567,8 @@ pub fn is_strongly_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<b
         ));
     }
     if let GraphRef::MultiDirected { mdg, .. } = &gr {
-        // br-r37-c1-zid1b: direct forward+reverse reachability over the multidigraph
-        // adjacency instead of building a simple DiGraph first (was ~50x slower).
+        // br-r37-c1-1pmou: direct boolean SCC over MultiDiGraph adjacency instead
+        // of building a simple DiGraph or materializing forward+reverse CSR.
         let inner = &mdg.inner;
         if inner.nodes_ordered().is_empty() {
             return Err(crate::NetworkXPointlessConcept::new_err(
