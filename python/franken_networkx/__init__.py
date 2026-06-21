@@ -2707,7 +2707,7 @@ def _make_add_nodes_from(
         # mixed input falls through to the attributed batch / per-node loop below.
         if (
             not attr
-            and type(self) is DiGraph
+            and type(self) in (DiGraph, MultiGraph, MultiDiGraph)
             and type(nodes_for_adding) in (range, list, tuple, set)
         ):
             try:

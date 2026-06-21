@@ -2277,6 +2277,45 @@ impl PyMultiDiGraph {
         Ok(false)
     }
 
+    /// br-r37-c1-digbatch: bulk fast path for `add_nodes_from(range / int list)` on a
+    /// MultiDiGraph — the multi-directed sibling of `PyGraph::_fast_add_int_nodes`, using
+    /// the inner `extend_nodes_with_attrs_unrecorded` with empty AttrMaps. Py int objects
+    /// are stored (no lazy_int_node_stop). Atomic validate-then-mutate: exact-int only
+    /// (excludes bool), else raise so the wrapper falls back. Was the 0.30x / 0.43x loss.
+    fn _fast_add_int_nodes(&mut self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<()> {
+        let iter = PyIterator::from_object(nodes)?;
+        let mut ints: Vec<i64> = Vec::new();
+        for item in iter {
+            let item = item?;
+            if !item.is_exact_instance_of::<PyInt>() {
+                return Err(PyTypeError::new_err(
+                    "fast int-node path requires exact int elements",
+                ));
+            }
+            ints.push(item.extract::<i64>()?);
+        }
+        let mut fresh: Vec<(String, AttrMap)> = Vec::with_capacity(ints.len());
+        for node in ints {
+            let canonical = node.to_string();
+            let was_absent =
+                !self.node_key_map.contains_key(&canonical) && !self.inner.has_node(&canonical);
+            self.node_key_map
+                .entry(canonical.clone())
+                .or_insert_with(|| {
+                    unwrap_infallible(node.into_pyobject(py))
+                        .into_any()
+                        .unbind()
+                });
+            if was_absent {
+                self.node_iter_mirror_insert(py, &canonical)?;
+                fresh.push((canonical, AttrMap::new()));
+            }
+            self.bump_nodes_seq();
+        }
+        let _ = self.inner.extend_nodes_with_attrs_unrecorded(fresh);
+        Ok(())
+    }
+
     /// br-r37-c1-trzrx: attributed sibling of `_try_add_edges_from_batch` —
     /// native fast path for `add_edges_from([(u, v, data), ...])` (mixed with
     /// plain `(u, v)`) on a FRESH MultiDiGraph. The
