@@ -40,8 +40,15 @@ def find_threshold_graph(G, create_using=None, *, backend=None, **backend_kwargs
     the result to an fnx graph type for drop-in compatibility.
     """
     _fnx._validate_backend_dispatch_keywords("find_threshold_graph", backend, backend_kwargs)
-    nx_result = _nx_threshold.find_threshold_graph(G, create_using=create_using)
-    return _from_nx_graph(nx_result, create_using=create_using)
+    # br-r37-c1-threshnative: nx's find_threshold_graph(G, create_using) is exactly
+    # ``threshold_graph(find_creation_sequence(G), create_using)``. Run nx's
+    # creation-sequence finder (O(V) degree scan, unchanged), then route the
+    # O(V^2) construction through THIS module's native threshold_graph (batched
+    # add_edges_from, no intermediate nx graph + _from_nx_graph conversion) instead
+    # of nx.threshold_graph + convert. Byte-identical: same creation sequence, and
+    # threshold_graph is byte-exact (2000/2000 across all sequence formats).
+    cs = _nx_threshold.find_creation_sequence(G)
+    return threshold_graph(cs, create_using=create_using)
 
 
 def threshold_graph(creation_sequence, create_using=None, *, backend=None, **backend_kwargs):
