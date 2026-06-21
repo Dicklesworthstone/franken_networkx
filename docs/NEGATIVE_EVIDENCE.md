@@ -2899,3 +2899,19 @@ Do not repeat:
   digraph.rs, then routed from `_copy_induced_simple_fast`) — a Rust change with
   parallel-edge key-parity risk, deferred as a scoped bead.
 Artifacts: `tests/artifacts/perf/20260621T-mg-subgraph-copy-cc/`.
+
+### Follow-up 2026-06-21 — keyed-4-tuple batch BUILT + measured, still loses (CopperCliff)
+
+Implemented the native keyed batch (`_try_add_keyed_attr_edges_from_batch` on
+PyMultiGraph + wrapper gate + list-materialized copy()), full release build in a
+clean worktree. Correctness PASSED: 72/72 `subgraph().copy()` byte-identical to nx
+(MultiGraph + MultiDiGraph-via-fallback, gapped keys, self-loops, attrs). But it
+STILL LOSES: `subgraph(range(400)).copy()` `0.86–0.90x` (improved from 0.72x),
+and even direct `add_edges_from([3576 4-tuples])` is `0.70x` despite the batch
+firing. Root cause: the batch removes the per-edge `add_edge` loop but each edge
+still pays `py_dict_to_attr_map` (Python dict -> Rust AttrMap) AND keeps a Python
+mirror — the dual-storage conversion costs more than nx's single-dict assignment.
+Same ceiling the existing 2/3-tuple attr batch hits (0.8–0.9x). REVERTED, not
+shipped; bead `br-r37-c1-mg-subgraph-keyed-batch-z1q8i` closed no-ship. Real lever
+is a lazy AttrMap (defer Python->Rust conversion until a native kernel reads
+attrs), a deep substrate change — not a keyed batch.
