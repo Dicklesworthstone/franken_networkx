@@ -2,6 +2,66 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-21 Cod-B `non_edges` Native-Row Regression Recheck (`br-r37-c1-04z53`, cod-b)
+
+Scope: fresh BOLD-VERIFY recheck of the remaining
+`non_edges_sparse_undirected` public-gauntlet row after an unrelated
+spanning-tree fix commit briefly carried the exact undirected native-row
+`Graph.non_edges` block. Reused existing detached worktree
+`/data/projects/.worktrees/fnx-bt-3` and
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`; no new
+`.scratch` or perf-proof worktree was created.
+
+Profile and radical lever tested:
+- Alien-graveyard / alien-artifact hypothesis: preserve NetworkX `set.pop()`
+  semantics while using native node-key snapshots and raw neighbor rows, then
+  try to remove one allocation layer by replacing `nodes - set(raw_neighbors)`
+  with `nodes.copy(); difference_update(raw_neighbors)`.
+- The copy/difference-update variant was invalid: focused order conformance
+  failed `9` of `47` cases because CPython set deletion order does not match
+  the `nodes - set(neighbors)` result order. It was not timed.
+- The exact native-row variant preserved order but was slower than the
+  restored public fallback on the same RCH worker. Current head `3f59a7f9a`
+  already source-reverted the unrelated native-row block while preserving the
+  spanning-tree fix.
+
+Head-to-head timing:
+- RCH worker: `vmi1153651`; requested target
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`,
+  rewritten by RCH to that worker's scoped target.
+- Command shape:
+  `RCH_WORKER=vmi1153651 RCH_REQUIRE_REMOTE=1 AGENT_NAME=cod-b CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b RUSTUP_TOOLCHAIN=nightly-2026-06-10 rch exec -- env PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH PYTHONPATH=/data/projects/.worktrees/fnx-bt-3/crates/fnx-python/benches:/data/projects/.worktrees/fnx-bt-3/python:/data/projects/.worktrees/fnx-bt-3/legacy_networkx_code/networkx cargo bench -p fnx-python --bench public_api_gauntlet -- non_edges_sparse_undirected --sample-size 10 --warm-up-time 1 --measurement-time 4`
+- Setup failures not used as evidence: `ovh-a` failed before sampling because
+  the remote process lacked `public_api_gauntlet` on `PYTHONPATH`; `hz2` failed
+  before sampling because its Python environment lacked NumPy.
+
+| State | FNX mean | NetworkX mean | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| restored/fallback source | `1.3427 s` | `1.3203 s` | `0.983x` | active row reproduced; non-dominating |
+| exact native-row candidate | `1.4501 s` | `1.2864 s` | `0.887x` | reject; FNX regressed |
+
+Validation and gates:
+- Invalid copy/difference-update variant failed focused order guards:
+  `9 failed, 38 passed`.
+- Exact native-row variant passed focused order/checksum parity before timing:
+  `47 passed` plus a 60-seed direct order sweep and gauntlet-fixture checksum
+  match (`4829200199316911967` for both engines).
+- Final restored source passed focused non-edges conformance:
+  `tests/python/test_non_edges_order_conformance_guard.py` plus the two
+  targeted graph-utility non-edges guards, `47 passed`.
+- Final restored source also passed
+  `python -m py_compile python/franken_networkx/__init__.py` and
+  `git diff --check`.
+
+Decision:
+- Reject/no-ship. Do not reintroduce public native-row dispatch for undirected
+  `non_edges`; the exact-order version regresses the active public row and the
+  allocation-saving mutation variant breaks set-order parity.
+- Current focused score for this recheck: `0` wins / `1` loss / `0` neutral.
+- The remaining credible route is still consumer-fused: avoid creating public
+  Python non-edge pairs at all for downstream consumers, rather than another
+  public `non_edges` iterator micro-route.
+
 ## 2026-06-21 Cod-B `ubizp` MultiGraph SSSP Parent-Copy No-Ship (`br-r37-c1-04z53`, cod-b)
 
 Scope: fresh BOLD-VERIFY revisit of the remaining `ubizp`
