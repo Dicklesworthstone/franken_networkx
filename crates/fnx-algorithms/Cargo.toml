@@ -1,9 +1,10 @@
 [package]
 name = "fnx-algorithms"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Deterministic graph algorithms for FrankenNetworkX"
 license-file = "../../LICENSE"
+repository.workspace = true
 
 [lib]
 doctest = false
@@ -14,9 +15,9 @@ dhat-heap = ["dhat"]
 profile-pprof = ["pprof"]
 
 [dependencies]
-fnx-classes = { version = "0.1.0", path = "../fnx-classes" }
-fnx-cgse = { version = "0.1.0", path = "../fnx-cgse" }
-fnx-runtime = { version = "0.1.0", path = "../fnx-runtime" }
+fnx-classes = { version = "0.2.0", path = "../fnx-classes" }
+fnx-cgse = { version = "0.2.0", path = "../fnx-cgse" }
+fnx-runtime = { version = "0.2.0", path = "../fnx-runtime" }
 mwmatching = "0.1.1"
 mt19937 = "3.3.0"
 rayon = "1.10.0"
@@ -26,7 +27,7 @@ pprof = { version = "0.15.0", optional = true, default-features = false }
 rand_core = "0.10.1"
 
 [dev-dependencies]
-fnx-runtime = { version = "0.1.0", path = "../fnx-runtime" }
+fnx-runtime = { version = "0.2.0", path = "../fnx-runtime" }
 proptest = "1.11.0"
 criterion = { version = "0.8.2", features = ["html_reports"] }
 

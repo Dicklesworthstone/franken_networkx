@@ -49,7 +49,7 @@ CI = "https://github.com/Dicklesworthstone/franken_networkx/actions"
 [project.optional-dependencies]
 numpy = ["numpy>=1.24"]
 scipy = ["scipy>=1.10"]
-test = ["pytest>=7", "hypothesis", "networkx>=3.0"]
+test = ["pytest>=7", "hypothesis", "networkx>=3.0", "pytest-benchmark"]
 all = ["numpy>=1.24", "scipy>=1.10"]
 
 [project.entry-points."networkx.backends"]

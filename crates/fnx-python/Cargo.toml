@@ -1,23 +1,24 @@
 [package]
 name = "fnx-python"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license-file = "../../LICENSE"
 description = "PyO3 Python bindings for FrankenNetworkX — a Rust-backed drop-in replacement for NetworkX"
+repository.workspace = true
 
 [lib]
 name = "_fnx"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-fnx-classes = { path = "../fnx-classes" }
-fnx-algorithms = { path = "../fnx-algorithms" }
-fnx-cgse = { path = "../fnx-cgse" }
-fnx-generators = { path = "../fnx-generators" }
-fnx-readwrite = { path = "../fnx-readwrite" }
-fnx-convert = { path = "../fnx-convert" }
-fnx-views = { path = "../fnx-views" }
-fnx-runtime = { path = "../fnx-runtime" }
+fnx-classes = { version = "0.2.0", path = "../fnx-classes" }
+fnx-algorithms = { version = "0.2.0", path = "../fnx-algorithms" }
+fnx-cgse = { version = "0.2.0", path = "../fnx-cgse" }
+fnx-generators = { version = "0.2.0", path = "../fnx-generators" }
+fnx-readwrite = { version = "0.2.0", path = "../fnx-readwrite" }
+fnx-convert = { version = "0.2.0", path = "../fnx-convert" }
+fnx-views = { version = "0.2.0", path = "../fnx-views" }
+fnx-runtime = { version = "0.2.0", path = "../fnx-runtime" }
 hex = "0.4.3"
 pyo3 = { version = "0.28.3", features = ["abi3-py310", "multiple-pymethods"] }
 pyo3-log = "0.13.3"

@@ -1,13 +1,15 @@
 [package]
 name = "fnx-readwrite"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
+description = "Graph serialization and parsing for FrankenNetworkX"
 license-file = "../../LICENSE"
+repository.workspace = true
 
 [dependencies]
-fnx-classes = { path = "../fnx-classes" }
-fnx-dispatch = { path = "../fnx-dispatch" }
-fnx-runtime = { path = "../fnx-runtime" }
+fnx-classes = { version = "0.2.0", path = "../fnx-classes" }
+fnx-dispatch = { version = "0.2.0", path = "../fnx-dispatch" }
+fnx-runtime = { version = "0.2.0", path = "../fnx-runtime" }
 quick-xml = "0.39.2"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"

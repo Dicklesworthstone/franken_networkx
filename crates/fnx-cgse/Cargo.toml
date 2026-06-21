@@ -4,6 +4,7 @@ description = "Canonical Graph Semantics Engine — deterministic tie-break poli
 edition.workspace = true
 version.workspace = true
 license-file.workspace = true
+repository.workspace = true
 
 [dependencies]
 blake3 = "1.8.4"

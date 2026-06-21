@@ -1,13 +1,15 @@
 [package]
 name = "fnx-convert"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
+description = "Graph conversion utilities preserving FrankenNetworkX semantics"
 license-file = "../../LICENSE"
+repository.workspace = true
 
 [dependencies]
-fnx-classes = { path = "../fnx-classes" }
-fnx-dispatch = { path = "../fnx-dispatch" }
-fnx-runtime = { path = "../fnx-runtime" }
+fnx-classes = { version = "0.2.0", path = "../fnx-classes" }
+fnx-dispatch = { version = "0.2.0", path = "../fnx-dispatch" }
+fnx-runtime = { version = "0.2.0", path = "../fnx-runtime" }
 serde = { version = "1.0.228", features = ["derive"] }
 
 [dev-dependencies]

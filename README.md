@@ -1640,7 +1640,7 @@ If still slow, check:
 
 ```python
 import franken_networkx
-print(franken_networkx.__version__)        # should print "0.1.0" or later
+print(franken_networkx.__version__)        # should print "0.2.0" or later
 
 import networkx as nx
 print(nx.config.backend_priority)          # should contain "franken_networkx"
@@ -1881,11 +1881,11 @@ A practical checklist for shipping fnx in production.
 
 ```toml
 # requirements.txt or pyproject.toml [tool.poetry.dependencies]
-franken-networkx = "==0.1.0"
+franken-networkx = "==0.2.0"
 networkx = ">=3.0,<4.0"
 ```
 
-Pin fnx exactly during early development (0.1.x). The fnx parity guarantee includes "we won't change observable behavior of a supported algorithm without a version bump", and pinning gives you that guarantee in your dependency graph.
+Pin fnx exactly during early development (0.x). The fnx parity guarantee includes "we won't change observable behavior of a supported algorithm without a version bump", and pinning gives you that guarantee in your dependency graph.
 
 ### Wheel selection
 
@@ -2114,7 +2114,7 @@ FrankenNetworkX is honest about what it does not do today:
 - **Drawing is delegated.** `draw`, `draw_*`, and the matplotlib-backed layout functions delegate to NetworkX/matplotlib. Layout *math* (`spring_layout`, `kamada_kawai_layout`, etc.) is also delegated. We do not own matplotlib rendering.
 - **`is_planar` is wrapper-patched.** The raw Rust kernel is still a necessary-condition test (degree + edge-count bounds, bipartite + girth). The public wrapper short-circuits K3,3 / Petersen / K5 and delegates the residual to NetworkX so the answer is always correct. A native Boyer-Myrvold / Hopcroft-Tarjan port is on the roadmap.
 - **143 exports retain a parity-helper branch.** These are not bugs; they are the documented set in `delegation_ledger.md` where unusual argument shapes (callable arguments, exotic format variants, deprecated API forms) defer to NetworkX. The native fast path runs for the common case.
-- **No formal releases yet.** Workspace version is `0.1.0`. PyPI status is **Beta**. There are no git tags or GitHub Releases at the time of writing.
+- **Release status.** `v0.2.0` is the first tagged release for the Rust crates and Python ABI3 wheel. PyPI status remains **Beta** while the parity and SLO gates continue to harden.
 - **No Windows/macOS performance SLO yet.** The performance gate (G6) currently runs only on Linux. Correctness gates (G1–G3) cover all three platforms.
 - **No 3rd-party graph DB integration.** This is a graph *algorithms* library; it does not connect to Neo4j, JanusGraph, etc. Use it on in-memory graphs.
 
@@ -2407,7 +2407,7 @@ In rough priority order (`bv --robot-triage` shows the current bead backlog):
 3. **Native Boyer-Myrvold / Hopcroft-Tarjan planarity** so `_raw_is_planar` is exact, eliminating the nx delegation.
 4. **Performance proof artifacts per SLO row (E3)** so every algorithm family in `docs/performance.md` has a profile-and-prove witness on file.
 5. **Tail closure on the remaining 143 delegated exports.** Move as many as possible to native fast paths while preserving the parity contract.
-6. **First tagged release.** Workspace version moves from `0.1.0` to `0.2.0` once the SLO gate has run green for a sustained window.
+6. **Release cadence.** `v0.2.0` is the first tagged release; subsequent 0.x releases should land only after the parity, conformance, and SLO gates are green.
 
 ---
 

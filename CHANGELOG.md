@@ -2,21 +2,21 @@
 
 All notable changes to FrankenNetworkX are documented in this file.
 
-This project has no formal releases, git tags, or GitHub Releases yet. The
-timeline below is reconstructed exhaustively from the commit history on `main`
-(2,729 commits, 2026-02-13 through 2026-05-17). Sections are organized by
-capability area rather than raw diff order. Every link points to the actual
-commit on GitHub.
+`v0.2.0` is the first tagged release. The historical timeline below is
+reconstructed exhaustively from the commit history on `main` before the first
+release cut (2,729 commits, 2026-02-13 through 2026-05-17). Sections are
+organized by capability area rather than raw diff order. Every link points to
+the actual commit on GitHub.
 
 Repository: <https://github.com/Dicklesworthstone/franken_networkx>
 
 ---
 
-## Unreleased (HEAD -- 36e6beae)
+## 0.2.0 - 2026-06-21
 
-Workspace version: **0.1.0** (`Cargo.toml`).
+Workspace version: **0.2.0** (`Cargo.toml`).
 PyPI package name: `franken-networkx` (Development Status :: 4 - Beta, `pip install franken-networkx`).
-No GitHub Releases or git tags exist as of 2026-05-17.
+First tagged release for the Rust workspace crates and the Python ABI3 wheel.
 
 ---
 
@@ -1215,9 +1215,9 @@ the full workspace architecture and the first executable vertical slice.
 |--------|-------|
 | Total commits | 2,729 |
 | Date range | 2026-02-13 to 2026-05-17 |
-| Git tags | 0 |
-| GitHub Releases | 0 |
-| Workspace version | 0.1.0 |
+| Git tags | 1 |
+| GitHub Releases | 1 |
+| Workspace version | 0.2.0 |
 | Workspace crates | 12 |
 | Public exports in `franken_networkx.*` | 763 (731 PY_WRAPPER, 1 RUST_NATIVE, 28 CLASS, 3 CONSTANT) |
 | Backend-dispatched algorithms (`_SUPPORTED_ALGORITHMS`) | 316 |
