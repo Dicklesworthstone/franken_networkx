@@ -694,24 +694,6 @@ def _fnx_to_nx(fg):
         # frozenset so the lookup is orientation-agnostic and safe across
         # non-comparable node types (nx allows mixing int / str / tuple nodes).
         directed = fg.is_directed()
-        # br-r37-c1-fnx2nx-lazyattr: a freshly batch-built (``add_edges_from``) INT-node
-        # graph leaves ``edge_py_attrs`` UNMATERIALIZED while the inner Rust AttrMaps
-        # hold the weights. ``_native_fnx_to_nx_adjacency`` reads ONLY that lazy mirror,
-        # so the conversion SILENTLY DROPS every edge attr — corrupting multi_source_
-        # dijkstra and EVERY nx-delegated weighted algorithm (they ran unweighted) plus
-        # to_directed/to_undirected. Force the edge mirror to materialise from the inner
-        # first (iterating ``edges(data=True)`` does inner->mirror via the display-key
-        # path that get_edge_data/dijkstra already use correctly). A no-op once the graph
-        # has been read; gated on has-attrs so attr-less conversions (check_planarity,
-        # BFS/DFS variants) stay on the fast bulk path untouched.
-        if (
-            type(fg) in (fnx.Graph, fnx.DiGraph)
-            and _native_graph_has_any_attrs is not None
-            and fg.number_of_edges()
-            and _native_graph_has_any_attrs(fg)
-        ):
-            for _ in fg.edges(data=True):
-                pass
         # br-r37-c1-xykjs: pull the whole (node, [(neighbor, attrs)]) structure
         # in one native crossing (reads the fresh edge_py_attrs) instead of two
         # per-edge AtlasView passes (attrs_by_pair + the topo queues build).
@@ -730,6 +712,27 @@ def _fnx_to_nx(fg):
             else None
         )
         if bulk is not None:
+            # br-r37-c1-fnx2nx-lazyattr: a freshly batch-built (``add_edges_from``)
+            # INT-node graph leaves ``edge_py_attrs`` UNMATERIALIZED while the inner
+            # Rust AttrMaps hold the weights, and the bulk read above reads ONLY that
+            # lazy mirror -> it SILENTLY DROPS every edge attr, so the converted graph
+            # is unweighted and EVERY nx-delegated weighted algorithm (multi_source_
+            # dijkstra ...) runs wrong. Detect it precisely: the inner reports edge
+            # attrs (``graph_has_any_attrs``) yet the bulk came back with NONE. Only
+            # then force the mirror to materialise from the inner (``edges(data=True)``
+            # uses the display-key path get_edge_data/dijkstra read correctly) and
+            # re-read. The ``any(attrs ...)`` probe EARLY-EXITS on the first non-empty
+            # attr, so an already-materialised (normal) graph pays O(1) and the fast
+            # path is untouched; attr-less graphs skip the gate entirely.
+            if (
+                _native_graph_has_any_attrs is not None
+                and fg.number_of_edges()
+                and _native_graph_has_any_attrs(fg)
+                and not any(attrs for _n, _nbrs in bulk for _v, attrs in _nbrs)
+            ):
+                for _ in fg.edges(data=True):
+                    pass
+                bulk = _native_fnx_to_nx_adjacency(fg)
             # br-r37-c1-fnx2nx-lazykey: ``_native_fnx_to_nx_adjacency`` returns
             # the canonical (interned) node keys (e.g. the string "0"), which the
             # lazy display-key path (br-r37-c1-17ucl) can make DIVERGE from the

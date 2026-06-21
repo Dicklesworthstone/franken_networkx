@@ -36,3 +36,11 @@ materialize) — pending a rebuild + verifying inner.edge_attrs resolves with ne
 ## Still open (separate, niche): to_directed/to_undirected (native methods, NOT this conversion)
 remain 0/220 on int-batch — they walk edges_ordered directly; tracked in
 20260621T-to-directed-lazykey-diagnosis-cc.
+
+## UPDATE — regression ELIMINATED (tighter post-bulk gate)
+Replaced the pre-bulk unconditional materialize with a POST-bulk detector: do the bulk read,
+then materialize+re-read ONLY when `graph_has_any_attrs` is True yet the bulk came back with NO
+edge attrs (`not any(attrs ...)`, which EARLY-EXITS on the first non-empty attr). A normal
+already-materialised graph now pays an O(1) probe, not an O(E) pass: _fnx_to_nx of a materialised
+1500-edge weighted graph 3.32+0.45 -> 2.69ms (no redundant work). Correctness unchanged
+(multi_source int-batch 20/20); conformance 4907 passed 0 failed. NO net regression now.
