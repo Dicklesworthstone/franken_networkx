@@ -614,7 +614,27 @@ def color(G):
     BFS-order dict keys). Raises NetworkXError on a non-bipartite graph exactly
     as nx does.
     """
-    if G.is_directed():
+    # br-r37-c1-bipcolor: for an exact simple FNX Graph, snapshot the key-only
+    # adjacency ONCE via native ``_native_adjacency_keys`` (yields ``(node,
+    # [nbrs])`` in G's node + neighbour order) and run nx's BFS coloring on the
+    # plain dict, avoiding the per-node ``G[n]`` / ``G.neighbors`` fnx-view
+    # overhead (was 0.61x vs nx on complete_bipartite). Byte-identical: node
+    # order, neighbour order and BFS discovery all match ``G.adjacency()``.
+    # Directed / non-simple graphs keep the live views.
+    _nak = (
+        getattr(G, "_native_adjacency_keys", None)
+        if (type(G) is _fnx.Graph and not G.is_directed())
+        else None
+    )
+    if _nak is not None:
+        _adj = dict(_nak())
+        node_iter = _adj
+        neighbors = _adj.__getitem__
+
+        def _degree(n):
+            return len(_adj[n])
+
+    elif G.is_directed():
         import itertools
 
         def neighbors(v):
@@ -622,12 +642,21 @@ def color(G):
                 [G.predecessors(v), G.successors(v)]
             )
 
+        node_iter = G
+
+        def _degree(n):
+            return len(G[n])
+
     else:
         neighbors = G.neighbors
+        node_iter = G
+
+        def _degree(n):
+            return len(G[n])
 
     color = {}
-    for n in G:  # handle disconnected graphs
-        if n in color or len(G[n]) == 0:  # skip isolates
+    for n in node_iter:  # handle disconnected graphs
+        if n in color or _degree(n) == 0:  # skip isolates
             continue
         queue = [n]
         color[n] = 1
