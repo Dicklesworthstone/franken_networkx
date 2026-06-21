@@ -4184,9 +4184,8 @@ fn multigraph_sssp_predecessors_index<'a>(
     source: &str,
     cutoff: Option<usize>,
 ) -> (Vec<&'a str>, Option<usize>, Vec<usize>, Vec<usize>) {
-    use std::collections::HashMap;
     let nodes = mg.nodes_ordered();
-    let node_indices: HashMap<&'a str, usize> = nodes
+    let node_indices: rustc_hash::FxHashMap<&'a str, usize> = nodes
         .iter()
         .copied()
         .enumerate()
@@ -4214,7 +4213,7 @@ fn multigraph_sssp_predecessors_index<'a>(
         next.clear();
         for &node_idx in &frontier {
             let node = nodes[node_idx];
-            let Some(nbrs) = mg.neighbors(node) else {
+            let Some(nbrs) = mg.neighbors_iter(node) else {
                 continue;
             };
             for v in nbrs {
@@ -4266,14 +4265,13 @@ fn emit_paths_dict_discovery_parent_index(
             }
             current = predecessor[current];
         }
-        let py_path: Vec<PyObject> = stack
-            .iter()
-            .rev()
-            .map(|&idx| match &disp[idx] {
+        let py_path = PyList::new(
+            py,
+            stack.iter().rev().map(|&idx| match &disp[idx] {
                 Some(obj) => obj.clone_ref(py),
                 None => gr.py_node_key(py, nodes[idx]),
-            })
-            .collect();
+            }),
+        )?;
         let key = match &disp[node_idx] {
             Some(obj) => obj.clone_ref(py),
             None => gr.py_node_key(py, nodes[node_idx]),

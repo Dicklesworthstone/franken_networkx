@@ -24,6 +24,7 @@ pyo3 = { version = "0.28.3", features = ["abi3-py310", "multiple-pymethods"] }
 pyo3-log = "0.13.3"
 log = "0.4.29"
 serde_json = "1.0.149"
+rustc-hash = "2.1.2"
 
 [features]
 extension-module = ["pyo3/extension-module"]

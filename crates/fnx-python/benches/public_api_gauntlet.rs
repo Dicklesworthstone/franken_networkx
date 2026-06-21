@@ -30,6 +30,36 @@ fn bench_py_callable(c: &mut Criterion, workload: &str, engine: &str, callable: 
 fn bench_public_api_gauntlet(c: &mut Criterion) {
     init_python();
     Python::attach(|py| {
+        py.run(
+            c"import glob, importlib.util, os, sys
+cwd = os.getcwd()
+for rel_path in (
+    'crates/fnx-python/benches',
+    'python',
+    'legacy_networkx_code/networkx',
+    'legacy_networkx_code',
+):
+    path = os.path.join(cwd, rel_path)
+    if path not in sys.path:
+        sys.path.insert(0, path)
+import networkx.exception
+target_dir = os.environ.get('CARGO_TARGET_DIR')
+if target_dir:
+    candidates = [
+        os.path.join(target_dir, 'release', 'lib_fnx.so'),
+        *glob.glob(os.path.join(target_dir, 'release', 'deps', 'lib_fnx*.so')),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            spec = importlib.util.spec_from_file_location('franken_networkx._fnx', path)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules['franken_networkx._fnx'] = module
+            spec.loader.exec_module(module)
+            break",
+            None,
+            None,
+        )
+        .expect("failed to preload freshly built fnx extension");
         let helper = py
             .import("public_api_gauntlet")
             .expect("set PYTHONPATH=crates/fnx-python/benches:python:legacy_networkx_code");
@@ -63,6 +93,16 @@ fn bench_public_api_gauntlet(c: &mut Criterion) {
                 "non_edges_sparse_undirected",
                 "networkx",
                 "networkx_non_edges_sparse_undirected",
+            ),
+            (
+                "ubizp_multigraph_single_source_shortest_path",
+                "fnx",
+                "fnx_ubizp_multigraph_single_source_shortest_path",
+            ),
+            (
+                "ubizp_multigraph_single_source_shortest_path",
+                "networkx",
+                "networkx_ubizp_multigraph_single_source_shortest_path",
             ),
             (
                 "raw_adamic_adar_repeated_overlap",

@@ -188,6 +188,45 @@ def networkx_non_edges_sparse_undirected() -> float:
     return total
 
 
+def _build_ubizp_multigraph(module, node_count: int):
+    graph = module.MultiGraph()
+    graph.add_nodes_from(range(node_count))
+    for node in range(node_count - 1):
+        graph.add_edge(node, node + 1)
+        graph.add_edge(node, node + 1, key=f"p{node}")
+        if node + 7 < node_count:
+            graph.add_edge(node, node + 7)
+        if node + 37 < node_count:
+            graph.add_edge(node, node + 37)
+    return graph
+
+
+_UBIZP_NODE_COUNT = 1600
+_UBIZP_SOURCE = 0
+_UBIZP_REPEAT = 80
+_FNX_UBIZP_GRAPH = _build_ubizp_multigraph(fnx, _UBIZP_NODE_COUNT)
+_NX_UBIZP_GRAPH = _build_ubizp_multigraph(nx, _UBIZP_NODE_COUNT)
+
+_EXPECTED_UBIZP_SSSP = nx.single_source_shortest_path(_NX_UBIZP_GRAPH, _UBIZP_SOURCE)
+_FNX_UBIZP_SSSP = fnx.single_source_shortest_path(_FNX_UBIZP_GRAPH, _UBIZP_SOURCE)
+if _FNX_UBIZP_SSSP != _EXPECTED_UBIZP_SSSP:
+    raise AssertionError("ubizp single_source_shortest_path parity drift")
+
+
+def fnx_ubizp_multigraph_single_source_shortest_path() -> float:
+    total = 0.0
+    for _ in range(_UBIZP_REPEAT):
+        total += len(fnx.single_source_shortest_path(_FNX_UBIZP_GRAPH, _UBIZP_SOURCE))
+    return total
+
+
+def networkx_ubizp_multigraph_single_source_shortest_path() -> float:
+    total = 0.0
+    for _ in range(_UBIZP_REPEAT):
+        total += len(nx.single_source_shortest_path(_NX_UBIZP_GRAPH, _UBIZP_SOURCE))
+    return total
+
+
 def _build_link_prediction_overlap_graph(
     module, clusters: int, size: int, probability: float, seed: int
 ):

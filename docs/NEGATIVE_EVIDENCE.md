@@ -2,6 +2,90 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-21 Cod-B `ubizp` MultiGraph SSSP Borrowed-Frontier Keep (`br-r37-c1-04z53`, cod-b)
+
+Scope: BOLD-VERIFY the remaining `ubizp`
+`MultiGraph.single_source_shortest_path` path-returning loss after the earlier
+parent-copy route regressed. Reused existing detached worktree
+`/data/projects/.worktrees/fnx-bt-3` and requested
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`; no new
+`.scratch` or perf-proof worktree was created.
+
+Profile and radical lever verified:
+- Alien-graveyard / extreme-optimization hypothesis: this was not an
+  algorithmic miss after the predecessor-table rewrite; it was a constant-factor
+  boundary tax in the BFS frontier and Python path emitter. Remove the hidden
+  per-expanded-node neighbor `Vec` allocation, use a dense/Fx index map for
+  predecessor lookup, and let PyO3 build each returned path list directly from
+  the reverse predecessor walk.
+- Kept source changes:
+  `multigraph_sssp_predecessors_index` now uses `neighbors_iter` and
+  `rustc_hash::FxHashMap`; `emit_paths_dict_discovery_parent_index` passes the
+  reversed stack iterator directly to `PyList::new`.
+- Checked-in the public gauntlet row
+  `ubizp_multigraph_single_source_shortest_path` with exact FNX vs NetworkX
+  output parity asserted during bench setup. The bench harness now preloads the
+  freshly built `_fnx` extension from `CARGO_TARGET_DIR` so it does not silently
+  time the stale checked-in Python extension.
+
+Head-to-head timing:
+- Build gate:
+  `AGENT_NAME=CrimsonRiver CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b RUSTUP_TOOLCHAIN=nightly-2026-06-10 rch exec -- cargo build --release -p fnx-python --features pyo3/abi3-py310`
+  passed on RCH after the final source lever.
+- Direct fresh-extension proof preloaded
+  `/data/projects/.rch-targets/franken_networkx-cod-b/release/lib_fnx.so`
+  without overwriting `python/franken_networkx/_fnx.abi3.so`.
+- Fixture: identical FNX/NetworkX `MultiGraph`, `1,600` integer nodes,
+  parallel chain edges plus `+7` and `+37` shortcuts, source node `0`, `80`
+  calls per timing sample. Exact path dict parity and guard-row parity were
+  asserted before timing.
+
+| State | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| pre-lever current source, direct loop | `0.794793 ms` | `0.697861 ms` | `0.878x` | active loss reproduced |
+| `neighbors_iter` only | not kept | not kept | `0.893x` | still loss |
+| `neighbors_iter` + direct `PyList::new` | not kept | not kept | `0.923x` | still loss |
+| final `neighbors_iter` + direct `PyList::new` + `FxHashMap` | `1.353284 ms` | `1.434610 ms` | `1.060x` | win |
+
+Guard rows on the same final run:
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| `shortest_path` | `0.710813 ms` | `1.549491 ms` | `2.180x` | win |
+| `single_source_shortest_path_length` | `0.871823 ms` | `1.032218 ms` | `1.184x` | win |
+| `has_path` | `0.824509 ms` | `1.571056 ms` | `1.905x` | win |
+
+Rejected route:
+- Delegating NetworkX BFS over the fnx graph did not beat native SSSP:
+  native FNX `0.764 ms`, NetworkX over fnx graph `0.920 ms`, NetworkX over
+  NetworkX graph `0.760 ms`.
+- The first RCH Criterion attempts for the new checked-in gauntlet row built
+  the optimized bench binary but failed before sampling because the remote
+  embedded Python process could not import `networkx` while initializing the
+  extension. The harness was patched to seed repo-local `sys.path` and preload
+  the fresh extension; these setup failures are not counted as timing evidence.
+
+Validation and gates:
+- Fresh-extension parity script asserted exact
+  `single_source_shortest_path`, `shortest_path`,
+  `single_source_shortest_path_length`, and `has_path` outputs before timing.
+- `rustfmt --edition 2024 --check` passed on
+  `crates/fnx-python/src/algorithms.rs` and
+  `crates/fnx-python/benches/public_api_gauntlet.rs`.
+- `python -m py_compile crates/fnx-python/benches/public_api_gauntlet.py`
+  passed via the project venv.
+- `git diff --check` passed. A workspace-wide `cargo fmt --check` run was
+  intentionally not used as a final gate because it reports pre-existing
+  rustfmt drift in unrelated files outside this edit surface.
+
+Decision:
+- Keep. Focused score for the current ubizp path-returning row: `1` win /
+  `0` losses / `0` neutral vs NetworkX, with all three existing ubizp guard
+  rows still wins.
+- Do not retry parent-path cloning or a NetworkX-over-fnx fallback for
+  MultiGraph SSSP. The current route closes the ubizp path-returning active
+  loss; the remaining active no-gaps target is `non_edges_sparse_undirected`.
+
 ## 2026-06-21 Cod-B Tree `from_nested_tuple` Native Construction Keep (`br-r37-c1-04z53`, cod-b)
 
 Scope: BOLD-VERIFY the pending tree-submodule `from_nested_tuple` route that
