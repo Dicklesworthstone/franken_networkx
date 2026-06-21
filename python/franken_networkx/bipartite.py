@@ -781,7 +781,7 @@ def closeness_centrality(G, nodes, normalized=True):
     return closeness
 
 
-def _weighted_projection_inprocess(B, nodes, weight_fn):
+def _weighted_projection_inprocess(B, nodes, weight_fn, *, nbrs2_form="minus"):
     """br-r37-c1-0y2fn: in-process weighted bipartite projection for a simple
     undirected fnx Graph (else None to fall back). Snapshots B's adjacency ONCE
     via the native key-only binding instead of paying either an nx round-trip +
@@ -790,18 +790,32 @@ def _weighted_projection_inprocess(B, nodes, weight_fn):
     collaboration wrapper). ``weight_fn(unbrs, vnbrs, adj)`` returns each edge
     weight; the adjacency rows are Python sets so ``&``/``|``/``min`` and the
     ``len(adj[k])`` degree lookups are exactly nx's computations.
+
+    br-r37-c1-bpprojorder: the projected EDGE ORDER is set-iteration-order
+    sensitive and networkx builds ``nbrs2`` two DIFFERENT ways — weighted /
+    overlap / generic use ``{...} - {u}`` (``nbrs2_form='minus'``) while
+    collaboration uses ``{... if n != u}`` (``nbrs2_form='filter'``). Those two
+    comprehensions produce different CPython set layouts -> different edge order,
+    so each caller must request the form its nx counterpart uses. The inner
+    neighbour loop also iterates the ORDER-PRESERVING adjacency LIST (native key
+    order == ``B[nbr]`` AtlasView order) rather than a set, so nbrs2's construction
+    order matches nx exactly (a set inner-row diverged in hash-collision cases).
     """
     nak = getattr(B, "_native_adjacency_keys", None)
     if nak is None or type(B) is not _fnx.Graph or B.is_multigraph() or B.is_directed():
         return None
-    adj = {node: set(nbrs) for node, nbrs in nak()}
+    adj_list = {node: list(nbrs) for node, nbrs in nak()}
+    adj = {node: set(lst) for node, lst in adj_list.items()}
     G = _fnx.Graph()
     G.graph.update(B.graph)
     G.add_nodes_from((n, B.nodes[n]) for n in nodes)
     edges = []
     for u in nodes:
         unbrs = adj[u]
-        nbrs2 = {n for nbr in unbrs for n in adj[nbr] if n != u}
+        if nbrs2_form == "minus":
+            nbrs2 = {n for nbr in unbrs for n in adj_list[nbr]} - {u}
+        else:
+            nbrs2 = {n for nbr in unbrs for n in adj_list[nbr] if n != u}
         for v in nbrs2:
             edges.append((u, v, {"weight": weight_fn(unbrs, adj[v], adj)}))
     G.add_edges_from(edges)
@@ -829,12 +843,15 @@ def collaboration_weighted_projected_graph(B, nodes, *, backend=None, **backend_
         raise _fnx.NetworkXNotImplemented("not implemented for multigraph type")
 
     # br-r37-c1-0y2fn: snapshot adjacency once instead of per-access B[u]/pred[v].
+    # collaboration is the one caller whose nx builds nbrs2 as ``{... if n != u}``
+    # (br-r37-c1-bpprojorder) -> request the 'filter' form for byte-exact edge order.
     _fast = _weighted_projection_inprocess(
         B,
         nodes,
         lambda un, vn, adj: sum(
             1.0 / (len(adj[n]) - 1) for n in (un & vn) if len(adj[n]) > 1
         ),
+        nbrs2_form="filter",
     )
     if _fast is not None:
         return _fast
