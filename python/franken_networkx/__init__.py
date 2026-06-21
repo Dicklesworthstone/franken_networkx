@@ -45920,17 +45920,54 @@ def random_k_out_graph(n, k, alpha, self_loops=True, seed=None):
 
 def _random_k_out_graph_impl(n, k, alpha, self_loops=True, seed=None):
     """Private nx parity helper so the public wrapper stays PY_WRAPPER."""
-    from franken_networkx.readwrite import _from_nx_graph
+    # br-r37-c1-koutnative: de-delegate the default (numpy) path. nx's
+    # _random_k_out_graph_numpy is @np_random_state-seeded, so
+    # ``networkx.utils.create_random_state(seed)`` reproduces its EXACT numpy draw
+    # sequence (uniform seed.choice over remaining sources + weighted
+    # seed.choice(p=weights/total) preferential targets, with the in-place weight /
+    # out-strength / remaining-mask updates). Run the algorithm verbatim to collect
+    # edges in nx's exact order and build the fnx MultiDiGraph directly, skipping
+    # nx's per-edge add_edge AND the nx->fnx conversion. If numpy is unavailable nx
+    # uses its pure-Python variant -> delegate so the draw model still matches.
+    if alpha < 0:
+        raise ValueError("alpha must be positive")
+    try:
+        import numpy as _np
+        from networkx.utils import create_random_state as _create_random_state
+    except ImportError:
+        from franken_networkx.readwrite import _from_nx_graph
 
-    nx_result = _nx.random_k_out_graph(
-        n,
-        k,
-        alpha,
-        self_loops=self_loops,
-        seed=seed,
-        backend="networkx",
-    )
-    return _from_nx_graph(nx_result, create_using=MultiDiGraph())
+        nx_result = _nx.random_k_out_graph(
+            n, k, alpha, self_loops=self_loops, seed=seed, backend="networkx"
+        )
+        return _from_nx_graph(nx_result, create_using=MultiDiGraph())
+
+    rng = _create_random_state(seed)
+    G = MultiDiGraph()
+    G.add_nodes_from(range(n))
+    nodes = _np.arange(n)
+    remaining_mask = _np.full(n, True)
+    weights = _np.full(n, float(alpha))
+    total_weight = n * alpha
+    out_strengths = _np.zeros(n)
+    edges = []
+    for _ in range(k * n):
+        u = rng.choice(nodes[remaining_mask])
+        if self_loops:
+            v = rng.choice(nodes, p=weights / total_weight)
+        else:
+            u_weight = weights[u]
+            weights[u] = 0
+            v = rng.choice(nodes, p=weights / (total_weight - u_weight))
+            weights[u] = u_weight
+        edges.append((u.item(), v.item()))
+        weights[v] += 1
+        total_weight += 1
+        out_strengths[u] += 1
+        if out_strengths[u] == k:
+            remaining_mask[u] = False
+    G.add_edges_from(edges)
+    return G
 
 
 # Similarity (br-poy)
