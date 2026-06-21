@@ -2,7 +2,6 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
-<<<<<<< Updated upstream
 ## 2026-06-21 Cod-A `non_edges` Exact-Int Lazy Iterator No-Ship (`br-r37-c1-04z53`, cod-a)
 
 Scope: fresh BOLD-VERIFY follow-up on the active
@@ -54,7 +53,7 @@ Do not repeat:
 - Next credible route should be consumer-fused: score default-ebunch link
   prediction or another downstream non-edge consumer without exposing every
   pair as a Python tuple.
-=======
+
 ## 2026-06-21 Cod-B Native MultiDiGraph Compose No-Ship (`br-r37-c1-04z53`, cod-b)
 
 Scope: fresh BOLD-VERIFY pass after `bv --robot-triage` and `br ready`,
@@ -119,7 +118,6 @@ Do not repeat:
 - Do not spend another pass on the same `_edge_map`-avoidance family unless
   the lever changes the attribute substrate or fuses compose with a downstream
   consumer so the graph-result boundary is not paid eagerly.
->>>>>>> Stashed changes
 
 ## 2026-06-21 Cod-B Public Gauntlet + `non_edges` Set-Pop No-Ship (`br-r37-c1-04z53`, cod-b)
 
