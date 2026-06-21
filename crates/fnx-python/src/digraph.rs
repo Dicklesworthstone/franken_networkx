@@ -3866,19 +3866,42 @@ impl PyMultiDiGraph {
     /// (the internal `copy()` scrambles it via `node_key_map` HashMap) and
     /// `edges_ordered()` for edge order + orientation. Shallow attr copies.
     fn _native_copy(&self, py: Python<'_>) -> PyResult<Self> {
+        // br-r37-c1-mdgcopyclone: CLONE the inner wholesale + clone the Python
+        // mirrors, instead of rebuilding edge-by-edge via add_edge_with_key_and_attrs
+        // (15000 String-keyed succ+pred IndexMap inserts on a dense graph -> 0.61x vs
+        // nx). The old rebuild walked edges_ordered() (edge INSERTION order) then
+        // reordered PRED; an inner clone is ALREADY in that order (succ is never
+        // reordered — reorder_pred only touches pred rows), so clone + reorder_pred is
+        // field-identical to the rebuild, just bulk. Fields match the rebuild exactly:
+        // pred_py_keys re-derived (empty), graph_attrs a FRESH dict (G.copy semantics),
+        // edge_dirty_keys clean. (We also drop the rebuild's eager empty edge attr
+        // PyDicts — lazy materialize is identity-preserving, br-r37-c1-aab122464.)
         let mut new_graph = Self {
-            // br-r37-c1-7dpyg: fresh ledger, mode only (skip ledger clone)
-            inner: MultiDiGraph::with_runtime_policy(fnx_runtime::RuntimePolicy::new(
-                self.inner.mode(),
-            )),
-            node_key_map: HashMap::new(),
+            inner: self.inner.clone_with_fresh_policy(),
+            node_key_map: self
+                .node_key_map
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone_ref(py)))
+                .collect(),
             // br-r37-c1-z6uka: succ overrides survive nx's u-major copy walk;
             // pred rows are re-derived with node objects.
             succ_py_keys: PyDiGraph::clone_row_keys(py, &self.succ_py_keys),
             pred_py_keys: HashMap::new(),
-            node_py_attrs: HashMap::new(),
-            edge_py_attrs: HashMap::new(),
-            edge_py_keys: HashMap::new(),
+            node_py_attrs: self
+                .node_py_attrs
+                .iter()
+                .map(|(k, v)| Ok((k.clone(), v.bind(py).copy()?.unbind())))
+                .collect::<PyResult<_>>()?,
+            edge_py_attrs: self
+                .edge_py_attrs
+                .iter()
+                .map(|(k, v)| Ok((k.clone(), v.bind(py).copy()?.unbind())))
+                .collect::<PyResult<_>>()?,
+            edge_py_keys: self
+                .edge_py_keys
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone_ref(py)))
+                .collect(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -3891,52 +3914,8 @@ impl PyMultiDiGraph {
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
-        for node in self.inner.nodes_ordered() {
-            let rust_attrs = self
-                .node_py_attrs
-                .get(node)
-                .map(|attrs| crate::py_dict_to_attr_map(attrs.bind(py)))
-                .transpose()?
-                .unwrap_or_default();
-            new_graph
-                .inner
-                .add_node_with_attrs(node.to_owned(), rust_attrs);
-            new_graph
-                .node_key_map
-                .insert(node.to_owned(), self.py_node_key(py, node));
-            if let Some(attrs) = self.node_py_attrs.get(node) {
-                new_graph
-                    .node_py_attrs
-                    .insert(node.to_owned(), attrs.bind(py).copy()?.unbind());
-            }
-        }
-        for snapshot in self.inner.edges_ordered() {
-            let (u, v, key) = (
-                snapshot.source.clone(),
-                snapshot.target.clone(),
-                snapshot.key,
-            );
-            let attrs_entry = self.edge_py_attrs.get(&(u.clone(), v.clone(), key));
-            let py_attrs = match attrs_entry {
-                Some(attrs) => attrs.bind(py).copy()?.unbind(),
-                None => PyDict::new(py).unbind(),
-            };
-            let rust_attrs = crate::py_dict_to_attr_map(py_attrs.bind(py))?;
-            let _ =
-                new_graph
-                    .inner
-                    .add_edge_with_key_and_attrs(u.clone(), v.clone(), key, rust_attrs);
-            new_graph
-                .edge_py_attrs
-                .insert((u.clone(), v.clone(), key), py_attrs);
-            if let Some(py_key) = self.edge_py_keys.get(&(u.clone(), v.clone(), key)) {
-                new_graph.remember_edge_key_object(py, &u, &v, key, py_key);
-            } else {
-                new_graph.remember_edge_key(py, &u, &v, key, None);
-            }
-        }
-        // br-r37-c1-s0d4x: pred rows in nx's u-major copy-walk order (the
-        // edges_ordered rebuild above is edge INSERTION order).
+        // br-r37-c1-s0d4x: pred rows in nx's u-major copy-walk order (the inner
+        // clone above is in edge INSERTION order).
         new_graph.inner.reorder_pred_rows_for_nx_copy_walk();
         Ok(new_graph)
     }
