@@ -1649,3 +1649,28 @@ parse_edgelist 1.72x, to_dict_of_lists 1.91x, node_link_data 1.28x, generate_gml
 Do not retry adjacency_data attr-heavy: the native fast path is already used; the
 residual needs the broader Rust-dict-to-Python materialization lever (persistent
 ordered Python adj/attr mirror), not a kernel tweak.
+
+## 2026-06-20 Serialization sweep round 2: tree_graph + cytoscape_graph FIXED; attr_matrix residual (BlackThrush)
+
+Reconstruction functions rebuilt graphs via per-element add_node/add_edge +
+view.update PyO3 round-trips (construction tax). Batch lever (collect tuples ->
+add_nodes_from/add_edges_from) shipped two WINS:
+- tree_graph (3797accdf): no-attr 0.42x -> 1.15x, attr 0.40x -> 0.88x.
+- cytoscape_graph (90389ed97): 0.27x -> 1.26x (7.8x self).
+(node_link_graph 1.42x / adjacency_graph 1.61x already batched.)
+
+Confirmed real residual:
+- attr_matrix(Graph, default) `0.51x` (pinned). The vectorised COO fast path
+  (br-r37-c1-attrmtxcoo) IS already hit; cProfile: native adjacency_nodelist_typed_arrays
+  0.53ms + np.asarray list->array conversion 0.48ms + zeros + np.add.at. The
+  np.asarray cost is the native returning Python lists not numpy arrays; even
+  eliminating it lands ~0.78x (still a loss) vs nx's tight per-edge scatter loop.
+  NOT a contained win — needs the native binding to emit numpy arrays directly
+  (rust-numpy), and even then marginal.
+
+NOISE CORRECTION: the round-1 I/O sweep ran under host load 27.6; its smaller-margin
+"losses" were noise — re-verified pinned (load ~10): to_pandas_adjacency 1.09-1.13x
+(WIN, memory was right), to_numpy_array 1.08-1.12x, cytoscape_data 1.01x,
+generate_multiline_adjlist 0.94x, pajek 0.86x (borderline). Only tree_graph 0.44x /
+cytoscape_graph 0.27x (big margins) survived noise and were real (now fixed).
+LESSON: trust only big-margin sweep losses under high load; re-verify pinned.
