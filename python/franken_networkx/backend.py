@@ -23,6 +23,12 @@ try:
     )
 except ImportError:  # pragma: no cover — defensive for partial builds
     _native_fnx_to_nx_adjacency = None
+try:
+    from franken_networkx._fnx import (
+        graph_has_any_attrs as _native_graph_has_any_attrs,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_graph_has_any_attrs = None
 
 log = logging.getLogger("franken_networkx.backend")
 
@@ -688,6 +694,24 @@ def _fnx_to_nx(fg):
         # frozenset so the lookup is orientation-agnostic and safe across
         # non-comparable node types (nx allows mixing int / str / tuple nodes).
         directed = fg.is_directed()
+        # br-r37-c1-fnx2nx-lazyattr: a freshly batch-built (``add_edges_from``) INT-node
+        # graph leaves ``edge_py_attrs`` UNMATERIALIZED while the inner Rust AttrMaps
+        # hold the weights. ``_native_fnx_to_nx_adjacency`` reads ONLY that lazy mirror,
+        # so the conversion SILENTLY DROPS every edge attr — corrupting multi_source_
+        # dijkstra and EVERY nx-delegated weighted algorithm (they ran unweighted) plus
+        # to_directed/to_undirected. Force the edge mirror to materialise from the inner
+        # first (iterating ``edges(data=True)`` does inner->mirror via the display-key
+        # path that get_edge_data/dijkstra already use correctly). A no-op once the graph
+        # has been read; gated on has-attrs so attr-less conversions (check_planarity,
+        # BFS/DFS variants) stay on the fast bulk path untouched.
+        if (
+            type(fg) in (fnx.Graph, fnx.DiGraph)
+            and _native_graph_has_any_attrs is not None
+            and fg.number_of_edges()
+            and _native_graph_has_any_attrs(fg)
+        ):
+            for _ in fg.edges(data=True):
+                pass
         # br-r37-c1-xykjs: pull the whole (node, [(neighbor, attrs)]) structure
         # in one native crossing (reads the fresh edge_py_attrs) instead of two
         # per-edge AtlasView passes (attrs_by_pair + the topo queues build).
