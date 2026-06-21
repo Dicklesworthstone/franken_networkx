@@ -878,19 +878,35 @@ def projected_graph(B, nodes, multigraph=False, *, backend=None, **backend_kwarg
     _fnx._validate_backend_dispatch_keywords(
         "projected_graph", backend, backend_kwargs
     )
-    # br-r37-c1-bpproj: de-delegate the common case (simple fnx Graph/DiGraph, no
-    # multigraph). The delegated path ran nx's algorithm THROUGH fnx's slow
-    # per-access adjacency views AND rebuilt the result via _from_nx_graph (~61%
-    # of the time). Instead snapshot B's adjacency once via the native key-only
-    # binding and build the fnx projection directly — same edge set (two nodes are
-    # joined iff they share a common neighbour; for directed B the result is a
-    # DiGraph and ``_native_adjacency_keys`` yields successors, exactly nx's
-    # ``B[u]``). Projection is UNWEIGHTED so there is no float-summation order to
-    # diverge — byte-exact. Multigraph / nx-typed B keep the delegation path.
+    # br-r37-c1-bpproj: de-delegate every simple/multi fnx Graph or DiGraph case.
+    # The delegated path ran nx's algorithm THROUGH fnx's slow per-access adjacency
+    # views AND rebuilt the result via _from_nx_graph (~61% of the time). Snapshot
+    # B's adjacency once via the native key-only binding and build the fnx
+    # projection directly — two nodes are joined iff they share a common neighbour;
+    # ``_native_adjacency_keys`` yields successors for a DiGraph (= nx's ``B[u]``).
+    # The projection is UNWEIGHTED (simple: edge existence; multigraph: one edge
+    # per shared neighbour, keyed by that neighbour's label, deduped via has_edge
+    # exactly like nx) so there is NO float-summation order to diverge — byte-exact,
+    # verified incl. exact edge order + keys. nx-typed B keeps the delegation path.
     nak = getattr(B, "_native_adjacency_keys", None)
-    if not multigraph and nak is not None and type(B) in (_fnx.Graph, _fnx.DiGraph):
-        adj = {node: nbrs for node, nbrs in nak()}
-        G = _fnx.DiGraph() if type(B) is _fnx.DiGraph else _fnx.Graph()
+    if nak is not None and type(B) in (_fnx.Graph, _fnx.DiGraph):
+        directed = type(B) is _fnx.DiGraph
+        adj = {node: list(nbrs) for node, nbrs in nak()}
+        if multigraph:
+            pred = {n: set(B.pred[n]) for n in B} if directed else None
+            G = _fnx.MultiDiGraph() if directed else _fnx.MultiGraph()
+            G.graph.update(B.graph)
+            G.add_nodes_from((n, B.nodes[n]) for n in nodes)
+            for u in nodes:
+                au = set(adj[u])
+                nbrs2 = {v for nbr in adj[u] for v in adj[nbr] if v != u}
+                for n in nbrs2:
+                    links = au & (pred[n] if directed else set(adj[n]))
+                    for l in links:
+                        if not G.has_edge(u, n, l):
+                            G.add_edge(u, n, key=l)
+            return G
+        G = _fnx.DiGraph() if directed else _fnx.Graph()
         G.graph.update(B.graph)
         G.add_nodes_from((n, B.nodes[n]) for n in nodes)
         for u in nodes:
