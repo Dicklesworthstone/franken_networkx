@@ -1105,6 +1105,44 @@ def havel_hakimi_graph(aseq, bseq, create_using=None, *, backend=None, **backend
     _fnx._validate_backend_dispatch_keywords(
         "havel_hakimi_graph", backend, backend_kwargs
     )
+    # br-r37-c1-bphhgen: de-delegate the default (create_using None -> MultiGraph).
+    # nx's Havel-Hakimi loop is deterministic Python; run it verbatim to COLLECT
+    # the edges in nx's exact order (largest-a-degree node connected to the
+    # largest-b-degree stubs, with the in-place stub decrement/remove), then bulk
+    # add — skipping the nx graph build + _from_nx_graph conversion. Node labels,
+    # bipartite tags, multi-edge KEY order (one extend in algorithm order) and the
+    # graph name (set only when edges exist, matching nx's early return) are
+    # byte-identical. A non-None create_using keeps the delegation path.
+    if create_using is None:
+        naseq, nbseq = len(aseq), len(bseq)
+        suma, sumb = sum(aseq), sum(bseq)
+        if suma != sumb:
+            raise _fnx.NetworkXError(
+                f"invalid degree sequences, sum(aseq)!=sum(bseq),{suma},{sumb}"
+            )
+        G = _fnx.MultiGraph()
+        G.add_nodes_from((v, {"bipartite": 0}) for v in range(naseq))
+        G.add_nodes_from((v, {"bipartite": 1}) for v in range(naseq, naseq + nbseq))
+        if naseq == 0 or max(aseq) == 0:
+            return G  # no edges; nx returns here without setting the name
+        edges = []
+        astubs = [[aseq[v], v] for v in range(naseq)]
+        bstubs = [[bseq[v - naseq], v] for v in range(naseq, naseq + nbseq)]
+        astubs.sort()
+        while astubs:
+            (degree, u) = astubs.pop()
+            if degree == 0:
+                break
+            bstubs.sort()
+            for target in bstubs[-degree:]:
+                v = target[1]
+                edges.append((u, v))
+                target[0] -= 1
+                if target[0] == 0:
+                    bstubs.remove(target)
+        G.add_edges_from(edges)
+        G.graph["name"] = "bipartite_havel_hakimi_graph"
+        return G
     nx_result = _nx_bipartite.havel_hakimi_graph(aseq, bseq, create_using=create_using)
     return _from_nx_graph(nx_result, create_using=create_using)
 
