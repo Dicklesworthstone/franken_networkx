@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const EXPECTED_ASUPERSYNC_VERSION: &str = "0.3.1";
+const EXPECTED_ASUPERSYNC_VERSION: &str = "0.3.4";
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")

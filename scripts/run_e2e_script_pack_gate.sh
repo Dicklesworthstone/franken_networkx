@@ -95,11 +95,108 @@ run_step() {
   fi
 }
 
-TOTAL_STEPS=4
+prepare_conformance_durability_evidence() {
+  local target_dir="${CARGO_TARGET_DIR:-target-codex}"
+  export CARGO_TARGET_DIR="$target_dir"
+  local durability_bin="$target_dir/debug/fnx-durability"
+  if [[ ! -x "$durability_bin" ]]; then
+    cargo build -q -p fnx-durability --bin fnx-durability
+  fi
+
+  "$durability_bin" \
+    generate \
+    artifacts/conformance/latest/smoke_report.json \
+    artifacts/conformance/latest/smoke_report.raptorq.json \
+    smoke_report \
+    conformance_report \
+    1400 \
+    6
+  "$durability_bin" \
+    generate \
+    artifacts/conformance/latest/structured_logs.jsonl \
+    artifacts/conformance/latest/structured_logs.raptorq.json \
+    structured_logs \
+    conformance_logs \
+    1400 \
+    6
+  "$durability_bin" \
+    scrub \
+    artifacts/conformance/latest/smoke_report.json \
+    artifacts/conformance/latest/smoke_report.raptorq.json
+  "$durability_bin" \
+    scrub \
+    artifacts/conformance/latest/structured_logs.jsonl \
+    artifacts/conformance/latest/structured_logs.raptorq.json
+  "$durability_bin" \
+    decode-drill \
+    artifacts/conformance/latest/smoke_report.raptorq.json \
+    artifacts/conformance/latest/smoke_report.recovered.json
+  "$durability_bin" \
+    decode-drill \
+    artifacts/conformance/latest/structured_logs.raptorq.json \
+    artifacts/conformance/latest/structured_logs.recovered.json
+
+  python3 - <<'PY'
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+
+entries = [
+    {
+        "artifact_path": "artifacts/conformance/latest/smoke_report.json",
+        "sidecar_path": "artifacts/conformance/latest/smoke_report.raptorq.json",
+        "recovered_path": "artifacts/conformance/latest/smoke_report.recovered.json",
+    },
+    {
+        "artifact_path": "artifacts/conformance/latest/structured_logs.jsonl",
+        "sidecar_path": "artifacts/conformance/latest/structured_logs.raptorq.json",
+        "recovered_path": "artifacts/conformance/latest/structured_logs.recovered.json",
+    },
+]
+
+materialized = []
+for item in entries:
+    sidecar = json.loads(Path(item["sidecar_path"]).read_text(encoding="utf-8"))
+    materialized.append(
+        {
+            **item,
+            "artifact_id": sidecar.get("artifact_id"),
+            "artifact_type": sidecar.get("artifact_type"),
+            "source_hash": sidecar.get("source_hash"),
+            "scrub_status": sidecar.get("scrub", {}).get("status"),
+            "decode_proof_count": len(sidecar.get("decode_proofs", [])),
+            "repair_symbols": sidecar.get("raptorq", {}).get("repair_symbols"),
+            "packet_count": len(sidecar.get("raptorq", {}).get("packets_b64", [])),
+        }
+    )
+
+report_path = Path("artifacts/conformance/latest/durability_pipeline_report.json")
+report_path.write_text(
+    json.dumps(
+        {
+            "suite": "conformance",
+            "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+            "entries": materialized,
+        },
+        indent=2,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+print(f"durability_report:{report_path}")
+PY
+}
+export -f prepare_conformance_durability_evidence
+
+TOTAL_STEPS=5
 STEP=1
 
 echo "[$STEP/$TOTAL_STEPS] Running deterministic E2E script pack (core + asupersync recovery/fault scenarios)..."
 run_step "step-$STEP" "run_e2e_script_pack" "python3 ./scripts/run_e2e_script_pack.py --scenario all --passes 2 --clear-output --gate-step-id step-1"
+STEP=$((STEP + 1))
+
+echo "[$STEP/$TOTAL_STEPS] Preparing conformance durability evidence referenced by script-pack artifacts..."
+run_step "step-$STEP" "prepare_conformance_durability_evidence" "prepare_conformance_durability_evidence"
 STEP=$((STEP + 1))
 
 echo "Preparing bundle index artifact for gate assertions..."

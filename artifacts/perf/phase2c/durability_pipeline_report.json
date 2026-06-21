@@ -1,0 +1,26 @@
+{
+  "suite": "phase2c_performance",
+  "generated_at_utc": "2026-02-13T00:00:00Z",
+  "entries": [
+    {
+      "artifact_path": "artifacts/perf/phase2c/bfs_percentiles_post_neighbor_iter.json",
+      "sidecar_path": "artifacts/perf/phase2c/bfs_percentiles_post_neighbor_iter.raptorq.json",
+      "recovered_path": "artifacts/perf/phase2c/bfs_percentiles_post_neighbor_iter.recovered.json",
+      "artifact_id": "bfs_percentiles",
+      "artifact_type": "benchmark_report",
+      "source_hash": "blake3:9802d59309594c343116fe51bec1d439d076981cea434276f9a9ba672a62f17e",
+      "scrub_status": "recovered",
+      "decode_proof_count": 1,
+      "repair_symbols": 6,
+      "packet_count": 7,
+      "p95_ms": 250.95675488,
+      "p99_ms": 251.3423888,
+      "budgets": {
+        "p95_budget_ms": 500.0,
+        "p95_pass": true,
+        "p99_budget_ms": 700.0,
+        "p99_pass": true
+      }
+    }
+  ]
+}

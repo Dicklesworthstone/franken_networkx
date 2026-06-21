@@ -1,7 +1,7 @@
 # asupersync Capability Matrix + Integration Boundary Contract (V1)
 
 - generated_at_utc: `2026-02-15T19:23:00+00:00`
-- baseline_comparator: `legacy_networkx/main@python3.12 + asupersync@0.3.1`
+- baseline_comparator: `legacy_networkx/main@python3.12 + asupersync@0.3.4`
 - owning_crate: `fnx-runtime`
 - feature_gate: `asupersync-integration`
 

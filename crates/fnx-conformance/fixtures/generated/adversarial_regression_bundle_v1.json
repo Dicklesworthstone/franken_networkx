@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0.0",
   "bundle_id": "adversarial-regression-bundle-v1",
-  "generated_at_utc": "2026-03-20T03:38:53.439942+00:00",
-  "run_id": "adversarial-crash-triage-1773977933439",
+  "generated_at_utc": "2026-06-21T03:53:35.846546+00:00",
+  "run_id": "adversarial-crash-triage-1782014015846",
   "fixture_count": 53,
   "fixtures": [
     {

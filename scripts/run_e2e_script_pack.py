@@ -78,6 +78,14 @@ ARTIFACT_RETENTION_POLICY_BASE: dict[str, Any] = {
     "min_retention_days": 14,
     "storage_root": "artifacts/e2e/latest",
 }
+RCH_ARTIFACT_RETRIEVAL_RETRY_LIMIT = 3
+RCH_ARTIFACT_RETRIEVAL_RETRY_DELAY_SECS = 2
+RCH_ARTIFACT_RETRIEVAL_FAILURE_MARKERS: tuple[str, ...] = (
+    "RCH-E309",
+    "SUCCEEDED but build artifacts could not be retrieved",
+    "Artifact retrieval failed",
+    "rsync artifact retrieval failed",
+)
 
 
 @dataclass(frozen=True)
@@ -315,6 +323,61 @@ def artifact_retention_policy() -> dict[str, Any]:
 
 def unix_ms() -> int:
     return int(time.time() * 1000)
+
+
+def is_retryable_rch_artifact_retrieval_failure(
+    completed: subprocess.CompletedProcess[str],
+) -> bool:
+    if completed.returncode != 102:
+        return False
+    combined_output = f"{completed.stdout}\n{completed.stderr}"
+    return any(
+        marker in combined_output
+        for marker in RCH_ARTIFACT_RETRIEVAL_FAILURE_MARKERS
+    )
+
+
+def run_command_cycle(command: str) -> tuple[subprocess.CompletedProcess[str], list[str], int]:
+    attempt_sections: list[str] = []
+    last_completed: subprocess.CompletedProcess[str] | None = None
+    for attempt_index in range(RCH_ARTIFACT_RETRIEVAL_RETRY_LIMIT):
+        attempt_start_ms = unix_ms()
+        completed = subprocess.run(
+            ["bash", "-lc", command],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        attempt_end_ms = unix_ms()
+        last_completed = completed
+        retryable = is_retryable_rch_artifact_retrieval_failure(completed)
+        will_retry = (
+            retryable
+            and attempt_index + 1 < RCH_ARTIFACT_RETRIEVAL_RETRY_LIMIT
+        )
+        attempt_sections.append(
+            "\n".join(
+                [
+                    f"--- attempt {attempt_index + 1:02d}/{RCH_ARTIFACT_RETRIEVAL_RETRY_LIMIT:02d}",
+                    f"attempt_start_unix_ms={attempt_start_ms}",
+                    f"attempt_end_unix_ms={attempt_end_ms}",
+                    f"attempt_duration_ms={attempt_end_ms - attempt_start_ms}",
+                    f"return_code={completed.returncode}",
+                    f"retryable_rch_artifact_retrieval_failure={str(retryable).lower()}",
+                    f"will_retry={str(will_retry).lower()}",
+                    "",
+                    completed.stdout,
+                    completed.stderr,
+                    "",
+                ]
+            )
+        )
+        if not will_retry:
+            break
+        time.sleep(RCH_ARTIFACT_RETRIEVAL_RETRY_DELAY_SECS)
+    if last_completed is None:
+        raise RuntimeError("run_command_cycle executed zero attempts")
+    return last_completed, attempt_sections, len(attempt_sections)
 
 
 def sanitize_label(label: str) -> str:
@@ -840,12 +903,7 @@ def run_scenario(
     command_log_sections: list[str] = []
     for cycle_index in range(cycle_target):
         cycle_start_ms = unix_ms()
-        completed = subprocess.run(
-            ["bash", "-lc", command],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-        )
+        completed, attempt_sections, attempt_count = run_command_cycle(command)
         cycle_end_ms = unix_ms()
         cycle_status = "passed" if completed.returncode == 0 else "failed"
         cycle_results.append(
@@ -853,6 +911,7 @@ def run_scenario(
                 "cycle_index": cycle_index + 1,
                 "status": cycle_status,
                 "return_code": completed.returncode,
+                "attempt_count": attempt_count,
                 "start_unix_ms": cycle_start_ms,
                 "end_unix_ms": cycle_end_ms,
                 "duration_ms": cycle_end_ms - cycle_start_ms,
@@ -866,9 +925,9 @@ def run_scenario(
                     f"end_unix_ms={cycle_end_ms}",
                     f"duration_ms={cycle_end_ms - cycle_start_ms}",
                     f"return_code={completed.returncode}",
+                    f"attempt_count={attempt_count}",
                     "",
-                    completed.stdout,
-                    completed.stderr,
+                    "\n".join(attempt_sections),
                     "",
                 ]
             )
@@ -1272,16 +1331,8 @@ def replay_from_manifest(*, manifest_path: Path, output_dir: Path) -> int:
     start_ms = unix_ms()
     completed: subprocess.CompletedProcess[str] | None = None
     if not diagnostics:
-        completed = subprocess.run(
-            ["bash", "-lc", replay_command_executed],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-        )
-        command_log_path.write_text(
-            completed.stdout + ("\n" if completed.stdout else "") + completed.stderr,
-            encoding="utf-8",
-        )
+        completed, attempt_sections, _attempt_count = run_command_cycle(replay_command_executed)
+        command_log_path.write_text("\n".join(attempt_sections), encoding="utf-8")
     end_ms = unix_ms()
 
     observed_forensics = forensics_links_from_log(None)

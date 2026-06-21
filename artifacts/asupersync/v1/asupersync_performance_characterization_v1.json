@@ -234,7 +234,7 @@
     "artifacts/perf/phase2c/isomorphism_golden_signatures_v1.json"
   ],
   "structured_logging_evidence": [
-    "artifacts/conformance/latest/structured_logs.jsonl",
+    "artifacts/e2e/latest/bundles/asupersync_interruption_resume/replay/structured_logs.jsonl",
     "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl",
     "artifacts/clean/latest/clean_compliance_audit_log_v1.json"
   ]

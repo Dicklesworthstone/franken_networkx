@@ -2,7 +2,7 @@
   "schema_version": "1.0.0",
   "artifact_id": "asupersync-capability-matrix-v1",
   "generated_at_utc": "2026-02-15T19:23:00+00:00",
-  "baseline_comparator": "legacy_networkx/main@python3.12 + asupersync@0.3.1",
+  "baseline_comparator": "legacy_networkx/main@python3.12 + asupersync@0.3.4",
   "capability_summary": {
     "operation_count": 5,
     "artifact_class_count": 5,
@@ -247,7 +247,7 @@
         {
           "test_id": "ASUP-TST-DIFF-002",
           "layer": "differential",
-          "artifact_path": "artifacts/phase2c/latest/phase2c_security_contract_validation_v1.json",
+          "artifact_path": "artifacts/phase2c/security/v1/security_compatibility_threat_matrix_v1.json",
           "replay_command": "rch exec -- cargo test -p fnx-conformance --test phase2c_packet_readiness_gate -- --nocapture"
         }
       ],
@@ -320,7 +320,7 @@
         {
           "test_id": "ASUP-TST-DIFF-003",
           "layer": "differential",
-          "artifact_path": "artifacts/conformance/latest/structured_logs.jsonl",
+          "artifact_path": "artifacts/e2e/latest/bundles/conformance_harness_strict/replay/structured_logs.jsonl",
           "replay_command": "rch exec -- cargo test -p fnx-conformance --test phase2c_packet_readiness_gate -- --nocapture"
         },
         {
@@ -399,7 +399,7 @@
         {
           "test_id": "ASUP-TST-UNIT-003",
           "layer": "unit",
-          "artifact_path": "artifacts/conformance/latest/durability_pipeline_report.json",
+          "artifact_path": "artifacts/asupersync/v1/asupersync_final_evidence_pack_v1_scrub_report.json",
           "replay_command": "rch exec -- cargo test -p fnx-conformance --test asupersync_capability_matrix_gate -- --nocapture"
         },
         {
@@ -474,7 +474,7 @@
     "artifacts/perf/phase2c/isomorphism_golden_signatures_v1.json"
   ],
   "structured_logging_evidence": [
-    "artifacts/conformance/latest/structured_logs.jsonl",
+    "artifacts/e2e/latest/bundles/conformance_harness_strict/replay/structured_logs.jsonl",
     "artifacts/e2e/latest/e2e_scenario_matrix_steps_v1.jsonl",
     "artifacts/clean/latest/clean_compliance_audit_log_v1.json"
   ]

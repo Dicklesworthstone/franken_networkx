@@ -32,7 +32,7 @@
     "raptorq_sidecars": [
       "artifacts/conformance/latest/structured_logs.raptorq.json",
       "artifacts/conformance/latest/smoke_report.raptorq.json",
-      "artifacts/perf/latest/bfs_percentiles.raptorq.json"
+      "artifacts/perf/phase2c/bfs_percentiles_post_neighbor_iter.raptorq.json"
     ],
     "decode_proofs": [
       "artifacts/phase2c/FNX-P2C-001/parity_report.decode_proof.json",
@@ -40,7 +40,7 @@
     ],
     "integrity_scrub_reports": [
       "artifacts/conformance/latest/durability_pipeline_report.json",
-      "artifacts/perf/latest/durability_pipeline_report.json"
+      "artifacts/perf/phase2c/durability_pipeline_report.json"
     ]
   },
   "residual_risk_register": [
@@ -67,7 +67,7 @@
       "evidence_refs": [
         "artifacts/conformance/latest/structured_logs.raptorq.json",
         "artifacts/conformance/latest/durability_pipeline_report.json",
-        "artifacts/perf/latest/durability_pipeline_report.json"
+        "artifacts/perf/phase2c/durability_pipeline_report.json"
       ]
     }
   ],
@@ -132,7 +132,7 @@
       "evidence_refs": [
         "artifacts/conformance/latest/structured_logs.raptorq.json",
         "artifacts/conformance/latest/durability_pipeline_report.json",
-        "artifacts/perf/latest/durability_pipeline_report.json"
+        "artifacts/perf/phase2c/durability_pipeline_report.json"
       ]
     },
     {
