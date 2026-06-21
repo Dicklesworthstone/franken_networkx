@@ -6,7 +6,9 @@
 //! - `neighbors(n)` returns successors (matching NetworkX convention).
 
 use crate::{AttrMap, EdgeSnapshot, GraphError};
-use fnx_runtime::{CompatibilityMode, DecisionAction, EvidenceLedger, EvidenceTerm, RuntimePolicy};
+use fnx_runtime::{
+    CgseValue, CompatibilityMode, DecisionAction, EvidenceLedger, EvidenceTerm, RuntimePolicy,
+};
 use indexmap::{IndexMap, IndexSet};
 use serde::{Deserialize, Serialize};
 
@@ -2383,6 +2385,69 @@ impl MultiDiGraph {
             return true;
         }
         false
+    }
+
+    /// Overwrite one attribute value on an existing keyed edge. This is the
+    /// hot path for algorithms that clone graph topology and patch one derived
+    /// edge field without rebuilding every edge's full attribute map.
+    pub fn set_edge_attr_value(
+        &mut self,
+        source: &str,
+        target: &str,
+        key: usize,
+        attr_key: &str,
+        value: CgseValue,
+    ) -> bool {
+        let edge_key = DirectedEdgeKey::new(source, target);
+        if let Some(bucket) = self.edges.get_mut(&edge_key)
+            && let Some(attrs) = bucket.get_mut(&key)
+        {
+            if attrs.get(attr_key) != Some(&value) {
+                attrs.insert(attr_key.to_owned(), value);
+                self.revision = self.revision.saturating_add(1);
+            }
+            return true;
+        }
+        false
+    }
+
+    /// Overwrite one attribute on all keyed edges in `edges_ordered_borrowed`
+    /// order. Returns false if the caller supplied the wrong value count.
+    pub fn set_ordered_edge_attr_values<I>(&mut self, attr_key: &str, values: I) -> bool
+    where
+        I: IntoIterator<Item = CgseValue>,
+    {
+        let mut values = values.into_iter();
+        let mut changed = false;
+        let mut visited = 0usize;
+
+        for node in self.nodes.keys() {
+            if let Some(neighbors) = self.successors.get(node) {
+                for target in neighbors.keys() {
+                    let pair = DirectedEdgeKeyRef::new(node, target);
+                    if let Some(edge_bucket) = self.edges.get_mut(&pair) {
+                        for attrs in edge_bucket.values_mut() {
+                            let Some(value) = values.next() else {
+                                return false;
+                            };
+                            if attrs.get(attr_key) != Some(&value) {
+                                attrs.insert(attr_key.to_owned(), value);
+                                changed = true;
+                            }
+                            visited = visited.saturating_add(1);
+                        }
+                    }
+                }
+            }
+        }
+
+        if values.next().is_some() || visited != self.edge_count {
+            return false;
+        }
+        if changed {
+            self.revision = self.revision.saturating_add(1);
+        }
+        true
     }
 
     /// br-r37-c1-sjf4t: overwrite the attribute map for an existing node.

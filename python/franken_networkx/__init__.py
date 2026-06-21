@@ -21758,6 +21758,11 @@ def stochastic_graph(G, copy=True, weight="weight"):
     # _copy_graph_shallow (its native G.copy() is the slow String-keyed path), and
     # subclasses keep it (SubgraphView can't be empty-constructed).
     if copy:
+        if type(G) is MultiDiGraph and isinstance(weight, str):
+            _sync_rust_edge_attrs(G, edge_only=True)
+            graph = _fnx.stochastic_graph_copy_multidigraph(G, weight)
+            if graph is not None:
+                return graph
         graph = G.copy() if type(G) is DiGraph else _copy_graph_shallow(G)
     else:
         graph = G
@@ -21765,6 +21770,12 @@ def stochastic_graph(G, copy=True, weight="weight"):
         type(graph) is DiGraph
         and isinstance(weight, str)
         and _fnx.stochastic_graph_normalize_digraph_inplace(graph, weight)
+    ):
+        return graph
+    if (
+        type(graph) is MultiDiGraph
+        and isinstance(weight, str)
+        and _fnx.stochastic_graph_normalize_multidigraph_inplace(graph, weight)
     ):
         return graph
     degree = {node: 0 for node in graph.nodes()}

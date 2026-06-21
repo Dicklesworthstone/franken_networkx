@@ -16,7 +16,7 @@ use pyo3::exceptions::{
     PyIndexError, PyKeyError, PyRuntimeError, PyValueError, PyZeroDivisionError,
 };
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyIterator, PyList, PySet, PyTuple};
+use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyIterator, PyList, PySet, PyString, PyTuple};
 use std::cell::OnceCell;
 use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -8926,6 +8926,16 @@ fn cgse_stochastic_numeric(value: Option<&fnx_runtime::CgseValue>) -> Option<f64
     }
 }
 
+fn py_dict_is_lossless_stochastic_copy(attrs: &Bound<'_, PyDict>) -> bool {
+    attrs.iter().all(|(key, value)| {
+        key.is_exact_instance_of::<PyString>()
+            && (value.is_exact_instance_of::<PyBool>()
+                || value.is_exact_instance_of::<PyInt>()
+                || value.is_exact_instance_of::<PyFloat>()
+                || value.is_exact_instance_of::<PyString>())
+    })
+}
+
 /// Normalize exact DiGraph outgoing weights in-place for ``stochastic_graph``.
 ///
 /// Returns ``false`` without mutating if any present weight is nonnumeric; the
@@ -8987,6 +8997,173 @@ pub fn stochastic_graph_normalize_digraph_inplace(
     graph.mark_edges_dirty();
     graph.bump_edges_seq();
     Ok(true)
+}
+
+/// Normalize exact MultiDiGraph outgoing weights in-place for ``stochastic_graph``.
+///
+/// The multigraph public fallback crosses Python for every keyed edge. This
+/// native pass keeps that observable keyed-edge contract while batching the
+/// degree accumulation and live attr-dict writes behind one PyO3 call.
+#[pyfunction]
+#[pyo3(signature = (g, weight))]
+pub fn stochastic_graph_normalize_multidigraph_inplace(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<bool> {
+    let mut graph = match g.extract::<PyRefMut<'_, PyMultiDiGraph>>() {
+        Ok(graph) => graph,
+        Err(_) => return Ok(false),
+    };
+
+    let edges = graph.inner.edges_ordered();
+    let mut degrees: HashMap<String, f64> = HashMap::with_capacity(graph.inner.node_count());
+    let mut edge_weights: Vec<(String, String, usize, f64)> = Vec::with_capacity(edges.len());
+
+    for edge in &edges {
+        let edge_key = (edge.source.clone(), edge.target.clone(), edge.key);
+        let value = match graph.edge_py_attrs.get(&edge_key) {
+            Some(attrs) => match attrs.bind(py).get_item(weight)? {
+                Some(value) => match py_stochastic_numeric(&value) {
+                    Some(value) => value,
+                    None => return Ok(false),
+                },
+                None => 1.0,
+            },
+            None => match cgse_stochastic_numeric(edge.attrs.get(weight)) {
+                Some(value) => value,
+                None => return Ok(false),
+            },
+        };
+        *degrees.entry(edge.source.clone()).or_insert(0.0) += value;
+        edge_weights.push((edge.source.clone(), edge.target.clone(), edge.key, value));
+    }
+
+    for (source, target, key, value) in edge_weights {
+        let degree = degrees.get(&source).copied().unwrap_or(0.0);
+        let normalized = if degree == 0.0 { 0.0 } else { value / degree };
+        let edge_key = (source.clone(), target.clone(), key);
+        if !graph.edge_py_attrs.contains_key(&edge_key) {
+            let attrs = graph.inner.edge_attrs(&source, &target, key).map_or_else(
+                || Ok(PyDict::new(py).unbind()),
+                |attrs| crate::attr_map_to_pydict(py, attrs),
+            )?;
+            graph.edge_py_attrs.insert(edge_key.clone(), attrs);
+        }
+        let attrs = graph
+            .edge_py_attrs
+            .get(&edge_key)
+            .expect("edge attr dict inserted above");
+        attrs.bind(py).set_item(weight, normalized)?;
+    }
+
+    graph.mark_edges_dirty();
+    graph.bump_edges_seq();
+    Ok(true)
+}
+
+/// Build a normalized exact MultiDiGraph copy for ``stochastic_graph``.
+///
+/// This fuses NetworkX's ``G.copy()`` plus row normalization for the common
+/// sparse-mirror case, keeping normalized edge attrs in the native graph until
+/// Python asks for live attr dictionaries.
+#[pyfunction]
+#[pyo3(signature = (g, weight))]
+pub fn stochastic_graph_copy_multidigraph(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<PyObject> {
+    let graph = match g.extract::<PyRef<'_, PyMultiDiGraph>>() {
+        Ok(graph) => graph,
+        Err(_) => return Ok(py.None()),
+    };
+
+    let edges = graph.inner.edges_ordered_borrowed();
+    let node_labels = graph.inner.nodes_ordered();
+    let node_positions: HashMap<&str, usize> = node_labels
+        .iter()
+        .enumerate()
+        .map(|(index, node)| (*node, index))
+        .collect();
+    let mut degrees = vec![0.0; node_labels.len()];
+    let mut edge_weights: Vec<(usize, f64)> = Vec::with_capacity(edges.len());
+
+    for (source, target, key, attrs) in &edges {
+        let edge_key = ((*source).to_owned(), (*target).to_owned(), *key);
+        let value = match graph.edge_py_attrs.get(&edge_key) {
+            Some(attrs) => {
+                let bound = attrs.bind(py);
+                if !py_dict_is_lossless_stochastic_copy(bound) {
+                    return Ok(py.None());
+                }
+                match bound.get_item(weight)? {
+                    Some(value) => match py_stochastic_numeric(&value) {
+                        Some(value) => value,
+                        None => return Ok(py.None()),
+                    },
+                    None => 1.0,
+                }
+            }
+            None => match cgse_stochastic_numeric(attrs.get(weight)) {
+                Some(value) => value,
+                None => return Ok(py.None()),
+            },
+        };
+        let Some(&source_index) = node_positions.get(source) else {
+            return Ok(py.None());
+        };
+        degrees[source_index] += value;
+        edge_weights.push((source_index, value));
+    }
+
+    let mut inner = graph.inner.clone_with_fresh_policy();
+    inner.reorder_pred_rows_for_nx_copy_walk();
+    let normalized_values = edge_weights.into_iter().map(|(source_index, value)| {
+        let degree = degrees.get(source_index).copied().unwrap_or(0.0);
+        let normalized = if degree == 0.0 { 0.0 } else { value / degree };
+        fnx_runtime::CgseValue::Float(normalized)
+    });
+    if !inner.set_ordered_edge_attr_values(weight, normalized_values) {
+        return Ok(py.None());
+    }
+
+    let mut node_key_map = HashMap::with_capacity(graph.node_key_map.len());
+    let mut node_py_attrs = HashMap::with_capacity(graph.node_py_attrs.len());
+    for (canonical, py_key) in &graph.node_key_map {
+        node_key_map.insert(canonical.clone(), py_key.clone_ref(py));
+        if let Some(attrs) = graph.node_py_attrs.get(canonical) {
+            let bound = attrs.bind(py);
+            inner.replace_node_attrs(canonical, crate::py_dict_to_attr_map(bound)?);
+            node_py_attrs.insert(canonical.clone(), bound.copy()?.unbind());
+        }
+    }
+
+    let new_graph = PyMultiDiGraph {
+        inner,
+        node_key_map,
+        succ_py_keys: PyDiGraph::clone_row_keys(py, &graph.succ_py_keys),
+        pred_py_keys: HashMap::new(),
+        node_py_attrs,
+        edge_py_attrs: HashMap::new(),
+        edge_py_keys: graph
+            .edge_py_keys
+            .iter()
+            .map(|(key, py_key)| (key.clone(), py_key.clone_ref(py)))
+            .collect(),
+        graph_attrs: graph.graph_attrs.bind(py).copy()?.unbind(),
+        nodes_seq: 0,
+        edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
+        edge_dirty_keys: PyMultiDiGraph::clean_edge_dirty_keys(),
+        node_keys_cache: std::sync::Mutex::new(None),
+        node_data_mirror: std::sync::Mutex::new(None),
+        dict_of_dicts_cache: None,
+        edges_with_data_cache: None,
+        edges_with_keys_cache: None,
+        node_iter_mirror: std::sync::Mutex::new(None),
+    };
+    Ok(Py::new(py, new_graph)?.into_any())
 }
 
 /// Return the broadcast center of a tree.
@@ -22571,6 +22748,11 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         stochastic_graph_normalize_digraph_inplace,
         m
     )?)?;
+    m.add_function(wrap_pyfunction!(
+        stochastic_graph_normalize_multidigraph_inplace,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(stochastic_graph_copy_multidigraph, m)?)?;
     // LCA
     m.add_function(wrap_pyfunction!(all_pairs_lca_rust, m)?)?;
     m.add_function(wrap_pyfunction!(tree_all_pairs_lca_rust, m)?)?;

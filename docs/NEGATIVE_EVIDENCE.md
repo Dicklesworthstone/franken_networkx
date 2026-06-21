@@ -2,6 +2,98 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-21 Cod-A `stochastic_graph` Exact-MultiDiGraph Native Copy Keep (`br-r37-c1-04z53.9160`, cod-a)
+
+Scope: fresh BOLD-VERIFY child bead for the active no-gaps campaign, focused on
+the remaining exact `MultiDiGraph.stochastic_graph(copy=True)` head-to-head
+loss. Reused `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`;
+no new `.scratch` worktree was created.
+
+Baseline and rejected routes:
+- Pre-lever public copy rows preserved parity but lost badly against vendored
+  NetworkX: n=400/e=1600 `0.321x`, n=1000/e=5000 `0.249x`.
+- A normalizer-only route still paid the Python shallow-copy tax, so it stayed
+  losing and was not kept.
+- A fresh-topology native copy builder won only small rows but lost larger rows:
+  n=400/e=1600 `1.688x`, n=1000/e=5000 `0.781x`,
+  n=2000/e=10000 `1.040x`, n=4000/e=20000 `0.793x`. That source shape was
+  replaced before final gates.
+- A clone-plus-per-edge String-key lookup candidate improved the surface but
+  still had a large-row median loss: n=4000/e=20000 `0.946x`. It was replaced
+  with ordered batch mutation before final gates.
+
+Radical lever kept:
+- Alien-graveyard / alien-artifact hypothesis: do not materialize every
+  `(u, v, key, attrdict)` tuple through Python, and do not rebuild multigraph
+  topology from string endpoints. Sync dirty live edge attrs once, verify
+  lossless Python mirrors, clone the native multigraph topology, compute source
+  degrees in node-index space, and patch only the derived weight field in
+  `edges_ordered_borrowed()` order.
+- The storage-level `set_ordered_edge_attr_values` primitive removes the
+  per-edge `DirectedEdgeKey` hash lookup from the clone path. This is the
+  difference between the partial `0.946x` large-row loss and the final large-row
+  wins.
+- The helper returns `None` for non-lossless or nonnumeric weight cases so the
+  Python wrapper preserves NetworkX-observable fallback and exception behavior.
+
+Final gates and timing evidence:
+- `cargo fmt --check` passed.
+- `python3 -m py_compile python/franken_networkx/__init__.py tests/python/test_graph_operators_parity.py`
+  passed.
+- `AGENT_NAME=cod-a CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a RUSTUP_TOOLCHAIN=nightly-2026-06-10 rch exec -- cargo build --release -p fnx-python --features extension-module`
+  passed on RCH worker `hz2`.
+- `ldd /data/projects/.rch-targets/franken_networkx-cod-a/release/lib_fnx.so`
+  showed no `libpython` dependency and no missing libraries.
+- `AGENT_NAME=cod-a CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a RUSTUP_TOOLCHAIN=nightly-2026-06-10 rch exec -- cargo check -p fnx-classes --all-targets`
+  passed on RCH worker `hz1`.
+- `AGENT_NAME=cod-a CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a RUSTUP_TOOLCHAIN=nightly-2026-06-10 rch exec -- cargo clippy -p fnx-classes --all-targets -- -D warnings`
+  passed on RCH worker `hz1`.
+- `AGENT_NAME=cod-a CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a RUSTUP_TOOLCHAIN=nightly-2026-06-10 rch exec -- cargo test -p fnx-classes`
+  passed on RCH worker `ovh-a`: `68 passed`, `2 ignored`.
+- `AGENT_NAME=cod-a CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a RUSTUP_TOOLCHAIN=nightly-2026-06-10 rch exec -- cargo check -p fnx-python --all-targets --features extension-module`
+  passed on RCH worker `hz1`.
+- `AGENT_NAME=cod-a CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a RUSTUP_TOOLCHAIN=nightly-2026-06-10 rch exec -- cargo clippy -p fnx-python --all-targets --features extension-module -- -D warnings`
+  passed on RCH worker `hz1`.
+- `AGENT_NAME=cod-a CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a RUSTUP_TOOLCHAIN=nightly-2026-06-10 rch exec -- cargo test -p fnx-python --features pyo3/abi3-py310`
+  passed on RCH worker `hz2`: `27 passed`.
+- `AGENT_NAME=cod-a CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a RUSTUP_TOOLCHAIN=nightly-2026-06-10 rch exec -- cargo test -p fnx-python --features extension-module`
+  failed to link a Rust test executable on RCH worker `hz2` with undefined
+  Python C API symbols. This is a PyO3 `extension-module` test-link mode issue,
+  not a runtime or release-extension failure; release builds and ABI3 Rust tests
+  are the valid gates above.
+- Focused direct conformance preloaded
+  `/data/projects/.rch-targets/franken_networkx-cod-a/release/lib_fnx.so` as
+  `franken_networkx._fnx` and passed helper in-place, helper copy, public
+  `copy=True` with dirty live edge-dict sync, source isolation, bool/missing
+  weights, and nonnumeric fallback.
+- Final benchmark loop used the same preloaded release extension, vendored
+  NetworkX from `legacy_networkx_code/networkx`, deterministic keyed
+  MultiDiGraph fixtures, and parity assertions before timing.
+
+| Workload | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| exact `MultiDiGraph.stochastic_graph(copy=True)`, n=400/e=1600 | `1.212 ms` | `3.595 ms` | `2.966x` | win |
+| exact `MultiDiGraph.stochastic_graph(copy=True)`, n=1000/e=5000 | `8.620 ms` | `11.737 ms` | `1.362x` | win |
+| exact `MultiDiGraph.stochastic_graph(copy=True)`, n=2000/e=10000 | `19.333 ms` | `23.239 ms` | `1.202x` | win |
+| exact `MultiDiGraph.stochastic_graph(copy=True)`, n=4000/e=20000 | `46.311 ms` | `48.076 ms` | `1.038x` | win |
+| exact `MultiDiGraph.stochastic_graph(copy=True)`, n=8000/e=40000 | `99.791 ms` | `102.295 ms` | `1.025x` | win |
+
+Decision:
+- Keep. Final score: `5` wins / `0` losses / `0` neutral.
+- This closes the active exact `MultiDiGraph.stochastic_graph(copy=True)`
+  residual. The prior n=1000/e=5000 public row moved from `0.249x` loss to
+  `1.362x` win.
+
+Do not repeat:
+- Do not retry normalizer-only public paths for `copy=True`; the shallow copy
+  remains the dominant tax.
+- Do not retry fresh topology rebuilds for this surface; clone plus ordered
+  attr mutation is faster and preserves insertion order with less graph-state
+  reconstruction.
+- Do not use `cargo test -p fnx-python --features extension-module` as the
+  Rust unit-test gate on RCH. Use `pyo3/abi3-py310` for Rust tests and
+  `extension-module` for release builds / importable `.so` timing.
+
 ## 2026-06-21 Cod-A `stochastic_graph` Exact-DiGraph Native Normalizer Keep (`br-r37-c1-04z53.9159`, cod-a)
 
 Scope: fresh BOLD-VERIFY child bead for the active no-gaps campaign, focused on

@@ -254,6 +254,59 @@ def test_stochastic_graph_digraph_native_normalization_without_fallback(monkeypa
     ]
 
 
+def test_stochastic_graph_multidigraph_native_normalization_direct():
+    graph = fnx.MultiDiGraph()
+    graph.add_edge("a", "b", key=1, w=2.0)
+    graph.add_edge("a", "b", key=2, w=True)
+    graph.add_edge("a", "c", key=4, w=5)
+    graph.add_edge("b", "c", key=7)
+    graph.add_node("isolated")
+
+    expected = nx.MultiDiGraph()
+    expected.add_edge("a", "b", key=1, w=2.0)
+    expected.add_edge("a", "b", key=2, w=True)
+    expected.add_edge("a", "c", key=4, w=5)
+    expected.add_edge("b", "c", key=7)
+    expected.add_node("isolated")
+    nx.stochastic_graph(expected, copy=False, weight="w")
+
+    assert fnx._fnx.stochastic_graph_normalize_multidigraph_inplace(graph, "w") is True
+    assert _edge_records(graph) == _edge_records(expected)
+
+
+def test_stochastic_graph_multidigraph_native_copy_direct():
+    graph = fnx.MultiDiGraph()
+    graph.graph["name"] = "weighted"
+    graph.add_node("isolated", marker=1)
+    graph.add_edge("a", "b", key=1, w=2.0)
+    graph.add_edge("a", "b", key=2, w=True)
+    graph.add_edge("a", "c", key=4, w=5)
+    graph.add_edge("b", "c", key=7)
+
+    expected = nx.MultiDiGraph()
+    expected.graph["name"] = "weighted"
+    expected.add_node("isolated", marker=1)
+    expected.add_edge("a", "b", key=1, w=2.0)
+    expected.add_edge("a", "b", key=2, w=True)
+    expected.add_edge("a", "c", key=4, w=5)
+    expected.add_edge("b", "c", key=7)
+    expected = nx.stochastic_graph(expected, copy=True, weight="w")
+
+    result = fnx._fnx.stochastic_graph_copy_multidigraph(graph, "w")
+
+    assert result is not None
+    assert result is not graph
+    assert dict(result.graph) == expected.graph
+    assert sorted(result.nodes(data=True)) == sorted(expected.nodes(data=True))
+    assert _edge_records(result) == _edge_records(expected)
+    assert _edge_records(graph) == [
+        ("a", "b", 1, {"w": 2.0}),
+        ("a", "b", 2, {"w": True}),
+        ("a", "c", 4, {"w": 5}),
+        ("b", "c", 7, {}),
+    ]
+
+
 def test_disjoint_union_matches_networkx_for_multigraphs():
     left = fnx.MultiGraph()
     left.graph["side"] = "left"
