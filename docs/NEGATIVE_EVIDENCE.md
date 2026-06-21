@@ -2915,3 +2915,27 @@ Same ceiling the existing 2/3-tuple attr batch hits (0.8–0.9x). REVERTED, not
 shipped; bead `br-r37-c1-mg-subgraph-keyed-batch-z1q8i` closed no-ship. Real lever
 is a lazy AttrMap (defer Python->Rust conversion until a native kernel reads
 attrs), a deep substrate change — not a keyed batch.
+
+## 2026-06-21 — connectivity.local_node_connectivity 0.75x is nx-module passthrough access tax (CopperCliff)
+
+Measured (single pair s=0,t=N-1 on gnm N=1500/6000e): exact
+`fnx.connectivity.local_node_connectivity(G,s,t)` FNX `62.5 ms` vs NetworkX
+`48.9 ms` = `0.75x` (value 8 == 8). `type(fnx.connectivity)` is the **NetworkX
+module** `networkx.algorithms.connectivity.connectivity` — fnx does NOT override
+the exact (flow-based) local_node_connectivity, so this is nx's own Python flow
+code running on a fnx graph: the loss is the per-access AtlasView/`neighbors`
+PyO3 substrate tax, NOT a fnx-implementation regression.
+
+Context (NOT losses): the broad single-pair delegated sweep is otherwise all
+wins — `node_disjoint_paths` 8.5x, `edge_disjoint_paths` 7.8x,
+`approximation.local_node_connectivity` 10.3x, `all_simple_paths` 1.4x,
+`harmonic(nbunch)` 3.7x, `node_disjoint`/`approx` connectivity native-fast.
+
+Lever (rebuild-gated, deferred under low-disk no-rebuild constraint): wire fnx's
+native max-flow substrate (which beats nx) into a native exact
+local/global node/edge connectivity routed from the connectivity namespace, OR
+expose a fnx-native connectivity namespace that overrides the nx-module
+passthrough. A pure-Python reroute via `len(list(node_disjoint_paths(G,s,t)))`
+is NOT cleanly value-equivalent (node_disjoint_paths raises `NetworkXNoPath`
+where local_node_connectivity returns 0, and adjacent-pair semantics differ), so
+it is not a safe my-file lever. Filed as a bead.
