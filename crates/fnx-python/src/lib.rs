@@ -6227,23 +6227,36 @@ impl PyMultiGraph {
                 .node_key_map
                 .insert(node.to_owned(), self.py_node_key(py, node));
         }
+        // br-r37-c1-mgcopybatch: collect the keyed edges in edge-INSERTION order
+        // (edges_ordered) and commit them through ONE extend_keyed_edges_with_attrs_
+        // _unrecorded — the bulk API DESIGNED for copy/convert (per-edge
+        // add_edge_with_key_and_attrs pays TWO record_decision ledger pushes/edge).
+        // Insertion order is preserved (the bulk insert appends in collected order),
+        // so the input-order-dependent reorder_rows below still produces nx's u-major
+        // copy walk. The Python mirrors (edge_py_attrs / remember_edge_key) are still
+        // populated per edge — they don't touch the inner.
+        let mut keyed_edges: Vec<(String, String, usize, AttrMap)> =
+            Vec::with_capacity(self.inner.edge_count());
         for snapshot in self.inner.edges_ordered() {
             let (u, v, key) = (snapshot.left.clone(), snapshot.right.clone(), snapshot.key);
             let attrs_entry = self
                 .edge_py_attrs
                 .get(&(u.clone(), v.clone(), key))
                 .or_else(|| self.edge_py_attrs.get(&(v.clone(), u.clone(), key)));
-            let (rust_attrs, py_attrs) = match attrs_entry {
-                Some(attrs) => py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?,
-                None => (AttrMap::new(), PyDict::new(py).unbind()),
+            // br-r37-c1-aab122464: drop the eager empty edge-attr PyDict for attr-less
+            // edges (15000 allocs on a dense graph) — lazy materialize_edge_py_attrs is
+            // identity-preserving, so an absent mirror reads identically to an empty dict.
+            let rust_attrs = match attrs_entry {
+                Some(attrs) => {
+                    let (rust_attrs, mirror) = py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+                    new_graph
+                        .edge_py_attrs
+                        .insert((u.clone(), v.clone(), key), mirror);
+                    rust_attrs
+                }
+                None => AttrMap::new(),
             };
-            let _ =
-                new_graph
-                    .inner
-                    .add_edge_with_key_and_attrs(u.clone(), v.clone(), key, rust_attrs);
-            new_graph
-                .edge_py_attrs
-                .insert((u.clone(), v.clone(), key), py_attrs);
+            keyed_edges.push((u.clone(), v.clone(), key, rust_attrs));
             let py_key_slot = self
                 .edge_py_keys
                 .get(&(u.clone(), v.clone(), key))
@@ -6254,6 +6267,9 @@ impl PyMultiGraph {
                 new_graph.remember_edge_key(py, &u, &v, key, None);
             }
         }
+        let _ = new_graph
+            .inner
+            .extend_keyed_edges_with_attrs_unrecorded(keyed_edges);
         // br-r37-c1-s0d4x: cells in nx's u-major copy-walk order (the
         // edges_ordered rebuild above is edge INSERTION order).
         new_graph.inner.reorder_rows_for_nx_copy_walk();
