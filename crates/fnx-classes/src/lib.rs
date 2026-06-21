@@ -2184,6 +2184,13 @@ impl MultiGraph {
     /// earlier-position neighbors sorted by (pos(v), index of u within
     /// row v), then the rest (self-loops included) in original order.
     pub fn reorder_rows_for_nx_copy_walk(&mut self) {
+        // br-r37-c1-predrebuild NOTE: a 2-pass early[]-rebuild (like the directed
+        // MultiDiGraph variant) was tried here and REVERTED — it was a regression
+        // (dense MultiGraph.copy 0.60x -> 0.44x). Unlike the directed succ-walk
+        // (1 pass, no lookups), the undirected early/late split needs pos(u) AND
+        // pos(v), so the rebuild does 2 adjacency passes + 2 get_index_of/edge,
+        // outweighing the (cheap integer-keyed) sort it removed. The sort-based
+        // form below is faster for the String-keyed multigraph adjacency.
         let n = self.adjacency.len();
         let mut new_orders: Vec<Vec<String>> = Vec::with_capacity(n);
         for (pu, (u, row)) in self.adjacency.iter().enumerate() {

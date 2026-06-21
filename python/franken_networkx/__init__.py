@@ -27034,6 +27034,13 @@ def gnm_random_graph(n, m, seed=None, directed=False, *, create_using=None):
         return G
     edges_added = set()
     max_edges = n * (n - 1) // 2
+    # br-r37-c1-gnmcomplete: nx's gnm_random_graph returns complete_graph(n) (edges
+    # in combinations(range(n), 2) order) when m saturates, BEFORE drawing any RNG —
+    # NOT the rejection-sampling order the loop below would produce. Match it exactly
+    # (also skips the saturated rejection loop, which would reject ~every later draw).
+    if m >= max_edges:
+        G.add_edges_from((u, v) for u in range(n) for v in range(u + 1, n))
+        return G
     m = min(m, max_edges)
     # br-r37-c1-yrdso: this G(n,m) sampler is pure Python (it reproduces nx's
     # exact ``random.Random`` draw sequence; the native kernel is bypassed for
