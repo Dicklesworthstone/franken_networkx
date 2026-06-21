@@ -20282,6 +20282,12 @@ from franken_networkx._fnx import (
 # Graph generators — random
 from franken_networkx._fnx import gnp_random_graph as _rust_gnp_random_graph
 from franken_networkx._fnx import gnp_random_digraph as _rust_gnp_random_digraph
+try:
+    from franken_networkx._fnx import gnm_random_graph as _rust_gnm_random_graph
+    from franken_networkx._fnx import gnm_random_digraph as _rust_gnm_random_digraph
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _rust_gnm_random_graph = None
+    _rust_gnm_random_digraph = None
 from franken_networkx._fnx import watts_strogatz_graph as _rust_watts_strogatz_graph
 from franken_networkx._fnx import barabasi_albert_graph as _rust_barabasi_albert_graph
 from franken_networkx._fnx import erdos_renyi_graph as _rust_erdos_renyi_graph
@@ -27273,6 +27279,39 @@ def gnm_random_graph(n, m, seed=None, directed=False, *, create_using=None):
         raise ValueError(
             "nan cannot be used to generate a random.Random instance"
         )
+    # br-r37-c1-gnmnative: route to the native gnm rejection sampler (byte-exact
+    # PythonRandom draw sequence — fnx-generators has nx-parity tests), skipping
+    # the per-edge Python randint loop the pure-Python sampler below pays (~0.80x
+    # nx -> faster). Mirror the gnp seed gate exactly. create_using already
+    # delegated above; NaN/float seeds keep the Python path.
+    # Gate: non-negative int n/m (the native binding takes usize, and negative m
+    # must give nx's 0-edge graph via the Python path); non-negative int seed only
+    # (the native PythonRandom matches CPython's Random(int) for seed>=0; negative
+    # seeds diverge so keep them on the Python path). seed=None -> a random native
+    # seed (non-deterministic, matches nx's contract).
+    if (
+        not directed
+        and _rust_gnm_random_graph is not None
+        and isinstance(n, int)
+        and isinstance(m, int)
+        and m >= 0
+        and (
+            seed is None
+            or (isinstance(seed, int) and not isinstance(seed, bool) and seed >= 0)
+        )
+    ):
+        return _rust_gnm_random_graph(n, m, seed=_native_random_seed(seed))
+    if (
+        directed
+        and _rust_gnm_random_digraph is not None
+        and isinstance(n, int)
+        and isinstance(m, int)
+        and m >= 0
+        and isinstance(seed, int)
+        and not isinstance(seed, bool)
+        and seed >= 0
+    ):
+        return _rust_gnm_random_digraph(n, m, seed=_native_random_seed(seed))
     import random as _random
 
     rng = _random.Random(seed)

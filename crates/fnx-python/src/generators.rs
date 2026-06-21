@@ -708,6 +708,35 @@ pub fn gnp_random_digraph(py: Python<'_>, n: usize, p: f64, seed: u64) -> PyResu
     Py::new(py, report_to_pydigraph(py, report.graph)?)
 }
 
+/// Return an Erdős–Rényi G(n, m) graph with EXACTLY m edges (native; nx-exact
+/// for a given int seed — the same PythonRandom rejection-sampling draw sequence
+/// as networkx, byte-identical edge set + insertion order). Eliminates the
+/// per-edge Python randint loop the pure-Python wrapper paid.
+#[pyfunction]
+pub fn gnm_random_graph(py: Python<'_>, n: usize, m: usize, seed: u64) -> PyResult<PyGraph> {
+    let mut gg = GraphGenerator::strict();
+    let report = gg
+        .gnm_random_graph(n, m, seed)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    report_to_pygraph(py, report.graph)
+}
+
+/// Return a directed G(n, m) digraph with EXACTLY m edges (native; nx-exact for
+/// a given int seed — same rejection sampler, ordered edges).
+#[pyfunction]
+pub fn gnm_random_digraph(
+    py: Python<'_>,
+    n: usize,
+    m: usize,
+    seed: u64,
+) -> PyResult<Py<PyDiGraph>> {
+    let mut gg = GraphGenerator::strict();
+    let report = gg
+        .gnm_random_digraph(n, m, seed)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    Py::new(py, report_to_pydigraph(py, report.graph)?)
+}
+
 /// Return a Watts-Strogatz small-world graph.
 ///
 /// Parameters
@@ -1141,6 +1170,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(full_rary_tree_native, m)?)?;
     m.add_function(wrap_pyfunction!(gnp_random_graph, m)?)?;
     m.add_function(wrap_pyfunction!(gnp_random_digraph, m)?)?;
+    m.add_function(wrap_pyfunction!(gnm_random_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(gnm_random_digraph, m)?)?;
     m.add_function(wrap_pyfunction!(watts_strogatz_graph, m)?)?;
     m.add_function(wrap_pyfunction!(barabasi_albert_graph, m)?)?;
     m.add_function(wrap_pyfunction!(erdos_renyi_graph, m)?)?;
