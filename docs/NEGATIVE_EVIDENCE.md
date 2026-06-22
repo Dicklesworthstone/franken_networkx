@@ -3634,3 +3634,21 @@ failures. Confirms the gated/clean native-mirror pattern ([[reference_gated_fall
 scales across directed operators. Remaining directed-operator residuals: intersection(Di) 0.77x
 (set-based Python, no native to mirror), union(Di) 0.88x. Artifact:
 tests/artifacts/perf/20260622T-native-digraph-disjoint-union-cc/.
+
+### Note (cc): MultiDiGraph disjoint_union/compose native REVERTED — blocked by a source construction-key divergence
+
+Attempted `PyMultiDiGraph::_native_disjoint_union` (keyed mirror; multi operators are 0.57-0.79x:
+disjoint_union(MDG) 0.57x, compose(MDG) 0.58x, disjoint_union(MG) 0.63x, compose(MG) 0.74x).
+nx.disjoint_union PRESERVES multigraph keys (verified: explicit keys 1,3,7 -> 1,3,7; default
+0,1,0 -> 0,1,0), so a key-preserving native is the correct semantics, AND it passed 6 hand
+parity cases. BUT it FAILED test_graph_operator_batches_match_networkx_without_fallback
+[MultiDiGraph-MultiDiGraph]: the test's FNX-built right MultiDiGraph carries DIFFERENT edge
+keys than the nx-built one on some construction path (fnx gave 1,3 where nx gave 0,1). The
+key-preserving native faithfully propagates fnx's divergent source keys -> output != nx; the
+OLD Python disjoint_union path MASKS it (it re-keys to 0,1.. matching nx). Renumbering instead
+breaks the key-identical case (nx preserves). So neither preserve nor renumber cleanly matches —
+the real blocker is a PRE-EXISTING fnx MultiDiGraph construction key divergence (NOT
+add_edges_from((u,v)) — that matches nx 0,1,0; some other path in _operator_graph_pair). REVERTED
+the MDG native (kept the Python path, which is green). The simple-DiGraph compose + disjoint_union
+natives (br-r37-c1-composedir/djudir) are unaffected and shipped. FOLLOW-UP: find + fix the
+MultiDiGraph construction key divergence, THEN the keyed-native operators unblock.
