@@ -3401,3 +3401,19 @@ a single batched add_edges_from, so 0.72x is the byte-exact FLOOR for BA. NOT a 
 candidate; do not attempt. dual_barabasi_albert (0.83x) is the same set-based pattern.
 Net: NO remaining generator gap is native-accelerable; the only non-parity-blocked
 residuals are the node/path-object materialization substrate (persistent-node-mirror rewrite).
+
+## 2026-06-22 CopperCliff `havel_hakimi_graph` batch construction — 0.46x -> 1.2x (`br-r37-c1-hhbatch`, cc)
+
+Found via the misc-class sweep (degree-sequence generators). `havel_hakimi_graph` was a
+consistent 0.46x vs nx (13.9ms vs 6.4ms @ n=2000, scaling). Root cause: the Havel-Hakimi
+realization emitted edges via a per-edge `graph.add_edge(source, target)` loop — the PyO3
+round-trip per edge dominated. The degree_buckets/modified/active bookkeeping never reads
+graph state (the graph is pure output), so this is the classic batch-construction lever
+([[reference_batch_add_edges_from_construction]]): collect every (source, target) and commit
+through ONE `add_edges_from`. Same emission order -> byte-identical adjacency.
+
+Result: 0.46x -> **1.19-1.21x** faster than nx (2.6x self-speedup). Byte-exact: 23 checks
+(6 seeds x 3 sizes + 5 edge cases incl. [0]/[0,0,0]/[1,1]/[2,2,2]/[]), nodes + edges-in-order
++ adjacency. Full suite: zero new failures. Artifact:
+tests/artifacts/perf/20260622T-havel-hakimi-batch-cc/. LEVER STILL LIVE: grep remaining
+construction/generator fns for per-edge add_edge loops with no mid-loop graph reads.

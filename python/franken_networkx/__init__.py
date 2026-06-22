@@ -30356,6 +30356,12 @@ def havel_hakimi_graph(deg_sequence, create_using=None):
         return graph
 
     modified = [(0, 0)] * (dmax + 1)
+    # br-r37-c1-hhbatch (cc): the HH realization only EMITS edges (the
+    # degree_buckets / modified / active bookkeeping never reads graph state),
+    # so collect every (source, target) and commit through ONE add_edges_from
+    # instead of the per-edge add_edge PyO3 round-trip that dominated
+    # (~0.46x vs nx). Same emission order -> byte-identical adjacency.
+    new_edges = []
     while active > 0:
         while not degree_buckets[dmax]:
             dmax -= 1
@@ -30370,7 +30376,7 @@ def havel_hakimi_graph(deg_sequence, create_using=None):
             while not degree_buckets[k]:
                 k -= 1
             target = degree_buckets[k].pop()
-            graph.add_edge(source, target)
+            new_edges.append((source, target))
             active -= 1
             if k > 1:
                 modified[modified_len] = (k - 1, target)
@@ -30381,6 +30387,7 @@ def havel_hakimi_graph(deg_sequence, create_using=None):
             degree_buckets[stub_value].append(stub_target)
             active += 1
 
+    graph.add_edges_from(new_edges)
     return graph
 
 
