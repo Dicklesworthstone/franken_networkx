@@ -3234,3 +3234,16 @@ match nx, 20/20 parity incl. BFS-discovery key order + source self-path). Perf
 pre-existing origin failures). Other small-input residuals are sub-microsecond PyO3
 call overhead (neighbors(v) 0.35x @ 0.8us, degree(v) 0.46x @ 0.8us, common_neighbors
 0.72x @ 1.2us) — fundamental per-call round-trip cost, negligible absolute, no ROI.
+
+### Residual (same pass, cc): directed `single_target_shortest_path` ~0.66x — kernel-bound, NOT a wrapper fix
+
+While fixing `shortest_path(G, source)`, the symmetric `shortest_path(G, target=t)` on
+a DIRECTED graph measured ~0.66x (1.47ms vs nx 1.09ms @ n=2000). Unlike the source
+case, this is NOT wrapper waste: the underlying `single_target_shortest_path` (already
+native `_raw_single_target_shortest_path`, reverse/predecessor integer-BFS) is itself
+0.66x (1.084ms vs nx 0.713ms). Routing the wrapper would only reach the kernel's 0.66x,
+not beat nx — so NOT shipped. The bottleneck is the per-node Python path-list
+reconstruction (materializing ~|V| node-object lists from the Rust string table), the
+same node-object materialization substrate that bounds the degree-view dicts. The
+UNDIRECTED target case is 0.95x (parity). Candidate for future native work (emit path
+segments / reuse a node-object cache), not a one-pass wrapper lever.
