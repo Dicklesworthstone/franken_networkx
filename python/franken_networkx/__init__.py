@@ -21919,10 +21919,16 @@ def _normalize_pagerank_vector(vector, nodes, *, zero_sum="raise"):
     return {node: filtered.get(node, 0) / total for node in nodes}
 
 
-def _pagerank_outgoing_weights(G, node, weight):
-    if G.is_multigraph():
+def _pagerank_outgoing_weights(succ_row, weight, is_multigraph):
+    # br-prcallable: takes a pre-fetched successor row (from a single adjacency
+    # snapshot) instead of indexing ``G.succ[node]`` per call. The old form was
+    # invoked once per node in the pagerank weight loop, and each ``G.succ[node]``
+    # rebuilt the FULL native adjacency dict (``_native_adjacency_dict``) just to
+    # read one row — O(N) per node, O(N^2) overall (callable-weight pagerank was
+    # ~497ms / 0.00x vs nx at N=600). The caller now snapshots the adjacency ONCE.
+    if is_multigraph:
         neighbor_weights = {}
-        for nbr, keyed_attrs in G.succ[node].items():
+        for nbr, keyed_attrs in succ_row.items():
             neighbor_weights[nbr] = _math.fsum(
                 1.0 if weight is None else attrs.get(weight, 1)
                 for attrs in keyed_attrs.values()
@@ -22420,8 +22426,15 @@ def pagerank(
 
     transition_weights = {}
     dangling_nodes = []
+    # br-prcallable: snapshot the out-adjacency ONCE (single native bulk build)
+    # instead of indexing ``directed_graph.succ[node]`` per node — the latter
+    # rebuilt the whole adjacency dict on every access (O(N^2)).
+    _succ_snapshot = dict(directed_graph.adjacency())
+    _is_multi = directed_graph.is_multigraph()
     for node in nodes:
-        neighbor_weights = _pagerank_outgoing_weights(directed_graph, node, weight)
+        neighbor_weights = _pagerank_outgoing_weights(
+            _succ_snapshot[node], weight, _is_multi
+        )
         total_weight = _math.fsum(neighbor_weights.values())
         if total_weight == 0:
             transition_weights[node] = None
