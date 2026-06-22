@@ -3742,3 +3742,22 @@ correctness needs display-key merge, and a WIN needs a fast-path-for-the-common-
 case + cheap rare-collision handling (likely a G-display-key HashSet + mirror-only attr update
 on collision, leaving inner as G's since the mirror dominates edges(data)). Deferred — not a
 clean win without that. disjoint_union (all 4 types) + compose(Graph/DiGraph) remain shipped.
+
+### Note (cc): compose(MDG/MG) native DEFINITIVELY BLOCKED — MultiGraph always carries succ/pred (z6uka) display
+
+compose(MDG) v2 (gated on succ/pred AND edge_py_keys empty, fast HashSet collision-merge) is
+byte-CORRECT (7/7 parity incl default-key collisions + partial-attr merge + explicit fallback)
+but 0.52-0.56x = ZERO gain: the gate FALLS BACK for typical graphs. Diagnosis by elimination:
+disjoint_union(MDG) UNGATED runs native at 2.2x; compose(MDG) GATED is ~Python speed -> it never
+fires. edge_py_keys is empty for MDG(gnm) (keys all 0), so it's succ/pred_py_keys that's
+NON-empty. Unlike simple DiGraph(gnm) (where compose(Di) gated on succ/pred and WON 2.25x),
+MultiGraph/MultiDiGraph populate per-cell succ/pred ROW display objects (br-r37-c1-z6uka multi
+adjacency cells) even for plain gnm graphs. compose KEEPS node identity, so it CANNOT discard
+that row display (disjoint_union can — it relabels to fresh ints). Result: the clean-display gate
+never fires for compose(Multi) -> not viable without full per-cell succ/pred maybe_store_row_keys
+handling = the genuinely-deep path. REVERTED.
+
+OPERATOR VEIN STATUS (final): disjoint_union native-DOMINANT all 4 types (Graph/DiGraph/MDG/MG);
+compose native-dominant Graph+DiGraph; compose(Multi) BLOCKED on z6uka succ/pred row display
+(deep). difference/symmetric_difference already native wins. Operator native-mirror vein
+EXHAUSTED of clean wins.
