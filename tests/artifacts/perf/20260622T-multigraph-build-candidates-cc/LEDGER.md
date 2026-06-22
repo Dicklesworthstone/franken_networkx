@@ -23,3 +23,21 @@ gaps need native-kernel work (build) and are recorded here rather than rushed:
 
 Architectural floors (NOT closeable): per-call FFI, Rust->Python view-projection, LAPACK-eigh,
 sorted-adjacency order-sensitivity. See project_perf_convergence_floor_taxonomy memory.
+
+## UPDATE (cc): connectivity on-the-fly integer-CSR is a WASH — needs EAGER integer adjacency
+
+ATTEMPTED + REVERTED: rewrote multigraph_connected_components_borrowed to build a Vec<Vec<usize>>
+integer adjacency (index_of HashMap + neighbors_iter) then integer-BFS. Built in an isolated
+worktree (BlackThrush's concurrent broken digraph.rs WIP — a DegreeKind pyfunction mid-edit —
+poisoned the shared-tree build). Parity 0 (component order byte-exact), but perf UNCHANGED (~0.16x).
+Root cause: MultiGraph is fully String-keyed (adjacency FxIndexMap<String, IndexMap<String,...>>,
+EdgeKey{left:String,right:String} — no integer rows anywhere). Resolving String neighbors -> indices
+(index_of[v]) costs O(E) String hashes — the SAME cost as the String-keyed BFS it replaces, just in
+a separate build pass. So the integer BFS speedup is cancelled by the String->index build.
+
+The ONLY fix that dominates: add EAGER integer adjacency rows to MultiGraph (mirror simple Graph's
+`adj_indices`, maintained by every mutation with the I5 repair pattern) so connectivity reads
+integer rows directly with NO String resolution. That is a substantial fnx-classes change (struct
+field + all-writers maintenance + clone), in the same family as the int-key cached-flag lever — a
+dedicated session, not a loop iteration. Until then MG connected_components/is_connected/
+number_connected_components stay ~0.18x (String-BFS floor).
