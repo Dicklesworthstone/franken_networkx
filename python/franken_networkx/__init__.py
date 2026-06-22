@@ -21716,6 +21716,18 @@ def nodes_with_selfloops(G):
     # br-selfloopnative: native scan -- preserves networkx's node-iteration order
     # (verified) and is much faster than walking the AdjacencyView.
     G = _coerce_arg_to_fnx_graph(G)
+    # br-r37-c1-mgselfloopnodes (cc): nodes_with_selfloops_rust raises on
+    # multigraphs, so MG/MDG fell to the `node in G.adj[node]` generator that
+    # materializes a per-node AdjacencyView (~1175x slower than nx). Route
+    # multigraphs to the native _native_selfloop_nodes scan instead (node-order-
+    # exact, same as selfloop_edges); simple graphs keep nodes_with_selfloops_rust.
+    if G.is_multigraph():
+        nsl = getattr(G, "_native_selfloop_nodes", None)
+        if nsl is not None:
+            try:
+                return iter(nsl())
+            except Exception:
+                pass
     try:
         return iter(_fnx.nodes_with_selfloops_rust(G))
     except Exception:
