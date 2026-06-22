@@ -3972,3 +3972,20 @@ emission `for n in sl_nodes: yield n, G[n]` (one native row materialization per 
 then nbrs[n].items()); a full native self-loop-EDGE kernel (emit (n,n[,key][,attrs]) directly,
 like the edges(nbunch) kernels) would close it, but dense self-loops are atypical.
 Artifact: tests/artifacts/perf/20260622T-selfloop-edges-multi-cc/.
+
+## 2026-06-22 CopperCliff native DiGraph out_edges(nbunch, data=True) — 0.21x -> 0.77x (`br-r37-c1-edgenbnative`, cc)
+
+Completes the out_edges(nbunch) family (data=False shipped at 2.5x). data=True was 0.21x
+(delegated to the EdgeDataView machinery). Added _native_out_edges_nbunch_data (&mut self): succ
+rows (index order == nx), live attr dict via materialize_edge_py_attrs (identity-preserving ==
+G[u][v], verified by mutation check), node-dedup, iterable-gated. Result: 0.21x -> **0.77x**
+(~3.7x self-speedup; materialization-capped — per-edge live-dict clone + tuple build vs nx's
+pre-existing C dicts, so it stays <1x; kept as strictly-better, the catastrophic gap mostly
+closed). Byte-exact: data=True x shapes incl identity, dup-node dedup, single-node fallback,
+error contract. Full suite zero new failures.
+
+CONCLUSION on data=True edge views: ALL are materialization-capped (~0.5-0.8x) — MG edges 0.57x,
+DG out_edges 0.77x. They can't dominate without eager attr-dict mirrors (abandoning the lazy
+design). The shallow DOMINATING vein is exhausted; data=True variants are strictly-better-but-
+capped, and the remaining true gaps are deep-substrate (per-call String key, in_edges pred-order).
+Artifact: tests/artifacts/perf/20260622T-dg-out-edges-nbunch-data-cc/.

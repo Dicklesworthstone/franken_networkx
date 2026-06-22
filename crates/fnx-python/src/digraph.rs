@@ -9873,6 +9873,67 @@ impl PyDiGraph {
         self.edges_nbunch_no_data_impl(py, nbunch, true)
     }
 
+    /// br-r37-c1-edgenbnative (cc): out_edges(nbunch, data=True) — one native pass
+    /// (succ rows + live attr dict via materialize_edge_py_attrs, identity-
+    /// preserving == G[u][v]) vs the EdgeDataView machinery (~0.21x). Gated on
+    /// succ_py_keys empty (row display -> Python fallback). Successors collected as
+    /// owned indices so the &mut materialize call has no live inner borrow.
+    fn _native_out_edges_nbunch_data(
+        &mut self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        if !self.succ_py_keys.is_empty() {
+            return Ok(None);
+        }
+        let py_nodes = self.cached_node_key_vec(py);
+        let names: Vec<String> = self
+            .inner
+            .nodes_ordered()
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
+        let mut out: Vec<PyObject> = Vec::new();
+        // nx dedups repeated nbunch nodes (out_edges([1,1,2]) == out_edges([1,2])).
+        let mut seen_nodes: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        for item in nbunch.try_iter()? {
+            let node = item?;
+            if node.hash().is_err() {
+                let label = node
+                    .str()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "?".to_owned());
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Node {label} in sequence nbunch is not a valid node."
+                )));
+            }
+            let canonical = node_key_to_string(py, &node)?;
+            let Some(idx) = self.inner.get_node_index(&canonical) else {
+                continue;
+            };
+            if !seen_nodes.insert(idx) {
+                continue;
+            }
+            let succ: Vec<usize> = self
+                .inner
+                .successors_indices(idx)
+                .map(<[usize]>::to_vec)
+                .unwrap_or_default();
+            for nbr_idx in succ {
+                let nbr_obj = py_nodes[nbr_idx].clone_ref(py);
+                let attrs = self
+                    .materialize_edge_py_attrs(py, &canonical, &names[nbr_idx])
+                    .into_any();
+                out.push(
+                    PyTuple::new(py, &[node.clone().unbind(), nbr_obj, attrs])?
+                        .into_any()
+                        .unbind(),
+                );
+            }
+        }
+        Ok(Some(out))
+    }
+
     /// br-r37-c1-composedir (cc): native DiGraph compose — directional analog of
     /// PyGraph::_native_compose (which gives undirected compose 1.99x; directed
     /// fell to the Python add_nodes/add_edges replay at ~0.74x). Walks SUCCESSORS

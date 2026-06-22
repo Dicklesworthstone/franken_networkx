@@ -225,6 +225,24 @@ def _digraph_out_edges(self, nbunch=None, data=False, default=None):
                 raise NetworkXError(str(exc))
             if result is not None:
                 return result
+    # br-r37-c1-edgenbnative (cc): out_edges(nbunch, data=True) — native succ rows +
+    # live attr dicts (~0.21x via the EdgeDataView path). iterable nbunch only.
+    if (
+        data is True
+        and type(self) is DiGraph
+        and (
+            isinstance(nbunch, (list, tuple, set, frozenset))
+            or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
+        )
+    ):
+        native = getattr(self, "_native_out_edges_nbunch_data", None)
+        if native is not None:
+            try:
+                result = native(nbunch)
+            except TypeError as exc:
+                raise NetworkXError(str(exc))
+            if result is not None:
+                return result
     return list(self.edges(nbunch=nbunch, data=data, default=default))
 
 

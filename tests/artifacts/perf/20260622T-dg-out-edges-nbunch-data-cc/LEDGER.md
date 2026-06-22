@@ -1,0 +1,2 @@
+# native DiGraph out_edges(nbunch, data=True) (br-r37-c1-edgenbnative, cc)
+0.21x -> 0.77x (~3.7x self-speedup; materialization-capped: live attr dict per edge vs nx existing C dicts). _native_out_edges_nbunch_data (&mut, succ rows index-order + materialize_edge_py_attrs live dicts, identity-preserving, node-dedup, iterable-gated). Byte-exact incl identity + dup + single-node + error contract. Full suite zero new. data=True is the materialization frontier (won't dominate without eager attr dicts).
