@@ -100,6 +100,73 @@ def is_tournament(G, *, backend=None, **backend_kwargs):
     return all((v in succ[u]) ^ (u in succ[v]) for u, v in _combinations(nodes, 2))
 
 
+def tournament_matrix(G, *, backend=None, **backend_kwargs):
+    """Return the sparse tournament matrix for ``G``.
+
+    NetworkX implements this as ``adjacency_matrix(G) - adjacency_matrix(G).T``.
+    On an exact fnx DiGraph that pays the full fnx adjacency exporter path and
+    then performs a sparse subtraction. Build the skew adjacency directly while
+    preserving NetworkX's default ``weight="weight"`` semantics.
+    """
+    _fnx._validate_backend_dispatch_keywords(
+        "tournament_matrix", backend, backend_kwargs
+    )
+    if G.is_multigraph():
+        raise _fnx.NetworkXNotImplemented("not implemented for multigraph type")
+    if not G.is_directed():
+        raise _fnx.NetworkXNotImplemented("not implemented for undirected type")
+    if G.__class__ is not _fnx.DiGraph:
+        return _nx_tournament.tournament_matrix(
+            _fnx._networkx_graph_for_parity(G), backend="networkx"
+        )
+
+    import numpy as _np
+    import scipy.sparse as _sp
+
+    nodes = list(G)
+    index = {node: pos for pos, node in enumerate(nodes)}
+    shape = (len(nodes), len(nodes))
+
+    has_weight = False
+    native_has_edge_attr = getattr(_fnx, "_native_has_edge_attr", None)
+    if native_has_edge_attr is not None:
+        try:
+            has_weight = bool(native_has_edge_attr(G, "weight"))
+        except Exception:
+            has_weight = False
+
+    rows = []
+    cols = []
+    append_row = rows.append
+    append_col = cols.append
+
+    if not has_weight:
+        for u, v in G.edges():
+            ui = index[u]
+            vi = index[v]
+            append_row(ui)
+            append_col(vi)
+            append_row(vi)
+            append_col(ui)
+        data = _np.empty(len(rows), dtype=_np.int64)
+        data[0::2] = 1
+        data[1::2] = -1
+        return _sp.csr_array((data, (rows, cols)), shape=shape)
+
+    data = []
+    append_data = data.append
+    for u, v, weight in G.edges(data="weight", default=1):
+        ui = index[u]
+        vi = index[v]
+        append_row(ui)
+        append_col(vi)
+        append_data(weight)
+        append_row(vi)
+        append_col(ui)
+        append_data(-weight)
+    return _sp.csr_array((data, (rows, cols)), shape=shape)
+
+
 def random_tournament(n, seed=None, *, backend=None, **backend_kwargs):
     """Return a random tournament graph on n nodes.
 

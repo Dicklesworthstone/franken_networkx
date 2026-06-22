@@ -4236,3 +4236,48 @@ Behavior proof:
   miss rather than a missing native primitive.
 - `data="weight"` remains on the old Python path because there is no native attr-key nbunch kernel
   yet; duplicate-nbunch attr-key parity remains a separate pre-existing issue.
+
+## 2026-06-22 BlackThrush tournament_matrix direct CSR build - 3.19x-4.80x self-speedup (`br-r37-c1-92qkv`, cod-a)
+
+Lever: `franken_networkx.tournament.tournament_matrix` still re-exported NetworkX's implementation,
+which computes `adjacency_matrix(G) - adjacency_matrix(G).T`. On an fnx `DiGraph` that sends
+NetworkX through fnx graph views and then pays a sparse subtraction. The new exact-`DiGraph` route
+builds the skew CSR matrix directly in one pass over `G.edges()`, preserving node order, sparse
+matrix type, int64 unweighted dtype, and NetworkX's implicit `weight="weight"` semantics. Non-exact
+directed graph-like inputs keep the NetworkX parity route.
+
+Keep decision: KEEP. This is a contained Python-only route, not a near-zero tweak. The unweighted
+tournament row moves from a clear loss to near-NetworkX, and weighted matrices get a 3.19x self
+speedup while remaining capped by edge-attribute materialization.
+
+Final direct parity/bench probe:
+
+`PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx/legacy_networkx_code /data/projects/franken_networkx/.venv/bin/python`
+with `/data/projects/.rch-targets/franken_networkx-cod-a/release/lib_fnx.so` preloaded as
+`franken_networkx._fnx`.
+
+| workload | old FNX NetworkX-dispatch route | new FNX | NetworkX | self-speedup | ratio vs NetworkX |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| unweighted tournament n=50 | 2.483 ms | 0.745 ms | 0.795 ms | 3.33x | 1.07x |
+| unweighted tournament n=350 | 180.780 ms | 37.654 ms | 36.732 ms | 4.80x | 0.98x |
+| unweighted tournament n=700 | 845.236 ms | 186.495 ms | 169.752 ms | 4.53x | 0.91x |
+| weighted tournament n=350 | 183.900 ms | 57.620 ms | 39.285 ms | 3.19x | 0.68x |
+
+Behavior proof:
+
+- Direct artifact parity: new and old matrices match NetworkX exactly by dense value for all rows
+  above; the focused weighted fixture also preserves sparse class name and dtype.
+- `py_compile python/franken_networkx/tournament.py tests/python/test_tournament_module_parity.py`:
+  passed.
+- `git diff --check`: passed.
+- `cargo fmt -p fnx-python --check`: passed.
+- `cargo check -p fnx-python --features pyo3/abi3-py310`: passed via RCH with
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- `cargo clippy -p fnx-python --features pyo3/abi3-py310 -- -D warnings`: passed via RCH with
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- `ubs python/franken_networkx/tournament.py tests/python/test_tournament_module_parity.py
+  docs/NEGATIVE_EVIDENCE.md .beads/issues.jsonl`: exit 0; remaining warnings are existing
+  tournament test asserts/random and the module's deliberate wildcard re-export.
+- Targeted `pytest` could not run in this checkout because `tests/python/conftest.py` rejected the
+  stale in-tree `python/franken_networkx/_fnx.abi3.so`; the proof used the warm release artifact
+  directly.

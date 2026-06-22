@@ -70,6 +70,28 @@ def test_tournament_predicates_match_networkx(seed):
     )
 
 
+def test_tournament_matrix_weighted_entries_match_networkx():
+    fg = fnx.DiGraph()
+    ng = nx.DiGraph()
+    edges = [
+        ("a", "b", {"weight": 2}),
+        ("c", "a", {"weight": 5}),
+        ("b", "c", {"weight": 7}),
+    ]
+    fg.add_edges_from(edges)
+    ng.add_edges_from(edges)
+
+    fnx_matrix = fnx_tournament.tournament_matrix(fg)
+    nx_matrix = nx_tournament.tournament_matrix(ng)
+
+    assert type(fnx_matrix).__name__ == type(nx_matrix).__name__
+    assert fnx_matrix.dtype == nx_matrix.dtype
+    assert np.array_equal(
+        np.asarray(fnx_matrix.todense()),
+        np.asarray(nx_matrix.todense()),
+    )
+
+
 @pytest.mark.parametrize("seed", range(50))
 def test_hamiltonian_path_matches_networkx(seed):
     fg, n = _build_tournament(seed, fnx)
