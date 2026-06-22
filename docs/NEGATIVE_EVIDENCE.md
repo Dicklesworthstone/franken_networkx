@@ -4689,6 +4689,14 @@ Final after timing, fresh graph per mode, same graph shape and artifact:
 | `MultiGraph.selfloop_edges(keys=True, data=True)` | 2.021 ms | 2.678 ms | 0.585 ms | 0.607 ms | 0.29x | 0.23x | true |
 | `MultiGraph.selfloop_edges(keys=True, data="weight")` | 1.892 ms | 1.921 ms | 0.675 ms | 0.709 ms | 0.36x | 0.37x | true |
 
+Post-rebase sanity probe after rebasing onto `f7dcd8f69` and rebuilding the
+release artifact with the same `cod-a` target directory:
+
+| workload | FNX min | FNX median | NetworkX min | NetworkX median | ratio min | ratio median | parity |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `MultiGraph.selfloop_edges(keys=True, data=True)` | 1.651 ms | 2.131 ms | 0.468 ms | 0.541 ms | 0.28x | 0.25x | true |
+| `MultiGraph.selfloop_edges(keys=True, data="weight")` | 1.472 ms | 2.158 ms | 0.491 ms | 0.531 ms | 0.33x | 0.25x | true |
+
 Behavior proof:
 
 - Direct artifact parity passed for full-list `MultiGraph` string-key
