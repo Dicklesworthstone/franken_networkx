@@ -3652,3 +3652,21 @@ add_edges_from((u,v)) — that matches nx 0,1,0; some other path in _operator_gr
 the MDG native (kept the Python path, which is green). The simple-DiGraph compose + disjoint_union
 natives (br-r37-c1-composedir/djudir) are unaffected and shipped. FOLLOW-UP: find + fix the
 MultiDiGraph construction key divergence, THEN the keyed-native operators unblock.
+
+### Note (cc): MDG disjoint_union native — CORRECTED diagnosis: display-key mirror, gate-too-strict (not viable)
+
+Refines the prior note. The MultiDiGraph blocker is NOT a construction bug: explicit-key
+construction + the Python disjoint_union are byte-correct, and nx PRESERVES keys. The real
+issue is that the inner integer edge key != the Python DISPLAY key for explicit/non-default
+keys (stored in a separate `edge_py_keys` mirror), and typical graphs (range-built -> lazy-int
+display) ALSO carry `succ_py_keys`/`pred_py_keys` mirrors. So:
+- UNGATED native (use inner keys) -> diverges on explicit-key graphs (the operator-parity test:
+  inner 0,1 vs display 1,3).
+- GATED native (require edge_py_keys/succ/pred empty) -> NEVER fires for typical lazy-int
+  graphs (their display mirrors are non-empty) -> 0.55x, ZERO real-world gain.
+Both dead ends -> REVERTED (verified green). The keyed-multi operators (disjoint_union/compose
+for MG/MDG, 0.57-0.79x) require FULL display-mirror native handling (per-key py_edge_key +
+per-cell succ/pred row-store) — the intricate path the gated/clean approach sidesteps, so they
+are genuinely deep-substrate (unlike the simple-DiGraph compose/disjoint_union, which shipped
+because Graph/DiGraph display is single-table + the relabel discards source display). The
+simple-DiGraph natives stand. Multi keyed operators: deferred to the display-mirror substrate work.
