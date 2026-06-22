@@ -2599,6 +2599,49 @@ impl PyMultiGraph {
         }
     }
 
+    fn edge_data_value_or_default(
+        &mut self,
+        py: Python<'_>,
+        u: &str,
+        v: &str,
+        key: usize,
+        data: &Bound<'_, PyAny>,
+        default_obj: &PyObject,
+    ) -> PyResult<PyObject> {
+        let ek = Self::edge_key(u, v, key);
+        if let Some(attrs) = self.edge_py_attrs.get(&ek) {
+            return Ok(attrs
+                .bind(py)
+                .get_item(data)
+                .ok()
+                .flatten()
+                .map_or_else(|| default_obj.clone_ref(py), |value| value.unbind()));
+        }
+
+        if let Ok(attr_name) = data.downcast::<PyString>() {
+            let attr_name = attr_name.to_str()?;
+            if let Some(value) = self
+                .inner
+                .edge_attrs(u, v, key)
+                .and_then(|attrs| attrs.get(attr_name))
+                .cloned()
+            {
+                if matches!(value, CgseValue::Map(_)) {
+                    let attrs = self.ensure_edge_py_attrs(py, u, v, key);
+                    return Ok(attrs
+                        .bind(py)
+                        .get_item(data)
+                        .ok()
+                        .flatten()
+                        .map_or_else(|| default_obj.clone_ref(py), |value| value.unbind()));
+                }
+                return cgse_value_to_py(py, &value);
+            }
+        }
+
+        Ok(default_obj.clone_ref(py))
+    }
+
     fn neighbor_dict(
         &mut self,
         py: Python<'_>,
@@ -5165,34 +5208,64 @@ impl PyMultiGraph {
             let edge_keys = self.inner.edge_keys(node, node).unwrap_or_default();
             let py_node = self.py_node_key(py, node);
             for key in edge_keys {
-                let mut elems: Vec<PyObject> = Vec::with_capacity(4);
-                elems.push(py_node.clone_ref(py));
-                elems.push(py_node.clone_ref(py));
-                if keys {
-                    let key_obj = if self.edge_py_keys.is_empty() {
+                let py_source = py_node.clone_ref(py);
+                let py_target = py_node.clone_ref(py);
+                let key_obj = if keys {
+                    Some(if self.edge_py_keys.is_empty() {
                         unwrap_infallible(key.into_pyobject(py)).into_any().unbind()
                     } else {
                         self.py_edge_key(py, node, node, key)
-                    };
-                    elems.push(key_obj);
-                }
+                    })
+                } else {
+                    None
+                };
                 if want_dict {
                     let attrs = self
                         .ensure_edge_py_attrs(py, node, node, key)
                         .clone_ref(py)
                         .into_any();
-                    elems.push(attrs);
+                    if let Some(key_obj) = key_obj {
+                        out.push(
+                            PyTuple::new(py, &[py_source, py_target, key_obj, attrs])?
+                                .into_any()
+                                .unbind(),
+                        );
+                    } else {
+                        out.push(
+                            PyTuple::new(py, &[py_source, py_target, attrs])?
+                                .into_any()
+                                .unbind(),
+                        );
+                    }
                 } else if want_value {
-                    let val = self
-                        .ensure_edge_py_attrs(py, node, node, key)
-                        .bind(py)
-                        .get_item(data)
-                        .ok()
-                        .flatten()
-                        .map_or_else(|| default_obj.clone_ref(py), |value| value.unbind());
-                    elems.push(val);
+                    let val =
+                        self.edge_data_value_or_default(py, node, node, key, data, &default_obj)?;
+                    if let Some(key_obj) = key_obj {
+                        out.push(
+                            PyTuple::new(py, &[py_source, py_target, key_obj, val])?
+                                .into_any()
+                                .unbind(),
+                        );
+                    } else {
+                        out.push(
+                            PyTuple::new(py, &[py_source, py_target, val])?
+                                .into_any()
+                                .unbind(),
+                        );
+                    }
+                } else if let Some(key_obj) = key_obj {
+                    out.push(
+                        PyTuple::new(py, &[py_source, py_target, key_obj])?
+                            .into_any()
+                            .unbind(),
+                    );
+                } else {
+                    out.push(
+                        PyTuple::new(py, &[py_source, py_target])?
+                            .into_any()
+                            .unbind(),
+                    );
                 }
-                out.push(PyTuple::new(py, &elems)?.into_any().unbind());
             }
         }
         Py::new(py, NodeIterator::unguarded(out))

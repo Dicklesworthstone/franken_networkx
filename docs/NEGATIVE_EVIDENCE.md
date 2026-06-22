@@ -4376,6 +4376,55 @@ Notes:
   `keys+data="weight"`, missing-default modes, live attr-dict mutation before attr-key reads, and
   nested dict payload values.
 
+## 2026-06-22 BlackThrush MultiGraph selfloop_edges scalar attr read - 1.22x-2.56x self-speedup on target modes (`br-r37-c1-0vflm`, cod-a)
+
+Lever: the undirected `MultiGraph.selfloop_edges(data="<attr>")` native emitter still
+materialized a live Python attr dict for every self-loop edge before reading a single scalar
+attribute. The new path mirrors the earlier `MultiDiGraph` scalar helper: if a live Python attr
+dict already exists, read from it; otherwise read string-keyed scalar values directly from the
+Rust `AttrMap`, falling back to dict materialization for nested map payloads. Tuple construction is
+also split by output shape, removing the per-edge temporary `Vec<PyObject>`.
+
+Keep decision: KEEP. This is not near-zero. The largest measured residual,
+`keys=True, data="weight"`, moved from 0.14x/0.21x vs NetworkX to 0.36x/0.36x, and the
+standalone scalar modes improved from 0.39x/0.18x to 0.48x/0.46x. The remaining gap is now mostly
+key-object and Python tuple construction overhead.
+
+Same-machine direct probe, with
+`/data/projects/.rch-targets/franken_networkx-cod-a/release/lib_fnx.so` preloaded as
+`franken_networkx._fnx`:
+
+| workload | mode | before FNX | before NetworkX | before ratio | after FNX | after NetworkX | after ratio | self-speedup |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| MultiGraph dense self-loops n=2400 parallel=2 int keys | pairs | 0.657 ms | 0.531 ms | 0.81x | 0.592 ms | 0.440 ms | 0.74x | 1.11x |
+| MultiGraph dense self-loops n=2400 parallel=2 int keys | keys | 1.298 ms | 0.363 ms | 0.28x | 1.038 ms | 0.376 ms | 0.36x | 1.25x |
+| MultiGraph dense self-loops n=2400 parallel=2 int keys | data=True | 1.274 ms | 0.450 ms | 0.35x | 1.257 ms | 0.565 ms | 0.45x | 1.01x |
+| MultiGraph dense self-loops n=2400 parallel=2 int keys | keys+data=True | 1.988 ms | 0.474 ms | 0.24x | 1.642 ms | 0.479 ms | 0.29x | 1.21x |
+| MultiGraph dense self-loops n=2400 parallel=2 int keys | data="weight" | 1.344 ms | 0.521 ms | 0.39x | 1.101 ms | 0.525 ms | 0.48x | 1.22x |
+| MultiGraph dense self-loops n=2400 parallel=2 int keys | keys+data="weight" | 3.943 ms | 0.567 ms | 0.14x | 1.569 ms | 0.558 ms | 0.36x | 2.51x |
+| MultiGraph dense self-loops n=2400 parallel=2 string keys | pairs | 0.854 ms | 0.606 ms | 0.71x | 0.757 ms | 0.553 ms | 0.73x | 1.13x |
+| MultiGraph dense self-loops n=2400 parallel=2 string keys | keys | 1.495 ms | 0.482 ms | 0.32x | 1.061 ms | 0.482 ms | 0.45x | 1.41x |
+| MultiGraph dense self-loops n=2400 parallel=2 string keys | data=True | 1.364 ms | 0.473 ms | 0.35x | 1.240 ms | 0.568 ms | 0.46x | 1.10x |
+| MultiGraph dense self-loops n=2400 parallel=2 string keys | keys+data=True | 3.125 ms | 0.867 ms | 0.28x | 1.665 ms | 0.513 ms | 0.31x | 1.88x |
+| MultiGraph dense self-loops n=2400 parallel=2 string keys | data="weight" | 2.893 ms | 0.534 ms | 0.18x | 1.130 ms | 0.523 ms | 0.46x | 2.56x |
+| MultiGraph dense self-loops n=2400 parallel=2 string keys | keys+data="weight" | 2.705 ms | 0.577 ms | 0.21x | 1.576 ms | 0.567 ms | 0.36x | 1.72x |
+
+Behavior proof:
+
+- Direct artifact parity passed for public `fnx.selfloop_edges` against NetworkX on MultiGraph
+  int-key and string-key self-loop workloads across pairs/keys/data/keys_data/weight/keys_weight.
+- Focused direct probe passed for missing-default scalar attrs, nested-map payload values, and
+  live attr-dict mutation before scalar attr reads.
+- `cargo build -p fnx-python --release --features pyo3/abi3-py310`: passed via RCH on `ovh-a`.
+- `cargo check -p fnx-python --features pyo3/abi3-py310`: passed locally after an RCH worker
+  killed the first check attempt before completion.
+- `cargo clippy -p fnx-python --features pyo3/abi3-py310 --all-targets -- -D warnings`: passed.
+- `cargo test -p fnx-python --features pyo3/abi3-py310`: 27 passed, 0 failed.
+- `cargo fmt -p fnx-python --check`: passed.
+- `ubs --only=rust crates/fnx-python/src/lib.rs`: exit 0; warnings are pre-existing broad-file
+  inventory and no critical issues were reported.
+- `git diff --check`: passed.
+
 ## 2026-06-22 BlackThrush MultiGraph default-order CSR byte export - 1.22x-1.27x route self-speedup (`br-r37-c1-wggkz`, cod-a)
 
 Lever: default-order `MultiGraph.to_scipy_sparse_array(..., format="csr", dtype=None,
