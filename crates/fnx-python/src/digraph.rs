@@ -4038,6 +4038,63 @@ impl PyMultiDiGraph {
         Ok(Some(out))
     }
 
+    /// br-r37-c1-mdgoutedge (cc): MultiDiGraph out_edges(nbunch, data=True). Emits
+    /// (u, v[, key], live_attr_dict). successors/edge_keys collected as owned so the
+    /// &mut ensure_edge_py_attrs (identity-preserving live dict) has no live inner
+    /// borrow. node-deduped, succ_py_keys/edge_py_keys display gate.
+    fn _native_mdg_out_edges_nbunch_data(
+        &mut self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+        keys: bool,
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        if !self.succ_py_keys.is_empty() || (keys && !self.edge_py_keys.is_empty()) {
+            return Ok(None);
+        }
+        let mut out: Vec<PyObject> = Vec::new();
+        let mut seen_nodes: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for item in nbunch.try_iter()? {
+            let node = item?;
+            if node.hash().is_err() {
+                let label = node
+                    .str()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "?".to_owned());
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Node {label} in sequence nbunch is not a valid node."
+                )));
+            }
+            let canonical = node_key_to_string(py, &node)?;
+            let successors: Vec<String> = match self.inner.successors(&canonical) {
+                Some(v) => v.iter().map(|s| (*s).to_owned()).collect(),
+                None => continue,
+            };
+            if !seen_nodes.insert(canonical.clone()) {
+                continue;
+            }
+            for nbr in &successors {
+                let keys_vec: Vec<usize> =
+                    self.inner.edge_keys(&canonical, nbr).unwrap_or_default();
+                for key in keys_vec {
+                    let nbr_obj = self.py_node_key(py, nbr);
+                    let attrs = self
+                        .ensure_edge_py_attrs(py, &canonical, nbr, key)
+                        .clone_ref(py)
+                        .into_any();
+                    if keys {
+                        let key_obj = crate::unwrap_infallible(key.into_pyobject(py))
+                            .into_any()
+                            .unbind();
+                        out.push(tuple_object(py, &[node.clone().unbind(), nbr_obj, key_obj, attrs])?);
+                    } else {
+                        out.push(tuple_object(py, &[node.clone().unbind(), nbr_obj, attrs])?);
+                    }
+                }
+            }
+        }
+        Ok(Some(out))
+    }
+
     /// br-r37-c1-selfloopmulti (cc): self-loop nodes in node order via a rust scan
     /// (replaces selfloop_edges' O(N) per-node has_edge(n,n) PyO3 probe).
     fn _native_selfloop_nodes(&self, py: Python<'_>) -> Vec<PyObject> {
