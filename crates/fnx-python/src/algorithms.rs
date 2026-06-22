@@ -5022,9 +5022,16 @@ pub fn connected_components(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Ve
 /// affect connectivity, so visiting each distinct neighbor once via a node-key
 /// HashSet yields the same components as networkx — at int-CSR-class speed.
 fn multigraph_connected_components_borrowed(mg: &fnx_classes::MultiGraph) -> Vec<Vec<&str>> {
-    use std::collections::{HashSet, VecDeque};
+    use std::collections::VecDeque;
+    // br-r37-c1-mgccfxhash (cc): the prior BFS used std HashSet (SipHash — slow for
+    // short node-key strings) + a fresh Vec<&str> alloc per `mg.neighbors(node)`
+    // call, making this Rust BFS ~5x SLOWER than nx's pure-Python walk. Swap to
+    // rustc_hash::FxHashSet (fast non-crypto hash, already a fnx-python dep) and
+    // `neighbors_iter` (borrowed iterator, no per-node allocation). Same node /
+    // neighbor / discovery order => component order byte-identical to nx.
     let nodes = mg.nodes_ordered();
-    let mut visited: HashSet<&str> = HashSet::with_capacity(nodes.len());
+    let mut visited: rustc_hash::FxHashSet<&str> =
+        rustc_hash::FxHashSet::with_capacity_and_hasher(nodes.len(), Default::default());
     let mut components: Vec<Vec<&str>> = Vec::new();
     for &start in &nodes {
         if !visited.insert(start) {
@@ -5034,7 +5041,7 @@ fn multigraph_connected_components_borrowed(mg: &fnx_classes::MultiGraph) -> Vec
         let mut queue: VecDeque<&str> = VecDeque::new();
         queue.push_back(start);
         while let Some(node) = queue.pop_front() {
-            if let Some(nbrs) = mg.neighbors(node) {
+            if let Some(nbrs) = mg.neighbors_iter(node) {
                 for v in nbrs {
                     if visited.insert(v) {
                         comp.push(v);
