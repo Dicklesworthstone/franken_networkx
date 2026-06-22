@@ -152,3 +152,26 @@ def test_default_laplacian_present_weight_attr_uses_weighted_semantics():
     assert _csr_payload(fnx.laplacian_matrix(fnx_graph)) == _csr_payload(
         nx.laplacian_matrix(nx_graph)
     )
+
+
+@needs_nx
+def test_default_multigraph_csr_parallel_selfloop_and_live_weight_matches_networkx():
+    nx_graph = nx.MultiGraph()
+    fnx_graph = fnx.MultiGraph()
+    for graph in (nx_graph, fnx_graph):
+        graph.add_nodes_from(["a", "b", "c", "z"])
+        graph.add_edge("a", "b", weight=2)
+        graph.add_edge("a", "b", weight=3)
+        graph.add_edge("b", "c")
+        graph.add_edge("c", "c", weight=5)
+        graph.add_edge("a", "a", weight=7)
+
+    nx_graph["a"]["b"][0]["weight"] = 11
+    fnx_graph["a"]["b"][0]["weight"] = 11
+
+    assert _csr_payload(fnx.to_scipy_sparse_array(fnx_graph)) == _csr_payload(
+        nx.to_scipy_sparse_array(nx_graph)
+    )
+    assert _csr_payload(fnx.adjacency_matrix(fnx_graph)) == _csr_payload(
+        nx.adjacency_matrix(nx_graph)
+    )

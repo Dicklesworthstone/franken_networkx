@@ -22512,6 +22512,13 @@ except ImportError:  # pragma: no cover — defensive for partial builds
 
 try:
     from franken_networkx._fnx import (
+        adjacency_csr_bytes_multigraph_default_order_live_finite_checked as _native_adjacency_csr_bytes_multigraph_default_order_live_checked,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_adjacency_csr_bytes_multigraph_default_order_live_checked = None
+
+try:
+    from franken_networkx._fnx import (
         graph_has_nonfinite_edge_weight_multigraph as _native_has_nonfinite_edge_weight_multigraph,
     )
 except ImportError:  # pragma: no cover — defensive for partial builds
@@ -52783,6 +52790,36 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
         raise NetworkXError("Graph has no nodes or edges")
 
     default_nodelist = nodelist is None
+    if (
+        default_nodelist
+        and _native_adjacency_csr_bytes_multigraph_default_order_live_checked is not None
+        and G.is_multigraph()
+        and isinstance(G, MultiGraph)
+        and not isinstance(G, MultiDiGraph)
+        and isinstance(weight, str)
+        and dtype is None
+        and format == "csr"
+    ):
+        _mg_csr = _native_adjacency_csr_bytes_multigraph_default_order_live_checked(
+            G, weight, 1.0
+        )
+        if _mg_csr is not None:
+            import numpy as _np
+
+            indptr_bytes, indices_bytes, data_bytes, data_is_int = _mg_csr
+            n = len(G)
+            data_dtype = _np.int64 if data_is_int else _np.float64
+            data_arr = _np.frombuffer(data_bytes, dtype=data_dtype)
+            matrix = scipy.sparse.csr_array(
+                (
+                    data_arr,
+                    _np.frombuffer(indices_bytes, dtype=_np.intp),
+                    _np.frombuffer(indptr_bytes, dtype=_np.intp),
+                ),
+                shape=(n, n),
+            )
+            return matrix
+
     if (
         default_nodelist
         and _native_adjacency_csr_bytes_multidigraph_default_order_live_checked is not None

@@ -4375,3 +4375,82 @@ Notes:
   `data=False`, `keys=True`, `data=True`, `keys+data=True`, `data="weight"`,
   `keys+data="weight"`, missing-default modes, live attr-dict mutation before attr-key reads, and
   nested dict payload values.
+
+## 2026-06-22 BlackThrush MultiGraph default-order CSR byte export - 1.22x-1.27x route self-speedup (`br-r37-c1-wggkz`, cod-a)
+
+Lever: default-order `MultiGraph.to_scipy_sparse_array(..., format="csr", dtype=None,
+weight="weight")` still used the multigraph COO helper, then handed SciPy duplicate row/col
+entries and let COO-to-CSR conversion sort and sum them. The new exact-MultiGraph route builds CSR
+rows directly in Rust, mirrors undirected non-self-loops into both row buckets, sums parallel edges
+per row, and hands Python native-endian `intp` / data byte buffers through `numpy.frombuffer`.
+It preserves the existing live-attr behavior: when edge attrs are dirty it reads the live PyDict
+mirror, and it returns to the Python fallback for present nonnumeric or nonfinite weights.
+
+Keep decision: KEEP. The public NetworkX ratio remains noisy because SciPy conversion timing moves
+by several milliseconds on the same machine, but the same-artifact route comparison isolates the
+lever and shows a durable 1.22x-1.27x speedup over the old COO route with byte-identical CSR output.
+No revert.
+
+Direct artifact environment:
+
+`PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 PYTHONPATH=/data/projects/.scratch/franken_networkx-cod-a-boldverify-20260622T1940Z/python:/data/projects/.scratch/franken_networkx-cod-a-boldverify-20260622T1940Z/legacy_networkx_code /data/projects/franken_networkx/.venv/bin/python`
+with `/data/projects/.rch-targets/franken_networkx-cod-a/release/lib_fnx.so` preloaded as
+`franken_networkx._fnx`.
+
+Public baseline before the edit:
+
+| workload | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | ---: | ---: | ---: |
+| MultiGraph random n=2000/m=12000 `to_scipy_sparse_array` | 21.122 ms | 19.452 ms | 0.921x |
+| MultiGraph random n=2000/m=12000 `adjacency_matrix` | 23.975 ms | 21.138 ms | 0.882x |
+| MultiGraph random n=4000/m=24000 `to_scipy_sparse_array` | 50.248 ms | 44.532 ms | 0.886x |
+| MultiGraph random n=4000/m=24000 `adjacency_matrix` | 50.359 ms | 48.940 ms | 0.972x |
+| MultiGraph random n=8000/m=48000 `to_scipy_sparse_array` | 126.141 ms | 112.618 ms | 0.893x |
+| MultiGraph random n=8000/m=48000 `adjacency_matrix` | 135.628 ms | 109.329 ms | 0.806x |
+
+Public after timing:
+
+| workload | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | ---: | ---: | ---: |
+| MultiGraph random n=2000/m=12000 `to_scipy_sparse_array` | 22.855 ms | 21.851 ms | 0.956x |
+| MultiGraph random n=2000/m=12000 `adjacency_matrix` | 22.228 ms | 24.593 ms | 1.106x |
+| MultiGraph random n=4000/m=24000 `to_scipy_sparse_array` | 48.572 ms | 52.783 ms | 1.087x |
+| MultiGraph random n=4000/m=24000 `adjacency_matrix` | 49.676 ms | 49.984 ms | 1.006x |
+| MultiGraph random n=8000/m=48000 `to_scipy_sparse_array` | 130.577 ms | 129.690 ms | 0.993x |
+| MultiGraph random n=8000/m=48000 `adjacency_matrix` | 111.461 ms | 110.062 ms | 0.987x |
+
+Same-artifact old route vs new route, both using the rebuilt extension:
+
+| workload | old COO route median | new CSR bytes route median | public route median | route self-speedup |
+| --- | ---: | ---: | ---: | ---: |
+| MultiGraph random n=2000/m=12000 | 27.319 ms | 22.260 ms | 18.699 ms | 1.227x |
+| MultiGraph random n=4000/m=24000 | 61.688 ms | 48.599 ms | 50.300 ms | 1.269x |
+| MultiGraph random n=8000/m=48000 | 136.389 ms | 112.100 ms | 115.410 ms | 1.217x |
+
+Behavior proof:
+
+- Direct artifact parity: old COO route, new CSR bytes route, public
+  `to_scipy_sparse_array`, and NetworkX all produced identical sparse matrices for the random
+  MultiGraph benchmark rows above.
+- Added `test_default_multigraph_csr_parallel_selfloop_and_live_weight_matches_networkx`, covering
+  parallel edges, self-loops, missing weights, isolates, and post-creation live attr mutation.
+- Preloaded-extension pytest:
+  `tests/python/test_to_scipy_sparse_default_native_parity.py`: 8 passed.
+- Plain pytest collection from the source tree still cannot import `_fnx` because no in-tree
+  extension module exists; the test run preloaded the rebuilt release artifact instead.
+- `cargo build -p fnx-python --release --features pyo3/abi3-py310`: passed via RCH with
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- `cargo check -p fnx-python --features pyo3/abi3-py310`: passed via RCH with the same target dir.
+- `cargo clippy -p fnx-python --features pyo3/abi3-py310 --all-targets -- -D warnings`: passed
+  via RCH with the same target dir.
+- `cargo fmt -p fnx-python --check`: passed.
+- `cargo test -p fnx-python --features pyo3/abi3-py310`: passed locally with the same target dir
+  after RCH had no admissible workers; 27 passed, 0 failed.
+- `git diff --check`: passed.
+- `py_compile python/franken_networkx/__init__.py
+  tests/python/test_to_scipy_sparse_default_native_parity.py`: passed.
+- `ubs --only=rust crates/fnx-python/src/readwrite.rs`: exit 0; reports pre-existing broad-file
+  warnings in `readwrite.rs`, no critical findings.
+- `ubs --only=python --skip=7 python/franken_networkx/__init__.py
+  tests/python/test_to_scipy_sparse_default_native_parity.py`: exit 0; reports pre-existing broad
+  wrapper warnings plus normal test `assert` warnings, no critical findings.

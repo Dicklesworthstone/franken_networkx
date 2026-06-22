@@ -2500,6 +2500,96 @@ pub fn adjacency_csr_bytes_multidigraph_default_order_live_finite_checked(
     )))
 }
 
+/// br-r37-c1-wggkz: byte-backed CSR handoff for default-order MultiGraph.
+///
+/// The existing undirected multigraph default-order helper returns COO arrays and
+/// lets SciPy sort/sum duplicates during COO->CSR conversion. The common public
+/// path asks directly for CSR, so this helper resolves live weights once, mirrors
+/// each undirected non-self-loop into both row buckets, sums parallel edges per
+/// row in Rust, and hands Python native-endian buffers for zero-copy NumPy views.
+#[pyfunction]
+pub fn adjacency_csr_bytes_multigraph_default_order_live_finite_checked(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight_attr: &str,
+    default_weight: f64,
+) -> PyResult<Option<(Py<PyByteArray>, Py<PyByteArray>, Py<PyByteArray>, bool)>> {
+    let gr = extract_graph(g)?;
+    let GraphRef::MultiUndirected { mg, .. } = &gr else {
+        return Ok(None);
+    };
+    let inner = &mg.inner;
+    let node_count = inner.node_count();
+    let mut index: std::collections::HashMap<&str, usize> =
+        std::collections::HashMap::with_capacity(node_count);
+    for (row, node) in inner.nodes_ordered().into_iter().enumerate() {
+        index.insert(node, row);
+    }
+
+    let mut rows: Vec<Vec<(usize, f64)>> = vec![Vec::new(); node_count];
+    let use_stored_attrs = !mg.edges_dirty.load(Ordering::Relaxed);
+    for (u, v, key, attrs) in inner.edges_ordered_borrowed() {
+        let Some(&ui) = index.get(u) else { continue };
+        let Some(&vi) = index.get(v) else { continue };
+        let w = if use_stored_attrs {
+            stored_multigraph_weight(attrs, weight_attr, default_weight)
+        } else {
+            let mirror_key = PyMultiGraph::edge_key(u, v, key);
+            live_multigraph_weight(
+                py,
+                mg.edge_py_attrs.get(&mirror_key),
+                attrs,
+                weight_attr,
+                default_weight,
+            )?
+        };
+        let Some(w) = w else {
+            return Ok(None);
+        };
+        rows[ui].push((vi, w));
+        if ui != vi {
+            rows[vi].push((ui, w));
+        }
+    }
+
+    let intp_width = std::mem::size_of::<isize>();
+    let mut indptr: Vec<u8> = Vec::with_capacity((node_count + 1) * intp_width);
+    let mut indices: Vec<u8> = Vec::with_capacity(inner.edge_count() * intp_width * 2);
+    let mut data = CsrDataBytes::with_capacity(inner.edge_count() * 2);
+    let mut emitted = 0usize;
+    append_csr_intp_bytes(&mut indptr, emitted)?;
+    for row in &mut rows {
+        row.sort_unstable_by_key(|(col, _)| *col);
+        let mut iter = row.iter();
+        if let Some((mut current_col, first_weight)) = iter.next().copied() {
+            let mut current_weight = first_weight;
+            for (col, weight) in iter.copied() {
+                if col == current_col {
+                    current_weight += weight;
+                } else {
+                    append_csr_intp_bytes(&mut indices, current_col)?;
+                    data.push(current_weight);
+                    emitted += 1;
+                    current_col = col;
+                    current_weight = weight;
+                }
+            }
+            append_csr_intp_bytes(&mut indices, current_col)?;
+            data.push(current_weight);
+            emitted += 1;
+        }
+        append_csr_intp_bytes(&mut indptr, emitted)?;
+    }
+
+    let (data, data_is_int) = data.into_py_bytearray(py);
+    Ok(Some((
+        PyByteArray::new(py, &indptr).unbind(),
+        PyByteArray::new(py, &indices).unbind(),
+        data,
+        data_is_int,
+    )))
+}
+
 /// br-r37-c1-fb9td: native O(|E|) non-finite-weight scan for MultiGraph /
 /// MultiDiGraph — the multigraph sibling of `graph_has_nonfinite_edge_weight`
 /// (which returns `None` for multigraphs, forcing `pagerank`'s weight-parity
@@ -2934,6 +3024,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     m.add_function(wrap_pyfunction!(
         adjacency_csr_bytes_multidigraph_default_order_live_finite_checked,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        adjacency_csr_bytes_multigraph_default_order_live_finite_checked,
         m
     )?)?;
     m.add_function(wrap_pyfunction!(
