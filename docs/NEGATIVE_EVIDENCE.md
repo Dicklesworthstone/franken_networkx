@@ -3203,3 +3203,16 @@ NEGATIVE EVIDENCE — residual losses are all bounded/marginal, NOT clean levers
 
 Conclusion: the one meaty current-code lever (`MultiDiGraph(DiGraph)` absorb, shipped)
 is exhausted; remaining gaps are substrate-bound or tiny-absolute. No further ship.
+
+### Addendum (same pass, cc): untouched-family sweep — domination holds
+
+Extended the sweep to families not covered above (~29 fns): isomorphism
+(could_be/fast/faster 1.5-6.2x), WL hashing (graph_hash/subgraph_hashes 0.96x =
+parity), graph coloring (greedy_color 9.07x), cliques (find_cliques/node_clique
+1.04x), similarity (simrank 1.11x), efficiency (local 25.3x / global 18.3x),
+triadic_census 17.95x, reciprocity 8.24x / overall 9.03x, bipartite
+(density 7.69x, clustering 2.28x, projected 0.93x), dominance (immediate_dominators
+3.38x, dominance_frontiers 1.68x), closeness_vitality 14.5x, spring_layout 1.01x,
+k_components 0.99x, non_randomness 0.98x, degree_histogram 0.97x. Only sub-0.85x:
+`bipartite.color` 0.80x at sub-100us (small-input, negligible). No new lever —
+confirms the post-MDG-absorb domination across ~120 functions total this pass.
