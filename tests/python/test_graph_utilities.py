@@ -1967,11 +1967,18 @@ def test_digraph_mutation_methods_preserve_networkx_edge_insertion_order():
 )
 def test_directed_graph_classes_expose_in_and_out_edges(fnx_cls, nx_cls):
     graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+    nbunch = ["a", "a", "missing", "b"]
 
     assert list(graph.out_edges()) == list(expected.out_edges())
     assert list(graph.out_edges(["a"], data=True)) == list(expected.out_edges(["a"], data=True))
+    assert list(graph.out_edges(nbunch, data="weight", default="NA")) == list(
+        expected.out_edges(nbunch, data="weight", default="NA")
+    )
     assert list(graph.out_edges(data="weight", default="NA")) == list(
         expected.out_edges(data="weight", default="NA")
+    )
+    assert list(graph.edges(nbunch, data="weight", default="NA")) == list(
+        expected.edges(nbunch, data="weight", default="NA")
     )
 
     assert list(graph.in_edges()) == list(expected.in_edges())
@@ -2074,6 +2081,9 @@ def test_digraph_edges_nbunch_reuses_out_edge_semantics():
 
     assert list(graph.edges(nbunch)) == list(expected.edges(nbunch))
     assert list(graph.edges(nbunch, data=True)) == list(expected.edges(nbunch, data=True))
+    assert list(graph.edges(nbunch, data="weight", default="NA")) == list(
+        expected.edges(nbunch, data="weight", default="NA")
+    )
     assert type(graph.edges(nbunch, data=True)).__name__ == type(
         expected.edges(nbunch, data=True)
     ).__name__

@@ -243,6 +243,23 @@ def _digraph_out_edges(self, nbunch=None, data=False, default=None):
                 raise NetworkXError(str(exc))
             if result is not None:
                 return result
+    if (
+        data is not False
+        and data is not True
+        and type(self) is DiGraph
+        and (
+            isinstance(nbunch, (list, tuple, set, frozenset))
+            or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
+        )
+    ):
+        native = getattr(self, "_native_out_edges_nbunch_data", None)
+        if native is not None:
+            try:
+                result = native(nbunch)
+            except TypeError as exc:
+                raise NetworkXError(str(exc))
+            if result is not None:
+                return [(u, v, attrs.get(data, default)) for u, v, attrs in result]
     return list(self.edges(nbunch=nbunch, data=data, default=default))
 
 
@@ -318,6 +335,24 @@ def _multidigraph_out_edges(self, nbunch=None, data=False, keys=False, default=N
                 raise NetworkXError(str(exc))
             if result is not None:
                 return result
+    if (
+        data is not False
+        and data is not True
+        and not keys
+        and type(self) is MultiDiGraph
+        and (
+            isinstance(nbunch, (list, tuple, set, frozenset))
+            or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
+        )
+    ):
+        native = getattr(self, "_native_mdg_out_edges_nbunch_data", None)
+        if native is not None:
+            try:
+                result = native(nbunch, False)
+            except TypeError as exc:
+                raise NetworkXError(str(exc))
+            if result is not None:
+                return [(u, v, attrs.get(data, default)) for u, v, attrs in result]
     return list(self.edges(nbunch=nbunch, data=data, keys=keys, default=default))
 
 
@@ -1879,6 +1914,28 @@ class _DiGraphEdgeView:
                         self._graph,
                         guard_edge_count=True,
                     )
+        if (
+            type(self._graph) is DiGraph
+            and iterable_nbunch
+            and data is not False
+            and data is not True
+        ):
+            native = getattr(self._graph, "_native_out_edges_nbunch_data", None)
+            if native is not None:
+                try:
+                    native_result = native(nbunch)
+                except TypeError as exc:
+                    raise NetworkXError(str(exc))
+                if native_result is not None:
+                    result = [
+                        (u, v, attrs.get(data, default))
+                        for u, v, attrs in native_result
+                    ]
+                    return _guarded_edge_list(
+                        _wrap_edge_data_view(result, _OutEdgeDataView),
+                        self._graph,
+                        guard_edge_count=True,
+                    )
         result = []
         for source in self._graph.nbunch_iter(nbunch):
             for target, attrs in self._graph.succ[source].items():
@@ -2536,6 +2593,23 @@ class _MultiDiGraphEdgeView:
                             guard_edge_count=True,
                         )
                     return _guarded_edge_list(nres, self._graph, guard_edge_count=True)
+        if _it_nb and data is not False and data is not True and not keys:
+            native = getattr(self._graph, "_native_mdg_out_edges_nbunch_data", None)
+            if native is not None:
+                try:
+                    native_res = native(nbunch, False)
+                except TypeError as exc:
+                    raise NetworkXError(str(exc))
+                if native_res is not None:
+                    result = _EdgeListWithSetAlgebra(
+                        (u, v, attrs.get(data, default))
+                        for u, v, attrs in native_res
+                    )
+                    return _guarded_edge_list(
+                        _wrap_edge_data_view(result, _OutMultiEdgeDataView),
+                        self._graph,
+                        guard_edge_count=True,
+                    )
         result = _EdgeListWithSetAlgebra()
         if data is False or data is True or isinstance(data, str):
             native_list = (

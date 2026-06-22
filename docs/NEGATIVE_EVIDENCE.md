@@ -4281,3 +4281,56 @@ Behavior proof:
 - Targeted `pytest` could not run in this checkout because `tests/python/conftest.py` rejected the
   stale in-tree `python/franken_networkx/_fnx.abi3.so`; the proof used the warm release artifact
   directly.
+
+## 2026-06-22 BlackThrush directed nbunch attr-key edge route - 1.19x-1.83x self-speedup (`br-r37-c1-e522x`, cod-a)
+
+Lever: iterable-nbunch directed edge views with `data=<attr>` still walked the attr-key row path
+even though `data=True` already had native out-edge nbunch emitters. Exact `DiGraph` and
+`MultiDiGraph` `keys=False` now reuse the native `data=True` nbunch rows and project
+`attrs.get(key, default)` in Python. The keyed MultiDiGraph variant measured as a regression, so
+it stays on the old route.
+
+Keep decision: KEEP. This is not a zero-gain tweak: it removes a duplicate-nbunch parity bug for
+DiGraph attr-key `edges` / `out_edges`, and the measured public routes are faster on the target
+rows. Some large DiGraph rows remain below NetworkX because the route still materializes live attr
+dicts before extracting one value; the deeper fix would be a native attr-key nbunch emitter.
+
+Direct artifact probe:
+
+`PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx/legacy_networkx_code /data/projects/franken_networkx/.venv/bin/python`
+with `/data/projects/.rch-targets/franken_networkx-cod-a/release/lib_fnx.so` preloaded as
+`franken_networkx._fnx`.
+
+| workload | old route | new FNX | NetworkX | self-speedup | ratio vs NetworkX |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| DiGraph out_edges attr-key, n=1500/m=9000/k=750 | 4.094 ms | 2.274 ms | 1.495 ms | 1.80x | 0.66x |
+| DiGraph edges attr-key, n=1500/m=9000/k=750 | 4.094 ms | 2.647 ms | 1.511 ms | 1.55x | 0.57x |
+| DiGraph out_edges attr-key, n=3500/m=24000/k=1750 | 11.398 ms | 6.780 ms | 4.100 ms | 1.68x | 0.60x |
+| DiGraph edges attr-key, n=3500/m=24000/k=1750 | 11.398 ms | 7.701 ms | 4.268 ms | 1.48x | 0.55x |
+| MultiDiGraph out_edges attr-key, n=1000/m=8000/k=500 | 3.484 ms | 2.939 ms | 2.858 ms | 1.19x | 0.97x |
+| MultiDiGraph out_edges attr-key, n=2500/m=20000/k=1250 | 17.543 ms | 9.594 ms | 9.592 ms | 1.83x | 1.00x |
+| MultiDiGraph edges attr-key, n=2500/m=20000/k=1250 | 17.543 ms | 10.344 ms | 16.861 ms | 1.70x | 1.63x |
+
+Behavior proof:
+
+- Direct artifact parity: DiGraph `edges` / `out_edges` with duplicate nbunch nodes and missing
+  nodes now match NetworkX for `data="weight", default=-1`; the old DiGraph route repeated edges
+  for duplicate nbunch nodes.
+- Direct artifact parity: MultiDiGraph `edges` / `out_edges` with `keys=False` attr-key nbunch
+  match NetworkX; `keys=True` parity was checked and intentionally left on the old route because
+  the native-projection candidate regressed.
+- `py_compile python/franken_networkx/__init__.py tests/python/test_graph_utilities.py`: passed.
+- `git diff --check`: passed.
+- `cargo fmt -p fnx-python --check`: passed.
+- `cargo check -p fnx-python --features pyo3/abi3-py310`: passed via RCH with
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- `cargo clippy -p fnx-python --features pyo3/abi3-py310 -- -D warnings`: passed via RCH with
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- `ubs --only=python --skip=7 python/franken_networkx/__init__.py`: exit 0; remaining warnings
+  are pre-existing broad-file style/security-noise outside this diff.
+- `ubs --only=python --skip=7 tests/python/test_graph_utilities.py`: exit 0; remaining warnings
+  are pre-existing test-file style noise.
+- Targeted `pytest tests/python/test_graph_utilities.py::test_directed_graph_classes_expose_in_and_out_edges
+  tests/python/test_graph_utilities.py::test_digraph_edges_nbunch_reuses_out_edge_semantics -q`
+  could not collect tests because the checkout stale-extension guard rejected
+  `python/franken_networkx/_fnx.abi3.so`; no in-tree install was attempted in this disk-frugal run.
