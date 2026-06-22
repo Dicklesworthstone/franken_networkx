@@ -20762,11 +20762,14 @@ def cycle_graph(n, create_using=None):
     graph = _classic_graph_from_create_using(create_using)
     _add_nodes_in_order(graph, nodes)
     if nodes:
-        for u, v in _itertools.pairwise(nodes):
-            graph.add_edge(u, v)
-        # Closing edge: nx's pairwise(nodes, cyclic=True) yields the
-        # wrap-around for any nonempty list, including the n=1 self-loop.
-        graph.add_edge(nodes[-1], nodes[0])
+        # br-r37-c1-cycbatch (cc): the create_using path emitted edges via a
+        # per-edge add_edge loop (~0.39x vs nx on a directed C_n); collect the
+        # cyclic pairwise stream + the wrap-around close and commit through ONE
+        # add_edges_from (nx itself uses pairwise(nodes, cyclic=True)). The close
+        # stays LAST (matches nx order; n=1 -> the (0,0) self-loop).
+        edges = list(_itertools.pairwise(nodes))
+        edges.append((nodes[-1], nodes[0]))
+        graph.add_edges_from(edges)
     return graph
 
 
@@ -20791,8 +20794,10 @@ def path_graph(n, create_using=None, *, backend=None, **backend_kwargs):
 
     graph = _classic_graph_from_create_using(create_using)
     _add_nodes_in_order(graph, nodes)
-    for u, v in _itertools.pairwise(nodes):
-        graph.add_edge(u, v)
+    # br-r37-c1-cycbatch (cc): batch the create_using path's pairwise edges
+    # through ONE add_edges_from instead of the per-edge add_edge loop
+    # (~0.38x vs nx on a directed P_n) — byte-identical edge order.
+    graph.add_edges_from(_itertools.pairwise(nodes))
     return graph
 
 

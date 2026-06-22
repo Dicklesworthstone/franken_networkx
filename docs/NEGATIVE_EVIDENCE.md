@@ -3417,3 +3417,19 @@ Result: 0.46x -> **1.19-1.21x** faster than nx (2.6x self-speedup). Byte-exact: 
 + adjacency. Full suite: zero new failures. Artifact:
 tests/artifacts/perf/20260622T-havel-hakimi-batch-cc/. LEVER STILL LIVE: grep remaining
 construction/generator fns for per-edge add_edge loops with no mid-loop graph reads.
+
+## 2026-06-22 CopperCliff `cycle_graph`/`path_graph` create_using batch — 0.39x -> 0.78x (partial, substrate-floored) (`br-r37-c1-cycbatch`, cc)
+
+The default (int) cycle_graph/path_graph hit native kernels (1.8-2.0x). But the
+`create_using=` path (e.g. directed/multi C_n / P_n) emitted edges via a per-edge
+`graph.add_edge(u,v)` loop -> 0.38-0.48x vs nx. Batched both into a single add_edges_from
+(cyclic pairwise + LAST wrap-around close for cycle; pairwise for path) — same
+batch-construction lever as havel_hakimi. Byte-exact: 48 checks (4 create_using types x 6
+sizes x 2 generators incl. n=0/1/2). 2548 generator tests pass.
+
+PARTIAL win: 0.38-0.39x -> 0.78-0.80x (2x self-speedup) but does NOT dominate — the residual
+is the directed/multi `add_edges_from` insertion substrate (same ~0.73-0.80x floor as the
+already-batched star_graph(DiGraph)), not per-edge-loop waste. Shipped anyway: removing the
+per-edge PyO3 round-trip is strictly correct + halves the gap; the residual is the documented
+directed-construction substrate (needs the node-keying/int-CSR substrate work, not a wrapper
+change). NOT ~0-gain (2x self-speedup).
