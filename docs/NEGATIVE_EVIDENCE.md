@@ -3505,3 +3505,23 @@ Result: DiGraph(dod) -> 0.99-1.04x (~500x self-speedup, 911ms->1.85ms @ n=800), 
 -> 1.20x. Byte-exact: 11 checks (attrs / dict-of-list-fallback / str keys / self-loops /
 isolated / asymmetric undirected last-wins / empty). Full suite zero new failures. Artifact:
 tests/artifacts/perf/20260622T-digraph-dod-constructor-on2-cc/.
+
+## 2026-06-22 CopperCliff `from_pandas_edgelist(DiGraph)` O(N^2) -> 1.7x (`br-r37-c1-pandasdir`, cc)
+
+THIRD directed-O(N^2) disaster of the converter family (siblings: br-r37-c1-doddir
+from_dict_of_dicts, br-r37-c1-decodedir DiGraph(dod) constructor). `from_pandas_edgelist`
+batches for `type(graph) is Graph` but DiGraph fell to the per-row else loop
+`add_edge + graph[source][target].update(...)` — directed adjacency-view __getitem__ per row
+= O(N^2): 220ms/962ms @ n=400/800 (0.009x/0.004x vs nx, ~250-430x slower).
+
+FIX: extend the batch gate to `type(graph) in (Graph, DiGraph)`. The existing batch
+(add_edges_from of (s, t, dict(zip(headings, attrs))) triples) is identical for directed
+(no symmetric dedup; duplicate (s,t) rows merge later-wins exactly like the repeated update).
+Result: 0.004x -> **1.67-1.75x** (962ms->2.47ms @ n=800, ~390x self-speedup). Byte-exact:
+8 checks (di/un x multi-attr/single-attr/duplicate-rows-later-wins). 217 pandas tests + full
+suite zero new failures.
+
+PATTERN (3 disasters, now all fixed): converters/constructors with a `type(graph) is Graph`
+batch branch but a DIRECTED fall-through to a per-edge `graph[u][v].update` loop are O(N^2)
+(directed adjacency-view __getitem__ per edge). Audited the family; compose(Di) 0.62-0.70x
+is a separate LINEAR _copy_attrs_into per-edge tax (not O(N^2)).

@@ -51910,11 +51910,16 @@ def from_pandas_edgelist(
             else:
                 actual_key = graph.add_edge(source_node, target_node)
                 graph[source_node][target_node][actual_key].update(zip(attr_col_headings, attrs))
-    elif type(graph) is Graph:
+    elif type(graph) in (Graph, DiGraph):
         # br-r37-c1-nodebatch/pandas: batch the whole attributed edge set
         # through add_edges_from (the attr edge batch, br-r37-c1-pr8q6) in one
         # bulk insertion instead of per-edge add_edge + adjacency-view
-        # __getitem__ + dict.update (~2.6x nx). Identical semantics: each edge's
+        # __getitem__ + dict.update (~2.6x nx). br-r37-c1-pandasdir (cc): DiGraph
+        # added to the gate — it previously fell to the per-row else loop, whose
+        # directed adjacency-view __getitem__ per row is O(N^2) (962ms @ n=800,
+        # 0.004x vs nx). The batch is identical for directed (no symmetric dedup;
+        # directed rows are unique, duplicate (u,v) rows merge later-wins exactly
+        # like the repeated update). Identical semantics: each edge's
         # data dict is dict(zip(headings, attrs)); duplicate (u, v) rows merge
         # per-key later-wins, exactly as the repeated ``update`` did. Any
         # batch-incompatible attr value (e.g. an exotic numpy scalar) makes
