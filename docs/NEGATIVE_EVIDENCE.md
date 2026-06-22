@@ -3540,3 +3540,15 @@ PARTIAL: 0.62x -> 0.74x. Residual is the directed `add_edges_from` non-fresh sub
 batch path, and directed insertion is the documented substrate). Full domination needs a
 native `_native_compose` for DiGraph (rust). Byte-exact: 5 checks (di/un x node+edge attrs,
 overlapping-node merge). 961 operator tests + full suite zero new failures.
+
+### Note (cc): MultiDiGraph dict-of-dicts 0.42x is keyed-insertion substrate, NOT batchable
+
+After fixing the 3 SIMPLE directed dict-of-dicts O(N^2) disasters, checked the MULTI variants.
+MultiGraph dict-of-dicts is a win (1.1-1.2x). MultiDiGraph from_dict_of_dicts(mi=True) and the
+MultiDiGraph(dod) constructor are 0.42x — but LINEAR (scale x2.0 @ n400->800, NOT O(N^2)) and
+NOT batchable: tested per-edge `_add_json_multiedge` (12.84ms) vs `add_edges_from(4-tuples)`
+nodes-pre-added (12.45ms ~= same) vs fresh-then-nodes (15.6ms, worse). `_add_json_multiedge`
+already uses O(1) get_edge_data (no graph[s][t][k] rebuild). So the 0.42x is the MultiDiGraph
+KEYED-edge insertion substrate (~2.4x nx), the same directed/multi construction floor as
+[[reference_multigraph_attr_batch_construction]] (dual AttrMap + mirror storage). Not a wrapper
+lever — needs the rust keyed-insertion substrate work. NOT shipped (batching is ~0-gain here).
