@@ -5082,6 +5082,92 @@ impl PyMultiGraph {
         Ok(true)
     }
 
+    /// br-r37-c1-mgdju (cc): native MultiGraph disjoint_union — undirected keyed
+    /// analog of PyDiGraph/PyMultiDiGraph::_native_disjoint_union. Relabels both
+    /// parts to fresh int ranges (so source node + adj_py_keys row display are
+    /// discarded — no gating), walks neighbors with symmetric dedup (each
+    /// undirected edge once, via canonical edge_key), PRESERVES each edge's inner
+    /// key + DISPLAY key (edge_py_keys mirror; nx preserves keys) and attrs.
+    fn _native_disjoint_union(&self, py: Python<'_>, other: PyRef<'_, Self>) -> PyResult<Py<Self>> {
+        let mut g = Self::new_empty_with_mode(py, self.inner.mode())?;
+        let merged_graph_attrs = PyDict::new(py);
+        merged_graph_attrs.update(self.graph_attrs.bind(py).as_mapping())?;
+        merged_graph_attrs.update(other.graph_attrs.bind(py).as_mapping())?;
+        g.graph_attrs = merged_graph_attrs.unbind();
+        let n1 = self.inner.node_count();
+        let mut total_edges = 0usize;
+        for (part, offset) in [(self, 0usize), (&*other, n1)] {
+            let nodes: Vec<String> = part
+                .inner
+                .nodes_ordered()
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
+            let index_of: HashMap<&str, usize> = nodes
+                .iter()
+                .enumerate()
+                .map(|(i, n)| (n.as_str(), i + offset))
+                .collect();
+            let mut node_batch: Vec<(String, AttrMap)> = Vec::with_capacity(nodes.len());
+            for (i, node) in nodes.iter().enumerate() {
+                let canonical = (i + offset).to_string();
+                if let Some(attrs) = part.node_py_attrs.get(node) {
+                    g.node_py_attrs
+                        .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
+                }
+                g.node_key_map.insert(
+                    canonical.clone(),
+                    crate::unwrap_infallible((i + offset).into_pyobject(py))
+                        .into_any()
+                        .unbind(),
+                );
+                node_batch.push((
+                    canonical,
+                    part.inner.node_attrs(node).cloned().unwrap_or_default(),
+                ));
+            }
+            let _ = g.inner.extend_nodes_with_attrs_unrecorded(node_batch);
+            let mut edge_batch: Vec<(String, String, usize, AttrMap)> = Vec::new();
+            let mut display: Vec<(String, String, usize, PyObject)> = Vec::new();
+            let mut seen: HashSet<(String, String, usize)> = HashSet::new();
+            for u in &nodes {
+                for v in part.inner.neighbors(u).unwrap_or_default() {
+                    let vk = v.to_owned();
+                    for key in part.inner.edge_keys(u, &vk).unwrap_or_default() {
+                        if !seen.insert(Self::edge_key(u, &vk, key)) {
+                            continue; // each undirected edge once
+                        }
+                        let uc = index_of[u.as_str()].to_string();
+                        let vc = index_of[vk.as_str()].to_string();
+                        let dst_ek = Self::edge_key(&uc, &vc, key);
+                        let src_ek = Self::edge_key(u, &vk, key);
+                        if let Some(attrs) = part.edge_py_attrs.get(&src_ek) {
+                            g.edge_py_attrs
+                                .insert(dst_ek.clone(), attrs.bind(py).copy()?.unbind());
+                        }
+                        display.push((uc.clone(), vc.clone(), key, part.py_edge_key(py, u, &vk, key)));
+                        edge_batch.push((
+                            uc,
+                            vc,
+                            key,
+                            part.inner.edge_attrs(u, &vk, key).cloned().unwrap_or_default(),
+                        ));
+                    }
+                }
+            }
+            total_edges += edge_batch.len();
+            let _ = g.inner.extend_keyed_edges_with_attrs_unrecorded(edge_batch);
+            for (u, v, key, obj) in display {
+                g.edge_py_keys
+                    .entry(Self::edge_key(&u, &v, key))
+                    .or_insert(obj);
+            }
+        }
+        g.nodes_seq = u64::try_from(n1 + other.inner.node_count()).unwrap_or(u64::MAX);
+        g.edges_seq = u64::try_from(total_edges).unwrap_or(u64::MAX);
+        Py::new(py, g)
+    }
+
     /// br-r37-c1-natdiff: fully-native `difference(G, H)` for MultiGraph (the
     /// undirected sibling of `PyMultiDiGraph::_native_difference`). H's DISPLAY
     /// edges are hashed into a canonical set in BOTH orientations; G is walked in

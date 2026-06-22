@@ -3689,3 +3689,20 @@ source, empty) — nodes(data), edges(keys+data), graph attrs, succ AND pred. op
 test + full suite zero new failures. UNBLOCKS the keyed-multi pattern: compose(MDG) 0.58x,
 disjoint_union(MG) 0.63x, compose(MG) 0.74x are next (same edge_py_keys-copy recipe; MG adds
 undirected symmetric dedup). Artifact: tests/artifacts/perf/20260622T-native-mdg-disjoint-union-cc/.
+
+## 2026-06-22 CopperCliff native MultiGraph disjoint_union — 0.63x -> 2.05-2.13x SHIPPED (`br-r37-c1-mgdju`, cc)
+
+The edge_py_keys-copy recipe ([[reference_gated_fallback_native_mirror]]) generalized to the
+undirected-multi case FIRST TRY. disjoint_union(MG) was 0.63x. PyMultiGraph::_native_disjoint_union
+relabels both parts to fresh int ranges (source node + adj_py_keys row display discarded, no
+gate), walks neighbors with symmetric dedup via the CANONICAL edge_key (sorts u<=v, so the
+undirected edge_py_attrs/edge_py_keys lookup is orientation-independent — no fwd/rev), preserves
+each edge's inner key + DISPLAY key (edge_py_keys mirror) + attrs, bulk extend. Modeled on the
+existing PyMultiGraph::_native_difference keyed pattern (display_key/py_edge_key/seq fields).
+
+Result: 0.63x -> **2.05-2.13x** (~3.3x self-speedup). Byte-exact: 7 checks (default-key, explicit
+non-default keys, parallel self-loops, empty) — nodes(data), edges(keys+data), graph attrs, adj.
+operator-parity[MultiGraph-MultiGraph] + full suite zero new failures. Remaining keyed-multi:
+compose(MDG) 0.58x, compose(MG) 0.74x (these KEEP nodes -> need the clean-display gate on
+succ/pred or adj_py_keys like simple compose, PLUS edge_py_keys + key-level overlap merge).
+Artifact: tests/artifacts/perf/20260622T-native-mg-disjoint-union-cc/.

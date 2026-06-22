@@ -23631,6 +23631,17 @@ def disjoint_union(G, H):
         native = getattr(G, "_native_disjoint_union", None)
         if native is not None:
             return native(H)
+    # br-r37-c1-mgdju (cc): fused native pass for exact MultiGraph x MultiGraph
+    # (undirected keyed; preserves display keys via the edge_py_keys mirror).
+    if (
+        type(G) is MultiGraph
+        and type(H) is MultiGraph
+        and not _has_networkx_private_storage(G)
+        and not _has_networkx_private_storage(H)
+    ):
+        native = getattr(G, "_native_disjoint_union", None)
+        if native is not None:
+            return native(H)
     return disjoint_union_all([G, H])
 
 
