@@ -9657,6 +9657,72 @@ impl PyDiGraph {
         Ok(Some(Py::new(py, g)?))
     }
 
+    /// br-r37-c1-djudir (cc): native DiGraph disjoint_union — directional analog of
+    /// PyGraph::_native_disjoint_union (undirected 2.03x; directed fell to the
+    /// Python int-relabel + union replay at ~0.79x). Relabels BOTH parts to fresh
+    /// integer ranges (0.. and n1..), so the source row-display is discarded — NO
+    /// gating needed. Walks SUCCESSORS (no symmetric dedup; directed edges unique),
+    /// directional edge mirrors, bulk extend_*_unrecorded. Byte-identical node/edge
+    /// order to nx's disjoint_union (G then H, succ-row order).
+    fn _native_disjoint_union(&self, py: Python<'_>, other: PyRef<'_, Self>) -> PyResult<Py<Self>> {
+        let mut g = Self::new_empty_with_mode(py, self.inner.mode())?;
+        let merged_graph_attrs = PyDict::new(py);
+        merged_graph_attrs.update(self.graph_attrs.bind(py).as_mapping())?;
+        merged_graph_attrs.update(other.graph_attrs.bind(py).as_mapping())?;
+        g.graph_attrs = merged_graph_attrs.unbind();
+        let n1 = self.inner.node_count();
+        for (part, offset) in [(self, 0usize), (&*other, n1)] {
+            let nodes: Vec<String> = part
+                .inner
+                .nodes_ordered()
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
+            let index_of: std::collections::HashMap<&str, usize> = nodes
+                .iter()
+                .enumerate()
+                .map(|(i, n)| (n.as_str(), i + offset))
+                .collect();
+            let mut node_batch: Vec<(String, AttrMap)> = Vec::with_capacity(nodes.len());
+            for (i, node) in nodes.iter().enumerate() {
+                let canonical = (i + offset).to_string();
+                if let Some(attrs) = part.node_py_attrs.get(node) {
+                    g.node_py_attrs
+                        .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
+                }
+                g.node_key_map.insert(
+                    canonical.clone(),
+                    crate::unwrap_infallible((i + offset).into_pyobject(py))
+                        .into_any()
+                        .unbind(),
+                );
+                node_batch.push((
+                    canonical,
+                    part.inner.node_attrs(node).cloned().unwrap_or_default(),
+                ));
+            }
+            g.inner.extend_nodes_with_attrs_unrecorded(node_batch);
+            let mut edge_batch: Vec<(String, String, AttrMap)> = Vec::new();
+            for u in &nodes {
+                for v in part.inner.successors(u).unwrap_or_default() {
+                    let uc = index_of[u.as_str()].to_string();
+                    let vc = index_of[v].to_string();
+                    if let Some(attrs) = part.edge_py_attrs.get(&Self::edge_key(u, v)) {
+                        g.edge_py_attrs
+                            .insert(Self::edge_key(&uc, &vc), attrs.bind(py).copy()?.unbind());
+                    }
+                    edge_batch.push((
+                        uc,
+                        vc,
+                        part.inner.edge_attrs(u, v).cloned().unwrap_or_default(),
+                    ));
+                }
+            }
+            g.inner.extend_edges_with_attrs_unrecorded(edge_batch);
+        }
+        Py::new(py, g)
+    }
+
     // ---- Python special methods ----
 
     fn __len__(&self) -> usize {

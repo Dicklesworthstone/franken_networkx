@@ -23609,6 +23609,17 @@ def disjoint_union(G, H):
         native = getattr(G, "_native_disjoint_union", None)
         if native is not None:
             return native(H)
+    # br-r37-c1-djudir (cc): same fused native pass for exact DiGraph x DiGraph
+    # (directed fell to the disjoint_union_all replay at ~0.79x).
+    if (
+        type(G) is DiGraph
+        and type(H) is DiGraph
+        and not _has_networkx_private_storage(G)
+        and not _has_networkx_private_storage(H)
+    ):
+        native = getattr(G, "_native_disjoint_union", None)
+        if native is not None:
+            return native(H)
     return disjoint_union_all([G, H])
 
 

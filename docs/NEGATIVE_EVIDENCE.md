@@ -3616,3 +3616,21 @@ METHOD: the gated-fallback pattern (native fast path for the clean/common case, 
 Python replay for the intricate-display minority) makes 'deep-design-tier' native mirrors
 safely shippable autonomously — exhaustive parity + full conformance as the safety net.
 Artifact: tests/artifacts/perf/20260622T-native-digraph-compose-cc/.
+
+## 2026-06-22 CopperCliff native DiGraph `disjoint_union` — 0.79x -> 3.28-3.32x (`br-r37-c1-djudir`, cc)
+
+Second directed native-mirror this pass (after compose). disjoint_union(DiGraph) was 0.79x
+(Python disjoint_union_all replay; undirected had _native_disjoint_union at 2.03x). Added
+`PyDiGraph::_native_disjoint_union` mirroring the undirected: relabel BOTH parts to fresh
+integer ranges (0.. , n1..), copy node/edge attr mirrors (shallow), commit via bulk
+extend_*_unrecorded. Directed adaptation: walk SUCCESSORS (no symmetric dedup), directional
+edge_key. Because both parts are relabeled to fresh ints, the source row-display is discarded
+-> NO gating needed (cleaner than compose).
+
+Result: 0.79x -> **3.28-3.32x** (~4x self-speedup, dominates). Byte-exact: 6 checks (random
+node+edge+graph attrs, str-keyed source, self-loops, isolated, empty) — nodes(data),
+edges(data), graph attrs, succ AND pred. 1284 union/operator tests + full suite zero new
+failures. Confirms the gated/clean native-mirror pattern ([[reference_gated_fallback_native_mirror]])
+scales across directed operators. Remaining directed-operator residuals: intersection(Di) 0.77x
+(set-based Python, no native to mirror), union(Di) 0.88x. Artifact:
+tests/artifacts/perf/20260622T-native-digraph-disjoint-union-cc/.
