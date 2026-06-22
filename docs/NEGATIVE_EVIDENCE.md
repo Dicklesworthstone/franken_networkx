@@ -4015,3 +4015,15 @@ ensure_edge_py_attrs borrow; live attr dicts identity-preserving; node-dedup; it
 keys=True 0.63x (4-tuple + int key_obj construction cap; strictly-better, kept). Byte-exact:
 data=True keys F/T x shapes incl identity, dup, single-node, error contract. Full suite zero new.
 Artifact: tests/artifacts/perf/20260622T-mdg-out-edges-data-cc/.
+
+## 2026-06-22 CopperCliff MDG edges(nbunch) routed to out_edges kernels — 0.89x->1.59x (NO-BUILD) (`br-r37-c1-mdgoutedge`, cc)
+
+For a directed graph edges() == out_edges(), but MDG.edges(nbunch) went through
+_MultiDiGraphEdgeView.__call__'s `_native_edge_view()(nbunch,...)` path (~0.66-0.89x) while
+out_edges() had dedicated dominating kernels. Routed the iterable-nbunch data=False/True case to
+the EXISTING _native_mdg_out_edges_nbunch_no_data / _data kernels — Python-only, NO rebuild.
+Result: edges(nb) data=False 0.89x -> **1.59x** (dominates; the view-wrap overhead keeps it below
+out_edges' 2.22x but still wins), data=True 0.66x -> 0.92x (near-parity, improved). Byte-exact
+incl the canonical OutMultiEdge* view types + all shapes/keys. Full suite zero new failures.
+Lesson: when one call form (out_edges) has a native kernel, check the sibling form (edges) routes
+to it too — often a free reuse.

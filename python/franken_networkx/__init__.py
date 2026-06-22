@@ -2471,9 +2471,40 @@ class _MultiDiGraphEdgeView:
         # (~3000-7000x slower than nx). The native view only understands
         # data in {False, True, <str attr>} (parse_view_data); `data=None` (an
         # explicit attr name None) and other non-str hashable attr names keep the
-        # Python loop, whose attrs.get(data, default) handles any hashable. The
-        # wrapping below (set-algebra list, data/keys view types, count guard) is
-        # unchanged.
+        # br-r37-c1-mdgoutedge (cc): directed edges() == out_edges() — route the
+        # iterable-nbunch data=False/True case to the dominating out_edges kernels
+        # (the _native_edge_view nbunch path is only ~0.66-0.89x). No-build reuse.
+        _it_nb = nbunch is not None and (
+            isinstance(nbunch, (list, tuple, set, frozenset))
+            or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
+        )
+        if _it_nb and (data is False or data is True):
+            kname = (
+                "_native_mdg_out_edges_nbunch_data"
+                if data is True
+                else "_native_mdg_out_edges_nbunch_no_data"
+            )
+            native = getattr(self._graph, kname, None)
+            if native is not None:
+                try:
+                    native_res = native(nbunch, keys)
+                except TypeError as exc:
+                    raise NetworkXError(str(exc))
+                if native_res is not None:
+                    nres = _EdgeListWithSetAlgebra(native_res)
+                    if data is not False:
+                        return _guarded_edge_list(
+                            _wrap_edge_data_view(nres, _OutMultiEdgeDataView),
+                            self._graph,
+                            guard_edge_count=True,
+                        )
+                    if keys:
+                        return _guarded_edge_list(
+                            _wrap_edge_data_view(nres, _OutMultiEdgeView),
+                            self._graph,
+                            guard_edge_count=True,
+                        )
+                    return _guarded_edge_list(nres, self._graph, guard_edge_count=True)
         result = _EdgeListWithSetAlgebra()
         if data is False or data is True or isinstance(data, str):
             native_list = (
