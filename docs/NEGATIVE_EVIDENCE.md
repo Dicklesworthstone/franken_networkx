@@ -3125,3 +3125,26 @@ not equal). Like the clique/ramsey/greedy_color set-order-dependent approx
 functions, this CANNOT be matched in pure Python and must stay delegated. Reverted
 (prototype only, never committed to source). tree.greedy_branching is the same
 shape (greedy max-weight selection, order-dependent). No-ship.
+
+## 2026-06-21 — callable-weight functions pay the delegation-conversion tax (CopperCliff)
+
+Functions called with a CALLABLE weight (weight=lambda u,v,d: ...) cannot run on
+the native string-keyed kernels, so fnx delegates via `_call_networkx_for_parity`
+-> `_networkx_graph_for_parity(G)` (a fresh O(V+E) fnx->nx conversion EVERY call,
+~5ms at N=600/2400e) + nx's algorithm. Measured warm:
+- dijkstra_path_length(callable weight) `0.12x` (fnx 5.95ms vs nx 0.74ms)
+- single_source_dijkstra_path_length(callable) `0.17x`
+- pagerank(callable weight) `0.00x` (fnx 497ms vs nx 2.1ms — though callable weight
+  for pagerank is non-standard; weight is documented as a str key/None)
+- betweenness_centrality(callable) `1.01x`, all_pairs_dijkstra(callable) `0.97x`
+  (parity — the conversion is amortized over the O(V*(V+E)) all-pairs work).
+Root cause = the per-call whole-graph conversion dominates single-pair/cheap
+callable queries (the delegation-conversion-tax pattern). NOT pursued: string
+weights (the overwhelmingly common case) are already native-fast; callable weight
+is uncommon. The lever is either (a) an in-process Dijkstra reimplementation that
+calls the Python weight callable over a fast native adjacency snapshot (no
+conversion — the bidirectional_dijkstra pattern), per-function and byte-identity-
+risky, or (b) caching the shared `_call_networkx_for_parity` conversion under the
+(nodes_seq, edges_seq, edges_dirty) token (broad win for ALL delegated functions on
+unchanged graphs, but high blast radius — needs careful invalidation). Both deferred
+as scoped work; the gap is niche (callable weight) and the fixes are risky.
