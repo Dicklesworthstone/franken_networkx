@@ -4081,18 +4081,19 @@ pub fn dijkstra_path_to_target(
 /// node over the adjacency (no intermediate simple-Graph build, multiplicity is
 /// irrelevant to connectivity) — same lever that fixed connected_components.
 fn multigraph_is_connected(mg: &fnx_classes::MultiGraph) -> bool {
-    use std::collections::{HashSet, VecDeque};
+    use std::collections::VecDeque;
     let nodes = mg.nodes_ordered();
     if nodes.is_empty() {
         return true; // null graph; caller raises before reaching here
     }
-    let mut visited: HashSet<&str> = HashSet::with_capacity(nodes.len());
+    let mut visited: rustc_hash::FxHashSet<&str> =
+        rustc_hash::FxHashSet::with_capacity_and_hasher(nodes.len(), Default::default());
     let start = nodes[0];
     visited.insert(start);
     let mut queue: VecDeque<&str> = VecDeque::new();
     queue.push_back(start);
     while let Some(node) = queue.pop_front() {
-        if let Some(nbrs) = mg.neighbors(node) {
+        if let Some(nbrs) = mg.neighbors_iter(node) {
             for v in nbrs {
                 if visited.insert(v) {
                     queue.push_back(v);
@@ -4109,20 +4110,20 @@ fn multigraph_node_connected_component<'a>(
     mg: &'a fnx_classes::MultiGraph,
     start: &str,
 ) -> Vec<&'a str> {
-    use std::collections::{HashSet, VecDeque};
+    use std::collections::VecDeque;
     let mut comp: Vec<&'a str> = Vec::new();
     let nodes = mg.nodes_ordered();
     let start_ref: &'a str = match nodes.iter().copied().find(|&n| n == start) {
         Some(s) => s,
         None => return comp,
     };
-    let mut visited: HashSet<&'a str> = HashSet::new();
+    let mut visited: rustc_hash::FxHashSet<&'a str> = rustc_hash::FxHashSet::default();
     visited.insert(start_ref);
     comp.push(start_ref);
     let mut queue: VecDeque<&'a str> = VecDeque::new();
     queue.push_back(start_ref);
     while let Some(node) = queue.pop_front() {
-        if let Some(nbrs) = mg.neighbors(node) {
+        if let Some(nbrs) = mg.neighbors_iter(node) {
             for v in nbrs {
                 if visited.insert(v) {
                     comp.push(v);

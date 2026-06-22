@@ -2,6 +2,54 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-22 BlackThrush MultiGraph Connectivity Accessor FxHashSet Keep (`br-r37-c1-04z53.9162`, cod-a)
+
+Scope: BOLD-VERIFY the remaining MultiGraph `is_connected` /
+`node_connected_component` residual after `1059d53c1` kept the sibling
+`connected_components` borrowed-neighbor/FxHashSet BFS path.
+
+Hypothesis tested:
+- Apply the same accessor-local swap to the two remaining MultiGraph BFS
+  helpers: `std::collections::HashSet` -> `rustc_hash::FxHashSet`, and
+  `mg.neighbors(node)` -> `mg.neighbors_iter(node)`.
+- Workload: connected high-parallel `MultiGraph` with `250` integer nodes and
+  `6,000` edges; parity asserted against vendored NetworkX before timing.
+- Oracle/runtime: Python `3.13.7`, vendored NetworkX `3.7rc0.dev0` from
+  `legacy_networkx_code/networkx`, fresh `lib_fnx.so` preloaded from
+  `/data/projects/.rch-targets/franken_networkx-cod-a/release/lib_fnx.so`.
+
+Head-to-head timing:
+- Clean baseline: detached worktree
+  `/data/projects/.worktrees/franken_networkx-cod-a-mgcc-baseline-20260622T1936`
+  at `1059d53c1`.
+- Candidate: `crates/fnx-python/src/algorithms.rs` changed the two sibling
+  BFS helpers to `FxHashSet` plus `neighbors_iter`; rebuilt with
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a cargo +nightly-2026-06-10 build -p fnx-python --release --features pyo3/abi3-py310`.
+- All compile commands were per-crate `-p fnx-python`.
+
+| Function | State | FNX median | NetworkX median | Ratio vs NetworkX | Self vs baseline |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `is_connected` | clean `1059d53c1` | `0.099505 ms` | `0.088229 ms` | `0.887x` | baseline |
+| `is_connected` | FxHashSet + `neighbors_iter` candidate | `0.078912 ms` | `0.096952 ms` | `1.229x` | `1.261x` |
+| `node_connected_component` | clean `1059d53c1` | `0.120416 ms` | `0.084560 ms` | `0.702x` | baseline |
+| `node_connected_component` | FxHashSet + `neighbors_iter` candidate | `0.090004 ms` | `0.088475 ms` | `0.983x` | `1.338x` |
+
+Validation:
+- Candidate result parity matched NetworkX:
+  `is_connected == True`, `len(node_connected_component(G, 0)) == 250`.
+- A near-zero pass was discarded after inspection: `algorithms.rs` had reverted
+  before that rebuild, so it benchmarked baseline-vs-baseline. The hunk was
+  reapplied under reservation and the longer-repeat vendored run above is the
+  keeper evidence.
+
+Decision:
+- Keep. Focused score for these two sibling accessors: `1` clear win
+  (`is_connected`), `1` near-parity self-speedup (`node_connected_component`),
+  `0` regressions.
+- `node_connected_component` still needs the deeper node-indexed MultiGraph
+  adjacency/materialized integer-neighbor-row lever for full domination; do not
+  spend another bead on accessor-local hashing alone.
+
 ## 2026-06-22 BlackThrush Directed `single_target_shortest_path` Path-Emission Keep (`br-r37-c1-04z53`, cod-b)
 
 Scope: BOLD-VERIFY the documented directed
