@@ -614,6 +614,17 @@ def color(G):
     BFS-order dict keys). Raises NetworkXError on a non-bipartite graph exactly
     as nx does.
     """
+    # br-r37-c1-bipcolor-native (cc): for an exact simple FNX Graph, do the whole
+    # stack-BFS 2-coloring natively (integer-CSR, no Python adjacency snapshot —
+    # the snapshot alone was ~39% of the call). Colors are BFS-distance parity
+    # (root=1), identical to nx; raises NetworkXError on an odd cycle.
+    _nbc = (
+        getattr(G, "_native_bipartite_color", None)
+        if (type(G) is _fnx.Graph and not G.is_directed())
+        else None
+    )
+    if _nbc is not None:
+        return _nbc()
     # br-r37-c1-bipcolor: for an exact simple FNX Graph, snapshot the key-only
     # adjacency ONCE via native ``_native_adjacency_keys`` (yields ``(node,
     # [nbrs])`` in G's node + neighbour order) and run nx's BFS coloring on the

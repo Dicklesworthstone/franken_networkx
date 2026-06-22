@@ -9351,6 +9351,55 @@ impl PyGraph {
         self.adjacency(py)
     }
 
+    /// br-r37-c1-bipcolor-native (cc): native CSR stack-BFS 2-coloring for
+    /// bipartite.color. Replaces the Python `dict(_native_adjacency_keys())`
+    /// snapshot (~39% of the call) + Python stack-BFS with a single integer-index
+    /// pass. Each node's color is the parity of its BFS distance from its
+    /// component's first node (root colored 1), which is identical to networkx —
+    /// the root is the first uncolored non-isolate node in node order (matches nx)
+    /// and parity is order-INVARIANT, so fnx's sorted adjacency is safe. Returns
+    /// `{node: 0|1}` (discovery order, isolates=0 appended); raises NetworkXError
+    /// on an odd cycle / self-loop, exactly as nx.
+    fn _native_bipartite_color(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let n = self.inner.node_count();
+        let keys = self.cached_node_key_vec(py);
+        let mut color = vec![-1i8; n];
+        let dict = pyo3::types::PyDict::new(py);
+        for s in 0..n {
+            if color[s] != -1 || self.inner.degree_by_index(s) == 0 {
+                continue;
+            }
+            color[s] = 1;
+            dict.set_item(&keys[s], 1)?;
+            let mut stack = vec![s];
+            while let Some(v) = stack.pop() {
+                let cv = color[v];
+                let c = 1 - cv;
+                if let Some(nbrs) = self.inner.neighbors_indices(v) {
+                    for &w in nbrs {
+                        if color[w] != -1 {
+                            if color[w] == cv {
+                                return Err(NetworkXError::new_err("Graph is not bipartite."));
+                            }
+                        } else {
+                            color[w] = c;
+                            dict.set_item(&keys[w], c)?;
+                            stack.push(w);
+                        }
+                    }
+                }
+            }
+        }
+        // Isolates colored 0, appended in node order — matches networkx's
+        // `color.update(dict.fromkeys(isolates, 0))`.
+        for (s, key) in keys.iter().enumerate().take(n) {
+            if self.inner.degree_by_index(s) == 0 {
+                dict.set_item(key, 0)?;
+            }
+        }
+        Ok(dict.into_any().unbind())
+    }
+
     /// br-r37-c1-degnbnative (cc): one-pass (node_obj, degree) pairs for a node
     /// subset (degree(nbunch) unweighted total). Replaces the Python
     /// `[n for n in nbunch if n in G]` membership filter + per-node `raw[n]` degree
