@@ -3552,3 +3552,16 @@ already uses O(1) get_edge_data (no graph[s][t][k] rebuild). So the 0.42x is the
 KEYED-edge insertion substrate (~2.4x nx), the same directed/multi construction floor as
 [[reference_multigraph_attr_batch_construction]] (dual AttrMap + mirror storage). Not a wrapper
 lever — needs the rust keyed-insertion substrate work. NOT shipped (batching is ~0-gain here).
+
+### Addendum 5 (cc): flow / branching / group-centrality / similarity / approximation sweep — domination, no gaps
+
+Interleaved sweep of families not previously benched (~18 fns). All wins or parity, no sub-0.85x:
+gomory_hu_tree 1.73x, max_flow_min_cost 3.03x, minimum_spanning_arborescence 4.04x,
+stoer_wagner 7.90x, all_node_cuts 1.96x, group_closeness 7.75x, group_betweenness 0.95x,
+simrank_similarity 1.01x, panther 0.99x, approx max_clique 0.90x, approx node_connectivity
+1.62x, approx average_clustering 69x, approx diameter 1.64x, approx local_node_connectivity
+6.35x, harmonic_centrality 17.25x, percolation_centrality 1.86x, current_flow_closeness 9.56x,
+edge_current_flow_betweenness 23.53x. Confirms domination extends to flow/branching/group/
+similarity/approximation; no clean lever here. Combined with all prior sweeps, every
+non-substrate domain is dominant; remaining residuals are the documented keyed-insertion /
+node-mirror substrate and parity-blocked (set-order / IO-lxml) cases.
