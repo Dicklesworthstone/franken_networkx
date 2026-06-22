@@ -3357,3 +3357,16 @@ rebuild is already close to nx. Caching would flip warm-repeated to ~3.3x but on
 near-parity, and the change is more involved than MG (two field decls + multiple
 cache-using methods in digraph.rs). Per REVERT-~0-gain, NOT shipped. Documented so it
 isn't re-investigated.
+
+### Note (cc): directed total-degree — counts-zip win exists but type-contract-blocked
+
+Directed total `G.degree()` dict is 0.87x @ n=20000 (1.17x @ n=2000 — only slow at large n).
+A pure-Python `dict(zip(list(G), [i+o for i,o in zip(_native_in_degree_counts(),
+_native_out_degree_counts())]))` (reusing the shipped br-r37-c1-degcounts methods) is
+1.43x @ n=20000 and byte-correct. BUT it can't be routed cleanly: `G.degree()` →
+`_DiGraphDegreeView.__call__()` returns the raw Rust `DiDegreeView` directly (for
+type/repr parity — tests assert `type(G.degree()).__name__ == 'DiDegreeView'`), so both the
+parens and no-parens forms iterate the raw view. Returning a custom zip object would break
+the DiDegreeView type contract. A clean fix needs a rust-level raw `DiDegreeView` iter
+change (counts + cached nodes) for a marginal gain (near-parity except very large n). Per
+REVERT-~0-gain + type-contract risk, deferred — documented so the Python route isn't retried.
