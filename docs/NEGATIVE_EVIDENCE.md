@@ -3083,11 +3083,12 @@ wins). After filtering scan noise, the genuine sub-1.0x residuals are:
   G.size(weight=attr), but routing there is STILL 0.45x (fnx edge-data iteration
   loses to nx's native dict walk) AND diverges in type (int 4831 vs float 4831.0).
   Not a clean route. Same node/edge-access substrate wall.
-- GENUINE NATIVE GAP (rebuild-gated): google_matrix FNX vs nx `0.38x` (N=400,
-  2.23ms vs 0.97ms) to `0.81x` (N=800, 13.1ms vs 9.6ms), value-correct
-  (np.allclose). fnx's dense Google-matrix construction is fixed-overhead-heavier
-  than nx's to_numpy_array + vectorized normalization; the gap shrinks with N.
-  Native dense-construction lever, low priority (pagerank itself is already a win).
+- FIXED (99d245aea, NOT rebuild-gated — was a Python loop): google_matrix was
+  0.38x-0.81x because its dense row-normalization ran a ``for i in range(n)``
+  per-row slice division. Vectorized it (divide-all-rows + sparse dangling
+  overwrite, byte-identical to the loop over 30 configs) -> 1.06-1.22x vs nx.
+  LESSON: read the implementation before declaring a gap rebuild-gated; a Python
+  loop in a numpy function is a pure-Python vectorization win.
 - NICHE: tournament.tournament_matrix 0.23x (skew-adjacency build).
 
 NO new clean no-rebuild win. The 6 namespace wins already shipped were the
