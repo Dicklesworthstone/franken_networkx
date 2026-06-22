@@ -3565,3 +3565,17 @@ edge_current_flow_betweenness 23.53x. Confirms domination extends to flow/branch
 similarity/approximation; no clean lever here. Combined with all prior sweeps, every
 non-substrate domain is dominant; remaining residuals are the documented keyed-insertion /
 node-mirror substrate and parity-blocked (set-order / IO-lxml) cases.
+
+### Note (cc): the fresh-int add_edges_from batch is PREFIX-bound — arbitrary-int needs materialized keys (substrate)
+
+Investigated whether the from_edgelist(random)/directed add_edges_from 0.64x floor is a
+contained fix. It is NOT. The fast path `collect_fresh_exact_int_prefix_edges`
+(fnx-python/src/lib.rs:1695) requires node ints to appear in EXACT PREFIX order (0,1,2,...):
+`if index != next_node: return None`. It is fast precisely because it then calls
+`_fast_add_int_nodes_range_stop` + `extend_existing_index_edges_unrecorded` over the
+lazy-int-prefix node representation (`lazy_int_node_stop`), where node VALUE == index.
+Random/arbitrary int edges (e.g. gnm.edges(), first edge (5, 200)) bail at the prefix check.
+Generalizing to arbitrary-order ints can't reuse the lazy-prefix representation (values !=
+indices), so it would require materializing int node keys + node_key_map in first-appearance
+order — the deep construction-substrate work, not a gate relaxation. Confirms from_edgelist
+(random) 0.64x and the directed add_edges_from floor are substrate-bound. No contained lever.
