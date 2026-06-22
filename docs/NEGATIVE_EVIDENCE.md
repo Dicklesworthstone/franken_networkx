@@ -4334,3 +4334,44 @@ Behavior proof:
   tests/python/test_graph_utilities.py::test_digraph_edges_nbunch_reuses_out_edge_semantics -q`
   could not collect tests because the checkout stale-extension guard rejected
   `python/franken_networkx/_fnx.abi3.so`; no in-tree install was attempted in this disk-frugal run.
+
+## 2026-06-22 BlackThrush MultiDiGraph selfloop_edges scalar attr read - 1.25x-2.33x self-speedup on target modes (`br-r37-c1-04z53`, cod-b)
+
+Lever: the dense `MultiDiGraph.selfloop_edges` native emitter still materialized a live Python
+edge-attr dict for every edge in `data="<attr>"` modes, even though NetworkX returns only the
+scalar value there. The new directed multigraph path reads scalar string-key values directly from
+the Rust `AttrMap` when no live Python mirror exists, falling back to the mirror for materialized
+or mutated attrs and to full dict materialization for nested map values. `data=True` remains on
+the live-dict path. The tuple assembly was also split by output shape, avoiding the per-edge
+temporary `Vec<PyObject>`.
+
+Keep decision: KEEP for the targeted `data=True` and `data="weight"` modes. It is not a full
+domination lever: plain `keys=True` and key-bearing data modes remain key-object/tuple-construction
+capped and noisy. But the target residual improves, and behavior stays parity-exact for explicit
+keys, string nodes, missing defaults, live attr-dict mutation, and nested dict payloads. No revert.
+
+Same-machine direct probe, with
+`/data/projects/.rch-targets/franken_networkx-cod-b/release/lib_fnx.so` preloaded as
+`franken_networkx._fnx`:
+
+| workload | mode | before FNX | before NetworkX | before ratio | after FNX | after NetworkX | after ratio |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| MultiDiGraph dense self-loops n=2400 parallel=2 | pairs | 6.557 ms | 5.831 ms | 0.89x | 3.854 ms | 3.532 ms | 0.92x |
+| MultiDiGraph dense self-loops n=2400 parallel=2 | keys | 10.083 ms | 9.042 ms | 0.90x | 4.687 ms | 3.595 ms | 0.77x |
+| MultiDiGraph dense self-loops n=2400 parallel=2 | data=True | 22.789 ms | 6.874 ms | 0.30x | 9.798 ms | 8.150 ms | 0.83x |
+| MultiDiGraph dense self-loops n=2400 parallel=2 | keys+data=True | 9.640 ms | 7.969 ms | 0.83x | 11.066 ms | 8.617 ms | 0.78x |
+| MultiDiGraph dense self-loops n=2400 parallel=2 | data="weight" | 6.295 ms | 4.059 ms | 0.65x | 5.047 ms | 3.926 ms | 0.78x |
+| MultiDiGraph dense self-loops n=2400 parallel=2 | keys+data="weight" | 5.932 ms | 3.796 ms | 0.64x | 6.598 ms | 4.449 ms | 0.67x |
+
+Notes:
+
+- The baseline ratios came from the same warm cod-b target artifact before the edit; the after
+  ratios are from the rebuilt local cod-b target artifact.
+- Two remote RCH `cargo build -p fnx-python --release --features pyo3/abi3-py310` attempts
+  successfully compiled on `vmi1152480` but failed artifact retrieval with `RCH-E309`, so the final
+  benchmark artifact was produced by the same crate-scoped build locally with
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+- Direct parity probe passed: int/string nodes, default integer and explicit string edge keys,
+  `data=False`, `keys=True`, `data=True`, `keys+data=True`, `data="weight"`,
+  `keys+data="weight"`, missing-default modes, live attr-dict mutation before attr-key reads, and
+  nested dict payload values.
