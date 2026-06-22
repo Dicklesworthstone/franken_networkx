@@ -4649,3 +4649,64 @@ Behavior proof:
   and pytest-assert inventory. A mixed Rust/Python/Markdown UBS invocation was interrupted after
   the Python scanner kept running for several minutes; the Markdown file is not a supported UBS
   language and was covered by `git diff --check`.
+## 2026-06-22 BlackThrush MultiGraph selfloop edge-key lookup reuse - 1.6x-1.9x FNX self-speedup (`br-r37-c1-lv4p9`, cod-a)
+
+Lever: `MultiGraph.selfloop_edges(keys=True, data=...)` rebuilt the same
+`(u, u, key)` lookup tuple once to recover the Python-visible edge key and again
+to read edge data or the live edge-attribute mirror. Reuse the lookup tuple inside
+the native `PyMultiGraph::_native_selfloop_edges` loop for the `keys + data`
+paths. Plain pair/key-only rows still avoid the tuple when no lookup is needed.
+
+Keep decision: KEEP. The measured trigger gap was explicit string-key
+`MultiGraph` self-loop emission at 0.19x-0.22x vs NetworkX. The final same-shape
+artifact benchmark improves FNX's own minimum timing by 1.6x-1.9x and improves
+the vs-NetworkX ratio to 0.29x-0.36x. This is not a near-zero gain.
+
+Rejected sub-lever: applying the same helper split to `PyMultiDiGraph` did not
+hold up on the focused string-key data rows; one repeat measured
+`MultiDiGraph str keys_data` / `keys_weight` at only 0.17x vs NetworkX. That
+change was backed out before landing, and the accepted diff is scoped to
+`PyMultiGraph`.
+
+Direct artifact environment:
+
+`PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx/legacy_networkx_code /data/projects/franken_networkx/.venv/bin/python`
+with `/data/projects/.rch-targets/franken_networkx-cod-a/release/lib_fnx.so`
+preloaded as `franken_networkx._fnx`.
+
+Measured trigger baseline before the edit, current turn, `n=2400`,
+`parallel=2`, explicit string edge keys, `4800` self-loop multiedges:
+
+| workload | FNX timing | NetworkX timing | ratio vs NetworkX | parity |
+| --- | ---: | ---: | ---: | --- |
+| `MultiGraph.selfloop_edges(keys=True, data=True)` | 3.276 ms | 0.632 ms | 0.19x | true |
+| `MultiGraph.selfloop_edges(keys=True, data="weight")` | 3.576 ms | 0.802 ms | 0.22x | true |
+
+Final after timing, fresh graph per mode, same graph shape and artifact:
+
+| workload | FNX min | FNX median | NetworkX min | NetworkX median | ratio min | ratio median | parity |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `MultiGraph.selfloop_edges(keys=True, data=True)` | 2.021 ms | 2.678 ms | 0.585 ms | 0.607 ms | 0.29x | 0.23x | true |
+| `MultiGraph.selfloop_edges(keys=True, data="weight")` | 1.892 ms | 1.921 ms | 0.675 ms | 0.709 ms | 0.36x | 0.37x | true |
+
+Behavior proof:
+
+- Direct artifact parity passed for full-list `MultiGraph` string-key
+  `selfloop_edges(keys=True, data=True)` and
+  `selfloop_edges(keys=True, data="weight", default=-1)` against NetworkX.
+- Focused direct probe passed for missing-data default, nested payload return,
+  and post-creation live edge-attribute mutation:
+  `franken_networkx` and NetworkX both returned `[('a', 'a', 'k', 'D')]`,
+  `[('a', 'a', 'k', {'x': 1})]`, and `[('a', 'a', 'k', 9)]`.
+- `cargo +nightly-2026-06-10 build -p fnx-python --release --features pyo3/abi3-py310`:
+  passed with `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- `cargo +nightly-2026-06-10 check -p fnx-python --features pyo3/abi3-py310`:
+  passed.
+- `cargo +nightly-2026-06-10 clippy -p fnx-python --features pyo3/abi3-py310 --all-targets -- -D warnings`:
+  passed.
+- `cargo +nightly-2026-06-10 test -p fnx-python --features pyo3/abi3-py310`:
+  27 passed, 0 failed; doctests 0 passed, 0 failed.
+- `cargo +nightly-2026-06-10 fmt -p fnx-python --check`: passed.
+- `git diff --check`: passed.
+- `ubs --only=rust crates/fnx-python/src/lib.rs`: exit 0; broad pre-existing
+  `lib.rs` warnings, no critical findings.

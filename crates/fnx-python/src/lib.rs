@@ -2568,7 +2568,18 @@ impl PyMultiGraph {
         // Empty edge attrs stay sparse on construction and become live only when
         // a NetworkX-observable mapping is handed out.
         let ek = Self::edge_key(u, v, key);
-        if !self.edge_py_attrs.contains_key(&ek) {
+        self.ensure_edge_py_attrs_with_key(py, u, v, key, &ek)
+    }
+
+    fn ensure_edge_py_attrs_with_key(
+        &mut self,
+        py: Python<'_>,
+        u: &str,
+        v: &str,
+        key: usize,
+        ek: &(String, String, usize),
+    ) -> &Py<PyDict> {
+        if !self.edge_py_attrs.contains_key(ek) {
             let dict = match self.inner.edge_attrs(u, v, key) {
                 Some(attrs) => attr_map_to_pydict(py, attrs)
                     .expect("stored string-keyed edge attrs must convert to Python"),
@@ -2577,7 +2588,7 @@ impl PyMultiGraph {
             self.edge_py_attrs.insert(ek.clone(), dict);
         }
         self.edge_py_attrs
-            .get(&ek)
+            .get(ek)
             .expect("edge attr entry inserted above")
     }
 
@@ -2599,17 +2610,17 @@ impl PyMultiGraph {
         }
     }
 
-    fn edge_data_value_or_default(
+    fn edge_data_value_or_default_with_key(
         &mut self,
         py: Python<'_>,
         u: &str,
         v: &str,
         key: usize,
+        ek: &(String, String, usize),
         data: &Bound<'_, PyAny>,
         default_obj: &PyObject,
     ) -> PyResult<PyObject> {
-        let ek = Self::edge_key(u, v, key);
-        if let Some(attrs) = self.edge_py_attrs.get(&ek) {
+        if let Some(attrs) = self.edge_py_attrs.get(ek) {
             return Ok(attrs
                 .bind(py)
                 .get_item(data)
@@ -2627,7 +2638,7 @@ impl PyMultiGraph {
                 .cloned()
             {
                 if matches!(value, CgseValue::Map(_)) {
-                    let attrs = self.ensure_edge_py_attrs(py, u, v, key);
+                    let attrs = self.ensure_edge_py_attrs_with_key(py, u, v, key, ek);
                     return Ok(attrs
                         .bind(py)
                         .get_item(data)
@@ -5208,20 +5219,44 @@ impl PyMultiGraph {
             let edge_keys = self.inner.edge_keys(node, node).unwrap_or_default();
             let py_node = self.py_node_key(py, node);
             for key in edge_keys {
+                let needs_lookup_key =
+                    want_dict || want_value || (keys && !self.edge_py_keys.is_empty());
+                let lookup_key = if needs_lookup_key {
+                    Some(Self::edge_key(node, node, key))
+                } else {
+                    None
+                };
                 let py_source = py_node.clone_ref(py);
                 let py_target = py_node.clone_ref(py);
                 let key_obj = if keys {
                     Some(if self.edge_py_keys.is_empty() {
                         unwrap_infallible(key.into_pyobject(py)).into_any().unbind()
                     } else {
-                        self.py_edge_key(py, node, node, key)
+                        self.edge_py_keys
+                            .get(
+                                lookup_key
+                                    .as_ref()
+                                    .expect("lookup key exists for display keys"),
+                            )
+                            .map_or_else(
+                                || unwrap_infallible(key.into_pyobject(py)).into_any().unbind(),
+                                |obj| obj.clone_ref(py),
+                            )
                     })
                 } else {
                     None
                 };
                 if want_dict {
                     let attrs = self
-                        .ensure_edge_py_attrs(py, node, node, key)
+                        .ensure_edge_py_attrs_with_key(
+                            py,
+                            node,
+                            node,
+                            key,
+                            lookup_key
+                                .as_ref()
+                                .expect("lookup key exists for edge data"),
+                        )
                         .clone_ref(py)
                         .into_any();
                     if let Some(key_obj) = key_obj {
@@ -5238,8 +5273,17 @@ impl PyMultiGraph {
                         );
                     }
                 } else if want_value {
-                    let val =
-                        self.edge_data_value_or_default(py, node, node, key, data, &default_obj)?;
+                    let val = self.edge_data_value_or_default_with_key(
+                        py,
+                        node,
+                        node,
+                        key,
+                        lookup_key
+                            .as_ref()
+                            .expect("lookup key exists for edge data"),
+                        data,
+                        &default_obj,
+                    )?;
                     if let Some(key_obj) = key_obj {
                         out.push(
                             PyTuple::new(py, &[py_source, py_target, key_obj, val])?
