@@ -4503,3 +4503,75 @@ Behavior proof:
 - `ubs --only=python --skip=7 python/franken_networkx/__init__.py
   tests/python/test_to_scipy_sparse_default_native_parity.py`: exit 0; reports pre-existing broad
   wrapper warnings plus normal test `assert` warnings, no critical findings.
+
+## 2026-06-22 BlackThrush MultiDiGraph directional weighted degree - 19.9x-20.9x FNX self-speedup (`br-r37-c1-8njy5`, cod-a)
+
+Lever: exact full-graph `MultiDiGraph.in_degree(weight="...")` and
+`MultiDiGraph.out_degree(weight="...")` used the generic Python
+`_DirectedDegreeView` per-node path. Each node walked `MultiAdjacencyView`
+wrappers and keydict views before summing edge attrs. The new path routes only
+exact, unfiltered, full-graph MultiDiGraph directional weighted degree views to
+Rust, walks the native multiedge storage directly, reads the live edge-attr
+PyDict mirrors, preserves missing-weight default `1`, and still calls Python
+`sum()` once per node to preserve NetworkX-compatible numeric and custom-object
+semantics. Nbunch, filtered/reverse views, single-node calls, unweighted calls,
+and total directed weighted degree stay on their existing paths.
+
+Keep decision: KEEP. The measured gap that triggered the bead was
+`in_degree(weight)` / `out_degree(weight)` at about 0.04x vs NetworkX. The same
+artifact-level benchmark shape after the edit is 0.43x / 0.52x vs NetworkX, and
+FNX's own median improved about 20x. This is not a near-zero gain.
+
+Direct artifact environment:
+
+`PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx/legacy_networkx_code /data/projects/franken_networkx/.venv/bin/python`
+with `/data/projects/.rch-targets/franken_networkx-cod-a/release/lib_fnx.so`
+preloaded as `franken_networkx._fnx`.
+
+Measured trigger baseline before the edit, current turn, `n=1200`, `parallel=4`,
+`9600` total directed multiedges:
+
+| workload | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | ---: | ---: | ---: |
+| `MultiDiGraph.degree(weight="weight")` | 4.882 ms | 2.654 ms | 0.54x |
+| `MultiDiGraph.in_degree(weight="weight")` | 40.083 ms | 1.405 ms | 0.04x |
+| `MultiDiGraph.out_degree(weight="weight")` | 38.119 ms | 1.424 ms | 0.04x |
+
+After timing, same graph size and total multiedge count with deterministic
+parallel edges and missing-weight rows:
+
+| workload | FNX median | NetworkX median | ratio vs NetworkX | parity |
+| --- | ---: | ---: | ---: | --- |
+| `MultiDiGraph.degree(weight="weight")` | 5.540 ms | 1.623 ms | 0.29x | true |
+| `MultiDiGraph.in_degree(weight="weight")` | 1.918 ms | 0.831 ms | 0.43x | true |
+| `MultiDiGraph.out_degree(weight="weight")` | 1.918 ms | 0.997 ms | 0.52x | true |
+| `MultiDiGraph.degree()` | 0.423 ms | 0.617 ms | 1.46x | true |
+| `MultiDiGraph.in_degree()` | 0.137 ms | 0.331 ms | 2.42x | true |
+| `MultiDiGraph.out_degree()` | 0.139 ms | 0.320 ms | 2.30x | true |
+
+Behavior proof:
+
+- Direct artifact parity passed for full-list `degree(weight)`, `in_degree(weight)`,
+  `out_degree(weight)`, and the unweighted degree views against NetworkX.
+- Focused direct probe passed for missing-weight default `1`, post-creation live
+  edge-attribute mutation, and single-node `in_degree(node, weight)` /
+  `out_degree(node, weight)` parity.
+- `rch exec -- cargo build -p fnx-python --release --features pyo3/abi3-py310`
+  was attempted with `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`
+  and died with wrapper exit 137 before any Rust diagnostic; treated as
+  infrastructure failure.
+- `cargo +nightly-2026-06-10 build -p fnx-python --release --features pyo3/abi3-py310`:
+  passed locally with the same target dir after matching the cached rustc.
+- `cargo +nightly-2026-06-10 check -p fnx-python --features pyo3/abi3-py310`:
+  passed.
+- `cargo +nightly-2026-06-10 clippy -p fnx-python --features pyo3/abi3-py310 --all-targets -- -D warnings`:
+  passed.
+- `cargo +nightly-2026-06-10 test -p fnx-python --features pyo3/abi3-py310`:
+  27 passed, 0 failed; doctests 0 passed, 0 failed.
+- `cargo +nightly-2026-06-10 fmt -p fnx-python --check`: passed.
+- `python -m py_compile python/franken_networkx/__init__.py`: passed.
+- `git diff --check`: passed.
+- `ubs --only=rust crates/fnx-python/src/digraph.rs`: exit 0; broad pre-existing
+  `digraph.rs` warnings, no critical findings.
+- `ubs --only=python --skip=7 python/franken_networkx/__init__.py`: exit 0; broad
+  pre-existing wrapper warnings, no critical findings.

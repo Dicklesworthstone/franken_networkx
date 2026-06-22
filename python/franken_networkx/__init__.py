@@ -4667,6 +4667,24 @@ class _DirectedDegreeView:
             if pairs is not None:
                 yield from pairs()
                 return
+        # br-r37-c1-8njy5: exact MultiDiGraph weighted in/out degree can use
+        # Rust's native multiedge walk; views and nbunch stay on Python paths.
+        if (
+            self._nodes is None
+            and isinstance(self._weight, str)
+            and type(self._graph) is MultiDiGraph
+            and self._adjacency_attr in ("succ", "pred")
+            and not isinstance(
+                self._graph, (_FilteredGraphView, _ReverseDirectedViewBase)
+            )
+        ):
+            if self._adjacency_attr == "succ":
+                weighted_pairs = getattr(self._graph, "_native_weighted_out_degree", None)
+            else:
+                weighted_pairs = getattr(self._graph, "_native_weighted_in_degree", None)
+            if weighted_pairs is not None:
+                yield from weighted_pairs(self._weight)
+                return
         # br-r37-c1-wdeg2: weighted full-graph iteration on a SIMPLE DiGraph
         # sums over the native per-row dict directly, skipping the per-node
         # ``self[node]`` __getitem__/_node_degree dispatch (byte-identical, the

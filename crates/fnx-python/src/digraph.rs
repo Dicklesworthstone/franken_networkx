@@ -4421,6 +4421,72 @@ impl PyMultiDiGraph {
         Ok(out)
     }
 
+    fn native_weighted_directional_degree(
+        &self,
+        py: Python<'_>,
+        weight: &str,
+        outgoing: bool,
+    ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        let one = 1i64.into_pyobject(py)?.into_any();
+        let sum_fn = py.import("builtins")?.getattr("sum")?;
+        let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(self.inner.node_count());
+        for node in self.inner.nodes_ordered() {
+            let vals = pyo3::types::PyList::empty(py);
+            if outgoing {
+                for successor in self.inner.successors(node).unwrap_or_default() {
+                    for key in self.inner.edge_keys(node, successor).unwrap_or_default() {
+                        let ek = Self::edge_key(node, successor, key);
+                        let value = match self.edge_py_attrs.get(&ek) {
+                            Some(d) => d
+                                .bind(py)
+                                .get_item(weight)
+                                .ok()
+                                .flatten()
+                                .unwrap_or_else(|| one.clone()),
+                            None => one.clone(),
+                        };
+                        vals.append(value)?;
+                    }
+                }
+            } else {
+                for predecessor in self.inner.predecessors(node).unwrap_or_default() {
+                    for key in self.inner.edge_keys(predecessor, node).unwrap_or_default() {
+                        let ek = Self::edge_key(predecessor, node, key);
+                        let value = match self.edge_py_attrs.get(&ek) {
+                            Some(d) => d
+                                .bind(py)
+                                .get_item(weight)
+                                .ok()
+                                .flatten()
+                                .unwrap_or_else(|| one.clone()),
+                            None => one.clone(),
+                        };
+                        vals.append(value)?;
+                    }
+                }
+            }
+            let deg = sum_fn.call1((vals,))?;
+            out.push((self.py_node_key(py, node), deg.unbind()));
+        }
+        Ok(out)
+    }
+
+    fn _native_weighted_out_degree(
+        &self,
+        py: Python<'_>,
+        weight: &str,
+    ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        self.native_weighted_directional_degree(py, weight, true)
+    }
+
+    fn _native_weighted_in_degree(
+        &self,
+        py: Python<'_>,
+        weight: &str,
+    ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        self.native_weighted_directional_degree(py, weight, false)
+    }
+
     #[getter]
     fn succ(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         self.adjacency(py)
