@@ -3247,3 +3247,11 @@ reconstruction (materializing ~|V| node-object lists from the Rust string table)
 same node-object materialization substrate that bounds the degree-view dicts. The
 UNDIRECTED target case is 0.95x (parity). Candidate for future native work (emit path
 segments / reuse a node-object cache), not a one-pass wrapper lever.
+
+PROOF the directed `single_target` residual is path-materialization-bound (not BFS):
+`single_target_shortest_path_length` (no path objects, same reverse BFS) is **parity**
+(1.01x @ n=2000, 0.95x @ n=5000) while the path-returning version is 0.57-0.66x. So the
+entire gap is building |V| Python path-lists of node objects from the Rust string table
+— the reverse BFS is already at nx speed. No BFS-level or wrapper fix can close it;
+only a persistent node-object mirror would (and nx wins there by reusing node objects it
+already holds). Conclusively NOT a one-pass lever. Vein closed.
