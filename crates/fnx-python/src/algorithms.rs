@@ -17550,17 +17550,13 @@ fn single_target_shortest_path(
     let gr = extract_graph(g)?;
     let t = node_key_to_string(py, target)?;
     validate_node_str(&gr, &t, "Target")?;
-    let (nodes, result) = if let Some(dg) = gr.digraph() {
+    let (nodes, target_idx, discovery, successor) = if let Some(dg) = gr.digraph() {
         let nodes = dg.nodes_ordered();
-        let adjacency = digraph_predecessor_adjacency_indices(dg, &nodes);
-        let target_idx = nodes
-            .iter()
-            .position(|&n| n == t)
-            .expect("target validated above");
-        let result = py.allow_threads(|| {
-            single_target_shortest_path_from_adjacency(&adjacency, target_idx, cutoff)
+        let target_idx = dg.get_node_index(&t).expect("target validated above");
+        let (discovery, successor) = py.allow_threads(|| {
+            single_target_shortest_path_tree_from_digraph_predecessors(dg, target_idx, cutoff)
         });
-        (nodes, result)
+        (nodes, target_idx, discovery, successor)
     } else {
         let inner = gr.undirected();
         let nodes = inner.nodes_ordered();
@@ -17569,62 +17565,47 @@ fn single_target_shortest_path(
             .iter()
             .position(|&n| n == t)
             .expect("target validated above");
-        let result = py.allow_threads(|| {
-            single_target_shortest_path_from_adjacency(&adjacency, target_idx, cutoff)
+        let (discovery, successor) = py.allow_threads(|| {
+            single_target_shortest_path_tree_from_adjacency(&adjacency, target_idx, cutoff)
         });
-        (nodes, result)
+        (nodes, target_idx, discovery, successor)
     };
+    let py_nodes: Vec<PyObject> = nodes.iter().map(|node| gr.py_node_key(py, node)).collect();
     let dict = PyDict::new(py);
-    for (node, path) in &result {
-        let py_path: Vec<PyObject> = path.iter().map(|&i| gr.py_node_key(py, nodes[i])).collect();
-        dict.set_item(gr.py_node_key(py, nodes[*node]), py_path)?;
+    let mut stack = Vec::new();
+    for &node in &discovery {
+        stack.clear();
+        let mut current = node;
+        loop {
+            stack.push(current);
+            if current == target_idx {
+                break;
+            }
+            current = successor[current];
+        }
+        let py_path = PyList::new(py, stack.iter().map(|&idx| py_nodes[idx].clone_ref(py)))?;
+        dict.set_item(py_nodes[node].clone_ref(py), py_path)?;
     }
     Ok(dict.into_any().unbind())
 }
 
-/// Reverse adjacency (predecessor rows) for a directed graph in node-index
-/// space, preserving each node's `predecessors_iter` order.
-fn digraph_predecessor_adjacency_indices(
-    digraph: &fnx_classes::digraph::DiGraph,
-    nodes: &[&str],
-) -> Vec<Vec<usize>> {
-    let node_indices: HashMap<&str, usize> = nodes
-        .iter()
-        .copied()
-        .enumerate()
-        .map(|(index, node)| (node, index))
-        .collect();
-    nodes
-        .iter()
-        .map(|&node| {
-            digraph
-                .predecessors_iter(node)
-                .map_or_else(Vec::new, |preds| {
-                    preds
-                        .filter_map(|pred| node_indices.get(pred).copied())
-                        .collect()
-                })
-        })
-        .collect()
-}
-
-/// Reverse BFS from `target` over `adjacency`, returning `(node, path)` pairs in
-/// BFS-discovery order. Each path runs node -> ... -> target (matching nx's
-/// `paths[w] = [w] + paths[v]`), reconstructed via a successor-toward-target
-/// array recorded when each node is first reached.
-fn single_target_shortest_path_from_adjacency(
+/// Reverse BFS from `target` over `adjacency`, returning discovery order and
+/// each node's successor-toward-target. The Python emitter reconstructs paths
+/// from this parent table so we do not allocate an intermediate `Vec` for every
+/// path before allocating the final Python lists.
+fn single_target_shortest_path_tree_from_adjacency(
     adjacency: &[Vec<usize>],
     target: usize,
     cutoff: Option<usize>,
-) -> Vec<(usize, Vec<usize>)> {
+) -> (Vec<usize>, Vec<usize>) {
     let node_count = adjacency.len();
     let mut seen = vec![false; node_count];
-    let mut succ = vec![0usize; node_count];
+    let mut successor = vec![0usize; node_count];
     let mut order: Vec<usize> = Vec::with_capacity(node_count);
     let mut frontier = vec![target];
     let mut next_frontier = Vec::new();
     seen[target] = true;
-    succ[target] = target;
+    successor[target] = target;
     order.push(target);
 
     let cutoff = cutoff.unwrap_or(usize::MAX);
@@ -17635,7 +17616,7 @@ fn single_target_shortest_path_from_adjacency(
             for &neighbor in &adjacency[node] {
                 if !seen[neighbor] {
                     seen[neighbor] = true;
-                    succ[neighbor] = node;
+                    successor[neighbor] = node;
                     order.push(neighbor);
                     next_frontier.push(neighbor);
                 }
@@ -17645,20 +17626,46 @@ fn single_target_shortest_path_from_adjacency(
         level += 1;
     }
 
-    let mut result = Vec::with_capacity(order.len());
-    for &node in &order {
-        let mut path = Vec::new();
-        let mut cur = node;
-        loop {
-            path.push(cur);
-            if cur == target {
-                break;
+    (order, successor)
+}
+
+/// Directed reverse BFS using DiGraph's existing predecessor index rows.
+/// This preserves the same order as `predecessors_iter` while skipping the
+/// per-call `Vec<Vec<usize>>` adjacency clone.
+fn single_target_shortest_path_tree_from_digraph_predecessors(
+    digraph: &fnx_classes::digraph::DiGraph,
+    target: usize,
+    cutoff: Option<usize>,
+) -> (Vec<usize>, Vec<usize>) {
+    let node_count = digraph.node_count();
+    let mut seen = vec![false; node_count];
+    let mut successor = vec![0usize; node_count];
+    let mut order: Vec<usize> = Vec::with_capacity(node_count);
+    let mut frontier = vec![target];
+    let mut next_frontier = Vec::new();
+    seen[target] = true;
+    successor[target] = target;
+    order.push(target);
+
+    let cutoff = cutoff.unwrap_or(usize::MAX);
+    let mut level = 0usize;
+    while !frontier.is_empty() && level < cutoff {
+        next_frontier.clear();
+        for &node in &frontier {
+            for &neighbor in digraph.predecessors_indices(node).unwrap_or(&[]) {
+                if !seen[neighbor] {
+                    seen[neighbor] = true;
+                    successor[neighbor] = node;
+                    order.push(neighbor);
+                    next_frontier.push(neighbor);
+                }
             }
-            cur = succ[cur];
         }
-        result.push((node, path));
+        std::mem::swap(&mut frontier, &mut next_frontier);
+        level += 1;
     }
-    result
+
+    (order, successor)
 }
 
 /// Return shortest path lengths from all nodes to a single target (unweighted BFS).

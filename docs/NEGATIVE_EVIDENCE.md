@@ -2,6 +2,59 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-22 BlackThrush Directed `single_target_shortest_path` Path-Emission Keep (`br-r37-c1-04z53`, cod-b)
+
+Scope: BOLD-VERIFY the documented directed
+`single_target_shortest_path` residual against vendored NetworkX. Work was done
+from detached scratch worktree
+`/data/projects/.scratch/franken_networkx-cod-b-stsp-20260622T1750Z` with
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+
+Profile and radical lever verified:
+- The old path-returning helper allocated a Rust `Vec` for every discovered
+  path before allocating the final Python lists. It also cloned directed
+  predecessor adjacency into a `Vec<Vec<usize>>` on every directed call.
+- Kept source change: reverse BFS now returns discovery order plus a
+  successor-toward-target table. The Python emitter reconstructs each result
+  list directly from that table and reuses prebuilt Python node objects.
+- Directed graphs now walk `DiGraph::predecessors_indices` directly, preserving
+  predecessor iteration order while skipping the per-call predecessor adjacency
+  clone.
+
+Head-to-head timing:
+- Build gate:
+  `RCH_REQUIRE_REMOTE=1 AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b RUSTUP_TOOLCHAIN=nightly-2026-06-10 rch exec -- cargo build -p fnx-python --release --features pyo3/abi3-py310`
+  passed. All compile commands were per-crate `-p fnx-python`.
+- Direct proof preloaded the fresh release extension from
+  `/data/projects/.rch-targets/franken_networkx-cod-b/release/lib_fnx.so`
+  without overwriting the checked-in Python extension.
+- Workload: directed graph with `2,000` integer nodes and `5,955` edges
+  (`u -> u+1`, `u -> u+7`, `u -> u+37` where in range), target `1999`.
+  Exact path dict equality and key-order parity were asserted before timing.
+
+| State | FNX median | NetworkX median | Ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| pre-lever current source, direct loop | `2.832134 ms` | `1.215342 ms` | `0.429x` | active loss reproduced |
+| successor table emitter only | `0.872843 ms` | `0.725324 ms` | `0.831x` | improved but still loss |
+| final successor emitter + direct directed predecessor rows, post-rebase confirmation | `0.745178 ms` | `0.796656 ms` | `1.069x` | win |
+
+Validation and gates:
+- Fresh-extension benchmark asserted exact FNX vs NetworkX path dictionaries and
+  key order before timing.
+- Focused Python shortest-path parity passed:
+  `tests/python/test_shortest_path.py` and
+  `tests/python/test_single_target_spl_parity.py`, `82 passed`.
+- Per-crate compile check passed:
+  `RCH_REQUIRE_REMOTE=1 AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b RUSTUP_TOOLCHAIN=nightly-2026-06-10 rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`.
+  The output still includes the pre-existing `unused_must_use` warnings in
+  `crates/fnx-python/src/digraph.rs`; this commit does not touch that file.
+
+Decision:
+- Keep. Focused score for the directed `single_target_shortest_path` row:
+  `1` win / `0` losses / `0` neutral vs NetworkX.
+- Do not retry path-per-node Rust materialization or directed predecessor
+  adjacency cloning for this public path-emission surface.
+
 ## 2026-06-21 Cod-B `non_edges_sparse_undirected` Token-Keyed Row Cache Keep (`br-r37-c1-04z53`, cod-b)
 
 Scope: BOLD-VERIFY the final active public-gauntlet loss,
