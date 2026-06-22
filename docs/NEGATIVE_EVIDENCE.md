@@ -4070,5 +4070,3 @@ Behavior proof:
 - `cargo check -p fnx-classes --all-targets`: passed.
 - `cargo clippy -p fnx-classes --all-targets -- -D warnings`: passed.
 - `cargo test -p fnx-classes`: 68 passed, 2 ignored.
-- Follow-up `br-r37-c1-yze2l` replaced those unit-struct `default()` calls and
-  `cargo clippy -p fnx-algorithms --lib -- -D warnings` then passed.
