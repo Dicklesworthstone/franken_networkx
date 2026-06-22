@@ -3290,3 +3290,28 @@ iter/nbunch/single/weighted), full suite zero new failures. Artifact:
 `tests/artifacts/perf/20260622T-degree-counts-zip-cc/`. LEVER: a native bulk call that
 emits (node, value) pairs by re-materializing node objects can be split into a values-only
 native call + `zip(list(G), ...)` reusing the node cache — audit other *_pairs bindings.
+
+## 2026-06-22 CopperCliff Multi-edge `edges(keys=True, data=True)` ~0.5x residual — uncached rebuild (`br-r37-c1-mgkd`, cc)
+
+Multigraph algorithm-execution sweep (new coverage) is dominant (MG betweenness 17x,
+closeness 5x, MDG scc 3.5x, triangles 2.8x, bfs_tree 2.3x). One real residual:
+`MultiGraph.edges(keys=True, data=True)` is 0.47-0.58x vs nx (7.4ms vs 3.8ms @ n=2000);
+MultiDiGraph variant 0.76-0.86x. Each PARTIAL variant is a big WIN: edges(data=True) 4.7-5x,
+edges(keys=True) 4.3x.
+
+ROOT CAUSE (diagnosed, no fix shipped): `_native_edge_view_list` caches ONLY the
+data-only variant (`cacheable = want_dict && !keys`, stored in `edges_with_data_cache`
+keyed on (nodes_seq, edges_seq)). So edges(data=True)'s 4.7x is a warm-cache-hit
+artifact; edges(keys=True, data=True) is excluded from the cache and REBUILDS every call.
+The rebuild itself is ~2x nx (per-edge py_node_key + py_adj_key + py_edge_key +
+ensure_edge_py_attrs + a String-keyed `seen` dedup HashSet). Attr dicts are LIVE
+(identity-preserved, matches nx) in BOTH variants — not a copy/parity issue.
+
+FIX OPTIONS (deferred — disk-LOW, uncertain real-world payoff):
+1. Cache the keys+data variant too — change `edges_with_data_cache` tuple to carry a
+   `keys: bool` flag (all 9 construction sites init it `None`, so NO struct-field churn;
+   only the field decl + the read/write in `_native_edge_view_list` change). Helps
+   REPEATED keys+data calls; one-shot (the common serialization/copy case) unchanged.
+2. Speed the rebuild (integer-index dedup instead of String `seen`; reuse node-object
+   cache) — helps one-shot but harder to beat nx's 3.8ms Python dict-walk.
+Both need a rust rebuild; not disk-frugal now. Candidate for when disk recovers.
