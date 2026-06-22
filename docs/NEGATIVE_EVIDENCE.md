@@ -3488,3 +3488,20 @@ affecting from_edgelist + any build from non-sequential edges. NOT a wrapper lev
 rust general-fresh-int/string batch that engages for arbitrary insertion order (node order
 must stay insertion-faithful). Deferred to the substrate work. (to_dict_of_lists 0.20x in the
 raw sweep was NON-interleaved noise — it is actually 1.6-1.9x via its native fast path.)
+
+## 2026-06-22 CopperCliff `DiGraph(dict_of_dicts)` constructor O(N^2) -> parity (`br-r37-c1-decodedir`, cc)
+
+SECOND O(N^2) directed-dod disaster (sibling of br-r37-c1-doddir, a DIFFERENT code path):
+the CLASS CONSTRUCTOR `DiGraph({u:{v:attrs}})` routes through `_decode_dict_of_dicts_into`,
+whose simple-graph `else` did per-edge `self.add_edge(u,v); self[u][v].update(dict(inner))`.
+The directed adjacency-view `__getitem__` per edge -> O(N^2): 215ms/911ms @ n=400/800
+(0.005x/0.003x). Undirected Graph(dod) was ~6x slow (0.17x, linear-but-slow).
+
+FIX: pure non-multigraph dict-of-dicts (all values dicts) -> `add_nodes_from(data)` + ONE
+`add_edges_from((u, v, attrs) ...)`. Byte-identical to the loop (add_edges_from sets/updates
+the edge dict; last-writer-wins on the symmetric undirected reverse exactly like the loop;
+same node + edge order). dict-of-list / multigraph / non-dict shapes keep the general loop.
+Result: DiGraph(dod) -> 0.99-1.04x (~500x self-speedup, 911ms->1.85ms @ n=800), Graph(dod)
+-> 1.20x. Byte-exact: 11 checks (attrs / dict-of-list-fallback / str keys / self-loops /
+isolated / asymmetric undirected last-wins / empty). Full suite zero new failures. Artifact:
+tests/artifacts/perf/20260622T-digraph-dod-constructor-on2-cc/.

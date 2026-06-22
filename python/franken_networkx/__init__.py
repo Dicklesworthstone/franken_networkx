@@ -3505,6 +3505,26 @@ def _decode_dict_of_dicts_into(self, data, is_multigraph, multigraph_input=None)
     dedupe_pairs = is_multigraph and not multigraph_input and not self.is_directed()
     seen_pairs = set() if dedupe_pairs else None
 
+    # br-r37-c1-decodedir (cc): pure non-multigraph dict-of-dicts -> ONE
+    # add_edges_from. The per-edge ``self.add_edge(u,v); self[u][v].update(...)``
+    # loop below is O(N^2) for a DiGraph (per-edge directed adjacency-view
+    # __getitem__: 911ms @ n=800 = 0.003x vs nx) and ~6x slow even undirected
+    # (0.17x). Emitting (u, v, attrs) triples is byte-identical to the loop:
+    # add_edges_from sets/updates the edge data dict (last-writer-wins on the
+    # symmetric undirected reverse, exactly like the loop), same node + edge
+    # order. Gated to ALL-dict values (dict-of-list / non-dict shapes keep the
+    # general loop below). add_nodes_from(data) preserves isolated sources.
+    if not is_multigraph and data and all(
+        isinstance(_nbrs, dict) for _nbrs in data.values()
+    ):
+        self.add_nodes_from(data)
+        self.add_edges_from(
+            (u, v, dict(inner) if isinstance(inner, dict) else {})
+            for u, nbrs in data.items()
+            for v, inner in nbrs.items()
+        )
+        return
+
     for u, nbrs in data.items():
         self.add_node(u)
         if isinstance(nbrs, dict):
