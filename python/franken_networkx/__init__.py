@@ -42855,11 +42855,14 @@ def from_prufer_sequence(sequence):
                 f"Invalid Prufer sequence: Values must be between 0 and {n - 1}, got {value}"
             )
     edges = _fnx.from_prufer_sequence_rust(seq)
+    # br-r37-c1-pruferbatch (cc): batch node + edge insertion instead of the
+    # per-node add_node + per-edge add_edge loops (construction tax — each pays
+    # the PyO3 boundary once per element). Byte-identical: nodes stay 0..n-1 in
+    # order, edges keep the kernel order (0 fails / n=2..200 x seeds vs the loops
+    # and vs networkx).
     G = Graph()
-    for i in range(n):
-        G.add_node(i)
-    for u, v in edges:
-        G.add_edge(u, v)
+    G.add_nodes_from(range(n))
+    G.add_edges_from(edges)
     return G
 
 
