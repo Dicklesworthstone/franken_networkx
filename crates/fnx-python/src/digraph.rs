@@ -3988,6 +3988,17 @@ impl PyMultiDiGraph {
             .collect())
     }
 
+    /// br-r37-c1-selfloopmulti (cc): self-loop nodes in node order via a rust scan
+    /// (replaces selfloop_edges' O(N) per-node has_edge(n,n) PyO3 probe).
+    fn _native_selfloop_nodes(&self, py: Python<'_>) -> Vec<PyObject> {
+        self.inner
+            .nodes_ordered()
+            .iter()
+            .filter(|n| self.inner.has_edge(n, n))
+            .map(|n| self.py_node_key(py, n))
+            .collect()
+    }
+
     /// br-r37-c1-degnbnative (cc): MultiDiGraph degree(nbunch) subset kernels — one
     /// native pass (canonical filter + multiplicity in/out/total degree) replacing
     /// the per-node native-degree + nbunch_iter membership Python path. Routed via

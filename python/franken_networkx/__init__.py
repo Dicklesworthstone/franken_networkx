@@ -21421,9 +21421,15 @@ def selfloop_edges(G, data=False, keys=False, default=None):
             except Exception:
                 sl_nodes = [n for n in G if G.has_edge(n, n)]
         else:
-            native_keys = getattr(G, "_native_node_keys", None)
-            source = native_keys() if native_keys is not None else G
-            sl_nodes = [n for n in source if G.has_edge(n, n)]
+            # br-r37-c1-selfloopmulti (cc): native rust self-loop-node scan instead
+            # of the O(N) per-node has_edge(n, n) PyO3 probe (multigraph was ~0.05x).
+            native_sl = getattr(G, "_native_selfloop_nodes", None)
+            if native_sl is not None:
+                sl_nodes = native_sl()
+            else:
+                native_keys = getattr(G, "_native_node_keys", None)
+                source = native_keys() if native_keys is not None else G
+                sl_nodes = [n for n in source if G.has_edge(n, n)]
         for node in sl_nodes:
             yield node, G[node]
 

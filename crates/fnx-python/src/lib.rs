@@ -5118,6 +5118,18 @@ impl PyMultiGraph {
     /// parallels by a normalized (lo,hi,key) string-pair, and emits (u,v) or
     /// (u,v,key). Returns Ok(None) (Python fallback) for adj_py_keys row display,
     /// or for keys=true with a non-default edge_py_keys display mirror.
+    /// br-r37-c1-selfloopmulti (cc): self-loop nodes in node-iteration order via a
+    /// rust scan, replacing selfloop_edges' O(N) per-node `has_edge(n,n)` PyO3
+    /// probe (the multigraph path was ~0.05x vs nx).
+    fn _native_selfloop_nodes(&self, py: Python<'_>) -> Vec<PyObject> {
+        self.inner
+            .nodes_ordered()
+            .iter()
+            .filter(|n| self.inner.has_edge(n, n))
+            .map(|n| self.py_node_key(py, n))
+            .collect()
+    }
+
     fn _native_mg_edges_nbunch_no_data(
         &self,
         py: Python<'_>,

@@ -3955,3 +3955,20 @@ matching nx. Same lesson as the degree bad-node fix: a native nbunch fast-path m
 the single-node case. Byte-exact: data=True keys=F/T x shapes + live-dict identity + single-node
 + error contract. Full suite zero new failures. data=True is the materialization-capped frontier;
 DG out_edges(nb,data=True) 0.22x similar. Artifact: tests/artifacts/perf/20260622T-mg-edges-nbunch-data-cc/.
+
+## 2026-06-22 CopperCliff selfloop_edges(multigraph) — 0.13x -> 3.37x (sparse) (`br-r37-c1-selfloopmulti`, cc)
+
+selfloop_edges on a MultiGraph/MultiDiGraph found self-loop nodes via an O(N) per-node
+`has_edge(n,n)` PyO3 probe over ALL nodes (the simple-graph nodes_with_selfloops_rust is
+"wrong for multi"), so on gnm (≈0 self-loops) it was ~0.05-0.13x vs nx. Added
+_native_selfloop_nodes (PyMultiGraph + PyMultiDiGraph): rust scan in node-iteration order;
+routed in selfloop_edges' multigraph branch. Result (realistic sparse self-loops): nsl=0 (the
+sweep's gnm case) **0.13x -> 3.37x**, nsl=5 1.08-1.50x — dominates. Byte-exact across all
+variants (keys / data=True / data=str+default, parallel self-loops with attrs) for MG and MDG.
+Full suite zero new failures.
+
+RESIDUAL: DENSE self-loops (nsl>=30) stay ~0.3-0.5x — there the cost shifts to the Python
+emission `for n in sl_nodes: yield n, G[n]` (one native row materialization per self-loop node,
+then nbrs[n].items()); a full native self-loop-EDGE kernel (emit (n,n[,key][,attrs]) directly,
+like the edges(nbunch) kernels) would close it, but dense self-loops are atypical.
+Artifact: tests/artifacts/perf/20260622T-selfloop-edges-multi-cc/.
