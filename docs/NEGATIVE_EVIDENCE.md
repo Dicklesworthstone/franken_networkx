@@ -3454,3 +3454,20 @@ GENERAL GOTCHA (also limits the earlier cycle_graph/path_graph create_using fix 
 that builds a fresh graph, let add_edges_from add the nodes via edges; an explicit pre-add of
 nodes already covered by edges silently drops you off the fresh-graph fast path. Artifact:
 tests/artifacts/perf/20260622T-add-path-cycle-star-batch-cc/.
+
+## 2026-06-22 CopperCliff `from_dict_of_dicts(DiGraph)` O(N^2) -> O(E) — 430x slower to 1.28x faster (`br-r37-c1-doddir`, cc)
+
+CATASTROPHIC find (interleaved converter sweep): directed `from_dict_of_dicts` was O(N^2) —
+58ms/239ms/963ms @ n=200/400/800 (0.046x/0.005x/0.003x vs nx, ~430x slower, clean quadratic).
+The undirected `Graph` case has a batch branch; `is_multigraph` is handled; but the directed
+simple-graph case fell to the `else` per-edge `add_edge(u,v)` + `graph[u][v].update(attrs)`
+loop, where the directed adjacency-view `__getitem__` per edge is O(N) -> O(N^2) total.
+
+FIX: directed dict-of-dicts edges are UNIQUE (no symmetric (v,u) dedup the undirected branch
+needs), so added an `elif type(graph) is DiGraph:` branch emitting (u, v, attrs) triples
+through ONE add_edges_from (exactly what nx does), O(E). Now **1.28x FASTER** (963ms->1.49ms
+@ n=800, ~650x self-speedup). Byte-exact: 8 checks (attrs / str keys / self-loops / isolated
+nodes / MultiDiGraph-still-routes-correctly). Full suite: zero new failures. Exotic subclasses
+keep the inline loop (malformed-input contract). Artifact:
+tests/artifacts/perf/20260622T-from-dict-of-dicts-directed-on2-cc/. LEVER: audit other
+converters/operators for directed paths lacking the undirected branch's batch.

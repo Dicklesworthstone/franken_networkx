@@ -52920,8 +52920,21 @@ def from_dict_of_dicts(d, create_using=None, multigraph_input=False):
                 batch.append((u, v, edge_attrs))
                 seen.add((u, v))
         graph.add_edges_from(batch)
+    elif type(graph) is DiGraph:
+        # br-r37-c1-doddir (cc): the directed simple-graph case had NO batch
+        # branch and fell to the per-edge ``add_edge`` + ``graph[u][v].update``
+        # loop below. That per-edge adjacency-view __getitem__ is O(N), making
+        # the whole build O(N^2) — 963ms @ n=800 (0.003x vs nx, ~430x slower).
+        # Directed dict-of-dicts edges are UNIQUE (no symmetric (v,u) dedup like
+        # the undirected branch), so emit (u, v, attrs) triples through ONE
+        # add_edges_from — byte-identical (nx does exactly this) and O(E).
+        graph.add_edges_from(
+            (u, v, edge_attrs)
+            for u, nbrs in d.items()
+            for v, edge_attrs in nbrs.items()
+        )
     else:
-        # Subclasses / DiGraph keep the inline loop: their add_edges_from
+        # Exotic subclasses keep the inline loop: their add_edges_from
         # raw paths have different malformed-input contracts.
         for u, nbrs in d.items():
             for v, edge_attrs in nbrs.items():
