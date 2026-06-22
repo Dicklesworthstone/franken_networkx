@@ -3761,3 +3761,21 @@ OPERATOR VEIN STATUS (final): disjoint_union native-DOMINANT all 4 types (Graph/
 compose native-dominant Graph+DiGraph; compose(Multi) BLOCKED on z6uka succ/pred row display
 (deep). difference/symmetric_difference already native wins. Operator native-mirror vein
 EXHAUSTED of clean wins.
+
+## 2026-06-22 CopperCliff MultiDiGraph edges(keys=True,data=True) cache — 0.78x -> 3.33-3.64x (`br-r37-c1-mdgkd`, cc)
+
+Found via a fresh sweep: MD edges(keys,data) 0.78x while edges(data) 3.58x and edges(keys) 1.86x.
+Root cause: PyMultiDiGraph cached edges(data=True,keys=False) [edges_with_data_cache] and
+edges(keys=True,data=False) [edges_with_keys_cache] but had NO cache for the keys+data combo —
+it hit edges_key_alldata_existing_mirrors (returns None for attr-less gnm edges) then the generic
+loop, materializing empty mirrors EVERY call. Fix: added a `keys` bool to the existing
+edges_with_data_cache (4-tuple, last-keys-variant-wins) so keys+data caches in the same slot — no
+new struct field (avoids the ~20-site constructor churn). Mirrors the PyMultiGraph mgkd fix.
+
+Result: 0.78x -> **3.33-3.64x**. Byte-exact: keys+data / data / keys all correct across attr +
+attr-less graphs, cache-thrash alternation, AND post-mutation invalidation. Full suite zero new
+failures. Artifact: tests/artifacts/perf/20260622T-mdg-edges-keysdata-cache-cc/.
+
+Sweep also surfaced (deferred): nbunch_iter 0.09-0.19x (node-object materialization + String-keyed
+membership substrate — deep), degree(weight)/size(weight) ~0.80x (weighted attr walk), relabel
+0.86x (known construction tax). MD remaining edges combos now all dominant.

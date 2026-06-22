@@ -160,8 +160,11 @@ pub struct PyMultiDiGraph {
     /// it instead of rebuilding the 3-level dict (was 47x slower than nx).
     pub(crate) dict_of_dicts_cache: Option<crate::DictOfDictsCache>,
     /// br-r37-c1-o07ax: (nodes_seq, edges_seq)-keyed cache of the node-major
-    /// (u, v, live_attr) tuples for edges(data=True, keys=False, no nbunch).
-    pub(crate) edges_with_data_cache: Option<(u64, u64, Vec<PyObject>)>,
+    /// (u, v[, key], live_attr) tuples for edges(data=True, no nbunch). The bool
+    /// is the `keys` flag (br-r37-c1-mdgkd, cc): edges(data=True, keys=False) and
+    /// edges(keys=True, data=True) are distinct result shapes, cached one-at-a-time
+    /// in this slot (last-requested keys variant wins; symmetric to PyMultiGraph).
+    pub(crate) edges_with_data_cache: Option<(u64, u64, bool, Vec<PyObject>)>,
     /// br-r37-c1-qwqvn: (nodes_seq, edges_seq)-keyed cache of immutable
     /// (u, v, key) tuples for edges(keys=True, data=False, no nbunch).
     pub(crate) edges_with_keys_cache: Option<(u64, u64, Vec<PyObject>)>,
@@ -214,7 +217,7 @@ impl PyMultiDiGraph {
         }
         let valid = matches!(
             &self.edges_with_data_cache,
-            Some((ns, es, _)) if *ns == self.nodes_seq && *es == self.edges_seq
+            Some((ns, es, keys, _)) if *ns == self.nodes_seq && *es == self.edges_seq && !*keys
         );
         if !valid {
             let edges: Vec<(String, String, usize)> = self
@@ -233,9 +236,9 @@ impl PyMultiDiGraph {
                     .into_any();
                 result.push(tuple_object(py, &[py_u, py_v, attrs])?);
             }
-            self.edges_with_data_cache = Some((self.nodes_seq, self.edges_seq, result));
+            self.edges_with_data_cache = Some((self.nodes_seq, self.edges_seq, false, result));
         }
-        let cached = &self.edges_with_data_cache.as_ref().unwrap().2;
+        let cached = &self.edges_with_data_cache.as_ref().unwrap().3;
         Ok(cached.iter().map(|t| t.clone_ref(py)).collect())
     }
 
@@ -283,11 +286,27 @@ impl PyMultiDiGraph {
         if want_dict && !keys {
             return self.edges_alldata_tuples(py);
         }
-        if want_dict
-            && keys
-            && let Some(result) = self.edges_key_alldata_existing_mirrors(py)?
-        {
-            return Ok(result);
+        if want_dict && keys {
+            // br-r37-c1-mdgkd (cc): serve/repopulate the keys+data variant from the
+            // shared edges_with_data_cache (flag=true). Previously this combo had no
+            // cache and rebuilt every call (materializing empty mirrors) -> 0.78x.
+            let valid = matches!(
+                &self.edges_with_data_cache,
+                Some((ns, es, k, _)) if *ns == self.nodes_seq && *es == self.edges_seq && *k
+            );
+            if valid {
+                let cached = &self.edges_with_data_cache.as_ref().unwrap().3;
+                return Ok(cached.iter().map(|t| t.clone_ref(py)).collect());
+            }
+            if let Some(result) = self.edges_key_alldata_existing_mirrors(py)? {
+                self.edges_with_data_cache = Some((
+                    self.nodes_seq,
+                    self.edges_seq,
+                    true,
+                    result.iter().map(|t| t.clone_ref(py)).collect(),
+                ));
+                return Ok(result);
+            }
         }
 
         let edges: Vec<(String, String, usize)> = self
@@ -326,6 +345,15 @@ impl PyMultiDiGraph {
                 tuple_object(py, &[py_u, py_v])?
             };
             result.push(item);
+        }
+        if want_dict && keys {
+            // cache the generic-loop keys+data result (mirrors materialized above)
+            self.edges_with_data_cache = Some((
+                self.nodes_seq,
+                self.edges_seq,
+                true,
+                result.iter().map(|t| t.clone_ref(py)).collect(),
+            ));
         }
         Ok(result)
     }
