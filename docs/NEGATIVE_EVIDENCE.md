@@ -3471,3 +3471,20 @@ nodes / MultiDiGraph-still-routes-correctly). Full suite: zero new failures. Exo
 keep the inline loop (malformed-input contract). Artifact:
 tests/artifacts/perf/20260622T-from-dict-of-dicts-directed-on2-cc/. LEVER: audit other
 converters/operators for directed paths lacking the undirected branch's batch.
+
+### Note (cc): add_edges_from fast batch only engages for SEQUENTIAL-int-prefix edges (from_edgelist 0.64x)
+
+Converter sweep: `from_edgelist` is 0.64-0.69x vs nx (both directed/undirected). It is already
+minimal (`G.add_edges_from(edgelist)`), so the gap is `add_edges_from` itself. Pinpointed on a
+fresh Graph @ n=2000/m=8000:
+- add_edges_from(SEQUENTIAL int edges, e.g. pairwise(range)) = **1.12x** (fast — the rust
+  fresh-int-prefix batch `collect_fresh_exact_int_prefix_edges` engages)
+- add_edges_from(RANDOM int edges, e.g. gnm.edges()) = **0.64x**
+- add_edges_from(STRING edges) = **0.63x**
+So the batch fast path requires nodes arriving in 0..n PREFIX order; random-int and string
+edge lists fall to the slower String-keyed batch (~1.5x nx). This is the documented
+construction substrate ([[reference_attr_edge_batch_construction]] / construction-tax veins),
+affecting from_edgelist + any build from non-sequential edges. NOT a wrapper lever — needs a
+rust general-fresh-int/string batch that engages for arbitrary insertion order (node order
+must stay insertion-faithful). Deferred to the substrate work. (to_dict_of_lists 0.20x in the
+raw sweep was NON-interleaved noise — it is actually 1.6-1.9x via its native fast path.)
