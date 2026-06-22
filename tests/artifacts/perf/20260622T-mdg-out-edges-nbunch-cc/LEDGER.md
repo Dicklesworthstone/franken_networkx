@@ -1,0 +1,2 @@
+# native MultiDiGraph out_edges(nbunch, data=False) (br-r37-c1-mdgoutedge, cc)
+out_edges(nb) keys=False 0.87x -> 2.22x (DOMINATES; nx iterates succ[u] keydicts in Python, fnx successors x edge_keys in rust). keys=True 0.76x->0.79x (marginal; per-edge int key_obj construction cap). _native_mdg_out_edges_nbunch_no_data (node-dedup, iterable-gated, succ_py_keys/edge_py_keys display gate). Byte-exact incl parallels/single/dup/error-contract + data=True fallback. Completes data=False edges(nbunch) native across all 4 graph types. Full suite zero new.

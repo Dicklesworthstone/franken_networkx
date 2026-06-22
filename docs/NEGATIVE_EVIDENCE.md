@@ -3989,3 +3989,17 @@ DG out_edges 0.77x. They can't dominate without eager attr-dict mirrors (abandon
 design). The shallow DOMINATING vein is exhausted; data=True variants are strictly-better-but-
 capped, and the remaining true gaps are deep-substrate (per-call String key, in_edges pred-order).
 Artifact: tests/artifacts/perf/20260622T-dg-out-edges-nbunch-data-cc/.
+
+## 2026-06-22 CopperCliff native MultiDiGraph out_edges(nbunch, data=False) — 0.87x -> 2.22x (`br-r37-c1-mdgoutedge`, cc)
+
+out_edges(nb) keys=False 0.87x -> **2.22x** (dominates): nx iterates succ[u].items() keydicts in
+Python; fnx walks successors x edge_keys in rust (one PyO3 call). _native_mdg_out_edges_nbunch_no_data
+(PyMultiDiGraph): node-dedup, iterable-gated, succ_py_keys (+ edge_py_keys for keys) display gate.
+keys=True 0.76x -> 0.79x (marginal — per-edge int key_obj construction is the cap, like MG edges
+keys=True). Byte-exact: shapes x keys, parallels, single-node, dup, error contract + data=True
+fallback. Full suite zero new.
+
+MILESTONE: data=False edges(nbunch) is now native-DOMINANT across ALL 4 graph types
+(Graph/DiGraph 2.5x, MG 1.00x [was 0.09x], MDG 2.22x). data=True variants remain materialization-
+capped (~0.5-0.8x). Remaining: deep substrate (per-call String key, in_edges pred-order).
+Artifact: tests/artifacts/perf/20260622T-mdg-out-edges-nbunch-cc/.

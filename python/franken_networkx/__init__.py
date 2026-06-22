@@ -281,6 +281,25 @@ def _digraph_in_edges(self, nbunch=None, data=False, default=None):
 
 
 def _multidigraph_out_edges(self, nbunch=None, data=False, keys=False, default=None):
+    # br-r37-c1-mdgoutedge (cc): out_edges(nbunch, data=False) — one native pass
+    # (succ x edge_keys in rust; nx iterates succ[u] keydicts in Python). iterable
+    # nbunch only (a single in-graph node returns its edges via the view path).
+    if (
+        data is False
+        and type(self) is MultiDiGraph
+        and (
+            isinstance(nbunch, (list, tuple, set, frozenset))
+            or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
+        )
+    ):
+        native = getattr(self, "_native_mdg_out_edges_nbunch_no_data", None)
+        if native is not None:
+            try:
+                result = native(nbunch, keys)
+            except TypeError as exc:
+                raise NetworkXError(str(exc))
+            if result is not None:
+                return result
     return list(self.edges(nbunch=nbunch, data=data, keys=keys, default=default))
 
 
