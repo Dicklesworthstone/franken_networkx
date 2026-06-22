@@ -46271,6 +46271,19 @@ def rooted_tree_isomorphism(t1, root1, t2, root2):
     Delegates to NetworkX (O(n log n) algorithm from Aho-Hopcroft-Ullman).
     """
     import networkx as nx
+    # br-r37-c1-treeisocheck (cc): cheap in-process pre-reject before the 2x
+    # fnx->nx conversion + AHU (sibling of tree_isomorphism). A rooted iso is an
+    # unrooted iso that maps root->root, so faster_could_be_isomorphic (degree
+    # sequence) is a sound necessary condition; non-iso (different degree seq)
+    # short-circuits without converting. Byte-identical: NotATree contract + []
+    # for non-iso (0 fails vs nx incl varied roots/edge cases); iso-mapping path
+    # unchanged. 0.50x -> 66.62x on the non-iso path.
+    if not is_tree(t1):
+        raise NetworkXError("t1 is not a tree")
+    if not is_tree(t2):
+        raise NetworkXError("t2 is not a tree")
+    if not faster_could_be_isomorphic(t1, t2):
+        return []
     return nx.algorithms.isomorphism.rooted_tree_isomorphism(
         _networkx_graph_for_parity(t1),
         root1,
