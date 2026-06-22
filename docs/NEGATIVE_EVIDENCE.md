@@ -3670,3 +3670,22 @@ per-cell succ/pred row-store) — the intricate path the gated/clean approach si
 are genuinely deep-substrate (unlike the simple-DiGraph compose/disjoint_union, which shipped
 because Graph/DiGraph display is single-table + the relabel discards source display). The
 simple-DiGraph natives stand. Multi keyed operators: deferred to the display-mirror substrate work.
+
+## 2026-06-22 CopperCliff native MultiDiGraph disjoint_union — 0.57x -> 1.66-2.20x SHIPPED (`br-r37-c1-mdgdju`, cc)
+
+RESOLVED the keyed-multi blocker from the prior two notes. The fix was NOT gating and NOT a
+construction bug — it was that the native must COPY the `edge_py_keys` DISPLAY-key mirror.
+MultiDiGraph stores an inner integer key that can DIFFER from the Python display key for
+explicit/non-default keys; nx.disjoint_union PRESERVES display keys. v1 copied only
+edge_py_attrs (not edge_py_keys) -> explicit keys 1,3 displayed as internal 0,1 (operator-
+parity test fail). v2 gated on edge_py_keys-empty -> never fired for typical lazy-int graphs
+(0 gain). v3 (shipped): UNGATED, copy edge_py_keys alongside edge_py_attrs. The relabel to
+fresh int ranges discards source NODE display + succ/pred row overrides, so only the edge
+display-KEY mirror needs preserving — no per-cell row-store, no gate.
+
+Result: disjoint_union(MDG) 0.57x -> **1.66-2.20x** (~3.5x self-speedup, 40ms->14ms @ n=800).
+Byte-exact: 7 checks (default-key native, explicit non-default keys, parallel self-loops, str
+source, empty) — nodes(data), edges(keys+data), graph attrs, succ AND pred. operator-parity
+test + full suite zero new failures. UNBLOCKS the keyed-multi pattern: compose(MDG) 0.58x,
+disjoint_union(MG) 0.63x, compose(MG) 0.74x are next (same edge_py_keys-copy recipe; MG adds
+undirected symmetric dedup). Artifact: tests/artifacts/perf/20260622T-native-mdg-disjoint-union-cc/.

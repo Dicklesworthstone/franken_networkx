@@ -4400,6 +4400,81 @@ impl PyMultiDiGraph {
         self.absorb_digraph_keyed_from_digraph(py, source)
     }
 
+    /// br-r37-c1-mdgdju (cc): native MultiDiGraph disjoint_union — keyed analog of
+    /// PyDiGraph::_native_disjoint_union. Relabels both parts to fresh int ranges
+    /// (so the source NODE display + succ/pred row overrides are discarded — the
+    /// result nodes are plain ints), walks SUCCESSORS x edge_keys (no symmetric
+    /// dedup; directed), and PRESERVES each edge's DISPLAY key by copying the
+    /// edge_py_keys mirror (nx preserves keys; the inner integer key may differ
+    /// from the Python display key for explicit/non-default keys). Bulk
+    /// extend_keyed_edges_with_attrs_unrecorded. No gating needed.
+    fn _native_disjoint_union(&self, py: Python<'_>, other: PyRef<'_, Self>) -> PyResult<Py<Self>> {
+        let mut g = Self::new_empty_with_mode(py, self.inner.mode())?;
+        let merged_graph_attrs = PyDict::new(py);
+        merged_graph_attrs.update(self.graph_attrs.bind(py).as_mapping())?;
+        merged_graph_attrs.update(other.graph_attrs.bind(py).as_mapping())?;
+        g.graph_attrs = merged_graph_attrs.unbind();
+        let n1 = self.inner.node_count();
+        for (part, offset) in [(self, 0usize), (&*other, n1)] {
+            let nodes: Vec<String> = part
+                .inner
+                .nodes_ordered()
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
+            let index_of: HashMap<&str, usize> = nodes
+                .iter()
+                .enumerate()
+                .map(|(i, n)| (n.as_str(), i + offset))
+                .collect();
+            let mut node_batch: Vec<(String, AttrMap)> = Vec::with_capacity(nodes.len());
+            for (i, node) in nodes.iter().enumerate() {
+                let canonical = (i + offset).to_string();
+                if let Some(attrs) = part.node_py_attrs.get(node) {
+                    g.node_py_attrs
+                        .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
+                }
+                g.node_key_map.insert(
+                    canonical.clone(),
+                    crate::unwrap_infallible((i + offset).into_pyobject(py))
+                        .into_any()
+                        .unbind(),
+                );
+                node_batch.push((
+                    canonical,
+                    part.inner.node_attrs(node).cloned().unwrap_or_default(),
+                ));
+            }
+            g.inner.extend_nodes_with_attrs_unrecorded(node_batch);
+            let mut edge_batch: Vec<(String, String, usize, AttrMap)> = Vec::new();
+            for u in &nodes {
+                for v in part.inner.successors(u).unwrap_or_default() {
+                    let uc = index_of[u.as_str()].to_string();
+                    let vc = index_of[v].to_string();
+                    for key in part.inner.edge_keys(u, v).unwrap_or_default() {
+                        let src_ek = Self::edge_key(u, v, key);
+                        let dst_ek = Self::edge_key(&uc, &vc, key);
+                        if let Some(attrs) = part.edge_py_attrs.get(&src_ek) {
+                            g.edge_py_attrs
+                                .insert(dst_ek.clone(), attrs.bind(py).copy()?.unbind());
+                        }
+                        if let Some(display_key) = part.edge_py_keys.get(&src_ek) {
+                            g.edge_py_keys.insert(dst_ek, display_key.clone_ref(py));
+                        }
+                        edge_batch.push((
+                            uc.clone(),
+                            vc.clone(),
+                            key,
+                            part.inner.edge_attrs(u, v, key).cloned().unwrap_or_default(),
+                        ));
+                    }
+                }
+            }
+            g.inner.extend_keyed_edges_with_attrs_unrecorded(edge_batch);
+        }
+        Py::new(py, g)
+    }
+
     fn copy(&self, py: Python<'_>) -> PyResult<Self> {
         // br-r37-c1-6xe9c: bulk-clone the inner Rust multidigraph instead of
         // rebuilding it edge-by-edge. The previous loop iterated
