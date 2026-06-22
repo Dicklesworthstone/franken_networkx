@@ -3315,3 +3315,18 @@ FIX OPTIONS (deferred — disk-LOW, uncertain real-world payoff):
 2. Speed the rebuild (integer-index dedup instead of String `seen`; reuse node-object
    cache) — helps one-shot but harder to beat nx's 3.8ms Python dict-walk.
 Both need a rust rebuild; not disk-frugal now. Candidate for when disk recovers.
+
+### Addendum 3 (cc): IO serialization sweep — write_* residuals are parity-blocked delegations
+
+No-build IO probe (new coverage). Generators/readers dominate or parity: to_graph6_bytes
+2.27x, to_sparse6_bytes 1.56x, write_edgelist 4.74x, write_weighted_edgelist 1.82x,
+generate_edgelist 1.22x, generate_graphml/gml/adjlist parity. The write_* residuals are
+ALL byte-parity-blocked nx delegations (NOT levers): write_gexf 0.79x, write_gml 0.85x,
+write_graphml 0.85x, write_adjlist 0.75x. Root cause (per the write_gexf docstring,
+br-r37-c1-wgexf-parity + {eeawk,nlkkm,nhgtp}): native Rust writers EXIST
+(`write_gexf_string_rust` etc.) but were abandoned because their output diverges from nx's
+lxml byte-for-byte (XML quote style `'` vs `"`, `utf-8` vs `UTF-8`, prettyprint spacing),
+so they delegate to nx for byte-exact output and pay the fnx->nx conversion. Closing these
+requires matching nx's exact serialization bytes (the reason they were de-routed) — not a
+perf lever. Confirms domination holds across IO too; no no-build lever remains in any swept
+domain (whole-graph, small-input, *_pairs, multi-execution, pure-Python routing, IO).
