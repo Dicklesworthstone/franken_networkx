@@ -4135,3 +4135,65 @@ ALSO fixed a LATENT CRASH this exposed (my earlier bfd4e3e3e edges route): keys=
 _OutMultiEdgeView (a _DiEdgeMethodView needing (graph,method)) instead of _OutMultiEdgesKeysView
 (the list-wrapper) -> TypeError once keys=True un-gated. Byte-exact: out_edges+edges x shapes incl
 explicit string keys, dup/single-node/error contract. Full suite zero new (49231 passed).
+
+## 2026-06-22 BlackThrush native dense multigraph selfloop_edges emission - 8.13x-31.79x self-speedup, still 0.22x-0.62x vs NetworkX (`br-r37-c1-8egkh`, cod-a)
+
+Lever: finish the dense residual called out by the sparse self-loop keep above. `selfloop_edges`
+on MultiGraph/MultiDiGraph now routes to `_native_selfloop_edges`, which emits the final
+NetworkX-shaped tuples directly from the native self-loop scan instead of materializing `G[n]`
+and then `nbrs[n]` for every self-loop node. The kernel preserves node display keys, parallel
+edge display keys, `keys`, `data=True`, `data="attr"` with `default`, and live attr-dict identity.
+
+Keep decision: KEEP. This is not a near-zero lever. It is still tuple/PyO3-object-construction
+capped versus NetworkX, but it removes the dominant FNX-internal Python row-materialization cost.
+No revert.
+
+Final direct artifact probe:
+
+`PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx/legacy_networkx_code /data/projects/franken_networkx/.venv/bin/python` with
+`/data/projects/.rch-targets/franken_networkx-cod-a/release/lib_fnx.so` preloaded as
+`franken_networkx._fnx`.
+
+| workload | mode | old FNX row route | new FNX | NetworkX | self-speedup | ratio vs NetworkX |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| MultiGraph int keys | pairs | 9.244 ms | 0.315 ms | 0.179 ms | 29.32x | 0.57x |
+| MultiGraph int keys | keys | 7.976 ms | 0.655 ms | 0.222 ms | 12.17x | 0.34x |
+| MultiGraph int keys | data | 7.656 ms | 0.620 ms | 0.208 ms | 12.35x | 0.34x |
+| MultiGraph int keys | keys_data | 8.562 ms | 0.839 ms | 0.230 ms | 10.21x | 0.27x |
+| MultiGraph int keys | weight | 10.219 ms | 0.786 ms | 0.255 ms | 13.00x | 0.32x |
+| MultiGraph int keys | keys_weight | 9.854 ms | 0.900 ms | 0.266 ms | 10.95x | 0.30x |
+| MultiGraph string keys | pairs | 8.417 ms | 0.353 ms | 0.192 ms | 23.85x | 0.54x |
+| MultiGraph string keys | keys | 8.675 ms | 0.497 ms | 0.178 ms | 17.47x | 0.36x |
+| MultiGraph string keys | data | 8.646 ms | 0.592 ms | 0.214 ms | 14.61x | 0.36x |
+| MultiGraph string keys | keys_data | 9.580 ms | 0.964 ms | 0.294 ms | 9.94x | 0.30x |
+| MultiGraph string keys | weight | 8.538 ms | 0.800 ms | 0.397 ms | 10.67x | 0.50x |
+| MultiGraph string keys | keys_weight | 8.192 ms | 0.822 ms | 0.266 ms | 9.97x | 0.32x |
+| MultiDiGraph int keys | pairs | 9.827 ms | 0.309 ms | 0.193 ms | 31.79x | 0.62x |
+| MultiDiGraph int keys | keys | 9.064 ms | 0.518 ms | 0.185 ms | 17.51x | 0.36x |
+| MultiDiGraph int keys | data | 8.595 ms | 0.591 ms | 0.220 ms | 14.55x | 0.37x |
+| MultiDiGraph int keys | keys_data | 8.810 ms | 1.084 ms | 0.234 ms | 8.13x | 0.22x |
+| MultiDiGraph int keys | weight | 8.479 ms | 0.622 ms | 0.257 ms | 13.63x | 0.41x |
+| MultiDiGraph int keys | keys_weight | 9.597 ms | 0.821 ms | 0.277 ms | 11.69x | 0.34x |
+| MultiDiGraph string keys | pairs | 10.793 ms | 0.400 ms | 0.224 ms | 26.95x | 0.56x |
+| MultiDiGraph string keys | keys | 8.692 ms | 0.516 ms | 0.184 ms | 16.83x | 0.36x |
+| MultiDiGraph string keys | data | 12.125 ms | 0.614 ms | 0.218 ms | 19.75x | 0.36x |
+| MultiDiGraph string keys | keys_data | 8.332 ms | 0.793 ms | 0.242 ms | 10.51x | 0.31x |
+| MultiDiGraph string keys | weight | 9.920 ms | 0.775 ms | 0.314 ms | 12.79x | 0.40x |
+| MultiDiGraph string keys | keys_weight | 8.822 ms | 0.844 ms | 0.272 ms | 10.45x | 0.32x |
+
+Behavior proof:
+
+- Direct artifact parity: public `fnx.selfloop_edges` and direct `_native_selfloop_edges` match
+  NetworkX for MultiGraph and MultiDiGraph across pairs/keys/data/keys_data/weight/keys_weight,
+  including live attr-dict mutation identity.
+- `cargo fmt -p fnx-python --check`: passed.
+- `cargo check -p fnx-python --features pyo3/abi3-py310`: passed.
+- `cargo clippy -p fnx-python --features pyo3/abi3-py310 -- -D warnings`: passed.
+- `cargo build -p fnx-python --release --features pyo3/abi3-py310`: passed; built
+  `/data/projects/.rch-targets/franken_networkx-cod-a/release/lib_fnx.so`.
+- `cargo test -p fnx-python --features pyo3/abi3-py310`: 27 passed, 0 failed.
+
+Pytest note: the checkout's `tests/python/conftest.py` hard-fails when
+`python/franken_networkx/_fnx.abi3.so` is older than Rust sources. I did not copy over or install
+the extension during this disk-frugal crate-only run, so the Python proof used the final release
+artifact preloaded directly.

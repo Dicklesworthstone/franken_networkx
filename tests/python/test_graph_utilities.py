@@ -778,6 +778,40 @@ def test_global_selfloop_edges_matches_networkx_without_fallback(
 
 
 @pytest.mark.parametrize(
+    ("keys", "data", "default"),
+    [
+        (False, False, "fallback"),
+        (False, True, "fallback"),
+        (False, "weight", "fallback"),
+        (True, False, "fallback"),
+        (True, True, "fallback"),
+        (True, "weight", "fallback"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_multigraph_native_selfloop_edges_matches_networkx(
+    fnx_cls, nx_cls, keys, data, default
+):
+    graph, expected = _selfloop_utility_graph_pair(fnx_cls, nx_cls)
+
+    assert list(graph._native_selfloop_edges(data, keys=keys, default=default)) == list(
+        nx.selfloop_edges(expected, keys=keys, data=data, default=default)
+    )
+
+    if data is True:
+        native = list(graph._native_selfloop_edges(data, keys=keys, default=default))
+        attrs = native[0][-1]
+        attrs["seen"] = "live"
+        assert graph["a"]["a"]["k1"]["seen"] == "live"
+
+
+@pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
     [
         (fnx.Graph, nx.Graph),

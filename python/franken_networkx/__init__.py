@@ -21493,7 +21493,7 @@ def selfloop_edges(G, data=False, keys=False, default=None):
         native_edges = getattr(G, "_native_selfloop_edges", None)
         if native_edges is not None:
             try:
-                return iter(native_edges(data, keys=keys, default=default))
+                return native_edges(data, keys=keys, default=default)
             except Exception:
                 pass
     # br-r37-c1-61okz: bypass AdjacencyView for the common case —

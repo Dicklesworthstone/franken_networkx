@@ -4,7 +4,7 @@
 //! raw Rust helpers. The Python setup builds identical NetworkX/FNX graphs once;
 //! Criterion times only repeated algorithm calls.
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use std::ffi::CString;

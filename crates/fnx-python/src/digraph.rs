@@ -4032,7 +4032,10 @@ impl PyMultiDiGraph {
                     let nbr_obj = self.py_node_key(py, nbr);
                     if keys {
                         let key_obj = self.py_edge_key(py, &canonical, nbr, key);
-                        out.push(tuple_object(py, &[node.clone().unbind(), nbr_obj, key_obj])?);
+                        out.push(tuple_object(
+                            py,
+                            &[node.clone().unbind(), nbr_obj, key_obj],
+                        )?);
                     } else {
                         out.push(tuple_object(py, &[node.clone().unbind(), nbr_obj])?);
                     }
@@ -4089,7 +4092,10 @@ impl PyMultiDiGraph {
                         let key_obj = crate::unwrap_infallible(key.into_pyobject(py))
                             .into_any()
                             .unbind();
-                        out.push(tuple_object(py, &[node.clone().unbind(), nbr_obj, key_obj, attrs])?);
+                        out.push(tuple_object(
+                            py,
+                            &[node.clone().unbind(), nbr_obj, key_obj, attrs],
+                        )?);
                     } else {
                         out.push(tuple_object(py, &[node.clone().unbind(), nbr_obj, attrs])?);
                     }
@@ -4108,6 +4114,72 @@ impl PyMultiDiGraph {
             .filter(|n| self.inner.has_edge(n, n))
             .map(|n| self.py_node_key(py, n))
             .collect()
+    }
+
+    /// br-r37-c1-8egkh: full native MultiDiGraph self-loop edge emission.
+    /// This is the directed sibling of PyMultiGraph::_native_selfloop_edges:
+    /// skip Python `G[n]`/`nbrs[n]` row materialization and emit the final
+    /// NetworkX-shaped tuples directly while preserving display keys and live
+    /// attr-dict identity.
+    #[pyo3(signature = (data, keys=false, default=None))]
+    fn _native_selfloop_edges(
+        &mut self,
+        py: Python<'_>,
+        data: &Bound<'_, PyAny>,
+        keys: bool,
+        default: Option<PyObject>,
+    ) -> PyResult<Py<crate::NodeIterator>> {
+        let data_is_bool = data.is_instance_of::<PyBool>();
+        let want_dict = data_is_bool && data.extract::<bool>()?;
+        let want_value = !data_is_bool;
+        let default_obj = default.unwrap_or_else(|| py.None());
+        if want_dict && self.inner.edge_count() > 0 {
+            self.mark_edges_dirty();
+        }
+
+        let nodes: Vec<String> = self
+            .inner
+            .nodes_ordered()
+            .iter()
+            .filter(|node| self.inner.has_edge(node, node))
+            .map(|node| (*node).to_owned())
+            .collect();
+        let mut out: Vec<PyObject> = Vec::with_capacity(self.inner.number_of_selfloops());
+        for node in &nodes {
+            let edge_keys = self.inner.edge_keys(node, node).unwrap_or_default();
+            let py_node = self.py_node_key(py, node);
+            for key in edge_keys {
+                let mut elems: Vec<PyObject> = Vec::with_capacity(4);
+                elems.push(py_node.clone_ref(py));
+                elems.push(py_node.clone_ref(py));
+                if keys {
+                    let key_obj = if self.edge_py_keys.is_empty() {
+                        unwrap_infallible(key.into_pyobject(py)).into_any().unbind()
+                    } else {
+                        self.py_edge_key(py, node, node, key)
+                    };
+                    elems.push(key_obj);
+                }
+                if want_dict {
+                    let attrs = self
+                        .ensure_edge_py_attrs(py, node, node, key)
+                        .clone_ref(py)
+                        .into_any();
+                    elems.push(attrs);
+                } else if want_value {
+                    let val = self
+                        .ensure_edge_py_attrs(py, node, node, key)
+                        .bind(py)
+                        .get_item(data)
+                        .ok()
+                        .flatten()
+                        .map_or_else(|| default_obj.clone_ref(py), |value| value.unbind());
+                    elems.push(val);
+                }
+                out.push(PyTuple::new(py, &elems)?.into_any().unbind());
+            }
+        }
+        Py::new(py, crate::NodeIterator::unguarded(out))
     }
 
     /// br-r37-c1-degnbnative (cc): MultiDiGraph degree(nbunch) subset kernels — one
@@ -4650,7 +4722,7 @@ impl PyMultiDiGraph {
                     part.inner.node_attrs(node).cloned().unwrap_or_default(),
                 ));
             }
-            g.inner.extend_nodes_with_attrs_unrecorded(node_batch);
+            let _ = g.inner.extend_nodes_with_attrs_unrecorded(node_batch);
             let mut edge_batch: Vec<(String, String, usize, AttrMap)> = Vec::new();
             for u in &nodes {
                 for v in part.inner.successors(u).unwrap_or_default() {
@@ -4670,7 +4742,10 @@ impl PyMultiDiGraph {
                             uc.clone(),
                             vc.clone(),
                             key,
-                            part.inner.edge_attrs(u, v, key).cloned().unwrap_or_default(),
+                            part.inner
+                                .edge_attrs(u, v, key)
+                                .cloned()
+                                .unwrap_or_default(),
                         ));
                     }
                 }
@@ -6081,8 +6156,7 @@ impl PyDiGraph {
         // rows (successors_indices/predecessors_indices) preserve it (the string
         // accessors do not). Per-cell z6uka row-display overrides aren't captured
         // by the cached node objects -> fall back to Python for those.
-        if (out_dir && !self.succ_py_keys.is_empty())
-            || (!out_dir && !self.pred_py_keys.is_empty())
+        if (out_dir && !self.succ_py_keys.is_empty()) || (!out_dir && !self.pred_py_keys.is_empty())
         {
             return Ok(None);
         }
@@ -10099,7 +10173,7 @@ impl PyDiGraph {
                     part.inner.node_attrs(node).cloned().unwrap_or_default(),
                 ));
             }
-            g.inner.extend_nodes_with_attrs_unrecorded(node_batch);
+            let _ = g.inner.extend_nodes_with_attrs_unrecorded(node_batch);
             let mut edge_batch: Vec<(String, String, AttrMap)> = Vec::new();
             for (ui, u) in nodes.iter().enumerate() {
                 for &vi in part.inner.successors_indices(ui).unwrap_or(&[]) {
@@ -10111,8 +10185,7 @@ impl PyDiGraph {
                         if let Some(existing) = g.edge_py_attrs.get(&ek) {
                             existing.bind(py).update(attrs.bind(py).as_mapping())?;
                         } else {
-                            g.edge_py_attrs
-                                .insert(ek, attrs.bind(py).copy()?.unbind());
+                            g.edge_py_attrs.insert(ek, attrs.bind(py).copy()?.unbind());
                         }
                     }
                     edge_batch.push((
@@ -10125,7 +10198,7 @@ impl PyDiGraph {
                     ));
                 }
             }
-            g.inner.extend_edges_with_attrs_unrecorded(edge_batch);
+            let _ = g.inner.extend_edges_with_attrs_unrecorded(edge_batch);
         }
         Ok(Some(Py::new(py, g)?))
     }
@@ -10174,7 +10247,7 @@ impl PyDiGraph {
                     part.inner.node_attrs(node).cloned().unwrap_or_default(),
                 ));
             }
-            g.inner.extend_nodes_with_attrs_unrecorded(node_batch);
+            let _ = g.inner.extend_nodes_with_attrs_unrecorded(node_batch);
             let mut edge_batch: Vec<(String, String, AttrMap)> = Vec::new();
             for u in &nodes {
                 for v in part.inner.successors(u).unwrap_or_default() {
@@ -10191,7 +10264,7 @@ impl PyDiGraph {
                     ));
                 }
             }
-            g.inner.extend_edges_with_attrs_unrecorded(edge_batch);
+            let _ = g.inner.extend_edges_with_attrs_unrecorded(edge_batch);
         }
         Py::new(py, g)
     }
