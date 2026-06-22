@@ -4148,6 +4148,54 @@ impl PyMultiDiGraph {
         Ok(Some(out))
     }
 
+    /// br-r37-c1-04z53 cod-b: attr-key sibling of
+    /// `_native_mdg_out_edges_nbunch_data`. The prior route first materialized
+    /// every live attr dict via data=True and then projected one scalar.
+    fn _native_mdg_out_edges_nbunch_data_key(
+        &mut self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+        data: &Bound<'_, PyAny>,
+        default: PyObject,
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        if !self.succ_py_keys.is_empty() {
+            return Ok(None);
+        }
+        let mut out: Vec<PyObject> = Vec::new();
+        let mut seen_nodes: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for item in nbunch.try_iter()? {
+            let node = item?;
+            if node.hash().is_err() {
+                let label = node
+                    .str()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "?".to_owned());
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Node {label} in sequence nbunch is not a valid node."
+                )));
+            }
+            let canonical = node_key_to_string(py, &node)?;
+            let successors: Vec<String> = match self.inner.successors(&canonical) {
+                Some(v) => v.iter().map(|s| (*s).to_owned()).collect(),
+                None => continue,
+            };
+            if !seen_nodes.insert(canonical.clone()) {
+                continue;
+            }
+            for nbr in &successors {
+                let keys_vec: Vec<usize> =
+                    self.inner.edge_keys(&canonical, nbr).unwrap_or_default();
+                for key in keys_vec {
+                    let nbr_obj = self.py_node_key(py, nbr);
+                    let value =
+                        self.edge_data_value_or_default(py, &canonical, nbr, key, data, &default)?;
+                    out.push(tuple_object(py, &[node.clone().unbind(), nbr_obj, value])?);
+                }
+            }
+        }
+        Ok(Some(out))
+    }
+
     /// br-r37-c1-selfloopmulti (cc): self-loop nodes in node order via a rust scan
     /// (replaces selfloop_edges' O(N) per-node has_edge(n,n) PyO3 probe).
     fn _native_selfloop_nodes(&self, py: Python<'_>) -> Vec<PyObject> {
@@ -7395,6 +7443,44 @@ impl PyDiGraph {
         }
     }
 
+    fn edge_attr_value_or_default(
+        &mut self,
+        py: Python<'_>,
+        source: &str,
+        target: &str,
+        data: &Bound<'_, PyAny>,
+        default: &PyObject,
+    ) -> PyResult<PyObject> {
+        let key = Self::edge_key(source, target);
+        if let Some(dict) = self.edge_py_attrs.get(&key) {
+            return Ok(dict
+                .bind(py)
+                .get_item(data)?
+                .map_or_else(|| default.clone_ref(py), |value| value.unbind()));
+        }
+
+        if let Ok(attr_name) = data.downcast::<PyString>() {
+            let attr_name = attr_name.to_str()?;
+            if let Some(value) = self
+                .inner
+                .edge_attrs(source, target)
+                .and_then(|attrs| attrs.get(attr_name))
+                .cloned()
+            {
+                if matches!(value, CgseValue::Map(_)) {
+                    let attrs = self.materialize_edge_py_attrs(py, source, target);
+                    return Ok(attrs
+                        .bind(py)
+                        .get_item(data)?
+                        .map_or_else(|| default.clone_ref(py), |value| value.unbind()));
+                }
+                return crate::cgse_value_to_py(py, &value);
+            }
+        }
+
+        Ok(default.clone_ref(py))
+    }
+
     fn cached_succ_set_edge(&mut self, py: Python<'_>, owner: &str, nbr: &str) -> PyResult<()> {
         let Some(row) = self.succ_row_py.get(owner).map(|row| row.clone_ref(py)) else {
             return Ok(());
@@ -10229,6 +10315,66 @@ impl PyDiGraph {
                         .into_any()
                         .unbind(),
                 );
+            }
+        }
+        Ok(Some(out))
+    }
+
+    /// br-r37-c1-04z53 cod-b: out_edges(nbunch, data=<key>) without first
+    /// materializing live attr dicts for every edge. Keeps the existing native
+    /// nbunch dedup/order contract and returns final scalar projection tuples.
+    fn _native_out_edges_nbunch_data_key(
+        &mut self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+        data: &Bound<'_, PyAny>,
+        default: PyObject,
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        if !self.succ_py_keys.is_empty() {
+            return Ok(None);
+        }
+        let py_nodes = self.cached_node_key_vec(py);
+        let names: Vec<String> = self
+            .inner
+            .nodes_ordered()
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
+        let mut out: Vec<PyObject> = Vec::new();
+        let mut seen_nodes: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        for item in nbunch.try_iter()? {
+            let node = item?;
+            if node.hash().is_err() {
+                let label = node
+                    .str()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "?".to_owned());
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Node {label} in sequence nbunch is not a valid node."
+                )));
+            }
+            let canonical = node_key_to_string(py, &node)?;
+            let Some(idx) = self.inner.get_node_index(&canonical) else {
+                continue;
+            };
+            if !seen_nodes.insert(idx) {
+                continue;
+            }
+            let succ: Vec<usize> = self
+                .inner
+                .successors_indices(idx)
+                .map(<[usize]>::to_vec)
+                .unwrap_or_default();
+            for nbr_idx in succ {
+                let nbr_obj = py_nodes[nbr_idx].clone_ref(py);
+                let value = self.edge_attr_value_or_default(
+                    py,
+                    &canonical,
+                    &names[nbr_idx],
+                    data,
+                    &default,
+                )?;
+                out.push(tuple_object(py, &[node.clone().unbind(), nbr_obj, value])?);
             }
         }
         Ok(Some(out))

@@ -252,14 +252,14 @@ def _digraph_out_edges(self, nbunch=None, data=False, default=None):
             or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
         )
     ):
-        native = getattr(self, "_native_out_edges_nbunch_data", None)
+        native = getattr(self, "_native_out_edges_nbunch_data_key", None)
         if native is not None:
             try:
-                result = native(nbunch)
+                result = native(nbunch, data, default)
             except TypeError as exc:
                 raise NetworkXError(str(exc))
             if result is not None:
-                return [(u, v, attrs.get(data, default)) for u, v, attrs in result]
+                return result
     return list(self.edges(nbunch=nbunch, data=data, default=default))
 
 
@@ -345,14 +345,14 @@ def _multidigraph_out_edges(self, nbunch=None, data=False, keys=False, default=N
             or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
         )
     ):
-        native = getattr(self, "_native_mdg_out_edges_nbunch_data", None)
+        native = getattr(self, "_native_mdg_out_edges_nbunch_data_key", None)
         if native is not None:
             try:
-                result = native(nbunch, False)
+                result = native(nbunch, data, default)
             except TypeError as exc:
                 raise NetworkXError(str(exc))
             if result is not None:
-                return [(u, v, attrs.get(data, default)) for u, v, attrs in result]
+                return result
     return list(self.edges(nbunch=nbunch, data=data, keys=keys, default=default))
 
 
@@ -1920,19 +1920,15 @@ class _DiGraphEdgeView:
             and data is not False
             and data is not True
         ):
-            native = getattr(self._graph, "_native_out_edges_nbunch_data", None)
+            native = getattr(self._graph, "_native_out_edges_nbunch_data_key", None)
             if native is not None:
                 try:
-                    native_result = native(nbunch)
+                    native_result = native(nbunch, data, default)
                 except TypeError as exc:
                     raise NetworkXError(str(exc))
                 if native_result is not None:
-                    result = [
-                        (u, v, attrs.get(data, default))
-                        for u, v, attrs in native_result
-                    ]
                     return _guarded_edge_list(
-                        _wrap_edge_data_view(result, _OutEdgeDataView),
+                        _wrap_edge_data_view(native_result, _OutEdgeDataView),
                         self._graph,
                         guard_edge_count=True,
                     )
@@ -2594,17 +2590,14 @@ class _MultiDiGraphEdgeView:
                         )
                     return _guarded_edge_list(nres, self._graph, guard_edge_count=True)
         if _it_nb and data is not False and data is not True and not keys:
-            native = getattr(self._graph, "_native_mdg_out_edges_nbunch_data", None)
+            native = getattr(self._graph, "_native_mdg_out_edges_nbunch_data_key", None)
             if native is not None:
                 try:
-                    native_res = native(nbunch, False)
+                    native_res = native(nbunch, data, default)
                 except TypeError as exc:
                     raise NetworkXError(str(exc))
                 if native_res is not None:
-                    result = _EdgeListWithSetAlgebra(
-                        (u, v, attrs.get(data, default))
-                        for u, v, attrs in native_res
-                    )
+                    result = _EdgeListWithSetAlgebra(native_res)
                     return _guarded_edge_list(
                         _wrap_edge_data_view(result, _OutMultiEdgeDataView),
                         self._graph,

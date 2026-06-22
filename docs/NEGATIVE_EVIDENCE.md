@@ -4575,3 +4575,77 @@ Behavior proof:
   `digraph.rs` warnings, no critical findings.
 - `ubs --only=python --skip=7 python/franken_networkx/__init__.py`: exit 0; broad
   pre-existing wrapper warnings, no critical findings.
+## 2026-06-22 BlackThrush directed nbunch attr-key native emitters - MultiDiGraph gap 0.42x -> 0.96x (`br-r37-c1-04z53`, cod-b)
+
+Lever: iterable-nbunch directed edge views with `data="<attr>"` still reused the native
+`data=True` nbunch rows and projected `attrs.get(...)` in Python. That preserved parity but
+materialized a live attr dict for every edge just to return one scalar. Added scalar native
+emitters for exact `DiGraph` and exact `MultiDiGraph` `keys=False` paths. The emitters read from a
+live mirror when present and otherwise read string-key values from Rust attrs directly; non-string
+keys keep parity when a live mirror exists. Single-node nbunch, conversion/subgraph views, and
+`keys=True` multigraph attr-key calls stay on the previous paths.
+
+Keep decision: KEEP. The main residual row, `MultiDiGraph.edges(nbunch, data="weight")`, moved from
+a clear loss to near parity on best-of-run timing, and `MultiDiGraph.out_edges(nbunch,
+data="weight")` flipped to wins. Some median rows remain noisy because both implementations are now
+sub-millisecond to low-millisecond list construction paths, but this is not a zero-gain lever.
+
+Same-machine direct probe, with
+`/data/projects/.rch-targets/franken_networkx-cod-b/release/lib_fnx.so` preloaded as
+`franken_networkx._fnx`:
+
+| workload | route | before FNX best | before NetworkX best | before ratio | after FNX best | after NetworkX best | after ratio |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| DiGraph n=1500/m=9000/k=750 | out_edges attr-key | 0.269 ms | 0.279 ms | 1.04x | 0.249 ms | 0.255 ms | 1.02x |
+| DiGraph n=1500/m=9000/k=750 | edges attr-key | 0.300 ms | 0.278 ms | 0.93x | 0.279 ms | 0.254 ms | 0.91x |
+| DiGraph n=3500/m=24000/k=1750 | out_edges attr-key | 0.690 ms | 0.695 ms | 1.01x | 0.665 ms | 0.635 ms | 0.96x |
+| DiGraph n=3500/m=24000/k=1750 | edges attr-key | 0.738 ms | 0.690 ms | 0.93x | 0.645 ms | 0.618 ms | 0.96x |
+| MultiDiGraph n=1000/m=8000/k=500 | out_edges attr-key | 1.321 ms | 1.261 ms | 0.96x | 0.909 ms | 1.236 ms | 1.36x |
+| MultiDiGraph n=1000/m=8000/k=500 | edges attr-key | 1.684 ms | 1.313 ms | 0.78x | 1.246 ms | 1.247 ms | 1.00x |
+| MultiDiGraph n=2500/m=20000/k=1250 | out_edges attr-key | 6.361 ms | 5.332 ms | 0.84x | 2.701 ms | 3.151 ms | 1.17x |
+| MultiDiGraph n=2500/m=20000/k=1250 | edges attr-key | 8.133 ms | 3.385 ms | 0.42x | 3.284 ms | 3.151 ms | 0.96x |
+
+Final rebased current-artifact sanity probe:
+
+After the final rebase, rebuilt the release artifact with
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b RCH_WORKER=vmi1153651 rch exec -- cargo build -p fnx-python --release --features pyo3/abi3-py310`.
+Direct list parity passed against the legacy NetworkX oracle. The MultiDiGraph target remains a
+keep with all measured rows above NetworkX. A smaller separate DiGraph iterable-nbunch attr-key
+residual remains and is routed as follow-up `br-r37-c1-04z53.9161`.
+
+| workload | route | FNX best | NetworkX best | ratio best |
+| --- | --- | ---: | ---: | ---: |
+| DiGraph n=1500/m=9000/k=750 unique edges | out_edges attr-key | 0.906 ms | 0.800 ms | 0.88x |
+| DiGraph n=1500/m=9000/k=750 unique edges | edges attr-key | 1.122 ms | 0.854 ms | 0.76x |
+| DiGraph n=3500/m=24000/k=1750 unique edges | out_edges attr-key | 4.852 ms | 4.262 ms | 0.88x |
+| DiGraph n=3500/m=24000/k=1750 unique edges | edges attr-key | 7.010 ms | 6.518 ms | 0.93x |
+| MultiDiGraph n=1000/m=8000/k=500 | out_edges attr-key | 1.281 ms | 1.996 ms | 1.56x |
+| MultiDiGraph n=1000/m=8000/k=500 | edges attr-key | 1.633 ms | 2.042 ms | 1.25x |
+| MultiDiGraph n=2500/m=20000/k=1250 | out_edges attr-key | 8.289 ms | 11.500 ms | 1.39x |
+| MultiDiGraph n=2500/m=20000/k=1250 | edges attr-key | 8.903 ms | 10.866 ms | 1.22x |
+
+Behavior proof:
+
+- Direct artifact digest parity passed for every benchmark row above.
+- Contract probe passed for duplicate nbunch nodes, missing nbunch nodes, missing attr defaults,
+  nested dict attr values, and non-string attr keys stored through the live edge-attr mirrors on
+  both `DiGraph` and `MultiDiGraph`.
+- `cargo check -p fnx-python --features pyo3/abi3-py310`: passed via RCH with
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+- `cargo fmt -p fnx-python --check`: passed.
+- `cargo clippy -p fnx-python --features pyo3/abi3-py310 -- -D warnings`: passed via RCH with
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+- `cargo test -p fnx-python --features pyo3/abi3-py310`: passed via RCH with
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b` (27 passed).
+- `cargo build -p fnx-python --release --features pyo3/abi3-py310`: passed via RCH with
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`; release artifact
+  retrieved locally and used for the final probe.
+- `py_compile python/franken_networkx/__init__.py tests/python/test_graph_utilities.py`: passed.
+- `git diff --check`: passed.
+- `ubs --only=rust crates/fnx-python/src/digraph.rs`: exit 0; remaining warnings are the existing
+  broad-file inventory.
+- `ubs --only=python --skip=7 python/franken_networkx/__init__.py
+  tests/python/test_graph_utilities.py`: exit 0; remaining warnings are the existing broad-file
+  and pytest-assert inventory. A mixed Rust/Python/Markdown UBS invocation was interrupted after
+  the Python scanner kept running for several minutes; the Markdown file is not a supported UBS
+  language and was covered by `git diff --check`.

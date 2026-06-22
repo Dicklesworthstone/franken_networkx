@@ -2093,6 +2093,42 @@ def test_digraph_edges_nbunch_reuses_out_edge_semantics():
     assert graph["a"]["b"]["seen"] == "live"
 
 
+def test_directed_edges_nbunch_attr_key_matches_networkx_for_live_values():
+    token = ("non-string", 1)
+    nbunch = ["a", "a", "missing", "b"]
+
+    graph = fnx.DiGraph()
+    expected = nx.DiGraph()
+    for current in (graph, expected):
+        current.add_edge("a", "b", weight=2, payload={"nested": 1})
+        current.add_edge("b", "c")
+        current["a"]["b"][token] = "live"
+
+    for data in ("weight", "payload", token, "missing"):
+        assert list(graph.out_edges(nbunch, data=data, default="NA")) == list(
+            expected.out_edges(nbunch, data=data, default="NA")
+        )
+        assert list(graph.edges(nbunch, data=data, default="NA")) == list(
+            expected.edges(nbunch, data=data, default="NA")
+        )
+
+    multi = fnx.MultiDiGraph()
+    expected_multi = nx.MultiDiGraph()
+    for current in (multi, expected_multi):
+        current.add_edge("a", "b", key="k1", weight=2, payload={"nested": 1})
+        current.add_edge("a", "b", key="k2")
+        current.add_edge("b", "c", key="k3", weight=5)
+        current["a"]["b"]["k1"][token] = "live"
+
+    for data in ("weight", "payload", token, "missing"):
+        assert list(multi.out_edges(nbunch, data=data, default="NA")) == list(
+            expected_multi.out_edges(nbunch, data=data, default="NA")
+        )
+        assert list(multi.edges(nbunch, data=data, default="NA")) == list(
+            expected_multi.edges(nbunch, data=data, default="NA")
+        )
+
+
 def test_multigraph_edges_support_attribute_name_data_retrieval():
     graph, expected = _view_utility_graph_pair(fnx.MultiGraph, nx.MultiGraph)
 
