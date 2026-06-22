@@ -3595,3 +3595,24 @@ directional edge_key only. That directed display/row-override surface is large a
 widely used (high blast radius), so this is deep-design tier (exhaustive parity + review),
 NOT a safe autonomous one-pass change. Documented as the #1 target for the substrate-work
 go-ahead. All other residuals (construction-keying, node-mirror) remain deeper still.
+
+## 2026-06-22 CopperCliff native DiGraph `compose` — 0.74x -> 2.25-2.33x (`br-r37-c1-composedir`, cc)
+
+The #1 scoped lever, now SHIPPED. compose(DiGraph) was 0.74x (Python add_nodes/add_edges
+replay; undirected had _native_compose at 1.99x). Added `PyDiGraph::_native_compose` mirroring
+the undirected one but directed: walks SUCCESSORS (no symmetric dedup — directed edges unique),
+directional edge mirrors (edge_key(u,v) only), node/edge merge with H-overlap-wins, commit via
+bulk extend_nodes/edges_with_attrs_unrecorded. CLEAN-DISPLAY GATED: returns Ok(None) (Python
+fallback) when either part carries succ/pred row-display overrides — sidestepping the intricate
+per-cell maybe_store path, which the replay handles. Wired in compose() for exact DiGraph x
+DiGraph (non-private-storage), checking the None fallback.
+
+Result: 0.74x -> **2.25-2.33x** (~3x self-speedup, now DOMINATES). Byte-exact: 7 checks
+(random node+edge+graph attrs, overlap-merge H-wins, self-loops, isolated, str keys, empty) —
+nodes(data), edges(data), graph attrs, succ AND pred adjacency. 993 operator/convert tests +
+full suite zero new failures (fallback path exercised by conformance).
+
+METHOD: the gated-fallback pattern (native fast path for the clean/common case, Ok(None) ->
+Python replay for the intricate-display minority) makes 'deep-design-tier' native mirrors
+safely shippable autonomously — exhaustive parity + full conformance as the safety net.
+Artifact: tests/artifacts/perf/20260622T-native-digraph-compose-cc/.

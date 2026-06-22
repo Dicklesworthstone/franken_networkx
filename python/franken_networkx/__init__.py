@@ -14190,6 +14190,21 @@ def compose(G, H):
         native = getattr(G, "_native_compose", None)
         if native is not None:
             return native(H)
+    # br-r37-c1-composedir (cc): native single-pass for exact DiGraph x DiGraph
+    # (directed compose was 0.74x via the Python replay). PyDiGraph._native_compose
+    # returns None for row-display-override graphs, falling back to the replay below.
+    if (
+        type(G) is DiGraph
+        and type(H) is DiGraph
+        and cls is DiGraph
+        and not _has_networkx_private_storage(G)
+        and not _has_networkx_private_storage(H)
+    ):
+        native = getattr(G, "_native_compose", None)
+        if native is not None:
+            result = native(H)
+            if result is not None:
+                return result
     # Build directly in Python so edge insertion/orientation follows
     # nx.compose exactly: graph G first, then H with H attrs winning.
     # This also keeps the multigraph path away from the Rust edge-view

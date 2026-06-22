@@ -9572,6 +9572,91 @@ impl PyDiGraph {
             .collect()
     }
 
+    /// br-r37-c1-composedir (cc): native DiGraph compose — directional analog of
+    /// PyGraph::_native_compose (which gives undirected compose 1.99x; directed
+    /// fell to the Python add_nodes/add_edges replay at ~0.74x). Walks SUCCESSORS
+    /// (no symmetric dedup — directed edges are unique), directional edge mirrors,
+    /// and commits nodes/edges via the bulk extend_*_unrecorded APIs. Returns
+    /// Ok(None) (Python fallback) when either part carries succ/pred row-display
+    /// overrides — those need the per-cell maybe_store path the replay handles.
+    /// node/edge order = G-nodes then H-new, succ-row order == nx's
+    /// add_edges_from(G.edges()) then add_edges_from(H.edges()); H's overlapping
+    /// node/edge attrs UPDATE (last-wins), matching nx.
+    fn _native_compose(
+        &self,
+        py: Python<'_>,
+        other: PyRef<'_, Self>,
+    ) -> PyResult<Option<Py<Self>>> {
+        if !self.succ_py_keys.is_empty()
+            || !self.pred_py_keys.is_empty()
+            || !other.succ_py_keys.is_empty()
+            || !other.pred_py_keys.is_empty()
+        {
+            return Ok(None);
+        }
+        let mut g = Self::new_empty_with_mode(py, self.inner.mode())?;
+        let merged_graph_attrs = PyDict::new(py);
+        merged_graph_attrs.update(self.graph_attrs.bind(py).as_mapping())?;
+        merged_graph_attrs.update(other.graph_attrs.bind(py).as_mapping())?;
+        g.graph_attrs = merged_graph_attrs.unbind();
+        for part in [self, &*other] {
+            let nodes: Vec<String> = part
+                .inner
+                .nodes_ordered()
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
+            let mut node_batch: Vec<(String, AttrMap)> = Vec::with_capacity(nodes.len());
+            for node in &nodes {
+                if let Some(attrs) = part.node_py_attrs.get(node) {
+                    if let Some(existing) = g.node_py_attrs.get(node) {
+                        existing.bind(py).update(attrs.bind(py).as_mapping())?;
+                    } else {
+                        g.node_py_attrs
+                            .insert(node.clone(), attrs.bind(py).copy()?.unbind());
+                    }
+                }
+                if let std::collections::hash_map::Entry::Vacant(e) =
+                    g.node_key_map.entry(node.clone())
+                {
+                    e.insert(part.py_node_key(py, node));
+                }
+                node_batch.push((
+                    node.clone(),
+                    part.inner.node_attrs(node).cloned().unwrap_or_default(),
+                ));
+            }
+            g.inner.extend_nodes_with_attrs_unrecorded(node_batch);
+            let mut edge_batch: Vec<(String, String, AttrMap)> = Vec::new();
+            for (ui, u) in nodes.iter().enumerate() {
+                for &vi in part.inner.successors_indices(ui).unwrap_or(&[]) {
+                    let v = &nodes[vi];
+                    if !part.edge_py_attrs.is_empty()
+                        && let Some(attrs) = part.edge_py_attrs.get(&Self::edge_key(u, v))
+                    {
+                        let ek = Self::edge_key(u, v);
+                        if let Some(existing) = g.edge_py_attrs.get(&ek) {
+                            existing.bind(py).update(attrs.bind(py).as_mapping())?;
+                        } else {
+                            g.edge_py_attrs
+                                .insert(ek, attrs.bind(py).copy()?.unbind());
+                        }
+                    }
+                    edge_batch.push((
+                        u.clone(),
+                        v.clone(),
+                        part.inner
+                            .edge_attrs_by_indices(ui, vi)
+                            .cloned()
+                            .unwrap_or_default(),
+                    ));
+                }
+            }
+            g.inner.extend_edges_with_attrs_unrecorded(edge_batch);
+        }
+        Ok(Some(Py::new(py, g)?))
+    }
+
     // ---- Python special methods ----
 
     fn __len__(&self) -> usize {
