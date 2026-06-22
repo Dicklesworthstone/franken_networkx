@@ -3720,3 +3720,25 @@ in order (attrs := H's if H has the same (u,v,key), else G's), then H's edges wh
 is NOT in G, in H order; carry edge_py_keys display + node-attr H-wins merge; clean-display gate
 on succ/pred (MDG) / adj_py_keys (MG) like simple compose. Recipe + APIs all proven
 ([[reference_gated_fallback_native_mirror]]); this is the immediate next gap.
+
+### Note (cc): compose(MDG) native ATTEMPTED + REVERTED — display-key collision-merge is the blocker
+
+Implemented PyMultiDiGraph::_native_compose (clean-display gated, ordered (u,v,key) merge with
+H-wins). Two failures -> reverted:
+1. CORRECTNESS: merged by the INNER integer key, but nx merges by DISPLAY key. G with display
+   keys {0,1} composed with H display {0,5}: H's display-5 has INNER key 1, which collided with
+   G's INNER-1 (display 1) -> clobbered G's (a,b,1) edge (dropped from 3 edges to 2). Must dedup/
+   merge by display_key_lookup(u,v,key), NOT the inner key. (disjoint_union dodged this — it
+   PRESERVES keys per part with no cross-part merge, so inner-vs-display never collides.)
+2. PERF: 0.58-0.60x — NO gain. The ordered-merge bookkeeping (3 HashMaps keyed by String tuples
+   + per-edge AttrMap clones + a rebuild pass) costs more than nx's Python compose. Unlike
+   disjoint_union (direct edge_batch, 2.2x), compose's cross-part key-collision merge can't use
+   the fast direct-batch path: G-then-H with H winning needs either heavy per-edge dedup
+   bookkeeping (slow) or in-place inner-edge attr update on the rare collision (no inner
+   set-edge-attrs-by-key API exists).
+
+So compose(MDG)/compose(MG) (0.58x/0.74x) are the genuinely-hard tail of the operator vein:
+correctness needs display-key merge, and a WIN needs a fast-path-for-the-common-no-collision-
+case + cheap rare-collision handling (likely a G-display-key HashSet + mirror-only attr update
+on collision, leaving inner as G's since the mirror dominates edges(data)). Deferred — not a
+clean win without that. disjoint_union (all 4 types) + compose(Graph/DiGraph) remain shipped.
