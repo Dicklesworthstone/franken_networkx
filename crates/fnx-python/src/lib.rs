@@ -5178,6 +5178,78 @@ impl PyMultiGraph {
         Ok(Some(out))
     }
 
+    /// br-r37-c1-mgedgenb (cc): data=True sibling of _native_mg_edges_nbunch_no_data.
+    /// Emits (u, v[, key], live_attr_dict) — the attr dict is the materialized live
+    /// edge_py_attrs mirror (identity-preserving, == G[u][v][key], matching nx).
+    /// neighbors/keys are collected as owned Vecs first so the &mut ensure call has
+    /// no live inner borrow. Same adj_py_keys / edge_py_keys display gate.
+    fn _native_mg_edges_nbunch_data(
+        &mut self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+        keys: bool,
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        if !self.adj_py_keys.is_empty() || (keys && !self.edge_py_keys.is_empty()) {
+            return Ok(None);
+        }
+        let mut out: Vec<PyObject> = Vec::new();
+        let mut seen: std::collections::HashSet<(String, String, usize)> =
+            std::collections::HashSet::new();
+        for item in nbunch.try_iter()? {
+            let node = item?;
+            if node.hash().is_err() {
+                let label = node
+                    .str()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "?".to_owned());
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Node {label} in sequence nbunch is not a valid node."
+                )));
+            }
+            let canonical = node_key_to_string(py, &node)?;
+            let neighbors: Vec<String> = match self.inner.neighbors(&canonical) {
+                Some(v) => v.iter().map(|s| (*s).to_owned()).collect(),
+                None => continue,
+            };
+            for nbr in &neighbors {
+                let (lo, hi) = if canonical.as_str() <= nbr.as_str() {
+                    (canonical.clone(), nbr.clone())
+                } else {
+                    (nbr.clone(), canonical.clone())
+                };
+                let keys_vec: Vec<usize> =
+                    self.inner.edge_keys(&canonical, nbr).unwrap_or_default();
+                for key in keys_vec {
+                    if !seen.insert((lo.clone(), hi.clone(), key)) {
+                        continue;
+                    }
+                    let nbr_obj = self.py_node_key(py, nbr);
+                    let attrs = self
+                        .ensure_edge_py_attrs(py, &canonical, nbr, key)
+                        .clone_ref(py)
+                        .into_any();
+                    if keys {
+                        let key_obj = crate::unwrap_infallible(key.into_pyobject(py))
+                            .into_any()
+                            .unbind();
+                        out.push(
+                            PyTuple::new(py, &[node.clone().unbind(), nbr_obj, key_obj, attrs])?
+                                .into_any()
+                                .unbind(),
+                        );
+                    } else {
+                        out.push(
+                            PyTuple::new(py, &[node.clone().unbind(), nbr_obj, attrs])?
+                                .into_any()
+                                .unbind(),
+                        );
+                    }
+                }
+            }
+        }
+        Ok(Some(out))
+    }
+
     /// br-r37-c1-mgdju (cc): native MultiGraph disjoint_union — undirected keyed
     /// analog of PyDiGraph/PyMultiDiGraph::_native_disjoint_union. Relabels both
     /// parts to fresh int ranges (so source node + adj_py_keys row display are

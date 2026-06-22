@@ -207,7 +207,16 @@ def _digraph_out_edges(self, nbunch=None, data=False, default=None):
                 return native(data, default)
     # br-r37-c1-edgenbnative (cc): out_edges(nbunch, data=False) — one native pass
     # (canonical filter + succ-row tuples) replaces the EdgeDataView machinery.
-    if data is False and type(self) is DiGraph:
+    if (
+        data is False
+        and type(self) is DiGraph
+        and (
+            isinstance(nbunch, (list, tuple, set, frozenset))
+            or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
+        )
+    ):
+        # iterable nbunch only — a single in-graph node must return its edges via
+        # the view path (nbunch_iter), not be try_iter'd by the native kernel.
         native = getattr(self, "_native_out_edges_nbunch_no_data", None)
         if native is not None:
             try:
@@ -2134,7 +2143,10 @@ class _MultiGraphEdgeView:
         # br-r37-c1-mgedgenb (cc): native one-pass for data=False (the heavy
         # adj[source] lambda-chain + frozenset dedup path, ~0.09x vs nx). Returns
         # None for row-display / non-default key-display graphs -> Python loop below.
-        if data is False:
+        _iterable_nb = isinstance(nbunch, (list, tuple, set, frozenset)) or (
+            hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes))
+        )
+        if data is False and _iterable_nb:
             native = getattr(self._graph, "_native_mg_edges_nbunch_no_data", None)
             if native is not None:
                 try:
@@ -2150,6 +2162,22 @@ class _MultiGraphEdgeView:
                             guard_edge_count=True,
                         )
                     return _guarded_edge_list(result, self._graph, guard_edge_count=True)
+        # br-r37-c1-mgedgenb (cc): data=True one-pass (same lambda-chain path was
+        # ~0.09x). Emits live attr dicts; None -> Python loop for display-override.
+        if data is True and _iterable_nb:
+            native = getattr(self._graph, "_native_mg_edges_nbunch_data", None)
+            if native is not None:
+                try:
+                    native_res = native(nbunch, keys)
+                except TypeError as exc:
+                    raise NetworkXError(str(exc))
+                if native_res is not None:
+                    result = _EdgeListWithSetAlgebra(native_res)
+                    return _guarded_edge_list(
+                        _wrap_edge_data_view(result, _MultiEdgeDataView),
+                        self._graph,
+                        guard_edge_count=True,
+                    )
         result = _EdgeListWithSetAlgebra()
         seen = set()
         for source in self._graph.nbunch_iter(nbunch):

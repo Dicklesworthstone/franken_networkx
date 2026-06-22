@@ -3934,3 +3934,24 @@ path must replicate the single-bad-node error contract, not just the iterable-fi
 Byte-exact: MG+MDG degree(nbunch) all shapes + error contract (single bad node, unhashable elem)
 + view-indexing; is_isolate bad-node across all 4 types. Full suite zero new failures.
 Artifact: tests/artifacts/perf/20260622T-mg-degree-nbunch-cc/.
+
+## 2026-06-22 CopperCliff native MG edges(nbunch, data=True) — 0.09x -> 0.57x + single-node edges fix (`br-r37-c1-mgedgenb`, cc)
+
+The data=True sibling of the MG edges(nbunch) fix (data=False reached 1.00x). Was also 0.09x
+(same adj[source] lambda-chain). Added _native_mg_edges_nbunch_data: collects neighbors/keys as
+owned Vecs (releasing the inner borrow so the &mut ensure_edge_py_attrs call is legal), emits
+(u,v[,key],live_attr_dict) where the dict is the materialized live edge_py_attrs mirror
+(identity-preserving == G[u][v][key], verified by a mutation-visibility check). Result: 0.09x ->
+**0.57x** (~6x self-speedup; materialization-capped — per-edge live-dict clone_ref + tuple build
+vs nx's pre-existing C dicts, so it stays below nx; kept as strictly-better, the catastrophic
+loss largely eliminated).
+
+REGRESSION FOUND+FIXED (caught by test_contracted_nodes_multigraph_no_regression): a SINGLE
+in-graph node passed to edges(n)/out_edges(n) (contracted_nodes does this) was try_iter'd by the
+native kernel and errored, instead of returning that node's edges. Gated ALL 3 edges-nbunch
+native routes (DiGraph out_edges, MG edges data=False, MG edges data=True) to ITERABLE nbunch
+(list/tuple/set/non-str-iterable); a single node now falls to the view path (nbunch_iter -> [n]),
+matching nx. Same lesson as the degree bad-node fix: a native nbunch fast-path must not intercept
+the single-node case. Byte-exact: data=True keys=F/T x shapes + live-dict identity + single-node
++ error contract. Full suite zero new failures. data=True is the materialization-capped frontier;
+DG out_edges(nb,data=True) 0.22x similar. Artifact: tests/artifacts/perf/20260622T-mg-edges-nbunch-data-cc/.
