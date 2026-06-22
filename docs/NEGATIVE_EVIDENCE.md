@@ -4003,3 +4003,15 @@ MILESTONE: data=False edges(nbunch) is now native-DOMINANT across ALL 4 graph ty
 (Graph/DiGraph 2.5x, MG 1.00x [was 0.09x], MDG 2.22x). data=True variants remain materialization-
 capped (~0.5-0.8x). Remaining: deep substrate (per-call String key, in_edges pred-order).
 Artifact: tests/artifacts/perf/20260622T-mdg-out-edges-nbunch-cc/.
+
+## 2026-06-22 CopperCliff native MDG out_edges(nbunch, data=True) — 0.65x -> 1.17x (`br-r37-c1-mdgoutedge`, cc)
+
+Completes the out_edges(nbunch) data=True family. keys=False **0.65x -> 1.17x (DOMINATES)** —
+unlike MG edges/DG out_edges data=True (materialization-capped ~0.57-0.77x), MDG out_edges
+data=True dominates because its prior path was the slow self.edges machinery AND nx iterates
+succ[u].items() keydicts in Python (so even with per-edge live-dict materialization, fnx's rust
+walk wins). _native_mdg_out_edges_nbunch_data (&mut; successors/edge_keys collected owned for the
+ensure_edge_py_attrs borrow; live attr dicts identity-preserving; node-dedup; iterable-gated).
+keys=True 0.63x (4-tuple + int key_obj construction cap; strictly-better, kept). Byte-exact:
+data=True keys F/T x shapes incl identity, dup, single-node, error contract. Full suite zero new.
+Artifact: tests/artifacts/perf/20260622T-mdg-out-edges-data-cc/.

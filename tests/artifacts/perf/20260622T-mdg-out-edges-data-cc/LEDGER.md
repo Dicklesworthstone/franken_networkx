@@ -1,0 +1,2 @@
+# native MDG out_edges(nbunch, data=True) (br-r37-c1-mdgoutedge, cc)
+keys=False 0.65x -> 1.17x (DOMINATES — unlike MG/DG data=True caps; MDG's current path was the slow self.edges machinery AND nx iterates keydicts in Python). keys=True 0.63x (4-tuple + int key_obj cap). _native_mdg_out_edges_nbunch_data (&mut, succ/keys owned, ensure_edge_py_attrs live dicts identity-preserving, node-dedup, iterable-gated). Byte-exact incl identity/dup/single/error-contract. Full suite zero new.
