@@ -3094,3 +3094,20 @@ wins). After filtering scan noise, the genuine sub-1.0x residuals are:
 NO new clean no-rebuild win. The 6 namespace wins already shipped were the
 catastrophic O(n^2+)-brute-force-with-fast-native cases; the rest are routed,
 substrate-bound, or rebuild-gated.
+
+### addendum — namespace-scan warm re-bench (CopperCliff 2026-06-21)
+
+Warm min-of-N re-measurement of the remaining namespace-scan sub-1.0x entries:
+- centrality.eigenvector_centrality_numpy: warm `1.19x` WIN (scan's 0.475x was
+  cold-scipy/LAPACK init noise — confirms the warm-saturation memory).
+- centrality.dispersion: warm `1.87x` WIN (scan noise).
+- approximation.densest_subgraph: genuine warm `0.48x` (fnx 4.54ms vs nx 2.20ms).
+  nx dispatches to a greedy-peeling / FISTA approximation; it's a per-access
+  passthrough with no fast-native route — reimplementation- or substrate-bound,
+  niche. Not pursued.
+- tree.greedy_branching: genuine warm `0.46x` (fnx 6.49ms vs nx 2.97ms). Edmonds
+  greedy max-weight in-edge selection + branching construction (node-key
+  materialization); substrate-bound, niche. Not pursued.
+Net: no new clean win; the two genuine gaps are niche + substrate/reimplementation-
+bound. (Cold-vs-warm reminder: always warm-saturate scipy/LAPACK before trusting a
+spectral/numpy ratio.)
