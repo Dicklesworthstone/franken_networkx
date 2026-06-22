@@ -3173,3 +3173,33 @@ shallow-copy + no-source-mutation). Perf 0.41x -> **1.62-1.90x** faster than nx
 (~4.5x self-speedup). Full suite: zero new failures (5 pre-existing origin failures
 unrelated, proven by reverting the wiring). Artifact:
 `tests/artifacts/perf/20260622T-multidigraph-from-digraph-absorb-cc/`.
+
+## 2026-06-22 CopperCliff Post-MDG-Absorb Comprehensive Sweep — Domination, Residuals Bounded (`br-r37-c1-mdgdig`, cc)
+
+After shipping the `MultiDiGraph(DiGraph)` absorb, a 3-batch warm sweep (~90
+functions: construction/conversion/copies, readwrite/serialization, centrality/
+community/flow/connectivity/cycles/trees, weighted+multi algorithms) re-confirmed
+comprehensive domination (representative wins: floyd_warshall 67x, weighted
+betweenness 158x, second_order 4845x, bridges 24x, greedy_modularity 21x,
+eccentricity 15x, MultiDiGraph.copy 2.44x, reverse(MDG) 2.39x, from_scipy 2.1x,
+all_pairs_dijkstra 2.76x, MG(MG) 3.38x, mg.edges 4.7x).
+
+NEGATIVE EVIDENCE — residual losses are all bounded/marginal, NOT clean levers:
+- `in_degree`/`out_degree` `dict(...)`: 0.56-0.65x at n=20000 (2.0ms vs 1.25ms).
+  Already on a native bulk path (`_native_in/out_degree_pairs`). RULED OUT a
+  wrapper bug: the raw native call alone is 1.49ms (vs nx 1.25ms) building 20000
+  (node_obj, count) tuples — the view wrapper adds only ~0.2ms (`yield from`).
+  `list(G)` is 0.09ms so it is NOT node materialization; it is the rust tuple-list
+  build being marginally slower than nx's pure-Python dict-comp. Sub-2ms absolute,
+  ~10% recoverable — no good ROI.
+- `to_dict_of_dicts(MultiDiGraph)`: 0.77x (3.8ms vs 2.95ms) — nested dict build
+  substrate, niche serialization helper.
+- `from_dict_of_dicts(DiGraph)` 0.48x and `astar` 0.73x and `find_cycle(src)` 0.38x:
+  all TINY absolute (15-500us) — small-input/native-port setup cost dominates, not
+  an algorithmic gap; default whole-graph timing shows parity.
+- `subgraph_centrality` 0.81x (84ms vs 68ms): dense `eigh`-bound (known open item).
+- A cluster at 0.85-0.92x (MultiGraph(MultiDiGraph), MDG subgraph.copy, to_numpy_array,
+  size_weighted, mg.degree(weight), adjacency() walk): substrate-parity, not wrapper.
+
+Conclusion: the one meaty current-code lever (`MultiDiGraph(DiGraph)` absorb, shipped)
+is exhausted; remaining gaps are substrate-bound or tiny-absolute. No further ship.
