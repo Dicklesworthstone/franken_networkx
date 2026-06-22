@@ -2068,6 +2068,21 @@ def test_graph_classes_edges_accept_nbunch_data_and_default_keywords(fnx_cls, nx
         )
 
 
+def test_digraph_edges_nbunch_reuses_out_edge_semantics():
+    graph, expected = _view_utility_graph_pair(fnx.DiGraph, nx.DiGraph)
+    nbunch = ["a", "a", "missing", "b"]
+
+    assert list(graph.edges(nbunch)) == list(expected.edges(nbunch))
+    assert list(graph.edges(nbunch, data=True)) == list(expected.edges(nbunch, data=True))
+    assert type(graph.edges(nbunch, data=True)).__name__ == type(
+        expected.edges(nbunch, data=True)
+    ).__name__
+
+    attrs = list(graph.edges(nbunch, data=True))[0][2]
+    attrs["seen"] = "live"
+    assert graph["a"]["b"]["seen"] == "live"
+
+
 def test_multigraph_edges_support_attribute_name_data_retrieval():
     graph, expected = _view_utility_graph_pair(fnx.MultiGraph, nx.MultiGraph)
 

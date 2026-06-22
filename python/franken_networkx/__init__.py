@@ -1852,6 +1852,33 @@ class _DiGraphEdgeView:
                     self._graph,
                     guard_edge_count=True,
                 )
+        # br-r37-c1-lfpma: directed ``edges(nbunch, ...)`` is out-edge
+        # iteration, but this call form still walked Python succ rows while
+        # ``out_edges(nbunch, ...)`` already has native iterable-nbunch kernels.
+        # Reuse those kernels for exact DiGraph only; single-node nbunch and
+        # conversion/subgraph views keep the Python nbunch_iter path.
+        iterable_nbunch = nbunch is not None and (
+            isinstance(nbunch, (list, tuple, set, frozenset))
+            or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
+        )
+        if type(self._graph) is DiGraph and iterable_nbunch and (data is False or data is True):
+            native_name = (
+                "_native_out_edges_nbunch_data"
+                if data is True
+                else "_native_out_edges_nbunch_no_data"
+            )
+            native = getattr(self._graph, native_name, None)
+            if native is not None:
+                try:
+                    native_result = native(nbunch)
+                except TypeError as exc:
+                    raise NetworkXError(str(exc))
+                if native_result is not None:
+                    return _guarded_edge_list(
+                        _wrap_edge_data_view(native_result, _OutEdgeDataView),
+                        self._graph,
+                        guard_edge_count=True,
+                    )
         result = []
         for source in self._graph.nbunch_iter(nbunch):
             for target, attrs in self._graph.succ[source].items():

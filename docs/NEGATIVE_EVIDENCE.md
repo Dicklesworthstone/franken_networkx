@@ -4197,3 +4197,42 @@ Pytest note: the checkout's `tests/python/conftest.py` hard-fails when
 `python/franken_networkx/_fnx.abi3.so` is older than Rust sources. I did not copy over or install
 the extension during this disk-frugal crate-only run, so the Python proof used the final release
 artifact preloaded directly.
+
+## 2026-06-22 BlackThrush DiGraph edges(nbunch) routed to out_edges kernels - 2.65x-7.24x self-speedup (`br-r37-c1-lfpma`, cod-a)
+
+Lever: directed `DiGraph.edges(nbunch, ...)` is semantically out-edge iteration, but the
+`_DiGraphEdgeView.__call__` path still walked Python `succ[source].items()` rows for iterable
+nbunch calls. `DiGraph.out_edges(nbunch, data=False/True)` already had native node-deduped kernels.
+The new route reuses those kernels for exact `DiGraph`, iterable `nbunch`, and `data in {False,
+True}`, preserving the existing guarded `OutEdgeDataView` wrapping. Single-node nbunch, data-key
+lookups, conversion views, and subgraph views keep the old Python path.
+
+Keep decision: KEEP. This is a Python-only no-build route reuse, not a near-zero lever. It also
+fixes duplicate-nbunch parity for the routed pair/data modes because the native out-edge kernels
+dedupe repeated nbunch nodes like NetworkX.
+
+Final direct artifact probe:
+
+`PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx/legacy_networkx_code /data/projects/franken_networkx/.venv/bin/python` with
+`/data/projects/.rch-targets/franken_networkx-cod-a/release/lib_fnx.so` preloaded as
+`franken_networkx._fnx`.
+
+| workload | mode | old FNX row route | new FNX | NetworkX | self-speedup | ratio vs NetworkX |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| DiGraph half nbunch | pairs | 2.735 ms | 0.440 ms | 0.564 ms | 6.21x | 1.28x |
+| DiGraph half nbunch | data=True | 2.695 ms | 1.017 ms | 0.549 ms | 2.65x | 0.54x |
+| DiGraph reversed nbunch | pairs | 2.651 ms | 0.437 ms | 0.549 ms | 6.07x | 1.26x |
+| DiGraph reversed nbunch | data=True | 2.654 ms | 0.901 ms | 0.551 ms | 2.95x | 0.61x |
+| DiGraph duplicate nbunch | pairs | 3.318 ms | 0.458 ms | 0.567 ms | 7.24x | 1.24x |
+| DiGraph duplicate nbunch | data=True | 3.351 ms | 0.929 ms | 0.576 ms | 3.61x | 0.62x |
+
+Behavior proof:
+
+- Direct artifact parity: `list(G.edges(nbunch))` and `list(G.edges(nbunch, data=True))` match
+  NetworkX for half, reversed, and duplicate nbunch. The `data=True` tuple's attr dict remains live:
+  mutating it updates `G[u][v]`.
+- Baseline before edit on the same workload: pairs 0.17x-0.19x vs NetworkX, data=True 0.10x-0.18x
+  vs NetworkX. The existing `out_edges` route was already 0.75x-2.25x, confirming this as a route
+  miss rather than a missing native primitive.
+- `data="weight"` remains on the old Python path because there is no native attr-key nbunch kernel
+  yet; duplicate-nbunch attr-key parity remains a separate pre-existing issue.
