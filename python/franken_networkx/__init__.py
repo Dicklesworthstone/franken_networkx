@@ -14197,13 +14197,14 @@ def compose(G, H):
     out = cls()
     out.graph.update(dict(G.graph))
     out.graph.update(dict(H.graph))
-    for node, attrs in G.nodes(data=True):
-        out.add_node(node, **dict(attrs))
-    for node, attrs in H.nodes(data=True):
-        if node in out:
-            out.nodes[node].update(dict(attrs))
-        else:
-            out.add_node(node, **dict(attrs))
+    # br-r37-c1-composenodebatch (cc): batch the node merge through add_nodes_from
+    # instead of the per-node add_node loop (the dominant cost of directed compose,
+    # ~0.62x vs nx; edges already batch below). add_nodes_from((node, attrs))
+    # adds-or-updates exactly like nx's compose (H's overlapping nodes update G's,
+    # new ones are added) and, unlike ``add_node(node, **attrs)``, does not unpack
+    # attrs as kwargs so non-string node-attr keys are handled (nx parity).
+    out.add_nodes_from(G.nodes(data=True))
+    out.add_nodes_from(H.nodes(data=True))
     if G.is_multigraph():
         # br-r37-c1-mgcompose: pre-merge G's then H's keyed edges in Python (H's data
         # UPDATES a shared (u,v,key), exactly as nx's second add_edges_from overwrites

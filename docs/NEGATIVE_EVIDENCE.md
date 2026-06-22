@@ -3525,3 +3525,18 @@ PATTERN (3 disasters, now all fixed): converters/constructors with a `type(graph
 batch branch but a DIRECTED fall-through to a per-edge `graph[u][v].update` loop are O(N^2)
 (directed adjacency-view __getitem__ per edge). Audited the family; compose(Di) 0.62-0.70x
 is a separate LINEAR _copy_attrs_into per-edge tax (not O(N^2)).
+
+## 2026-06-22 CopperCliff `compose` node-batch — directed 0.62x -> 0.74x partial + non-string-key fix (`br-r37-c1-composenodebatch`, cc)
+
+Directed `compose` was 0.62-0.70x (undirected has `_native_compose`; directed falls to the
+Python path). Edges already batched (two add_edges_from); the bottleneck was the per-node
+`out.add_node(node, **dict(attrs))` loop for G then H. Replaced with two `add_nodes_from(
+.nodes(data=True))` (adds-or-updates exactly like nx — H's overlapping nodes update G's).
+Bonus correctness: `add_node(node, **attrs)` unpacked attrs as kwargs (fails / diverges on
+non-string node-attr keys); `add_nodes_from((node, attrs))` matches nx for arbitrary keys.
+
+PARTIAL: 0.62x -> 0.74x. Residual is the directed `add_edges_from` non-fresh substrate (same
+~0.74-0.78x floor as cycle_graph(DiGraph) create_using; nodes pre-added defeat the fresh
+batch path, and directed insertion is the documented substrate). Full domination needs a
+native `_native_compose` for DiGraph (rust). Byte-exact: 5 checks (di/un x node+edge attrs,
+overlapping-node merge). 961 operator tests + full suite zero new failures.
