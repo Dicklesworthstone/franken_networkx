@@ -3839,3 +3839,24 @@ any node, len/contains. DiGraph degree(nbunch) unaffected (PyDiGraph lacks the b
 fallback; a PyDiGraph total/in/out kernel is the follow-up). Full suite zero new failures.
 LESSON: verify which concrete class a method resolves to (multiple masquerade as 'DegreeView')
 before editing — cost two wrong-class edits. Artifact: tests/artifacts/perf/20260622T-degree-nbunch-native-cc/.
+
+## 2026-06-22 CopperCliff native DiGraph degree(nbunch) family (`br-r37-c1-degnbnative`, cc)
+
+Extended the degree(nbunch) native one-pass kernel to DiGraph (3 PyDiGraph kernels via a shared
+degree_pairs_subset_impl over DegreeKind Total/In/Out). Routing: total auto-routes through the
+existing _WeightAwareDegreeView.__call__ (binding added); in/out route in _DirectedDegreeView.__call__
+(keyed by _adjacency_attr succ->out / pred->in), reusing _FilteredDegreeView with `self` as raw.
+
+Results (n=1500, k=750):
+- total degree(nbunch): 0.32x -> **1.23x SHIPPED/DOMINATES** — nx computes len(succ)+len(pred)
+  (two dict lookups) per node; fnx does one degree_by_index, so it wins.
+- in_degree/out_degree(nbunch): 0.17-0.18x -> **0.71x** (4x self-speedup, KEPT as strictly-better)
+  but STILL below nx: nx's single C-dict len(pred[n])/len(succ[n]) beats fnx's per-node String
+  canonicalization + index. This is the canonicalization wall — confirms the EARLIER hypothesis
+  for the single-lookup case (only the deep int-key substrate would push in/out >1x). The total
+  case escapes it because nx pays double.
+
+Byte-exact: valid/invalid/empty/dup/range, error contract (unhashable element + non-iterable),
+view[node] indexing for any node, MultiDiGraph in/out/total degree(nbunch) unaffected (PyDiGraph-
+only bindings -> Python fallback). Full suite zero new failures.
+Artifact: tests/artifacts/perf/20260622T-digraph-degree-nbunch-cc/.

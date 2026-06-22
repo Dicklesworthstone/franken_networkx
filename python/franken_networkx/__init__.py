@@ -4429,6 +4429,24 @@ class _DirectedDegreeView:
                 return self._node_degree(nbunch, weight)
         except TypeError:
             pass
+        # br-r37-c1-degnbnative (cc): unweighted in_degree/out_degree(nbunch) — one
+        # native pass (filter + directional degree) replaces nbunch_iter membership
+        # + per-node native-degree calls. Reuse _FilteredDegreeView with `self` as
+        # the raw view so view[node] still answers in/out degree for any node;
+        # iteration serves the precomputed pairs. Errors map to NetworkXError.
+        if weight is None:
+            if self._adjacency_attr == "succ":
+                native = getattr(self._graph, "_native_out_degree_pairs_subset", None)
+            elif self._adjacency_attr == "pred":
+                native = getattr(self._graph, "_native_in_degree_pairs_subset", None)
+            else:
+                native = None
+            if native is not None:
+                try:
+                    pairs = native(nbunch)
+                except TypeError as exc:
+                    raise NetworkXError(str(exc))
+                return _FilteredDegreeView(self, None, pairs=pairs)
         nodes = list(self._graph.nbunch_iter(nbunch))
         return type(self)(self._graph, self._adjacency_attr, nodes=nodes, weight=weight)
 

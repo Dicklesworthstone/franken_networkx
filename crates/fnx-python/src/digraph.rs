@@ -5857,6 +5857,39 @@ impl PyDiGraph {
         (u.to_owned(), v.to_owned())
     }
 
+    /// br-r37-c1-degnbnative (cc): shared impl for the directed degree(nbunch)
+    /// subset kernels (total / in / out).
+    fn degree_pairs_subset_impl(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+        kind: DegreeKind,
+    ) -> PyResult<Vec<(PyObject, usize)>> {
+        let mut out: Vec<(PyObject, usize)> = Vec::new();
+        for item in nbunch.try_iter()? {
+            let node = item?;
+            if node.hash().is_err() {
+                let label = node
+                    .str()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "?".to_owned());
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Node {label} in sequence nbunch is not a valid node."
+                )));
+            }
+            let canonical = node_key_to_string(py, &node)?;
+            if let Some(idx) = self.inner.get_node_index(&canonical) {
+                let deg = match kind {
+                    DegreeKind::In => self.inner.in_degree_by_index(idx),
+                    DegreeKind::Out => self.inner.out_degree_by_index(idx),
+                    DegreeKind::Total => self.inner.degree_by_index(idx),
+                };
+                out.push((node.clone().unbind(), deg));
+            }
+        }
+        Ok(out)
+    }
+
     pub(crate) fn py_node_key(&self, py: Python<'_>, canonical: &str) -> PyObject {
         self.node_key_map.get(canonical).map_or_else(
             || {
@@ -9673,6 +9706,36 @@ impl PyDiGraph {
         (0..self.inner.node_count())
             .map(|i| self.inner.in_degree_by_index(i))
             .collect()
+    }
+
+    /// br-r37-c1-degnbnative (cc): one-pass (node, total/in/out-degree) pairs for a
+    /// node subset (directed degree(nbunch)). Directed analog of
+    /// PyGraph::_native_degree_pairs_subset — collapses the Python nbunch_iter
+    /// membership filter + per-node native-degree PyO3 calls into one call.
+    /// Unhashable element -> TypeError(exact msg) so the wrapper maps it to
+    /// NetworkXError, matching nx's nbunch_iter contract.
+    fn _native_degree_pairs_subset(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+    ) -> PyResult<Vec<(PyObject, usize)>> {
+        self.degree_pairs_subset_impl(py, nbunch, DegreeKind::Total)
+    }
+
+    fn _native_in_degree_pairs_subset(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+    ) -> PyResult<Vec<(PyObject, usize)>> {
+        self.degree_pairs_subset_impl(py, nbunch, DegreeKind::In)
+    }
+
+    fn _native_out_degree_pairs_subset(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+    ) -> PyResult<Vec<(PyObject, usize)>> {
+        self.degree_pairs_subset_impl(py, nbunch, DegreeKind::Out)
     }
 
     /// br-r37-c1-composedir (cc): native DiGraph compose — directional analog of
