@@ -4184,6 +4184,22 @@ class MultiGraphDegreeView:
                 return degree(self._graph, nbunch, weight=weight)
         except TypeError:
             pass
+        # br-r37-c1-degnbnative (cc): unweighted multi total-degree(nbunch) — one
+        # native pass (nx sums keydict lengths in Python; fnx sums in rust).
+        if weight is None:
+            native = getattr(self._graph, "_native_degree_pairs_subset", None)
+            if native is not None:
+                try:
+                    pairs = native(nbunch)
+                except TypeError as exc:
+                    # br-r37-c1-degnbnative (cc): a single non-iterable bad node
+                    # (e.g. degree(99), used by is_isolate) reaches the native call
+                    # and fails try_iter; nx degree(n) raises "Node n is not in the
+                    # graph." Map that case; unhashable-element messages pass through.
+                    if "is not iterable" in str(exc):
+                        raise NetworkXError(f"Node {nbunch} is not in the graph.")
+                    raise NetworkXError(str(exc))
+                return _FilteredDegreeView(self, None, pairs=pairs)
         nodes = list(self._graph.nbunch_iter(nbunch))
         return type(self)(self._graph, nodes=nodes, weight=weight)
 
@@ -4273,6 +4289,22 @@ class MultiDiGraphDegreeView:
                 return degree(self._graph, nbunch, weight=weight)
         except TypeError:
             pass
+        # br-r37-c1-degnbnative (cc): unweighted multi total-degree(nbunch) — one
+        # native pass (nx sums keydict lengths in Python; fnx sums in rust).
+        if weight is None:
+            native = getattr(self._graph, "_native_degree_pairs_subset", None)
+            if native is not None:
+                try:
+                    pairs = native(nbunch)
+                except TypeError as exc:
+                    # br-r37-c1-degnbnative (cc): a single non-iterable bad node
+                    # (e.g. degree(99), used by is_isolate) reaches the native call
+                    # and fails try_iter; nx degree(n) raises "Node n is not in the
+                    # graph." Map that case; unhashable-element messages pass through.
+                    if "is not iterable" in str(exc):
+                        raise NetworkXError(f"Node {nbunch} is not in the graph.")
+                    raise NetworkXError(str(exc))
+                return _FilteredDegreeView(self, None, pairs=pairs)
         nodes = list(self._graph.nbunch_iter(nbunch))
         return type(self)(self._graph, nodes=nodes, weight=weight)
 
@@ -4475,6 +4507,12 @@ class _DirectedDegreeView:
                 try:
                     pairs = native(nbunch)
                 except TypeError as exc:
+                    # br-r37-c1-degnbnative (cc): a single non-iterable bad node
+                    # (e.g. degree(99), used by is_isolate) reaches the native call
+                    # and fails try_iter; nx degree(n) raises "Node n is not in the
+                    # graph." Map that case; unhashable-element messages pass through.
+                    if "is not iterable" in str(exc):
+                        raise NetworkXError(f"Node {nbunch} is not in the graph.")
                     raise NetworkXError(str(exc))
                 return _FilteredDegreeView(self, None, pairs=pairs)
         nodes = list(self._graph.nbunch_iter(nbunch))

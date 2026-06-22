@@ -5082,6 +5082,35 @@ impl PyMultiGraph {
         Ok(true)
     }
 
+    /// br-r37-c1-degnbnative (cc): native MultiGraph degree(nbunch) subset — one
+    /// pass (canonical filter + multiplicity degree) vs the per-node native-degree
+    /// + nbunch_iter Python path. nx sums keydict lengths in Python (O(deg)/node);
+    /// fnx sums in rust, so it dominates. Unhashable -> TypeError(exact msg).
+    fn _native_degree_pairs_subset(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+    ) -> PyResult<Vec<(PyObject, usize)>> {
+        let mut out: Vec<(PyObject, usize)> = Vec::new();
+        for item in nbunch.try_iter()? {
+            let node = item?;
+            if node.hash().is_err() {
+                let label = node
+                    .str()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "?".to_owned());
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Node {label} in sequence nbunch is not a valid node."
+                )));
+            }
+            let canonical = node_key_to_string(py, &node)?;
+            if self.inner.has_node(&canonical) {
+                out.push((node.clone().unbind(), self.inner.degree(&canonical)));
+            }
+        }
+        Ok(out)
+    }
+
     /// br-r37-c1-mgedgenb (cc): native MultiGraph edges(nbunch, data=False). The
     /// Python path triple-loops self.adj[source] (MultiAdjacencyView lambda chain,
     /// ~24ms/750 src) + a frozenset((u,v)) dedup per edge (~0.09x vs nx). This

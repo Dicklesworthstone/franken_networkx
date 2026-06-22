@@ -3915,3 +3915,22 @@ Full suite zero new failures. Follow-ups (same Python-sum-vs-rust-sum domination
 total degree(nbunch) [MultiDiGraphDegreeView route] and MG degree(nbunch) 0.73x [MultiGraphDegree
 View route] — separate view classes needing their own routing + a PyMultiGraph kernel.
 Artifact: tests/artifacts/perf/20260622T-mdg-degree-nbunch-cc/.
+
+## 2026-06-22 CopperCliff native MultiGraph degree(nbunch) — 0.73x -> 2.75x + degree-nbunch bad-node fix (`br-r37-c1-degnbnative`, cc)
+
+MG degree(nbunch) 0.73x -> **2.75x** (dominates; same Python-keydict-sum-vs-rust-sum as MDG
+in/out). Added PyMultiGraph::_native_degree_pairs_subset + routes in MultiGraphDegreeView /
+MultiDiGraphDegreeView.__call__ (the two multi total-degree views). MDG total degree(nbunch) was
+already ~parity (1.00x) — route added symmetrically (byte-exact, harmless no-op for that case).
+
+REGRESSION FOUND+FIXED in the same change (caught by conformance): a single NON-iterable bad node
+— e.g. degree(99), which `is_isolate` uses (G.degree(n)==0) — reached the native call and failed
+try_iter with Python's "'int' object is not iterable", which I'd wrapped verbatim; nx's degree(n)
+raises "Node n is not in the graph." Fixed across ALL degree-nbunch routes (Graph/DiGraph/MG/MDG,
+total + in/out): the except maps "is not iterable" -> NetworkXError("Node {nbunch} is not in the
+graph."), leaving the unhashable-element-in-sequence message intact. Lesson: a native nbunch fast-
+path must replicate the single-bad-node error contract, not just the iterable-filter path.
+
+Byte-exact: MG+MDG degree(nbunch) all shapes + error contract (single bad node, unhashable elem)
++ view-indexing; is_isolate bad-node across all 4 types. Full suite zero new failures.
+Artifact: tests/artifacts/perf/20260622T-mg-degree-nbunch-cc/.
