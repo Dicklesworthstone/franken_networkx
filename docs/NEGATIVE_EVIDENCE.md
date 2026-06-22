@@ -3111,3 +3111,17 @@ Warm min-of-N re-measurement of the remaining namespace-scan sub-1.0x entries:
 Net: no new clean win; the two genuine gaps are niche + substrate/reimplementation-
 bound. (Cold-vs-warm reminder: always warm-saturate scipy/LAPACK before trusting a
 spectral/numpy ratio.)
+
+### addendum — densest_subgraph is ORDER-SENSITIVE, parity-blocked (CopperCliff 2026-06-21)
+
+approximation.densest_subgraph (warm 0.48x) reimplemented in-process via a fast
+adjacency snapshot + nx's EXACT Greedy++ (heap-based min-weighted-degree peeling)
+is 2.3-2.4x faster than nx — BUT it DIVERGES from nx on identical graphs (e.g.
+n=35/m=16: density 0.8 vs 0.8235). Greedy++ is a 2-approximation whose result
+depends on the heap tie-break order, which in turn depends on the adjacency /
+neighbor ITERATION order; fnx's adjacency order differs from nx's, so the peeling
+trajectory and the returned density/node-set differ (both valid approximations,
+not equal). Like the clique/ramsey/greedy_color set-order-dependent approx
+functions, this CANNOT be matched in pure Python and must stay delegated. Reverted
+(prototype only, never committed to source). tree.greedy_branching is the same
+shape (greedy max-weight selection, order-dependent). No-ship.
