@@ -3346,3 +3346,14 @@ Result: edges(keys=True, data=True) 0.5x -> **4.74-4.94x** vs nx; data-only unch
 correctness: data-only stays byte-exact after an interleaved keys+data call), range+str
 keys, live attr-dict identity preserved. Full suite: zero new failures (same 5 pre-existing
 origin failures). Artifact: tests/artifacts/perf/20260622T-mg-edges-keysdata-cache-cc/.
+
+### Note (cc): MultiDiGraph edges(keys+data) — same pattern, borderline, NOT shipped
+
+The MultiDiGraph analog of the MG keys+data cache (br-r37-c1-mgkd) has the same gate
+(digraph.rs:283 `want_dict && !keys` excludes keys+data from `edges_with_data_cache`), but
+the gap is borderline: 0.84x @ n=800, 0.98x @ n=2000 (vs MG's 0.5x). Directed edges are
+unique by (u,v,key) — no undirected canonical-dedup `seen` HashSet — so the keys+data
+rebuild is already close to nx. Caching would flip warm-repeated to ~3.3x but one-shot is
+near-parity, and the change is more involved than MG (two field decls + multiple
+cache-using methods in digraph.rs). Per REVERT-~0-gain, NOT shipped. Documented so it
+isn't re-investigated.
