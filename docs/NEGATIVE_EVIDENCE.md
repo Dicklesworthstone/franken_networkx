@@ -3579,3 +3579,19 @@ Generalizing to arbitrary-order ints can't reuse the lazy-prefix representation 
 indices), so it would require materializing int node keys + node_key_map in first-appearance
 order — the deep construction-substrate work, not a gate relaxation. Confirms from_edgelist
 (random) 0.64x and the directed add_edges_from floor are substrate-bound. No contained lever.
+
+### Note (cc): directed `compose` -> native is the top remaining perf lever, but needs careful directed-display work
+
+Scoped the highest-value remaining lever: compose(DiGraph) is 0.74x (after the node-batch
+br-r37-c1-composenodebatch); the undirected path hits `_native_compose` (PyGraph, lib.rs:9688)
+for 1.99x. A `PyDiGraph::_native_compose` mirror would lift directed compose to ~domination —
+same pattern as the shipped MultiDiGraph(DiGraph) absorb. BUT the undirected version (~80 lines)
+encodes intricate directed-RELEVANT-only-as-undirected logic: integer-walk symmetric dedup
+(seen ui.min/max), first-touch row-store via `adj_py_keys` (single adjacency), fwd/rev
+edge_key attr-mirror merge, bulk extend_*_with_attrs_unrecorded. The directed mirror must
+instead: walk successors_indices (NO dedup), populate BOTH succ AND pred display/row tables
+(`succ_py_keys`/`pred_py_keys` — DiGraph has dual row models vs Graph's single adj), and
+directional edge_key only. That directed display/row-override surface is large and compose is
+widely used (high blast radius), so this is deep-design tier (exhaustive parity + review),
+NOT a safe autonomous one-pass change. Documented as the #1 target for the substrate-work
+go-ahead. All other residuals (construction-keying, node-mirror) remain deeper still.
