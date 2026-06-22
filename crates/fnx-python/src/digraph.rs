@@ -7451,6 +7451,24 @@ impl PyDiGraph {
         data: &Bound<'_, PyAny>,
         default: &PyObject,
     ) -> PyResult<PyObject> {
+        if self.edge_py_attrs.is_empty()
+            && let Ok(attr_name) = data.downcast::<PyString>()
+        {
+            let attr_name = attr_name.to_str()?;
+            if let Some(value) = self
+                .inner
+                .edge_attrs(source, target)
+                .and_then(|attrs| attrs.get(attr_name))
+                .cloned()
+            {
+                if !matches!(value, CgseValue::Map(_)) {
+                    return crate::cgse_value_to_py(py, &value);
+                }
+            } else {
+                return Ok(default.clone_ref(py));
+            }
+        }
+
         let key = Self::edge_key(source, target);
         if let Some(dict) = self.edge_py_attrs.get(&key) {
             return Ok(dict

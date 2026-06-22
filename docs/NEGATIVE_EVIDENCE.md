@@ -4718,3 +4718,69 @@ Behavior proof:
 - `git diff --check`: passed.
 - `ubs --only=rust crates/fnx-python/src/lib.rs`: exit 0; broad pre-existing
   `lib.rs` warnings, no critical findings.
+
+## 2026-06-22 BlackThrush DiGraph nbunch attr-key scalar fast path - 1.0x-2.3x FNX self-speedup (`br-r37-c1-04z53.9161`, cod-a)
+
+Lever: `_native_out_edges_nbunch_data_key` was already the right route for
+exact `DiGraph.out_edges(nbunch, data="<attr>")` and
+`DiGraph.edges(nbunch, data="<attr>")`, but each scalar edge read still entered
+`edge_attr_value_or_default` by allocating/probing the live edge-attribute mirror
+key `(u, v)` before checking the Rust attr map. Fresh benchmark graphs with only
+string scalar attrs have no live edge-attr mirrors, so the helper now directly
+reads Rust attrs for string keys and missing defaults when `edge_py_attrs` is
+empty. Nested map values still fall through to materialize the live dict, and any
+existing live edge mirror keeps the old mirror-first path.
+
+Keep decision: KEEP. The smaller row remains an output-construction floor, but
+the large-row native scalar path moved substantially and the public
+`edges(nbunch, data="weight")` target improved from 7.190 ms to 3.042 ms best on
+the same deterministic graph shape. This is not a near-zero gain. A pure wrapper
+shortcut was considered and rejected because the current wrapper preserves the
+NetworkX-named `OutEdgeDataView` surface and mutation guards.
+
+Direct artifact environment:
+
+`PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx/legacy_networkx_code /data/projects/franken_networkx/.venv/bin/python`
+with `/data/projects/.rch-targets/franken_networkx-cod-a/release/lib_fnx.so`
+preloaded as `franken_networkx._fnx`.
+
+Measured trigger baseline before the edit, current turn, deterministic
+unique-edge `DiGraph`, `nbunch=list(range(n//2))`, attr key `"weight"`:
+
+| workload | FNX min | FNX median | NetworkX min | NetworkX median | ratio min | ratio median | parity |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `out_edges` n=1500/m=9000/k=750 | 0.882 ms | 0.924 ms | 0.733 ms | 0.751 ms | 0.83x | 0.81x | true |
+| `edges` n=1500/m=9000/k=750 | 1.080 ms | 1.236 ms | 0.745 ms | 0.766 ms | 0.69x | 0.62x | true |
+| `out_edges` n=3500/m=24000/k=1750 | 7.134 ms | 7.576 ms | 2.065 ms | 6.540 ms | 0.29x | 0.86x | true |
+| `edges` n=3500/m=24000/k=1750 | 7.190 ms | 7.453 ms | 6.162 ms | 6.846 ms | 0.86x | 0.92x | true |
+
+After timing, same graph generator and artifact:
+
+| workload | FNX min | FNX median | NetworkX min | NetworkX median | ratio min | ratio median | parity |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `out_edges` n=1500/m=9000/k=750 | 0.881 ms | 0.995 ms | 0.740 ms | 0.762 ms | 0.84x | 0.77x | true |
+| `edges` n=1500/m=9000/k=750 | 1.054 ms | 1.077 ms | 0.743 ms | 0.757 ms | 0.70x | 0.70x | true |
+| `out_edges` n=3500/m=24000/k=1750 | 3.339 ms | 6.064 ms | 4.198 ms | 5.004 ms | 1.26x | 0.83x | true |
+| `edges` n=3500/m=24000/k=1750 | 3.042 ms | 6.040 ms | 2.308 ms | 5.171 ms | 0.76x | 0.86x | true |
+
+Behavior proof:
+
+- Direct artifact parity passed for all four benchmark rows against legacy
+  NetworkX.
+- Focused direct probe passed for missing-data default, nested payload return,
+  and post-creation live edge-attribute mutation:
+  `franken_networkx` and NetworkX both returned
+  `[('a', 'b', 'D'), ('b', 'c', 'D')]`, `[('a', 'b', {'x': 1})]`, and
+  `[('a', 'b', 7)]`.
+- `cargo +nightly-2026-06-10 build -p fnx-python --release --features pyo3/abi3-py310`:
+  passed with `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- `cargo +nightly-2026-06-10 check -p fnx-python --features pyo3/abi3-py310`:
+  passed.
+- `cargo +nightly-2026-06-10 clippy -p fnx-python --features pyo3/abi3-py310 --all-targets -- -D warnings`:
+  passed.
+- `cargo +nightly-2026-06-10 test -p fnx-python --features pyo3/abi3-py310`:
+  27 passed, 0 failed; doctests 0 passed, 0 failed.
+- `cargo +nightly-2026-06-10 fmt -p fnx-python --check`: passed.
+- `git diff --check`: passed.
+- `ubs --only=rust crates/fnx-python/src/digraph.rs`: exit 0; broad pre-existing
+  `digraph.rs` warnings, no critical findings.
