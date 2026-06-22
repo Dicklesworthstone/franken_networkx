@@ -2131,6 +2131,25 @@ class _MultiGraphEdgeView:
         # ``type(MG.edges(data=True)).__name__`` was wrong.  Wrap
         # in ``_MultiEdgeDataView`` (cycle-192's subclass with
         # canonical name) when data is requested.
+        # br-r37-c1-mgedgenb (cc): native one-pass for data=False (the heavy
+        # adj[source] lambda-chain + frozenset dedup path, ~0.09x vs nx). Returns
+        # None for row-display / non-default key-display graphs -> Python loop below.
+        if data is False:
+            native = getattr(self._graph, "_native_mg_edges_nbunch_no_data", None)
+            if native is not None:
+                try:
+                    native_res = native(nbunch, keys)
+                except TypeError as exc:
+                    raise NetworkXError(str(exc))
+                if native_res is not None:
+                    result = _EdgeListWithSetAlgebra(native_res)
+                    if keys:
+                        return _guarded_edge_list(
+                            _wrap_edge_data_view(result, _MultiEdgeView),
+                            self._graph,
+                            guard_edge_count=True,
+                        )
+                    return _guarded_edge_list(result, self._graph, guard_edge_count=True)
         result = _EdgeListWithSetAlgebra()
         seen = set()
         for source in self._graph.nbunch_iter(nbunch):

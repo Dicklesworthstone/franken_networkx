@@ -3880,3 +3880,21 @@ in_edges(nbunch) native kernel can't be made nx-exact without storing pred in in
 (deep). Uncaught by conformance (in_edges order not strictly tested). out_edges is safe because
 fnx DOES store successors in insertion order. Filed as a correctness divergence to investigate
 (separate from perf). Artifact: tests/artifacts/perf/20260622T-out-edges-nbunch-cc/.
+
+## 2026-06-22 CopperCliff native MultiGraph edges(nbunch) — 0.09x -> 1.00x (biggest gap) (`br-r37-c1-mgedgenb`, cc)
+
+The biggest single gap surfaced by the multi-nbunch sweep: MG edges(nbunch, data=False) was
+**0.09x** (29.5ms vs nx 2.5ms @ n=1500/k=750). Profiled: the cost is the Python triple-loop's
+`self.adj[source].items()` (MultiAdjacencyView lambda chain, ~24.5ms/750 src) + a
+`frozenset((u,v))` dedup per edge (~4ms). Added PyMultiGraph::_native_mg_edges_nbunch_no_data:
+walk neighbors() (nx adj insertion order — proven order-correct by the disjoint_union(MG) work)
+x edge_keys() once, dedup undirected parallels by a normalized (lo,hi,key) string-pair, emit
+(u,v) or (u,v,key). Gated on adj_py_keys empty (+ edge_py_keys empty for keys=True) -> Python
+fallback for z6uka/non-default-key-display graphs.
+
+Result: keys=False 0.09x -> **1.00x** (~12.7x self-speedup — eliminates the catastrophic loss,
+now at parity); keys=True 0.09x -> 0.75x (the per-edge int key_obj construction keeps it just
+below nx; kept as strictly-better). Byte-exact: 4 seeds x 7 nbunch shapes x keys/no-keys incl
+parallels, self-loops, str-keyed, dup nodes + data=True fallback + error contract. Full suite
+zero new failures. (data=True/key variants keep the Python path; MultiDiGraph out_edges(nbunch)
+0.93x is near-parity, lower priority.) Artifact: tests/artifacts/perf/20260622T-mg-edges-nbunch-cc/.
