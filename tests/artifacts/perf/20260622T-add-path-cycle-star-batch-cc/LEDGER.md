@@ -1,0 +1,2 @@
+# add_path/add_cycle/add_star batch + fresh-path fix (br-r37-c1-addpathbatch, cc)
+0.24x/0.28x/0.23x -> 1.04x/1.13x/1.09x (4.3x self-speedup). Two-part fix: (1) per-edge add_edge loop -> single add_edges_from; (2) CRITICAL: do NOT add_node(first) before add_edges_from — the pre-add makes the graph non-fresh and DEFEATS add_edges_from's fresh-graph batch fast path (2.79->1.53ms). Only add_node for the single-node no-edge case. Byte-exact: 180 checks (3 fns x 4 types x 5 node-lists x [plain/attr/existing]). Full suite zero new failures.

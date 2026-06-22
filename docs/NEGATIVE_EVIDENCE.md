@@ -3433,3 +3433,24 @@ already-batched star_graph(DiGraph)), not per-edge-loop waste. Shipped anyway: r
 per-edge PyO3 round-trip is strictly correct + halves the gap; the residual is the documented
 directed-construction substrate (needs the node-keying/int-CSR substrate work, not a wrapper
 change). NOT ~0-gain (2x self-speedup).
+
+## 2026-06-22 CopperCliff `add_path`/`add_cycle`/`add_star` — 0.24x -> 1.04-1.13x (`br-r37-c1-addpathbatch`, cc)
+
+These ubiquitous mutation helpers were 0.23-0.28x vs nx (4x slower) — per-edge add_edge
+loops. Two-part fix to DOMINATION:
+1. Batch the loop into ONE add_edges_from (same lever as havel_hakimi).
+2. CRITICAL sub-lever: do NOT `add_node(first)` before the add_edges_from. The explicit
+   pre-add makes the graph NON-FRESH, which DEFEATS add_edges_from's fresh-graph batch fast
+   path (measured 2.79ms WITH pre-add vs 1.53ms WITHOUT, same result). pairwise's first edge
+   adds the first node anyway (verified identical node order). Only add_node for the
+   single-node no-edge case.
+
+Result: add_path 0.24x->1.04x, add_cycle 0.28x->1.13x, add_star 0.23x->1.09x (4.3x
+self-speedup, now DOMINATES). Byte-exact: 180 checks (3 fns x 4 graph types x 5 node-lists
+incl. []/[5]/dups x [plain/attr/existing-graph]). Full suite zero new failures.
+
+GENERAL GOTCHA (also limits the earlier cycle_graph/path_graph create_using fix to 0.78x:
+`_add_nodes_in_order` pre-adds all nodes -> defeats fresh path): when batching a construction
+that builds a fresh graph, let add_edges_from add the nodes via edges; an explicit pre-add of
+nodes already covered by edges silently drops you off the fresh-graph fast path. Artifact:
+tests/artifacts/perf/20260622T-add-path-cycle-star-batch-cc/.

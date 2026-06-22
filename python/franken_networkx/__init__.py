@@ -21358,40 +21358,58 @@ def path_weight(G, path, weight):
 
 def add_path(G_to_add_to, nodes_for_path, **attr):
     """Add a path of edges to *G*."""
+    # br-r37-c1-addpathbatch (cc): nx adds the path via ONE add_edges_from(
+    # pairwise(...), **attr); fnx looped per-edge add_edge (~0.24x vs nx, 4x
+    # slower even on a fresh Graph). Batch it — byte-identical edge order, and
+    # add_edges_from applies **attr to every edge exactly like the loop did.
     G = G_to_add_to
     node_list = list(nodes_for_path)
     if not node_list:
         return
-    G.add_node(node_list[0])
-    for i in range(len(node_list) - 1):
-        G.add_edge(node_list[i], node_list[i + 1], **attr)
+    if len(node_list) == 1:
+        G.add_node(node_list[0])
+        return
+    # br-r37-c1-addpathbatch (cc): do NOT add_node(node_list[0]) before the
+    # add_edges_from — on a fresh graph the explicit pre-add makes the graph
+    # non-fresh and DEFEATS add_edges_from's fresh-graph batch fast path
+    # (2.79ms -> 1.53ms when skipped). pairwise's first edge adds node_list[0]
+    # anyway (verified identical node order), so it's redundant for len>=2.
+    G.add_edges_from(_itertools.pairwise(node_list), **attr)
 
 
 def add_cycle(G_to_add_to, nodes_for_cycle, **attr):
     """Add a cycle of edges to *G*."""
+    # br-r37-c1-addpathbatch (cc): batch like nx's add_edges_from(pairwise(
+    # nodes, cyclic=True), **attr). Single node -> the (n, n) self-loop close.
     G = G_to_add_to
     node_list = list(nodes_for_cycle)
     if not node_list:
         return
-    G.add_node(node_list[0])
     if len(node_list) == 1:
-        G.add_edge(node_list[0], node_list[0], **attr)
+        # single-node cycle == self-loop; the edge adds the node (no pre-add,
+        # which would defeat the fresh-graph add_edges_from fast path).
+        G.add_edges_from([(node_list[0], node_list[0])], **attr)
         return
-    for i in range(len(node_list) - 1):
-        G.add_edge(node_list[i], node_list[i + 1], **attr)
-    G.add_edge(node_list[-1], node_list[0], **attr)
+    edges = list(_itertools.pairwise(node_list))
+    edges.append((node_list[-1], node_list[0]))
+    G.add_edges_from(edges, **attr)
 
 
 def add_star(G_to_add_to, nodes_for_star, **attr):
     """Add a star of edges to *G* (first node is the center)."""
+    # br-r37-c1-addpathbatch (cc): batch the hub->spoke edges through one
+    # add_edges_from instead of the per-edge add_edge loop (~0.23x vs nx).
     G = G_to_add_to
     node_list = list(nodes_for_star)
     if not node_list:
         return
     center = node_list[0]
-    G.add_node(center)
-    for spoke in node_list[1:]:
-        G.add_edge(center, spoke, **attr)
+    if len(node_list) == 1:
+        G.add_node(center)
+        return
+    # No pre-add of center: the first hub->spoke edge adds it, keeping the
+    # fresh-graph add_edges_from fast path engaged (skips ~1.2ms of non-fresh tax).
+    G.add_edges_from(((center, spoke) for spoke in node_list[1:]), **attr)
 
 
 def _validate_product_graph_types(G, H, *, allow_directed=True, allow_multigraph=True):
