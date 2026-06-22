@@ -162,7 +162,7 @@ impl Graph {
             adj_indices: Vec::new(),
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::new(),
-        edges: FxIndexMap::default(),
+            edges: FxIndexMap::default(),
             runtime_policy: RuntimePolicy::new(mode),
         }
     }
@@ -177,7 +177,7 @@ impl Graph {
             adj_indices: Vec::new(),
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::new(),
-        edges: FxIndexMap::default(),
+            edges: FxIndexMap::default(),
             runtime_policy,
         }
     }
@@ -197,11 +197,11 @@ impl Graph {
         let mut graph = Self {
             mode,
             revision,
-            nodes: FxIndexMap::with_capacity_and_hasher(n, rustc_hash::FxBuildHasher::default()),
+            nodes: FxIndexMap::with_capacity_and_hasher(n, rustc_hash::FxBuildHasher),
             adj_indices: vec![Vec::with_capacity(n.saturating_sub(1)); n],
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::with_capacity(edge_capacity),
-        edges: FxIndexMap::with_capacity_and_hasher(edge_capacity, rustc_hash::FxBuildHasher::default()),
+            edges: FxIndexMap::with_capacity_and_hasher(edge_capacity, rustc_hash::FxBuildHasher),
             runtime_policy: RuntimePolicy::new(mode),
         };
 
@@ -253,11 +253,11 @@ impl Graph {
         let mut graph = Self {
             mode,
             revision,
-            nodes: FxIndexMap::with_capacity_and_hasher(node_count, rustc_hash::FxBuildHasher::default()),
+            nodes: FxIndexMap::with_capacity_and_hasher(node_count, rustc_hash::FxBuildHasher),
             adj_indices: vec![Vec::with_capacity(4); node_count],
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::with_capacity(edge_capacity),
-        edges: FxIndexMap::with_capacity_and_hasher(edge_capacity, rustc_hash::FxBuildHasher::default()),
+            edges: FxIndexMap::with_capacity_and_hasher(edge_capacity, rustc_hash::FxBuildHasher),
             runtime_policy: RuntimePolicy::new(mode),
         };
         for i in 0..m {
@@ -498,14 +498,14 @@ impl Graph {
         let mut graph = Self {
             mode,
             revision,
-            nodes: FxIndexMap::with_capacity_and_hasher(state.node_count, rustc_hash::FxBuildHasher::default()),
+            nodes: FxIndexMap::with_capacity_and_hasher(
+                state.node_count,
+                rustc_hash::FxBuildHasher,
+            ),
             adj_indices: Vec::with_capacity(state.node_count),
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::with_capacity(edge_view.len()),
-            edges: FxIndexMap::with_capacity_and_hasher(
-                edge_view.len(),
-                rustc_hash::FxBuildHasher::default(),
-            ),
+            edges: FxIndexMap::with_capacity_and_hasher(edge_view.len(), rustc_hash::FxBuildHasher),
             runtime_policy: RuntimePolicy::new(mode),
         };
 
@@ -596,11 +596,11 @@ impl Graph {
         let mut graph = Self {
             mode,
             revision: u64::try_from(total).unwrap_or(u64::MAX),
-            nodes: FxIndexMap::with_capacity_and_hasher(total, rustc_hash::FxBuildHasher::default()),
+            nodes: FxIndexMap::with_capacity_and_hasher(total, rustc_hash::FxBuildHasher),
             adj_indices: Vec::new(),
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::new(),
-        edges: FxIndexMap::default(),
+            edges: FxIndexMap::default(),
             runtime_policy: RuntimePolicy::new(mode),
         };
         if 2 * k > n {

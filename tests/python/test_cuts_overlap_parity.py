@@ -1,16 +1,11 @@
 """Parity for the cuts module on overlapping node sets.
 
-``cut_size(G, S, T)`` and ``normalized_cut_size`` route through native
-kernels that (like ``edge_boundary``, br-r37-c1-dhi0m) compute the strict
-boundary — other endpoint NOT in ``S`` — then filter by ``T``. That
-undercounts S↔T crossing edges when ``S`` and ``T`` overlap. networkx
-counts an edge whenever one endpoint is in ``S`` and the other in ``T``,
-including edges with both endpoints in the overlap.
-
-The fix delegates the overlapping case to nx and cascades to
-``edge_expansion`` / ``mixing_expansion`` / ``conductance`` (which call
-``cut_size``). Disjoint / ``T=None`` paths stay on the fast kernel.
-br-r37-c1-dy93n
+``cut_size(G, S, T)`` and ``normalized_cut_size`` must match NetworkX's
+overlap predicate: count an edge whenever one endpoint is in ``S`` and the
+other is in ``T``, including edges with both endpoints in the overlap.
+The native unweighted kernel handles this directly; Python must not delegate
+the overlap case back to NetworkX.
+br-r37-c1-dy93n / br-r37-c1-wh7nt
 """
 
 from __future__ import annotations
@@ -75,6 +70,37 @@ def test_cut_size_overlap_golden():
     # (0,1),(1,2),(2,3) -> 3 (strict-boundary approach wrongly gives 1).
     assert fnx.cut_size(g, {0, 1, 2}, {1, 2, 3}) == 3
     assert fnx.cut_size(g, {0, 1, 2}, {1, 2, 3}) == nx.cut_size(ng, {0, 1, 2}, {1, 2, 3})
+
+
+def test_overlap_cut_size_stays_native(monkeypatch):
+    g = fnx.path_graph(4)
+
+    def fail_networkx(*args, **kwargs):
+        raise AssertionError("overlap cut_size delegated to NetworkX")
+
+    monkeypatch.setattr(fnx, "_call_networkx_for_parity", fail_networkx)
+    assert fnx.cut_size(g, {0, 1, 2}, {1, 2, 3}) == 3
+    assert fnx.normalized_cut_size(g, {0, 1, 2}, {1, 2, 3}) == pytest.approx(1.2)
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls", "expected_cut", "expected_norm"),
+    [
+        (fnx.Graph, nx.Graph, 1, 1.0),
+        (fnx.DiGraph, nx.DiGraph, 2, 4.0),
+    ],
+)
+def test_self_loop_overlap_matches_networkx(fnx_cls, nx_cls, expected_cut, expected_norm):
+    fg = fnx_cls()
+    ng = nx_cls()
+    fg.add_edge("b", "b")
+    ng.add_edge("b", "b")
+    assert fnx.cut_size(fg, {"b"}, {"b"}) == nx.cut_size(ng, {"b"}, {"b"}) == expected_cut
+    assert (
+        fnx.normalized_cut_size(fg, {"b"}, {"b"})
+        == nx.normalized_cut_size(ng, {"b"}, {"b"})
+        == expected_norm
+    )
 
 
 @pytest.mark.parametrize("directed", [False, True])

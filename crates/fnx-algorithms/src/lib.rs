@@ -25176,6 +25176,9 @@ pub fn cut_size(
     nbunch2: Option<&[&str]>,
     weight_attr: Option<&str>,
 ) -> f64 {
+    if weight_attr.is_none() {
+        return cut_size_unweighted_graph(graph, nbunch1, nbunch2);
+    }
     let target_nodes = match nbunch2 {
         Some(nodes) => nodes.to_vec(),
         None => {
@@ -25199,6 +25202,9 @@ pub fn cut_size_directed(
     nbunch2: Option<&[&str]>,
     weight_attr: Option<&str>,
 ) -> f64 {
+    if weight_attr.is_none() {
+        return cut_size_unweighted_digraph(digraph, nbunch1, nbunch2);
+    }
     let target_nodes = match nbunch2 {
         Some(nodes) => nodes.to_vec(),
         None => {
@@ -25224,6 +25230,20 @@ pub fn normalized_cut_size(
     nbunch2: Option<&[&str]>,
     weight_attr: Option<&str>,
 ) -> Option<f64> {
+    if weight_attr.is_none() {
+        let (source_mask, source_indices) = node_mask_and_indices(graph, nbunch1);
+        let target_indices = match nbunch2 {
+            Some(nodes) => node_mask_and_indices(graph, nodes).1,
+            None => complement_indices(&source_mask),
+        };
+        let volume_s = cut_volume_unweighted(graph, &source_indices);
+        let volume_t = cut_volume_unweighted(graph, &target_indices);
+        if volume_s == 0.0 || volume_t == 0.0 {
+            return None;
+        }
+        let cut = cut_size_unweighted_graph(graph, nbunch1, nbunch2);
+        return Some(cut * ((1.0 / volume_s) + (1.0 / volume_t)));
+    }
     let target_nodes = match nbunch2 {
         Some(nodes) => nodes.to_vec(),
         None => {
@@ -25252,6 +25272,20 @@ pub fn normalized_cut_size_directed(
     nbunch2: Option<&[&str]>,
     weight_attr: Option<&str>,
 ) -> Option<f64> {
+    if weight_attr.is_none() {
+        let (source_mask, source_indices) = node_mask_and_indices(digraph, nbunch1);
+        let target_indices = match nbunch2 {
+            Some(nodes) => node_mask_and_indices(digraph, nodes).1,
+            None => complement_indices(&source_mask),
+        };
+        let volume_s = cut_volume_unweighted(digraph, &source_indices);
+        let volume_t = cut_volume_unweighted(digraph, &target_indices);
+        if volume_s == 0.0 || volume_t == 0.0 {
+            return None;
+        }
+        let cut = cut_size_unweighted_digraph(digraph, nbunch1, nbunch2);
+        return Some(cut * ((1.0 / volume_s) + (1.0 / volume_t)));
+    }
     let target_nodes = match nbunch2 {
         Some(nodes) => nodes.to_vec(),
         None => {
@@ -25270,6 +25304,107 @@ pub fn normalized_cut_size_directed(
     }
     let cut = cut_size_directed(digraph, nbunch1, Some(&target_nodes), weight_attr);
     Some(cut * ((1.0 / volume_s) + (1.0 / volume_t)))
+}
+
+fn node_mask_and_indices<G: GraphView>(graph: &G, nodes: &[&str]) -> (Vec<bool>, Vec<usize>) {
+    let mut mask = vec![false; graph.node_count()];
+    let mut indices = Vec::with_capacity(nodes.len());
+    for &node in nodes {
+        if let Some(index) = graph.get_node_index(node)
+            && !mask[index]
+        {
+            mask[index] = true;
+            indices.push(index);
+        }
+    }
+    (mask, indices)
+}
+
+fn complement_indices(mask: &[bool]) -> Vec<usize> {
+    mask.iter()
+        .enumerate()
+        .filter_map(|(index, in_set)| (!in_set).then_some(index))
+        .collect()
+}
+
+fn cut_size_unweighted_graph(graph: &Graph, nbunch1: &[&str], nbunch2: Option<&[&str]>) -> f64 {
+    let (source_mask, source_indices) = node_mask_and_indices(graph, nbunch1);
+    let target_mask = match nbunch2 {
+        Some(nodes) => node_mask_and_indices(graph, nodes).0,
+        None => source_mask.iter().map(|in_source| !in_source).collect(),
+    };
+    let mut seen_edges: HashSet<(usize, usize)> = HashSet::new();
+    let mut count = 0usize;
+    for &u in &source_indices {
+        if let Some(neighbors) = graph.neighbors_indices(u) {
+            for &v in neighbors {
+                let edge_key = if u <= v { (u, v) } else { (v, u) };
+                if !seen_edges.insert(edge_key) {
+                    continue;
+                }
+                if (source_mask[u] && target_mask[v]) || (source_mask[v] && target_mask[u]) {
+                    count += 1;
+                }
+            }
+        }
+    }
+    count as f64
+}
+
+fn cut_size_unweighted_digraph(
+    digraph: &DiGraph,
+    nbunch1: &[&str],
+    nbunch2: Option<&[&str]>,
+) -> f64 {
+    let (source_mask, source_indices) = node_mask_and_indices(digraph, nbunch1);
+    let (target_mask, target_indices) = match nbunch2 {
+        Some(nodes) => node_mask_and_indices(digraph, nodes),
+        None => {
+            let mask = source_mask
+                .iter()
+                .map(|in_source| !in_source)
+                .collect::<Vec<_>>();
+            let indices = complement_indices(&source_mask);
+            (mask, indices)
+        }
+    };
+    let forward =
+        directed_boundary_count_unweighted(digraph, &source_indices, &source_mask, &target_mask);
+    let reverse =
+        directed_boundary_count_unweighted(digraph, &target_indices, &target_mask, &source_mask);
+    (forward + reverse) as f64
+}
+
+fn directed_boundary_count_unweighted(
+    digraph: &DiGraph,
+    source_indices: &[usize],
+    source_mask: &[bool],
+    target_mask: &[bool],
+) -> usize {
+    let mut count = 0usize;
+    for &u in source_indices {
+        if let Some(successors) = digraph.successors_indices(u) {
+            for &v in successors {
+                if (source_mask[u] && target_mask[v]) || (source_mask[v] && target_mask[u]) {
+                    count += 1;
+                }
+            }
+        }
+    }
+    count
+}
+
+fn cut_volume_unweighted<G: GraphView>(graph: &G, node_indices: &[usize]) -> f64 {
+    let mut total = 0usize;
+    for &node in node_indices {
+        if let Some(neighbors) = graph.neighbors_indices(node) {
+            total += neighbors.len();
+            if !graph.is_directed() && neighbors.contains(&node) {
+                total += 1;
+            }
+        }
+    }
+    total as f64
 }
 
 fn sum_cut_edge_weights(

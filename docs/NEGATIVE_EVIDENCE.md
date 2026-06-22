@@ -4027,3 +4027,48 @@ out_edges' 2.22x but still wins), data=True 0.66x -> 0.92x (near-parity, improve
 incl the canonical OutMultiEdge* view types + all shapes/keys. Full suite zero new failures.
 Lesson: when one call form (out_edges) has a native kernel, check the sibling form (edges) routes
 to it too — often a free reuse.
+
+## 2026-06-22 BlackThrush native unweighted cut scan - 5.19x-5.68x overlap (`br-r37-c1-wh7nt`, cod-a)
+
+Lever: alien-graveyard 10.5 GraphBLAS-style masked sparse traversal, applied narrowly to
+unweighted `cut_size` / `normalized_cut_size` for simple Graph/DiGraph. The old path materialized
+the full boundary edge vector and then summed it. The new path builds S/T masks once and scans
+native adjacency rows directly. Weighted and multigraph paths stay on their existing parity routes.
+
+Keep decision: KEEP. The overlap workload is not a micro-gain, and it removes the stale reason to
+delegate overlapping S/T cuts back to NetworkX. Expected-value score was high enough for a bold
+probe: impact 3 * confidence 4 * reuse 3 / effort 2 = 18, with low blast radius because the lever
+is unweighted-only and covered by NetworkX parity tests.
+
+Head-to-head bench, small per-crate only:
+
+`RCH_REQUIRE_REMOTE=1 AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a RUSTUP_TOOLCHAIN=nightly-2026-06-10 rch exec -- env PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH PYTHONPATH=/data/projects/franken_networkx/crates/fnx-python/benches:/data/projects/franken_networkx/python:/data/projects/franken_networkx/legacy_networkx_code/networkx cargo bench -p fnx-python --bench networkx_head_to_head cut_metrics -- --noplot --sample-size 10 --warm-up-time 1 --measurement-time 2`
+
+Note: `cargo bench --release` is not valid Cargo syntax; Criterion benches already build optimized
+bench profiles, so the per-crate command above is the valid disk-frugal equivalent. RCH rewrote the
+remote target dir to its worker-scoped warm path.
+
+| workload | fnx | networkx | ratio |
+| --- | ---: | ---: | ---: |
+| cut_size overlap BA2500 S=1250 T=1250 | 474.63 us | 2.4613 ms | 5.19x |
+| normalized_cut_size overlap BA2500 S=1250 T=1250 | 485.96 us | 2.7593 ms | 5.68x |
+| edge_expansion BA2500 S=1250 | 556.54 us | 3.1793 ms | 5.71x |
+| edge_expansion WS2500 S=625 | 286.62 us | 1.2948 ms | 4.52x |
+| node_expansion BA2500 S=1250 | 121.55 us | 440.81 us | 3.63x |
+| node_expansion WS2500 S=625 | 58.929 us | 251.90 us | 4.27x |
+
+Behavior proof:
+
+- `cargo test -p fnx-algorithms overlapping --lib`: 4 passed.
+- Fresh in-tree extension passed the checkout stale-extension guard.
+- `pytest tests/python/test_cuts_overlap_parity.py tests/python/test_boundary_value_parity.py -q`:
+  628 passed.
+- `cargo check -p fnx-python --benches --features pyo3/abi3-py310`: passed; existing
+  `fnx-python/src/digraph.rs` `unused_must_use` warnings remain under CopperCliff's reservation.
+- `cargo clippy -p fnx-algorithms --lib -- -D warnings`: passed after the split
+  `br-r37-c1-yze2l` `FxBuildHasher` unit-struct cleanup.
+- `cargo check -p fnx-classes --all-targets`: passed.
+- `cargo clippy -p fnx-classes --all-targets -- -D warnings`: passed.
+- `cargo test -p fnx-classes`: 68 passed, 2 ignored.
+- Follow-up `br-r37-c1-yze2l` replaced those unit-struct `default()` calls and
+  `cargo clippy -p fnx-algorithms --lib -- -D warnings` then passed.

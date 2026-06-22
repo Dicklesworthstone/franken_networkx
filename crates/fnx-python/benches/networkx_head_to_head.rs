@@ -4,7 +4,7 @@
 //! raw Rust helpers. The Python setup builds identical NetworkX/FNX graphs once;
 //! Criterion times only repeated algorithm calls.
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, Criterion};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use std::ffi::CString;
@@ -24,6 +24,10 @@ struct CutMetricWorkloads {
     nx_node_ba: Py<PyAny>,
     fnx_node_ws: Py<PyAny>,
     nx_node_ws: Py<PyAny>,
+    fnx_cut_overlap_ba: Py<PyAny>,
+    nx_cut_overlap_ba: Py<PyAny>,
+    fnx_normalized_cut_overlap_ba: Py<PyAny>,
+    nx_normalized_cut_overlap_ba: Py<PyAny>,
 }
 
 struct AssortativityWorkloads {
@@ -123,6 +127,8 @@ ws_fnx, ws_nx = _paired_graphs("ws", 2500, 8, p=0.05, seed=17)
 
 ba_cut = list(range(0, 1250))
 ws_cut = list(range(0, 2500, 4))
+ba_overlap_s = list(range(0, 1250))
+ba_overlap_t = list(range(625, 1875))
 
 fnx_edge_ba = lambda: fnx.edge_expansion(ba_fnx, ba_cut)
 nx_edge_ba = lambda: nx.edge_expansion(ba_nx, ba_cut)
@@ -132,11 +138,17 @@ fnx_node_ba = lambda: fnx.node_expansion(ba_fnx, ba_cut)
 nx_node_ba = lambda: nx.node_expansion(ba_nx, ba_cut)
 fnx_node_ws = lambda: fnx.node_expansion(ws_fnx, ws_cut)
 nx_node_ws = lambda: nx.node_expansion(ws_nx, ws_cut)
+fnx_cut_overlap_ba = lambda: fnx.cut_size(ba_fnx, ba_overlap_s, ba_overlap_t)
+nx_cut_overlap_ba = lambda: nx.cut_size(ba_nx, ba_overlap_s, ba_overlap_t)
+fnx_normalized_cut_overlap_ba = lambda: fnx.normalized_cut_size(ba_fnx, ba_overlap_s, ba_overlap_t)
+nx_normalized_cut_overlap_ba = lambda: nx.normalized_cut_size(ba_nx, ba_overlap_s, ba_overlap_t)
 
 assert fnx_edge_ba() == nx_edge_ba()
 assert fnx_edge_ws() == nx_edge_ws()
 assert fnx_node_ba() == nx_node_ba()
 assert fnx_node_ws() == nx_node_ws()
+assert fnx_cut_overlap_ba() == nx_cut_overlap_ba()
+assert abs(fnx_normalized_cut_overlap_ba() - nx_normalized_cut_overlap_ba()) < 1e-12
 "#,
         )
         .as_c_str(),
@@ -160,6 +172,10 @@ assert fnx_node_ws() == nx_node_ws()
         nx_node_ba: callable("nx_node_ba")?,
         fnx_node_ws: callable("fnx_node_ws")?,
         nx_node_ws: callable("nx_node_ws")?,
+        fnx_cut_overlap_ba: callable("fnx_cut_overlap_ba")?,
+        nx_cut_overlap_ba: callable("nx_cut_overlap_ba")?,
+        fnx_normalized_cut_overlap_ba: callable("fnx_normalized_cut_overlap_ba")?,
+        nx_normalized_cut_overlap_ba: callable("nx_normalized_cut_overlap_ba")?,
     })
 }
 
@@ -867,6 +883,26 @@ fn cut_metric_head_to_head(c: &mut Criterion) {
         &mut group,
         "nx_node_expansion_ws2500_s625",
         &workloads.nx_node_ws,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_cut_size_overlap_ba2500_s1250_t1250",
+        &workloads.fnx_cut_overlap_ba,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_cut_size_overlap_ba2500_s1250_t1250",
+        &workloads.nx_cut_overlap_ba,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_normalized_cut_size_overlap_ba2500_s1250_t1250",
+        &workloads.fnx_normalized_cut_overlap_ba,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_normalized_cut_size_overlap_ba2500_s1250_t1250",
+        &workloads.nx_normalized_cut_overlap_ba,
     );
 
     group.finish();

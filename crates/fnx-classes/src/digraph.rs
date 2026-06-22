@@ -176,7 +176,7 @@ impl DiGraph {
             nodes: crate::FxIndexMap::default(),
             succ_indices: Vec::new(),
             pred_indices: Vec::new(),
-        edges: crate::FxIndexMap::default(),
+            edges: crate::FxIndexMap::default(),
             runtime_policy: RuntimePolicy::new(mode),
             csr_cache: std::sync::Arc::default(),
             all_int_cache: std::sync::Arc::default(),
@@ -192,7 +192,7 @@ impl DiGraph {
             nodes: crate::FxIndexMap::default(),
             succ_indices: Vec::new(),
             pred_indices: Vec::new(),
-        edges: crate::FxIndexMap::default(),
+            edges: crate::FxIndexMap::default(),
             runtime_policy,
             csr_cache: std::sync::Arc::default(),
             all_int_cache: std::sync::Arc::default(),
@@ -1623,7 +1623,7 @@ impl DiGraph {
         let mut edges: crate::FxIndexMap<(usize, usize), AttrMap> =
             crate::FxIndexMap::with_capacity_and_hasher(
                 self.edges.len(),
-                rustc_hash::FxBuildHasher::default(),
+                rustc_hash::FxBuildHasher,
             );
         for (u, (source_succs, reversed_preds)) in self
             .succ_indices
@@ -2684,12 +2684,12 @@ impl MultiDiGraph {
         let mut successors: crate::FxIndexMap<String, IndexMap<String, IndexSet<usize>>> =
             crate::FxIndexMap::with_capacity_and_hasher(
                 self.nodes.len(),
-                rustc_hash::FxBuildHasher::default(),
+                rustc_hash::FxBuildHasher,
             );
         let mut predecessors: crate::FxIndexMap<String, IndexMap<String, IndexSet<usize>>> =
             crate::FxIndexMap::with_capacity_and_hasher(
                 self.nodes.len(),
-                rustc_hash::FxBuildHasher::default(),
+                rustc_hash::FxBuildHasher,
             );
         for node in self.nodes.keys() {
             successors.insert(node.clone(), IndexMap::new());
@@ -2699,7 +2699,7 @@ impl MultiDiGraph {
         let mut edges: crate::FxIndexMap<DirectedEdgeKey, IndexMap<usize, AttrMap>> =
             crate::FxIndexMap::with_capacity_and_hasher(
                 self.edges.len(),
-                rustc_hash::FxBuildHasher::default(),
+                rustc_hash::FxBuildHasher,
             );
         let mut edge_count = 0usize;
         for source in self.nodes.keys() {
