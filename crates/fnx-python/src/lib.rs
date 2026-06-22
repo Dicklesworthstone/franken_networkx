@@ -2371,7 +2371,7 @@ pub(crate) struct PyMultiGraph {
     /// live_attr_dict) tuples backing edges(data=True, keys=False). Tuples
     /// immutable + inner dicts live, so repeats return a fresh list of the same
     /// tuple objects instead of re-walking neighbors x edge_keys (was 1.7x).
-    pub(crate) edges_with_data_cache: Option<(u64, u64, Vec<PyObject>)>,
+    pub(crate) edges_with_data_cache: Option<(u64, u64, bool, Vec<PyObject>)>,
     /// br-r37-c1-3oc6v: (nodes_seq, edges_seq)-keyed cache of immutable
     /// (u, v, key) tuples for edges(keys=True, data=False, no nbunch).
     pub(crate) edges_with_keys_cache: Option<(u64, u64, Vec<PyObject>)>,
@@ -6021,14 +6021,21 @@ impl PyMultiGraph {
         // them keyed on (nodes_seq, edges_seq) and return a fresh list of the
         // same tuple objects on repeats. Other variants (keys, data=<key>,
         // data=False) are NOT cached (value/key tuples differ).
-        let cacheable = want_dict && !keys;
+        // br-r37-c1-mgkd (cc): cache BOTH the data-only and the keys+data variant
+        // in the single slot, discriminated by a `keys` flag, so
+        // edges(keys=True, data=True) stops rebuilding on every call (was 0.5x vs
+        // nx; the partial variants' wins were warm cache-hit artifacts). Mixed
+        // data-only / keys+data calls on the SAME MultiGraph (rare) thrash the
+        // slot but stay correct (seq+flag mismatch → rebuild).
+        let cacheable = want_dict;
         if cacheable
             && matches!(
                 &self.edges_with_data_cache,
-                Some((ns, es, _)) if *ns == self.nodes_seq && *es == self.edges_seq
+                Some((ns, es, kf, _))
+                    if *ns == self.nodes_seq && *es == self.edges_seq && *kf == keys
             )
         {
-            let cached = &self.edges_with_data_cache.as_ref().unwrap().2;
+            let cached = &self.edges_with_data_cache.as_ref().unwrap().3;
             return Ok(cached.iter().map(|t| t.clone_ref(py)).collect());
         }
         let mut seen: HashSet<(String, String, usize)> = HashSet::new();
@@ -6092,7 +6099,8 @@ impl PyMultiGraph {
         }
         if cacheable {
             let cached: Vec<PyObject> = result.iter().map(|t| t.clone_ref(py)).collect();
-            self.edges_with_data_cache = Some((self.nodes_seq, self.edges_seq, cached));
+            self.edges_with_data_cache =
+                Some((self.nodes_seq, self.edges_seq, keys, cached));
         }
         Ok(result)
     }

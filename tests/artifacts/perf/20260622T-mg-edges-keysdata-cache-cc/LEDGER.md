@@ -1,0 +1,2 @@
+# MultiGraph edges(keys=True,data=True) cache (br-r37-c1-mgkd, cc)
+0.5x -> 4.74-4.94x. Single-slot edges_with_data_cache extended with a keys flag (4-tuple) so BOTH data-only and keys+data variants cache (was: only data-only). No construction-site churn (inits stay None). data-only unchanged (4.9x), parity 4/4 incl alternation correctness, full suite zero new failures. PyMultiDiGraph field separate (untouched).

@@ -3330,3 +3330,19 @@ so they delegate to nx for byte-exact output and pay the fnx->nx conversion. Clo
 requires matching nx's exact serialization bytes (the reason they were de-routed) — not a
 perf lever. Confirms domination holds across IO too; no no-build lever remains in any swept
 domain (whole-graph, small-input, *_pairs, multi-execution, pure-Python routing, IO).
+
+## 2026-06-22 CopperCliff RESOLVED `MultiGraph.edges(keys=True, data=True)` 0.5x -> 4.9x (`br-r37-c1-mgkd`, cc)
+
+The keys+data residual documented above (uncached rebuild) is now FIXED. Implemented the
+low-churn single-slot variant: `PyMultiGraph.edges_with_data_cache` tuple gains a `keys`
+flag (3-tuple -> 4-tuple), and `cacheable = want_dict` (was `want_dict && !keys`) so the
+keys+data variant caches too, discriminated by the flag. NO construction-site churn (all
+9 inits are `None`, type-agnostic); PyMultiDiGraph's separately-declared field (digraph.rs)
+is untouched. Cache hit requires (nodes_seq, edges_seq, keys) match; mixed data-only/
+keys+data calls on the SAME graph (rare) thrash the slot but stay correct.
+
+Result: edges(keys=True, data=True) 0.5x -> **4.74-4.94x** vs nx; data-only unchanged
+(4.9x, no regression). Parity 4/4 (keys+data / data-only / keys-only / alternation-
+correctness: data-only stays byte-exact after an interleaved keys+data call), range+str
+keys, live attr-dict identity preserved. Full suite: zero new failures (same 5 pre-existing
+origin failures). Artifact: tests/artifacts/perf/20260622T-mg-edges-keysdata-cache-cc/.
