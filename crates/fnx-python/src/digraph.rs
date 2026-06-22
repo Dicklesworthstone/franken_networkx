@@ -5890,6 +5890,64 @@ impl PyDiGraph {
         Ok(out)
     }
 
+    /// br-r37-c1-edgenbnative (cc): shared impl for out/in_edges(nbunch) data=False.
+    /// out_dir=true -> successors (out-edges, (node, target)); false -> predecessors
+    /// (in-edges, (source, node)). nbunch order x row order, matching the Python
+    /// edges()/pred-walk; absent nodes skipped; unhashable -> TypeError(exact msg).
+    fn edges_nbunch_no_data_impl(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+        out_dir: bool,
+    ) -> PyResult<Option<Vec<(PyObject, PyObject)>>> {
+        // Row order MUST match nx's succ[u] / pred[v] iteration; the inner INDEX
+        // rows (successors_indices/predecessors_indices) preserve it (the string
+        // accessors do not). Per-cell z6uka row-display overrides aren't captured
+        // by the cached node objects -> fall back to Python for those.
+        if (out_dir && !self.succ_py_keys.is_empty())
+            || (!out_dir && !self.pred_py_keys.is_empty())
+        {
+            return Ok(None);
+        }
+        let py_nodes = self.cached_node_key_vec(py);
+        let mut out: Vec<(PyObject, PyObject)> = Vec::new();
+        // nx dedups repeated nbunch nodes (out_edges([1,1,2]) == out_edges([1,2])).
+        let mut seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        for item in nbunch.try_iter()? {
+            let node = item?;
+            if node.hash().is_err() {
+                let label = node
+                    .str()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "?".to_owned());
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Node {label} in sequence nbunch is not a valid node."
+                )));
+            }
+            let canonical = node_key_to_string(py, &node)?;
+            let Some(idx) = self.inner.get_node_index(&canonical) else {
+                continue;
+            };
+            if !seen.insert(idx) {
+                continue;
+            }
+            let neighbors = if out_dir {
+                self.inner.successors_indices(idx)
+            } else {
+                self.inner.predecessors_indices(idx)
+            };
+            for &nbr_idx in neighbors.unwrap_or(&[]) {
+                let nbr_obj = py_nodes[nbr_idx].clone_ref(py);
+                if out_dir {
+                    out.push((node.clone().unbind(), nbr_obj));
+                } else {
+                    out.push((nbr_obj, node.clone().unbind()));
+                }
+            }
+        }
+        Ok(Some(out))
+    }
+
     pub(crate) fn py_node_key(&self, py: Python<'_>, canonical: &str) -> PyObject {
         self.node_key_map.get(canonical).map_or_else(
             || {
@@ -9736,6 +9794,17 @@ impl PyDiGraph {
         nbunch: &Bound<'_, PyAny>,
     ) -> PyResult<Vec<(PyObject, usize)>> {
         self.degree_pairs_subset_impl(py, nbunch, DegreeKind::Out)
+    }
+
+    /// br-r37-c1-edgenbnative (cc): one-pass (source, target) tuples for a node
+    /// subset's out/in edges (data=False). Replaces the Python edges()/pred-walk
+    /// machinery (per-node row-view access in a Python loop) with one native call.
+    fn _native_out_edges_nbunch_no_data(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<Vec<(PyObject, PyObject)>>> {
+        self.edges_nbunch_no_data_impl(py, nbunch, true)
     }
 
     /// br-r37-c1-composedir (cc): native DiGraph compose — directional analog of

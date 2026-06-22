@@ -205,6 +205,17 @@ def _digraph_out_edges(self, nbunch=None, data=False, default=None):
             native = getattr(self, "_native_edges_data_key", None)
             if native is not None:
                 return native(data, default)
+    # br-r37-c1-edgenbnative (cc): out_edges(nbunch, data=False) — one native pass
+    # (canonical filter + succ-row tuples) replaces the EdgeDataView machinery.
+    if data is False and type(self) is DiGraph:
+        native = getattr(self, "_native_out_edges_nbunch_no_data", None)
+        if native is not None:
+            try:
+                result = native(nbunch)
+            except TypeError as exc:
+                raise NetworkXError(str(exc))
+            if result is not None:
+                return result
     return list(self.edges(nbunch=nbunch, data=data, default=default))
 
 

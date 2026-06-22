@@ -3860,3 +3860,23 @@ Byte-exact: valid/invalid/empty/dup/range, error contract (unhashable element + 
 view[node] indexing for any node, MultiDiGraph in/out/total degree(nbunch) unaffected (PyDiGraph-
 only bindings -> Python fallback). Full suite zero new failures.
 Artifact: tests/artifacts/perf/20260622T-digraph-degree-nbunch-cc/.
+
+## 2026-06-22 CopperCliff native DiGraph out_edges(nbunch) — 0.27x -> 2.50x SHIPPED + in_edges pred-order finding (`br-r37-c1-edgenbnative`, cc)
+
+out_edges(nbunch, data=False) was 0.27x (delegated to the EdgeDataView Python machinery).
+Added PyDiGraph::_native_out_edges_nbunch_no_data (shared edges_nbunch_no_data_impl): one pass
+— canonical-filter the nbunch (deduping repeated nodes, since nx dedups: out_edges([1,1,2])==
+out_edges([1,2])), walk successors_INDICES (insertion order == nx succ; the string successors
+accessor does NOT preserve it) and map via cached_node_key_vec. Gated on succ_py_keys empty
+(z6uka per-cell row display -> Ok(None) Python fallback). Result: 0.27x -> **2.50x** (~9x
+self-speedup, dominates). Byte-exact: 5 seeds x 8 nbunch shapes (valid/invalid/empty/range/dup/
+single/all/rev) + str-keyed + data=True fallback + error contract. Full suite zero new failures.
+
+PRE-EXISTING FINDING (NOT shipped, NOT my regression): in_edges(nbunch) — and full in_edges() —
+DIVERGE from nx in predecessor ORDER. fnx's `self.pred[v]` returns predecessors in INDEX order
+([3,6,15,20]); nx uses edge-INSERTION order ([20,3,6,15]). Confirmed on a clean DiGraph (no
+native involved) and the full _native_in_edges_no_data (predecessors_indices) shares it. So an
+in_edges(nbunch) native kernel can't be made nx-exact without storing pred in insertion order
+(deep). Uncaught by conformance (in_edges order not strictly tested). out_edges is safe because
+fnx DOES store successors in insertion order. Filed as a correctness divergence to investigate
+(separate from perf). Artifact: tests/artifacts/perf/20260622T-out-edges-nbunch-cc/.
