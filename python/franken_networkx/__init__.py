@@ -4735,6 +4735,20 @@ class _WeightAwareDegreeView:
                 # valid node.") on any unhashable element. Pre-fix fnx
                 # silently filtered them out via ``n in self._graph``
                 # short-circuit (returns False for unhashables).
+                # br-r37-c1-degnbnative (cc): one native pass (hash-check +
+                # canonical membership filter + degree) replaces the Python
+                # filter loop + per-node raw[n] lookup. The kernel re-raises an
+                # unhashable element as TypeError carrying the exact message, so
+                # the wrapper below maps it back to NetworkXError. Iteration of
+                # the result serves the precomputed pairs; view[node] still falls
+                # to the raw view for any node.
+                native = getattr(self._graph, "_native_degree_pairs_subset", None)
+                if native is not None:
+                    try:
+                        pairs = native(nbunch)
+                    except TypeError as exc:
+                        raise NetworkXError(str(exc))
+                    return _FilteredDegreeView(self._raw, None, pairs=pairs)
                 filtered = []
                 for n in nbunch:
                     try:
@@ -4840,11 +4854,16 @@ class _FilteredDegreeView:
     (``type(view).__name__``) matches nx exactly.
     """
 
-    __slots__ = ("_raw", "_nodes", "_weight", "_parent")
+    __slots__ = ("_raw", "_nodes", "_weight", "_parent", "_pairs")
 
-    def __init__(self, raw, nodes, weight=None):
+    def __init__(self, raw, nodes, weight=None, pairs=None):
         self._raw = raw
-        self._nodes = list(nodes)
+        # br-r37-c1-degnbnative (cc): when `pairs` (precomputed (node, degree) from
+        # the native subset kernel) is supplied, iteration serves it directly and
+        # _nodes is derived for __contains__/__len__; __getitem__ still falls to the
+        # raw view so view[node] works for any node, not just the subset.
+        self._pairs = pairs
+        self._nodes = [p[0] for p in pairs] if pairs is not None else list(nodes)
         self._weight = weight
         # When wrapping a _WeightAwareDegreeView for weighted lookup we
         # need the parent to compute weighted values; otherwise raw is
@@ -4857,6 +4876,9 @@ class _FilteredDegreeView:
         return self._raw[node]
 
     def __iter__(self):
+        if self._pairs is not None:
+            yield from iter(self._pairs)
+            return
         for n in self._nodes:
             yield (n, self._value(n))
 

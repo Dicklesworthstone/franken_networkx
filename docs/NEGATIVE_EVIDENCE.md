@@ -3818,3 +3818,24 @@ is overwhelmingly dominant. The ONLY remaining un-dominated workloads, all root-
 CONVERGENCE: no-build/Python-only levers exhausted (nbunch_iter(None) was the last clean one).
 Remaining frontier = (a) native nbunch-edges kernel (niche, build, needs disk headroom) or (b)
 the deep per-call String-key substrate rewrite (highest impact, large careful effort, needs disk).
+
+## 2026-06-22 CopperCliff native Graph degree(nbunch) — 0.32x -> 1.22-1.24x SHIPPED (`br-r37-c1-degnbnative`, cc)
+
+Reverses the earlier "nbunch native kernels are canonicalization-capped" hypothesis: the rust
+kernel DOMINATES (direct 0.051ms vs nx 0.091ms). degree(nbunch) was 0.32x because the Python
+path ran two per-element passes (the `[n for n in nbunch if n in G]` membership filter + per-node
+`raw[n]` degree lookup), each a separate PyO3 round-trip. Added `PyGraph::_native_degree_pairs_subset`
+(one PyO3 call: per node hash-check + node_key_to_string canonicalize + get_node_index +
+degree_by_index, skipping absent). Routed in _WeightAwareDegreeView.__call__'s iterable-nbunch
+branch (the REAL path — gf.degree is _GraphDegreeView which inherits this __call__; the slow loop
+is at the 4738 branch, NOT the 4818 single-node branch I first wrongly edited). _FilteredDegreeView
+gained a `pairs` slot: __iter__ serves precomputed (node,degree), __getitem__ still falls to the raw
+view (so view[n] works for any node). Unhashable element -> kernel TypeError(exact message) ->
+NetworkXError, matching nx.
+
+Result: 0.32x -> **1.22-1.24x** (~3.9x self-speedup). Byte-exact: valid/invalid/all-invalid/empty/
+dup/range/str-keyed, error contract (unhashable element + non-iterable), view[node] indexing for
+any node, len/contains. DiGraph degree(nbunch) unaffected (PyDiGraph lacks the binding -> Python
+fallback; a PyDiGraph total/in/out kernel is the follow-up). Full suite zero new failures.
+LESSON: verify which concrete class a method resolves to (multiple masquerade as 'DegreeView')
+before editing — cost two wrong-class edits. Artifact: tests/artifacts/perf/20260622T-degree-nbunch-native-cc/.

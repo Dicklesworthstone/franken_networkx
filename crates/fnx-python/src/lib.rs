@@ -9096,6 +9096,41 @@ impl PyGraph {
         self.adjacency(py)
     }
 
+    /// br-r37-c1-degnbnative (cc): one-pass (node_obj, degree) pairs for a node
+    /// subset (degree(nbunch) unweighted total). Replaces the Python
+    /// `[n for n in nbunch if n in G]` membership filter + per-node `raw[n]` degree
+    /// lookup (two per-element passes, each its own PyO3 round-trip) with a single
+    /// PyO3 call that canonicalizes once, filters absent nodes, and reads
+    /// degree_by_index. Errors (unhashable / non-iterable nbunch) propagate so the
+    /// Python wrapper maps them to NetworkXError, matching the prior filter.
+    fn _native_degree_pairs_subset(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+    ) -> PyResult<Vec<(PyObject, usize)>> {
+        let mut out: Vec<(PyObject, usize)> = Vec::new();
+        for item in nbunch.try_iter()? {
+            let node = item?;
+            // nx's degree(nbunch) raises NetworkXError on an unhashable element;
+            // raise a TypeError carrying that exact message (str(node)) so the
+            // Python wrapper re-raises it as NetworkXError, matching the prior loop.
+            if node.hash().is_err() {
+                let label = node
+                    .str()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "?".to_owned());
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Node {label} in sequence nbunch is not a valid node."
+                )));
+            }
+            let canonical = node_key_to_string(py, &node)?;
+            if let Some(idx) = self.inner.get_node_index(&canonical) {
+                out.push((node.clone().unbind(), self.inner.degree_by_index(idx)));
+            }
+        }
+        Ok(out)
+    }
+
     /// Build `generate_adjlist` body lines without a Python adjacency-row snapshot.
     fn _native_generate_adjlist_lines(
         &self,
