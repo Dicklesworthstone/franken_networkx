@@ -1,0 +1,2 @@
+# nbunch_iter(None) fast-path (br-r37-c1-nbunchnone, cc)
+0.08x -> 0.95x (12x self-speedup, 107us->9us @ n=2000). _graph_nbunch_iter built self.adj (AdjacencyView) UNCONDITIONALLY then iter'd it for the None case; route None to iter(self) BEFORE building self.adj. Python-only (no build), all 4 graph types. Non-None (membership filter) keeps self.adj (its __contains__ is faster there) at 0.20x (String-membership substrate, unchanged). Byte-exact: node order + objects + fresh-iterator + nx TypeError error contract (unhashable/non-iterable). Full suite zero new failures.

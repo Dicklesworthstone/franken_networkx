@@ -267,11 +267,16 @@ def _multidigraph_in_edges(self, nbunch=None, data=False, keys=False, default=No
 
 
 def _graph_nbunch_iter(self, nbunch=None):
-    adjacency = self.adj
+    # br-r37-c1-nbunchnone (cc): nbunch=None is iteration over ALL nodes; route it
+    # to the cheap cached node iterator (iter(self)) BEFORE building self.adj — the
+    # old `adjacency = self.adj` ran unconditionally and cost ~12x for the None case
+    # (0.09x vs nx) just to iterate the view's keys. self.adj is still built for the
+    # membership-filter path below (its __contains__ is the fast container there).
     if nbunch is None:
-        return iter(adjacency)
+        return iter(self)
     if nbunch in self:
         return iter([nbunch])
+    adjacency = self.adj
 
     def bunch_iter(nlist, adj):
         try:

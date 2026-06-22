@@ -3779,3 +3779,19 @@ failures. Artifact: tests/artifacts/perf/20260622T-mdg-edges-keysdata-cache-cc/.
 Sweep also surfaced (deferred): nbunch_iter 0.09-0.19x (node-object materialization + String-keyed
 membership substrate — deep), degree(weight)/size(weight) ~0.80x (weighted attr walk), relabel
 0.86x (known construction tax). MD remaining edges combos now all dominant.
+
+## 2026-06-22 CopperCliff nbunch_iter(None) — 0.08x -> 0.95x (`br-r37-c1-nbunchnone`, cc)
+
+Sweep flagged nbunch_iter(None) at 0.08-0.19x while list(G)/list(nodes()) were at parity.
+Root cause: _graph_nbunch_iter (shared by all 4 graph types) ran `adjacency = self.adj`
+UNCONDITIONALLY at the top, then `iter(adjacency)` for the None case — building the full
+AdjacencyView + iterating its keys cost ~12x vs the cached node iterator, purely to list nodes.
+Fix (Python-only, no rebuild): return iter(self) for nbunch=None BEFORE building self.adj; defer
+`adjacency = self.adj` to the membership-filter path (where its __contains__ is the faster
+container — using bare `self` there regressed non-None to 0.16x, so adj stays).
+
+Result: nbunch_iter(None) 0.08x -> **0.95x** (12x self-speedup, 107us->9us @ n=2000), all 4 types.
+Byte-exact: node order + objects + fresh-iterator-per-call + nx's TypeError error contract
+(unhashable-in-sequence / non-iterable nbunch). Full suite zero new failures. Non-None nbunch
+(membership filter) stays 0.20x = per-element String-keyed __contains__ substrate (nx is C-dict;
+deep, unchanged). Artifact: tests/artifacts/perf/20260622T-nbunch-iter-none-cc/.
