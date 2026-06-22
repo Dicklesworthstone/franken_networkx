@@ -46131,6 +46131,15 @@ def is_isomorphic(G1, G2, node_match=None, edge_match=None):
     G1 = _coerce_arg_to_fnx_graph(G1)
     G2 = _coerce_arg_to_fnx_graph(G2)
     if node_match is None and edge_match is None:
+        # br-r37-c1-isoprecheck (cc): cheap sound pre-reject before the VF2++
+        # rust kernel. faster_could_be_isomorphic is a degree-histogram
+        # necessary condition (valid for undirected/directed/multi, ~0.013ms);
+        # the rust kernel otherwise pays full VF2 setup (~0.2ms) before
+        # rejecting a non-isomorphic pair. Byte-identical result (sound
+        # necessary condition; 0 fails / 75 und+dir+sparse pairs). NOT
+        # could_be_isomorphic — that raises "not implemented for directed type".
+        if not faster_could_be_isomorphic(G1, G2):
+            return False
         return _is_isomorphic_rust(G1, G2)
 
     if G1.is_directed() != G2.is_directed():
@@ -46164,6 +46173,11 @@ def vf2pp_is_isomorphic(G1, G2, node_label=None, default_label=None):
         return False
     # Fast path: when no label matching needed, use Rust is_isomorphic
     if node_label is None:
+        # br-r37-c1-isoprecheck (cc): cheap sound degree-histogram pre-reject
+        # before the VF2++ rust kernel (see is_isomorphic). Sound necessary
+        # condition for all graph types; byte-identical result.
+        if not faster_could_be_isomorphic(G1, G2):
+            return False
         return _is_isomorphic_rust(G1, G2)
 
     return bool(
