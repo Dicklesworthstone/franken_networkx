@@ -3386,3 +3386,18 @@ deterministic edge insertion = the general edge-construction substrate), star/wh
 No clean lever; all need the deep construction substrate or a native RNG-replay kernel.
 With this, EVERY domain is swept (whole-graph, small-input, *_pairs, multi-execution,
 pure-Python routing, IO, generators, conversions) — comprehensive domination confirmed.
+
+### CORRECTION (cc): barabasi_albert 0.72x is PARITY-BLOCKED (set-order), NOT a native candidate
+
+Earlier notes floated a "native PythonRandom BA kernel" as the highest-value remaining
+target. That is WRONG — verified by reading the impl: `_random_generator_subset(seq, m, rng)`
+returns a `set` (mirroring nx's `_random_subset`), and `barabasi_albert_graph` builds edges
+by iterating that set (`new_edges.extend((source, t) for t in targets)`). So BA's edge
+order — hence adjacency layout / byte-exact parity — depends on CPython SET ITERATION ORDER
+of the `targets` set (which grows/resizes across the while-loop adds). A native Rust kernel
+cannot replicate CPython set internals byte-for-byte (same class as [[reference_parity_blocked_by_set_order]]:
+clique/ramsey/greedy_color set-order). fnx already runs the exact Python set-based loop +
+a single batched add_edges_from, so 0.72x is the byte-exact FLOOR for BA. NOT a native
+candidate; do not attempt. dual_barabasi_albert (0.83x) is the same set-based pattern.
+Net: NO remaining generator gap is native-accelerable; the only non-parity-blocked
+residuals are the node/path-object materialization substrate (persistent-node-mirror rewrite).
