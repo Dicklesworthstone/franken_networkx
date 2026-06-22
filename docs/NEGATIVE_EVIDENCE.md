@@ -3148,3 +3148,28 @@ risky, or (b) caching the shared `_call_networkx_for_parity` conversion under th
 (nodes_seq, edges_seq, edges_dirty) token (broad win for ALL delegated functions on
 unchanged graphs, but high blast radius — needs careful invalidation). Both deferred
 as scoped work; the gap is niche (callable weight) and the fixes are risky.
+
+## 2026-06-22 CopperCliff `MultiDiGraph(DiGraph)` Native Absorb WIN (`br-r37-c1-mdgdig`, cc)
+
+BOLD-VERIFY on current origin/main. Broad warm sweep found one real meaty gap:
+`MultiDiGraph(<plain DiGraph>)` ran **0.41-0.53x** vs nx (MultiDiGraph(MultiDiGraph)
+and MultiGraph(Graph) were already fast — only DiGraph->MultiDiGraph lacked a native
+absorb; `_copy_constructor_graph_source` fell to the general Python `clear()` +
+`add_nodes_from` + `add_edges_from(4-tuple)` replay).
+
+NEGATIVE EVIDENCE (Python ruled out): `add_edges_from` alone = 28.5ms of 41.6ms
+@ n=2000; EVERY edge-tuple shape — `(u,v,0,dict)`, `(u,v,dict)`, bare `(u,v)`,
+precomputed list — was ~29-32ms. The cost is the `MultiDiGraph.add_edges_from`
+keyed-insertion substrate, not the per-edge `dict()` copies. No pure-Python route
+closes it.
+
+FIX: added `absorb_digraph_keyed_from_digraph` to `impl PyMultiDiGraph` (directional
+analog of `absorb_graph_bidirected_from_graph`) — builds the MDG inner directly from
+the DiGraph inner in one pass (node-major `successors`, key 0, shallow-copied attrs),
+wired in `_copy_constructor_graph_source`. Falls through (Ok(false)) on mixed-display
+rows / `__fnx_incompatible` attrs. Byte-exact: 6 hand shapes + 60 randomized, 0
+mismatches (nodes, node data, edges(keys+data), succ+pred adjacency, graph attrs,
+shallow-copy + no-source-mutation). Perf 0.41x -> **1.62-1.90x** faster than nx
+(~4.5x self-speedup). Full suite: zero new failures (5 pre-existing origin failures
+unrelated, proven by reverting the wiring). Artifact:
+`tests/artifacts/perf/20260622T-multidigraph-from-digraph-absorb-cc/`.

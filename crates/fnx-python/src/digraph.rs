@@ -529,6 +529,147 @@ impl PyMultiDiGraph {
         Ok(true)
     }
 
+    /// br-r37-c1-mdgdig (cc): exact `MultiDiGraph(DiGraph)` copy-constructor
+    /// absorb — the directional analog of `absorb_graph_bidirected_from_graph`.
+    /// Each source directed edge (u, v) becomes a key-0 MultiDiGraph edge in
+    /// node-major successor-row order; NO bidirection (the source is already
+    /// directed, so each edge appears exactly once via `successors`). Replaces
+    /// ALL of self's state wholesale (the clear()+rebuild the Python replay path
+    /// otherwise performs). Returns Ok(false) (fall through to the Python
+    /// replay) on mixed-display rows or `__fnx_incompatible` attrs.
+    fn absorb_digraph_keyed_from_digraph(
+        &mut self,
+        py: Python<'_>,
+        source: PyRef<'_, PyDiGraph>,
+    ) -> PyResult<bool> {
+        if !source.succ_py_keys.is_empty() || !source.pred_py_keys.is_empty() {
+            // Mixed-display adjacency cells need the Python replay path to
+            // preserve per-row display objects exactly.
+            return Ok(false);
+        }
+
+        let graph_attrs = PyDict::new(py);
+        graph_attrs.update(source.graph_attrs.bind(py).as_mapping())?;
+
+        let nodes: Vec<String> = source
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(nodes.len());
+        let mut node_py_attrs: HashMap<String, Py<PyDict>> = HashMap::new();
+        let mut nodes_bulk: Vec<(String, AttrMap)> = Vec::with_capacity(nodes.len());
+        for node in &nodes {
+            node_key_map.insert(node.clone(), source.py_node_key(py, node));
+            let mut rust_attrs = AttrMap::new();
+            if let Some(py_attrs) = source.node_py_attrs.get(node) {
+                let bound = py_attrs.bind(py);
+                if !bound.is_empty() {
+                    rust_attrs = py_dict_to_attr_map(bound)?;
+                    if rust_attrs
+                        .keys()
+                        .any(|key| key.starts_with("__fnx_incompatible"))
+                    {
+                        return Ok(false);
+                    }
+                    let mirror = PyDict::new(py);
+                    mirror.update(bound.as_mapping())?;
+                    node_py_attrs.insert(node.clone(), mirror.unbind());
+                }
+            } else if let Some(attrs) = source.inner.node_attrs(node)
+                && !attrs.is_empty()
+            {
+                if attrs
+                    .keys()
+                    .any(|key| key.starts_with("__fnx_incompatible"))
+                {
+                    return Ok(false);
+                }
+                rust_attrs = attrs.clone();
+                node_py_attrs.insert(node.clone(), attr_map_to_pydict(py, attrs)?);
+            }
+            nodes_bulk.push((node.clone(), rust_attrs));
+        }
+
+        let mut edge_py_attrs: HashMap<(String, String, usize), Py<PyDict>> = HashMap::new();
+        let mut edges_bulk: Vec<(String, String, usize, AttrMap)> = Vec::new();
+        for u in &nodes {
+            let Some(neighbors) = source.inner.successors(u) else {
+                continue;
+            };
+            for v in neighbors {
+                let edge_key = PyDiGraph::edge_key(u, v);
+                let (rust_attrs, mirror) =
+                    if let Some(py_attrs) = source.edge_py_attrs.get(&edge_key) {
+                        let bound = py_attrs.bind(py);
+                        let attrs = if bound.is_empty() {
+                            AttrMap::new()
+                        } else {
+                            let attrs = py_dict_to_attr_map(bound)?;
+                            if attrs
+                                .keys()
+                                .any(|key| key.starts_with("__fnx_incompatible"))
+                            {
+                                return Ok(false);
+                            }
+                            attrs
+                        };
+                        let mirror = if bound.is_empty() {
+                            None
+                        } else {
+                            let dict = PyDict::new(py);
+                            dict.update(bound.as_mapping())?;
+                            Some(dict.unbind())
+                        };
+                        (attrs, mirror)
+                    } else if let Some(attrs) = source.inner.edge_attrs(u, v) {
+                        if attrs
+                            .keys()
+                            .any(|key| key.starts_with("__fnx_incompatible"))
+                        {
+                            return Ok(false);
+                        }
+                        let mirror = if attrs.is_empty() {
+                            None
+                        } else {
+                            Some(attr_map_to_pydict(py, attrs)?)
+                        };
+                        (attrs.clone(), mirror)
+                    } else {
+                        (AttrMap::new(), None)
+                    };
+                let key = 0_usize;
+                let target = v.to_owned();
+                if let Some(mirror) = mirror {
+                    edge_py_attrs.insert(Self::edge_key(u, &target, key), mirror);
+                }
+                edges_bulk.push((u.clone(), target, key, rust_attrs));
+            }
+        }
+
+        let mut inner = MultiDiGraph::new(source.inner.mode());
+        let _ = inner.extend_nodes_with_attrs_unrecorded(nodes_bulk);
+        let _ = inner.extend_keyed_edges_with_attrs_unrecorded(edges_bulk);
+
+        self.inner = inner;
+        self.node_key_map = node_key_map;
+        self.succ_py_keys.clear();
+        self.pred_py_keys.clear();
+        self.node_py_attrs = node_py_attrs;
+        self.edge_py_attrs = edge_py_attrs;
+        self.edge_py_keys.clear();
+        self.graph_attrs = graph_attrs.unbind();
+        self.dict_of_dicts_cache = None;
+        self.edges_with_data_cache = None;
+        self.node_keys_cache = std::sync::Mutex::new(None);
+        self.node_data_mirror = std::sync::Mutex::new(None);
+        self.node_iter_mirror = std::sync::Mutex::new(None);
+        self.bump_nodes_seq();
+        self.bump_edges_seq();
+        Ok(true)
+    }
+
     /// br-r37-c1-4b5ie: canonical (stored) attr dict — allocate+store empty on
     /// first touch so the data mirror caches the SAME object later writes hit.
     pub(crate) fn materialize_node_py_attrs(
@@ -4248,6 +4389,15 @@ impl PyMultiDiGraph {
         source: PyRef<'_, PyGraph>,
     ) -> PyResult<bool> {
         self.absorb_graph_bidirected_from_graph(py, source)
+    }
+
+    /// br-r37-c1-mdgdig: exact `MultiDiGraph(DiGraph)` copy-constructor absorb.
+    fn _fnx_absorb_digraph_keyed(
+        &mut self,
+        py: Python<'_>,
+        source: PyRef<'_, PyDiGraph>,
+    ) -> PyResult<bool> {
+        self.absorb_digraph_keyed_from_digraph(py, source)
     }
 
     fn copy(&self, py: Python<'_>) -> PyResult<Self> {

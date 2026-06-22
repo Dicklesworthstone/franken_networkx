@@ -3630,6 +3630,22 @@ def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
             self.graph.update(attr)
         return
 
+    # br-r37-c1-mdgdig (cc): MultiDiGraph(DiGraph) native absorb — directional
+    # analog of the Graph-source path above. The general Python replay below
+    # paid MultiDiGraph.add_edges_from per edge (~28ms / 8000 edges → MDG(DiG)
+    # was ~0.41x nx); even attr-free 2-tuples hit that substrate. Build the
+    # MDG inner directly from the simple DiGraph source (node-major successor
+    # order, key 0, shallow-copied attrs). Kernel returns False (fall through)
+    # on mixed-display rows or non-round-tripping attrs.
+    if (
+        type(self) is MultiDiGraph
+        and type(source) is DiGraph
+        and self._fnx_absorb_digraph_keyed(source)
+    ):
+        if attr:
+            self.graph.update(attr)
+        return
+
     # br-r37-c1-s0d4x: same-exact-type ctor — nx's cls(G) structure is
     # identical to G.copy() (probed all four classes: nodes, edges+data,
     # adjacency/pred rows, graph attrs, shallow attr-dict copying).
