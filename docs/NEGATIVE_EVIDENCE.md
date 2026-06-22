@@ -3216,3 +3216,21 @@ triadic_census 17.95x, reciprocity 8.24x / overall 9.03x, bipartite
 k_components 0.99x, non_randomness 0.98x, degree_histogram 0.97x. Only sub-0.85x:
 `bipartite.color` 0.80x at sub-100us (small-input, negligible). No new lever —
 confirms the post-MDG-absorb domination across ~120 functions total this pass.
+
+## 2026-06-22 CopperCliff `shortest_path(G, source)` Routed to Fast Kernel (`br-r37-c1-spsrc`, cc)
+
+Small-input/single-query sweep (the angle whole-graph timing hides) found one real
+meaty gap: unweighted `shortest_path(G, source)` (source-only, all targets) ran
+**0.72-0.84x** vs nx. Diagnosis: `single_source_shortest_path(G, source)` is itself
+**~1.6x FASTER** than nx, but `shortest_path` fell through to the `_raw_shortest_path`
+source-only path, which was ~2x SLOWER than the single_source kernel. nx.shortest_path(
+G, source) returns EXACTLY single_source_shortest_path(G, source), so the wrapper was
+doing strictly more work for the same result.
+
+FIX (pure-Python, no rebuild): route the `weight is None and source is not None and
+target is None` case to `single_source_shortest_path(G, source)`. Byte-identical (both
+match nx, 20/20 parity incl. BFS-discovery key order + source self-path). Perf
+0.72-0.84x -> **1.38-1.63x** faster than nx. Full suite: zero new failures (same 5
+pre-existing origin failures). Other small-input residuals are sub-microsecond PyO3
+call overhead (neighbors(v) 0.35x @ 0.8us, degree(v) 0.46x @ 0.8us, common_neighbors
+0.72x @ 1.2us) — fundamental per-call round-trip cost, negligible absolute, no ROI.

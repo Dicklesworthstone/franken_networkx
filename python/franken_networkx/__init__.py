@@ -7857,6 +7857,15 @@ def shortest_path(
         # already matches nx exactly (incl. the NetworkXNoPath wording and the
         # source==target single-node path), so delegate to it.
         return bidirectional_shortest_path(G, source, target)
+    if weight is None and source is not None and target is None:
+        # br-r37-c1-spsrc (cc): nx.shortest_path(G, source) returns EXACTLY
+        # single_source_shortest_path(G, source). fnx's single_source kernel is
+        # ~1.6x faster than nx, but shortest_path fell through to the
+        # _raw_shortest_path source-only path which was ~2x SLOWER than the
+        # single_source kernel (0.72-0.84x vs nx). Route to the fast kernel —
+        # byte-identical (both match nx exactly, 15/15 parity incl. BFS-discovery
+        # key order and the source self-path).
+        return single_source_shortest_path(G, source)
     if isinstance(weight, str) and source is not None and target is not None:
         # br-r37-c1-spw (cc): the weighted SINGLE-PAIR case must match nx's path
         # tie-break. nx.shortest_path routes weighted point-to-point through
