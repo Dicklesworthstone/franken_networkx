@@ -3998,7 +3998,13 @@ impl PyMultiDiGraph {
         nbunch: &Bound<'_, PyAny>,
         keys: bool,
     ) -> PyResult<Option<Vec<PyObject>>> {
-        if !self.succ_py_keys.is_empty() || (keys && !self.edge_py_keys.is_empty()) {
+        // br-r37-c1-mdgoutedge (cc): keys=True no longer gates on edge_py_keys — it
+        // emits the DISPLAY key via py_edge_key (== fnx's own out_edges(keys=True);
+        // falls back to the internal int when no mirror). The prior edge_py_keys gate
+        // sent keys=True to the slow self.edges path for every MultiDiGraph(gnm)
+        // (which carries an edge_py_keys mirror). Pairs with the __init__ wrap fix
+        // (_OutMultiEdgesKeysView) for the edges() route.
+        if !self.succ_py_keys.is_empty() {
             return Ok(None);
         }
         let mut out: Vec<PyObject> = Vec::new();
@@ -4025,9 +4031,7 @@ impl PyMultiDiGraph {
                 for key in self.inner.edge_keys(&canonical, nbr).unwrap_or_default() {
                     let nbr_obj = self.py_node_key(py, nbr);
                     if keys {
-                        let key_obj = crate::unwrap_infallible(key.into_pyobject(py))
-                            .into_any()
-                            .unbind();
+                        let key_obj = self.py_edge_key(py, &canonical, nbr, key);
                         out.push(tuple_object(py, &[node.clone().unbind(), nbr_obj, key_obj])?);
                     } else {
                         out.push(tuple_object(py, &[node.clone().unbind(), nbr_obj])?);

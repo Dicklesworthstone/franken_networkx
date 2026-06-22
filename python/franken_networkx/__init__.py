@@ -2499,8 +2499,12 @@ class _MultiDiGraphEdgeView:
                             guard_edge_count=True,
                         )
                     if keys:
+                        # br-r37-c1-mdgoutedge (cc): keys=True (data=False) wraps in
+                        # the canonical _OutMultiEdgesKeysView (a list-wrapper) — NOT
+                        # _OutMultiEdgeView (a _DiEdgeMethodView needing (graph,method),
+                        # which raised TypeError once the keys=True kernel un-gated).
                         return _guarded_edge_list(
-                            _wrap_edge_data_view(nres, _OutMultiEdgeView),
+                            _wrap_edge_data_view(nres, _OutMultiEdgesKeysView),
                             self._graph,
                             guard_edge_count=True,
                         )
@@ -21485,6 +21489,13 @@ def selfloop_edges(G, data=False, keys=False, default=None):
         _Iterator over self-loop edges.
     """
     G = _coerce_arg_to_fnx_graph(G)
+    if G.is_multigraph():
+        native_edges = getattr(G, "_native_selfloop_edges", None)
+        if native_edges is not None:
+            try:
+                return iter(native_edges(data, keys=keys, default=default))
+            except Exception:
+                pass
     # br-r37-c1-61okz: bypass AdjacencyView for the common case —
     # direct ``has_edge(u, u)`` probe per node skips the AtlasView
     # materialization that the original ``G.adj[node]`` walk did

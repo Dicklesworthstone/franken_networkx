@@ -4070,3 +4070,15 @@ Behavior proof:
 - `cargo check -p fnx-classes --all-targets`: passed.
 - `cargo clippy -p fnx-classes --all-targets -- -D warnings`: passed.
 - `cargo test -p fnx-classes`: 68 passed, 2 ignored.
+
+## 2026-06-22 CopperCliff MDG out_edges/edges(nbunch, keys=True) — 0.81x -> 1.38x + latent crash fix (`br-r37-c1-mdgoutedge`, cc)
+
+out_edges(nb,keys=True) was 0.81x: _native_mdg_out_edges_nbunch_no_data GATED OUT for keys=True
+(`keys && !edge_py_keys.is_empty()`), and MultiDiGraph(gnm) always carries an edge_py_keys mirror,
+so keys=True fell to the slow self.edges path. Fix: drop the edge_py_keys gate, emit the DISPLAY
+key via py_edge_key (falls back to the int key when no mirror) — the mdgdju recipe. Result:
+out_edges(nb,keys=True) **0.81x -> 1.38x** (dominates), edges(nb,keys=True) 0.81x -> 1.02x.
+ALSO fixed a LATENT CRASH this exposed (my earlier bfd4e3e3e edges route): keys=True wrapped via
+_OutMultiEdgeView (a _DiEdgeMethodView needing (graph,method)) instead of _OutMultiEdgesKeysView
+(the list-wrapper) -> TypeError once keys=True un-gated. Byte-exact: out_edges+edges x shapes incl
+explicit string keys, dup/single-node/error contract. Full suite zero new (49231 passed).
