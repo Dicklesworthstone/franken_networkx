@@ -44,3 +44,20 @@ Scoped as the dedicated next lever (cc, 2026-06-22). NOT attempted as a loop ite
 + correctness-critical for a busy shared tree (peers active on fnx-algorithms + fnx-python).
 Expected payoff: has_edge 0.25x -> >1x, degree(n)/neighbors likewise — lifting the per-call floor
 that bounds every pure-Python algorithm. Recommend a dedicated quiet-tree session.
+
+## UPDATE 2026-06-22 (cc): LEVER INVALIDATED — gap is PyO3-FFI-bound, not canonicalization
+
+ATTEMPTED the int-key fast-path (br-r37-c1-intprefix) and REVERTED. Built the full safe design:
+revision-keyed `is_contiguous_int_prefix_cached()` (auto-invalidates on the inner `revision` bump —
+no per-mutation-site maintenance, no corruption risk) + `has_edge_indices()` (the `edges` map is
+already (usize,usize)-keyed) + a PyGraph.has_edge fast-path (exact-PyInt + prefix + in-range gate).
+BYTE-EXACT (0 fails: prefix / str / relabeled-non-prefix / float+bool / post-add-node /
+remove-reindex). But perf only **0.25x -> 0.34x** — still 3x slower than nx.
+
+Root cause: nx `has_edge` is pure-Python (`v in self._adj[u]`, ~0.072us/call, no extension call);
+fnx `has_edge` is a PyO3 method whose Python->Rust FFI boundary is ~0.21us/call regardless of
+internals. Removing the two String canonicalizations only bought 0.25x->0.34x; the FFI floor
+dominates. A Rust-backed graph cannot beat pure-Python single-element accessors *called from
+Python*. CONCLUSION: the per-call accessor gaps (has_edge/degree(n)/G[u]/neighbors(n)) are
+architecturally dominated and NOT closeable — do not pursue. fnx's edge is BULK-per-FFI-call work
+(whole-graph kernels, nbunch batches, CSR traversal), which amortizes the boundary.
