@@ -3370,3 +3370,19 @@ parens and no-parens forms iterate the raw view. Returning a custom zip object w
 the DiDegreeView type contract. A clean fix needs a rust-level raw `DiDegreeView` iter
 change (counts + cached nodes) for a marginal gain (near-parity except very large n). Per
 REVERT-~0-gain + type-contract risk, deferred — documented so the Python route isn't retried.
+
+### Addendum 4 (cc): generator + pandas-conversion sweep — domination, gaps construction/RNG-bound
+
+No-build sweep of generators (last unswept domain) + pandas conversions. Dominant:
+random_regular 3.65x, hypercube 31.4x, complete_graph 13.4x, balanced_tree 4.64x,
+caveman 4.75x, lollipop 4.4x, grid_2d 3.07x, watts_strogatz 1.42x, random_tree 1.45x,
+powerlaw_cluster 1.16x, circular_ladder 1.96x; to_pandas_edgelist 1.42x, from_pandas_edgelist
+1.86x, to_pandas_adjacency 1.24x. Sub-parity residuals are ALL construction-tax / RNG-parity
+bound (consistent with project_generator_batch_vein_progress + construction_tax_relabel_lever):
+barabasi_albert 0.72x and dual_ba 0.83x (RNG-faithful _random_subset draw sequence must
+reproduce nx's PythonRandom in Python; native kernel would need byte-exact set-rejection
+choice replay — significant + parity-risky), complete_bipartite 0.81x and turan 0.87x (40k+
+deterministic edge insertion = the general edge-construction substrate), star/wheel 0.89x.
+No clean lever; all need the deep construction substrate or a native RNG-replay kernel.
+With this, EVERY domain is swept (whole-graph, small-input, *_pairs, multi-execution,
+pure-Python routing, IO, generators, conversions) — comprehensive domination confirmed.
