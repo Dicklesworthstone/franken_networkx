@@ -364,6 +364,41 @@ impl PyMultiDiGraph {
         (u.to_owned(), v.to_owned(), key)
     }
 
+    /// br-r37-c1-degnbnative (cc): shared impl for MultiDiGraph degree(nbunch)
+    /// subset kernels (in/out/total multiplicity degree). String-based (multi
+    /// inner has no by-index degree); absent nodes skipped; unhashable element ->
+    /// TypeError(exact msg) for the wrapper to map to NetworkXError.
+    fn degree_pairs_subset_impl(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+        kind: DegreeKind,
+    ) -> PyResult<Vec<(PyObject, usize)>> {
+        let mut out: Vec<(PyObject, usize)> = Vec::new();
+        for item in nbunch.try_iter()? {
+            let node = item?;
+            if node.hash().is_err() {
+                let label = node
+                    .str()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "?".to_owned());
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Node {label} in sequence nbunch is not a valid node."
+                )));
+            }
+            let canonical = node_key_to_string(py, &node)?;
+            if self.inner.has_node(&canonical) {
+                let deg = match kind {
+                    DegreeKind::In => self.inner.in_degree(&canonical),
+                    DegreeKind::Out => self.inner.out_degree(&canonical),
+                    DegreeKind::Total => self.inner.degree(&canonical),
+                };
+                out.push((node.clone().unbind(), deg));
+            }
+        }
+        Ok(out)
+    }
+
     pub(crate) fn clean_edge_dirty_keys()
     -> std::sync::Mutex<Option<HashSet<(String, String, usize)>>> {
         std::sync::Mutex::new(Some(HashSet::new()))
@@ -3951,6 +3986,26 @@ impl PyMultiDiGraph {
             .iter()
             .map(|n| (self.py_node_key(py, n), self.inner.in_degree(n)))
             .collect())
+    }
+
+    /// br-r37-c1-degnbnative (cc): MultiDiGraph degree(nbunch) subset kernels — one
+    /// native pass (canonical filter + multiplicity in/out/total degree) replacing
+    /// the per-node native-degree + nbunch_iter membership Python path. Routed via
+    /// the existing _DirectedDegreeView.__call__ (succ->out / pred->in).
+    fn _native_out_degree_pairs_subset(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+    ) -> PyResult<Vec<(PyObject, usize)>> {
+        self.degree_pairs_subset_impl(py, nbunch, DegreeKind::Out)
+    }
+
+    fn _native_in_degree_pairs_subset(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+    ) -> PyResult<Vec<(PyObject, usize)>> {
+        self.degree_pairs_subset_impl(py, nbunch, DegreeKind::In)
     }
 
     #[getter]

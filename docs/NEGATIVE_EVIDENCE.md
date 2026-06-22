@@ -3898,3 +3898,20 @@ below nx; kept as strictly-better). Byte-exact: 4 seeds x 7 nbunch shapes x keys
 parallels, self-loops, str-keyed, dup nodes + data=True fallback + error contract. Full suite
 zero new failures. (data=True/key variants keep the Python path; MultiDiGraph out_edges(nbunch)
 0.93x is near-parity, lower priority.) Artifact: tests/artifacts/perf/20260622T-mg-edges-nbunch-cc/.
+
+## 2026-06-22 CopperCliff native MultiDiGraph in/out_degree(nbunch) — 0.58-0.62x -> 2.47-2.67x SHIPPED (`br-r37-c1-degnbnative`, cc)
+
+Corrects the "canonicalization-capped" prediction for MULTI degree: it DOMINATES. nx's
+MultiDiGraph in_degree(n) = sum(len(keydict) for keydict in pred[n].values()) — an O(deg) sum in
+PYTHON per node; fnx's inner in_degree sums the same in RUST + one PyO3 call for the whole nbunch,
+so it wins (unlike SIMPLE in/out_degree where nx does a single C len(adj[n]) that fnx can't beat).
+Added 3 PyMultiDiGraph degree-subset kernels (shared helper, string-based multiplicity in/out/
+total degree); in/out AUTO-ROUTE via the existing _DirectedDegreeView.__call__ (the multi in/out
+views _InMultiDegreeView/_OutMultiDegreeView pass "pred"/"succ") — NO Python change.
+
+Result: in_degree(nbunch) 0.62x -> **2.67x**, out_degree(nbunch) 0.58x -> **2.47x**. Byte-exact:
+3 seeds (with parallels) x valid/invalid/empty/range/dup + error contract + view[node] indexing.
+Full suite zero new failures. Follow-ups (same Python-sum-vs-rust-sum domination expected): MDG
+total degree(nbunch) [MultiDiGraphDegreeView route] and MG degree(nbunch) 0.73x [MultiGraphDegree
+View route] — separate view classes needing their own routing + a PyMultiGraph kernel.
+Artifact: tests/artifacts/perf/20260622T-mdg-degree-nbunch-cc/.
