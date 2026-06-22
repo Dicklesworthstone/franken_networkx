@@ -3255,3 +3255,19 @@ entire gap is building |V| Python path-lists of node objects from the Rust strin
 — the reverse BFS is already at nx speed. No BFS-level or wrapper fix can close it;
 only a persistent node-object mirror would (and nx wins there by reusing node objects it
 already holds). Conclusively NOT a one-pass lever. Vein closed.
+
+### Addendum 2 (same pass, cc): algorithm-family sweep — domination holds
+
+Final coverage batch (~28 fns across families not previously benched): distance
+measures (center/periphery/radius/diameter/barycenter/wiener all ~15x), assortativity
+(degree_mixing_matrix 4.45x, average_degree_connectivity 2.05x), graphical sequences
+(is_graphical 1.19x, erdos_gallai 1.52x), structural holes (local_constraint 3.16x),
+chordality (is_chordal 3.88x), euler (is_eulerian 4.16x, has_eulerian_path 1.51x),
+covering (min_edge_cover 0.90x = parity), swaps (double_edge_swap 1.33x), hierarchy
+(flow_hierarchy 233x, global_reaching_centrality 4.18x, trophic_levels 1.06x),
+all_shortest_paths 2.18x, dispersion 1.75x, voterank 1.74x, percolation 1.74x. All
+wins or parity; no sub-0.85x. With this, the BOLD-VERIFY sweep spans ~180 function-calls
+(whole-graph + small-input) across essentially every NetworkX algorithm family —
+comprehensive domination confirmed; the only residuals are the node/path-object
+materialization substrate (proven above) and sub-us PyO3 call overhead. No clean lever
+remains absent the persistent-node-mirror substrate rewrite.
