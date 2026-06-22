@@ -3271,3 +3271,22 @@ wins or parity; no sub-0.85x. With this, the BOLD-VERIFY sweep spans ~180 functi
 comprehensive domination confirmed; the only residuals are the node/path-object
 materialization substrate (proven above) and sub-us PyO3 call overhead. No clean lever
 remains absent the persistent-node-mirror substrate rewrite.
+
+## 2026-06-22 CopperCliff `in_degree`/`out_degree` Counts-Only Path — 0.62x -> 1.33-1.77x (`br-r37-c1-degcounts`, cc)
+
+Earlier docs flagged the directed `in_degree`/`out_degree` dict as 0.62x "near-native,
+no ROI" — that was WRONG. Re-diagnosis: `dict(zip(list(G), counts))` = 0.56ms while the
+`_native_*_degree_pairs` path was 1.5ms, because pairs rebuilt a PyObject per node via
+`py_node_key` whereas `list(G)` reuses the node_iter_mirror cache (0.09ms @ 20k). The
+missing piece was a counts-ONLY native call (no node materialization).
+
+FIX: added `_native_in_degree_counts`/`_native_out_degree_counts` to PyDiGraph (Vec<usize>
+in node-index order, no py_node_key) and routed `_DirectedDegreeView.__iter__`'s unweighted
+full-graph branch (gated `type(G) is DiGraph`) to `zip(list(G), counts())`. Byte-identical
+(list(G) order == nodes_ordered() index order, verified range+str keys); weighted / nbunch /
+single-node / filtered / multi paths untouched. Perf: in_degree/out_degree dict 0.62x ->
+**1.33-1.77x** faster; `for n,d in G.in_degree()` iteration 1.1-1.8x. Parity 6/6 (dict/order/
+iter/nbunch/single/weighted), full suite zero new failures. Artifact:
+`tests/artifacts/perf/20260622T-degree-counts-zip-cc/`. LEVER: a native bulk call that
+emits (node, value) pairs by re-materializing node objects can be split into a values-only
+native call + `zip(list(G), ...)` reusing the node cache — audit other *_pairs bindings.
