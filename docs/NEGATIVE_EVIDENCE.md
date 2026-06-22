@@ -4575,6 +4575,41 @@ Behavior proof:
   `digraph.rs` warnings, no critical findings.
 - `ubs --only=python --skip=7 python/franken_networkx/__init__.py`: exit 0; broad
   pre-existing wrapper warnings, no critical findings.
+
+## 2026-06-22 BlackThrush weighted MultiDiGraph sparse-export stale-gap closeout (`br-r37-c1-wvuf7`, cod-a)
+
+Decision: CLOSE AS STALE. The open `br-r37-c1-wvuf7` tracker still described
+large `MultiDiGraph.to_scipy_sparse_array` / `adjacency_matrix` losses from the
+pre-CSR-boundary path, but current source plus the warm cod-a release artifact
+now wins on the same high-unique default-order n=2000 surface. No source edit was
+made because the measured gap is gone; the remaining open perf surface is the
+separate substrate-level node-object materialization wall, not a safe
+BOLD-VERIFY micro-lever.
+
+Direct artifact environment:
+
+`PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx/legacy_networkx_code /data/projects/franken_networkx/.venv/bin/python`
+with `/data/projects/.rch-targets/franken_networkx-cod-a/release/lib_fnx.so`
+loaded as `franken_networkx._fnx`, `PYTHONHASHSEED=0`,
+`OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`.
+
+Fixture: deterministic `MultiDiGraph`, `2000` integer nodes, `12000` unique
+keyed directed edges, string `weight` attributes. Dirty rows mutate every 31st
+public live edge-attribute dict after construction, exercising the precise dirty
+weight path. Every row matched NetworkX by sorted COO digest, `nnz`, and sum.
+
+| workload | FNX median | NetworkX median | ratio median | parity |
+| --- | ---: | ---: | ---: | --- |
+| clean `to_scipy_sparse_array(weight="weight")` | 3.957 ms | 11.975 ms | 3.03x | true |
+| clean `adjacency_matrix(weight="weight")` | 6.535 ms | 10.208 ms | 1.56x | true |
+| dirty `to_scipy_sparse_array(weight="weight")` | 8.161 ms | 13.392 ms | 1.64x | true |
+| dirty `adjacency_matrix(weight="weight")` | 8.823 ms | 12.144 ms | 1.38x | true |
+
+Tracker context: `br-r37-c1-node-storage-materialization-wall-5fije` remains open
+for the broad interned/live-PyDict node-object storage rearchitecture. It is the
+largest documented residual, but the bead itself records that it is a deep core
+effort, not a safe single-turn sparse-export continuation.
+
 ## 2026-06-22 BlackThrush directed nbunch attr-key native emitters - MultiDiGraph gap 0.42x -> 0.96x (`br-r37-c1-04z53`, cod-b)
 
 Lever: iterable-nbunch directed edge views with `data="<attr>"` still reused the native
