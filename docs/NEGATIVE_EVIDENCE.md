@@ -50,6 +50,69 @@ Decision:
   adjacency/materialized integer-neighbor-row lever for full domination; do not
   spend another bead on accessor-local hashing alone.
 
+## 2026-06-22 BlackThrush DiGraph Iterable-Nbunch Attr-Key Partial Keep (`br-r37-c1-04z53.9161`, cod-b)
+
+Scope: BOLD-VERIFY the child residual for exact `DiGraph` iterable-nbunch
+attr-key edge views after the prior MultiDiGraph attr-key emitter keep. Work was
+done from detached scratch worktree
+`/data/projects/.scratch/franken_networkx-cod-b-20260622T225627Z` with
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+
+Profile and lever verified:
+- Baseline reproduced the active loss against vendored NetworkX
+  `3.7rc0.dev0`: exact `DiGraph.edges(nbunch, data="w", default=-1)` measured
+  `0.611x` at `n=1500/m=9000` and `0.586x` at `n=3500/m=24000`.
+- Kept source change: the clean string-attr route now reads indexed
+  `DiGraph::edge_attrs_by_indices` directly when edge attr mirrors are not
+  dirty, avoiding per-edge live-dict lookup and per-call cloned node-name
+  vectors. The nbunch dedup set in the data-bearing hot paths is now a
+  node-index bitmap.
+- Rejected/no-ship subattempts:
+  - A Python `OutEdgeDataView` proxy materialized twice under `list(view)`
+    because CPython queried `__len__` before iteration. It regressed
+    `edges(nbunch, data="w")` to `0.651x` / `0.631x` and was fully reverted.
+  - A Rust `DiGraphGuardedEdgeListIter` attempt to hold `PyIterator` instead of
+    indexing the guarded list recursed through `_EdgeListWithSetAlgebra.__iter__`
+    and was fully reverted.
+
+Head-to-head timing:
+- Direct proof preloaded the fresh release extension from
+  `/data/projects/.rch-targets/franken_networkx-cod-b/release/lib_fnx.so` and
+  imported vendored NetworkX from
+  `legacy_networkx_code/networkx/networkx`. Parity and digest equality were
+  asserted before every timed row.
+- Final post-rebase build gate:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo build -p fnx-python --release --features pyo3/abi3-py310`
+  passed. All cargo commands were per-crate `-p fnx-python`.
+
+| Workload | Baseline ratio vs NetworkX | Final FNX median | Final NetworkX median | Final ratio vs NetworkX | Verdict |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `DiGraph.edges(nbunch, data="w")`, n=1500/m=9000, 3000 rows | `0.611x` | `0.492894 ms` | `0.438110 ms` | `0.889x` | residual |
+| `DiGraph.out_edges(nbunch, data="w")`, n=1500/m=9000, 3000 rows | `0.719x` | `0.354141 ms` | `0.450663 ms` | `1.273x` | win |
+| `DiGraph.edges(nbunch, data="w")`, n=3500/m=24000, 6000 rows | `0.586x` | `1.154658 ms` | `1.033638 ms` | `0.895x` | residual |
+| `DiGraph.out_edges(nbunch, data="w")`, n=3500/m=24000, 6000 rows | `0.699x` | `0.985618 ms` | `1.115303 ms` | `1.132x` | win |
+
+Validation and residual:
+- Final focused score for the attr-key target after rebasing over upstream is
+  `2` wins / `2` losses vs NetworkX, with exact tuple-order and digest parity.
+  The clean `out_edges` call surface is closed; `edges(...)` still pays the
+  canonical guarded `OutEdgeDataView` drain/wrap residual. Filed follow-up
+  `br-r37-c1-04z53.9163`.
+- Existing no-data rows remained wins in the same probe. `data=True` rows remain
+  a separate live-dict residual: final `edges(nbunch, data=True)` ratios were
+  `0.531x` and `0.447x`; final `out_edges(nbunch, data=True)` ratios were
+  `0.714x` and `0.705x`. Filed follow-up `br-r37-c1-18ect`.
+- Per-crate compile checks passed:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`.
+
+Decision:
+- Keep the indexed clean-string attr route because it closes the
+  `out_edges(nbunch, data=<key>)` loss and preserves exact parity. Do not retry
+  the Python proxy or the recursive Rust `PyIterator` guarded-list route. The
+  next attr-key lever should target the guarded `OutEdgeDataView` drain for
+  `edges(nbunch, data=<key>)`; the separate `data=True` residual should target
+  live-dict handoff/cache behavior.
+
 ## 2026-06-22 BlackThrush Directed `single_target_shortest_path` Path-Emission Keep (`br-r37-c1-04z53`, cod-b)
 
 Scope: BOLD-VERIFY the documented directed

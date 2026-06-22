@@ -10290,16 +10290,12 @@ impl PyDiGraph {
         if !self.succ_py_keys.is_empty() {
             return Ok(None);
         }
-        let py_nodes = self.cached_node_key_vec(py);
-        let names: Vec<String> = self
-            .inner
-            .nodes_ordered()
-            .iter()
-            .map(|s| (*s).to_owned())
-            .collect();
         let mut out: Vec<PyObject> = Vec::new();
         // nx dedups repeated nbunch nodes (out_edges([1,1,2]) == out_edges([1,2])).
-        let mut seen_nodes: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        let mut seen_nodes = vec![false; self.inner.node_count()];
+        let py_nodes = self.cached_node_key_vec(py);
+        let inner = &self.inner;
+        let edge_py_attrs = &mut self.edge_py_attrs;
         for item in nbunch.try_iter()? {
             let node = item?;
             if node.hash().is_err() {
@@ -10312,28 +10308,39 @@ impl PyDiGraph {
                 )));
             }
             let canonical = node_key_to_string(py, &node)?;
-            let Some(idx) = self.inner.get_node_index(&canonical) else {
+            let Some(idx) = inner.get_node_index(&canonical) else {
                 continue;
             };
-            if !seen_nodes.insert(idx) {
+            if seen_nodes[idx] {
                 continue;
             }
-            let succ: Vec<usize> = self
-                .inner
-                .successors_indices(idx)
-                .map(<[usize]>::to_vec)
-                .unwrap_or_default();
-            for nbr_idx in succ {
+            seen_nodes[idx] = true;
+            let source_obj = node.clone().unbind();
+            let Some(source_name) = inner.get_node_name(idx) else {
+                continue;
+            };
+            for &nbr_idx in inner.successors_indices(idx).unwrap_or(&[]) {
+                let target_name = inner
+                    .get_node_name(nbr_idx)
+                    .expect("successor index should resolve during out_edges");
                 let nbr_obj = py_nodes[nbr_idx].clone_ref(py);
-                let attrs = self
-                    .materialize_edge_py_attrs(py, &canonical, &names[nbr_idx])
+                let attrs = edge_py_attrs
+                    .entry(Self::edge_key(source_name, target_name))
+                    .or_insert_with(|| match inner.edge_attrs_by_indices(idx, nbr_idx) {
+                        Some(attrs) => attr_map_to_pydict(py, attrs)
+                            .expect("stored directed edge attrs must convert to Python"),
+                        None => PyDict::new(py).unbind(),
+                    })
+                    .clone_ref(py)
                     .into_any();
-                out.push(
-                    PyTuple::new(py, &[node.clone().unbind(), nbr_obj, attrs])?
-                        .into_any()
-                        .unbind(),
-                );
+                out.push(tuple_object(
+                    py,
+                    &[source_obj.clone_ref(py), nbr_obj, attrs],
+                )?);
             }
+        }
+        if !out.is_empty() {
+            self.mark_edges_dirty();
         }
         Ok(Some(out))
     }
@@ -10352,12 +10359,77 @@ impl PyDiGraph {
             return Ok(None);
         }
         let py_nodes = self.cached_node_key_vec(py);
-        let names: Vec<String> = self
-            .inner
-            .nodes_ordered()
-            .iter()
-            .map(|s| (*s).to_owned())
-            .collect();
+        let clean_string_attr = (!self.edges_dirty.load(Ordering::Relaxed))
+            .then(|| data.downcast::<PyString>().ok())
+            .flatten()
+            .map(|s| s.to_str())
+            .transpose()?;
+        if let Some(attr_name) = clean_string_attr {
+            let inner = &self.inner;
+            let edge_py_attrs = &mut self.edge_py_attrs;
+            let mut out: Vec<PyObject> = Vec::new();
+            let mut seen_nodes = vec![false; self.inner.node_count()];
+            for item in nbunch.try_iter()? {
+                let node = item?;
+                if node.hash().is_err() {
+                    let label = node
+                        .str()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .unwrap_or_else(|_| "?".to_owned());
+                    return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                        "Node {label} in sequence nbunch is not a valid node."
+                    )));
+                }
+                let canonical = node_key_to_string(py, &node)?;
+                let Some(idx) = inner.get_node_index(&canonical) else {
+                    continue;
+                };
+                if seen_nodes[idx] {
+                    continue;
+                }
+                seen_nodes[idx] = true;
+                let source_obj = node.clone().unbind();
+                let Some(source_name) = inner.get_node_name(idx) else {
+                    continue;
+                };
+                for &nbr_idx in inner.successors_indices(idx).unwrap_or(&[]) {
+                    let nbr_obj = py_nodes[nbr_idx].clone_ref(py);
+                    let value = match inner
+                        .edge_attrs_by_indices(idx, nbr_idx)
+                        .and_then(|attrs| attrs.get(attr_name))
+                    {
+                        Some(value) if !matches!(value, CgseValue::Map(_)) => {
+                            crate::cgse_value_to_py(py, value)?
+                        }
+                        Some(_) => {
+                            let target_name = inner
+                                .get_node_name(nbr_idx)
+                                .expect("successor index should resolve during out_edges");
+                            let attrs = edge_py_attrs
+                                .entry(Self::edge_key(source_name, target_name))
+                                .or_insert_with(|| {
+                                    match inner.edge_attrs_by_indices(idx, nbr_idx) {
+                                        Some(attrs) => attr_map_to_pydict(py, attrs).expect(
+                                            "stored directed edge attrs must convert to Python",
+                                        ),
+                                        None => PyDict::new(py).unbind(),
+                                    }
+                                });
+                            attrs
+                                .bind(py)
+                                .get_item(data)?
+                                .map_or_else(|| default.clone_ref(py), |value| value.unbind())
+                        }
+                        None => default.clone_ref(py),
+                    };
+                    out.push(tuple_object(
+                        py,
+                        &[source_obj.clone_ref(py), nbr_obj, value],
+                    )?);
+                }
+            }
+            return Ok(Some(out));
+        }
         let mut out: Vec<PyObject> = Vec::new();
         let mut seen_nodes: std::collections::HashSet<usize> = std::collections::HashSet::new();
         for item in nbunch.try_iter()? {
@@ -10385,13 +10457,13 @@ impl PyDiGraph {
                 .unwrap_or_default();
             for nbr_idx in succ {
                 let nbr_obj = py_nodes[nbr_idx].clone_ref(py);
-                let value = self.edge_attr_value_or_default(
-                    py,
-                    &canonical,
-                    &names[nbr_idx],
-                    data,
-                    &default,
-                )?;
+                let target_name = self
+                    .inner
+                    .get_node_name(nbr_idx)
+                    .expect("successor index should resolve during out_edges")
+                    .to_owned();
+                let value =
+                    self.edge_attr_value_or_default(py, &canonical, &target_name, data, &default)?;
                 out.push(tuple_object(py, &[node.clone().unbind(), nbr_obj, value])?);
             }
         }
