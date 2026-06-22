@@ -3795,3 +3795,26 @@ Byte-exact: node order + objects + fresh-iterator-per-call + nx's TypeError erro
 (unhashable-in-sequence / non-iterable nbunch). Full suite zero new failures. Non-None nbunch
 (membership filter) stays 0.20x = per-element String-keyed __contains__ substrate (nx is C-dict;
 deep, unchanged). Artifact: tests/artifacts/perf/20260622T-nbunch-iter-none-cc/.
+
+### Note (cc): post-win sweep (2026-06-22) — accessible no-build levers exhausted; remaining gaps root-caused
+
+After shipping 6 operator/view/iter wins this turn, ran 5 no-build bench sweeps (traversal,
+distance, predicates, views, attrs, construction, nbunch ops) vs NetworkX. Result: the surface
+is overwhelmingly dominant. The ONLY remaining un-dominated workloads, all root-caused:
+
+- out_edges(nbunch)/in_edges(nbunch) DIRECTED 0.28-0.29x: NICHE (directed edges restricted to a
+  node subset). Path traced: _OutEdgeView -> _DiEdgeMethodView.__call__ -> _method(self._graph,
+  nbunch) which ALREADY uses the rust graph directly (no Python-wrapper layer to strip). Slowness
+  is inherent: a Python loop doing per-node rust succ/pred row PyO3 access. UNDIRECTED edges(nbunch)
+  is DOMINANT (1.39x), so this is directed-specific view overhead. Needs a native nbunch-edges
+  kernel (build) wired through the 6-level view hierarchy — intricate + niche, deferred.
+- degree(nbunch) 0.32x: DegreeView per-node self[node] (per-call native degree + String-key
+  canonicalization). Full degree() routes to native counts (1.20x); nbunch can't cleanly reuse it
+  (counts are by index; small-nbunch would pay O(N) dict-build). Per-call substrate.
+- has_edge/neighbors/adj[n]/membership(`n in G`) per-call 0.29-0.54x: the fundamental String-keyed
+  __contains__/__getitem__ substrate (nx is C-dict). The highest-IMPACT remaining gap (used
+  everywhere) but = the deep int-key / persistent-mirror rewrite.
+
+CONVERGENCE: no-build/Python-only levers exhausted (nbunch_iter(None) was the last clean one).
+Remaining frontier = (a) native nbunch-edges kernel (niche, build, needs disk headroom) or (b)
+the deep per-call String-key substrate rewrite (highest impact, large careful effort, needs disk).
