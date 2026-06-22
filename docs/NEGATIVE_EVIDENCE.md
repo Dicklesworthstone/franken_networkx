@@ -3706,3 +3706,17 @@ operator-parity[MultiGraph-MultiGraph] + full suite zero new failures. Remaining
 compose(MDG) 0.58x, compose(MG) 0.74x (these KEEP nodes -> need the clean-display gate on
 succ/pred or adj_py_keys like simple compose, PLUS edge_py_keys + key-level overlap merge).
 Artifact: tests/artifacts/perf/20260622T-native-mg-disjoint-union-cc/.
+
+### Note (cc): compose(MDG/MG) native — design for the follow-up (key-collision merge, H-wins)
+
+disjoint_union is now native-dominant across ALL 4 graph types (Graph/DiGraph/MultiDiGraph/
+MultiGraph). compose(MDG) 0.58x / compose(MG) 0.74x are the remaining keyed-multi gaps. DESIGN
+GOTCHA confirmed: nx compose MERGES multigraph edges by (u,v,key) with H winning on collision
+(verified: G{(a,b,0):G0,(a,b,1):G1} compose H{(a,b,0):H0,(a,b,5):H5} -> (a,b,0):H0,(a,b,1):G1,
+(a,b,5):H5). So compose CANNOT reuse the simple-DiGraph compose structure (which leans on
+extend_edges UPDATING duplicate (u,v) for simple graphs) — multi extend_keyed would add a
+PARALLEL edge for a colliding key, not update. Needs an explicit ordered merge: emit G's edges
+in order (attrs := H's if H has the same (u,v,key), else G's), then H's edges whose (u,v,key)
+is NOT in G, in H order; carry edge_py_keys display + node-attr H-wins merge; clean-display gate
+on succ/pred (MDG) / adj_py_keys (MG) like simple compose. Recipe + APIs all proven
+([[reference_gated_fallback_native_mirror]]); this is the immediate next gap.
