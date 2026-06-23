@@ -10620,6 +10620,79 @@ impl PyDiGraph {
         self.edges_nbunch_no_data_impl(py, nbunch, true)
     }
 
+    /// br-r37-c1-inedges (cc): in_edges(nbunch, data=False) — bidirectional impl
+    /// with out_dir=false (predecessors, tuple (source, target)). Replaces the
+    /// Python pred loop (in_edges(nbunch) was 0.21x).
+    fn _native_in_edges_nbunch_no_data(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<Vec<(PyObject, PyObject)>>> {
+        self.edges_nbunch_no_data_impl(py, nbunch, false)
+    }
+
+    /// br-r37-c1-inedges (cc): in_edges(nbunch, data=True) — pred-major sibling of
+    /// _native_out_edges_nbunch_data. nbunch nodes are TARGETS; predecessors give
+    /// sources; live attr dicts via edge_py_attrs (identity == G[u][v]).
+    fn _native_in_edges_nbunch_data(
+        &mut self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        if !self.pred_py_keys.is_empty() {
+            return Ok(None);
+        }
+        let mut out: Vec<PyObject> = Vec::new();
+        let mut seen_nodes = vec![false; self.inner.node_count()];
+        let py_nodes = self.cached_node_key_vec(py);
+        let inner = &self.inner;
+        let edge_py_attrs = &mut self.edge_py_attrs;
+        for item in nbunch.try_iter()? {
+            let node = item?;
+            if node.hash().is_err() {
+                let label = node
+                    .str()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "?".to_owned());
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Node {label} in sequence nbunch is not a valid node."
+                )));
+            }
+            let canonical = node_key_to_string(py, &node)?;
+            let Some(idx) = inner.get_node_index(&canonical) else {
+                continue;
+            };
+            if seen_nodes[idx] {
+                continue;
+            }
+            seen_nodes[idx] = true;
+            let target_obj = node.clone().unbind();
+            let Some(target_name) = inner.get_node_name(idx) else {
+                continue;
+            };
+            for &src_idx in inner.predecessors_indices(idx).unwrap_or(&[]) {
+                let source_name = inner
+                    .get_node_name(src_idx)
+                    .expect("predecessor index should resolve during in_edges");
+                let source_obj = py_nodes[src_idx].clone_ref(py);
+                let attrs = edge_py_attrs
+                    .entry(Self::edge_key(source_name, target_name))
+                    .or_insert_with(|| match inner.edge_attrs_by_indices(src_idx, idx) {
+                        Some(attrs) => attr_map_to_pydict(py, attrs)
+                            .expect("stored directed edge attrs must convert to Python"),
+                        None => PyDict::new(py).unbind(),
+                    })
+                    .clone_ref(py)
+                    .into_any();
+                out.push(tuple_object(py, &[source_obj, target_obj.clone_ref(py), attrs])?);
+            }
+        }
+        if !out.is_empty() {
+            self.mark_edges_dirty();
+        }
+        Ok(Some(out))
+    }
+
     /// br-r37-c1-edgenbnative (cc): out_edges(nbunch, data=True) — one native pass
     /// (succ rows + live attr dict via materialize_edge_py_attrs, identity-
     /// preserving == G[u][v]) vs the EdgeDataView machinery (~0.21x). Gated on

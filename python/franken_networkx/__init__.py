@@ -285,6 +285,24 @@ def _digraph_in_edges(self, nbunch=None, data=False, default=None):
             native = getattr(self, "_native_in_edges_data_key", None)
             if native is not None:
                 return native(data, default)
+    elif type(self) is DiGraph and (
+        isinstance(nbunch, (list, tuple, set, frozenset))
+        or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
+    ):
+        # iterable nbunch -> native pred-major pass (data=key keeps the Python path).
+        # br-r37-c1-inedges (cc).
+        native = None
+        if data is False:
+            native = getattr(self, "_native_in_edges_nbunch_no_data", None)
+        elif data is True:
+            native = getattr(self, "_native_in_edges_nbunch_data", None)
+        if native is not None:
+            try:
+                result = native(nbunch)
+            except TypeError as exc:
+                raise NetworkXError(str(exc))
+            if result is not None:
+                return result
     result = []
     for target in self.nbunch_iter(nbunch):
         for source, attrs in self.pred[target].items():
