@@ -361,10 +361,10 @@ def _multidigraph_in_edges(self, nbunch=None, data=False, keys=False, default=No
     # self.pred[target].items() loop (~11x slower than nx). Route it to a native
     # target-major pass (byte-identical order, live attr dicts). Other shapes
     # (nbunch / keys / data=key / data=False) keep the Python path below.
-    if nbunch is None and data is True and not keys and type(self) is MultiDiGraph:
+    if nbunch is None and data is True and type(self) is MultiDiGraph:
         native = getattr(self, "_native_mdg_in_edges_with_data", None)
         if native is not None:
-            result = native()
+            result = native(keys)
             if result is not None:
                 return result
     result = []

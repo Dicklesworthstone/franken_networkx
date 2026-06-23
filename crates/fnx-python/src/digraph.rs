@@ -170,11 +170,12 @@ pub struct PyMultiDiGraph {
     /// edges(keys=True, data=True) are distinct result shapes, cached one-at-a-time
     /// in this slot (last-requested keys variant wins; symmetric to PyMultiGraph).
     pub(crate) edges_with_data_cache: Option<(u64, u64, bool, Vec<PyObject>)>,
-    /// br-r37-c1-mdginedges (cc): (nodes_seq, edges_seq)-keyed in_edges(data=True,
-    /// keys=False) target-major tuples — analog of edges_with_data_cache for
-    /// in_edges. in_edges(data=True) was a pure-Python pred-loop (~11x slower);
-    /// this caches the native list so repeats clone instead of rebuilding.
-    pub(crate) in_edges_with_data_cache: Option<(u64, u64, Vec<PyObject>)>,
+    /// br-r37-c1-mdginedges (cc): (nodes_seq, edges_seq, keys_flag)-keyed
+    /// in_edges(data=True) target-major tuples — analog of edges_with_data_cache.
+    /// Was a pure-Python pred-loop (~11x slower); this caches the native list so
+    /// repeats clone instead of rebuilding. The bool selects keys=False
+    /// ((s,t,attr)) vs keys=True ((s,t,key,attr)), one variant cached at a time.
+    pub(crate) in_edges_with_data_cache: Option<(u64, u64, bool, Vec<PyObject>)>,
     /// br-r37-c1-qwqvn: (nodes_seq, edges_seq)-keyed cache of immutable
     /// (u, v, key) tuples for edges(keys=True, data=False, no nbunch).
     pub(crate) edges_with_keys_cache: Option<(u64, u64, Vec<PyObject>)>,
@@ -4166,19 +4167,23 @@ impl PyMultiDiGraph {
     /// the live attr dicts is byte-identical to that loop (same adjacency order)
     /// but ~30x faster. Bails to the Python path when pred custom-key mirrors are
     /// active (z6uka), exactly like the out_edges nbunch natives.
-    fn _native_mdg_in_edges_with_data(&mut self, py: Python<'_>) -> PyResult<Option<Vec<PyObject>>> {
+    fn _native_mdg_in_edges_with_data(
+        &mut self,
+        py: Python<'_>,
+        keys: bool,
+    ) -> PyResult<Option<Vec<PyObject>>> {
         if !self.pred_py_keys.is_empty() {
             return Ok(None);
         }
         if self.inner.edge_count() > 0 {
             self.mark_edges_dirty();
         }
-        // (nodes_seq, edges_seq)-keyed cache like _native_edges_with_data: on a
-        // seq match return a fresh list of the same tuple objects (live attr
-        // dicts; node/edge mutation bumps a seq and invalidates).
+        // (nodes_seq, edges_seq, keys)-keyed cache like _native_edges_with_data:
+        // on a seq+keys match return a fresh list of the same tuple objects (live
+        // attr dicts; node/edge mutation bumps a seq and invalidates).
         let valid = matches!(
             &self.in_edges_with_data_cache,
-            Some((ns, es, _)) if *ns == self.nodes_seq && *es == self.edges_seq
+            Some((ns, es, kf, _)) if *ns == self.nodes_seq && *es == self.edges_seq && *kf == keys
         );
         if !valid {
             let triples: Vec<(String, String, usize)> = {
@@ -4202,11 +4207,17 @@ impl PyMultiDiGraph {
                     .ensure_edge_py_attrs(py, &source, &target, key)
                     .clone_ref(py)
                     .into_any();
-                out.push(tuple_object(py, &[src_obj, tgt_obj, attrs])?);
+                if keys {
+                    // mirror-aware: stored py key (z6uka custom keys) or default int
+                    let key_obj = self.py_edge_key(py, &source, &target, key);
+                    out.push(tuple_object(py, &[src_obj, tgt_obj, key_obj, attrs])?);
+                } else {
+                    out.push(tuple_object(py, &[src_obj, tgt_obj, attrs])?);
+                }
             }
-            self.in_edges_with_data_cache = Some((self.nodes_seq, self.edges_seq, out));
+            self.in_edges_with_data_cache = Some((self.nodes_seq, self.edges_seq, keys, out));
         }
-        let cached = &self.in_edges_with_data_cache.as_ref().unwrap().2;
+        let cached = &self.in_edges_with_data_cache.as_ref().unwrap().3;
         let fresh: Vec<PyObject> = cached.iter().map(|t| t.clone_ref(py)).collect();
         Ok(Some(fresh))
     }
