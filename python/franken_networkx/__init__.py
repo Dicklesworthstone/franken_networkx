@@ -357,6 +357,16 @@ def _multidigraph_out_edges(self, nbunch=None, data=False, keys=False, default=N
 
 
 def _multidigraph_in_edges(self, nbunch=None, data=False, keys=False, default=None):
+    # br-r37-c1-mdginedges (cc): full-graph in_edges(data=True) was a pure-Python
+    # self.pred[target].items() loop (~11x slower than nx). Route it to a native
+    # target-major pass (byte-identical order, live attr dicts). Other shapes
+    # (nbunch / keys / data=key / data=False) keep the Python path below.
+    if nbunch is None and data is True and not keys and type(self) is MultiDiGraph:
+        native = getattr(self, "_native_mdg_in_edges_with_data", None)
+        if native is not None:
+            result = native()
+            if result is not None:
+                return result
     result = []
     for target in self.nbunch_iter(nbunch):
         for source, keyed_attrs in self.pred[target].items():

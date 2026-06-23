@@ -9154,6 +9154,7 @@ pub fn stochastic_graph_copy_multidigraph(
         node_data_mirror: std::sync::Mutex::new(None),
         dict_of_dicts_cache: None,
         edges_with_data_cache: None,
+        in_edges_with_data_cache: None,
         edges_with_keys_cache: None,
         node_iter_mirror: std::sync::Mutex::new(None),
     };
@@ -13261,6 +13262,7 @@ pub fn multidigraph_transitive_closure(
         node_data_mirror: std::sync::Mutex::new(None),
         dict_of_dicts_cache: None,
         edges_with_data_cache: None,
+        in_edges_with_data_cache: None,
         edges_with_keys_cache: None,
         node_iter_mirror: std::sync::Mutex::new(None),
     };
