@@ -2376,6 +2376,22 @@ class _MultiGraphEdgeView:
                         self._graph,
                         guard_edge_count=True,
                     )
+        # br-r37-c1-mgedgenbdk (cc): data=<key> one-pass (was the Python adj-chain,
+        # ~0.11x). Projects attrs.get(data, default) per edge; None -> Python loop.
+        if data is not False and data is not True and _iterable_nb:
+            native = getattr(self._graph, "_native_mg_edges_nbunch_data_key", None)
+            if native is not None:
+                try:
+                    native_res = native(nbunch, data, default, keys)
+                except TypeError as exc:
+                    raise NetworkXError(str(exc))
+                if native_res is not None:
+                    result = _EdgeListWithSetAlgebra(native_res)
+                    return _guarded_edge_list(
+                        _wrap_edge_data_view(result, _MultiEdgeDataView),
+                        self._graph,
+                        guard_edge_count=True,
+                    )
         result = _EdgeListWithSetAlgebra()
         seen = set()
         for source in self._graph.nbunch_iter(nbunch):
