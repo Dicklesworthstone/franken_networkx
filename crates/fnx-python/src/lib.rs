@@ -6863,9 +6863,8 @@ impl PyMultiGraph {
             node_iter_mirror: std::sync::Mutex::new(None),
         };
         // br-r37-c1-tbh4q: single-pass attr crossing (with_mirror) on copy() —
-        // each node/edge once; mirror byte-identical to .copy(); for edges the
-        // Rust map built from the original entry equals the old build-from-copy
-        // (copy is shallow-identical), so the result is byte-identical.
+        // node attrs still cross once; clean edge attrs below reuse the
+        // synchronized Rust AttrMap and only copy the Python mirror.
         for node in self.inner.nodes_ordered() {
             match self.node_py_attrs.get(node) {
                 Some(attrs) => {
@@ -6895,6 +6894,7 @@ impl PyMultiGraph {
         // populated per edge — they don't touch the inner.
         let mut keyed_edges: Vec<(String, String, usize, AttrMap)> =
             Vec::with_capacity(self.inner.edge_count());
+        let source_edges_dirty = self.edges_dirty.load(Ordering::Relaxed);
         for snapshot in self.inner.edges_ordered() {
             let (u, v, key) = (snapshot.left.clone(), snapshot.right.clone(), snapshot.key);
             let attrs_entry = self
@@ -6904,15 +6904,25 @@ impl PyMultiGraph {
             // br-r37-c1-aab122464: drop the eager empty edge-attr PyDict for attr-less
             // edges (15000 allocs on a dense graph) — lazy materialize_edge_py_attrs is
             // identity-preserving, so an absent mirror reads identically to an empty dict.
-            let rust_attrs = match attrs_entry {
-                Some(attrs) => {
-                    let (rust_attrs, mirror) = py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+            let rust_attrs = if source_edges_dirty {
+                match attrs_entry {
+                    Some(attrs) => {
+                        let (rust_attrs, mirror) =
+                            py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+                        new_graph
+                            .edge_py_attrs
+                            .insert((u.clone(), v.clone(), key), mirror);
+                        rust_attrs
+                    }
+                    None => snapshot.attrs.clone(),
+                }
+            } else {
+                if let Some(attrs) = attrs_entry {
                     new_graph
                         .edge_py_attrs
-                        .insert((u.clone(), v.clone(), key), mirror);
-                    rust_attrs
+                        .insert((u.clone(), v.clone(), key), attrs.bind(py).copy()?.unbind());
                 }
-                None => AttrMap::new(),
+                snapshot.attrs.clone()
             };
             keyed_edges.push((u.clone(), v.clone(), key, rust_attrs));
             let py_key_slot = self
