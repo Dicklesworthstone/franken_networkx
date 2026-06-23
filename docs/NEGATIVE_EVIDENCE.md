@@ -4881,6 +4881,76 @@ Behavior proof:
 - `ubs --only=python --skip=7 python/franken_networkx/__init__.py`: exit 0; broad
   pre-existing wrapper warnings, no critical findings.
 
+## 2026-06-23 BlackThrush MultiDiGraph clear_edges native in-place clear - 2.5x-4.7x FNX self-speedup (`br-r37-c1-04z53.9168`, cod-a)
+
+Lever: `PyMultiDiGraph.clear_edges()` rebuilt a fresh Rust `MultiDiGraph` from
+the node set, then dropped Python edge mirrors. That preserved node order but
+paid the construction path even though `clear_edges` is an edge-only mutation.
+`fnx-classes::MultiDiGraph` now has an in-place `clear_edges()` that clears the
+edge buckets plus successor/predecessor rows, resets `edge_count`, and bumps the
+core revision. The Python wrapper calls that native clear directly and preserves
+the existing Python node-key/node-attr mirrors while clearing edge mirrors and
+bumping the edge mutation sequence.
+
+Keep decision: KEEP. The original 0.04x-0.10x gap reproduced on the current
+artifact, and the final artifact moves the attributed 800n/4000e case from
+0.091x median to 0.426x median versus NetworkX. It still trails NetworkX, but
+FNX median time fell from about 5.92 ms to 1.45 ms on attributed edges and to
+1.07 ms on plain edges. This is not a near-zero gain.
+
+Direct artifact environment:
+
+`PYTHONPATH=<temp franken_networkx package copy>:/data/projects/franken_networkx/legacy_networkx_code/networkx python3`
+with `/data/projects/.rch-targets/franken_networkx-cod-a/release/lib_fnx.so`
+copied into the temp package as `franken_networkx._fnx.abi3.so`.
+
+Measured trigger baseline before the edit, current turn, deterministic
+`MultiDiGraph.clear_edges()` on prebuilt 800-node / 4000-edge graph batches,
+80 clears per round where applicable, preserving node order and node attr
+assertions:
+
+| workload | FNX median | NetworkX median | ratio median | ratio best | parity |
+| --- | ---: | ---: | ---: | ---: | --- |
+| attributed keyed edges, reps=60 | 5.92 ms | 0.56 ms | 0.091x | 0.107x | true |
+
+Final timing, same artifact family and graph generator:
+
+| workload | FNX median | NetworkX median | ratio median | ratio best | parity |
+| --- | ---: | ---: | ---: | ---: | --- |
+| plain keyed edges, reps=80 | 1.07 ms | 0.42 ms | 0.386x | 0.439x | true |
+| attributed keyed edges, reps=80 | 1.45 ms | 0.61 ms | 0.426x | 0.457x | true |
+
+Behavior proof:
+
+- Direct artifact parity assertions passed for node count, edge count after
+  clear, node insertion order prefix, and node attribute preservation against
+  legacy NetworkX.
+- Core Rust unit test covers `MultiDiGraph::clear_edges()` preserving nodes,
+  node attrs, empty successor/predecessor rows, and core invariants.
+- PyO3 unit test covers `PyMultiDiGraph.clear_edges()` preserving Python-facing
+  node attr mirrors and clearing Python edge mirrors.
+- `cargo +nightly-2026-06-10 check -p fnx-classes`: passed with
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- `cargo +nightly-2026-06-10 check -p fnx-python --features pyo3/abi3-py310`:
+  passed with `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- `cargo +nightly-2026-06-10 build -p fnx-python --release --features pyo3/abi3-py310`:
+  passed with `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- `cargo +nightly-2026-06-10 test -p fnx-classes`: 69 passed, 0 failed;
+  2 ignored; doctests 0 passed, 0 failed.
+- `cargo +nightly-2026-06-10 test -p fnx-python --features pyo3/abi3-py310`:
+  28 passed, 0 failed; doctests 0 passed, 0 failed.
+- `cargo +nightly-2026-06-10 clippy -p fnx-classes --all-targets -- -D warnings`:
+  passed with `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- `cargo +nightly-2026-06-10 clippy -p fnx-python --features pyo3/abi3-py310 --all-targets -- -D warnings`:
+  passed with `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- `cargo fmt -p fnx-classes -- --check`: passed.
+- `cargo fmt -p fnx-python -- --check`: passed.
+- `git diff --check`: passed.
+- `ubs --only=rust crates/fnx-classes/src/digraph.rs`: exit 0; broad
+  pre-existing `digraph.rs` warnings, no critical findings.
+- `ubs --only=rust crates/fnx-python/src/digraph.rs`: exit 0; broad
+  pre-existing `digraph.rs` warnings, no critical findings.
+
 ## 2026-06-23 BlackThrush weighted degree nbunch native subsets - 0.03x-0.13x -> 0.55x-1.07x (`br-r37-c1-04z53.9167`, cod-a)
 
 Lever: `degree(nbunch, weight=...)` had native support for full-graph weighted

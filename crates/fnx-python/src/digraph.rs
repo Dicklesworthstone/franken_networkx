@@ -3694,35 +3694,7 @@ impl PyMultiDiGraph {
     }
 
     fn clear_edges(&mut self) {
-        // br-r37-c1-pb8bj: capture node INSERTION order before resetting inner.
-        // The old code re-added nodes by iterating `node_key_map.keys()` (a
-        // HashMap — random order), scrambling node order vs nx, which preserves
-        // insertion order across clear_edges(). `nodes_ordered()` keeps it.
-        let ordered: Vec<String> = self
-            .inner
-            .nodes_ordered()
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
-        // br-r37-c1-1uv81: rebuild a FRESH inner (the old code re-added nodes
-        // into the existing graph, leaving every edge in place — clear_edges
-        // was a no-op for MultiDiGraph; the other three classes reset inner).
-        let policy = self.inner.runtime_policy().clone();
-        Python::attach(|py| {
-            let mut fresh = MultiDiGraph::with_runtime_policy(policy);
-            for canonical in &ordered {
-                let rust_attrs = self
-                    .node_py_attrs
-                    .get(canonical)
-                    .map(|attrs| crate::py_dict_to_attr_map(attrs.bind(py)))
-                    .transpose()
-                    .ok()
-                    .flatten()
-                    .unwrap_or_default();
-                fresh.add_node_with_attrs(canonical.clone(), rust_attrs);
-            }
-            self.inner = fresh;
-        });
+        self.inner.clear_edges();
         self.edge_py_attrs.clear();
         self.succ_py_keys.clear(); // br-r37-c1-z6uka
         self.pred_py_keys.clear(); // br-r37-c1-z6uka
@@ -12814,6 +12786,43 @@ mod tests {
             graph.clear_edges();
 
             assert_eq!(graph.inner.runtime_policy(), &expected_policy);
+        });
+    }
+
+    #[test]
+    fn multidigraph_clear_edges_preserves_node_attr_mirrors() {
+        ensure_python();
+        Python::attach(|py| {
+            let mut graph =
+                PyMultiDiGraph::new(py, None, None).expect("multidigraph should initialize");
+            let a = "a".into_py_any(py).expect("node conversion");
+            let b = "b".into_py_any(py).expect("node conversion");
+            graph.add_node(py, a.bind(py), None).expect("add node a");
+            graph.add_node(py, b.bind(py), None).expect("add node b");
+            let attrs = PyDict::new(py);
+            attrs.set_item("weight", 1).expect("set edge attr");
+            graph
+                .add_edge(py, a.bind(py), b.bind(py), None, Some(&attrs))
+                .expect("add edge");
+            let py_attrs = graph.materialize_node_py_attrs(py, "a");
+            py_attrs
+                .bind(py)
+                .set_item("color", "red")
+                .expect("mutate node mirror");
+
+            graph.clear_edges();
+
+            assert_eq!(graph.inner.edge_count(), 0);
+            assert_eq!(graph.inner.nodes_ordered(), vec!["str:1:a", "str:1:b"]);
+            let color = py_attrs
+                .bind(py)
+                .get_item("color")
+                .expect("dict lookup")
+                .expect("color should remain")
+                .extract::<String>()
+                .expect("color should be a string");
+            assert_eq!(color, "red");
+            assert!(graph.edge_py_attrs.is_empty());
         });
     }
 
