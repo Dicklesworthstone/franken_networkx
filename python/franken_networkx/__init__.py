@@ -4471,6 +4471,15 @@ class MultiGraphDegreeView:
             native = getattr(self._graph, "_native_weighted_degree", None)
             if native is not None:
                 return iter(native(self._weight))
+        # br-r37-c1-degnbw (cc): weighted nbunch (a validated node subset) routes to
+        # the native weighted-subset pass instead of the per-node self[node]
+        # _degree_compute loop (~0.04x). _nodes is already nbunch_iter-filtered, so
+        # the native's per-node validation is a no-op; view[node] stays weighted via
+        # __getitem__. getattr-guarded: MultiDiGraph falls back until its native lands.
+        if self._nodes is not None and isinstance(self._weight, str):
+            native = getattr(self._graph, "_native_weighted_degree_subset", None)
+            if native is not None:
+                return iter(native(self._nodes, self._weight))
         return ((node, self[node]) for node in self._iter_nodes())
 
     def __getitem__(self, node):
@@ -4576,6 +4585,15 @@ class MultiDiGraphDegreeView:
             native = getattr(self._graph, "_native_weighted_degree", None)
             if native is not None:
                 return iter(native(self._weight))
+        # br-r37-c1-degnbw (cc): weighted nbunch (a validated node subset) routes to
+        # the native weighted-subset pass instead of the per-node self[node]
+        # _degree_compute loop (~0.04x). _nodes is already nbunch_iter-filtered, so
+        # the native's per-node validation is a no-op; view[node] stays weighted via
+        # __getitem__. getattr-guarded: MultiDiGraph falls back until its native lands.
+        if self._nodes is not None and isinstance(self._weight, str):
+            native = getattr(self._graph, "_native_weighted_degree_subset", None)
+            if native is not None:
+                return iter(native(self._nodes, self._weight))
         return ((node, self[node]) for node in self._iter_nodes())
 
     def __getitem__(self, node):

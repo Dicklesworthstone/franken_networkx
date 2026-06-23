@@ -5511,8 +5511,9 @@ impl PyMultiGraph {
                     }
                     let nbr_obj = self.py_node_key(py, nbr);
                     let ek = Self::edge_key(&canonical, nbr, key);
-                    let value = self
-                        .edge_data_value_or_default_with_key(py, &canonical, nbr, key, &ek, data, &default)?;
+                    let value = self.edge_data_value_or_default_with_key(
+                        py, &canonical, nbr, key, &ek, data, &default,
+                    )?;
                     if keys {
                         let key_obj = if self.edge_py_keys.is_empty() {
                             crate::unwrap_infallible(key.into_pyobject(py))
@@ -6729,6 +6730,88 @@ impl PyMultiGraph {
                 deg = deg.add(sum_fn.call1((sl,))?)?;
             }
             out.push((self.py_node_key(py, node), deg.unbind()));
+        }
+        Ok(out)
+    }
+
+    /// br-r37-c1-degnbw (cc): weighted-subset sibling of _native_weighted_degree —
+    /// degree(nbunch, weight) over the (validated, in-graph) nbunch nodes only.
+    /// nbunch+weight previously fell to the Python _degree_compute loop (~0.04x).
+    /// NOT deduped (matches nx degree(nbunch)); KEEP builtins.sum for float parity;
+    /// selfloop weight double-counted via the separate trailing sum.
+    fn _native_weighted_degree_subset(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+        weight: &str,
+    ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        let one = 1i64.into_pyobject(py)?.into_any();
+        let sum_fn = py.import("builtins")?.getattr("sum")?;
+        let mut out: Vec<(PyObject, PyObject)> = Vec::new();
+        for item in nbunch.try_iter()? {
+            let node_obj = item?;
+            if node_obj.hash().is_err() {
+                let label = node_obj
+                    .str()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "?".to_owned());
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Node {label} in sequence nbunch is not a valid node."
+                )));
+            }
+            let node = node_key_to_string(py, &node_obj)?;
+            if !self.inner.has_node(&node) {
+                continue;
+            }
+            let values = pyo3::types::PyList::empty(py);
+            let mut selfloop = false;
+            for neighbor in self.inner.neighbors(&node).unwrap_or_default() {
+                if neighbor == node.as_str() {
+                    selfloop = true;
+                }
+                for key in self.inner.edge_keys(&node, neighbor).unwrap_or_default() {
+                    let ek = Self::edge_key(&node, neighbor, key);
+                    if let Some(d) = self.edge_py_attrs.get(&ek) {
+                        let value = d
+                            .bind(py)
+                            .get_item(weight)
+                            .ok()
+                            .flatten()
+                            .unwrap_or_else(|| one.clone());
+                        values.append(value)?;
+                    } else if let Some(value) =
+                        self.edge_attr_py_value(py, &node, neighbor, key, weight)?
+                    {
+                        values.append(value.bind(py))?;
+                    } else {
+                        values.append(&one)?;
+                    }
+                }
+            }
+            let mut deg = sum_fn.call1((values,))?;
+            if selfloop {
+                let sl = pyo3::types::PyList::empty(py);
+                for key in self.inner.edge_keys(&node, &node).unwrap_or_default() {
+                    let ek = Self::edge_key(&node, &node, key);
+                    if let Some(d) = self.edge_py_attrs.get(&ek) {
+                        let value = d
+                            .bind(py)
+                            .get_item(weight)
+                            .ok()
+                            .flatten()
+                            .unwrap_or_else(|| one.clone());
+                        sl.append(value)?;
+                    } else if let Some(value) =
+                        self.edge_attr_py_value(py, &node, &node, key, weight)?
+                    {
+                        sl.append(value.bind(py))?;
+                    } else {
+                        sl.append(&one)?;
+                    }
+                }
+                deg = deg.add(sum_fn.call1((sl,))?)?;
+            }
+            out.push((node_obj.clone().unbind(), deg.unbind()));
         }
         Ok(out)
     }
