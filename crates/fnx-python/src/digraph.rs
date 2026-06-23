@@ -4349,7 +4349,10 @@ impl PyMultiDiGraph {
                         } else {
                             self.py_edge_key(py, src, &canonical, key)
                         };
-                        out.push(tuple_object(py, &[src_obj, node.clone().unbind(), key_obj])?);
+                        out.push(tuple_object(
+                            py,
+                            &[src_obj, node.clone().unbind(), key_obj],
+                        )?);
                     } else {
                         out.push(tuple_object(py, &[src_obj, node.clone().unbind()])?);
                     }
@@ -10684,7 +10687,10 @@ impl PyDiGraph {
                     })
                     .clone_ref(py)
                     .into_any();
-                out.push(tuple_object(py, &[source_obj, target_obj.clone_ref(py), attrs])?);
+                out.push(tuple_object(
+                    py,
+                    &[source_obj, target_obj.clone_ref(py), attrs],
+                )?);
             }
         }
         if !out.is_empty() {

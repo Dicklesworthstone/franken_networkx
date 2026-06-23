@@ -2,6 +2,74 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-23 BlackThrush MultiDiGraph Weak Connectivity CSR Keep (`br-r37-c1-04z53.9166`, cod-b)
+
+Scope: close the residual from `br-r37-c1-04z53.9165`. The borrowed-iterator
+MultiDiGraph weak-connectivity path still visited nodes by string hash and paid
+successor/predecessor map lookup per popped queue item. This lever adds a
+revision-keyed distinct-neighbor CSR cache to `MultiDiGraph` and runs the three
+weak-connectivity kernels over node indices with boolean visited arrays.
+
+Fixture and oracle:
+- Connected `MultiDiGraph` with `250` string nodes and `6,000` directed keyed
+  edges: a 250-edge directed cycle plus `5,750` deterministic random edges from
+  `random.Random(12345)`. Edge keys were `cycle{i}` / `k{i}` and edge attr
+  `w=i%17`.
+- Vendored NetworkX from `legacy_networkx_code/networkx`; fresh release
+  extension preloaded from
+  `/data/projects/.rch-targets/franken_networkx-cod-b/release/lib_fnx.so`.
+- Parity was asserted before every timed row:
+  `is_weakly_connected`, normalized component sets, and component counts all
+  matched NetworkX.
+- Timings are best-of per-call after three warmup calls for both NetworkX and
+  FNX; the FNX CSR cache is revision-keyed and rebuilt after graph mutation.
+- All compile/build commands were crate-scoped with
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`, e.g.
+  `rch exec -- cargo build -p fnx-python --release --features pyo3/abi3-py310`.
+
+Head-to-head timing:
+
+| Function | State | FNX best | NetworkX best | Ratio vs NetworkX | Self vs baseline |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `is_weakly_connected` | current `origin/main` baseline | `0.190881 ms` | `0.043933 ms` | `0.230x` | baseline |
+| `is_weakly_connected` | MultiDiGraph CSR + bool visited | `0.002677 ms` | `0.046716 ms` | `17.454x` | `71.311x` |
+| `weakly_connected_components` | current `origin/main` baseline | `0.213210 ms` | `0.048298 ms` | `0.226x` | baseline |
+| `weakly_connected_components` | MultiDiGraph CSR + bool visited | `0.023208 ms` | `0.050629 ms` | `2.182x` | `9.187x` |
+| `number_weakly_connected_components` | current `origin/main` baseline | `0.197310 ms` | `0.049203 ms` | `0.249x` | baseline |
+| `number_weakly_connected_components` | MultiDiGraph CSR + bool visited | `0.009452 ms` | `0.051999 ms` | `5.501x` | `20.875x` |
+
+Decision:
+- Keep. The lever changes the largest measured residual from a 0.226-0.249x
+  FNX loss into 2.18-17.45x FNX wins on the same fixture with parity.
+- The count path now uses a count-only BFS instead of materializing component
+  vectors only to return `.len()`.
+
+Validation:
+- Direct artifact cache-invalidation parity passed on disconnected
+  `MultiDiGraph`, then after adding a bridge edge that makes it weakly
+  connected.
+- `cargo fmt -p fnx-classes --check`: passed.
+- `cargo fmt -p fnx-python --check`: passed.
+- `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo check -p fnx-classes`:
+  passed.
+- `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`:
+  passed.
+- `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo clippy -p fnx-classes -- -D warnings`:
+  passed.
+- `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo clippy -p fnx-python --features pyo3/abi3-py310 -- -D warnings`:
+  passed.
+- `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo test -p fnx-classes`:
+  68 passed, 0 failed, 2 ignored; doctests passed.
+- `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo test -p fnx-python --features pyo3/abi3-py310`:
+  27 passed, 0 failed; doctests passed.
+- `git diff --check`: passed.
+- `jq empty .beads/issues.jsonl`: passed.
+- `ubs --only=rust crates/fnx-classes/src/digraph.rs crates/fnx-python/src/algorithms.rs crates/fnx-python/src/digraph.rs`:
+  exit 0, 0 critical issues; broad pre-existing warning inventory remains.
+- Post-rebase confirmation after `origin/main` advanced to `506683501`:
+  crate-scoped release build passed; target fixture still matched NetworkX and
+  measured `18.236x`, `2.145x`, and `5.209x` for the three rows above.
+
 ## 2026-06-23 BlackThrush MultiDiGraph Weak Connectivity Borrowed-Iterator Keep (`br-r37-c1-04z53.9165`, cod-b)
 
 Scope: BOLD-VERIFY the measured MultiDiGraph weak-connectivity residual from

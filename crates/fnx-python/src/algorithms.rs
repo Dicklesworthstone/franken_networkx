@@ -4447,31 +4447,33 @@ fn multidigraph_weak_components_borrowed<'a>(
 ) -> Vec<Vec<&'a str>> {
     use std::collections::VecDeque;
     let nodes = mdg.nodes_ordered();
-    let mut visited: rustc_hash::FxHashSet<&'a str> =
-        rustc_hash::FxHashSet::with_capacity_and_hasher(nodes.len(), Default::default());
+    let n = nodes.len();
+    let csr = mdg.csr();
+    let mut visited = vec![false; n];
     let mut components: Vec<Vec<&'a str>> = Vec::new();
-    for &start in &nodes {
-        if !visited.insert(start) {
+    for start_idx in 0..n {
+        if visited[start_idx] {
             continue;
         }
-        let mut comp: Vec<&'a str> = vec![start];
-        let mut queue: VecDeque<&'a str> = VecDeque::new();
-        queue.push_back(start);
-        while let Some(node) = queue.pop_front() {
-            if let Some(succs) = mdg.successors_iter(node) {
-                for v in succs {
-                    if visited.insert(v) {
-                        comp.push(v);
-                        queue.push_back(v);
-                    }
+        visited[start_idx] = true;
+        let mut comp: Vec<&'a str> = vec![nodes[start_idx]];
+        let mut queue: VecDeque<usize> = VecDeque::new();
+        queue.push_back(start_idx);
+        while let Some(node_idx) = queue.pop_front() {
+            for &target in csr.successors(node_idx) {
+                let target_idx = target as usize;
+                if target_idx < n && !visited[target_idx] {
+                    visited[target_idx] = true;
+                    comp.push(nodes[target_idx]);
+                    queue.push_back(target_idx);
                 }
             }
-            if let Some(preds) = mdg.predecessors_iter(node) {
-                for v in preds {
-                    if visited.insert(v) {
-                        comp.push(v);
-                        queue.push_back(v);
-                    }
+            for &source in csr.predecessors(node_idx) {
+                let source_idx = source as usize;
+                if source_idx < n && !visited[source_idx] {
+                    visited[source_idx] = true;
+                    comp.push(nodes[source_idx]);
+                    queue.push_back(source_idx);
                 }
             }
         }
@@ -4485,32 +4487,82 @@ fn multidigraph_weak_components_borrowed<'a>(
 fn multidigraph_is_weakly_connected(mdg: &fnx_classes::digraph::MultiDiGraph) -> bool {
     use std::collections::VecDeque;
     let nodes = mdg.nodes_ordered();
-    if nodes.is_empty() {
+    let n = nodes.len();
+    if n == 0 {
         return true;
     }
-    let mut visited: rustc_hash::FxHashSet<&str> =
-        rustc_hash::FxHashSet::with_capacity_and_hasher(nodes.len(), Default::default());
-    let start = nodes[0];
-    visited.insert(start);
-    let mut queue: VecDeque<&str> = VecDeque::new();
-    queue.push_back(start);
-    while let Some(node) = queue.pop_front() {
-        if let Some(succs) = mdg.successors_iter(node) {
-            for v in succs {
-                if visited.insert(v) {
-                    queue.push_back(v);
+    let csr = mdg.csr();
+    let mut visited = vec![false; n];
+    visited[0] = true;
+    let mut visited_count = 1usize;
+    let mut queue: VecDeque<usize> = VecDeque::new();
+    queue.push_back(0);
+    while let Some(node_idx) = queue.pop_front() {
+        for &target in csr.successors(node_idx) {
+            let target_idx = target as usize;
+            if target_idx < n && !visited[target_idx] {
+                visited[target_idx] = true;
+                visited_count += 1;
+                if visited_count == n {
+                    return true;
                 }
+                queue.push_back(target_idx);
             }
         }
-        if let Some(preds) = mdg.predecessors_iter(node) {
-            for v in preds {
-                if visited.insert(v) {
-                    queue.push_back(v);
+        for &source in csr.predecessors(node_idx) {
+            let source_idx = source as usize;
+            if source_idx < n && !visited[source_idx] {
+                visited[source_idx] = true;
+                visited_count += 1;
+                if visited_count == n {
+                    return true;
+                }
+                queue.push_back(source_idx);
+            }
+        }
+    }
+    visited_count == n
+}
+
+/// Count MultiDiGraph weak components via the same CSR-backed undirected walk
+/// without materializing component vectors.
+fn multidigraph_number_weakly_connected_components(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+) -> usize {
+    use std::collections::VecDeque;
+    let n = mdg.node_count();
+    if n == 0 {
+        return 0;
+    }
+    let csr = mdg.csr();
+    let mut visited = vec![false; n];
+    let mut components = 0usize;
+    let mut queue: VecDeque<usize> = VecDeque::new();
+    for start_idx in 0..n {
+        if visited[start_idx] {
+            continue;
+        }
+        components += 1;
+        visited[start_idx] = true;
+        queue.push_back(start_idx);
+        while let Some(node_idx) = queue.pop_front() {
+            for &target in csr.successors(node_idx) {
+                let target_idx = target as usize;
+                if target_idx < n && !visited[target_idx] {
+                    visited[target_idx] = true;
+                    queue.push_back(target_idx);
+                }
+            }
+            for &source in csr.predecessors(node_idx) {
+                let source_idx = source as usize;
+                if source_idx < n && !visited[source_idx] {
+                    visited[source_idx] = true;
+                    queue.push_back(source_idx);
                 }
             }
         }
     }
-    visited.len() == nodes.len()
+    components
 }
 
 /// br-r37-c1-zid1b (cc): unweighted single-pair directed distance over a MultiDiGraph
@@ -13136,7 +13188,7 @@ pub fn number_weakly_connected_components(py: Python<'_>, g: &Bound<'_, PyAny>) 
     }
     if let GraphRef::MultiDirected { mdg, .. } = &gr {
         let inner = &mdg.inner;
-        return Ok(py.allow_threads(|| multidigraph_weak_components_borrowed(inner).len()));
+        return Ok(py.allow_threads(|| multidigraph_number_weakly_connected_components(inner)));
     }
     {
         let dg_ref = gr.digraph().expect("is_directed checked above");

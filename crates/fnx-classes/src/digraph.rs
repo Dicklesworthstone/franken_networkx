@@ -114,6 +114,31 @@ impl DiCsr {
 type DiCsrCache = std::sync::Arc<std::sync::RwLock<Option<(u64, std::sync::Arc<DiCsr>)>>>;
 type DiAllIntCache = std::sync::Arc<std::sync::RwLock<Option<(u64, String, bool)>>>;
 
+/// Revision-keyed integer CSR view of a MultiDiGraph's distinct successor and
+/// predecessor rows. Parallel-edge keys are intentionally collapsed because this
+/// view is for multiplicity-insensitive structural algorithms.
+#[derive(Debug)]
+pub struct MultiDiCsr {
+    pub succ_offsets: Vec<usize>,
+    pub succ_targets: Vec<u32>,
+    pub pred_offsets: Vec<usize>,
+    pub pred_targets: Vec<u32>,
+}
+
+impl MultiDiCsr {
+    #[must_use]
+    pub fn successors(&self, idx: usize) -> &[u32] {
+        &self.succ_targets[self.succ_offsets[idx]..self.succ_offsets[idx + 1]]
+    }
+
+    #[must_use]
+    pub fn predecessors(&self, idx: usize) -> &[u32] {
+        &self.pred_targets[self.pred_offsets[idx]..self.pred_offsets[idx + 1]]
+    }
+}
+
+type MultiDiCsrCache = std::sync::Arc<std::sync::RwLock<Option<(u64, std::sync::Arc<MultiDiCsr>)>>>;
+
 #[derive(Debug, Clone)]
 pub struct DiGraph {
     mode: CompatibilityMode,
@@ -1740,6 +1765,7 @@ pub struct MultiDiGraph {
     edges: crate::FxIndexMap<DirectedEdgeKey, IndexMap<usize, AttrMap>>,
     runtime_policy: RuntimePolicy,
     edge_count: usize,
+    csr_cache: MultiDiCsrCache,
 }
 
 impl MultiDiGraph {
@@ -1756,6 +1782,7 @@ impl MultiDiGraph {
             edges: self.edges.clone(),
             runtime_policy: RuntimePolicy::new(self.mode),
             edge_count: self.edge_count,
+            csr_cache: self.csr_cache.clone(),
         }
     }
 
@@ -1821,6 +1848,7 @@ impl MultiDiGraph {
             edges: crate::FxIndexMap::default(),
             runtime_policy: RuntimePolicy::new(mode),
             edge_count: 0,
+            csr_cache: std::sync::Arc::default(),
         }
     }
 
@@ -1836,6 +1864,7 @@ impl MultiDiGraph {
             edges: crate::FxIndexMap::default(),
             runtime_policy,
             edge_count: 0,
+            csr_cache: std::sync::Arc::default(),
         }
     }
 
@@ -1898,6 +1927,61 @@ impl MultiDiGraph {
     #[must_use]
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// Revision-keyed integer CSR of distinct successor and predecessor rows.
+    /// Row order follows the existing map-backed rows exactly, so consumers can
+    /// replace string-key walks without changing observable traversal order.
+    #[must_use]
+    pub fn csr(&self) -> std::sync::Arc<MultiDiCsr> {
+        if let Ok(guard) = self.csr_cache.read()
+            && let Some((rev, csr)) = guard.as_ref()
+            && *rev == self.revision
+        {
+            return csr.clone();
+        }
+        let built = std::sync::Arc::new(self.build_csr());
+        if let Ok(mut guard) = self.csr_cache.write() {
+            *guard = Some((self.revision, built.clone()));
+        }
+        built
+    }
+
+    fn build_csr(&self) -> MultiDiCsr {
+        let n = self.nodes.len();
+        let distinct_succ_edges: usize = self.successors.values().map(IndexMap::len).sum();
+        let distinct_pred_edges: usize = self.predecessors.values().map(IndexMap::len).sum();
+        let mut succ_offsets = Vec::with_capacity(n + 1);
+        let mut pred_offsets = Vec::with_capacity(n + 1);
+        let mut succ_targets = Vec::with_capacity(distinct_succ_edges);
+        let mut pred_targets = Vec::with_capacity(distinct_pred_edges);
+        succ_offsets.push(0);
+        pred_offsets.push(0);
+        for node in self.nodes.keys() {
+            if let Some(row) = self.successors.get(node.as_str()) {
+                succ_targets.extend(row.keys().filter_map(|target| {
+                    self.nodes
+                        .get_index_of(target.as_str())
+                        .map(|idx| u32::try_from(idx).unwrap_or(u32::MAX))
+                }));
+            }
+            succ_offsets.push(succ_targets.len());
+
+            if let Some(row) = self.predecessors.get(node.as_str()) {
+                pred_targets.extend(row.keys().filter_map(|source| {
+                    self.nodes
+                        .get_index_of(source.as_str())
+                        .map(|idx| u32::try_from(idx).unwrap_or(u32::MAX))
+                }));
+            }
+            pred_offsets.push(pred_targets.len());
+        }
+        MultiDiCsr {
+            succ_offsets,
+            succ_targets,
+            pred_offsets,
+            pred_targets,
+        }
     }
 
     #[must_use]
@@ -2760,6 +2844,7 @@ impl MultiDiGraph {
             edges,
             runtime_policy: self.runtime_policy.clone(),
             edge_count,
+            csr_cache: std::sync::Arc::default(),
         }
     }
 
