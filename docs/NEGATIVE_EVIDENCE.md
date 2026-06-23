@@ -4687,6 +4687,53 @@ Behavior proof:
 - `ubs --only=python --skip=7 python/franken_networkx/__init__.py`: exit 0; broad
   pre-existing wrapper warnings, no critical findings.
 
+## 2026-06-22 BlackThrush stale MultiGraph connectivity and reverted micro-levers (`br-r37-c1-04z53.9164`, cod-a)
+
+Decision: CLOSE AS STALE / NO-SHIP. The live child bead was opened from an
+older `MG/MDG connectivity 0.18x` artifact, but a clean current-HEAD baseline
+after `86ff6156f` no longer reproduced that loss on the high-parallel
+MultiGraph shape. No eager integer-adjacency storage rewrite was made.
+
+Direct artifact environment:
+
+`PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 PYTHONPATH=<checkout>/python:<checkout>/legacy_networkx_code/networkx .venv/bin/python`
+with `/data/projects/.rch-targets/franken_networkx-cod-a/release/lib_fnx.so`
+preloaded as `franken_networkx._fnx`.
+
+Current baseline, detached worktree at `86ff6156f`, connected high-parallel
+`MultiGraph` with `250` integer nodes and `6000` edges, seed `23`:
+
+| workload | FNX median | NetworkX median | ratio vs NetworkX | parity |
+| --- | ---: | ---: | ---: | --- |
+| `connected_components` list | 0.097 ms | 0.108 ms | 1.111x | true |
+| `number_connected_components` | 0.079 ms | 0.100 ms | 1.262x | true |
+| `is_connected` | 0.070 ms | 0.094 ms | 1.343x | true |
+| `node_connected_component` | 0.089 ms | 0.093 ms | 1.044x | true |
+
+Rejected sub-lever 1: `PyMultiDiGraph._native_selfloop_edges` reused a single
+owned `(u, u, key)` lookup tuple in the same style as `PyMultiGraph`. The first
+focused run mixed modest wins with regressions, and the narrower repeat did not
+show a stable material gain. Source was reverted before final gates.
+
+Rejected sub-lever 2: a total-only numeric accumulator for
+`MultiDiGraph.degree(weight="weight")` avoided per-node `PyList` construction
+and Python `sum()` for exact bool/int/float live weights, falling back for custom
+objects. Same-fixture baseline was `5.761 ms` FNX vs `3.226 ms` NetworkX
+(`0.560x`). The first candidate run looked positive at `5.088 ms` vs `3.307 ms`
+(`0.650x`), but the confirmation run regressed to `8.782 ms` vs `2.779 ms`
+(`0.316x`). Source was reverted.
+
+Behavior proof for the reverted weighted-degree candidate passed before
+rejection: full-list weighted/unweighted degree parity, missing-weight default
+`1`, post-creation live edge-attribute mutation, and custom-object fallback
+matched vendored NetworkX.
+
+Validation after revert:
+
+- `cargo +nightly-2026-06-10 fmt -p fnx-python --check`: passed with
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- `br close br-r37-c1-04z53.9164 ...`: closed the stale/no-ship child bead.
+
 ## 2026-06-22 BlackThrush weighted MultiDiGraph sparse-export stale-gap closeout (`br-r37-c1-wvuf7`, cod-a)
 
 Decision: CLOSE AS STALE. The open `br-r37-c1-wvuf7` tracker still described
