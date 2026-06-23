@@ -73,6 +73,30 @@ def test_digraph_edges_nbunch_unhashable_unchanged():
 
 
 @needs_nx
+def test_digraph_nbunch_data_true_cache_keeps_live_semantics():
+    DG = fnx.DiGraph()
+    DG.add_edges_from([(0, 1, {"w": 1}), (0, 2, {"w": 2}), (1, 2, {"w": 3})])
+    nbunch = [0, 0, 1, 99]
+
+    first = list(DG.edges(nbunch, data=True))
+    first.pop()
+    assert len(list(DG.edges(nbunch, data=True))) == 3
+
+    rows = list(DG.out_edges(nbunch, data=True))
+    rows[0][2]["seen"] = True
+    assert DG[0][1]["seen"] is True
+    assert list(DG.edges(nbunch, data=True))[0][2]["seen"] is True
+
+    DG.add_edge(1, 3, w=13)
+    assert [(u, v, dict(d)) for u, v, d in DG.edges(nbunch, data=True)] == [
+        (0, 1, {"w": 1, "seen": True}),
+        (0, 2, {"w": 2}),
+        (1, 2, {"w": 3}),
+        (1, 3, {"w": 13}),
+    ]
+
+
+@needs_nx
 def test_multigraph_edges_nbunch_unhashable_unchanged():
     MG = fnx.MultiGraph([(1, 2)])
     MGX = nx.MultiGraph([(1, 2)])

@@ -2,6 +2,76 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-23 BlackThrush DiGraph Nbunch `data=True` Cache Keep (`br-r37-c1-18ect`, cod-b)
+
+Scope: close the largest ready cod-b directed-edge residual. The prior
+post-rebase artifact showed `DiGraph.edges(nbunch, data=True)` at `0.531x` /
+`0.447x` and `DiGraph.out_edges(nbunch, data=True)` at `0.714x` / `0.705x`
+versus vendored NetworkX. The live-dict native path was correct but rebuilt the
+same tuple list on every repeated primitive-int/string nbunch call.
+
+Fixture and oracle:
+- Deterministic attributed `DiGraph` fixtures:
+  `n=1500/m=9000` with `nbunch=list(range(500))` yielding `3,000` rows, and
+  `n=3500/m=24000` with `nbunch=list(range(1000))` yielding `6,000` rows.
+- Every edge has `w` and `tag` attrs; parity normalizes each yielded live dict to
+  sorted items and asserts exact tuple order against vendored NetworkX before
+  timing.
+- Fresh release extension was preloaded from
+  `/data/projects/.rch-targets/franken_networkx-cod-b/release/lib_fnx.so`.
+  Build command was crate-scoped:
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo build -p fnx-python --release --features pyo3/abi3-py310`.
+
+Lever:
+- Added a one-entry Python wrapper cache for exact `DiGraph`, `data=True`,
+  list/tuple nbunches whose nodes are primitive `int`/`str`. It is keyed by
+  `(nodes_seq, edges_seq, tuple(nbunch))`, stores an immutable private tuple pool,
+  and returns a fresh list/view each call. Non-primitive row-display cases keep
+  the existing native fallback.
+- The cached tuples still carry the same live attr dicts, so mutating
+  `d` from `(u, v, d)` updates `G[u][v]`; adding/removing edges changes
+  `edges_seq` and misses the cache.
+
+Head-to-head timing:
+
+| Workload | State | FNX median | NetworkX median | Ratio vs NetworkX | Self vs baseline |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `DiGraph.edges(nbunch, data=True)`, n=1500/m=9000, 3000 rows | current `origin/main` baseline | `0.609845 ms` | `0.320577 ms` | `0.526x` | baseline |
+| `DiGraph.edges(nbunch, data=True)`, n=1500/m=9000, 3000 rows | nbunch data cache | `0.199608 ms` | `0.320267 ms` | `1.604x` | `3.055x` |
+| `DiGraph.out_edges(nbunch, data=True)`, n=1500/m=9000, 3000 rows | current `origin/main` baseline | `0.363468 ms` | `0.308695 ms` | `0.849x` | baseline |
+| `DiGraph.out_edges(nbunch, data=True)`, n=1500/m=9000, 3000 rows | nbunch data cache | `0.070633 ms` | `0.326308 ms` | `4.620x` | `5.146x` |
+| `DiGraph.edges(nbunch, data=True)`, n=3500/m=24000, 6000 rows | current `origin/main` baseline | `1.216033 ms` | `0.773836 ms` | `0.636x` | baseline |
+| `DiGraph.edges(nbunch, data=True)`, n=3500/m=24000, 6000 rows | nbunch data cache | `0.336407 ms` | `0.800637 ms` | `2.380x` | `3.615x` |
+| `DiGraph.out_edges(nbunch, data=True)`, n=3500/m=24000, 6000 rows | current `origin/main` baseline | `1.314460 ms` | `1.082791 ms` | `0.824x` | baseline |
+| `DiGraph.out_edges(nbunch, data=True)`, n=3500/m=24000, 6000 rows | nbunch data cache | `0.091153 ms` | `0.821306 ms` | `9.010x` | `14.420x` |
+
+Decision:
+- Keep. The ready `data=True` residual is now a clear win on all four rows,
+  while non-cacheable nbunch shapes retain the existing native route.
+
+Validation:
+- Direct cache semantics probe passed: caller mutation of a returned list does
+  not affect subsequent calls; live attr dict mutation remains visible through
+  `G[u][v]` and the next cached edge view; adding an edge invalidates the cache;
+  unhashable nbunch still raises `NetworkXError`.
+- Focused pytest via the freshly built extension:
+  `tests/python/test_edges_nbunch_unhashable_parity.py -q` passed,
+  `13 passed in 0.33s`.
+- `python -m py_compile python/franken_networkx/__init__.py tests/python/test_edges_nbunch_unhashable_parity.py`:
+  passed.
+- `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`:
+  passed.
+- `git diff --check`: passed.
+- `jq empty .beads/issues.jsonl`: passed.
+- `cargo fmt -p fnx-python --check` is not green on current `origin/main` due
+  to pre-existing rustfmt drift in `crates/fnx-python/src/lib.rs`; that file is
+  exclusively reserved by CopperCliff, so this run did not edit it.
+- `ubs` on the four changed files was interrupted after hanging in the Python
+  scanner on the large wrapper file.
+- Final post-rebase over `e09a7265c`: crate-scoped release build passed,
+  focused pytest still passed (`13 passed in 0.32s`), and the four ratio rows
+  remained wins at `1.863x`, `7.479x`, `2.359x`, and `10.117x`.
+
 ## 2026-06-23 BlackThrush MultiDiGraph Weak Connectivity CSR Keep (`br-r37-c1-04z53.9166`, cod-b)
 
 Scope: close the residual from `br-r37-c1-04z53.9165`. The borrowed-iterator

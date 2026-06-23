@@ -238,7 +238,7 @@ def _digraph_out_edges(self, nbunch=None, data=False, default=None):
         native = getattr(self, "_native_out_edges_nbunch_data", None)
         if native is not None:
             try:
-                result = native(nbunch)
+                result = _digraph_out_edges_data_cache(self, nbunch, native)
             except TypeError as exc:
                 raise NetworkXError(str(exc))
             if result is not None:
@@ -664,6 +664,27 @@ def _guarded_edge_list(result, graph, *, guard_edge_count=False):
         result = _EdgeListWithSetAlgebra(result)
     result._fnx_guard_graph = graph
     result._fnx_guard_edge_count = guard_edge_count
+    return result
+
+
+def _primitive_nbunch_cache_key(graph, nbunch):
+    if not isinstance(nbunch, (list, tuple)):
+        return None
+    nbunch_key = tuple(nbunch)
+    if not all(type(node) in (int, str) for node in nbunch_key):
+        return None
+    return (graph.nodes_seq, graph.edges_seq, nbunch_key)
+
+
+def _digraph_out_edges_data_cache(graph, nbunch, native):
+    key = _primitive_nbunch_cache_key(graph, nbunch)
+    if key is not None:
+        cached = getattr(graph, "_fnx_out_edges_nbunch_data_cache", None)
+        if cached is not None and cached[0] == key:
+            return list(cached[1])
+    result = native(nbunch)
+    if result is not None and key is not None:
+        graph._fnx_out_edges_nbunch_data_cache = (key, tuple(result))
     return result
 
 
@@ -1968,7 +1989,12 @@ class _DiGraphEdgeView:
             native = getattr(self._graph, native_name, None)
             if native is not None:
                 try:
-                    native_result = native(nbunch)
+                    if data is True:
+                        native_result = _digraph_out_edges_data_cache(
+                            self._graph, nbunch, native
+                        )
+                    else:
+                        native_result = native(nbunch)
                 except TypeError as exc:
                     raise NetworkXError(str(exc))
                 if native_result is not None:
