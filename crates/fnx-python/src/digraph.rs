@@ -109,6 +109,11 @@ pub struct PyDiGraph {
     /// immutable and the inner dicts stay live, so repeats return a fresh list
     /// of the same tuple objects instead of rebuilding (was 3x slower than nx).
     pub(crate) edges_with_data_cache: Option<(u64, u64, Vec<PyObject>)>,
+    /// br-r37-c1-inedges-cache (cc): in_edges(data=True) analog of
+    /// edges_with_data_cache — (nodes_seq, edges_seq)-keyed target-major
+    /// (source, target, live_attr) tuples. out_edges(data=True) was 12x faster
+    /// than in_edges purely because in_edges rebuilt every call; this caches it.
+    pub(crate) in_edges_with_data_cache: Option<(u64, u64, Vec<PyObject>)>,
     /// (nodes_seq, edges_seq)-keyed live attr-dict handles in edge iteration
     /// order for `edges(data=<key>)`. This caches dict lookup by edge, not
     /// attr values, so edge-attr mutations remain visible.
@@ -7380,6 +7385,7 @@ impl PyDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            in_edges_with_data_cache: None,
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         })
@@ -8928,6 +8934,7 @@ impl PyDiGraph {
                 node_data_mirror: std::sync::Mutex::new(None),
                 dict_of_dicts_cache: None,
                 edges_with_data_cache: None,
+                in_edges_with_data_cache: None,
                 edges_attr_dicts_cache: None,
                 node_iter_mirror: std::sync::Mutex::new(None),
             };
@@ -8954,6 +8961,7 @@ impl PyDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            in_edges_with_data_cache: None,
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
@@ -9186,6 +9194,7 @@ impl PyDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            in_edges_with_data_cache: None,
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
@@ -9257,6 +9266,7 @@ impl PyDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            in_edges_with_data_cache: None,
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
@@ -9340,6 +9350,7 @@ impl PyDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            in_edges_with_data_cache: None,
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
@@ -9854,24 +9865,39 @@ impl PyDiGraph {
         if self.inner.edge_count() > 0 {
             self.mark_edges_dirty();
         }
-        let mut items = Vec::with_capacity(self.inner.edge_count());
-        for target in self.inner.nodes_ordered() {
-            let py_t = self.py_node_key(py, target);
-            for source in self.inner.predecessors(target).unwrap_or_default() {
-                let py_s = self.py_pred_key(py, target, source) /* br-r37-c1-z6uka */;
-                let ek = Self::edge_key(source, target);
-                let attrs = self
-                    .edge_py_attrs
-                    .entry(ek)
-                    .or_insert_with(|| PyDict::new(py).unbind())
-                    .clone_ref(py);
-                items.push(tuple_object(
-                    py,
-                    &[py_s, py_t.clone_ref(py), attrs.into_any()],
-                )?);
+        // br-r37-c1-inedges-cache (cc): mirror _native_edges_with_data's
+        // (nodes_seq, edges_seq)-keyed cache. Previously in_edges(data=True)
+        // rebuilt every call (+ alloc'd an empty PyDict per attr-less edge),
+        // making it 12x slower than out_edges(data=True). Cache the target-major
+        // (source, target, live_attr) tuples; on a seq match return a fresh list
+        // of the same tuple objects (attr mutations stay visible via live dicts;
+        // node/edge mutation bumps a seq and invalidates).
+        let valid = matches!(
+            &self.in_edges_with_data_cache,
+            Some((ns, es, _)) if *ns == self.nodes_seq && *es == self.edges_seq
+        );
+        if !valid {
+            let pairs: Vec<(String, String)> = {
+                let mut v = Vec::with_capacity(self.inner.edge_count());
+                for target in self.inner.nodes_ordered() {
+                    for source in self.inner.predecessors(target).unwrap_or_default() {
+                        v.push((source.to_owned(), target.to_owned()));
+                    }
+                }
+                v
+            };
+            let mut items: Vec<PyObject> = Vec::with_capacity(pairs.len());
+            for (source, target) in pairs {
+                let py_s = self.py_pred_key(py, &target, &source) /* br-r37-c1-z6uka */;
+                let py_t = self.py_node_key(py, &target);
+                let attrs = self.materialize_edge_py_attrs(py, &source, &target);
+                items.push(tuple_object(py, &[py_s, py_t, attrs.into_any()])?);
             }
+            self.in_edges_with_data_cache = Some((self.nodes_seq, self.edges_seq, items));
         }
-        Ok(items.into_pyobject(py)?.into_any().unbind())
+        let cached = &self.in_edges_with_data_cache.as_ref().unwrap().2;
+        let fresh: Vec<PyObject> = cached.iter().map(|t| t.clone_ref(py)).collect();
+        Ok(fresh.into_pyobject(py)?.into_any().unbind())
     }
 
     /// br-r37-c1-inedges: in_edges(data=<key>). Yields ``attrs.get(key,
@@ -10779,6 +10805,7 @@ impl PyDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            in_edges_with_data_cache: None,
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         })
