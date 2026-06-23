@@ -4305,6 +4305,164 @@ impl PyMultiDiGraph {
         Ok(Some(out))
     }
 
+    // br-r37-c1-mdginedges (cc): in_edges(nbunch, ...) natives — pred-major siblings
+    // of the out_edges nbunch trio. nbunch nodes are the TARGETS; predecessors give
+    // the sources. Node-deduped, validated like out_edges; bail on pred custom-key
+    // mirrors. Replaces the Python pred loop (in_edges(nbunch) was 0.09x).
+    fn _native_mdg_in_edges_nbunch_no_data(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+        keys: bool,
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        if !self.pred_py_keys.is_empty() {
+            return Ok(None);
+        }
+        let mut out: Vec<PyObject> = Vec::new();
+        let mut seen_nodes: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for item in nbunch.try_iter()? {
+            let node = item?;
+            if node.hash().is_err() {
+                let label = node
+                    .str()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "?".to_owned());
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Node {label} in sequence nbunch is not a valid node."
+                )));
+            }
+            let canonical = node_key_to_string(py, &node)?;
+            let Some(preds) = self.inner.predecessors(&canonical) else {
+                continue;
+            };
+            if !seen_nodes.insert(canonical.clone()) {
+                continue;
+            }
+            for src in preds {
+                for key in self.inner.edge_keys(src, &canonical).unwrap_or_default() {
+                    let src_obj = self.py_node_key(py, src);
+                    if keys {
+                        let key_obj = if self.edge_py_keys.is_empty() {
+                            crate::unwrap_infallible(key.into_pyobject(py))
+                                .into_any()
+                                .unbind()
+                        } else {
+                            self.py_edge_key(py, src, &canonical, key)
+                        };
+                        out.push(tuple_object(py, &[src_obj, node.clone().unbind(), key_obj])?);
+                    } else {
+                        out.push(tuple_object(py, &[src_obj, node.clone().unbind()])?);
+                    }
+                }
+            }
+        }
+        Ok(Some(out))
+    }
+
+    fn _native_mdg_in_edges_nbunch_data(
+        &mut self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+        keys: bool,
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        if !self.pred_py_keys.is_empty() {
+            return Ok(None);
+        }
+        let mut out: Vec<PyObject> = Vec::new();
+        let mut seen_nodes: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for item in nbunch.try_iter()? {
+            let node = item?;
+            if node.hash().is_err() {
+                let label = node
+                    .str()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "?".to_owned());
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Node {label} in sequence nbunch is not a valid node."
+                )));
+            }
+            let canonical = node_key_to_string(py, &node)?;
+            let preds: Vec<String> = match self.inner.predecessors(&canonical) {
+                Some(v) => v.iter().map(|s| (*s).to_owned()).collect(),
+                None => continue,
+            };
+            if !seen_nodes.insert(canonical.clone()) {
+                continue;
+            }
+            for src in &preds {
+                for key in self.inner.edge_keys(src, &canonical).unwrap_or_default() {
+                    let src_obj = self.py_node_key(py, src);
+                    let attrs = self
+                        .ensure_edge_py_attrs(py, src, &canonical, key)
+                        .clone_ref(py)
+                        .into_any();
+                    if keys {
+                        let key_obj = self.py_edge_key(py, src, &canonical, key);
+                        out.push(tuple_object(
+                            py,
+                            &[src_obj, node.clone().unbind(), key_obj, attrs],
+                        )?);
+                    } else {
+                        out.push(tuple_object(py, &[src_obj, node.clone().unbind(), attrs])?);
+                    }
+                }
+            }
+        }
+        Ok(Some(out))
+    }
+
+    fn _native_mdg_in_edges_nbunch_data_key(
+        &mut self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+        data: &Bound<'_, PyAny>,
+        default: PyObject,
+        keys: bool,
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        if !self.pred_py_keys.is_empty() {
+            return Ok(None);
+        }
+        let mut out: Vec<PyObject> = Vec::new();
+        let mut seen_nodes: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for item in nbunch.try_iter()? {
+            let node = item?;
+            if node.hash().is_err() {
+                let label = node
+                    .str()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "?".to_owned());
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Node {label} in sequence nbunch is not a valid node."
+                )));
+            }
+            let canonical = node_key_to_string(py, &node)?;
+            let preds: Vec<String> = match self.inner.predecessors(&canonical) {
+                Some(v) => v.iter().map(|s| (*s).to_owned()).collect(),
+                None => continue,
+            };
+            if !seen_nodes.insert(canonical.clone()) {
+                continue;
+            }
+            for src in &preds {
+                for key in self.inner.edge_keys(src, &canonical).unwrap_or_default() {
+                    let src_obj = self.py_node_key(py, src);
+                    let value =
+                        self.edge_data_value_or_default(py, src, &canonical, key, data, &default)?;
+                    if keys {
+                        let key_obj = self.py_edge_key(py, src, &canonical, key);
+                        out.push(tuple_object(
+                            py,
+                            &[src_obj, node.clone().unbind(), key_obj, value],
+                        )?);
+                    } else {
+                        out.push(tuple_object(py, &[src_obj, node.clone().unbind(), value])?);
+                    }
+                }
+            }
+        }
+        Ok(Some(out))
+    }
+
     /// br-r37-c1-04z53 cod-b: attr-key sibling of
     /// `_native_mdg_out_edges_nbunch_data`. The prior route first materialized
     /// every live attr dict via data=True and then projected one scalar.

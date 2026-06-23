@@ -380,6 +380,28 @@ def _multidigraph_in_edges(self, nbunch=None, data=False, keys=False, default=No
                 result = native(data, default, keys)
                 if result is not None:
                     return result
+    elif type(self) is MultiDiGraph and (
+        isinstance(nbunch, (list, tuple, set, frozenset))
+        or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
+    ):
+        # iterable nbunch -> native pred-major pass (a single in-graph node returns
+        # its in-edges via the Python path below). br-r37-c1-mdginedges (cc).
+        if data is True:
+            native = getattr(self, "_native_mdg_in_edges_nbunch_data", None)
+        elif data is False:
+            native = getattr(self, "_native_mdg_in_edges_nbunch_no_data", None)
+        else:
+            native = getattr(self, "_native_mdg_in_edges_nbunch_data_key", None)
+        if native is not None:
+            try:
+                if data is True or data is False:
+                    result = native(nbunch, keys)
+                else:
+                    result = native(nbunch, data, default, keys)
+            except TypeError as exc:
+                raise NetworkXError(str(exc))
+            if result is not None:
+                return result
     result = []
     for target in self.nbunch_iter(nbunch):
         for source, keyed_attrs in self.pred[target].items():
