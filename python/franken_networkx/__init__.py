@@ -5226,6 +5226,24 @@ class _WeightAwareDegreeView:
             return ((n, self._weighted_value(n, weight)) for n in self._graph)
         if nbunch in self._graph:
             return self._weighted_value(nbunch, weight)
+        # br-r37-c1-degnbw (cc): iterable nbunch + str weight -> native weighted
+        # subset pass (was a lazy _FilteredDegreeView whose per-node iteration ran
+        # the Python _weighted_value AtlasView loop, ~0.12x). pairs are served on
+        # iteration; view[node] still computes weighted via the parent. Native skips
+        # not-in-graph nodes (== nbunch_iter) and raises NetworkXError on an
+        # unhashable element (== nx + the unweighted path). Falls through when no
+        # native (conversion views) or a non-str weight.
+        if isinstance(weight, str) and (
+            isinstance(nbunch, (list, tuple, set, frozenset))
+            or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
+        ):
+            native = getattr(self._graph, "_native_weighted_degree_subset", None)
+            if native is not None:
+                try:
+                    pairs = native(nbunch, weight)
+                except TypeError as exc:
+                    raise NetworkXError(str(exc))
+                return _FilteredDegreeView(self, None, weight=weight, pairs=pairs)
         # br-degexc: a single hashable nbunch that isn't in the graph
         # must raise NetworkXError, matching NX. Falling through to
         # ``[n for n in nbunch ...]`` would TypeError on non-iterables

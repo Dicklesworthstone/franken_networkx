@@ -10774,6 +10774,59 @@ impl PyGraph {
         Ok(out)
     }
 
+    /// br-r37-c1-degnbw (cc): weighted-subset sibling of _native_weighted_degree —
+    /// degree(nbunch, weight) over only the (validated, in-graph) nbunch nodes.
+    /// nbunch+weight previously had no native and fell to the Python _degree_compute
+    /// AtlasView loop (~0.12x). NOT deduped (matches _native_degree_pairs_subset /
+    /// nx degree(nbunch) — repeated nbunch nodes repeat); KEEP builtins.sum for
+    /// float parity; selfloops double-count via the trailing add.
+    fn _native_weighted_degree_subset(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+        weight: &str,
+    ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        let one = 1i64.into_pyobject(py)?.into_any();
+        let sum_fn = py.import("builtins")?.getattr("sum")?;
+        let mut out: Vec<(PyObject, PyObject)> = Vec::new();
+        for item in nbunch.try_iter()? {
+            let node = item?;
+            if node.hash().is_err() {
+                let label = node
+                    .str()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "?".to_owned());
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Node {label} in sequence nbunch is not a valid node."
+                )));
+            }
+            let canonical = node_key_to_string(py, &node)?;
+            if self.inner.get_node_index(&canonical).is_none() {
+                continue;
+            }
+            let values = pyo3::types::PyList::empty(py);
+            let mut selfloop = false;
+            for neighbor in self.inner.neighbors(&canonical).unwrap_or_default() {
+                if neighbor == canonical.as_str() {
+                    selfloop = true;
+                }
+                let value = self
+                    .edge_attr_py_value(py, &canonical, neighbor, weight)?
+                    .unwrap_or_else(|| one.clone().unbind());
+                values.append(value.bind(py))?;
+            }
+            let mut deg = sum_fn.call1((values,))?;
+            if selfloop {
+                let value = self
+                    .edge_attr_py_value(py, &canonical, &canonical, weight)?
+                    .unwrap_or_else(|| one.clone().unbind());
+                deg = deg.add(value.bind(py))?;
+            }
+            out.push((node.clone().unbind(), deg.unbind()));
+        }
+        Ok(out)
+    }
+
     /// Equality check — two graphs are equal if they have the same nodes, edges, and attributes.
     fn __eq__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<bool> {
         let other = match other.extract::<PyRef<'_, PyGraph>>() {
