@@ -4881,7 +4881,7 @@ Behavior proof:
 - `ubs --only=python --skip=7 python/franken_networkx/__init__.py`: exit 0; broad
   pre-existing wrapper warnings, no critical findings.
 
-## 2026-06-23 BlackThrush MultiGraph copy clean-attr native fast path - 1.20x FNX self-speedup (`br-r37-c1-jelx1`, cod-a)
+## 2026-06-23 BlackThrush MultiGraph copy clean-attr native fast path - 1.18x FNX self-speedup (`br-r37-c1-jelx1`, cod-b)
 
 Context: the larger live `MultiDiGraph.in_degree(nbunch, weight)` 0.05x and
 `is_path` 0.21x gaps were both in files currently reserved by CopperCliff
@@ -4891,53 +4891,54 @@ unowned perf bead: `MultiGraph.copy()` on attributed multigraphs.
 Lever: `PyMultiGraph._native_copy()` already rebuilt the inner graph in
 NetworkX copy-walk order, but on clean graphs it still reparsed every live edge
 Python attr dict back into a Rust `AttrMap`. The kept path preserves the
-existing ordered keyed-edge bulk insertion path, but for clean edge attrs it
-copies the Python mirror dict and reuses the already-synchronized Rust
-`AttrMap`; dirty edge attrs still reparse their live Python dicts.
+existing `edges_ordered()` copy walk and node insertion mechanics, but for clean
+edge attrs it copies the Python mirror dict and reuses the already-synchronized
+Rust `AttrMap`; dirty edge attrs still reparse their live Python dicts.
 
-Keep decision: KEEP. The same 1500-node / 9000-edge attributed `MultiGraph`
-shape remains below NetworkX, but FNX median copy time fell from 66.222 ms to
-55.317 ms, a 1.20x median self-speedup, and the median ratio moved from 0.477x
-to 0.524x. This is modest, not a full closeout, but not a near-zero result.
+Keep decision: KEEP. The same 1500-node / 15000-edge attributed `MultiGraph`
+shape remains below NetworkX, but FNX median copy time fell from 97.537 ms to
+82.430 ms, a 1.18x self-speedup, and the median ratio moved from 0.503x to
+0.577x. This is modest, not a full closeout, but not a near-zero result.
 
 Direct artifact environment:
 
-`PYTHONPATH=<temp franken_networkx package copy>:/data/projects/franken_networkx/legacy_networkx_code/networkx python3`
-with `/data/projects/.rch-targets/franken_networkx-cod-a/release/lib_fnx.so`
-copied into the temp package as `franken_networkx._fnx.abi3.so`.
+`PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx/legacy_networkx_code /data/projects/franken_networkx/.venv/bin/python`
+with `/data/projects/.rch-targets/franken_networkx-cod-b/release/lib_fnx.so`
+preloaded as `franken_networkx._fnx`.
 
 Measured trigger baseline before the edit, current turn, deterministic
-1500-node / 9000-edge attributed `MultiGraph.copy()` with unique integer edge
+1500-node / 15000-edge attributed `MultiGraph.copy()` with unique string edge
 keys:
 
 | workload | FNX min | FNX median | NetworkX min | NetworkX median | ratio min | ratio median | parity |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `MultiGraph.copy()` attributed 1500/9000 | 51.820 ms | 66.222 ms | 29.797 ms | 31.567 ms | 0.575x | 0.477x | true |
+| `MultiGraph.copy()` attributed 1500/15000 | 90.210 ms | 97.537 ms | 47.614 ms | 49.031 ms | 0.528x | 0.503x | true |
 
 After timing, same graph generator and artifact family:
 
 | workload | FNX min | FNX median | NetworkX min | NetworkX median | ratio min | ratio median | parity |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `MultiGraph.copy()` attributed 1500/9000 | 46.837 ms | 55.317 ms | 26.019 ms | 28.989 ms | 0.556x | 0.524x | true |
+| `MultiGraph.copy()` attributed 1500/15000 | 75.887 ms | 82.430 ms | 46.622 ms | 47.579 ms | 0.614x | 0.577x | true |
 
 Behavior proof:
 
 - Direct artifact parity passed for source and copied `nodes(data=True)` /
   `edges(keys=True, data=True)`, edge count, shallow nested node attr sharing,
-  and copied edge-dict independence.
+  and a dirty-edge copied output after mutating a live edge attr dict.
 - `rch exec -- cargo build -p fnx-python --release --features pyo3/abi3-py310`:
-  passed before and after the edit with
-  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
-- `rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`: passed with
-  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
-- `rch exec -- cargo test -p fnx-python --features pyo3/abi3-py310`: 28 passed,
-  0 failed; doctests 0 passed, 0 failed.
+  passed with `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`.
+- `rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`: passed.
+- `rch exec -- cargo test -p fnx-python --features pyo3/abi3-py310`:
+  28 passed, 0 failed; doctests 0 passed, 0 failed.
 - `rch exec -- cargo clippy -p fnx-python --features pyo3/abi3-py310 --all-targets -- -D warnings`:
-  passed with `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+  passed.
 - `cargo fmt -p fnx-python -- --check`: passed.
+- `python -m py_compile python/franken_networkx/__init__.py`: passed.
 - `git diff --check`: passed.
 - `ubs --only=rust crates/fnx-python/src/lib.rs`: exit 0; broad pre-existing
   `lib.rs` warnings, no critical findings.
+- `ubs --only=python --skip=7 python/franken_networkx/__init__.py`: exit 0;
+  broad pre-existing wrapper warnings, no critical findings.
 
 ## 2026-06-23 BlackThrush MultiDiGraph clear_edges native in-place clear - 2.5x-4.7x FNX self-speedup (`br-r37-c1-04z53.9168`, cod-a)
 
