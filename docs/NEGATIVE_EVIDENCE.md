@@ -4951,6 +4951,63 @@ Behavior proof:
 - `ubs --only=rust crates/fnx-python/src/digraph.rs`: exit 0; broad
   pre-existing `digraph.rs` warnings, no critical findings.
 
+## 2026-06-23 BlackThrush DiGraph `edges(nbunch, data="w")` guarded-drain no-ship (`br-r37-c1-04z53.9162`, cod-b)
+
+Target: close the residual where exact `DiGraph.edges(nbunch, data="w")`
+returns a canonical guarded `OutEdgeDataView` and remains slower than vendored
+NetworkX even though `DiGraph.out_edges(nbunch, data="w")` can use the same
+native scalar emitter with less wrapper overhead.
+
+Direct artifact environment:
+
+`/data/projects/franken_networkx/.venv/bin/python` with
+`/data/projects/.rch-targets/franken_networkx-cod-b/release/lib_fnx.so`
+preloaded as `franken_networkx._fnx`, source package imported from
+`/data/projects/.scratch/franken_networkx-cod-b-20260623T034823Z/python`, and
+vendored NetworkX imported from
+`/data/projects/.scratch/franken_networkx-cod-b-20260623T034823Z/legacy_networkx_code`.
+
+Measured trigger: deterministic unique-edge `DiGraph`, `nbunch=list(range(k))`,
+attr key `"w"`, exact tuple-order/digest parity asserted before timing.
+
+Rejected attempts:
+
+| Attempt | Workload | FNX median | NetworkX median | ratio median | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| Rust iterator over `list.__iter__(view)` plus `edges_seq` guard | `edges`, n=1500/m=9000/k=750, 9000 rows | 3.265 ms | 1.115 ms | 0.342x | reverted |
+| Rust iterator over `list.__iter__(view)` plus `edges_seq` guard | `edges`, n=3500/m=24000/k=1750, 24000 rows | 9.593 ms | 2.937 ms | 0.306x | reverted |
+| Rust iterator over `list.__iter__(view)` plus `edges_seq` guard | `edges`, n=7000/m=48000/k=3500, 48000 rows | 19.417 ms | 5.989 ms | 0.308x | reverted |
+| Typed `PyList` indexed guarded iterator, `edges_seq` only | `edges`, n=1500/m=9000/k=750, 9000 rows | 1.371 ms | 1.077 ms | 0.785x | reverted |
+| Typed `PyList` indexed guarded iterator, `edges_seq` only | `edges`, n=3500/m=24000/k=1750, 24000 rows | 7.946 ms | 2.985 ms | 0.376x | reverted |
+| Typed `PyList` indexed guarded iterator, `edges_seq` only | `edges`, n=7000/m=48000/k=3500, 48000 rows | 16.797 ms | 6.135 ms | 0.365x | reverted |
+
+Mutation/parity probe:
+
+- Both compiled attempts preserved exact row parity.
+- The typed `PyList` attempt matched NetworkX for node-only mutation during
+  iteration (`next()` continues) and edge mutation during iteration
+  (`RuntimeError: dictionary changed size during iteration`).
+- That semantics fix was still a performance no-ship because the benchmark rows
+  remained below NetworkX and below the prior same-artifact current-path timing.
+
+Additional unshipped probes:
+
+- Returning `list.__iter__(self)` without a mid-iteration graph guard won the
+  1500/9000 row (`1.31x` median in an in-memory monkeypatch) but drops the
+  required RuntimeError mutation guard.
+- A `yield from list.__iter__(self)` end-of-drain guard won the same row
+  (`1.17x` median) but raises after the old snapshot is exhausted rather than on
+  the first `next()` after an edge mutation, so it weakens NetworkX-observable
+  behavior and was not shipped.
+
+Decision: REJECT / close this wrapper-drain bead for now. The viable next lever
+is not another Python/Rust `__next__` wrapper around a materialized list; those
+cross the interpreter boundary per row or keep the same indexed drain. A future
+attempt should either add a C-level list iterator with exact fail-fast checks or
+change the view substrate so the canonical `OutEdgeDataView` can preserve
+NetworkX mutation timing without per-edge Python callback overhead. All code
+from these attempts was reverted before commit.
+
 ## 2026-06-23 BlackThrush weighted degree nbunch native subsets - 0.03x-0.13x -> 0.55x-1.07x (`br-r37-c1-04z53.9167`, cod-a)
 
 Lever: `degree(nbunch, weight=...)` had native support for full-graph weighted
