@@ -4439,10 +4439,9 @@ fn multidigraph_sssp_length_with_parents<'a>(
     out
 }
 
-/// br-r37-c1-zid1b (cc): weakly-connected components of a MultiDiGraph by direct BFS
-/// over the UNDIRECTED adjacency (successors ∪ predecessors) — no simple-DiGraph build.
-/// Multiplicity is irrelevant to weak connectivity. Components in node-iteration order.
-fn multidigraph_weak_components_borrowed<'a>(
+/// br-r37-c1-04z53.9166: weakly-connected components of a MultiDiGraph by
+/// direct BFS over revision-cached CSR rows.
+fn multidigraph_weak_components_indexed<'a>(
     mdg: &'a fnx_classes::digraph::MultiDiGraph,
 ) -> Vec<Vec<&'a str>> {
     use std::collections::VecDeque;
@@ -4482,8 +4481,8 @@ fn multidigraph_weak_components_borrowed<'a>(
     components
 }
 
-/// br-r37-c1-zid1b (cc): is a MultiDiGraph weakly connected? early-exit BFS over the
-/// undirected adjacency (successors ∪ predecessors) from the first node.
+/// br-r37-c1-04z53.9166: is a MultiDiGraph weakly connected? Early-exit BFS
+/// over the same cached CSR rows used for component enumeration.
 fn multidigraph_is_weakly_connected(mdg: &fnx_classes::digraph::MultiDiGraph) -> bool {
     use std::collections::VecDeque;
     let nodes = mdg.nodes_ordered();
@@ -13155,7 +13154,7 @@ pub fn weakly_connected_components(
     if let GraphRef::MultiDirected { mdg, .. } = &gr {
         // br-r37-c1-zid1b: direct undirected BFS over the multidigraph adjacency.
         let inner = &mdg.inner;
-        let result = py.allow_threads(|| multidigraph_weak_components_borrowed(inner));
+        let result = py.allow_threads(|| multidigraph_weak_components_indexed(inner));
         return result
             .iter()
             .map(|comp| {

@@ -69,6 +69,12 @@ Validation:
 - Post-rebase confirmation after `origin/main` advanced to `506683501`:
   crate-scoped release build passed; target fixture still matched NetworkX and
   measured `18.236x`, `2.145x`, and `5.209x` for the three rows above.
+- Independent cod-a duplicate confirmation before rebase used
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a` and
+  measured the same class of weak-connectivity win on a 250-node/6000-edge
+  fixture: `18.113x`, `2.506x`, and `7.877x` vs vendored NetworkX with parity.
+  The rebase kept the upstream CSR implementation to avoid a zero-gain
+  duplicate code path.
 
 ## 2026-06-23 BlackThrush MultiDiGraph Weak Connectivity Borrowed-Iterator Keep (`br-r37-c1-04z53.9165`, cod-b)
 
