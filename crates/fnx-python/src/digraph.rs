@@ -417,6 +417,10 @@ impl PyMultiDiGraph {
         weight: &str,
         kind: DegreeKind,
     ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        if let Some(pairs) = self.weighted_degree_subset_py_int_impl(py, nbunch, weight, kind)? {
+            return Ok(pairs);
+        }
+
         let one = 1i64.into_pyobject(py)?.into_any();
         let sum_fn = py.import("builtins")?.getattr("sum")?;
         let mut out: Vec<(PyObject, PyObject)> = Vec::new();
@@ -491,6 +495,116 @@ impl PyMultiDiGraph {
             out.push((node.clone().unbind(), deg.unbind()));
         }
         Ok(out)
+    }
+
+    fn weighted_degree_subset_py_int_impl(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+        weight: &str,
+        kind: DegreeKind,
+    ) -> PyResult<Option<Vec<(PyObject, PyObject)>>> {
+        let mut out: Vec<(PyObject, PyObject)> = Vec::new();
+        for item in nbunch.try_iter()? {
+            let node = item?;
+            if node.hash().is_err() {
+                let label = node
+                    .str()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "?".to_owned());
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Node {label} in sequence nbunch is not a valid node."
+                )));
+            }
+            let canonical = node_key_to_string(py, &node)?;
+            if !self.inner.has_node(&canonical) {
+                continue;
+            }
+
+            let mut total = 0i128;
+            if matches!(kind, DegreeKind::Total | DegreeKind::Out) {
+                let Some(out_sum) = self.weighted_degree_py_int_row(py, &canonical, weight, true)
+                else {
+                    return Ok(None);
+                };
+                let Some(next_total) = total.checked_add(out_sum) else {
+                    return Ok(None);
+                };
+                total = next_total;
+            }
+            if matches!(kind, DegreeKind::Total | DegreeKind::In) {
+                let Some(in_sum) = self.weighted_degree_py_int_row(py, &canonical, weight, false)
+                else {
+                    return Ok(None);
+                };
+                let Some(next_total) = total.checked_add(in_sum) else {
+                    return Ok(None);
+                };
+                total = next_total;
+            }
+            let Ok(total_i64) = i64::try_from(total) else {
+                return Ok(None);
+            };
+            out.push((node.clone().unbind(), total_i64.into_py_any(py)?));
+        }
+        Ok(Some(out))
+    }
+
+    fn weighted_degree_py_int_row(
+        &self,
+        py: Python<'_>,
+        node: &str,
+        weight: &str,
+        outgoing: bool,
+    ) -> Option<i128> {
+        let mut total = 0i128;
+        if outgoing {
+            if let Some(successors) = self.inner.successors_iter(node) {
+                for successor in successors {
+                    let keys = self.inner.edge_keys_iter(node, successor)?;
+                    for key in keys {
+                        self.add_py_int_weight(py, &mut total, node, successor, *key, weight)?;
+                    }
+                }
+            }
+        } else if let Some(predecessors) = self.inner.predecessors_iter(node) {
+            for predecessor in predecessors {
+                let keys = self.inner.edge_keys_iter(predecessor, node)?;
+                for key in keys {
+                    self.add_py_int_weight(py, &mut total, predecessor, node, *key, weight)?;
+                }
+            }
+        }
+        Some(total)
+    }
+
+    fn add_py_int_weight(
+        &self,
+        py: Python<'_>,
+        total: &mut i128,
+        source: &str,
+        target: &str,
+        key: usize,
+        weight: &str,
+    ) -> Option<()> {
+        let ek = Self::edge_key(source, target, key);
+        let value = match self.edge_py_attrs.get(&ek) {
+            Some(attrs) => match attrs.bind(py).get_item(weight).ok().flatten() {
+                Some(value) => {
+                    if !value.is_exact_instance_of::<PyInt>() {
+                        return None;
+                    }
+                    let Ok(value) = value.extract::<i64>() else {
+                        return None;
+                    };
+                    i128::from(value)
+                }
+                None => 1,
+            },
+            None => 1,
+        };
+        *total = total.checked_add(value)?;
+        Some(())
     }
 
     pub(crate) fn clean_edge_dirty_keys()

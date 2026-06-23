@@ -4881,6 +4881,77 @@ Behavior proof:
 - `ubs --only=python --skip=7 python/franken_networkx/__init__.py`: exit 0; broad
   pre-existing wrapper warnings, no critical findings.
 
+## 2026-06-23 BlackThrush MultiDiGraph weighted nbunch exact-int accumulator - 1.13x-1.22x FNX self-speedup (`br-r37-c1-04z53.9169`, cod-a)
+
+Context: the bead was filed from CopperCliff's earlier 0.05x
+`MultiDiGraph.in_degree(nbunch, weight)` report. Current-head remeasurement
+showed that the Python wrapper already routes directional weighted nbunch views
+through native subset kernels, so the live residual is smaller but still real:
+about 0.41x for directional weighted nbunch degree and 0.45x for total weighted
+nbunch degree on the deterministic 400-node / 3000-edge fixture below.
+
+Lever: the existing native subset kernel still built a Python list of edge
+weights for every requested node and then called `builtins.sum` per node. The
+kept path recognizes the common exact-`int` live edge-attribute case directly
+from the authoritative Python edge attr dicts, accumulates in Rust with checked
+integer sums, and returns a Python int. It falls back to the existing Python
+sum path for floats, bools, custom numerics, oversized integers, and any
+non-int value, so numeric semantics outside the exact-int case are unchanged.
+
+Rejected attempt: a clean-inner `CgseValue::Int` fast path was tested first and
+reverted. It did not materially improve the measured workload because Python
+edge insertion marks the graph edge-dirty, so that gate was too narrow; total
+weighted nbunch also regressed slightly.
+
+Keep decision: KEEP. The directional rows improved modestly and total weighted
+nbunch moved from 0.452x to 0.540x median vs NetworkX on the same artifact
+family. This does not close the weighted-attr-access floor, but it is not a
+near-zero result.
+
+Direct artifact environment:
+
+`PYTHONPATH=<temp franken_networkx package copy>:/data/projects/franken_networkx/legacy_networkx_code python3`
+with `/data/projects/.rch-targets/franken_networkx-cod-a/release/lib_fnx.so`
+copied into the temp package as `franken_networkx._fnx.abi3.so`.
+
+Baseline before the kept edit, current turn, deterministic 400-node /
+3000-edge `MultiDiGraph`, `nbunch=list(range(200))`, `weight="weight"`,
+80 reps x 9 rounds:
+
+| workload | FNX min | FNX median | NetworkX min | NetworkX median | ratio min | ratio median | parity |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `in_degree(nbunch, weight)` | 0.336 ms | 0.347 ms | 0.135 ms | 0.141 ms | 0.402x | 0.407x | true |
+| `out_degree(nbunch, weight)` | 0.325 ms | 0.332 ms | 0.134 ms | 0.137 ms | 0.412x | 0.414x | true |
+| `degree(nbunch, weight)` | 0.548 ms | 0.592 ms | 0.261 ms | 0.268 ms | 0.475x | 0.452x | true |
+
+After timing, same graph generator and artifact family:
+
+| workload | FNX min | FNX median | NetworkX min | NetworkX median | ratio min | ratio median | parity |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `in_degree(nbunch, weight)` | 0.306 ms | 0.308 ms | 0.132 ms | 0.133 ms | 0.433x | 0.433x | true |
+| `out_degree(nbunch, weight)` | 0.282 ms | 0.285 ms | 0.138 ms | 0.141 ms | 0.490x | 0.494x | true |
+| `degree(nbunch, weight)` | 0.485 ms | 0.486 ms | 0.257 ms | 0.262 ms | 0.530x | 0.540x | true |
+
+Behavior proof:
+
+- Direct artifact parity passed for `degree`, `in_degree`, and `out_degree`
+  with weighted nbunch, repeated nbunch nodes, missing nbunch nodes, missing
+  weights defaulting to 1, and post-creation live edge-attribute mutation.
+- Fallback parity passed for float weights, bool weights, `Fraction` weights,
+  and huge Python integers against vendored NetworkX.
+- `rch exec -- cargo build -p fnx-python --release --features pyo3/abi3-py310`:
+  passed before and after the kept edit with
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- `cargo fmt -p fnx-python -- --check`: passed.
+- `rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`: passed.
+- `rch exec -- cargo test -p fnx-python --features pyo3/abi3-py310`:
+  28 passed, 0 failed; doctests 0 passed, 0 failed.
+- `rch exec -- cargo clippy -p fnx-python --features pyo3/abi3-py310 --all-targets -- -D warnings`:
+  passed.
+- `git diff --check`: passed.
+- `ubs --only=rust crates/fnx-python/src/digraph.rs`: exit 0; no critical
+  findings; broad pre-existing warning inventory remains in `digraph.rs`.
+
 ## 2026-06-23 BlackThrush MultiGraph copy clean-attr native fast path - 1.18x FNX self-speedup (`br-r37-c1-jelx1`, cod-b)
 
 Context: the larger live `MultiDiGraph.in_degree(nbunch, weight)` 0.05x and
