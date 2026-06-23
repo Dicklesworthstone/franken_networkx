@@ -1925,6 +1925,13 @@ impl MultiDiGraph {
     }
 
     #[must_use]
+    pub fn successors_iter(&self, node: &str) -> Option<impl Iterator<Item = &str> + '_> {
+        self.successors
+            .get(node)
+            .map(|neighbors| neighbors.keys().map(String::as_str))
+    }
+
+    #[must_use]
     pub fn predecessors(&self, node: &str) -> Option<Vec<&str>> {
         self.predecessors
             .get(node)
@@ -1932,8 +1939,20 @@ impl MultiDiGraph {
     }
 
     #[must_use]
+    pub fn predecessors_iter(&self, node: &str) -> Option<impl Iterator<Item = &str> + '_> {
+        self.predecessors
+            .get(node)
+            .map(|neighbors| neighbors.keys().map(String::as_str))
+    }
+
+    #[must_use]
     pub fn neighbors(&self, node: &str) -> Option<Vec<&str>> {
         self.successors(node)
+    }
+
+    #[must_use]
+    pub fn neighbors_iter(&self, node: &str) -> Option<impl Iterator<Item = &str> + '_> {
+        self.successors_iter(node)
     }
 
     #[must_use]

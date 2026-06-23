@@ -4445,9 +4445,10 @@ fn multidigraph_sssp_length_with_parents<'a>(
 fn multidigraph_weak_components_borrowed<'a>(
     mdg: &'a fnx_classes::digraph::MultiDiGraph,
 ) -> Vec<Vec<&'a str>> {
-    use std::collections::{HashSet, VecDeque};
+    use std::collections::VecDeque;
     let nodes = mdg.nodes_ordered();
-    let mut visited: HashSet<&'a str> = HashSet::with_capacity(nodes.len());
+    let mut visited: rustc_hash::FxHashSet<&'a str> =
+        rustc_hash::FxHashSet::with_capacity_and_hasher(nodes.len(), Default::default());
     let mut components: Vec<Vec<&'a str>> = Vec::new();
     for &start in &nodes {
         if !visited.insert(start) {
@@ -4457,7 +4458,7 @@ fn multidigraph_weak_components_borrowed<'a>(
         let mut queue: VecDeque<&'a str> = VecDeque::new();
         queue.push_back(start);
         while let Some(node) = queue.pop_front() {
-            if let Some(succs) = mdg.successors(node) {
+            if let Some(succs) = mdg.successors_iter(node) {
                 for v in succs {
                     if visited.insert(v) {
                         comp.push(v);
@@ -4465,7 +4466,7 @@ fn multidigraph_weak_components_borrowed<'a>(
                     }
                 }
             }
-            if let Some(preds) = mdg.predecessors(node) {
+            if let Some(preds) = mdg.predecessors_iter(node) {
                 for v in preds {
                     if visited.insert(v) {
                         comp.push(v);
@@ -4482,25 +4483,26 @@ fn multidigraph_weak_components_borrowed<'a>(
 /// br-r37-c1-zid1b (cc): is a MultiDiGraph weakly connected? early-exit BFS over the
 /// undirected adjacency (successors ∪ predecessors) from the first node.
 fn multidigraph_is_weakly_connected(mdg: &fnx_classes::digraph::MultiDiGraph) -> bool {
-    use std::collections::{HashSet, VecDeque};
+    use std::collections::VecDeque;
     let nodes = mdg.nodes_ordered();
     if nodes.is_empty() {
         return true;
     }
-    let mut visited: HashSet<&str> = HashSet::with_capacity(nodes.len());
+    let mut visited: rustc_hash::FxHashSet<&str> =
+        rustc_hash::FxHashSet::with_capacity_and_hasher(nodes.len(), Default::default());
     let start = nodes[0];
     visited.insert(start);
     let mut queue: VecDeque<&str> = VecDeque::new();
     queue.push_back(start);
     while let Some(node) = queue.pop_front() {
-        if let Some(succs) = mdg.successors(node) {
+        if let Some(succs) = mdg.successors_iter(node) {
             for v in succs {
                 if visited.insert(v) {
                     queue.push_back(v);
                 }
             }
         }
-        if let Some(preds) = mdg.predecessors(node) {
+        if let Some(preds) = mdg.predecessors_iter(node) {
             for v in preds {
                 if visited.insert(v) {
                     queue.push_back(v);
@@ -4519,13 +4521,13 @@ fn multidigraph_target_bfs_distance(
     source: &str,
     target: &str,
 ) -> Option<usize> {
-    use std::collections::{HashSet, VecDeque};
+    use std::collections::VecDeque;
     if source == target {
         return Some(0);
     }
-    let mut visited: HashSet<&str> = HashSet::new();
+    let mut visited: rustc_hash::FxHashSet<&str> = rustc_hash::FxHashSet::default();
     let mut queue: VecDeque<(&str, usize)> = VecDeque::new();
-    if let Some(succs) = mdg.successors(source) {
+    if let Some(succs) = mdg.successors_iter(source) {
         for v in succs {
             if v == target {
                 return Some(1);
@@ -4536,7 +4538,7 @@ fn multidigraph_target_bfs_distance(
         }
     }
     while let Some((node, dist)) = queue.pop_front() {
-        if let Some(succs) = mdg.successors(node) {
+        if let Some(succs) = mdg.successors_iter(node) {
             for v in succs {
                 if v == target {
                     return Some(dist + 1);

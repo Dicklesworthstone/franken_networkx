@@ -2,6 +2,56 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-23 BlackThrush MultiDiGraph Weak Connectivity Borrowed-Iterator Keep (`br-r37-c1-04z53.9165`, cod-b)
+
+Scope: BOLD-VERIFY the measured MultiDiGraph weak-connectivity residual from
+CopperCliff's handoff: `is_weakly_connected`,
+`weakly_connected_components`, and `number_weakly_connected_components` were
+still far behind vendored NetworkX on high-parallel directed multigraphs due to
+`std::collections::HashSet` plus allocating `successors()` / `predecessors()`
+BFS rows.
+
+Fixture and oracle:
+- Connected `MultiDiGraph` with `250` integer nodes and `6,000` directed keyed
+  edges: a 250-edge directed cycle plus `5,750` deterministic random edges from
+  `random.Random(12345)`. Edge keys were `k{i}` and edge attr `w=i%17`.
+- Vendored NetworkX `3.7rc0.dev0` from `legacy_networkx_code/networkx`; fresh
+  release extension preloaded from
+  `/data/projects/.rch-targets/franken_networkx-cod-b/release/lib_fnx.so`.
+- Parity was asserted before every timed row:
+  `is_weakly_connected`, normalized component sets, and component counts all
+  matched NetworkX.
+- All compile/build commands were crate-scoped with
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b`, e.g.
+  `rch exec -- cargo build -p fnx-python --release --features pyo3/abi3-py310`.
+
+Head-to-head timing:
+
+| Function | State | FNX median | NetworkX median | Ratio vs NetworkX | Self vs baseline |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `is_weakly_connected` | clean `origin/main` baseline | `0.365032 ms` | `0.053576 ms` | `0.147x` | baseline |
+| `is_weakly_connected` | `FxHashSet` + borrowed MDG adjacency | `0.197819 ms` | `0.044775 ms` | `0.226x` | `1.845x` |
+| `weakly_connected_components` | clean `origin/main` baseline | `0.394678 ms` | `0.057499 ms` | `0.146x` | baseline |
+| `weakly_connected_components` | `FxHashSet` + borrowed MDG adjacency | `0.216705 ms` | `0.046849 ms` | `0.216x` | `1.821x` |
+| `number_weakly_connected_components` | clean `origin/main` baseline | `0.380280 ms` | `0.061596 ms` | `0.162x` | baseline |
+| `number_weakly_connected_components` | `FxHashSet` + borrowed MDG adjacency | `0.204863 ms` | `0.048407 ms` | `0.236x` | `1.856x` |
+
+No-ship subattempt:
+- A bool-visited/node-index variant built a per-call
+  `FxHashMap<&str, usize>` plus `Vec<bool>` for weak component BFS. It preserved
+  parity but regressed the kept candidate: final medians were
+  `0.268508 ms`, `0.309315 ms`, and `0.290866 ms` with ratios `0.222x`,
+  `0.202x`, and `0.207x`. Reverted that subattempt.
+
+Decision:
+- Keep. The accessor-local lever is not enough to dominate NetworkX, but it is
+  a clear same-fixture win across all three measured functions with exact
+  parity.
+- Residual route: the next lever should avoid per-call string-key visitation
+  entirely by building or reusing eager node-indexed MultiDiGraph weak-adjacency
+  rows for reachability, without rebuilding a simple DiGraph or cloning neighbor
+  vectors.
+
 ## 2026-06-22 BlackThrush MultiGraph Connectivity Accessor FxHashSet Keep (`br-r37-c1-04z53.9162`, cod-a)
 
 Scope: BOLD-VERIFY the remaining MultiGraph `is_connected` /
