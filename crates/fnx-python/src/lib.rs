@@ -5321,7 +5321,11 @@ impl PyMultiGraph {
         nbunch: &Bound<'_, PyAny>,
         keys: bool,
     ) -> PyResult<Option<Vec<PyObject>>> {
-        if !self.adj_py_keys.is_empty() || (keys && !self.edge_py_keys.is_empty()) {
+        // br-r37-c1-mgedgenbkeys (cc): keys=True no longer gates on edge_py_keys —
+        // emit the DISPLAY key via the mirror-aware py_edge_key (default int when no
+        // mirror). The old gate sent keys=True to the Python adj-chain (~0.09x) for
+        // every MultiGraph that carries an edge_py_keys mirror.
+        if !self.adj_py_keys.is_empty() {
             return Ok(None);
         }
         let mut out: Vec<PyObject> = Vec::new();
@@ -5354,9 +5358,13 @@ impl PyMultiGraph {
                     }
                     let nbr_obj = self.py_node_key(py, nbr);
                     if keys {
-                        let key_obj = crate::unwrap_infallible(key.into_pyobject(py))
-                            .into_any()
-                            .unbind();
+                        let key_obj = if self.edge_py_keys.is_empty() {
+                            crate::unwrap_infallible(key.into_pyobject(py))
+                                .into_any()
+                                .unbind()
+                        } else {
+                            self.py_edge_key(py, &canonical, nbr, key)
+                        };
                         out.push(
                             PyTuple::new(py, &[node.clone().unbind(), nbr_obj, key_obj])?
                                 .into_any()
@@ -5386,7 +5394,11 @@ impl PyMultiGraph {
         nbunch: &Bound<'_, PyAny>,
         keys: bool,
     ) -> PyResult<Option<Vec<PyObject>>> {
-        if !self.adj_py_keys.is_empty() || (keys && !self.edge_py_keys.is_empty()) {
+        // br-r37-c1-mgedgenbkeys (cc): keys=True no longer gates on edge_py_keys —
+        // emit the DISPLAY key via the mirror-aware py_edge_key (default int when no
+        // mirror). The old gate sent keys=True to the Python adj-chain (~0.09x) for
+        // every MultiGraph that carries an edge_py_keys mirror.
+        if !self.adj_py_keys.is_empty() {
             return Ok(None);
         }
         let mut out: Vec<PyObject> = Vec::new();
@@ -5426,9 +5438,13 @@ impl PyMultiGraph {
                         .clone_ref(py)
                         .into_any();
                     if keys {
-                        let key_obj = crate::unwrap_infallible(key.into_pyobject(py))
-                            .into_any()
-                            .unbind();
+                        let key_obj = if self.edge_py_keys.is_empty() {
+                            crate::unwrap_infallible(key.into_pyobject(py))
+                                .into_any()
+                                .unbind()
+                        } else {
+                            self.py_edge_key(py, &canonical, nbr, key)
+                        };
                         out.push(
                             PyTuple::new(py, &[node.clone().unbind(), nbr_obj, key_obj, attrs])?
                                 .into_any()
