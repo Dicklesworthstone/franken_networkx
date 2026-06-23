@@ -4222,6 +4222,89 @@ impl PyMultiDiGraph {
         Ok(Some(fresh))
     }
 
+    /// br-r37-c1-mdginedges (cc): full-graph in_edges(data=False) for MultiDiGraph
+    /// — (source, target[, key]) per edge, target-major. Replaces the Python pred
+    /// loop (in_edges(keys=True) was 0.05x; no-data 0.x). No attr materialization,
+    /// so no cache needed. Bails to Python when pred custom-key mirrors are active.
+    fn _native_mdg_in_edges_no_data(
+        &self,
+        py: Python<'_>,
+        keys: bool,
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        if !self.pred_py_keys.is_empty() {
+            return Ok(None);
+        }
+        let mut out: Vec<PyObject> = Vec::with_capacity(self.inner.edge_count());
+        for target in self.inner.nodes_ordered() {
+            if let Some(preds) = self.inner.predecessors(target) {
+                for source in preds {
+                    for key in self.inner.edge_keys(source, target).unwrap_or_default() {
+                        let src_obj = self.py_node_key(py, source);
+                        let tgt_obj = self.py_node_key(py, target);
+                        if keys {
+                            // fast-path default int keys: py_edge_key builds a String
+                            // edge-key for the mirror lookup every call — skip it when
+                            // no custom keys exist (the common case).
+                            let key_obj = if self.edge_py_keys.is_empty() {
+                                crate::unwrap_infallible(key.into_pyobject(py))
+                                    .into_any()
+                                    .unbind()
+                            } else {
+                                self.py_edge_key(py, source, target, key)
+                            };
+                            out.push(tuple_object(py, &[src_obj, tgt_obj, key_obj])?);
+                        } else {
+                            out.push(tuple_object(py, &[src_obj, tgt_obj])?);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(Some(out))
+    }
+
+    /// br-r37-c1-mdginedges (cc): full-graph in_edges(data=<key>) for MultiDiGraph
+    /// — (source, target[, key], attrs.get(key, default)) per edge, target-major.
+    /// Replaces the Python pred loop (was 0.12x). Bails on pred custom-key mirrors.
+    fn _native_mdg_in_edges_data_key(
+        &mut self,
+        py: Python<'_>,
+        data: &Bound<'_, PyAny>,
+        default: PyObject,
+        keys: bool,
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        if !self.pred_py_keys.is_empty() {
+            return Ok(None);
+        }
+        let triples: Vec<(String, String, usize)> = {
+            let mut v = Vec::with_capacity(self.inner.edge_count());
+            for target in self.inner.nodes_ordered() {
+                if let Some(preds) = self.inner.predecessors(target) {
+                    for source in preds {
+                        for key in self.inner.edge_keys(source, target).unwrap_or_default() {
+                            v.push((source.to_owned(), target.to_owned(), key));
+                        }
+                    }
+                }
+            }
+            v
+        };
+        let mut out: Vec<PyObject> = Vec::with_capacity(triples.len());
+        for (source, target, key) in triples {
+            let src_obj = self.py_node_key(py, &source);
+            let tgt_obj = self.py_node_key(py, &target);
+            let value =
+                self.edge_data_value_or_default(py, &source, &target, key, data, &default)?;
+            if keys {
+                let key_obj = self.py_edge_key(py, &source, &target, key);
+                out.push(tuple_object(py, &[src_obj, tgt_obj, key_obj, value])?);
+            } else {
+                out.push(tuple_object(py, &[src_obj, tgt_obj, value])?);
+            }
+        }
+        Ok(Some(out))
+    }
+
     /// br-r37-c1-04z53 cod-b: attr-key sibling of
     /// `_native_mdg_out_edges_nbunch_data`. The prior route first materialized
     /// every live attr dict via data=True and then projected one scalar.
