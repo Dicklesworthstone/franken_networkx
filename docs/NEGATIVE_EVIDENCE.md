@@ -4878,6 +4878,52 @@ Behavior proof:
 - `git diff --check`: passed.
 - `ubs --only=rust crates/fnx-python/src/digraph.rs`: exit 0; broad pre-existing
   `digraph.rs` warnings, no critical findings.
+
+## 2026-06-23 BlackThrush MultiGraph weighted PageRank sparse-build indexed walk WIN (`br-r37-c1-weighted-attr-rust-store-237hw`, cod-b)
+
+Lever: `pagerank(MultiGraph, weight="weight")` routes through
+`to_scipy_sparse_array(..., dtype=float)` and the plain multigraph COO helper.
+For the default nodelist case, that helper rebuilt a Python-derived
+`String -> row` map and then hashed both edge endpoints for every emitted
+parallel edge. Added `MultiGraph::edges_ordered_indices_borrowed()` and used it
+when the supplied nodelist exactly matches native node order, preserving the
+existing duplicate COO stream while skipping the hot endpoint remap. Explicit
+nodelists and dtype-inference helpers stay on the old path.
+
+Keep decision: KEEP. On the same local release artifact harness against the
+vendored NetworkX oracle, the target `MultiGraph` weighted PageRank row moved
+from a real loss to a win:
+
+| workload | Baseline FNX median | After FNX median | Baseline ratio | After ratio | Parity |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `MultiGraph.pagerank(weight)` n=700/fanout=8/parallel=3 | 17.349 ms | 8.296 ms | 0.609x | 1.460x | max_abs 0.0 |
+| `MultiGraph.pagerank(weight)` n=1200/fanout=6/parallel=2 | 9.558 ms | 8.196 ms | 0.957x | 1.100x | max_abs 0.0 |
+
+Non-target guardrail:
+- `format="coo"` duplicate row ordering for `MultiGraph.to_scipy_sparse_array`
+  is still an existing mismatch versus NetworkX on parallel/self-loop fixtures;
+  this change preserves the current duplicate stream shape and does not attempt
+  the CSR-only parallel-edge aggregation that would need a Python wrapper gate
+  currently owned by another agent. File a separate parity bead for that surface.
+
+Behavior proof and gates:
+
+- Direct artifact PageRank parity passed for the measured `MultiGraph` and
+  `MultiDiGraph` fixtures against vendored NetworkX.
+- `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo build -p fnx-python --release --features pyo3/abi3-py310`: passed.
+- `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b cargo fmt -p fnx-classes -- --check`: passed.
+- `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b cargo fmt -p fnx-python -- --check`: passed.
+- `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo check -p fnx-classes`: passed.
+- `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo test -p fnx-classes`: 70 passed, 0 failed, 2 ignored; doctests 0 passed, 0 failed.
+- `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo clippy -p fnx-classes --all-targets -- -D warnings`: passed.
+- `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`: passed.
+- `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo test -p fnx-python --features pyo3/abi3-py310`: 28 passed, 0 failed; doctests 0 passed, 0 failed.
+- `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo clippy -p fnx-python --features pyo3/abi3-py310 --all-targets -- -D warnings`: passed.
+- `git diff --check`: passed.
+- `jq empty .beads/issues.jsonl`: passed.
+- `ubs --only=rust crates/fnx-classes/src/lib.rs crates/fnx-python/src/readwrite.rs`:
+  exit 0; no critical findings, remaining warnings are existing broad file
+  inventory.
 - `ubs --only=python --skip=7 python/franken_networkx/__init__.py`: exit 0; broad
   pre-existing wrapper warnings, no critical findings.
 

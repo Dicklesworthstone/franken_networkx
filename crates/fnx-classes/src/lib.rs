@@ -3151,6 +3151,38 @@ impl MultiGraph {
     }
 
     #[must_use]
+    pub fn edges_ordered_indices_borrowed(&self) -> Vec<(usize, usize, usize, &AttrMap)> {
+        let mut ordered = Vec::with_capacity(self.edge_count());
+        let mut seen = HashSet::<(EdgeKeyRef, usize)>::with_capacity(self.edge_count());
+
+        for (node_idx, node) in self.nodes.keys().enumerate() {
+            if let Some(neighbors) = self.adjacency.get(node) {
+                for neighbor in neighbors.keys() {
+                    let Some(neighbor_idx) = self.nodes.get_index_of(neighbor.as_str()) else {
+                        continue;
+                    };
+                    let pair = EdgeKeyRef::new(node, neighbor);
+                    let (left_idx, right_idx) = if pair.left == node.as_str() {
+                        (node_idx, neighbor_idx)
+                    } else {
+                        (neighbor_idx, node_idx)
+                    };
+                    if let Some(edge_bucket) = self.edges.get(&pair) {
+                        for (key, attrs) in edge_bucket {
+                            if !seen.insert((pair, *key)) {
+                                continue;
+                            }
+                            ordered.push((left_idx, right_idx, *key, attrs));
+                        }
+                    }
+                }
+            }
+        }
+
+        ordered
+    }
+
+    #[must_use]
     pub fn snapshot(&self) -> MultiGraphSnapshot {
         // br-snapnodeattrs: see Graph::snapshot — same fix for MultiGraph.
         let node_attrs: BTreeMap<String, AttrMap> = self
@@ -3827,6 +3859,46 @@ mod tests {
             .map(|(left, right, _)| (left.to_owned(), right.to_owned()))
             .collect::<Vec<_>>();
         assert_eq!(names_from_edge_indices, names_from_edge_storage);
+    }
+
+    #[test]
+    fn multigraph_ordered_indices_match_borrowed_edges() {
+        let mut graph = MultiGraph::strict();
+        graph
+            .add_edge_with_key_and_attrs("b", "a", 2, single_attr("w", "left"))
+            .expect("first keyed edge should be added");
+        graph
+            .add_edge_with_key_and_attrs("a", "b", 0, single_attr("w", "right"))
+            .expect("parallel keyed edge should be added");
+        graph
+            .add_edge_with_key_and_attrs("a", "c", 3, AttrMap::new())
+            .expect("third edge should be added");
+        graph
+            .add_edge_with_key_and_attrs("c", "c", 1, single_attr("w", "loop"))
+            .expect("self-loop should be added");
+
+        let nodes = graph.nodes_ordered();
+        let from_indices = graph
+            .edges_ordered_indices_borrowed()
+            .into_iter()
+            .map(|(left, right, key, attrs)| {
+                (
+                    nodes[left].to_owned(),
+                    nodes[right].to_owned(),
+                    key,
+                    attrs.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let from_borrowed = graph
+            .edges_ordered_borrowed()
+            .into_iter()
+            .map(|(left, right, key, attrs)| {
+                (left.to_owned(), right.to_owned(), key, attrs.clone())
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(from_indices, from_borrowed);
     }
 
     #[test]

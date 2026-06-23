@@ -1756,6 +1756,41 @@ pub fn to_dict_of_lists_undirected(
     Ok(Some(outer.unbind()))
 }
 
+fn nodelist_matches_default_order(
+    py: Python<'_>,
+    nodelist: &Bound<'_, PyAny>,
+    ordered_nodes: &[&str],
+) -> PyResult<bool> {
+    let nodes_iter = pyo3::types::PyIterator::from_object(nodelist)?;
+    let mut seen = 0usize;
+    for item in nodes_iter {
+        if seen >= ordered_nodes.len() {
+            return Ok(false);
+        }
+        let item = item?;
+        let canonical = node_key_to_string(py, &item)?;
+        if canonical != ordered_nodes[seen] {
+            return Ok(false);
+        }
+        seen += 1;
+    }
+    Ok(seen == ordered_nodes.len())
+}
+
+fn nodelist_index_u32(
+    py: Python<'_>,
+    nodelist: &Bound<'_, PyAny>,
+) -> PyResult<HashMap<String, u32>> {
+    let nodes_iter = pyo3::types::PyIterator::from_object(nodelist)?;
+    let mut index: HashMap<String, u32> = HashMap::new();
+    for (count, item) in (0_u32..).zip(nodes_iter) {
+        let item = item?;
+        let canonical = node_key_to_string(py, &item)?;
+        index.entry(canonical).or_insert(count);
+    }
+    Ok(index)
+}
+
 /// br-r37-c1-mexh6: native COO builder for `to_scipy_sparse_array` on
 /// MultiGraph / MultiDiGraph. Emits ONE `(ui, vi, w)` entry per parallel edge
 /// (plus the symmetric `(vi, ui)` for undirected non-self-loops), iterating the
@@ -1774,14 +1809,6 @@ pub fn adjacency_arrays_multigraph(
     weight_attr: Option<&str>,
     default_weight: f64,
 ) -> PyResult<Option<(Vec<u32>, Vec<u32>, Vec<f64>)>> {
-    let nodes_iter = pyo3::types::PyIterator::from_object(nodelist)?;
-    let mut index: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
-    for (count, item) in (0_u32..).zip(nodes_iter) {
-        let item = item?;
-        let canonical = node_key_to_string(py, &item)?;
-        index.entry(canonical).or_insert(count);
-    }
-
     let gr = extract_graph(g)?;
     let (rows, cols, data) = match &gr {
         GraphRef::MultiUndirected { mg, .. } => {
@@ -1790,6 +1817,26 @@ pub fn adjacency_arrays_multigraph(
             let mut rows: Vec<u32> = Vec::with_capacity(edge_count * 2);
             let mut cols: Vec<u32> = Vec::with_capacity(edge_count * 2);
             let mut data: Vec<f64> = Vec::with_capacity(edge_count * 2);
+            let ordered_nodes = inner.nodes_ordered();
+            if nodelist_matches_default_order(py, nodelist, &ordered_nodes)? {
+                for (ui, vi, _key, attrs) in inner.edges_ordered_indices_borrowed() {
+                    let w = weight_attr
+                        .and_then(|attr| attrs.get(attr).and_then(|val| val.as_f64()))
+                        .unwrap_or(default_weight);
+                    let ui = ui as u32;
+                    let vi = vi as u32;
+                    rows.push(ui);
+                    cols.push(vi);
+                    data.push(w);
+                    if ui != vi {
+                        rows.push(vi);
+                        cols.push(ui);
+                        data.push(w);
+                    }
+                }
+                return Ok(Some((rows, cols, data)));
+            }
+            let index = nodelist_index_u32(py, nodelist)?;
             for (u, v, _key, attrs) in inner.edges_ordered_borrowed() {
                 let Some(&ui) = index.get(u) else { continue };
                 let Some(&vi) = index.get(v) else { continue };
@@ -1813,6 +1860,7 @@ pub fn adjacency_arrays_multigraph(
             let mut rows: Vec<u32> = Vec::with_capacity(edge_count);
             let mut cols: Vec<u32> = Vec::with_capacity(edge_count);
             let mut data: Vec<f64> = Vec::with_capacity(edge_count);
+            let index = nodelist_index_u32(py, nodelist)?;
             for (u, v, _key, attrs) in inner.edges_ordered_borrowed() {
                 let Some(&ui) = index.get(u) else { continue };
                 let Some(&vi) = index.get(v) else { continue };
