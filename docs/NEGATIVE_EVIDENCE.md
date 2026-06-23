@@ -4732,7 +4732,8 @@ Validation after revert:
 
 - `cargo +nightly-2026-06-10 fmt -p fnx-python --check`: passed with
   `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
-- `br close br-r37-c1-04z53.9164 ...`: closed the stale/no-ship child bead.
+- Rebase-resolved `br-r37-c1-04z53.9164`: closed the stale/no-ship child
+  bead after upstream had already allocated `.9163`.
 
 ## 2026-06-22 BlackThrush weighted MultiDiGraph sparse-export stale-gap closeout (`br-r37-c1-wvuf7`, cod-a)
 
