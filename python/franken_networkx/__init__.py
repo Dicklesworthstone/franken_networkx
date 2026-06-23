@@ -4823,6 +4823,26 @@ class _DirectedDegreeView:
             for node in self._graph:
                 yield (node, sum(a.get(_w, 1) for a in _row(node).values()))
             return
+        # br-r37-c1-degnbdirw (cc): weighted in/out degree over a node SUBSET routes
+        # to the native directional weighted-subset kernel (already present for both
+        # DiGraph and MultiDiGraph from 752b2b98c) instead of the per-node
+        # _node_degree AtlasView loop — MDG in/out_degree(nbunch, weight) was ~0.05x.
+        # Filtered/reverse views (empty Rust base) keep the generic path.
+        if (
+            self._nodes is not None
+            and isinstance(self._weight, str)
+            and self._adjacency_attr in ("succ", "pred")
+            and not isinstance(
+                self._graph, (_FilteredGraphView, _ReverseDirectedViewBase)
+            )
+        ):
+            if self._adjacency_attr == "succ":
+                native = getattr(self._graph, "_native_weighted_out_degree_subset", None)
+            else:
+                native = getattr(self._graph, "_native_weighted_in_degree_subset", None)
+            if native is not None:
+                yield from native(self._nodes, self._weight)
+                return
         for node in self._iter_nodes():
             yield (node, self[node])
 
