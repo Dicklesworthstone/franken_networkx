@@ -4881,6 +4881,67 @@ Behavior proof:
 - `ubs --only=python --skip=7 python/franken_networkx/__init__.py`: exit 0; broad
   pre-existing wrapper warnings, no critical findings.
 
+## 2026-06-23 BlackThrush weighted degree nbunch native subsets - 0.03x-0.13x -> 0.55x-1.07x (`br-r37-c1-04z53.9167`, cod-a)
+
+Lever: `degree(nbunch, weight=...)` had native support for full-graph weighted
+degree and unweighted nbunch subsets, but the weighted subset path still drained
+through Python per-node degree loops. This pass adds native weighted-subset
+degree kernels for `DiGraph` and `MultiDiGraph`, while the live CopperCliff
+Graph/MultiGraph hunk supplies the sibling `Graph`/`MultiGraph` kernels and
+Python view routing. The native kernels preserve nbunch filtering, unhashable
+element errors, directed in/out grouping, multiedge key order, self-loop double
+counting, and CPython `sum()` numeric association.
+
+Keep decision: KEEP. Against the vendored NetworkX oracle on the same
+400-node/3000-edge weighted fixture, `DiGraph.degree(nbunch, weight="w")`
+moved from 0.133x to 1.067x, `MultiGraph` from 0.034x to 0.553x, and
+`MultiDiGraph` from 0.039x to 0.630x. Graph is now near parity at 0.878x after
+the preceding CopperCliff commit `e09a7265c`.
+
+Direct artifact environment:
+
+`PYTHONPATH=<temp package>:/data/projects/franken_networkx/legacy_networkx_code/networkx python3`
+with `/data/projects/.rch-targets/franken_networkx-cod-a/release/lib_fnx.so`
+copied to `franken_networkx/_fnx.abi3.so`.
+
+Measured trigger baseline before the directed native subset edit, current turn,
+deterministic weighted graph fixture, `nbunch=[(i*7)%400 for i in range(220)]`
+plus two missing nodes:
+
+| workload | FNX min | FNX median | NetworkX min | NetworkX median | ratio min | ratio median | parity |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `Graph.degree(nbunch, weight)` | 0.110 ms | 0.111 ms | 0.097 ms | 0.099 ms | 0.890x | 0.893x | true |
+| `DiGraph.degree(nbunch, weight)` | 1.077 ms | 1.096 ms | 0.144 ms | 0.144 ms | 0.133x | 0.132x | true |
+| `MultiGraph.degree(nbunch, weight)` | 8.669 ms | 9.068 ms | 0.296 ms | 0.301 ms | 0.034x | 0.033x | true |
+| `MultiDiGraph.degree(nbunch, weight)` | 9.098 ms | 9.883 ms | 0.354 ms | 0.364 ms | 0.039x | 0.037x | true |
+
+After timing, same graph generator and artifact:
+
+| workload | FNX min | FNX median | NetworkX min | NetworkX median | ratio min | ratio median | parity |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `Graph.degree(nbunch, weight)` | 0.112 ms | 0.112 ms | 0.098 ms | 0.098 ms | 0.878x | 0.877x | true |
+| `DiGraph.degree(nbunch, weight)` | 0.127 ms | 0.128 ms | 0.136 ms | 0.137 ms | 1.067x | 1.065x | true |
+| `MultiGraph.degree(nbunch, weight)` | 0.565 ms | 0.573 ms | 0.312 ms | 0.316 ms | 0.553x | 0.552x | true |
+| `MultiDiGraph.degree(nbunch, weight)` | 0.577 ms | 0.581 ms | 0.364 ms | 0.365 ms | 0.630x | 0.628x | true |
+
+Behavior proof:
+
+- Direct artifact parity passed for all four benchmark rows against vendored
+  NetworkX.
+- `cargo check -p fnx-python --features pyo3/abi3-py310`: passed with
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- `cargo build -p fnx-python --release --features pyo3/abi3-py310`: passed with
+  `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`.
+- `cargo fmt -p fnx-python -- --check`: passed.
+- `cargo test -p fnx-python --features pyo3/abi3-py310`: 27 passed, 0 failed;
+  doctests 0 passed, 0 failed.
+- `cargo clippy -p fnx-python --features pyo3/abi3-py310 --all-targets -- -D warnings`:
+  passed.
+- `git diff --check`: passed.
+- `ubs --only=rust crates/fnx-python/src/digraph.rs`: exit 0; broad pre-existing
+  `digraph.rs` warnings, no critical findings; UBS cargo-aware checks reported
+  fmt/clippy/check/test-build clean in its shadow workspace.
+
 ## 2026-06-22 BlackThrush stale MultiGraph connectivity and reverted micro-levers (`br-r37-c1-04z53.9164`, cod-a)
 
 Decision: CLOSE AS STALE / NO-SHIP. The live child bead was opened from an

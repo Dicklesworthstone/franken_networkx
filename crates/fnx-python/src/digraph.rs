@@ -410,6 +410,89 @@ impl PyMultiDiGraph {
         Ok(out)
     }
 
+    fn weighted_degree_subset_impl(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+        weight: &str,
+        kind: DegreeKind,
+    ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        let one = 1i64.into_pyobject(py)?.into_any();
+        let sum_fn = py.import("builtins")?.getattr("sum")?;
+        let mut out: Vec<(PyObject, PyObject)> = Vec::new();
+        for item in nbunch.try_iter()? {
+            let node = item?;
+            if node.hash().is_err() {
+                let label = node
+                    .str()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "?".to_owned());
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Node {label} in sequence nbunch is not a valid node."
+                )));
+            }
+            let canonical = node_key_to_string(py, &node)?;
+            if !self.inner.has_node(&canonical) {
+                continue;
+            }
+            let build_out = matches!(kind, DegreeKind::Total | DegreeKind::Out);
+            let build_in = matches!(kind, DegreeKind::Total | DegreeKind::In);
+
+            let out_vals = pyo3::types::PyList::empty(py);
+            if build_out {
+                for successor in self.inner.successors(&canonical).unwrap_or_default() {
+                    for key in self
+                        .inner
+                        .edge_keys(&canonical, successor)
+                        .unwrap_or_default()
+                    {
+                        let ek = Self::edge_key(&canonical, successor, key);
+                        let value = match self.edge_py_attrs.get(&ek) {
+                            Some(d) => d
+                                .bind(py)
+                                .get_item(weight)
+                                .ok()
+                                .flatten()
+                                .unwrap_or_else(|| one.clone()),
+                            None => one.clone(),
+                        };
+                        out_vals.append(value)?;
+                    }
+                }
+            }
+            let in_vals = pyo3::types::PyList::empty(py);
+            if build_in {
+                for predecessor in self.inner.predecessors(&canonical).unwrap_or_default() {
+                    for key in self
+                        .inner
+                        .edge_keys(predecessor, &canonical)
+                        .unwrap_or_default()
+                    {
+                        let ek = Self::edge_key(predecessor, &canonical, key);
+                        let value = match self.edge_py_attrs.get(&ek) {
+                            Some(d) => d
+                                .bind(py)
+                                .get_item(weight)
+                                .ok()
+                                .flatten()
+                                .unwrap_or_else(|| one.clone()),
+                            None => one.clone(),
+                        };
+                        in_vals.append(value)?;
+                    }
+                }
+            }
+
+            let deg = match kind {
+                DegreeKind::Total => sum_fn.call1((out_vals,))?.add(sum_fn.call1((in_vals,))?)?,
+                DegreeKind::Out => sum_fn.call1((out_vals,))?,
+                DegreeKind::In => sum_fn.call1((in_vals,))?,
+            };
+            out.push((node.clone().unbind(), deg.unbind()));
+        }
+        Ok(out)
+    }
+
     pub(crate) fn clean_edge_dirty_keys()
     -> std::sync::Mutex<Option<HashSet<(String, String, usize)>>> {
         std::sync::Mutex::new(Some(HashSet::new()))
@@ -4787,6 +4870,33 @@ impl PyMultiDiGraph {
         Ok(out)
     }
 
+    fn _native_weighted_degree_subset(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+        weight: &str,
+    ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        self.weighted_degree_subset_impl(py, nbunch, weight, DegreeKind::Total)
+    }
+
+    fn _native_weighted_out_degree_subset(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+        weight: &str,
+    ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        self.weighted_degree_subset_impl(py, nbunch, weight, DegreeKind::Out)
+    }
+
+    fn _native_weighted_in_degree_subset(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+        weight: &str,
+    ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        self.weighted_degree_subset_impl(py, nbunch, weight, DegreeKind::In)
+    }
+
     fn native_weighted_directional_degree(
         &self,
         py: Python<'_>,
@@ -6626,6 +6736,63 @@ impl PyDiGraph {
                 };
                 out.push((node.clone().unbind(), deg));
             }
+        }
+        Ok(out)
+    }
+
+    fn weighted_degree_subset_impl(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+        weight: &str,
+        kind: DegreeKind,
+    ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        let one = 1i64.into_pyobject(py)?.into_any();
+        let sum_fn = py.import("builtins")?.getattr("sum")?;
+        let mut out: Vec<(PyObject, PyObject)> = Vec::new();
+        for item in nbunch.try_iter()? {
+            let node = item?;
+            if node.hash().is_err() {
+                let label = node
+                    .str()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "?".to_owned());
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Node {label} in sequence nbunch is not a valid node."
+                )));
+            }
+            let canonical = node_key_to_string(py, &node)?;
+            if !self.inner.has_node(&canonical) {
+                continue;
+            }
+            let build_out = matches!(kind, DegreeKind::Total | DegreeKind::Out);
+            let build_in = matches!(kind, DegreeKind::Total | DegreeKind::In);
+
+            let out_vals = pyo3::types::PyList::empty(py);
+            if build_out {
+                for successor in self.inner.successors(&canonical).unwrap_or_default() {
+                    let value = self
+                        .edge_attr_py_value(py, &canonical, successor, weight)?
+                        .unwrap_or_else(|| one.clone().unbind());
+                    out_vals.append(value.bind(py))?;
+                }
+            }
+            let in_vals = pyo3::types::PyList::empty(py);
+            if build_in {
+                for predecessor in self.inner.predecessors(&canonical).unwrap_or_default() {
+                    let value = self
+                        .edge_attr_py_value(py, predecessor, &canonical, weight)?
+                        .unwrap_or_else(|| one.clone().unbind());
+                    in_vals.append(value.bind(py))?;
+                }
+            }
+
+            let deg = match kind {
+                DegreeKind::Total => sum_fn.call1((out_vals,))?.add(sum_fn.call1((in_vals,))?)?,
+                DegreeKind::Out => sum_fn.call1((out_vals,))?,
+                DegreeKind::In => sum_fn.call1((in_vals,))?,
+            };
+            out.push((node.clone().unbind(), deg.unbind()));
         }
         Ok(out)
     }
@@ -10442,6 +10609,33 @@ impl PyDiGraph {
             out.push((self.py_node_key(py, node), deg.unbind()));
         }
         Ok(out)
+    }
+
+    fn _native_weighted_degree_subset(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+        weight: &str,
+    ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        self.weighted_degree_subset_impl(py, nbunch, weight, DegreeKind::Total)
+    }
+
+    fn _native_weighted_out_degree_subset(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+        weight: &str,
+    ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        self.weighted_degree_subset_impl(py, nbunch, weight, DegreeKind::Out)
+    }
+
+    fn _native_weighted_in_degree_subset(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+        weight: &str,
+    ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        self.weighted_degree_subset_impl(py, nbunch, weight, DegreeKind::In)
     }
 
     /// ``G.in_degree`` — in-degree per node.
