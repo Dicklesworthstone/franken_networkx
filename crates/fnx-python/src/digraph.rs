@@ -5041,6 +5041,7 @@ impl PyMultiDiGraph {
             nodes_seq: self.nodes_seq,
             edges_seq: self.edges_seq,
             rows,
+            shared_outer: std::sync::Mutex::new(None),
         });
         Ok(())
     }

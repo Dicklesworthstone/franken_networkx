@@ -1622,6 +1622,7 @@ fn rebuild_dict_of_dicts_cache(py: Python<'_>, pg: &mut PyGraph) -> PyResult<()>
         nodes_seq: pg.nodes_seq,
         edges_seq: pg.edges_seq,
         rows,
+        shared_outer: std::sync::Mutex::new(None),
     });
     Ok(())
 }
@@ -1681,6 +1682,7 @@ fn rebuild_dict_of_dicts_digraph_cache(py: Python<'_>, dg: &mut PyDiGraph) -> Py
         nodes_seq: dg.nodes_seq,
         edges_seq: dg.edges_seq,
         rows,
+        shared_outer: std::sync::Mutex::new(None),
     });
     Ok(())
 }
@@ -1704,15 +1706,33 @@ pub(crate) fn copy_dict_of_dicts_cache(
 /// copies. Skipping the per-row `.copy()` turns the per-call cost from
 /// O(V + E) (one alloc per node + one entry-copy per edge) into O(V) (one
 /// `set_item` per node), the same shape nx pays.
+///
+/// br-r37-c1-adjouter: the outer `{node: shared_row}` dict is itself cached on
+/// the (validated) `DictOfDictsCache`. The previous code rebuilt the outer
+/// (O(V) `set_item`s) on EVERY call even with rows cached, so `dict(G.adjacency())`
+/// paid that O(V) outer rebuild plus the user-side `dict()` copy (~0.57x vs nx).
+/// Warm repeated calls — and the internal `_native_adjacency_dict()` consumers —
+/// now reuse the same outer object (read-only by every caller). The cache, incl.
+/// `shared_outer`, is replaced wholesale on any nodes_seq/edges_seq change, so the
+/// cached outer can never outlive its rows.
 pub(crate) fn share_dict_of_dicts_cache(
     py: Python<'_>,
     cache: &DictOfDictsCache,
 ) -> PyResult<Py<PyDict>> {
+    let mut guard = cache
+        .shared_outer
+        .lock()
+        .expect("shared_outer mutex poisoned");
+    if let Some(outer) = guard.as_ref() {
+        return Ok(outer.clone_ref(py));
+    }
     let outer = PyDict::new(py);
     for (node_key, row) in &cache.rows {
         outer.set_item(node_key.bind(py), row.bind(py))?;
     }
-    Ok(outer.unbind())
+    let outer = outer.unbind();
+    *guard = Some(outer.clone_ref(py));
+    Ok(outer)
 }
 
 /// br-r37-c1-6o3wi/br-r37-c1-nocb2: native fast path for `to_dict_of_lists`

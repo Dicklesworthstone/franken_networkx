@@ -6135,3 +6135,30 @@ floor. The untouched weighted in-degree laggard remains view/materialization-bou
 full `networkx_head_to_head_core_laggards` run, `mdg_in_degree_weight_n700_e12662` measured 10.800 ms
 fnx vs 2.1347 ms NetworkX on `vmi1227854` (0.198x), while the prior clean baseline on `vmi1152480`
 measured 13.518 ms fnx vs 3.4887 ms NetworkX (0.258x). No code change kept.
+
+## 2026-06-25 CopperCliff/BlackThrush adjacency outer-cache landing - KEEP
+
+Landed CopperCliff's off-main measured win from worktree
+`/data/projects/.scratch/franken_networkx-cc-adjouter-019aa7efc`, commit `5e65efa88`, after the
+earlier `lib.rs` lock cleared. The change caches the outer `{node: shared_row}` dict on
+`DictOfDictsCache` so `share_dict_of_dicts_cache` stops rebuilding one O(V) `PyDict` on every
+`dict(G.adjacency())` call while preserving row sharing and wholesale cache replacement on
+`nodes_seq`/`edges_seq` changes.
+
+Original measured handoff: Graph/DiGraph `dict(G.adjacency())` n=2000/8000 improved from
+`0.55x-0.62x` to `0.95x-0.99x` vs NetworkX under CopperCliff's interleaved min-of-21 harness.
+Fresh landing verification on `vmi1152480`, warm
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`, crate-scoped command:
+`rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head dict_adjacency -- --quiet`.
+
+| workload | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | ---: | ---: | ---: |
+| `Graph dict(adjacency()) n=2000` | 73.351 us | 61.309 us | 0.836x |
+| `Graph dict(adjacency()) n=8000` | 293.83 us | 317.53 us | 1.081x |
+| `DiGraph dict(adjacency()) n=2000` | 78.322 us | 71.843 us | 0.917x |
+| `DiGraph dict(adjacency()) n=8000` | 355.55 us | 310.96 us | 0.875x |
+
+Decision: KEEP. This is still a measured self-speedup over the documented 0.55x-0.62x off-main
+baseline and keeps the large Graph n=8000 row faster than NetworkX on the landing worker. The smaller
+rows remain below parity on this worker, so future work should treat remaining cost as the unavoidable
+user-side dict copy plus Python row/object materialization, not another Rust-side outer rebuild.

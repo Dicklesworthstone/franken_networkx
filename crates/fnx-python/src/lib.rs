@@ -795,6 +795,17 @@ pub(crate) struct DictOfDictsCache {
     pub(crate) nodes_seq: u64,
     pub(crate) edges_seq: u64,
     pub(crate) rows: Vec<(PyObject, Py<PyDict>)>,
+    /// br-r37-c1-adjouter: lazily-built outer `{node: shared_row}` dict for the
+    /// SHARED (`adjacency()`) assembly path. `share_dict_of_dicts_cache` rebuilt
+    /// this outer dict (one `set_item` per node = O(V)) on EVERY call even though
+    /// the rows were already cached, so `dict(G.adjacency())` paid that O(V) outer
+    /// rebuild on top of the user-side `dict()` copy (~0.57x vs nx). Caching the
+    /// outer here serves warm repeated calls — and the internal
+    /// `_native_adjacency_dict()` consumers — the same outer object (all read-only;
+    /// the wrapper hands out `iter(outer.items())`, never the dict itself). The
+    /// whole cache (incl. this field) is replaced atomically on any
+    /// nodes_seq/edges_seq change, so the cached outer never goes stale.
+    pub(crate) shared_outer: std::sync::Mutex<Option<Py<PyDict>>>,
 }
 
 #[pyclass(module = "franken_networkx", name = "Graph", dict, weakref, subclass)]
@@ -6585,6 +6596,7 @@ impl PyMultiGraph {
             nodes_seq: self.nodes_seq,
             edges_seq: self.edges_seq,
             rows,
+            shared_outer: std::sync::Mutex::new(None),
         });
         Ok(())
     }
