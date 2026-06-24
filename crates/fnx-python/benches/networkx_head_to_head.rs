@@ -101,6 +101,152 @@ struct AdjacencyOuterCacheWorkloads {
     nx_digraph_8000: Py<PyAny>,
 }
 
+struct CoreLaggardWorkloads {
+    fnx_mdg_in_degree_weight: Py<PyAny>,
+    nx_mdg_in_degree_weight: Py<PyAny>,
+    fnx_mg_selfloop_keys_weight: Py<PyAny>,
+    nx_mg_selfloop_keys_weight: Py<PyAny>,
+    fnx_mdg_edges_keys: Py<PyAny>,
+    nx_mdg_edges_keys: Py<PyAny>,
+}
+
+fn prepare_core_laggard_workloads(py: Python<'_>) -> PyResult<CoreLaggardWorkloads> {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("fnx-python crate must live under crates/");
+    let python_dir = repo_root.join("python");
+    let legacy_dir = repo_root.join("legacy_networkx_code").join("networkx");
+
+    let sys = py.import("sys")?;
+    let path = sys.getattr("path")?;
+    let path = path.cast::<PyList>()?;
+    path.insert(0, repo_root.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, python_dir.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, legacy_dir.to_str().expect("repo path must be UTF-8"))?;
+
+    let locals = PyDict::new(py);
+    py.run(
+        cstring(
+            r#"
+import glob
+import importlib.util
+import os
+import sys
+
+target_dir = os.environ.get("CARGO_TARGET_DIR")
+if target_dir and "franken_networkx._fnx" not in sys.modules:
+    candidates = [
+        os.path.join(target_dir, "release", "lib_fnx.so"),
+        *glob.glob(os.path.join(target_dir, "release", "deps", "lib_fnx*.so")),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            spec = importlib.util.spec_from_file_location("franken_networkx._fnx", path)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["franken_networkx._fnx"] = module
+            spec.loader.exec_module(module)
+            break
+
+for _name in list(sys.modules):
+    if _name == "networkx" or _name.startswith("networkx."):
+        del sys.modules[_name]
+
+import networkx as nx
+import franken_networkx as fnx
+
+if "legacy_networkx_code" not in getattr(nx, "__file__", ""):
+    raise AssertionError(f"expected vendored NetworkX oracle, got {nx.__file__!r}")
+
+def _paired_multidigraph(node_count):
+    fnx_graph = fnx.MultiDiGraph()
+    nx_graph = nx.MultiDiGraph()
+    fnx_graph.add_nodes_from(range(node_count))
+    nx_graph.add_nodes_from(range(node_count))
+    for u in range(node_count):
+        for step in range(1, 7):
+            v = (u * 41 + step * 17) % node_count
+            if v == u:
+                v = (v + step + 3) % node_count
+            for parallel in range(3):
+                attrs = {}
+                if (u + v + step + parallel) % 11 != 0:
+                    attrs["weight"] = (u * 7 + v * 13 + step * 5 + parallel) % 29 - 8
+                fnx_graph.add_edge(u, v, **attrs)
+                nx_graph.add_edge(u, v, **attrs)
+    for u in range(0, node_count, 23):
+        for parallel in range(2):
+            attrs = {"weight": (u * 19 + parallel) % 37 - 11}
+            fnx_graph.add_edge(u, u, **attrs)
+            nx_graph.add_edge(u, u, **attrs)
+    return fnx_graph, nx_graph
+
+def _paired_multigraph_selfloops(node_count):
+    fnx_graph = fnx.MultiGraph()
+    nx_graph = nx.MultiGraph()
+    fnx_graph.add_nodes_from(range(node_count))
+    nx_graph.add_nodes_from(range(node_count))
+    for u in range(node_count):
+        v = (u * 31 + 7) % node_count
+        if v == u:
+            v = (v + 1) % node_count
+        weight = (u * 5 + v) % 17
+        fnx_graph.add_edge(u, v, weight=weight)
+        nx_graph.add_edge(u, v, weight=weight)
+        if u % 3 == 0:
+            for parallel in range(3):
+                weight = (u * 11 + parallel * 3) % 41 - 9
+                fnx_graph.add_edge(u, u, weight=weight)
+                nx_graph.add_edge(u, u, weight=weight)
+    return fnx_graph, nx_graph
+
+mdg_fnx, mdg_nx = _paired_multidigraph(700)
+mg_self_fnx, mg_self_nx = _paired_multigraph_selfloops(2500)
+
+def _mdg_in_degree_weight(graph):
+    return sum(degree for _, degree in graph.in_degree(weight="weight"))
+
+def _mg_selfloop_keys_weight(graph, module):
+    return sum(value for _, _, _, value in module.selfloop_edges(graph, keys=True, data="weight"))
+
+def _mdg_edges_keys(graph):
+    return sum(key for _, _, key in graph.edges(keys=True))
+
+assert _mdg_in_degree_weight(mdg_fnx) == _mdg_in_degree_weight(mdg_nx)
+assert _mg_selfloop_keys_weight(mg_self_fnx, fnx) == _mg_selfloop_keys_weight(mg_self_nx, nx)
+assert _mdg_edges_keys(mdg_fnx) == _mdg_edges_keys(mdg_nx)
+
+fnx_mdg_in_degree_weight = lambda: _mdg_in_degree_weight(mdg_fnx)
+nx_mdg_in_degree_weight = lambda: _mdg_in_degree_weight(mdg_nx)
+fnx_mg_selfloop_keys_weight = lambda: _mg_selfloop_keys_weight(mg_self_fnx, fnx)
+nx_mg_selfloop_keys_weight = lambda: _mg_selfloop_keys_weight(mg_self_nx, nx)
+fnx_mdg_edges_keys = lambda: _mdg_edges_keys(mdg_fnx)
+nx_mdg_edges_keys = lambda: _mdg_edges_keys(mdg_nx)
+"#,
+        )
+        .as_c_str(),
+        Some(&locals),
+        Some(&locals),
+    )?;
+
+    let callable = |name: &str| -> PyResult<Py<PyAny>> {
+        let callable = locals.get_item(name)?.ok_or_else(|| {
+            pyo3::exceptions::PyKeyError::new_err(format!("missing Python callable {name}"))
+        })?;
+        Ok(callable.unbind())
+    };
+
+    Ok(CoreLaggardWorkloads {
+        fnx_mdg_in_degree_weight: callable("fnx_mdg_in_degree_weight")?,
+        nx_mdg_in_degree_weight: callable("nx_mdg_in_degree_weight")?,
+        fnx_mg_selfloop_keys_weight: callable("fnx_mg_selfloop_keys_weight")?,
+        nx_mg_selfloop_keys_weight: callable("nx_mg_selfloop_keys_weight")?,
+        fnx_mdg_edges_keys: callable("fnx_mdg_edges_keys")?,
+        nx_mdg_edges_keys: callable("nx_mdg_edges_keys")?,
+    })
+}
+
 fn prepare_cut_metric_workloads(py: Python<'_>) -> PyResult<CutMetricWorkloads> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
@@ -968,7 +1114,7 @@ import os
 import sys
 
 target_dir = os.environ.get("CARGO_TARGET_DIR")
-if target_dir:
+if target_dir and "franken_networkx._fnx" not in sys.modules:
     candidates = [
         os.path.join(target_dir, "release", "lib_fnx.so"),
         *glob.glob(os.path.join(target_dir, "release", "deps", "lib_fnx*.so")),
@@ -1511,8 +1657,50 @@ fn adjacency_outer_cache_head_to_head(c: &mut Criterion) {
     group.finish();
 }
 
+fn core_laggard_head_to_head(c: &mut Criterion) {
+    Python::initialize();
+    let workloads = Python::attach(prepare_core_laggard_workloads)
+        .expect("failed to prepare core laggard Python workloads");
+    let mut group = c.benchmark_group("networkx_head_to_head_core_laggards");
+    group.sample_size(20);
+
+    bench_python_callable(
+        &mut group,
+        "fnx_mdg_in_degree_weight_n700_e12662",
+        &workloads.fnx_mdg_in_degree_weight,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_mdg_in_degree_weight_n700_e12662",
+        &workloads.nx_mdg_in_degree_weight,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_mg_selfloop_keys_weight_n2500_loops2502",
+        &workloads.fnx_mg_selfloop_keys_weight,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_mg_selfloop_keys_weight_n2500_loops2502",
+        &workloads.nx_mg_selfloop_keys_weight,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_mdg_edges_keys_n700_e12662",
+        &workloads.fnx_mdg_edges_keys,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_mdg_edges_keys_n700_e12662",
+        &workloads.nx_mdg_edges_keys,
+    );
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
+    core_laggard_head_to_head,
     cut_metric_head_to_head,
     assortativity_head_to_head,
     assortativity_raw_head_to_head,

@@ -578,6 +578,25 @@ impl PyMultiDiGraph {
         Some(total)
     }
 
+    fn native_weighted_directional_degree_py_int_impl(
+        &self,
+        py: Python<'_>,
+        weight: &str,
+        outgoing: bool,
+    ) -> PyResult<Option<Vec<(PyObject, PyObject)>>> {
+        let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(self.inner.node_count());
+        for node in self.inner.nodes_ordered() {
+            let Some(total) = self.weighted_degree_py_int_row(py, node, weight, outgoing) else {
+                return Ok(None);
+            };
+            let Ok(total_i64) = i64::try_from(total) else {
+                return Ok(None);
+            };
+            out.push((self.py_node_key(py, node), total_i64.into_py_any(py)?));
+        }
+        Ok(Some(out))
+    }
+
     fn add_py_int_weight(
         &self,
         py: Python<'_>,
@@ -4989,6 +5008,12 @@ impl PyMultiDiGraph {
         weight: &str,
         outgoing: bool,
     ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        if let Some(out) =
+            self.native_weighted_directional_degree_py_int_impl(py, weight, outgoing)?
+        {
+            return Ok(out);
+        }
+
         let one = 1i64.into_pyobject(py)?.into_any();
         let sum_fn = py.import("builtins")?.getattr("sum")?;
         let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(self.inner.node_count());

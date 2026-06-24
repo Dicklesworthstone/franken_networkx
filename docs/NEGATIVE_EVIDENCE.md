@@ -5698,3 +5698,76 @@ Behavior proof:
   passed on `vmi1149989`.
 - `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo test -p fnx-python --features pyo3/abi3-py310`:
   local fallback, 28 passed, 0 failed; doctests 0 passed, 0 failed.
+
+## 2026-06-24 BlackThrush MultiDiGraph integer `in_degree(weight)` fast path - kept
+
+Target: current NetworkX laggard lane covering `in_degree(weight)`,
+`MultiGraph` self-loops, and `MultiDiGraph` keys. The production lever only
+touches the pure Python-exact-int `MultiDiGraph.in_degree(weight="<attr>")` full
+graph path. It routes each node through the existing native integer row
+accumulator and returns Rust-built Python ints when every observed weight is an
+exact int and the total fits in `i64`. It falls back to the old Python
+`list` plus `builtins.sum` path for bools, floats, custom numeric objects,
+non-int values, or overflow.
+
+Command:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head -- core_laggards`
+
+Baseline on `ovh-a`, same deterministic workload, before the production edit.
+The command printed the target Criterion rows before a later unrelated benchmark
+setup reloaded `franken_networkx._fnx` and tripped the PyO3 logger guard; the
+harness preload was then made idempotent and the final command exited 0.
+
+| workload | FNX median | NetworkX median | FNX/NetworkX speed ratio |
+| --- | ---: | ---: | ---: |
+| `MultiDiGraph.in_degree(weight)` n=700/e=12662 | 2.4897 ms | 1.3931 ms | 0.56x |
+| `MultiGraph.selfloop_edges(keys=True, data="weight")` n=2500/loops=2502 | 796.64 us | 498.15 us | 0.63x |
+| `MultiDiGraph.edges(keys=True)` n=700/e=12662 | 1.6846 ms | 1.0601 ms | 0.63x |
+
+After timing on `ovh-a`, final benchmark harness, exit 0:
+
+| workload | FNX median | NetworkX median | FNX/NetworkX speed ratio | decision |
+| --- | ---: | ---: | ---: | --- |
+| `MultiDiGraph.in_degree(weight)` n=700/e=12662 | 2.1609 ms | 1.3174 ms | 0.61x | KEEP |
+| `MultiGraph.selfloop_edges(keys=True, data="weight")` n=2500/loops=2502 | 886.84 us | 491.04 us | 0.55x | routing only |
+| `MultiDiGraph.edges(keys=True)` n=700/e=12662 | 2.4282 ms | 2.0721 ms | 0.85x | routing only |
+
+Keep decision: KEEP. The targeted `in_degree(weight)` row improved from 0.56x
+to 0.61x versus NetworkX and from 2.4897 ms to 2.1609 ms FNX median on the
+same worker, a 1.15x FNX self-speedup. Criterion reported the target row as
+improved with change `[-14.562% -10.674% -6.0918%]`. The self-loop and
+`edges(keys=True)` rows were measured for the requested laggard lane, but no
+production change is claimed for them in this commit.
+
+Behavior proof:
+
+- Benchmark setup asserts equality against vendored NetworkX for the sum of
+  `graph.in_degree(weight="weight")`, `selfloop_edges(..., keys=True,
+  data="weight")`, and `graph.edges(keys=True)` before timing.
+- The Rust fast path only accepts exact Python int rows through the existing
+  per-edge integer accumulator and preserves the prior Python-sum fallback for
+  all other weight semantics.
+- `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a cargo fmt -p fnx-python --check`:
+  passed.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo check -p fnx-python --all-targets --features pyo3/abi3-py310`:
+  passed on `ovh-b`.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo clippy -p fnx-python --all-targets --features pyo3/abi3-py310 -- -D warnings`:
+  passed on `hz2`.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo test -p fnx-python --features pyo3/abi3-py310`:
+  local fallback, 28 passed, 0 failed; doctests 0 passed, 0 failed.
+- Focused Python parity probe preloaded
+  `/data/projects/.rch-targets/franken_networkx-cod-a/release/deps/lib_fnx.so`
+  and passed exact-int `MultiDiGraph.in_degree(weight)`, missing-weight,
+  bool, float, huge-int fallback, `MultiGraph.selfloop_edges(keys=True,
+  data="weight")`, and `MultiDiGraph.edges(keys=True)` comparisons against
+  vendored NetworkX.
+- Focused pytest with the same preloaded extension:
+  `tests/python/test_attribute_access_parity.py::test_multidigraph_edges_keys_view_matches_networkx`
+  and
+  `tests/python/test_attribute_access_parity.py::TestDegreeNbunchFilter::test_digraph_in_degree_skips_missing`;
+  2 passed.
+- `git diff --check`: passed.
+- `ubs --only=rust crates/fnx-python/src/digraph.rs crates/fnx-python/benches/networkx_head_to_head.rs`:
+  exit 0; no critical findings, with broad pre-existing `digraph.rs` warning
+  inventory.
