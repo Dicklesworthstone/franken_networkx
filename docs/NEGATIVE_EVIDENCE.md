@@ -4879,6 +4879,48 @@ Behavior proof:
 - `ubs --only=rust crates/fnx-python/src/digraph.rs`: exit 0; broad pre-existing
   `digraph.rs` warnings, no critical findings.
 
+## 2026-06-24 BlackThrush/CopperCliff adjacency outer-cache landing - `dict(adjacency())` 0.55x-0.62x -> parity/win on measured rows (`br-r37-c1-adjouter`)
+
+Landed measured scratch worktree win from
+`/data/projects/.scratch/franken_networkx-cc-adjouter-019aa7efc`, commit
+`8e880c0bd`, because it was proven but not on `main`. The lever caches the
+outer `{node: shared_row}` dict inside `DictOfDictsCache` so
+`share_dict_of_dicts_cache` no longer rebuilds one `set_item` per node on every
+warm `Graph.adjacency()` / `DiGraph.adjacency()` call. Mutation still replaces
+the whole cache via the existing `(nodes_seq, edges_seq)` guard; the public API
+still returns `iter(outer.items())`, preserving NetworkX's iterator surface.
+
+CopperCliff's scratch artifact measured `dict(G.adjacency())` on paired
+Graph/DiGraph BA workloads at n=2000 and n=8000: baseline 0.55x-0.62x vs
+NetworkX, after 0.95x-0.99x vs NetworkX (ratio = nx/fnx, >1 means FNX faster),
+with paired artifact parity over content, row identity across calls, live edge
+mutation reflection, cache invalidation, and iterator/`next()` contract.
+
+Cod-b final verification used the committed Criterion harness:
+
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo bench -p fnx-python --profile release --bench networkx_head_to_head networkx_head_to_head_adjacency_outer_cache -- --quiet`
+
+This completed on worker `vmi1149989` on 2026-06-24. Median ratios:
+
+| workload | FNX median | NetworkX median | ratio nx/fnx | verdict |
+| --- | ---: | ---: | ---: | --- |
+| `Graph dict(adjacency())` n=2000 | 50.515 us | 55.117 us | 1.09x | keep |
+| `Graph dict(adjacency())` n=8000 | 441.05 us | 309.78 us | 0.70x | keep; residual |
+| `DiGraph dict(adjacency())` n=2000 | 53.397 us | 81.629 us | 1.53x | keep |
+| `DiGraph dict(adjacency())` n=8000 | 235.35 us | 396.41 us | 1.68x | keep |
+
+Keep decision: KEEP. Three of four cod-b harness rows beat NetworkX, the
+remaining large Graph row is still a residual but improved from the scratch
+baseline family and not a near-zero change. The committed bench group also
+guards the parity contract by checking adjacency snapshots and row identity
+before timing.
+
+Validation status at ledger write: focused per-crate bench passed with
+`cargo bench -p fnx-python --profile release --bench networkx_head_to_head
+networkx_head_to_head_adjacency_outer_cache -- --quiet`. Formatting, clippy,
+tests, Python conformance, and diff checks are recorded in the commit footer
+after they are run.
+
 ## 2026-06-24 BlackThrush MultiGraph degree(nbunch, weight) exact-int fast path
 
 Lever: `_native_weighted_degree_subset` for `MultiGraph` now tries an exact-int
@@ -5603,3 +5645,56 @@ Behavior proof:
 - `git diff --check`: passed.
 - `ubs --only=rust crates/fnx-python/src/digraph.rs`: exit 0; broad pre-existing
   `digraph.rs` warnings, no critical findings.
+
+## 2026-06-24 BlackThrush/CopperCliff adjacency outer-dict cache - no-ship after remote rerun
+
+Lever: `share_dict_of_dicts_cache` already reused adjacency row dicts for
+`Graph.adjacency()` / `DiGraph.adjacency()`, but rebuilt the outer
+`{node: row}` dict on every call. The proposed patch added a lazily-filled
+`shared_outer` dict to `DictOfDictsCache` and initialized it at all cache rebuild
+sites. The public contract would still have been an iterator over `(node, row)`
+pairs; callers would not receive the cached dict itself.
+
+Scratch proof source: branch `cc-adjouter-land-20260624`, commit `e602dcbcc`
+in `/data/projects/.scratch/franken_networkx-cc-adjouter-019aa7efc`, authorized
+for cherry-pick by CopperCliff in Agent Mail message 2243. That proof measured
+interleaved min-of-21 on paired BA graphs:
+
+| workload | before ratio vs NetworkX | after ratio vs NetworkX |
+| --- | ---: | ---: |
+| `Graph dict(adjacency())` n=2000 | 0.56x | 0.97x |
+| `Graph dict(adjacency())` n=8000 | 0.55x | 0.95x |
+| `DiGraph dict(adjacency())` n=2000 | 0.62x | 0.99x |
+| `DiGraph dict(adjacency())` n=8000 | 0.56x | 0.99x |
+
+Current-turn crate bench added a focused Criterion group and preloads the fresh
+`CARGO_TARGET_DIR` release extension before import. Command:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head -- adjacency_outer_cache`
+
+Final rerun used remote worker `ovh-a` with the final benchmark harness. Median
+results did not reproduce the scratch keep:
+
+| workload | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | ---: | ---: | ---: |
+| `Graph dict(adjacency())` n=2000 | 88.505 us | 49.058 us | 0.55x |
+| `Graph dict(adjacency())` n=8000 | 370.90 us | 206.86 us | 0.56x |
+| `DiGraph dict(adjacency())` n=2000 | 164.39 us | 104.44 us | 0.64x |
+| `DiGraph dict(adjacency())` n=8000 | 698.33 us | 377.17 us | 0.54x |
+
+Keep decision: REVERTED production code. The durable remote Criterion run stayed
+at the same `~0.54x-0.64x` floor as the scratch baseline instead of the reported
+`0.95x-0.99x` after state. The focused bench remains because it is useful
+negative evidence and prevents this scratch candidate from being re-landed
+without a reproducible win.
+
+Behavior proof:
+
+- The new Criterion setup asserts `dict(G.adjacency())` content equality against
+  NetworkX and two-call row identity (`first[u] is second[u]`) before any timing.
+- `cargo fmt -p fnx-python --check`: passed.
+- `git diff --check`: passed.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`:
+  passed on `vmi1149989`.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo test -p fnx-python --features pyo3/abi3-py310`:
+  local fallback, 28 passed, 0 failed; doctests 0 passed, 0 failed.

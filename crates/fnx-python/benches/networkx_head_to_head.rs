@@ -90,6 +90,17 @@ struct LatticeGeneratorWorkloads {
     nx_hexagonal: Py<PyAny>,
 }
 
+struct AdjacencyOuterCacheWorkloads {
+    fnx_graph_2000: Py<PyAny>,
+    nx_graph_2000: Py<PyAny>,
+    fnx_graph_8000: Py<PyAny>,
+    nx_graph_8000: Py<PyAny>,
+    fnx_digraph_2000: Py<PyAny>,
+    nx_digraph_2000: Py<PyAny>,
+    fnx_digraph_8000: Py<PyAny>,
+    nx_digraph_8000: Py<PyAny>,
+}
+
 fn prepare_cut_metric_workloads(py: Python<'_>) -> PyResult<CutMetricWorkloads> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
@@ -929,6 +940,133 @@ nx_hexagonal = _nx_hexagonal
     })
 }
 
+fn prepare_adjacency_outer_cache_workloads(
+    py: Python<'_>,
+) -> PyResult<AdjacencyOuterCacheWorkloads> {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("fnx-python crate must live under crates/");
+    let python_dir = repo_root.join("python");
+    let legacy_dir = repo_root.join("legacy_networkx_code").join("networkx");
+
+    let sys = py.import("sys")?;
+    let path = sys.getattr("path")?;
+    let path = path.cast::<PyList>()?;
+    path.insert(0, repo_root.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, python_dir.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, legacy_dir.to_str().expect("repo path must be UTF-8"))?;
+
+    let locals = PyDict::new(py);
+    py.run(
+        cstring(
+            r#"
+import glob
+import importlib.util
+import os
+import sys
+
+target_dir = os.environ.get("CARGO_TARGET_DIR")
+if target_dir:
+    candidates = [
+        os.path.join(target_dir, "release", "lib_fnx.so"),
+        *glob.glob(os.path.join(target_dir, "release", "deps", "lib_fnx*.so")),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            spec = importlib.util.spec_from_file_location("franken_networkx._fnx", path)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["franken_networkx._fnx"] = module
+            spec.loader.exec_module(module)
+            break
+
+import networkx as nx
+import franken_networkx as fnx
+
+def _paired_graphs(n, directed=False):
+    base = nx.barabasi_albert_graph(n, 4, seed=9144 + n)
+    edges = list(base.edges())
+    if directed:
+        nx_g = nx.DiGraph()
+        fnx_g = fnx.DiGraph()
+        directed_edges = [
+            (u, v) if ((u + v) & 1) == 0 else (v, u)
+            for u, v in edges
+        ]
+        nx_g.add_nodes_from(base.nodes())
+        fnx_g.add_nodes_from(base.nodes())
+        nx_g.add_edges_from(directed_edges)
+        fnx_g.add_edges_from(directed_edges)
+    else:
+        nx_g = nx.Graph()
+        fnx_g = fnx.Graph()
+        nx_g.add_nodes_from(base.nodes())
+        fnx_g.add_nodes_from(base.nodes())
+        nx_g.add_edges_from(edges)
+        fnx_g.add_edges_from(edges)
+    return fnx_g, nx_g
+
+def _snapshot(graph):
+    return {
+        node: tuple(neighbors.keys())
+        for node, neighbors in dict(graph.adjacency()).items()
+    }
+
+def _assert_adjacency_contract(fnx_g, nx_g):
+    assert _snapshot(fnx_g) == _snapshot(nx_g)
+    probe = next(iter(fnx_g))
+    first = dict(fnx_g.adjacency())
+    second = dict(fnx_g.adjacency())
+    assert first[probe] is second[probe]
+
+g2000_fnx, g2000_nx = _paired_graphs(2000, directed=False)
+g8000_fnx, g8000_nx = _paired_graphs(8000, directed=False)
+dg2000_fnx, dg2000_nx = _paired_graphs(2000, directed=True)
+dg8000_fnx, dg8000_nx = _paired_graphs(8000, directed=True)
+
+for _fnx_g, _nx_g in (
+    (g2000_fnx, g2000_nx),
+    (g8000_fnx, g8000_nx),
+    (dg2000_fnx, dg2000_nx),
+    (dg8000_fnx, dg8000_nx),
+):
+    _assert_adjacency_contract(_fnx_g, _nx_g)
+
+fnx_graph_2000 = lambda: dict(g2000_fnx.adjacency())
+nx_graph_2000 = lambda: dict(g2000_nx.adjacency())
+fnx_graph_8000 = lambda: dict(g8000_fnx.adjacency())
+nx_graph_8000 = lambda: dict(g8000_nx.adjacency())
+fnx_digraph_2000 = lambda: dict(dg2000_fnx.adjacency())
+nx_digraph_2000 = lambda: dict(dg2000_nx.adjacency())
+fnx_digraph_8000 = lambda: dict(dg8000_fnx.adjacency())
+nx_digraph_8000 = lambda: dict(dg8000_nx.adjacency())
+"#,
+        )
+        .as_c_str(),
+        Some(&locals),
+        Some(&locals),
+    )?;
+
+    let callable = |name: &str| -> PyResult<Py<PyAny>> {
+        let callable = locals.get_item(name)?.ok_or_else(|| {
+            pyo3::exceptions::PyKeyError::new_err(format!("missing Python callable {name}"))
+        })?;
+        Ok(callable.unbind())
+    };
+
+    Ok(AdjacencyOuterCacheWorkloads {
+        fnx_graph_2000: callable("fnx_graph_2000")?,
+        nx_graph_2000: callable("nx_graph_2000")?,
+        fnx_graph_8000: callable("fnx_graph_8000")?,
+        nx_graph_8000: callable("nx_graph_8000")?,
+        fnx_digraph_2000: callable("fnx_digraph_2000")?,
+        nx_digraph_2000: callable("nx_digraph_2000")?,
+        fnx_digraph_8000: callable("fnx_digraph_8000")?,
+        nx_digraph_8000: callable("nx_digraph_8000")?,
+    })
+}
+
 fn bench_python_callable(
     group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
     name: &str,
@@ -1322,6 +1460,57 @@ fn lattice_generators_head_to_head(c: &mut Criterion) {
     group.finish();
 }
 
+fn adjacency_outer_cache_head_to_head(c: &mut Criterion) {
+    Python::initialize();
+    let workloads = Python::attach(prepare_adjacency_outer_cache_workloads)
+        .expect("failed to prepare adjacency outer-cache Python workloads");
+    let mut group = c.benchmark_group("networkx_head_to_head_adjacency_outer_cache");
+    group.sample_size(20);
+
+    bench_python_callable(
+        &mut group,
+        "fnx_graph_dict_adjacency_n2000",
+        &workloads.fnx_graph_2000,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_graph_dict_adjacency_n2000",
+        &workloads.nx_graph_2000,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_graph_dict_adjacency_n8000",
+        &workloads.fnx_graph_8000,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_graph_dict_adjacency_n8000",
+        &workloads.nx_graph_8000,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_digraph_dict_adjacency_n2000",
+        &workloads.fnx_digraph_2000,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_digraph_dict_adjacency_n2000",
+        &workloads.nx_digraph_2000,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_digraph_dict_adjacency_n8000",
+        &workloads.fnx_digraph_8000,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_digraph_dict_adjacency_n8000",
+        &workloads.nx_digraph_8000,
+    );
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     cut_metric_head_to_head,
@@ -1332,6 +1521,7 @@ criterion_group!(
     multigraph_biconnected_head_to_head,
     multigraph_weighted_degree_head_to_head,
     tree_submodule_head_to_head,
-    lattice_generators_head_to_head
+    lattice_generators_head_to_head,
+    adjacency_outer_cache_head_to_head
 );
 criterion_main!(benches);
