@@ -4912,6 +4912,15 @@ After implementation, same command/filter:
 | --- | ---: | ---: | ---: | ---: |
 | `degree(nbunch, weight)` | 12.106 ms | 583.39 us | 0.048x | +2.43x / -58.5% |
 
+Rejected sibling, cod-a 2026-06-24: an exact-int
+`MultiGraph.size(weight)` helper was tested and reverted as a no-ship. Same
+focused `rch exec -- cargo bench -p fnx-python --profile release --features
+pyo3/abi3-py310 --bench networkx_head_to_head -- multigraph_weighted_degree`
+run: old `sum(degree(weight))/2` formula measured 1.1159 ms, the native
+size helper measured 1.1219 ms, and NetworkX measured 773.30 us. Speed ratio
+was effectively unchanged (`0.693x` -> `0.689x` vs NetworkX), so the size
+helper did not survive the stop rule.
+
 Behavior and gate evidence:
 
 - The Criterion workload constructs paired `franken_networkx.MultiGraph` and
