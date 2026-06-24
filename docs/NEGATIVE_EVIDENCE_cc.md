@@ -862,7 +862,34 @@ SLOWER than nx** because of it. Gate (n<=64 safe-Rust, LAPACK above) → measure
 **1.32x WIN**. The other two were already winning (nx runs non-Hermitian dgeev);
 the gate widened the margin. Commits 1f2338b8a + 6e8dd288d.
 
-## SHIPPED: adjacency() outer-dict cache — 0.55-0.62x -> 0.95-0.99x vs nx (2026-06-24, CopperCliff)
+## NO-SHIP (CORRECTED): adjacency() outer-dict cache — FALSIFIED by durable per-crate Criterion bench (2026-06-24, CopperCliff)
+
+**RETRACTION (2026-06-24):** the "0.95-0.99x" result below was a MEASUREMENT ARTIFACT of
+interleaved-min-of-21 Python timing taken across SEPARATE processes under heavy host load (the
+"after" run happened to see a slower NetworkX, inflating the ratio). When BlackThrush re-measured
+with the directive's authoritative methodology — `cargo bench -p fnx-python --bench
+networkx_head_to_head adjacency_outer_cache` on a durable remote worker (ovh-a) — the cache showed
+**NO gain**, staying at the same 0.54-0.64x floor as baseline:
+
+| workload | FNX median | NetworkX median | ratio vs nx |
+| --- | ---: | ---: | ---: |
+| `Graph dict(adjacency())` n=2000 | 88.5 us | 49.1 us | 0.55x |
+| `Graph dict(adjacency())` n=8000 | 370.9 us | 206.9 us | 0.56x |
+| `DiGraph dict(adjacency())` n=2000 | 164.4 us | 104.4 us | 0.64x |
+| `DiGraph dict(adjacency())` n=8000 | 698.3 us | 377.2 us | 0.54x |
+
+VERDICT: ~0-gain → REVERTED (production code never landed; BlackThrush reverted in `7b3b5811a` and
+kept the focused Criterion group as negative evidence). Hypothesis for why the outer cache doesn't
+help even warm: the underlying `dict_of_dicts_cache` likely misses on warm `adjacency()` calls
+(rows rebuilt every call), so caching the OUTER dict on top saves nothing measurable; the real cost
+is the rows rebuild + the user-side `dict()` copy, not the outer assembly. LESSON: use the per-crate
+`cargo bench` (controlled before/after on ONE worker) as the authority — NOT cross-run interleaved
+Python timing, which the host-noise confound can flip. Branch `cc-adjouter-land-20260624` abandoned.
+The original (now-falsified) write-up is retained below for the record.
+
+---
+
+## (SUPERSEDED — see retraction above) adjacency() outer-dict cache — 0.55-0.62x -> 0.95-0.99x vs nx (2026-06-24, CopperCliff)
 
 Lever (br-r37-c1-adjouter): `Graph.adjacency()` / `DiGraph.adjacency()` route through
 `_fnx.adjacency_dict_shared` -> `share_dict_of_dicts_cache`, which serves the nested
