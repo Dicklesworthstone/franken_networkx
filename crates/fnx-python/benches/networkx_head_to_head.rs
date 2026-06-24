@@ -70,6 +70,14 @@ struct MultiGraphBiconnectedWorkloads {
     nx_minimum_spanning_tree: Py<PyAny>,
 }
 
+struct MultiGraphWeightedDegreeWorkloads {
+    fnx_degree_nbunch_weight: Py<PyAny>,
+    nx_degree_nbunch_weight: Py<PyAny>,
+    fnx_size_weight_degree_formula: Py<PyAny>,
+    fnx_size_weight: Py<PyAny>,
+    nx_size_weight: Py<PyAny>,
+}
+
 struct TreeSubmoduleWorkloads {
     fnx_minimum_spanning_tree: Py<PyAny>,
     nx_minimum_spanning_tree: Py<PyAny>,
@@ -657,6 +665,109 @@ nx_minimum_spanning_tree = lambda: nx.minimum_spanning_tree(mg_nx, weight="weigh
     })
 }
 
+fn prepare_multigraph_weighted_degree_workloads(
+    py: Python<'_>,
+) -> PyResult<MultiGraphWeightedDegreeWorkloads> {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("fnx-python crate must live under crates/");
+    let python_dir = repo_root.join("python");
+    let legacy_dir = repo_root.join("legacy_networkx_code").join("networkx");
+
+    let sys = py.import("sys")?;
+    let path = sys.getattr("path")?;
+    let path = path.cast::<PyList>()?;
+    path.insert(0, repo_root.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, python_dir.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, legacy_dir.to_str().expect("repo path must be UTF-8"))?;
+
+    let locals = PyDict::new(py);
+    py.run(
+        cstring(
+            r#"
+import sys
+
+for _name in list(sys.modules):
+    if _name == "networkx" or _name.startswith("networkx."):
+        del sys.modules[_name]
+
+import networkx as nx
+import franken_networkx as fnx
+
+if "legacy_networkx_code" not in getattr(nx, "__file__", ""):
+    raise AssertionError(f"expected vendored NetworkX oracle, got {nx.__file__!r}")
+
+def _paired_multigraph_weighted_degree_workload(node_count):
+    fnx_graph = fnx.MultiGraph()
+    nx_graph = nx.MultiGraph()
+    fnx_graph.add_nodes_from(range(node_count))
+    nx_graph.add_nodes_from(range(node_count))
+
+    for u in range(node_count):
+        for step in range(1, 5):
+            v = (u * 37 + step * 11) % node_count
+            if v == u:
+                v = (v + step + 1) % node_count
+            for parallel in range(2):
+                attrs = {}
+                if (u + step + parallel) % 7 != 0:
+                    attrs["weight"] = (u * 13 + v * 17 + parallel * 19 + step) % 23 - 5
+                fnx_graph.add_edge(u, v, **attrs)
+                nx_graph.add_edge(u, v, **attrs)
+
+    for u in range(0, node_count, 17):
+        attrs = {"weight": (u * 29) % 31 - 9}
+        fnx_graph.add_edge(u, u, **attrs)
+        nx_graph.add_edge(u, u, **attrs)
+
+    return fnx_graph, nx_graph
+
+mg_degree_fnx, mg_degree_nx = _paired_multigraph_weighted_degree_workload(400)
+mg_degree_nbunch = [((i * 7) % 400) for i in range(280)]
+mg_degree_nbunch.extend([401, 402, 3, 3, 99])
+
+fnx_degree_pairs = list(fnx.degree(mg_degree_fnx, mg_degree_nbunch, weight="weight"))
+nx_degree_pairs = list(nx.degree(mg_degree_nx, mg_degree_nbunch, weight="weight"))
+assert fnx_degree_pairs == nx_degree_pairs
+
+fnx_degree_nbunch_weight = lambda: sum(
+    degree for _, degree in fnx.degree(mg_degree_fnx, mg_degree_nbunch, weight="weight")
+)
+nx_degree_nbunch_weight = lambda: sum(
+    degree for _, degree in nx.degree(mg_degree_nx, mg_degree_nbunch, weight="weight")
+)
+
+assert mg_degree_fnx.size(weight="weight") == mg_degree_nx.size(weight="weight")
+fnx_size_weight_degree_formula = lambda: sum(
+    degree for _, degree in mg_degree_fnx.degree(weight="weight")
+) / 2
+fnx_size_weight = lambda: mg_degree_fnx.size(weight="weight")
+nx_size_weight = lambda: mg_degree_nx.size(weight="weight")
+"#,
+        )
+        .as_c_str(),
+        Some(&locals),
+        Some(&locals),
+    )?;
+
+    let callable = |name: &str| -> PyResult<Py<PyAny>> {
+        let callable = locals.get_item(name)?.ok_or_else(|| {
+            pyo3::exceptions::PyKeyError::new_err(format!("missing Python callable {name}"))
+        })?;
+        Ok(callable.unbind())
+    };
+
+    Ok(MultiGraphWeightedDegreeWorkloads {
+        fnx_degree_nbunch_weight: callable("fnx_degree_nbunch_weight")?,
+        nx_degree_nbunch_weight: callable("nx_degree_nbunch_weight")?,
+        fnx_size_weight_degree_formula: callable("fnx_size_weight_degree_formula")?,
+        fnx_size_weight: callable("fnx_size_weight")?,
+        nx_size_weight: callable("nx_size_weight")?,
+    })
+}
+
 fn prepare_tree_submodule_workloads(py: Python<'_>) -> PyResult<TreeSubmoduleWorkloads> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
@@ -1123,6 +1234,42 @@ fn multigraph_biconnected_head_to_head(c: &mut Criterion) {
     group.finish();
 }
 
+fn multigraph_weighted_degree_head_to_head(c: &mut Criterion) {
+    Python::initialize();
+    let workloads = Python::attach(prepare_multigraph_weighted_degree_workloads)
+        .expect("failed to prepare MultiGraph weighted degree Python workloads");
+    let mut group = c.benchmark_group("networkx_head_to_head_multigraph_weighted_degree");
+    group.sample_size(20);
+
+    bench_python_callable(
+        &mut group,
+        "fnx_degree_nbunch_weight_mg400_e3224",
+        &workloads.fnx_degree_nbunch_weight,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_degree_nbunch_weight_mg400_e3224",
+        &workloads.nx_degree_nbunch_weight,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_size_weight_degree_formula_mg400_e3224",
+        &workloads.fnx_size_weight_degree_formula,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_size_weight_mg400_e3224",
+        &workloads.fnx_size_weight,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_size_weight_mg400_e3224",
+        &workloads.nx_size_weight,
+    );
+
+    group.finish();
+}
+
 fn tree_submodule_head_to_head(c: &mut Criterion) {
     Python::initialize();
     let workloads = Python::attach(prepare_tree_submodule_workloads)
@@ -1183,6 +1330,7 @@ criterion_group!(
     link_prediction_head_to_head,
     multidigraph_connectivity_head_to_head,
     multigraph_biconnected_head_to_head,
+    multigraph_weighted_degree_head_to_head,
     tree_submodule_head_to_head,
     lattice_generators_head_to_head
 );

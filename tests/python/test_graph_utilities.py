@@ -1471,6 +1471,27 @@ def test_global_weighted_degree_matches_networkx_without_fallback(
     assert list(fnx.degree(graph, "missing", weight="weight")) == expected_missing_string
 
 
+def test_multigraph_weighted_degree_nbunch_ints_match_networkx_without_fallback(monkeypatch):
+    graph = fnx.MultiGraph()
+    expected = nx.MultiGraph()
+    for current in (graph, expected):
+        current.add_nodes_from(range(6))
+        current.add_edge(0, 1, weight=3)
+        current.add_edge(0, 1)
+        current.add_edge(1, 2, weight=-4)
+        current.add_edge(2, 2, weight=5)
+        current.add_edge(2, 3, weight=7)
+        current.add_edge(3, 4, weight=0)
+        current.add_edge(4, 5, weight=11)
+
+    nbunch = [2, 99, 2, 1, "missing"]
+    expected_subset = list(nx.degree(expected, nbunch, weight="weight"))
+
+    _block_networkx_utilities(monkeypatch, "degree")
+
+    assert list(fnx.degree(graph, nbunch, weight="weight")) == expected_subset
+
+
 @pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
     [

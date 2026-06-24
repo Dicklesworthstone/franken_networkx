@@ -4879,6 +4879,64 @@ Behavior proof:
 - `ubs --only=rust crates/fnx-python/src/digraph.rs`: exit 0; broad pre-existing
   `digraph.rs` warnings, no critical findings.
 
+## 2026-06-24 BlackThrush MultiGraph degree(nbunch, weight) exact-int fast path
+
+Lever: `_native_weighted_degree_subset` for `MultiGraph` now tries an exact-int
+row accumulator before the existing Python `builtins.sum` fallback. The fast
+path only accepts plain integer weights or missing weights, reads live edge attr
+mirrors first, reads Rust `CgseValue::Int` attrs when no mirror exists, preserves
+duplicate `nbunch` nodes and missing-node skipping, and double-counts self-loops
+with the same two-pass shape as NetworkX. Any float, bool, custom object, live
+non-int attr, or overflow falls back to the old Python-sum parity route.
+
+Keep decision: KEEP as a partial win, not a closure. The exact residual is still
+large versus NetworkX, but the targeted row improved by 58.5% on the same
+Criterion workload and is not a near-zero gain. Further work needs a deeper
+iterator/object-boundary lever rather than another local sum micro-optimization.
+
+Measurement note: this Cargo toolchain rejects `cargo bench --release`; the
+crate-scoped release-profile equivalent used here was
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo bench -p fnx-python --profile release --bench networkx_head_to_head multigraph_weighted_degree -- --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`.
+
+RCH Criterion baseline before the implementation, `networkx_head_to_head_multigraph_weighted_degree`,
+deterministic `MultiGraph` with 400 nodes / 3224 edges and repeated/missing
+`nbunch`, exact-int and missing weights:
+
+| workload | FNX mean | NetworkX mean | FNX/NetworkX speed ratio |
+| --- | ---: | ---: | ---: |
+| `degree(nbunch, weight)` | 29.415 ms | 1.1577 ms | 0.039x |
+
+After implementation, same command/filter:
+
+| workload | FNX mean | NetworkX mean | FNX/NetworkX speed ratio | FNX self delta |
+| --- | ---: | ---: | ---: | ---: |
+| `degree(nbunch, weight)` | 12.106 ms | 583.39 us | 0.048x | +2.43x / -58.5% |
+
+Behavior and gate evidence:
+
+- The Criterion workload constructs paired `franken_networkx.MultiGraph` and
+  legacy NetworkX graphs and asserts
+  `list(fnx.degree(mg, nbunch, weight="weight")) == list(nx.degree(...))`
+  before timing.
+- Added focused Python source guard for repeated `nbunch` nodes, missing
+  `nbunch` entries, missing weights, negative/zero weights, and self-loop
+  weighted degree parity.
+- `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo check -p fnx-python --all-targets`: passed.
+- `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo clippy -p fnx-python --all-targets -- -D warnings`: passed.
+- `cargo fmt -p fnx-python -- --check`: passed.
+- `git diff --check`: passed.
+- `ubs --only=rust crates/fnx-python/src/lib.rs`: exit 0; no critical findings,
+  broad pre-existing `lib.rs` warnings only.
+- `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo test -p fnx-python --all-targets`: lib tests passed
+  (28/28) and `networkx_head_to_head_multigraph_weighted_degree` test-mode rows
+  passed, but the broader `public_api_gauntlet` bench target failed under RCH
+  before exercising this change because the remote Python environment could not
+  import `networkx` for that harness. A rerun with
+  `PYTHONPATH=crates/fnx-python/benches:python:legacy_networkx_code` moved past
+  the helper import but hit the same remote `networkx` import blocker.
+- `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo test -p fnx-python --lib`: passed
+  28/28.
+
 ## 2026-06-23 BlackThrush MultiGraph weighted PageRank sparse-build indexed walk WIN (`br-r37-c1-weighted-attr-rust-store-237hw`, cod-b)
 
 Lever: `pagerank(MultiGraph, weight="weight")` routes through

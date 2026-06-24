@@ -6745,6 +6745,10 @@ impl PyMultiGraph {
         nbunch: &Bound<'_, PyAny>,
         weight: &str,
     ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        if let Some(pairs) = self.weighted_degree_subset_py_int_impl(py, nbunch, weight)? {
+            return Ok(pairs);
+        }
+
         let one = 1i64.into_pyobject(py)?.into_any();
         let sum_fn = py.import("builtins")?.getattr("sum")?;
         let mut out: Vec<(PyObject, PyObject)> = Vec::new();
@@ -6814,6 +6818,96 @@ impl PyMultiGraph {
             out.push((node_obj.clone().unbind(), deg.unbind()));
         }
         Ok(out)
+    }
+
+    fn weighted_degree_subset_py_int_impl(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+        weight: &str,
+    ) -> PyResult<Option<Vec<(PyObject, PyObject)>>> {
+        let mut out: Vec<(PyObject, PyObject)> = Vec::new();
+        for item in nbunch.try_iter()? {
+            let node_obj = item?;
+            if node_obj.hash().is_err() {
+                let label = node_obj
+                    .str()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "?".to_owned());
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Node {label} in sequence nbunch is not a valid node."
+                )));
+            }
+            let node = node_key_to_string(py, &node_obj)?;
+            if !self.inner.has_node(&node) {
+                continue;
+            }
+
+            let Some(total) = self.weighted_degree_py_int_row(py, &node, weight) else {
+                return Ok(None);
+            };
+            let Ok(total_i64) = i64::try_from(total) else {
+                return Ok(None);
+            };
+            out.push((node_obj.clone().unbind(), total_i64.into_py_any(py)?));
+        }
+        Ok(Some(out))
+    }
+
+    fn weighted_degree_py_int_row(&self, py: Python<'_>, node: &str, weight: &str) -> Option<i128> {
+        let mut total = 0i128;
+        let mut selfloop = false;
+        if let Some(neighbors) = self.inner.neighbors_iter(node) {
+            for neighbor in neighbors {
+                if neighbor == node {
+                    selfloop = true;
+                }
+                let keys = self.inner.edge_keys_iter(node, neighbor)?;
+                for key in keys {
+                    let value = self.multigraph_py_int_weight(py, node, neighbor, *key, weight)?;
+                    total = total.checked_add(i128::from(value))?;
+                }
+            }
+        }
+        if selfloop {
+            let keys = self.inner.edge_keys_iter(node, node)?;
+            for key in keys {
+                let value = self.multigraph_py_int_weight(py, node, node, *key, weight)?;
+                total = total.checked_add(i128::from(value))?;
+            }
+        }
+        Some(total)
+    }
+
+    fn multigraph_py_int_weight(
+        &self,
+        py: Python<'_>,
+        source: &str,
+        target: &str,
+        key: usize,
+        weight: &str,
+    ) -> Option<i64> {
+        let ek = Self::edge_key(source, target, key);
+        match self.edge_py_attrs.get(&ek) {
+            Some(attrs) => match attrs.bind(py).get_item(weight).ok().flatten() {
+                Some(value) => {
+                    if !value.is_exact_instance_of::<PyInt>() {
+                        return None;
+                    }
+                    value.extract::<i64>().ok()
+                }
+                None => Some(1),
+            },
+            None => match self
+                .inner
+                .edge_attrs(source, target, key)
+                .and_then(|attrs| attrs.get(weight))
+            {
+                Some(CgseValue::Int(value)) => Some(*value),
+                Some(_) => None,
+                None => Some(1),
+            },
+        }
     }
 
     // -----------------------------------------------------------------------
