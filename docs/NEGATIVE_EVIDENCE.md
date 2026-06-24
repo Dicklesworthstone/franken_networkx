@@ -5771,3 +5771,72 @@ Behavior proof:
 - `ubs --only=rust crates/fnx-python/src/digraph.rs crates/fnx-python/benches/networkx_head_to_head.rs`:
   exit 0; no critical findings, with broad pre-existing `digraph.rs` warning
   inventory.
+
+## 2026-06-24 BlackThrush MultiDiGraph full weighted in/out degree - no-ship
+
+Target: user-called laggard `MultiDiGraph.in_degree(weight="weight")` /
+`MultiDiGraph.out_degree(weight="weight")`, measured head-to-head against
+vendored NetworkX on a deterministic 1800-node, 14400-edge weighted
+MultiDiGraph with two parallel edges per generated arc.
+
+Benchmark harness added:
+`networkx_head_to_head_multidigraph_weighted_degree` in
+`crates/fnx-python/benches/networkx_head_to_head.rs`. The setup asserts exact
+ordered parity for both `list(G.in_degree(weight="weight"))` and
+`list(G.out_degree(weight="weight"))` before timing.
+
+Command:
+
+`RCH_WORKER=vmi1149989 CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo bench -p fnx-python --profile release --bench networkx_head_to_head networkx_head_to_head_multidigraph_weighted_degree -- --quiet`
+
+Worker/runtime notes:
+
+- First remote attempt on `hz2` compiled but failed before timing with
+  `ImportError: libpython3.13.so.1.0: cannot open shared object file`; no perf
+  conclusion drawn from that worker.
+- Usable timed evidence came from `vmi1149989`.
+
+Rejected production levers:
+
+1. Live Python-attr exact-int sum path: read `edge_py_attrs` directly and summed
+   exact `int` weights in Rust, falling back for floats / exotic attrs.
+2. Clean inner exact-int sum path: skipped the live dict lookups when
+   `edges_dirty == false`, used `successors_iter` / `predecessors_iter` /
+   `edge_keys_iter`, and read `inner.edge_attrs` directly.
+
+Both levers were reverted. The live-dict path was slower than the existing
+fallback. The clean-inner iterator path improved the live-dict attempt but still
+missed the NetworkX target by too much to ship.
+
+Final timed rows for the reverted clean-inner iterator path:
+
+| workload | FNX median | NetworkX median | ratio vs NetworkX | decision |
+| --- | ---: | ---: | ---: | --- |
+| `MultiDiGraph.in_degree(weight)` n=1800/e=14400 | 16.882 ms | 9.1783 ms | 0.54x | revert |
+| `MultiDiGraph.out_degree(weight)` n=1800/e=14400 | 12.354 ms | 5.1097 ms | 0.41x | revert |
+
+Earlier same-worker live-dict attempt:
+
+| workload | FNX median | NetworkX median | ratio vs NetworkX | decision |
+| --- | ---: | ---: | ---: | --- |
+| `MultiDiGraph.in_degree(weight)` n=1800/e=14400 | 17.897 ms | 8.6118 ms | 0.48x | revert |
+| `MultiDiGraph.out_degree(weight)` n=1800/e=14400 | 14.072 ms | 7.2240 ms | 0.51x | revert |
+
+Validation for the final evidence-only commit:
+
+- `cargo fmt -p fnx-python --check`: passed.
+- `git diff --check`: passed.
+- `ubs --only=rust crates/fnx-python/benches/networkx_head_to_head.rs`:
+  exit 0; critical 0; existing bench `expect` warnings only.
+- `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo check -p fnx-python --all-targets --features pyo3/abi3-py310`:
+  passed on `ovh-b`.
+- `RCH_WORKER=ovh-b CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo clippy -p fnx-python --all-targets --features pyo3/abi3-py310 -- -D warnings`:
+  passed on `ovh-b`.
+- `RCH_WORKER=ovh-b CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo test -p fnx-python --features pyo3/abi3-py310`:
+  selected `vmi1149989`; 28 passed, 0 failed; doctests 0 passed, 0 failed.
+
+Next viable lever should avoid per-edge string-map attr probes entirely. The
+remaining gap likely needs a compact per-node weighted in/out accumulator or a
+revision-keyed weighted-degree cache built during edge insertion / attr sync,
+with a dirty-key fallback for live edge-attribute mutation. Repeating direct
+`edge_py_attrs` or `inner.edge_attrs` scans is negative evidence.

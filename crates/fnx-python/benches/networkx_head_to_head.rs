@@ -57,6 +57,13 @@ struct MultiDiGraphConnectivityWorkloads {
     nx_descendants: Py<PyAny>,
 }
 
+struct MultiDiGraphWeightedDegreeWorkloads {
+    fnx_in_degree_weight: Py<PyAny>,
+    nx_in_degree_weight: Py<PyAny>,
+    fnx_out_degree_weight: Py<PyAny>,
+    nx_out_degree_weight: Py<PyAny>,
+}
+
 struct MultiGraphBiconnectedWorkloads {
     fnx_is_biconnected: Py<PyAny>,
     nx_is_biconnected: Py<PyAny>,
@@ -697,6 +704,80 @@ nx_descendants = lambda: _node_set_checksum(nx.descendants(mdg_nx, 0))
         nx_strongly_connected_components: callable("nx_strongly_connected_components")?,
         fnx_descendants: callable("fnx_descendants")?,
         nx_descendants: callable("nx_descendants")?,
+    })
+}
+
+fn prepare_multidigraph_weighted_degree_workloads(
+    py: Python<'_>,
+) -> PyResult<MultiDiGraphWeightedDegreeWorkloads> {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("fnx-python crate must live under crates/");
+    let python_dir = repo_root.join("python");
+    let legacy_dir = repo_root.join("legacy_networkx_code").join("networkx");
+
+    let sys = py.import("sys")?;
+    let path = sys.getattr("path")?;
+    let path = path.cast::<PyList>()?;
+    path.insert(0, repo_root.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, python_dir.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, legacy_dir.to_str().expect("repo path must be UTF-8"))?;
+
+    let locals = PyDict::new(py);
+    py.run(
+        cstring(
+            r#"
+import networkx as nx
+import franken_networkx as fnx
+
+def _paired_weighted_mdg(node_count):
+    fnx_graph = fnx.MultiDiGraph()
+    nx_graph = nx.MultiDiGraph()
+    fnx_graph.add_nodes_from(range(node_count))
+    nx_graph.add_nodes_from(range(node_count))
+    for source in range(node_count):
+        for step in range(1, 5):
+            target = (source * 37 + step * 17) % node_count
+            for parallel in range(2):
+                weight = (source * 19 + target * 23 + step * 29 + parallel * 31) % 101 - 37
+                fnx_graph.add_edge(source, target, weight=weight)
+                nx_graph.add_edge(source, target, weight=weight)
+    return fnx_graph, nx_graph
+
+mdg_degree_fnx, mdg_degree_nx = _paired_weighted_mdg(1800)
+
+assert list(mdg_degree_fnx.in_degree(weight="weight")) == list(
+    mdg_degree_nx.in_degree(weight="weight")
+)
+assert list(mdg_degree_fnx.out_degree(weight="weight")) == list(
+    mdg_degree_nx.out_degree(weight="weight")
+)
+
+fnx_in_degree_weight = lambda: sum(deg for _, deg in mdg_degree_fnx.in_degree(weight="weight"))
+nx_in_degree_weight = lambda: sum(deg for _, deg in mdg_degree_nx.in_degree(weight="weight"))
+fnx_out_degree_weight = lambda: sum(deg for _, deg in mdg_degree_fnx.out_degree(weight="weight"))
+nx_out_degree_weight = lambda: sum(deg for _, deg in mdg_degree_nx.out_degree(weight="weight"))
+"#,
+        )
+        .as_c_str(),
+        Some(&locals),
+        Some(&locals),
+    )?;
+
+    let callable = |name: &str| -> PyResult<Py<PyAny>> {
+        let callable = locals.get_item(name)?.ok_or_else(|| {
+            pyo3::exceptions::PyKeyError::new_err(format!("missing Python callable {name}"))
+        })?;
+        Ok(callable.unbind())
+    };
+
+    Ok(MultiDiGraphWeightedDegreeWorkloads {
+        fnx_in_degree_weight: callable("fnx_in_degree_weight")?,
+        nx_in_degree_weight: callable("nx_in_degree_weight")?,
+        fnx_out_degree_weight: callable("fnx_out_degree_weight")?,
+        nx_out_degree_weight: callable("nx_out_degree_weight")?,
     })
 }
 
@@ -1457,6 +1538,37 @@ fn multidigraph_connectivity_head_to_head(c: &mut Criterion) {
     group.finish();
 }
 
+fn multidigraph_weighted_degree_head_to_head(c: &mut Criterion) {
+    Python::initialize();
+    let workloads = Python::attach(prepare_multidigraph_weighted_degree_workloads)
+        .expect("failed to prepare MultiDiGraph weighted degree Python workloads");
+    let mut group = c.benchmark_group("networkx_head_to_head_multidigraph_weighted_degree");
+    group.sample_size(20);
+
+    bench_python_callable(
+        &mut group,
+        "fnx_in_degree_weight_mdg1800_e14400",
+        &workloads.fnx_in_degree_weight,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_in_degree_weight_mdg1800_e14400",
+        &workloads.nx_in_degree_weight,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_out_degree_weight_mdg1800_e14400",
+        &workloads.fnx_out_degree_weight,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_out_degree_weight_mdg1800_e14400",
+        &workloads.nx_out_degree_weight,
+    );
+
+    group.finish();
+}
+
 fn multigraph_biconnected_head_to_head(c: &mut Criterion) {
     Python::initialize();
     let workloads = Python::attach(prepare_multigraph_biconnected_workloads)
@@ -1710,6 +1822,7 @@ criterion_group!(
     multigraph_weighted_degree_head_to_head,
     tree_submodule_head_to_head,
     lattice_generators_head_to_head,
-    adjacency_outer_cache_head_to_head
+    adjacency_outer_cache_head_to_head,
+    multidigraph_weighted_degree_head_to_head
 );
 criterion_main!(benches);
