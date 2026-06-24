@@ -861,3 +861,64 @@ eigenvalues (1e-7) + identical ascending order. laplacian_spectrum was **2.4x
 SLOWER than nx** because of it. Gate (n<=64 safe-Rust, LAPACK above) → measured
 **1.32x WIN**. The other two were already winning (nx runs non-Hermitian dgeev);
 the gate widened the margin. Commits 1f2338b8a + 6e8dd288d.
+
+## SHIPPED: adjacency() outer-dict cache — 0.55-0.62x -> 0.95-0.99x vs nx (2026-06-24, CopperCliff)
+
+Lever (br-r37-c1-adjouter): `Graph.adjacency()` / `DiGraph.adjacency()` route through
+`_fnx.adjacency_dict_shared` -> `share_dict_of_dicts_cache`, which serves the nested
+`{node: shared_row}` snapshot. The per-EDGE rows were already cached (and shared, so
+`r1[u] is r2[u]` matches nx's live-`_adj` contract), BUT the OUTER `{node: row}` dict was
+rebuilt from scratch on EVERY call — one `set_item` per node, O(V). So `dict(G.adjacency())`
+paid that redundant O(V) outer rebuild on TOP of the user-side `dict()` copy, while nx's
+`adjacency()` returns `iter(self._adj.items())` and builds NOTHING. Measured **0.55-0.62x
+vs nx**.
+
+Fix: cache the outer dict on `DictOfDictsCache` (new `shared_outer: Mutex<Option<Py<PyDict>>>`,
+lazily filled in `share_dict_of_dicts_cache`). Warm repeated calls — and every internal
+`_native_adjacency_dict()` consumer (e.g. `average_degree_connectivity(weight=...)`) — reuse
+the SAME outer object. Safe because (a) the public wrapper hands out `iter(outer.items())`,
+never the dict itself, so callers cannot mutate it; (b) all `_native_adjacency_dict()` callers
+read-only; (c) the whole cache (incl. `shared_outer`) is replaced wholesale on any
+nodes_seq/edges_seq change, so the cached outer can never outlive its rows.
+
+Why not the 6.7x fast-merge path: returning the dict directly so `dict()` C-fast-merges
+(measured 6.7x) is BLOCKED by nx's contract — `nx.Graph.adjacency()` returns a single-use
+`dict_itemiterator` (isinstance-dict == False, `len()` -> TypeError, exhausts on reuse). A
+dict-subclass would diverge on all three; rejected. Caching the outer reaches PARITY without
+any contract change — the irreducible remainder is the user-side `dict()` sequence-of-pairs
+copy, which nx also pays once.
+
+Measured (interleaved min-of-21, inner=3, BA n,m=4, paired graphs, same artifact env;
+ratio = nx/fnx, >1 = fnx faster):
+
+| workload | baseline (HEAD) | after | 
+| --- | ---: | ---: |
+| `[Graph] dict(adjacency())` n=2000 | 0.56x | 0.97x |
+| `[Graph] dict(adjacency())` n=8000 | 0.55x | 0.95x |
+| `[DiGraph] dict(adjacency())` n=2000 | 0.62x | 0.99x |
+| `[DiGraph] dict(adjacency())` n=8000 | 0.56x | 0.99x |
+
+Behavior proof:
+- Direct artifact parity (paired BA n=300): content equality, two-call row identity
+  (`a1[u] is a2[u]`), inner == live `G[u][v]`, live edge-attr mutation reflected, cache
+  invalidation on `add_node`, iterator yields (node,row) pairs, `next()` works — all 4 graph
+  paths PASS.
+- `_native_adjacency_dict()` consumer parity: `average_degree_connectivity(G, weight="weight")`
+  byte-equal to nx.
+- pytest: 237 passed (adjacency_cache_consistency_guard, adj_mapping_parity, adj_row_key_parity,
+  adjacency_data_native_parity, adj_item_readonly_parity, edge_subgraph_adjacency_parity,
+  view_surface_mutation_parity, lazy_materialization_stress_guard); broader affected sweep
+  (-k "adj or to_dict or dict_of_dicts or convert or assortativ or average_degree or copy or
+  subgraph") 3505 passed, 9 skipped, 0 failed.
+- cargo fmt --check, clippy -D warnings, git diff --check: all clean.
+
+Files: crates/fnx-python/src/lib.rs (DictOfDictsCache struct + 1 init site),
+crates/fnx-python/src/readwrite.rs (share_dict_of_dicts_cache + 2 init sites),
+crates/fnx-python/src/digraph.rs (1 init site). Disjoint from BlackThrush's concurrent
+size(weight)/weighted_degree int work (lib.rs L4021-8869).
+
+Landing: branch `cc-adjouter-land-20260624` commit `8e880c0bd` (rebased onto current main,
+re-built + re-benched 0.95-0.99x, 867 conformance pass). To avoid a double-land, the CODE is
+landing via BlackThrush's in-flight batch (their working tree carries this exact patch under
+their exclusive lib.rs/readwrite.rs/digraph.rs locks); this ledger entry lands the measured
+evidence. Attribution: br-r37-c1-adjouter (CopperCliff).
