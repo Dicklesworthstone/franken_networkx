@@ -1495,3 +1495,23 @@ regress — net win depends on read-heavy (matrix/shortest-path) vs write-heavy 
 could be Rust-side (pyclass mapping) to minimize setitem overhead. In BlackThrush's lib.rs/views.rs;
 this resolves the long-open blocker so the implementer goes straight to the marking-subclass approach
 instead of re-attempting the (correctness-breaking) bare flag clear.
+
+## 2026-06-25 CopperCliff REJECT: approximation.steiner_tree 0.409x — conversion-tax-bound, de-delegation parity-risky
+
+Swept WL-hash/traversal/similarity/steiner. All at-or-above nx EXCEPT steiner_tree 0.409x (fnx 6.5ms vs
+nx 3.06ms, BA(400) weighted, 4 terminals). Wins/parity: weisfeiler_lehman_graph_hash 0.95x, wl_subgraph
+0.95x, bfs_tree 3.06x, dfs_tree 3.20x, edge_bfs 1.26x, bfs_layers 1.56x, descendants 1.18x, simrank
+1.04x, panther 1.01x, hits 0.95x.
+
+steiner_tree decomposed: fnx.approximation.steiner_tree IS nx's function (namespace delegate). Cost =
+faithful fnx->nx conversion 3.84ms + nx algo 3.09ms = 6.5ms (nx-on-nx = 3.06ms; nx algo on the converted
+graph = 3.09ms -> the WHOLE gap is the conversion). No native steiner kernel exists.
+
+De-delegation (run kou/mehlhorn in-process on fnx's fast native shortest-paths, skip the conversion) is
+possible IN PRINCIPLE (graph-returning, round-trip-conversion class) BUT byte-exactness requires
+reproducing nx's metric_closure dijkstra PATH tie-breaks AND the metric-closure MST tie-breaks exactly —
+both CPython-order-sensitive. High parity risk for a niche approximation function whose only overhead is
+the 3.84ms weighted-conversion (the same construction floor that taxes every delegated weighted fn).
+REJECT (not worth the parity risk; cheaper-conversion would still be ~0.6x). Note: the construction-floor
+fix (faster weighted fnx->nx / native weighted builders) would lift this too — ties back to the matrix
+construction + sticky-dirty levers already surfaced.
