@@ -1186,3 +1186,22 @@ in `nodes_ordered()`. Same peeling order, value DP, and String-name min tie-brea
 Result: balanced_tree(2,9) fnx 17.6ms -> 3.43ms (~5x self), 0.24x -> 1.22x (now FASTER than nx).
 Parity: tbc center + value + tree_broadcast_time byte-exact vs nx on balanced(2,9)/path(500)/star(300)/
 balanced(3,5)/balanced(2,3) + 15 random labelled trees, 0 fails.
+
+## 2026-06-25 CopperCliff subgraph_centrality: np.linalg.eigh -> scipy.linalg.eigh — KEEP (0.25x->34x)
+
+subgraph_centrality was 0.25x vs nx (fnx 99.7ms vs ~25-96ms on BA(150,3)). fnx used `np.linalg.eigh`
+which on this BLAS build dispatches the 'evd' divide-and-conquer driver (or numpy's reference LAPACK):
+np.linalg.eigh = 69ms vs scipy.linalg.eigh (default 'evr' MRRR driver, optimized BLAS) = 2.5ms at
+n=150 — a 27x driver/BLAS difference. nx's centrality path uses scipy, so fnx's numpy eigh was the
+outlier.
+
+Fix (pure-Python): swap `np.linalg.eigh(A)` -> `scipy.linalg.eigh(A)`. Result is numerically identical
+(eigenvalues match; the combine `sum(exp(lambda) * v^2)` is invariant to eigenvector SIGN and eigenvalue
+ORDER, so the 'evr' vs 'evd' driver difference cancels). subgraph_centrality(BA(150,3)) fnx 99.7ms ->
+2.77ms (~36x self), now 9-34x FASTER than nx. Parity vs nx: max rel err ~1e-14 across BA(60/150/100/40);
+conformance -k subgraph_centrality 110 passed/0 failed.
+
+FOLLOW-UP: other __init__.py spectral sites use np.linalg.eigvalsh (eigenvalues-only, order-invariant ->
+SAFE to swap to scipy.linalg.eigvalsh) at lines ~24652/25064/25177/32099/32204/34191, and _matrix_exp
+(26277, V*D*V^T sign-invariant). Line 25314 (fiedler) uses eigenVECTORS (sign-sensitive) -> do NOT swap
+blindly. Bench+verify each before swapping.

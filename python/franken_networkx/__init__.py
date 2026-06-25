@@ -26254,7 +26254,13 @@ def subgraph_centrality(G, *, normalized=False, backend=None, **backend_kwargs):
     nodelist = list(G.nodes())
     A = to_numpy_array(G, nodelist=nodelist, weight=None)
     A[np.nonzero(A)] = 1
-    eigenvalues, eigenvectors = np.linalg.eigh(A)
+    # br-r37-c1-sceigh-scipy (cc): scipy.linalg.eigh (MRRR 'evr' driver, optimized
+    # BLAS) is ~27x faster than np.linalg.eigh (which uses the slow 'evd' driver /
+    # numpy's reference LAPACK here: 2.5ms vs 69ms at n=150). Result is identical —
+    # eigenvalues match and the combine `sum(exp(lambda) * v^2)` is invariant to
+    # eigenvector sign and eigenvalue ordering. 0.25x vs nx -> faster than nx.
+    import scipy.linalg as _sla
+    eigenvalues, eigenvectors = _sla.eigh(A)
     squared_eigenvectors = np.array(eigenvectors) ** 2
     if normalized:
         exp_eigenvalues = np.exp(eigenvalues - eigenvalues.max())
