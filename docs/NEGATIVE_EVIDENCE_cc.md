@@ -1149,3 +1149,22 @@ Then route `_sbm_impl` to the (now byte-exact) native binding for int/None/Rando
 NOTE: that routing edit is in __init__.py (BlackThrush-reserved) + the kernel is fnx-algorithms
 (TealSpring, stale). Expected payoff: whole partition family ~0.79x -> ~2x (like other native gens).
 Deferred (multi-build, byte-parity-critical, reservation-touching) rather than half-done.
+
+## 2026-06-25 CopperCliff is_distance_regular degree-2 cycle fast path — KEEP (6x faster than nx AND correct)
+
+BOLD-VERIFY found is_distance_regular at fnx 204ms vs nx 0.54ms on cycle(800) (~0.00x). DECISIVE: this
+is an nx CORRECTNESS BUG, not an fnx perf gap. nx's intersection_array uses an early diameter bound
+`(8*log2 n)/3` that is only valid for valency>=3 distance-regular graphs; a cycle C_n has degree 2 and
+diameter n/2, violating the bound, so nx EARLY-EXITS and returns False — WRONG, every cycle is
+distance-regular. fnx's native _raw_is_distance_regular does the full O(V*(V+E)) intersection array and
+returns the CORRECT True (in 204ms). Verified: cycle(50/200/800) -> fnx True (correct), nx False (wrong);
+icosahedral/petersen/complete/hypercube -> both True.
+
+Fix (pure-Python, __init__.py): after the regular+connected pre-check, a connected 2-regular graph is
+exactly a single cycle C_n, which is always distance-regular -> return True in O(1) (skip the 204ms
+native pass). Stays CORRECT (unlike nx). Result: is_distance_regular(cycle(800)) fnx 204ms -> 0.095ms
+(~2150x self), 6.04x FASTER than nx AND correct (True vs nx's wrong False). Correctness 0 fails across
+cycles / known DR graphs / non-DR / disconnected-deg2; conformance -k distance_regular 28 passed/0 failed.
+
+NOTE: do NOT "match nx's speed" by adopting its diameter-bound early-exit — that would regress fnx to
+nx's incorrect False on cycles. This is a case where fnx is MORE correct than NetworkX.

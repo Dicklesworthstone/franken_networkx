@@ -34603,6 +34603,14 @@ def is_distance_regular(G):
     # for genuinely regular, connected graphs (the only candidates).
     if not is_regular(G) or not is_connected(G):
         return False
+    # br-r37-c1-isdr-cycle (cc): a CONNECTED 2-regular graph is exactly a single
+    # cycle C_n, and every cycle is distance-regular -> return True in O(1) here
+    # instead of the native O(V*(V+E)) intersection-array pass (204ms on C_800).
+    # NOTE: nx's fast path applies a (8*log2 n)/3 diameter bound that is only valid
+    # for valency>=3 and WRONGLY returns False for large cycles; fnx stays correct
+    # (verified: cycle(50/200/800) -> True vs nx's incorrect False).
+    if next(d for _, d in G.degree()) == 2:
+        return True
     return _raw_is_distance_regular(G)
 
 
