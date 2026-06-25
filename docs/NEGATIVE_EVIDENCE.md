@@ -6112,3 +6112,26 @@ runtime source hunk was reverted; only the focused Criterion harness remains to
 make future retests reproducible. The likely floor is still Python-object
 materialization plus dual-storage synchronization, not the isolated
 `copy.deepcopy` call the candidate removed.
+
+## 2026-06-25 BlackThrush MultiGraph selfloop list-iterator lever - NO-SHIP
+
+Targeted the remaining `MultiGraph.selfloop_edges(keys=True, data="weight")` view laggard after the
+native pristine-mirror fast path: replace the Rust `NodeIterator` wrapper returned by
+`_native_selfloop_edges` with CPython's built-in `list_iterator` over the same already-snapshotted
+tuple vector, aiming to remove one PyO3 pyclass `__next__` call per emitted edge.
+
+Same-worker A/B on `vmi1152480`, warm
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a`, crate-scoped command:
+`rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head mg_selfloop_keys_weight_n2500_loops2502 -- --quiet`.
+
+| workload | baseline fnx | patched fnx | NetworkX | ratio before | ratio after |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `mg_selfloop_keys_weight_n2500_loops2502` | 2.1679 ms | 2.6813 ms | 630.14 us / 606.16 us | 0.291x | 0.226x |
+
+Decision: REVERTED. The built-in list iterator did not pay for the extra list-object iteration setup
+and regressed the only targeted row by 24%. This reinforces that the residual self-loop gap is not
+primarily the custom iterator's `__next__` overhead; it is the per-edge tuple/value materialization
+floor. The untouched weighted in-degree laggard remains view/materialization-bound as well: in the
+full `networkx_head_to_head_core_laggards` run, `mdg_in_degree_weight_n700_e12662` measured 10.800 ms
+fnx vs 2.1347 ms NetworkX on `vmi1227854` (0.198x), while the prior clean baseline on `vmi1152480`
+measured 13.518 ms fnx vs 3.4887 ms NetworkX (0.258x). No code change kept.
