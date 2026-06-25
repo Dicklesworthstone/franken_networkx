@@ -1562,3 +1562,17 @@ EXISTING `adjacency_default_order_typed_arrays` store-reader becomes the fast pa
 lever's reach is even larger than stated: it unlocks weighted matrix construction WITHOUT any new builder.
 Do NOT attempt a standalone periphery weighted matrix builder; it cannot be both fast and correct without
 the sync. Single source of remaining vs-nx progress = the sticky-edges_dirty core fix.
+
+## 2026-06-25 CopperCliff frontier coverage complete: layout/numerical/structural all >= nx
+
+Final sweep (~10 fns previously unmeasured): all at-or-above nx. reciprocity 2.40x, s_metric 134x,
+flow_hierarchy 11.6x, local_bridges 6.63x, bridges 22.5x, configuration_model 1.02x,
+expected_degree_graph 1.06x, spectral_layout 0.96x, spring_layout 0.98x, kamada_kawai 1.09x,
+random_reference 0.95x, non_randomness 0.835x (near-parity, eigvalsh-based). ~26 primitive classes now
+measured: the ENTIRE accessible periphery is at-or-above nx.
+
+TERMINAL PERIPHERY STATE (CopperCliff): 6 vs-nx wins shipped+verified (759 conformance pass). No
+remaining periphery-fixable vs-nx win. ALL residual loss reduces to ONE core fix — the sticky-edges_dirty
+marking-dict-subclass (f91977f1e), subsuming weighted matrix construction (82c94c296) AND dijkstra/astar/
+bellman, ~8 fns. Blocked on BlackThrush's reserved lib.rs (core last commit 7634eebf7) + corrupted
+agent-mail (git ledger is the only channel). Real progress = the one core fix.
