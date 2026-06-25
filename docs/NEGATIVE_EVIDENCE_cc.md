@@ -1468,3 +1468,30 @@ entry 2578350fe) — fixing it (post-sync clear + edge-attr-dict __setitem__ re-
 (weighted matrix construction 0.4x->~4x + dijkstra/astar/bellman 0.5x->5x+). Periphery-unfixable; handed
 off via ledger (agent-mail in durability-error state). Next real vs-nx progress requires either
 BlackThrush implementing the surfaced levers or reassignment of the core files to CopperCliff.
+
+## 2026-06-25 CopperCliff RESOLVED: why the sticky-edges_dirty clear breaks mutation parity (the real fix)
+
+Investigated the master lever's "deeper cause unresolved" (the post-sync edges_dirty clear that unlocks
+~8 functions but was reverted for breaking G[u][v]['weight']=x). ROOT, now airtight by code + empirical:
+- fnx's per-edge attr mirror (edge_py_attrs) is a PLAIN `Py<PyDict>` (verified type(G[u][v]) == dict).
+- `AtlasView.__getitem__` (views.rs:1037-1047) marks edges_dirty on ACCESS, then returns that plain dict.
+- The sync (`_fnx_sync_edge_attrs_to_inner`, lib.rs:10961) early-returns when !edges_dirty and never
+  clears it -> sticky. This is a CORRECTNESS GUARANTEE: once any edge dict is handed to Python it may be
+  mutated through a HELD REFERENCE with no fnx hook, so dirty must stay true so every native store-read
+  re-syncs from the mirror.
+- nx supports held-ref mutation (verified: `d=G[0][1]; d['weight']=5.0` -> G[0][1]['weight']==5.0; it is
+  a documented contract because nx's dict IS the storage). fnx must preserve it.
+- THE BREAK with a naive clear: `d=G[u][v]` (marks dirty) ; `kernel()` (syncs+CLEARS) ;
+  `d['weight']=x` (plain-dict setitem, NO mark — held ref, no getitem) ; `kernel()` (dirty=false ->
+  SKIPS sync -> reads STALE). Sticky-dirty avoids this by never skipping.
+
+REAL FIX (not a flag clear): make the edge (and node) attr mirror a custom dict SUBCLASS whose
+__setitem__/__delitem__/update/pop/clear/setdefault all call `mark_edges_dirty`, so EVERY mirror
+mutation (including held-reference, no-getitem) re-marks dirty. THEN clearing edges_dirty after a
+successful sync is safe, and the ~8-function unlock (weighted matrix 0.4x->~4x, dijkstra/astar/bellman
+0.5x->5x+) lands without regressing held-ref mutation parity. TRADEOFF to measure: a Python-subclass
+__setitem__ is slower than C-dict setitem, so the per-attr-write paths (set_edge_attributes etc.) may
+regress — net win depends on read-heavy (matrix/shortest-path) vs write-heavy workloads; the subclass
+could be Rust-side (pyclass mapping) to minimize setitem overhead. In BlackThrush's lib.rs/views.rs;
+this resolves the long-open blocker so the implementer goes straight to the marking-subclass approach
+instead of re-attempting the (correctness-breaking) bare flag clear.
