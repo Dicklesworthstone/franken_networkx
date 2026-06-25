@@ -5892,3 +5892,44 @@ Behavior proof:
 - Python conformance `-k "degree or weighted or multidi or directed_degree"`: 5645 passed,
   51 skipped, 0 failed.
 - `git diff --check`: passed.
+
+## 2026-06-25 CopperCliff MultiDiGraph weighted degree - index-native accumulator - NO-SHIP (br-r37-c1-eilce)
+
+Follow-up to the KEEP entry "2026-06-24 CopperCliff MultiDiGraph weighted degree - Rust-store
+int fast path" (shipped `02b9f9d4e`). That landing moved MultiDiGraph in/out/total
+`degree(weight)` from 0.41-0.54x to 0.78-0.88x vs NetworkX but left a residual gap, recorded
+in bead `br-r37-c1-eilce` with the hypothesis that the floor was the per-edge **string-keyed**
+`edge_attrs(u,v,key)` HashMap lookup (re-hashing the `(source,target)` string pair per parallel
+edge), and that closing it needed an **index-native per-node weight accumulator**.
+
+Built exactly that: `MultiDiGraph::weighted_degree_int_accumulate(weight, want_out, want_in)`
+in fnx-classes — a SINGLE pass over the authoritative `edges` map that sums each bucket's int
+weights directly from the held `AttrMap`s (no per-key `edge_attrs` re-lookup) and accumulates
+into per-node-index vectors, resolving node index once per bucket and only for the requested
+direction. The two `native_*_store_int` bindings were rewired to call it once (total degree now
+does ONE edges pass instead of TWO per-node row passes), and the dead `weighted_degree_store_int_row`
+/ `add_store_int_weight` helpers removed. This roughly HALVES the Rust-side hashing.
+
+Authoritative per-crate Criterion bench (same harness + workload as the KEEP baseline,
+n=1800 / e=14400, weights in -37..63):
+
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head networkx_head_to_head_multidigraph_weighted_degree -- --quiet`
+
+| workload | prior store-int FNX (ledger) | after FNX median | NetworkX median | after ratio vs nx |
+| --- | ---: | ---: | ---: | ---: |
+| `MultiDiGraph.in_degree(weight)`  | 3.153 ms | 3.177 ms (CI [3.06, 3.30]) | 2.274 ms | 0.72x |
+| `MultiDiGraph.out_degree(weight)` | 2.576 ms | 2.579 ms                  | 2.129 ms | 0.83x |
+
+Decision: NO-SHIP (REVERT, stashed `cc-eilce-NOSHIP`). The fnx side is statistically UNCHANGED
+(in 3.153->3.177 ms, well within this run's confidence interval; out 2.576->2.579 ms) despite
+halving the Rust-side hashing. CONCLUSION: the residual gap is NOT the string-keyed `edge_attrs`
+lookup the bead hypothesized — it is the **PyObject materialization** of the degree view
+(1800 nodes x `py_node_key` + `into_py_any` per node), which is identical on both paths and
+dominates the Rust-side accumulation cost. An index-native Rust accumulator cannot close this;
+matching nx (whose `DiMultiDegreeView` builds the same Python dict) would require cutting the
+per-node Python-object construction itself, not the edge walk. The bead's stated lever is thus
+refuted as a perf lever; updating the bead record accordingly.
+
+Gates: `cargo +nightly-2026-06-10 fmt -p fnx-classes -p fnx-python --check` passed (after fmt);
+`cargo +nightly-2026-06-10 clippy -p fnx-python --features pyo3/abi3-py310 --all-targets -- -D warnings`
+clean (no errors/warnings). Change reverted before any conformance run; main is unaffected.
