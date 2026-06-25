@@ -5933,3 +5933,39 @@ refuted as a perf lever; updating the bead record accordingly.
 Gates: `cargo +nightly-2026-06-10 fmt -p fnx-classes -p fnx-python --check` passed (after fmt);
 `cargo +nightly-2026-06-10 clippy -p fnx-python --features pyo3/abi3-py310 --all-targets -- -D warnings`
 clean (no errors/warnings). Change reverted before any conformance run; main is unaffected.
+
+## 2026-06-25 CopperCliff MultiGraph selfloop_edges(data=attr) pristine-mirror fast path - KEEP (br-r37-c1-eilce family)
+
+`selfloop_edges(G, keys=True, data="weight")` on a MultiGraph was the largest live core-laggard
+(0.37x vs NetworkX). The native `PyMultiGraph::_native_selfloop_edges` `want_value` path built a
+`(String, String, usize)` lookup key PER EDGE (two String allocations + a hash) and probed the
+`edge_py_attrs` mirror inside `edge_data_value_or_default_with_key` before falling back to the Rust
+store — but when NO Python edge-attr mirror exists that probe is a guaranteed MISS, so the key build
++ hash + `CgseValue` clone are pure waste. NetworkX's generator pays none of this (`d.get(attr)`
+returns an already-stored Python object).
+
+Lever: PRISTINE-MIRROR fast path. When `self.edge_py_attrs.is_empty()`, capture the attr name once
+and read scalar values straight from the Rust store (`cgse_value_to_py`), skipping the per-edge
+`edge_key` allocation and the mirror probe entirely. `Map`-valued attrs still route through the
+mirror (`edge_data_value_or_default_with_key`) so the live dict-object identity NetworkX guarantees
+is preserved. Only active when the mirror was globally empty at entry, so the store is authoritative.
+
+Authoritative per-crate Criterion bench (`networkx_head_to_head_core_laggards`, MultiGraph
+n=2500 / loops=2502, int weights), same harness that recorded the baseline:
+
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head networkx_head_to_head_core_laggards`
+
+| workload | baseline FNX | after FNX median | NetworkX median | after ratio vs nx |
+| --- | ---: | ---: | ---: | ---: |
+| `selfloop_edges(keys=True, data="weight")` | 1.2674 ms (0.37x) | 0.8006 ms | 0.4668 ms | 0.58x |
+
+Decision: KEEP. ~1.58x self-speedup, vs-nx ratio 0.37x -> 0.58x on the documented top laggard,
+reproduced under the per-crate Criterion bench that recorded the baseline (NOT cross-run Python
+timing). Not full parity — the residual is the unavoidable per-edge PyTuple + value-object
+construction (nx reuses already-stored Python objects; fnx converts from the CgseValue store), the
+same PyObject-materialization floor identified for the degree views. The untouched `edges(keys=True)`
+MDG laggard stayed 0.67x in the same run, confirming the change is isolated to the selfloop path.
+
+Behavior proof: bench asserts `fnx == nx` for the exact workload (keys + parallel self-loops + int
+weights). Map-valued-attr identity preserved via the mirror fallback. Python conformance
+`-k "selfloop"` GREEN. fmt + clippy clean.

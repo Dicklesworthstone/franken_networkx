@@ -5207,6 +5207,23 @@ impl PyMultiGraph {
             self.mark_edges_dirty();
         }
 
+        // br-r37-c1-eilce/selfloop (cc): PRISTINE-MIRROR fast path for `data="<attr>"`.
+        // When NO Python edge-attr mirror exists, the string-keyed `edge_py_attrs` probe
+        // inside edge_data_value_or_default_with_key is a guaranteed miss, so building the
+        // `(String, String, usize)` lookup key per edge (two allocations + a hash) is pure
+        // waste — the Rust CgseValue store is authoritative. Capture the attr name once and
+        // read scalars straight from the store; `Map`-valued attrs still route through the
+        // mirror below to preserve dict-object identity (NetworkX yields the live dict).
+        let value_attr_name: Option<String> = if want_value && self.edge_py_attrs.is_empty() {
+            data.downcast::<PyString>()
+                .ok()
+                .map(|s| s.to_str().map(str::to_owned))
+                .transpose()?
+        } else {
+            None
+        };
+        let value_fast_path = value_attr_name.is_some();
+
         let nodes: Vec<String> = self
             .inner
             .nodes_ordered()
@@ -5219,8 +5236,9 @@ impl PyMultiGraph {
             let edge_keys = self.inner.edge_keys(node, node).unwrap_or_default();
             let py_node = self.py_node_key(py, node);
             for key in edge_keys {
-                let needs_lookup_key =
-                    want_dict || want_value || (keys && !self.edge_py_keys.is_empty());
+                let needs_lookup_key = want_dict
+                    || (want_value && !value_fast_path)
+                    || (keys && !self.edge_py_keys.is_empty());
                 let lookup_key = if needs_lookup_key {
                     Some(Self::edge_key(node, node, key))
                 } else {
@@ -5273,17 +5291,46 @@ impl PyMultiGraph {
                         );
                     }
                 } else if want_value {
-                    let val = self.edge_data_value_or_default_with_key(
-                        py,
-                        node,
-                        node,
-                        key,
-                        lookup_key
-                            .as_ref()
-                            .expect("lookup key exists for edge data"),
-                        data,
-                        &default_obj,
-                    )?;
+                    let val = if let Some(attr_name) = value_attr_name.as_deref() {
+                        // Pristine-mirror path: convert scalars directly from the store.
+                        // A `Map` value falls back to the mirror to keep dict identity.
+                        let converted = match self
+                            .inner
+                            .edge_attrs(node, node, key)
+                            .and_then(|attrs| attrs.get(attr_name))
+                        {
+                            Some(CgseValue::Map(_)) => None,
+                            Some(value) => Some(cgse_value_to_py(py, value)?),
+                            None => Some(default_obj.clone_ref(py)),
+                        };
+                        match converted {
+                            Some(value) => value,
+                            None => {
+                                let ek = Self::edge_key(node, node, key);
+                                self.edge_data_value_or_default_with_key(
+                                    py,
+                                    node,
+                                    node,
+                                    key,
+                                    &ek,
+                                    data,
+                                    &default_obj,
+                                )?
+                            }
+                        }
+                    } else {
+                        self.edge_data_value_or_default_with_key(
+                            py,
+                            node,
+                            node,
+                            key,
+                            lookup_key
+                                .as_ref()
+                                .expect("lookup key exists for edge data"),
+                            data,
+                            &default_obj,
+                        )?
+                    };
                     if let Some(key_obj) = key_obj {
                         out.push(
                             PyTuple::new(py, &[py_source, py_target, key_obj, val])?
