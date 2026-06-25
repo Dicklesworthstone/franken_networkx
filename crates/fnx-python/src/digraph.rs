@@ -626,6 +626,138 @@ impl PyMultiDiGraph {
         Some(())
     }
 
+    // br-r37-c1-mdgwdeg (cc): RUST-STORE weighted-degree fast path. The existing
+    // `_py_int_impl` paths still cross PyO3 `get_item` on the live edge mirror
+    // ONCE PER EDGE (~0.47-0.67x vs nx on MultiDiGraph weighted degree). When the
+    // graph has no dirty edge mirrors (`edges_dirty == false`), the Rust CgseValue
+    // store is authoritative, so we sum int weights directly from it with ZERO
+    // per-edge Python crossings. Returns None (bail to the mirror/py paths) on any
+    // non-int weight or overflow, keeping float/object parity exact.
+    fn add_store_int_weight(
+        &self,
+        total: &mut i128,
+        source: &str,
+        target: &str,
+        key: usize,
+        weight: &str,
+    ) -> Option<()> {
+        let value = match self
+            .inner
+            .edge_attrs(source, target, key)
+            .and_then(|attrs| attrs.get(weight))
+        {
+            Some(CgseValue::Int(v)) => i128::from(*v),
+            Some(_) => return None,
+            None => 1,
+        };
+        *total = total.checked_add(value)?;
+        Some(())
+    }
+
+    fn weighted_degree_store_int_row(
+        &self,
+        node: &str,
+        weight: &str,
+        outgoing: bool,
+    ) -> Option<i128> {
+        let mut total = 0i128;
+        if outgoing {
+            if let Some(successors) = self.inner.successors_iter(node) {
+                for successor in successors {
+                    let keys = self.inner.edge_keys_iter(node, successor)?;
+                    for key in keys {
+                        self.add_store_int_weight(&mut total, node, successor, *key, weight)?;
+                    }
+                }
+            }
+        } else if let Some(predecessors) = self.inner.predecessors_iter(node) {
+            for predecessor in predecessors {
+                let keys = self.inner.edge_keys_iter(predecessor, node)?;
+                for key in keys {
+                    self.add_store_int_weight(&mut total, predecessor, node, *key, weight)?;
+                }
+            }
+        }
+        Some(total)
+    }
+
+    fn native_weighted_directional_degree_store_int(
+        &self,
+        py: Python<'_>,
+        weight: &str,
+        outgoing: bool,
+    ) -> PyResult<Option<Vec<(PyObject, PyObject)>>> {
+        if self.edges_dirty.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(self.inner.node_count());
+        for node in self.inner.nodes_ordered() {
+            let Some(total) = self.weighted_degree_store_int_row(node, weight, outgoing) else {
+                return Ok(None);
+            };
+            let Ok(total_i64) = i64::try_from(total) else {
+                return Ok(None);
+            };
+            out.push((self.py_node_key(py, node), total_i64.into_py_any(py)?));
+        }
+        Ok(Some(out))
+    }
+
+    fn native_weighted_total_degree_store_int(
+        &self,
+        py: Python<'_>,
+        weight: &str,
+    ) -> PyResult<Option<Vec<(PyObject, PyObject)>>> {
+        if self.edges_dirty.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(self.inner.node_count());
+        for node in self.inner.nodes_ordered() {
+            let (Some(out_sum), Some(in_sum)) = (
+                self.weighted_degree_store_int_row(node, weight, true),
+                self.weighted_degree_store_int_row(node, weight, false),
+            ) else {
+                return Ok(None);
+            };
+            let Some(total) = out_sum.checked_add(in_sum) else {
+                return Ok(None);
+            };
+            let Ok(total_i64) = i64::try_from(total) else {
+                return Ok(None);
+            };
+            out.push((self.py_node_key(py, node), total_i64.into_py_any(py)?));
+        }
+        Ok(Some(out))
+    }
+
+    // br-r37-c1-mdgwdeg (cc): all-node TOTAL weighted degree int path over the live
+    // mirror (fallback when edges_dirty but weights are still exact ints), mirroring
+    // the directional `_py_int_impl`. Sums out- and in-rows per node so a self-loop
+    // is counted twice exactly as NetworkX's DiMultiDegreeView does.
+    fn native_weighted_total_degree_py_int_impl(
+        &self,
+        py: Python<'_>,
+        weight: &str,
+    ) -> PyResult<Option<Vec<(PyObject, PyObject)>>> {
+        let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(self.inner.node_count());
+        for node in self.inner.nodes_ordered() {
+            let (Some(out_sum), Some(in_sum)) = (
+                self.weighted_degree_py_int_row(py, node, weight, true),
+                self.weighted_degree_py_int_row(py, node, weight, false),
+            ) else {
+                return Ok(None);
+            };
+            let Some(total) = out_sum.checked_add(in_sum) else {
+                return Ok(None);
+            };
+            let Ok(total_i64) = i64::try_from(total) else {
+                return Ok(None);
+            };
+            out.push((self.py_node_key(py, node), total_i64.into_py_any(py)?));
+        }
+        Ok(Some(out))
+    }
+
     pub(crate) fn clean_edge_dirty_keys()
     -> std::sync::Mutex<Option<HashSet<(String, String, usize)>>> {
         std::sync::Mutex::new(Some(HashSet::new()))
@@ -4931,6 +5063,14 @@ impl PyMultiDiGraph {
         py: Python<'_>,
         weight: &str,
     ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        // br-r37-c1-mdgwdeg (cc): Rust-store int path (no per-edge PyO3) on a clean
+        // graph, then the live-mirror int path, before the Python sum() fallback.
+        if let Some(out) = self.native_weighted_total_degree_store_int(py, weight)? {
+            return Ok(out);
+        }
+        if let Some(out) = self.native_weighted_total_degree_py_int_impl(py, weight)? {
+            return Ok(out);
+        }
         let one = 1i64.into_pyobject(py)?.into_any();
         let sum_fn = py.import("builtins")?.getattr("sum")?;
         let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(self.inner.node_count());
@@ -5008,6 +5148,11 @@ impl PyMultiDiGraph {
         weight: &str,
         outgoing: bool,
     ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        if let Some(out) =
+            self.native_weighted_directional_degree_store_int(py, weight, outgoing)?
+        {
+            return Ok(out);
+        }
         if let Some(out) =
             self.native_weighted_directional_degree_py_int_impl(py, weight, outgoing)?
         {

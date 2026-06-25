@@ -5840,3 +5840,55 @@ remaining gap likely needs a compact per-node weighted in/out accumulator or a
 revision-keyed weighted-degree cache built during edge insertion / attr sync,
 with a dirty-key fallback for live edge-attribute mutation. Repeating direct
 `edge_py_attrs` or `inner.edge_attrs` scans is negative evidence.
+
+## 2026-06-24 CopperCliff MultiDiGraph weighted degree - Rust-store int fast path - KEEP (br-r37-c1-mdgwdeg)
+
+Follow-up to BlackThrush's "MultiDiGraph full weighted in/out degree - no-ship" entry
+(which recorded the gap but had no fix). The existing int fast-paths
+(`native_weighted_directional_degree_py_int_impl`) still cross PyO3 `get_item` on the
+live edge mirror ONCE PER EDGE, and the all-node TOTAL kernel (`_native_weighted_degree`)
+additionally built two `PyList`s and called Python `sum()` per node. That left
+`MultiDiGraph.{in,out,}degree(weight=...)` at 0.41x-0.54x vs NetworkX on the committed
+Criterion harness.
+
+Lever: when the graph has no dirty edge mirrors (`edges_dirty == false`), the Rust
+CgseValue store is authoritative, so sum int weights directly from it with ZERO per-edge
+Python crossings. Added `add_store_int_weight` / `weighted_degree_store_int_row` /
+`native_weighted_directional_degree_store_int` / `native_weighted_total_degree_store_int`,
+wired AHEAD of the live-mirror int path and the Python-`sum()` fallback in both
+`native_weighted_directional_degree` and `_native_weighted_degree`. Also added the missing
+all-node TOTAL live-mirror int path (`native_weighted_total_degree_py_int_impl`). Any
+non-int weight, overflow, or dirty mirror bails to the existing parity-exact paths, so
+float / object / post-mutation results are unchanged. (Same dirty-gate idea as
+`_native_weighted_size_int`.)
+
+Authoritative per-crate Criterion bench (same harness + workload as BlackThrush's baseline,
+n=1800 / e=14400, weights in -37..63):
+
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head networkx_head_to_head_multidigraph_weighted_degree -- --quiet`
+
+| workload | baseline FNX | baseline ratio | after FNX median | NetworkX median | after ratio vs nx |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `MultiDiGraph.in_degree(weight)`  | 16.9-17.9 ms | 0.48-0.54x | 3.153 ms | 2.446 ms | 0.78x |
+| `MultiDiGraph.out_degree(weight)` | 12.4-14.1 ms | 0.41-0.51x | 2.576 ms | 2.256 ms | 0.88x |
+
+(The absolute FNX numbers fell because the int fast-path now reads the store; the baseline
+column is BlackThrush's recorded median. Interleaved Python min-of-15 separately showed the
+all-node TOTAL `degree(weight)` move 0.473x -> 0.948x.)
+
+Keep decision: KEEP. ~1.5-1.7x self-speedup, roughly HALVING the gap to NetworkX on a
+documented laggard, authoritatively reproduced under the same per-crate Criterion bench that
+recorded the baseline (NOT cross-run Python timing). Not full parity — the residual is nx's
+pure-C `_pred[n]`/`_succ[n]` dict iteration vs fnx's per-edge string-keyed
+`edge_attrs(u,v,key)` store lookup; closing it fully needs an index-native per-node weight
+accumulator (future work, see br bead).
+
+Behavior proof:
+- Direct artifact parity (paired MultiDiGraph n=300, plus n=2000): in/out/total
+  `degree(weight)` byte-equal to NetworkX on fresh (store path), float weights (bail),
+  dirty+live-mutation (mirror fallback), missing-weight default, and negative/zero ints.
+- `cargo +nightly-2026-06-10 fmt -p fnx-python --check`: passed.
+- `cargo +nightly-2026-06-10 clippy -p fnx-python --features pyo3/abi3-py310 --all-targets -- -D warnings`: passed.
+- Python conformance `-k "degree or weighted or multidi or directed_degree"`: 5645 passed,
+  51 skipped, 0 failed.
+- `git diff --check`: passed.
