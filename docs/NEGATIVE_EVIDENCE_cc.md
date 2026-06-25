@@ -1540,3 +1540,25 @@ except via this ledger, and a rushed solo edit risks collision with their in-fli
 flag-clear is proven to regress held-ref mutation parity. OPERATOR ACTION NEEDED: restore agent-mail
 (`am doctor repair`) and/or reassign the core files to CopperCliff with a mandate, OR BlackThrush picks up
 the two ledger levers. Not run by me: am doctor repair/reconstruct (could destroy other agents' mail).
+
+## 2026-06-25 CopperCliff CORRECTION: weighted matrix lever folds into sticky-dirty (not independently buildable)
+
+Refining d3e0d340f ("winnable weighted matrix builder"). Deep re-analysis: the dtype-preserving store
+builder ALREADY EXISTS — `adjacency_default_order_typed_arrays(g, weight, default)` -> (rows, cols, f64
+data, needs_float_dtype) in algorithms.rs:3122 — and is fast (~1.6ms) reading the INDEX-NATIVE store via
+`edge_attrs_by_indices`/`edges_indexed`. BUT the store is stale unless synced (add_edge writes the mirror,
+not the store), and the sync (`_fnx_sync_edge_attrs_to_inner`) is the sticky ~16ms cost. Routing
+to_scipy(dtype=None) through it REGRESSES (12.5ms Python-loop -> 18ms sync+read). A sync-FREE mirror
+reader must do the per-edge dual lookup (mirror-if-materialized else store else default) with the
+index->name->edge_py_attrs string tax — exactly the pattern that makes `_native_weighted_degree` 0.5x.
+Mirror dicts are also lazily materialized (br-r37-c1-89kxg: no eager empty mirrors) so iterating
+edge_py_attrs alone is INCOMPLETE.
+
+CONCLUSION: weighted matrix construction (to_scipy/to_numpy/laplacian/normalized/adjacency_matrix) is NOT
+an independent periphery build — it requires the synced store, i.e. it FOLDS INTO the sticky-edges_dirty
+master lever (clear-dirty-after-sync + marking dict subclass, f91977f1e). With that one core fix, the
+EXISTING `adjacency_default_order_typed_arrays` store-reader becomes the fast path for dtype=None too
+(first call syncs, repeats read store in ~1.6ms) -> matrix 0.4x->~4x falls out for free. So the master
+lever's reach is even larger than stated: it unlocks weighted matrix construction WITHOUT any new builder.
+Do NOT attempt a standalone periphery weighted matrix builder; it cannot be both fast and correct without
+the sync. Single source of remaining vs-nx progress = the sticky-edges_dirty core fix.
