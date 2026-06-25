@@ -1576,3 +1576,22 @@ remaining periphery-fixable vs-nx win. ALL residual loss reduces to ONE core fix
 marking-dict-subclass (f91977f1e), subsuming weighted matrix construction (82c94c296) AND dijkstra/astar/
 bellman, ~8 fns. Blocked on BlackThrush's reserved lib.rs (core last commit 7634eebf7) + corrupted
 agent-mail (git ledger is the only channel). Real progress = the one core fix.
+
+## 2026-06-25 CopperCliff handoff status + master-lever implementation refinement
+
+Verified my surfaced core gaps ARE being actioned by BlackThrush (the periphery-surface -> core-implement
+division is working): landed since my surfaces — degree(nbunch,weight) Graph 0.12x->0.69x (e09a7265c) +
+MultiGraph 0.04x->0.60x (4b7181fde) + 550bf893e; edges(nbunch,...) 0.09x->0.80x (acf280dd4/506683501);
+in_edges(data) 0.09x->26.77x (accca957d); MultiGraph copy (cc7135681); weighted pagerank (019aa7efc).
+The sticky-edges_dirty MASTER lever is NOT yet done (no `edges_dirty.store(false)` in lib.rs) — it remains
+the single open high-value item (~8 fns: weighted matrix construction + dijkstra/astar/bellman).
+
+IMPLEMENTATION REFINEMENT for the master lever (resolves the "marking subclass regresses construction"
+concern in f91977f1e): the marking edge-attr dict MUST be a `#[pyclass(extends=PyDict)]` Rust type, NOT a
+Python `class(dict)`. extends=PyDict (a) preserves `isinstance(d, dict)` and `type(G[u][v]) == dict`
+(verified nx contract + downstream isinstance checks rely on it), and (b) gives a fast Rust-side
+__setitem__/__delitem__/update/pop/clear/setdefault that calls mark_edges_dirty — avoiding the
+Python-level per-op overhead of a `class(dict)`. CAVEAT to bench: per-edge instantiation of the pyclass
+vs PyDict::new in the hot mirror-materialize path (add_edges_from etc.) — must confirm it does not regress
+construction (the 0.58x add_edges_from floor); if it does, gate the marking type to graphs that have had a
+native store-read (lazy upgrade) rather than all mirrors. Then clear edges_dirty after sync -> unlock.
