@@ -1595,3 +1595,19 @@ Python-level per-op overhead of a `class(dict)`. CAVEAT to bench: per-edge insta
 vs PyDict::new in the hot mirror-materialize path (add_edges_from etc.) — must confirm it does not regress
 construction (the 0.58x add_edges_from floor); if it does, gate the marking type to graphs that have had a
 native store-read (lazy upgrade) rather than all mirrors. Then clear edges_dirty after sync -> unlock.
+
+## 2026-06-25 CopperCliff /alien-graveyard unused-binding hunt — exhausted (no routing win)
+
+Enumerated all 382 native pyfunctions; found ~40 unused by python/ wrappers. Triaged the candidates:
+- STORE-reading bindings (get_edge_attributes_rust, get_node_attributes_rust): FAST (get_edge_attributes
+  _rust 1.69ms vs current 5.2ms / nx 3.4ms) but WRONG — they read the index-native store which is stale
+  while edges_dirty (weights live in the mirror). Sticky-dirty-bound (same master lever); unused for cause.
+- STRUCTURAL operators with unused bindings (quotient_graph, dedensify, snap_aggregation) are ALREADY
+  faster than nx via the existing wrapper paths (2.09-2.72x) — the unused *_rust bindings are superseded,
+  not a missed win.
+- number_of_selfloops_rust etc. are unused because slow/wrong (prior memory).
+CONCLUSION: the unused-native-binding ("alien graveyard") lever is exhausted — every unused binding is
+either sticky-dirty-bound (store-stale) or superseded by an already-fast wrapper. No periphery routing win.
+Reconfirms: the ONLY remaining vs-nx lever is the sticky-edges_dirty core fix (pyclass(extends=PyDict)
+marking dict + clear-after-sync, 27a335021). Store-reading bindings (get_edge_attributes_rust) would ALSO
+become correct+fast once that lands — add to the master lever's unlock list (now ~9 fns).
