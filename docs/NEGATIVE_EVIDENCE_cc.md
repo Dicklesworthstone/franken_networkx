@@ -1451,3 +1451,20 @@ correct fix pairs the post-sync clear WITH a guaranteed re-mark on the mirror-di
 
 This is the single highest-leverage lever found this session. Surfaced (mail down); lib.rs is
 BlackThrush's active reserved core. Periphery-unfixable (the sync + dirty state live in Rust).
+
+## 2026-06-25 CopperCliff verification: cycles/dominance/paths swept — no new periphery gap
+
+Swept previously-unmeasured primitives to confirm frontier exhaustion. All fnx at-or-above nx:
+cycle_basis 1.97x, minimum_cycle_basis 7.49x, square_clustering 18.9x, chain_decomposition 9.74x,
+junction_tree 3.23x, voronoi_cells 1.46x, all_pairs_node_connectivity 1.64x. Sub-1.0x are tiny-absolute
+PyObject/PyO3 single-call floors (immediate_dominators 0.644x @0.019ms, dominance_frontiers 0.651x
+@0.037ms, simple_cycles(len_bound) 0.703x @1.77ms) — not meaningfully improvable.
+
+FRONTIER STATE (CopperCliff, periphery agent, this session): 6 vs-nx wins shipped (prufer, gaussian,
+is_distance_regular, tree_broadcast_center, subgraph_centrality 34x, hopcroft_karp 20x). All accessible
+periphery primitive classes now measured at-or-above nx. The ENTIRE residual vs-nx loss reduces to ONE
+root cause in BlackThrush's reserved fnx-python/lib.rs: the STICKY `edges_dirty` master lever (see prior
+entry 2578350fe) — fixing it (post-sync clear + edge-attr-dict __setitem__ re-mark) unlocks ~8 functions
+(weighted matrix construction 0.4x->~4x + dijkstra/astar/bellman 0.5x->5x+). Periphery-unfixable; handed
+off via ledger (agent-mail in durability-error state). Next real vs-nx progress requires either
+BlackThrush implementing the surfaced levers or reassignment of the core files to CopperCliff.
