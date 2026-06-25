@@ -1128,3 +1128,24 @@ random_partition (1/5), and SBM with a Random-instance seed — 0 mismatches. Co
 `-k "partition or stochastic_block or sbm or caveman"`: 662 passed, 0 failed. Residual 0.79x is the
 shared `_sbm_native` Python geometric-skip generation floor (a native Rust SBM sampler reproducing
 nx's RNG sequence would close it — future, like the gnp_directed precedent c17d7a484).
+
+## 2026-06-25 CopperCliff partition-family native-SBM-sampler lever (surface — needs native RNG port)
+
+After shipping the gaussian Random-seed routing fix (c260e6317, 0.50x->0.79x), the WHOLE partition
+family (random_partition / planted_partition / gaussian / stochastic_block_model) sits at ~0.79-0.83x
+vs nx — the floor is the shared Python `_sbm_native` geometric-skip generation (byte-exact but
+Python). relaxed_caveman_graph is 0.65x (per-edge rewire mutation, sequential RNG dependency).
+
+To go BELOW 1.0x: a NATIVE Rust SBM sampler reproducing nx's exact draw sequence. The infra exists:
+- Native `PythonRandom` (MT19937 + gen_res53 + _randbelow) at fnx-algorithms/lib.rs:12243 — already
+  used by other byte-exact generators (gnp_directed c17d7a484, louvain).
+- Byte-exact REFERENCE: Python `_sbm_native` in __init__.py (combinations_with_replacement/product
+  block order + geometric-skip `floor(log(1-rand)/log(1-p))`).
+- A native `stochastic_block_model` ALREADY exists at fnx-algorithms/lib.rs:37994 + binding
+  generators.rs:1001 — but it uses a NON-nx LCG (`wrapping_mul(6364136223846793005)`), so it can
+  never be byte-exact (my memory's "~25% edge count" = wrong RNG entirely). REPLACE its body with a
+  port of `_sbm_native` over `PythonRandom`.
+Then route `_sbm_impl` to the (now byte-exact) native binding for int/None/Random-instance seeds.
+NOTE: that routing edit is in __init__.py (BlackThrush-reserved) + the kernel is fnx-algorithms
+(TealSpring, stale). Expected payoff: whole partition family ~0.79x -> ~2x (like other native gens).
+Deferred (multi-build, byte-parity-critical, reservation-touching) rather than half-done.
