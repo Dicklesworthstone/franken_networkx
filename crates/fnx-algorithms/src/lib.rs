@@ -35766,88 +35766,71 @@ pub fn is_at_free(graph: &Graph) -> bool {
     let idx: std::collections::HashMap<&str, usize> =
         nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
 
-    // For each triple, check the AT condition
-    for i in 0..n {
-        let i_closed: std::collections::HashSet<usize> = {
-            let mut s = std::collections::HashSet::new();
-            s.insert(i);
-            for nb in graph.neighbors(nodes[i]).unwrap_or_default() {
-                if let Some(&ni) = idx.get(nb) {
-                    s.insert(ni);
+    // br-r37-c1-atfree-cs (cc): networkx's component-structure algorithm, replacing
+    // the old O(n^4) per-triple BFS search (one bfs_avoiding per (i,j,k) triple =
+    // 564ms on an AT-free path(80)). Build cs[v][u] = the component label of u in
+    // G - N[v] (0 if u is in v's closed neighbourhood) with ONE BFS-labelling per
+    // node (O(n*(n+m))); then test pairwise-non-adjacent triples against the
+    // precomputed structure (O(n^3), early-exit). is_at_free is a boolean
+    // (order-invariant) so the result is byte-identical to nx for any order.
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (i, &nm) in nodes.iter().enumerate() {
+        for nb in graph.neighbors(nm).unwrap_or_default() {
+            if let Some(&ni) = idx.get(nb) {
+                adj[i].push(ni);
+            }
+        }
+    }
+    // cs[v][u] == 0  iff  u is in N[v] ∪ {v}; otherwise it is the (>=1) label of u's
+    // connected component in G - N[v].
+    let mut cs: Vec<Vec<usize>> = vec![vec![0usize; n]; n];
+    for v in 0..n {
+        let mut visited = vec![false; n];
+        visited[v] = true;
+        for &nb in &adj[v] {
+            visited[nb] = true; // closed neighbourhood -> component label 0 (left 0)
+        }
+        let mut label = 0usize;
+        for start in 0..n {
+            if visited[start] {
+                continue;
+            }
+            label += 1;
+            visited[start] = true;
+            cs[v][start] = label;
+            let mut queue = std::collections::VecDeque::new();
+            queue.push_back(start);
+            while let Some(x) = queue.pop_front() {
+                for &w in &adj[x] {
+                    if !visited[w] {
+                        visited[w] = true;
+                        cs[v][w] = label;
+                        queue.push_back(w);
+                    }
                 }
             }
-            s
-        };
-        for j in (i + 1)..n {
-            let j_closed: std::collections::HashSet<usize> = {
-                let mut s = std::collections::HashSet::new();
-                s.insert(j);
-                for nb in graph.neighbors(nodes[j]).unwrap_or_default() {
-                    if let Some(&ni) = idx.get(nb) {
-                        s.insert(ni);
-                    }
+        }
+    }
+    // Asteroidal triple {u,v,w}: pairwise non-adjacent, and for each x in the triple
+    // the other two lie in the same component of G - N[x]. cs[a][b] != 0 means a,b are
+    // distinct and non-adjacent (b not in N[a] ∪ {a}). The condition is symmetric in
+    // {u,v,w}, so iterating u<v<w suffices for the boolean.
+    for u in 0..n {
+        for v in (u + 1)..n {
+            if cs[u][v] == 0 {
+                continue; // u,v adjacent -> not part of an AT
+            }
+            for w in (v + 1)..n {
+                if cs[u][w] == 0 || cs[v][w] == 0 {
+                    continue; // w adjacent to u or v
                 }
-                s
-            };
-            for k in (j + 1)..n {
-                let k_closed: std::collections::HashSet<usize> = {
-                    let mut s = std::collections::HashSet::new();
-                    s.insert(k);
-                    for nb in graph.neighbors(nodes[k]).unwrap_or_default() {
-                        if let Some(&ni) = idx.get(nb) {
-                            s.insert(ni);
-                        }
-                    }
-                    s
-                };
-
-                // Check if path j→k avoiding N[i] exists
-                let jk_avoiding_i = bfs_avoiding(n, j, k, &i_closed, graph, &nodes, &idx);
-                let ik_avoiding_j = bfs_avoiding(n, i, k, &j_closed, graph, &nodes, &idx);
-                let ij_avoiding_k = bfs_avoiding(n, i, j, &k_closed, graph, &nodes, &idx);
-
-                if jk_avoiding_i && ik_avoiding_j && ij_avoiding_k {
-                    return false; // Found an asteroidal triple
+                if cs[u][v] == cs[u][w] && cs[v][u] == cs[v][w] && cs[w][u] == cs[w][v] {
+                    return false; // asteroidal triple found
                 }
             }
         }
     }
     true
-}
-
-fn bfs_avoiding(
-    n: usize,
-    source: usize,
-    target: usize,
-    avoid: &std::collections::HashSet<usize>,
-    graph: &Graph,
-    nodes: &[&str],
-    idx: &std::collections::HashMap<&str, usize>,
-) -> bool {
-    if avoid.contains(&source) || avoid.contains(&target) {
-        return false;
-    }
-    let mut visited = vec![false; n];
-    visited[source] = true;
-    let mut queue = std::collections::VecDeque::new();
-    queue.push_back(source);
-    while let Some(v) = queue.pop_front() {
-        if v == target {
-            return true;
-        }
-        if let Some(nbrs) = graph.neighbors(nodes[v]) {
-            for nb in nbrs {
-                if let Some(&ni) = idx.get(nb)
-                    && !visited[ni]
-                    && !avoid.contains(&ni)
-                {
-                    visited[ni] = true;
-                    queue.push_back(ni);
-                }
-            }
-        }
-    }
-    false
 }
 
 // ---------------------------------------------------------------------------

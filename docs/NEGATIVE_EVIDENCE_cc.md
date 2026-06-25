@@ -1728,3 +1728,18 @@ GAPS triaged:
 - inverse_line_graph 0.696x (1.6ms): niche + small, set-order-locked algorithm; not pursued.
 No new clean periphery win this batch; construction-builder vein now largely mapped (wins where nx-slow or
 sparse; floor-bound for dense/dict conversions; binomial_tree order-locked).
+
+## 2026-06-25 CopperCliff WIN: is_at_free O(n^4)->O(n^3) component-structure — 166-305x vs nx (BIGGEST gap)
+
+is_at_free was the worst measured gap: 0.074x (fnx 564ms vs nx 41ms on AT-free path(80)). The native
+kernel (fnx-algorithms is_at_free) did a BFS PER TRIPLE (bfs_avoiding for every (i,j,k)) = O(n^3 * (n+m))
+~ O(n^4); fast only when an AT exists (early-exit), catastrophic when AT-free (full search). Rewrote to
+networkx's component-structure algorithm: build cs[v][u] = component label of u in G - N[v] (0 if u in
+N[v]∪{v}) via ONE BFS-labelling per node (O(n*(n+m))), then test pairwise-non-adjacent triples u<v<w
+against the precomputed cs (O(n^3), early-exit). is_at_free is a BOOLEAN (order-invariant) so byte-exact
+regardless of iteration order; removed the now-dead bfs_avoiding. Result: 0.074x -> 166x (cycle60) / 170x
+(BA80) / 291x (path80) / 305x (path150) FASTER than nx — uniformly fast (0.04-0.76ms) and beats nx in
+BOTH the AT-exists and AT-free cases. Parity 0/18 graph types (path/cycle/complete/star/BA/tree/grid/
+petersen/gnp/wheel/ladder/lollipop/barbell) + conformance -k "at_free or asteroidal" 25 passed. In
+fnx-algorithms/lib.rs (TealSpring's, takeable). NOTE: find_asteroidal_triple (returns the TRIPLE) is
+order-locked (set-iteration order) -> left as-is; only the boolean is_at_free is routable.
