@@ -1743,3 +1743,15 @@ BOTH the AT-exists and AT-free cases. Parity 0/18 graph types (path/cycle/comple
 petersen/gnp/wheel/ladder/lollipop/barbell) + conformance -k "at_free or asteroidal" 25 passed. In
 fnx-algorithms/lib.rs (TealSpring's, takeable). NOTE: find_asteroidal_triple (returns the TRIPLE) is
 order-locked (set-iteration order) -> left as-is; only the boolean is_at_free is routable.
+
+## 2026-06-25 CopperCliff WIN+FIX: is_perfect_graph bespoke DFS -> chordless_cycles — 0.046x->0.93-1.65x
+
+is_perfect_graph was the next-biggest gap: 0.046x (fnx 1958ms vs nx 89ms on a perfect path(60)). The
+Python wrapper used a bespoke per-node DFS (_has_odd_hole) that was exponential AND capped path length at
+24 (so it SILENTLY MISSED odd holes longer than 24 = a latent correctness bug vs nx). Replaced with nx's
+exact algorithm: `not any(len(c)>=5 and odd for c in chain(chordless_cycles(G), chordless_cycles(
+complement(G))))`, using fnx's existing chordless_cycles + complement. Boolean = order-invariant -> byte-
+exact (0/12 graph types; conformance -k perfect 102 passed). 0.046x -> 0.93x (path60 ~parity) / 1.65x
+(BA60 win) / 0.84x (bipartite); also FIXES the >24-length-hole correctness divergence. Python-only
+periphery (no build). LEVER: a bespoke exponential search reimplemented where nx uses a better-engineered
+primitive (chordless_cycles) -> route to the existing fnx primitive matching nx's algorithm exactly.
