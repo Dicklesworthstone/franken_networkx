@@ -44381,7 +44381,13 @@ def _sbm_native(sizes, p, seed, directed, selfloops):
     import itertools as _it
     import random as _rnd
 
-    rng = _rnd.Random(seed)
+    # br-r37-c1-sbmrng-instance (cc): accept a live ``random.Random`` directly
+    # (callers like gaussian_random_partition_graph pass their already-advanced
+    # rng) and consume from it in nx's exact draw order — byte-identical to nx,
+    # which also threads the same rng into the SBM. Only int/None creates a fresh
+    # instance. This lets the partition family hit the native batch path instead
+    # of the nx->fnx conversion tax.
+    rng = seed if isinstance(seed, _rnd.Random) else _rnd.Random(seed)
     length = len(sizes)
     cumsum = [sum(sizes[0:x]) for x in range(length + 1)]
     nodelist = range(sum(sizes))
@@ -44448,10 +44454,18 @@ def _sbm_impl(sizes, p, nodelist, seed, directed, selfloops, sparse):
     # the nx call + nx->fnx conversion entirely. Falls back to nx delegation for
     # an explicit nodelist, sparse=False, or a non-int/None seed (Random / numpy
     # RandomState), where reproducing the draw sequence is not in scope.
+    import random as _random
     if (
         nodelist is None
         and sparse
-        and (seed is None or (isinstance(seed, int) and not isinstance(seed, bool)))
+        and (
+            seed is None
+            or (isinstance(seed, int) and not isinstance(seed, bool))
+            # br-r37-c1-sbmrng-instance (cc): a live random.Random consumes in
+            # nx's exact draw order in _sbm_native -> byte-exact, native batch
+            # (gaussian/random partition pass an advanced rng instance here).
+            or isinstance(seed, _random.Random)
+        )
     ):
         return _sbm_native(sizes, p, seed, directed, selfloops)
     nx_result = _nx.stochastic_block_model(

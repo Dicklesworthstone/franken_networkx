@@ -1106,3 +1106,25 @@ Per-crate build + bench (balanced_tree(2,10), 2047 nodes): fnx 3.67ms -> **0.790
 **0.55x -> 2.69x faster** (~4.6x self-speedup). Correctness: parity vs nx on balanced(2,8)/path(500)/
 star(300)/balanced(3,5) + 20 random labelled trees, and from_prufer(to_prufer(T)) round-trip exact — 0
 fails. Kernel in fnx-algorithms/lib.rs (TealSpring's, but last-active 4 days = stale; push-guard backstop).
+
+## 2026-06-25 CopperCliff partition family: route Random-seed SBM to native batch — KEEP (0.50x->0.79x)
+
+gaussian_random_partition_graph was 0.50x vs nx, random_partition 0.79x. Root cause: gaussian passes
+`seed=rng` (a live `random.Random` from `_generator_random_state`), so `_sbm_impl`'s native gate
+(`seed is None or isinstance(seed,int)`) FAILED and it delegated to `_nx.stochastic_block_model` +
+`_from_nx_graph` conversion (the construction tax). random_partition with an int seed already hit the
+native `_sbm_native` batch path (0.79x).
+
+Fix (pure-Python, __init__.py): `_sbm_native` now consumes a passed `random.Random` directly
+(`rng = seed if isinstance(seed, Random) else Random(seed)`) and `_sbm_impl`'s gate accepts a Random
+instance. Byte-exact: nx threads the same rng into its SBM, and `_sbm_native` reproduces nx's exact
+draw order (combinations_with_replacement/product + geometric-skip), so consuming the same rng yields
+identical edges. Now gaussian/random-partition/any-Random-seed SBM caller hits the native batch
+instead of the nx round-trip.
+
+Result: gaussian_random_partition_graph(600,40,10,0.3,0.01) fnx 11.8ms -> 7.5ms (1.57x self),
+0.50x -> 0.79x vs nx. Parity: byte-exact (sorted nodes+edges) vs nx on gaussian (seeds 1/2/7/42/123),
+random_partition (1/5), and SBM with a Random-instance seed — 0 mismatches. Conformance
+`-k "partition or stochastic_block or sbm or caveman"`: 662 passed, 0 failed. Residual 0.79x is the
+shared `_sbm_native` Python geometric-skip generation floor (a native Rust SBM sampler reproducing
+nx's RNG sequence would close it — future, like the gnp_directed precedent c17d7a484).
