@@ -6201,3 +6201,36 @@ evidence. Avoiding row walks did not beat the output materialization floor;
 the likely dominant cost remains Python node/tuple/int object production, with
 the edge-order indexed traversal also paying enough lookup overhead to erase
 the intended win. No source code kept.
+
+## 2026-06-25 BlackThrush core-laggard display-key probes - NO-SHIP
+
+Scope: BOLD-VERIFY the remaining core-laggard edge-view losses against vendored
+NetworkX after the adjacency outer-cache landing. Two narrow levers were tested
+and reverted: a `MultiGraph.selfloop_edges(keys=True, data="weight")` tuple-cache
+variant and a `MultiDiGraph.out_edges(nbunch, keys=True, data=True)` display-key
+ungate for explicit string edge keys.
+
+Commands were crate-scoped and used the cod-b warm target request:
+`RCH_WORKER=ovh-a CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b AGENT_NAME=BlackThrush PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head -- <filter> --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`.
+RCH selected `ovh-a` for the same-worker rows below, but rewrote
+`CARGO_TARGET_DIR` to its worker-scoped remote target path.
+
+The new Criterion guard row builds a deterministic `MultiDiGraph` with explicit
+string edge keys and a duplicated/missing-node nbunch, then asserts exact
+`list(G.out_edges(nbunch, keys=True, data=True))` parity plus the weighted key
+checksum against NetworkX before timing.
+
+| workload | state | FNX median | NetworkX median | ratio vs NetworkX | self vs baseline |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `mg_selfloop_keys_weight_n2500_loops2502` | clean `HEAD` baseline, detached worktree `74eae1acc` | `797.96 us` | `456.61 us` | `0.572x` | baseline |
+| `mg_selfloop_keys_weight_n2500_loops2502` | `selfloop_keys_value_cache` candidate | `868.52 us` | `565.10 us` | `0.651x` | `0.919x` |
+| `mdg_out_edges_nbunch_keys_data_n700_e12600` | bench-only current-head baseline | `1.0967 ms` | `411.14 us` | `0.375x` | baseline |
+| `mdg_out_edges_nbunch_keys_data_n700_e12600` | data=True display-key ungate candidate | `1.0960 ms` | `413.91 us` | `0.378x` | `1.001x` |
+
+Decision: REVERTED. The selfloop cache made FNX slower on the targeted row; the
+apparent ratio movement came from NetworkX noise, not a real FrankenNetworkX
+win. The MDG display-key ungate was effectively flat: data=True live-dict and
+4-tuple materialization dominate, so dropping the `edge_py_keys` gate does not
+move the measured row. No production source change kept. The dedicated
+`mdg_out_edges_nbunch_keys_data` Criterion row remains as negative-evidence
+coverage for this explicit-key residual.

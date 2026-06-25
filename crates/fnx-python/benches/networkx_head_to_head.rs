@@ -115,6 +115,8 @@ struct CoreLaggardWorkloads {
     nx_mg_selfloop_keys_weight: Py<PyAny>,
     fnx_mdg_edges_keys: Py<PyAny>,
     nx_mdg_edges_keys: Py<PyAny>,
+    fnx_mdg_out_edges_nbunch_keys_data: Py<PyAny>,
+    nx_mdg_out_edges_nbunch_keys_data: Py<PyAny>,
 }
 
 struct ConstructionCopyWorkloads {
@@ -345,8 +347,28 @@ def _paired_multigraph_selfloops(node_count):
                 nx_graph.add_edge(u, u, weight=weight)
     return fnx_graph, nx_graph
 
+def _paired_multidigraph_custom_keys(node_count):
+    fnx_graph = fnx.MultiDiGraph()
+    nx_graph = nx.MultiDiGraph()
+    fnx_graph.add_nodes_from(range(node_count))
+    nx_graph.add_nodes_from(range(node_count))
+    for u in range(node_count):
+        for step in range(1, 7):
+            v = (u * 43 + step * 19) % node_count
+            if v == u:
+                v = (v + step + 5) % node_count
+            for parallel in range(3):
+                key = f"k-{u}-{step}-{parallel}"
+                attrs = {"weight": (u * 11 + v * 13 + step * 17 + parallel) % 31 - 7}
+                fnx_graph.add_edge(u, v, key=key, **attrs)
+                nx_graph.add_edge(u, v, key=key, **attrs)
+    return fnx_graph, nx_graph
+
 mdg_fnx, mdg_nx = _paired_multidigraph(700)
 mg_self_fnx, mg_self_nx = _paired_multigraph_selfloops(2500)
+mdg_custom_fnx, mdg_custom_nx = _paired_multidigraph_custom_keys(700)
+mdg_custom_nbunch = [((i * 7) % 700) for i in range(480)]
+mdg_custom_nbunch.extend([701, 702, 3, 3, 99])
 
 def _mdg_in_degree_weight(graph):
     return sum(degree for _, degree in graph.in_degree(weight="weight"))
@@ -357,9 +379,25 @@ def _mg_selfloop_keys_weight(graph, module):
 def _mdg_edges_keys(graph):
     return sum(key for _, _, key in graph.edges(keys=True))
 
+def _mdg_out_edges_nbunch_keys_data(graph):
+    return sum(
+        data.get("weight", 0) + len(str(key))
+        for _, _, key, data in graph.out_edges(
+            mdg_custom_nbunch,
+            keys=True,
+            data=True,
+        )
+    )
+
 assert _mdg_in_degree_weight(mdg_fnx) == _mdg_in_degree_weight(mdg_nx)
 assert _mg_selfloop_keys_weight(mg_self_fnx, fnx) == _mg_selfloop_keys_weight(mg_self_nx, nx)
 assert _mdg_edges_keys(mdg_fnx) == _mdg_edges_keys(mdg_nx)
+assert list(mdg_custom_fnx.out_edges(mdg_custom_nbunch, keys=True, data=True)) == list(
+    mdg_custom_nx.out_edges(mdg_custom_nbunch, keys=True, data=True)
+)
+assert _mdg_out_edges_nbunch_keys_data(mdg_custom_fnx) == _mdg_out_edges_nbunch_keys_data(
+    mdg_custom_nx
+)
 
 fnx_mdg_in_degree_weight = lambda: _mdg_in_degree_weight(mdg_fnx)
 nx_mdg_in_degree_weight = lambda: _mdg_in_degree_weight(mdg_nx)
@@ -367,6 +405,8 @@ fnx_mg_selfloop_keys_weight = lambda: _mg_selfloop_keys_weight(mg_self_fnx, fnx)
 nx_mg_selfloop_keys_weight = lambda: _mg_selfloop_keys_weight(mg_self_nx, nx)
 fnx_mdg_edges_keys = lambda: _mdg_edges_keys(mdg_fnx)
 nx_mdg_edges_keys = lambda: _mdg_edges_keys(mdg_nx)
+fnx_mdg_out_edges_nbunch_keys_data = lambda: _mdg_out_edges_nbunch_keys_data(mdg_custom_fnx)
+nx_mdg_out_edges_nbunch_keys_data = lambda: _mdg_out_edges_nbunch_keys_data(mdg_custom_nx)
 "#,
         )
         .as_c_str(),
@@ -388,6 +428,8 @@ nx_mdg_edges_keys = lambda: _mdg_edges_keys(mdg_nx)
         nx_mg_selfloop_keys_weight: callable("nx_mg_selfloop_keys_weight")?,
         fnx_mdg_edges_keys: callable("fnx_mdg_edges_keys")?,
         nx_mdg_edges_keys: callable("nx_mdg_edges_keys")?,
+        fnx_mdg_out_edges_nbunch_keys_data: callable("fnx_mdg_out_edges_nbunch_keys_data")?,
+        nx_mdg_out_edges_nbunch_keys_data: callable("nx_mdg_out_edges_nbunch_keys_data")?,
     })
 }
 
@@ -1942,6 +1984,16 @@ fn core_laggard_head_to_head(c: &mut Criterion) {
         &mut group,
         "nx_mdg_edges_keys_n700_e12662",
         &workloads.nx_mdg_edges_keys,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_mdg_out_edges_nbunch_keys_data_n700_e12600",
+        &workloads.fnx_mdg_out_edges_nbunch_keys_data,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_mdg_out_edges_nbunch_keys_data_n700_e12600",
+        &workloads.nx_mdg_out_edges_nbunch_keys_data,
     );
 
     group.finish();
