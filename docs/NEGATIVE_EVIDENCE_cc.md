@@ -1710,3 +1710,21 @@ BYTE-EXACT: node+edge(+keys)+graph-attr iteration order vs nx across all 4 graph
 51 passed. Python-only periphery (no build, no core lock). LEVER (extends random_cograph): operators/
 generators that iteratively pairwise-combine a GROWING result are O(k^2) — collect-all + single batch add
 is O(k). The collect-ALL-then-one-batch beats per-graph add (which has growing-R overhead) AND the fold.
+
+## 2026-06-25 CopperCliff construction-builder sweep — binomial_tree REJECT, rest wins/floor-bound
+
+Swept line_graph/complement/contracted/tree/conversion/lattice builders. WINS (no action): line_graph
+4.09x, complement 4.74x, contracted_nodes 8.34x, contracted_edge 8.04x, to_undirected(DiG) 10.6x,
+full_rary_tree 4.16x, balanced_tree 5.31x, kneser 3.51x, from_pandas_edgelist 2.0x, hexagonal_lattice
+1.56x, triangular_lattice 1.94x, grid_2d 2.46x, ego_graph 1.83x, weighted_projected 1.59x, power 1.68x.
+GAPS triaged:
+- binomial_tree 0.495x: REJECT. It's a doubling fold (B_k = 2x B_{k-1} + root edge) reading G.edges()
+  each step. Tried plain-Python edge accumulation (random_cograph style) -> DIVERGES for n>=4 (node/edge
+  order is tied to the GROWING graph's G.edges() iteration, NOT reproducible from a raw insertion list;
+  matches the br-r37-c1-btorder comment "node 12 before 11 at n=4") AND the batch was NOT faster
+  (0.71x@n12, 0.47x@n14). Order-locked to the live graph + no speedup -> not shippable. Reverted (proto only).
+- from_dict_of_lists 0.458x / from_dict_of_dicts 0.599x: already batched (br-r37-c1-dolsymdedup symmetric-
+  dedup bulk path) -> construction-floor-bound, not improvable without the core single-storage refactor.
+- inverse_line_graph 0.696x (1.6ms): niche + small, set-order-locked algorithm; not pursued.
+No new clean periphery win this batch; construction-builder vein now largely mapped (wins where nx-slow or
+sparse; floor-bound for dense/dict conversions; binomial_tree order-locked).
