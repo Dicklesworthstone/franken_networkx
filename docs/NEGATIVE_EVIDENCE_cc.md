@@ -1308,3 +1308,35 @@ CARDINALITY, flow VALUE — all already won 10-273x). If the output's IDENTITY d
 iteration order, it is order-LOCKED and structurally cannot beat nx (extraction tax). STOP attacking
 order-locked delegated functions for a vs-nx win; only their COLD-conversion-tax on SMALL inputs (link-
 pred precedent) or an order-invariant reformulation is routable.
+
+## 2026-06-25 CopperCliff SURFACE: MG/MDG weighted degree 0.48-0.65x — lever found, blocked (peer-owned file)
+
+DIG on the biggest current measured gaps (the 0.04x ones are fixed; current worst, n=1500/9000 multi-edges):
+| op | fnx | nx | ratio |
+| MultiGraph.degree(weight) INT | 14.18ms | 9.17ms | 0.647x |
+| MultiGraph.degree(weight) FLOAT | 12.30ms | 5.88ms | 0.479x |
+| MultiDiGraph.degree(weight) INT | 15.31ms | 9.63ms | 0.629x |
+| MultiDiGraph.in_degree(weight) INT | 9.71ms | 5.18ms | 0.534x |
+| MultiDiGraph.degree(weight) FLOAT | 15.54ms | 9.22ms | 0.593x |
+
+ROOT: the FULL `_native_weighted_degree` (crates/fnx-python/src/lib.rs:6709 PyMultiGraph, ~11021 MDG)
+always builds a Python LIST of per-edge weight values + calls `builtins.sum`, paying per edge: edge_key
+STRING construction + edge_py_attrs HashMap<String> lookup + PyDict get_item + PyList append. It does
+NOT use the store-sum fast path that the SUBSET variant has (`weighted_degree_py_int_row` -> i128,
+6891), which my earlier MDG int work (ac98e77d4) measured at 0.78-0.95x.
+
+LEVER (for the owner): route the full degree(weight) through a store-sum like the subset — sum i128 from
+the inner AttrMap (index-keyed, NO per-edge string/PyDict) for all-int weights, plus an f64 sibling for
+float/mixed (accumulate in edge-iteration order so IEEE result == builtins.sum byte-for-byte; track
+all-int vs any-float for the return type; default missing weight to 1; selfloop double-count via the
+trailing sum). Gate on `!edges_dirty`; when dirty, the mirror is source-of-truth so either flush once
+then store-sum, or sum f64 from the mirror in Rust (skips PyList+builtins.sum). Expected ~0.5x -> ~0.9x.
+
+CEILING CAVEAT (why this is SURFACE not a shipped win): the per-node degree-VIEW PyObject materialization
+(building n (node, py-number) pairs) is a floor — the int-store version landed at 0.78-0.95x, NOT >1.0x,
+and the eilce index-native accumulator lever was already REFUTED+NO-SHIP (6ee21ea28) for this exact
+reason. So this closes the laggard gap toward parity but is unlikely to BEAT nx.
+
+BLOCKED: the code is in crates/fnx-python/src/lib.rs, owned by BlackThrush (codex-cli), ACTIVE as of
+2026-06-25T20:50Z (just committed there). Per coordination etiquette I did NOT start a competing change
+in their active reserved file. Surfaced the lever to BlackThrush via agent-mail. No code shipped here.
