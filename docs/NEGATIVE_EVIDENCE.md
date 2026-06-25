@@ -6234,3 +6234,39 @@ win. The MDG display-key ungate was effectively flat: data=True live-dict and
 move the measured row. No production source change kept. The dedicated
 `mdg_out_edges_nbunch_keys_data` Criterion row remains as negative-evidence
 coverage for this explicit-key residual.
+
+## 2026-06-25 BlackThrush MultiGraph selfloop attr tuple cache recheck - NO-SHIP
+
+Targeted `mg_selfloop_keys_weight_n2500_loops2502` with a
+`(nodes_seq, edges_seq, attr)` cache for immutable
+`MultiGraph.selfloop_edges(keys=True, data="weight")` tuple streams. During
+rebase, fresh upstream evidence showed the clean `origin/main` baseline on
+`ovh-a` was already at the same floor, so the source change was reverted before
+landing.
+
+Final patched command:
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head core_laggards -- --quiet`
+
+| workload | run | FNX median | NetworkX median | FNX speed ratio vs NetworkX | self vs clean baseline |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `mg_selfloop_keys_weight_n2500_loops2502` | clean `origin/main`, `ovh-a` upstream ledger | `797.96 us` | `456.61 us` | `0.572x` | baseline |
+| `mg_selfloop_keys_weight_n2500_loops2502` | final patched source, `ovh-a` | `800.35 us` | `456.35 us` | `0.570x` | `0.997x` |
+
+Earlier cross-worker rows were routing-only and looked better before the fresher
+same-worker baseline was visible: current-head `vmi1152480` measured `2.2405 ms`
+FNX vs `601.55 us` NetworkX (`0.268x`), and patched `hz2` measured `1.3483 ms`
+FNX vs `519.07 us` NetworkX (`0.385x`). Those are not keep-grade proof against
+the rebased `origin/main` floor.
+
+Same-run routing rows from the final patched `ovh-a` bench:
+
+| workload | FNX median | NetworkX median | FNX speed ratio vs NetworkX |
+| --- | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | `2.1626 ms` | `1.3388 ms` | `0.619x` |
+| `mdg_edges_keys_n700_e12662` | `1.7547 ms` | `1.0503 ms` | `0.599x` |
+
+Decision: REVERTED. Against the same `ovh-a` worker, the attr tuple cache is
+flat to slightly worse (`797.96 us` to `800.35 us`, `0.572x` to `0.570x` vs
+NetworkX). The remaining cost is not another cacheable Rust scan; it is the
+Python tuple/value materialization floor already exposed by the upstream
+display-key probe. No production source change kept.
