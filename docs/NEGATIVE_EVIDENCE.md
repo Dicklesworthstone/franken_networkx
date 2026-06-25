@@ -6002,3 +6002,39 @@ real >=1.0x lever for `in_edges(data)` (a documented 0.29x gap) is to eliminate 
 — future work, not this micro-opt. Bench workload reverted (high variance makes it a poor guard).
 
 Gates: change reverted before conformance; main unaffected. fmt clean on the reverted edit.
+
+## 2026-06-25 CopperCliff BOLD-VERIFY algorithm-domain sweep - fnx beats nx everywhere (no kernel gap)
+
+Per-crate Criterion sweep of every non-view algorithm group in networkx_head_to_head to locate a NEW
+vs-nx lever after the view-path PyObject floor blocked degree/in_edges (see this session's two
+NO-SHIP entries). Filter `connectivity|biconnected|cut_metrics|assortativity`, ~25 fnx-vs-nx pairs.
+
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head "connectivity|biconnected|cut_metrics|assortativity"`
+
+Representative medians (fnx faster on ALL pairs):
+
+| workload | fnx | nx | fnx speedup |
+| --- | ---: | ---: | ---: |
+| cut_metrics edge_expansion_ba2500 | 0.557 ms | 1.992 ms | 3.6x |
+| cut_metrics node_expansion_ba2500 | 0.110 ms | 0.365 ms | 3.3x |
+| cut_metrics cut_size_overlap | 0.464 ms | 1.905 ms | 4.1x |
+| cut_metrics normalized_cut_overlap | 0.505 ms | 2.341 ms | 4.6x |
+| assortativity degree_mixing_dict_h512 | 11.34 ms | 97.25 ms | 8.6x |
+| assortativity node_degree_xy_h512 | 17.82 ms | 88.89 ms | 5.0x |
+| connectivity strongly_connected_components_mdg1800 | 0.686 ms | 1.917 ms | 2.8x |
+| connectivity descendants_mdg1800 | 0.514 ms | 0.942 ms | 1.8x |
+| biconnected is_biconnected_mg1000 | 0.338 ms | 3.489 ms | 10.3x |
+| biconnected articulation_points_mg1000 | 0.369 ms | 2.385 ms | 6.5x |
+| biconnected biconnected_components_mg1000 | 1.019 ms | 3.611 ms | 3.5x |
+| biconnected bfs_edges_mg1000 | 0.466 ms | 0.582 ms | 1.25x |
+| biconnected minimum_spanning_tree_mg1000 | 9.05 ms | 11.26 ms | 1.24x |
+
+Decision: NO NEW LEVER in these domains — every benched algorithm kernel (cut metrics, assortativity,
+SCC/descendants, biconnected/articulation/MST) is already 1.2x-10x FASTER than NetworkX. Confirms the
+native-kernel vein is mined out here. The remaining vs-nx gaps this session found are ALL
+PyObject-materialization view paths: `in_edges(data=attr)` 0.29x, `edges(keys=True)` 0.61x, weighted
+degree views 0.7-0.9x — bounded by per-element PyTuple/value construction (nx reuses stored Python
+objects; fnx converts from the Rust store), NOT by any Rust-side algorithm. Closing those needs a
+fundamentally different approach (e.g. a persistent ordered Python object mirror / lazy view objects),
+not a kernel rewrite. Future digs should AVOID the algorithm domain and target the view substrate.
+No code change this turn; sweep is a verification artifact.
