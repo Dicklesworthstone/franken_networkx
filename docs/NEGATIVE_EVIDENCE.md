@@ -6370,3 +6370,29 @@ Decision: REVERTED. The bulk-reset idea is flat-to-slightly-worse for this
 workload because the remaining cost is not the row-clear loop; it is dominated
 by dropping existing edge/key Python mirror state and other fixed Python-facing
 mutation overhead. No production source change kept.
+
+## 2026-06-25 BlackThrush MultiGraph.selfloop_edges list-iterator handoff - REJECT
+
+Scope: BOLD-VERIFY `selfloop_edges(MultiGraph, keys=True, data="weight")`
+against vendored NetworkX on the focused `mg_selfloop_keys_weight` Criterion
+filter. The tested lever changed only the native `_native_selfloop_edges`
+return object from the existing PyO3 `NodeIterator` snapshot to CPython's
+built-in list iterator over the same tuple snapshot, aiming to remove per-item
+PyO3 `__next__` overhead without changing emitted tuples.
+
+Commands used the requested warm target dir and per-crate `fnx-python` scope.
+`rch exec` had no admissible workers during the patch/baseline reruns
+(`insufficient_slots=5,hard_preflight=1`) and failed open to local execution.
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head core_laggards -- --quiet`
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head mg_selfloop_keys_weight -- --quiet`
+
+| workload | state | runner | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | --- | --- | ---: | ---: | ---: |
+| `mg_selfloop_keys_weight_n2500_loops2502` | patched list-iterator handoff | local fallback | `1.5613 ms` | `753.83 us` | `0.483x` |
+| `mg_selfloop_keys_weight_n2500_loops2502` | clean baseline after reversing patch | local fallback | `1.1382 ms` | `578.83 us` | `0.509x` |
+
+Decision: REVERTED. Same-machine evidence shows the list-iterator handoff is
+slower in both absolute FNX time and ratio vs NetworkX (`0.483x` patched vs
+`0.509x` baseline). No production source change kept.
