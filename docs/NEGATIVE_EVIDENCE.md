@@ -6334,3 +6334,39 @@ Decision: KEPT. The live same-worker row moves FNX from a laggard `0.353x` to
 `2.293x` vs NetworkX on the explicit-key `MultiDiGraph` nbunch data path. The
 cache is deliberately narrow: only primitive list/tuple nbunch keys are cached,
 and `nodes_seq`, `edges_seq`, and `keys` guard the result shape.
+
+## 2026-06-25 BlackThrush MultiGraph.clear_edges adjacency-spine rebuild - NO-SHIP
+
+Scope: BOLD-VERIFY follow-up on the remaining `MultiGraph.clear_edges()` gap
+after the in-place clear keep. A `.scratch` / `.worktrees` scan found no
+unlanded measured win absent from `main`: the apparent adjacency-cache worktree
+was already represented by `a424835f7` on `main`, and landing that stale branch
+would have replayed old ledger state. The live residual was therefore the
+current-head `multigraph_clear_edges_n800_e4000` row.
+
+Lever: inspired by the alien-graveyard region/bulk-reset family, replace the
+per-row adjacency clear loop with a fresh empty adjacency spine keyed by the
+existing node order. This preserves nodes, node attrs, empty adjacency rows,
+edge count, and revision semantics, but avoids walking each old neighbor row.
+
+Current-head baseline command:
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b AGENT_NAME=BlackThrush PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head -- multigraph_clear_edges --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`
+
+Candidate command:
+`RCH_WORKER=vmi1227854 CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b AGENT_NAME=BlackThrush PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head -- multigraph_clear_edges --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`
+
+| workload | state | worker | FNX median | NetworkX median | ratio vs NetworkX | self vs current main |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `fnx_multigraph_clear_edges_n800_e4000` | clean current `main` in-place row clear | `vmi1227854` | `6.5342 ms` | `1.2444 ms` | `0.190x` | baseline |
+| `fnx_multigraph_clear_edges_n800_e4000` | fresh adjacency spine rebuild | `vmi1227854` | `6.5428 ms` | `1.1322 ms` | `0.173x` | `0.999x` |
+
+Validation while probing: `cargo test -p fnx-classes
+multigraph_clear_edges_preserves_nodes_attrs_and_rows` passed on `vmi1227854`.
+The focused head-to-head bench passed its equality assertions, but Criterion
+reported no FNX change (`p = 0.97`) and the same-worker median moved from
+`6.5342 ms` to `6.5428 ms`.
+
+Decision: REVERTED. The bulk-reset idea is flat-to-slightly-worse for this
+workload because the remaining cost is not the row-clear loop; it is dominated
+by dropping existing edge/key Python mirror state and other fixed Python-facing
+mutation overhead. No production source change kept.
