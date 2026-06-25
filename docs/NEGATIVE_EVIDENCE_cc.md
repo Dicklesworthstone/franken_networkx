@@ -1340,3 +1340,31 @@ reason. So this closes the laggard gap toward parity but is unlikely to BEAT nx.
 BLOCKED: the code is in crates/fnx-python/src/lib.rs, owned by BlackThrush (codex-cli), ACTIVE as of
 2026-06-25T20:50Z (just committed there). Per coordination etiquette I did NOT start a competing change
 in their active reserved file. Surfaced the lever to BlackThrush via agent-mail. No code shipped here.
+
+## 2026-06-25 CopperCliff SURFACE: remaining laggard frontier (keys+data view emission) is core-Rust/peer-owned
+
+Continued the 0.04-0.22x dig (different primitive: multigraph edge/selfloop VIEW emission). Measured
+(n=2400, par=2 parallel edges):
+| op | fnx | nx | ratio |
+| selfloop_edges(MG, keys=True, data=True) | 1.657ms | 0.533ms | 0.322x |
+| selfloop_edges(MG, keys=True, data='weight') | 1.534ms | 0.587ms | 0.383x |
+| MG.edges(keys=True, data='weight') dense self-loops | 3.19ms | 1.81ms | 0.566x |
+| MG.edges(keys=True, data='weight') non-selfloop chain | 4.34ms | 1.92ms | 0.442x |
+
+NOT self-loop-specific (the non-selfloop chain is 0.442x too) — it is the MultiGraph keys+data edge-VIEW
+emission: building (u, v, key, value) 4-tuples. selfloop_edges(__init__.py:21784) is a Python wrapper but
+its multigraph path delegates to the native `_native_selfloop_edges` binding; edges(keys,data) is a
+Rust-backed view iterator. BOTH live in crates/fnx-python (lib.rs / views.rs).
+
+CONCLUSION (frontier map): every remaining vs-nx LOSS I can measure (weighted degree 0.48-0.65x [see
+prior entry], multigraph keys+data edge/selfloop emission 0.32-0.57x, set/get_edge_attributes 0.37-0.64x,
+edges(data=True) 0.68x) is in the CORE Rust substrate — the per-element PyObject materialization of view
+tuples / attr dicts / degree pairs — owned and ACTIVELY edited by BlackThrush (codex-cli, last_active
+2026-06-25T20:50Z). These are PyObject-materialization floored (the int-store degree capped at 0.9x; the
+eilce accumulator was REFUTED) and in a peer's locked files, so CopperCliff (periphery: fnx-algorithms
+kernels + Python wrappers) cannot cleanly land them without colliding with BlackThrush's active work.
+agent-mail is in a durability-error state (can't send the lever directly) — surfaced via this ledger.
+No code shipped (would be a competing change in a peer's active reserved file for a floored result).
+Periphery veins (algorithms/centrality/spectral/generators/products/IO/bipartite) are EXHAUSTED at
+at-or-above nx (6 wins shipped this session: prufer, gaussian, is_distance_regular, tree_broadcast_center,
+subgraph_centrality, hopcroft_karp).
