@@ -1611,3 +1611,25 @@ either sticky-dirty-bound (store-stale) or superseded by an already-fast wrapper
 Reconfirms: the ONLY remaining vs-nx lever is the sticky-edges_dirty core fix (pyclass(extends=PyDict)
 marking dict + clear-after-sync, 27a335021). Store-reading bindings (get_edge_attributes_rust) would ALSO
 become correct+fast once that lands — add to the master lever's unlock list (now ~9 fns).
+
+## 2026-06-25 CopperCliff INFRA: cargo-bench-via-rch does not return results; two infra blockers
+
+Ran the directive's literal mechanism: rch exec -- cargo bench -p fnx-algorithms --bench
+algorithm_benchmarks -- core_laggards (CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc).
+It built (54s) and ran remotely on hz2 (~120s) but criterion's stdout (time:/change: vs the existing
+Jun-24 networkx_head_to_head_* baselines) was NOT streamed back, and the criterion estimates were NOT
+synced to the local target dir (newest local estimates remain 2026-06-24 22:36; my 22:35 run stayed
+remote). So the prescribed cargo-bench validation path yields NO readable vs-baseline result in this rch
+setup — a Rust perf lever cannot be validated through the literal mechanism without extra remote-result
+retrieval (capture the bench stdout, or rsync the remote criterion dir back).
+
+TWO INFRA BLOCKERS confirmed (affect ALL agents; operator action needed):
+1. agent-mail DB corrupted ("database disk image is malformed") -> messaging + reservations down; git
+   ledger is the only coordination channel (am doctor repair needed).
+2. cargo-bench via rch does not return criterion results -> Rust-lever validation path broken as-is.
+
+Net: the one remaining vs-nx lever (sticky-edges_dirty pyclass(extends=PyDict) fix, ~9 fns) is in
+BlackThrush's reserved lib.rs, can't be coordinated (mail down) and can't be bench-validated via rch
+(results not returned). CopperCliff periphery work complete (6 wins, ~26 classes >= nx, unused-binding
+vein exhausted). Real progress needs operator: restore agent-mail + fix bench-result retrieval, and/or
+reassign the core file to CopperCliff.
