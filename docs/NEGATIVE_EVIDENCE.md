@@ -5969,3 +5969,36 @@ MDG laggard stayed 0.67x in the same run, confirming the change is isolated to t
 Behavior proof: bench asserts `fnx == nx` for the exact workload (keys + parallel self-loops + int
 weights). Map-valued-attr identity preserved via the mirror fallback. Python conformance
 `-k "selfloop"` GREEN. fmt + clippy clean.
+
+## 2026-06-25 CopperCliff MultiDiGraph in_edges(data=attr) edge_key removal - NO-SHIP (br-r37-c1-eilce family)
+
+Tried to generalize the shipped selfloop_edges pristine-mirror fast path (8fd930863) to the MDG
+edge-data helper `PyMultiDiGraph::edge_data_value_or_default` (called per edge by
+`_native_mdg_in_edges_data_key` for `in_edges(data=attr, keys=...)`): when `edge_py_attrs.is_empty()`
+skip the per-edge `(String,String,usize)` `edge_key` build + mirror probe and read scalars straight
+from the CgseValue store (Map values keep the mirror for dict identity). Added a `mdg_in_edges_data`
+core-laggard workload (`in_edges(keys=True, data="weight", default=0)`, MDG n=700/e=12662).
+
+Authoritative per-crate Criterion A/B (stash the fix -> baseline -> pop -> after, same workload):
+
+| | FNX median | NetworkX median | ratio |
+| --- | ---: | ---: | ---: |
+| baseline (no fix) | 8.669 ms | 2.516 ms | 0.29x |
+| after (fix)       | 9.796 ms | 2.516 ms | 0.26x |
+
+Decision: NO-SHIP (REVERT, stash `cc-inedges-NOSHIP`). The fix IS on the hot path (the workload
+routes through `_native_mdg_in_edges_data_key` -> `edge_data_value_or_default`), but the fnx side did
+not improve (8.67 -> 9.80 ms is within this workload's ±15% variance; the "regression" is noise). At
+~630 ns/edge the per-edge cost is dominated NOT by the `edge_key` alloc the selfloop fix removed, but
+by (a) the native fn's own triples Vec building `source.to_owned()` + `target.to_owned()` per edge
+(line ~4605) and (b) the PyObject construction wall (`py_node_key`×2 + `py_edge_key` + 4-tuple +
+value) — the same PyObject-materialization floor seen on the degree views. The `edge_key` removal is
+too small a fraction to register.
+
+CONTRAST with the selfloop KEEP (0.37x->0.58x): there the per-edge work was small enough that the two
+String allocs were a large fraction; here they are a minor part of a much heavier per-edge body. The
+real >=1.0x lever for `in_edges(data)` (a documented 0.29x gap) is to eliminate the triples Vec
+(iterate predecessor adjacency directly, no String clones) AND cut the per-edge PyObject construction
+— future work, not this micro-opt. Bench workload reverted (high variance makes it a poor guard).
+
+Gates: change reverted before conformance; main unaffected. fmt clean on the reverted edit.
