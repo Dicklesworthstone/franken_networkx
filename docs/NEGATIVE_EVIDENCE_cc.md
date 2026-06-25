@@ -1421,3 +1421,33 @@ same as the multidigraph CSR path at ~53090). Expected ~0.45x -> ~2-3x (matching
 cascading to all 5 functions above (laplacian/normalized/adjacency_matrix all call to_scipy_sparse_array).
 NOT shipped by me: it's a NEW native method in your active reserved lib.rs; agent-mail is down so handing
 off via ledger. (Worktree-buildable + byte-exact-verifiable if reassigned to me.)
+
+## 2026-06-25 CopperCliff SURFACE (MASTER LEVER): sticky edges_dirty floors weighted matrix AND shortest-path clusters
+
+Traced the weighted matrix-construction gap (to_numpy_array 0.37x, to_scipy_sparse_array(weight) 0.44x,
+laplacian 0.49x, normalized_laplacian 0.48x, adjacency_matrix 0.67x) to its ROOT — and it is the SAME
+root as the dijkstra/astar/bellman_ford cluster.
+
+MEASURED PROOF (BA n=2000/m=6, weight=1.5):
+- A fast native weighted COO builder ALREADY exists: `_fnx.adjacency_default_order_arrays(G,'weight',1.0)`
+  -> (rows, cols, f64-data). After a manual `G._fnx_sync_edge_attrs_to_inner()` it returns CORRECT
+  weights and runs in **1.64ms** (vs nx to_scipy 7ms = ~4.3x faster).
+- BUT `to_scipy_sparse_array(G, dtype=f64)` (which routes through it) is 18.6ms on call #1 AND 18.3ms on
+  the min-of-6 repeat -> the `_fnx_sync_edge_attrs_to_inner` sync (~16ms, PyO3 per edge) runs EVERY call
+  because it never clears `edges_dirty` (sticky-dirty bug, same one noted for dijkstra). Without the sync
+  the store is stale (add_edge writes the mirror, not the store) so the builder reads default 1.0.
+
+CONSEQUENCE: every native-store-read path pays a full ~16ms re-sync per call. If `edges_dirty` were
+cleared after a successful sync, call #1 pays the sync once and calls #2..N read the store in ~1.6ms ->
+weighted matrix construction 0.4x -> ~4x (5 functions), AND dijkstra/astar/bellman 0.5x -> 5x+ (3
+functions). ONE fix, ~8 functions.
+
+THE FIX (BlackThrush's crates/fnx-python/src/lib.rs): clear `edges_dirty` after `_fnx_sync_edge_attrs_to_inner`
+/ `_fnx_sync_attrs_to_inner` succeed, AND ensure the edge-attr-dict __setitem__ path (G[u][v]['w']=x)
+RE-marks `edges_dirty` so the next sync re-runs. The naive clear was attempted+reverted before because
+subscript-set didn't reliably re-mark dirty after the clear (broke G[u][v]['weight']=x parity). The
+correct fix pairs the post-sync clear WITH a guaranteed re-mark on the mirror-dict mutation path
+(AtlasView/edge-attr-dict __setitem__), not just __getitem__ (views.rs:1047 already marks on getitem).
+
+This is the single highest-leverage lever found this session. Surfaced (mail down); lib.rs is
+BlackThrush's active reserved core. Periphery-unfixable (the sync + dirty state live in Rust).
