@@ -117,6 +117,143 @@ struct CoreLaggardWorkloads {
     nx_mdg_edges_keys: Py<PyAny>,
 }
 
+struct ConstructionCopyWorkloads {
+    fnx_graph_to_directed_scalar_attrs: Py<PyAny>,
+    nx_graph_to_directed_scalar_attrs: Py<PyAny>,
+}
+
+fn prepare_construction_copy_workloads(py: Python<'_>) -> PyResult<ConstructionCopyWorkloads> {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("fnx-python crate must live under crates/");
+    let python_dir = repo_root.join("python");
+    let legacy_dir = repo_root.join("legacy_networkx_code").join("networkx");
+
+    let sys = py.import("sys")?;
+    let path = sys.getattr("path")?;
+    let path = path.cast::<PyList>()?;
+    path.insert(0, repo_root.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, python_dir.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, legacy_dir.to_str().expect("repo path must be UTF-8"))?;
+
+    let locals = PyDict::new(py);
+    py.run(
+        cstring(
+            r#"
+import glob
+import importlib.util
+import os
+import sys
+
+target_dir = os.environ.get("CARGO_TARGET_DIR")
+if target_dir and "franken_networkx._fnx" not in sys.modules:
+    candidates = [
+        os.path.join(target_dir, "release", "lib_fnx.so"),
+        *glob.glob(os.path.join(target_dir, "release", "deps", "lib_fnx*.so")),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            spec = importlib.util.spec_from_file_location("franken_networkx._fnx", path)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["franken_networkx._fnx"] = module
+            spec.loader.exec_module(module)
+            break
+
+for _name in list(sys.modules):
+    if _name == "networkx" or _name.startswith("networkx."):
+        del sys.modules[_name]
+
+import networkx as nx
+import franken_networkx as fnx
+
+if "legacy_networkx_code" not in getattr(nx, "__file__", ""):
+    raise AssertionError(f"expected vendored NetworkX oracle, got {nx.__file__!r}")
+
+def _paired_scalar_attr_graph(node_count):
+    fnx_graph = fnx.Graph()
+    nx_graph = nx.Graph()
+    for node in range(node_count):
+        attrs = {
+            "i": node,
+            "f": node / 17.0,
+            "s": f"n{node}",
+            "b": (node & 1) == 0,
+            "nested": {"bucket": node % 31},
+        }
+        fnx_graph.add_node(node, **attrs)
+        nx_graph.add_node(node, **attrs)
+    for u in range(node_count):
+        for step in range(1, 9):
+            v = (u * 37 + step * 19) % node_count
+            if v == u:
+                v = (v + step + 1) % node_count
+            attrs = {
+                "weight": (u * 11 + v * 7 + step) % 97,
+                "cost": (u + v + step) / 13.0,
+                "tag": f"e{step}",
+                "flag": ((u + v + step) & 1) == 0,
+                "meta": {"step": step},
+            }
+            fnx_graph.add_edge(u, v, **attrs)
+            nx_graph.add_edge(u, v, **attrs)
+    return fnx_graph, nx_graph
+
+def _node_payload(graph):
+    return [(node, dict(attrs)) for node, attrs in graph.nodes(data=True)]
+
+def _edge_payload(graph):
+    return [(u, v, dict(attrs)) for u, v, attrs in graph.edges(data=True)]
+
+def _assert_to_directed_contract(fnx_graph, nx_graph):
+    fnx_directed = fnx_graph.to_directed()
+    nx_directed = nx_graph.to_directed()
+    assert _node_payload(fnx_directed) == _node_payload(nx_directed)
+    assert _edge_payload(fnx_directed) == _edge_payload(nx_directed)
+
+    fnx_directed.nodes[0]["i"] = -1
+    assert fnx_graph.nodes[0]["i"] == 0
+    fnx_directed[0][19]["weight"] = -1
+    assert fnx_graph[0][19]["weight"] != -1
+
+    object_fnx = fnx.Graph()
+    object_nx = nx.Graph()
+    payload = ["mutable"]
+    object_fnx.add_edge("a", "b", payload=payload)
+    object_nx.add_edge("a", "b", payload=list(payload))
+    object_directed = object_fnx.to_directed()
+    assert _edge_payload(object_directed) == _edge_payload(object_nx.to_directed())
+    assert object_directed["a"]["b"]["payload"] == payload
+    assert object_directed["a"]["b"]["payload"] is not object_fnx["a"]["b"]["payload"]
+    object_directed["a"]["b"]["payload"].append("child")
+    assert object_fnx["a"]["b"]["payload"] == payload
+
+scalar_fnx, scalar_nx = _paired_scalar_attr_graph(2000)
+_assert_to_directed_contract(scalar_fnx, scalar_nx)
+
+fnx_graph_to_directed_scalar_attrs = lambda: scalar_fnx.to_directed()
+nx_graph_to_directed_scalar_attrs = lambda: scalar_nx.to_directed()
+"#,
+        )
+        .as_c_str(),
+        Some(&locals),
+        Some(&locals),
+    )?;
+
+    let callable = |name: &str| -> PyResult<Py<PyAny>> {
+        let callable = locals.get_item(name)?.ok_or_else(|| {
+            pyo3::exceptions::PyKeyError::new_err(format!("missing Python callable {name}"))
+        })?;
+        Ok(callable.unbind())
+    };
+
+    Ok(ConstructionCopyWorkloads {
+        fnx_graph_to_directed_scalar_attrs: callable("fnx_graph_to_directed_scalar_attrs")?,
+        nx_graph_to_directed_scalar_attrs: callable("nx_graph_to_directed_scalar_attrs")?,
+    })
+}
+
 fn prepare_core_laggard_workloads(py: Python<'_>) -> PyResult<CoreLaggardWorkloads> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
@@ -1810,8 +1947,30 @@ fn core_laggard_head_to_head(c: &mut Criterion) {
     group.finish();
 }
 
+fn construction_copy_head_to_head(c: &mut Criterion) {
+    Python::initialize();
+    let workloads = Python::attach(prepare_construction_copy_workloads)
+        .expect("failed to prepare construction/copy Python workloads");
+    let mut group = c.benchmark_group("networkx_head_to_head_construction_copy");
+    group.sample_size(20);
+
+    bench_python_callable(
+        &mut group,
+        "fnx_graph_to_directed_scalar_attrs_n2000",
+        &workloads.fnx_graph_to_directed_scalar_attrs,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_graph_to_directed_scalar_attrs_n2000",
+        &workloads.nx_graph_to_directed_scalar_attrs,
+    );
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
+    construction_copy_head_to_head,
     core_laggard_head_to_head,
     cut_metric_head_to_head,
     assortativity_head_to_head,

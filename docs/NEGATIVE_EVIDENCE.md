@@ -6076,3 +6076,39 @@ identity. That is a focused, conformance-heavy change (deepcopy semantics on a c
 lazy-deepcopy fast path in copy/to_directed/to_undirected, gated `!edges_dirty && all-scalar-attrs`,
 with the full -k "copy or to_directed or to_undirected or deepcopy" conformance + a deepcopy-identity
 golden. No code change this turn; triage is a verification artifact.
+
+## 2026-06-25 BlackThrush Graph.to_directed scalar-attr lazy-mirror attempt - NO-SHIP
+
+Follow-up to the construction/conversion triage above. Tested the proposed
+`Graph.to_directed()` scalar-value deepcopy shortcut: when node/edge attrs were
+losslessly representable as `CgseValue` (`bool`, `i64`, `f64`, `str`, nested
+string-keyed maps), the candidate skipped Python `copy.deepcopy` and omitted the
+eager Python attr mirror, relying on lazy materialization from the Rust store.
+Object/list attrs stayed on the deepcopy path.
+
+The focused Criterion guard added in
+`networkx_head_to_head_construction_copy` builds paired `Graph` objects with
+2,000 nodes and deterministic scalar/nested attrs, asserts `to_directed()`
+node/edge payload parity against vendored NetworkX, verifies result/source attr
+independence, and checks the object-valued fallback preserves deep-copy
+independence.
+
+Command used:
+
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b AGENT_NAME=BlackThrush PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head -- networkx_head_to_head_construction_copy --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`
+
+`rch` fell open to local because no worker slots were admissible
+(`insufficient_slots=8, hard_preflight=1, active_project_exclusion=2`), so this
+is rejection evidence rather than a keep-grade remote result. The filtered
+per-crate Criterion medians were:
+
+| workload | FNX median | NetworkX median | FNX speed ratio vs NetworkX |
+| --- | ---: | ---: | ---: |
+| `Graph.to_directed()` scalar attrs n=2000 | `373.91 ms` | `253.16 ms` | `0.68x` |
+
+Decision: NO-SHIP. The candidate did not improve the documented `0.74x`
+construction residual and remained materially slower than NetworkX. The
+runtime source hunk was reverted; only the focused Criterion harness remains to
+make future retests reproducible. The likely floor is still Python-object
+materialization plus dual-storage synchronization, not the isolated
+`copy.deepcopy` call the candidate removed.
