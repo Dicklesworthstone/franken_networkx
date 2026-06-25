@@ -9813,7 +9813,10 @@ impl PyGraph {
             // materialize_node_py_attrs populates any store-only attrs into the
             // mirror first (matching the Python `G.nodes[n]` full-dict read),
             // so a pre-existing attr is preserved alongside the new one.
-            let dict = self.ensure_node_py_attrs(py, &canonical);
+            // (br-r37-c1-syncdirty buildfix: PyGraph has materialize_node_py_attrs,
+            // not ensure_node_py_attrs — the latter is PyMultiGraph-only and broke
+            // the build when 0b2df6108 landed this method.)
+            let dict = self.materialize_node_py_attrs(py, &canonical);
             dict.bind(py).set_item(name, value)?;
         }
         Ok(())
