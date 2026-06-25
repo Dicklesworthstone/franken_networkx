@@ -1068,3 +1068,24 @@ __setitem__/__delitem__, OR track a per-edge dirty-key set populated by subscrip
 dirty flag can be cleared and the sticky O(E) re-sync (which taxes dijkstra/astar/bellman/to_scipy/
 cut_size after any edge mutation) becomes a no-op when clean. The kernel is already 5.6x faster than
 nx; only the wrapper's mandatory re-sync stands between fnx and a 5x+ shortest-path win.
+
+## 2026-06-25 CopperCliff dijkstra sync-dirty REFINEMENT (handoff to BlackThrush — lib.rs owner)
+
+Refines the prior sync-dirty entry with a key finding: `AtlasView::__getitem__` (views.rs:1047)
+ALREADY calls `mark_edges_dirty()`, so `G[u][v]['w']=x` DOES re-mark dirty on access. That means
+clearing `edges_dirty` after `_fnx_sync_edge_attrs_to_inner` is CLOSER to safe than I thought — the
+common subscript-mutation pattern re-marks via the getitem.
+
+Yet my clear-after-sync STILL returned the stale path on `G[u][v]['weight']=0.5; dijkstra(...)`.
+So the residual bug is NOT missing dirty-marking; suspect the dijkstra wrapper's weight-check cache
+`_fnx_dijkstra_weight_check_cache` (gated on `not edge_attrs_dirty`) OR a second dirty channel /
+ordering between `_should_delegate_dijkstra_to_networkx` and `_sync_rust_edge_attrs`. Plus the
+held-ref hazard (`d=G[u][v]; sync; d['w']=x`) won't re-mark.
+
+HANDOFF (mail DB is in durability-error state, can't send — recording here): BlackThrush owns
+`crates/fnx-python/src/lib.rs` (push-guard confirmed live reservation). The lever is theirs to land:
+clear edges_dirty after both PyGraph sync methods (+ DiGraph siblings), resolve the weight-check-cache
+interaction, gate `-k "dijkstra or astar or bellman or weight or shortest or sparse"` conformance +
+the subscript-mutation probe. Payoff: dijkstra 5.65x / astar 6.73x / bellman 2.21x faster than nx
+(raw kernel is already 5.6x faster; only the wrapper's sticky O(E) re-sync stands in the way), and it
+also de-taxes to_scipy_sparse / cut_size after any edge mutation. I reverted my attempt cleanly.
