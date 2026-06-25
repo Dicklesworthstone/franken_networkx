@@ -104,6 +104,28 @@ def _native_hopcroft_karp(G, top_nodes):
     return native(G, left_idx, right_idx)
 
 
+def _derive_top_nodes(G, top_nodes):
+    """br-r37-c1-hknotop (cc): when ``top_nodes`` is None, derive the bipartition
+    natively via :func:`sets` (~0.03ms) so :func:`_native_hopcroft_karp` can own the
+    no-top_nodes case instead of falling to the fnx->nx conversion (0.33x vs nx).
+
+    nx's ``bipartite_sets(G, None)`` returns ``X = {n for n,c in color(G) if c}``;
+    :func:`sets` reproduces that left set byte-for-byte. CPython set iteration order
+    is hash-determined for a fixed element set, so ``set(sets(G)[0])`` inside the
+    kernel iterates identically to nx's ``X`` -> byte-identical matching (verified).
+    On ANY failure (nx-typed / multigraph / directed / disconnected / non-bipartite)
+    return None so the caller's original path raises nx's exact error contract.
+    """
+    if top_nodes is not None:
+        return top_nodes
+    if isinstance(G, _nx.Graph):
+        return None
+    try:
+        return sets(G)[0]
+    except Exception:
+        return None
+
+
 def hopcroft_karp_matching(G, top_nodes=None):
     """Maximum-cardinality matching of bipartite ``G`` (Hopcroft-Karp).
 
@@ -112,6 +134,7 @@ def hopcroft_karp_matching(G, top_nodes=None):
     one-shot nx view. Result is byte-identical to
     ``networkx.bipartite.hopcroft_karp_matching``.
     """
+    top_nodes = _derive_top_nodes(G, top_nodes)
     result = _native_hopcroft_karp(G, top_nodes)
     if result is not None:
         return result
@@ -120,6 +143,7 @@ def hopcroft_karp_matching(G, top_nodes=None):
 
 def maximum_matching(G, top_nodes=None):
     """Alias of :func:`hopcroft_karp_matching` (matches networkx)."""
+    top_nodes = _derive_top_nodes(G, top_nodes)
     result = _native_hopcroft_karp(G, top_nodes)
     if result is not None:
         return result

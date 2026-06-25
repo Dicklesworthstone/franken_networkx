@@ -1261,3 +1261,23 @@ map (IndexMap<(usize,usize),AttrMap>) + per-node-ref canonical stringification, 
 dict-of-dicts with native keys. This is THE remaining systematic construction lever (it taxes every
 parse_*/from_*/read_* and graph-building op) but it is architectural (the edges map backs index-native
 edge-attr ops) and has been worked extensively across prior sessions -> not a one-turn change. REJECT.
+
+## 2026-06-25 CopperCliff bipartite hopcroft_karp/maximum_matching top_nodes=None — KEEP (0.33x->20x)
+
+hopcroft_karp_matching(B) / maximum_matching(B) WITHOUT top_nodes were 0.33x vs nx (4.56ms vs 1.52ms,
+K(80,80)): the native byte-exact kernel only owned the top_nodes-GIVEN case; with top_nodes=None it
+returned None and the wrapper fell to `_nx_bipartite.hopcroft_karp_matching(_matching_nx_view(G))` — a
+full fnx->nx conversion (the whole gap).
+
+Fix (Python-only, bipartite.py): `_derive_top_nodes(G, None)` computes the bipartition via native
+`bipartite.sets(G)` (~0.03ms) and feeds it to the existing native kernel. Byte-safe: nx's
+bipartite_sets(None) returns X={n:color==1}; sets() reproduces X's elements, and CPython set iteration
+order is HASH-determined for a fixed element set, so `set(sets(G)[0])` iterates identically to nx's X ->
+identical augmenting-path order -> byte-identical matching dict. On any failure (nx-typed/multigraph/
+directed/disconnected/non-bipartite) returns None so the original path raises nx's EXACT error
+(AmbiguousSolution / NetworkXError preserved — verified vs nx on disconnected gnmk + odd cycle).
+
+Result: K(80,80) 4.56ms->0.071ms, 0.33x->20.48x faster than nx. Parity: 8 gnmk seeds + complete +
+string-node + explicit-top + non-bipartite/disconnected error contracts byte-exact; conformance
+-k "hopcroft or maximum_matching or eppstein" 415 passed/0 failed. eppstein_matching has NO native
+kernel (different algo) -> still delegated (0.55x), left as-is.
