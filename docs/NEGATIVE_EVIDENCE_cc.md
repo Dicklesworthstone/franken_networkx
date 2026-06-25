@@ -1281,3 +1281,30 @@ Result: K(80,80) 4.56ms->0.071ms, 0.33x->20.48x faster than nx. Parity: 8 gnmk s
 string-node + explicit-top + non-bipartite/disconnected error contracts byte-exact; conformance
 -k "hopcroft or maximum_matching or eppstein" 415 passed/0 failed. eppstein_matching has NO native
 kernel (different algo) -> still delegated (0.55x), left as-is.
+
+## 2026-06-25 CopperCliff REJECT: set-order-locked delegated algos are STRUCTURALLY unwinnable vs nx
+
+DIG target = biggest measured gaps (greedy_color connected_sequential_bfs 0.34x, eppstein_matching 0.55x,
+flow variants preflow_push/dinitz/sap/boykov_kolmogorov 0.64-0.77x). Investigated greedy_color
+connected_sequential as the representative; decomposed on BA(500,5):
+  faithful _fnx_to_nx conversion = 4.33ms ; nx greedy_color(cs_bfs) on the converted graph = 1.85ms ;
+  full fnx = 6.29ms ; nx DIRECT = 1.85ms.
+Tried the cheapest possible de-delegation — build a structural nx.Graph from a G.adjacency() dict-of-lists
+(byte-exact: struct==faithful VERIFIED) = 2.55ms build + 1.85ms algo = ~4.4ms = 0.42x. STILL A LOSS.
+
+ROOT (general principle, applies to the whole cluster): these outputs are SET-ORDER-LOCKED — the result
+depends on CPython set/dict iteration order (greedy_color: connected_components order + arbitrary_element
+= next(iter(set)) + bfs_edges adjacency-traversal order; eppstein: BFS/DFS layer dict order; nx flow
+funcs: residual-network traversal order). A safe-Rust kernel CANNOT reproduce CPython set order, so fnx
+MUST run nx's exact Python algorithm, which forces extracting fnx's Rust-side adjacency into a Python
+structure FIRST. That extraction (~0.6-2.5ms depending on method) is a tax nx NEVER pays (its adjacency
+already lives in Python dicts). Therefore: extraction + full-Python-algo  >=  nx's full-Python-algo, for
+ANY set-order-locked delegated function. The best achievable is ~0.5-0.77x (reduce the extraction), NEVER
+a win. REJECT (no code shipped; the partial struct-build improvement still loses vs nx).
+
+FRONTIER PRINCIPLE (record once): a function is WINNABLE via a native Rust kernel IFF its output is
+ORDER-INVARIANT (booleans/values/sorted-sets — is_planar, triangle/clustering, SCC counts, matching
+CARDINALITY, flow VALUE — all already won 10-273x). If the output's IDENTITY depends on CPython set/dict
+iteration order, it is order-LOCKED and structurally cannot beat nx (extraction tax). STOP attacking
+order-locked delegated functions for a vs-nx win; only their COLD-conversion-tax on SMALL inputs (link-
+pred precedent) or an order-invariant reformulation is routable.
