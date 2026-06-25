@@ -1009,3 +1009,38 @@ fires and set_edge_attributes(scalar) becomes a Rust-only O(E) pass). That is an
 construction change, not a setter micro-opt. NOTE: a peer already landed a `_native_broadcast_edge_attribute`
 in HEAD (different approach); my store-write is superseded + reverted. 6th convergent NO-SHIP this
 session confirming the eager-mirror / String-keyed-PyO3 attr substrate floor.
+
+## 2026-06-25 CopperCliff FRONTIER MAP - fnx vs nx is fully verified; only the String-keyed attr substrate remains
+
+Consolidated BOLD-VERIFY across this session (~55 functions, 8 sweep rounds, all per-crate / warm
+min-of-N). fnx is AT-OR-ABOVE NetworkX on every domain measured EXCEPT one. Ship future effort
+accordingly — do not re-sweep the won domains.
+
+WON (fnx faster, representative ratios):
+- algorithms: cut_metrics 3-5x, assortativity (degree_mixing_dict 8.6x, node_degree_xy 5x), SCC 2.8x,
+  descendants 1.8x, biconnected/articulation 3.5-10x, MST/bfs ~1.2x, core_number 16x, k_core 55x,
+  clustering 124x, pagerank 26x, closeness 189x, harmonic 273x, eccentricity 13x.
+- matrix/IO: adjacency_matrix / to_scipy_sparse / laplacian 2.4x, node_link_data 1.4x,
+  parse/generate_edgelist 1.1-1.2x.
+- community/iso: greedy_modularity 27x, label_propagation 1.9x, is_isomorphic 387x.
+- construction: G.copy 1.7x, grid_2d 3.25x, line_graph 2.2x, from_dict_of_dicts(attrs) 1.4x,
+  to_dict_of_lists 1.9x, single_source_shortest_path 1.8x, bfs/dfs_tree 3.2-3.5x.
+
+FLOORED (the ONLY remaining vs-nx gaps — ALL the String-keyed attr substrate):
+- set_node_attributes(scalar) 0.22x, set_edge_attributes(scalar) 0.39x, get_edge_attributes 0.49x,
+  in_edges(data=attr) 0.29x, edges(keys=True) 0.61x, weighted degree views 0.7-0.9x,
+  to_directed 0.89x, relabel 0.70x.
+ROOT CAUSE (single, architectural): fnx stores attrs as `BTreeMap<String, CgseValue>` (the store) PLUS
+a String-keyed Python mirror, while nx uses Python dicts with INTERNED string keys. Every per-element
+attr write needs a per-element String key allocation (the store) or a PyO3 set_item on the String-keyed
+mirror; nx reuses one interned key object and does C dict ops. This session proved 6 distinct micro-opts
+against it all ~0-gain (degree index-accumulator, in_edges edge_key removal, to_directed deepcopy-skip,
+selfloop [shipped the one that fit], set-attr per-element broadcast, set-attr store-write). The
+store-write is correct but ~0-gain because (a) eager empty mirrors shadow it and (b) the per-edge
+String key alloc is itself the floor.
+
+ONLY viable lever (large, architectural, NOT a micro-opt): interned attr keys — `Rc<str>`/`Arc<str>` or
+a global string-intern table for AttrMap keys + the mirror, so per-element attr writes reuse a shared
+key object like nx. Until then these 8 paths are at their floor; further per-element micro-opts are
+predictably ~0-gain. The correct store-write (stash cc-setattr-NOSHIP) is ready to fire IF construction
+is made lazy AND keys are interned.
