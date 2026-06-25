@@ -1044,3 +1044,27 @@ a global string-intern table for AttrMap keys + the mirror, so per-element attr 
 key object like nx. Until then these 8 paths are at their floor; further per-element micro-opts are
 predictably ~0-gain. The correct store-write (stash cc-setattr-NOSHIP) is ready to fire IF construction
 is made lazy AND keys are interned.
+
+## 2026-06-25 CopperCliff BUILDFIX main was non-compiling + dijkstra sync-dirty NO-SHIP
+
+BUILD FIX (SHIPPED): peer commit 0b2df6108 ("native one-pass broadcast") landed
+`_native_broadcast_node_attribute` in `impl PyGraph` calling `self.ensure_node_py_attrs`,
+which is PyMultiGraph-only (PyGraph has `materialize_node_py_attrs`). main did NOT COMPILE
+(error[E0599]). Fixed: ensure_node_py_attrs -> materialize_node_py_attrs. Build green,
+correctness 0 fails, node-broadcast parity vs nx intact.
+
+DIJKSTRA SYNC-DIRTY NO-SHIP (reverted): found a real non-attr gap — astar/dijkstra/bellman
+single-pair weighted 0.5-0.7x vs nx. Decomposed: the native kernel `dijkstra_path_to_target`
+is 0.578ms (5.6x FASTER than nx); the Python wrapper adds ~6.3ms — `_sync_rust_edge_attrs(edge_only)`
+re-syncs O(E) EVERY call (~4.35ms). Root: `edges_dirty` is set true on edge-attr exposure but
+`store(false)` appears NOWHERE — it's sticky, so every weighted kernel re-syncs forever after any
+edge mutation. Clearing it after sync gave dijkstra 5.65x / astar 6.73x / bellman 2.21x (!!), BUT
+CORRECTNESS FAILED on `G[u][v]['weight']=x`: the canonical subscript-set does NOT call
+mark_edges_dirty (only edges(data=) views + explicit mutation paths do), so after a clear the next
+subscript mutation is invisible to kernels. That is exactly why the flag was never cleared (sticky +
+always-sync is the only safe option without a mutation-detecting edge dict). REVERTED.
+REAL LEVER (architectural): make the edge attr dict a custom mapping that marks edges_dirty on
+__setitem__/__delitem__, OR track a per-edge dirty-key set populated by subscript mutation — then the
+dirty flag can be cleared and the sticky O(E) re-sync (which taxes dijkstra/astar/bellman/to_scipy/
+cut_size after any edge mutation) becomes a no-op when clean. The kernel is already 5.6x faster than
+nx; only the wrapper's mandatory re-sync stands between fnx and a 5x+ shortest-path win.
