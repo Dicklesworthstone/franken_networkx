@@ -1226,3 +1226,19 @@ Also confirmed parity (no fixable gap): communicability_betweenness 0.79x (alrea
 per node, same as nx — variance), laplacian/normalized_laplacian_spectrum ~1.0x, johnson/goldberg_radzik/
 antichains ~parity at sub-ms (delegated, conversion tax negligible at these sizes). fnx is at-or-above nx
 across the swept algorithm/centrality/spectral/generator domains.
+
+## 2026-06-25 CopperCliff products/bipartite/operators/DAG sweep — REJECTS (modest delegation-tax gaps)
+
+BOLD-VERIFY sweep of previously-unmeasured domains. All fnx at-or-above nx EXCEPT two modest delegation-
+tax gaps, both REJECTED (not worth the de-delegation effort for niche functions):
+- dag_to_branching 0.71x (fnx 12.2ms vs nx 8.7ms, gn(400)): delegates root-to-leaf path enumeration via
+  `_root_to_leaf_paths_via_nx` (fnx->nx conversion) + builds result. The path enumeration is inherently
+  expensive (both fnx and nx); the ~3.5ms gap is the conversion + result-graph construction. De-delegating
+  needs reimplementing root_to_leaf_paths + prefix_tree in-process — large for a niche fn at 0.71x. REJECT.
+- transitive_reduction 0.82x (2.06ms vs 1.69ms): delegated; borderline conversion tax. REJECT (marginal).
+
+WINS confirmed (already fnx-faster, no action): cartesian/tensor/strong/lexicographic_product 2.6-3.7x,
+power 1.66x, bipartite.clustering 2.2x, condensation 4.28x, topological_generations 2.37x,
+lexicographical_topological_sort 2.96x, closeness_vitality 12.3x, harmonic(subset) 2.88x, voterank 1.56x,
+average_degree_connectivity 2.6x, attribute_assortativity 73x. Parity (no fixable gap): bipartite.
+projected_graph 0.99x, compose 1.05x, difference 1.12x. fnx is at-or-above nx across these domains.
