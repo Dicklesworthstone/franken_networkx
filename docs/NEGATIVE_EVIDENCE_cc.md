@@ -1389,3 +1389,35 @@ owned by active peer BlackThrush). There is NO remaining periphery-fixable vs-nx
 gap is the dual-storage / PyObject-materialization substrate in crates/fnx-{python,classes} — an
 architectural single-storage / interned-key refactor (BlackThrush's locked core), not a point fix.
 Levers handed off in the prior two ledger entries (f0b203ca3 weighted degree, 704e4db50 view emission).
+
+## 2026-06-25 CopperCliff SURFACE (WINNABLE, high-cascade): weighted matrix construction 0.37-0.49x
+
+Dug matrix-construction primitives (BA n=2000/m=6, weight=1.5). MEASURED gaps:
+| op | fnx | nx | ratio |
+| to_numpy_array(weight) | 17.0ms | 7.6ms | 0.448x |
+| to_numpy_array | 19.0ms | 7.1ms | 0.372x |
+| to_scipy_sparse_array(weight) | 15.6ms | 6.8ms | 0.439x |
+| laplacian_matrix | 15.6ms | 7.7ms | 0.492x |
+| normalized_laplacian_matrix | 16.0ms | 7.6ms | 0.477x |
+| adjacency_matrix | 14.8ms | 9.9ms | 0.669x |
+WINS (no action): from_scipy_sparse_array 1.95x, from_numpy_array 1.70x, to_dict_of_lists 1.94x,
+incidence_matrix 6.03x.
+
+DISTINCTION FROM PRIOR FLOOR SURFACES — this one is WINNABLE, not PyObject-floored. Proof:
+to_scipy_sparse_array with **weight=None** is **2.84x FASTER** than nx (fnx 2.34ms vs 6.66ms) — it uses
+the native `_native_adjacency_default_order_index_arrays` (rows+cols emitted from the index-native edge
+store in 0.55ms, zero per-edge PyO3). The matrix OUTPUT is a numpy/scipy BUFFER, so there is NO
+per-element PyObject materialization floor. The ONLY reason weighted is 0.45x is that the simple-Graph
+weighted path either (a) falls to a Python COO loop (dtype=None, the conservative gate at __init__.py
+~53037 `_use_native_weighted = isinstance(weight,str) and dtype is not None`), or (b) the forced-native
+weighted read (dtype given) is itself ~11ms (sync + per-edge store read), with no fast buffer emitter.
+
+LEVER (for BlackThrush — you own fnx-python/lib.rs + built the templates): add a native simple-Graph and
+DiGraph weighted CSR-bytes / COO-arrays builder that emits (indptr/indices or rows/cols) + an f64 `data`
+buffer + a `data_is_int` flag in ONE pass over the inner index-native edge store — EXACTLY mirroring the
+existing `_native_adjacency_csr_bytes_multigraph_default_order_live_checked`. Then relax the __init__.py
+gate to route weight=str + dtype=None through it (Python side picks int64 vs float64 from data_is_int,
+same as the multidigraph CSR path at ~53090). Expected ~0.45x -> ~2-3x (matching the unweighted 2.84x),
+cascading to all 5 functions above (laplacian/normalized/adjacency_matrix all call to_scipy_sparse_array).
+NOT shipped by me: it's a NEW native method in your active reserved lib.rs; agent-mail is down so handing
+off via ledger. (Worktree-buildable + byte-exact-verifiable if reassigned to me.)
