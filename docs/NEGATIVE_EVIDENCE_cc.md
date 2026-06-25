@@ -1681,3 +1681,16 @@ KEPT (byte-exact, 2.8x faster, cleaner code) but transparently still a loss. To 
 native _rust paley builder (br-paleydir: was wrong, defaulted undirected; nx default DiGraph) to emit
 directed edges natively (Rust). chordal_cycle (multigraph) batch had divergent edge KEYS -> NOT batched
 (parity risk). generalized_petersen 0.56x is the NATIVE _rust path (slow native construction, Rust).
+
+## 2026-06-25 CopperCliff generator vein mapped — dense generators floor-bound; no new clean win
+
+Extended generator sweep. WINS (nx-slow or sparse structure): random_regular_graph 2.48x, random_lobster
+3.47x, duplication_divergence 1.99x, random_powerlaw_tree 1.52x, planted_partition 1.15x. FLOOR-BOUND
+LOSSES (dense-edge generators, all clustered ~0.70-0.76x = the add_edges_from construction floor, already
+near-batched, NOT the 0.25x per-edge-loop case): random_partition_graph 0.70x, stochastic_block_model
+0.75x, turan_graph 0.75x, complete_multipartite 0.76x, ring_of_cliques 0.87x. These are NOT improvable by
+batching (already at the floor) — they fold into the dual-storage construction floor (add_edges_from
+0.58-0.70x), the same architectural limit as parse_adjlist/weighted-matrix. Generator vein CONCLUSION:
+clean wins exist only where nx is slow or structure is sparse (shipped/confirmed); dense generators are
+construction-floor-bound and need the core single-storage/interned-key refactor (not periphery-fixable).
+No new clean periphery win this pass.
