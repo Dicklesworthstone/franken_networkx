@@ -4423,14 +4423,14 @@ impl PyMultiDiGraph {
     /// br-r37-c1-mdgoutedge (cc): MultiDiGraph out_edges(nbunch, data=True). Emits
     /// (u, v[, key], live_attr_dict). successors/edge_keys collected as owned so the
     /// &mut ensure_edge_py_attrs (identity-preserving live dict) has no live inner
-    /// borrow. node-deduped, succ_py_keys/edge_py_keys display gate.
+    /// borrow. node-deduped; custom edge keys are emitted via py_edge_key.
     fn _native_mdg_out_edges_nbunch_data(
         &mut self,
         py: Python<'_>,
         nbunch: &Bound<'_, PyAny>,
         keys: bool,
     ) -> PyResult<Option<Vec<PyObject>>> {
-        if !self.succ_py_keys.is_empty() || (keys && !self.edge_py_keys.is_empty()) {
+        if !self.succ_py_keys.is_empty() {
             return Ok(None);
         }
         let mut out: Vec<PyObject> = Vec::new();
@@ -4464,9 +4464,7 @@ impl PyMultiDiGraph {
                         .clone_ref(py)
                         .into_any();
                     if keys {
-                        let key_obj = crate::unwrap_infallible(key.into_pyobject(py))
-                            .into_any()
-                            .unbind();
+                        let key_obj = self.py_edge_key(py, &canonical, nbr, key);
                         out.push(tuple_object(
                             py,
                             &[node.clone().unbind(), nbr_obj, key_obj, attrs],

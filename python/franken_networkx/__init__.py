@@ -348,7 +348,7 @@ def _multidigraph_out_edges(self, nbunch=None, data=False, keys=False, default=N
         native = getattr(self, "_native_mdg_out_edges_nbunch_data", None)
         if native is not None:
             try:
-                result = native(nbunch, keys)
+                result = _digraph_out_edges_data_cache(self, nbunch, native, keys)
             except TypeError as exc:
                 raise NetworkXError(str(exc))
             if result is not None:
@@ -676,13 +676,15 @@ def _primitive_nbunch_cache_key(graph, nbunch):
     return (graph.nodes_seq, graph.edges_seq, nbunch_key)
 
 
-def _digraph_out_edges_data_cache(graph, nbunch, native):
+def _digraph_out_edges_data_cache(graph, nbunch, native, *native_args):
     key = _primitive_nbunch_cache_key(graph, nbunch)
+    if key is not None and native_args:
+        key = (*key, *native_args)
     if key is not None:
         cached = getattr(graph, "_fnx_out_edges_nbunch_data_cache", None)
         if cached is not None and cached[0] == key:
             return list(cached[1])
-    result = native(nbunch)
+    result = native(nbunch, *native_args)
     if result is not None and key is not None:
         graph._fnx_out_edges_nbunch_data_cache = (key, tuple(result))
     return result
@@ -2672,7 +2674,12 @@ class _MultiDiGraphEdgeView:
             native = getattr(self._graph, kname, None)
             if native is not None:
                 try:
-                    native_res = native(nbunch, keys)
+                    if data is True:
+                        native_res = _digraph_out_edges_data_cache(
+                            self._graph, nbunch, native, keys
+                        )
+                    else:
+                        native_res = native(nbunch, keys)
                 except TypeError as exc:
                     raise NetworkXError(str(exc))
                 if native_res is not None:

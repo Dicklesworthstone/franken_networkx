@@ -6297,3 +6297,40 @@ order, node attrs, empty adjacency rows, and runtime policy in place. FNX remain
 slower than NetworkX on this attributed explicit-key workload (`0.163x` after),
 but the measured row is materially better than the old `0.044x` ratio and the
 core invariant test now guards the storage contract directly.
+
+## 2026-06-25 BlackThrush MultiDiGraph.out_edges nbunch custom-key cache - KEEP
+
+Scope: BOLD-VERIFY `MultiDiGraph.out_edges(nbunch, keys=True, data=True)`
+against vendored NetworkX on the `mdg_out_edges_nbunch_keys_data_n700_e12600`
+Criterion row. The workload uses explicit string edge keys, duplicate/missing
+`nbunch` entries, and live edge attr dicts; the benchmark asserts byte-equal
+`list(out_edges(...))` and checksum equality before timing.
+
+Change: the Rust data=True nbunch native no longer bails on `edge_py_keys` and
+emits stored display keys via `py_edge_key`. The Python exact-MultiDiGraph
+wrapper reuses the existing primitive `nbunch` cache helper, now extended to
+include the native `keys` flag in the cache key, so repeated list/tuple
+`int`/`str` nbunch calls clone the cached tuple stream instead of rebuilding it.
+
+Commands used the requested warm target dir and per-crate `fnx-python` scope:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo check -p fnx-python --profile release --features pyo3/abi3-py310`
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head mdg_out_edges_nbunch_keys_data -- --quiet`
+
+| workload | state | worker | FNX median | NetworkX median | ratio vs NetworkX | self vs baseline |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `mdg_out_edges_nbunch_keys_data_n700_e12600` | clean `main` baseline | `ovh-a` | `1.2262 ms` | `432.67 us` | `0.353x` | baseline |
+| `mdg_out_edges_nbunch_keys_data_n700_e12600` | custom-key native + primitive nbunch tuple cache | `ovh-a` | `191.29 us` | `438.73 us` | `2.293x` | `6.41x` |
+
+Validation: `cargo check -p fnx-python --profile release --features
+pyo3/abi3-py310` passed on `ovh-a`; `cargo fmt -p fnx-python --check` passed;
+`python3 -m py_compile python/franken_networkx/__init__.py` passed; the focused
+head-to-head bench passed its equality assertions and timed FNX faster than
+NetworkX. A filtered `cargo test -p fnx-python ... mdg_out` completed green but
+had no matching unit tests (`0 passed; 28 filtered out`).
+
+Decision: KEPT. The live same-worker row moves FNX from a laggard `0.353x` to
+`2.293x` vs NetworkX on the explicit-key `MultiDiGraph` nbunch data path. The
+cache is deliberately narrow: only primitive list/tuple nbunch keys are cached,
+and `nodes_seq`, `edges_seq`, and `keys` guard the result shape.
