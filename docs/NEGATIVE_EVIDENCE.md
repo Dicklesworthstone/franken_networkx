@@ -6038,3 +6038,41 @@ objects; fnx converts from the Rust store), NOT by any Rust-side algorithm. Clos
 fundamentally different approach (e.g. a persistent ordered Python object mirror / lazy view objects),
 not a kernel rewrite. Future digs should AVOID the algorithm domain and target the view substrate.
 No code change this turn; sweep is a verification artifact.
+
+## 2026-06-25 CopperCliff BOLD-VERIFY construction/conversion triage - residual gaps are dual-storage-bound
+
+After the algorithm domain verified mined-out (1d02b4a8c), triaged ~22 construction/conversion ops
+(warm min-of-7, installed HEAD binary, n=2000/e=16000 + variants) to locate a NEW vs-nx lever.
+Most are fnx-FAVORABLE; only a few sub-1.0x remain:
+
+| op | fnx | nx | ratio |
+| --- | ---: | ---: | ---: |
+| relabel_nodes(+1) | 22.7 ms | 15.8 ms | 0.70x |
+| to_directed (deepcopy) | 86.2 ms | 64.1 ms | 0.74x |
+| from_dict_of_dicts (empty attrs) | 20.5 ms | 15.1 ms | 0.74x |
+| DiGraph.reverse() | 67.2 ms | 57.7 ms | 0.86x |
+| from_edgelist(data) | 18.3 ms | 15.7 ms | 0.86x |
+| DiGraph(G) | 28.0 ms | 25.0 ms | 0.89x |
+| (fnx-faster, representative) Graph(G).copy | 14.1 ms | 24.0 ms | 1.70x |
+| G.copy() | 14.1 ms | 24.0 ms | 1.70x |
+| grid_2d_graph 100x100 | 4.6 ms | 15.0 ms | 3.25x |
+| line_graph | 0.37 ms | 0.84 ms | 2.24x |
+| from_dict_of_dicts (WITH attrs) | 15.2 ms | 21.0 ms | 1.38x |
+
+ROOT CAUSE of the residual gaps = the DUAL-STORAGE TAX: fnx keeps BOTH a Rust AttrMap (store) AND a
+Python attr-dict mirror per node/edge, so every attributed build pays to populate both, while nx
+builds only the Python dict. Confirmed in `_native_to_directed_deepcopy` (lib.rs ~7146): per edge it
+does `deepcopy_py_dict(mirror)` THEN `py_dict_to_attr_map(deepcopied)` — a SECOND full dict-iteration +
+PyO3 downcast per edge that nx never does — and eagerly inserts the mirror. relabel is the per-node
+LABEL PyO3 round-trip floor (native relabel ATTEMPTED+REVERTED, see construction_tax_relabel_lever).
+
+NO-SHIP this turn (no safe quick win): the feasible lever is to drop the redundant `py_dict_to_attr_map`
+in the deepcopy/copy/to_directed/to_undirected paths and instead CLONE the existing Rust store AttrMap
+(value-semantics deep copy for scalar CgseValue) + build the mirror LAZILY — BUT it is correctness-
+sensitive: (a) must gate on a CLEAN edge mirror (a dirty/mutated mirror makes the store stale -> wrong
+attrs), and (b) object-valued attrs (CgseValue non-scalar / PyObject) must keep the Python deepcopy for
+identity. That is a focused, conformance-heavy change (deepcopy semantics on a core op), not a
+60-min micro-opt, so deferred rather than rushed. Recommended next session: scalar-value-semantics
+lazy-deepcopy fast path in copy/to_directed/to_undirected, gated `!edges_dirty && all-scalar-attrs`,
+with the full -k "copy or to_directed or to_undirected or deepcopy" conformance + a deepcopy-identity
+golden. No code change this turn; triage is a verification artifact.
