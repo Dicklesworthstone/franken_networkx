@@ -6270,3 +6270,30 @@ flat to slightly worse (`797.96 us` to `800.35 us`, `0.572x` to `0.570x` vs
 NetworkX). The remaining cost is not another cacheable Rust scan; it is the
 Python tuple/value materialization floor already exposed by the upstream
 display-key probe. No production source change kept.
+
+## 2026-06-25 BlackThrush MultiGraph.clear_edges in-place core clear - KEEP
+
+Scope: BOLD-VERIFY `MultiGraph.clear_edges()` against vendored NetworkX on the
+new dedicated `multigraph_clear_edges_n800_e4000` Criterion row. The benchmark
+builds a deterministic 800-node, 4000-edge attributed `MultiGraph` with explicit
+string keys, proves `number_of_edges()==0` and node/data preservation against
+NetworkX after `clear_edges()`, and times only the `clear_edges` call after a
+fresh graph factory setup.
+
+Command shape was per-crate and used the cod-b warm target request:
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b AGENT_NAME=BlackThrush PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head -- multigraph_clear_edges --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`.
+RCH selected `hz2` for the current-main baseline and `ovh-a` for the patched
+run; `rch exec` has no worker pin option, so the self-delta is cross-worker
+routing evidence while each ratio vs NetworkX is from the same benchmark run.
+
+| workload | state | worker | FNX median | NetworkX median | ratio vs NetworkX | self vs baseline |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `fnx_multigraph_clear_edges_n800_e4000` | clean current `main` rebuild-from-nodes path | `hz2` | `11.956 ms` | `526.51 us` | `0.044x` | baseline |
+| `fnx_multigraph_clear_edges_n800_e4000` | in-place `MultiGraph::clear_edges()` routed through `PyMultiGraph.clear_edges` | `ovh-a` | `5.2575 ms` | `855.05 us` | `0.163x` | `2.27x` |
+
+Decision: KEPT. The source change removes the rebuild-from-nodes path and the
+per-node Python attr conversion from `PyMultiGraph.clear_edges`, preserving node
+order, node attrs, empty adjacency rows, and runtime policy in place. FNX remains
+slower than NetworkX on this attributed explicit-key workload (`0.163x` after),
+but the measured row is materially better than the old `0.044x` ratio and the
+core invariant test now guards the storage contract directly.

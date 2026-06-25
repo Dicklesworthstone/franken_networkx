@@ -3059,6 +3059,19 @@ impl MultiGraph {
         true
     }
 
+    pub fn clear_edges(&mut self) {
+        if self.edge_count == 0 {
+            return;
+        }
+
+        self.edges.clear();
+        for row in self.adjacency.values_mut() {
+            row.clear();
+        }
+        self.edge_count = 0;
+        self.revision = self.revision.saturating_add(1);
+    }
+
     pub fn remove_node(&mut self, node: &str) -> bool {
         if !self.nodes.contains_key(node) {
             return false;
@@ -4129,6 +4142,35 @@ mod tests {
         assert!(!graph.has_node("b"));
         assert_eq!(graph.neighbors("a"), Some(vec![]));
         assert_eq!(graph.neighbors("c"), Some(vec![]));
+        assert_multigraph_core_invariants(&graph);
+    }
+
+    #[test]
+    fn multigraph_clear_edges_preserves_nodes_attrs_and_rows() {
+        let mut graph = MultiGraph::strict();
+        assert!(graph.add_node_with_attrs("a", single_attr("color", "red")));
+        assert!(graph.add_node_with_attrs("b", single_attr("color", "blue")));
+        let _ = graph
+            .add_edge_with_key_and_attrs("a", "b", 7, single_attr("weight", "3"))
+            .expect("edge add should succeed");
+        let _ = graph
+            .add_edge_with_key_and_attrs("b", "a", 2, single_attr("weight", "5"))
+            .expect("edge add should succeed");
+        let before_revision = graph.revision();
+
+        graph.clear_edges();
+
+        assert_eq!(graph.node_count(), 2);
+        assert_eq!(graph.nodes_ordered(), vec!["a", "b"]);
+        assert_eq!(graph.edge_count(), 0);
+        assert!(graph.edges_ordered().is_empty());
+        assert_eq!(graph.neighbors("a"), Some(vec![]));
+        assert_eq!(graph.neighbors("b"), Some(vec![]));
+        assert_eq!(
+            graph.node_attrs("a").unwrap().get("color"),
+            Some(&CgseValue::from("red"))
+        );
+        assert!(graph.revision() > before_revision);
         assert_multigraph_core_invariants(&graph);
     }
 
