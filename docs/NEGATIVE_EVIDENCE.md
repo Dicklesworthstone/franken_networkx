@@ -6162,3 +6162,42 @@ Decision: KEEP. This is still a measured self-speedup over the documented 0.55x-
 baseline and keeps the large Graph n=8000 row faster than NetworkX on the landing worker. The smaller
 rows remain below parity on this worker, so future work should treat remaining cost as the unavoidable
 user-side dict copy plus Python row/object materialization, not another Rust-side outer rebuild.
+
+## 2026-06-25 BlackThrush MultiDiGraph weighted-degree edge-order accumulator - NO-SHIP
+
+Targeted `mdg_in_degree_weight_n700_e12662`, the remaining weighted MultiDiGraph
+degree laggard from `networkx_head_to_head_core_laggards`. The candidate added a
+clean-store edge-order accumulator for all-node weighted total/in/out degree:
+iterate `try_for_each_indexed_edge_ordered_borrowed`, sum integer edge weights
+directly into node-indexed `i128` totals, then materialize `(node, total)` pairs
+in `nodes_ordered()` order. The intended lever was to remove the current
+per-node predecessor/successor row walk and per-edge `edge_attrs` lookup.
+
+Baseline current-head command:
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b AGENT_NAME=BlackThrush PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head -- networkx_head_to_head_core_laggards --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`
+
+Patched command was identical except `RCH_WORKER=vmi1152480` was also set;
+`rch` selected `vmi1227854` anyway, so the direct before/after worker changed.
+The candidate passed the per-crate compile gate with:
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b AGENT_NAME=BlackThrush rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`.
+
+| workload | run | FNX median | NetworkX median | FNX speed ratio vs NetworkX |
+| --- | --- | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | baseline current-head, `vmi1152480` | `13.490 ms` | `3.9137 ms` | `0.290x` |
+| `mdg_in_degree_weight_n700_e12662` | existing same-worker ledger, `vmi1227854` | `10.800 ms` | `2.1347 ms` | `0.198x` |
+| `mdg_in_degree_weight_n700_e12662` | patched, `vmi1227854` | `11.332 ms` | `2.2019 ms` | `0.194x` |
+
+Additional patched `vmi1227854` core-laggard rows:
+
+| workload | FNX median | NetworkX median | FNX speed ratio vs NetworkX |
+| --- | ---: | ---: | ---: |
+| `mg_selfloop_keys_weight_n2500_loops2502` | `1.9971 ms` | `574.75 us` | `0.288x` |
+| `mdg_edges_keys_n700_e12662` | `2.1541 ms` | `1.1170 ms` | `0.519x` |
+
+Decision: REVERTED. The same-worker comparison against the existing
+`vmi1227854` ledger is effectively flat to slightly worse (`0.198x` to
+`0.194x`), and the changed-worker `vmi1152480` baseline is only routing
+evidence. Avoiding row walks did not beat the output materialization floor;
+the likely dominant cost remains Python node/tuple/int object production, with
+the edge-order indexed traversal also paying enough lookup overhead to erase
+the intended win. No source code kept.
