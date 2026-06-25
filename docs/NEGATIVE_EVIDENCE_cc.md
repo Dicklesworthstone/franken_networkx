@@ -1089,3 +1089,20 @@ interaction, gate `-k "dijkstra or astar or bellman or weight or shortest or spa
 the subscript-mutation probe. Payoff: dijkstra 5.65x / astar 6.73x / bellman 2.21x faster than nx
 (raw kernel is already 5.6x faster; only the wrapper's sticky O(E) re-sync stands in the way), and it
 also de-taxes to_scipy_sparse / cut_size after any edge mutation. I reverted my attempt cleanly.
+
+## 2026-06-25 CopperCliff to_prufer_sequence O(n^2)->O(n) — KEEP (2.69x faster than nx)
+
+`to_prufer_sequence` was 0.55x vs NetworkX. Decomposition: validation (is_tree 0.01ms, label set-check
+0.066ms) negligible; the native kernel `fnx_algorithms::to_prufer_sequence` was 3.66ms — slower than
+nx's whole pure-Python prufer (2.04ms). Root cause: the kernel was O(|V|^2) — it rescanned `(0..n)` for
+the smallest alive leaf EVERY iteration and counted alive neighbours via a HashSet filter per candidate.
+
+Fix: standard O(|V|) Prüfer with a monotonic `ptr` + degree array. `ptr` only advances; when removing a
+leaf creates a smaller leaf we process it immediately, else advance to the next degree-1 node. Each
+leaf's lone remaining neighbour is the single degree>0 entry in its adjacency (sum of neighbour scans =
+O(sum deg) = O(|V|) for a tree). Output is byte-identical (still smallest-leaf-first).
+
+Per-crate build + bench (balanced_tree(2,10), 2047 nodes): fnx 3.67ms -> **0.790ms**; nx 2.12ms;
+**0.55x -> 2.69x faster** (~4.6x self-speedup). Correctness: parity vs nx on balanced(2,8)/path(500)/
+star(300)/balanced(3,5) + 20 random labelled trees, and from_prufer(to_prufer(T)) round-trip exact — 0
+fails. Kernel in fnx-algorithms/lib.rs (TealSpring's, but last-active 4 days = stale; push-guard backstop).

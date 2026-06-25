@@ -13396,22 +13396,36 @@ pub fn to_prufer_sequence(graph: &Graph) -> Result<Vec<usize>, String> {
         adj[v].insert(u);
     }
 
+    // O(|V|) Prüfer encoding (cc): the previous loop rescanned 0..n for the
+    // smallest alive leaf every iteration (O(|V|^2)). Use a monotonic pointer +
+    // degree array: `ptr` only advances; when removing a leaf creates a smaller
+    // leaf we process it immediately, otherwise we advance to the next degree-1
+    // node. Each leaf's single remaining neighbour is the lone degree>0 entry in
+    // its adjacency (total neighbour scans = O(sum deg) = O(|V|) for a tree).
+    // Output is byte-identical (still smallest-leaf-first) to the old kernel.
+    let mut degree: Vec<usize> = adj.iter().map(std::collections::HashSet::len).collect();
     let mut seq: Vec<usize> = Vec::with_capacity(n - 2);
-    let mut alive: Vec<bool> = vec![true; n];
-
+    let mut ptr = (0..n)
+        .find(|&v| degree[v] == 1)
+        .expect("tree invariant: a leaf must exist");
+    let mut leaf = ptr;
     for _ in 0..(n - 2) {
-        // Find smallest alive leaf
-        let leaf = (0..n)
-            .find(|&v| alive[v] && adj[v].iter().filter(|&&u| alive[u]).count() == 1)
-            .expect("tree invariant: leaf must exist");
-
         let neighbor = *adj[leaf]
             .iter()
-            .find(|&&u| alive[u])
-            .expect("leaf has one neighbor");
-
+            .find(|&&u| degree[u] > 0)
+            .expect("leaf has one remaining neighbour");
         seq.push(neighbor);
-        alive[leaf] = false;
+        degree[leaf] = 0;
+        degree[neighbor] -= 1;
+        if degree[neighbor] == 1 && neighbor < ptr {
+            leaf = neighbor;
+        } else {
+            ptr += 1;
+            while ptr < n && degree[ptr] != 1 {
+                ptr += 1;
+            }
+            leaf = ptr;
+        }
     }
 
     Ok(seq)
