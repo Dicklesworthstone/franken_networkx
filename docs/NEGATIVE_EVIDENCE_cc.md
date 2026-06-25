@@ -1205,3 +1205,24 @@ FOLLOW-UP: other __init__.py spectral sites use np.linalg.eigvalsh (eigenvalues-
 SAFE to swap to scipy.linalg.eigvalsh) at lines ~24652/25064/25177/32099/32204/34191, and _matrix_exp
 (26277, V*D*V^T sign-invariant). Line 25314 (fiedler) uses eigenVECTORS (sign-sensitive) -> do NOT swap
 blindly. Bench+verify each before swapping.
+
+## 2026-06-25 CopperCliff numpy-LAPACK sweep — eigh vein mined; np.linalg.solve is NOT a lever
+
+Follow-up to the subgraph_centrality eigh win (16861f033). Swept the rest of __init__.py's numpy linalg
+usage for the same numpy-slow-vs-scipy-fast tax:
+- np.linalg.eigh WITH eigenvectors ('evd'/numpy reference LAPACK, ~27x slower than scipy 'evr') — the
+  ONLY real tax. Sites: subgraph_centrality (FIXED 16861f033); _matrix_exp -> communicability_exp
+  (1.46x faster, fine); fiedler 25314 + spectral_graph_forge 51448 (sign-sensitive vectors / nx
+  determinism parity -> MUST NOT swap). Vein exhausted.
+- np.linalg.eigvalsh (eigenvalues-only, no vectors) is FAST even on numpy — adjacency_spectrum 27x,
+  modularity 17x, estrada 26x, communicability 18x FASTER than nx. Not a lever.
+- np.linalg.solve: an ISOLATED microbench showed 222ms vs scipy 1.41ms (n=400), BUT the fnx functions
+  that use it ALREADY BEAT nx: katz_centrality_numpy 10x, second_order_centrality 3577x,
+  current_flow_betweenness 38x, current_flow_closeness 10x faster. So np.linalg.solve is NOT a real
+  gap here — do NOT chase it (red herring; nx is slower for other reasons / the matrices solve fast).
+- np.linalg.inv/pinv/eig (non-symmetric): ~parity with scipy (no big tax). eigenvector_centrality_numpy
+  1.17-1.68x, pagerank 4.23x, hits 1.18x, information_centrality 9.28x faster.
+Also confirmed parity (no fixable gap): communicability_betweenness 0.79x (already uses scipy.linalg.expm
+per node, same as nx — variance), laplacian/normalized_laplacian_spectrum ~1.0x, johnson/goldberg_radzik/
+antichains ~parity at sub-ms (delegated, conversion tax negligible at these sizes). fnx is at-or-above nx
+across the swept algorithm/centrality/spectral/generator domains.
