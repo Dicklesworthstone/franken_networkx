@@ -949,3 +949,33 @@ re-built + re-benched 0.95-0.99x, 867 conformance pass). To avoid a double-land,
 landing via BlackThrush's in-flight batch (their working tree carries this exact patch under
 their exclusive lib.rs/readwrite.rs/digraph.rs locks); this ledger entry lands the measured
 evidence. Attribution: br-r37-c1-adjouter (CopperCliff).
+
+## 2026-06-25 CopperCliff to_directed scalar deepcopy-skip - NO-SHIP ~0-gain (br-r37-c1-eilce family)
+
+(Recorded here, not the shared NEGATIVE_EVIDENCE.md, which BlackThrush holds reserved.)
+
+Attempted the deferred construction lever: in PyGraph::_native_to_directed_deepcopy, skip Python
+`copy.deepcopy` for LOSSLESSLY-representable edge attrs (scalars + maps-of-scalars) and lazy-materialize
+the directed graph's mirror (fresh PyDict per read == deepcopy semantics for value types), falling back
+to deepcopy for None/list/object/non-str-key. Added loss-reporting `py_value_to_cgse_checked` /
+`py_dict_to_attr_map_checked` (CgseValue has no object variant -> non-representable values stringify, so
+representability == lossless round-trip).
+
+CORRECTNESS: PERFECT (7/7) — edge+node data parity vs nx across scalar/list/nested-dict/None/object/
+attr-less; deepcopy INDEPENDENCE verified (mutating directed scalar/nested/list attrs leaves source
+unchanged). Real trap found+fixed: DiGraph `nodes(data=)` does NOT lazily materialize node attrs from
+the store (edges do) — a lazy node mirror DROPS the attr; nodes keep the eager mirror, only EDGES use
+the lazy fast path.
+
+Per-crate A/B (Graph.to_directed, gnm n2000/e16000, all-weight, min-of-9): baseline fnx 70.6/nx 62.8 =
+0.889x; after fnx 78.1/nx 70.3 = 0.900x (host ~10% slower that round; RATIO unchanged). Removing 32000
+Python deepcopy calls registered NOTHING.
+
+Decision: NO-SHIP (REVERT, stash cc-todir-NOSHIP). 4th NO-SHIP this session confirming the same floor:
+removing ONE per-edge cost component is swamped — CPython scalar-dict deepcopy is cheap; the 0.9x
+residual is the dual-AttrMap+mirror CONSTRUCTION body, not the deepcopy. The conversion helpers are
+correct and could seed a future single-storage (lazy-AttrMap) rewrite — architectural, not a micro-opt.
+
+PEER COLLISION: shared bench carries an uncommitted `ConstructionCopyWorkloads` /
+`fnx_graph_to_directed_scalar_attrs` hunk (TealSpring owns the bench) — a peer is actively on this exact
+target. Left their hunk untouched; messaging them that the deepcopy-skip angle is ~0-gain.
