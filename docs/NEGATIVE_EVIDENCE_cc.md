@@ -979,3 +979,33 @@ correct and could seed a future single-storage (lazy-AttrMap) rewrite — archit
 PEER COLLISION: shared bench carries an uncommitted `ConstructionCopyWorkloads` /
 `fnx_graph_to_directed_scalar_attrs` hunk (TealSpring owns the bench) — a peer is actively on this exact
 target. Left their hunk untouched; messaging them that the deepcopy-skip angle is ~0-gain.
+
+## 2026-06-25 CopperCliff set_edge/set_node_attributes broadcast - NO-SHIP ~0-gain (eager-mirror floor)
+
+BOLD-VERIFY broad sweep found the biggest UN-swept gaps are attribute WRITE paths:
+set_node_attributes(G, scalar, name) 0.22x, set_edge_attributes(G, scalar, name) 0.39x,
+get_edge_attributes 0.49x vs NetworkX (BA n3000/e24000). The scalar-broadcast branches looped in
+Python (`for n in G.nodes(): G.nodes[n][name]=v` / `for u,v,attrs in G.edges(data=True):
+attrs[name]=v`) whereas the DICT branches already had native fast paths.
+
+Attempt 1 (native per-element broadcast: one Rust pass, materialize mirror + set_item): correctness
+6/6 but ~0-gain (set_node 0.22->0.23x, set_edge 0.39->0.37x). The loop overhead was NOT the
+bottleneck — the per-element String-keyed mirror entry + PyO3 `set_item` is.
+
+Attempt 2 (edge STORE-WRITE: when `edge_py_attrs.is_empty()` + value losslessly representable, write
+the CgseValue store in one index-native Rust pass via new `Graph::set_attr_on_all_edges`, zero PyO3
+per edge; reads materialize back from store): correctness parity-exact vs nx (incl. non-representable
+list -> fallback, kernel degree(weight) sees it). But STILL ~0-gain: set_edge 0.39->0.43x on BA AND
+0.44x on a fresh `add_edges_from` graph. ROOT CAUSE: `edge_py_attrs` is NOT empty even for freshly
+constructed graphs — edge construction pre-populates EMPTY mirror PyDicts (eager), so the
+`is_empty()` gate never fires and the per-edge PyO3 fallback always runs. Empty mirrors also SHADOW
+the store on read, so a store-write without clearing them would be wrong anyway.
+
+Decision: NO-SHIP (REVERT, stash cc-setattr-NOSHIP). The node broadcast can't use store-write at all
+(nodes(data) reads the mirror, not the store). The REAL lever for the whole set/get-attr family is
+LAZY edge-attr construction (stop allocating empty mirror PyDicts per edge — partial work exists,
+br lazy_edge_attr_dict; once mirrors are truly absent on fresh graphs, the store-write fast path
+fires and set_edge_attributes(scalar) becomes a Rust-only O(E) pass). That is an architectural
+construction change, not a setter micro-opt. NOTE: a peer already landed a `_native_broadcast_edge_attribute`
+in HEAD (different approach); my store-write is superseded + reverted. 6th convergent NO-SHIP this
+session confirming the eager-mirror / String-keyed-PyO3 attr substrate floor.
