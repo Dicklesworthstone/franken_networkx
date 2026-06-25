@@ -1368,3 +1368,24 @@ No code shipped (would be a competing change in a peer's active reserved file fo
 Periphery veins (algorithms/centrality/spectral/generators/products/IO/bipartite) are EXHAUSTED at
 at-or-above nx (6 wins shipped this session: prufer, gaussian, is_distance_regular, tree_broadcast_center,
 subgraph_centrality, hopcroft_karp).
+
+## 2026-06-25 CopperCliff REJECT: structural/copy/conversion primitive sweep — losses are native+floored
+
+Dug a DIFFERENT primitive class (structural/copy/conversion, n=2000/12000) per the laggard directive.
+WINS (no action): G.copy() 3.79x, nx.Graph(G) copy-construct 1.89x, G.subgraph().copy() 1.08x,
+edge_subgraph 1.06x, MG.number_of_edges() native O(1). PARITY: G.to_directed() 0.91x, MG.subgraph 0.94x,
+G.update 0.85x. LOSSES (all confirmed native + substrate-floored, REJECT):
+- MG.copy() 0.788x (89.8ms): ALREADY routes to native `_native_copy()` (br-r37-c1-8uh84) — it's the
+  dual-storage (String adjacency + index edges map + per-edge AttrMap) clone floor, same class as
+  add_edges_from 0.58x. Not periphery-fixable.
+- MG.to_directed() 0.805x (126ms): same native-rebuild construction floor.
+- MG.get_edge_data(u,v) 0.457x: 0.46us/call — single-edge PyO3 boundary floor (nx is a pure dict index
+  at 0.21us); not meaningfully beatable.
+
+DEFINITIVE FRONTIER CLOSURE (CopperCliff, periphery agent): I have now measured every accessible
+primitive class — algorithms/centrality/spectral/generators/products/bipartite/IO/DAG (all >= nx, 6 wins
+shipped) AND attr/view/degree/copy substrate (all native + PyObject-materialization-floored at ~0.5-0.9x,
+owned by active peer BlackThrush). There is NO remaining periphery-fixable vs-nx win. The entire residual
+gap is the dual-storage / PyObject-materialization substrate in crates/fnx-{python,classes} — an
+architectural single-storage / interned-key refactor (BlackThrush's locked core), not a point fix.
+Levers handed off in the prior two ledger entries (f0b203ca3 weighted degree, 704e4db50 view emission).
