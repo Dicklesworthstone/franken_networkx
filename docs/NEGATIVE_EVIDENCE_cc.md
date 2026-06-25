@@ -1515,3 +1515,28 @@ the 3.84ms weighted-conversion (the same construction floor that taxes every del
 REJECT (not worth the parity risk; cheaper-conversion would still be ~0.6x). Note: the construction-floor
 fix (faster weighted fnx->nx / native weighted builders) would lift this too — ties back to the matrix
 construction + sticky-dirty levers already surfaced.
+
+## 2026-06-25 CopperCliff DEFINITIVE BLOCKER: agent-mail DB corrupted; core levers handed off via git only
+
+Attempted to reserve crates/fnx-python/src/lib.rs + views.rs (to claim the sticky-edges_dirty master-lever
+fix). The mcp-agent-mail file_reservation call returned: "Database corruption detected ... database disk
+image is malformed ... Run 'am doctor repair' or 'am doctor reconstruct'". So BOTH agent-mail messaging
+(noted down earlier) AND file reservations are now unavailable — there is NO working cross-agent
+coordination channel; the git-committed ledger (this file) is the only handoff path.
+
+STATE OF THE ENGAGEMENT (CopperCliff, periphery): 6 vs-nx wins shipped + verified intact (759 conformance
+pass). Every accessible periphery primitive class (~24 swept) is at-or-above nx. ALL residual vs-nx loss
+reduces to TWO root-caused levers in BlackThrush's reserved core, fully specified in this ledger:
+  1. STICKY edges_dirty master lever (f91977f1e + 2578350fe): real fix = marking edge-attr dict subclass
+     (mark_edges_dirty on __setitem__/__delitem__/...), THEN clear dirty after sync. Unlocks ~8 fns
+     (weighted matrix construction 0.4x->~4x; dijkstra/astar/bellman 0.5x->5x+). Measured unlock: native
+     weighted COO builder is 1.6ms post-sync vs 18ms sticky.
+  2. Simple-Graph/DiGraph native weighted CSR-bytes builder (d3e0d340f): mirror the existing multigraph
+     template; also subsumes steiner_tree 0.41x (2d03b3bbe) and other weighted-conversion gaps.
+
+BLOCKER: both fixes are in crates/fnx-python/src/{lib.rs,readwrite.rs,algorithms.rs}, reserved by ACTIVE
+peer BlackThrush; coordination infra (agent-mail) is corrupted so the work cannot be reserved/handed off
+except via this ledger, and a rushed solo edit risks collision with their in-flight changes + the bare
+flag-clear is proven to regress held-ref mutation parity. OPERATOR ACTION NEEDED: restore agent-mail
+(`am doctor repair`) and/or reassign the core files to CopperCliff with a mandate, OR BlackThrush picks up
+the two ledger levers. Not run by me: am doctor repair/reconstruct (could destroy other agents' mail).
