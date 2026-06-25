@@ -1652,3 +1652,17 @@ residual vs-nx loss = the single sticky-edges_dirty core fix. CopperCliff periph
 across every approach: primitive sweeps (~26 classes), unused bindings, mirror-vs-store matrix read, and
 de-delegation — all ruled out with evidence. The one lever is core (lib.rs), uncoordinatable (mail down),
 unvalidatable via rch (bench results not returned). Operator unblock required.
+
+## 2026-06-25 CopperCliff WIN: random_cograph one-pass — 1.76-6.27x vs nx (construction-tax removed)
+
+Community/isomorphism/generator sweep (all >= nx: louvain 15x, greedy_modularity 24.8x, vf2 22.6x,
+label_propagation 2x) surfaced random_cograph as slow on dense instances. It's a pure-Python generator
+that looped n times doing copy() + relabel_nodes() + full_join/disjoint_union — each rebuilding an fnx
+graph (construction tax, compounding as the graph doubles). Rewrote to accumulate the edge list in plain
+Python (shifted left-edges + full_join cross-edges left x right) and commit via ONE add_edges_from.
+rng.randint(0,1) draw order preserved; node labels 0..2**n-1; shifted-then-cross emission order matches
+the operator path -> BYTE-IDENTICAL node + edge iteration order (verified 240 cases: n in {0,1,2,3,5,7} x
+40 seeds vs current fnx AND nx; conformance -k cograph 44 passed). random_cograph(8): seed1 6.27x, seed2
+1.76x, seed5 2.35x vs nx (4.3x self on sparse, more on dense). Python-only periphery win, no build, no
+core lock. LEVER (reconfirms reference_batch_add_edges_from_construction): generators looping
+copy/relabel/union/join per step -> track edges in Python, build once.
