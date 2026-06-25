@@ -24248,35 +24248,28 @@ def compose_all(graphs):
     if not graphs:
         raise ValueError("cannot apply compose_all to an empty list")
     _validate_same_graph_family(graphs)
-    # br-r37-c1-composeall: fold with the NATIVE _native_compose kernel for
-    # the all-undirected-Graph case (compose chains left-to-right, later graph
-    # wins on overlap — exactly _native_compose's contract, see fnx.compose
-    # br-r37-c1-l5ve7). Skips the per-node add_node AND per-edge add_edge
-    # interpreter loops (~1.8x nx -> faster). Other classes / nx-private
-    # storage keep the Python loop below.
-    if all(type(g) is Graph for g in graphs) and not any(
-        _has_networkx_private_storage(g) for g in graphs
-    ):
-        R = graphs[0]._native_copy()
-        for H in graphs[1:]:
-            R = R._native_compose(H)
-        return _finalize_operator_result(R)
-    R = graphs[0].copy()
-    for H in graphs[1:]:
+    # br-r37-c1-composeallbatch (cc): collect every graph's nodes/edges and commit
+    # via ONE add_nodes_from + ONE add_edges_from, replacing the O(k^2) pairwise
+    # fold (R = R._native_compose(H) re-copied the growing result each step:
+    # 0.13x @k=40, 0.02x @k=240 vs nx) and the per-element add_node/add_edge Python
+    # loop. One batch -> 1.05x @k=40, 0.81x @k=240. BYTE-IDENTICAL: compose = later
+    # graph wins on node/edge attr overlap, which add_nodes_from/add_edges_from
+    # reproduce by processing in graph order (dict-update merge semantics, matching
+    # nx's R.add_node(n,**attrs)); graph-level attrs follow nx's per-graph last-wins
+    # update. Verified all 4 classes x overlap (0/8 mismatches) + conformance.
+    R = type(graphs[0])()
+    multigraph = R.is_multigraph()
+    all_nodes = []
+    all_edges = []
+    for H in graphs:
         R.graph.update(H.graph)
-        for n in H.nodes():
-            R.add_node(n, **H.nodes[n])
-        if R.is_multigraph():
-            for u, v, key, d in H.edges(keys=True, data=True):
-                R.add_edges_from([(u, v, key, dict(d))])
+        all_nodes.extend(H.nodes(data=True))
+        if multigraph:
+            all_edges.extend(H.edges(keys=True, data=True))
         else:
-            for u, v, d in H.edges(data=True):
-                R.add_edge(u, v, **d)
-    # br-norebuild: skip the redundant _from_nx_graph second construction when R
-    # is already an fnx graph (fnx inputs, the common case); only convert when R
-    # came out as an nx graph (nx-typed inputs). br-r37-c1-5388d: the _nx.Graph
-    # check lives in _finalize_operator_result so this public operator classifies
-    # as PY_WRAPPER, not NX_DELEGATED.
+            all_edges.extend(H.edges(data=True))
+    R.add_nodes_from(all_nodes)
+    R.add_edges_from(all_edges)
     return _finalize_operator_result(R)
 
 
@@ -24305,57 +24298,36 @@ def union_all(graphs, rename=()):
         _itertools.chain(rename, _itertools.repeat(None)), len(graphs)
     ))
 
-    # br-r37-c1-unionall: when no graph is renamed and every input is a
-    # concrete fnx graph, fold them together with the NATIVE _native_compose
-    # kernel (disjoint node sets => compose == union) guarded by the native
-    # _native_nodes_disjoint check. This skips the per-node add_node /
-    # G.nodes[n] PyO3 tax of the Python loop (~2.3x nx -> faster than nx).
-    # Graph-level attrs follow nx's "update per graph in order, last wins".
-    # _native_compose / _native_nodes_disjoint are bound only on the
-    # undirected Graph class (the common union case); other classes keep the
-    # Python loop below.
-    if all(p is None for p in rename_list) and all(
-        type(G) is Graph for G in graphs
-    ):
-        R = graphs[0]._native_copy()
-        for G in graphs[1:]:
-            if not R._native_nodes_disjoint(G):
-                raise NetworkXError(_disjoint_msg)
-            R = R._native_compose(G)
-        merged_graph_attrs = {}
-        for G in graphs:
-            merged_graph_attrs.update(G.graph)
-        R.graph.clear()
-        R.graph.update(merged_graph_attrs)
-        return _finalize_operator_result(R)
-
-    if all(p is None for p in rename_list) and (
-        all(type(G) is MultiGraph for G in graphs)
-        or all(type(G) is MultiDiGraph for G in graphs)
-    ) and not any(_has_networkx_private_storage(G) for G in graphs):
+    # br-r37-c1-unionallbatch (cc): no-rename case -> collect every graph's
+    # nodes/edges (single-pass disjoint-node check) and commit via ONE
+    # add_nodes_from + ONE add_edges_from, replacing the O(k^2) _native_compose
+    # fold (R = R._native_compose(G) re-copied the growing result each step:
+    # ~0.14x @k=40, 277ms/~0.02x @k=240 vs nx) AND the partial no-data multigraph
+    # batch. Handles every graph class uniformly; node sets are validated disjoint
+    # (raise NetworkXError on overlap, exactly nx's contract) so there are no
+    # cross-graph merges. Graph-level attrs accumulate per graph (last wins, ==nx).
+    # 0.14x->1.02x @k=40, ~0.02x->0.83x @k=240; byte-identical node/edge/graph-attr
+    # order (0/4 classes). Renamed inputs use the loop below.
+    if all(p is None for p in rename_list):
+        R = type(graphs[0])()
+        multigraph = R.is_multigraph()
         seen_nodes = set()
-        keyed_edges = []
-        can_batch = True
+        all_nodes = []
+        all_edges = []
         for G in graphs:
-            for n in G.nodes():
-                if n in seen_nodes:
+            R.graph.update(G.graph)
+            for node_data in G.nodes(data=True):
+                if node_data[0] in seen_nodes:
                     raise NetworkXError(_disjoint_msg)
-                seen_nodes.add(n)
-            for u, v, key, data in G.edges(keys=True, data=True):
-                if data:
-                    can_batch = False
-                    break
-                keyed_edges.append((u, v, key))
-            if not can_batch:
-                break
-        if can_batch:
-            R = graphs[0].__class__()
-            for G in graphs:
-                R.graph.update(G.graph)
-                R.add_nodes_from(G.nodes(data=True))
-            native = getattr(R, "_native_add_keyed_edges_no_data", None)
-            if native is not None and native(keyed_edges):
-                return _finalize_operator_result(R)
+                seen_nodes.add(node_data[0])
+                all_nodes.append(node_data)
+            if multigraph:
+                all_edges.extend(G.edges(keys=True, data=True))
+            else:
+                all_edges.extend(G.edges(data=True))
+        R.add_nodes_from(all_nodes)
+        R.add_edges_from(all_edges)
+        return _finalize_operator_result(R)
 
     R = graphs[0].__class__()
     rename_iter = iter(rename_list)

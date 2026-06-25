@@ -1694,3 +1694,19 @@ batching (already at the floor) — they fold into the dual-storage construction
 clean wins exist only where nx is slow or structure is sparse (shipped/confirmed); dense generators are
 construction-floor-bound and need the core single-storage/interned-key refactor (not periphery-fixable).
 No new clean periphery win this pass.
+
+## 2026-06-25 CopperCliff WIN: *_all operators O(k^2) fold -> O(k) collect-batch (disjoint_union_all 1.72x)
+
+compose_all/union_all/disjoint_union_all were PAIRWISE FOLDS (R = R._native_compose(H) per graph) — the
+growing result re-copied each step = O(k^2): measured compose_all 0.13x@k=40 / 0.02x@k=240, union_all
+0.14x, disjoint_union_all 0.24x vs nx. Rewrote all three to COLLECT every graph's nodes/edges and commit
+via ONE add_nodes_from + ONE add_edges_from (single-pass disjoint-node check for union_all raising nx's
+exact NetworkXError; compose = later-graph-wins via add_*_from dict-merge order). O(k^2)->O(k):
+  disjoint_union_all 0.24x -> 1.72x@k40 / 1.60x@k240 (clean WIN both)
+  union_all          0.14x -> 1.47x@k40 / 0.82x@k240
+  compose_all        0.13x -> 0.99x@k40 / 0.83x@k240
+BYTE-EXACT: node+edge(+keys)+graph-attr iteration order vs nx across all 4 graph classes x overlap
+(0/8 compose, 0/4 union) + overlap-raise; conformance -k "union_all or disjoint_union or compose_all"
+51 passed. Python-only periphery (no build, no core lock). LEVER (extends random_cograph): operators/
+generators that iteratively pairwise-combine a GROWING result are O(k^2) — collect-all + single batch add
+is O(k). The collect-ALL-then-one-batch beats per-graph add (which has growing-R overhead) AND the fold.
