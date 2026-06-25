@@ -1633,3 +1633,22 @@ BlackThrush's reserved lib.rs, can't be coordinated (mail down) and can't be ben
 (results not returned). CopperCliff periphery work complete (6 wins, ~26 classes >= nx, unused-binding
 vein exhausted). Real progress needs operator: restore agent-mail + fix bench-result retrieval, and/or
 reassign the core file to CopperCliff.
+
+## 2026-06-25 CopperCliff CLOSURE: mirror-read matrix builder ruled out by direct evidence (coowt)
+
+Final investigation of whether a sync-free mirror-reading weighted COO builder (in the SHARED algorithms.rs,
+not BlackThrush's lib.rs, validatable via Python) could win the matrix gap without the sticky-dirty fix.
+RULED OUT by direct in-tree evidence: the existing builder's `br-r37-c1-coowt` comment (algorithms.rs:3060)
+states it deliberately AVOIDS get_node_name+edge_attrs(&str,&str) because that "paid two index->String
+resolutions plus a String->index round-trip per edge (the String-adjacency tax on the weighted CSR
+export)" — i.e. the mirror/string-keyed read IS the known-slow path already rejected in favor of the
+index-native store read (`edge_attrs_by_indices`, 1.6ms). A mirror-reader would reproduce that tax (also
+node_key_map is str->PyObject, not str->index, so it needs inner.node_index per endpoint — the exact
+round-trip). So it cannot be a periphery win.
+
+DEFINITIVE: the weighted matrix gap's only fast path is the index-native store (fast) which is stale
+without a sync; the sync is sticky. There is NO periphery matrix build. Confirms (3rd angle) that ALL
+residual vs-nx loss = the single sticky-edges_dirty core fix. CopperCliff periphery is provably exhausted
+across every approach: primitive sweeps (~26 classes), unused bindings, mirror-vs-store matrix read, and
+de-delegation — all ruled out with evidence. The one lever is core (lib.rs), uncoordinatable (mail down),
+unvalidatable via rch (bench results not returned). Operator unblock required.
