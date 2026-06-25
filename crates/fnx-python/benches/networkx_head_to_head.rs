@@ -9,7 +9,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use std::ffi::CString;
 use std::path::Path;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 fn cstring(source: &str) -> CString {
     CString::new(source).expect("Python snippets must not contain NUL bytes")
@@ -122,6 +122,101 @@ struct CoreLaggardWorkloads {
 struct ConstructionCopyWorkloads {
     fnx_graph_to_directed_scalar_attrs: Py<PyAny>,
     nx_graph_to_directed_scalar_attrs: Py<PyAny>,
+}
+
+struct ClearEdgesWorkloads {
+    fnx_multigraph_factory: Py<PyAny>,
+    nx_multigraph_factory: Py<PyAny>,
+}
+
+fn prepare_clear_edges_workloads(py: Python<'_>) -> PyResult<ClearEdgesWorkloads> {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("fnx-python crate must live under crates/");
+    let python_dir = repo_root.join("python");
+    let legacy_dir = repo_root.join("legacy_networkx_code").join("networkx");
+
+    let sys = py.import("sys")?;
+    let path = sys.getattr("path")?;
+    let path = path.cast::<PyList>()?;
+    path.insert(0, repo_root.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, python_dir.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, legacy_dir.to_str().expect("repo path must be UTF-8"))?;
+
+    let locals = PyDict::new(py);
+    py.run(
+        cstring(
+            r#"
+import glob
+import importlib.util
+import os
+import sys
+
+target_dir = os.environ.get("CARGO_TARGET_DIR")
+if target_dir and "franken_networkx._fnx" not in sys.modules:
+    candidates = [
+        os.path.join(target_dir, "release", "lib_fnx.so"),
+        *glob.glob(os.path.join(target_dir, "release", "deps", "lib_fnx*.so")),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            spec = importlib.util.spec_from_file_location("franken_networkx._fnx", path)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["franken_networkx._fnx"] = module
+            spec.loader.exec_module(module)
+            break
+
+for _name in list(sys.modules):
+    if _name == "networkx" or _name.startswith("networkx."):
+        del sys.modules[_name]
+
+import networkx as nx
+import franken_networkx as fnx
+
+if "legacy_networkx_code" not in getattr(nx, "__file__", ""):
+    raise AssertionError(f"expected vendored NetworkX oracle, got {nx.__file__!r}")
+
+def _make_multigraph(module):
+    graph = module.MultiGraph()
+    for node in range(800):
+        graph.add_node(node, label=f"n{node}", group=node % 17)
+    for i in range(4000):
+        u = (i * 37) % 800
+        v = (i * 91 + 17) % 800
+        if v == u:
+            v = (v + 19) % 800
+        graph.add_edge(u, v, key=f"k{i}", weight=(i * 13) % 41 - 9, tag=f"e{i % 23}")
+    return graph
+
+fnx_probe = _make_multigraph(fnx)
+nx_probe = _make_multigraph(nx)
+fnx_probe.clear_edges()
+nx_probe.clear_edges()
+assert fnx_probe.number_of_edges() == nx_probe.number_of_edges() == 0
+assert list(fnx_probe.nodes(data=True)) == list(nx_probe.nodes(data=True))
+
+fnx_multigraph_factory = lambda: _make_multigraph(fnx)
+nx_multigraph_factory = lambda: _make_multigraph(nx)
+"#,
+        )
+        .as_c_str(),
+        Some(&locals),
+        Some(&locals),
+    )?;
+
+    let callable = |name: &str| -> PyResult<Py<PyAny>> {
+        let callable = locals.get_item(name)?.ok_or_else(|| {
+            pyo3::exceptions::PyKeyError::new_err(format!("missing Python callable {name}"))
+        })?;
+        Ok(callable.unbind())
+    };
+
+    Ok(ClearEdgesWorkloads {
+        fnx_multigraph_factory: callable("fnx_multigraph_factory")?,
+        nx_multigraph_factory: callable("nx_multigraph_factory")?,
+    })
 }
 
 fn prepare_construction_copy_workloads(py: Python<'_>) -> PyResult<ConstructionCopyWorkloads> {
@@ -1492,6 +1587,57 @@ fn bench_python_callable(
     });
 }
 
+fn bench_python_clear_edges_factory(
+    group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
+    name: &str,
+    factory: &Py<PyAny>,
+) {
+    group.bench_function(name, |b| {
+        b.iter_custom(|iters| {
+            Python::attach(|py| {
+                let factory = factory.bind(py);
+                let mut elapsed = Duration::ZERO;
+                for _ in 0..iters {
+                    let graph = factory.call0().expect("Python graph factory failed");
+                    let start = Instant::now();
+                    graph
+                        .call_method0("clear_edges")
+                        .expect("clear_edges benchmark call failed");
+                    elapsed += start.elapsed();
+                    let edge_count = graph
+                        .call_method0("number_of_edges")
+                        .expect("number_of_edges check failed")
+                        .extract::<usize>()
+                        .expect("number_of_edges should return usize");
+                    assert_eq!(edge_count, 0);
+                }
+                elapsed
+            })
+        });
+    });
+}
+
+fn clear_edges_head_to_head(c: &mut Criterion) {
+    Python::initialize();
+    let workloads = Python::attach(prepare_clear_edges_workloads)
+        .expect("failed to prepare clear_edges Python workloads");
+    let mut group = c.benchmark_group("networkx_head_to_head_clear_edges");
+    group.sample_size(20);
+
+    bench_python_clear_edges_factory(
+        &mut group,
+        "fnx_multigraph_clear_edges_n800_e4000",
+        &workloads.fnx_multigraph_factory,
+    );
+    bench_python_clear_edges_factory(
+        &mut group,
+        "nx_multigraph_clear_edges_n800_e4000",
+        &workloads.nx_multigraph_factory,
+    );
+
+    group.finish();
+}
+
 fn cut_metric_head_to_head(c: &mut Criterion) {
     Python::initialize();
     let workloads =
@@ -2023,6 +2169,7 @@ fn construction_copy_head_to_head(c: &mut Criterion) {
 criterion_group!(
     benches,
     construction_copy_head_to_head,
+    clear_edges_head_to_head,
     core_laggard_head_to_head,
     cut_metric_head_to_head,
     assortativity_head_to_head,

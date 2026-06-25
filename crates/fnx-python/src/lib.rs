@@ -9792,6 +9792,58 @@ impl PyGraph {
         Ok(())
     }
 
+    // br-r37-c1-setattrbcast (cc): native BROADCAST of one attr value onto EVERY
+    // node. The Python `set_node_attributes(G, scalar, name)` path looped
+    // `for n in G.nodes(): G.nodes[n][name] = value`, paying a NodeView __getitem__
+    // PyO3 round-trip per node (~0.22x vs nx). One Rust pass over node order,
+    // entry-or-insert the mirror, set_item directly — node_py_attrs is authoritative.
+    fn _native_broadcast_node_attribute(
+        &mut self,
+        py: Python<'_>,
+        name: &str,
+        value: &Bound<'_, PyAny>,
+    ) -> PyResult<()> {
+        let nodes: Vec<String> = self
+            .inner
+            .nodes_ordered()
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
+        for canonical in nodes {
+            // materialize_node_py_attrs populates any store-only attrs into the
+            // mirror first (matching the Python `G.nodes[n]` full-dict read),
+            // so a pre-existing attr is preserved alongside the new one.
+            let dict = self.ensure_node_py_attrs(py, &canonical);
+            dict.bind(py).set_item(name, value)?;
+        }
+        Ok(())
+    }
+
+    // br-r37-c1-setattrbcast (cc): native BROADCAST onto EVERY edge. The Python
+    // path looped `for u,v,attrs in G.edges(data=True): attrs[name] = value`
+    // (~0.39x). One Rust pass: materialize each edge mirror, set_item, mark dirty
+    // (so the lazy store flush reaches the native kernels), exactly as the dict
+    // scalar setter does.
+    fn _native_broadcast_edge_attribute(
+        &mut self,
+        py: Python<'_>,
+        name: &str,
+        value: &Bound<'_, PyAny>,
+    ) -> PyResult<()> {
+        let edges: Vec<(String, String)> = self
+            .inner
+            .edges_ordered()
+            .into_iter()
+            .map(|e| (e.left, e.right))
+            .collect();
+        for (u, v) in edges {
+            let dict = self.materialize_edge_py_attrs(py, &u, &v);
+            dict.bind(py).set_item(name, value)?;
+        }
+        self.mark_edges_dirty();
+        Ok(())
+    }
+
     /// Return adjacency list as list of (node, [neighbors]) pairs.
     fn adjacency<'py>(&self, py: Python<'py>) -> PyResult<Vec<(PyObject, Vec<PyObject>)>> {
         let nodes = self.inner.nodes_ordered();

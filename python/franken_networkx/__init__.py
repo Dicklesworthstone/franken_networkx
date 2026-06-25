@@ -21550,6 +21550,12 @@ def set_node_attributes(G, values, name=None):
         return
 
     if name is not None:
+        # br-r37-c1-setattrbcast (cc): native one-pass broadcast onto every node
+        # (was a per-node NodeView __getitem__ loop, ~0.22x vs nx).
+        native = getattr(G, "_native_broadcast_node_attribute", None)
+        if native is not None:
+            native(name, values)
+            return
         for node in G.nodes():
             G.nodes[node][name] = values
         return
@@ -21643,6 +21649,12 @@ def set_edge_attributes(G, values, name=None):
             for u, v, key, attrs in G.edges(keys=True, data=True):
                 attrs[name] = values
         else:
+            # br-r37-c1-setattrbcast (cc): native one-pass broadcast onto every
+            # edge (was a per-edge edges(data=True) loop, ~0.39x vs nx).
+            native = getattr(G, "_native_broadcast_edge_attribute", None)
+            if native is not None:
+                native(name, values)
+                return
             for u, v, attrs in G.edges(data=True):
                 attrs[name] = values
         return
