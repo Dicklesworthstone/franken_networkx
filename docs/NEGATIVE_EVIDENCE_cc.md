@@ -1242,3 +1242,22 @@ power 1.66x, bipartite.clustering 2.2x, condensation 4.28x, topological_generati
 lexicographical_topological_sort 2.96x, closeness_vitality 12.3x, harmonic(subset) 2.88x, voterank 1.56x,
 average_degree_connectivity 2.6x, attribute_assortativity 73x. Parity (no fixable gap): bipartite.
 projected_graph 0.99x, compose 1.05x, difference 1.12x. fnx is at-or-above nx across these domains.
+
+## 2026-06-25 CopperCliff I/O sweep — parse_adjlist/adjacency_data REJECT (add_edges_from substrate floor)
+
+I/O sweep: most fnx at-or-above nx (node_link_graph 1.33x, generate_adjlist 1.28x, node_link_data 1.25x,
+to_dict_of_dicts 1.23x; generate_edgelist/parse_edgelist/generate_gml/cytoscape ~parity). Two gaps, both
+REJECTED as construction-substrate-floored:
+- parse_adjlist 0.66x (8.1ms): decomposed -> parse loop 1.1ms, but fnx add_nodes_from + add_edges_from
+  = 6.86ms vs nx 3.67ms. The construction is the cost, not the parse.
+- adjacency_data 0.76x: same family (builds result structure).
+
+ROOT (systematic, quantified): `add_edges_from` itself is ~0.58x vs nx — 6.1ms vs nx 3.5ms for 7500
+no-attr edges on a fresh Graph, for BOTH int (5.53 vs 3.28) and string (6.13 vs 3.53) nodes. fnx
+already uses the optimized unrecorded bulk path (add_plain_edge_batch -> extend_edges_unrecorded, no
+ledger, no eager mirrors, br-r37-c1-89kxg). The residual 1.7x is the DUAL-STORAGE substrate: fnx
+maintains String-keyed successors adjacency (IndexMap<String,IndexMap<...>>) PLUS an index-keyed edges
+map (IndexMap<(usize,usize),AttrMap>) + per-node-ref canonical stringification, where nx has a single
+dict-of-dicts with native keys. This is THE remaining systematic construction lever (it taxes every
+parse_*/from_*/read_* and graph-building op) but it is architectural (the edges map backs index-native
+edge-attr ops) and has been worked extensively across prior sessions -> not a one-turn change. REJECT.
