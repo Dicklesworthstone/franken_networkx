@@ -16720,22 +16720,38 @@ pub fn tree_broadcast_center(graph: &Graph) -> Option<(usize, Vec<String>)> {
         .map(|node| (node, 0usize))
         .collect::<HashMap<String, usize>>();
 
-    let mut reduced = graph.clone();
-    for node in &informed {
-        let _ = reduced.remove_node(node);
+    // br-r37-c1-tbcfast (cc): peel leaves using a `removed` set + `degree` map over
+    // the ORIGINAL graph instead of cloning the (String-keyed) graph and calling
+    // remove_node once per leaf — the clone + O(V) graph-mutations were the 17.6ms
+    // cost on C(1023). Same peeling order, value DP, and String-name tie-break, so
+    // the (broadcast_time, centers) output is byte-identical.
+    let mut removed: HashSet<String> = informed.iter().cloned().collect();
+    let mut degree: HashMap<String, usize> = HashMap::new();
+    for node in graph.nodes_ordered() {
+        if removed.contains(node) {
+            continue;
+        }
+        let d = graph
+            .neighbors(node)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|nb| !removed.contains(*nb))
+            .count();
+        degree.insert(node.to_owned(), d);
     }
+    let mut alive_count = graph.node_count() - removed.len();
 
-    let mut frontier = reduced
+    let mut frontier = graph
         .nodes_ordered()
         .into_iter()
-        .filter(|node| reduced.neighbor_count(node) == 1)
+        .filter(|node| !removed.contains(*node) && degree.get(*node).copied() == Some(1))
         .map(str::to_owned)
         .collect::<HashSet<String>>();
     for node in &frontier {
         values.insert(node.clone(), graph.neighbor_count(node).saturating_sub(1));
     }
 
-    while reduced.node_count() >= 2 {
+    while alive_count >= 2 {
         let leaf = frontier
             .iter()
             .min_by(|left, right| {
@@ -16747,23 +16763,33 @@ pub fn tree_broadcast_center(graph: &Graph) -> Option<(usize, Vec<String>)> {
                     .then_with(|| left.cmp(right))
             })?
             .clone();
-        let neighbor = reduced
+        let neighbor = graph
             .neighbors(&leaf)
-            .and_then(|neighbors| neighbors.into_iter().next())
+            .unwrap_or_default()
+            .into_iter()
+            .find(|nb| !removed.contains(*nb))
             .map(str::to_owned)?;
 
         informed.insert(leaf.clone());
         frontier.remove(&leaf);
-        let _ = reduced.remove_node(&leaf);
+        removed.insert(leaf);
+        alive_count -= 1;
+        if let Some(d) = degree.get_mut(&neighbor) {
+            *d = d.saturating_sub(1);
+        }
 
-        if reduced.has_node(&neighbor) && reduced.neighbor_count(&neighbor) == 1 {
+        if !removed.contains(&neighbor) && degree.get(&neighbor).copied() == Some(1) {
             let value = tree_broadcast_max_value(graph, &informed, &neighbor, &values);
             values.insert(neighbor.clone(), value);
             frontier.insert(neighbor);
         }
     }
 
-    let root = reduced.nodes_ordered().into_iter().next()?.to_owned();
+    let root = graph
+        .nodes_ordered()
+        .into_iter()
+        .find(|node| !removed.contains(*node))
+        .map(str::to_owned)?;
     let broadcast_time = tree_broadcast_max_value(graph, &informed, &root, &values);
     let centers = tree_broadcast_centers(graph, &root, &values, broadcast_time);
     Some((broadcast_time, centers))

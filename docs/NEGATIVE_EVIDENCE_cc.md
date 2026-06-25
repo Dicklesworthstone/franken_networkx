@@ -1168,3 +1168,21 @@ cycles / known DR graphs / non-DR / disconnected-deg2; conformance -k distance_r
 
 NOTE: do NOT "match nx's speed" by adopting its diameter-bound early-exit — that would regress fnx to
 nx's incorrect False on cycles. This is a case where fnx is MORE correct than NetworkX.
+
+## 2026-06-25 CopperCliff tree_broadcast_center: drop graph clone+remove — KEEP (0.24x->1.22x)
+
+tree_broadcast_center was 0.24x vs nx (fnx 17.6ms vs 4.2ms on balanced_tree(2,9)=1023 nodes). The
+native kernel `fnx_algorithms::tree_broadcast_center` peeled leaves by `reduced = graph.clone()` then
+`reduced.remove_node(leaf)` once per leaf — a full String-keyed graph clone + O(V) graph mutations
+(each rehashing adjacency) = the cost (the per-iteration DP `tree_broadcast_max_value` is only O(deg)).
+
+Fix (fnx-algorithms, no clone/mutation): peel using a `removed: HashSet<String>` + `degree:
+HashMap<String,usize>` over the ORIGINAL graph — `reduced.remove_node` becomes `removed.insert` +
+decrement the leaf's alive neighbour's degree; `reduced.neighbor_count` -> `degree[..]`;
+`reduced.neighbors(leaf).next()` -> first non-removed neighbour; final root -> first non-removed node
+in `nodes_ordered()`. Same peeling order, value DP, and String-name min tie-break -> byte-identical
+(broadcast_time + center set).
+
+Result: balanced_tree(2,9) fnx 17.6ms -> 3.43ms (~5x self), 0.24x -> 1.22x (now FASTER than nx).
+Parity: tbc center + value + tree_broadcast_time byte-exact vs nx on balanced(2,9)/path(500)/star(300)/
+balanced(3,5)/balanced(2,3) + 15 random labelled trees, 0 fails.
