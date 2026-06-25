@@ -1666,3 +1666,18 @@ the operator path -> BYTE-IDENTICAL node + edge iteration order (verified 240 ca
 1.76x, seed5 2.35x vs nx (4.3x self on sparse, more on dense). Python-only periphery win, no build, no
 core lock. LEVER (reconfirms reference_batch_add_edges_from_construction): generators looping
 copy/relabel/union/join per step -> track edges in Python, build once.
+
+## 2026-06-25 CopperCliff paley_graph batch — 0.25x->0.70x (loss-REDUCTION, byte-exact)
+
+Generator construction-pattern sweep: paley_graph 0.25x, chordal_cycle 0.36x, generalized_petersen 0.56x
+gaps (caveman 4.3x, lollipop 12.5x, windmill 3.4x, visibility 3.2x are wins). paley_graph looped per-edge
+add_edge over (x outer, square inner); batched to ONE add_edges_from in the same order (no pre-add of nodes
+-> nodes inserted in edge-discovery order matching the loop). BYTE-EXACT: node+edge order == current fnx AND
+nx for p in {5,13,17,101,103,107}; conformance -k paley 3 passed. Result: 0.25x->0.70x (101)/0.74x (503),
+~2.8x self BUT STILL <nx. Unlike random_cograph (batching killed repeated full-graph reconstruction = real
+win), paley's per-edge loop had no repeated reconstruction, so batching only drops to the add_edges_from
+construction floor (3.4ms vs nx per-edge 2.4ms / 5000 directed edges) = loss-REDUCTION, not a vs-nx win.
+KEPT (byte-exact, 2.8x faster, cleaner code) but transparently still a loss. To BEAT nx: fix the disabled
+native _rust paley builder (br-paleydir: was wrong, defaulted undirected; nx default DiGraph) to emit
+directed edges natively (Rust). chordal_cycle (multigraph) batch had divergent edge KEYS -> NOT batched
+(parity risk). generalized_petersen 0.56x is the NATIVE _rust path (slow native construction, Rust).

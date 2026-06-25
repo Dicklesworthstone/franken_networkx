@@ -27819,9 +27819,14 @@ def paley_graph(p, create_using=None):
         raise NetworkXError("`create_using` cannot be a multigraph.")
 
     square_set = {(x**2) % p for x in range(1, p) if (x**2) % p != 0}
-    for x in range(p):
-        for square in square_set:
-            graph.add_edge(x, (x + square) % p)
+    # br-r37-c1-paleybatch (cc): one add_edges_from over the same (x outer, square
+    # inner) order instead of per-edge add_edge (construction tax, 0.25x vs nx).
+    # No pre-add of nodes — add_edges_from inserts them in the same edge-discovery
+    # order as the per-edge loop, so node + edge iteration order is byte-identical
+    # (verified vs current fnx AND nx for p in {5,13,17,101,103,107}).
+    graph.add_edges_from(
+        (x, (x + square) % p) for x in range(p) for square in square_set
+    )
     graph.graph["name"] = f"paley({p})"
     return graph
 
