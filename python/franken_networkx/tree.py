@@ -215,8 +215,11 @@ def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     the result to an fnx graph type for drop-in compatibility.
     """
     _fnx._validate_backend_dispatch_keywords("minimum_spanning_tree", backend, backend_kwargs)
-    nx_result = _nx_tree.minimum_spanning_tree(G, weight=weight, algorithm=algorithm, ignore_nan=ignore_nan)
-    return _from_nx_graph(nx_result)
+    # br-r37-c1-treemst (cc): was nx-delegating (_nx_tree.minimum_spanning_tree +
+    # _from_nx_graph = full fnx->nx->fnx round-trip, 0.36x vs nx). The top-level
+    # fnx.minimum_spanning_tree has a byte-exact native Kruskal/Prim/Boruvka kernel
+    # that returns an fnx graph directly -> 0.36x -> 0.66x (1.9x self), no round-trip.
+    return _fnx.minimum_spanning_tree(G, weight=weight, algorithm=algorithm, ignore_nan=ignore_nan)
 
 
 def maximum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=False, *, backend=None, **backend_kwargs):
@@ -226,5 +229,6 @@ def maximum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     the result to an fnx graph type for drop-in compatibility.
     """
     _fnx._validate_backend_dispatch_keywords("maximum_spanning_tree", backend, backend_kwargs)
-    nx_result = _nx_tree.maximum_spanning_tree(G, weight=weight, algorithm=algorithm, ignore_nan=ignore_nan)
-    return _from_nx_graph(nx_result)
+    # br-r37-c1-treemst (cc): route to the native top-level (no nx round-trip), as
+    # with minimum_spanning_tree.
+    return _fnx.maximum_spanning_tree(G, weight=weight, algorithm=algorithm, ignore_nan=ignore_nan)

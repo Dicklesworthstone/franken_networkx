@@ -2604,3 +2604,20 @@ CONCLUSION: the takeable cheap-per-node/per-pair dict vein is MINED (degree nbun
 preferential_attachment shipped this session). Residual gaps = reserved MDG/MG weighted-degree views
 (sticky) + substrate-floored adjacency-materialization (resource_allocation). Don't re-dig resource_allocation
 via batching.
+
+## 2026-06-26 CopperCliff SHIP: fnx.tree.min/max_spanning_tree route to native top-level 0.36x->0.69x (full-bench hidden gap)
+
+Ran the OFFICIAL cargo bench across unexplored groups (construction_copy/sticky/cut_metrics/assortativity/
+tree_submodule/multigraph_biconnected/multidigraph_connectivity/lattice). 20/21 workloads win or parity; the
+ONE hidden gap = tree_submodule/tree_minimum_spanning_tree_g1000_e4999 0.352x. CAUSE: fnx.tree.minimum_
+spanning_tree (in tree.py) is a SEPARATE function from the top-level fnx.minimum_spanning_tree -- it delegated
+to nx (_nx_tree.minimum_spanning_tree + _from_nx_graph = full fnx->nx->fnx round-trip, 0.36x), while the
+top-level has a byte-exact native Kruskal/Prim/Boruvka kernel returning an fnx graph directly (0.66x). FIX:
+route fnx.tree.min/maximum_spanning_tree -> _fnx.min/maximum_spanning_tree (drop the nx round-trip). RESULT:
+0.36x -> 0.69x (min) / 0.65x (max), 1.9x self, byte-IDENTICAL edge+weight set ==nx, conformance GREEN (3337
+passed). LEVER: submodule namespaces (tree/approximation) can carry a SECOND nx-delegating copy of a function
+the top-level already does natively -- audit fnx.tree.* / other submodules for delegating wrappers shadowing
+a fast top-level. NOTE: the top-level MST itself is 0.66-0.69x on simple graphs (native kernel + edge-sync +
+PyO3 result build) -- a separate deeper floor, not closed here. Full-bench frontier (this run): only gap was
+this one; construction_copy graph_to_directed_scalar 0.81x (near-parity); everything else 1.3-7.7x wins.
+17th ship this session.
