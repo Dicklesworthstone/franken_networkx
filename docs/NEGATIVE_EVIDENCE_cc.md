@@ -2335,3 +2335,13 @@ wins; accessible periphery mined out. 13 vs-nx wins shipped. Remaining vs-nx wor
 (reserved fnx-python: sigma/omega+steiner+sticky; deep-storage-parked: multi_source interleaving tie-break;
 proven-impossible: group_betweenness>=3+spectral_ordering; inherent: non_randomness/min_cost_flow/communicability
 /all_pairs), NOT discovery-gated.
+
+## 2026-06-26 CopperCliff checkpoint: all session wins intact on HEAD (1302 passed, no peer regression)
+
+Conformance re-run on current HEAD (5d2d0c283, after peers' concurrent commits) across every function shipped
+this session: prufer / distance_regular / tree_broadcast / subgraph_centrality / hopcroft+maximum_matching /
+cograph / paley / at_free / perfect / compose_all+union_all+disjoint_union_all / find_induced / node_
+classification / laplacian_centrality / percolation / asteroidal -> 1302 passed, 0 failed, 3 conditional-skip.
+All 13 vs-nx wins + 2 parity-fixes remain byte-exact + conformance-green under peer churn. No regression.
+Periphery comprehensively won (~25 domains swept, all wins); remaining vs-nx work is coordination/depth-gated
+(reserved fnx-python core; parked multi_source interleaving; proven-impossible; inherent), not discovery-gated.
