@@ -2132,3 +2132,23 @@ value. CANNOT relax the >=3 delegation (the kernel is wrong-vs-nx for some |C|==
 exact PB-matrix Puzis algorithm to Rust (O(VE + |C|^2 V), parallelizable) bug-for-bug — SUBSTANTIAL +
 correctness-critical (must replicate nx's non-textbook value exactly). No code changed this turn. SURFACED
 with the exact algorithm to port. Current kernel + >=3 delegation is CORRECT; leave it.
+
+## 2026-06-26 CopperCliff group_betweenness Puzis port — WIP/NO-SHIP-yet (Rust bug, Python ref VERIFIED)
+
+Attempted the native Puzis port (group_betweenness >=3) — REVERTED (stash@{0}), not shipped (buggy). Progress:
+- VERIFIED-CORRECT Python verbatim port of nx's improved algorithm matches nx EXACTLY (0.3728117914 vs nx
+  0.3728117914 on BA(20,2,seed=11), group [3,7,11,15,2]). So nx's algorithm is fully understood: per-source
+  Brandes BFS -> sigma[s][*],D[s][*]; _accumulate_endpoints -> delta[s][*]; delta[s][i]+=1 for reachable
+  i!=s; PB[g1][g2]=sum_node delta[node][g2]*sigma[node][g1]*sigma[g1][g2]/sigma[node][g2] over node with
+  D[node][g2]==D[node][g1]+D[g1][g2]; then per-v group correction (dxvy/dxyv/dvxy triples, buffer-swap of
+  sigma_m/PB_m); subtract endpoint scale (sum over g1, reachable node!=g1: +1 if in group else +2); /((n-c)(n-c-1)).
+- My RUST translation of the same compiled + ran but is BUGGY: overcounts |C|>=3 by ~5e-3 (BA(20) |C|=5:
+  rust 0.3778735 vs correct 0.3728118), 22/120 BA + 37/120 gnp/ws fail at 1e-7. CRUCIALLY: |C|<=2 EXACT
+  (0 mism), and ORDER-INDEPENDENT (same value across 8 group permutations) -> NOT set-order-locked, NOT a
+  misunderstanding (Python ref is correct). It's a pure Rust translation bug in the PB-matrix or correction
+  loop (likely an index/buffer subtlety that only manifests with >=3 group nodes).
+TEST TOLERANCE: pytest.approx(abs=1e-7). WIN IS REAL + RESERVED-FILE-FREE: kernel lives in fnx-algorithms
+(TealSpring/takeable), binding group_betweenness_centrality_rust EXISTS, wrapper just needs the >=3
+delegation relaxed to undirected/unweighted/no-endpoints once the kernel is correct. NEXT: diff the Rust
+PB matrix + per-v sigma_m against the verified Python port (add eprintln, one rebuild) to locate the bug.
+Buggy attempt in stash@{0}.
