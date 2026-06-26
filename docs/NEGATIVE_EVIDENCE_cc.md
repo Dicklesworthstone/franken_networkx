@@ -2310,3 +2310,17 @@ don't — needs the view's accessor, possibly fnx-classes), sigma/omega random_r
 sticky-edges_dirty (reserved fnx-python binding, mail down), group_betweenness>=3 + spectral_ordering
 (proven set-order-locked), non_randomness/min_cost_flow/communicability/all_pairs (inherent/floored). 13
 vs-nx wins shipped this session.
+
+## 2026-06-26 CopperCliff multi_source_dijkstra — neighbor-order hypothesis RULED OUT; bug is interleaving-specific
+
+CORRECTION (closes the neighbor-order theory): my neighbors_iter fix WAS built + installed (verified same .so
+mtime/size at both the pool and CARGO_TARGET_DIR paths — they're synced) and STILL diverged ([8,0,2] vs nx
+[8,4,2]). DECISIVE: single_source_dijkstra (which uses the SAME neighbors_iter) matches nx 0/116 on identical
+construction. So neighbors_iter IS insertion-order-correct, and the multi_source divergence is NOT neighbor
+order — it is MULTI-SOURCE-INTERLEAVING-specific (the equidistant-node finalize tie-break across multiple
+initial sources). My neighbor-order fix was misguided -> RE-REVERTED (zero-gain, stash). The bug needs a full
+pop-sequence trace (eprintln every heap pop in both fnx and a verbatim-nx python multisource, diff the first
+divergent pop) to locate the source-seq/interleave mismatch — a dedicated debug I will NOT pursue further now
+(6+ turns invested; 13 wins shipped; reserved-gated + impossible alternatives remain). DECISION: multi_source
+_dijkstra stays gated (0.17x weighted); it is a genuine but deep interleaving tie-break bug, parked as a
+characterized dedicated-debug target. Moving off the dijkstra/steiner chain for good.
