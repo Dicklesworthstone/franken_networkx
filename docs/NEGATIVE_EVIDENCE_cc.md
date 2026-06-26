@@ -1937,3 +1937,17 @@ structural nx copy -> byte-identical induced set (verified path60/path120 == nx;
 strict 2x self-improvement with no native-ness loss (the function was already a Python port of nx's algo,
 never a native kernel). To BEAT nx: a native-Rust chordality-breaker kernel (exact-set-locked + niche, not
 worth now). Shipped as a parity-reaching loss-reduction. is_chordal pre-check + error contract preserved.
+
+## 2026-06-26 CopperCliff flow sweep — capacity_scaling/max_flow_min_cost WINS; min_cost_flow family REJECT (convert+delegate bound)
+
+Flow sweep: WINS — capacity_scaling 7.29x, max_flow_min_cost 2.25x. NEAR-PARITY/REJECT — network_simplex
+0.60->0.51x (n120->n400, delegates to min_cost_flow+cost_of_flow), min_cost_flow 0.76-0.81x, min_cost_flow
+_cost 0.81x. Tried convert+delegate (the find_induced_nodes lever): for min_cost_flow it REGRESSES
+(n400/e3000: cur 4.60ms -> convdeleg 6.18ms vs nx 3.51ms = 0.57x WORSE). WHY: building an nx DiGraph with
+per-node demand + per-edge capacity/weight attrs costs MORE than the fnx-primitive overhead it saves,
+because min_cost_flow is SINGLE-PASS (the algorithm runs once on the graph). find_induced won because its
+fnx-primitive overhead was in a REPEATED loop (copy + add_edge + chordality_breaker x n), so one-time
+conversion paid off. LEVER BOUND: convert+delegate only helps when the fnx-primitive tax is REPEATED
+(loop), NOT for single-pass algorithms (conversion cost > saved overhead). min_cost_flow family is genuine
+~0.76x near-parity; beating nx needs a native Rust network-simplex kernel (complex + order-sensitive
+flowDict) -> not worth. REJECT.
