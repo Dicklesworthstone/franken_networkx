@@ -2529,3 +2529,18 @@ breaking the DegreeView<->fnx.degree cycle or a native store-int weighted-degree
 views.rs/lib.rs (BlackThrush, sticky-gated). The biggest official gap (0.043x MG degree(nbunch,weight)) is
 reserved. Other weighted_degree official ratios: MDG out_degree 0.56x, MG size_weight 0.42x, MDG in_degree
 0.74x -- all reserved degree-view paths. 13 wins shipped.
+
+## 2026-06-26 CopperCliff SHIP: fnx.degree(iterable nbunch, weight) 0.043x->0.48x (biggest official gap, 11x self, byte-exact)
+
+LANDED the biggest OFFICIAL cargo-bench gap. fnx.degree(G, nbunch, weight) for an iterable nbunch built a
+Python generator calling weighted_degree(node) that iterates G.adj[node] through PyO3 per multi-edge ->
+official fnx_degree_nbunch_weight_mg400 0.043x (51.9ms vs nx 2.26ms, 23x slower; bench nbunch = [(i*7)%400
+for i in range(280)] + [401,402,3,3,99], dups + missing nodes). FIX: route ONLY the iterable-nbunch weighted
+branch to the native DegreeView (return G.degree(nbunch, weight=weight)) -> 0.043x->0.48x (11x self),
+byte-identical to nx across Graph/DiGraph/MultiGraph/MultiDiGraph (same dup/missing handling + self-loop
+doubling). The None + single-node branches MUST stay Python: for MultiGraph the native view delegates those
+back to fnx.degree, so routing them recurses ("Recursion detected", 3 tests) -- list-only routing avoids it
+(the iterable path is native + non-recursive). conformance GREEN (2869 passed -k degree). Per
+reference_parity_blocked_by_set_order, value-returning de-delegation maxes ~0.5-0.77x (can't beat nx), so
+0.48x is near-ceiling; the residual to parity is the reserved native store-int weighted sum (sticky-gated).
+14th win this session.

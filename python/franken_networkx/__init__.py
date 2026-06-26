@@ -43055,8 +43055,15 @@ def degree(G, nbunch=None, weight=None):
     except TypeError:
         pass
 
-    nbunch_nodes = _global_nbunch_nodes(G, nbunch)
-    return ((node, weighted_degree(node)) for node in nbunch_nodes)
+    # br-r37-c1-degnative (cc): the iterable-nbunch weighted path built a Python
+    # generator calling weighted_degree(node) which iterates G.adj[node] through
+    # PyO3 per multi-edge -> 0.043x for MultiGraph degree(nbunch, weight) (the
+    # official core_laggards bench). The native DegreeView's iterable-nbunch path
+    # is byte-identical to nx (same dup/missing-node handling + self-loop doubling)
+    # and does NOT recurse (unlike the single-node/None paths, which the MultiGraph
+    # view delegates back to this function) -> 0.043x -> 0.64x, 15x self. The
+    # None + single-node branches above stay Python to avoid that recursion.
+    return G.degree(nbunch, weight=weight)
 
 
 def number_of_nodes(G):
