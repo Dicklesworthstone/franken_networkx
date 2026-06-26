@@ -2170,3 +2170,16 @@ sigma-sigma_no_c kernel (order-invariant) is correct-to-definition but != nx's o
 is why |C|<=2 (corrections trivial/commute) match but >=3 don't. STOP attempting this port. (My Python
 verbatim port matched nx only because Python's set() reproduced nx's set order; a Rust port can't for general
 nodes.) Reverted attempt held in a stash (not dropped, per directive).
+
+## 2026-06-26 CopperCliff non_randomness/assortativity/reciprocity/polynomials sweep — wins; non_randomness dense-eig near-parity
+
+WINS: s_metric 79x, degree_assortativity_coefficient 65x, reciprocity 3.75x, overall_reciprocity 2.0x.
+NEAR-PARITY: non_randomness 0.891x (n=150, 7.5ms) — computes eigenvalues of the MODULARITY matrix
+(B = A - d d^T / 2m), which is DENSE even when A is sparse, so dense eig is inherent; both fnx and nx are
+eig-bound -> not cheaply winnable (no sparse shortcut like algebraic_connectivity had). numeric_assortativity
+0.702x / attribute_mixing_matrix 0.865x are sub-ms (noise floor). tutte_polynomial / chromatic_polynomial:
+sympy not installed locally -> cannot bench (and they are #P-hard, exponential for both fnx+nx). No cheap win
+this batch. Frontier remains: cheap + reserved-file-free veins mined out; residual sub-1.0x are dense-eig
+(non_randomness), single-pass (min_cost_flow), O(n^4) (communicability_betweenness), set-order-locked
+(spectral_ordering, group_betweenness>=3, greedy_color, connected_dominating_set), materialization-floor
+(all_pairs view), or the operator-gated sticky-edges_dirty core. 13 vs-nx wins shipped this session.
