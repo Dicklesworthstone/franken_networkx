@@ -1908,3 +1908,21 @@ petersen/gnp/ladder + is_at_free consistency; conformance -k "asteroidal or at_f
 0.075x -> 280.6x (path80) / 308.5x (path150) / 158x (cycle60) FASTER than nx. fnx-algorithms (TealSpring,
 takeable). BUILD NOTE: first rch build failed on a bad worker (rustversion/arc-swap/blake3 incompatible-
 rustc dep errors, NOT my code); retry on a consistent worker compiled clean.
+
+## 2026-06-26 CopperCliff re-examined order-locked rejects vs their TEST CONTRACTS (after find_asteroidal win)
+
+The find_asteroidal_triple win came from reading its conformance test (accepts ANY valid AT, not nx's
+exact triple). Applied the same lens to the other order-locked rejects by reading their actual asserts:
+- greedy_color (non-default strategies, connected_sequential 0.34x): test_coloring_conformance.py:158
+  `assert fr == nr` + iteration-order for ALL deterministic strategies -> EXACT-LOCKED. Reject CONFIRMED
+  (the faithful conversion is required for exact parity; can't speed up without matching nx's
+  connected_components+bfs_edges set order).
+- connected_dominating_set 0.32x: test_dominating_module_parity.py:71 `assert ... == nx.connected_
+  dominating_set(...)` -> EXACT-LOCKED (heap/set-tie-break). Reject CONFIRMED.
+- greedy_tsp 0.06-0.15x: TSP tests are lenient (valid cycle), BUT greedy_tsp is CONVERSION-FLOOR-bound
+  (the O(n^2) weighted fnx->nx faithful conversion, not an algorithmic O(n^k) like the AT kernels), so
+  even a de-delegated fast NN reaches only ~0.5x (loss-reduction, not a win). Not worth.
+LESSON CONFIRMED + BOUNDED: re-reading test contracts unlocked find_asteroidal_triple (lenient + the gap
+was algorithmic O(n^4)->O(n^3)); but lenient tests only help when the gap is ALGORITHMIC (not conversion/
+construction-floor) AND the test doesn't assert exact-equality. greedy_color/connected_dominating_set are
+genuinely exact-locked; greedy_tsp is floor-bound. No further wins in the order-locked-reject set.
