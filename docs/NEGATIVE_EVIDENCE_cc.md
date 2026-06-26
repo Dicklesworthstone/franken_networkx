@@ -1963,3 +1963,21 @@ comprehensively exhausted. Sole high-value residual = sticky-edges_dirty core le
 sub-1.0x are all documented: min_cost_flow family ~0.76x (single-pass near-parity, native-kernel-needed),
 greedy_color non-default / connected_dominating_set (exact-locked), blossom matching (order-sensitive),
 greedy_tsp (conversion-floor).
+
+## 2026-06-26 CopperCliff WIN: node_classification native to_scipy — 0.37-0.55x -> 1.0-1.84x vs nx
+
+fnx.algorithms.node_classification.{local_and_global_consistency, harmonic_function} were DELEGATED to nx
+(0.37x/0.55x). nx's algorithm builds the adjacency via nx.to_scipy_sparse_array(G) + scans G.nodes(data=
+True) for labels, then a deterministic 30-iter sparse matmul. On an fnx graph, nx's to_scipy iterates the
+fnx graph edge-by-edge through PyO3 = the dominant cost. Created a real fnx submodule (algorithms/node_
+classification.py) reusing fnx's NATIVE to_scipy_sparse_array (Rust matrix build) + nx's identical iterate
+-> BYTE-IDENTICAL (order-invariant linear solve; parity verified n=150/500/1500) and FASTER:
+local_and_global_consistency 1.28x (n150)/1.84x (n500)/1.71x (n1500); harmonic_function 1.00x/1.33x/1.27x.
+Gap GROWS with n (matrix build is a larger share at scale + fnx native to_scipy is 2.84x). Wired via the
+same sys.modules override pattern as bipartite/approximation in algorithms/__init__.py (KEY: the alias loop
+pre-registers nx's leaf module under our dotted name, so pop it before import_module or you get the cached
+nx module — that bug made the first install silently still-delegate at 0.19-0.58x). conformance: node_class
+109 + algorithms/misc/wide_parity 1182 passed; bipartite/approximation/flow overrides intact. MY files
+only (new submodule + algorithms/__init__.py, NOT top-level __init__.py). LEVER: delegated value-returning
+fns that build a MATRIX from G (to_scipy/to_numpy) can WIN by reusing fnx's native matrix builder + nx's
+math — order-invariant, no round-trip, and fnx's Rust matrix build beats nx's even on nx's own graph.

@@ -211,6 +211,21 @@ _alias_nx_child_modules(
 _fnx_approximation = _importlib.import_module("franken_networkx.approximation")
 _sys.modules[f"{__name__}.approximation"] = _fnx_approximation
 approximation = _fnx_approximation  # Override in module globals
+
+# br-r37-c1-nc-native (cc): override node_classification with the fnx-native
+# version — fnx's native to_scipy_sparse_array builds the adjacency matrix in Rust
+# instead of nx iterating the fnx graph via PyO3 — byte-identical (deterministic
+# linear solve) and 1.27-1.77x faster than nx, growing with n. Same override
+# pattern as bipartite/approximation above; must run AFTER the alias loop (which
+# registered nx's leaf module) to win in sys.modules + module globals. The alias
+# loop already cached nx's module under our dotted name, so pop it first or
+# ``import_module`` returns that cached nx module instead of loading our file.
+_sys.modules.pop(f"{__name__}.node_classification", None)
+_fnx_node_classification = _importlib.import_module(
+    "franken_networkx.algorithms.node_classification"
+)
+_sys.modules[f"{__name__}.node_classification"] = _fnx_node_classification
+node_classification = _fnx_node_classification  # Override in module globals
 _alias_nx_child_modules(
     "networkx.algorithms.approximation", f"{__name__}.approximation"
 )
