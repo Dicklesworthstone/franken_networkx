@@ -2277,3 +2277,23 @@ TAKEABLE) — a dedicated build-debug (add finalize-order eprintln, compare pop 
 case, align). single_source has no such bug (1 source = no interleave). Conclusively a kernel fix, not a
 gate change. No file changed. Done deep-characterizing the dijkstra/steiner chain; dijkstra fix = a focused
 kernel-debug task for a future session.
+
+## 2026-06-26 CopperCliff multi_source_dijkstra fix ATTEMPT FAILED + deeper root found; build-infra note
+
+ROOT CAUSE confirmed by kernel trace (CC_MSD_DEBUG eprintln build): the multi_source dijkstra kernel iterates
+graph.neighbors_indices(8) = [0,3,4,1,7] but insertion order (nx + the Python view gf[8]) = [4,0,3,1,7] ->
+wrong relaxation order -> wrong push-seq -> equidistant-node finalize tie-break diverges from nx (~8% weighted
+multi-source paths). FIX ATTEMPT (br-r37-c1-msdorder): switched the kernel to graph.neighbors_iter(u_name) +
+get_node_index, expecting insertion order like the single_source kernel uses. BUILT + verified: STILL DIVERGES
+(small case node 2 still [8,0,2] vs nx [8,4,2]; 12/113 golden corpus). So neighbors_iter ALSO returns
+non-insertion order (= same wrong order as neighbors_indices), NOT the insertion order the Python adjacency
+VIEW (gf[node]) preserves. So BOTH native neighbor-iteration methods diverge from the view/nx order; only the
+view preserves insertion. DEEPER ISSUE: the kernel needs the VIEW's insertion-order neighbor method (TBD,
+likely a distinct storage accessor; possibly fnx-classes). CONCERN: single_source_dijkstra also uses
+neighbors_iter -> may have a latent ~8% path tie-break divergence too (its gate was removed in efv3d; its path
+tests may be less adversarial). REVERTED the futile fix (stash, zero-gain). NEXT: find the insertion-order
+neighbor accessor the view uses; the multi_source win + steiner_tree remain gated on that.
+BUILD-INFRA: 4 consecutive rch builds failed with E0514 "incompatible rustc" (pool cache deps compiled by
+rustc 2026-06-09, workers now 2026-06-07). FIX: `rch exec -- bash -lc "cargo clean && cargo build ..."`
+(full clean rebuilt all deps with the current worker rustc -> 3m28s success). Use a FULL cargo clean when
+E0514 dep-mismatch errors appear (the pool cache went stale across a rustc bump).
