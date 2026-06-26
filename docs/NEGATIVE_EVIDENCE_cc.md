@@ -2553,3 +2553,18 @@ Re-ran rch cargo bench -p fnx-python -- multigraph_weighted_degree AFTER the fix
                                                                                             the degree path)
 Official criterion median, directive's prescribed method. The biggest official core_laggards gap (23x slower)
 is now 1.6x slower -- byte-exact, conformance GREEN. Real, durable, landed on main+master.
+
+## 2026-06-26 CopperCliff SHIP: in/out_degree_centrality 0.56x->1.23x (native kernel was slower AND wrong)
+
+Found via the degree_centrality family sweep (after the fnx.degree win): in_degree_centrality /
+out_degree_centrality on a simple DiGraph routed to _raw_in/out_degree_centrality (native Rust), which is
+(a) SLOWER -- 0.51-0.62x vs nx (builds the {node: centrality} dict through PyO3 per node = the PyObject-
+materialization floor) AND (b) NOT byte-exact -- native!=nx on n>=1500 (f64 ULP drift from a different
+d*(1/(n-1)) order) and returns float 1.0 vs nx's int 1 for n==1. nx's own implementation is just
+{n: d*(1.0/(n-1.0)) for n,d in G.in_degree()} -- a Python dict-comp over the (fast) native in_degree view.
+FIX: route the simple-DiGraph branch to nx's verbatim dict-comp (matching the existing multigraph branch).
+RESULT: 0.56x -> 1.22-1.23x (BEATS nx), byte-IDENTICAL to nx across n=0/1/2/large + MultiDiGraph + int-1
+singleton type, conformance GREEN (302 passed). LEVER: a NATIVE kernel that materializes a per-node dict via
+PyO3 can be SLOWER than nx's C-level dict-comp over the native view -- when the wrapper already has the view,
+the Python dict-comp wins (inverse of the fnx.degree fix where Python->native won). Audit other _raw_*
+centrality/dict kernels that build {node: val} via PyO3. 15th win this session.

@@ -20507,13 +20507,16 @@ def in_degree_centrality(G, *, backend=None, **backend_kwargs):
             return {v: float("nan") if n == 0 else 0 for v in G}
         scale = 1 / (n - 1)
         return {v: d * scale for v, d in G.in_degree()}
-    try:
-        return _raw_in_degree_centrality(G)
-    except NetworkXNotImplemented as exc:
-        translated = _raise_not_impl_for_undirected_if_needed(exc)
-        if translated is not None:
-            raise translated from exc
-        raise
+    # br-r37-c1-idcnative (cc): _raw_in_degree_centrality builds the result dict
+    # through PyO3 per node (0.51-0.62x vs nx) AND ULP-drifts from nx's f64
+    # d*(1.0/(n-1.0)) (native!=nx on n>=1500; also returns float 1.0 vs nx's int 1
+    # for n==1). nx's own {n: d*s} dict-comp over the in_degree view is byte-exact
+    # AND 1.23x (beats nx). Run nx's algorithm verbatim.
+    n = len(G)
+    if n <= 1:
+        return {node: 1 for node in G}
+    s = 1.0 / (n - 1.0)
+    return {node: d * s for node, d in G.in_degree()}
 
 
 def out_degree_centrality(G, *, backend=None, **backend_kwargs):
@@ -20534,13 +20537,14 @@ def out_degree_centrality(G, *, backend=None, **backend_kwargs):
             return {v: float("nan") if n == 0 else 0 for v in G}
         scale = 1 / (n - 1)
         return {v: d * scale for v, d in G.out_degree()}
-    try:
-        return _raw_out_degree_centrality(G)
-    except NetworkXNotImplemented as exc:
-        translated = _raise_not_impl_for_undirected_if_needed(exc)
-        if translated is not None:
-            raise translated from exc
-        raise
+    # br-r37-c1-idcnative (cc): same as in_degree_centrality — _raw_out_degree_
+    # centrality is slower (PyO3 dict-build) AND ULP-drifts from nx; nx's verbatim
+    # {n: d*s} dict-comp over the out_degree view is byte-exact + 1.23x.
+    n = len(G)
+    if n <= 1:
+        return {node: 1 for node in G}
+    s = 1.0 / (n - 1.0)
+    return {node: d * s for node, d in G.out_degree()}
 
 
 def _average_path_weight(G, path, weight=None):
