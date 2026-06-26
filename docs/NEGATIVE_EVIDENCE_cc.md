@@ -2246,3 +2246,18 @@ single_source already does): fix the multi_source kernel's finalize/push-seq to 
 the single_source kernel which matches), then remove the stale weighted-gate -> multi_source_dijkstra 0.17x
 -> fast (single_source is 1.2-2.9x) AND fixes steiner_tree (its bottleneck is this, NOT the edge-loop).
 Needs iterative build-debug (subtle, ~1/40). Kernel takeable; binding stays. No file changed (investigation).
+
+## 2026-06-26 CopperCliff multi_source_dijkstra divergence REFINED — genuine kernel tie-break (~1/60), needs finalize-order trace
+
+Refined the multi_source_dijkstra path divergence: persists 1/60 EVEN with identical adjacency order (gf built
+from gn.edges() so neighbor-iteration order matches nx) -> NOT a generator-order artifact, a GENUINE rare
+kernel tie-break. DijkstraState Ord is CORRECT (min-dist then min-seq pops first = nx's (dist,c)); seq-vs-c
+offset is uniform; yet the multi-source finalize order of EQUIDISTANT nodes diverges in ~1/60 cases (traced:
+node at dist 8 gets predecessor 0 in fnx vs 9 in nx, both preds at dist 7 — fnx finalizes 0-before-9, nx
+9-before-0, a push-seq cascade from some earlier equidistant tie). Fix requires kernel-internal finalize-order
+tracing (eprintln build, compare to nx's pop order, find the FIRST divergent finalize, align the push-seq) —
+a dedicated multi-cycle build-debug. Kernel is TAKEABLE (fnx-algorithms:1444); binding stays; gate removal in
+__init__.py (warn-override) once 0-divergence confirmed. STATUS: thoroughly characterized, feasible, but
+deferred — a focused kernel-debug task, not a 60-min dig. (Spent several turns on the dijkstra/steiner chain;
+moving on to fresh domains next.) Net new finding this turn: divergence is order-independent (genuine bug),
+ruling out the easy generator-artifact hypothesis.
