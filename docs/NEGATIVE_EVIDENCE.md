@@ -6396,3 +6396,48 @@ Commands used the requested warm target dir and per-crate `fnx-python` scope.
 Decision: REVERTED. Same-machine evidence shows the list-iterator handoff is
 slower in both absolute FNX time and ratio vs NetworkX (`0.483x` patched vs
 `0.509x` baseline). No production source change kept.
+
+## 2026-06-26 BlackThrush MultiDiGraph weighted in/out degree count zip - NO-SHIP
+
+Scope: BOLD-VERIFY land-or-dig on the live core laggards after scanning
+`.scratch` / `.worktrees`. The apparent adjacency-cache worktree was already
+represented on `main` by patch-equivalent commit `a424835f7`, and the only
+other off-main candidate was test-only. The live target was therefore
+`MultiDiGraph.in_degree(weight="weight")` on the `core_laggards` Criterion row.
+
+Lever: follow the previous ledger diagnosis that the residual weighted-degree
+gap is dominated by per-node Python object materialization, not edge scanning.
+I added clean-store `_native_weighted_{in,out}_degree_counts()` methods that
+returned only int degree totals and routed `_DirectedDegreeView.__iter__` through
+`zip(self._graph, counts)`, reusing the graph's node iterator instead of building
+native `(node, degree)` pairs. Dirty/float/object paths fell back to the existing
+pairs implementation. This code was measured, then reverted.
+
+Commands used the requested warm target dir and per-crate `fnx-python` scope.
+The literal `cargo bench --release` form is rejected by cargo in this toolchain,
+so these runs used the equivalent release bench profile:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head core_laggards -- --quiet`
+
+| workload | state | runner/worker | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | --- | --- | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | clean current `main` baseline | local fallback | `17.059 ms` | `6.4411 ms` | `0.378x` |
+| `mdg_in_degree_weight_n700_e12662` | weighted-count zip candidate | `vmi1227854` | `10.364 ms` | `1.2919 ms` | `0.125x` |
+
+Additional same-run patched context: `mg_selfloop_keys_weight` measured
+`1.5328 ms` FNX vs `487.75 us` NetworkX (`0.318x`), `mdg_edges_keys` measured
+`1.7482 ms` FNX vs `1.0779 ms` NetworkX (`0.617x`), and the already-kept
+`mdg_out_edges_nbunch_keys_data` row stayed a win at `189.73 us` FNX vs
+`437.57 us` NetworkX (`2.306x`).
+
+Decision: REVERTED. The count-zip path did not produce a credible head-to-head
+win vs NetworkX; the patched ratio was still worse than the live clean baseline
+ratio and the same-worker historical ledger baseline. This rules out simply
+moving node object construction from Rust pairs to Python `zip`; the next lever
+has to cut the degree-view result allocation more fundamentally or bypass it for
+aggregate consumers without changing NetworkX-observable iteration semantics.
+
+Validation while probing: `cargo fmt -p fnx-python --check` passed, and
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo check -p fnx-python --all-targets --features pyo3/abi3-py310`
+passed on `hz2`. The candidate source code was reverted before this entry was
+committed.
