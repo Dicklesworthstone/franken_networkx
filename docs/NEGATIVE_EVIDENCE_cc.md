@@ -2212,3 +2212,18 @@ fast Kou matches nx's "kou" method (weight 15) -> 15 != 16 FAILS. The validity t
 To win: faithfully reimplement nx's MEHLHORN (multi_source_dijkstra Voronoi -> auxiliary MST -> expand) with
 fnx fast primitives AND a tie-break-exact weight match — moderate effort + correctness risk for a 5-15ms
 function. Surfaced as a possible future target; not a cheap win. No file changed (prototype only).
+
+## 2026-06-26 CopperCliff steiner_tree UPGRADE — weight-match FEASIBLE; win needs native mehlhorn (reserved-gated)
+
+Followed up the steiner_tree weight-lock. KEY NEW RESULT: reimplemented nx's exact MEHLHORN algorithm using
+fnx's fast primitives (multi_source_dijkstra + shortest_path + nx MST on the small auxiliary) and the WEIGHT
+MATCHES nx EXACTLY across 40 random graphs (0 mismatches) — so fnx's dijkstra/shortest_path tie-breaks ALIGN
+with nx's for mehlhorn. So steiner_tree is NOT order-locked (unlike group_betweenness): a faithful native
+mehlhorn IS weight-exact-feasible. BUT timing: the Python mehlhorn reimpl is 0.42-0.52x (SLOWER than nx) —
+the bottleneck moved to the Python loop over G.edges(data=True) building G1 (fnx's edges-view materialization
+tax over all E edges). convert+delegate (build nx.Graph H, run nx.steiner_tree(H), _from_nx_graph) is
+byte-exact + 1.37x self but only 0.65x vs nx (conversion overhead) — a loss-reduction, NOT shipped (still a
+loss; the current already delegates). CONCLUSION: steiner_tree win requires a FULL NATIVE mehlhorn kernel
+(edge-loop + G1 + MST in Rust) -> reserved algorithms.rs binding (mail down), same tier as sigma/omega
+random_reference. Weight-match feasibility now CONFIRMED (the hard part is solved). Surfaced as a feasible
+native candidate. No file changed (prototype only).
