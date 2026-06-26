@@ -115,6 +115,8 @@ struct CoreLaggardWorkloads {
     nx_mg_selfloop_keys_weight: Py<PyAny>,
     fnx_mdg_edges_keys: Py<PyAny>,
     nx_mdg_edges_keys: Py<PyAny>,
+    fnx_mdg_in_edges_data: Py<PyAny>,
+    nx_mdg_in_edges_data: Py<PyAny>,
     fnx_mdg_out_edges_nbunch_keys_data: Py<PyAny>,
     nx_mdg_out_edges_nbunch_keys_data: Py<PyAny>,
 }
@@ -474,6 +476,12 @@ def _mg_selfloop_keys_weight(graph, module):
 def _mdg_edges_keys(graph):
     return sum(key for _, _, key in graph.edges(keys=True))
 
+def _mdg_in_edges_data(graph):
+    return sum(
+        key + value
+        for _, _, key, value in graph.in_edges(keys=True, data="weight", default=0)
+    )
+
 def _mdg_out_edges_nbunch_keys_data(graph):
     return sum(
         data.get("weight", 0) + len(str(key))
@@ -487,6 +495,10 @@ def _mdg_out_edges_nbunch_keys_data(graph):
 assert _mdg_in_degree_weight(mdg_fnx) == _mdg_in_degree_weight(mdg_nx)
 assert _mg_selfloop_keys_weight(mg_self_fnx, fnx) == _mg_selfloop_keys_weight(mg_self_nx, nx)
 assert _mdg_edges_keys(mdg_fnx) == _mdg_edges_keys(mdg_nx)
+assert list(mdg_fnx.in_edges(keys=True, data="weight", default=0)) == list(
+    mdg_nx.in_edges(keys=True, data="weight", default=0)
+)
+assert _mdg_in_edges_data(mdg_fnx) == _mdg_in_edges_data(mdg_nx)
 assert list(mdg_custom_fnx.out_edges(mdg_custom_nbunch, keys=True, data=True)) == list(
     mdg_custom_nx.out_edges(mdg_custom_nbunch, keys=True, data=True)
 )
@@ -500,6 +512,8 @@ fnx_mg_selfloop_keys_weight = lambda: _mg_selfloop_keys_weight(mg_self_fnx, fnx)
 nx_mg_selfloop_keys_weight = lambda: _mg_selfloop_keys_weight(mg_self_nx, nx)
 fnx_mdg_edges_keys = lambda: _mdg_edges_keys(mdg_fnx)
 nx_mdg_edges_keys = lambda: _mdg_edges_keys(mdg_nx)
+fnx_mdg_in_edges_data = lambda: _mdg_in_edges_data(mdg_fnx)
+nx_mdg_in_edges_data = lambda: _mdg_in_edges_data(mdg_nx)
 fnx_mdg_out_edges_nbunch_keys_data = lambda: _mdg_out_edges_nbunch_keys_data(mdg_custom_fnx)
 nx_mdg_out_edges_nbunch_keys_data = lambda: _mdg_out_edges_nbunch_keys_data(mdg_custom_nx)
 "#,
@@ -523,6 +537,8 @@ nx_mdg_out_edges_nbunch_keys_data = lambda: _mdg_out_edges_nbunch_keys_data(mdg_
         nx_mg_selfloop_keys_weight: callable("nx_mg_selfloop_keys_weight")?,
         fnx_mdg_edges_keys: callable("fnx_mdg_edges_keys")?,
         nx_mdg_edges_keys: callable("nx_mdg_edges_keys")?,
+        fnx_mdg_in_edges_data: callable("fnx_mdg_in_edges_data")?,
+        nx_mdg_in_edges_data: callable("nx_mdg_in_edges_data")?,
         fnx_mdg_out_edges_nbunch_keys_data: callable("fnx_mdg_out_edges_nbunch_keys_data")?,
         nx_mdg_out_edges_nbunch_keys_data: callable("nx_mdg_out_edges_nbunch_keys_data")?,
     })
@@ -2130,6 +2146,16 @@ fn core_laggard_head_to_head(c: &mut Criterion) {
         &mut group,
         "nx_mdg_edges_keys_n700_e12662",
         &workloads.nx_mdg_edges_keys,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_mdg_in_edges_data_n700_e12662",
+        &workloads.fnx_mdg_in_edges_data,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_mdg_in_edges_data_n700_e12662",
+        &workloads.nx_mdg_in_edges_data,
     );
     bench_python_callable(
         &mut group,

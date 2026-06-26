@@ -6441,3 +6441,44 @@ Validation while probing: `cargo fmt -p fnx-python --check` passed, and
 `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo check -p fnx-python --all-targets --features pyo3/abi3-py310`
 passed on `hz2`. The candidate source code was reverted before this entry was
 committed.
+
+## 2026-06-25 BlackThrush MultiDiGraph.in_edges data-key borrowed stream - REJECT
+
+Scope: BOLD-VERIFY `MultiDiGraph.in_edges(keys=True, data="weight",
+default=0)` against vendored NetworkX. A `.scratch` / `.worktrees` scan found
+no unlanded measured win absent from `main`: the apparent adjacency-cache
+worktree was already represented by `a424835f7` on `main`, and replaying that
+stale branch would have reintroduced old ledger state. The new lever targeted
+the remaining target-major incoming-edge data path.
+
+Lever: add a target-major borrowed `MultiDiGraph` edge visitor and route the
+pristine Python mirror case directly through it, avoiding the old
+`Vec<(String, String, usize)>` triples allocation before tuple construction.
+The fast path was gated to scalar string attrs, no Python-side edge attr/key
+overrides, and exact list parity with NetworkX.
+
+Commands used the requested warm target dir and per-crate `fnx-python` scope.
+`cargo bench --release` is not accepted by this toolchain, so the equivalent
+release profile spelling was used. `rch exec` had no admissible workers for
+these bench runs (`insufficient_slots=5,hard_preflight=1`) and failed open to
+local execution.
+
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b AGENT_NAME=BlackThrush PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head -- mdg_in_edges_data --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`
+
+| workload | state | runner | FNX median | NetworkX median | ratio vs NetworkX | self vs baseline |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `fnx_mdg_in_edges_data_n700_e12662` | current `main` with fast path disabled | local fallback | `15.665 ms` | `7.1777 ms` | `0.458x` | baseline |
+| `fnx_mdg_in_edges_data_n700_e12662` | borrowed target-major data-key stream | local fallback | `16.799 ms` | `7.6131 ms` | `0.453x` | `0.933x` |
+
+Validation while probing: `cargo check -p fnx-python --features
+pyo3/abi3-py310` passed via `rch exec` on `hz2`; the focused head-to-head bench
+passed its list/value equality assertions before timing both rows. A final
+reverted-tree rerun of the same focused bench, with the benchmark row kept and
+production code removed, measured FNX `15.793 ms` vs NetworkX `5.2914 ms`
+(`0.335x` vs NetworkX).
+
+Decision: REVERTED. The borrowed stream avoids the triples allocation but does
+not move the dominant Python tuple/value materialization cost, and it regressed
+the measured FNX median from `15.665 ms` to `16.799 ms`. No production source
+change kept. The focused benchmark row stays as a guard and future routing
+evidence for this still-sub-NetworkX path.
