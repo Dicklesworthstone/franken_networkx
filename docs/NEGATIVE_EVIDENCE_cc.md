@@ -2363,3 +2363,16 @@ multi_source_dijkstra is RESERVED-GATED (re-classified from "takeable-fnx-algori
 but the bug is in the reserved projection builder). steiner_tree (uses multi_source) is gated on the same.
 CHAIN CLOSED: root cause precise, fix is a reserved-file 1-spot change (make the weighted projection preserve
 insertion-order adjacency). 13 vs-nx wins shipped this session.
+
+## 2026-06-26 CopperCliff weighted-dijkstra family sweep — ALL WINS except multi_source (projection bug is NARROW)
+
+Benched the full weighted-dijkstra family (n=800) to check whether the weighted-projection neighbor-reorder
+bug affects more than multi_source: dijkstra_path 7.89x, astar_path 6.26x, single_source_dijkstra 5.41x,
+single_source_dijkstra_path_length 3.42x, all_pairs_dijkstra_path_length 3.14x, bidirectional_dijkstra 2.09x,
+shortest_path(weight) 1.89x, dijkstra_predecessor_and_distance 1.53x — ALL WINS. ONLY multi_source_dijkstra
+0.157x (gated, the projection-reorder). So the projection-reorder bug is NARROW (it only manifests as a
+divergence in multi_source's multi-initial-source interleaving tie-break; single_source and the rest match nx
++ are fast, so they either preserve order or are not order-sensitive at one source). REFUTES the broad-latent-
+cluster worry: fixing the reserved projection builder unlocks essentially just multi_source_dijkstra (+ steiner
+which calls it), not a family. Modest scope, still reserved-gated. Weighted-dijkstra family otherwise
+comprehensively won. 13 vs-nx wins shipped this session.
