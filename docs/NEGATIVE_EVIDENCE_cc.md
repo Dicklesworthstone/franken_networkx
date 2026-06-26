@@ -2105,3 +2105,13 @@ lib.rs (BlackThrush's RESERVED, actively-committed core), and agent-mail is DOWN
     extends=PyDict) marking dict in lib.rs (f91977f1e)
 OPERATOR ACTION needed: restore agent-mail (am doctor repair) + reassign/clear fnx-python core for CopperCliff,
 or have BlackThrush implement from this ledger. No further cheap Python-only vs-nx win remains to mine.
+
+## 2026-06-26 CopperCliff isomorphism/branching/chains/paths sweep — ALL WINS (periphery coverage extended)
+
+Final fresh-domain sweep: is_isomorphic 77.6x, bridges 27.0x, harmonic_diameter 10.1x, chain_decomposition
+7.8x, minimum_spanning_arborescence 4.4x (1.9s abs, Edmonds), fast_could_be_isomorphic 1.70x, all_simple
+_paths(cutoff) 1.27x, could_be_isomorphic 1.22x, voronoi_cells 1.45x. dag_to_branching 1.003x (parity).
+ALL WINS — no gap. Extends the verified-won map to isomorphism/branching/chains/bridges/paths/voronoi.
+Confirms (again) the Python-only periphery is comprehensively won; remaining vs-nx wins are the reserved-core
+native-kernel candidates consolidated in 52bc19c6e (group_betweenness>=3, k_components, minimum_node_cut,
+sticky-edges_dirty), all gated on BlackThrush's reserved fnx-python core + agent-mail down.
