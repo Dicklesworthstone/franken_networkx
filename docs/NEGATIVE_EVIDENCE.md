@@ -6689,3 +6689,57 @@ Decision: ACCEPTED. This is a same-worker, per-crate, NetworkX head-to-head
 win on the targeted sticky edge-dirty path: `0.807x` before the lever, `7.82x`
 after the lever. Production source change remains landed in `29b752d47`; this
 entry records the required ratio evidence on `main`.
+
+## 2026-06-26 BlackThrush MultiGraph selfloop clean-int mirror bypass - REJECT
+
+Scope: BOLD-VERIFY land-or-dig vs NetworkX. A fresh read-only scan of
+`.scratch` / `.worktrees` found no measured source win missing from `main`: the
+old adjacency outer-cache worktree is already represented on `main`, and the
+other live non-ancestor worktree was A* parity-only. Agent Mail registration
+succeeded as `BlackThrush`, but file reservations were blocked by the existing
+SQLite corruption circuit breaker, so the probe used a fresh detached worktree.
+
+Baseline routing (`ovh-a`, full `core_laggards`) showed the largest remaining
+ratio gap in `MultiGraph.selfloop_edges(keys=True, data="weight")`:
+
+| workload | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | `2.4140 ms` | `1.4321 ms` | `0.593x` |
+| `mg_selfloop_keys_weight_n2500_loops2502` | `1.7764 ms` | `761.23 us` | `0.428x` |
+| `mdg_edges_keys_n700_e12662` | `1.3530 ms` | `1.1202 ms` | `0.828x` |
+| `mdg_in_edges_data_n700_e12662` | `5.9164 ms` | `2.7747 ms` | `0.469x` |
+| `mdg_out_edges_nbunch_keys_data_n700_e12600` | `186.53 us` | `412.37 us` | `2.211x` |
+
+Lever: add a narrow clean-mirror fast path inside
+`PyMultiGraph::_native_selfloop_edges` for `data=<str>` when `edges_dirty` is
+false and the authoritative Rust store holds an integer value for that edge
+attribute. This kept construction behavior unchanged and bypassed the
+per-self-loop Python attr-dict lookup only for clean scalar integer reads; map,
+missing, dirty, and non-integer paths fell back to the existing mirror-aware
+logic.
+
+Commands used the requested warm target dir and per-crate `fnx-python` scope.
+The literal `cargo bench --release` form is rejected by this toolchain, so the
+equivalent release bench profile was used:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head core_laggards -- --quiet`
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head mg_selfloop_keys_weight -- --quiet`
+
+Same-worker A/B used `RCH_REQUIRE_REMOTE=1 RCH_WORKER=hz2` for the clean
+baseline comparator:
+
+| workload | state | runner | FNX median | NetworkX median | ratio vs NetworkX | self vs clean |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `mg_selfloop_keys_weight_n2500_loops2502` | clean `main` comparator | `rch` remote `hz2` | `1.4249 ms` | `509.08 us` | `0.357x` | baseline |
+| `mg_selfloop_keys_weight_n2500_loops2502` | clean-int mirror bypass candidate | `rch` remote `hz2` | `1.3868 ms` | `504.58 us` | `0.364x` | `1.027x` |
+
+Validation while probing: `cargo fmt -p fnx-python` passed, and both focused
+head-to-head bench runs passed their correctness assertions before timing. The
+candidate source was reverted before this ledger commit.
+
+Decision: REVERTED. The same-worker result moved the ratio by only `0.357x` to
+`0.364x` and the FNX median by only `2.7%`, which is zero-gain/noise-level for
+this Python-object-materialization-bound residual. The semantic risk of
+bypassing clean Python attr mirrors for a sub-3% local movement is not worth
+keeping. No production source change remains.
