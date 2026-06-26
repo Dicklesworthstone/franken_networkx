@@ -1872,3 +1872,15 @@ clear-after-sync (f91977f1e/2578350fe, ~9 fns), in BlackThrush's ACTIVELY-edited
 restore agent-mail + reassign fnx-python/lib.rs to CopperCliff with a mandate, OR BlackThrush implements it.
 Periphery is exhausted (~40 categories at-or-above nx, 9 wins shipped); this lever is the only vs-nx
 progress left and is purely coordination-blocked.
+
+## 2026-06-25 CopperCliff girth/edge-betweenness/floyd/spanning-tree sweep — ALL WINS (no gap)
+
+New-coverage sweep, all fnx >= nx: girth 6.81x, edge_betweenness_centrality 30.4x, load_centrality 33.9x,
+floyd_warshall 15.2x, betweenness_centrality_subset 5.81x, johnson 1.63x, voterank 1.96x, prufer_to_tree
+(from_prufer_sequence) 1.60x, random_spanning_tree 1.05x (~parity, RNG-bound). is_triangle_free 0.144x is
+0.002ms (PyO3 noise, trivial check). bipartite König to_vertex_cover 0.917x (~parity). No real gap.
+~45 function categories now measured at-or-above nx this session (8+ consecutive all-wins sweep batches).
+Periphery conclusively exhausted; sole vs-nx progress = the coordination-blocked sticky-edges_dirty core
+lever (dijkstra 0.165x / to_scipy 0.38x / MG-degree 0.73x), surfaced with the pyclass(extends=PyDict)
+recipe (f91977f1e) + current ratios (95c55f43c). Awaiting operator unblock (restore agent-mail + core-file
+reassign, or BlackThrush implements).
