@@ -2227,3 +2227,22 @@ loss; the current already delegates). CONCLUSION: steiner_tree win requires a FU
 (edge-loop + G1 + MST in Rust) -> reserved algorithms.rs binding (mail down), same tier as sigma/omega
 random_reference. Weight-match feasibility now CONFIRMED (the hard part is solved). Surfaced as a feasible
 native candidate. No file changed (prototype only).
+
+## 2026-06-26 CopperCliff ROOT-CAUSE: multi_source_dijkstra 0.17-0.21x (stale weighted-gate + 1/40 kernel tie-break) — feasible win
+
+Tracing steiner_tree's slowness led to the ROOT cause: multi_source_dijkstra is 0.205x (n=400) / 0.167x
+(n=1500) vs nx — WHILE single_source_dijkstra is 2.9x/1.24x FASTER (its weighted gate was removed in
+br-r37-c1-efv3d once the native kernel was confirmed weight-correct). multi_source STILL delegates weighted
+input (__init__.py:31716, gate = _mst_has_weight_edge_attr / "inherits the weight-ignoring bug" comment,
+NOW STALE). Verified the native _raw_multi_source_dijkstra: weighted DISTANCES match nx 0/30, weighted PATHS
+match 39/40 — the 1 divergence is a SHORTEST-PATH TIE-BREAK (same distance, different equal-weight path:
+fnx [72,13,0,36] vs nx [72,49,9,36]; both from src 72). The conformance test (test_traversal_tree_parity:550)
+requires EXACT path match, so the gate can't be removed until the kernel matches nx's paths 100%. The kernel
+is in fnx-algorithms (TealSpring/TAKEABLE) at lib.rs:1444 (multi_source_dijkstra); it uses strict-< relaxation
+(line 1520) like nx, so the divergence is the multi-source FINALIZE ORDER (which equidistant predecessor is
+finalized first when interleaving sources) — fnx's heap (dist,seq) pop order diverges from nx's (dist,c,node)
+in rare interleavings. FEASIBLE WIN (not order-LOCKED — it's a deterministic tie-break to ALIGN, like
+single_source already does): fix the multi_source kernel's finalize/push-seq to match nx exactly (compare to
+the single_source kernel which matches), then remove the stale weighted-gate -> multi_source_dijkstra 0.17x
+-> fast (single_source is 1.2-2.9x) AND fixes steiner_tree (its bottleneck is this, NOT the edge-loop).
+Needs iterative build-debug (subtle, ~1/40). Kernel takeable; binding stays. No file changed (investigation).
