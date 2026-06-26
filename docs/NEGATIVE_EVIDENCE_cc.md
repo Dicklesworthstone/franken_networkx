@@ -2069,3 +2069,16 @@ the algorithm periphery is wins-at-scale except the documented residuals: group_
 native kernel candidate], spectral_ordering [sign-locked], communicability_betweenness [O(n^4) transcendental],
 min_cost_flow family [single-pass near-parity], all_pairs_shortest_path [PyObject materialization floor],
 sticky-edges_dirty [architectural core, operator-gated]. 13 vs-nx wins shipped this session.
+
+## 2026-06-26 CopperCliff flow/connectivity sweep — wins; k_components/minimum_node_cut(global) correctness-delegated
+
+Flow/connectivity at n=150: WINS — node_connectivity 31.2x, k_edge_components 9.1x, all_pairs_node_
+connectivity 1.76x, average_node_connectivity 1.60x, edge_connectivity 1.42x. NEAR-PARITY (correctness-
+delegated to nx): k_components 1.013x (3.02s — delegates for Moody-White correctness outside narrow exact
+cases, br-kcompalgo), minimum_node_cut(global) 0.984x (delegates for the global no-s,t contract),
+minimum_edge_cut 1.005x. These delegate for CORRECTNESS (subtle algorithms) — beating them needs substantial
+correct native kernels (same class as group_betweenness>=3 Puzis), not cheap wins. De-delegation won't help
+(the cost is nx's algorithm, not conversion — single-pass). SURFACED as substantial-native-kernel candidates.
+FRONTIER STATUS: the cheap-win veins (bespoke O(n^k) kernels, per-node polynomial loops, delegated-matrix
+reuse, serial->native-parallel routing) yielded 13 wins this session and are now largely tapped; fresh
+sweeps return wins + a few correctness-delegated near-parity residuals that need full native kernels.
