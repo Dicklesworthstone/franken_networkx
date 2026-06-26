@@ -2480,3 +2480,19 @@ call. All four canonical laggards (in_edges_data, mg_selfloop, mdg_in_degree_wei
 reserved fnx-python view/degree paths (views.rs/lib.rs), BlackThrush-owned + actively-worked. The
 warm-vs-cold in_edges nuance is a real reserved-side optimization target (make the in_edges cold path fast,
 not just cached-warm) for whoever holds views.rs. NOT takeable. 13 vs-nx wins shipped this session.
+
+## 2026-06-26 CopperCliff treewidth_min_degree convert+delegate — REJECT (decomp is adjacency-order-sensitive, breaks byte-exactness)
+
+Dug the approximation namespace: treewidth_min_degree is the biggest TAKEABLE gap (0.47-0.65x; fnx.approximation
+.treewidth_min_degree -> _treewidth_min_degree in __init__.py runs nx's _MinDegreeHeuristic + _treewidth_decomp
+DIRECTLY on the fnx graph G = per-op PyO3). It's a Python path (not reserved Rust). Attempted convert+delegate
+(build a one-shot nx.Graph copy H from G.nodes()+G.edges(), run nx's treewidth on H). RESULT: BREAKS byte-
+exactness -> 3 conformance failures (test_matches_networkx_without_fallback). ROOT CAUSE: building H from
+G.edges() does NOT preserve G's per-node ADJACENCY insertion order (G.edges() iteration order != per-node order
+-- the SAME wall as multi_source_dijkstra), and the min-degree elimination heuristic's tie-break is adjacency-
+order-sensitive, so the tree DECOMPOSITION diverges (treewidth int matches but the bag/edge structure differs).
+The only byte-exact path is running nx's algo on G directly (preserving G's order) = the slow status quo
+(0.47x). Convert+delegate is byte-exactness-incompatible here (order-sensitive output). REVERTED both
+__init__.py + approximation.py edits (conformance restored 92 passed). treewidth_min_degree stays the slow
+byte-exact nx-on-fnx path; a real win needs an order-preserving native treewidth (would need to iterate G's
+exact adjacency order). Same adjacency-order-sensitivity class as multi_source. NO-SHIP. 13 wins shipped.
