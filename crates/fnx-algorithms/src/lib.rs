@@ -38650,90 +38650,70 @@ pub fn find_asteroidal_triple(graph: &Graph) -> Option<(String, String, String)>
     let idx: std::collections::HashMap<&str, usize> =
         nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
 
-    for i in 0..n {
-        let i_closed: std::collections::HashSet<usize> = {
-            let mut s = std::collections::HashSet::new();
-            s.insert(i);
-            for nb in graph.neighbors(nodes[i]).unwrap_or_default() {
-                if let Some(&ni) = idx.get(nb) {
-                    s.insert(ni);
+    // br-r37-c1-fat-cs (cc): component-structure algorithm (same as is_at_free),
+    // replacing the O(n^4) per-triple BFS (bfs_path_avoiding per (i,j,k) =
+    // 564ms / 0.075x on an AT-free path(80)). Build cs[v][u] (= component label of
+    // u in G - N[v], 0 if u in N[v]∪{v}) with ONE BFS-labelling per node, then
+    // return the first pairwise-non-adjacent triple satisfying the AT condition.
+    // Asteroidal triples are NOT unique (nx docstring) and the parity tests assert
+    // existence + 3 distinct nodes, not nx's specific triple, so any valid AT in
+    // index order is correct.
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (i, &nm) in nodes.iter().enumerate() {
+        for nb in graph.neighbors(nm).unwrap_or_default() {
+            if let Some(&ni) = idx.get(nb) {
+                adj[i].push(ni);
+            }
+        }
+    }
+    let mut cs: Vec<Vec<usize>> = vec![vec![0usize; n]; n];
+    for v in 0..n {
+        let mut visited = vec![false; n];
+        visited[v] = true;
+        for &nb in &adj[v] {
+            visited[nb] = true;
+        }
+        let mut label = 0usize;
+        for start in 0..n {
+            if visited[start] {
+                continue;
+            }
+            label += 1;
+            visited[start] = true;
+            cs[v][start] = label;
+            let mut queue = std::collections::VecDeque::new();
+            queue.push_back(start);
+            while let Some(x) = queue.pop_front() {
+                for &w in &adj[x] {
+                    if !visited[w] {
+                        visited[w] = true;
+                        cs[v][w] = label;
+                        queue.push_back(w);
+                    }
                 }
             }
-            s
-        };
-        for j in (i + 1)..n {
-            let j_closed: std::collections::HashSet<usize> = {
-                let mut s = std::collections::HashSet::new();
-                s.insert(j);
-                for nb in graph.neighbors(nodes[j]).unwrap_or_default() {
-                    if let Some(&ni) = idx.get(nb) {
-                        s.insert(ni);
-                    }
+        }
+    }
+    for u in 0..n {
+        for v in (u + 1)..n {
+            if cs[u][v] == 0 {
+                continue;
+            }
+            for w in (v + 1)..n {
+                if cs[u][w] == 0 || cs[v][w] == 0 {
+                    continue;
                 }
-                s
-            };
-            for k in (j + 1)..n {
-                let k_closed: std::collections::HashSet<usize> = {
-                    let mut s = std::collections::HashSet::new();
-                    s.insert(k);
-                    for nb in graph.neighbors(nodes[k]).unwrap_or_default() {
-                        if let Some(&ni) = idx.get(nb) {
-                            s.insert(ni);
-                        }
-                    }
-                    s
-                };
-
-                let jk = bfs_path_avoiding(n, j, k, &i_closed, graph, &nodes, &idx);
-                let ik = bfs_path_avoiding(n, i, k, &j_closed, graph, &nodes, &idx);
-                let ij = bfs_path_avoiding(n, i, j, &k_closed, graph, &nodes, &idx);
-
-                if jk && ik && ij {
+                if cs[u][v] == cs[u][w] && cs[v][u] == cs[v][w] && cs[w][u] == cs[w][v] {
                     return Some((
-                        nodes[i].to_owned(),
-                        nodes[j].to_owned(),
-                        nodes[k].to_owned(),
+                        nodes[u].to_owned(),
+                        nodes[v].to_owned(),
+                        nodes[w].to_owned(),
                     ));
                 }
             }
         }
     }
     None
-}
-
-fn bfs_path_avoiding(
-    n: usize,
-    source: usize,
-    target: usize,
-    avoid: &std::collections::HashSet<usize>,
-    graph: &Graph,
-    nodes: &[&str],
-    idx: &std::collections::HashMap<&str, usize>,
-) -> bool {
-    if avoid.contains(&source) || avoid.contains(&target) {
-        return false;
-    }
-    let mut visited = vec![false; n];
-    visited[source] = true;
-    let mut queue = std::collections::VecDeque::new();
-    queue.push_back(source);
-    while let Some(v) = queue.pop_front() {
-        if v == target {
-            return true;
-        }
-        if let Some(nbrs) = graph.neighbors(nodes[v]) {
-            for nb in nbrs {
-                if let Some(&ni) = idx.get(nb)
-                    && !visited[ni]
-                    && !avoid.contains(&ni)
-                {
-                    visited[ni] = true;
-                    queue.push_back(ni);
-                }
-            }
-        }
-    }
-    false
 }
 
 // ---------------------------------------------------------------------------

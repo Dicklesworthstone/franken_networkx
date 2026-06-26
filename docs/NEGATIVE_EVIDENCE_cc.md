@@ -1894,3 +1894,17 @@ hopcroft+maximum_matching / cograph / paley / at_free / perfect / compose_all+un
 is_perfect_graph correctness fixes) remain byte-exact and conformance-green under the peer's in-flight
 lib.rs/digraph.rs changes. No regression. Periphery remains exhausted (~45 categories at-or-above nx);
 sole vs-nx progress = the coordination-blocked sticky-edges_dirty core lever (surfaced f91977f1e/95c55f43c).
+
+## 2026-06-26 CopperCliff WIN: find_asteroidal_triple O(n^4)->O(n^3) component-structure — 158-308x vs nx
+
+Sibling of the is_at_free win: find_asteroidal_triple was STILL O(n^4) (bfs_path_avoiding per (i,j,k)
+triple) = 564ms / 0.075x on an AT-free path(80) (fast only on AT-exists via early-exit). Rewrote to the
+same component-structure algorithm (cs[v][u] = component label of u in G-N[v], one BFS-labelling per node,
+O(n^2+nm)), returning the first pairwise-non-adjacent triple satisfying the AT condition (O(n^3) early-exit).
+Removed the now-dead bfs_path_avoiding. KEY: asteroidal triples are NOT unique (nx docstring) and the
+parity tests assert existence + 3 distinct nodes + is_at_free-consistency, NOT nx's specific triple -- so
+any valid AT in index order is correct (verified 0/12 graph types: path/cycle/complete/star/BA/tree/grid/
+petersen/gnp/ladder + is_at_free consistency; conformance -k "asteroidal or at_free" 25 passed). Result:
+0.075x -> 280.6x (path80) / 308.5x (path150) / 158x (cycle60) FASTER than nx. fnx-algorithms (TealSpring,
+takeable). BUILD NOTE: first rch build failed on a bad worker (rustversion/arc-swap/blake3 incompatible-
+rustc dep errors, NOT my code); retry on a consistent worker compiled clean.
