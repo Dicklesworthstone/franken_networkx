@@ -1826,3 +1826,14 @@ ancestors, transitive_closure, wiener_index) are all LEGITIMATE traversals (alre
 pathological -> bespoke-kernel vein mined. find_asteroidal_triple is still O(n^4) but order-locked (returns
 the triple) so left. CONCLUSION REINFORCED: periphery exhausted of gaps; sole high-value residual is the
 core sticky-edges_dirty lever.
+
+## 2026-06-25 CopperCliff matrix-builder + tree-function sweep — ALL WINS (no gap)
+
+Matrix/spectral-matrix builders + tree fns, all fnx >= nx: modularity_matrix 1.74x, directed_modularity
+2.45x, bethe_hessian_matrix 1.81x, directed_laplacian_matrix 1.15x, directed_combinatorial_laplacian
+1.21x, attr_matrix 1.83x, adjacency_spectrum 1.45x, katz_centrality_numpy(dir) 1.14x, prefix_tree 0.82x
+(~parity). Matrix builders show NO numpy-eigh issue (eigvalsh / efficient construction). to_nested_tuple
+showed 0.396x COLD but warm is 1.32-1.51x FASTER (cold-measurement artifact, same class as random_cograph's
+0.299x). NO real gap. ~37 function categories now at-or-above nx; periphery comprehensively exhausted.
+Sole high-value residual remains the core sticky-edges_dirty lever (pyclass(extends=PyDict), ~9 fns;
+surfaced f91977f1e), blocked on core-file access + corrupted agent-mail.
