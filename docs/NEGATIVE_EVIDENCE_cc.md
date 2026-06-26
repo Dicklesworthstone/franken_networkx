@@ -2011,3 +2011,19 @@ kernel was 2.5x SLOWER per the in-tree comment). The principal-submatrix reformu
 won because energy=sum(L^2) HAS a rank-1 closed form; communicability has none. LEVER BOUND: per-node
 matrix-recompute loops yield O(n^2) closed forms ONLY for polynomial functionals (energy/trace of L^k), NOT
 transcendental ones (expm/matrix functions).
+
+## 2026-06-26 CopperCliff spectral sweep — fiedler_vector win CONFIRMED at scale; spectral_ordering sign-locked REJECT
+
+Spectral family at scale (BA n=2000/4000): fiedler_vector 45.2x/9.4x WIN, algebraic_connectivity 41.8x/9.2x
+WIN (both shipped sparse shift-invert, durable — verified holds; at n=800 they're ~0.83-0.88x only because
+nx is fast at small n). eigenvector_centrality_numpy 1.21x, hits 1.16x, google_matrix 1.16x WINS.
+GAP: spectral_ordering DELEGATES to nx (1.31x n=2000 / 0.96x n=4000 = 33x SLOWER than fiedler_vector's
+fast native path: 3754ms vs 113ms at n=2000). Investigated routing it through fnx's fast Fiedler + argsort.
+BLOCKED (confirms br-r37-c1-xiqgr / 193zq with the test contract): test_spectral_ordering_parity asserts
+`fnx.spectral_ordering(g, seed=s) == nx.spectral_ordering(gx, seed=s)` — nx's EXACT seeded order. fnx's
+fiedler_vector is only CANONICAL-sign-exact (test_nondegenerate_matches_nx_up_to_sign compares _canon(.)
+up to sign) because fnx's native eigensolver doesn't bit-reproduce scipy's lobpcg/tracemin sign. Verified:
+argsort(fnx.fiedler)==nx.spectral_ordering on path (sign matches) but NOT on BA300 (sign flips -> order
+reverses). Matching nx's seeded sign needs reproducing scipy's exact eigensolver convergence sign (fragile,
+already reverted). REJECT. The 45x fast Fiedler is unusable for the EXACT-order contract. (If the test ever
+relaxes to up-to-reversal, this becomes a 33x win.)
