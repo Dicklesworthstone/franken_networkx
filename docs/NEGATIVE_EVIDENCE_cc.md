@@ -1814,3 +1814,15 @@ sticky-edges_dirty fix (pyclass(extends=PyDict), ~9 fns), surfaced f91977f1e/257
 access + corrupted agent-mail. Session: 9 clean vs-nx wins shipped (prufer, gaussian, is_distance_regular,
 tree_broadcast_center, subgraph_centrality 34x, hopcroft_karp 20x, random_cograph, is_at_free 166-305x,
 is_perfect_graph+fix) + *_all operator cluster + paley loss-reduction.
+
+## 2026-06-25 CopperCliff per-pair/group/flow sweep + bespoke-kernel grep — all wins / vein mined
+
+Per-pair-connectivity / group-centrality / flow sweep: ALL WINS — node_connectivity 35.7x, communicability
+26.6x, second_order_centrality 22.3x, stoer_wagner 7.3x, group_closeness 7.5x, global_reaching 4.18x,
+current_flow_betweenness_subset 3.7x, katz 3.3x, average_node_connectivity 1.65x (group_betweenness 0.90x /
+non_randomness 0.756x near-parity, not real). Also grepped fnx-algorithms for the is_at_free O(n^4)
+per-pair-fresh-BFS pattern: the nested-loop+BFS fns found (single_source_shortest_path, bfs_layers,
+ancestors, transitive_closure, wiener_index) are all LEGITIMATE traversals (already benched as wins), NOT
+pathological -> bespoke-kernel vein mined. find_asteroidal_triple is still O(n^4) but order-locked (returns
+the triple) so left. CONCLUSION REINFORCED: periphery exhausted of gaps; sole high-value residual is the
+core sticky-edges_dirty lever.
