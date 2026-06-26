@@ -2261,3 +2261,19 @@ __init__.py (warn-override) once 0-divergence confirmed. STATUS: thoroughly char
 deferred — a focused kernel-debug task, not a 60-min dig. (Spent several turns on the dijkstra/steiner chain;
 moving on to fresh domains next.) Net new finding this turn: divergence is order-independent (genuine bug),
 ruling out the easy generator-artifact hypothesis.
+
+## 2026-06-26 CopperCliff multi_source_dijkstra gate-removal CONCLUSIVELY UNSAFE — genuine 8% kernel tie-break bug
+
+DEFINITIVE (corrects the earlier "adjacency-artifact / maybe-safe-to-remove" hypothesis): tested
+_raw_multi_source_dijkstra with TRULY IDENTICAL construction — gf and gn both built via
+add_weighted_edges_from on the SAME shuffled edge list (so per-node adjacency order genuinely matches, unlike
+the earlier gn.edges() test). Result: 6/78 path mismatches (~8%). So the divergence is a GENUINE kernel
+multi-source finalize tie-break bug, NOT an adjacency-order artifact. Therefore removing the stale
+_mst_has_weight_edge_attr gate (line 31728) would ship ~8% weighted-multi_source path-parity divergence vs nx
+-> UNSAFE for a byte-exact project; the conformance test (test_traversal_tree_parity, exact path ==) would
+likely catch it too. The gate STAYS. multi_source_dijkstra remains 0.17-0.21x (delegated weighted). The WIN
+requires fixing the kernel's multi-source finalize/push-seq tie-break to match nx 100% (fnx-algorithms:1444,
+TAKEABLE) — a dedicated build-debug (add finalize-order eprintln, compare pop order to nx on a small failing
+case, align). single_source has no such bug (1 source = no interleave). Conclusively a kernel fix, not a
+gate change. No file changed. Done deep-characterizing the dijkstra/steiner chain; dijkstra fix = a focused
+kernel-debug task for a future session.
