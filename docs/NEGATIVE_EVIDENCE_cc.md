@@ -2544,3 +2544,12 @@ back to fnx.degree, so routing them recurses ("Recursion detected", 3 tests) -- 
 reference_parity_blocked_by_set_order, value-returning de-delegation maxes ~0.5-0.77x (can't beat nx), so
 0.48x is near-ceiling; the residual to parity is the reserved native store-int weighted sum (sticky-gated).
 14th win this session.
+
+## 2026-06-26 CopperCliff OFFICIAL cargo-bench CONFIRMATION of the degree fix (f22e353e0)
+
+Re-ran rch cargo bench -p fnx-python -- multigraph_weighted_degree AFTER the fix. CONFIRMED:
+  fnx_degree_nbunch_weight_mg400: 51.947ms -> 1.0725ms  (nx 655.92us) = 0.043x -> 0.61x  (48x self-speedup!)
+  fnx_size_weight_mg400:           6.96ms  -> 1.3447ms   (nx 846.80us) = 0.42x  -> 0.63x  (size formula shares
+                                                                                            the degree path)
+Official criterion median, directive's prescribed method. The biggest official core_laggards gap (23x slower)
+is now 1.6x slower -- byte-exact, conformance GREEN. Real, durable, landed on main+master.
