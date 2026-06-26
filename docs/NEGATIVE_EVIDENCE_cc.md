@@ -1884,3 +1884,13 @@ Periphery conclusively exhausted; sole vs-nx progress = the coordination-blocked
 lever (dijkstra 0.165x / to_scipy 0.38x / MG-degree 0.73x), surfaced with the pyclass(extends=PyDict)
 recipe (f91977f1e) + current ratios (95c55f43c). Awaiting operator unblock (restore agent-mail + core-file
 reassign, or BlackThrush implements).
+
+## 2026-06-25 CopperCliff checkpoint: all 9 session wins verified intact on HEAD (959 passed, no peer regression)
+
+Conformance re-run on current HEAD (74022d9dd, after BlackThrush's concurrent core commits) across every
+function I shipped this session: prufer / distance_regular / tree_broadcast / subgraph_centrality /
+hopcroft+maximum_matching / cograph / paley / at_free / perfect / compose_all+union_all+disjoint_union_all
+-> 959 passed, 0 failed. All 9 vs-nx wins (+ the *_all cluster + paley loss-reduction + is_at_free/
+is_perfect_graph correctness fixes) remain byte-exact and conformance-green under the peer's in-flight
+lib.rs/digraph.rs changes. No regression. Periphery remains exhausted (~45 categories at-or-above nx);
+sole vs-nx progress = the coordination-blocked sticky-edges_dirty core lever (surfaced f91977f1e/95c55f43c).
