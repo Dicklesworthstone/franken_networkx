@@ -2115,3 +2115,20 @@ ALL WINS — no gap. Extends the verified-won map to isomorphism/branching/chain
 Confirms (again) the Python-only periphery is comprehensively won; remaining vs-nx wins are the reserved-core
 native-kernel candidates consolidated in 52bc19c6e (group_betweenness>=3, k_components, minimum_node_cut,
 sticky-edges_dirty), all gated on BlackThrush's reserved fnx-python core + agent-mail down.
+
+## 2026-06-26 CopperCliff group_betweenness(>=3) ROOT-CAUSED — kernel matches TEXTBOOK def, nx uses improved Puzis (diverges)
+
+Investigated whether the existing native group_betweenness_centrality_rust kernel (fnx-algorithms, TealSpring/
+takeable; binding EXISTS, no BlackThrush file needed) could be fixed to handle |C|>=3 (wrapper delegates there,
+2.28s/0.961x). PRECISE root cause (upgrades br-r37-c1-q49py): the kernel computes sigma - sigma_no_c = the
+TEXTBOOK Everett-Borgatti definition (fraction of shortest paths through >=1 group member) and is BYTE-EXACT
+to that definition (brute-force over all_shortest_paths confirms kernel==definition for ALL |C|). BUT nx's
+group_betweenness uses the IMPROVED Puzis algorithm (_group_preprocessing builds a path-betweenness matrix PB
+via _accumulate_endpoints + delta[s][i]+=1, then applies triple inclusion-exclusion corrections
+dxvy/dxyv/dvxy over every (v,x,y) in the group). nx's VALUE DIVERGES from its own docstring textbook
+definition for |C|>=3: verified kernel==nx for |C|<=2 always; |C|==3 diverges 15/231 graphs (worst 1.25e-2);
+|C|==4 diverges 19/60. So the kernel is "correct" to the definition but conformance needs nx's improved-algo
+value. CANNOT relax the >=3 delegation (the kernel is wrong-vs-nx for some |C|==3 too). To win: port nx's
+exact PB-matrix Puzis algorithm to Rust (O(VE + |C|^2 V), parallelizable) bug-for-bug — SUBSTANTIAL +
+correctness-critical (must replicate nx's non-textbook value exactly). No code changed this turn. SURFACED
+with the exact algorithm to port. Current kernel + >=3 delegation is CORRECT; leave it.
