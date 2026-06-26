@@ -6651,3 +6651,41 @@ Decision: REVERTED. The cache did not improve the ratio vs paired NetworkX and
 made the target row worse (`0.388x` baseline vs `0.341x` candidate). The
 residual is not solved by a Python-level clean result cache; no production
 source change kept.
+
+## 2026-06-26 BlackThrush Graph.edge-dirty clear after bulk attr sync - ACCEPT
+
+Scope: BOLD-VERIFY land-or-dig vs NetworkX. A fresh scan found no measured
+`.scratch` / `.worktrees` win missing from `main`: the old adjacency
+outer-cache worktree was already represented by `a424835f7`, and the other
+non-ancestor worktree was A* parity-only. The measured win now on `main` is
+`29b752d47`, which clears `edges_dirty` after bulk edge-attribute replacement
+and adds the Python-facing `sticky_edge_dirty` NetworkX head-to-head bench.
+
+Lever: after a clean `edges(data=True)` bulk sync into Rust storage, clear the
+dirty bit so repeated weighted Dijkstra calls can use the Rust edge store
+instead of resyncing the Python edge dictionaries every call. This targets the
+observed stale-dirty path where a read-only `edges(data=True)` handout made
+subsequent weighted shortest-path calls permanently slow.
+
+Command used the requested warm target dir and per-crate `fnx-python` scope.
+The literal `cargo bench --release` form is rejected by this toolchain, so the
+equivalent release bench profile was used:
+
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b AGENT_NAME=BlackThrush PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head -- sticky_edge_dirty --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`
+
+| workload | state | runner | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | --- | --- | ---: | ---: | ---: |
+| `dijkstra_path_ba2000_weighted_after_edges_data` | pre-clear saved baseline | `rch` remote `hz2` | `3.1264 ms` | `2.5223 ms` | `0.807x` |
+| `dijkstra_path_ba2000_weighted_after_edges_data` | clear-after-sync on `main` | `rch` remote `hz2` | `347.24 us` | `2.7153 ms` | `7.82x` |
+
+Validation: the focused head-to-head bench passed its correctness assertions
+before timing. A direct Python extension probe against the refreshed
+`CARGO_TARGET_DIR` artifact also passed: after `edges(data=True)` was observed,
+mutating the held direct-edge attr dict from weight `10.0` to `0.1` changed the
+weighted Dijkstra path from `[0, 1, 2]` to `[0, 2]`, matching the required
+NetworkX-visible live-dict behavior.
+
+Decision: ACCEPTED. This is a same-worker, per-crate, NetworkX head-to-head
+win on the targeted sticky edge-dirty path: `0.807x` before the lever, `7.82x`
+after the lever. Production source change remains landed in `29b752d47`; this
+entry records the required ratio evidence on `main`.
