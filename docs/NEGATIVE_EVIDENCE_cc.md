@@ -2297,3 +2297,16 @@ BUILD-INFRA: 4 consecutive rch builds failed with E0514 "incompatible rustc" (po
 rustc 2026-06-09, workers now 2026-06-07). FIX: `rch exec -- bash -lc "cargo clean && cargo build ..."`
 (full clean rebuilt all deps with the current worker rustc -> 3m28s success). Use a FULL cargo clean when
 E0514 dep-mismatch errors appear (the pool cache went stale across a rustc bump).
+
+## 2026-06-26 CopperCliff community-detection + generator sweep — ALL WINS (fresh domain, no gap)
+
+Fresh domain (community detection + generators, n=600): random_regular_graph 5.26x, fast_label_propagation
+2.35x, label_propagation_communities 2.27x, asyn_lpa_communities 1.69x, kernighan_lin_bisection 1.11x,
+modularity 1.06x, partition_quality 1.05x, stochastic_block_model 1.02x, is_graphical 0.97x (~parity). ALL
+WINS — no gap. Community-detection + generator domains comprehensively won. Confirms the pattern: every fresh
+domain sweep returns wins; the periphery is mined out. Remaining vs-nx work is all gated: multi_source_
+dijkstra (deep storage neighbor-ordering: view preserves insertion but neighbors_iter/neighbors_indices
+don't — needs the view's accessor, possibly fnx-classes), sigma/omega random_reference + steiner mehlhorn +
+sticky-edges_dirty (reserved fnx-python binding, mail down), group_betweenness>=3 + spectral_ordering
+(proven set-order-locked), non_randomness/min_cost_flow/communicability/all_pairs (inherent/floored). 13
+vs-nx wins shipped this session.
