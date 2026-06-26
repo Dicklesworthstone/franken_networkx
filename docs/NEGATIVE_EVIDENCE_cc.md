@@ -2183,3 +2183,18 @@ this batch. Frontier remains: cheap + reserved-file-free veins mined out; residu
 (non_randomness), single-pass (min_cost_flow), O(n^4) (communicability_betweenness), set-order-locked
 (spectral_ordering, group_betweenness>=3, greedy_color, connected_dominating_set), materialization-floor
 (all_pairs view), or the operator-gated sticky-edges_dirty core. 13 vs-nx wins shipped this session.
+
+## 2026-06-26 CopperCliff smallworld/bipartite/euler sweep — wins; sigma/omega surfaced (random_reference native-kernel candidate)
+
+WINS: bipartite.robins_alexander_clustering 459x, bipartite.spectral_bipartivity 284x, bipartite.node_
+redundancy 19x, bipartite.clustering 2.16x, eulerian_circuit 3.47x, is_eulerian 2.61x, has_eulerian_path
+1.95x. NEAR-PARITY (big absolute): sigma 1.027x (1.1s), omega 1.015x (2.5s). Profiled: the bottleneck is
+random_reference (399ms for niter=5; transitivity/ASPL are ~0ms). random_reference DELEGATES to nx (seed-
+locked: test_random_reference_seed_parity requires byte-for-byte; the fnx native double_edge_swap picks a
+DIFFERENT sequence than nx's degree-weighted discrete_sequence algorithm). NEW SURFACED CANDIDATE: a native
+random_reference reproducing nx's EXACT seeded swap RNG (degree-weighted discrete_sequence + neighbor picks)
+would make sigma/omega multi-x. KEY DISTINCTION from group_betweenness: random_reference is RNG-REPRODUCIBLE
+(deterministic given seed, like the shipped gnp_directed PythonRandom replication c17d7a484), NOT order-locked
+-> FEASIBLE, not impossible. BUT needs a binding in fnx-python/src/algorithms.rs (BlackThrush reserved, mail
+down) + substantial RNG-match work. Surfaced as the highest-EV FEASIBLE native candidate (reserved-gated).
+double_edge_swap_rust binding exists but picks a different sequence (won't match nx's random_reference).
