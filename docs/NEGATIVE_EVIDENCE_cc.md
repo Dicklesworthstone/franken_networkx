@@ -2404,3 +2404,15 @@ projection's per-node adjacency by iterating each node's neighbors via neighbors
 than edges_ordered_indices, so the native multi_source kernel's interleaving tie-break matches nx. Then remove
 the Python weighted-gate (__init__.py:31728) -> multi_source_dijkstra 0.157x -> fast + byte-exact, unlocks
 steiner_tree too. multi_source chain DEFINITIVELY closed (reserved-active, fix fully specced). 13 wins shipped.
+
+## 2026-06-26 CopperCliff distance-measures + hashing + planarity sweep — ALL WINS (no gap)
+
+Fresh domain (n=400): resistance_distance 274x, radius 18.99x, center 17.68x, periphery 17.60x, barycenter
+17.50x, diameter 16.90x, check_planarity 7.67x, is_regular 3.56x. NEAR-PARITY: weisfeiler_lehman_graph_hash
+0.93x / weisfeiler_lehman_subgraph_hashes 0.88x (SHA-computation-bound; both compute identical hash strings,
+the hashlib calls dominate — not cheaply winnable). No gap. ~27 domains swept this session, all return wins.
+Accessible periphery DEFINITIVELY mined out; remaining vs-nx work is operator-unblock-gated (reserved
+fnx-python core: sigma/omega random_reference + steiner mehlhorn + sticky-edges_dirty + multi_source
+projection-builder, all with exact fix specs in this ledger) / proven-impossible (group_betweenness>=3,
+spectral_ordering) / inherent (non_randomness dense-eig, min_cost_flow single-pass, communicability O(n^4),
+all_pairs materialization). 13 vs-nx wins + 2 parity-fixes shipped, all durability-verified.
