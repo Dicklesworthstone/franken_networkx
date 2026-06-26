@@ -6570,3 +6570,42 @@ Decision: REVERTED. Sparse mirrors made the target benchmark much worse, likely
 because clear-time mirror dropping was traded for repeated on-demand mirror work
 inside factory construction and correctness probes. No production source change
 kept.
+
+## 2026-06-26 BlackThrush MultiDiGraph.in_edges data-key clean cache - REJECT
+
+Scope: BOLD-VERIFY land-or-dig vs NetworkX. A fresh `.scratch` / `.worktrees`
+scan found no measured win missing from `main`: the non-ancestor adjacency
+outer-cache worktree was already represented on `main` by `a424835f7`, and the
+other live non-ancestor was an A* parity test. The new lever targeted the
+remaining `MultiDiGraph.in_edges` laggard after the existing native edge
+iterator work.
+
+Lever: cache full-graph `MultiDiGraph.in_edges(data=<attr>, default=...)`
+results while the Rust edge store is clean, keyed by `nodes_seq`, `edges_seq`,
+`keys`, `data`, and `default`. The cache was bypassed after any live edge-attr
+dict handout or unhashable key/default. This aimed to avoid repeated Python
+tuple materialization for data-key views without changing list-return
+semantics.
+
+Command used the requested warm target dir and per-crate `fnx-python` scope.
+The literal `cargo bench --release` form is rejected by this toolchain, so the
+equivalent release bench profile was used:
+
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a AGENT_NAME=BlackThrush rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head core_laggards -- --quiet`
+
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a AGENT_NAME=BlackThrush rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head mdg_in_edges_data -- --quiet`
+
+| workload | state | runner | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | --- | --- | ---: | ---: | ---: |
+| `fnx_mdg_in_edges_data_n700_e12662` | current `main` baseline | local fallback | `16.019 ms` | `5.7959 ms` | `0.362x` |
+| `fnx_mdg_in_edges_data_n700_e12662` | clean data-key cache candidate | `rch` remote `vmi1264463` | `34.892 ms` | `12.655 ms` | `0.363x` |
+
+Validation while probing: `python3 -m py_compile
+python/franken_networkx/__init__.py` passed, and the focused head-to-head bench
+passed its correctness assertions before timing. The candidate did not move the
+ratio vs NetworkX, and the focused row exercises the `data=True` path rather
+than the proposed data-key cache.
+
+Decision: REVERTED. The measured target stayed at essentially the same
+sub-NetworkX ratio (`0.362x` baseline vs `0.363x` candidate), so this was a
+zero-gain lever for the requested laggard. No production source change kept.
