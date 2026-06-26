@@ -1782,3 +1782,18 @@ max-heap of "seen" nodes, unseen-neighbor counts) whose specific CDS depends on 
 tie-break (set/iteration) order -> de-delegating in-process risks divergence for a sub-ms gap, REJECT.
 greedy_color(connected_sequential_dfs) 0.431x is the already-known set-order-locked conversion case
 (reference_parity_blocked_by_set_order). No new clean win this batch.
+
+## 2026-06-25 CopperCliff TSP/community sweep — wins; greedy_tsp SURFACE (approx-conversion-tax, order-sensitive)
+
+WINS: k_clique_communities 3.2x, local_efficiency 9.6x, spectral_bipartivity 13.5x; christofides 0.807x /
+girvan_newman 0.92x / simple_cycles(directed small) 0.96x ~parity. CORRECTNESS NOTE: fnx.tournament.
+hamiltonian_path WORKS on a 300-node tournament where nx CRASHES (RecursionError) — fnx is MORE correct
+(like is_distance_regular); no gap.
+SURFACE: greedy_tsp scales 0.15x@n12 -> 0.08x@n50 -> 0.06x@n150 (fnx 23ms vs nx 1.17ms at n=150). It's
+delegated via the approximation-namespace __getattr__ which does a FAITHFUL O(n^2) fnx->nx conversion on
+the (dense, complete) weighted graph = the conversion tax (reference_approx_namespace_conversion_tax).
+De-delegatable via a concrete fnx.approximation.greedy_tsp (vertex_cover precedent) BUT: the tour is
+ORDER-SENSITIVE (nearest-neighbor min() tie-breaks by iteration order) so it needs nx's EXACT algorithm
+run in-process on a weight snapshot (a numpy-vectorized argmin diverges on the many weight ties), and the
+weight snapshot is itself O(n^2) construction-floor-bound -> best ~0.3-0.5x, not >nx. Not shipped (order-
+sensitive + conversion-floor for a TSP heuristic); recorded as a de-delegate target. No clean win.
