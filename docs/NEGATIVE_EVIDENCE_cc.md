@@ -1854,3 +1854,21 @@ construction-string-floor / architectural-core (the sticky-edges_dirty master le
 substrate). Sole high-value remaining lever = sticky-edges_dirty (pyclass(extends=PyDict), ~9 fns;
 f91977f1e), blocked on core-file access (BlackThrush's active lib.rs) + corrupted agent-mail. 9 clean
 vs-nx wins shipped this session; further vs-nx progress needs an operator unblock, not more sweeping.
+
+## 2026-06-25 CopperCliff STATUS: 3 worst current gaps all = unaddressed sticky-edges_dirty lever
+
+Re-measured the worst known core gaps on current HEAD (03da2d866) and confirmed the sticky-edges_dirty
+master lever is STILL NOT implemented (`edges_dirty.store(false)` count in lib.rs = 0; BlackThrush's recent
+core commits are degree-nbunch native paths / copy / clear_edges, NOT the marking-dict-subclass fix):
+  dijkstra_path (BA n=2000 weighted, 0->1900)  fnx 21.2ms  nx 3.49ms  0.165x  <- WORST
+  to_scipy_sparse_array(weight) (n=2000)        fnx 20.6ms  nx 7.85ms  0.381x
+  MultiGraph.degree(weight) FLOAT (n=1500)      fnx 13.4ms  nx 9.75ms  0.726x
+All three route through a native-store read preceded by a STICKY full resync (_fnx_sync_edge_attrs_to_inner
+re-runs ~16ms every call because edges_dirty never clears; dijkstra's wrapper syncs unconditionally). No
+periphery path: the wrapper can't tell the store is fresh (sticky flag), and a mirror-read pays the string
+tax (the 0.5x weighted-degree pattern). THE fix is the pyclass(extends=PyDict) marking edge-dict +
+clear-after-sync (f91977f1e/2578350fe, ~9 fns), in BlackThrush's ACTIVELY-edited lib.rs. Unaddressed for
+10+ CopperCliff turns; agent-mail corrupted so it can only be handed off via this ledger. OPERATOR ACTION:
+restore agent-mail + reassign fnx-python/lib.rs to CopperCliff with a mandate, OR BlackThrush implements it.
+Periphery is exhausted (~40 categories at-or-above nx, 9 wins shipped); this lever is the only vs-nx
+progress left and is purely coordination-blocked.
