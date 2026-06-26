@@ -2568,3 +2568,17 @@ singleton type, conformance GREEN (302 passed). LEVER: a NATIVE kernel that mate
 PyO3 can be SLOWER than nx's C-level dict-comp over the native view -- when the wrapper already has the view,
 the Python dict-comp wins (inverse of the fnx.degree fix where Python->native won). Audit other _raw_*
 centrality/dict kernels that build {node: val} via PyO3. 15th win this session.
+
+## 2026-06-26 CopperCliff SHIP: preferential_attachment explicit-ebunch endpoint degree-batch 0.24x->0.67x (2.8x self)
+
+Family sweep found two link-pred per-pair gaps: preferential_attachment 0.242x, resource_allocation_index
+0.569x (jaccard/adamic were fixed in c7ffab536; these weren't fully). _link_prediction_compute batched the
+degree snapshot only for the full/default ebunch (len>=n_nodes); a MODERATE explicit ebunch (200 pairs <
+1200 nodes) stayed on the lazy per-node deg() path = N G.degree(n) PyO3 calls. FIX: preferential_attachment
+uses ONLY endpoint degrees, so batch the distinct endpoints in ONE native G.degree(nbunch) call (the
+fnx.degree win makes that fast) -> 0.24x -> 0.67x (2.8x self), byte-identical (==nx incl default + single-pair
+ebunch), conformance GREEN (1233 passed). Residual cap to beat-nx is _link_prediction_validate_ebunch's
+per-node membership checks (the degree batch alone gets a standalone 1.71x; the validation machinery holds
+the full wrapper to 0.67x) -- not touched (correctness/error contract). resource_allocation_index 0.57x left:
+its deg(w) are for per-pair COMMON NEIGHBORS (dynamic), not endpoints, so endpoint-batch doesn't apply (would
+need a two-pass neighbor-union batch). 16th ship this session.
