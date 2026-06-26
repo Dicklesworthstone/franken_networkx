@@ -2390,3 +2390,17 @@ projection builder (dijkstra_single_weight_graph_projection, fnx-python) preserv
 so the native kernel's interleaving tie-break matches nx. All avenues exhausted (kernel neighbor-iter fix:
 futile; k-single-source merge: wrong+slow; gate-removal: 8% divergence). multi_source chain fully closed.
 13 vs-nx wins shipped this session; remaining work is operator-unblock-gated.
+
+## 2026-06-26 CopperCliff multi_source FINAL: projection builder confirmed reserved+ACTIVE; exact fix spec recorded
+
+Confirmed the projection-reorder fix is reserved-gated (not takeable): dijkstra_single_weight_graph_projection
+lives in fnx-python/src/algorithms.rs, which is ACTIVELY committed (recent peer commits: b7da26873/e0257a6d7
+connectivity, accca957d in_edges, e46006d20 paths) — genuinely reserved+active (vs TealSpring's stale
+fnx-algorithms/lib.rs I could take). Root of the reorder: the builder constructs the projection from
+pg.inner.edges_ordered_indices() (edge-insertion order) + extend_fresh_index_edges_with_attrs_unrecorded,
+which yields per-node adjacency in EDGE order, NOT the original per-node neighbor-insertion order (node 8:
+projection [0,3,4,1,7] vs original [4,0,3,1,7]). EXACT FIX (for whoever holds algorithms.rs): build the
+projection's per-node adjacency by iterating each node's neighbors via neighbors_iter (insertion order) rather
+than edges_ordered_indices, so the native multi_source kernel's interleaving tie-break matches nx. Then remove
+the Python weighted-gate (__init__.py:31728) -> multi_source_dijkstra 0.157x -> fast + byte-exact, unlocks
+steiner_tree too. multi_source chain DEFINITIVELY closed (reserved-active, fix fully specced). 13 wins shipped.
