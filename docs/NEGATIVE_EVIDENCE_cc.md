@@ -2462,3 +2462,21 @@ BlackThrush-owned + actively-worked (mdg-edge-baseline/selfloop-cache worktrees)
 every remaining biggest measured vs-nx gap (MG/MDG weighted degree, sticky paths, multi_source projection)
 is in BlackThrush's reserved+active fnx-python core (lib.rs/views.rs/algorithms.rs); fnx-algorithms kernels
 are all wins/impossible. 13 vs-nx wins shipped this session; new wins require the reserved-core operator unblock.
+
+## 2026-06-26 CopperCliff OFFICIAL cargo bench (core_laggards, directive method) — canonical ratios + in_edges cache-is-warm-only finding
+
+Ran rch exec -- cargo bench -p fnx-python --bench networkx_head_to_head -- core_laggards (the directive's
+prescribed method; criterion median of 20 samples). CANONICAL ratios (fnx/nx, lower=worse):
+  fnx_mdg_in_edges_data_n700_e12662         5.4927ms / nx 2.4985ms = 0.45x  <- BIGGEST canonical gap
+  fnx_mg_selfloop_keys_weight_n2500         811.51us / nx 465.08us = 0.57x
+  fnx_mdg_in_degree_weight_n700_e12662      2.2579ms / nx 1.4710ms = 0.65x
+  fnx_mdg_edges_keys_n700_e12662            1.2408ms / nx 1.0661ms = 0.86x (~parity)
+  fnx_mdg_out_edges_nbunch_keys_data_n700   180.70us / nx 406.88us = 2.25x (WIN)
+NEW FINDING: mdg_in_edges_data is 0.45x in the official bench but I measured 28x WARM in Python (repeated
+calls on one graph). DISCREPANCY = the peer's in_edges(data) tuple cache (accca957d) is WARM-ONLY: criterion's
+per-sample iteration evidently doesn't reuse the cached tuples (cold/rebuilt each iter), so the realistic
+single-call cost is 0.45x, not 28x. So the in_edges cache helps repeated-call microbenchmarks but NOT a cold
+call. All four canonical laggards (in_edges_data, mg_selfloop, mdg_in_degree_weight, mdg_edges_keys) are
+reserved fnx-python view/degree paths (views.rs/lib.rs), BlackThrush-owned + actively-worked. The
+warm-vs-cold in_edges nuance is a real reserved-side optimization target (make the in_edges cold path fast,
+not just cached-warm) for whoever holds views.rs. NOT takeable. 13 vs-nx wins shipped this session.
