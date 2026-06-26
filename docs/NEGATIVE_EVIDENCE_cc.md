@@ -2582,3 +2582,25 @@ per-node membership checks (the degree batch alone gets a standalone 1.71x; the 
 the full wrapper to 0.67x) -- not touched (correctness/error contract). resource_allocation_index 0.57x left:
 its deg(w) are for per-pair COMMON NEIGHBORS (dynamic), not endpoints, so endpoint-batch doesn't apply (would
 need a two-pass neighbor-union batch). 16th ship this session.
+
+## 2026-06-26 CopperCliff resource_allocation substrate-floored + broad sweep (takeable cheap-dict vein mined)
+
+After the 3 degree/link-pred ships, dug the residual + swept broadly:
+- resource_allocation_index 0.57x: REJECT batch. Prototyped batching all endpoint-neighbor degrees -> 0.46x
+  (WORSE: the neighbor union is huge vs the few common neighbors actually used; lazy deg(w) over actual
+  common neighbors is already optimal). The real floor is the per-endpoint neighbor FETCH:
+  fnx must materialize list(G.neighbors(u)) via PyO3 per endpoint, whereas nx iterates its native Python
+  dict G[u] directly (zero materialization). Substrate-floored (Rust adjacency + PyO3 vs native Python
+  dict) -- NOT takeable in Python. The degree-batch lever (which won preferential_attachment) doesn't apply
+  (resource_allocation's degrees are common-neighbor, not endpoint).
+- BROAD SWEEP all WINS/parity (no new <0.7x takeable gap): connected/strongly_connected/attracting_components
+  3.5-5.8x, descendants/ancestors ~1.0x, dfs/bfs_tree 3.0x, is_tree 39x, immediate_dominators 4.9x,
+  single_source_shortest_path_length 3.7x, eccentricity 9.3x, edge_boundary 1.8x, closeness_vitality 12.2x,
+  clustering 84x, transitivity 161x, pagerank 12.6x, harmonic 238x. Borderline (not clean fixes):
+  node_boundary 0.80x (native _raw + needed set() coercion), bipartite.degrees 0.74x (niche).
+- OFFICIAL cargo bench link_prediction (common_neighbor_centrality g600 e2000): fnx 37.4ms / nx 136.8ms =
+  3.66x WIN.
+CONCLUSION: the takeable cheap-per-node/per-pair dict vein is MINED (degree nbunch, in/out_degree_centrality,
+preferential_attachment shipped this session). Residual gaps = reserved MDG/MG weighted-degree views
+(sticky) + substrate-floored adjacency-materialization (resource_allocation). Don't re-dig resource_allocation
+via batching.
