@@ -2027,3 +2027,18 @@ argsort(fnx.fiedler)==nx.spectral_ordering on path (sign matches) but NOT on BA3
 reverses). Matching nx's seeded sign needs reproducing scipy's exact eigensolver convergence sign (fragile,
 already reverted). REJECT. The 45x fast Fiedler is unusable for the EXACT-order contract. (If the test ever
 relaxes to up-to-reversal, this becomes a 33x win.)
+
+## 2026-06-26 CopperCliff WIN: percolation_centrality unweighted -> native parallel kernel — 1.86x -> 66-157x vs nx
+
+Unweighted percolation_centrality (the DEFAULT weight=None) ran a SERIAL Python Brandes loop over all N
+sources (integer-CSR but Python-level): 2.18s at n=1500, only 1.86x vs nx. The WEIGHTED case already routes
+to the native parallel Dijkstra-SSSP kernel (_raw_percolation_centrality_weighted). That kernel defaults a
+MISSING edge-weight attribute to 1.0 = unit weights, whose shortest-path counts are identical to BFS — so
+routing the unweighted case through it with a sentinel (absent) weight name is BYTE-IDENTICAL (verified
+undirected/directed/disconnected/non-uniform-states: 0..7e-18 vs nx; conformance -k percolation 34 passed)
+and parallel-native. 1.86x -> 66.5x (n=400) / 156.7x (n=1500); ~95x self (2.18s -> 22.9ms). Multigraph keeps
+the Python loop (kernel guards !multigraph, like the weighted path). Python-only (__init__.py, warn-override).
+LEVER: a Python wrapper with a SERIAL per-source Brandes loop for the unweighted case, while the WEIGHTED
+case already has a native parallel kernel — route unweighted through the weighted kernel with unit weights
+(missing-attr defaults to 1.0; Dijkstra-unit == BFS, byte-exact). Audit other dual weighted/unweighted
+centralities where only the weighted path is native.

@@ -35947,6 +35947,24 @@ def percolation_centrality(
     # (<=2 nodes) keep the original path so the 1/(n-2) edge behavior is
     # untouched.
     if weight is None and len(G) > 2:
+        # br-r37-c1-percunit (cc): the unweighted percolation Brandes loop below
+        # runs SERIALLY in Python over all N sources (2.18s at n=1500). The native
+        # weighted percolation kernel (parallel Dijkstra SSSP) defaults a missing
+        # edge-weight attribute to 1.0 — unit weights, whose shortest-path counts
+        # are identical to BFS — so routing through it with a sentinel (absent)
+        # weight name is BYTE-IDENTICAL (verified undirected/directed/disconnected/
+        # non-uniform-states, 0..7e-18 vs nx) and parallel-native: 123ms -> 3.5ms
+        # (n=400), ~35x. Multigraph keeps the Python loop (the native kernel guards
+        # !multigraph, matching the weighted path above).
+        if not G.is_multigraph():
+            try:
+                states_list = [float(states[node]) for node in G]
+            except (TypeError, ValueError, KeyError):
+                states_list = None
+            if states_list is not None:
+                return _raw_percolation_centrality_weighted(
+                    G, "\x00__fnx_unit_weight_sentinel__", states_list
+                )
         nodes = list(G)
         n = len(nodes)
         index = {node: i for i, node in enumerate(nodes)}
