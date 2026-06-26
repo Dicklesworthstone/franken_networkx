@@ -2512,3 +2512,20 @@ CONCLUSION: treewidth_min_degree stays the slow byte-exact native-on-fnx-graph p
 an order-preserving NATIVE treewidth kernel (iterate G's exact node+adjacency order in Rust) -> reserved
 binding. Non-takeable via Python. Same order-sensitivity class as multi_source. Definitively closed. 13 wins
 shipped this session.
+
+## 2026-06-26 CopperCliff fnx.degree(nbunch,weight) — biggest OFFICIAL gap 0.043x; G.degree routing RECURSES (reserved)
+
+Official cargo bench (weighted_degree group) biggest gap: fnx_degree_nbunch_weight_mg400 51.9ms / nx 2.26ms =
+0.043x (23x slower!) -- MultiGraph fnx.degree(G, nbunch, weight) where nbunch has dups + missing nodes
+(bench line 1356: [(i*7)%400 for i in range(280)] + [401,402,3,3,99]). ROOT CAUSE: the top-level fnx.degree
+weighted path uses a Python weighted_degree(node) helper that iterates G.adj[node] through PyO3 per multi-edge
+(~73us/node). Attempted routing to the native view (return G.degree(nbunch, weight=weight)) -> BYTE-EXACT
+(==nx, all graph types) + 21x self (0.030x->0.64x) in a standalone list-nbunch test, BUT BREAKS conformance:
+"!!! Recursion detected" in 3 tests (multigraph_classes_expose_callable_degree, reverse_view ...without_
+fallback). CAUSE: for MultiGraph/MultiDiGraph the native DegreeView's weighted single-node/None path delegates
+BACK to the top-level fnx.degree -> routing fnx.degree -> G.degree closes the cycle -> infinite recursion.
+So fnx.degree CANNOT route to G.degree (circular). REVERTED (conformance restored). A fast fix needs either
+breaking the DegreeView<->fnx.degree cycle or a native store-int weighted-degree sum -- both in reserved
+views.rs/lib.rs (BlackThrush, sticky-gated). The biggest official gap (0.043x MG degree(nbunch,weight)) is
+reserved. Other weighted_degree official ratios: MDG out_degree 0.56x, MG size_weight 0.42x, MDG in_degree
+0.74x -- all reserved degree-view paths. 13 wins shipped.
