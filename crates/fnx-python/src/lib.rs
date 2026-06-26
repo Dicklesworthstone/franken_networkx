@@ -3957,6 +3957,7 @@ impl PyMultiGraph {
         for (u, v, key, attrs) in edges {
             self.inner.replace_edge_attrs(&u, &v, key, attrs);
         }
+        self.edges_dirty.store(false, Ordering::Relaxed);
         Ok(())
     }
 
@@ -10949,6 +10950,7 @@ impl PyGraph {
         for (u, v, attrs) in edges {
             self.inner.replace_edge_attrs(&u, &v, attrs);
         }
+        self.edges_dirty.store(false, Ordering::Relaxed);
         Ok(())
     }
 
@@ -10970,6 +10972,7 @@ impl PyGraph {
         for (u, v, attrs) in edges {
             self.inner.replace_edge_attrs(&u, &v, attrs);
         }
+        self.edges_dirty.store(false, Ordering::Relaxed);
         Ok(())
     }
 
