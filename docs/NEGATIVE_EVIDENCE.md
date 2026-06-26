@@ -6609,3 +6609,45 @@ than the proposed data-key cache.
 Decision: REVERTED. The measured target stayed at essentially the same
 sub-NetworkX ratio (`0.362x` baseline vs `0.363x` candidate), so this was a
 zero-gain lever for the requested laggard. No production source change kept.
+
+## 2026-06-26 SilverStone MultiDiGraph weighted in-degree clean result cache - REJECT
+
+Scope: BOLD-VERIFY land-or-dig vs NetworkX after Codex restart. A read-only
+scan of `.scratch` / `.worktrees` found no measured source win missing from
+current `origin/main`: the live adjacency outer-cache worktree `5e65efa88` is
+already represented on `main` by `a424835f7`, and the other live non-ancestor
+was an A* parity test. Agent Mail bootstrap was attempted but blocked by the
+existing SQLite corruption circuit breaker, so the probe used a fresh detached
+worktree at current `origin/main` (`b89fc6c88`).
+
+Lever: cache clean full-graph `MultiDiGraph.in_degree(weight=<str>)` /
+`out_degree(weight=<str>)` weighted pair results on the graph using the existing
+`_native_dijkstra_weight_cache_token(G)` tuple `(nodes_seq, edges_seq,
+edge_attrs_dirty)`. Cache hits yielded fresh `(node, degree)` tuples while
+reusing cached node/degree objects; dirty edge attrs or missing token bypassed
+the cache. This targeted the documented residual where Python pair
+materialization dominates the weighted-degree path.
+
+Commands used the requested warm target dir and per-crate `fnx-python` scope.
+The literal `cargo bench --release` form is rejected by this toolchain, so the
+equivalent release bench profile was used:
+
+`AGENT_NAME=SilverStone CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head core_laggards -- --quiet`
+
+`AGENT_NAME=SilverStone CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head mdg_in_degree_weight -- --quiet`
+
+| workload | state | runner | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | --- | --- | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | current `main` baseline | local fallback | `9.3140 ms` | `3.6122 ms` | `0.388x` |
+| `mdg_in_degree_weight_n700_e12662` | clean weighted-degree result cache | `rch` remote `vmi1227854` | `11.912 ms` | `4.0599 ms` | `0.341x` |
+
+Validation while probing: `python3 -m py_compile
+python/franken_networkx/__init__.py` passed, and the focused head-to-head bench
+passed its correctness assertions before timing. The first variant that required
+a new `edge_attrs_dirty` getter failed workload setup against the loaded bench
+extension and was replaced before measurement with the existing token helper.
+
+Decision: REVERTED. The cache did not improve the ratio vs paired NetworkX and
+made the target row worse (`0.388x` baseline vs `0.341x` candidate). The
+residual is not solved by a Python-level clean result cache; no production
+source change kept.
