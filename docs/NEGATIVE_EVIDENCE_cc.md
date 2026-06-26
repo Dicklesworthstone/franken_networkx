@@ -2496,3 +2496,19 @@ The only byte-exact path is running nx's algo on G directly (preserving G's orde
 __init__.py + approximation.py edits (conformance restored 92 passed). treewidth_min_degree stays the slow
 byte-exact nx-on-fnx path; a real win needs an order-preserving native treewidth (would need to iterate G's
 exact adjacency order). Same adjacency-order-sensitivity class as multi_source. NO-SHIP. 13 wins shipped.
+
+## 2026-06-26 CopperCliff treewidth_min_degree CONCLUSIVELY non-takeable (decomp copy-fragile + test forbids nx-fallback)
+
+Closed the treewidth_min_degree convert+delegate question definitively: tested nx.Graph(gf) (the direct
+constructor, which DOES preserve gf's per-node adjacency order: 0/25 adjacency mismatches) -> but
+treewidth_min_degree(nx.Graph(gf)) still DIVERGES from treewidth(gn) 4/25 (decomp differs even with identical
+adjacency). So the min-degree tree DECOMPOSITION is sensitive to node-dict insertion order / degree-heap
+tie-breaks BEYOND adjacency order -> no graph copy reliably reproduces nx's exact decomp; only running on the
+original graph object is byte-exact. ALSO: the conformance test is test_matches_networkx_WITHOUT_FALLBACK,
+which explicitly FORBIDS delegating to nx's public fn (fnx must compute natively) -- so the convert+delegate-
+to-nx-public approach fails the no-fallback assertion regardless of timing. The internals-on-copy approach
+passed conformance once but is byte-exactness-FRAGILE (the 4/25 copy-divergence shows copies aren't reliable).
+CONCLUSION: treewidth_min_degree stays the slow byte-exact native-on-fnx-graph path (0.47x); a real win needs
+an order-preserving NATIVE treewidth kernel (iterate G's exact node+adjacency order in Rust) -> reserved
+binding. Non-takeable via Python. Same order-sensitivity class as multi_source. Definitively closed. 13 wins
+shipped this session.
