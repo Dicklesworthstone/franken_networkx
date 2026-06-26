@@ -2445,3 +2445,20 @@ DOUBLY gated: sticky-edges_dirty (reserved lib.rs, the pyclass(extends=PyDict) m
 floor. NOT takeable. This IS the biggest measured laggard and it reduces to the already-surfaced sticky-
 edges_dirty reserved-core lever. Traversal/centrality hot paths separately confirmed all-wins (prior turn).
 13 vs-nx wins shipped this session.
+
+## 2026-06-26 CopperCliff biggest measured gap = MultiGraph.degree(weight) 0.233x — reserved views.rs/lib.rs + sticky
+
+Continued the bench-group measurement: MultiGraph.degree(weight) is the BIGGEST measured gap = 0.233x
+(13.89ms vs nx 3.24ms, n=1500/e=9000) — WORSE than MDG.degree(weight) 0.657x (the MDG store-int fix
+ac98e77d4 did not equivalently cover MultiGraph). Other construction/copy near-parity: to_directed(scalar)
+0.882x, to_undirected(DiGraph) 0.854x, reverse 0.884x, Graph.degree(weight) 0.804x (all ~parity, established
+construction/sticky floor); WINS: Graph.copy 1.55x, attr_assortativity 1.92x, number_of_edges 361x. The MG
+weighted-degree path (MultiGraphDegreeView in views.rs + weighted_degree_py_int_row in lib.rs, both reserved
+fnx-python) sums per-edge weights from the Python mirror (PyO3) because the store-int fast path is sticky-
+edges_dirty-gated (construction leaves it dirty) AND MG may lack MDG's store-int routing. No Python
+workaround (to_scipy weighted is sticky-bound; weighted sum needs per-edge weights = mirror PyO3). FIX is in
+reserved views.rs/lib.rs (route MG weighted degree to a store-int sum + the sticky-edges_dirty master fix),
+BlackThrush-owned + actively-worked (mdg-edge-baseline/selfloop-cache worktrees). NOT takeable. CONSOLIDATED:
+every remaining biggest measured vs-nx gap (MG/MDG weighted degree, sticky paths, multi_source projection)
+is in BlackThrush's reserved+active fnx-python core (lib.rs/views.rs/algorithms.rs); fnx-algorithms kernels
+are all wins/impossible. 13 vs-nx wins shipped this session; new wins require the reserved-core operator unblock.
