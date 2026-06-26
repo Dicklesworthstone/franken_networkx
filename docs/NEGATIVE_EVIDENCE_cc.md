@@ -2042,3 +2042,18 @@ LEVER: a Python wrapper with a SERIAL per-source Brandes loop for the unweighted
 case already has a native parallel kernel — route unweighted through the weighted kernel with unit weights
 (missing-attr defaults to 1.0; Dijkstra-unit == BFS, byte-exact). Audit other dual weighted/unweighted
 centralities where only the weighted path is native.
+
+## 2026-06-26 CopperCliff serial-Brandes / dual-path audit — betweenness family WINS; group_betweenness(>=3) surfaced
+
+After the percolation dual-path win (157x), audited serial per-source Brandes loops + dual weighted/unweighted
+centralities at scale (n=800). WINS: betweenness_centrality 109x, betweenness_centrality(endpoints=True)
+190x, edge_betweenness_centrality 96x, load_centrality 160x, betweenness_centrality_subset 6.3x,
+edge_betweenness_centrality_subset 4.2x, group_closeness_centrality 7.7x, edge_load_centrality 1.33x. The
+serial-Python betweenness variants still beat nx (nx is also serial; fnx's integer-CSR BFS is faster, and
+subset iterates few sources). NEAR-PARITY/SURFACED: group_betweenness_centrality 0.961x (2.28s) — it has a
+native fast path only for groups of 1-2 nodes; groups of >=3 DELEGATE to nx (the native inclusion-exclusion
+path was buggy for >=3, br-r37-c1-q49py). De-delegation won't help (the 2.19s is nx's O(VE) preprocessing,
+not the conversion — single-pass, like min_cost_flow). Beating it needs a CORRECT native parallel
+group-Brandes kernel (Puzis inclusion-exclusion) — substantial + error-prone (prior attempt wrong) ->
+SURFACED as a native-kernel candidate, not a cheap win. all_pairs_shortest_path(materialize) 0.726x =
+PyObject path-dict materialization floor (view substrate, not cheaply winnable). No cheap win this batch.
