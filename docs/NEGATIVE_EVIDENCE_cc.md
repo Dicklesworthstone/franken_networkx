@@ -1951,3 +1951,15 @@ conversion paid off. LEVER BOUND: convert+delegate only helps when the fnx-primi
 (loop), NOT for single-pass algorithms (conversion cost > saved overhead). min_cost_flow family is genuine
 ~0.76x near-parity; beating nx needs a native Rust network-simplex kernel (complex + order-sensitive
 flowDict) -> not worth. REJECT.
+
+## 2026-06-26 CopperCliff repeated-primitive-loop candidate sweep — ALL WINS (pattern mined)
+
+Grepped __init__.py for the find_induced pattern (copy/subgraph/add_edge inside a loop) and benched the
+candidates: ALL already optimized/wins — kl_connected_subgraph 14.4x, triadic_census 13.2x, core_number
+8.4x, is_kl_connected 6.6x, all_triads 3.1x, adjacency_graph 2.1x, stochastic_graph 1.5x. No gap. The
+repeated-primitive-loop vein is mined (find_induced_nodes was the last one; complete_to_chordal_graph was
+fixed earlier per memory). ~50 function categories now measured at-or-above nx; periphery remains
+comprehensively exhausted. Sole high-value residual = sticky-edges_dirty core lever (surfaced). Remaining
+sub-1.0x are all documented: min_cost_flow family ~0.76x (single-pass near-parity, native-kernel-needed),
+greedy_color non-default / connected_dominating_set (exact-locked), blossom matching (order-sensitive),
+greedy_tsp (conversion-floor).
