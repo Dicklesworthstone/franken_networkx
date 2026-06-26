@@ -2152,3 +2152,21 @@ TEST TOLERANCE: pytest.approx(abs=1e-7). WIN IS REAL + RESERVED-FILE-FREE: kerne
 delegation relaxed to undirected/unweighted/no-endpoints once the kernel is correct. NEXT: diff the Rust
 PB matrix + per-v sigma_m against the verified Python port (add eprintln, one rebuild) to locate the bug.
 Buggy attempt in stash@{0}.
+
+## 2026-06-26 CopperCliff group_betweenness(>=3) DEFINITIVE REJECT — nx's Puzis algorithm is SET-ORDER-DEPENDENT
+
+Resolved the group_betweenness>=3 question PERMANENTLY (supersedes the q49py/ejuhf "buggy inclusion-exclusion"
+framing): nx's improved Puzis algorithm is ORDER-DEPENDENT on the group's iteration order. Verified on
+BA(20,2,seed=11) group {3,7,11,15,2}, computing gbc_before_scale with the group iterated in different orders:
+  [3,7,11,15,2] -> 249.3534   [2,3,7,11,15] (set order) -> 248.2905   [15,11,7,3,2] -> 247.9571
+The per-v inclusion-exclusion corrections (sigma_m/PB_m buffer-swap) DO NOT commute, so the result depends
+on order. nx does `group = set(C)` and iterates in CPython SET-HASH order -> nx's value is tied to that
+order. The spread (~1.4 pre-scale = ~0.006 after /((n-c)(n-c-1))) FAR exceeds the test tolerance
+(pytest.approx abs=1e-7). Therefore a Rust kernel CANNOT match nx's value without reproducing CPython's set
+iteration order of arbitrary group-node values — the SAME set-order wall as greedy_color / ramsey /
+clique-family (see reference_parity_blocked_by_set_order). SET-ORDER-LOCKED -> the >=3 delegation is
+MANDATORY and correct; the native port is STRUCTURALLY UNWINNABLE for exact nx parity. The textbook
+sigma-sigma_no_c kernel (order-invariant) is correct-to-definition but != nx's order-dependent value, which
+is why |C|<=2 (corrections trivial/commute) match but >=3 don't. STOP attempting this port. (My Python
+verbatim port matched nx only because Python's set() reproduced nx's set order; a Rust port can't for general
+nodes.) Reverted attempt held in a stash (not dropped, per directive).
