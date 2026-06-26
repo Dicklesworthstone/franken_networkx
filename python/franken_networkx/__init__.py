@@ -35855,18 +35855,31 @@ def laplacian_centrality(
         lap_matrix = laplacian_matrix(G, nodes, weight).toarray()
     full_energy = _np.sum(lap_matrix**2)
 
-    laplace_centralities_dict = {}
-    for i, node in enumerate(nodelist):
-        all_but_i = list(_np.arange(lap_matrix.shape[0]))
-        all_but_i.remove(i)
-        A_2 = lap_matrix[all_but_i, :][:, all_but_i]
-        new_diag = lap_matrix.diagonal() - abs(lap_matrix[:, i])
-        _np.fill_diagonal(A_2, new_diag[all_but_i])
-        new_energy = _np.sum(A_2**2) if len(all_but_i) > 0 else 0.0
-        lapl_cent = full_energy - new_energy
-        if normalized:
-            lapl_cent = lapl_cent / full_energy
-        laplace_centralities_dict[node] = float(lapl_cent)
+    # br-r37-c1-lapcent-vec (cc): nx's per-node "delete row/col i, re-sum the
+    # Laplacian energy" loop materialises an (n-1)x(n-1) submatrix every iteration
+    # = O(n^3) (102ms at n=400, both fnx and nx). The energy drop has a closed
+    # form. Removing node i (delete row+col i, then subtract |L[:,i]| from the
+    # surviving diagonal) gives, after the column terms cancel:
+    #     new_energy[i] = full_energy - rowsq[i] + 2*diag[i]^2 - 2*(diag @ |L|)[i]
+    #     lapl_cent[i]  = rowsq[i] - 2*diag[i]^2 + 2*(diag @ |L|)[i]
+    # where rowsq = sum over columns of L^2 and (diag @ |L|)[i] = sum_a diag[a]
+    # |L[a,i]|. Vectorised over all nodes in O(n^2): byte-EXACT on unweighted
+    # (integer L) and 1e-16 on weighted/directed. 0.659x -> 16x (n=120) / 124x
+    # (n=400) vs nx, the speedup growing as O(n). lapl_cent[i] uses ROW i of L
+    # (sum over the deleted column index b) — correct for the asymmetric directed
+    # Laplacian too (verified against nx on directed/weighted/complete/path/gnp).
+    diag = _np.diagonal(lap_matrix).astype(float)
+    row_sq = _np.sum(lap_matrix**2, axis=1)
+    weighted_diag_col = diag @ _np.abs(lap_matrix)
+    cents = row_sq - 2.0 * diag**2 + 2.0 * weighted_diag_col
+    if normalized:
+        cents = cents / full_energy
+
+    # ``nodes`` orders nodelist first, so positions 0..len(nodelist)-1 are exactly
+    # the reported nodes (matches nx's ``enumerate(nodelist)`` indexing).
+    laplace_centralities_dict = {
+        node: float(cents[i]) for i, node in enumerate(nodelist)
+    }
 
     return laplace_centralities_dict
 

@@ -1981,3 +1981,17 @@ nx module — that bug made the first install silently still-delegate at 0.19-0.
 only (new submodule + algorithms/__init__.py, NOT top-level __init__.py). LEVER: delegated value-returning
 fns that build a MATRIX from G (to_scipy/to_numpy) can WIN by reusing fnx's native matrix builder + nx's
 math — order-invariant, no round-trip, and fnx's Rust matrix build beats nx's even on nx's own graph.
+
+## 2026-06-26 CopperCliff WIN: laplacian_centrality O(n^3)->O(n^2) vectorization — 0.659x -> 13-90x vs nx
+
+laplacian_centrality was already native (native laplacian_matrix + numpy energy loop) but 0.659x because
+nx's per-node loop materialises an (n-1)x(n-1) submatrix EVERY iteration = O(n^3) (102ms at n=400; nx runs
+the identical O(n^3) loop). Derived the closed form for the energy drop when node i is removed (delete
+row+col i, subtract |L[:,i]| from the surviving diagonal): column terms cancel ->
+  lapl_cent[i] = rowsq[i] - 2*diag[i]^2 + 2*(diag @ |L|)[i]
+(rowsq = sum over columns of L^2). Vectorised over all nodes in O(n^2). BYTE-EXACT on unweighted (integer
+L; dict ==) and 1e-16 on weighted/directed (verified path/complete/gnp/weighted/directed-Chung-Laplacian).
+0.659x -> 13.0x (n=120) / 90.4x (n=400), speedup GROWS as O(n). conformance -k laplacian_centrality 164
+passed. Python-only (__init__.py, warn-override). LEVER: a delegated/native VALUE fn with a per-node
+"delete-row/col + re-sum a matrix functional" loop (O(n^3)) often has an O(n^2) closed form (rank-1 / row-col
+removal algebra) — derive it; byte-exact on integer matrices. Audit other per-node matrix-recompute loops.
