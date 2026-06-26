@@ -1770,3 +1770,15 @@ is ORDER-SENSITIVE (the matching depends on augmenting-path traversal order); op
 matching-value/identity divergence for a ~0.7ms gap -> not worth it. REJECT. No new clean win this batch;
 the catastrophic-worst-case property-check vein (is_at_free, is_perfect_graph) is mined out — the rest are
 already wins.
+
+## 2026-06-25 CopperCliff chordal/dominating/eulerian sweep — wins; connected_dominating_set REJECT
+
+WINS: complete_to_chordal_graph 5.09x, chordal_graph_cliques 10.0x, maximal_matching 6.67x, eulerize
+3.16x, min_weighted_dominating_set 1.57x, is_dominating_set 3.15x, edge_load_centrality 1.38x,
+percolation_centrality 1.85x, rich_club(unnorm) 43x, dominating_set 0.89x (~parity, sub-ms).
+REJECT (both set-order-locked, sub-ms or known): connected_dominating_set 0.318x (0.846ms) — DELEGATED via
+_call_networkx_for_parity; nx's algorithm is a heap-based greedy (grow a tree from the max-degree node,
+max-heap of "seen" nodes, unseen-neighbor counts) whose specific CDS depends on heap + max-degree
+tie-break (set/iteration) order -> de-delegating in-process risks divergence for a sub-ms gap, REJECT.
+greedy_color(connected_sequential_dfs) 0.431x is the already-known set-order-locked conversion case
+(reference_parity_blocked_by_set_order). No new clean win this batch.
