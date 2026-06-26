@@ -2198,3 +2198,17 @@ would make sigma/omega multi-x. KEY DISTINCTION from group_betweenness: random_r
 -> FEASIBLE, not impossible. BUT needs a binding in fnx-python/src/algorithms.rs (BlackThrush reserved, mail
 down) + substantial RNG-match work. Surfaced as the highest-EV FEASIBLE native candidate (reserved-gated).
 double_edge_swap_rust binding exists but picks a different sequence (won't match nx's random_reference).
+
+## 2026-06-26 CopperCliff steiner_tree — fast-Kou REJECT (weight-locked to nx mehlhorn default); LCA/dominating wins
+
+LCA/dominating/matching sweep WINS: lowest_common_ancestor 16.7x, maximal_matching 6.5x, harmonic_centrality
+(subset) 3.24x, descendants_at_distance 2.4x, min_weighted_dominating_set 1.45x, all_pairs_lca 1.16x.
+steiner_tree 0.485x (5ms n=400/k=4, nx runs ON the fnx graph + _from_nx_graph roundtrip): prototyped a fast
+reimpl (fnx single_source_dijkstra per terminal -> metric closure -> small MST -> expand) = 1.32-1.81x vs nx
+AND a valid tree. BUT REJECT: the binding test test_flow_cut_matching_value_parity::test_steiner_tree_weight
+asserts tw(fnx)==tw(nx) EXACTLY, and nx's DEFAULT method is "mehlhorn" (weight 16 on the probe), while my
+fast Kou matches nx's "kou" method (weight 15) -> 15 != 16 FAILS. The validity test
+(test_approximation_guarantee_invariants) is lenient, but the WEIGHT test locks fnx to nx's mehlhorn output.
+To win: faithfully reimplement nx's MEHLHORN (multi_source_dijkstra Voronoi -> auxiliary MST -> expand) with
+fnx fast primitives AND a tie-break-exact weight match — moderate effort + correctness risk for a 5-15ms
+function. Surfaced as a possible future target; not a cheap win. No file changed (prototype only).
