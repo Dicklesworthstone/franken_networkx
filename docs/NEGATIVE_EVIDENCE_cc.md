@@ -1995,3 +1995,19 @@ L; dict ==) and 1e-16 on weighted/directed (verified path/complete/gnp/weighted/
 passed. Python-only (__init__.py, warn-override). LEVER: a delegated/native VALUE fn with a per-node
 "delete-row/col + re-sum a matrix functional" loop (O(n^3)) often has an O(n^2) closed form (rank-1 / row-col
 removal algebra) — derive it; byte-exact on integer matrices. Audit other per-node matrix-recompute loops.
+
+## 2026-06-26 CopperCliff removal/matrix-centrality sweep — WINS; communicability_betweenness O(n^4)-hard REJECT
+
+Audited the per-node-matrix-recompute + matrix-functional centrality vein (after laplacian_centrality
+13-90x). WINS: subgraph_centrality 20.6x, dispersion 14.5x, effective_size 7.1x, constraint 6.7x,
+global_reaching 2.7x, effective_graph_resistance 2.05x, percolation_centrality 1.86x, kemeny_constant
+1.18x. NEAR-PARITY/REJECT: communicability_betweenness_centrality 0.894x — BUT it is a ~1.5s function
+(n=120) that is fundamentally O(n^4): it computes expm(A) then, for EACH node, expm(A with that node's
+row/col zeroed). Unlike a matrix INVERSE (Woodbury rank-k update O(n^2)), the matrix EXPONENTIAL has NO
+low-rank update under row/col zeroing, so n+1 expm calls = O(n^4) is inherent to the Estrada-Higham-Hatano
+algorithm. fnx already runs the optimal path (native to_numpy_array + scipy.linalg.expm; its own Pade
+kernel was 2.5x SLOWER per the in-tree comment). The principal-submatrix reformulation only saves a
+(1-1/n)^3 constant. No sub-O(n^4) exact algorithm known -> genuine near-parity, REJECT. Laplacian-centrality
+won because energy=sum(L^2) HAS a rank-1 closed form; communicability has none. LEVER BOUND: per-node
+matrix-recompute loops yield O(n^2) closed forms ONLY for polynomial functionals (energy/trace of L^k), NOT
+transcendental ones (expm/matrix functions).
