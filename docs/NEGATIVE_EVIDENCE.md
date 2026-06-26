@@ -6791,3 +6791,44 @@ current-main focused remote row vs `0.186x` local-fallback candidate), and
 Criterion reported a significant FNX regression against the saved local row.
 Dropping whole mirror maps is worse than clearing them in place for this
 teardown-bound residual. No production source change remains.
+
+## 2026-06-26 BlackThrush weighted multi_source_dijkstra projection-order de-gate - REJECT
+
+Scope: BOLD-VERIFY land-or-dig vs NetworkX after the remaining weighted
+`multi_source_dijkstra` gap was narrowed in `docs/NEGATIVE_EVIDENCE_cc.md` to
+the single-weight projection builder. A read-only worktree scan found no
+measured source win missing from `main`; the old adjacency outer-cache worktree
+was already represented on `main`, and the other non-ancestor worktree was
+A* parity-only. Agent Mail remained blocked by the existing SQLite corruption
+circuit breaker, so the probe used a fresh detached worktree.
+
+Lever: preserve the source graph's adjacency row order after
+`dijkstra_single_weight_graph_projection` / `dijkstra_single_weight_digraph_projection`
+rebuild weighted edge attributes, then remove the public
+`multi_source_dijkstra` `_mst_has_weight_edge_attr` bypass so weighted simple
+graphs hit the native kernel. A temporary focused Criterion row asserted exact
+distance and path parity against vendored NetworkX before timing.
+
+The literal `cargo bench --release` form is rejected by this cargo toolchain, so
+the equivalent release bench profile was used through `rch` with the requested
+warm target dir and per-crate `fnx-python` scope:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head weighted_multi_source -- --quiet`
+
+`rch` refused remote assignment for the dirty detached probe
+(`insufficient_slots=4,hard_preflight=1`) and failed open to local execution.
+
+| workload | state | runner | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | --- | --- | ---: | ---: | ---: |
+| `multi_source_dijkstra_ba800_weighted_k8` | projection-order de-gate candidate | local fallback via `rch exec` | `5.4239 ms` | `2.4646 ms` | `0.454x` |
+
+Validation while probing: the focused benchmark setup passed its exact
+NetworkX parity assertions for both distances and paths before timing. The
+candidate source and temporary benchmark row were reverted before this ledger
+commit; `git diff` on the touched source/bench files is empty.
+
+Decision: REVERTED. Preserving weighted-projection row order makes the native
+path correct for this BA fixture, but it remains slower than NetworkX
+(`0.454x`). The extra projection rebuild/order work is still Python/PyO3-bound,
+so removing the public weighted bypass is not a measured win. No production
+source change remains.
