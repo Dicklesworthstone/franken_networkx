@@ -2345,3 +2345,21 @@ classification / laplacian_centrality / percolation / asteroidal -> 1302 passed,
 All 13 vs-nx wins + 2 parity-fixes remain byte-exact + conformance-green under peer churn. No regression.
 Periphery comprehensively won (~25 domains swept, all wins); remaining vs-nx work is coordination/depth-gated
 (reserved fnx-python core; parked multi_source interleaving; proven-impossible; inherent), not discovery-gated.
+
+## 2026-06-26 CopperCliff multi_source_dijkstra ROOT CAUSE RESOLVED — weighted-projection reorders neighbors (RESERVED-gated)
+
+DEFINITIVE resolution of the multi_source_dijkstra 0.17x / ~8% path-divergence chain: the binding
+(algorithms.rs:3848) runs the kernel on a WEIGHTED PROJECTION — dijkstra_weighted_undirected_projection ->
+dijkstra_single_weight_graph_projection(py, pg, weight) (algorithms.rs:441/448), NOT the original graph. My
+earlier CC_MSD_DEBUG eprintln (which traced neighbors INSIDE the kernel, i.e. on the projection) showed node
+8's neighbors = [0,3,4,1,7], whereas the original graph's insertion order (= nx + the Python view gf[8]) is
+[4,0,3,1,7]. So the WEIGHTED PROJECTION BUILDER REORDERS NEIGHBORS (non-insertion order) -> the kernel relaxes
+in the wrong order -> the equidistant-node finalize tie-break diverges from nx in multi-source (single_source
+matches because it does not hit this reordered projection the same way). This explains why my fnx-algorithms
+kernel neighbor-iterator change (neighbors_iter) DIDN'T help: the kernel was already fed wrong-order neighbors
+by the projection. FIX LOCATION: dijkstra_single_weight_graph_projection in fnx-python/src/algorithms.rs
+(BlackThrush RESERVED, agent-mail down) must build the projection's adjacency in INSERTION order. So
+multi_source_dijkstra is RESERVED-GATED (re-classified from "takeable-fnx-algorithms" — the kernel is takeable
+but the bug is in the reserved projection builder). steiner_tree (uses multi_source) is gated on the same.
+CHAIN CLOSED: root cause precise, fix is a reserved-file 1-spot change (make the weighted projection preserve
+insertion-order adjacency). 13 vs-nx wins shipped this session.
