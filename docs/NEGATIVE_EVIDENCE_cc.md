@@ -2324,3 +2324,14 @@ divergent pop) to locate the source-seq/interleave mismatch — a dedicated debu
 (6+ turns invested; 13 wins shipped; reserved-gated + impossible alternatives remain). DECISION: multi_source
 _dijkstra stays gated (0.17x weighted); it is a genuine but deep interleaving tie-break bug, parked as a
 characterized dedicated-debug target. Moving off the dijkstra/steiner chain for good.
+
+## 2026-06-26 CopperCliff minors/contraction/line-graph/bulk-attr/conversion sweep — ALL WINS
+
+Fresh domain (n=300): contracted_nodes 7.4x, contracted_edge 5.6x, get_node_attributes 5.8x, line_graph
+4.91x, set_node_attributes(bulk) 4.33x, quotient_graph 3.29x, power 2.4x, to_dict_of_lists 2.17x, is_frozen
+2.05x, from_dict_of_lists 1.05x. ALL WINS — no gap. Minors/contraction/line-graph/bulk-attribute/conversion
+domains comprehensively won. Confirms (~25 domains swept this session): every fresh-domain sweep returns
+wins; accessible periphery mined out. 13 vs-nx wins shipped. Remaining vs-nx work is coordination/depth-gated
+(reserved fnx-python: sigma/omega+steiner+sticky; deep-storage-parked: multi_source interleaving tie-break;
+proven-impossible: group_betweenness>=3+spectral_ordering; inherent: non_randomness/min_cost_flow/communicability
+/all_pairs), NOT discovery-gated.
