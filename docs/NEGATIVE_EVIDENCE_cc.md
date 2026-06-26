@@ -2429,3 +2429,19 @@ multi-source de-gate" — a PEER is now working the multi_source gate (independe
 de-gate-is-unsafe conclusion I recorded). So the one remaining takeable-after-projection-fix gap
 (multi_source) is actively peer-owned + reserved (algorithms.rs) -> I must not duplicate/collide. Traversal +
 centrality hot paths confirmed comprehensively won. 13 vs-nx wins shipped this session.
+
+## 2026-06-26 CopperCliff core_laggards bench-group measured — biggest gap = MDG weighted degree 0.633x (sticky+view-floored, reserved)
+
+Benched the head_to_head bench suite's EXPLICIT core_laggards group (n=1500/e=9000 MDG): biggest measured
+gaps = MDG.in_degree(weight) 0.633x (7.17 vs 4.54ms), MDG.degree(weight) 0.657x (11.45 vs 7.52ms), MG
+selfloop_edges(keys,data) 0.659x (0.13 vs 0.09ms, sub-ms). The rest are WINS (peer fixes landed): MDG.in_edges
+(data) 28.3x, out_edges(nbunch,keys,data) 23.0x, out_edges(keys,data) 5.97x, edges(keys) 3.25x. ROOT CAUSE of
+the weighted-degree gap (per reference_mdg_weighted_degree_store_int + this measurement): the native store-int
+weighted-degree fast path (ac98e77d4) is gated on !edges_dirty, but a freshly-built/mutated MDG leaves
+edges_dirty STICKY-true (weights live in the per-edge Python mirror, store stale) -> falls to per-edge PyO3
+weight reads. AND the residual floor is PyObject per-node degree-VIEW materialization (the eilce index-native
+accumulator lever was REFUTED/NO-SHIP — halving Rust work left fnx unchanged). So MDG weighted degree is
+DOUBLY gated: sticky-edges_dirty (reserved lib.rs, the pyclass(extends=PyDict) master fix) + PyObject view
+floor. NOT takeable. This IS the biggest measured laggard and it reduces to the already-surfaced sticky-
+edges_dirty reserved-core lever. Traversal/centrality hot paths separately confirmed all-wins (prior turn).
+13 vs-nx wins shipped this session.
