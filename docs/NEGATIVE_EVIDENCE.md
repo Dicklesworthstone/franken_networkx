@@ -6482,3 +6482,43 @@ not move the dominant Python tuple/value materialization cost, and it regressed
 the measured FNX median from `15.665 ms` to `16.799 ms`. No production source
 change kept. The focused benchmark row stays as a guard and future routing
 evidence for this still-sub-NetworkX path.
+
+## 2026-06-26 BlackThrush MultiGraph.add_edge sparse attr mirror for clear_edges - REJECT
+
+Scope: BOLD-VERIFY land-or-dig vs NetworkX. The `.scratch` / `.worktrees` scan
+found no measured win missing from `main`: the only perf-looking non-ancestor
+was the old adjacency outer-cache commit `5e65efa88`, already represented on
+`main` by `a424835f7`, and the other live non-ancestor was an A* parity test.
+The new lever targeted the current `MultiGraph.clear_edges()` residual, whose
+latest no-ship evidence says the row clear itself is not the bottleneck.
+
+Lever: stop eagerly creating a Python `edge_py_attrs` mirror in
+`PyMultiGraph.add_edge` when the edge attr dict has not yet been observed.
+The Rust `AttrMap` would remain authoritative, and an existing live mirror would
+still be updated in place. This aimed to reduce the mirror maps that
+`clear_edges()` has to drop after the benchmark factory builds 4000 attributed
+explicit-key edges.
+
+Command used the requested warm target dir and per-crate `fnx-python` scope.
+The literal `cargo bench --release` form is rejected by this toolchain, so the
+equivalent release bench profile was used:
+
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b AGENT_NAME=BlackThrush PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head -- multigraph_clear_edges --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`
+
+`rch exec` had no admissible workers for this bench
+(`insufficient_slots=4,hard_preflight=1`) and failed open to local execution.
+
+| workload | state | runner | FNX median | NetworkX median | ratio vs NetworkX | self vs saved baseline |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `fnx_multigraph_clear_edges_n800_e4000` | sparse add-edge attr mirror candidate | local fallback | `16.512 ms` | `1.1123 ms` | `0.067x` | `0.396x` |
+
+Validation while probing: `cargo check -p fnx-python --all-targets --features
+pyo3/abi3-py310` passed via `rch exec` on `hz2`; the focused head-to-head bench
+passed its correctness assertions before timing. Criterion reported a
+statistically significant FNX regression of `+152.36%` against the saved
+local `cod-b` baseline.
+
+Decision: REVERTED. Sparse mirrors made the target benchmark much worse, likely
+because clear-time mirror dropping was traded for repeated on-demand mirror work
+inside factory construction and correctness probes. No production source change
+kept.
