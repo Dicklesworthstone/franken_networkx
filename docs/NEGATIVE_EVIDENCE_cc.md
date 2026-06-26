@@ -2416,3 +2416,16 @@ fnx-python core: sigma/omega random_reference + steiner mehlhorn + sticky-edges_
 projection-builder, all with exact fix specs in this ledger) / proven-impossible (group_betweenness>=3,
 spectral_ordering) / inherent (non_randomness dense-eig, min_cost_flow single-pass, communicability O(n^4),
 all_pairs materialization). 13 vs-nx wins + 2 parity-fixes shipped, all durability-verified.
+
+## 2026-06-26 CopperCliff traversal-family sweep (n=2000) — ALL WINS; multi_source now peer-worked
+
+Aggressive traversal hot-path sweep (directive: go aggressive on traversal): bfs_tree 3.06x, dfs_tree 3.09x,
+dfs_edges 1.87x, dfs_predecessors 1.83x, bfs_edges 1.60x, bfs_successors 1.52x, edge_bfs 1.45x, bfs_layers
+1.44x, edge_dfs 1.41x, dfs_postorder_nodes 1.34x, bfs_predecessors 1.31x, descendants 2.34x. ALL WINS. The
+low-end (bfs_layers/predecessors 1.3-1.4x) is PyObject-result-materialization-floored (native BFS is fast;
+building the Python edge/node lists is the residual — view-substrate floor, not cheaply improvable). No
+takeable gap in the traversal family. SIGNAL: origin/main HEAD = 3135ea43e "docs(perf): reject weighted
+multi-source de-gate" — a PEER is now working the multi_source gate (independently reached the same
+de-gate-is-unsafe conclusion I recorded). So the one remaining takeable-after-projection-fix gap
+(multi_source) is actively peer-owned + reserved (algorithms.rs) -> I must not duplicate/collide. Traversal +
+centrality hot paths confirmed comprehensively won. 13 vs-nx wins shipped this session.
