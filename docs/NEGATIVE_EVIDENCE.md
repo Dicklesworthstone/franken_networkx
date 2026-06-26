@@ -6743,3 +6743,51 @@ Decision: REVERTED. The same-worker result moved the ratio by only `0.357x` to
 this Python-object-materialization-bound residual. The semantic risk of
 bypassing clean Python attr mirrors for a sub-3% local movement is not worth
 keeping. No production source change remains.
+
+## 2026-06-26 BlackThrush MultiGraph.clear_edges wholesale mirror-map replace - REJECT
+
+Scope: BOLD-VERIFY land-or-dig vs NetworkX on current `main` (`a733eeb31`). A
+fresh `.scratch` / `.worktrees` scan found no measured source win missing from
+`main`: the old adjacency outer-cache worktree is already represented by
+`a424835f7`, and the other live non-ancestor worktree was A* parity-only.
+Agent Mail registration/reservation was attempted but blocked by the existing
+SQLite corruption circuit breaker.
+
+Fresh current-head routing used the requested warm target dir and per-crate
+`fnx-python` scope. The literal `cargo bench --release` form is rejected by
+this toolchain, so the equivalent release bench profile was used:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head -- core_laggards --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`
+
+`core_laggards` showed `MultiGraph.clear_edges()` was still the largest fresh
+measured gap after a focused remote refresh on `ovh-a`:
+
+| workload | state | runner | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | --- | --- | ---: | ---: | ---: |
+| `mg_selfloop_keys_weight_n2500_loops2502` | current `main` routing | local fallback | `2.4788 ms` | `691.35 us` | `0.279x` |
+| `fnx_multigraph_clear_edges_n800_e4000` | current `main` clear_edges | `rch` remote `ovh-a` | `1.9291 ms` | `421.00 us` | `0.218x` |
+
+Lever: replace `PyMultiGraph.clear_edges()`'s large Python mirror maps
+(`edge_py_attrs`, `adj_py_keys`, `edge_py_keys`) wholesale with fresh empty
+`HashMap`s instead of calling `clear()` on each map. The observable graph state
+after `clear_edges()` is identical: nodes and node attrs remain, all edges and
+edge mirrors are gone, and `edges_seq` still bumps once. The hypothesis was
+that dropping whole maps might avoid clear-path table bookkeeping for the
+explicit-key attributed workload where those mirrors dominate teardown.
+
+Candidate command:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head -- clear_edges --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`
+
+`rch exec` had no admissible workers for the candidate run
+(`insufficient_slots=4,hard_preflight=1`) and failed open to local execution.
+
+| workload | state | runner | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | --- | --- | ---: | ---: | ---: |
+| `fnx_multigraph_clear_edges_n800_e4000` | wholesale mirror-map replace candidate | local fallback | `5.0847 ms` | `943.94 us` | `0.186x` |
+
+Decision: REVERTED. The candidate regressed the measured ratio (`0.218x`
+current-main focused remote row vs `0.186x` local-fallback candidate), and
+Criterion reported a significant FNX regression against the saved local row.
+Dropping whole mirror maps is worse than clearing them in place for this
+teardown-bound residual. No production source change remains.
