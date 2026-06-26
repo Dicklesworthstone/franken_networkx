@@ -1797,3 +1797,20 @@ ORDER-SENSITIVE (nearest-neighbor min() tie-breaks by iteration order) so it nee
 run in-process on a weight snapshot (a numpy-vectorized argmin diverges on the many weight ties), and the
 weight snapshot is itself O(n^2) construction-floor-bound -> best ~0.3-0.5x, not >nx. Not shipped (order-
 sensitive + conversion-floor for a TSP heuristic); recorded as a de-delegate target. No clean win.
+
+## 2026-06-25 CopperCliff distance/structural-holes/bipartite-centrality sweep — ALL WINS (no gap)
+
+Final coverage sweep, all fnx >= nx (no gap, nothing to fix): eccentricity 16.6x, diameter 16.8x, center
+16.5x, periphery 16.1x, barycenter 13.0x, effective_size 5.0x, constraint 5.2x, bipartite.betweenness
+17.4x, bipartite.closeness 1.06x, robins_alexander_clustering 75.9x, resistance_distance 141x. (dispersion
+0.704x is 0.093ms = sub-ms noise; eccentricity(weighted) "0.001x" was a bogus None baseline.) These
+distance/structural-hole/bipartite-centrality domains join the already-verified frontier.
+PERIPHERY TERMINAL: ~30+ function categories now measured at-or-above nx across this session. The last
+three sweep batches were increasingly all-wins; fresh sweeps now CONFIRM wins rather than find gaps. The
+only residual sub-1.0x items are order-locked-delegations (greedy_color non-default, connected_dominating
+_set), order-sensitive kernels (blossom matching, greedy_tsp), and architectural-core (sticky-edges_dirty
+master lever + dual-storage construction substrate). The sole high-value remaining lever is the core
+sticky-edges_dirty fix (pyclass(extends=PyDict), ~9 fns), surfaced f91977f1e/2578350fe, blocked on core
+access + corrupted agent-mail. Session: 9 clean vs-nx wins shipped (prufer, gaussian, is_distance_regular,
+tree_broadcast_center, subgraph_centrality 34x, hopcroft_karp 20x, random_cograph, is_at_free 166-305x,
+is_perfect_graph+fix) + *_all operator cluster + paley loss-reduction.
