@@ -2376,3 +2376,17 @@ divergence in multi_source's multi-initial-source interleaving tie-break; single
 cluster worry: fixing the reserved projection builder unlocks essentially just multi_source_dijkstra (+ steiner
 which calls it), not a family. Modest scope, still reserved-gated. Weighted-dijkstra family otherwise
 comprehensively won. 13 vs-nx wins shipped this session.
+
+## 2026-06-26 CopperCliff multi_source via k-single_source workaround — REJECT (paths diverge + slower); fully reserved-gated
+
+Final takeable-hope test for multi_source_dijkstra: compute it as a merge of k single_source_dijkstra calls
+(single_source is correct 0/116 + fast 5.4x; merge = min dist, earlier-source-wins-ties). RESULT: distances
+match nx 0/77, but PATHS diverge 61/77, AND it's slower (0.33x at k=8 / 0.87x at k=3 — k dijkstra calls +
+merge). WHY paths diverge: nx.multi_source's path to a node is NOT nx.single_source's path from its nearest
+source — the multi-source heap interleaving tie-breaks shortest-path choices differently than a standalone
+single-source run. So the merge is both wrong (61/77) and slow. NO PYTHON WORKAROUND for multi_source.
+CONCLUSION: multi_source_dijkstra is FULLY reserved-gated — the only fix is making the reserved weighted-
+projection builder (dijkstra_single_weight_graph_projection, fnx-python) preserve insertion-order adjacency
+so the native kernel's interleaving tie-break matches nx. All avenues exhausted (kernel neighbor-iter fix:
+futile; k-single-source merge: wrong+slow; gate-removal: 8% divergence). multi_source chain fully closed.
+13 vs-nx wins shipped this session; remaining work is operator-unblock-gated.
