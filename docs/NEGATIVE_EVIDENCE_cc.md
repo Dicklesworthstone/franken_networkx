@@ -2082,3 +2082,26 @@ correct native kernels (same class as group_betweenness>=3 Puzis), not cheap win
 FRONTIER STATUS: the cheap-win veins (bespoke O(n^k) kernels, per-node polynomial loops, delegated-matrix
 reuse, serial->native-parallel routing) yielded 13 wins this session and are now largely tapped; fresh
 sweeps return wins + a few correctness-delegated near-parity residuals that need full native kernels.
+
+## 2026-06-26 CopperCliff trophic sweep + CONSOLIDATED BLOCKER (Python-only veins tapped)
+
+trophic_levels: n=300 0.707x but n=800 1.055x (ratio IMPROVES with scale -> small-n noise, NOT a systematic
+gap), trophic_incoherence_parameter 1.06x, trophic_differences 0.861x. Already at/above nx at scale (native
+wrappers using fnx's matrix builders). No gap.
+
+CONSOLIDATED FRONTIER (after ~15 turns, 13 vs-nx wins shipped): the PYTHON-ONLY win veins are now TAPPED —
+(1) bespoke O(n^k) kernels in fnx-algorithms [TealSpring, takeable] (is_at_free 305x, find_asteroidal 308x),
+(2) per-node polynomial closed forms (laplacian_centrality 90x), (3) delegated-matrix reuse of fnx's native
+to_scipy/to_numpy (node_classification 1.84x), (4) serial->existing-native-parallel-kernel routing
+(percolation 157x). Fresh wide sweeps (clustering/similarity/link-pred/core/flow/trophic/spectral/centrality
+/community) now return WINS + correctness-delegated near-parity residuals.
+
+The remaining vs-nx wins ALL require a NEW native kernel + a binding in fnx-python/src/algorithms.rs OR
+lib.rs (BlackThrush's RESERVED, actively-committed core), and agent-mail is DOWN (no coordination/reservation):
+  - group_betweenness_centrality(>=3): correct parallel Puzis inclusion-exclusion kernel (prior native buggy)
+  - k_components: correct native Moody-White
+  - minimum_node_cut (global): native global node-cut
+  - sticky-edges_dirty MASTER lever (dijkstra 0.165x / to_scipy(weight) 0.38x / MG-degree 0.73x): pyclass(
+    extends=PyDict) marking dict in lib.rs (f91977f1e)
+OPERATOR ACTION needed: restore agent-mail (am doctor repair) + reassign/clear fnx-python core for CopperCliff,
+or have BlackThrush implement from this ledger. No further cheap Python-only vs-nx win remains to mine.
