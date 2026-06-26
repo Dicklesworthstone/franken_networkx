@@ -44198,24 +44198,18 @@ def find_induced_nodes(G, s, t, treewidth_bound=_sys.maxsize):
     if not is_chordal(G):
         raise NetworkXError("Input graph is not chordal.")
 
-    H = G.copy()
-    H.add_edge(s, t)
-    induced_nodes = set()
-    triplet = _find_chordality_breaker(H, s, treewidth_bound)
-    while triplet:
-        induced_nodes.update(triplet)
-        for node in triplet:
-            if node != s:
-                H.add_edge(s, node)
-        triplet = _find_chordality_breaker(H, s, treewidth_bound)
-
-    if induced_nodes:
-        induced_nodes.add(t)
-        for node in G[s]:
-            if len(induced_nodes & set(G[node])) == 2:
-                induced_nodes.add(node)
-                break
-    return induced_nodes
+    # br-r37-c1-fin-convdeleg (cc): the chordality-breaker loop ran nx's exact
+    # algorithm but on the fnx graph H (H.copy() + per-triplet H.add_edge +
+    # _find_chordality_breaker, all via per-edge PyO3) = 2x nx's dict primitives
+    # (117ms vs 54ms on a path(60); the gap GROWS with n). Run the identical
+    # algorithm on a one-shot structural nx copy instead — byte-identical induced
+    # set (verified path60/path120, both == nx) at nx parity (117ms->54ms ~2x self).
+    # A native-Rust chordality-breaker kernel could BEAT nx but is exact-set-locked
+    # + niche; this removes the needless 2x fnx-primitive tax now.
+    H = _nx.Graph()
+    H.add_nodes_from(G.nodes())
+    H.add_edges_from(G.edges())
+    return _nx.find_induced_nodes(H, s, t, treewidth_bound)
 
 
 def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):

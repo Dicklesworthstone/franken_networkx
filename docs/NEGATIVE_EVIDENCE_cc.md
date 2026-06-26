@@ -1926,3 +1926,14 @@ LESSON CONFIRMED + BOUNDED: re-reading test contracts unlocked find_asteroidal_t
 was algorithmic O(n^4)->O(n^3)); but lenient tests only help when the gap is ALGORITHMIC (not conversion/
 construction-floor) AND the test doesn't assert exact-equality. greedy_color/connected_dominating_set are
 genuinely exact-locked; greedy_tsp is floor-bound. No further wins in the order-locked-reject set.
+
+## 2026-06-26 CopperCliff find_induced_nodes 0.478x->parity (2x self, byte-exact via convert+delegate)
+
+find_induced_nodes was 0.478x (117ms vs 54ms, path(60); grows with n). It already ran nx's EXACT chordality-
+breaker algorithm but on the fnx graph H (H.copy() + per-triplet H.add_edge + _find_chordality_breaker, all
+per-edge PyO3) = 2x nx's dict primitives. Replaced the loop with the identical algorithm on a one-shot
+structural nx copy -> byte-identical induced set (verified path60/path120 == nx; conformance -k
+"find_induced or chordal" 871 passed). 0.478x -> 1.01x/1.03x (~2x self). NOT a vs-nx win (parity) but a
+strict 2x self-improvement with no native-ness loss (the function was already a Python port of nx's algo,
+never a native kernel). To BEAT nx: a native-Rust chordality-breaker kernel (exact-set-locked + niche, not
+worth now). Shipped as a parity-reaching loss-reduction. is_chordal pre-check + error contract preserved.
