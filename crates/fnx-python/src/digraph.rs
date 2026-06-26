@@ -4363,6 +4363,28 @@ impl PyMultiDiGraph {
             .collect())
     }
 
+    fn _native_guarded_edge_list_iter(
+        slf: PyRef<'_, Self>,
+        py: Python<'_>,
+        items: PyObject,
+    ) -> PyResult<Py<MultiDiGraphGuardedEdgeListIter>> {
+        let len = items.bind(py).len()?;
+        let expected_nodes_seq = slf.nodes_seq;
+        let expected_edges_seq = slf.edges_seq;
+        let graph = Py::from(slf);
+        Py::new(
+            py,
+            MultiDiGraphGuardedEdgeListIter {
+                graph,
+                items,
+                index: 0,
+                len,
+                expected_nodes_seq,
+                expected_edges_seq,
+            },
+        )
+    }
+
     /// br-r37-c1-mdgoutedge (cc): MultiDiGraph out_edges(nbunch, data=False). nx
     /// iterates succ[u].items() keydicts in Python; this walks successors x
     /// edge_keys in rust (no dedup — directed edges unique), node-deduped, emitting
@@ -12917,6 +12939,43 @@ impl DiGraphGuardedEdgeListIter {
 }
 
 #[pyclass]
+pub struct MultiDiGraphGuardedEdgeListIter {
+    graph: Py<PyMultiDiGraph>,
+    items: PyObject,
+    index: usize,
+    len: usize,
+    expected_nodes_seq: u64,
+    expected_edges_seq: u64,
+}
+
+#[pymethods]
+impl MultiDiGraphGuardedEdgeListIter {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> PyResult<Option<PyObject>> {
+        if slf.index >= slf.len {
+            return Ok(None);
+        }
+        let py = slf.py();
+        {
+            let graph = slf.graph.borrow(py);
+            if graph.nodes_seq != slf.expected_nodes_seq
+                || graph.edges_seq != slf.expected_edges_seq
+            {
+                return Err(PyRuntimeError::new_err(
+                    "dictionary changed size during iteration",
+                ));
+            }
+        }
+        let item = slf.items.bind(py).get_item(slf.index)?.unbind();
+        slf.index += 1;
+        Ok(Some(item))
+    }
+}
+
+#[pyclass]
 pub struct DiGraphGuardedEdgeStreamIter {
     graph: Py<PyDiGraph>,
     node_keys: Py<PyTuple>,
@@ -13007,6 +13066,7 @@ pub fn register_digraph_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<MultiDiGraphNodeView>()?;
     m.add_class::<MultiDiGraphEdgeView>()?;
     m.add_class::<MultiDiGraphDegreeView>()?;
+    m.add_class::<MultiDiGraphGuardedEdgeListIter>()?;
     m.add_class::<MultiDiAtlasView>()?;
     m.add_class::<MultiDiKeyDictView>()?;
     Ok(())

@@ -6442,6 +6442,54 @@ Validation while probing: `cargo fmt -p fnx-python --check` passed, and
 passed on `hz2`. The candidate source code was reverted before this entry was
 committed.
 
+## 2026-06-26 BlackThrush MultiDiGraph guarded edge-list iterator - KEEP
+
+Scope: BOLD-VERIFY land-or-dig after scanning live `.scratch` / `.worktrees`.
+The only measured worktree win not ancestor of `origin/main` was CopperCliff's
+adjacency outer-cache branch, and its source patch is already present on `main`
+as `a424835f7` (same stable patch-id `04e75a953edb1b2aecb675526d9c59e7914cbb08`).
+The other off-main worktree was test-only. I therefore dug a new lever on the
+remaining `MultiDiGraph.edges(keys=True)` laggard.
+
+Lever: `MultiDiGraph.edges(keys=True)` already materializes a guarded
+`_EdgeListWithSetAlgebra`, but unlike `DiGraph` it had no native
+`_native_guarded_edge_list_iter`, so every iteration drained through the Python
+`_FailFastEdgeIterator` generator guard. I added the MultiDiGraph analogue of
+`DiGraphGuardedEdgeListIter`: it keeps the same `nodes_seq` / `edges_seq`
+mutation check and the same `"dictionary changed size during iteration"` error,
+but moves the per-item guard and list indexing into the PyO3 iterator.
+
+Commands used the requested warm target dir and per-crate `fnx-python` scope.
+The literal `cargo bench --release` form is rejected by this Cargo bench
+toolchain, so these runs used the equivalent release bench profile:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head mdg_edges_keys -- --quiet`
+
+| workload | state | runner | FNX median | NetworkX median | ratio vs NetworkX | self vs baseline |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `mdg_edges_keys_n700_e12662` | clean current `origin/main` (`81a98124d`) | local fallback | `4.5855 ms` | `1.7737 ms` | `0.387x` | baseline |
+| `mdg_edges_keys_n700_e12662` | native MultiDiGraph guarded edge-list iterator | local fallback | `1.5707 ms` | `1.4608 ms` | `0.930x` | `2.92x` |
+
+Supplemental same-patch focused run in the previous scratch worktree measured
+`1.4986 ms` FNX vs `1.3252 ms` NetworkX (`0.884x`), confirming the row moved in
+the intended direction outside the strict current-main baseline worktree too.
+
+Decision: KEEP. The change is behavior-preserving for the keyed edge view:
+ordering is unchanged because the underlying materialized edge list is unchanged;
+mutation semantics are unchanged because the iterator checks the same
+`nodes_seq` and `edges_seq` snapshots before yielding each item; floating-point
+and RNG are not involved.
+
+Validation:
+- `cargo fmt -p fnx-python --check`: passed.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo check -p fnx-python --all-targets --features pyo3/abi3-py310`: passed via local fallback.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo clippy -p fnx-python --all-targets --features pyo3/abi3-py310 -- -D warnings`: passed on `ovh-a`.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo test -p fnx-python --features pyo3/abi3-py310`: passed on `vmi1227854`, 28 passed, 0 failed; doctests 0 passed.
+- `VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH maturin develop --release --features pyo3/abi3-py310`: built and installed the candidate extension.
+- `VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH python -m pytest tests/python/test_edges_keys_cache_consistency_guard.py tests/python/test_review_mode_regression_lock.py::test_multigraph_edges_keys_view_supports_2tuple_contains -q`: 25 passed, 1 pre-existing SyntaxWarning.
+- `git diff --check`: passed.
+- `ubs crates/fnx-python/src/digraph.rs docs/NEGATIVE_EVIDENCE.md`: passed with no critical findings.
+
 ## 2026-06-25 BlackThrush MultiDiGraph.in_edges data-key borrowed stream - REJECT
 
 Scope: BOLD-VERIFY `MultiDiGraph.in_edges(keys=True, data="weight",
