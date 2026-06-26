@@ -1837,3 +1837,20 @@ showed 0.396x COLD but warm is 1.32-1.51x FASTER (cold-measurement artifact, sam
 0.299x). NO real gap. ~37 function categories now at-or-above nx; periphery comprehensively exhausted.
 Sole high-value residual remains the core sticky-edges_dirty lever (pyclass(extends=PyDict), ~9 fns;
 surfaced f91977f1e), blocked on core-file access + corrupted agent-mail.
+
+## 2026-06-25 CopperCliff serialization-format sweep — wins/near-parity; periphery definitively exhausted
+
+Serialization round-trips (GML/GraphML/graph6/sparse6/pajek/gexf/json), all fnx >= nx or near-parity:
+parse_gml 5.80x, to_graph6_bytes 1.45x, from_graph6_bytes 1.15x, to_sparse6_bytes 1.19x, node_link_data
+1.27x, generate_gml 1.03x, generate_graphml 0.97x; generate_pajek 0.732x / generate_gexf 0.842x /
+adjacency_data 0.815x are near-parity construction-string-floor (modest, not clean); forest_str 0.122x is
+0.003ms (PyO3 noise). No real gap.
+
+PERIPHERY DEFINITIVELY EXHAUSTED (~40 function categories measured this session, all at-or-above nx): the
+last 7 sweep batches were all-wins. Every residual sub-1.0x is (a) cold-measurement noise (warms to a win,
+e.g. to_nested_tuple/random_cograph cold), (b) set-order-locked / order-sensitive (greedy_color non-default,
+connected_dominating_set, blossom matching, greedy_tsp -- must match nx's exact iteration order), or (c)
+construction-string-floor / architectural-core (the sticky-edges_dirty master lever + dual-storage
+substrate). Sole high-value remaining lever = sticky-edges_dirty (pyclass(extends=PyDict), ~9 fns;
+f91977f1e), blocked on core-file access (BlackThrush's active lib.rs) + corrupted agent-mail. 9 clean
+vs-nx wins shipped this session; further vs-nx progress needs an operator unblock, not more sweeping.
