@@ -2057,3 +2057,15 @@ not the conversion — single-pass, like min_cost_flow). Beating it needs a CORR
 group-Brandes kernel (Puzis inclusion-exclusion) — substantial + error-prone (prior attempt wrong) ->
 SURFACED as a native-kernel candidate, not a cheap win. all_pairs_shortest_path(materialize) 0.726x =
 PyObject path-dict materialization floor (view substrate, not cheaply winnable). No cheap win this batch.
+
+## 2026-06-26 CopperCliff wide scale sweep (clustering/similarity/link-pred/core/structural-holes) — ALL WINS
+
+Scale sweep n=1200: clustering 72x, k_core 41.2x, square_clustering 17.9x, average_neighbor_degree 10.2x,
+local_constraint 10.9x, eccentricity 9.7x, constraint 6.3x, triangles 3.4x, generalized_degree 3.1x,
+jaccard_coefficient(all-pairs) 2.24x, adamic_adar_index 1.99x. ALL WINS at scale — no gap. The clustering /
+similarity / link-prediction / k-core / structural-holes / distance domains are comprehensively faster than
+nx at scale. Combined with the prior betweenness-family all-wins and centrality/community all-wins sweeps,
+the algorithm periphery is wins-at-scale except the documented residuals: group_betweenness(>=3) [Puzis
+native kernel candidate], spectral_ordering [sign-locked], communicability_betweenness [O(n^4) transcendental],
+min_cost_flow family [single-pass near-parity], all_pairs_shortest_path [PyObject materialization floor],
+sticky-edges_dirty [architectural core, operator-gated]. 13 vs-nx wins shipped this session.
