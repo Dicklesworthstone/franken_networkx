@@ -1755,3 +1755,18 @@ exact (0/12 graph types; conformance -k perfect 102 passed). 0.046x -> 0.93x (pa
 (BA60 win) / 0.84x (bipartite); also FIXES the >24-length-hole correctness divergence. Python-only
 periphery (no build). LEVER: a bespoke exponential search reimplemented where nx uses a better-engineered
 primitive (chordless_cycles) -> route to the existing fnx primitive matching nx's algorithm exactly.
+
+## 2026-06-25 CopperCliff property-check + LCA/cuts/matching sweep — wins; min_weight_matching REJECT
+
+Property checks (worst-case inputs): WINS — is_semiconnected 8.7x, is_attracting_components 8.5x,
+is_strongly_connected 3.4x, is_biconnected 2.3x, has_bridges 2.7x, is_regular 3.0x; is_threshold_graph
+0.161x is 0.002ms (PyO3/dispatch noise, not real). LCA/disjoint-paths/cuts/matching: WINS — node_disjoint
+_paths 9.5x, edge_disjoint_paths 7.3x, all_node_cuts 2.3x, is_perfect_matching 8.5x, wiener_index 13.7x,
+all_pairs_lowest_common_ancestor 1.2x, all_simple_paths(cutoff) 1.28x.
+REJECT: min_weight_matching 0.79x (3.4ms vs 2.7ms) + min_edge_cover 0.62x (inherits it, defaults to
+max_weight_matching). Verified NOT a layout phantom — fair baseline (both graphs from the same edgelist)
+is also 0.793x. fnx's blossom (max/min_weight_matching) is genuinely ~0.79x of nx. The blossom algorithm
+is ORDER-SENSITIVE (the matching depends on augmenting-path traversal order); optimizing the kernel risks
+matching-value/identity divergence for a ~0.7ms gap -> not worth it. REJECT. No new clean win this batch;
+the catastrophic-worst-case property-check vein (is_at_free, is_perfect_graph) is mined out — the rest are
+already wins.
