@@ -3286,3 +3286,26 @@ SCOPE: any graph built via add_edges_from(dict attrs) (a common nx pattern) then
 correctness fix (the store-reading weighted kernels must sync the mirror first, like dijkstra; or add_edges_from
 must mark edges_dirty so the existing sync path fires). HIGH PRIORITY -- separate from perf. add_weighted stays
 on the correct per-edge path (0.135x) until the store-sync bug is fixed (then it can batch + win).
+
+## 2026-06-27 CopperCliff CORRECTION (supersedes 0e30e44a5): the bug is NARROW — add_edges_from(dict)+weighted wiener_index only; size/degree FINE
+
+CLEAN-BUILD verification (the 0e30e44a5 entry was measured on an INCONSISTENT .so during a failed remove_edges
+build + reverts/touches -> it OVER-CLAIMED size/degree wrong). On a fresh `cargo clean` build of HEAD, the
+ACCURATE finding:
+- add_edges_from((u,v,{'weight':w})) BATCH (large input) leaves the weights MIRROR-ONLY (store stale).
+- size(weight) 71==71, in/out_degree(weight) 19/14 match, edges(data='weight') matches, dijkstra/shortest_path
+  match -- ALL CORRECT (these are mirror-aware: degree checks edges_dirty -> reads the mirror).
+- ONLY weighted wiener_index is WRONG (n=5 directed-complete via add_edges_from(dict): fnx 20 vs nx 58),
+  because its weighted path builds weighted_adj from `G.adjacency()` (lib.rs:12973), and adjacency()'s per-edge
+  attrs read the STALE STORE for batch-built graphs. Neither _sync_rust_edge_attrs NOR _fnx_sync_attrs_to_inner
+  flushes it; only a `list(G.edges(data=True))` materialization makes a subsequent adjacency() correct (deep
+  mirror/store side-effect, root in the Rust adjacency binding -- not safely fixable this turn).
+- The wiener CONFORMANCE suite PASSES (54) because its builders use add_weighted_edges_from = per-edge
+  add_edge -> writes the STORE -> correct. So the bug is unreached by current tests.
+NET: NARROW pre-existing bug (weighted wiener_index over an add_edges_from(dict)-built graph). add_weighted
+perf-batch (routing to add_edges_from) is BLOCKED by it (would make wiener stale) -> add_weighted STAYS on the
+correct per-edge path (0.135x). A proper fix = make adjacency() mirror-aware (like edges-data/degree) OR have
+the weighted wiener build weighted_adj from edges(data) [order-care for float-sum parity]. Dedicated follow-up.
+LESSON (hard-won this turn): NEVER measure correctness/perf on an inconsistent .so -- a failed build + reverts +
+touch left a Frankenstein .so that produced contradictory results (size wrong then right, edges-data None then
+correct). Always `cargo clean` rebuild to ground truth before drawing conclusions.
