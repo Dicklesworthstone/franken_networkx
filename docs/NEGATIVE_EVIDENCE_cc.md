@@ -3150,3 +3150,16 @@ COMMUNITY-ACCESS-bound, not common-neighbor-finding-bound -- the hybrid lever do
 LESSON: the native-operands+Python-reduce lever wins only when the native can return CHEAP scalar operands
 (degrees/counts as ints); when the reduce needs per-element Python OBJECT attrs, returning objects per
 occurrence regresses. RA/AA win stands.
+
+## 2026-06-27 CopperCliff SHIP: jaccard_coefficient (explicit ebunch, simple Graph) 0.94x->2.80x — native counts + Python division
+
+Completes the scalar-operand hybrid lever across the link-pred family (after RA/AA face2f4f5; community variants
+REVERTED as object-attr-bound). New native link_pred_jaccard_counts returns per pair (common_count, union_size)
+computed INDEX-NATIVE: common = |{w in N(u): w in N(v), w!=u,v}|, union = |N(u)|+|N(v)|-|N(u) cap N(v)| =
+|set(G[u])|set(G[v])| (nx's denominator). The Python wrapper does common/union (one int-division -> exact
+parity) or int 0 when union==0 -- no eager set(G[u])|set(G[v]) materialization (the 0.94x cost). RESULT: 0.94x
+-> 2.796x (tight [2.76,2.80], 3x self, BEATS nx), GOLDEN CORPUS 12/12 byte-exact (BA/WS/gnp + selfloops),
+default ebunch ==nx, conformance GREEN (1182). CONFIRMS the lever boundary: cheap SCALAR operands (counts, like
+RA/AA degrees) -> native+Python-reduce WINS; per-element OBJECT attrs (community) -> regresses. Link-pred family
+now: RA/AA/jaccard native-fast (explicit ebunch), PA at parity, community delegated (object-attr-bound), default
+ebunch set-order-blocked. 27th perf ship.

@@ -13871,6 +13871,49 @@ pub fn link_pred_common_neighbor_degrees(
     Ok(out)
 }
 
+/// br-r37-c1-lpjaccard (cc): per-pair (common_count, union_size) for jaccard, computed
+/// index-native (no eager Python set(G[u])|set(G[v]) materialization). common_count =
+/// |{w in N(u): w in N(v), w!=u, w!=v}| (nx common_neighbors); union_size =
+/// |N(u)|+|N(v)|-|N(u) cap N(v)| = |set(G[u]) | set(G[v])| (nx's denominator, NOT
+/// excluding u/v). The Python wrapper does common/union (one int-division -> exact
+/// parity) or int 0 when union==0. Simple undirected graphs only (caller gates).
+#[pyfunction]
+pub fn link_pred_jaccard_counts(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    ebunch: &Bound<'_, PyAny>,
+) -> PyResult<Vec<(PyObject, PyObject, i64, i64)>> {
+    let gr = extract_graph(g)?;
+    require_not_multigraph(&gr)?;
+    require_undirected(&gr, "jaccard_coefficient")?;
+    let pairs = extract_ebunch(py, &gr, Some(ebunch))?;
+    validate_link_prediction_pairs(&gr, &pairs)?;
+    let inner = gr.undirected();
+    let mut vset: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let mut out: Vec<(PyObject, PyObject, i64, i64)> = Vec::with_capacity(pairs.len());
+    for (u, v) in &pairs {
+        let u_idx = inner.get_node_index(u).expect("validated in-graph");
+        let v_idx = inner.get_node_index(v).expect("validated in-graph");
+        let un = inner.neighbors_indices(u_idx).unwrap_or(&[]);
+        let vn = inner.neighbors_indices(v_idx).unwrap_or(&[]);
+        vset.clear();
+        vset.extend(vn.iter().copied());
+        let mut full_inter: i64 = 0;
+        let mut common: i64 = 0;
+        for &w_idx in un {
+            if vset.contains(&w_idx) {
+                full_inter += 1;
+                if w_idx != u_idx && w_idx != v_idx {
+                    common += 1;
+                }
+            }
+        }
+        let union = un.len() as i64 + vn.len() as i64 - full_inter;
+        out.push((gr.py_node_key(py, u), gr.py_node_key(py, v), common, union));
+    }
+    Ok(out)
+}
+
 // ===========================================================================
 // Graph Operators
 // ===========================================================================
@@ -22573,6 +22616,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(preferential_attachment, m)?)?;
     m.add_function(wrap_pyfunction!(resource_allocation_index, m)?)?;
     m.add_function(wrap_pyfunction!(link_pred_common_neighbor_degrees, m)?)?;
+    m.add_function(wrap_pyfunction!(link_pred_jaccard_counts, m)?)?;
     // Graph metrics
     m.add_function(wrap_pyfunction!(average_degree_connectivity, m)?)?;
     m.add_function(wrap_pyfunction!(rich_club_coefficient, m)?)?;

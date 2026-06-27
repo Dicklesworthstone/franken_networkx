@@ -16100,7 +16100,16 @@ from franken_networkx._fnx import (
     preferential_attachment as _raw_preferential_attachment,
     resource_allocation_index as _raw_resource_allocation_index,
     link_pred_common_neighbor_degrees as _raw_link_pred_common_neighbor_degrees,
+    link_pred_jaccard_counts as _raw_link_pred_jaccard_counts,
 )
+
+
+def _jaccard_native_scores(G, materialized):
+    # br-r37-c1-lpjaccard (cc): native (common_count, union_size) + Python int-division
+    # -> exact parity, no eager set(G[u])|set(G[v]) materialization. union==0 -> int 0.
+    rows = _raw_link_pred_jaccard_counts(G, materialized)
+    for (u, v), (_ru, _rv, common, union) in zip(materialized, rows):
+        yield (u, v, common / union if union else 0)
 
 
 def _ra_native_scores(G, materialized):
@@ -16288,6 +16297,9 @@ def jaccard_coefficient(G, ebunch=None):
     """
     G = _coerce_arg_to_fnx_graph(G)
     materialized = _link_prediction_validate_ebunch(G, ebunch)
+    # br-r37-c1-lpjaccard (cc): explicit ebunch on a simple Graph -> native counts.
+    if materialized is not None and type(G) is Graph:
+        return _jaccard_native_scores(G, materialized)
     return _link_prediction_compute(G, materialized, "jaccard_coefficient")
 
 
