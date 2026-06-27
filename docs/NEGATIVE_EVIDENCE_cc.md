@@ -2785,3 +2785,21 @@ dijkstra/shortest_path double-call unaffected. The 2 pre-existing red tests
 (test_weighted_star_laplacian_stays_on_weighted_route, ..._complete_bipartite_normalized_...) now PASS.
 conformance GREEN (2661 spectrum/laplacian/dijkstra/shortest_path tests + 30 laplacian-native). Correctness
 ship; greens main.
+
+## 2026-06-26 CopperCliff cert-bug-class AUDIT closed + last-turn fix verified regression-free
+
+Followed up the synced-weighted spectrum-cert fix (00bbf464a) with a full audit of every edge_attrs_dirty cert:
+- OTHER closed-form spectrum certs (complete/cycle/path/edgeless, laplacian+adjacency+normalized): double-call
+  on held-ref-weighted inputs all CORRECT (call1==call2==nx). They use a PRECISE per-edge `weight in attrs`
+  O(E) scan (not the buggy edges_dirty fast-cert), so no synced-weighted bug. (Already 410x@n200 / 3167x@n400
+  faster than nx via the closed form, so the O(E)->O(1) graph_has_any_attrs micro-opt is ~0-gain vs nx -> NOT
+  shipped.)
+- DELEGATION/cache certs (_should_delegate_dijkstra / _should_delegate_bellman_ford / _pagerank_scipy):
+  dijkstra/bellman_ford/pagerank double-call (incl. unweighted-then-weighted sync scenario) all CORRECT. These
+  read weights directly (no unweighted closed form), so the bug class doesn't apply.
+- REGRESSION CHECK on the last-turn fix: star/complete_bipartite with a NON-weight edge attr ('color', no
+  'weight') still FIRE the fast path (cert returns non-None) and ==nx -> NO over-bail. The graph_has_any_attrs
+  gate routes attr-graphs to the precise per-edge weight scan, which proceeds when 'weight' is absent.
+CONCLUSION: the synced-weighted cert-bug class is FULLY CLOSED (only star + complete_bipartite were buggy,
+both fixed + verified); no other latent instances; the fix is precise (no over-bail) + conformance GREEN. Main
+is clean. Perf frontier remains substrate-bound (storage-layer project is the only remaining lever).
