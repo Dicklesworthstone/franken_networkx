@@ -2657,3 +2657,21 @@ RESULT: 0.28x -> 2.75x (n=500) / 2.65x (n=1000, the bench size) / 0.84x (n=2000)
 Built fnx-python per-crate via rch, crossbeam-clean .so. (Last turn this REGRESSED because only the wrapper
 was changed while the binding still copied -- BOTH halves are needed.) Residual: n=2000 0.84x (result
 materialization at scale, separate). 18th ship.
+
+## 2026-06-26 CopperCliff NEGATIVE: MG.size(weight) native-AttrMap read — byte-exact but perf inconsistent (REVERTED)
+
+SINGLE biggest measured gap (post earlier fixes): MG.size(weight) ~0.21x (PyMultiGraph::size, lib.rs:4019
+used edges_ordered() = EdgeSnapshot+String-key alloc per edge + PyO3 mirror-dict lookup + extract::<f64> per
+edge). RADICAL try (codex walled -> reserved lib.rs free): when the per-edge mirror is PRISTINE
+(edge_py_attrs.is_empty()), read the weight straight from the native AttrMap (CgseValue Int/Float/Bool) via
+edges_ordered_borrowed -- no snapshot/String/PyO3; String/Map + non-pristine fall back to the mirror path.
+BYTE-EXACT (int/float/missing=1.0/str-weight TypeError/multi all ==nx). BUT perf INCONSISTENT + DEGRADES with
+scale: n=400 0.65x, n=1500 0.50x, n=2500 0.23x. ROOT: edges_ordered_borrowed() still allocates an O(E) Vec of
+tuples (the snapshot tax isn't fully removed), and the pristine-mirror gate's state is unpredictable
+(add_edge vs add_edges_from materialize the mirror differently -> the fast path fires inconsistently). Net
+~0-gain at the sizes that matter. REVERTED (stashed). A real win needs a NON-allocating edge+attr streaming
+iterator (no Vec) over the native store; edges_ordered_borrowed's Vec is the floor. 
+ALSO FOUND (pre-existing, NOT mine): tests/python/test_laplacian_spectrum_native.py 2 failures
+(test_weighted_star_laplacian_stays_on_weighted_route, ..._complete_bipartite_normalized_..._weighted_route)
+PERSIST after reverting my change + rebuilding clean source -> a regression already on main (likely a recent
+peer commit, e.g. 200c81c33). BLOCKER FLAG for whoever owns the laplacian route.
