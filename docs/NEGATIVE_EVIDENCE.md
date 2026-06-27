@@ -7615,3 +7615,53 @@ source diff is empty. Do not retry default-int edge-key emission as a standalone
 fix for full-graph `MultiDiGraph.in_edges(keys=True, data=<attr>)`; the
 remaining gap is dominated by target-major tuple/value materialization rather
 than display-key lookup alone.
+
+## 2026-06-27 CopperCliff to_directed/to_undirected single-attr AttrMap-clone - NO-SHIP
+
+Fresh warm min-of-N sweep (host loadavg ~45, peer builds active — ratios are
+directional, not precision) over the view-materialization paths flagged in
+older memory found that vein **closed**: `nodes(data='x')` 0.97x,
+`nodes(data=True)` 0.87x, `edges(data=*)` 1.2-1.3x, `dict(adjacency())` 0.96x,
+`degree(weight)` 1.29x, `in/out_edges(data=w)` 1.2-1.6x — all at parity-or-faster
+vs vendored NetworkX. Do not re-dig those as standalone targets.
+
+The one reproducible remaining substrate gap in the conversion family is
+**single flat-attr** `to_directed()` / `to_undirected()`:
+
+| workload (n=800, m=8000) | edges attr | FNX | NetworkX | ratio |
+| --- | --- | ---: | ---: | ---: |
+| `Graph.to_directed()` | `{weight}` (1 scalar) | ~41 ms | ~34 ms | 0.75-0.83x |
+| `DiGraph.to_undirected()` | `{weight}` (1 scalar) | ~32 ms | ~18 ms | 0.56-0.62x |
+| `Graph.to_directed()` | no attr | ~10 ms | ~30 ms | 2.9x |
+| `Graph.to_directed()` | 5 attrs/edge | ~44 ms | ~51 ms | 1.1-1.2x |
+
+The gap is *specific to the single-scalar-attr case*: NetworkX's per-edge
+`copy.deepcopy(datadict)` cost scales with attr count, so with ≥5 attrs FNX is
+already faster, and with zero attrs FNX is ~3x faster. Only the 1-key dict case
+loses.
+
+Lever attempted: in the four `_native_to_directed_deepcopy` /
+`_native_to_undirected_deepcopy` kernels, the per-arc Rust attr map was rebuilt
+via `py_dict_to_attr_map(deepcopy(py_attrs))` (a Python-dict iteration + fresh
+`"weight"` `String` alloc + `py_value_to_cgse` dispatch per arc). Since the
+source `self.inner` already holds an `AttrMap` value-identical to that rebuild
+(the mirror is a deep copy of the source mirror; immutable scalars are shared),
+I replaced it with `self.inner.edge_attrs(u, v).cloned()` (BTreeMap clone),
+keeping the `py_dict_to_attr_map` re-parse only as a no-inner-entry fallback.
+Applied to `PyGraph::_native_to_directed_deepcopy` (lib.rs) and built
+`-p fnx-python --features pyo3/abi3-py310` via `rch exec`.
+
+Correctness held (structure, edge count, `D[u][v]['weight']` value, and
+copy↔source attr-dict mutation independence all verified). But the paired A/B
+on the same host showed **no robust movement**: NEW `fnx_best` 38-41 ms vs OLD
+38-44 ms across 4 interleaved trials — indistinguishable within the noise floor.
+
+Decision: REVERTED / NO-SHIP. The `py_dict_to_attr_map` re-parse was not the
+bottleneck; the per-arc cost floor is the unavoidable Python dict-mirror
+`deepcopy_py_dict` (`bound.copy()` materializing ~2·E Python dicts) plus the
+`String`-keyed `edge_py_attrs` HashMap inserts (2 `String` allocs/arc) — the
+dual Py-mirror+AttrMap construction wall, not the AttrMap derivation. Same
+lesson as the MDG weighted-degree store-int probe: halving the native work is
+invisible behind the PyO3 object-build wall. A real fix needs to eliminate the
+per-arc Python dict mirror itself (lazy/shared mirror), not speed up the Rust
+side. Worktree-only change; main source diff is docs-only.
