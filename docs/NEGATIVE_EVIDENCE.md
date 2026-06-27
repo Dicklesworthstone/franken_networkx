@@ -7237,3 +7237,70 @@ materialization as a standalone lever for this row; the remaining weighted
 in-degree gap needs a deeper scalar/bulk-consumption contract or a lower-level
 degree accumulator change that improves FNX relative to the paired NetworkX
 measurement, not just absolute local time.
+
+## 2026-06-27 BlackThrush MultiDiGraph weighted in-degree lazy native iterator - NO-SHIP
+
+Scope: land-or-dig pass on current `main` (`73b72c0c3`) after a read-only
+worktree/branch scan found no measured bench worktree win missing from `main`.
+The old adjacency outer-cache branch is already represented on `main`, and the
+remaining recent off-main heads were parity/docs-only rather than measured
+source wins.
+
+The literal requested per-crate bench form was retried first:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --release --features pyo3/abi3-py310 --bench networkx_head_to_head networkx_head_to_head_core_laggards -- --quiet`
+
+Cargo rejected that syntax on this toolchain with
+`error: unexpected argument '--release' found`, so the equivalent release bench
+profile was used through `rch exec` with the requested `fnx-python` crate and
+cod-b target dir. RCH had no admissible remote worker for the routing sweep and
+fell back locally.
+
+Fresh current-main routing sweep:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head networkx_head_to_head_core_laggards -- --quiet`
+
+| workload | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | `11.878 ms` | `4.8129 ms` | `0.405x` |
+| `mdg_in_edges_data_n700_e12662` | `20.763 ms` | `9.6116 ms` | `0.463x` |
+| `mg_selfloop_keys_weight_n2500_loops2502` | `1.7778 ms` | `986.33 us` | `0.555x` |
+| `mdg_out_edges_nbunch_keys_weight_n700_e12600` | `1.2197 ms` | `1.1485 ms` | `0.942x` |
+| `mdg_edges_keys_n700_e12662` | `1.6838 ms` | `3.0359 ms` | `1.803x` |
+| `mdg_out_edges_nbunch_keys_data_n700_e12600` | `349.42 us` | `705.56 us` | `2.019x` |
+
+Targeted lever: a lazy `MultiDiGraphWeightedDegreeIter` for exact full-graph
+weighted in/out degree. The prior no-ship iterator materializer still eagerly
+built every `(node, degree)` tuple into a vector before handing a native
+iterator to Python. This candidate instead snapshotted node names/display keys
+and computed one degree row per `__next__`, using the existing clean-store int
+row, mirror int row, then Python `sum` row fallback. The Python degree view was
+routed to `_native_weighted_in_degree_iter` / `_native_weighted_out_degree_iter`
+only for exact `MultiDiGraph` full weighted degree; nbunch/views stayed on the
+existing path.
+
+Validation before timing:
+
+- `python3 -m py_compile python/franken_networkx/__init__.py`: passed.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`:
+  passed remotely on `hz2`.
+
+Focused candidate command:
+
+`AGENT_NAME=BlackThrush RCH_WORKER=hz2 CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head mdg_in_degree_weight -- --quiet`
+
+RCH again fell back locally for the focused bench
+(`no admissible workers: insufficient_slots=2,hard_preflight=1,active_project_exclusion=1`).
+
+| workload | state | runner | FNX median | NetworkX median | ratio vs NetworkX | self vs fresh baseline |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | fresh current-main sweep | local fallback | `11.878 ms` | `4.8129 ms` | `0.405x` | baseline |
+| `mdg_in_degree_weight_n700_e12662` | lazy native iterator candidate | local fallback | `12.995 ms` | `15.294 ms` | `1.177x` | `0.914x` |
+
+Decision: REVERTED / NO-SHIP. The paired candidate NetworkX row was noisy
+(`4.8129 ms -> 15.294 ms`), so the apparent ratio win is not credible. The FNX
+absolute median regressed on the comparable local run (`11.878 ms -> 12.995 ms`),
+which is below the keep bar. Candidate source hunks in
+`crates/fnx-python/src/digraph.rs` and `python/franken_networkx/__init__.py`
+were manually reverted; final source diff is empty. This rules out a row-lazy
+native iterator as a standalone fix for weighted `MultiDiGraph.in_degree`.
