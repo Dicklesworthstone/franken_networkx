@@ -2939,3 +2939,19 @@ py_node_key + one per-edge lookup, mirror or store). REVERTED (kept the committe
 in_edges 2.5x came specifically from the redundant triples-Vec + re-lookup pattern; siblings without that
 pattern (DiGraph in_edges, and selfloop_edges which already has the pristine fast path) are already near-floor.
 The biggest remaining MDG-only avoidable-overhead gaps are mined. 19 perf + 1 correctness ship; main green.
+
+## 2026-06-27 CopperCliff mdg_in_degree_weight is floored (store_int fires; per-node tuple floor) — degree-family overhead mined
+
+Applied the "dig deeper for avoidable overhead" lesson to mdg_in_degree_weight 0.536x (bench core_laggards).
+Traced: in_degree(weight) -> native_weighted_directional_degree -> tries native_weighted_directional_degree_
+store_int FIRST, gated only on `!edges_dirty`. A fresh add_edge MDG has edges_dirty=False, so the RUST-STORE
+fast path FIRES (weighted_degree_store_int_row reads the CgseValue store, ZERO per-edge PyO3 -- no String
+edge_key, no mirror get_item). So 0.536x is NOT avoidable overhead: it is the per-node (node, deg) tuple
+materialization floor (n=700 -> 700 py_node_key + i64->PyObject + 2-tuple), matching the memory note that the
+floor is the PyObject view build, not the edge lookup. UNLIKE in_edges(data=key) (which had a redundant
+triples-Vec + edge_data_value_or_default re-lookup = the 2.5x I removed last turn), in_degree has NO such
+avoidable layer -- the store fast path is already in place. CONCLUSION: the degree/in_edges-family avoidable-
+overhead vein is MINED -- in_edges(data=key) won (0.16x->0.40x), and in_degree_weight / DiGraph in_edges /
+selfloop are all at their substrate floor (per-node/per-edge PyObject materialization), store/pristine fast
+paths already applied. Remaining gaps are the genuine Rust-PyObject-build floor. 19 perf + 1 correctness ship;
+main green.
