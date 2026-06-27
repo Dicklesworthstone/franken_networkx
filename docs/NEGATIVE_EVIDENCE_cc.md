@@ -2876,3 +2876,17 @@ CPython dict + deferred GC). Not cheaply fixable (recycling/deferring drops is c
 is the columnar/interned-key storage redesign). CONFIRMS: the entire <0.7x frontier is the 3 inherent
 substrate classes (edge-attr, construction, adjacency) + this deallocation variant -- all Rust-storage-vs-
 CPython-dict architecture. 18 perf + 1 correctness ship; main green (19908 tests).
+
+## 2026-06-26 CopperCliff clear_edges root-cause CONFIRMED via weighted/unweighted split (AttrMap dealloc, not row-clear)
+
+Pinpointed the clear_edges 0.44x gap precisely: weighted MultiGraph clear_edges = 665us / nx 294us = 0.443x,
+but UNWEIGHTED clear_edges = 354us / nx 315us = 0.890x (near-parity). So the entire ~310us gap is the EAGER
+per-edge AttrMap (BTreeMap + "weight" String + CgseValue) deallocation in self.edges.clear() (4000 frees);
+the adjacency-row-clearing machinery is fine (unweighted near-parity). RULES OUT a row-clearing fix. The only
+lever is deferred or recycled deallocation (move the old edges map to a background-thread drop or a free-list)
+-- a hacky infra change (thread-spawn overhead/accumulation, Send/memory-semantics risk) with marginal EV for
+a sub-ms niche op; NOT attempted (would be ~0-gain-to-regression after thread overhead + conformance risk).
+clear_edges is the edge-attr-storage substrate (Rust eager-drop + per-edge String-keyed AttrMap vs CPython
+dict + deferred GC), same as the rest. The real fix is the storage redesign (interned attr keys make the
+String drop free; columnar numeric weights eliminate the per-edge BTreeMap). Frontier unchanged: all <0.7x
+gaps inherent Rust-storage-vs-CPython-dict. 18 perf + 1 correctness ship; main green.
