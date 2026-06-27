@@ -66,6 +66,57 @@ Validation:
 - `ubs crates/fnx-python/src/digraph.rs`: exit 0; zero critical findings, broad pre-existing warning inventory remains.
 - `git diff --check -- crates/fnx-python/src/digraph.rs docs/NEGATIVE_EVIDENCE.md`: passed.
 
+## 2026-06-27 BlackThrush MultiDiGraph in_edges data-key batch view constructor - NO-SHIP (`cod-a`)
+
+Scope: parallel land-or-dig pass from detached scratch worktree
+`/data/projects/.scratch/franken_networkx-blackthrush-dig-20260627T214439Z`
+started at base `202e2d4a0`. Current `main` already contains the
+`MultiDiGraph.in_edges(data=<str>)` streaming KEEP above, so this entry records
+the rejected alternate batch-constructor lever only. Agent Mail writes were
+still blocked by the existing SQLite corruption circuit breaker, so no
+reservation was acquired. No `settings.json` or hook files were touched.
+
+Lever tried after checking the materialization-floor guidance from
+`/alien-graveyard`, `/alien-artifact-coding`, and
+`/extreme-software-optimization`: replace the Python list-subclass per-row
+`append` loop in pristine `MultiDiGraph.in_edges(keys=..., data=<str>)` with
+Rust-side `Vec<PyObject>` batch collection and construct
+`_InMultiEdgeDataView(rows)` once. The variant also bypassed `py_edge_key` for
+default integer multiedge keys when no Python edge-key mirror exists.
+
+Requested literal release bench form:
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --release --features pyo3/abi3-py310 --bench networkx_head_to_head mdg_in_edges_data -- --quiet`.
+Cargo rejected `cargo bench --release` on this toolchain with
+`error: unexpected argument '--release' found`, so the equivalent release
+profile form was used through `rch exec`.
+
+Decisive local fallback A/B on the same `cod-a` target lane:
+
+| workload | state | runner | FNX median | ORIG NetworkX median | ratio vs ORIG | self signal |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `mdg_in_edges_data_n700_e12662` | reverted/current control | `rch exec` local fallback | `13.358 ms` | `4.3636 ms` | `0.327x` | baseline |
+| `mdg_in_edges_data_n700_e12662` | batch view constructor candidate | `rch exec` local fallback | `12.614 ms` | `3.1513 ms` | `0.250x` | `1.06x` faster FNX median, overlapping intervals |
+
+Earlier routing baseline in the same detached worktree was `16.024 ms` FNX /
+`7.2386 ms` ORIG (`0.452x`). A remote-worker diagnostic of the candidate on
+`vmi1264463` produced `33.686 ms` FNX / `23.790 ms` ORIG (`0.706x`), but it
+was not used as keep evidence because the worker and ORIG row were not
+comparable to the local control lane.
+
+Decision: REVERTED / NO-SHIP. The candidate produced only a marginal FNX-only
+median movement with overlapping intervals, while the paired ratio vs ORIG
+worsened from `0.327x` to `0.250x`. Do not retry list-subclass
+batch-construction for this workload as a standalone lever. The remaining gap
+is the public view/list materialization floor and Python object tuple
+construction cost, not `PyList.append` alone.
+
+Validation:
+
+- Candidate source hunk in `crates/fnx-python/src/digraph.rs` was manually
+  reverted; final source diff is empty.
+- `AGENT_NAME=BlackThrush RCH_WORKER=vmi1264463 CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head mdg_in_edges_data -- --quiet`: control and candidate local fallback measurements above; remote diagnostic recorded above.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo test -p fnx-conformance --profile release`: passed on `hz2` after generating the ignored first-party prerequisite artifacts required by that gate. The focused recovery rerun for `phase2c_packet_readiness_gate` passed `6/6` before the final full crate pass.
+
 ## 2026-06-27 BlackThrush MultiDiGraph weighted degree edge-bucket attrs - KEEP (`cod-b`)
 
 Scope: land-or-dig pass on `main` with final commit base
