@@ -6961,3 +6961,72 @@ Decision: KEPT. The remaining clear path was dominated by Python mirror teardown
 not Rust adjacency clearing. Lazy invalidation preserves observable empty-edge
 state while moving `MultiGraph.clear_edges()` from a severe `0.148x` ratio to a
 near-parity `0.619x` ratio vs NetworkX on the dedicated row.
+
+## 2026-06-27 BlackThrush MultiDiGraph weighted-degree cached node-key pairs - REVERTED
+
+Scope: BOLD-VERIFY land-or-dig vs NetworkX on current `main` (`114e968f3`).
+The read-only worktree scan found no measured source win missing from `main`:
+the adjacency outer-cache worktree was already represented by `a424835f7`, and
+the remaining non-ancestor worktree was A* parity-only. Agent Mail registration
+was attempted, but writes are still blocked by the existing SQLite corruption
+circuit breaker.
+
+The literal requested `cargo bench --release` form was retried first and this
+cargo toolchain rejected it with `error: unexpected argument '--release' found`,
+so the equivalent release bench profile was used through `rch exec` with the
+requested warm target dir and per-crate `fnx-python` scope.
+
+Baseline routing showed the largest current measured gap at weighted
+`MultiDiGraph.in_degree(weight="weight")`:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head -- core_laggards --noplot --sample-size 10 --warm-up-time 1 --measurement-time 1`
+
+| workload | state | runner | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | --- | --- | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | current `main` routing | local fallback via `rch exec` | `12.776 ms` | `3.2646 ms` | `0.255x` |
+| `mg_selfloop_keys_weight_n2500_loops2502` | current `main` routing | local fallback via `rch exec` | `1.3387 ms` | `666.98 us` | `0.498x` |
+| `mdg_in_edges_data_n700_e12662` | current `main` routing | local fallback via `rch exec` | `15.679 ms` | `6.1310 ms` | `0.391x` |
+
+Lever: reuse the existing MultiDiGraph node-key tuple cache inside the native
+weighted degree pair materializers. The rejected candidate changed
+`native_weighted_directional_degree_py_int_impl`,
+`native_weighted_directional_degree_store_int`, and
+`native_weighted_total_degree_store_int` to pull display objects from
+`cached_node_key_vec(py)` instead of rebuilding each node object via
+`py_node_key(py, node)`. This is distinct from the earlier result-cache,
+edge-order accumulator, and count-zip probes: it only targeted repeated Python
+display-object conversion while preserving the existing pair output path.
+
+Focused local fallback candidate command:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head -- mdg_in_degree_weight --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`
+
+| workload | state | runner | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | --- | --- | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | cached node-key pair candidate | local fallback via `rch exec` | `6.6673 ms` | `2.5240 ms` | `0.379x` |
+
+Because the focused local run improved FNX absolute time but had a different
+NetworkX timing window, a clean same-commit baseline worktree was added at
+`/data/projects/.scratch/franken_networkx-bt-baseline-114e` and both baseline
+and candidate were run on the same remote worker:
+
+`AGENT_NAME=BlackThrush RCH_WORKER=vmi1264463 CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head -- mdg_in_degree_weight --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`
+
+| workload | state | worker | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | --- | --- | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | clean `114e968f3` baseline | `vmi1264463` | `26.311 ms` | `12.393 ms` | `0.471x` |
+| `mdg_in_degree_weight_n700_e12662` | cached node-key pair candidate | `vmi1264463` | `22.809 ms` | `8.8512 ms` | `0.388x` |
+
+Validation while probing: the focused head-to-head benchmark passed its
+correctness assertions before timing. No code was kept; the candidate source
+hunk was manually reverted, and `git diff -- crates/fnx-python/src/digraph.rs`
+is empty after revert. The final commit is ledger-only, so conformance behavior
+is unchanged from the current green `fnx-conformance` gate on `114e968f3`.
+
+Decision: REVERTED. The patch reduced FNX absolute time on the same worker
+(`26.311 ms` to `22.809 ms`), but it lost against the requested
+ratio-vs-NetworkX gate (`0.471x` baseline to `0.388x` candidate) because the
+paired NetworkX row moved more. Treat cached node-key reuse inside the weighted
+degree pair materializer as insufficient by itself; the remaining frontier is
+the Python pair-consumption contract or a benchmark-visible scalar/bulk API, not
+another internal node-object cache.
