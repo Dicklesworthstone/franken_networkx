@@ -8,6 +8,37 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## SHIPPED (cc, 2026-06-27): MDG data=<key> reads — store-read fast path gated on !edges_dirty (skip per-edge edge_key String build) — out_edges(nbunch,keys,data) 0.57x->0.65x
+
+Next core_laggards gap after the in_edges NO-SHIP below: `out_edges(nbunch, keys=True,
+data="weight", default=0)` on the CUSTOM-key `MultiDiGraph` (n=700/e=12600). cargo bench
+`networkx_head_to_head -- core_laggards`.
+
+Root cause (NOT the same as the in_edges eager-materialization wall): the bench shares one
+`mdg_custom_fnx` between the data=True and data=<key> workloads. The setup/data=True call runs
+`ensure_edge_py_attrs`, which MATERIALIZES the edge mirror WITHOUT marking edges dirty — so by
+the time data=<key> runs the graph is **non-pristine but clean** (`!edges_dirty`). The native
+data=<key> path then falls to `edge_data_value_or_default`, whose first branch unconditionally
+builds a `Self::edge_key(u,v,key)` String (heap alloc + format) per edge just to probe the
+mirror dict — the avoidable tax (nx does a plain `dd[key]`).
+
+Lever (br-mdg-datakey-storeread): add a fast path at the top of `edge_data_value_or_default` —
+when `!edges_dirty` (CgseValue store authoritative, same invariant the weighted-degree fast
+path uses) AND `data` is a `PyString`, read the scalar value straight from `self.inner.edge_attrs`
+and return `cgse_value_to_py`, skipping the per-edge `edge_key` String build + mirror probe.
+Map values fall through to the mirror path for dict identity; the dirty case is unchanged. This
+strictly REDUCES work on the common scalar path (cannot regress it; only a rare extra store
+lookup for Map values), and benefits ALL MDG data=<key> reads (out_edges/in_edges/edges/
+selfloop) once a prior data=True materialized the mirror.
+
+MEASURED (cargo bench, hz2): fnx `out_edges_nbunch_keys_weight` 800µs -> 747µs, nx/fnx 0.57x ->
+~0.65x. Measurement caveat: rch worker load varies run-to-run and within-run nx/fnx is NOT
+worker-invariant (an UNCHANGED control workload swung 35% across workers), so the exact ratio is
+noisy; the ship rests on the change being a provable per-edge String-alloc removal (mechanistic
+strict reduction), not on the noisy delta alone. Conformance GREEN: 1863 targeted parity tests
+pass (edge_attr_dirty_sync, edge_attr_post_mutation_sync, edges_data_*, view_pickle, selfloop,
+multidigraph, get_edge_data, degree) incl. the live-mutation dirty path; fmt + clippy -D clean.
+
 ## NO-SHIP (cc, 2026-06-27): MDG in_edges(keys,data=key) single-pass bucket walk + node-obj hoist — REGRESSION 0.263x->0.190x
 
 Biggest measured core_laggards gap (cargo bench `networkx_head_to_head -- mdg_in_edges_data`,

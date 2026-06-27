@@ -808,6 +808,31 @@ impl PyMultiDiGraph {
         data: &Bound<'_, PyAny>,
         default_obj: &PyObject,
     ) -> PyResult<PyObject> {
+        // br-mdg-datakey-storeread (cc): when no edge-attr mirror mutations are
+        // pending (`!edges_dirty`), the native CgseValue store is authoritative, so a
+        // scalar attr value can be read straight from it — skipping the per-edge
+        // `edge_key` String build + mirror probe that dominates the non-pristine
+        // data=<key> view paths (out_edges/in_edges (keys,)data=<attr> after a prior
+        // data=True call materialized the mirror without dirtying it). Map values and
+        // the dirty case fall through to the mirror path below (dict identity /
+        // pending mutations). Mirrors the !edges_dirty weighted-degree fast path.
+        if !self.edges_dirty.load(Ordering::Relaxed)
+            && let Ok(attr_name) = data.downcast::<PyString>()
+        {
+            let attr_name = attr_name.to_str()?;
+            match self
+                .inner
+                .edge_attrs(u, v, key)
+                .and_then(|attrs| attrs.get(attr_name))
+            {
+                Some(value) if !matches!(value, CgseValue::Map(_)) => {
+                    return crate::cgse_value_to_py(py, value);
+                }
+                Some(_) => {} // Map value: fall through to mirror path for dict identity
+                None => return Ok(default_obj.clone_ref(py)),
+            }
+        }
+
         let ek = Self::edge_key(u, v, key);
         if let Some(attrs) = self.edge_py_attrs.get(&ek) {
             return Ok(attrs
