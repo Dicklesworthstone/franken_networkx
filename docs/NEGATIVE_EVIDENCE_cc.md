@@ -2621,3 +2621,21 @@ a fast top-level. NOTE: the top-level MST itself is 0.66-0.69x on simple graphs 
 PyO3 result build) -- a separate deeper floor, not closed here. Full-bench frontier (this run): only gap was
 this one; construction_copy graph_to_directed_scalar 0.81x (near-parity); everything else 1.3-7.7x wins.
 17th ship this session.
+
+## 2026-06-26 CopperCliff maximum_spanning_edges weighted FLOORED ~0.28x (reserved _raw_mse) + fresh sweep clean
+
+Tree-submodule audit (continuing the de-delegation lever) found tree.maximum_spanning_edges 0.279x (vs
+minimum_spanning_edges 2.48x WIN). ROOT CAUSE: maximum_spanning_edges gated its native kruskal path on
+``not _mst_has_weight_edge_attr(G, weight)`` (UNWEIGHTED only) -> WEIGHTED graphs fell through to
+_call_networkx_for_parity (nx delegate, 0.28x). Tried mirroring minimum_spanning_edges' weighted native path
+(_sync_rust_edge_attrs + _raw_mse + lazy-mirror post-check): byte-EXACT (==nx, order+orientation+data) but
+REGRESSED/no-gain -- native _raw_mse is itself ~0.21-0.38x (the maximum kruskal Rust kernel is ~9x slower
+than _raw_minimum_spanning_edges; the original unweighted-only gate was deliberately avoiding it). REVERTED
+(stashed). Also tried negated-minimum (build -weight temp graph, run the FAST minimum kernel, restore data):
+byte-exact but ~0.26-0.31x -- the O(E) temp-graph CONSTRUCTION tax offsets the fast kernel. So weighted
+maximum_spanning_edges is FLOORED at ~0.28x across all 3 paths (delegate / native _raw_mse / negated-min);
+the only real fix is optimizing the reserved _raw_mse Rust kernel (make it as fast as _raw_minimum_spanning_
+edges) -- and the MST/tree area is now PEER-ACTIVE (200c81c33 "perf(tree): lazy MST result materialization").
+NOT takeable. FRESH SWEEP (coloring/matching/clique/dominating/k_core) all wins/parity: greedy_color 8.7x,
+maximal_matching 8.3x, k_core 40.7x, find_cliques 1.0x, max_weight_matching 0.95x, dominating_set 0.84x --
+no new <0.7x takeable gap. 17 ships stand.
