@@ -7163,3 +7163,77 @@ laggard row (`1.3897 ms -> 784.84 us`) and moves the ratio-vs-NetworkX gate from
 `0.324x` to `0.624x`. FNX is still slower than NetworkX on this scalar checksum,
 so the remaining gap is the tuple/key/value materialization floor rather than
 the earlier Python-view routing miss.
+
+## 2026-06-27 BlackThrush MultiDiGraph weighted in-degree iterator materializer - NO-SHIP
+
+Scope: land-or-dig pass after confirming the recent adjacency outer-cache
+worktree (`cc-adjouter-land-20260624`) was already represented on `main`.
+Agent Mail registration/reservation remained blocked by the malformed Agent Mail
+SQLite database, so this pass used a clean detached worktree at
+`/data/projects/.scratch/franken_networkx-cod-b-mdgwdeg-iter-20260627` and
+staged only this ledger file.
+
+The literal requested `cargo bench --release` form was tried first:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --release --features pyo3/abi3-py310 --bench networkx_head_to_head networkx_head_to_head_core_laggards -- --quiet`
+
+Cargo rejected that form with `error: unexpected argument '--release' found`, so
+the equivalent release profile (`--profile release`) was used for the
+per-crate `fnx-python` benches through `rch exec`.
+
+Fresh laggard sweep on `vmi1227854`:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head networkx_head_to_head_core_laggards -- --quiet`
+
+| workload | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | `12.279 ms` | `3.3757 ms` | `0.275x` |
+| `mg_selfloop_keys_weight_n2500_loops2502` | `1.5017 ms` | `527.53 us` | `0.351x` |
+| `mdg_in_edges_data_n700_e12662` | `19.260 ms` | `7.3758 ms` | `0.383x` |
+| `mdg_out_edges_nbunch_keys_weight_n700_e12600` | `891.14 us` | `491.64 us` | `0.552x` |
+| `mdg_edges_keys_n700_e12662` | `1.2394 ms` | `1.1408 ms` | `0.920x` |
+| `mdg_out_edges_nbunch_keys_data_n700_e12600` | `198.16 us` | `422.48 us` | `2.132x` |
+
+Lever tried: add a clean-store exact-int `NodeIterator` materializer for
+`MultiDiGraph.{in,out}_degree(weight=<str>)` so the Python view could `yield
+from` a native iterator instead of accepting PyO3's automatic list-of-pairs
+conversion. This was deliberately narrower than the earlier rejected result
+cache, count-zip, and cached-node-object attempts. Dirty mirrors, non-int
+weights, and fallback behavior stayed on the existing path.
+
+Candidate evidence:
+
+`AGENT_NAME=BlackThrush RCH_WORKER=vmi1227854 CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head mdg_in_degree_weight -- --quiet`
+
+Both focused candidate attempts fell back locally because no admissible remote
+worker was available for the bench selection.
+
+| workload | state | worker | FNX median | NetworkX median | ratio vs NetworkX | note |
+| --- | --- | --- | ---: | ---: | ---: | --- |
+| `mdg_in_degree_weight_n700_e12662` | fresh main laggard sweep | `vmi1227854` | `12.279 ms` | `3.3757 ms` | `0.275x` | route target only |
+| `mdg_in_degree_weight_n700_e12662` | iterator materializer candidate | local fallback | `10.970 ms` | `4.5181 ms` | `0.412x` | not same-worker comparable |
+| `mdg_in_degree_weight_n700_e12662` | clean-worktree candidate | local fallback | `10.050 ms` | `4.0729 ms` | `0.405x` | not same-worker comparable |
+
+Criterion's same-host saved comparison for the clean-worktree candidate showed
+FNX median `-7.10%` (95% CI `[-12.82%, -0.44%]`), while the paired NetworkX row
+moved `-6.82%` with a wide CI. The inferred ratio-vs-NetworkX gate therefore
+stayed flat to slightly worse (`~0.409x` baseline to `0.405x` candidate).
+
+Validation and revert:
+
+- The focused benchmark passed the bench row's exact parity assertion before
+  timing.
+- Candidate code in `crates/fnx-python/src/digraph.rs` and
+  `python/franken_networkx/__init__.py` was manually reverted; final diff for
+  those files is empty.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo test -p fnx-conformance`:
+  passed remotely on `ovh-a` after linking the clean worktree to the ignored
+  generated artifact directories already present in the primary checkout.
+
+Decision: REVERTED / NO-SHIP. The iterator materializer may reduce local FNX
+absolute time, but it did not improve the ratio-vs-NetworkX gate once the paired
+NetworkX row movement was considered. Do not repeat pair-list-to-iterator
+materialization as a standalone lever for this row; the remaining weighted
+in-degree gap needs a deeper scalar/bulk-consumption contract or a lower-level
+degree accumulator change that improves FNX relative to the paired NetworkX
+measurement, not just absolute local time.
