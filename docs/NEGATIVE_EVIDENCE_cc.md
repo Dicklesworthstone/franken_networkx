@@ -3266,3 +3266,23 @@ substrate-bound (per-edge swap_remove + String-key hash), like remove_nodes_from
 (index repair) + clear (dealloc). clear_edges (shipped 50d0f4074) was the ONE mutator win because clearing ALL
 edges = one edges.clear()+row.clear() (no per-edge hashing). The mutator vein is now MINED. LESSON: batching
 only wins when the batched op dominates AND the batch setup is cheaper than what it saves.
+
+## 2026-06-27 CopperCliff FINDING: add_edges_from(dict attrs) leaves Rust store stale -> size/degree/wiener(weight) WRONG (correctness bug); add_weighted perf-batch reverted
+
+Dug construction gaps; found add_weighted_edges_from 0.135x (7x slow: per-edge add_edge PyO3 loop) + from_edgelist
+0.593x. Tried routing add_weighted to add_edges_from((u,v,{weight:w})) EXACTLY as nx -> 0.135x->1.13x, BYTE-EXACT
+on edges(data) across all 4 types + **attr + error contract. BUT it REGRESSED the wiener_index conformance test.
+ROOT CAUSE (a pre-existing LATENT CORRECTNESS BUG, exposed not caused by the perf change): building a weighted
+graph via add_edges_from((u,v,{'weight':w})) stores the weights in the Python MIRROR (edge_py_attrs) but leaves
+the Rust STORE without them (and apparently without a dirty flag that _sync_rust_edge_attrs honors -- calling it
+did NOT fix wiener). Native weighted kernels that read the STORE then return WRONG results:
+  - n=5 directed-complete weighted via add_edges_from(dict): size(weight) fnx=20 vs nx=71; in_degree(0,weight)
+    fnx=4 vs nx=19; wiener_index fnx=20 vs nx=58. (fnx reads UNIT weights = the store had none.)
+  - dijkstra_path_length / shortest_path_length(weight): CORRECT (they sync/read properly).
+  - edges(data='weight'): CORRECT (reads the mirror).
+The OLD add_weighted (add_edge(weight=w) per edge -> writes the STORE directly) AVOIDS the bug -> REVERTED to it.
+SCOPE: any graph built via add_edges_from(dict attrs) (a common nx pattern) then queried by size(weight) /
+*_degree(weight) / wiener_index gives silently-wrong results. dijkstra-family is fine. NEEDS a dedicated
+correctness fix (the store-reading weighted kernels must sync the mirror first, like dijkstra; or add_edges_from
+must mark edges_dirty so the existing sync path fires). HIGH PRIORITY -- separate from perf. add_weighted stays
+on the correct per-edge path (0.135x) until the store-sync bug is fixed (then it can batch + win).
