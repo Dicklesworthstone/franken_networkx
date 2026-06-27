@@ -2755,3 +2755,16 @@ all benched domains. Remaining vs-nx gaps are exclusively substrate-bound (weigh
 in_edges cold, resource_allocation, ego_graph) or near-parity within noise (could_be_isomorphic 0.81x,
 construction_copy 0.81x, junction_tree 0.96x). 18 perf ships stand; next-tier wins require storage-layer work
 (numeric weight column / non-BTreeMap attr map), a multi-hour structural project, not a single-dig lever.
+
+## 2026-06-26 CopperCliff lazy-mirror lever RULED OUT for the edge-attr family (selfloop_edges also ~0.68x native)
+
+Probed whether the substrate-family ~0-gain was due to the pristine-mirror gate NOT firing (i.e. add_edge
+eagerly populating edge_py_attrs), which lazy-mirror construction could fix. Tested selfloop_edges(data=weight)
+on an add_edge-built MG: 0.68x, and a held-ref edge access (which breaks pristine) did NOT change it (0.68->
+0.70x). So selfloop_edges' native path is ALREADY ~0.68x regardless of mirror state -- the AttrMap/PyObject
+substrate is the floor, NOT the gate. CONCLUSION: making add_edge leave the mirror lazy/pristine would NOT
+unlock meaningful wins for the edge-attr family (size/degree/selfloop_edges all ~0.4-0.7x via native paths);
+the lazy-mirror lever is RULED OUT. The ONLY remaining lever for this family is a storage-layer change (a
+parallel numeric f64 weight column updated on mutation, replacing per-edge BTreeMap<String,CgseValue>
+lookups), a multi-hour structural project across fnx-classes edge mutation paths. DON'T re-attempt lazy-mirror
+or native-fold variants for size/degree/selfloop weighted -- they're all substrate-floored. 18 ships stand.
