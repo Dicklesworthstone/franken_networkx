@@ -633,19 +633,8 @@ impl PyMultiDiGraph {
     // store is authoritative, so we sum int weights directly from it with ZERO
     // per-edge Python crossings. Returns None (bail to the mirror/py paths) on any
     // non-int weight or overflow, keeping float/object parity exact.
-    fn add_store_int_weight(
-        &self,
-        total: &mut i128,
-        source: &str,
-        target: &str,
-        key: usize,
-        weight: &str,
-    ) -> Option<()> {
-        let value = match self
-            .inner
-            .edge_attrs(source, target, key)
-            .and_then(|attrs| attrs.get(weight))
-        {
+    fn add_store_int_weight_attrs(total: &mut i128, attrs: &AttrMap, weight: &str) -> Option<()> {
+        let value = match attrs.get(weight) {
             Some(CgseValue::Int(v)) => i128::from(*v),
             Some(_) => return None,
             None => 1,
@@ -664,17 +653,17 @@ impl PyMultiDiGraph {
         if outgoing {
             if let Some(successors) = self.inner.successors_iter(node) {
                 for successor in successors {
-                    let keys = self.inner.edge_keys_iter(node, successor)?;
-                    for key in keys {
-                        self.add_store_int_weight(&mut total, node, successor, *key, weight)?;
+                    let attrs_iter = self.inner.edge_attr_values(node, successor)?;
+                    for attrs in attrs_iter {
+                        Self::add_store_int_weight_attrs(&mut total, attrs, weight)?;
                     }
                 }
             }
         } else if let Some(predecessors) = self.inner.predecessors_iter(node) {
             for predecessor in predecessors {
-                let keys = self.inner.edge_keys_iter(predecessor, node)?;
-                for key in keys {
-                    self.add_store_int_weight(&mut total, predecessor, node, *key, weight)?;
+                let attrs_iter = self.inner.edge_attr_values(predecessor, node)?;
+                for attrs in attrs_iter {
+                    Self::add_store_int_weight_attrs(&mut total, attrs, weight)?;
                 }
             }
         }
@@ -11332,10 +11321,13 @@ impl PyDiGraph {
                                 .expect("predecessor index should resolve during in_edges");
                             let attrs = edge_py_attrs
                                 .entry(Self::edge_key(source_name, target_name))
-                                .or_insert_with(|| match inner.edge_attrs_by_indices(src_idx, idx) {
-                                    Some(attrs) => attr_map_to_pydict(py, attrs)
-                                        .expect("stored directed edge attrs must convert to Python"),
-                                    None => PyDict::new(py).unbind(),
+                                .or_insert_with(|| {
+                                    match inner.edge_attrs_by_indices(src_idx, idx) {
+                                        Some(attrs) => attr_map_to_pydict(py, attrs).expect(
+                                            "stored directed edge attrs must convert to Python",
+                                        ),
+                                        None => PyDict::new(py).unbind(),
+                                    }
                                 });
                             attrs
                                 .bind(py)
@@ -11386,7 +11378,10 @@ impl PyDiGraph {
                     .to_owned();
                 let value =
                     self.edge_attr_value_or_default(py, &source_name, &canonical, data, &default)?;
-                out.push(tuple_object(py, &[source_obj, node.clone().unbind(), value])?);
+                out.push(tuple_object(
+                    py,
+                    &[source_obj, node.clone().unbind(), value],
+                )?);
             }
         }
         Ok(Some(out))

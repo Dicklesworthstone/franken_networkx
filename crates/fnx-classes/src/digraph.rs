@@ -2072,6 +2072,17 @@ impl MultiDiGraph {
     }
 
     #[must_use]
+    pub fn edge_attr_values(
+        &self,
+        source: &str,
+        target: &str,
+    ) -> Option<impl Iterator<Item = &AttrMap> + '_> {
+        self.edges
+            .get(&DirectedEdgeKeyRef::new(source, target))
+            .map(|edge_bucket| edge_bucket.values())
+    }
+
+    #[must_use]
     pub fn evidence_ledger(&self) -> &EvidenceLedger {
         self.runtime_policy.decision_log()
     }
