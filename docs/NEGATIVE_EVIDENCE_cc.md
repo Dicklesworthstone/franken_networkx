@@ -2707,3 +2707,17 @@ fold cannot beat nx's degree-sum at this size; the AttrMap-BTreeMap-lookup is th
 would need a numeric-attr fast-lane in the storage layer (e.g. a parallel f64 weight column) -- out of scope.
 Conclusion: MG.size(weight) / weighted-degree family is storage-substrate-bound (BTreeMap attr lookup), not a
 clean kernel win. STOP attacking MG.size(weight) via edge iteration.
+
+## 2026-06-26 CopperCliff weighted-degree-family "fast sibling" was NOISE — whole family substrate-bound (closure)
+
+Probed the apparent asymmetry (MDG.degree(weight) 1.28x WIN vs in_degree 0.239x GAP) as a candidate
+"mirror-the-fast-sibling" win (like maximum_spanning_edges). RE-MEASURED on a clean reverted build: MDG.degree
+(weight) 0.59x, in_degree 0.44x, out_degree 0.73x -- the earlier 1.28x was MEASUREMENT NOISE (warm-cache/
+variance), NOT a real fast path. There is NO clean fast sibling to mirror; the entire weighted-degree/size
+family (MG.degree 0.45x, MG.size 0.63x, MDG in/out/degree 0.44-0.73x) sits at the SAME ~0.4-0.7x substrate
+floor: per-edge AttrMap (BTreeMap) weight lookup + PyObject degree-view tuple materialization, both slower
+than nx's native C dicts. CONCLUSION: the weighted-view family is storage-substrate-bound, not a kernel-lever
+win. A real win needs a storage-layer change (numeric weight column / faster attr map) -- a large structural
+project, out of scope for a single dig. STOP attacking the weighted-degree/size family via kernel/iteration
+levers. Clean kernel wins remain elsewhere (the de-delegation / redundant-copy class, e.g. maximum_spanning_
+edges 0.28x->2.7x shipped).
