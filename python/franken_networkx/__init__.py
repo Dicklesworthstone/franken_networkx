@@ -3401,8 +3401,52 @@ def _simple_add_edges_from_touches_existing_plain_edge(graph, edges):
     # per-edge has_edge() pre-scan (O(E) PyO3 round-trips) is pure waste -- it gates the
     # native batch for from_edgelist / Graph(edgelist) / add_edges_from on a fresh graph
     # (the common construction case), doubling the work. number_of_edges() is O(1).
-    if graph.number_of_edges() == 0:
+    edge_count = graph.number_of_edges()
+    if edge_count == 0:
         return False
+    # br-cc-aefsnap: the per-edge graph.has_edge(u, v) pre-scan pays one PyO3
+    # round-trip (plus the Python has_edge wrapper) for EACH edge in the bunch.
+    # When the existing edge set is no larger than the bunch, a single edges()
+    # snapshot into a Python set + pure-Python membership checks are strictly
+    # cheaper: the snapshot is O(edge_count) <= O(len(bunch)) (the per-edge scan
+    # is already O(len(bunch))), and each membership test is a C-level set lookup
+    # instead of a has_edge() round-trip. This is the hot path for add_edges_from
+    # onto an already-populated-but-small graph and for generators that seed a
+    # tiny graph then bulk-extend (barabasi_albert seeds star_graph(m) then adds
+    # ~m*(n-m) edges). When edge_count > len(bunch) the snapshot would cost more
+    # than the scan saves, so fall through to the per-edge has_edge path.
+    try:
+        bunch_len = len(edges)
+    except TypeError:
+        bunch_len = None
+    if bunch_len is not None and edge_count <= bunch_len:
+        directed = type(graph) is DiGraph
+        try:
+            if directed:
+                existing = set(graph.edges())
+            else:
+                existing = {frozenset(e) for e in graph.edges()}
+        except TypeError:
+            existing = None
+        if existing is not None:
+            for edge in edges:
+                try:
+                    if len(edge) != 2:
+                        return False
+                    u, v = edge
+                except TypeError:
+                    return False
+                try:
+                    probe = (u, v) if directed else frozenset((u, v))
+                except TypeError:
+                    # unhashable endpoint: defer to has_edge's own TypeError
+                    # handling via the per-edge path below.
+                    existing = None
+                    break
+                if probe in existing:
+                    return True
+            else:
+                return False
     for edge in edges:
         try:
             if len(edge) != 2:

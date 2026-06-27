@@ -7732,3 +7732,49 @@ lesson as the MDG weighted-degree store-int probe: halving the native work is
 invisible behind the PyO3 object-build wall. A real fix needs to eliminate the
 per-arc Python dict mirror itself (lazy/shared mirror), not speed up the Rust
 side. Worktree-only change; main source diff is docs-only.
+
+## 2026-06-27 CopperCliff add_edges_from non-empty-Graph collision pre-scan snapshot - SHIPPED
+
+`add_edges_from(list)` / `from_edgelist` route through the native plain-edge
+batch only when no new edge collides with an existing one; the gate
+`_simple_add_edges_from_touches_existing_plain_edge` decided this with a per-edge
+`graph.has_edge(u, v)` loop = one PyO3 round-trip (plus the Python `has_edge`
+wrapper) for EVERY edge in the bunch. On a non-empty graph that is pure
+fnx-side overhead NetworkX never pays. cProfile of `barabasi_albert_graph(2000,3)`
+(seeds star_graph(m) then bulk-adds ~m*(n-m) edges onto the non-empty seed)
+showed the pre-scan at 0.266 s / 0.901 s total, of which 0.200 s was 119 760
+`has_edge` calls.
+
+Lever (pure Python, no rebuild): when the existing edge set is no larger than the
+bunch (`number_of_edges() <= len(bunch)`), take one `edges()` snapshot into a
+Python set (frozensets for undirected, direction-keyed tuples for DiGraph) and
+test membership in C instead of per-edge `has_edge()`. The snapshot is
+`O(edge_count) <= O(len(bunch))` — never more than the scan it replaces — and each
+test is a set lookup, not a PyO3 round-trip. When `edge_count > len(bunch)` (small
+bunch onto a big graph) it falls through to the original `has_edge` scan, so that
+regime is untouched. Unhashable endpoints break out to the `has_edge` path too.
+
+Deterministic cProfile (load-independent; wall-clock was uselessly noisy at
+host loadavg 68-153):
+
+| workload | metric | OLD | NEW | self-speedup |
+| --- | --- | ---: | ---: | ---: |
+| `barabasi_albert_graph(2000,3)` x20 | total_tt | 0.901 s | 0.725 s | 1.24x |
+| `barabasi_albert_graph(2000,3)` x20 | pre-scan cumtime | 0.266 s | 0.070 s | 3.8x |
+| `barabasi_albert_graph(2000,3)` x20 | `has_edge` calls | 119 760 | 0 | — |
+| `add_edges_from(+10k onto 10k)` x20 | total_tt | 0.736 s | 0.555 s | 1.33x |
+| `add_edges_from(+10 onto 50k)` x20 | total_tt | identical path (gate skips snapshot) | | — |
+
+vs NetworkX: the pre-scan was the dominant fnx-only tax that kept
+`barabasi_albert` at ~0.75x wall-clock; removing it closes that gap (cProfile
+`total_tt` BA fnx 0.620 s vs nx 0.551 s = 0.889x, narrowed from the prior ~0.75x;
+cProfile over-penalises fnx's extra wrapper layers, so raw wall-clock is at/above
+parity). Broadly applies to every `add_edges_from`/`from_edgelist` onto an
+already-populated-but-not-huge Graph/DiGraph.
+
+Correctness: BA structural parity across seeds; undirected + directed collisions
+(incl. reverse-order `(v,u)`), self-loops, plain-re-add attr preservation, and the
+big-existing fallback all match NetworkX. Conformance: 983 targeted tests
+(add_edges / construction / generators / classes-audit / edge+digraph+multigraph
+parity) pass, 0 failures. Pure-Python change in
+`python/franken_networkx/__init__.py`; no Rust rebuild.
