@@ -3133,3 +3133,20 @@ endpoint pairs 1.508x. GOLDEN CORPUS 24/24 byte-exact (BA/WS/gnp/tree + selfloop
 ebunch ==nx; conformance GREEN (1315 link-pred tests). LEVER (generalizes): when an algo's float-sum parity
 blocks a fast native kernel, return the native-computed TERMS/operands and do the final reduction in Python --
 native speed + guaranteed float parity. 26th perf ship.
+
+## 2026-06-27 CopperCliff community link-pred (cn/ra_index/within_inter soundarajan_hopcroft) hybrid native REGRESSED, reverted
+
+Tried extending the RA/AA hybrid lever (native common neighbors + Python reduce, shipped face2f4f5) to the
+COMMUNITY link-pred functions: cn_soundarajan_hopcroft (0.710x), ra_index_soundarajan_hopcroft (0.595x),
+within_inter_cluster (0.633x). Added link_pred_common_neighbors_full returning per-pair common neighbors as
+(node_obj, degree) so Python could look up each common neighbor's community attr. GOLDEN CORPUS 36/36 byte-exact
+(incl. selfloops + communities), conformance GREEN (1857). BUT MEASURED REGRESSION: ra_index 0.595x->0.367x,
+within_inter 0.633x->0.356x (cn only 0.710x->0.804x). ROOT CAUSE: unlike RA/AA (degree-only -> native returns
+i64 degrees, zero per-occurrence PyObjects), the community metrics need each common neighbor's COMMUNITY ATTR
+(G.nodes[w][community]) -- inherently per-node Python attr access the native can't cheaply provide. Returning
+the common-neighbor OBJECT per OCCURRENCE (same node repeats across pairs) adds py_node_key materialization the
+degree-only path avoided, AND Python still does G.nodes[w] per common. So community link-pred is
+COMMUNITY-ACCESS-bound, not common-neighbor-finding-bound -- the hybrid lever does NOT transfer. REVERTED.
+LESSON: the native-operands+Python-reduce lever wins only when the native can return CHEAP scalar operands
+(degrees/counts as ints); when the reduce needs per-element Python OBJECT attrs, returning objects per
+occurrence regresses. RA/AA win stands.
