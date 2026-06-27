@@ -2803,3 +2803,21 @@ Followed up the synced-weighted spectrum-cert fix (00bbf464a) with a full audit 
 CONCLUSION: the synced-weighted cert-bug class is FULLY CLOSED (only star + complete_bipartite were buggy,
 both fixed + verified); no other latent instances; the fix is precise (no over-bail) + conformance GREEN. Main
 is clean. Perf frontier remains substrate-bound (storage-layer project is the only remaining lever).
+
+## 2026-06-26 CopperCliff IO/generators sweep — parse_adjlist construction-substrate-bound (0.56x); rest wins
+
+Swept IO + generators + hashing (domains not before covered this session). Mostly WINS/parity: generate_adjlist
+0.96x, generate_edgelist 1.20x, node_link_data 1.30x, to_dict_of_lists 1.75x, to_dict_of_dicts 1.26x,
+gnp_random 2.23x, watts_strogatz 1.73x, random_regular 2.92x, powerlaw_cluster 1.30x, random_geometric 1.44x,
+weisfeiler_lehman_hash 0.97x. GAPS: parse_adjlist 0.666-0.695x, adjacency_data 0.718x.
+parse_adjlist ROOT: already batches (bulk add_nodes_from + add_edges_from, br-r37-c1-pjadl), so the gap is NOT
+the parse loop -- isolated the CONSTRUCTION (add_nodes_from+add_edges_from on the parsed string-keyed nodes) =
+0.561x (fnx 3.40ms vs nx 1.93ms). The per-edge record_decision LEDGER tax + PyO3 string-key construction is
+slower than nx's plain Python dicts. read_adjlist beat this only via the NATIVE read_adjlist_simple file
+reader (extend_*_unrecorded), which is N/A for a Python line-stream and whose unrecorded bulk APIs are NOT
+exposed to Python (dir(Graph) has no extend/unrecorded). So parse_adjlist is construction-substrate-bound like
+the rest. CONSOLIDATED: every remaining vs-nx gap is one of three DEEP native substrates -- (1) edge-attr
+BTreeMap+PyObject (weighted degree/size/selfloop), (2) construction record_decision LEDGER + PyO3 string-key
+(parse_adjlist, dict-builders), (3) adjacency PyO3 materialization (resource_allocation, ego_graph). All need
+multi-hour native work (storage numeric column / Python-exposed unrecorded bulk builder / marking-dict). No
+single-dig 60m-safe win remains. 18 perf + 1 correctness ship stand; main clean.
