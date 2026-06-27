@@ -172,6 +172,26 @@ pub struct DiGraph {
 }
 
 impl DiGraph {
+    /// br-r37-c1-clearedgesinplace (cc): drop all edges in place, keeping nodes (index,
+    /// order, attrs). O(E)+O(V): clear the edges map + every succ/pred index row; the
+    /// revision bump invalidates the CSR + all-int caches. Sibling of Graph::clear_edges
+    /// and MultiDiGraph::clear_edges. The binding's prior path collected the mirror keys
+    /// and called remove_edge per edge (each an O(degree) row retain -> O(E*degree),
+    /// measured ~0.003-0.011x vs nx); this is the in-place fix.
+    pub fn clear_edges(&mut self) {
+        if self.edges.is_empty() {
+            return;
+        }
+        self.edges.clear();
+        for row in &mut self.succ_indices {
+            row.clear();
+        }
+        for row in &mut self.pred_indices {
+            row.clear();
+        }
+        self.revision = self.revision.saturating_add(1);
+    }
+
     /// br-r37-c1-7dpyg: structural clone with a FRESH RuntimePolicy —
     /// see Graph::clone_with_fresh_policy.
     #[must_use]

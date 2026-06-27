@@ -9726,10 +9726,13 @@ impl PyDiGraph {
     }
 
     fn clear_edges(&mut self) {
-        let edges: Vec<(String, String)> = self.edge_py_attrs.keys().cloned().collect();
-        for (u, v) in edges {
-            self.inner.remove_edge(&u, &v);
-        }
+        // br-r37-c1-clearedgesinplace (cc): drop edges IN PLACE via native
+        // DiGraph::clear_edges (edges + succ/pred rows, keeping nodes). The prior path
+        // collected self.edge_py_attrs.keys() then remove_edge per edge -- O(degree)
+        // row retain each, so O(E*degree) (~0.003-0.011x vs nx, ~240ms on 15k edges)
+        // AND it MISSED store-only edges when the mirror was pristine (edge_py_attrs
+        // empty for add_edge graphs). Native clears inner edges regardless of mirror.
+        self.inner.clear_edges();
         self.edge_py_attrs.clear();
         self.succ_py_keys.clear(); // br-r37-c1-z6uka
         self.pred_py_keys.clear(); // br-r37-c1-z6uka

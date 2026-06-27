@@ -9766,31 +9766,15 @@ impl PyGraph {
 
     /// Remove all edges but keep nodes and their attributes.
     fn clear_edges(&mut self, py: Python<'_>) -> PyResult<()> {
-        // br-r37-c1-clearedges (cc): the old path collected every edge to
-        // Vec<(String,String)> (O(E) String allocs) then called inner.remove_edge
-        // per edge — each does edges-map removal + an adj_indices[u]/[v] retain
-        // (O(degree)), so clearing a dense graph was O(E*degree) (~8x slower than
-        // nx). Rebuild the inner with nodes + their rust attrs only (O(N), no
-        // edges) instead. Every PyGraph mirror is keyed by node string and node
-        // insertion order is preserved (nodes_ordered), so node-side mirrors stay
-        // valid; edge-side mirrors are cleared exactly as before.
-        let policy = self.inner.runtime_policy().clone();
-        let ordered: Vec<(String, AttrMap)> = self
-            .inner
-            .nodes_ordered()
-            .into_iter()
-            .map(|n| {
-                (
-                    n.to_owned(),
-                    self.inner.node_attrs(n).cloned().unwrap_or_default(),
-                )
-            })
-            .collect();
-        let mut fresh = Graph::with_runtime_policy(policy);
-        for (n, attrs) in ordered {
-            fresh.add_node_with_attrs(n, attrs);
-        }
-        self.inner = fresh;
+        // br-r37-c1-clearedgesinplace (cc): drop edges IN PLACE via the native
+        // Graph::clear_edges (edges + endpoints + adj_indices rows, keeping nodes).
+        // The prior path rebuilt a fresh Graph with a per-node add_node_with_attrs
+        // loop — that paid the ledger record_decision tax + a node-attr clone per
+        // node + the old-inner drop, measuring ~0.05x vs nx (20x slower) on a
+        // 2000-node/16000-edge graph. In-place clear is O(E)+O(V), no rebuild/clone/
+        // ledger. Nodes (index, order, attrs) are untouched, so all node-side mirrors
+        // stay valid; edge-side mirrors are cleared exactly as before.
+        self.inner.clear_edges();
         self.edge_py_attrs.clear();
         self.adj_py_keys.clear(); // br-r37-c1-z6uka
         self.cached_adj_clear_edges_in_place(py)?;

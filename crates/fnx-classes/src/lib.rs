@@ -182,6 +182,24 @@ impl Graph {
         }
     }
 
+    /// br-r37-c1-clearedgesinplace (cc): drop all edges in place, keeping nodes (and
+    /// their index/order/attrs). O(E) teardown + O(V) row clears -- the binding's prior
+    /// path rebuilt a fresh Graph with a per-node add_node loop (ledger record_decision
+    /// tax + node-attr clone + old-inner drop), ~20x slower than nx. Sibling of
+    /// MultiGraph::clear_edges. adj_indices keeps its N rows (one per node), emptied;
+    /// the revision bump invalidates all_int_cache.
+    pub fn clear_edges(&mut self) {
+        if self.edges.is_empty() && self.edge_index_endpoints.is_empty() {
+            return;
+        }
+        self.edges.clear();
+        self.edge_index_endpoints.clear();
+        for row in &mut self.adj_indices {
+            row.clear();
+        }
+        self.revision = self.revision.saturating_add(1);
+    }
+
     #[must_use]
     pub fn strict() -> Self {
         Self::new(CompatibilityMode::Strict)

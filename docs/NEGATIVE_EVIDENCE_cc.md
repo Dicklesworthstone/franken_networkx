@@ -3209,3 +3209,22 @@ views, weighted): the per-function vs-nx surface is COMPREHENSIVELY at-or-above 
 substrate-bound (view-object/eager-materialization/Python-node->String-key/dense-LAPACK) or parity-blocked
 (CPython set-order). Single-dig kernel frontier EXHAUSTED; remaining productive work is architectural
 (lazy view layer / integer-node-index cache) — multi-session, not a 60-min dig.
+
+## 2026-06-27 CopperCliff SHIP x2: Graph + DiGraph clear_edges 0.05x/0.003x -> in-place (40-275x self, unweighted Graph BEATS nx)
+
+Re-measuring the bench laggards (the source of truth) caught two CATASTROPHIC clear_edges gaps the per-function
+sweeps missed (they're mutators, not in the read-only sweeps):
+- SIMPLE Graph.clear_edges 0.048-0.057x (20x slower): the binding REBUILT a fresh inner via a per-node
+  add_node_with_attrs loop (ledger record_decision tax + node-attr clone + old-inner drop).
+- DiGraph.clear_edges 0.003-0.011x (up to 330x slower): the binding collected edge_py_attrs.keys() then
+  remove_edge per edge -- each an O(degree) adj-row retain => O(E*degree) (~240ms on 15k edges). ALSO a latent
+  CORRECTNESS BUG: keyed off the mirror, so a pristine add_edge graph (empty edge_py_attrs) had its store edges
+  NOT cleared.
+FIX: added in-place clear_edges to fnx-classes Graph + DiGraph (edges.clear() + adj/succ/pred index rows
+clear() + revision bump; sibling of the existing MultiGraph/MultiDiGraph in-place clears) and routed both
+bindings to it. RESULTS: Graph weighted 0.057x->0.236x, Graph UNWEIGHTED 0.048x->11.94x (BEATS nx 12x -- empty
+AttrMaps + Vec row clear keeps capacity = near-free); DiGraph weighted 0.011x->0.428x, DiGraph unweighted
+0.003x->0.508x (240ms->2.3ms). BYTE-EXACT (nodes/attrs kept, edges empty, re-add ==nx, pristine clear now
+empties), conformance GREEN (3387). Weighted residual = AttrMap dealloc (inherent). 28th+29th perf ship.
+LESSON: MUTATOR functions (clear_edges, remove_*) are invisible to read-only perf sweeps -- the bench laggard
+list is the source of truth; re-measure it even when single-function sweeps look exhausted.
