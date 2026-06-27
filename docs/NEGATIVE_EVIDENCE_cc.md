@@ -3179,3 +3179,17 @@ CONCLUSION: the single-function vs-nx frontier is comprehensively mined (27 perf
 are substrate-bound (eager view materialization, Python-node->String-key tax, dense LAPACK) or parity-blocked
 (set-order default ebunches). The productive vein remains the native-scalar-operands + Python-reduce hybrid
 (mined across link-pred: RA/AA/jaccard) and architectural work (lazy view layer / integer-node-index cache).
+
+## 2026-06-27 CopperCliff substrate view-materialization gaps RESOLVED — memory's "core remaining frontier" is outdated
+
+Re-measured WARM (min-of-6 x4) the view-materialization substrate that earlier memory flagged as the ONLY real
+remaining gaps (dict(adjacency()) 0.19x, nodes(data=attr) 0.20x): ALL resolved -- dict(G.adjacency()) 1.045x,
+nodes(data=True) 0.993x, list(edges(data=True)) 1.295x, to_dict_of_dicts 1.393x, to_dict_of_lists 2.073x (the
+adjacency outer-dict cache + node_data_mirror + edges-data cache all landed). The ONLY residual sub-1.0x here is
+dict(G.adj) 0.704x -- the .adj AdjacencyView outer materialization creates N inner AtlasView objects (genuine
+view-object substrate, distinct from adjacency()'s cached path; marginal + delicate inner-view structure, not
+pursued). Also re-confirmed less-common fns at-or-above nx: kemeny 2.1x, effective_graph_resistance 1.8x,
+estrada 54x, flow_hierarchy 174x, is_distance_regular 29x, tree_broadcast_time 4.2x; near-parity
+number_of_cliques 0.86x (find_cliques set-order) + attribute_mixing_dict 0.887x (object-attr-bound, like the
+community link-pred). CONCLUSION: the per-function vs-nx surface is comprehensively at-or-above nx; the
+substrate-frontier thesis in older memory is OUTDATED -- those gaps are fixed.
