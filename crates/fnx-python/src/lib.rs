@@ -2364,6 +2364,7 @@ pub(crate) struct PyMultiGraph {
     pub(crate) node_py_attrs: HashMap<String, Py<PyDict>>,
     pub(crate) edge_py_attrs: HashMap<(String, String, usize), Py<PyDict>>,
     pub(crate) edge_py_keys: HashMap<(String, String, usize), PyObject>,
+    pub(crate) edge_mirrors_stale: bool,
     pub(crate) graph_attrs: Py<PyDict>,
     /// br-r37-c1-39d82: see PyGraph::nodes_seq.
     pub(crate) nodes_seq: u64,
@@ -2770,6 +2771,7 @@ impl PyMultiGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
+            edge_mirrors_stale: false,
             graph_attrs: PyDict::new(py).unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -2793,6 +2795,15 @@ impl PyMultiGraph {
     #[inline]
     pub(crate) fn bump_edges_seq(&mut self) {
         self.edges_seq = self.edges_seq.wrapping_add(1);
+    }
+
+    #[inline]
+    fn clear_stale_edge_mirrors(&mut self) {
+        if self.edge_mirrors_stale {
+            self.edge_py_attrs.clear();
+            self.edge_py_keys.clear();
+            self.edge_mirrors_stale = false;
+        }
     }
 
     #[inline]
@@ -2955,6 +2966,7 @@ impl PyMultiGraph {
         ebunch_to_add: &Bound<'_, PyAny>,
         global_attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<bool> {
+        self.clear_stale_edge_mirrors();
         const ATTR_EDGE_BATCH_MIN: usize = 8;
         if global_attr.is_some_and(|attrs| !attrs.is_empty())
             || self.inner.node_count() != 0
@@ -4209,6 +4221,7 @@ impl PyMultiGraph {
         key: Option<&Bound<'_, PyAny>>,
         attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<PyObject> {
+        self.clear_stale_edge_mirrors();
         let u = u_for_edge;
         let v = v_for_edge;
         // br-r37-c1 mutation-state batch 2: nx creates node u BEFORE
@@ -4400,6 +4413,7 @@ impl PyMultiGraph {
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
+        self.clear_stale_edge_mirrors();
         const PLAIN_EDGE_BATCH_MIN: usize = 8;
         if self.inner.edge_count() != 0 || !self.adj_py_keys.is_empty() {
             return Ok(false);
@@ -4611,6 +4625,7 @@ impl PyMultiGraph {
         ebunch_to_add: &Bound<'_, PyAny>,
         global_attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<bool> {
+        self.clear_stale_edge_mirrors();
         if self.try_add_fresh_exact_int_keyed_attr_edge_batch(py, ebunch_to_add, global_attr)? {
             return Ok(true);
         }
@@ -4778,6 +4793,7 @@ impl PyMultiGraph {
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
+        self.clear_stale_edge_mirrors();
         const STR_KEYED_EDGE_BATCH_MIN: usize = 8;
         if self.try_add_fresh_int_prefix_str_keyed_edges_from_batch(py, ebunch_to_add)? {
             return Ok(true);
@@ -5053,6 +5069,7 @@ impl PyMultiGraph {
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
+        self.clear_stale_edge_mirrors();
         if self.inner.edge_count() != 0 || !self.adj_py_keys.is_empty() {
             return Ok(false);
         }
@@ -6215,6 +6232,7 @@ impl PyMultiGraph {
         self.edge_py_attrs.clear();
         self.adj_py_keys.clear(); // br-r37-c1-z6uka
         self.edge_py_keys.clear();
+        self.edge_mirrors_stale = false;
         self.graph_attrs = PyDict::new(py).unbind();
         // Clear the live mirror in place so an in-flight iter raises like nx.
         self.node_iter_mirror_clear(py)?;
@@ -6225,9 +6243,10 @@ impl PyMultiGraph {
 
     fn clear_edges(&mut self) {
         self.inner.clear_edges();
-        self.edge_py_attrs.clear();
+        if !self.edge_py_attrs.is_empty() || !self.edge_py_keys.is_empty() {
+            self.edge_mirrors_stale = true;
+        }
         self.adj_py_keys.clear(); // br-r37-c1-z6uka
-        self.edge_py_keys.clear();
         self.bump_edges_seq(); // br-r37-c1-jft0i
     }
 
@@ -6980,6 +6999,7 @@ impl PyMultiGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
+            edge_mirrors_stale: false,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -7082,6 +7102,7 @@ impl PyMultiGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
+            edge_mirrors_stale: false,
             graph_attrs: deepcopy_py_dict(py, &deepcopy, &self.graph_attrs)?,
             nodes_seq: 0,
             edges_seq: 0,
@@ -7238,6 +7259,7 @@ impl PyMultiGraph {
             node_py_attrs: HashMap::with_capacity(self.node_py_attrs.len()),
             edge_py_attrs: HashMap::with_capacity(self.edge_py_attrs.len()),
             edge_py_keys: HashMap::with_capacity(self.edge_py_keys.len()),
+            edge_mirrors_stale: self.edge_mirrors_stale,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -7325,6 +7347,7 @@ impl PyMultiGraph {
                 .iter()
                 .map(|(k, v)| (k.clone(), v.clone_ref(py)))
                 .collect(),
+            edge_mirrors_stale: self.edge_mirrors_stale,
             // SHARE the graph attrs dict (shallow copy)
             graph_attrs: self.graph_attrs.clone_ref(py),
             nodes_seq: 0,
@@ -7395,6 +7418,7 @@ impl PyMultiGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
+            edge_mirrors_stale: false,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -7508,6 +7532,7 @@ impl PyMultiGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
+            edge_mirrors_stale: false,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -7839,6 +7864,7 @@ impl PyMultiGraph {
         self.edge_py_attrs.clear();
         self.adj_py_keys.clear(); // br-r37-c1-u3qyn
         self.edge_py_keys.clear();
+        self.edge_mirrors_stale = false;
         self.graph_attrs = PyDict::new(py).unbind();
 
         if let Some(graph_attrs) = state.get_item("graph")? {

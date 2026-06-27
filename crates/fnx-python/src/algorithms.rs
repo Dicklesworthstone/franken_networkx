@@ -23050,6 +23050,7 @@ mod tests {
                 edge_py_attrs: HashMap::new(),
                 adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
                 edge_py_keys: HashMap::new(),
+                edge_mirrors_stale: false,
                 graph_attrs: PyDict::new(py).unbind(),
                 nodes_seq: 0,
                 edges_seq: 0,

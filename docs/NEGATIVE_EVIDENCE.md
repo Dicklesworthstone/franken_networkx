@@ -6832,3 +6832,69 @@ path correct for this BA fixture, but it remains slower than NetworkX
 (`0.454x`). The extra projection rebuild/order work is still Python/PyO3-bound,
 so removing the public weighted bypass is not a measured win. No production
 source change remains.
+
+## 2026-06-26 BlackThrush MultiGraph.clear_edges lazy edge-mirror invalidation - KEEP
+
+Scope: BOLD-VERIFY land-or-dig vs NetworkX on current `main` (`aebe1eefc`).
+A read-only `.scratch` / `.worktrees` scan found no measured source win missing
+from `main`: the old adjacency outer-cache worktree was already represented by
+`a424835f7`, and the other non-ancestor worktree was A* parity-only. Agent Mail
+registration/reservation remained blocked by the existing SQLite corruption
+circuit breaker.
+
+The literal requested `cargo bench --release` form was tried first and rejected
+by this cargo toolchain (`error: unexpected argument '--release' found`), so the
+equivalent release bench profile was used through `rch exec` with the requested
+warm target dir and per-crate `fnx-python` scope.
+
+Baseline/routing command:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head -- 'core_laggards|clear_edges' --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`
+
+Fresh routing showed `MultiGraph.clear_edges()` as the largest current gap:
+
+| workload | state | runner | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | --- | --- | ---: | ---: | ---: |
+| `fnx_multigraph_clear_edges_n800_e4000` | current `main` clear_edges | `rch` remote `hz2` | `3.1125 ms` | `461.99 us` | `0.148x` |
+| `mdg_in_edges_data_n700_e12662` | current `main` routing | `rch` remote `hz2` | `11.711 ms` | `2.6038 ms` | `0.222x` |
+| `mg_selfloop_keys_weight_n2500_loops2502` | current `main` routing | `rch` remote `hz2` | `1.4033 ms` | `491.32 us` | `0.350x` |
+
+Lever: make `PyMultiGraph.clear_edges()` lazily invalidate the expensive
+edge-level Python mirrors (`edge_py_attrs`, `edge_py_keys`) instead of clearing
+their large hash tables on the clear path. The authoritative Rust multigraph is
+still cleared immediately, adjacency display-key overrides still clear
+immediately, `edges_seq` still bumps once, `clear()` / pickle restore reset the
+stale bit, and every edge-add / edge-batch entry point clears stale mirrors
+before writing new edge key or attr mirror state.
+
+Candidate command:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head -- clear_edges --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`
+
+| workload | state | runner | FNX median | NetworkX median | ratio vs NetworkX | self vs fresh baseline |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `fnx_multigraph_clear_edges_n800_e4000` | lazy edge-mirror invalidation | `rch` remote `ovh-a` | `725.51 us` | `448.92 us` | `0.619x` | `4.29x` |
+
+A same-worker clean-baseline rerun was attempted from detached scratch worktree
+`/data/projects/.scratch/franken_networkx-bt-clear-base-aebe1e` with
+`RCH_REQUIRE_REMOTE=1`, but RCH refused remote assignment
+(`insufficient_slots=4,hard_preflight=1`). The prior same-worker `ovh-a`
+current-main clear_edges row in this ledger was `1.9291 ms` vs NetworkX
+`421.00 us` (`0.218x`), so this candidate also improves the existing `ovh-a`
+evidence while the fresh same-run ratio improves from `0.148x` to `0.619x`.
+
+Validation:
+
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo check -p fnx-python --all-targets --features pyo3/abi3-py310`: passed via local fallback after constructor fallout was fixed.
+- `cargo fmt -p fnx-python --check`: passed.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo clippy -p fnx-python --all-targets --features pyo3/abi3-py310 -- -D warnings`: passed via local fallback.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo test -p fnx-python --features pyo3/abi3-py310`: passed via local fallback (`28 passed`).
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo test -p fnx-conformance`: passed via local fallback.
+- Focused `multigraph_clear_edges_preserves_runtime_policy_state` test passed.
+- The focused head-to-head benchmark passed its equality assertions before
+  timing.
+
+Decision: KEPT. The remaining clear path was dominated by Python mirror teardown,
+not Rust adjacency clearing. Lazy invalidation preserves observable empty-edge
+state while moving `MultiGraph.clear_edges()` from a severe `0.148x` ratio to a
+near-parity `0.619x` ratio vs NetworkX on the dedicated row.
