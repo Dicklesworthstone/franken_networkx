@@ -3163,3 +3163,19 @@ default ebunch ==nx, conformance GREEN (1182). CONFIRMS the lever boundary: chea
 RA/AA degrees) -> native+Python-reduce WINS; per-element OBJECT attrs (community) -> regresses. Link-pred family
 now: RA/AA/jaccard native-fast (explicit ebunch), PA at parity, community delegated (object-attr-bound), default
 ebunch set-order-blocked. 27th perf ship.
+
+## 2026-06-27 CopperCliff frontier sweep: structural-holes/core/centrality/bipartite all at-or-above nx — no new single-fn gap
+
+Post-jaccard, swept for the next gap across domains not recently checked. ALL at-or-above nx:
+- structural holes: effective_size 5.4x, constraint 5.7x, local_constraint 5.3x (memory's chq2a has_edge-tax
+  item RESOLVED).
+- core: k_core 37.5x, k_shell 28.8x, core_number 11.6x, onion_layers 5.5x (memory's 0ysvh RESOLVED).
+- centrality: pagerank 12.6x, load 32.8x, katz_numpy 1.74x, voterank 1.95x, hits 1.28x, second_order
+  centrality ~3850x (fnx 0.003s vs nx 11.57s @n=150 -- nx is O(n^3)+, not a fnx hang).
+- bipartite density 18x / spectral_bipartivity 1461x; tournament is_tournament 7x; transitivity 140x; triangles
+  4x; square_clustering 17x; weisfeiler_lehman_graph_hash 1.5x; is_chordal 2.5x.
+NEAR-PARITY (not gaps, substrate/LAPACK): subgraph_centrality 0.767x (dense eigh), hits 1.28x (iterative).
+CONCLUSION: the single-function vs-nx frontier is comprehensively mined (27 perf ships). Remaining sub-1.0x
+are substrate-bound (eager view materialization, Python-node->String-key tax, dense LAPACK) or parity-blocked
+(set-order default ebunches). The productive vein remains the native-scalar-operands + Python-reduce hybrid
+(mined across link-pred: RA/AA/jaccard) and architectural work (lazy view layer / integer-node-index cache).
