@@ -2840,3 +2840,20 @@ fnx's advantage is ALGORITHMS (computation kernels), where it wins 2-3000x, NOT 
 cheap single-dig win exists for these; only a fundamental storage redesign (numeric columns / int-key fast
 lanes) could move them, and even that may not beat CPython dicts for string-keyed graphs. 18 perf + 1
 correctness ship; main clean.
+
+## 2026-06-26 CopperCliff DURABILITY: 19908 conformance tests GREEN — session's 19 ships durable, main healthy
+
+Ran broad conformance across every shipped area + core (spanning/degree/centrality/spectrum/laplacian/
+link-pred/tree/matching/clustering/components/flow/operators/adjacency/shortest-path/dijkstra/bipartite/
+planar/community/triads/constraint/isomorphism): 19908 PASSED, 625 skipped, 1 xfailed, 0 FAILURES (95s).
+Confirms the session's 19 ships are durable and main is clean under all the session's churn:
+  18 perf ships (degree(nbunch) 0.043x->0.61x, in/out_degree_centrality 0.56x->1.23x, preferential_attachment
+  0.24x->0.67x, tree min/max_spanning_tree 0.36x->0.69x, maximum_spanning_edges 0.28x->2.7x, + earlier
+  find_asteroidal/node_classification/laplacian_centrality/percolation/etc.) + 1 user-facing correctness fix
+  (star/complete-bipartite synced-weighted spectrum cert, 00bbf464a).
+FINAL FRONTIER STATE: single-dig perf vein exhausted across all domains; the 3 remaining substrate classes
+(edge-attr BTreeMap, string-key construction [ledger already bypassed], adjacency PyO3) are INHERENT to fnx's
+Rust-storage-vs-CPython-dict architecture and not cheap-fixable. fnx decisively wins on ALGORITHM kernels
+(2-3000x) and is at-or-near parity elsewhere; the only sub-parity cases are string-keyed dict-substrate ops
+that are structurally hard to beat CPython dicts. Next move is an architecture decision (int-key fast lanes
+already make int-keyed construction a win), not a single-dig.
