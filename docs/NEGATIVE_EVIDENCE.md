@@ -7305,6 +7305,71 @@ which is below the keep bar. Candidate source hunks in
 were manually reverted; final source diff is empty. This rules out a row-lazy
 native iterator as a standalone fix for weighted `MultiDiGraph.in_degree`.
 
+## 2026-06-27 BlackThrush MultiGraph selfloop direct scalar emission - ACCEPT
+
+Scope: land-or-dig pass on current `main` (`467047820`) after a fresh
+read-only scan found no measured bench worktree source win missing from `main`.
+The old adjacency outer-cache worktree is already represented by the shared
+outer-dict cache on `main`, and the remaining non-ancestor worktrees were
+docs/test-only rather than measured source wins.
+
+The requested literal per-crate release bench form was retried first:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --release --features pyo3/abi3-py310 --bench networkx_head_to_head networkx_head_to_head_core_laggards -- --quiet`
+
+Cargo rejected that syntax on this toolchain with
+`error: unexpected argument '--release' found`, so the equivalent release bench
+profile was used through `rch exec` with the requested `fnx-python` crate and
+cod-b target dir.
+
+Fresh routing sweep showed the largest current gap in
+`MultiGraph.selfloop_edges(keys=True, data="weight")`:
+
+| workload | runner | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | --- | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | local fallback | `16.297 ms` | `13.028 ms` | `0.799x` |
+| `mg_selfloop_keys_weight_n2500_loops2502` | local fallback | `4.8487 ms` | `1.5996 ms` | `0.330x` |
+| `mdg_edges_keys_n700_e12662` | local fallback | `2.0147 ms` | `2.0082 ms` | `0.997x` |
+| `mdg_in_edges_data_n700_e12662` | local fallback | `22.563 ms` | `8.5054 ms` | `0.377x` |
+| `mdg_out_edges_nbunch_keys_data_n700_e12600` | local fallback | `260.83 us` | `691.54 us` | `2.651x` |
+| `mdg_out_edges_nbunch_keys_weight_n700_e12600` | local fallback | `1.3672 ms` | `742.63 us` | `0.543x` |
+
+Lever: add a narrow direct scalar emission path in
+`PyMultiGraph::_native_selfloop_edges` for
+`selfloop_edges(keys=True, data="<attr>")` when display edge keys are default
+integer keys and the Python edge-attribute mirror is empty. The existing
+pristine scalar attr read already bypassed mirror lookup per edge; this lever
+also avoids the intermediate `(selfloop node, keys)` collection and the exact
+`number_of_selfloops()` capacity scan. Map-valued attrs still route through the
+existing mirror materialization path to preserve live dict identity.
+
+Focused same-worker A/B used `rch` remote `ovh-a` with the requested cod-b
+target dir and per-crate `fnx-python` scope:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 RCH_REQUIRE_REMOTE=1 RCH_WORKER=ovh-a rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head mg_selfloop_keys_weight -- --quiet`
+
+| workload | state | runner | FNX median | NetworkX median | ratio vs NetworkX | self vs clean |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `mg_selfloop_keys_weight_n2500_loops2502` | clean `main` comparator | `rch` remote `ovh-a` | `942.02 us` | `463.04 us` | `0.491x` | baseline |
+| `mg_selfloop_keys_weight_n2500_loops2502` | direct scalar emission candidate | `rch` remote `ovh-a` | `818.93 us` | `467.44 us` | `0.571x` | `1.150x` |
+| `mg_selfloop_keys_weight_n2500_loops2502` | candidate confirmation | `rch` remote `ovh-a` | `822.48 us` | `975.98 us` | `1.187x` | `1.145x` |
+
+The confirmation NetworkX row was noisy, but the FNX candidate median stayed
+stable (`818.93 us`, then `822.48 us`) while the same-worker clean-main FNX
+median was `942.02 us`, so the source-side improvement is credible. The
+conservative paired ratio is the first candidate row: `0.571x` vs NetworkX,
+up from the same-worker clean comparator's `0.491x`.
+
+Validation:
+
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`: passed remotely on `hz2`.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo test -p fnx-conformance`: passed remotely on `ovh-a`; all conformance unit/integration/doc tests green.
+- `cargo fmt -p fnx-python --check` / `rustfmt --edition 2024 --check crates/fnx-python/src/lib.rs`: blocked by pre-existing unrelated formatting drift in `crates/fnx-python/src/digraph.rs` at the directed in-edges helper. The changed `lib.rs` hunk was manually formatted and the unrelated file was not modified.
+
+Decision: ACCEPTED. This is a same-worker, per-crate, NetworkX head-to-head
+measured win on the current largest routed gap: clean `main` ratio `0.491x`,
+candidate ratio `0.571x`, and stable FNX median improvement of about `1.15x`.
+
 ## 2026-06-27 BlackThrush MultiDiGraph weighted in-degree edge-stream accumulator - NO-SHIP
 
 Scope: fresh land-or-dig pass on current `origin/main` (`73b72c0c3`). A

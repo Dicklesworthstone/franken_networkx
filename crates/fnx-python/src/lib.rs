@@ -5253,6 +5253,65 @@ impl PyMultiGraph {
         };
         let value_fast_path = value_attr_name.is_some();
 
+        // Direct clean scalar self-loop emission for the hottest
+        // `selfloop_edges(keys=True, data="<attr>")` path. With default integer
+        // display keys and an empty Python attr mirror, the generic loop's
+        // intermediate self-loop collection and exact count scan are pure overhead.
+        if want_value && value_fast_path && keys && self.edge_py_keys.is_empty() {
+            let attr_name = value_attr_name
+                .as_deref()
+                .expect("value fast path has an attribute name");
+            let mut out: Vec<PyObject> = Vec::with_capacity(self.inner.edge_count());
+            let nodes: Vec<String> = self
+                .inner
+                .nodes_ordered()
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect();
+            for node in &nodes {
+                let node = node.as_str();
+                let Some(edge_keys) = self.inner.edge_keys(node, node) else {
+                    continue;
+                };
+                if edge_keys.is_empty() {
+                    continue;
+                }
+                let py_node = self.py_node_key(py, node);
+                for key in edge_keys {
+                    let val = match self
+                        .inner
+                        .edge_attrs(node, node, key)
+                        .and_then(|attrs| attrs.get(attr_name))
+                    {
+                        Some(CgseValue::Map(_)) => {
+                            let ek = Self::edge_key(node, node, key);
+                            self.edge_data_value_or_default_with_key(
+                                py,
+                                node,
+                                node,
+                                key,
+                                &ek,
+                                data,
+                                &default_obj,
+                            )?
+                        }
+                        Some(value) => cgse_value_to_py(py, value)?,
+                        None => default_obj.clone_ref(py),
+                    };
+                    let key_obj = unwrap_infallible(key.into_pyobject(py)).into_any().unbind();
+                    out.push(
+                        PyTuple::new(
+                            py,
+                            &[py_node.clone_ref(py), py_node.clone_ref(py), key_obj, val],
+                        )?
+                        .into_any()
+                        .unbind(),
+                    );
+                }
+            }
+            return Py::new(py, NodeIterator::unguarded(out));
+        }
+
         // br-r37-c1-selfloopnodecollect (cc): collect (selfloop node, its keys) in
         // ONE pass via edge_keys(n, n) -- which is BOTH the self-loop test (None for
         // non-loop nodes) AND the keys we need in the loop. The old path did a
