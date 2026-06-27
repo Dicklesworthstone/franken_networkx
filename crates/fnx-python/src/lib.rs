@@ -5567,6 +5567,15 @@ impl PyMultiGraph {
         if !self.adj_py_keys.is_empty() {
             return Ok(None);
         }
+        // br-r37-c1-mgedgesnbattr (cc): pristine store-read fast path (sibling of the
+        // out/in_edges nbunch data_key wins) -- read the attr from the store instead
+        // of edge_data_value_or_default_with_key's edge_key build + mirror probe.
+        let pristine = self.edge_py_attrs.is_empty();
+        let attr_name: Option<String> = if pristine {
+            data.extract::<String>().ok()
+        } else {
+            None
+        };
         let mut out: Vec<PyObject> = Vec::new();
         let mut seen: std::collections::HashSet<(String, String, usize)> =
             std::collections::HashSet::new();
@@ -5599,10 +5608,21 @@ impl PyMultiGraph {
                         continue;
                     }
                     let nbr_obj = self.py_node_key(py, nbr);
-                    let ek = Self::edge_key(&canonical, nbr, key);
-                    let value = self.edge_data_value_or_default_with_key(
-                        py, &canonical, nbr, key, &ek, data, &default,
-                    )?;
+                    let value = if let Some(an) = attr_name.as_deref() {
+                        match self
+                            .inner
+                            .edge_attrs(&canonical, nbr, key)
+                            .and_then(|a| a.get(an))
+                        {
+                            Some(v) => cgse_value_to_py(py, v)?,
+                            None => default.clone_ref(py),
+                        }
+                    } else {
+                        let ek = Self::edge_key(&canonical, nbr, key);
+                        self.edge_data_value_or_default_with_key(
+                            py, &canonical, nbr, key, &ek, data, &default,
+                        )?
+                    };
                     if keys {
                         let key_obj = if self.edge_py_keys.is_empty() {
                             crate::unwrap_infallible(key.into_pyobject(py))

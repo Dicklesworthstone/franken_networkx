@@ -119,6 +119,8 @@ struct CoreLaggardWorkloads {
     nx_mdg_in_edges_data: Py<PyAny>,
     fnx_mdg_out_edges_nbunch_keys_data: Py<PyAny>,
     nx_mdg_out_edges_nbunch_keys_data: Py<PyAny>,
+    fnx_mdg_out_edges_nbunch_keys_weight: Py<PyAny>,
+    nx_mdg_out_edges_nbunch_keys_weight: Py<PyAny>,
 }
 
 struct ConstructionCopyWorkloads {
@@ -592,6 +594,17 @@ def _mdg_out_edges_nbunch_keys_data(graph):
         )
     )
 
+def _mdg_out_edges_nbunch_keys_weight(graph):
+    return sum(
+        weight + len(str(key))
+        for _, _, key, weight in graph.out_edges(
+            mdg_custom_nbunch,
+            keys=True,
+            data="weight",
+            default=0,
+        )
+    )
+
 assert _mdg_in_degree_weight(mdg_fnx) == _mdg_in_degree_weight(mdg_nx)
 assert _mg_selfloop_keys_weight(mg_self_fnx, fnx) == _mg_selfloop_keys_weight(mg_self_nx, nx)
 assert _mdg_edges_keys(mdg_fnx) == _mdg_edges_keys(mdg_nx)
@@ -605,6 +618,12 @@ assert list(mdg_custom_fnx.out_edges(mdg_custom_nbunch, keys=True, data=True)) =
 assert _mdg_out_edges_nbunch_keys_data(mdg_custom_fnx) == _mdg_out_edges_nbunch_keys_data(
     mdg_custom_nx
 )
+assert list(mdg_custom_fnx.out_edges(mdg_custom_nbunch, keys=True, data="weight", default=0)) == list(
+    mdg_custom_nx.out_edges(mdg_custom_nbunch, keys=True, data="weight", default=0)
+)
+assert _mdg_out_edges_nbunch_keys_weight(mdg_custom_fnx) == _mdg_out_edges_nbunch_keys_weight(
+    mdg_custom_nx
+)
 
 fnx_mdg_in_degree_weight = lambda: _mdg_in_degree_weight(mdg_fnx)
 nx_mdg_in_degree_weight = lambda: _mdg_in_degree_weight(mdg_nx)
@@ -616,6 +635,8 @@ fnx_mdg_in_edges_data = lambda: _mdg_in_edges_data(mdg_fnx)
 nx_mdg_in_edges_data = lambda: _mdg_in_edges_data(mdg_nx)
 fnx_mdg_out_edges_nbunch_keys_data = lambda: _mdg_out_edges_nbunch_keys_data(mdg_custom_fnx)
 nx_mdg_out_edges_nbunch_keys_data = lambda: _mdg_out_edges_nbunch_keys_data(mdg_custom_nx)
+fnx_mdg_out_edges_nbunch_keys_weight = lambda: _mdg_out_edges_nbunch_keys_weight(mdg_custom_fnx)
+nx_mdg_out_edges_nbunch_keys_weight = lambda: _mdg_out_edges_nbunch_keys_weight(mdg_custom_nx)
 "#,
         )
         .as_c_str(),
@@ -641,6 +662,8 @@ nx_mdg_out_edges_nbunch_keys_data = lambda: _mdg_out_edges_nbunch_keys_data(mdg_
         nx_mdg_in_edges_data: callable("nx_mdg_in_edges_data")?,
         fnx_mdg_out_edges_nbunch_keys_data: callable("fnx_mdg_out_edges_nbunch_keys_data")?,
         nx_mdg_out_edges_nbunch_keys_data: callable("nx_mdg_out_edges_nbunch_keys_data")?,
+        fnx_mdg_out_edges_nbunch_keys_weight: callable("fnx_mdg_out_edges_nbunch_keys_weight")?,
+        nx_mdg_out_edges_nbunch_keys_weight: callable("nx_mdg_out_edges_nbunch_keys_weight")?,
     })
 }
 
@@ -2266,6 +2289,16 @@ fn core_laggard_head_to_head(c: &mut Criterion) {
         &mut group,
         "nx_mdg_out_edges_nbunch_keys_data_n700_e12600",
         &workloads.nx_mdg_out_edges_nbunch_keys_data,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_mdg_out_edges_nbunch_keys_weight_n700_e12600",
+        &workloads.fnx_mdg_out_edges_nbunch_keys_weight,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_mdg_out_edges_nbunch_keys_weight_n700_e12600",
+        &workloads.nx_mdg_out_edges_nbunch_keys_weight,
     );
 
     group.finish();

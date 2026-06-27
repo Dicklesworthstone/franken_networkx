@@ -4612,7 +4612,7 @@ impl PyMultiDiGraph {
         data: &Bound<'_, PyAny>,
         default: PyObject,
         keys: bool,
-    ) -> PyResult<Option<Vec<PyObject>>> {
+    ) -> PyResult<Option<PyObject>> {
         if !self.pred_py_keys.is_empty() {
             return Ok(None);
         }
@@ -4627,7 +4627,11 @@ impl PyMultiDiGraph {
         // string attr name; non-str / non-pristine fall through to the general path.
         if self.edge_py_attrs.is_empty() {
             if let Ok(attr_name) = data.extract::<String>() {
-                let mut out: Vec<PyObject> = Vec::with_capacity(self.inner.edge_count());
+                let view_obj = py
+                    .import("franken_networkx")?
+                    .getattr("_InMultiEdgeDataView")?
+                    .call0()?;
+                let out = view_obj.cast::<PyList>()?;
                 for target in self.inner.nodes_ordered() {
                     if let Some(preds) = self.inner.predecessors(target) {
                         for source in preds {
@@ -4644,15 +4648,18 @@ impl PyMultiDiGraph {
                                 let tgt_obj = self.py_node_key(py, target);
                                 if keys {
                                     let key_obj = self.py_edge_key(py, source, target, key);
-                                    out.push(tuple_object(py, &[src_obj, tgt_obj, key_obj, value])?);
+                                    out.append(tuple_object(
+                                        py,
+                                        &[src_obj, tgt_obj, key_obj, value],
+                                    )?)?;
                                 } else {
-                                    out.push(tuple_object(py, &[src_obj, tgt_obj, value])?);
+                                    out.append(tuple_object(py, &[src_obj, tgt_obj, value])?)?;
                                 }
                             }
                         }
                     }
                 }
-                return Ok(Some(out));
+                return Ok(Some(view_obj.unbind()));
             }
         }
         let triples: Vec<(String, String, usize)> = {
@@ -4681,7 +4688,7 @@ impl PyMultiDiGraph {
                 out.push(tuple_object(py, &[src_obj, tgt_obj, value])?);
             }
         }
-        Ok(Some(out))
+        Ok(Some(out.into_pyobject(py)?.into_any().unbind()))
     }
 
     // br-r37-c1-mdginedges (cc): in_edges(nbunch, ...) natives — pred-major siblings
@@ -4804,6 +4811,15 @@ impl PyMultiDiGraph {
         if !self.pred_py_keys.is_empty() {
             return Ok(None);
         }
+        // br-r37-c1-inedgesnbattr (cc): pristine store-read fast path (sibling of the
+        // out_edges nbunch data_key win) -- read the attr straight from the store
+        // instead of edge_data_value_or_default's edge_key build + mirror probe.
+        let pristine = self.edge_py_attrs.is_empty();
+        let attr_name: Option<String> = if pristine {
+            data.extract::<String>().ok()
+        } else {
+            None
+        };
         let mut out: Vec<PyObject> = Vec::new();
         let mut seen_nodes: std::collections::HashSet<String> = std::collections::HashSet::new();
         for item in nbunch.try_iter()? {
@@ -4828,8 +4844,18 @@ impl PyMultiDiGraph {
             for src in &preds {
                 for key in self.inner.edge_keys(src, &canonical).unwrap_or_default() {
                     let src_obj = self.py_node_key(py, src);
-                    let value =
-                        self.edge_data_value_or_default(py, src, &canonical, key, data, &default)?;
+                    let value = if let Some(an) = attr_name.as_deref() {
+                        match self
+                            .inner
+                            .edge_attrs(src, &canonical, key)
+                            .and_then(|a| a.get(an))
+                        {
+                            Some(v) => crate::cgse_value_to_py(py, v)?,
+                            None => default.clone_ref(py),
+                        }
+                    } else {
+                        self.edge_data_value_or_default(py, src, &canonical, key, data, &default)?
+                    };
                     if keys {
                         let key_obj = self.py_edge_key(py, src, &canonical, key);
                         out.push(tuple_object(
