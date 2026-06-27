@@ -12965,8 +12965,23 @@ def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
                     )
                 weighted_adj[node] = row
         else:
+            # br-r37-c1-wieneradjbug (cc): G.adjacency()'s per-edge attrs read the Rust
+            # STORE, which is STALE for graphs built via add_edges_from(dict attrs)
+            # (weights live only in the mirror until synced) -> weighted wiener silently
+            # used default-1 weights (e.g. add_edges_from((u,v,{'weight':w})) then
+            # wiener_index gave unit-weight results). edges(data=True) reads the MIRROR
+            # (always fresh), so source the WEIGHTS from a bulk edges(data) map while
+            # keeping adjacency()'s neighbor STRUCTURE/ORDER (so the per-source Dijkstra
+            # discovery order + float-sum order stay byte-identical to nx). All O(E).
+            _directed = G.is_directed()
+            _edge_w = {}
+            for _u, _v, _d in G.edges(data=True):
+                _w = _d.get(weight, 1)
+                _edge_w[(_u, _v)] = _w
+                if not _directed:
+                    _edge_w[(_v, _u)] = _w
             weighted_adj = {
-                node: {nbr: attrs.get(weight, 1) for nbr, attrs in nbrs.items()}
+                node: {nbr: _edge_w.get((node, nbr), 1) for nbr in nbrs}
                 for node, nbrs in G.adjacency()
             }
 

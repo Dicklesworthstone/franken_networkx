@@ -3322,3 +3322,17 @@ of the gate. RESULT: from_edgelist 0.724x -> 1.136x (1.57x self, BEATS nx), byte
 non-empty add_edges_from with existing-edge attr-update still ==nx -- the pre-scan still runs there), conformance
 GREEN (911). Python-only (no rebuild). Helps every construction path that add_edges_from's onto a fresh graph.
 (Graph(edgelist) 0.74x is a separate constructor path, not this gate -- follow-up.) 30th perf ship.
+
+## 2026-06-27 CopperCliff FIX: weighted wiener_index over add_edges_from(dict)-built graphs (store-stale adjacency bug)
+
+Fixed the narrow correctness bug characterized 88446b637: weighted wiener_index built weighted_adj from
+G.adjacency(), whose per-edge attrs read the Rust STORE -- STALE for graphs built via add_edges_from(dict attrs)
+(weights mirror-only) -> silently used default-1 weights (n=5 directed-complete via add_edges_from(dict): 20 vs
+nx 58). FIX: source the WEIGHTS from a bulk edges(data=True) map (reads the MIRROR, always fresh) while keeping
+adjacency()'s neighbor STRUCTURE/ORDER (so Dijkstra discovery + float-sum order stay byte-identical). RESULTS:
+batch-built wiener 20->58 (==nx), store-built still 58 (==nx), undirected ==nx, conformance GREEN (4393
+wiener/weighted/distance tests). Perf 0.876x (near-parity; small cost vs the old fast-but-WRONG adjacency
+snapshot -- correctness > a few %). size(weight)/degree(weight)/dijkstra were already correct (mirror-aware);
+wiener was the lone adjacency()-consuming weighted kernel. This also UNBLOCKS the add_weighted_edges_from 8x
+batch win (the wiener regression that blocked it is now fixed) -- pending a broad check that no OTHER
+adjacency()-consuming weighted kernel is affected. 3rd correctness fix this session.
