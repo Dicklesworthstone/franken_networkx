@@ -3193,3 +3193,19 @@ estrada 54x, flow_hierarchy 174x, is_distance_regular 29x, tree_broadcast_time 4
 number_of_cliques 0.86x (find_cliques set-order) + attribute_mixing_dict 0.887x (object-attr-bound, like the
 community link-pred). CONCLUSION: the per-function vs-nx surface is comprehensively at-or-above nx; the
 substrate-frontier thesis in older memory is OUTDATED -- those gaps are fixed.
+
+## 2026-06-27 CopperCliff weighted-variant sweep clean + dict(G.adj) 0.704x = view-object substrate (frontier exhausted)
+
+Last unchecked dimension — WEIGHTED algorithm variants — all at-or-above nx: clustering(weight) 2.47x,
+average_clustering(weight) 2.51x, betweenness(weight) 15.7x, closeness(distance) 3.62x, pagerank(weight) 2.39x,
+degree_assortativity(weight) 6.59x, floyd_warshall 1.55x; near-parity eigenvector(weight) 1.10x,
+average_neighbor_degree(weight) 1.01x, minimum_spanning_tree(weight) 0.890x (construction-tax residual).
+DIAGNOSED the biggest remaining view residual dict(G.adj) 0.704x: AdjacencyView.__getitem__ builds a per-node
+AtlasView wrapping the Rust row (N constructions) + __iter__ dict.fromkeys(atlas); nx builds N lightweight
+Python AtlasViews over its _adj dict. A native bulk path can't avoid the N Python view-object constructions
+(the cost) -> genuine view-object substrate, NOT cleanly fixable; marginal. CONCLUSION (consolidated across this
+session's sweeps: link-pred, structural-holes, core, centrality, bipartite, tournament, less-common, substrate
+views, weighted): the per-function vs-nx surface is COMPREHENSIVELY at-or-above nx. Every residual sub-1.0x is
+substrate-bound (view-object/eager-materialization/Python-node->String-key/dense-LAPACK) or parity-blocked
+(CPython set-order). Single-dig kernel frontier EXHAUSTED; remaining productive work is architectural
+(lazy view layer / integer-node-index cache) — multi-session, not a 60-min dig.
