@@ -2924,3 +2924,18 @@ edges() 0.74x) but a 2.5x improvement on the suite's #1 laggard. PRE-EXISTING UN
 test_review_mode_regression_lock::test_write_gexf_classified_as_py_wrapper_not_nx_delegated (readwrite/gexf
 classification; my Rust digraph.rs change cannot affect a Python-wrapper classification -> not mine, needs
 separate investigation). 19th perf ship.
+
+## 2026-06-27 CopperCliff NEGATIVE: DiGraph in_edges(data=str) store-read ~0-gain (already near floor; REVERTED)
+
+Tried the MDG in_edges win's lever on the DiGraph sibling (in_edges(data='weight') 0.548x): a !edges_dirty
+store-read fast path (edge_attrs() index-keyed lookup, no Self::edge_key String-tuple build + no mirror hash
+probe). BYTE-EXACT (==nx incl default + missing-attr; held-ref falls to mirror, ==nx) but ~0-GAIN: 0.548x ->
+0.575x. ROOT: unlike _native_mdg_in_edges_data_key (which built an owned (String,String,usize) triples Vec +
+re-looked-up via edge_data_value_or_default = the 2.5x overhead I removed), the DiGraph _native_in_edges_data
+_key was ALREADY single-pass with a direct mirror probe. Swapping the mirror probe (2 String clones + str-key
+hash) for the store read (2 nodes.get_index_of + (usize,usize) hash) is ~equal cost -- get_index_of(&str) is
+itself a hash+probe. So DiGraph in_edges is already near its substrate floor (tuple + cgse_value_to_py +
+py_node_key + one per-edge lookup, mirror or store). REVERTED (kept the committed MDG win). LESSON: the MDG
+in_edges 2.5x came specifically from the redundant triples-Vec + re-lookup pattern; siblings without that
+pattern (DiGraph in_edges, and selfloop_edges which already has the pristine fast path) are already near-floor.
+The biggest remaining MDG-only avoidable-overhead gaps are mined. 19 perf + 1 correctness ship; main green.
