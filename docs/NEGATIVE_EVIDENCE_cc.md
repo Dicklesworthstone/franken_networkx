@@ -3007,3 +3007,19 @@ CONCLUSION: the edges_ordered_borrowed snapshot lever's clean applications are M
 (shipped) was the one simple-graph shallow edge-dup loop. The rest of the conversion/copy/subgraph family is
 inner-clone / deepcopy / dedup-HashSet / view-construction bound (genuine floors, not avoidable overhead).
 20 perf + 1 correctness ship; main green.
+
+## 2026-06-27 CopperCliff fresh-domain sweep (euler/graphical/covering/wiener/chains/distance) all wins; selfloop opportunity noted
+
+Swept domains not before benched this session: ALL wins/parity -- is_eulerian 14.7x, eulerian_circuit 9.7x,
+has_eulerian_path 1.27x, is_graphical 1.24x, is_valid_degree_sequence_erdos_gallai 1.34x, wiener_index 9.0x,
+chain_decomposition 7.9x, diameter 9.0x, center 8.5x, is_dominating_set 4.8x, is_regular 4.2x, density 114x;
+near-parity min_edge_cover 0.93x, dominating_set 0.84x. NO new <0.7x takeable gap.
+BIGGEST remaining bench gap after the in_edges/to_directed wins = mg_selfloop_keys_weight 0.325x. Its native
+_native_selfloop_edges (lib.rs) ALREADY has the pristine-mirror store-read value fast path; the residual
+avoidable overhead is the NODE COLLECTION: a Vec<String> of selfloop nodes built via a has_edge(n,n) scan over
+ALL nodes (2500 probes) + to_owned() clones (2502), then re-fetched via edge_keys in the loop. A borrowed
+fast-path branch (iterate nodes_ordered() + edge_keys(n,n) as the selfloop check, no has_edge scan, no owned
+Vec) could give ~1.4x self (0.325x->~0.45x) BUT requires duplicating the value branch (the want_dict path
+needs &mut self -> owned nodes) and carefully preserving the Map-value mirror-identity fallback -- moderate
+complexity + Map-identity risk for a sub-ms workload. Deferred as a focused future attempt. 20 perf + 1
+correctness ship; main green.
