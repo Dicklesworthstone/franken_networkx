@@ -2821,3 +2821,22 @@ BTreeMap+PyObject (weighted degree/size/selfloop), (2) construction record_decis
 (parse_adjlist, dict-builders), (3) adjacency PyO3 materialization (resource_allocation, ego_graph). All need
 multi-hour native work (storage numeric column / Python-exposed unrecorded bulk builder / marking-dict). No
 single-dig 60m-safe win remains. 18 perf + 1 correctness ship stand; main clean.
+
+## 2026-06-26 CopperCliff construction-ledger lever RULED OUT — add_edges_from ALREADY unrecorded; gap is inherent Rust-storage
+
+Was about to attempt a "Python-exposed unrecorded bulk builder" to bypass the record_decision ledger for the
+construction class (parse_adjlist 0.56x). VERIFIED IT'S ALREADY DONE: add_edges_from's plain fast path
+(PyGraph::add_plain_edge_batch, lib.rs:1378) ALREADY calls self.inner.extend_edges_unrecorded(edges) (NO
+ledger) AND skips eager empty mirror dicts (br-r37-c1-89kxg). So the 0.561x construction is NOT the ledger --
+it is the INHERENT string-key Rust-storage construction cost: per new node a node_key_map String->PyObject
+insert + node_iter_mirror_insert, plus extend_edges_unrecorded's Rust-HashMap insert + string interning per
+edge -- vs nx's plain CPython dict {str:{str:{}}} (a single highly-optimized C hashtable, no interning, no
+mirror). CORRECTION to my earlier "ledger tax" framing: the ledger was the read_adjlist DELEGATION tax (7.3x),
+already fixed; add_edges_from itself is already unrecorded. The construction-class lever is RULED OUT.
+DEFINITIVE: all 3 remaining substrate classes are INHERENT to fnx's architecture (Rust storage + String keys +
+PyObject mirror) vs nx's native CPython dicts -- (1) edge-attr BTreeMap lookup, (2) string-key construction,
+(3) adjacency PyO3 access. CPython dicts are extremely hard to beat for raw string-keyed construction/lookup;
+fnx's advantage is ALGORITHMS (computation kernels), where it wins 2-3000x, NOT raw dict-substrate ops. No
+cheap single-dig win exists for these; only a fundamental storage redesign (numeric columns / int-key fast
+lanes) could move them, and even that may not beat CPython dicts for string-keyed graphs. 18 perf + 1
+correctness ship; main clean.
