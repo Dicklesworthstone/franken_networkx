@@ -24765,10 +24765,24 @@ def _star_shape_certificate_size(G, weight):
     if token is None:
         return None
     token_nodes_seq, token_edges_seq, edge_attrs_dirty = token
+    # br-r37-c1-starcertattr (cc): the clean-token (not edge_attrs_dirty) path
+    # certified the star as UNWEIGHTED, but edges_dirty is cleared by a sync while
+    # the weights remain in the native store -- so a *synced weighted* star (e.g.
+    # after one laplacian_spectrum call, which syncs) was wrongly certified
+    # unweighted, making a SECOND laplacian_spectrum return the unweighted spectrum
+    # (USER-FACING: call1 correct, call2 wrong). edges_dirty alone cannot witness
+    # "no weights". Require the O(1) native graph_has_any_attrs to be False: only an
+    # attr-free star is genuinely unweighted. Attr-bearing stars fall through to the
+    # explicit per-edge weight check in _star_laplacian_spectrum_sorted_value_safe.
+    try:
+        _has_attrs = _fnx.graph_has_any_attrs(G)
+    except Exception:
+        _has_attrs = True
     if (
         token_nodes_seq == nodes_seq
         and token_edges_seq == edges_seq
         and not edge_attrs_dirty
+        and _has_attrs is False
     ):
         return n
     return None
@@ -32434,7 +32448,22 @@ def _complete_bipartite_shape_certificate_parts(G, weight):
     native = getattr(G, "_native_complete_bipartite_certificate_parts", None)
     if native is None:
         return None
-    return native(weight, nodes_seq, edges_seq, left_size, right_size)
+    parts = native(weight, nodes_seq, edges_seq, left_size, right_size)
+    # br-r37-c1-starcertattr (cc): same synced-weighted bug as the star cert -- the
+    # native certificate uses edges_dirty, which a sync clears while the weights stay
+    # in the store, so a synced weighted complete-bipartite graph was wrongly
+    # certified unweighted (2nd normalized_laplacian_spectrum call returned the
+    # unweighted spectrum). For weight=str only an attr-FREE graph is genuinely
+    # unweighted; if any attr exists, drop the certification -> caller takes the
+    # weighted route. (O(1) native graph_has_any_attrs; attr-free graphs keep the
+    # closed-form fast path.)
+    if parts is not None and isinstance(weight, str):
+        try:
+            if _fnx.graph_has_any_attrs(G) is not False:
+                return None
+        except Exception:
+            return None
+    return parts
 
 
 def _directed_laplacian_not_implemented_guard(G):

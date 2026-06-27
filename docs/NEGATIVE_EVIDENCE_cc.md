@@ -2768,3 +2768,20 @@ the lazy-mirror lever is RULED OUT. The ONLY remaining lever for this family is 
 parallel numeric f64 weight column updated on mutation, replacing per-edge BTreeMap<String,CgseValue>
 lookups), a multi-hour structural project across fnx-classes edge mutation paths. DON'T re-attempt lazy-mirror
 or native-fold variants for size/degree/selfloop weighted -- they're all substrate-floored. 18 ships stand.
+
+## 2026-06-26 CopperCliff SHIP (correctness): star/complete-bipartite spectrum certs wrongly certified SYNCED-WEIGHTED graphs as unweighted
+
+USER-FACING BUG (found while diagnosing 2 pre-existing red tests): fnx.laplacian_spectrum /
+normalized_laplacian_spectrum / adjacency_spectrum on a weighted star or complete_bipartite graph returned the
+correct weighted spectrum on the FIRST call but the WRONG UNWEIGHTED spectrum on the SECOND call. Root cause:
+_star_shape_certificate_size + _complete_bipartite_shape_certificate_parts certify "unweighted" via the
+dijkstra_weight_cache_token's edge_attrs_dirty flag, but the first spectrum call SYNCS the graph (clears
+edges_dirty) while the weights remain in the native store -> the 2nd call sees a clean token and wrongly takes
+the unweighted closed-form fast path. edges_dirty cannot witness "no weights". FIX (Python, no build): require
+the O(1) native graph_has_any_attrs(G) to be False for the unweighted fast path; attr-bearing graphs fall
+through to the explicit per-edge weight check / weighted route. Verified: star+bipartite call1==call2==nx for
+laplacian/normalized/adjacency spectrum; attr-free graphs keep the closed-form fast path (cert still fires);
+dijkstra/shortest_path double-call unaffected. The 2 pre-existing red tests
+(test_weighted_star_laplacian_stays_on_weighted_route, ..._complete_bipartite_normalized_...) now PASS.
+conformance GREEN (2661 spectrum/laplacian/dijkstra/shortest_path tests + 30 laplacian-native). Correctness
+ship; greens main.
