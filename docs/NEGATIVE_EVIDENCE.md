@@ -2,6 +2,73 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-27 BlackThrush directed degree generator-delegation bypass - NO-SHIP (`cod-b`)
+
+Scope: land-or-dig pass on current `main` (`b702ae367`). Bench-worktree audit
+found no measured source win absent from `main`: the old adjacency outer-cache
+worktree is already represented by the landed shared-outer cache implementation
+and KEEP ledger, the edge-view audit is already represented, and the remaining
+A* worktree patch is parity-only rather than a measured benchmark win.
+
+Agent Mail writes were still blocked by the existing SQLite corruption circuit
+breaker, so coordination remained read-only/degraded for this pass. No
+`settings.json` or hook files were touched.
+
+The requested literal per-crate release bench form was retried with the
+requested `cod-b` target directory:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --release --features pyo3/abi3-py310 --bench networkx_head_to_head networkx_head_to_head_core_laggards -- --quiet`
+
+Cargo rejected that syntax on this toolchain with
+`error: unexpected argument '--release' found`, so the equivalent release
+profile was used through `rch exec`:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head networkx_head_to_head_core_laggards -- --quiet`
+
+Fresh full laggard sweep:
+
+| workload | runner | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | --- | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | local fallback via `rch exec` | `9.9550 ms` | `3.4031 ms` | `0.342x` |
+| `mg_selfloop_keys_weight_n2500_loops2502` | local fallback via `rch exec` | `1.3506 ms` | `712.53 us` | `0.528x` |
+| `mdg_edges_keys_n700_e12662` | local fallback via `rch exec` | `1.4170 ms` | `1.3831 ms` | `0.976x` |
+| `mdg_in_edges_data_n700_e12662` | local fallback via `rch exec` | `16.301 ms` | `7.1670 ms` | `0.440x` |
+| `mdg_out_edges_nbunch_keys_data_n700_e12600` | local fallback via `rch exec` | `241.32 us` | `532.04 us` | `2.205x` |
+| `mdg_out_edges_nbunch_keys_weight_n700_e12600` | local fallback via `rch exec` | `1.0177 ms` | `626.38 us` | `0.616x` |
+
+Lever tried: split the hot `_DirectedDegreeView.__iter__` native-returning
+branches away from generator-function `yield from` delegation. The hypothesis
+was a small interpreter-boundary win for full-graph
+`MultiDiGraph.in_degree(weight="weight")`: the Rust kernel already returns a
+ready `(node, degree)` sequence, but the Python view wrapped it in a generator
+frame and delegated one element at a time.
+
+Focused candidate command:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head -- mdg_in_degree_weight --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`
+
+Focused evidence:
+
+| workload | state | runner | FNX median | NetworkX median | ratio vs NetworkX | self signal |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | current sweep baseline | local fallback via `rch exec` | `9.9550 ms` | `3.4031 ms` | `0.342x` | baseline |
+| `mdg_in_degree_weight_n700_e12662` | generator-delegation bypass candidate | local fallback via `rch exec` | `15.346 ms` | `7.9261 ms` | `0.516x` | Criterion reported FNX `+57.159%` regression |
+
+Decision: REVERTED / NO-SHIP. The candidate looked better only under a noisy
+paired NetworkX slowdown; the FNX row itself regressed hard. Do not retry
+rewriting `_DirectedDegreeView.__iter__` into direct `iter(list)` returns as a
+standalone weighted-degree lever. The remaining gap is still dominated by the
+public pair-stream/materialization contract and string-keyed multiedge degree
+store, not by generator delegation alone.
+
+Validation:
+
+- `python3 -m py_compile python/franken_networkx/__init__.py`: passed while the candidate was present.
+- Candidate source hunk in `python/franken_networkx/__init__.py` was manually reverted; final source diff is empty.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo test -p fnx-conformance`: passed after `rch` queue-timeout local fallback.
+- `git diff --check`: passed.
+- `ubs docs/NEGATIVE_EVIDENCE.md`: no supported language scanners ran for this Markdown-only change, so this is informational rather than a scanner pass.
+
 ## 2026-06-27 BlackThrush MultiDiGraph weighted degree values-only probe - NO-SHIP (`cod-a`)
 
 Scope: fresh land-or-dig pass from a detached scratch worktree. Bench worktree
