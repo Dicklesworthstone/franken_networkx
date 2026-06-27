@@ -8,6 +8,31 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## TOOLING-FIX + BLOCKER (cc, 2026-06-27): public_api_gauntlet bench — fixed os.getcwd() sys.path (rch-broken), now gated only by scipy missing on workers
+
+The `public_api_gauntlet` bench (the only vs-nx bench covering ALGORITHM-level workloads —
+flow_hierarchy, within_inter_cluster, non_edges_sparse, ubizp MG single_source_shortest_path,
+raw link-prediction adamic_adar/resource_allocation/cn_sh/ra_sh/preferential_attachment,
+digraph_to_undirected_attr_heavy, to_scipy_sparse_array) could NOT run via `rch exec` at all:
+its preamble built sys.path from `os.getcwd()`, which is the repo root only when cargo is
+launched there — on a remote worker the CWD differs, so `import networkx.exception` / the helper
+import failed and the bench panicked (line 62/65) before any workload ran.
+
+FIXED (br-gauntletfix, this commit): inject the repo root from `CARGO_MANIFEST_DIR` (compile-time
+absolute) into the preamble, mirroring `networkx_head_to_head`'s prepare_* path setup. VERIFIED
+the fix works — the rch run now advances PAST the path stage to the real next gate.
+
+REMAINING BLOCKER (worker-provisioning, not code): the rch workers (hz2 etc.) lack `scipy`, and
+the helper builds `_FNX_MDG_MATRIX = fnx.to_scipy_sparse_array(...)` at MODULE TOP-LEVEL
+(public_api_gauntlet.py:562), so the whole helper import dies with
+`ModuleNotFoundError: No module named 'scipy'`. To make the gauntlet fully rch-runnable: (a)
+provision scipy on workers, OR (b) make the scipy graph/matrix build + the two
+`*_to_scipy_sparse_array_*` workloads lazy/guarded so the helper imports without scipy and the
+~10 non-scipy algorithm workloads run. NOTE the gauntlet also builds heavy graphs (2000-node MDG,
+link-pred overlap graphs) and got OOM-killed (exit 144) when run locally under swarm contention —
+size down or run on an unloaded host. Until then these algorithm-level workloads stay UNMEASURED
+(the one vs-nx surface not yet mapped; the [[head_to_head]] view/degree surface IS mapped + mined).
+
 ## BLOCKER / VEIN-MAP (cc, 2026-06-27): full networkx_head_to_head sweep — every remaining benched gap is the per-element PyObject materialization floor (kernel-mined-out)
 
 Ran the WHOLE `cargo bench -p fnx-python --bench networkx_head_to_head` suite (hz2). Every

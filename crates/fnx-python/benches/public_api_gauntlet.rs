@@ -30,9 +30,21 @@ fn bench_py_callable(c: &mut Criterion, workload: &str, engine: &str, callable: 
 fn bench_public_api_gauntlet(c: &mut Criterion) {
     init_python();
     Python::attach(|py| {
-        py.run(
-            c"import glob, importlib.util, os, sys
-cwd = os.getcwd()
+        // br-gauntletfix (cc): the sys.path setup used os.getcwd(), which is only the
+        // repo root when `cargo bench` is launched there — under `rch exec` (remote
+        // worker) the CWD differs, so `import networkx.exception` / the helper import
+        // failed and the bench panicked. Inject the repo root from CARGO_MANIFEST_DIR
+        // (compile-time, absolute) like networkx_head_to_head does, so the bench runs
+        // identically locally and on remote workers.
+        let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .expect("fnx-python crate must live under crates/")
+            .to_str()
+            .expect("repo path must be UTF-8");
+        let preload_src = format!(
+            "import glob, importlib.util, os, sys
+cwd = {repo_root:?}
 for rel_path in (
     'crates/fnx-python/benches',
     'python',
@@ -55,7 +67,12 @@ if target_dir:
             module = importlib.util.module_from_spec(spec)
             sys.modules['franken_networkx._fnx'] = module
             spec.loader.exec_module(module)
-            break",
+            break"
+        );
+        py.run(
+            std::ffi::CString::new(preload_src)
+                .expect("preload source contains no interior nul")
+                .as_c_str(),
             None,
             None,
         )
