@@ -3073,3 +3073,16 @@ path. Wired the in_edges wrapper's else-branch to route data=<attr> -> native(nb
 0.32x -> 0.65x (2.0x self), BYTE-IDENTICAL (==nx for data, missing-attr default, dict-valued attr/Map branch,
 post-mutation/dirty path), conformance GREEN (3007 in_edges/digraph view tests). Sibling DiGraph out_edges
 data_key was ALREADY index-native (0.688x = pure PyObject tuple floor). 25th perf ship.
+
+## 2026-06-27 CopperCliff REVERTED a571d20d6 (degree index-native = host-noise false win)
+
+a571d20d6 ("Graph.degree(nbunch,weight) 0.239x->0.404x index-native store-int") was a HOST-NOISE false win,
+now reverted (e180327a2). CONTROLLED same-build A/B (identical structure+weights; pristine graph = index-native
+gate HIT vs held-ref-dirty graph = original PyList+builtins.sum path; interleaved min-of-15 x5): index-native
+7.98ms vs PyList+sum 6.98ms = 0.87x -- the index-native is ~13% SLOWER. builtins.sum over a PyList is
+C-optimized and beats a per-edge Rust i64 checked_add + into_py_any(PyInt) once the per-node
+node_key_to_string + get_node_index + result-tuple build (the floor nx never pays) dominates. The DiGraph
+sibling (successors/predecessors_indices) measured the SAME ~0-gain and was never committed. degree(nbunch,
+weight) across ALL types is SUBSTRATE-BOUND -- DO NOT re-attempt index-native store-int. LESSON (re-confirmed):
+few-shot perf sweeps LIE under host noise; a degree/view micro-opt needs a same-build A/B (gate-hit vs
+gate-skip) with interleaved min-of-N BEFORE shipping.
