@@ -2,6 +2,70 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-27 BlackThrush MultiDiGraph in_edges data-key streaming - KEEP (`cod-b`)
+
+Scope: BOLD-VERIFY land-or-dig pass on `main` base `89661143c`.
+Scratch/worktree audit found no measured bench win absent from `main`: the
+`cc-adjouter-land-20260624` adjacency outer-cache worktree is already
+represented by the landed shared-outer cache implementation and ledger, the
+edge-view audit worktree is docs/no-ship, and the A* worktree is parity-only.
+No `settings.json` or hook files were touched.
+
+The requested literal per-crate release bench form was retried with the
+requested `cod-b` target directory:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --release --features pyo3/abi3-py310 --bench networkx_head_to_head networkx_head_to_head_core_laggards -- --quiet`
+
+Cargo rejected that syntax after remote execution on `ovh-a` with
+`error: unexpected argument '--release' found`, so the equivalent accepted
+release profile form was used:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head networkx_head_to_head_core_laggards -- --quiet`
+
+Fresh laggard sweep on `vmi1264463` before the lever:
+
+| workload | runner | FNX median | ORIG median | ratio vs ORIG |
+| --- | --- | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | `rch` remote `vmi1264463` | `27.802 ms` | `13.392 ms` | `0.482x` |
+| `mg_selfloop_keys_weight_n2500_loops2502` | `rch` remote `vmi1264463` | `6.1457 ms` | `2.4937 ms` | `0.406x` |
+| `mdg_edges_keys_n700_e12662` | `rch` remote `vmi1264463` | `5.4037 ms` | `4.6240 ms` | `0.856x` |
+| `mdg_in_edges_data_n700_e12662` | `rch` remote `vmi1264463` | `63.740 ms` | `21.657 ms` | `0.340x` |
+| `mdg_out_edges_nbunch_keys_data_n700_e12600` | `rch` remote `vmi1264463` | `916.24 us` | `1.5239 ms` | `1.663x` |
+| `mdg_out_edges_nbunch_keys_weight_n700_e12600` | `rch` remote `vmi1264463` | `4.0411 ms` | `1.9688 ms` | `0.487x` |
+
+Lever landed: add a non-dirty full-graph `MultiDiGraph.in_edges(data=<str>)`
+streaming path for `keys=True/False` when an edge-attr mirror exists but no
+pending mirror mutation is dirty. The existing `!edges_dirty` scalar store-read
+rule already permits Rust-store values; this path applies the same invariant
+one level higher by streaming target-major predecessor rows directly, avoiding
+the owned `(source, target, key)` triples vector, two `String` clones per edge,
+and default-int display-key mirror probes. Dirty mirrors, custom keys, and
+map-valued attrs fall back to the existing path.
+
+Focused BOLD-VERIFY commands:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head -- mdg_in_edges_data --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`
+
+| workload | state | runner | FNX median | ORIG median | ratio vs ORIG | self signal |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `mdg_in_edges_data_n700_e12662` | routing baseline | `rch` remote `vmi1264463` | `63.740 ms` | `21.657 ms` | `0.340x` | current worst gap |
+| `mdg_in_edges_data_n700_e12662` | same-machine baseline with hunk removed | local fallback via `rch exec` | `19.027 ms` | `9.0514 ms` | `0.476x` | BOLD baseline |
+| `mdg_in_edges_data_n700_e12662` | streaming candidate | local fallback via `rch exec` | `15.700 ms` | `14.408 ms` | `0.918x` | `1.21x` faster than same-machine baseline; ORIG row noisy |
+
+Decision: KEEP. The same-machine BOLD verify moved the FNX median from
+`19.027 ms` to `15.700 ms` (`1.21x`), and the final paired focused run was
+`0.918x` vs ORIG despite a noisy ORIG row. This is a single work-reduction
+lever over the largest measured live gap and preserves the dirty/live-dict
+fallback contract.
+
+Validation:
+
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo fmt --check`: passed.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`: passed on `hz2`.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo test -p fnx-conformance`: passed on `ovh-a`.
+- `ubs crates/fnx-python/src/digraph.rs`: exit 0; zero critical findings, broad pre-existing warning inventory remains.
+- `git diff --check -- crates/fnx-python/src/digraph.rs docs/NEGATIVE_EVIDENCE.md`: passed.
+
 ## 2026-06-27 BlackThrush MultiDiGraph weighted degree edge-bucket attrs - KEEP (`cod-b`)
 
 Scope: land-or-dig pass on `main` with final commit base

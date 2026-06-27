@@ -4673,6 +4673,57 @@ impl PyMultiDiGraph {
             }
             return Ok(Some(view_obj.unbind()));
         }
+        if !self.edges_dirty.load(Ordering::Relaxed)
+            && !self.edge_py_attrs.is_empty()
+            && let Ok(attr_name) = data.downcast::<PyString>()
+        {
+            let attr_name = attr_name.to_str()?;
+            let default_int_keys = self.edge_py_keys.is_empty();
+            let mut out: Vec<PyObject> = Vec::with_capacity(self.inner.edge_count());
+            let mut scalar_only = true;
+            'targets: for target in self.inner.nodes_ordered() {
+                if let Some(preds) = self.inner.predecessors_iter(target) {
+                    for source in preds {
+                        if let Some(edge_keys) = self.inner.edge_keys_iter(source, target) {
+                            for key in edge_keys {
+                                let value = match self
+                                    .inner
+                                    .edge_attrs(source, target, *key)
+                                    .and_then(|attrs| attrs.get(attr_name))
+                                {
+                                    Some(CgseValue::Map(_)) => {
+                                        scalar_only = false;
+                                        break 'targets;
+                                    }
+                                    Some(value) => crate::cgse_value_to_py(py, value)?,
+                                    None => default.clone_ref(py),
+                                };
+                                let src_obj = self.py_node_key(py, source);
+                                let tgt_obj = self.py_node_key(py, target);
+                                if keys {
+                                    let key_obj = if default_int_keys {
+                                        crate::unwrap_infallible((*key).into_pyobject(py))
+                                            .into_any()
+                                            .unbind()
+                                    } else {
+                                        self.py_edge_key(py, source, target, *key)
+                                    };
+                                    out.push(tuple_object(
+                                        py,
+                                        &[src_obj, tgt_obj, key_obj, value],
+                                    )?);
+                                } else {
+                                    out.push(tuple_object(py, &[src_obj, tgt_obj, value])?);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if scalar_only {
+                return Ok(Some(out.into_pyobject(py)?.into_any().unbind()));
+            }
+        }
         let triples: Vec<(String, String, usize)> = {
             let mut v = Vec::with_capacity(self.inner.edge_count());
             for target in self.inner.nodes_ordered() {
