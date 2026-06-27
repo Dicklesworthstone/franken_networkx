@@ -3023,3 +3023,16 @@ Vec) could give ~1.4x self (0.325x->~0.45x) BUT requires duplicating the value b
 needs &mut self -> owned nodes) and carefully preserving the Map-value mirror-identity fallback -- moderate
 complexity + Map-identity risk for a sub-ms workload. Deferred as a focused future attempt. 20 perf + 1
 correctness ship; main green.
+
+## 2026-06-27 CopperCliff SHIP: selfloop_edges(keys,data=<attr>) 0.325x->0.418x — single-pass node+keys collection
+
+The biggest remaining bench gap (mg_selfloop_keys_weight 0.325x). _native_selfloop_edges (lib.rs) already had
+the pristine-mirror store-read value fast path; the residual avoidable overhead was the NODE COLLECTION: a
+separate has_edge(n,n) scan over ALL nodes (redundant edge_pair_key + edges.get per node) to build a
+Vec<String>, THEN a per-loop-node edge_keys(n,n) re-fetch. FIX: collect (selfloop node, its keys) in ONE pass
+via edge_keys(n,n) -- which is BOTH the self-loop test (None for non-loop nodes via filter_map `?`) AND the
+keys needed in the loop -- eliminating the has_edge scan + the in-loop re-fetch. Node order + owned collection
+(releases the self.inner borrow before the &mut want_dict path) preserved; value/Map logic UNTOUCHED (safe).
+RESULT: 0.325x -> 0.418x (1.29x self), BYTE-IDENTICAL (==nx for keys+data, data=True, no-keys, plain),
+conformance GREEN (779 selfloop tests). Still <nx (the per-edge 4-tuple + cgse_value_to_py PyObject floor) but
+a real 1.29x on the suite's #1 remaining laggard. 21st perf ship.

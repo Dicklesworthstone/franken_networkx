@@ -5253,18 +5253,31 @@ impl PyMultiGraph {
         };
         let value_fast_path = value_attr_name.is_some();
 
-        let nodes: Vec<String> = self
+        // br-r37-c1-selfloopnodecollect (cc): collect (selfloop node, its keys) in
+        // ONE pass via edge_keys(n, n) -- which is BOTH the self-loop test (None for
+        // non-loop nodes) AND the keys we need in the loop. The old path did a
+        // separate has_edge(n, n) scan over all nodes (redundant edge_pair_key +
+        // edges.get per node) THEN re-fetched edge_keys per loop node. Node order +
+        // owned collection (released self.inner borrow before the &mut want_dict
+        // path) are preserved.
+        let selfloops: Vec<(String, Vec<usize>)> = self
             .inner
             .nodes_ordered()
             .iter()
-            .filter(|node| self.inner.has_edge(node, node))
-            .map(|node| (*node).to_owned())
+            .filter_map(|node| {
+                let keys = self.inner.edge_keys(node, node)?;
+                if keys.is_empty() {
+                    None
+                } else {
+                    Some(((*node).to_owned(), keys))
+                }
+            })
             .collect();
         let mut out: Vec<PyObject> = Vec::with_capacity(self.inner.number_of_selfloops());
-        for node in &nodes {
-            let edge_keys = self.inner.edge_keys(node, node).unwrap_or_default();
+        for (node, edge_keys) in &selfloops {
+            let node = node.as_str();
             let py_node = self.py_node_key(py, node);
-            for key in edge_keys {
+            for &key in edge_keys {
                 let needs_lookup_key = want_dict
                     || (want_value && !value_fast_path)
                     || (keys && !self.edge_py_keys.is_empty());
