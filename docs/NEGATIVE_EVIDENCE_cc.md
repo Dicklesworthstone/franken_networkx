@@ -3228,3 +3228,25 @@ AttrMaps + Vec row clear keeps capacity = near-free); DiGraph weighted 0.011x->0
 empties), conformance GREEN (3387). Weighted residual = AttrMap dealloc (inherent). 28th+29th perf ship.
 LESSON: MUTATOR functions (clear_edges, remove_*) are invisible to read-only perf sweeps -- the bench laggard
 list is the source of truth; re-measure it even when single-function sweeps look exhausted.
+
+## 2026-06-27 CopperCliff mutator-surface audit: remove_edges_from is the next bulk-retain target; remove_nodes_from already bulk; clear/remove_node substrate
+
+Following the clear_edges wins (50d0f4074), swept the MUTATOR surface (invisible to read-only sweeps). Measured
+gaps (build-fresh-then-time-op, interleaved): Graph.remove_edges_from(4000) 0.269x, Graph.remove_nodes_from(500)
+0.194x, DiGraph.remove_edges_from 0.304x, DiGraph.remove_nodes_from 0.421x, Graph.remove_node(single) 0.020x
+(50x!), Graph.clear 0.045x (31ms vs 1.4ms).
+TRIAGE:
+- remove_nodes_from (Graph): the binding (lib.rs:9333, impl PyGraph) ALREADY calls the bulk
+  inner.remove_nodes_from (single retain + single index repair). The 0.194x residual is SUBSTRATE -- the
+  integer adj_indices re-index after a shift_remove of order-preserving node removal (nx dict = O(sum degrees),
+  fnx = O(V+E)). NOT a binding gap. (Attempted a redundant "bulk" edit on PyMultiGraph by mistake -> MultiGraph
+  inner lacks remove_nodes_from -> E0599; reverted.)
+- Graph.clear 0.045x + remove_node(single) 0.020x: SUBSTRATE -- clear rebuilds+drops the whole inner (O(N+E)
+  eager dealloc); single remove_node pays the full O(V+E) shift_remove index repair (order-preserving integer
+  index). Not single-dig fixable without an index-stability redesign.
+- remove_edges_from 0.269x: TRACTABLE NEXT -- the binding (lib.rs:7818) loops `self.remove_edge` per edge, each
+  an O(degree) adj_indices retain -> O(k*degree). LEVER: a native Graph::remove_edges bulk (one shared keep-mask
+  retain over edges + parallel edge_index_endpoints, then ONE grouped retain per affected adj row), modelled on
+  the existing remove_node 1b retain pass. Add to fnx-classes Graph (+ DiGraph), route the bindings. Clean
+  next-turn win (the clear_edges/remove_nodes bulk-retain lever).
+LESSON (reinforced): verify the binding actually loops before "fixing" -- remove_nodes_from already had the bulk.
