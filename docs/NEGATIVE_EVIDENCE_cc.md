@@ -2970,3 +2970,21 @@ unweighted ==nx), conformance GREEN (5388 to_directed/copy/convert tests). Still
 LEVER (generalizes the in_edges/size finding): construction/view kernels using edges_ordered() (snapshot)
 where edges_ordered_borrowed() suffices pay needless per-edge String+AttrMap clones -- audit other
 edges_ordered() callers. 20th perf ship.
+
+## 2026-06-27 CopperCliff edges_ordered_borrowed lever is SIMPLE-GRAPH-ONLY (multi dedup-HashSet) + conversion-family map
+
+Audited the to_directed/to_undirected/copy family after the Graph.to_directed win (edges_ordered_borrowed,
+0.65x->0.78x). Measured gaps: DiGraph.to_directed 0.58x, MultiDiGraph.to_directed 0.65x, MultiDiGraph.copy
+0.69x, DiGraph.to_undirected 0.59x, MultiDiGraph.to_undirected 0.57x.
+- MultiDiGraph.to_undirected: applied edges_ordered_borrowed -> REGRESSED 0.57x->0.455x. ROOT: for MULTI
+  graphs edges_ordered_borrowed allocates a dedup HashSet (it de-dups the both-direction adjacency walk),
+  so it is SLOWER than edges_ordered()'s snapshot. The borrowed lever is SIMPLE-GRAPH/DIGRAPH-ONLY (their
+  edges_ordered_borrowed is a dedup-free succ-major Vec). REVERTED.
+- DiGraph.to_directed (0.58x) = self.copy() -- copy path (inner clone + mirror), NOT an edges_ordered
+  edge-duplication loop; borrowed lever N/A.
+- DiGraph.to_undirected (0.59x) = _native_to_undirected_deepcopy: walks nodes_ordered->successors (no
+  snapshot) and DEEPCOPYs each edge attr dict (inherent, matches nx's deepcopy default); deepcopy is the
+  floor, only ~2 redundant mirror-key String clones/edge avoidable (marginal, deepcopy dominates).
+CONCLUSION: the edges_ordered_borrowed snapshot lever cleanly applies ONLY to simple-graph SHALLOW
+edge-duplication loops (Graph.to_directed, shipped). The multi conversions are dedup-HashSet-bound and the
+DiGraph conversions are copy/deepcopy-bound -- different floors, not this lever. 20 perf + 1 correctness ship.
