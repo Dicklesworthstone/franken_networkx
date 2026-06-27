@@ -3061,3 +3061,15 @@ RESULTS: MDG.in_edges 0.372x->0.814x (2.2x self); MG.edges 0.313x->0.822x (2.6x 
 keys+data, no-keys, default), conformance GREEN (3422 view tests). (Build hit E0514 worker-rustc dep-cache
 inconsistency -> fixed with full `cargo clean && cargo build`.) 23rd+24th perf ships. The nbunch+keys+data=<attr>
 edge-view family across MDG out/in + MG edges is now pristine-store-read across the board.
+
+## 2026-06-27 CopperCliff SHIP: DiGraph in_edges(nbunch, data=<attr>) 0.32x->0.65x — new index-native data_key kernel
+
+Edge-view matrix sweep: DiGraph.in_edges(nbunch, data="weight") was 0.32x because there was NO native data_key
+path for it (the wrapper's iterable-nbunch in_edges routed data=False/True to natives but data=<attr> fell to
+the Python pred[target].items() walk). FIX: added _native_in_edges_nbunch_data_key -- the pred-major sibling of
+_native_out_edges_nbunch_data_key, index-native (edge_attrs_by_indices store read, cached node-key vec, no
+String edge_key) when edges are clean + data is a plain str; Map values + dirty/non-str fall to the mirror
+path. Wired the in_edges wrapper's else-branch to route data=<attr> -> native(nbunch, data, default). RESULT:
+0.32x -> 0.65x (2.0x self), BYTE-IDENTICAL (==nx for data, missing-attr default, dict-valued attr/Map branch,
+post-mutation/dirty path), conformance GREEN (3007 in_edges/digraph view tests). Sibling DiGraph out_edges
+data_key was ALREADY index-native (0.688x = pure PyObject tuple floor). 25th perf ship.

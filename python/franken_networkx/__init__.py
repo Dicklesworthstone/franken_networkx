@@ -289,16 +289,22 @@ def _digraph_in_edges(self, nbunch=None, data=False, default=None):
         isinstance(nbunch, (list, tuple, set, frozenset))
         or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
     ):
-        # iterable nbunch -> native pred-major pass (data=key keeps the Python path).
-        # br-r37-c1-inedges (cc).
+        # iterable nbunch -> native pred-major pass. br-r37-c1-inedges (cc).
+        # br-r37-c1-inedgesnbdatakey (cc): data=<attr> now routes to a native too
+        # (index-native store read), previously fell to the Python pred-walk (0.32x).
         native = None
         if data is False:
             native = getattr(self, "_native_in_edges_nbunch_no_data", None)
         elif data is True:
             native = getattr(self, "_native_in_edges_nbunch_data", None)
+        else:
+            native = getattr(self, "_native_in_edges_nbunch_data_key", None)
         if native is not None:
             try:
-                result = native(nbunch)
+                if data is False or data is True:
+                    result = native(nbunch)
+                else:
+                    result = native(nbunch, data, default)
             except TypeError as exc:
                 raise NetworkXError(str(exc))
             if result is not None:

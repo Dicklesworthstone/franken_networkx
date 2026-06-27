@@ -11265,6 +11265,130 @@ impl PyDiGraph {
         Ok(Some(out))
     }
 
+    /// br-r37-c1-inedgesnbdatakey (cc): in_edges(nbunch, data=<attr>) — pred-major
+    /// sibling of _native_out_edges_nbunch_data_key. Previously had NO native (the
+    /// wrapper's data=key in_edges fell to the Python pred-walk, 0.32x). Index-native
+    /// store read via edge_attrs_by_indices (no String edge_key) when edges are clean
+    /// + data is a plain str; Map values + dirty/non-str fall to the mirror path.
+    fn _native_in_edges_nbunch_data_key(
+        &mut self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+        data: &Bound<'_, PyAny>,
+        default: PyObject,
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        if !self.pred_py_keys.is_empty() {
+            return Ok(None);
+        }
+        let py_nodes = self.cached_node_key_vec(py);
+        let clean_string_attr = (!self.edges_dirty.load(Ordering::Relaxed))
+            .then(|| data.downcast::<PyString>().ok())
+            .flatten()
+            .map(|s| s.to_str())
+            .transpose()?;
+        if let Some(attr_name) = clean_string_attr {
+            let inner = &self.inner;
+            let edge_py_attrs = &mut self.edge_py_attrs;
+            let mut out: Vec<PyObject> = Vec::new();
+            let mut seen_nodes = vec![false; inner.node_count()];
+            for item in nbunch.try_iter()? {
+                let node = item?;
+                if node.hash().is_err() {
+                    let label = node
+                        .str()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .unwrap_or_else(|_| "?".to_owned());
+                    return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                        "Node {label} in sequence nbunch is not a valid node."
+                    )));
+                }
+                let canonical = node_key_to_string(py, &node)?;
+                let Some(idx) = inner.get_node_index(&canonical) else {
+                    continue;
+                };
+                if seen_nodes[idx] {
+                    continue;
+                }
+                seen_nodes[idx] = true;
+                let target_obj = node.clone().unbind();
+                let Some(target_name) = inner.get_node_name(idx) else {
+                    continue;
+                };
+                for &src_idx in inner.predecessors_indices(idx).unwrap_or(&[]) {
+                    let source_obj = py_nodes[src_idx].clone_ref(py);
+                    let value = match inner
+                        .edge_attrs_by_indices(src_idx, idx)
+                        .and_then(|attrs| attrs.get(attr_name))
+                    {
+                        Some(value) if !matches!(value, CgseValue::Map(_)) => {
+                            crate::cgse_value_to_py(py, value)?
+                        }
+                        Some(_) => {
+                            let source_name = inner
+                                .get_node_name(src_idx)
+                                .expect("predecessor index should resolve during in_edges");
+                            let attrs = edge_py_attrs
+                                .entry(Self::edge_key(source_name, target_name))
+                                .or_insert_with(|| match inner.edge_attrs_by_indices(src_idx, idx) {
+                                    Some(attrs) => attr_map_to_pydict(py, attrs)
+                                        .expect("stored directed edge attrs must convert to Python"),
+                                    None => PyDict::new(py).unbind(),
+                                });
+                            attrs
+                                .bind(py)
+                                .get_item(data)?
+                                .map_or_else(|| default.clone_ref(py), |value| value.unbind())
+                        }
+                        None => default.clone_ref(py),
+                    };
+                    out.push(tuple_object(
+                        py,
+                        &[source_obj, target_obj.clone_ref(py), value],
+                    )?);
+                }
+            }
+            return Ok(Some(out));
+        }
+        let mut out: Vec<PyObject> = Vec::new();
+        let mut seen_nodes: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        for item in nbunch.try_iter()? {
+            let node = item?;
+            if node.hash().is_err() {
+                let label = node
+                    .str()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "?".to_owned());
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Node {label} in sequence nbunch is not a valid node."
+                )));
+            }
+            let canonical = node_key_to_string(py, &node)?;
+            let Some(idx) = self.inner.get_node_index(&canonical) else {
+                continue;
+            };
+            if !seen_nodes.insert(idx) {
+                continue;
+            }
+            let preds: Vec<usize> = self
+                .inner
+                .predecessors_indices(idx)
+                .map(<[usize]>::to_vec)
+                .unwrap_or_default();
+            for src_idx in preds {
+                let source_obj = py_nodes[src_idx].clone_ref(py);
+                let source_name = self
+                    .inner
+                    .get_node_name(src_idx)
+                    .expect("predecessor index should resolve during in_edges")
+                    .to_owned();
+                let value =
+                    self.edge_attr_value_or_default(py, &source_name, &canonical, data, &default)?;
+                out.push(tuple_object(py, &[source_obj, node.clone().unbind(), value])?);
+            }
+        }
+        Ok(Some(out))
+    }
+
     /// br-r37-c1-edgenbnative (cc): out_edges(nbunch, data=True) — one native pass
     /// (succ rows + live attr dict via materialize_edge_py_attrs, identity-
     /// preserving == G[u][v]) vs the EdgeDataView machinery (~0.21x). Gated on
