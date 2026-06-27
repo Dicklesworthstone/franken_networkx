@@ -7479,3 +7479,67 @@ paired comparison. Do not retry full-edge materialization for this row as a
 standalone lever; the remaining route needs either an already-indexed
 target/source accumulator maintained by the multigraph store or a public
 contract that avoids constructing the full Python pair stream.
+
+## 2026-06-27 BlackThrush MultiDiGraph `in_edges(keys, data=<attr>)` default-key emit - NO-SHIP
+
+Scope: land-or-dig pass on current `main` (`a1f74cd35`). Read-only worktree
+audit found no measured source win missing from `main`: the old adjacency
+outer-cache branch is already represented by the shared outer-dict landing, and
+the fresh-looking edge-view worktree is already represented on `main` by the
+`34e09ee11` pristine store-read landing plus the canonical ledger entry at the
+top of this file. Agent Mail writes were still blocked by the existing SQLite
+corruption circuit breaker, so this pass kept coordination read-only and staged
+only this ledger after reverting the probe.
+
+The requested literal per-crate release bench form was retried:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --release --features pyo3/abi3-py310 --bench networkx_head_to_head networkx_head_to_head_core_laggards -- --quiet`
+
+Cargo rejected that syntax on this toolchain with `unexpected argument
+'--release'`, so the equivalent release profile was used through `rch exec`
+with the requested `fnx-python` crate and cod-b target dir. RCH had no
+admissible worker for the sweep and focused bench, so both benchmark runs fell
+back locally.
+
+Fresh current-head routing sweep:
+
+| workload | runner | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | --- | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | local fallback | `11.127 ms` | `5.4744 ms` | `0.492x` |
+| `mg_selfloop_keys_weight_n2500_loops2502` | local fallback | `1.5111 ms` | `640.74 us` | `0.424x` |
+| `mdg_edges_keys_n700_e12662` | local fallback | `1.5150 ms` | `1.4695 ms` | `0.970x` |
+| `mdg_in_edges_data_n700_e12662` | local fallback | `16.191 ms` | `7.1467 ms` | `0.441x` |
+| `mdg_out_edges_nbunch_keys_data_n700_e12600` | local fallback | `250.58 us` | `518.77 us` | `2.070x` |
+| `mdg_out_edges_nbunch_keys_weight_n700_e12600` | local fallback | `1.0592 ms` | `579.83 us` | `0.547x` |
+
+Targeted lever: avoid internal string edge-key construction in
+`PyMultiDiGraph::_native_mdg_in_edges_data_key` when `keys=True` and
+`edge_py_keys` is empty, matching the default-int-key shortcut already present
+in `_native_mdg_in_edges_no_data`. This was the narrowest "constants kill you"
+attempt on the biggest measured gap after the existing pristine store-read path:
+keep order, tuple shape, data-default behavior, custom-key fallback, and
+non-pristine edge-attribute fallback unchanged, but emit the default Python int
+key directly.
+
+Focused candidate command:
+
+`AGENT_NAME=BlackThrush RCH_WORKER=hz2 CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head -- mdg_in_edges_data --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`
+
+| workload | state | runner | FNX median | NetworkX median | ratio vs NetworkX | self vs baseline |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `mdg_in_edges_data_n700_e12662` | current `main` sweep baseline | local fallback via `rch exec` | `16.191 ms` | `7.1467 ms` | `0.441x` | baseline |
+| `mdg_in_edges_data_n700_e12662` | default-key direct emit candidate | local fallback via `rch exec` | `17.449 ms` | `7.3530 ms` | `0.421x` | `0.928x` |
+
+Criterion also reported `No change in performance detected` for the FNX row
+(`change: [-3.4780% +2.7042% +7.7687%]`, `p = 0.40`). Build validation during
+the probe passed remotely on `hz2`:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`
+
+Decision: REVERTED / NO-SHIP. The direct default-key emission did not move the
+row and slightly worsened the paired ratio (`0.441x -> 0.421x`). Candidate
+source hunks in `crates/fnx-python/src/digraph.rs` were manually reverted; final
+source diff is empty. Do not retry default-int edge-key emission as a standalone
+fix for full-graph `MultiDiGraph.in_edges(keys=True, data=<attr>)`; the
+remaining gap is dominated by target-major tuple/value materialization rather
+than display-key lookup alone.
