@@ -3347,3 +3347,19 @@ adjacency_matrix/degree_pearson) ALL match; wiener after add_weighted = 58 ==nx.
 (~8x self, BEATS nx), edges(data) byte-identical across Graph/DiGraph/MultiGraph/MultiDiGraph + **attr + error
 contract, conformance GREEN (2404 weighted/wiener/add_edges). 31st perf ship. (Two-step: fix the latent
 correctness bug, then land the perf win it gated.)
+
+## 2026-06-27 CopperCliff subgraph(view) 0.5x view-machinery-bound (filt set-intersection marginal, reverted) + find_induced_nodes without_fallback PRE-EXISTING failure
+
+Construction sweep (clean build): all wins (gnp 3.7x, complete 12.5x, Graph(G) copy 11x) EXCEPT
+G.subgraph(nbunch) VIEW (no copy) 0.529x. Profiled: filt build (_subgraph_filter_from_nbunch) is 66us of 76us
+(set(G) only 10us -> the per-node hash+membership+add loop is ~56us). Tried a C set-intersection fast path
+(set(nb_list) & gnodes for large nbunch): filt build 66->44us BUT full subgraph only 76->60us (~1.1-1.27x self,
+NOISY 0.48-0.59x) -- the _generic_filtered_graph_view / _FilteredGraphView object construction is the remaining
+floor (view machinery, not the filt). MARGINAL at the operation level -> REVERTED.
+SEPARATELY DISCOVERED (clean-build, NOT mine): TestFindInducedNodesParity::test_matches_networkx_without_fallback
++ error_contract FAIL on HEAD (3 cases). Cause: peer commit 17040bd66 made find_induced_nodes "run nx's
+chordality-breaker on an nx copy" -- byte-exact VALUES but a NX FALLBACK, which the without_fallback test forbids.
+Not a correctness bug (values match); a no-fallback contract violation in the peer's perf commit. Flagged for
+the owner (find_induced_nodes needs a native non-nx path to satisfy without_fallback, or the test relaxed).
+LESSON (again): re-confirmed via clean rebuild before attributing a conformance failure (the 3 fails were
+CONSTANT across my fix + revert -> pre-existing, not mine).
