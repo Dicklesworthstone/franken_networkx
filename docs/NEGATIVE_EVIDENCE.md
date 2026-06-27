@@ -7370,6 +7370,66 @@ Decision: ACCEPTED. This is a same-worker, per-crate, NetworkX head-to-head
 measured win on the current largest routed gap: clean `main` ratio `0.491x`,
 candidate ratio `0.571x`, and stable FNX median improvement of about `1.15x`.
 
+## 2026-06-27 BlackThrush MultiGraph selfloop small-int object cache - NO-SHIP
+
+Scope: fresh land-or-dig pass on current `main` (`008ced9b7`) after checking
+branches and bench worktrees for measured wins not represented on `main`. The
+only measured-looking non-ancestor branch/worktree remained the old
+`DictOfDictsCache` adjacency outer-cache commit (`5e65efa88`), already
+represented by the shared outer-dict cache and ledger entries on `main`; other
+visible non-main heads were docs/test/parity or stale stash/index artifacts.
+
+The requested literal per-crate release bench form was retried:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --release --features pyo3/abi3-py310 --bench networkx_head_to_head networkx_head_to_head_core_laggards -- --quiet`
+
+Cargo rejected that syntax on this toolchain with
+`error: unexpected argument '--release' found`, so the equivalent release
+profile was used through `rch exec` with the requested `fnx-python` crate and
+cod-b target dir. RCH had no admissible remote worker and fell back locally.
+
+Fresh routing sweep on current `main`:
+
+| workload | runner | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | --- | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | local fallback | `12.397 ms` | `6.6260 ms` | `0.535x` |
+| `mg_selfloop_keys_weight_n2500_loops2502` | local fallback | `2.6041 ms` | `810.80 us` | `0.311x` |
+| `mdg_edges_keys_n700_e12662` | local fallback | `2.2739 ms` | `1.6524 ms` | `0.727x` |
+| `mdg_in_edges_data_n700_e12662` | local fallback | `19.635 ms` | `12.451 ms` | `0.634x` |
+| `mdg_out_edges_nbunch_keys_data_n700_e12600` | local fallback | `248.39 us` | `594.58 us` | `2.394x` |
+| `mdg_out_edges_nbunch_keys_weight_n700_e12600` | local fallback | `962.99 us` | `548.76 us` | `0.570x` |
+
+Targeted lever: add local `PyObject` caches in the direct scalar
+`PyMultiGraph::_native_selfloop_edges` path for repeated default integer edge
+keys (`0..16`) and CPython small integer scalar values (`-5..256`). The
+graveyard fit was the "constants kill you" / vectorized-execution discipline:
+avoid repeated per-item scalar object conversion in the hottest tuple-emission
+loop without changing order, tuple shape, map fallback, or dirty/mirror
+semantics. This was a new lever distinct from the earlier lookup-key reuse,
+list-iterator handoff, tuple cache, clean-int mirror bypass, and direct scalar
+emission work.
+
+Focused candidate command:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head mg_selfloop_keys_weight -- --quiet`
+
+| workload | state | runner | FNX median | NetworkX median | ratio vs NetworkX | self vs clean |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `mg_selfloop_keys_weight_n2500_loops2502` | clean `main` routing baseline | local fallback | `2.6041 ms` | `810.80 us` | `0.311x` | baseline |
+| `mg_selfloop_keys_weight_n2500_loops2502` | small-int object cache candidate | local fallback | `2.8947 ms` | `632.20 us` | `0.218x` | `0.900x` |
+
+Validation while probing:
+
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`: passed via RCH local fallback.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo test -p fnx-conformance`: RCH queued remotely, timed out, fell back locally, and passed all `fnx-conformance` tests.
+
+Decision: REVERTED / NO-SHIP. The cache added extra branch/cache-management
+work to a tuple-materialization loop and made the FNX row slower
+(`2.6041 ms -> 2.8947 ms`) while the ratio vs NetworkX fell from `0.311x` to
+`0.218x`. Candidate source hunks in `crates/fnx-python/src/lib.rs` were
+manually reverted; final source diff is empty. Do not retry per-call Python int
+object caching as a standalone lever for this self-loop row.
+
 ## 2026-06-27 BlackThrush MultiDiGraph weighted in-degree edge-stream accumulator - NO-SHIP
 
 Scope: fresh land-or-dig pass on current `origin/main` (`73b72c0c3`). A
