@@ -3101,3 +3101,18 @@ per-neighbor String-hash vs PyTuple_GetItem is a WASH, and the dominant cost (cl
 fresh list vs nx's lazy keys view) is unavoidable without returning a LAZY neighbor iterator -- an architectural
 change to the view layer, not a kernel micro-opt. So neighbors/adjacency is substrate-bound at ~0.5x; the only
 real lever is lazy adjacency-key iterators (deferred, architectural). DO NOT chase a kernel/index micro-opt here.
+
+## 2026-06-27 CopperCliff RA/AA link-pred 0.59x = neighbors-materialization substrate (degree-batch REGRESSED, reverted)
+
+Rigorous (interleaved min-of-8 x5): resource_allocation_index 0.589x [0.578,0.596] and adamic_adar_index 0.597x
+both lag their sibling jaccard_coefficient (0.902x). They share _link_prediction_compute; the difference is
+RA/AA score = sum(1/deg(w) for w in common neighbors) while jaccard = C set-ops. HYPOTHESIS (deg lookup is the
+cost) -> TESTED: batched the endpoints'-neighborhood degrees for explicit ebunches -> REGRESSED to 0.48x (for
+RANDOM pairs common neighbors are sparse, so the lazy deg() path only touches a few nodes; batching all
+endpoint neighborhoods computes a huge unused superset). REVERTED. ROOT CAUSE: nx's RA iterates `for w in
+nx.common_neighbors(G,u,v)` over `G[u]` (a lazy dict view); fnx mirrors the exact algorithm but `nbr_order(u) =
+list(G.neighbors(u))` EAGERLY materializes the neighbor list (the same 0.54x neighbors-materialization substrate
+documented above). The deg() lazy memo is already optimal for sparse-common-neighbor ebunches. So RA/AA is
+neighbors-materialization-bound, NOT degree-bound -- same substrate floor as neighbors/adjacency; no kernel
+lever. (PA + jaccard already at/above parity for their access patterns.) LESSON: confirm WHICH sub-op dominates
+(profile/bisect) before batching -- batching the wrong quantity regresses.
