@@ -3309,3 +3309,16 @@ the weighted wiener build weighted_adj from edges(data) [order-care for float-su
 LESSON (hard-won this turn): NEVER measure correctness/perf on an inconsistent .so -- a failed build + reverts +
 touch left a Frankenstein .so that produced contradictory results (size wrong then right, edges-data None then
 correct). Always `cargo clean` rebuild to ground truth before drawing conclusions.
+
+## 2026-06-27 CopperCliff SHIP: from_edgelist / add_edges_from(empty graph) 0.72x->1.14x — skip the O(E) has_edge pre-scan on empty graphs
+
+(Re-measured on a CLEAN build per the prior lesson.) add_edges_from's native-batch fast path is gated on
+`not _simple_add_edges_from_touches_existing_plain_edge(self, ebunch)`, which loops `graph.has_edge(u,v)` PER
+edge (O(E) PyO3 round-trips) to detect a pre-existing edge (the batch must bail-to-per-edge if any edge already
+exists, for the attr-update contract). But on a FRESH/EMPTY graph -- from_edgelist, Graph(edgelist),
+add_edges_from on a new graph: the common construction case -- NO edge can pre-exist, so the entire pre-scan is
+wasted, ~doubling the work. FIX: short-circuit `if graph.number_of_edges() == 0: return False` (O(1)) at the top
+of the gate. RESULT: from_edgelist 0.724x -> 1.136x (1.57x self, BEATS nx), byte-identical (from_edgelist ==nx;
+non-empty add_edges_from with existing-edge attr-update still ==nx -- the pre-scan still runs there), conformance
+GREEN (911). Python-only (no rebuild). Helps every construction path that add_edges_from's onto a fresh graph.
+(Graph(edgelist) 0.74x is a separate constructor path, not this gate -- follow-up.) 30th perf ship.

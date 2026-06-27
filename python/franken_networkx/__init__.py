@@ -3397,6 +3397,12 @@ _ADD_EDGES_UNSET = object()
 def _simple_add_edges_from_touches_existing_plain_edge(graph, edges):
     if type(graph) not in (Graph, DiGraph):
         return False
+    # br-r37-c1-emptyaef (cc): an empty graph has no edge that could pre-exist, so the
+    # per-edge has_edge() pre-scan (O(E) PyO3 round-trips) is pure waste -- it gates the
+    # native batch for from_edgelist / Graph(edgelist) / add_edges_from on a fresh graph
+    # (the common construction case), doubling the work. number_of_edges() is O(1).
+    if graph.number_of_edges() == 0:
+        return False
     for edge in edges:
         try:
             if len(edge) != 2:
