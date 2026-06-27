@@ -2721,3 +2721,22 @@ win. A real win needs a storage-layer change (numeric weight column / faster att
 project, out of scope for a single dig. STOP attacking the weighted-degree/size family via kernel/iteration
 levers. Clean kernel wins remain elsewhere (the de-delegation / redundant-copy class, e.g. maximum_spanning_
 edges 0.28x->2.7x shipped).
+
+## 2026-06-26 CopperCliff wide sweep — redundant-copy vein mined, no new takeable <0.7x gap (frontier state)
+
+After closing the weighted-degree/size family (substrate-bound), swept for the next CLEAN kernel/de-delegation
+lever (the class that gave maximum_spanning_edges 0.28x->2.7x):
+- REDUNDANT-COPY audit (spanning_input_graph callers): all clean -- minimum/maximum_spanning_edges copy ONLY
+  for ignore_nan; maximum_spanning_tree uses gr.undirected() (no copy); the only other caller (algorithms.rs
+  :23117) is a #[test]. Vein mined for spanning.
+- DIRECTED/TRAVERSAL/DAG: all WINS -- transitive_closure 7.7x, transitive_reduction 2.2x, condensation 4.4x,
+  dfs_pre/postorder 2.4x/1.25x, find_cycle 6.1x.
+- OPERATORS (graph-returning de-delegation candidates): all WINS/parity -- compose 1.1x, cartesian_product
+  2.5x, tensor_product 3.1x, line_graph 3.5x, power 1.8x, complement 3.1x, to_undirected 3.3x, subgraph.copy
+  1.1x, quotient_graph 1.5x; only ego_graph 0.78x (near-parity, Python BFS over PyO3 neighbors +
+  construction = substrate-bound, not a clean lever).
+CONCLUSION: the takeable kernel/de-delegation frontier is MINED. Remaining vs-nx gaps are all (a)
+substrate-bound (weighted-degree/size AttrMap-lookup, in_edges cold tuple-materialization, resource_allocation
+adjacency-materialization, ego_graph BFS) or (b) near-parity (construction_copy 0.81x, junction_tree 0.96x,
+ego_graph 0.78x). No clean <0.7x kernel win remains; the next tier needs storage-layer work (numeric weight
+column / faster attr map) or is within noise. 18 perf ships stand.
