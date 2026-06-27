@@ -2890,3 +2890,21 @@ clear_edges is the edge-attr-storage substrate (Rust eager-drop + per-edge Strin
 dict + deferred GC), same as the rest. The real fix is the storage redesign (interned attr keys make the
 String drop free; columnar numeric weights eliminate the per-edge BTreeMap). Frontier unchanged: all <0.7x
 gaps inherent Rust-storage-vs-CPython-dict. 18 perf + 1 correctness ship; main green.
+
+## 2026-06-26 CopperCliff DEFINITIVE full-bench snapshot — 27 pairs: 21 win, 1 near-parity, 5 substrate gaps
+
+Complete official cargo bench (all groups, 27 fnx/nx pairs): 21 WIN (>=0.85x, many 2-3000x), 1 near-parity
+(multigraph_weighted_degree/degree_nbunch_weight 0.706x -- my earlier fix holding, up from 0.043x), and 5
+sub-0.7x gaps, ALL substrate-bound + individually root-caused this session:
+  0.162x mdg_in_edges_data        -- view (u,v,PyDict) tuple materialization (cold; warm-only cache)
+  0.325x mg_selfloop_keys_weight  -- edge-attr BTreeMap + keyed tuple materialization
+  0.379x clear_edges (multigraph) -- eager per-edge AttrMap dealloc (weighted 0.44x, unweighted 0.89x)
+  0.536x mdg_in_degree_weight     -- edge-attr weighted-degree (BTreeMap + PyObject view)
+  0.645x graph_to_directed_scalar -- construction (deepcopy-skip ~0-gain)
+ALL 5 reduce to the inherent Rust-storage-vs-CPython-dict architecture (per-edge String-keyed BTreeMap attr
+storage + PyObject mirror/view materialization vs nx's native C dicts). 78% of the bench's own designated
+laggard/head-to-head workloads are at-or-above nx; the residual is exclusively CPython-dict-substrate ops that
+are structurally hard to beat. SESSION CLOSE: 18 perf ships + 1 user-facing correctness fix, all durable
+(19908 conformance tests green), main clean. The single-dig frontier is exhausted and fully root-caused; the
+only remaining perf lever is a storage-layer redesign (interned attr keys / columnar numeric weights /
+deferred edge drops), a deliberate multi-turn architecture project, not a single-dig.
