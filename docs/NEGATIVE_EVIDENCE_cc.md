@@ -8,6 +8,41 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## BLOCKER / VEIN-MAP (cc, 2026-06-27): full networkx_head_to_head sweep — every remaining benched gap is the per-element PyObject materialization floor (kernel-mined-out)
+
+Ran the WHOLE `cargo bench -p fnx-python --bench networkx_head_to_head` suite (hz2). Every
+group is a WIN except a tight cluster of gaps, and each gap is bound by the SAME wall: fnx
+stores attrs/keys as native CgseValue + String node names, so any view that yields per-element
+Python objects must REBUILD them (py_node_key clone + cgse_value_to_py / PyInt + PyTuple) — work
+nx skips because it already stores the Python objects. This is NOT removable by kernel/hashing
+micro-opts (confirmed by the eilce NO-SHIP 6ee21ea28 "halved Rust hashing, fnx UNCHANGED" AND my
+own in_edges restructure NO-SHIP ef897a28e). Map of this sweep (nx/fnx, hz2):
+
+WINS (do not touch): sticky_edge_dirty dijkstra-after-edges-data 7.4x; mdg SCC 2.86x;
+descendants 1.76x; triangular_lattice 2.25x; hexagonal_lattice 1.58x; out_edges_nbunch_keys_data
+1.95x; mdg_edges_keys ~1.0x.
+
+GAPS — ALL materialization-floor-bound / COVERED, DO NOT re-dig with kernel work:
+- mdg in_edges(keys,data=<key>) 0.24x — eager per-edge tuple list vs nx lazy InMultiEdgeDataView.
+- mg selfloop_edges(keys,data=<attr>) 0.348x — pristine store-read ALREADY active
+  (lib.rs:5246/5260); floor = 2502 PyTuple+value builds + NodeIterator __next__ (vs nx C gen).
+- mdg in_degree(weight) 0.55x / out_degree(weight) 0.60x — ALREADY route to the bulk native
+  (__init__.py:4862; native_weighted_directional_degree store_int path is optimal:
+  predecessors_iter + edge_attr_values, no per-key re-hash). Floor = 1800 py_node_key + PyInt
+  total builds. eilce already proved reducing native work here is invisible.
+- mg degree(nbunch,weight) 0.582x — covered by the 752b2b98c weighted-subset native; residual
+  is the per-node pair materialization.
+- mg size(weight) 0.625x — deliberately routes through degree(weight) (sizedeg comment,
+  __init__.py:496); inherits the degree-view materialization floor.
+
+CONCLUSION: the benched view + weighted-degree vein is MINED OUT for kernel levers. The only
+remaining lever is ARCHITECTURAL — a persistent ordered Python-object mirror (store the node-key
+and edge-attr-value Python objects alongside the native store, kept in sync, so views hand back
+borrowed refs like nx) OR true lazy native view-iterators that don't pre-build the list. Both are
+large primitives, not micro-opts, and even lazy iterators don't escape the per-element PyObject
+build for full-iteration `sum(...)` consumers. Surfaced as a blocker; not attempting a kernel
+micro-opt here (would be a 3rd NO-SHIP on the same floor).
+
 ## SHIPPED (cc, 2026-06-27): MDG data=<key> reads — store-read fast path gated on !edges_dirty (skip per-edge edge_key String build) — out_edges(nbunch,keys,data) 0.57x->0.65x
 
 Next core_laggards gap after the in_edges NO-SHIP below: `out_edges(nbunch, keys=True,
