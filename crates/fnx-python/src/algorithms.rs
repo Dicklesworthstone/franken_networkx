@@ -13822,6 +13822,55 @@ pub fn resource_allocation_index(
         .collect())
 }
 
+/// br-r37-c1-lpdegnative (cc): per-pair common-neighbor DEGREES in nx's G[u] order,
+/// for an explicit ebunch. The Python link-pred wrapper does the exact 1/deg (RA) or
+/// 1/log(deg) (AA) arithmetic + builtins.sum, so float parity is GUARANTEED (Python
+/// performs every float op); this only moves the expensive common-neighbor finding off
+/// the eager `list(G.neighbors(u))` Python path into index-native Rust. Common
+/// neighbors = {w in N(u) : w in N(v), w != u, w != v}, iterated in N(u) adjacency
+/// order (== nx's `for w in G[u]`). Degrees are nx-degrees (selfloop counts twice via
+/// inner.degree), lazily cached. Simple undirected graphs only (caller gates).
+#[pyfunction]
+pub fn link_pred_common_neighbor_degrees(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    ebunch: &Bound<'_, PyAny>,
+) -> PyResult<Vec<(PyObject, PyObject, Vec<i64>)>> {
+    let gr = extract_graph(g)?;
+    require_not_multigraph(&gr)?;
+    require_undirected(&gr, "link_prediction")?;
+    let pairs = extract_ebunch(py, &gr, Some(ebunch))?;
+    validate_link_prediction_pairs(&gr, &pairs)?;
+    let inner = gr.undirected();
+    let mut deg_cache: std::collections::HashMap<usize, i64> = std::collections::HashMap::new();
+    let mut vset: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let mut out: Vec<(PyObject, PyObject, Vec<i64>)> = Vec::with_capacity(pairs.len());
+    for (u, v) in &pairs {
+        let u_idx = inner.get_node_index(u).expect("validated in-graph");
+        let v_idx = inner.get_node_index(v).expect("validated in-graph");
+        vset.clear();
+        if let Some(vn) = inner.neighbors_indices(v_idx) {
+            vset.extend(vn.iter().copied());
+        }
+        let mut degs: Vec<i64> = Vec::new();
+        if let Some(un) = inner.neighbors_indices(u_idx) {
+            for &w_idx in un {
+                if w_idx != u_idx && w_idx != v_idx && vset.contains(&w_idx) {
+                    let d = *deg_cache.entry(w_idx).or_insert_with(|| {
+                        let name = inner
+                            .get_node_name(w_idx)
+                            .expect("neighbor index resolves to a node name");
+                        inner.degree(name) as i64
+                    });
+                    degs.push(d);
+                }
+            }
+        }
+        out.push((gr.py_node_key(py, u), gr.py_node_key(py, v), degs));
+    }
+    Ok(out)
+}
+
 // ===========================================================================
 // Graph Operators
 // ===========================================================================
@@ -22523,6 +22572,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(adamic_adar_index, m)?)?;
     m.add_function(wrap_pyfunction!(preferential_attachment, m)?)?;
     m.add_function(wrap_pyfunction!(resource_allocation_index, m)?)?;
+    m.add_function(wrap_pyfunction!(link_pred_common_neighbor_degrees, m)?)?;
     // Graph metrics
     m.add_function(wrap_pyfunction!(average_degree_connectivity, m)?)?;
     m.add_function(wrap_pyfunction!(rich_club_coefficient, m)?)?;

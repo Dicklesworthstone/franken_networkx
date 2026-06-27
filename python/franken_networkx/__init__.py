@@ -16099,7 +16099,26 @@ from franken_networkx._fnx import (
     adamic_adar_index as _raw_adamic_adar_index,
     preferential_attachment as _raw_preferential_attachment,
     resource_allocation_index as _raw_resource_allocation_index,
+    link_pred_common_neighbor_degrees as _raw_link_pred_common_neighbor_degrees,
 )
+
+
+def _ra_native_scores(G, materialized):
+    # br-r37-c1-lpdegnative (cc): native common-neighbor degrees (index-native, in
+    # nx's G[u] order) + Python sum(1/d) -> float parity GUARANTEED (Python does every
+    # float op), avoiding the eager list(G.neighbors(u)) materialization. Lazy: the
+    # native call fires on first iteration, matching nx's generator semantics.
+    rows = _raw_link_pred_common_neighbor_degrees(G, materialized)
+    for (u, v), (_ru, _rv, degs) in zip(materialized, rows):
+        yield (u, v, sum(1.0 / d for d in degs))
+
+
+def _aa_native_scores(G, materialized):
+    import math
+
+    rows = _raw_link_pred_common_neighbor_degrees(G, materialized)
+    for (u, v), (_ru, _rv, degs) in zip(materialized, rows):
+        yield (u, v, sum(1.0 / math.log(d) for d in degs))
 
 
 def _link_prediction_validate_ebunch(G, ebunch):
@@ -16281,6 +16300,11 @@ def adamic_adar_index(G, ebunch=None):
     """
     G = _coerce_arg_to_fnx_graph(G)
     materialized = _link_prediction_validate_ebunch(G, ebunch)
+    # br-r37-c1-lpdegnative (cc): explicit ebunch on a simple Graph -> native
+    # common-neighbor degrees + Python sum (float parity guaranteed). Default ebunch
+    # keeps the Python non_edges path (delicate pop/set-diff order).
+    if materialized is not None and type(G) is Graph:
+        return _aa_native_scores(G, materialized)
     return _link_prediction_compute(G, materialized, "adamic_adar_index")
 
 
@@ -16304,6 +16328,9 @@ def resource_allocation_index(G, ebunch=None):
     """
     G = _coerce_arg_to_fnx_graph(G)
     materialized = _link_prediction_validate_ebunch(G, ebunch)
+    # br-r37-c1-lpdegnative (cc): explicit ebunch on a simple Graph -> native path.
+    if materialized is not None and type(G) is Graph:
+        return _ra_native_scores(G, materialized)
     return _link_prediction_compute(G, materialized, "resource_allocation_index")
 
 # Algorithm functions — DAG

@@ -3116,3 +3116,20 @@ documented above). The deg() lazy memo is already optimal for sparse-common-neig
 neighbors-materialization-bound, NOT degree-bound -- same substrate floor as neighbors/adjacency; no kernel
 lever. (PA + jaccard already at/above parity for their access patterns.) LESSON: confirm WHICH sub-op dominates
 (profile/bisect) before batching -- batching the wrong quantity regresses.
+
+## 2026-06-27 CopperCliff SHIP: RA/AA link-pred (explicit ebunch, simple Graph) 0.59x->1.1x — native common-neighbor degrees + Python sum
+
+The neighbors-materialization substrate (documented above) was BYPASSED for RA/adamic_adar by splitting the
+work: a new native binding link_pred_common_neighbor_degrees returns, per pair, the DEGREES of common
+neighbors {w in N(u): w in N(v), w!=u,v} in nx's exact G[u] adjacency order (index-native:
+neighbors_indices + lazy inner.degree cache, no eager list(G.neighbors(u)) PyObject materialization); the
+Python wrapper then does sum(1/d) (RA) / sum(1/log(d)) (AA) so EVERY float op happens in Python ->
+parity GUARANTEED (no Rust-vs-CPython Neumaier/log ULP risk). The pre-existing native _raw_resource_allocation
+kernel was 2.7x faster than nx but 1-ULP off (naive f64 sum + larger-row order) -> unusable; this split keeps
+its speed with exact parity. Gated: explicit ebunch + type(G) is Graph (default non_edges order + directed/
+multi stay on the Python path); returns a generator (type-match); validation stays in Python (error contract).
+RESULTS (interleaved min-of-8 x5, tight): RA 0.589x->1.129x, AA 0.597x->1.100x (both BEAT nx), high-degree-
+endpoint pairs 1.508x. GOLDEN CORPUS 24/24 byte-exact (BA/WS/gnp/tree + selfloops x RA/AA x 60 pairs); default
+ebunch ==nx; conformance GREEN (1315 link-pred tests). LEVER (generalizes): when an algo's float-sum parity
+blocks a fast native kernel, return the native-computed TERMS/operands and do the final reduction in Python --
+native speed + guaranteed float parity. 26th perf ship.
