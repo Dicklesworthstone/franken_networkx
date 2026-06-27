@@ -2740,3 +2740,18 @@ substrate-bound (weighted-degree/size AttrMap-lookup, in_edges cold tuple-materi
 adjacency-materialization, ego_graph BFS) or (b) near-parity (construction_copy 0.81x, junction_tree 0.96x,
 ego_graph 0.78x). No clean <0.7x kernel win remains; the next tier needs storage-layer work (numeric weight
 column / faster attr map) or is within noise. 18 perf ships stand.
+
+## 2026-06-26 CopperCliff fresh-domain sweep (similarity/iso/flow-centrality/structural/reciprocity) — all wins/parity
+
+Swept domains not previously covered this session, looking for a clean <0.7x kernel/de-delegation gap:
+  simrank_similarity 1.07x, panther_similarity 0.97x, could_be_isomorphic 0.81x (already fnx-optimized: native
+  degree early-exit br-r37-c1-cbiso; residual is triangles/cliques, near-parity), fast_could_be_isomorphic
+  2.08x, current_flow_betweenness 48x, communicability 12.5x, subgraph_centrality 44.5x, second_order_centrality
+  3260x, constraint 6.5x, effective_size 6.9x, flow_hierarchy 175x, reciprocity 7.3x, overall_reciprocity 5.6x,
+  local_efficiency 12.1x, non_randomness 0.89x.
+NO new <0.7x takeable gap. Combined with the prior wide sweep (directed/traversal/operators) and the
+substrate-bound family closures, the takeable kernel/de-delegation frontier is COMPREHENSIVELY MINED across
+all benched domains. Remaining vs-nx gaps are exclusively substrate-bound (weighted-degree/size AttrMap lookup,
+in_edges cold, resource_allocation, ego_graph) or near-parity within noise (could_be_isomorphic 0.81x,
+construction_copy 0.81x, junction_tree 0.96x). 18 perf ships stand; next-tier wins require storage-layer work
+(numeric weight column / non-BTreeMap attr map), a multi-hour structural project, not a single-dig lever.
