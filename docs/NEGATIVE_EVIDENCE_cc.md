@@ -2857,3 +2857,22 @@ Rust-storage-vs-CPython-dict architecture and not cheap-fixable. fnx decisively 
 (2-3000x) and is at-or-near parity elsewhere; the only sub-parity cases are string-keyed dict-substrate ops
 that are structurally hard to beat CPython dicts. Next move is an architecture decision (int-key fast lanes
 already make int-keyed construction a win), not a single-dig.
+
+## 2026-06-26 CopperCliff FULL official bench — every <0.7x gap is substrate-bound; clear_edges root-caused
+
+Ran the FULL official cargo bench (all groups). Of 17 fnx/nx pairs in the gap-bearing groups: 12 WIN (>=1x),
+and all 5 sub-0.7x gaps are SUBSTRATE-bound (no takeable kernel/de-delegation lever):
+  0.162x mdg_in_edges_data         -- view tuple+PyDict materialization (cold; warm-only cache)
+  0.325x mg_selfloop_keys_weight   -- edge-attr BTreeMap + tuple materialization
+  0.379x multigraph_clear_edges    -- NEW root-cause below
+  0.536x mdg_in_degree_weight      -- edge-attr weighted-degree (BTreeMap + PyObject view)
+  0.645x graph_to_directed_scalar  -- construction (deepcopy-skip tried earlier, ~0-gain)
+CLEAR_EDGES root-caused (fnx 719us vs nx 299us = 0.42x): PyMultiGraph::clear_edges is lazy at the Python layer
+(edge_mirrors_stale flag) and the native MultiGraph::clear_edges is O(N) (edges.clear() + per-row clear) -- so
+the cost is `self.edges.clear()` EAGERLY DROPPING ~4000 per-edge AttrMaps (BTreeMap + "weight" String +
+CgseValue) = O(E) Rust deallocation, whereas nx's dict.clear() defers the data-dict deallocation to GC. This
+is the edge-attr-storage substrate again (Rust eager-drop + per-edge String-keyed AttrMap alloc model vs
+CPython dict + deferred GC). Not cheaply fixable (recycling/deferring drops is complex + unsafe; the real fix
+is the columnar/interned-key storage redesign). CONFIRMS: the entire <0.7x frontier is the 3 inherent
+substrate classes (edge-attr, construction, adjacency) + this deallocation variant -- all Rust-storage-vs-
+CPython-dict architecture. 18 perf + 1 correctness ship; main green (19908 tests).
