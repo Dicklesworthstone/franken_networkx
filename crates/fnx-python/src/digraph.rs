@@ -4854,10 +4854,23 @@ impl PyMultiDiGraph {
         nbunch: &Bound<'_, PyAny>,
         data: &Bound<'_, PyAny>,
         default: PyObject,
+        keys: bool,
     ) -> PyResult<Option<Vec<PyObject>>> {
         if !self.succ_py_keys.is_empty() {
             return Ok(None);
         }
+        // br-r37-c1-outedgesnbattr (cc): keys support (4-tuple) + PRISTINE store-read
+        // fast path. out_edges(nbunch, keys=True, data=<attr>) previously fell to the
+        // Python view (0.34x) because the wrapper gated this native on `not keys`.
+        // When the edge mirror is pristine, read the attr straight from the store
+        // (edge_attrs) instead of edge_data_value_or_default's edge_key build +
+        // mirror probe + re-lookup. Non-pristine / non-str data keep the mirror path.
+        let pristine = self.edge_py_attrs.is_empty();
+        let attr_name: Option<String> = if pristine {
+            data.extract::<String>().ok()
+        } else {
+            None
+        };
         let mut out: Vec<PyObject> = Vec::new();
         let mut seen_nodes: std::collections::HashSet<String> = std::collections::HashSet::new();
         for item in nbunch.try_iter()? {
@@ -4884,9 +4897,27 @@ impl PyMultiDiGraph {
                     self.inner.edge_keys(&canonical, nbr).unwrap_or_default();
                 for key in keys_vec {
                     let nbr_obj = self.py_node_key(py, nbr);
-                    let value =
-                        self.edge_data_value_or_default(py, &canonical, nbr, key, data, &default)?;
-                    out.push(tuple_object(py, &[node.clone().unbind(), nbr_obj, value])?);
+                    let value = if let Some(an) = attr_name.as_deref() {
+                        match self
+                            .inner
+                            .edge_attrs(&canonical, nbr, key)
+                            .and_then(|a| a.get(an))
+                        {
+                            Some(v) => crate::cgse_value_to_py(py, v)?,
+                            None => default.clone_ref(py),
+                        }
+                    } else {
+                        self.edge_data_value_or_default(py, &canonical, nbr, key, data, &default)?
+                    };
+                    if keys {
+                        let key_obj = self.py_edge_key(py, &canonical, nbr, key);
+                        out.push(tuple_object(
+                            py,
+                            &[node.clone().unbind(), nbr_obj, key_obj, value],
+                        )?);
+                    } else {
+                        out.push(tuple_object(py, &[node.clone().unbind(), nbr_obj, value])?);
+                    }
                 }
             }
         }

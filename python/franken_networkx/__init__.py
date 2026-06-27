@@ -356,17 +356,18 @@ def _multidigraph_out_edges(self, nbunch=None, data=False, keys=False, default=N
     if (
         data is not False
         and data is not True
-        and not keys
         and type(self) is MultiDiGraph
         and (
             isinstance(nbunch, (list, tuple, set, frozenset))
             or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
         )
     ):
+        # br-r37-c1-outedgesnbattr (cc): keys=True now routes here too (the native
+        # builds the 4-tuple); previously keys=True fell to the slow Python view (0.34x).
         native = getattr(self, "_native_mdg_out_edges_nbunch_data_key", None)
         if native is not None:
             try:
-                result = native(nbunch, data, default)
+                result = native(nbunch, data, default, keys)
             except TypeError as exc:
                 raise NetworkXError(str(exc))
             if result is not None:
@@ -2705,7 +2706,8 @@ class _MultiDiGraphEdgeView:
             native = getattr(self._graph, "_native_mdg_out_edges_nbunch_data_key", None)
             if native is not None:
                 try:
-                    native_res = native(nbunch, data, default)
+                    # br-r37-c1-outedgesnbattr (cc): native now takes a keys arg (False here).
+                    native_res = native(nbunch, data, default, keys)
                 except TypeError as exc:
                     raise NetworkXError(str(exc))
                 if native_res is not None:

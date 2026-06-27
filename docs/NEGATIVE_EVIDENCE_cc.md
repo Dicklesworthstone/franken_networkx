@@ -3036,3 +3036,16 @@ keys needed in the loop -- eliminating the has_edge scan + the in-loop re-fetch.
 RESULT: 0.325x -> 0.418x (1.29x self), BYTE-IDENTICAL (==nx for keys+data, data=True, no-keys, plain),
 conformance GREEN (779 selfloop tests). Still <nx (the per-edge 4-tuple + cgse_value_to_py PyObject floor) but
 a real 1.29x on the suite's #1 remaining laggard. 21st perf ship.
+
+## 2026-06-27 CopperCliff SHIP: MDG out_edges(nbunch, keys, data=<attr>) 0.34x->0.57x — native keys support + pristine store-read
+
+Edge-view matrix sweep found MDG.out_edges(nbunch, keys=True, data="weight") at 0.336x -- it fell to the slow
+Python view because the wrapper gated _native_mdg_out_edges_nbunch_data_key on `not keys` (the native built a
+3-tuple, no key). FIX: (1) add a `keys: bool` param to the native -> build the 4-tuple (node, nbr, key, value)
+when keys; (2) PRISTINE store-read fast path -- when the edge mirror is empty read the attr straight from the
+store (edge_attrs) instead of edge_data_value_or_default's edge_key build + mirror probe + re-lookup; (3) route
+keys=True through it (drop the `not keys` gate in both the out_edges wrapper + the edges() view path; update
+both callers to pass keys). RESULT: 0.336x -> 0.567x (1.7x self), BYTE-IDENTICAL (==nx for keys+data, no-keys
+data 1.13x, dups/missing nbunch, data=True keys unchanged, missing-attr default), conformance GREEN (1158
+out_edges + 630 graph_utilities). NOTE: the bench's mdg_out_edges_nbunch_keys_data uses data=True (the fast
+2.03x dict path); the data=<attr> (specific-attr) keys form was the uncovered gap. 22nd perf ship.
