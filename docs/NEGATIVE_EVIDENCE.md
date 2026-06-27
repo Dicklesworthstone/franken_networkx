@@ -136,6 +136,52 @@ Validation:
 - `git diff --check`: passed.
 - `ubs docs/NEGATIVE_EVIDENCE.md`: no supported language scanners ran for this Markdown-only change, so this is informational rather than a scanner pass.
 
+## 2026-06-27 BlackThrush MultiGraph clean weighted self-loop scalar keep (`cod-a`)
+
+Scope: land-or-dig pass from a detached scratch worktree. Bench-worktree audit
+found no measured win absent from `main`, so this dug the largest fresh
+`networkx_head_to_head_core_laggards` gap vs ORIG NetworkX:
+`MultiGraph.selfloop_edges(keys=True, data="weight")`.
+
+Lever: extend the native `MultiGraph` self-loop scalar fast path from
+"no Python edge-attr mirror exists" to "edge mirror is clean". Python-built
+weighted fixtures keep pristine mirrors, but the Rust scalar store is still
+authoritative until edge attrs are dirtied. The hot path now reads clean scalar
+weights directly and falls back edge-by-edge for missing/custom/map values so
+live-dict and mutation semantics remain NetworkX-shaped.
+
+Requested literal release bench form:
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --release --features pyo3/abi3-py310 --bench networkx_head_to_head networkx_head_to_head_core_laggards -- --quiet`.
+This Cargo rejects `cargo bench --release`, so the equivalent release profile
+form was used through `rch exec`:
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head mg_selfloop_keys_weight -- --quiet`.
+`rch` had no admissible worker for the focused run and fell back locally.
+
+Measured evidence:
+
+| Workload | State | FNX median | ORIG NetworkX median | Ratio vs ORIG | Self vs baseline |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `mg_selfloop_keys_weight_n2500_loops2502` | baseline | `1.7908 ms` | `684.27 us` | `0.382x` | baseline |
+| `mg_selfloop_keys_weight_n2500_loops2502` | clean scalar candidate | `1.4743 ms` | `708.59 us` | `0.481x` | `1.21x` |
+
+Decision: KEEP. The same target-dir focused bench cut FNX median time by about
+17.7% and improved the ORIG ratio from `0.382x` to `0.481x`. FNX is still
+slower than ORIG on this row, so the next lever should attack remaining tuple
+and key-object materialization overhead rather than repeating mirror-probe
+elision.
+
+Validation:
+- Direct Python parity against a freshly built release wheel: default-key
+  self-loop weight mutation matches `networkx.selfloop_edges(..., keys=True,
+  data="weight", default=...)`.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo test -p fnx-conformance --profile release`:
+  remote `ovh-a` run passed until missing ignored Phase2C/perf prerequisite
+  JSONs stopped the worker gate.
+- After generating those local prerequisite reports without staging artifact
+  churn, `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a cargo test -p fnx-conformance --profile release`:
+  passed all `fnx-conformance` unit, integration, gate, smoke, structured-log,
+  and doc tests.
+
 ## 2026-06-27 BlackThrush MultiDiGraph weighted degree values-only probe - NO-SHIP (`cod-a`)
 
 Scope: fresh land-or-dig pass from a detached scratch worktree. Bench worktree

@@ -5236,27 +5236,27 @@ impl PyMultiGraph {
             self.mark_edges_dirty();
         }
 
-        // br-r37-c1-eilce/selfloop (cc): PRISTINE-MIRROR fast path for `data="<attr>"`.
-        // When NO Python edge-attr mirror exists, the string-keyed `edge_py_attrs` probe
-        // inside edge_data_value_or_default_with_key is a guaranteed miss, so building the
-        // `(String, String, usize)` lookup key per edge (two allocations + a hash) is pure
-        // waste — the Rust CgseValue store is authoritative. Capture the attr name once and
-        // read scalars straight from the store; `Map`-valued attrs still route through the
-        // mirror below to preserve dict-object identity (NetworkX yields the live dict).
-        let value_attr_name: Option<String> = if want_value && self.edge_py_attrs.is_empty() {
-            data.downcast::<PyString>()
-                .ok()
-                .map(|s| s.to_str().map(str::to_owned))
-                .transpose()?
-        } else {
-            None
-        };
+        // br-r37-c1-eilce/selfloop (cc): clean scalar fast path for `data="<attr>"`.
+        // If the edge mirror has not been dirtied, the Rust CgseValue store is
+        // authoritative even when construction left pristine Python mirrors around.
+        // Read scalar values directly; missing/custom/Map cases still route through
+        // the mirror path below so arbitrary Python attribute objects and dict
+        // identity remain NetworkX-shaped.
+        let value_attr_name: Option<String> =
+            if want_value && !self.edges_dirty.load(Ordering::Relaxed) {
+                data.downcast::<PyString>()
+                    .ok()
+                    .map(|s| s.to_str().map(str::to_owned))
+                    .transpose()?
+            } else {
+                None
+            };
         let value_fast_path = value_attr_name.is_some();
 
         // Direct clean scalar self-loop emission for the hottest
-        // `selfloop_edges(keys=True, data="<attr>")` path. With default integer
-        // display keys and an empty Python attr mirror, the generic loop's
-        // intermediate self-loop collection and exact count scan are pure overhead.
+        // `selfloop_edges(keys=True, data="<attr>")` path. With default display
+        // keys and clean scalar attrs, the generic loop's intermediate
+        // self-loop collection and per-edge mirror probe are pure overhead.
         if want_value && value_fast_path && keys && self.edge_py_keys.is_empty() {
             let attr_name = value_attr_name
                 .as_deref()
@@ -5296,7 +5296,19 @@ impl PyMultiGraph {
                             )?
                         }
                         Some(value) => cgse_value_to_py(py, value)?,
-                        None => default_obj.clone_ref(py),
+                        None if self.edge_py_attrs.is_empty() => default_obj.clone_ref(py),
+                        None => {
+                            let ek = Self::edge_key(node, node, key);
+                            self.edge_data_value_or_default_with_key(
+                                py,
+                                node,
+                                node,
+                                key,
+                                &ek,
+                                data,
+                                &default_obj,
+                            )?
+                        }
                     };
                     let key_obj = unwrap_infallible(key.into_pyobject(py)).into_any().unbind();
                     out.push(
@@ -5402,7 +5414,10 @@ impl PyMultiGraph {
                         {
                             Some(CgseValue::Map(_)) => None,
                             Some(value) => Some(cgse_value_to_py(py, value)?),
-                            None => Some(default_obj.clone_ref(py)),
+                            None if self.edge_py_attrs.is_empty() => {
+                                Some(default_obj.clone_ref(py))
+                            }
+                            None => None,
                         };
                         match converted {
                             Some(value) => value,

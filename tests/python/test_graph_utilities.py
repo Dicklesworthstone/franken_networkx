@@ -811,6 +811,20 @@ def test_multigraph_native_selfloop_edges_matches_networkx(
         assert graph["a"]["a"]["k1"]["seen"] == "live"
 
 
+def test_multigraph_native_selfloop_edges_default_key_weight_mutation_matches_networkx():
+    graph = fnx.MultiGraph()
+    expected = nx.MultiGraph()
+    graph.add_edge("a", "a", weight=2)
+    expected.add_edge("a", "a", weight=2)
+
+    graph["a"]["a"][0]["weight"] = 17
+    expected["a"]["a"][0]["weight"] = 17
+
+    assert list(graph._native_selfloop_edges("weight", keys=True, default="fallback")) == list(
+        nx.selfloop_edges(expected, keys=True, data="weight", default="fallback")
+    )
+
+
 @pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
     [
