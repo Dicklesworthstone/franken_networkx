@@ -7304,3 +7304,53 @@ which is below the keep bar. Candidate source hunks in
 `crates/fnx-python/src/digraph.rs` and `python/franken_networkx/__init__.py`
 were manually reverted; final source diff is empty. This rules out a row-lazy
 native iterator as a standalone fix for weighted `MultiDiGraph.in_degree`.
+
+## 2026-06-27 BlackThrush MultiDiGraph weighted in-degree edge-stream accumulator - NO-SHIP
+
+Scope: fresh land-or-dig pass on current `origin/main` (`73b72c0c3`). A
+read-only worktree audit found no measured bench win missing from `main`: the
+old adjacency outer-cache worktree is already represented by the landed
+`a424835f7` implementation and canonical ledger entries, the edge-view audit is
+represented by `53a583084`, and the remaining A* worktree patch is parity-only
+and already duplicated on `main`.
+
+Agent Mail registration succeeded as `BlackThrush`, but exclusive reservation
+writes were refused by the existing Agent Mail SQLite corruption circuit
+breaker. This pass used a detached scratch worktree at
+`/data/projects/.scratch/franken_networkx-blackthrush-mdgdegree-20260627T1111Z`
+and staged only this ledger file after reverting the code probe.
+
+The biggest current measured gap remained
+`mdg_in_degree_weight_n700_e12662`. The literal requested `cargo bench
+--release` form is still rejected by this cargo toolchain (`unexpected argument
+'--release'` in prior ledgered runs), so the equivalent per-crate release
+profile was used with the requested `cod-a` target directory:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head -- mdg_in_degree_weight --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`
+
+RCH had no admissible remote worker for both focused runs and fell back locally.
+
+Lever tried: use the graveyard/data-oriented single-pass scan idea rather than
+another pair-materialization cache. For clean Rust-store integer weights, the
+candidate accumulated full-graph `MultiDiGraph` weighted in/out/total degree
+from `edges_ordered_borrowed()` into node-indexed `Vec<i128>` totals, then
+emitted the existing `(node, degree)` sequence. This targeted the repeated
+per-node predecessor/successor scans and keyed `edge_attrs(source,target,key)`
+lookups in `native_weighted_directional_degree_store_int`, while preserving
+node order, integer overflow fallback, missing-weight default `1`, dirty-edge
+fallback, and public iterator shape.
+
+Focused evidence:
+
+| workload | state | runner | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | --- | --- | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | current `73b72c0c3` baseline | local fallback via `rch exec` | `11.570 ms` | `5.1372 ms` | `0.444x` |
+| `mdg_in_degree_weight_n700_e12662` | edge-stream accumulator candidate | local fallback via `rch exec` | `19.842 ms` | `7.4169 ms` | `0.374x` |
+
+Decision: REVERTED / NO-SHIP. The borrowed edge stream avoided some keyed
+lookups but introduced a full `edges_ordered_borrowed()` materialization plus a
+node-position hash table, and regressed the FNX row by `+71.9%` in Criterion's
+paired comparison. Do not retry full-edge materialization for this row as a
+standalone lever; the remaining route needs either an already-indexed
+target/source accumulator maintained by the multigraph store or a public
+contract that avoids constructing the full Python pair stream.
