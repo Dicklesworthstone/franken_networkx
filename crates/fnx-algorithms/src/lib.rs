@@ -38789,6 +38789,7 @@ pub fn snap_aggregation(graph: &Graph, node_attributes: &[String]) -> Graph {
                 new_next += 1;
                 id
             });
+            // ubs:ignore - community group ids are public algorithm labels, not secrets.
             if new_group_id != group_of[i] {
                 changed = true;
             }

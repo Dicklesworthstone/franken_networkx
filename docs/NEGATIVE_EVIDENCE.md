@@ -2,6 +2,70 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-27 BlackThrush Edge-View Worktree Audit and Full-Graph Gap Ledger (`cod-a`)
+
+Scope: land-or-dig audit for current edge-view worktrees. I scanned the bench
+worktrees for measured wins not on `main`; the stale adjacency outer-cache
+worktree was already represented on `main`, and the live edge-view code was
+already landed by `34e09ee11`. This entry mirrors the measured win into the
+canonical ledger and records the still-open full-graph `MultiDiGraph.in_edges`
+gap so the next pass does not retry the same no-gain lever.
+
+Landed measured win already present on `main`:
+- `34e09ee11` shipped pristine store-read fast paths for
+  `MDG.in_edges(nbunch, keys=True, data="weight")` and
+  `MG.edges(nbunch, keys=True, data="weight")`.
+- Reported ratios vs NetworkX:
+  `MDG.in_edges` `0.372x -> 0.814x` (`2.2x` self-speedup) and
+  `MG.edges` `0.313x -> 0.822x` (`2.6x` self-speedup).
+- Conformance for that landing was reported green over `3422` view tests, with
+  byte-identical keys/data/default behavior against NetworkX.
+
+Fresh `cod-a` focused benchmark after the audit:
+
+| Workload | Worker | FNX median | NetworkX median | Ratio vs NetworkX | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `fnx_mdg_in_edges_data_n700_e12662` / `nx_mdg_in_edges_data_n700_e12662` | `vmi1227854` | `17.963 ms` | `7.4303 ms` | `0.414x` | remaining gap |
+
+Command:
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head -- mdg_in_edges_data --noplot --sample-size 10 --warm-up-time 1 --measurement-time 1`.
+The literal `cargo bench --release` form is rejected by this Cargo, so
+`--profile release` was used for the requested release-profile bench.
+
+Rejected probe:
+- Tried reusing predecessor/key iterators and cached node-key vectors inside
+  `_native_mdg_in_edges_data_key`.
+- Focused RCH timing stayed in the same band:
+  FNX `10.110 ms` vs NetworkX `2.6700 ms`, ratio `0.264x`.
+- Reverted as zero-gain. The next lever should attack full-graph data-key value
+  emission itself, not iterator reuse or direct view construction alone.
+
+Validation:
+- `cargo fmt -p fnx-algorithms -p fnx-generators -p fnx-python --check`:
+  passed.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo check -p fnx-python --all-targets --features pyo3/abi3-py310`:
+  passed.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo clippy -p fnx-python --all-targets --features pyo3/abi3-py310 -- -D warnings`:
+  passed after the local clippy-collapse fix in `digraph.rs`.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo test -p fnx-python --features pyo3/abi3-py310`:
+  passed, `28` unit tests.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo test -p fnx-algorithms -p fnx-generators`:
+  passed, `fnx-algorithms` `884` unit tests plus `2` integration tests and
+  `fnx-generators` `195` unit tests.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a-local-run-smoke cargo run -q -p fnx-conformance --bin run_smoke`:
+  passed, `suite=smoke fixtures=120 mismatches=0 oracle_present=true
+  structured_logs=120`.
+- Focused rerun of the failed Phase2C adversarial-soak scenario passed after
+  isolating the local fallback target dir:
+  `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a-adversarial-soak-20260627T0624 PYTHONHASHSEED=0 python3 ./scripts/run_e2e_script_pack.py --scenario adversarial_soak --passes 2 --output-dir artifacts/e2e/blackthrush-adversarial-rerun-2pass-fresh --soak-cycles 4 --gate-step-id step-1`,
+  status `pass`, baseline and replay both green.
+- The full Phase2C wrapper was also attempted. It failed only when RCH had no
+  admissible workers and fell back to a pre-existing mixed-nightly local cache
+  (`E0514` on `blake3`/`cc`); no conformance mismatch was observed.
+- `ubs crates/fnx-algorithms/src/lib.rs crates/fnx-generators/src/lib.rs
+  crates/fnx-python/src/digraph.rs docs/NEGATIVE_EVIDENCE.md`: exit `0`,
+  `0` critical findings. Remaining warnings are the broad existing inventory.
+
 ## 2026-06-27 BlackThrush Tree MST Lazy Result Keep (`tree_submodule`, cod-a)
 
 Scope: hottest remaining traversal/tree gap after the latest centrality and
