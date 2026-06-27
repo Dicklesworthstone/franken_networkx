@@ -3086,3 +3086,18 @@ sibling (successors/predecessors_indices) measured the SAME ~0-gain and was neve
 weight) across ALL types is SUBSTRATE-BOUND -- DO NOT re-attempt index-native store-int. LESSON (re-confirmed):
 few-shot perf sweeps LIE under host noise; a degree/view micro-opt needs a same-build A/B (gate-hit vs
 gate-skip) with interleaved min-of-N BEFORE shipping.
+
+## 2026-06-27 CopperCliff RIGOROUS MEASURE: neighbors/adjacency views ~0.43-0.56x = substrate-bound (eager materialization vs nx lazy keys-iterator)
+
+Using disciplined interleaved min-of-10 x5-trials (median + tight range = low noise, post the a571d20d6 noise
+burn): G.neighbors 0.536x [0.515,0.551], DG.successors 0.547x, DG.predecessors 0.558x, G.adj[n] iterate 0.425x,
+G[n] getitem 1.174x (win). The neighbors/adjacency family is a REAL, consistent gap on HOT functions.
+MECHANISM (why it's substrate, not avoidable overhead): nx's G.neighbors(n) returns iter(self._adj[n]) -- a
+LAZY dict_keyiterator whose elements are the node-key objects already living in the adjacency dict (zero
+materialization until consumed, no per-neighbor work). fnx's neighbors builds an EAGER Vec<PyObject>, resolving
+each neighbor via py_adj_key -> py_node_key (a String-keyed node_key_map lookup + clone_ref) per neighbor.
+ASSESSED + REJECTED the "index-native" lever (neighbors_indices + cached node-key tuple by index): the
+per-neighbor String-hash vs PyTuple_GetItem is a WASH, and the dominant cost (clone_ref materialization of a
+fresh list vs nx's lazy keys view) is unavoidable without returning a LAZY neighbor iterator -- an architectural
+change to the view layer, not a kernel micro-opt. So neighbors/adjacency is substrate-bound at ~0.5x; the only
+real lever is lazy adjacency-key iterators (deferred, architectural). DO NOT chase a kernel/index micro-opt here.
