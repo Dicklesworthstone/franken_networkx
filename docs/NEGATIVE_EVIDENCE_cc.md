@@ -2675,3 +2675,18 @@ ALSO FOUND (pre-existing, NOT mine): tests/python/test_laplacian_spectrum_native
 (test_weighted_star_laplacian_stays_on_weighted_route, ..._complete_bipartite_normalized_..._weighted_route)
 PERSIST after reverting my change + rebuilding clean source -> a regression already on main (likely a recent
 peer commit, e.g. 200c81c33). BLOCKER FLAG for whoever owns the laplacian route.
+
+## 2026-06-26 CopperCliff CLARIFICATION on the 2 laplacian-route test failures (public API is CORRECT)
+
+Refined the earlier flag: the PUBLIC fnx.laplacian_spectrum on a held-ref-weighted star (Gf[0][1]['weight']
+=2.5) returns the CORRECT weighted spectrum (np.allclose vs nx == True: [0,1,1,1,1,1,1,2.056,10.944]). So
+this is NOT a user-facing correctness regression. The 2 failing tests assert an INTERNAL invariant --
+_star_laplacian_spectrum_sorted_value_safe(G,'weight') should return None (bail to the weighted route) for a
+weighted graph, but it returns the UNWEIGHTED spectrum [0,1..,9]. ROOT: dijkstra_weight_cache_token
+(algorithms.rs:3677) reports edge_attrs_dirty=False after a HELD-REF dict mutation (G[u][v]['weight']=x first
+materializes the mirror dict then mutates it; the token doesn't treat a materialized/non-pristine edge_py_attrs
+as dirty). The sticky-edges_dirty class. Likely surfaced by a recent mirror/dirty commit (114e968f3 lazily-
+invalidate clear_edges mirrors / 29b752d47 clear edges_dirty after bulk replace). FIX (next, kernel-level):
+dijkstra_weight_cache_token should report dirty (or bail) when edge_py_attrs is non-empty for the edges in
+question. Public laplacian_spectrum stays correct meanwhile (it re-validates). Not blocking users; cleaning up
+the internal certificate is the follow-up.
