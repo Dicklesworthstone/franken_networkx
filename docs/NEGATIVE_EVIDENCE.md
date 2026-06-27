@@ -7030,3 +7030,72 @@ paired NetworkX row moved more. Treat cached node-key reuse inside the weighted
 degree pair materializer as insufficient by itself; the remaining frontier is
 the Python pair-consumption contract or a benchmark-visible scalar/bulk API, not
 another internal node-object cache.
+
+## 2026-06-27 BlackThrush MultiDiGraph out_edges(nbunch, keys=True, data=attr) - KEEP
+
+Scope: BOLD-VERIFY a new measured gap in `MultiDiGraph.out_edges(nbunch,
+keys=True, data="weight")` after confirming that the earlier adjacency
+outer-cache worktree was already present on `main` (`a424835f7`). Agent Mail
+registration succeeded as `BlackThrush`, but reservation writes are still
+blocked by the existing malformed Agent Mail SQLite database, so this pass used
+local diff discipline and staged only the files listed below.
+
+The literal requested `cargo bench --release` form was tried first:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --release --features pyo3/abi3-py310 --bench networkx_head_to_head mdg_out_edges_nbunch_keys_weight -- --quiet`
+
+This cargo toolchain rejected it with `error: unexpected argument '--release'
+found`, so the equivalent release bench profile was used through `rch exec` with
+the requested warm target dir and per-crate `fnx-python` scope.
+
+Change: `_native_mdg_out_edges_nbunch_data_key` now accepts the `keys` flag and
+emits 4-tuples for `out_edges(nbunch, keys=True, data=<attr>)` instead of
+forcing the wrapper to the Python view. On pristine edge mirrors and string
+`data`, the native path reads the scalar directly from the Rust store
+(`edge_attrs`) instead of paying `edge_data_value_or_default`'s display-key
+construction and mirror probe. Non-pristine or non-string data keep the old
+mirror path. The public wrapper now routes exact `MultiDiGraph` iterable-nbunch
+attr-key calls through this native for both `keys=False` and `keys=True`.
+
+Benchmark row: added a focused `mdg_out_edges_nbunch_keys_weight_n700_e12600`
+Criterion row to `networkx_head_to_head_core_laggards`. The row builds the
+existing deterministic custom-key `MultiDiGraph`, asserts exact
+`list(G.out_edges(nbunch, keys=True, data="weight", default=0))` parity against
+NetworkX, then times a scalar checksum.
+
+Same-worker proof used a clean detached baseline worktree at
+`/data/projects/.scratch/franken_networkx-blackthrush-outedges-weight-base-20260627T0058Z`
+with only the benchmark-row edit, then the candidate in the main checkout. RCH
+selected `vmi1227854` for both:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head mdg_out_edges_nbunch_keys_weight -- --quiet`
+
+| workload | state | worker | FNX median | NetworkX median | ratio vs NetworkX | self vs baseline |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `mdg_out_edges_nbunch_keys_weight_n700_e12600` | clean `813e34a5c` baseline + bench row | `vmi1227854` | `1.3897 ms` | `450.38 us` | `0.324x` | baseline |
+| `mdg_out_edges_nbunch_keys_weight_n700_e12600` | native keys+attr route candidate | `vmi1227854` | `784.84 us` | `489.55 us` | `0.624x` | `1.771x` |
+
+Validation:
+
+- The focused head-to-head benchmark passed exact list-parity assertions before
+  timing on both baseline and candidate.
+- `python3 -m py_compile python/franken_networkx/__init__.py`: passed.
+- `cargo fmt -p fnx-python -p fnx-generators -p fnx-algorithms --check`:
+  passed.
+- `git diff --check`: passed.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`:
+  passed remotely on `hz2`.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo clippy -p fnx-python --all-targets --features pyo3/abi3-py310 -- -D warnings`:
+  passed remotely on `hz2` after mechanical lint cleanup in
+  `fnx-algorithms`, `fnx-generators`, and `fnx-python`.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo test -p fnx-python --features pyo3/abi3-py310`:
+  passed remotely on `ovh-a` (`28` unit tests plus doc-tests).
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo test -p fnx-conformance`:
+  passed on the requested `cod-b` target dir; RCH reported local fallback
+  because no remote worker slot was admissible for that invocation.
+
+Decision: KEPT. The same-worker candidate materially improves the measured
+laggard row (`1.3897 ms -> 784.84 us`) and moves the ratio-vs-NetworkX gate from
+`0.324x` to `0.624x`. FNX is still slower than NetworkX on this scalar checksum,
+so the remaining gap is the tuple/key/value materialization floor rather than
+the earlier Python-view routing miss.

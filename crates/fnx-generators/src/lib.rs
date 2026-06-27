@@ -5824,7 +5824,7 @@ fn try_create_random_regular(
 
         // BTreeMap keeps deterministic iteration order across runs.
         let mut potential_edges: BTreeMap<usize, usize> = BTreeMap::new();
-        for pair in stubs.chunks_exact(2) {
+        for pair in stubs.as_chunks::<2>().0 {
             let (mut s1, mut s2) = (pair[0], pair[1]);
             if s1 > s2 {
                 std::mem::swap(&mut s1, &mut s2);
@@ -5893,7 +5893,7 @@ fn try_create_random_regular_python_order(
         let mut potential_edges: Vec<(usize, usize)> = Vec::new();
         let mut potential_index: HashMap<usize, usize> = HashMap::new();
 
-        for pair in stubs.chunks_exact(2) {
+        for pair in stubs.as_chunks::<2>().0 {
             let (mut s1, mut s2) = (pair[0], pair[1]);
             if s1 > s2 {
                 std::mem::swap(&mut s1, &mut s2);

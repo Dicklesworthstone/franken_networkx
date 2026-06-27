@@ -4625,42 +4625,39 @@ impl PyMultiDiGraph {
         // mirror probe, and (c) the redundant attr re-lookup. Byte-identical to the
         // mirror path when pristine (mirror miss -> store, same value). Only for a
         // string attr name; non-str / non-pristine fall through to the general path.
-        if self.edge_py_attrs.is_empty() {
-            if let Ok(attr_name) = data.extract::<String>() {
-                let view_obj = py
-                    .import("franken_networkx")?
-                    .getattr("_InMultiEdgeDataView")?
-                    .call0()?;
-                let out = view_obj.cast::<PyList>()?;
-                for target in self.inner.nodes_ordered() {
-                    if let Some(preds) = self.inner.predecessors(target) {
-                        for source in preds {
-                            for key in self.inner.edge_keys(source, target).unwrap_or_default() {
-                                let value = match self
-                                    .inner
-                                    .edge_attrs(source, target, key)
-                                    .and_then(|a| a.get(attr_name.as_str()))
-                                {
-                                    Some(v) => crate::cgse_value_to_py(py, v)?,
-                                    None => default.clone_ref(py),
-                                };
-                                let src_obj = self.py_node_key(py, source);
-                                let tgt_obj = self.py_node_key(py, target);
-                                if keys {
-                                    let key_obj = self.py_edge_key(py, source, target, key);
-                                    out.append(tuple_object(
-                                        py,
-                                        &[src_obj, tgt_obj, key_obj, value],
-                                    )?)?;
-                                } else {
-                                    out.append(tuple_object(py, &[src_obj, tgt_obj, value])?)?;
-                                }
+        if self.edge_py_attrs.is_empty()
+            && let Ok(attr_name) = data.extract::<String>()
+        {
+            let view_obj = py
+                .import("franken_networkx")?
+                .getattr("_InMultiEdgeDataView")?
+                .call0()?;
+            let out = view_obj.cast::<PyList>()?;
+            for target in self.inner.nodes_ordered() {
+                if let Some(preds) = self.inner.predecessors(target) {
+                    for source in preds {
+                        for key in self.inner.edge_keys(source, target).unwrap_or_default() {
+                            let value = match self
+                                .inner
+                                .edge_attrs(source, target, key)
+                                .and_then(|a| a.get(attr_name.as_str()))
+                            {
+                                Some(v) => crate::cgse_value_to_py(py, v)?,
+                                None => default.clone_ref(py),
+                            };
+                            let src_obj = self.py_node_key(py, source);
+                            let tgt_obj = self.py_node_key(py, target);
+                            if keys {
+                                let key_obj = self.py_edge_key(py, source, target, key);
+                                out.append(tuple_object(py, &[src_obj, tgt_obj, key_obj, value])?)?;
+                            } else {
+                                out.append(tuple_object(py, &[src_obj, tgt_obj, value])?)?;
                             }
                         }
                     }
                 }
-                return Ok(Some(view_obj.unbind()));
             }
+            return Ok(Some(view_obj.unbind()));
         }
         let triples: Vec<(String, String, usize)> = {
             let mut v = Vec::with_capacity(self.inner.edge_count());

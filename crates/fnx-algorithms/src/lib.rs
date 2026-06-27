@@ -22061,7 +22061,7 @@ pub fn greedy_modularity_communities(
         let all_nbrs: HashSet<usize> = ci_nbrs.union(&cj_nbrs).copied().collect();
 
         // Drain ci's entries; cj remains the surviving community row.
-        let ci_dq: HashMap<usize, f64> = dq[ci].drain().collect();
+        let ci_dq: HashMap<usize, f64> = std::mem::take(&mut dq[ci]);
 
         for ck in &all_nbrs {
             let ck = *ck;
