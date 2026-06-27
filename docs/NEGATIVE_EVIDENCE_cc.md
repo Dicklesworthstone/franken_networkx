@@ -3073,3 +3073,19 @@ path. Wired the in_edges wrapper's else-branch to route data=<attr> -> native(nb
 0.32x -> 0.65x (2.0x self), BYTE-IDENTICAL (==nx for data, missing-attr default, dict-valued attr/Map branch,
 post-mutation/dirty path), conformance GREEN (3007 in_edges/digraph view tests). Sibling DiGraph out_edges
 data_key was ALREADY index-native (0.688x = pure PyObject tuple floor). 25th perf ship.
+
+## 2026-06-27 CopperCliff SHIP: Graph.degree(nbunch, weight) 0.239x->0.404x — index-native store-int subset
+
+Degree-view sweep: degree(nbunch, weight) is slow across ALL types (0.18-0.38x) — the full-graph degree(weight)
+has fast paths but the nbunch SUBSET natives fall to a per-node PyList + builtins.sum over edge_attr_py_value
+(String lookup + mirror probe per edge). For the SIMPLE Graph (PyGraph) the subset native had NO int fast path
+at all. FIX: added weighted_degree_subset_store_int_indexed — index-native i64 summation via neighbors_indices
++ edge_attrs_by_indices (no per-edge String edge_key, no get_index_of, no PyList/builtins.sum), gated on
+pristine mirror + clean edges; bails (None) to the float-safe slow path on any non-int weight or i64 overflow;
+selfloops double-counted (nx degree). RESULT: 0.239x -> 0.404x (1.69x self), BYTE-IDENTICAL (selfloop, float
+fallback, missing-attr, dup/missing nbunch, all-degree(weight) unaffected), conformance GREEN (2869 degree).
+RESIDUAL FLOOR: per-node node_key_to_string + get_node_index (Python-node -> Rust String-key conversion) that
+nx never pays -> can't fully beat nx without an integer-node->index cache. REJECTED+REVERTED a PyMultiGraph
+multigraph_py_int_weight pristine-gate (MG.degree 0.259->0.247x = ~0-gain; the String edge_key wasn't its
+bottleneck either). FOLLOW-UP: DiGraph/MDG/MG subset natives (digraph.rs + PyMultiGraph) need the same
+index-native treatment for their 0.18-0.38x gaps. 26th perf ship.

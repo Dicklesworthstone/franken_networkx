@@ -11130,6 +11130,18 @@ impl PyGraph {
         nbunch: &Bound<'_, PyAny>,
         weight: &str,
     ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        // br-r37-c1-degidxstore (cc): index-native store-int fast path. When the edge
+        // mirror is pristine and edges are clean, sum i64 weights from the store by
+        // node/neighbor INDEX (neighbors_indices + edge_attrs_by_indices) -- no
+        // per-edge edge_attr_py_value (String lookup + mirror), no PyList/builtins.sum.
+        // Bails (None) on any non-int weight to keep float parity with the slow path.
+        if self.edge_py_attrs.is_empty()
+            && !self.edges_dirty.load(std::sync::atomic::Ordering::Relaxed)
+        {
+            if let Some(pairs) = self.weighted_degree_subset_store_int_indexed(py, nbunch, weight)? {
+                return Ok(pairs);
+            }
+        }
         let one = 1i64.into_pyobject(py)?.into_any();
         let sum_fn = py.import("builtins")?.getattr("sum")?;
         let mut out: Vec<(PyObject, PyObject)> = Vec::new();
@@ -11169,6 +11181,60 @@ impl PyGraph {
             out.push((node.clone().unbind(), deg.unbind()));
         }
         Ok(out)
+    }
+
+    /// br-r37-c1-degidxstore (cc): index-native i64 weighted-degree over an nbunch for
+    /// a simple Graph, reading the store by node/neighbor index. Returns None (caller
+    /// falls back to the float-safe PyList+sum path) on any non-int weight or i64
+    /// overflow. Selfloops double-count (nx degree): the neighbor list holds the self
+    /// index once, so its weight is added twice.
+    fn weighted_degree_subset_store_int_indexed(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+        weight: &str,
+    ) -> PyResult<Option<Vec<(PyObject, PyObject)>>> {
+        let mut out: Vec<(PyObject, PyObject)> = Vec::new();
+        for item in nbunch.try_iter()? {
+            let node = item?;
+            if node.hash().is_err() {
+                let label = node
+                    .str()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "?".to_owned());
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Node {label} in sequence nbunch is not a valid node."
+                )));
+            }
+            let canonical = node_key_to_string(py, &node)?;
+            let Some(idx) = self.inner.get_node_index(&canonical) else {
+                continue;
+            };
+            let mut total: i64 = 0;
+            for &nbr_idx in self.inner.neighbors_indices(idx).unwrap_or(&[]) {
+                let w = match self
+                    .inner
+                    .edge_attrs_by_indices(idx, nbr_idx)
+                    .and_then(|attrs| attrs.get(weight))
+                {
+                    Some(CgseValue::Int(v)) => *v,
+                    Some(_) => return Ok(None),
+                    None => 1,
+                };
+                total = match total.checked_add(w) {
+                    Some(t) => t,
+                    None => return Ok(None),
+                };
+                if nbr_idx == idx {
+                    total = match total.checked_add(w) {
+                        Some(t) => t,
+                        None => return Ok(None),
+                    };
+                }
+            }
+            out.push((node.clone().unbind(), total.into_py_any(py)?));
+        }
+        Ok(Some(out))
     }
 
     /// Equality check — two graphs are equal if they have the same nodes, edges, and attributes.
