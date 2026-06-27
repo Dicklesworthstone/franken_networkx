@@ -7684,6 +7684,11 @@ pub fn minimum_spanning_tree(
     let w = weight.to_owned();
     let result = py.allow_threads(move || fnx_algorithms::minimum_spanning_tree(inner, &w));
     let mut new_graph = PyGraph::new_empty_with_mode(py, tree_mode)?;
+    if let GraphRef::Undirected(pg) = &gr {
+        // Preserve range-built integer node display state. Without this, the
+        // Python wrapper sees canonical string nodes and rebuilds the entire MST.
+        new_graph.lazy_int_node_stop = pg.lazy_int_node_stop;
+    }
 
     // Add all nodes from original graph
     for node in inner.nodes_ordered() {
@@ -7694,12 +7699,40 @@ pub fn minimum_spanning_tree(
                 .insert(node.to_owned(), py_key.clone_ref(py));
         }
     }
+    let source_edges_dirty = match &gr {
+        GraphRef::Undirected(pg) => pg.edges_dirty.load(Ordering::Relaxed),
+        _ => true,
+    };
     // Add MST edges
     for edge in &result.edges {
+        let ek = PyGraph::edge_key(&edge.left, &edge.right);
+        if !source_edges_dirty
+            && let GraphRef::Undirected(pg) = &gr
+            && let Some(rust_attrs) = pg.inner.edge_attrs(&edge.left, &edge.right)
+        {
+            match pg.edge_py_attrs.get(&ek) {
+                Some(py_attrs) if mst_attrs_can_remain_lazy(py, py_attrs, weight)? => {
+                    let _ = new_graph.inner.add_edge_with_attrs(
+                        edge.left.clone(),
+                        edge.right.clone(),
+                        rust_attrs.clone(),
+                    );
+                    continue;
+                }
+                None => {
+                    let _ = new_graph.inner.add_edge_with_attrs(
+                        edge.left.clone(),
+                        edge.right.clone(),
+                        rust_attrs.clone(),
+                    );
+                    continue;
+                }
+                _ => {}
+            }
+        }
         let _ = new_graph
             .inner
             .add_edge(edge.left.clone(), edge.right.clone());
-        let ek = PyGraph::edge_key(&edge.left, &edge.right);
         if let Some(attrs) = gr.edge_attrs_for_undirected(&edge.left, &edge.right) {
             new_graph
                 .edge_py_attrs
@@ -7707,6 +7740,20 @@ pub fn minimum_spanning_tree(
         }
     }
     Ok(new_graph)
+}
+
+fn mst_attrs_can_remain_lazy(py: Python<'_>, attrs: &Py<PyDict>, weight: &str) -> PyResult<bool> {
+    let dict = attrs.bind(py);
+    if dict.is_empty() {
+        return Ok(true);
+    }
+    if dict.len() != 1 {
+        return Ok(false);
+    }
+    let Some(value) = dict.get_item(weight)? else {
+        return Ok(false);
+    };
+    Ok(value.is_exact_instance_of::<PyFloat>() || value.is_exact_instance_of::<PyInt>())
 }
 
 /// Native keyed MultiGraph minimum spanning tree.
@@ -7989,6 +8036,11 @@ pub fn maximum_spanning_tree(
     let w = weight.to_owned();
     let result = py.allow_threads(move || fnx_algorithms::maximum_spanning_tree(inner, &w));
     let mut new_graph = PyGraph::new_empty_with_mode(py, tree_mode)?;
+    if let GraphRef::Undirected(pg) = &gr {
+        // Sibling of the minimum MST lazy-int preservation: avoid a Python
+        // re-key rebuild for range-built graphs with otherwise native results.
+        new_graph.lazy_int_node_stop = pg.lazy_int_node_stop;
+    }
 
     for node in inner.nodes_ordered() {
         new_graph.inner.add_node(node.to_owned());
@@ -7998,11 +8050,39 @@ pub fn maximum_spanning_tree(
                 .insert(node.to_owned(), py_key.clone_ref(py));
         }
     }
+    let source_edges_dirty = match &gr {
+        GraphRef::Undirected(pg) => pg.edges_dirty.load(Ordering::Relaxed),
+        _ => true,
+    };
     for edge in &result.edges {
+        let ek = PyGraph::edge_key(&edge.left, &edge.right);
+        if !source_edges_dirty
+            && let GraphRef::Undirected(pg) = &gr
+            && let Some(rust_attrs) = pg.inner.edge_attrs(&edge.left, &edge.right)
+        {
+            match pg.edge_py_attrs.get(&ek) {
+                Some(py_attrs) if mst_attrs_can_remain_lazy(py, py_attrs, weight)? => {
+                    let _ = new_graph.inner.add_edge_with_attrs(
+                        edge.left.clone(),
+                        edge.right.clone(),
+                        rust_attrs.clone(),
+                    );
+                    continue;
+                }
+                None => {
+                    let _ = new_graph.inner.add_edge_with_attrs(
+                        edge.left.clone(),
+                        edge.right.clone(),
+                        rust_attrs.clone(),
+                    );
+                    continue;
+                }
+                _ => {}
+            }
+        }
         let _ = new_graph
             .inner
             .add_edge(edge.left.clone(), edge.right.clone());
-        let ek = PyGraph::edge_key(&edge.left, &edge.right);
         if let Some(attrs) = gr.edge_attrs_for_undirected(&edge.left, &edge.right) {
             new_graph
                 .edge_py_attrs

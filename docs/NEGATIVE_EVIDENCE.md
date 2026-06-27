@@ -2,6 +2,69 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-27 BlackThrush Tree MST Lazy Result Keep (`tree_submodule`, cod-a)
+
+Scope: hottest remaining traversal/tree gap after the latest centrality and
+connectivity keeps. `franken_networkx.tree.minimum_spanning_tree` on the
+official `networkx_head_to_head_tree_submodule` fixture still lagged NetworkX
+even after routing the child module to the top-level native implementation.
+
+Fixture and oracle:
+- `tree_submodule` Criterion bench in `crates/fnx-python/benches/networkx_head_to_head.rs`.
+- Deterministic simple weighted graph: `1000` integer nodes, `4999` total
+  edges, every edge carrying one floating `weight`.
+- Vendored NetworkX oracle loaded by the bench harness; parity asserted before
+  timing by comparing `(u, v, weight)` MST signatures.
+- Build/bench command was crate-scoped and release-profile:
+  `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head tree_submodule -- --quiet`.
+  The literal `cargo bench --release` form is rejected by this Cargo, so
+  `--profile release` was used for the requested release bench.
+
+Alien-graveyard lever:
+- Preserve the source simple-Graph `lazy_int_node_stop` in native
+  minimum/maximum spanning-tree results. Without this display-substrate marker,
+  range-built integer graphs returned canonical string nodes, causing the Python
+  wrapper to rebuild the whole MST just to re-key nodes.
+- For clean source edges whose result data is empty or exactly one numeric
+  weight attr, add result edges with cloned Rust `AttrMap`s and leave Python
+  edge dictionaries lazy. This avoids eagerly copying about `V-1` Python
+  dictionaries when the timed operation only returns the tree object; edge data
+  still materializes on first Python read.
+
+Measured evidence:
+
+| State | FNX median | NetworkX median | Ratio vs NetworkX | Notes |
+| --- | ---: | ---: | ---: | --- |
+| current `main` before this lever | `31.330 ms` | `10.765 ms` | `0.344x` | local fallback routing measurement |
+| lazy-int preservation only | `16.003 ms` | `13.577 ms` | `0.848x` | local fallback routing measurement |
+| lazy-int + lazy numeric edge attrs | `5.2825 ms` | `13.222 ms` | `2.503x` | final same-run remote `rch` bench on `vmi1227854` |
+
+Decision:
+- Keep. The official tree-submodule row flipped from a clear FNX loss to a
+  `2.50x` FNX win against NetworkX in the same Criterion run.
+- The fallback Python-dict-copy path remains for dirty source mirrors and for
+  multi-attribute or nonnumeric edge dictionaries, preserving conservative
+  parity outside the single-weight hot path.
+
+Validation:
+- `cargo fmt --check`: passed.
+- `git diff --check`: passed.
+- Crate-scoped release build passed:
+  `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo build -p fnx-python --profile release --features pyo3/abi3-py310`.
+- Focused Python parity script against the freshly built
+  `/data/projects/.rch-targets/franken_networkx-cod-a/release/lib_fnx.so`:
+  passed. Covered range-built integer node labels, minimum/maximum MST
+  edge-weight signatures vs vendored NetworkX, graph/node attribute copying,
+  conservative multi-attribute edge copying, lazy edge-data materialization,
+  `size(weight=...)`, and post-mutation weight sync.
+- `ubs crates/fnx-python/src/algorithms.rs docs/NEGATIVE_EVIDENCE.md`: exit
+  `0`; zero critical issues. UBS reported the existing broad warning inventory
+  in `algorithms.rs`.
+- `cargo test -p fnx-python --profile release --features pyo3/abi3-py310 minimum_spanning_tree`
+  was attempted but `rch` fell back locally and hit a shared target-dir
+  mixed-nightly cache (`E0514` incompatible rustc artifacts plus downstream
+  dependency errors). No cache clean or destructive remediation was run.
+
 ## 2026-06-23 BlackThrush DiGraph Nbunch `data=True` Cache Keep (`br-r37-c1-18ect`, cod-b)
 
 Scope: close the largest ready cod-b directed-edge residual. The prior
