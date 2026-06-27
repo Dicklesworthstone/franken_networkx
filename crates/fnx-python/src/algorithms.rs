@@ -8107,9 +8107,22 @@ pub fn maximum_spanning_edges(
     let _ = keys;
     validate_spanning_algorithm(algorithm)?;
     let gr = extract_graph(g)?;
-    let input = spanning_input_graph(py, &gr, weight, ignore_nan)?;
+    require_undirected(&gr, "spanning_edges")?;
     let w = weight.to_owned();
-    let result = py.allow_threads(move || fnx_algorithms::maximum_spanning_tree(&input, &w));
+    // br-r37-c1-msemaxcopy (cc): maximum_spanning_edges UNCONDITIONALLY built a
+    // sanitized O(V+E) copy via spanning_input_graph every call, while
+    // minimum_spanning_edges only copies for ignore_nan and otherwise runs the
+    // kernel directly on the borrowed graph. That redundant copy was the ~9x
+    // slowdown (0.28x vs nx, vs minimum's 2.5x). Mirror minimum exactly: copy
+    // only for the ignore_nan path; the common path runs on `gr.undirected()`.
+    let result = if ignore_nan {
+        let input = spanning_input_graph(py, &gr, weight, ignore_nan)?;
+        py.allow_threads(move || fnx_algorithms::maximum_spanning_tree(&input, &w))
+    } else {
+        validate_spanning_no_nan(py, &gr, weight)?;
+        let inner = gr.undirected();
+        fnx_algorithms::maximum_spanning_tree(inner, &w)
+    };
     mst_edges_to_python(py, &gr, &result.edges, data)
 }
 

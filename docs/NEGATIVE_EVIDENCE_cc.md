@@ -2639,3 +2639,21 @@ edges) -- and the MST/tree area is now PEER-ACTIVE (200c81c33 "perf(tree): lazy 
 NOT takeable. FRESH SWEEP (coloring/matching/clique/dominating/k_core) all wins/parity: greedy_color 8.7x,
 maximal_matching 8.3x, k_core 40.7x, find_cliques 1.0x, max_weight_matching 0.95x, dominating_set 0.84x --
 no new <0.7x takeable gap. 17 ships stand.
+
+## 2026-06-26 CopperCliff SHIP: maximum_spanning_edges weighted 0.28x->2.7x (kernel-level: kill per-call graph copy + route native)
+
+SINGLE biggest measured gap was maximum_spanning_edges (weighted kruskal) ~0.28x vs nx. RADICAL fix at the
+RUST binding level (codex walled -> reserved fnx-python now collision-free): the maximum_spanning_edges
+binding (algorithms.rs:8098) UNCONDITIONALLY built a sanitized O(V+E) copy via spanning_input_graph EVERY
+call, while minimum_spanning_edges only copies for ignore_nan and otherwise runs the kernel on the borrowed
+gr.undirected() (no copy). That redundant per-call copy was the ~9x slowdown. FIX (two-part, both required):
+  1. algorithms.rs: mirror minimum_spanning_edges -- copy only for ignore_nan; common path runs the kernel on
+     the borrowed graph (no O(V+E) copy).
+  2. __init__.py: the Python wrapper gated the native path on ``not _mst_has_weight_edge_attr`` (unweighted
+     ONLY) so weighted delegated to nx; route weighted kruskal to native _raw_mse via _sync_rust_edge_attrs +
+     lazy-mirror post-check (mirrors minimum_spanning_edges).
+RESULT: 0.28x -> 2.75x (n=500) / 2.65x (n=1000, the bench size) / 0.84x (n=2000), byte-IDENTICAL to nx
+(order+orientation+data; unweighted/weighted/data=False/small all ==nx), conformance GREEN (3420 passed).
+Built fnx-python per-crate via rch, crossbeam-clean .so. (Last turn this REGRESSED because only the wrapper
+was changed while the binding still copied -- BOTH halves are needed.) Residual: n=2000 0.84x (result
+materialization at scale, separate). 18th ship.

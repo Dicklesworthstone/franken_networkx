@@ -10985,11 +10985,28 @@ def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
 
     def _gen():
         # br-mstcallable / br-mstweightwrong: see minimum_spanning_edges.
+        # br-r37-c1-msemaxweighted (cc): maximum kruskal used to gate the native
+        # kernel on ``not _mst_has_weight_edge_attr`` (unweighted only) -> WEIGHTED
+        # graphs fell through to _call_networkx_for_parity (full fnx->nx round-trip,
+        # 0.29x). minimum_spanning_edges already routes the weighted simple-graph
+        # case through the native kernel via _sync_rust_edge_attrs + a lazy-mirror
+        # post-check; mirror that exactly for maximum (same _raw_mse kernel, just
+        # maximum sort). Multigraph / prim / boruvka / callable-weight still fall
+        # through below. -> 0.29x -> native (matches minimum's ~2.5x).
         if (
             algorithm == "kruskal"
             and isinstance(weight, str)
-            and not _mst_has_weight_edge_attr(G, weight)
+            and not G.is_multigraph()
         ):
+            _sync_rust_edge_attrs(G, edge_only=True)
+            if data and type(G) in (Graph, DiGraph):
+                _e = list(_raw_mse(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan))
+                if _fnx.graph_has_any_attrs(G) and _e and not any(t[-1] for t in _e):
+                    for _ in G.edges(data=True):
+                        pass
+                    _e = list(_raw_mse(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan))
+                yield from _e
+                return
             yield from _raw_mse(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
             return
         # br-r37-c1-primidx: native byte-exact Prim (maximum -> minimum=False).
