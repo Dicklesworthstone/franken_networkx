@@ -2,6 +2,78 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-27 BlackThrush MultiDiGraph weighted degree values-only probe - NO-SHIP (`cod-a`)
+
+Scope: fresh land-or-dig pass from a detached scratch worktree. Bench worktree
+audit found no measured win absent from `main`: the adjacency outer-cache
+worktree is already represented by the landed `DictOfDictsCache.shared_outer`
+implementation and prior KEEP ledger entries, the edge-view audit worktree is
+already represented on `main`, and the remaining A* worktree patch is
+parity-only rather than a measured benchmark win.
+
+Agent Mail registration succeeded as `BlackThrush`, but exclusive file
+reservation writes were blocked by the existing Agent Mail SQLite corruption
+circuit breaker (`database disk image is malformed`). The probe therefore ran
+in a detached scratch worktree and staged only this ledger file after source
+hunks were manually reverted.
+
+The requested literal per-crate release bench form was retried with the
+requested `cod-a` target directory:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --release --features pyo3/abi3-py310 --bench networkx_head_to_head networkx_head_to_head_core_laggards -- --quiet`
+
+Cargo rejected that syntax on this toolchain with
+`error: unexpected argument '--release' found`, so the equivalent release
+profile was used through `rch exec`:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head networkx_head_to_head_core_laggards -- --quiet`
+
+Fresh full laggard sweep on the exact probe base (`008ced9b7`) identified the
+largest current measured gap:
+
+| workload | runner | FNX median | NetworkX median | ratio vs NetworkX |
+| --- | --- | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | local fallback via `rch exec` | `10.628 ms` | `3.0159 ms` | `0.284x` |
+| `mg_selfloop_keys_weight_n2500_loops2502` | local fallback via `rch exec` | `1.5096 ms` | `672.81 us` | `0.446x` |
+| `mdg_edges_keys_n700_e12662` | local fallback via `rch exec` | `1.5128 ms` | `1.4471 ms` | `0.957x` |
+| `mdg_in_edges_data_n700_e12662` | local fallback via `rch exec` | `15.724 ms` | `6.2481 ms` | `0.397x` |
+| `mdg_out_edges_nbunch_keys_data_n700_e12600` | local fallback via `rch exec` | `229.52 us` | `536.16 us` | `2.336x` |
+| `mdg_out_edges_nbunch_keys_weight_n700_e12600` | local fallback via `rch exec` | `1.0123 ms` | `555.67 us` | `0.549x` |
+
+Lever tried: a values-only native fast path for exact full-graph
+`MultiDiGraph.in_degree/out_degree(weight=<str>)`. The existing native path
+returns a full `(node, degree)` pair list; the probe returned only the weighted
+degree values from Rust and let Python zip them with graph node iteration. The
+graveyard fit was columnar/late-materialization discipline: avoid constructing
+the discarded node object in the hot `sum(degree for _, degree in
+G.in_degree(weight="weight"))` benchmark while preserving public iterator
+shape, node order, dirty-edge fallback, integer overflow fallback, and
+NetworkX's missing-weight default.
+
+Focused same-worker evidence:
+
+| workload | state | worker | FNX median | NetworkX median | ratio vs NetworkX | self vs baseline |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | exact-base baseline (`008ced9b7`) | `ovh-a` | `2.4843 ms` | `1.3795 ms` | `0.555x` | baseline |
+| `mdg_in_degree_weight_n700_e12662` | values-only candidate | `ovh-a` | `11.094 ms` | `6.0605 ms` | `0.546x` | `0.224x` |
+
+Decision: REVERTED / NO-SHIP. The candidate saved pair node construction but
+paid a much larger cost by routing through graph node iteration and Python
+`zip`, regressing the FNX row from `2.4843 ms` to `11.094 ms` on the same
+worker. Do not retry "values list + Python graph iteration" as a standalone
+degree-view lever. The remaining route needs a real indexed multi-edge
+accumulator or a public iterator contract that can avoid both string-keyed
+multi-edge row scans and full Python pair materialization.
+
+Validation:
+
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`: passed remotely on `ovh-a` while the candidate was present.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo test -p fnx-conformance`: remote attempts reached the conformance suite but the detached scratch worktree initially lacked ignored generated artifact snapshots; after copying those snapshots for test execution, RCH remote became unavailable and exact `cod-a` local fallback hit a pre-existing mixed-nightly cache (`E0514`).
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a-conformance-fresh-20260627T1231 cargo test -p fnx-conformance`: passed locally from a fresh target directory after the RCH queue timeout, covering all `fnx-conformance` unit, integration, gate, smoke, structured-log, Phase2C, and doc tests.
+- Candidate source hunks in `crates/fnx-python/src/digraph.rs` and
+  `python/franken_networkx/__init__.py` were manually reverted after the
+  measured regression; final source diff is empty.
+
 ## 2026-06-27 BlackThrush Edge-View Worktree Audit and Full-Graph Gap Ledger (`cod-a`)
 
 Scope: land-or-dig audit for current edge-view worktrees. I scanned the bench
