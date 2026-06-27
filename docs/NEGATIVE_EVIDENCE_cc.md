@@ -2690,3 +2690,20 @@ invalidate clear_edges mirrors / 29b752d47 clear edges_dirty after bulk replace)
 dijkstra_weight_cache_token should report dirty (or bail) when edge_py_attrs is non-empty for the edges in
 question. Public laplacian_spectrum stays correct meanwhile (it re-validates). Not blocking users; cleaning up
 the internal certificate is the follow-up.
+
+## 2026-06-26 CopperCliff NEGATIVE #2: MG.size(weight) zero-alloc native fold — ~0-gain at bench size (REVERTED)
+
+Follow-up to NEGATIVE #1's lever ("needs a non-allocating edge+attr iterator"). Added
+MultiGraph::sum_edge_attr_numeric (fnx-classes) -- a ZERO-allocation fold over self.edges (each canonical
+pair once, no Vec/dedup-HashSet, unlike edges_ordered_borrowed), matching number_of_selfloops' pattern; wired
+PyMultiGraph::size to call it gated on a pristine mirror (edge_py_attrs.is_empty()). BYTE-EXACT (int/float/
+missing=1.0/str-weight TypeError/multi/float all ==nx), conformance GREEN (858 size tests). Python timing
+improved at scale (n=2500 0.23x->0.75x vs NEGATIVE #1) but OFFICIAL cargo bench (the decider) =
+fnx_size_weight_mg400 1.3995ms / nx 891us = 0.637x == the ~0.63x baseline -> ~0-GAIN at the bench size (n=400,
+3224 edges). ROOT: even zero-alloc, the per-edge BTreeMap(AttrMap)::get(attr) lookup + FxIndexMap iteration
+over E edges (1.40ms) is slower than nx's sum(degree(weight))/2 over native C dicts (0.89ms). The native edge
+fold cannot beat nx's degree-sum at this size; the AttrMap-BTreeMap-lookup is the floor. REVERTED both files
+(fnx-classes method + lib.rs gate). MG.size(weight) is FLOORED ~0.63x for the native approach; a real win
+would need a numeric-attr fast-lane in the storage layer (e.g. a parallel f64 weight column) -- out of scope.
+Conclusion: MG.size(weight) / weighted-degree family is storage-substrate-bound (BTreeMap attr lookup), not a
+clean kernel win. STOP attacking MG.size(weight) via edge iteration.
