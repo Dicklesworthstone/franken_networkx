@@ -10580,32 +10580,38 @@ impl PyGraph {
                 .insert(canonical.to_owned(), self.py_node_key(py, canonical));
         }
 
-        for edge in self.inner.edges_ordered() {
-            let u = &edge.left;
-            let v = &edge.right;
-
-            let rust_attrs = edge.attrs.clone();
-            let mut py_attrs_copy = None;
-            let ek = PyGraph::edge_key(u, v);
-
-            if let Some(py_attrs) = self.edge_py_attrs.get(&ek) {
-                py_attrs_copy = Some(py_attrs.bind(py).copy()?.unbind());
-            }
+        // br-r37-c1-todirborrow (cc): iterate edges_ordered_borrowed (no per-edge
+        // EdgeSnapshot left/right String + attrs clones) and clone the BORROWED
+        // AttrMap once per direction. The old path used edges_ordered() (snapshot
+        // clones) THEN edge.attrs.clone() THEN rust_attrs.clone() = one wasted
+        // AttrMap clone + 2 wasted String clones per edge. The mirror edge_key
+        // probe runs only when the edge mirror is non-pristine.
+        let mirror_pristine = self.edge_py_attrs.is_empty();
+        for (u, v, attrs) in self.inner.edges_ordered_borrowed() {
+            let py_attrs_copy = if mirror_pristine {
+                None
+            } else {
+                let ek = PyGraph::edge_key(u, v);
+                match self.edge_py_attrs.get(&ek) {
+                    Some(py_attrs) => Some(py_attrs.bind(py).copy()?.unbind()),
+                    None => None,
+                }
+            };
 
             dg.inner
-                .add_edge_with_attrs(u.clone(), v.clone(), rust_attrs.clone())
+                .add_edge_with_attrs(u.to_owned(), v.to_owned(), attrs.clone())
                 .map_err(|e| crate::NetworkXError::new_err(e.to_string()))?;
             if u != v {
                 dg.inner
-                    .add_edge_with_attrs(v.clone(), u.clone(), rust_attrs)
+                    .add_edge_with_attrs(v.to_owned(), u.to_owned(), attrs.clone())
                     .map_err(|e| crate::NetworkXError::new_err(e.to_string()))?;
             }
 
             if let Some(pa) = py_attrs_copy {
                 dg.edge_py_attrs
-                    .insert((u.clone(), v.clone()), pa.clone_ref(py));
+                    .insert((u.to_owned(), v.to_owned()), pa.clone_ref(py));
                 if u != v {
-                    dg.edge_py_attrs.insert((v.clone(), u.clone()), pa);
+                    dg.edge_py_attrs.insert((v.to_owned(), u.to_owned()), pa);
                 }
             }
         }

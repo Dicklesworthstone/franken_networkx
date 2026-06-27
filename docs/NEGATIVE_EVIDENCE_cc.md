@@ -2955,3 +2955,18 @@ overhead vein is MINED -- in_edges(data=key) won (0.16x->0.40x), and in_degree_w
 selfloop are all at their substrate floor (per-node/per-edge PyObject materialization), store/pristine fast
 paths already applied. Remaining gaps are the genuine Rust-PyObject-build floor. 19 perf + 1 correctness ship;
 main green.
+
+## 2026-06-27 CopperCliff SHIP: Graph.to_directed(scalar attrs) 0.645x->0.782x — edges_ordered_borrowed (kill snapshot+double clones)
+
+Dug the construction_copy bench gap (Graph.to_directed() with scalar node+edge attrs, 0.645x) for avoidable
+overhead (in_edges lesson). FOUND: PyGraph::to_directed's edge loop used edges_ordered() (allocates a per-edge
+EdgeSnapshot with OWNED left/right Strings + a cloned AttrMap) THEN `edge.attrs.clone()` THEN
+`rust_attrs.clone()` for the forward edge = 2 wasted String clones + 1 wasted AttrMap clone PER EDGE. FIX:
+iterate edges_ordered_borrowed() (borrowed &str + &AttrMap, no snapshot) and clone the borrowed AttrMap once
+per direction; the mirror edge_key probe runs only when the edge mirror is non-pristine. RESULT: 0.645x ->
+0.782x (1.2x self), BYTE-IDENTICAL (==nx edges + node-attrs + edge-attrs; edge-dict identity preserved;
+unweighted ==nx), conformance GREEN (5388 to_directed/copy/convert tests). Still <nx (the 2 directed edges +
+2 AttrMap copies + node-mirror crossing are the real construction floor) but a genuine 1.2x on the bench gap.
+LEVER (generalizes the in_edges/size finding): construction/view kernels using edges_ordered() (snapshot)
+where edges_ordered_borrowed() suffices pay needless per-edge String+AttrMap clones -- audit other
+edges_ordered() callers. 20th perf ship.
