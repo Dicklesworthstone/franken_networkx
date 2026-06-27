@@ -3250,3 +3250,19 @@ TRIAGE:
   the existing remove_node 1b retain pass. Add to fnx-classes Graph (+ DiGraph), route the bindings. Clean
   next-turn win (the clear_edges/remove_nodes bulk-retain lever).
 LESSON (reinforced): verify the binding actually loops before "fixing" -- remove_nodes_from already had the bulk.
+
+## 2026-06-27 CopperCliff remove_edges_from bulk-retain = ~0-gain (REVERTED) — per-edge swap_remove+String-hash is the floor
+
+Implemented the teed-up bulk lever: native Graph::remove_edges (swap_remove each edge O(1), keep
+edge_index_endpoints parallel, collect neighbor pairs per node, then retain EACH affected adj row ONCE) +
+routed the binding (collect (u,v) pairs + mirror cleanup, then one inner.remove_edges). BYTE-EXACT (==nx incl
+selfloops/missing/dups, neighbors intact, re-add works). But MEASURED ~0-gain/REGRESSION: remove_edges_from(4000)
+0.269x -> 0.236x (fnx 1.82ms -> 2.24ms, SLOWER). WHY: the per-edge cost is dominated by swap_remove_full
+(HashMap) + edge_pair_key (2 get_index_of String hashes) -- both UNAVOIDABLE and NOT batched. The only batched
+part (the 2 adj_indices retains) is a small fraction, and for RANDOM edges each node has only ~5 removed edges
+so the per-node retain-batching saves little; meanwhile the bulk ADDED a Vec<(String,String)> collection (~8000
+allocs) + a per_node HashMap<HashSet> that offset it. REVERTED both. CONCLUSION: remove_edges_from is
+substrate-bound (per-edge swap_remove + String-key hash), like remove_nodes_from (already bulk) + remove_node
+(index repair) + clear (dealloc). clear_edges (shipped 50d0f4074) was the ONE mutator win because clearing ALL
+edges = one edges.clear()+row.clear() (no per-edge hashing). The mutator vein is now MINED. LESSON: batching
+only wins when the batched op dominates AND the batch setup is cheaper than what it saves.
