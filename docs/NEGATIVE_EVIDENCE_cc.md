@@ -8,6 +8,37 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## NO-SHIP (cc, 2026-06-27): MDG in_edges(keys,data=key) single-pass bucket walk + node-obj hoist — REGRESSION 0.263x->0.190x
+
+Biggest measured core_laggards gap (cargo bench `networkx_head_to_head -- mdg_in_edges_data`,
+`MultiDiGraph` n=700/e=12662, workload `sum(k+v for _,_,k,v in mdg.in_edges(keys=True, data="weight", default=0))`).
+Baseline vs NetworkX (worker hz2, within-run nx/fnx): **fnx 9.09 ms / nx 2.39 ms = 0.263x** (3.8x slower).
+
+Lever (br-mdg-inedges-datakey): the existing PRISTINE fast path
+(`_native_mdg_in_edges_data_key`) rebuilt the target node object once PER EDGE and the
+source object once per parallel key, re-hashed `(source,target)` for both
+`edge_keys()` (Vec<usize> alloc/pair) and `edge_attrs()` (per key). Rewrote it to hoist
+`py_node_key(target)` to once/target and `py_node_key(source)` to once/pair, drop the Vec
+alloc via `predecessors_iter`, walk the parallel-edge bucket ONCE/pair via a NEW
+`MultiDiGraph::edge_bucket_items` accessor (key+AttrMap straight off the iterator, no per-key
+re-hash), and skip the `py_edge_key` String build when `edge_py_keys.is_empty()`.
+
+MEASURED (same worker hz2, within-run nx/fnx): **fnx 13.86 ms / nx 2.64 ms = 0.190x** — a
+~1.5x REGRESSION on fnx-side wall time vs ORIG (nx held ~2.4-2.6 ms). Cross-worker numbers
+were misleading (vmi1264463 showed fnx 36.4/nx 14.2 = 0.392x, "better" ratio) — the within-run
+nx/fnx ratio is NOT worker-invariant (Rust and Python scale differently per host), so ONLY
+same-worker comparison is valid; on hz2 the lever loses. cargo check + bench's own
+`fnx == nx` setup assert passed (values/order byte-identical), so it is correct-but-slower.
+REVERTED (not landed); the `edge_bucket_items` accessor + rewrite live only in worktree
+`.scratch/franken_networkx-cc-mdg-inedges-a92c6e3a3`.
+
+Lesson: the residual MDG in_edges cost is NOT the redundant hashing/allocs I removed — the
+iterator-adapter walk (`predecessors_iter` + `edge_bucket_items` nested `impl Iterator`)
+did not beat the original plain `Vec` collect path, and the floor is the per-edge PyObject
+tuple+value materialization (eager list of 12662 4-tuples vs nx's lazy `InMultiEdgeDataView`
+generator). Real lever = a LAZY native view iterator that yields tuples on demand, not kernel
+micro-opts on the eager path (consistent with the "needs lazy view objects" frontier note).
+
 ## SHIPPED: link-prediction degree-batch — PA 0.78x->0.99x, RA/AA neutral->WIN
 
 The PA 0.78x loss + RA/AA 0.97-0.98x neutral were in MY pure-Python scorer
