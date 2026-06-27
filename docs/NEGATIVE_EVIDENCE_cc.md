@@ -2988,3 +2988,22 @@ Audited the to_directed/to_undirected/copy family after the Graph.to_directed wi
 CONCLUSION: the edges_ordered_borrowed snapshot lever cleanly applies ONLY to simple-graph SHALLOW
 edge-duplication loops (Graph.to_directed, shipped). The multi conversions are dedup-HashSet-bound and the
 DiGraph conversions are copy/deepcopy-bound -- different floors, not this lever. 20 perf + 1 correctness ship.
+
+## 2026-06-27 CopperCliff conversion/copy/subgraph family audit — borrowed lever mined; remaining floors mapped
+
+Comprehensive audit of the construction/conversion family after the Graph.to_directed win (edges_ordered_
+borrowed, simple-graph shallow). Measured + root-caused:
+- MultiGraph/MultiDiGraph.copy 0.69-0.76x: _native_copy CLONEs the inner wholesale (O(E) AttrMap clones in
+  the Rust store) + reorders pred rows; the Python mirror clone is FREE (pristine/empty for add_edge graphs).
+  Inner-clone-bound vs nx's per-dict shallow copy -- substrate, no avoidable layer.
+- DiGraph.reverse 1.47x, reverse(copy=False) 1.63x: WIN (already optimized).
+- DiGraph.subgraph.copy 0.93x: near-parity.
+- DiGraph.edge_subgraph 0.699x: Graph/DiGraph.edge_subgraph routes to the Python top-level edge_subgraph which
+  returns a VIEW (nx semantics); the native edge_subgraph methods (return a COPY) are intentionally bypassed
+  (view != copy) -- can't route to native without breaking semantics. View-construction-bound.
+- Remaining edges_ordered() callers in lib.rs are all PyMultiGraph (borrowed = dedup-HashSet slower) or niche
+  (broadcast_edge_attribute). No clean simple-graph snapshot-waste caller left.
+CONCLUSION: the edges_ordered_borrowed snapshot lever's clean applications are MINED -- Graph.to_directed
+(shipped) was the one simple-graph shallow edge-dup loop. The rest of the conversion/copy/subgraph family is
+inner-clone / deepcopy / dedup-HashSet / view-construction bound (genuine floors, not avoidable overhead).
+20 perf + 1 correctness ship; main green.
