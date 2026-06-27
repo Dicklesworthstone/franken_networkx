@@ -4616,6 +4616,45 @@ impl PyMultiDiGraph {
         if !self.pred_py_keys.is_empty() {
             return Ok(None);
         }
+        // br-r37-c1-inedgesattr (cc): PRISTINE-mirror single-pass fast path for the
+        // biggest core_laggards gap (mdg in_edges(keys, data=<key>) was 0.16x). When
+        // the edge mirror is empty the native store is authoritative, so read the
+        // attr straight from the borrowed AttrMap during the pred-major walk --
+        // avoiding (a) the owned (String,String,usize) triples Vec (2 String clones
+        // per edge), (b) edge_data_value_or_default's per-edge edge_key build +
+        // mirror probe, and (c) the redundant attr re-lookup. Byte-identical to the
+        // mirror path when pristine (mirror miss -> store, same value). Only for a
+        // string attr name; non-str / non-pristine fall through to the general path.
+        if self.edge_py_attrs.is_empty() {
+            if let Ok(attr_name) = data.extract::<String>() {
+                let mut out: Vec<PyObject> = Vec::with_capacity(self.inner.edge_count());
+                for target in self.inner.nodes_ordered() {
+                    if let Some(preds) = self.inner.predecessors(target) {
+                        for source in preds {
+                            for key in self.inner.edge_keys(source, target).unwrap_or_default() {
+                                let value = match self
+                                    .inner
+                                    .edge_attrs(source, target, key)
+                                    .and_then(|a| a.get(attr_name.as_str()))
+                                {
+                                    Some(v) => crate::cgse_value_to_py(py, v)?,
+                                    None => default.clone_ref(py),
+                                };
+                                let src_obj = self.py_node_key(py, source);
+                                let tgt_obj = self.py_node_key(py, target);
+                                if keys {
+                                    let key_obj = self.py_edge_key(py, source, target, key);
+                                    out.push(tuple_object(py, &[src_obj, tgt_obj, key_obj, value])?);
+                                } else {
+                                    out.push(tuple_object(py, &[src_obj, tgt_obj, value])?);
+                                }
+                            }
+                        }
+                    }
+                }
+                return Ok(Some(out));
+            }
+        }
         let triples: Vec<(String, String, usize)> = {
             let mut v = Vec::with_capacity(self.inner.edge_count());
             for target in self.inner.nodes_ordered() {

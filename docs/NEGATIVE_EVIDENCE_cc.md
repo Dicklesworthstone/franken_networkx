@@ -2908,3 +2908,19 @@ are structurally hard to beat. SESSION CLOSE: 18 perf ships + 1 user-facing corr
 (19908 conformance tests green), main clean. The single-dig frontier is exhausted and fully root-caused; the
 only remaining perf lever is a storage-layer redesign (interned attr keys / columnar numeric weights /
 deferred edge drops), a deliberate multi-turn architecture project, not a single-dig.
+
+## 2026-06-26 CopperCliff SHIP: MDG in_edges(keys,data=<attr>) 0.16x->0.40x — pristine single-pass borrowed-attr fast path
+
+The biggest official core_laggards gap = mdg in_edges(keys=True, data="weight", default=0) at 0.162x.
+ROOT: _native_mdg_in_edges_data_key (digraph.rs) built an owned Vec<(String,String,usize)> triples list (2
+String clones PER EDGE) then re-looked-up each attr via edge_data_value_or_default (per-edge edge_key build +
+mirror probe + store re-lookup). FIX: when the edge mirror is PRISTINE (edge_py_attrs.is_empty(), the common
+add_edge-built case), a single pred-major borrowed pass reads the attr straight from the borrowed AttrMap
+(self.inner.edge_attrs(s,t,key).get(attr)) -> no String clones, no edge_key, no mirror probe, no re-lookup.
+RESULT: 0.162x -> 0.402x (2.5x self) for keys+data; in_edges(data) 0.49x; byte-IDENTICAL to nx (==nx keys+data
+& data), held-ref-mutated graphs fall through to the general mirror path (verified ==nx), in_edges conformance
+GREEN (1362 passed). Still <nx (substrate floor = N tuple + cgse_value_to_py PyObject creations, shared with
+edges() 0.74x) but a 2.5x improvement on the suite's #1 laggard. PRE-EXISTING UNRELATED red test flagged:
+test_review_mode_regression_lock::test_write_gexf_classified_as_py_wrapper_not_nx_delegated (readwrite/gexf
+classification; my Rust digraph.rs change cannot affect a Python-wrapper classification -> not mine, needs
+separate investigation). 19th perf ship.
