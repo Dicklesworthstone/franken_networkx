@@ -3049,3 +3049,15 @@ both callers to pass keys). RESULT: 0.336x -> 0.567x (1.7x self), BYTE-IDENTICAL
 data 1.13x, dups/missing nbunch, data=True keys unchanged, missing-attr default), conformance GREEN (1158
 out_edges + 630 graph_utilities). NOTE: the bench's mdg_out_edges_nbunch_keys_data uses data=True (the fast
 2.03x dict path); the data=<attr> (specific-attr) keys form was the uncovered gap. 22nd perf ship.
+
+## 2026-06-27 CopperCliff SHIP x2: MDG in_edges + MG edges (nbunch,keys,data=<attr>) pristine store-read
+
+Continuing the edge-view matrix sweep (siblings of the out_edges nbunch data_key win): MDG.in_edges(nbunch,
+keys,data="weight") 0.372x and MG.edges(nbunch,keys,data="weight") 0.313x. Both natives already had keys
+support + were routed (not Python-fallback), so the cost was edge_data_value_or_default(_with_key)'s per-edge
+edge_key build + mirror probe + re-lookup. FIX (same pristine store-read as out_edges): when the edge mirror is
+empty, read the attr straight from the store (inner.edge_attrs(...).get(attr)) instead of the mirror helper.
+RESULTS: MDG.in_edges 0.372x->0.814x (2.2x self); MG.edges 0.313x->0.822x (2.6x self); BYTE-IDENTICAL (==nx
+keys+data, no-keys, default), conformance GREEN (3422 view tests). (Build hit E0514 worker-rustc dep-cache
+inconsistency -> fixed with full `cargo clean && cargo build`.) 23rd+24th perf ships. The nbunch+keys+data=<attr>
+edge-view family across MDG out/in + MG edges is now pristine-store-read across the board.
