@@ -3336,3 +3336,14 @@ snapshot -- correctness > a few %). size(weight)/degree(weight)/dijkstra were al
 wiener was the lone adjacency()-consuming weighted kernel. This also UNBLOCKS the add_weighted_edges_from 8x
 batch win (the wiener regression that blocked it is now fixed) -- pending a broad check that no OTHER
 adjacency()-consuming weighted kernel is affected. 3rd correctness fix this session.
+
+## 2026-06-27 CopperCliff SHIP: add_weighted_edges_from 0.135x->1.10x (8x self) — delegate to add_edges_from batch (UNBLOCKED by the wiener fix)
+
+Now that the weighted-wiener stale-store bug is fixed (7b61292a3), re-enabled the add_weighted batch win:
+delegate the string-weight case to add_edges_from((u,v,{weight:w})) EXACTLY as nx does, hitting the native
+attributed batch instead of the per-edge add_edge PyO3 loop. Verified the regression that previously blocked it
+is gone: broad batch-vs-store check (wiener/size/in_degree/dijkstra/pagerank/betweenness/closeness/
+adjacency_matrix/degree_pearson) ALL match; wiener after add_weighted = 58 ==nx. RESULTS: 0.135x -> 1.095x
+(~8x self, BEATS nx), edges(data) byte-identical across Graph/DiGraph/MultiGraph/MultiDiGraph + **attr + error
+contract, conformance GREEN (2404 weighted/wiener/add_edges). 31st perf ship. (Two-step: fix the latent
+correctness bug, then land the perf win it gated.)

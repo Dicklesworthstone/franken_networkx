@@ -4993,6 +4993,19 @@ def _add_weighted_edges_from_with_attr(cls):
         being silently absorbed by the Rust binding (which keys nodes
         by Python id when the value isn't hashable).
         """
+        # br-r37-c1-wedgesbatch (cc): for a string weight name, delegate to
+        # add_edges_from EXACTLY as nx does -- hits fnx's native attributed batch
+        # instead of a per-edge add_edge PyO3 loop (0.135x -> ~1.1x, beats nx). Error
+        # contract + partial-insert semantics are add_edges_from's, identical to nx's
+        # add_weighted_edges_from (the same delegation). The weighted wiener stale-store
+        # bug this previously exposed is now fixed (7b61292a3); broad batch-vs-store
+        # check (wiener/size/degree/dijkstra/pagerank/betweenness/closeness/adj_matrix/
+        # degree_pearson) all match. Non-str weight keys keep the per-edge path below.
+        if isinstance(weight, str):
+            self.add_edges_from(
+                ((u, v, {weight: w}) for u, v, w in ebunch_to_add), **attr
+            )
+            return
         for edge in ebunch_to_add:
             u, v, w = edge
             # br-r37-c1-77ux3 (sibling): nx delegates to
