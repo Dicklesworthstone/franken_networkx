@@ -117,6 +117,73 @@ Validation:
 - Candidate hunk reverted; final source diff is empty.
 - `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo test -p fnx-conformance`: passed remotely on `hz2`.
 
+## 2026-06-28 BlackThrush MultiDiGraph weighted degree tuple cache - NO-SHIP (`cod-a`)
+
+Scope: LAND-OR-DIG pass from detached scratch worktree
+`/data/projects/.scratch/franken_networkx-blackthrush-landordig-20260628T031917Z`.
+Bench-worktree audit found no measured source win absent from `main`; the
+non-ancestor edge-view worktree was already represented on `origin/main`, and
+the remaining stale worktrees were docs/audit or parity-only. Agent Mail read
+state as `BlackThrush`, but reservation writes were still blocked by the
+existing SQLite corruption circuit breaker. No `settings.json` or hook files
+were touched.
+
+Fresh routing on the then-current scratch base (`fd3945951`) used the accepted
+release profile form because Cargo rejects `cargo bench --release` for this
+bench harness:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head networkx_head_to_head_core_laggards -- --quiet`
+
+Worst live gap was `MultiDiGraph.in_degree(weight="weight")`:
+
+| workload | runner | FNX median | ORIG NetworkX median | ratio vs ORIG |
+| --- | --- | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | local fallback | `18.137 ms` | `4.3523 ms` | `0.240x` |
+| `mg_selfloop_keys_weight_n2500_loops2502` | local fallback | `1.8453 ms` | `717.16 us` | `0.389x` |
+| `mdg_edges_keys_n700_e12662` | local fallback | `1.6784 ms` | `1.7155 ms` | `1.022x` |
+| `mdg_in_edges_data_n700_e12662` | local fallback | `21.058 ms` | `8.8933 ms` | `0.422x` |
+| `mdg_out_edges_nbunch_keys_data_n700_e12600` | local fallback | `315.22 us` | `1.2120 ms` | `3.845x` |
+| `mdg_out_edges_nbunch_keys_weight_n700_e12600` | local fallback | `1.2110 ms` | `576.01 us` | `0.476x` |
+
+Lever tried: a clean-graph Rust-side immutable tuple cache for exact
+full-graph `MultiDiGraph.{in,out}_degree(weight=str)` after the existing
+Rust-store int accumulator. The cache was keyed by `(nodes_seq, edges_seq,
+weight, direction)` and skipped whenever `edges_dirty` was set or non-int
+weights/overflow required the exact Python-compatible fallback. This was
+distinct from the earlier rejected Python result cache, node-key pair cache,
+values-only zip, index-native accumulator, edge-order stream accumulator, and
+lazy native iterator probes.
+
+Validation before timing:
+
+- `python3 -m py_compile python/franken_networkx/__init__.py`: passed.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`: passed remotely on `hz2`.
+
+Focused timing:
+
+| workload | state | runner | FNX median | ORIG NetworkX median | ratio vs ORIG | source signal |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | tuple-cache candidate | `rch` remote `ovh-a` | `2.3098 ms` | `1.3978 ms` | `0.605x` | routing-only; no same-worker main comparator |
+| `mdg_in_degree_weight_n700_e12662` | current `origin/main` comparator (`e3827592b`) | `rch` local fallback | `10.549 ms` | `3.7292 ms` | `0.354x` | baseline |
+| `mdg_in_degree_weight_n700_e12662` | tuple-cache candidate | `rch` local fallback | `12.935 ms` | `7.6069 ms` | `0.588x` | FNX regressed vs local comparator |
+
+Decision: REVERTED / NO-SHIP. The remote candidate ratio looked better, but it
+had no same-worker main comparator. The same local fallback A/B showed the
+candidate made FNX slower (`12.935 ms` vs `10.549 ms`) while the paired ORIG
+row also moved sharply, so the ratio improvement was benchmark noise rather
+than a source-side win. The temporary hunks in `crates/fnx-python/src/digraph.rs`,
+`crates/fnx-python/src/algorithms.rs`, `crates/fnx-python/src/generators.rs`,
+`crates/fnx-python/src/lib.rs`, and `python/franken_networkx/__init__.py` were
+manually reverted before this ledger commit. Do not retry a full tuple cache as
+a standalone fix for `MultiDiGraph.in_degree(weight=str)`; residual cost is not
+removed by caching complete `(node, degree)` tuples on this path.
+
+Validation:
+
+- Candidate source hunks reverted; final source diff is empty.
+- After copying ignored conformance evidence artifacts into the detached
+  worktree, `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo test -p fnx-conformance --profile release`: passed remotely on `ovh-a`.
+
 ## 2026-06-27 BlackThrush MultiGraph selfloop scalar-only borrowed-node scan - NO-SHIP (`cod-b`)
 
 Scope: BOLD-VERIFY land-or-dig pass on current `main` base `e3b767cb3`.
