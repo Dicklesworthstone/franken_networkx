@@ -9436,3 +9436,28 @@ residual is either timing noise on dense/sort/LAPACK ops (re-measure interleaved
 min-of-21 before believing any sub-1.0x) or the ONE architectural root — the
 String-keyed Multi(Di)Graph store (index-based MG adjacency in fnx-classes/CGSE is
 the only remaining real lever, spanning dijkstra/size/degree/connected_components).
+
+## 2026-06-28 CopperCliff SHIP: transitive_closure_dag 0.71x->1.05-1.43x — snapshot adjacency + deferred batch (kill per-node PyO3 in the distance-2 BFS)
+
+A readwrite/directed-structural sweep surfaced a CONSISTENT (across-seeds, not noise)
+gap: `transitive_closure_dag` 0.67-0.71x vs nx. Root: the in-process kernel
+(_transitive_closure_dag_inproc) ran the distance-2 BFS calling
+``succ(TC, node)`` — a PyO3 successor lookup — per node on the MUTATING TC, i.e.
+O(closure-edges) PyO3 round-trips, where nx walks native dicts.
+
+FIX (br-cc-tcdsnap, PURE-PYTHON): snapshot TC's successor adjacency ONCE into Python
+lists (insertion order — NOT sets, which would scramble nx's BFS discovery order),
+run the BFS on those, keep each node's list in sync as transitive edges are
+discovered (reversed-topo guarantees a node is closed before its predecessors read
+it), and commit ALL transitive edges in ONE final ``add_edges_from`` instead of
+per-v. Byte-IDENTICAL: same per-v / set-order append => identical edge SET and
+per-node adj ITERATION order (0/60 adversarial incl. explicit topo_order; 761
+dag/transitive conformance tests pass).
+
+Measured (median/seeds): n=200 (closure 7.5k) 0.71x->**2.16x**, n=300 **1.43x**,
+n=400/600 (closure 47-56k) **1.05-1.08x**, n=1000 (closure 89k) 0.92x. WIN for
+typical sizes; STRICTLY better than the old 0.67x at EVERY size (the 0.92x worst
+case = huge dense closures where the final 89k-edge add_edges_from dominates — still
+a 1.4x self-improvement). LEVER: an in-process kernel that reads a MUTATING fnx
+graph per-node pays PyO3 per access; snapshot the adjacency into Python once + keep
+it in sync + defer the single batch mutation to the end.

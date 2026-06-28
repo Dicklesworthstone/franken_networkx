@@ -32220,13 +32220,24 @@ def _transitive_closure_dag_inproc(G, topo_order):
     succ = _raw_neighbors_dispatch(TC)
     if succ is None:
         return None
+    # br-cc-tcdsnap: the distance-2 BFS below previously called ``succ(TC, node)``
+    # (a PyO3 successor lookup) per node on the MUTATING TC — O(closure-edges)
+    # round-trips, ~0.67x vs nx (which walks native dicts). Snapshot TC's
+    # successor adjacency ONCE into Python LISTS (insertion order — set order
+    # would scramble nx's discovery order), run the BFS on those, and keep them
+    # in sync as edges are discovered so a node's successors are fully closed
+    # before its predecessors (processed later in reversed topo) read them. All
+    # transitive edges are committed in ONE final ``add_edges_from`` instead of
+    # per-v: identical per-v / set-order append, so the result graph's adj
+    # iteration is byte-identical to nx.
+    adj = {node: list(succ(TC, node)) for node in TC}
+    new_edges = []
     for v in reversed(topo_order):
         # descendants_at_distance(TC, v, 2) == set(bfs_layers(TC, v)[2]).
         # bfs_layers builds each layer as a LIST in BFS discovery order
         # (next_layer.append), so the distance-2 layer's element order — and
         # hence the iteration order of set(layer) consumed by add_edges_from —
-        # is deterministic and matches nx EXACTLY. (Building the layer as a set
-        # directly would scramble that insertion order.)
+        # is deterministic and matches nx EXACTLY.
         current_layer = [v]
         visited = {v}
         descendants = []
@@ -32237,13 +32248,16 @@ def _transitive_closure_dag_inproc(G, topo_order):
                 break
             next_layer = []
             for node in current_layer:
-                for child in succ(TC, node):
+                for child in adj[node]:
                     if child not in visited:
                         visited.add(child)
                         next_layer.append(child)
             current_layer = next_layer
             i += 1
-        TC.add_edges_from((v, u) for u in set(descendants))
+        dset = set(descendants)
+        new_edges.extend((v, u) for u in dset)
+        adj[v].extend(dset)
+    TC.add_edges_from(new_edges)
     return TC
 
 
