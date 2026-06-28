@@ -8688,3 +8688,42 @@ remains in the algorithm/operator/generator/IO/spectral/tree surface; the
 near-parity items (0.78-0.96x) are construction/numerical-substrate bound and
 loss-reduction-only (skip per REVERT-~0-gain). Future perf effort should target
 the two architectural levers, not domain sweeps.
+
+## 2026-06-28 CopperCliff SHIP: set_edge_attributes dict-of-dicts 0.064x->0.449x — native one-pass (7x self; matches the shipped scalar fast-path's substrate floor)
+
+Found via a MUTATION-op sweep (read-only perf sweeps miss mutators — same blind
+spot that hid the clear_edges 0.05x catastrophe). `set_edge_attributes(G,
+{(u,v): {attr: val, ...}})` (the dict-of-dicts form, no `name`) — an extremely
+common nx pattern — measured **0.064x vs nx** (15x slower; fnx 10.3ms vs nx
+0.66ms at 2500 edges). ROOT CAUSE: the wrapper looped `_edge_attribute_dict(G,
+edge).update(d)`, where `_edge_attribute_dict` resolves `G[u][v]` — a full
+EdgeAttrDict VIEW construction per edge — vs nx's plain `G._adj[u][v].update(d)`.
+The dict+scalar form already had a native fast path (`_native_set_edge_attribute_
+scalar`); the dict-of-dicts form did not.
+
+LEVER (native binding, mirrors the proven scalar setter): add
+`_native_set_edge_attributes_dict(values)` to PyGraph (materialize_edge_py_attrs
++ `.update(d)`) and PyDiGraph (edge_py_attrs.entry + `.update(d)`), route the
+wrapper's simple-graph dict-of-dicts case to it (Multi keeps the loop). One Rust
+pass, mark edges dirty once.
+
+Result: **0.064x -> 0.449x** (7x self-improvement; fnx 1.47ms vs nx 0.66ms at
+2500 edges). This lands at the SAME String-keyed-attr substrate floor as the
+already-shipped scalar fast-path (~0.39x) — it is NOT a vs-nx win. The residual
+loss is the architectural materialization tax: fnx pays `node_key_to_string` ×2 +
+edge_key canonicalization per edge (String allocs) that nx's plain-dict
+`G._adj[u][v]` does not. Beating nx here needs the same lazy-view / int-keyed-attr
+primitive flagged for the read-side materialization-floor view ops — out of scope
+for a wrapper/binding change. Shipped as a footgun fix (removes a 15x-slower
+outlier on a common operation, brings the dict-of-dicts form to parity with the
+scalar form), consistent with the existing scalar-path decision.
+
+Correctness: 300-case adversarial sweep (undirected + directed, pre-existing
+store attrs preserved, missing-edge skip) 0 mismatches vs nx; conformance 188 +
+54 + 30 = 272 attribute-setter / dirty-sync / parity tests pass, 0 failures.
+Verified on a freshly-built abi3 wheel (the rch pool .so links python 3.14;
+local python is 3.13 — built a clean abi3 wheel locally + extracted the .so).
+Touches: crates/fnx-python/src/lib.rs, crates/fnx-python/src/digraph.rs,
+python/franken_networkx/__init__.py. FOLLOW-UP: the NODE dict-of-dicts form
+(set_node_attributes) measures 0.269x — same lever applies (symmetric
+_native_set_node_attributes_dict).

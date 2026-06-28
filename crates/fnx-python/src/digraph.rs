@@ -11187,6 +11187,37 @@ impl PyDiGraph {
         Ok(())
     }
 
+    /// br-r37-c1-seabulk-dict (cc): native bulk set_edge_attributes(values) for
+    /// the DICT-OF-DICTS form ({(u,v): {attr: val, ...}}, no name) — directed
+    /// twin of the PyGraph method. The Python wrapper otherwise loops
+    /// `_edge_attribute_dict(G, edge).update(d)` (a full G[u][v] EdgeAttrDict
+    /// view per edge, ~0.06x vs nx). One Rust pass over the {(u,v): d} dict,
+    /// mirroring the scalar setter (has_edge gate, edge_py_attrs entry,
+    /// `.update(d)`, mark dirty once). Non-2-tuple keys / missing edges skipped.
+    fn _native_set_edge_attributes_dict(
+        &mut self,
+        py: Python<'_>,
+        values: &Bound<'_, PyDict>,
+    ) -> PyResult<()> {
+        for (k, attrs) in values.iter() {
+            let Ok(len) = k.len() else { continue };
+            if len != 2 {
+                continue;
+            }
+            let u = node_key_to_string(py, &k.get_item(0)?)?;
+            let v = node_key_to_string(py, &k.get_item(1)?)?;
+            if self.inner.has_edge(&u, &v) {
+                let dict = self
+                    .edge_py_attrs
+                    .entry((u, v))
+                    .or_insert_with(|| PyDict::new(py).unbind());
+                dict.bind(py).call_method1("update", (&attrs,))?;
+            }
+        }
+        self.mark_edges_dirty();
+        Ok(())
+    }
+
     fn _native_set_node_attribute_scalar(
         &mut self,
         py: Python<'_>,

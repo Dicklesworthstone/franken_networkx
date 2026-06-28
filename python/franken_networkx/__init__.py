@@ -22101,6 +22101,15 @@ def set_edge_attributes(G, values, name=None):
                     continue
             return
 
+        # br-r37-c1-seabulk-dict (cc): native one-pass for the {(u,v): attrdict}
+        # form. The loop below resolves `G[u][v]` (a full EdgeAttrDict VIEW)
+        # per edge (~0.06x vs nx's plain `G._adj[u][v].update`). Simple graphs
+        # only (Multi edge keys are 3-tuples; others keep the loop).
+        if isinstance(values, dict) and not G.is_multigraph():
+            native = getattr(G, "_native_set_edge_attributes_dict", None)
+            if native is not None:
+                native(values)
+                return
         for edge, attrs in values.items():
             try:
                 _edge_attribute_dict(G, edge).update(attrs)

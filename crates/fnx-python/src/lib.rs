@@ -9866,6 +9866,36 @@ impl PyGraph {
         Ok(())
     }
 
+    /// br-r37-c1-seabulk-dict (cc): native bulk set_edge_attributes(values)
+    /// for the DICT-OF-DICTS form ({(u,v): {attr: val, ...}}, no name). The
+    /// Python wrapper otherwise loops `_edge_attribute_dict(G, edge).update(d)`,
+    /// where `_edge_attribute_dict` resolves `G[u][v]` — a full EdgeAttrDict
+    /// VIEW construction per edge (~0.06x vs nx's plain `G._adj[u][v].update`).
+    /// One Rust pass: materialize the edge_py_attrs mirror directly and
+    /// `.update(d)` it, mark edges dirty ONCE so the lazy inner flush reaches
+    /// the kernels. Non-2-tuple keys / missing edges skipped (matching the
+    /// wrapper's KeyError/ValueError swallow). Simple graphs only.
+    fn _native_set_edge_attributes_dict(
+        &mut self,
+        py: Python<'_>,
+        values: &Bound<'_, PyDict>,
+    ) -> PyResult<()> {
+        for (k, attrs) in values.iter() {
+            let Ok(len) = k.len() else { continue };
+            if len != 2 {
+                continue;
+            }
+            let u = node_key_to_string(py, &k.get_item(0)?)?;
+            let v = node_key_to_string(py, &k.get_item(1)?)?;
+            if self.inner.has_edge(&u, &v) {
+                let dict = self.materialize_edge_py_attrs(py, &u, &v);
+                dict.bind(py).call_method1("update", (&attrs,))?;
+            }
+        }
+        self.mark_edges_dirty();
+        Ok(())
+    }
+
     fn _native_set_node_attribute_scalar(
         &mut self,
         py: Python<'_>,
