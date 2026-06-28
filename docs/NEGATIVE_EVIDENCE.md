@@ -67,6 +67,72 @@ Validation:
 - Candidate hunk reverted; final source diff is empty.
 - `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo test -p fnx-conformance`: passed remotely on `ovh-a`.
 
+## 2026-06-28 BlackThrush MultiGraph selfloop borrowed-bucket fast path - NO-SHIP (`cod-a`)
+
+Scope: BOLD-VERIFY land-or-dig pass on current `origin/main` (`e3b767cb3`).
+Bench-worktree audit found no measured source win absent from `main`: the
+CopperCliff adjacency outer-cache worktree is already represented by the
+landed `a424835f7` implementation and ledger, and the remaining non-ancestor
+edge-view/audit worktrees are stale or already represented. Agent Mail
+registration/read succeeded as `BlackThrush`, but reservation writes were
+blocked by the existing SQLite corruption circuit breaker, so this pass used
+the detached worktree
+`/data/projects/.scratch/franken_networkx-blackthrush-boldverify-20260628T0239Z`.
+No `settings.json` or hook files were touched.
+
+Fresh crate-scoped routing command:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head networkx_head_to_head_core_laggards -- --quiet`
+
+`rch` had no admissible worker for the routing sweep and fell back locally.
+The live worst ratio was `MultiGraph.selfloop_edges(keys=True, data="weight")`:
+
+| workload | runner | FNX median | ORIG NetworkX median | ratio vs ORIG |
+| --- | --- | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | local fallback | `9.6899 ms` | `6.1970 ms` | `0.640x` |
+| `mg_selfloop_keys_weight_n2500_loops2502` | local fallback | `4.0404 ms` | `1.3013 ms` | `0.322x` |
+| `mdg_edges_keys_n700_e12662` | local fallback | `2.6738 ms` | `2.0706 ms` | `0.774x` |
+| `mdg_in_edges_data_n700_e12662` | local fallback | `20.996 ms` | `10.282 ms` | `0.490x` |
+| `mdg_out_edges_nbunch_keys_data_n700_e12600` | local fallback | `333.04 us` | `732.00 us` | `2.198x` |
+| `mdg_out_edges_nbunch_keys_weight_n700_e12600` | local fallback | `1.0433 ms` | `556.65 us` | `0.534x` |
+
+Lever tried: add a borrowed `MultiGraph` self-loop bucket helper in
+`fnx-classes` and use it from the clean scalar
+`PyMultiGraph::_native_selfloop_edges(keys=True, data=<attr>)` path. The
+intended data-oriented cut was to avoid per-loop-node `edge_keys(node,node)`
+Vec allocation and the second `edge_attrs(node,node,key)` lookup, while
+preserving node order, edge-key order, scalar/map/default fallback, dirty-edge
+fallback, tuple shape, and public iterator behavior. This is distinct from the
+previous rejected small-int object cache, list-iterator handoff, tuple cache,
+and clean-int mirror-bypass probes.
+
+Focused candidate commands used the same crate and target lane:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head -- mg_selfloop_keys_weight --noplot --sample-size 20 --warm-up-time 1 --measurement-time 2`
+
+| workload | state | runner | FNX median | ORIG NetworkX median | ratio vs ORIG | self signal |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `mg_selfloop_keys_weight_n2500_loops2502` | fresh routing baseline | local fallback | `4.0404 ms` | `1.3013 ms` | `0.322x` | baseline |
+| `mg_selfloop_keys_weight_n2500_loops2502` | borrowed-bucket candidate | local fallback | `2.8625 ms` | `6.4387 ms` | noisy `2.249x` | Criterion: no change, `p = 0.56`; ORIG regressed `+708%` |
+| `mg_selfloop_keys_weight_n2500_loops2502` | borrowed-bucket candidate | `rch` remote `hz2` | `1.5020 ms` | `476.89 us` | `0.317x` | no ratio win vs routing baseline |
+
+Decision: REVERTED / NO-SHIP. The local candidate row had an apparently lower
+FNX median, but Criterion reported no statistically significant change and the
+paired NetworkX row was badly perturbed. The independent `hz2` run landed at
+`0.317x` vs ORIG, effectively unchanged from the fresh routing baseline's
+`0.322x`. Do not retry a borrowed self-loop bucket helper as a standalone
+`selfloop_edges(keys=True, data=<attr>)` lever; the remaining cost is still
+dominated by Python tuple/key/value materialization rather than by the per-node
+key Vec and second attr lookup alone.
+
+Validation:
+
+- Candidate source hunks in `crates/fnx-classes/src/lib.rs` and
+  `crates/fnx-python/src/lib.rs` were manually reverted; final source diff is
+  empty.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`: passed via local fallback while the candidate was present.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo test -p fnx-conformance --profile release`: passed via local fallback after copying ignored prerequisite evidence artifacts into the detached worktree.
+
 ## 2026-06-27 BlackThrush MultiDiGraph in_edges data-key streaming - KEEP (`cod-b`)
 
 Scope: BOLD-VERIFY land-or-dig pass on `main` base `89661143c`.
