@@ -123,6 +123,11 @@ struct CoreLaggardWorkloads {
     nx_mdg_out_edges_nbunch_keys_weight: Py<PyAny>,
 }
 
+struct TspWorkloads {
+    fnx_greedy_tsp: Py<PyAny>,
+    nx_greedy_tsp: Py<PyAny>,
+}
+
 struct ConstructionCopyWorkloads {
     fnx_graph_to_directed_scalar_attrs: Py<PyAny>,
     nx_graph_to_directed_scalar_attrs: Py<PyAny>,
@@ -2346,8 +2351,93 @@ fn sticky_edge_dirty_head_to_head(c: &mut Criterion) {
     group.finish();
 }
 
+fn prepare_tsp_workloads(py: Python<'_>) -> PyResult<TspWorkloads> {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("fnx-python crate must live under crates/");
+    let python_dir = repo_root.join("python");
+    let legacy_dir = repo_root.join("legacy_networkx_code").join("networkx");
+
+    let sys = py.import("sys")?;
+    let path = sys.getattr("path")?;
+    let path = path.cast::<PyList>()?;
+    path.insert(0, repo_root.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, python_dir.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, legacy_dir.to_str().expect("repo path must be UTF-8"))?;
+
+    let locals = PyDict::new(py);
+    py.run(
+        cstring(
+            r#"
+import networkx as nx
+import franken_networkx as fnx
+
+def _complete_weighted(n):
+    fg = fnx.complete_graph(n)
+    ng = nx.complete_graph(n)
+    for u, v in list(ng.edges()):
+        # Tie-free, real-valued weights: fixing one endpoint, w varies
+        # monotonically with the other (u*u + v*v + u*v is strictly
+        # increasing in each argument), so every nearest-neighbour step has a
+        # unique minimum and the native fast path engages (and is byte-exact).
+        w = float(u * u + v * v + u * v + 1)
+        fg.edges[u, v]["weight"] = w
+        ng.edges[u, v]["weight"] = w
+    return fg, ng
+
+tsp_fnx, tsp_nx = _complete_weighted(250)
+
+fnx_greedy_tsp = lambda: fnx.approximation.greedy_tsp(tsp_fnx, source=0)
+nx_greedy_tsp = lambda: nx.approximation.greedy_tsp(tsp_nx, source=0)
+
+# Correctness gate baked into the bench: the native tour must equal nx's.
+assert fnx_greedy_tsp() == nx_greedy_tsp(), "greedy_tsp tour diverged from NetworkX"
+"#,
+        )
+        .as_c_str(),
+        Some(&locals),
+        Some(&locals),
+    )?;
+
+    let callable = |name: &str| -> PyResult<Py<PyAny>> {
+        let callable = locals.get_item(name)?.ok_or_else(|| {
+            pyo3::exceptions::PyKeyError::new_err(format!("missing Python callable {name}"))
+        })?;
+        Ok(callable.unbind())
+    };
+
+    Ok(TspWorkloads {
+        fnx_greedy_tsp: callable("fnx_greedy_tsp")?,
+        nx_greedy_tsp: callable("nx_greedy_tsp")?,
+    })
+}
+
+fn tsp_head_to_head(c: &mut Criterion) {
+    Python::initialize();
+    let workloads =
+        Python::attach(prepare_tsp_workloads).expect("failed to prepare TSP Python workloads");
+    let mut group = c.benchmark_group("networkx_head_to_head_tsp");
+    group.sample_size(20);
+
+    bench_python_callable(
+        &mut group,
+        "fnx_greedy_tsp_complete_n250",
+        &workloads.fnx_greedy_tsp,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_greedy_tsp_complete_n250",
+        &workloads.nx_greedy_tsp,
+    );
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
+    tsp_head_to_head,
     construction_copy_head_to_head,
     sticky_edge_dirty_head_to_head,
     clear_edges_head_to_head,

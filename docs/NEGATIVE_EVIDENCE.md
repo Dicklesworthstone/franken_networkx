@@ -8319,3 +8319,81 @@ big-existing fallback all match NetworkX. Conformance: 983 targeted tests
 (add_edges / construction / generators / classes-audit / edge+digraph+multigraph
 parity) pass, 0 failures. Pure-Python change in
 `python/franken_networkx/__init__.py`; no Rust rebuild.
+
+## 2026-06-28 CopperCliff SHIP: greedy_tsp 0.044x->1.43x — native nearest-neighbour TSP kernel de-delegates the O(n^2) fnx->nx conversion tax
+
+The single biggest remaining measured laggard. `fnx.approximation.greedy_tsp`
+had no concrete method, so it went through the `_ApproximationNamespace`
+generic `__getattr__` wrapper, which round-trips the graph through
+`_networkx_graph_for_parity(G)` — a full O(V+E) fnx->nx Graph rebuild that, for
+the dense COMPLETE weighted graph a TSP heuristic operates on, is O(n^2)
+PyObject construction. NetworkX's own `greedy_tsp` is just O(n^2) Python dict
+lookups (cheap), so the conversion alone dominated: greedy_tsp measured
+~0.087-0.10x vs nx (10x slower), worsening with n (fnx 85ms vs nx 8ms at n=300).
+Prior sessions surfaced this as a "de-delegate target" but rejected it as
+conversion-floor-bound, concluding even an in-process Python NN reaches only
+~0.5x (the per-edge weight snapshot is itself O(n^2) Python work) and that a
+numpy argmin "diverges on the many weight ties".
+
+LEVER (radical, safe-Rust): a fully native nearest-neighbour kernel
+`_fnx.greedy_tsp_native` (crates/fnx-python/src/algorithms.rs). It reads the
+edge weights straight from the Rust store into a dense index-space matrix and
+runs the greedy walk entirely in Rust — no PyObject materialization, no nx
+Graph build. The conversion-floor argument only applied to a *Python-side*
+weight snapshot; in Rust the O(n^2) matrix read + O(n^2) walk are native and
+beat nx's O(n^2) Python dict lookups.
+
+BYTE-EXACTNESS WITHOUT REPLICATING nx's SET ORDER: nx breaks ties via
+`min(set(G), key=...)` (first node in Python set-iteration order — unreplicable
+in Rust for arbitrary node types). KEY INSIGHT: when every greedy step has a
+UNIQUE minimal-weight neighbour, the choice is independent of iteration order,
+so the tour == nx for ANY node type. The kernel tracks ties and returns
+`Some(tour)` only when tie-free; on ANY exact-tie step (or multigraph,
+non-numeric weight, incomplete/empty graph, unknown source) it returns `None`
+and the Python wrapper falls back to the faithful nx delegation — reproducing
+nx's exact tours AND errors. Tie-free is the overwhelmingly common case for
+real-valued (distance) weights, so the fast path engages in practice.
+
+Subtle bug found + fixed mid-build: the in-kernel
+`sync_rust_edge_attrs_if_available(g)` (flushes the Python edge-attr mirror to
+the authoritative store, needed because `G.edges[u,v]['weight']=w` is
+store-stale until flushed) MUST run BEFORE `extract_graph(g)` takes its PyRef
+borrow — otherwise the flush's mutable borrow fails with "Already borrowed",
+the helper silently swallows it, the store stays stale (all weights read as the
+default 1.0 -> every step ties -> kernel returns None -> permanent fallback).
+Reordering sync-before-extract (matching `dijkstra_path`) fixed it.
+
+Bench (criterion median, `cargo bench -p fnx-python --bench
+networkx_head_to_head -- greedy_tsp`, complete weighted graph n=250, tie-free
+weights `u*u+v*v+u*v+1`, CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc):
+
+| workload | FNX | NetworkX | ratio vs nx |
+| --- | ---: | ---: | ---: |
+| `greedy_tsp` complete n=250 | `3.4272 ms` | `4.9090 ms` | **1.43x** |
+
+Self-speedup vs the old delegated path measured in the same harness: the
+fallback (stale-store) path ran at `113.83 ms`; native runs at `3.43 ms` =
+~33x self-speedup (criterion `change: -97.0%`). (Bench-loader caveat worth
+recording: `cargo bench` does NOT forward `CARGO_TARGET_DIR` into the bench
+binary's runtime env on this host, so the bench's dynamic-`_fnx`-from-target
+loader silently imported the STALE repo `python/franken_networkx/_fnx.abi3.so`
+and measured the OLD delegated path twice before I noticed — fix: stage the
+freshly built `.so` into the repo package dir, then run the bench binary
+directly with `CARGO_TARGET_DIR` set in the immediate env.)
+
+Correctness: tie-free byte-exactness is order-independent (proved above);
+ties/incomplete/multigraph/non-int/non-numeric all delegate. Conformance:
+`test_tsp_approximation_conformance.py` + `test_approximation_signature_parity.py`
+= 118 passed, 0 failures (incl. the exact-match `greedy_tsp` K_n n=3..8 test,
+valid-Hamiltonian-cycle, single-node trivial tour, and signature parity). A
+500-case adversarial sweep (int + string nodes, directed + undirected, complete
++ incomplete, tie-heavy + tie-free, including the nx-raises error cases) =
+0 mismatches wrapper-vs-nx. Gates: `rustfmt --check` clean on both touched
+files (a pre-existing fmt drift in the peer-owned `digraph.rs` is unrelated and
+untouched). Touches: `crates/fnx-python/src/algorithms.rs` (kernel + helper +
+registration), `python/franken_networkx/__init__.py` (concrete `greedy_tsp`
+method on the approximation namespace), `crates/fnx-python/benches/networkx_head_to_head.rs`
+(new `tsp_head_to_head` group with a baked fnx==nx assert). LEVER (generalizable):
+a delegated heuristic whose only floor is an O(n^2) fnx->nx conversion can be
+WON with a native kernel that returns a verified-byte-exact result on the
+order-independent (tie-free) case and delegates the order-sensitive remainder.

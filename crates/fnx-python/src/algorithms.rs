@@ -780,6 +780,21 @@ fn projected_weight(attrs: &AttrMap, weight_attr: &str) -> f64 {
         .unwrap_or(1.0)
 }
 
+/// Weight reader for the native greedy-TSP kernel. Mirrors NetworkX's
+/// `nbrdict[v].get(weight, 1)`: a present edge with no `weight` attribute is
+/// `1.0`. Returns `None` only when the `weight` attribute IS present but is
+/// non-numeric, which signals the caller to delegate to NetworkX (whose
+/// `min(key=...)` would compare the raw value, not a float).
+fn tsp_edge_weight(attrs: Option<&AttrMap>, weight_attr: &str) -> Option<f64> {
+    match attrs {
+        Some(attrs) => match attrs.get(weight_attr) {
+            Some(raw) => raw.as_f64(),
+            None => Some(1.0),
+        },
+        None => Some(1.0),
+    }
+}
+
 #[derive(Clone)]
 struct MultiMstEdge {
     left: String,
@@ -23056,7 +23071,162 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         edge_current_flow_betweenness_centrality_nx_ordered_rust,
         m
     )?)?;
+    m.add_function(wrap_pyfunction!(greedy_tsp_native, m)?)?;
     Ok(())
+}
+
+/// Native nearest-neighbour greedy TSP heuristic.
+///
+/// Returns `Some(tour)` — the cycle `source .. source` as node-key objects —
+/// only when the result is provably byte-identical to NetworkX's
+/// `approximation.greedy_tsp`: every greedy step must have a UNIQUE
+/// minimal-weight neighbour, so the choice is independent of the iteration
+/// order of NetworkX's `min(set(G), key=...)` tie-break.
+///
+/// Returns `None` to signal the Python wrapper to fall back to the faithful
+/// NetworkX delegation whenever byte-exactness is not guaranteed:
+///   * multigraphs (NetworkX reads `G[u][v]` = `{key: attrs}` whose
+///     `.get(weight)` is always the default),
+///   * a non-numeric weight value on any edge,
+///   * an incomplete graph (NetworkX raises — the fallback reproduces it),
+///   * an unknown or absent-from-graph `source`,
+///   * an empty graph (NetworkX raises — reproduced by the fallback),
+///   * a weight TIE at the chosen step.
+///
+/// This kernel never raises for the NetworkX error cases; it defers them to
+/// the delegation so the exact exception type and message are preserved.
+#[pyfunction]
+#[pyo3(signature = (g, weight="weight", source=None))]
+pub fn greedy_tsp_native(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: &str,
+    source: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Option<Vec<PyObject>>> {
+    // Edge attributes must be authoritative in the Rust store before we read
+    // them by index (a graph built via the Python mirror is store-stale until
+    // flushed). This MUST run before `extract_graph` takes its PyRef borrow —
+    // the flush needs a mutable borrow, which would otherwise fail with
+    // "Already borrowed" and be silently swallowed, leaving the store stale.
+    sync_rust_edge_attrs_if_available(g)?;
+
+    let gr = extract_graph(g)?;
+    // Multigraphs and any non-simple type: delegate (see doc-comment).
+    if gr.is_multigraph() {
+        return Ok(None);
+    }
+
+    let names = gr.nodes_ordered();
+    let n = names.len();
+    if n < 1 {
+        return Ok(None);
+    }
+
+    // Resolve the source index (NetworkX default: first node in iteration
+    // order, i.e. index 0).
+    let source_idx = match source {
+        Some(src) => {
+            let s = node_key_to_string(py, src)?;
+            match names.iter().position(|name| *name == s.as_str()) {
+                Some(idx) => idx,
+                None => return Ok(None),
+            }
+        }
+        None => 0usize,
+    };
+
+    // Dense weight matrix in index space; INFINITY marks a missing edge.
+    // `tsp_edge_weight` returns `None` for a present-but-non-numeric weight,
+    // which forces a delegation fallback (NetworkX would compare the raw
+    // value, not a float).
+    let mut w = vec![f64::INFINITY; n * n];
+    match &gr {
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            for i in 0..n {
+                let Some(nbrs) = inner.neighbors_indices(i) else {
+                    return Ok(None);
+                };
+                for &j in nbrs {
+                    if j == i {
+                        continue;
+                    }
+                    match tsp_edge_weight(inner.edge_attrs_by_indices(i, j), weight) {
+                        Some(value) => w[i * n + j] = value,
+                        None => return Ok(None),
+                    }
+                }
+            }
+        }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            for i in 0..n {
+                let Some(succ) = inner.successors_indices(i) else {
+                    return Ok(None);
+                };
+                for &j in succ {
+                    if j == i {
+                        continue;
+                    }
+                    match tsp_edge_weight(inner.edge_attrs_by_indices(i, j), weight) {
+                        Some(value) => w[i * n + j] = value,
+                        None => return Ok(None),
+                    }
+                }
+            }
+        }
+        _ => return Ok(None),
+    }
+
+    // Completeness (mirror NetworkX, ignoring selfloops): each node must reach
+    // every other node. If not, NetworkX raises — defer to the fallback.
+    for i in 0..n {
+        let row = &w[i * n..i * n + n];
+        let reachable = (0..n).filter(|&j| j != i && row[j].is_finite()).count();
+        if reachable != n - 1 {
+            return Ok(None);
+        }
+    }
+
+    // Nearest-neighbour walk. Bail to the fallback on any exact-tie step so the
+    // returned tour is order-independent and therefore == NetworkX.
+    let mut visited = vec![false; n];
+    visited[source_idx] = true;
+    let mut tour_idx: Vec<usize> = Vec::with_capacity(n + 1);
+    tour_idx.push(source_idx);
+    let mut cur = source_idx;
+    for _ in 0..(n - 1) {
+        let row = &w[cur * n..cur * n + n];
+        let mut best = usize::MAX;
+        let mut best_w = f64::INFINITY;
+        let mut tied = false;
+        for (j, &wj) in row.iter().enumerate() {
+            if visited[j] {
+                continue;
+            }
+            if wj < best_w {
+                best_w = wj;
+                best = j;
+                tied = false;
+            } else if wj == best_w {
+                tied = true;
+            }
+        }
+        if best == usize::MAX || !best_w.is_finite() || tied {
+            return Ok(None);
+        }
+        visited[best] = true;
+        tour_idx.push(best);
+        cur = best;
+    }
+    tour_idx.push(source_idx);
+
+    Ok(Some(
+        tour_idx
+            .iter()
+            .map(|&idx| gr.py_node_key(py, names[idx]))
+            .collect(),
+    ))
 }
 
 #[cfg(test)]

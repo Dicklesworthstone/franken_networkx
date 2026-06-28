@@ -18599,6 +18599,32 @@ class _ApproximationNamespace:
             )
         )
 
+    def greedy_tsp(self, G, weight="weight", source=None, *, backend=None, **backend_kwargs):
+        # Nearest-neighbour greedy TSP heuristic. The generic __getattr__
+        # wrapper round-trips the (dense, complete) weighted graph through
+        # ``_networkx_graph_for_parity`` — an O(n^2) fnx->nx construction tax
+        # that left greedy_tsp the fleet's biggest measured laggard (~0.09x
+        # vs nx). ``_fnx.greedy_tsp_native`` reads the edge weights straight
+        # from the Rust store and runs the nearest-neighbour walk natively,
+        # returning the tour ONLY when it is provably byte-identical to nx:
+        # every greedy step must have a UNIQUE minimal-weight neighbour, so the
+        # choice is independent of nx's ``min(set(G), key=...)`` tie-break
+        # order. It returns ``None`` — and we fall back to the faithful nx
+        # delegation (preserving nx's exact errors) — for multigraphs,
+        # non-numeric weights, incomplete/empty graphs, an unknown source, or
+        # any tie step.
+        _validate_backend_dispatch_keywords("greedy_tsp", backend, backend_kwargs)
+        if backend is None and not backend_kwargs and type(G) in (Graph, DiGraph):
+            try:
+                tour = _fnx.greedy_tsp_native(G, weight, source)
+            except Exception:
+                tour = None
+            if tour is not None:
+                return tour
+        return _nx.approximation.greedy_tsp(
+            _networkx_graph_for_parity(G), weight=weight, source=source
+        )
+
     def __getattr__(self, name):
         nx_func = getattr(_nx.approximation, name)
 
