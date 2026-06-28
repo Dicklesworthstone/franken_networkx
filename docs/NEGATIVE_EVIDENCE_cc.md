@@ -8,6 +8,48 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## DOMAIN MAP + 2 NO-SHIPs + BLOCKER (cc, 2026-06-28): dijkstra/bellman_ford family & flow/matching/operators/traversal sweeps — all wins except the conversion-view materialization wall
+
+Two more fnx-vs-nx sweeps after the closeness win (per-edge add_edge-built, float weights, n=400-500):
+
+SHORTEST-PATH FAMILY (all WINS, leave alone): single_source_dijkstra_path_length 3.0x, _path 3.6x,
+(dist,paths) 3.6x, all_pairs_dijkstra 3.4x, _path 1.2x, all_pairs_bellman_ford_path_length 4.0x,
+ss_bellman_ford_path 4.1x, dijkstra_predecessor 2.0x, harmonic(distance) 1.04x, eccentricity 181x.
+
+FRESH DOMAINS (all WINS): maximum_flow_value 3.65x, minimum_cut_value 2.69x, maximal_matching 9.9x,
+dfs/bfs_tree 3.6x, topological_sort 19x, is_DAG 22x, complement 4.2x, line_graph 4.1x, find_cliques
+1.1x, immediate_dominators 3.4x, greedy_modularity 26x, node_connectivity 17.8x, difference 1.34x,
+compose 1.3x, convert_to_dict_of_lists 1.8x. max_weight_matching 0.956x = the known rebuild
+artifact ([[reference_order_sensitive_rebuild_benchmark_artifact]]), not real.
+
+NO-SHIP #1 (reverted): `single_source_bellman_ford_path_length` 0.868x — has the same all-float
+type-prop pattern as the shipped all_pairs fix ([[reference_all_pairs_dijkstra_float_typeprop_tax]]),
+so I added the all-float skip. ~0 gain (0.868x->0.872x): for SINGLE-source the second (paths)
+kernel + _sp_propagate_int_types walk is negligible (the 497k tax only multiplies in the all-PAIRS
+case, already fixed). The 0.868x is in the bellman_ford kernel itself, not the type-prop. Reverted.
+
+NO-SHIP #2 (reverted): `to_undirected(G).number_of_edges()` 0.063x (fnx 8.0ms vs nx 0.44ms, 16x) —
+the to_undirected VIEW construction is already lazy/O(1) (0.003ms, beats nx); the gap is
+`number_of_edges()` which does `len(self.edges())`, materializing the whole conversion-view edge
+list (per-edge tuple build + reciprocal dedup) in Python. Tried `sum(degree)//2` (nx's formula,
+byte-exact across simple/multi x directed/undirected): STILL 0.055x — `_ConversionGraphViewBase.degree`
+iterates the SAME slow conversion-view `self.adj[node]` (per-node merged succ+pred adjacency rebuilt
+in Python with attr materialization). The bottleneck is the conversion-view ADJACENCY, not the count
+method. Reverted.
+
+BLOCKER (conversion-view materialization wall): _ConversionGraphViewBase (to_undirected/to_directed)
+answers degree/edges/number_of_edges/size/adjacency by synthesizing the merged adjacency in Python
+per node — O(V+E) heavy per-element work vs nx's plain-dict view. Python-unfixable (2 no-gains).
+FIX PATHS for a future native primitive: (a) a native conversion-view adjacency (the real lever,
+benefits all view queries); or (b) narrow: route the undirected view's number_of_edges/size to a
+native count via `undirected_edges = directed_edges - reciprocal_pairs` — fnx already has a native
+`overall_reciprocity` binding (its wrapper computes n_overlap_edge = 2*reciprocal_pairs directly), so
+number_of_edges = D - n_overlap_edge//2 in O(1) after one native O(E) scan. Same wall as
+[[reference_warm_saturation_map_and_coldeig_noise]] / [[reference_algo_domain_mined_out_sweep]]
+(in_edges/nodes(data)/adjacency view-materialization). ALGORITHM vein now broadly MINED — remaining
+vs-nx gaps are this view wall + construction tax (union 0.80x) + scipy/LAPACK (subgraph_centrality
+0.70x, non_randomness 0.87x, [[reference_native_vein_mined_lapack_frontier]]).
+
 ## SHIPPED (cc, 2026-06-28): all_pairs_dijkstra_path_length / closeness_centrality(distance) FLOAT weights 1.0x/0.69x -> 3.76x/3.44x vs nx
 
 A second fnx-vs-nx algo sweep (per-edge add_edge-built, float weights) found weighted
