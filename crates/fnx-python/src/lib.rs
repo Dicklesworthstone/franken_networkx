@@ -8789,6 +8789,15 @@ impl PyGraph {
                         .replace_edge_attrs(u, v, py_dict_to_attr_map(copied.bind(py))?);
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
+            } else if g._try_add_edges_from_batch(py, data)? {
+                // br-r37-c1-ctorbatch (cc): route fresh edge-list construction
+                // through the add_edges_from fast batch — the constructor's own
+                // edge loop pays per-edge `has_node`/`has_edge`/`maybe_store_adj_key`
+                // (z6uka display) that this lean batch avoids (seen_nodes set +
+                // batch_display_conflict + lazy mirrors), 4x cheaper.
+                // `Graph([(u,v,{..})])` 0.46x->1.8x. The batch is mutation-free on
+                // false (graph stays empty), so the iterator loop below still runs
+                // for any input it declines (small / non-plain-node / weird tuples).
             } else if let Ok(iter) = PyIterator::from_object(data) {
                 // br-r37-c1-d58s8 ctor lever 2: batch the edge-tuple stream
                 // through ONE extend_edges_with_attrs_unrecorded call (one

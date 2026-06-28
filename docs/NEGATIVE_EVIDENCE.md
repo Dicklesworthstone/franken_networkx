@@ -8983,3 +8983,35 @@ there is no clean Python-level reroute — the fix is in the Rust `new()` /
 not a floor — unlike the read-side view ops, this is avoidable batch overhead the
 add_edges_from path already eliminated). This is the cleanest remaining 60-min-ish
 win, deferred only for risk; HIGH PRIORITY for a focused next turn.
+
+## 2026-06-28 CopperCliff SHIP: Graph((u,v,attr_dict)) constructor 0.46x->1.585x — route fresh edge-list ctor through the add_edges_from fast batch (lands the 4cb65d10c lever)
+
+Lands the lever surfaced 4cb65d10c. `fnx.Graph([(u,v,{'weight':w}), ...])` (the
+weighted-3-tuple constructor, a very common pattern) was 0.46x vs nx — the
+PyGraph `new()` edge-iterator path paid per-edge `has_node`/`has_edge` +
+`maybe_store_adj_key` (z6uka display) + eager `edge_key`-String mirror that
+`add_edges_from`'s fast batch avoids (seen_nodes set + batch_display_conflict +
+lazy mirrors).
+
+FIX (ONE branch in PyGraph::new(), lib.rs:8792): before the slow iterator loop,
+try `g._try_add_edges_from_batch(py, data)` — the SAME native batch the Python
+`add_edges_from` uses (plain 2-tuple batch, then attr 3-tuple batch). It's gated
+to a fresh graph + plain int/str nodes and is MUTATION-FREE on `false`, so the
+existing iterator loop still owns every input it declines (small lists, non-plain
+nodes, weird tuples, 3-tuples whose 3rd elem isn't a dict).
+
+Result: **0.46x -> 1.585x** (fnx 2.89ms vs nx 4.58ms, 8000 weighted edges) — a
+WIN, beating nx (the batch eliminates the per-edge overhead). BONUS: the batch
+leaves the graph PRISTINE (lazy mirror), so constructor-built graphs now hit the
+read-side store-read fast paths too (edges(data=weight) 0.28ms — the add_edge
+non-pristine penalty from c7d5eaab0 is avoided for ctor-built graphs). Byte-exact:
+0/400 adversarial (mixed 2/3-tuple, attrs, self-loops, dups), G[u][v] dict
+identity stable + mutation works, str-node ctors fall back correctly. Conformance:
+273 constructor-specific tests (test_construction_metamorphic_guard /
+test_constructor_absorb_conformance_guard / test_cross_class_ctor_parity /
+test_ctor_str_and_third_element_parity / test_dict_of_list_constructor_parity /
+test_digraph_copy_ctor_parity) + 211 attr/edge tests pass (the 3
+TestFindInducedNodesParity failures are pre-existing peer no-fallback contract
+violations, unrelated). FOLLOW-UP: apply the same one-branch fix to PyDiGraph /
+PyMultiGraph / PyMultiDiGraph `new()` (symmetric; each has its own
+`_try_add_edges_from_batch`/`_try_add_attr_edges_from_batch`).
