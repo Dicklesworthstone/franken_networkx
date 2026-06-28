@@ -9461,3 +9461,25 @@ case = huge dense closures where the final 89k-edge add_edges_from dominates —
 a 1.4x self-improvement). LEVER: an in-process kernel that reads a MUTATING fnx
 graph per-node pays PyO3 per access; snapshot the adjacency into Python once + keep
 it in sync + defer the single batch mutation to the end.
+
+## 2026-06-28 CopperCliff SHIP: parse_pajek 0.66x->0.91x — batch node/edge construction (kill per-element add)
+
+readwrite sweep found parse_pajek consistently 0.66x vs nx (across seeds). It is a
+pure-Python parser (not delegated): the bottleneck was per-NODE `add_node` +
+`nodes[label][...]` PyO3 attr writes and per-EDGE `add_edge` in the parse loops
+(the `graph_as` type-conversions run BEFORE edges exist, so they are cheap). Fix
+(br-cc-pajekbatch, PURE-PYTHON): build each node's attr dict locally and commit all
+nodes in ONE `add_nodes_from`; accumulate parsed edges and commit them in ONE
+`add_edges_from` (per loop). Same attr keys/order + multigraph key assignment, so
+the parsed graph is byte-IDENTICAL (0/45 adversarial: undirected/directed/multi,
+weights, parallel edges, node attrs == nx; 27 pajek conformance tests pass).
+
+Measured 0.66x -> **0.91x** (1.37x self-speedup, n=800). NEAR-PARITY, not yet a
+head-to-head win: the residual is the keyed-edge Multi(Di)Graph store substrate
+(parse_pajek builds a MultiDiGraph/MultiGraph; even batched, the String-keyed
+multi-edge inserts trail nx's native dicts — the same floor as MG dijkstra/size).
+Shipped as strict per-element work-removal (identical output, real 1.37x self-gain);
+crossing >1x needs the index-based MG storage primitive. parse_graphml (0.73x,
+delegates to nx's XML parser — de-delegation = rewriting an XML parser, not worth
+it) and barabasi_albert (0.79x, RNG `rng.choice` rejection loop = pure-Python,
+identical to nx, unbeatable without breaking byte-exactness) are NOT takeable.
