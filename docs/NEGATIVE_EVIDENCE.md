@@ -8791,3 +8791,33 @@ finalized v) so finalize_order is bit-identical for ALL structures, not just gnp
 This is a fnx-algorithms kernel change (TealSpring's lib.rs), not a wrapper/
 binding lever — confirmed NOT a 60-min safe win. Voronoi (bcd6c7c17) remains the
 only weighted multi-source consumer that's de-delegatable (order-insensitive).
+
+## 2026-06-28 CopperCliff DEFINITIVE: multi_source_dijkstra weighted finalize-order is a KERNEL push-sequence bug on DENSE graphs (supersedes the 8b2949932/1dd22870f hypotheses)
+
+Re-attempted the weighted multi_source_dijkstra_path_length de-delegation with
+the corrected understanding (NO `_reorder_by_distance` — the kernel emits
+finalize order; gate to INTEGER weights — float/mixed need per-path int-typing).
+Built the length-only native binding (skips paths_dict), verified 0/500 vs nx on
+gnp/watts SPARSE graphs (dir+undir, unweighted+int), measured 0.20x -> 0.71x
+(n=200) / 1.01x (n=400), a 5x self-improvement. BUT it FAILED
+test_dicsr_cache_parity::test_multi_source_dijkstra_directed_finalize_order and
+was REVERTED.
+
+DEFINITIVE ROOT CAUSE (supersedes both earlier entries): the divergence is a
+genuine KERNEL push-sequence bug, NOT my wrapper reorder (8b2949932) and NOT an
+adjacency-order construction artifact (1dd22870f). Reproduced: conformance trial
+18 (undirected Graph, INTEGER weights, n<20, ~50 edge-adds = DENSE) — fnx and nx
+graphs built by IDENTICAL add_edge sequence have IDENTICAL adjacency order
+(0 neighbor-order mismatches) and IDENTICAL node order, yet the kernel finalizes
+two distance-4 tie nodes (8, 9) in the opposite order from nx. The `DijkstraState`
+Ord is correct (min-heap on (dist, seq), FIFO smallest-seq-first tie-break), so
+the bug is a subtler cascading push-sequence difference that only manifests on
+DENSE tie-heavy weighted graphs (sparse gnp/watts at 0/500 never trigger it — a
+test-coverage trap: validate kernel order on DENSE small graphs, not just sparse).
+The current code DELEGATES all weighted multi_source to nx precisely to avoid
+this; the kernel's weighted finalize order has never been on the hot path, so the
+bug was latent. NO cheap gate exists ("dense" isn't detectable without running
+the algorithm), so the de-delegation stays BLOCKED. The fix must be in the
+fnx-algorithms kernel push sequence (make it bit-identical to nx's next(c) order
+for dense graphs) — a deep, deferred kernel change. Voronoi (bcd6c7c17) remains
+the only de-delegatable weighted multi-source consumer (order-insensitive).
