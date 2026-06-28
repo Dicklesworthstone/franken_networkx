@@ -9501,3 +9501,14 @@ the String-keyed Multi(Di)Graph store (MG dijkstra/size/degree/connected_compone
 pajek-parse). Index-based Multi(Di)Graph adjacency in fnx-classes/CGSE is the single
 remaining real lever; it is a coordinated multi-session storage change, not a
 60-minute patch. Clean per-function algorithmic wins are mined out.
+
+## 2026-06-28 CopperCliff SURFACE: min-cost-flow / cycles / dominance / distance — all at-or-above nx
+
+Fresh-area sweep. All win-or-parity: min_cost_flow 2.6x, min_cost_flow_cost 2.4x,
+network_simplex 1.85x, capacity_scaling 13.7x, cycle_basis 2.73x, find_cycle 6.1x,
+recursive_simple_cycles 2.6x, minimum_cycle_basis (nx TIMEOUT), immediate_dominators
+1.76x, greedy_color(largest_first) 7.3x, edge_betweenness 29.5x, eccentricity/center/
+periphery/radius/wiener_index 14-15x, barycenter 14x; simple_cycles 1.01x /
+dominance_frontiers 1.05x parity. No gap. (~24 dimensions surveyed this session;
+every residual remains the String-keyed Multi(Di)Graph store — the index-based MG
+adjacency primitive in fnx-classes/CGSE is the sole remaining real lever.)
