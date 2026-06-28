@@ -23208,90 +23208,93 @@ pub fn greedy_tsp_native(
         None => 0usize,
     };
 
-    // Dense weight matrix in index space; INFINITY marks a missing edge.
-    // `tsp_edge_weight` returns `None` for a present-but-non-numeric weight,
-    // which forces a delegation fallback (NetworkX would compare the raw
-    // value, not a float).
-    let mut w = vec![f64::INFINITY; n * n];
-    match &gr {
-        GraphRef::Undirected(pg) => {
-            let inner = &pg.inner;
-            for i in 0..n {
-                let Some(nbrs) = inner.neighbors_indices(i) else {
-                    return Ok(None);
-                };
-                for &j in nbrs {
-                    if j == i {
-                        continue;
-                    }
-                    match tsp_edge_weight(inner.edge_attrs_by_indices(i, j), weight) {
-                        Some(value) => w[i * n + j] = value,
-                        None => return Ok(None),
-                    }
-                }
-            }
-        }
-        GraphRef::Directed { dg, .. } => {
-            let inner = &dg.inner;
-            for i in 0..n {
-                let Some(succ) = inner.successors_indices(i) else {
-                    return Ok(None);
-                };
-                for &j in succ {
-                    if j == i {
-                        continue;
-                    }
-                    match tsp_edge_weight(inner.edge_attrs_by_indices(i, j), weight) {
-                        Some(value) => w[i * n + j] = value,
-                        None => return Ok(None),
-                    }
-                }
-            }
-        }
-        _ => return Ok(None),
+    // Lazy nearest-neighbour walk with a cheap early bail. The previous version
+    // built a dense O(n^2) weight matrix and ran a separate O(n^2) completeness
+    // scan BEFORE the walk, so a single tie (common for integer-weighted
+    // complete graphs) still cost a full O(n^2) of per-edge store reads before
+    // returning None — and the Python fallback then redid the work, leaving
+    // greedy_tsp at ~0.3-0.9x vs nx on the tie path. Instead we walk lazily,
+    // reading only the current node's neighbour weights each step, and bail at
+    // the FIRST tie. The Python in-process fallback then resolves ties
+    // byte-exactly via CPython set-iteration order. On a tie the walk exits
+    // after O(n) work; the unique-min path still reads every row once and
+    // returns the native tour, so the (no-tie) fast path is unchanged.
+    //
+    // Completeness (nx raises NetworkXError for incomplete graphs, ignoring
+    // selfloops) is verified per node via its distinct-neighbour count == n-1:
+    // every node is checked as it becomes `cur`, plus the final node's row.
+    // Any incompleteness returns None so the fallback reproduces nx's exact
+    // exception. n < 3 is deferred to the fallback (negligible cost; exact
+    // 0/1/2-node and error contracts).
+    if n < 3 {
+        return Ok(None);
     }
-
-    // Completeness (mirror NetworkX, ignoring selfloops): each node must reach
-    // every other node. If not, NetworkX raises — defer to the fallback.
-    for i in 0..n {
-        let row = &w[i * n..i * n + n];
-        let reachable = (0..n).filter(|&j| j != i && row[j].is_finite()).count();
-        if reachable != n - 1 {
-            return Ok(None);
-        }
-    }
-
-    // Nearest-neighbour walk. Bail to the fallback on any exact-tie step so the
-    // returned tour is order-independent and therefore == NetworkX.
     let mut visited = vec![false; n];
     visited[source_idx] = true;
     let mut tour_idx: Vec<usize> = Vec::with_capacity(n + 1);
     tour_idx.push(source_idx);
     let mut cur = source_idx;
-    for _ in 0..(n - 1) {
-        let row = &w[cur * n..cur * n + n];
-        let mut best = usize::MAX;
-        let mut best_w = f64::INFINITY;
-        let mut tied = false;
-        for (j, &wj) in row.iter().enumerate() {
-            if visited[j] {
-                continue;
+
+    macro_rules! greedy_walk {
+        ($inner:expr, $nbrs_of:ident) => {{
+            let inner = $inner;
+            for _ in 0..(n - 1) {
+                let Some(nbrs) = inner.$nbrs_of(cur) else {
+                    return Ok(None);
+                };
+                let mut best = usize::MAX;
+                let mut best_w = f64::INFINITY;
+                let mut tied = false;
+                let mut degree_excl_self = 0usize;
+                for &j in nbrs {
+                    if j == cur {
+                        continue;
+                    }
+                    degree_excl_self += 1;
+                    if visited[j] {
+                        continue;
+                    }
+                    let wj = match tsp_edge_weight(inner.edge_attrs_by_indices(cur, j), weight)
+                    {
+                        Some(value) => value,
+                        None => return Ok(None),
+                    };
+                    if wj < best_w {
+                        best_w = wj;
+                        best = j;
+                        tied = false;
+                    } else if wj == best_w {
+                        tied = true;
+                    }
+                }
+                // Incomplete graph at `cur` (nx raises) -> defer to the fallback.
+                if degree_excl_self != n - 1 {
+                    return Ok(None);
+                }
+                if best == usize::MAX || tied {
+                    return Ok(None);
+                }
+                visited[best] = true;
+                tour_idx.push(best);
+                cur = best;
             }
-            if wj < best_w {
-                best_w = wj;
-                best = j;
-                tied = false;
-            } else if wj == best_w {
-                tied = true;
+            // The final node's row is never read in the loop; verify it is also
+            // complete so an incomplete graph never yields a native tour.
+            let Some(last_nbrs) = inner.$nbrs_of(cur) else {
+                return Ok(None);
+            };
+            if last_nbrs.iter().filter(|&&j| j != cur).count() != n - 1 {
+                return Ok(None);
             }
-        }
-        if best == usize::MAX || !best_w.is_finite() || tied {
-            return Ok(None);
-        }
-        visited[best] = true;
-        tour_idx.push(best);
-        cur = best;
+        }};
     }
+
+    match &gr {
+        GraphRef::Undirected(pg) => greedy_walk!(&pg.inner, neighbors_indices),
+        GraphRef::Directed { dg, .. } => greedy_walk!(&dg.inner, successors_indices),
+        _ => return Ok(None),
+    }
+
     tour_idx.push(source_idx);
 
     Ok(Some(

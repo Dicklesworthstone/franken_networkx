@@ -9066,3 +9066,54 @@ across the session: every batch-routable construction gap is now closed (the
 `Type((u,v,dict))` ctor family was the last one); the construction/conversion/
 generator/utility surface is mined. No 60-min win remains there — the residual
 is the persistent-Python-object / integer-keyed substrate primitive.
+
+## 2026-06-28 CopperCliff SHIP: greedy_tsp TIE path 0.05-0.9x->1.3-1.4x — native kernel now bails O(n) on a tie + in-process fallback (the float no-tie path stays native 1.7-4x)
+
+The directive's flagged win — greedy_tsp 0.044x->1.43x (native nearest-neighbour
+kernel, de-delegates the O(n^2) fnx->nx conversion) — only covered the
+**unique-min** case. The native kernel returns None whenever ANY greedy step has
+a weight TIE (two neighbours sharing the minimal weight), because nx's tie-break
+is `min(nodeset, key=...)` over CPython **set-iteration order** which the Rust
+kernel cannot replicate. Ties are the COMMON case for integer-weighted complete
+graphs (e.g. `randint(1,30)` on n>=40 ties at step 1 almost surely). On that
+bail path greedy_tsp fell ALL the way back to `_networkx_graph_for_parity(G)` (an
+O(n^2) graph build) PLUS nx's own O(n^2) AtlasView loop — measured **0.083x @
+n=60, 0.052x @ n=150, 0.31x @ n=250** (the regression GREW with n).
+
+Two-part fix, both byte-exact:
+
+1. **Python in-process fallback** (`__init__.py greedy_tsp`, br-cc-tsptie): when
+   the native kernel returns None, run nx's EXACT algorithm in-process over a
+   single `dict(G.adjacency())` snapshot instead of converting to nx. The
+   tie-break `min(nodeset, key=...)` iterates a real CPython `set` over the SAME
+   node objects, so it resolves ties EXACTLY as nx (the same trick large_clique_size
+   / node_connectivity use). Skips the nx-graph construction and the AtlasView tax.
+
+2. **Cheap native bail** (`algorithms.rs greedy_tsp_native`): the OLD kernel built
+   a dense O(n^2) weight matrix + ran a separate O(n^2) completeness scan BEFORE
+   the walk, so a single tie still cost a full O(n^2) of per-edge store reads
+   before returning None — which the Python fallback then REDID (the double-O(n^2)
+   that made n=250 regress to 0.31x). Rewrote it as a LAZY walk: read only the
+   current node's neighbour weights each step, bail at the FIRST tie (O(n) on the
+   tie path). Completeness is verified per-node via its distinct-neighbour count
+   == n-1 (each node as it becomes `cur`, plus the final node), so an incomplete
+   graph never yields a native tour — nx's `NetworkXError` is reproduced by the
+   fallback. n<3 deferred to the fallback (exact 0/1/2-node + error contracts).
+   The no-tie float path now also does ONE store-read pass (was matrix-build +
+   2 matrix passes), so it is unchanged-to-faster.
+
+Measured (complete graph, min-of-25, gc off):
+- INT weights (tie path): n=100 **1.42x**, n=200 1.42x, n=250 1.37x, n=400 1.32x
+  (was 0.05-0.9x — the conversion tax is GONE).
+- FLOAT weights (native no-tie path): n=100 **3.9x**, n=200 3.56x, n=250 1.72x,
+  n=300 2.49x, n=400 1.84x (maintained/improved; NOT regressed).
+
+Byte-exact: 0/3360 adversarial (n=1..40, directed+undirected, int+float weights,
+heavy-tie weight ranges, varied/None source) == nx on the returned tour; all
+error contracts match (incomplete -> NetworkXError, empty -> StopIteration,
+bad-source -> KeyError, weight=None, directed-incomplete). Conformance: 118
+test_tsp_approximation_conformance + test_approximation_signature_parity pass;
+4593 passed / 0 failed across the approximation/connectivity/clique/dominating
+surface. LEVER: a native fast-path kernel that BAILS on a hard case must bail
+CHEAPLY (O(n), lazy) — an O(n^2) bail that the Python fallback then repeats is a
+hidden double-cost that grows with n.
