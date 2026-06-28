@@ -9312,3 +9312,34 @@ and JAX's float results diverge from scipy (default float32; even float64 differ
 runtime dep is also an architecture decision, not a perf patch. NET: the
 safe-Rust-ceiling zone is mined — fnx already wins it via native expm/eigsolver
 + faster matrix builds. No 60-min lever here.
+
+## 2026-06-28 CopperCliff SHIP (strict work-removal, NOT yet a win): MultiGraph weighted dijkstra projection 0.13x->0.30x — borrowed edges + unrecorded bulk add
+
+Large-scale + multigraph sweep found the biggest remaining real gap:
+`single_source_dijkstra_path_length` on a weighted MultiGraph at **0.13x** vs nx
+(n=5000/15k edges: fnx 153-233ms vs nx 18-30ms; n=10000: 0.11x). The dijkstra is
+the fast simple-graph kernel; the cost is `multigraph_to_weighted_simple_graph`
+(the min-parallel-weight projection, REBUILT every call, not cached). The old body
+called `mg.edges_ordered()` TWICE (each deep-clones every parallel edge to an owned
+MultiEdgeSnapshot: String endpoints + AttrMap) then added survivors via per-edge
+`add_edge_with_attrs` (each pushes a change-ledger entry).
+
+FIX (br-cc-mgproj, algorithms.rs): iterate `edges_ordered_borrowed()` ONCE (no
+per-edge clones), select the min-weight parallel edge per pair, bulk
+`extend_edges_with_attrs_unrecorded` the survivors (no ledger). Only SELECTED edges'
+attrs cloned. Byte-IDENTICAL output (same nodes/attrs, same survivor edges in same
+order, same apply_row_orders) so every consumer (dijkstra path/length, bellman_ford,
+all-pairs) is unchanged. Verified 0/120 == nx; 4366 shortest-path/multigraph tests
+pass. Measured **0.13x->0.30x** (n=5000) / 0.11x->0.28x (n=10000) — 2.3-2.5x self.
+
+HONEST STATUS: still ~0.3x vs nx — a strict 2.3x work-removal, NOT a head-to-head
+win. The Graph-projection approach has a ceiling BELOW nx: building a whole Graph
+per call (even structure-only: O(V+E) node+edge inserts) is inherently heavier
+than nx's single direct multigraph walk (min-over-parallel-edges weight function
+applied during relaxation). Shipped anyway because it is strict work-removal of
+genuine waste (2x deep clones + per-edge ledger) producing identical output — the
+"strict work-removal is shippable on mechanistic grounds" rule, unlike the MG
+size(weight) NET-NEW binding that was reverted. THE PATH TO A WIN: a native
+multigraph dijkstra kernel that runs on the MG store directly (integer CSR +
+min-parallel-weight, no Graph construction) — documented next lever for MG-weighted
+shortest paths.

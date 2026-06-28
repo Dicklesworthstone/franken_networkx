@@ -919,37 +919,52 @@ fn multigraph_to_weighted_simple_graph(
 ) -> fnx_classes::Graph {
     let runtime_policy = mg.runtime_policy().clone();
     let mut g = fnx_classes::Graph::with_runtime_policy(runtime_policy.clone());
-    let mut selected = HashMap::<(String, String), (f64, usize)>::new();
 
     for node in mg.nodes_ordered() {
         let attrs = mg.node_attrs(node).cloned().unwrap_or_default();
         g.add_node_with_attrs(node.to_owned(), attrs);
     }
 
-    for edge in mg.edges_ordered() {
-        let pair = (edge.left.clone(), edge.right.clone());
-        let candidate_weight = projected_weight(&edge.attrs, weight_attr);
-        match selected.get_mut(&pair) {
+    // br-cc-mgproj: the old body called `mg.edges_ordered()` TWICE — each clones
+    // every parallel edge into an owned MultiEdgeSnapshot (String endpoints +
+    // AttrMap) — and then added the survivors via per-edge `add_edge_with_attrs`
+    // (each pushing a change-ledger entry). On a 5k-node / 18k-edge weighted
+    // multigraph that made `single_source_dijkstra_path_length` ~0.12x vs nx
+    // (the projection, rebuilt every call, dominated; the dijkstra itself is the
+    // fast simple-graph kernel). Iterate the BORROWED edge list once (no per-edge
+    // clones), pick the minimum-weight parallel edge per endpoint pair, then bulk
+    // `extend_edges_with_attrs_unrecorded` the survivors (skips the per-edge
+    // ledger). Only the SELECTED edges' attrs are cloned (<= edge_count), versus
+    // 2x every-parallel-edge before. The produced graph is byte-identical: same
+    // node set/attrs, same survivor edges added in the same `edges_ordered`
+    // order, and the same `apply_row_orders` override — so every consumer
+    // (dijkstra path/length, bellman_ford, all-pairs, ...) is unchanged.
+    let borrowed = mg.edges_ordered_borrowed();
+    let mut selected = HashMap::<(&str, &str), (f64, usize)>::with_capacity(borrowed.len());
+    for &(left, right, key, attrs) in &borrowed {
+        let candidate_weight = projected_weight(attrs, weight_attr);
+        match selected.get_mut(&(left, right)) {
             Some((best_weight, best_key)) if candidate_weight < *best_weight => {
                 *best_weight = candidate_weight;
-                *best_key = edge.key;
+                *best_key = key;
             }
             None => {
-                selected.insert(pair, (candidate_weight, edge.key));
+                selected.insert((left, right), (candidate_weight, key));
             }
             _ => {}
         }
     }
 
-    for edge in mg.edges_ordered() {
-        let pair = (edge.left.clone(), edge.right.clone());
+    let mut survivors: Vec<(String, String, AttrMap)> = Vec::with_capacity(selected.len());
+    for &(left, right, key, attrs) in &borrowed {
         if selected
-            .get(&pair)
-            .is_some_and(|(_, selected_key)| *selected_key == edge.key)
+            .get(&(left, right))
+            .is_some_and(|(_, selected_key)| *selected_key == key)
         {
-            let _ = g.add_edge_with_attrs(edge.left, edge.right, edge.attrs);
+            survivors.push((left.to_owned(), right.to_owned(), attrs.clone()));
         }
     }
+    g.extend_edges_with_attrs_unrecorded(survivors);
 
     g.apply_row_orders(&mg_row_orders(mg)); // restore source row orders (u-major walk hoists)
     g.set_runtime_policy(runtime_policy);
