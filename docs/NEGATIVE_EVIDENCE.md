@@ -8894,3 +8894,33 @@ test_shortest_path, voronoi parity) + cutoff/target/float-delegate edge cases
 verified. The entire weighted multi-source family
 (path_length/path/dist+path) is now de-delegated for integer weights — only the
 float/mixed per-node-int-typing case remains delegated.
+
+## 2026-06-28 CopperCliff weighted-input frontier sweep — shortest-path/flow/matching/community all at-or-above nx (the multi-source family resolution closed the last real shortest-path vein)
+
+After resolving the entire weighted multi-source family (path_length/path/dist
+3e87e6fab+88f8772c8, 2.2-4.8x), swept the rest of the weighted-input surface for
+the next gap. RESULT: all at-or-above nx (vendored oracle). Representative ratios:
+
+- shortest-path: single_source_dijkstra 5.08x, single_source_dijkstra_path 4.78x,
+  single_source_bellman_ford 2.72x, all_pairs_bellman_ford_path 2.83x, johnson
+  3.09x, floyd_warshall 38.6x, bellman_ford_path 4.02x, goldberg_radzik 1.30x;
+  NEAR-PARITY: floyd_warshall_numpy 1.16x, negative_edge_cycle 1.08x.
+  dijkstra_path is 5-6.6x (single-pair; paths byte-exact 0/297 even on dense — the
+  dijkstra_*_projection rebuild is NOT a perf problem there since it doesn't
+  delegate).
+- flow: max_flow 4.66x, min_cut 3.00x, mincost_flow 1.80x, stoer_wagner 9.87x.
+- matching/MST/community: max_weight_matching 1.08x, min_spanning_tree(w) 2.24x,
+  pagerank(weighted) 2.80x, mincost 1.8x; NEAR-PARITY (order/seed-locked, not
+  gaps): louvain_weighted 0.77x, min_weight_matching 0.83x (blossom order-lock),
+  greedy_modularity 0.94x.
+
+The `_mst_has_weight_edge_attr` weighted-delegation gate (the multi-source
+blocker) had only two consumers — multi_source (de-delegated 88f8772c8) and
+voronoi (de-delegated bcd6c7c17) — both now resolved; the lever is fully applied.
+The dijkstra_*_projection rebuild-reorder bug only mattered for the DELEGATED
+multi-source family (where it shifted finalize order); the non-delegated
+dijkstra_path family was never affected (single path, byte-exact). NET: the
+weighted shortest-path / flow / matching / community surface is mined — fnx at-
+or-above nx everywhere measured. The only sub-1.0x residuals are order/seed-locked
+(louvain, blossom matching) or the covered read-side PyObject-materialization view
+ops (lazy-view primitive) — no 60-min wins remain in the weighted-input surface.
