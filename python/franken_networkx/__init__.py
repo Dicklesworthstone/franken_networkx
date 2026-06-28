@@ -42413,6 +42413,28 @@ class _ConversionGraphViewBase:
         return ((node, self.adj[node]) for node in self)
 
     def degree(self, nbunch=None, weight=None):
+        # br-cvundeg (cc): the whole-graph unweighted degree of an UNDIRECTED view
+        # of a simple DiGraph routes to the native merged succ∪pred count (node
+        # order) instead of iterating the Python-synthesized conversion-view
+        # adjacency per node (which materializes attr dicts) — ~19x slower than nx.
+        # Same native sequence that backs number_of_edges; weighted / nbunch /
+        # multigraph / other conversions fall through to the generic path below.
+        if (
+            nbunch is None
+            and weight is None
+            and not self.is_directed()
+            and not self.is_multigraph()
+        ):
+            src = self._graph
+            if (
+                getattr(src, "is_directed", None)
+                and src.is_directed()
+                and not src.is_multigraph()
+            ):
+                native = getattr(src, "_native_undirected_degree_counts", None)
+                if native is not None:
+                    return zip(self, native())
+
         def edge_weight(attrs):
             return attrs.get(weight, 1)
 

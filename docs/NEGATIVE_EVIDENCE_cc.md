@@ -8,6 +8,20 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## SHIPPED (cc, 2026-06-28): to_undirected-view degree() (weight=None) 0.053x -> 4.63x vs nx — reuse the native undirected degree count
+
+Follow-up on the same conversion-view wall: `dict(to_undirected(DiGraph).degree())` was 0.053x vs nx
+(fnx 8.0ms vs nx 0.44ms, 19x) — `_ConversionGraphViewBase.degree` iterates the Python-synthesized
+per-node conversion-view adjacency (materializing attr dicts) per node. Route the whole-graph
+unweighted case (nbunch=None, weight=None, undirected view of simple DiGraph) to `zip(self,
+_native_undirected_degree_counts())` — the SAME native foundation shipped for number_of_edges
+(5c87ad2d7). RESULT (n=400): dict(degree()) fnx 0.097ms vs nx 0.447ms = 4.63x FASTER (was 0.053x;
+~87x self). PARITY exact over 6 seeds incl reciprocal+self-loops; weighted/single-node/nbunch all
+fall through unchanged + verified == nx. PURE-PYTHON (native already in the .so). Conformance: 5718
+passed (conversion/view/degree/operator suite; only the pre-existing gexf-classification meta-fail).
+Remaining on this view: edges() iteration 5x, adjacency() 3.7x (need native undirected edge/adj
+emit — next).
+
 ## SHIPPED (cc, 2026-06-28): to_undirected-view number_of_edges/size 0.063x -> 8.69x vs nx — native undirected degree count (first crack in the conversion-view wall)
 
 The conversion-view materialization wall (flagged as the next-lever blocker in SWEEP 4 below) — its
