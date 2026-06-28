@@ -8618,3 +8618,43 @@ ORDER-load-bearing for an ordered-dict return can still be safely bypassed for a
 SIBLING consumer that aggregates the same kernel output order-insensitively
 (sets / counts / sums) — check the RETURN type's order-sensitivity per consumer,
 not per kernel.
+
+## 2026-06-28 CopperCliff frontier sweep — ~45 functions across 9 domains all AT-OR-ABOVE nx; no new clean lever (post greedy/SA/TA/voronoi session)
+
+After landing greedy_tsp (1.43x), simulated_annealing_tsp (2.44x),
+threshold_accepting_tsp (2.87x) and voronoi_cells-weighted (1.4x), ran five
+broad measured sweeps to find the next gap. RESULT: every function measured is
+at-or-above nx (vendored oracle, not backend-dispatched). No new sub-0.6x gap
+with a clean lever exists in the swept space. Representative ratios (fnx/nx):
+
+- distance/all-pairs: all_pairs_dijkstra_path_length 2.64x, all_pairs_bellman_ford_pl
+  2.43x, all_pairs_dijkstra_path 1.08x, average_shortest_path_length(w) 4.68x,
+  eccentricity(w) 2.97x, closeness_vitality(all) 14.6x, global_efficiency 22.8x.
+- single-pair/path-enum: astar_path 4.15x, astar_path_length 4.33x,
+  all_shortest_paths 2.57x, all_simple_paths(cutoff) 1.44x,
+  bidirectional_shortest_path 3.65x, resistance_distance(pair) 100x,
+  shortest_simple_paths 0.80x (Yen generator, order-sensitive — near parity).
+- DAG/directed: transitive_reduction 0.92x (near parity), dag_longest_path 2.10x,
+  topological_generations 2.56x, condensation 2.79x, attracting_components 5.39x,
+  reciprocity 11.3x, overall_reciprocity 9.31x, descendants/ancestors 1.2-1.3x.
+- centrality/community: pagerank 1.97x, katz_centrality 18.3x,
+  second_order_centrality 72x, harmonic_centrality 20.7x, percolation 6.78x,
+  global_reaching 2.90x, edge_connectivity 2.41x, dominance_frontiers 2.44x,
+  immediate_dominators 3.78x, min_weighted_dominating_set 1.35x.
+- cycle/color/misc: cycle_basis 2.36x, greedy_color(largest_first) 7.73x,
+  find_cycle 1.17x, local_bridges 6.33x, chain_decomposition 7.22x,
+  minimum_spanning_arborescence 3.35x, voterank 1.97x, communicability 21.5x.
+- DISPATCH TRAPS noted (not real gaps): simrank_similarity 0.998x and
+  panther_similarity 1.000x — nx dispatches these through the fnx backend, so
+  "nx" is fnx-backed; ignore (reference_nx_backend_dispatch_benchmark_trap).
+
+The audit of OTHER order-insensitive consumers of the weighted multi-source
+delegation (the voronoi sibling lever) is exhausted: the only consumers in
+__init__.py are voronoi_cells (shipped) and the multi_source_dijkstra path/length
+variants themselves (parked br-r37-c1-86xx9 tie-break). The ONLY remaining
+sub-0.6x residuals are (a) the covered per-element PyObject-materialization view
+ops (mdg in_edges(keys,data) ~0.40x, mg selfloop_keys_weight ~0.35x — need the
+architectural lazy-view / persistent-ordered-mirror primitive, NOT kernel work)
+and (b) the parked weighted multi-source finalize-order tie-break (needs a Rust
+kernel order fix). Both are large levers, not 60-min wins. Recorded so the fleet
+stops re-sweeping these domains.
