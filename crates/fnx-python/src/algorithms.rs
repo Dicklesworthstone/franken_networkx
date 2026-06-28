@@ -3866,7 +3866,14 @@ pub fn multi_source_dijkstra(
     sources: &Bound<'_, PyAny>,
     weight: &str,
 ) -> PyResult<(PyObject, PyObject)> {
-    sync_rust_attrs_for_non_simple(g)?;
+    // br-r37-c1-msd-projfix (cc): sync the Python edge-attr mirror to the store
+    // (for simple graphs too) and run the kernel on the BORROWED ORIGINAL graph
+    // (`weighted_*_projection`) rather than the REBUILT `dijkstra_*_projection`,
+    // whose adjacency-reordering rebuild made the finalize order diverge from nx
+    // on dense graphs (see multi_source_dijkstra_path_length resolution). The
+    // borrow also drops the per-call O(E) rebuild. Identical to how
+    // single_source_dijkstra binds.
+    sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
     let iter = pyo3::types::PyIterator::from_object(sources)?;
     let mut source_strs = Vec::new();
@@ -3885,9 +3892,7 @@ pub fn multi_source_dijkstra(
     }
     let source_refs: Vec<&str> = source_strs.iter().map(String::as_str).collect();
 
-    let result = if let Some(weighted_projection) =
-        gr.dijkstra_weighted_digraph_projection(py, weight)?
-    {
+    let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
         {
             let __wp = weighted_projection.as_ref();
             py.allow_threads(|| {
@@ -3895,7 +3900,7 @@ pub fn multi_source_dijkstra(
             })
         }
     } else {
-        let weighted_projection = gr.dijkstra_weighted_undirected_projection(py, weight)?;
+        let weighted_projection = gr.weighted_undirected_projection(weight);
         {
             let __wp = weighted_projection.as_ref();
             py.allow_threads(|| fnx_algorithms::multi_source_dijkstra(__wp, &source_refs, weight))

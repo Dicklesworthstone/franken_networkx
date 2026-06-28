@@ -8863,3 +8863,34 @@ the reference ONLY on dense/tie-heavy inputs (sparse tests pass — coverage tra
 Prefer sync+BORROW the original graph over a rebuilt projection for
 order-sensitive kernels. Audit other `dijkstra_*_projection` consumers
 (dijkstra_path tie-break paths) for the same latent reorder.
+
+## 2026-06-28 CopperCliff SHIP: multi_source_dijkstra + multi_source_dijkstra_path 0.24x->2.2-4.8x — same borrow-original projection fix (the teed-up follow-up)
+
+The follow-up to 3e87e6fab (multi_source_dijkstra_path_length). The path variants
+`multi_source_dijkstra` (dist+paths) and `multi_source_dijkstra_path` delegated
+ALL weighted input to nx (~0.24x). Applied the identical root-cause fix:
+
+(1) BINDING: changed the existing `multi_source_dijkstra` binding to
+`sync_rust_attrs_if_available` + run the kernel on the BORROWED ORIGINAL graph
+(`weighted_*_projection`) instead of the REBUILT `dijkstra_*_projection` (whose
+adjacency reorder diverged the finalize order from nx on dense graphs). This also
+drops the per-call O(E) rebuild and is strictly better for the (heavily-used)
+UNWEIGHTED path too — 0/400 unweighted mismatches confirm no regression.
+
+(2) WRAPPER: a ONE-LINE gate change — stop delegating INTEGER-weight graphs
+(`_mst_has_weight_edge_attr and not _sp_edge_weights_all_int`). The existing
+non-delegated path (raw binding + `_sp_coerce_dist_to_int` + `_reorder_by_distance`
++ cutoff/target) is now byte-exact for int weights (the reorder is a no-op on the
+already-correct finalize order) and far cheaper than the nx conversion.
+Float/mixed/callable/negative/sync-gated weights keep delegating.
+`multi_source_dijkstra_path` inherits the fix (it calls `multi_source_dijkstra`).
+
+Bench (Python timeit, weighted gnp, vendored nx): multi_source_dijkstra n=200
+2.28x / n=400 p=0.3 3.37x; multi_source_dijkstra_path n=200 2.17x / n=400 p=0.3
+**4.81x** (the win grows with density). Correctness: 0/400 adversarial (dense +
+sparse, int weights AND unweighted, dir+undir, multi-source) for BOTH dist and
+path dicts; conformance 138 tests pass (test_dicsr_cache_parity order-locks,
+test_shortest_path, voronoi parity) + cutoff/target/float-delegate edge cases
+verified. The entire weighted multi-source family
+(path_length/path/dist+path) is now de-delegated for integer weights — only the
+float/mixed per-node-int-typing case remains delegated.

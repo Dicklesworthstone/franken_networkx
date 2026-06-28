@@ -32228,13 +32228,20 @@ def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight")
         raise ValueError("sources must not be empty")
     # br-r37-c1-gr1ct: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
-    # br-dijkignoreweight: the Rust multi_source_dijkstra inherits the
-    # same weight-ignoring bug as single_source_dijkstra. Delegate any
-    # weighted input to nx for correctness.
+    # br-r37-c1-msd-projfix (cc): the native binding now syncs + runs on the
+    # BORROWED ORIGINAL graph (correct adjacency = nx's finalize order, even on
+    # dense graphs) instead of the rebuilt dijkstra projection, so INTEGER-weight
+    # graphs no longer need delegation — the existing non-delegated path below
+    # (raw binding + int-coerce + reorder + cutoff/target) is byte-exact and far
+    # cheaper than the O(V+E) nx conversion. Float/mixed weights still delegate
+    # (per-node int-typing); so do callable / negative / sync-gated weights.
     if (
         callable(weight)
         or _should_delegate_dijkstra_to_networkx(G, weight)
-        or _mst_has_weight_edge_attr(G, weight)
+        or (
+            _mst_has_weight_edge_attr(G, weight)
+            and not _sp_edge_weights_all_int(G, weight)
+        )
         or _binding_self_syncs_gate(G, weight)
     ):
         return _call_networkx_for_parity(
