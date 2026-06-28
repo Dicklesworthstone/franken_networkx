@@ -9378,3 +9378,39 @@ but `#[allow(dead_code)]` (never wired) — a ledger-free structural projection 
 connectivity; wiring it into MG connected_components would be a strict work-removal
 (0.39x->~0.6x) but still loses to nx's direct walk (same ceiling), so the native-
 CSR path is the real fix there too.
+
+## 2026-06-28 CopperCliff NO-SHIP (lever DISPROVEN by implementation): native CSR MG dijkstra ALSO loses — the floor is the MultiGraph's STRING-KEYED store, not the Graph projection
+
+I implemented the previously-documented "native MG dijkstra (integer CSR, no Graph
+projection)" lever to turn MG weighted dijkstra from 0.30x into a win. Built it
+end-to-end (br-cc-mgintdijkstra): gated to all-INTEGER weights (integer arithmetic
+is order-invariant => byte-exact with zero float/typing/tie-break risk; non-int /
+float fall back to the projection), read weights straight from the sync-flushed
+store via borrowed iterators (`neighbors_iter` + `edge_keys_iter` + `edge_attrs`),
+min-parallel-weight inline, integer Dijkstra (BinaryHeap), no Graph object built.
+Verified BYTE-EXACT: 0/240 == nx (int multigraphs incl parallel edges, self-loops,
+dirty/clean builds, cutoff, disconnected, str-nodes, missing-key default) + float
+fallback 20/20 + mixed int/float correct.
+
+RESULT: STILL 0.26-0.43x vs nx (n=5000..20000) — barely better than the projection
+(0.30x), i.e. ~0-gain over the already-shipped work-removal. REVERTED (net-new
+~130 lines for no win, like the size(weight) binding).
+
+ROOT CAUSE (this DISPROVES the earlier "native CSR kernel" roadmap): the win is
+NOT blocked by the Graph projection — it is blocked by the MultiGraph's INTERNAL
+STORAGE being STRING/`EdgeKeyRef`-keyed. Every adjacency/edge access
+(`adjacency.get(node)`, `edges.get(&EdgeKeyRef::new(u,v))`) pays String hashing,
+which loses to nx's Python dict walk over interned/cached small-int|str node keys.
+The simple Graph WINS dijkstra precisely because it has INDEX-based adjacency
+(`neighbors_indices` -> `&[usize]`, `graph_edge_weight_or_default_idx_typed`); the
+MultiGraph has no such index-based adjacency. So exposing the fnx-algorithms CSR
+kernel as `pub` (my earlier TealSpring ask) would NOT have helped either — the cost
+is upstream of the kernel, in reading the String-keyed MG store to build the CSR.
+
+THE REAL (only) LEVER: give MultiGraph/MultiDiGraph INDEX-BASED adjacency +
+edge-bucket storage in the CGSE/fnx-classes layer (mirror the simple Graph's
+`neighbors_indices` + indexed edge access), so MG traversals stop paying String
+hashing. That is a substantial fnx-classes storage change — the same architectural
+primitive the MG size(weight)/degree(weight) gaps need. ALL the MG-op gaps (dijkstra
+0.3x, size 0.3x, degree 0.7x, connected_components 0.39x) share this ONE root:
+the String-keyed multi-edge store. No binding-level or kernel-`pub` fix reaches it.
