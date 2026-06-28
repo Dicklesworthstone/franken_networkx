@@ -39532,9 +39532,12 @@ class _FilteredGraphView:
                             else:
                                 result.append((source, target))
                     else:
-                        attrs = self.adj[source][target]
+                        # br-cvedges (cc): only materialize the conversion-view attr
+                        # dict (self.adj[u][v] is a per-edge merge/copy) when data is
+                        # actually requested — list(view.edges()) was fetching+dropping
+                        # it per edge.
                         if data:
-                            result.append((source, target, attrs))
+                            result.append((source, target, self.adj[source][target]))
                         else:
                             result.append((source, target))
             return result
@@ -42319,9 +42322,12 @@ class _ConversionGraphViewBase:
                             else:
                                 result.append((source, target))
                     else:
-                        attrs = self.adj[source][target]
+                        # br-cvedges (cc): only materialize the conversion-view attr
+                        # dict (self.adj[u][v] is a per-edge merge/copy) when data is
+                        # actually requested — list(view.edges()) was fetching+dropping
+                        # it per edge.
                         if data:
-                            result.append((source, target, attrs))
+                            result.append((source, target, self.adj[source][target]))
                         else:
                             result.append((source, target))
             return result
@@ -42348,9 +42354,10 @@ class _ConversionGraphViewBase:
                     if marker in seen:
                         continue
                     seen.add(marker)
-                    attrs = self.adj[source][target]
+                    # br-cvedges (cc): skip the per-edge attr materialization
+                    # (self.adj[u][v] merges/copies attrs) when data not requested.
                     if data:
-                        result.append((source, target, attrs))
+                        result.append((source, target, self.adj[source][target]))
                     else:
                         result.append((source, target))
         return result

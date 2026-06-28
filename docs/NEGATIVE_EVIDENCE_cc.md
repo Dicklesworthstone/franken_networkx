@@ -8,6 +8,27 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## SHIPPED (cc, 2026-06-28): view edges() (data=False) skip unused attr materialization — to_undirected 0.20x->0.55x; + FOUND subgraph.edges() 0.009x bomb (111x)
+
+`_ConversionGraphViewBase._edges` AND `_FilteredGraphView._edges` fetched `attrs =
+self.adj[u][v]` (a per-edge conversion/filter attr-dict merge+copy) for EVERY edge even when
+data=False — then appended only `(u,v)`, dropping attrs. Guard the fetch behind `if data:`
+(strict work-removal; byte-identical output — the (u,v) pairs + iteration order are unchanged).
+RESULT: list(to_undirected(DiGraph).edges()) n=400 fnx 7.31ms->2.60ms = 0.20x->**0.55x** vs nx
+(~2.8x self). edges(data=True) path unchanged. PARITY: fnx output byte-identical pre/post (data
+path identical; data=False just drops the unused fetch); conversion-view edges() order already
+differs from nx (succ∪pred merge order) but is conformance-TOLERATED (4912 view/conversion/edge
+tests pass — edges equal as a SET, 116==116) and orthogonal to this change. Subgraph-view edges()
+order MATCHES nx exactly (verified 6 seeds di+undi + data variants). Conformance: 4912 + 246
+subgraph passed (only pre-existing gexf meta-fail).
+
+BIG FIND (next lever): `list(G.subgraph(nodes).edges())` directed n=600/sub-500 = fnx 194ms vs nx
+1.74ms = **0.009x (111x SLOWER)** — far bigger than the conversion-view gap. The attr-fetch removal
+barely dents it; the dominant cost is `_FilteredGraphView.adj[source]` synthesis (per-source
+membership-filtered neighbor dict rebuild => likely O(V*E)). DIG NEXT: route subgraph.edges() to a
+native induced-edge emit / fix the filtered-adj per-source rebuild. Order matches nx so a native is
+lower-risk here than the conversion view.
+
 ## SHIPPED (cc, 2026-06-28): to_undirected-view degree() (weight=None) 0.053x -> 4.63x vs nx — reuse the native undirected degree count
 
 Follow-up on the same conversion-view wall: `dict(to_undirected(DiGraph).degree())` was 0.053x vs nx
