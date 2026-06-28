@@ -2431,6 +2431,12 @@ impl PyMultiDiGraph {
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
             } else if g.try_absorb_exact_int_str_keyed_ctor_edges(py, data)? {
                 // Constructor-only batch path for exact int endpoints + exact str keys.
+            } else if g._try_add_attr_edges_from_batch(py, data, None)? {
+                // br-r37-c1-ctorbatch (cc): (u,v,attr_dict) 3-tuples route through
+                // the add_edges_from fast batch (lazy mirrors); try_absorb above
+                // only handles (u,v)/(u,v,key_string)/(u,v,key,dict), so weighted
+                // 3-tuples fell to the per-edge loop (~0.49x). Mutation-free on
+                // false -> the iterator loop below still owns declined inputs.
             } else if let Ok(iter) = PyIterator::from_object(data) {
                 // br-r37-c1-baqyi: nx's to_networkx_graph wraps every
                 // from_edgelist failure in NetworkXError("Input is not a

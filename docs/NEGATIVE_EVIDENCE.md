@@ -9015,3 +9015,27 @@ TestFindInducedNodesParity failures are pre-existing peer no-fallback contract
 violations, unrelated). FOLLOW-UP: apply the same one-branch fix to PyDiGraph /
 PyMultiGraph / PyMultiDiGraph `new()` (symmetric; each has its own
 `_try_add_edges_from_batch`/`_try_add_attr_edges_from_batch`).
+
+## 2026-06-28 CopperCliff SHIP: MultiGraph/MultiDiGraph((u,v,attr_dict)) ctor 0.375x/0.487x->0.770x/0.993x — same batch fix (the dd66fb9e2 follow-up)
+
+The teed-up follow-up to the Graph constructor fix (dd66fb9e2). Measured the
+remaining constructor gaps: MultiGraph(weighted-3-tuple) **0.375x**, MultiDiGraph
+**0.487x** (DiGraph was 0.918x near-parity — skipped). Applied the identical
+one-branch fix to PyMultiGraph::new() (lib.rs) and PyMultiDiGraph::new()
+(digraph.rs): before the slow per-edge iterator loop, try
+`g._try_add_attr_edges_from_batch(py, data, None)` (the multigraph fast batch
+add_edges_from uses) — `try_absorb_exact_int_str_keyed_ctor_edges` above only
+handles `(u,v)`/`(u,v,key_string)`/`(u,v,key,dict)`, so `(u,v,attr_dict)` 3-tuples
+fell to the per-edge loop. Mutation-free on `false` (the loop still owns declined
+inputs).
+
+Result: MultiGraph **0.375x -> 0.770x**, MultiDiGraph **0.487x -> 0.993x** (both
+~2x self-improvement). MultiDiGraph reaches nx parity; MultiGraph lands at the
+keyed-edge substrate floor (~0.77x — the same floor the shipped add_edges_from
+MultiGraph attr-batch hits, trzrx; the String-keyed multi-edge construction is
+the architectural floor, not avoidable here). Byte-exact: 0/400 adversarial
+(mixed 2/3/4-tuple incl. explicit string keys, dups, self-loops) == nx on
+edges(keys,data); conformance 277 constructor-specific + 149 multigraph
+ctor/edge tests pass. The whole `Type((u,v,attr_dict))` constructor family is now
+routed through the fast batch (Graph 1.585x WIN, MultiDiGraph parity, MultiGraph
+at its batch floor — all 2-3x self-improvements over the per-edge loop).
