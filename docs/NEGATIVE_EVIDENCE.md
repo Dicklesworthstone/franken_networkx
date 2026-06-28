@@ -9039,3 +9039,30 @@ edges(keys,data); conformance 277 constructor-specific + 149 multigraph
 ctor/edge tests pass. The whole `Type((u,v,attr_dict))` constructor family is now
 routed through the fast batch (Graph 1.585x WIN, MultiDiGraph parity, MultiGraph
 at its batch floor — all 2-3x self-improvements over the per-edge loop).
+
+## 2026-06-28 CopperCliff construction+utility surface MINED — graph-building/conversion/generators/predicates all at-or-above nx (the ctor family was the last batch-routable vein)
+
+After the constructor-family fix (dd66fb9e2 Graph 1.585x + 0df6f2bfc Multi*),
+swept the surrounding construction + utility surface for the same per-edge-loop /
+batch-routing lever. RESULT: all at-or-above nx. Representative ratios:
+
+- builders/conversion: from_dict_of_lists 2.28x, adjacency_graph 2.61x,
+  from_dict_of_dicts 1.49x, node_link_graph 1.64x, from_edgelist(w) 1.35x,
+  subgraph().copy() 1.71x, compose 1.26x, relabel-to-int 4.56x.
+- generators: hypercube 42.8x, grid 18x, lollipop 11.9x, windmill 5.25x,
+  balanced_tree/caveman/full_rary 4.7x, complete_bipartite 3.36x, turan 2.73x,
+  circular_ladder/wheel/star 1.9-2.7x; NEAR-PARITY: barbell 1.03x, relaxed_caveman
+  0.97x.
+- predicates/utilities: density 35.7x, is_connected 25.6x, is_dag 15.3x,
+  is_bipartite 10x, to_undirected_view 8x, isolates 2.57x, selfloop_count 1.79x,
+  non_edges 1.24x, is_graphical 1.18x, is_chordal 1.06x; NEAR-PARITY:
+  create_empty_copy 0.64x, freeze 0.78x, set_node_attributes(scalar) 0.74x.
+
+The sub-1.0x residuals are ALL the node/edge String-keyed substrate floor
+(create_empty_copy 0.64x = bulk int-node insertion, already optimized;
+set_*_attributes(scalar) 0.45-0.74x; MultiGraph keyed-edge ctor 0.77x) — NOT
+batch-routable, the same architectural floor as the read-side view ops. NET
+across the session: every batch-routable construction gap is now closed (the
+`Type((u,v,dict))` ctor family was the last one); the construction/conversion/
+generator/utility surface is mined. No 60-min win remains there — the residual
+is the persistent-Python-object / integer-keyed substrate primitive.
