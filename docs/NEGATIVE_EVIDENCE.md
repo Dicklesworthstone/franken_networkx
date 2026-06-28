@@ -9258,3 +9258,28 @@ the CGSE layer (large primitive), not a binding over the existing store. DON'T
 re-attempt the binding-level approach. `degree(nbunch,weight)` 0.53x is a fixed
 per-call Python overhead (view construction ~12us) on a tiny (8-node) result —
 also not beatable without lower view-construction overhead.
+
+## 2026-06-28 CopperCliff SURFACE: IO / iterative-numerical / operators sweep — all at-or-above nx (sub-1.0x readings on fast ops were NOISE)
+
+Swept a fresh area (IO round-trips, iterative/numerical at scale, operators) for
+the next gap. All at-or-above nx. WINS (representative): pagerank 16.4x,
+closeness_centrality 94x, betweenness 30x, hits 1.45x, eigenvector_numpy 1.36x,
+complement 3.1x, reverse 21x, to_undirected 38x, cartesian_product 2.1x,
+convert_node_labels_to_int 6.8x, to_dict_of_lists 1.68x, node_link_data 1.71x.
+
+CAUTION — three workloads first READ sub-1.0x in a reps=7 min-timed pass but were
+NOISE (fast/BLAS-variable ops); robust interleaved min-of-21 re-measurement:
+- `parse_edgelist` 0.627x -> actually **1.347x** (n=3000/13.3k edges: fnx 9.26ms
+  vs nx 12.72ms — already batches via add_edges_from).
+- `generate_adjlist` 0.643x -> actually **parity** (1.01ms vs 1.02ms; the native
+  `_native_generate_adjlist_lines` path IS engaging).
+- `katz_centrality_numpy` 0.788x -> actually **parity/win** (full: fnx 413ms vs
+  nx 428ms — the O(n^3) `np.linalg.solve` dominates and is nx's exact call; fnx's
+  adjacency build is faster). The 0.788x was BLAS-solve timing variance.
+
+LESSON: for sub-10ms / dense-LAPACK workloads, a reps=7 min is NOT reliable —
+re-measure suspected gaps interleaved, min-of-21, gc off before believing a
+sub-1.0x ratio. NET: the IO/numerical/operator surface is mined; no real gap
+here. Combined with the prior sweeps, the ONLY remaining real vs-nx gap is the
+MultiGraph keyed-edge substrate floor (needs a CGSE columnar weight aggregate,
+not a binding — see the size(weight) NO-SHIP above).
