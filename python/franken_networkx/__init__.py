@@ -22008,6 +22008,14 @@ def set_node_attributes(G, values, name=None):
                     G.nodes[node][name] = value
             return
 
+        # br-r37-c1-snabulk-dict (cc): native one-pass for the {node: attrdict}
+        # form (was a per-node G.nodes[node] NodeView __getitem__ + update,
+        # ~0.27x vs nx). node_py_attrs is authoritative across all graph types.
+        if isinstance(values, dict):
+            native = getattr(G, "_native_set_node_attributes_dict", None)
+            if native is not None:
+                native(values)
+                return
         for node, attrs in values.items():
             if G.has_node(node):
                 G.nodes[node].update(attrs)

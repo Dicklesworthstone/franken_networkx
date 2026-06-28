@@ -4347,6 +4347,31 @@ impl PyMultiDiGraph {
         Ok(())
     }
 
+    /// br-r37-c1-snabulk-dict (cc): native bulk set_node_attributes(values) for
+    /// the DICT-OF-DICTS form ({node: {attr: val, ...}}, no name). The Python
+    /// wrapper otherwise loops `G.nodes[node].update(d)` — a NodeView
+    /// __getitem__ PyO3 round-trip per node (~0.27x vs nx's plain dict update).
+    /// One Rust pass; node_py_attrs is the authoritative store, so entry() keeps
+    /// any existing attrs and `.update(d)` merges (no store/mirror split like
+    /// edges). Missing nodes skipped (matching the wrapper's has_node gate).
+    fn _native_set_node_attributes_dict(
+        &mut self,
+        py: Python<'_>,
+        values: &Bound<'_, PyDict>,
+    ) -> PyResult<()> {
+        for (k, attrs) in values.iter() {
+            let canonical = node_key_to_string(py, &k)?;
+            if self.inner.has_node(&canonical) {
+                let dict = self
+                    .node_py_attrs
+                    .entry(canonical)
+                    .or_insert_with(|| PyDict::new(py).unbind());
+                dict.bind(py).call_method1("update", (&attrs,))?;
+            }
+        }
+        Ok(())
+    }
+
     /// br-r37-c1-degidx: bulk (node, in/out-degree) pairs — one Rust
     /// loop instead of N per-node PyO3 round-trips. Multi rows are still
     /// String-keyed (s2teo unflipped), so this sums IndexSet lens per
@@ -11232,6 +11257,31 @@ impl PyDiGraph {
                     .entry(canonical)
                     .or_insert_with(|| PyDict::new(py).unbind());
                 dict.bind(py).set_item(name, &v)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// br-r37-c1-snabulk-dict (cc): native bulk set_node_attributes(values) for
+    /// the DICT-OF-DICTS form ({node: {attr: val, ...}}, no name). The Python
+    /// wrapper otherwise loops `G.nodes[node].update(d)` — a NodeView
+    /// __getitem__ PyO3 round-trip per node (~0.27x vs nx's plain dict update).
+    /// One Rust pass; node_py_attrs is the authoritative store, so entry() keeps
+    /// any existing attrs and `.update(d)` merges (no store/mirror split like
+    /// edges). Missing nodes skipped (matching the wrapper's has_node gate).
+    fn _native_set_node_attributes_dict(
+        &mut self,
+        py: Python<'_>,
+        values: &Bound<'_, PyDict>,
+    ) -> PyResult<()> {
+        for (k, attrs) in values.iter() {
+            let canonical = node_key_to_string(py, &k)?;
+            if self.inner.has_node(&canonical) {
+                let dict = self
+                    .node_py_attrs
+                    .entry(canonical)
+                    .or_insert_with(|| PyDict::new(py).unbind());
+                dict.bind(py).call_method1("update", (&attrs,))?;
             }
         }
         Ok(())

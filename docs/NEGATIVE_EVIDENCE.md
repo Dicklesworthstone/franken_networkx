@@ -8727,3 +8727,35 @@ Touches: crates/fnx-python/src/lib.rs, crates/fnx-python/src/digraph.rs,
 python/franken_networkx/__init__.py. FOLLOW-UP: the NODE dict-of-dicts form
 (set_node_attributes) measures 0.269x — same lever applies (symmetric
 _native_set_node_attributes_dict).
+
+## 2026-06-28 CopperCliff SHIP: set_node_attributes dict-of-dicts 0.269x->0.643x — native one-pass (symmetric node twin of the edge fix)
+
+The teed-up follow-up to the set_edge_attributes dict-of-dicts ship (7797db850).
+`set_node_attributes(G, {node: {attr: val, ...}})` (dict-of-dicts form, no
+`name`) looped `G.nodes[node].update(d)` — a NodeView __getitem__ PyO3
+round-trip per node (~0.269x vs nx's plain dict update). The scalar form already
+had a native fast path; the dict-of-dicts form did not.
+
+Added `_native_set_node_attributes_dict` to all FOUR graph classes (PyGraph,
+PyDiGraph, PyMultiGraph, PyMultiDiGraph — node attrs are class-agnostic),
+mirroring the proven `_native_set_node_attribute_scalar` (node_py_attrs.entry +
+`.update(d)`), routed the wrapper's dict-of-dicts case. SAFER than the edge twin:
+node_py_attrs is the AUTHORITATIVE store (no store/mirror split), so entry()
+preserves existing attrs and `.update(d)` merges with zero risk of attr loss.
+
+Result: **0.269x -> 0.643x** (2.4x self; fnx 0.90ms vs nx 0.58ms at 2500 nodes).
+Closer to parity than the edge twin (0.449x) because nodes skip the per-edge
+edge_key canonicalization — the only residual is `node_key_to_string` per node
+(the String-keyed-attr substrate tax). NOT a vs-nx win (same architectural floor
+as the scalar path); shipped as a footgun fix bringing the dict-of-dicts form to
+the scalar form's efficiency.
+
+Correctness: 300-case adversarial sweep (ALL 4 graph types, pre-existing attrs
+preserved, missing-node skip) 0 mismatches vs nx; conformance 188 attribute-
+setter / dirty-sync / parity tests pass. (3 pre-existing TestFindInducedNodesParity
+without_fallback failures are unrelated — peer commit 17040bd66's no-fallback
+contract violation, fail identically without this change.) Built + verified via a
+clean local abi3 wheel (warm target dir from the edge build, ~2.5min). Touches:
+crates/fnx-python/src/{lib.rs,digraph.rs}, python/franken_networkx/__init__.py.
+The set_*_attributes mutation-op vein is now fully worked (scalar + dict-of-dicts,
+edge + node).
