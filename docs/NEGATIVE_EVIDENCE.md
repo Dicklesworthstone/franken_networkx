@@ -8565,3 +8565,56 @@ issue), not a wrapper-level de-delegation. LEVER (recorded): a delegation gate
 can be VALUE-stale yet ORDER-load-bearing — verify dict-iteration order
 (repr+type) against the order-sensitive regression locks, not just values,
 before de-delegating an ordered-dict-returning shortest-path function.
+
+## 2026-06-28 CopperCliff SHIP: voronoi_cells(weighted) 0.33x->1.25-1.52x — bypass the stale _mst_has_weight_edge_attr delegation (native multi_source_nearest_source is byte-exact; cells compare order-insensitively)
+
+`voronoi_cells(G, centers, weight)` on a WEIGHTED graph measured 0.33x vs nx
+(fnx 1.16ms vs nx 0.39ms, n=150). ROOT CAUSE: `_voronoi_nearest_centers`
+delegated EVERY weighted input to nx via `multi_source_dijkstra_path` (the stale
+`_mst_has_weight_edge_attr` gate, "the Rust multi_source kernel ignores weight"),
+paying the full O(V+E) `_networkx_graph_for_parity` conversion — even though a
+native source-propagating kernel (`_fnx.multi_source_nearest_source`) already
+existed and was used for UNWEIGHTED graphs.
+
+LEVER (pure-Python, no rebuild): route weighted UNDIRECTED string-weight inputs
+through `multi_source_nearest_source` too, bypassing only the stale
+`_mst_has_weight_edge_attr` gate (keeping the delegation for callable / negative
+/ self-sync-gated weights and directed graphs). The binding self-syncs via the
+weighted projection, so it returns correct weighted nearest-center assignments.
+
+WHY THIS IS SAFE WHERE multi_source_dijkstra_path_length WAS NOT (contrast with
+the 8b2949932 NO-SHIP): voronoi_cells returns a dict of SETS compared
+ORDER-INSENSITIVELY (`cells == nx_cells`; the conformance tests normalise to
+`{k: set(v)}` / `{repr(k): sorted(...)}` and use `==`). The kernel's
+equal-distance FINALIZE-ORDER tie-break (the parked br-r37-c1-86xx9 that blocks
+the ordered length-dict de-delegation) is IRRELEVANT to cell membership — a
+node's nearest CENTER is value-determined, and equidistant ties are assigned
+identically to nx (verified). So the same native kernel that's order-blocked for
+the ordered shortest-path dict is cleanly usable here.
+
+Correctness: 500-case adversarial sweep (gnp/watts/cycle, int weights,
+disconnected→unreachable cells, single + multi center) = 0 cell-mismatches
+vs nx. Conformance: 657 tests across test_voronoi_module_parity /
+test_voronoi_native_parity / test_voronoi_cells_empty_centers_parity /
+test_complex_function_parity / test_collection_container_type_parity /
+test_cover_nodeclass_assort_parity / test_graph_utilities /
+test_misc_algorithms_conformance / test_parity_conformance pass, 0 failures
+(incl. the weighted test_voronoi_native_parity case + value-type checks).
+
+Measurement (Python timeit, min-of-7, weighted connected_watts_strogatz, vendored
+nx oracle — NOT backend-dispatched):
+
+| workload | FNX | NetworkX | ratio vs nx |
+| --- | ---: | ---: | ---: |
+| `voronoi_cells` weighted n=150 | `0.32 ms` | `0.40 ms` | **1.25x** |
+| `voronoi_cells` weighted n=400 | `0.78 ms` | `1.18 ms` | **1.52x** |
+
+A `voronoi_head_to_head` criterion group (weighted n=400, baked
+order-insensitive `cells == nx` assert) is added to
+`crates/fnx-python/benches/networkx_head_to_head.rs` for the canonical suite.
+Touches: `python/franken_networkx/__init__.py` (`_voronoi_nearest_centers` gate),
+the bench file. LEVER (generalizable): a value-stale delegation gate that's
+ORDER-load-bearing for an ordered-dict return can still be safely bypassed for a
+SIBLING consumer that aggregates the same kernel output order-insensitively
+(sets / counts / sums) — check the RETURN type's order-sensitivity per consumer,
+not per kernel.

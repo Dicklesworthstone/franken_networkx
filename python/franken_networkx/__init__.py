@@ -30242,6 +30242,31 @@ def _voronoi_nearest_centers(G, sources, *, weight):
     Weighted / callable-weight inputs fall back to the exact wrapper.
     """
     G = _coerce_arg_to_fnx_graph(G)
+    # br-r37-c1-2z0mw (cc): native source-propagating multi_source — returns
+    # {node: source} directly in finalize (distance) order, skipping the
+    # all-paths String construction (~the bulk of _raw_multi_source_dijkstra's
+    # cost) that voronoi throws away. The binding self-syncs via the weighted
+    # projection, so WEIGHTED undirected graphs are served byte-exact here too —
+    # voronoi compares cells ORDER-INSENSITIVELY (dicts of sets), so the kernel
+    # finalize-order tie-break (which blocks the ordered
+    # multi_source_dijkstra_path_length de-delegation, br-r37-c1-86xx9) is
+    # irrelevant for cell membership. This bypasses the _mst_has_weight_edge_attr
+    # blanket weighted delegation + its O(V+E) fnx->nx conversion (verified
+    # byte-exact vs nx across 500 weighted graphs incl. disconnected/unreachable,
+    # single + multi center). Directed / callable / negative-weight /
+    # self-sync-gated inputs keep the delegation + path-kernel fallbacks below.
+    _mns = getattr(_fnx, "multi_source_nearest_source", None)
+    if (
+        _mns is not None
+        and isinstance(weight, str)
+        and not G.is_directed()
+        and not _should_delegate_dijkstra_to_networkx(G, weight)
+        and not _binding_self_syncs_gate(G, weight)
+    ):
+        for s in sources:
+            if s not in G:
+                raise NodeNotFound(f"Node {s} not found in graph")
+        return dict(_mns(G, sources, weight))
     if (
         callable(weight)
         or _should_delegate_dijkstra_to_networkx(G, weight)
@@ -30253,14 +30278,6 @@ def _voronoi_nearest_centers(G, sources, *, weight):
     for s in sources:
         if s not in G:
             raise NodeNotFound(f"Node {s} not found in graph")
-    # br-r37-c1-2z0mw (cc): native source-propagating multi_source — returns {node: source}
-    # directly in finalize (distance) order, skipping the all-paths String construction
-    # (~the bulk of _raw_multi_source_dijkstra's cost) that voronoi throws away. The binding
-    # self-syncs via the weighted projection, so mutated weights are handled. Undirected
-    # only; directed keeps the path kernel below.
-    _mns = getattr(_fnx, "multi_source_nearest_source", None)
-    if _mns is not None and not G.is_directed() and isinstance(weight, str):
-        return dict(_mns(G, sources, weight))
     dists, paths = _raw_multi_source_dijkstra(G, sources, weight=weight)
     order = _reorder_by_distance(dists)
     return {node: paths[node][0] for node in order if node in paths}

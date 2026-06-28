@@ -132,6 +132,11 @@ struct TspWorkloads {
     nx_ta_tsp: Py<PyAny>,
 }
 
+struct VoronoiWorkloads {
+    fnx_voronoi: Py<PyAny>,
+    nx_voronoi: Py<PyAny>,
+}
+
 struct ConstructionCopyWorkloads {
     fnx_graph_to_directed_scalar_attrs: Py<PyAny>,
     nx_graph_to_directed_scalar_attrs: Py<PyAny>,
@@ -2486,8 +2491,90 @@ fn tsp_head_to_head(c: &mut Criterion) {
     group.finish();
 }
 
+fn prepare_voronoi_workloads(py: Python<'_>) -> PyResult<VoronoiWorkloads> {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("fnx-python crate must live under crates/");
+    let python_dir = repo_root.join("python");
+    let legacy_dir = repo_root.join("legacy_networkx_code").join("networkx");
+
+    let sys = py.import("sys")?;
+    let path = sys.getattr("path")?;
+    let path = path.cast::<PyList>()?;
+    path.insert(0, repo_root.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, python_dir.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, legacy_dir.to_str().expect("repo path must be UTF-8"))?;
+
+    let locals = PyDict::new(py);
+    py.run(
+        cstring(
+            r#"
+import networkx as nx
+import franken_networkx as fnx
+
+# Weighted undirected graph: voronoi_cells used to delegate the whole call to nx
+# (the stale _mst_has_weight_edge_attr gate -> O(V+E) conversion). The native
+# multi_source_nearest_source binding now serves it byte-exact (cells compare
+# order-insensitively, so the kernel tie-break is irrelevant).
+G = nx.connected_watts_strogatz_graph(400, 6, 0.3, seed=3)
+fg = fnx.Graph()
+fg.add_nodes_from(G.nodes())
+for u, v in G.edges():
+    G[u][v]["weight"] = (u * 7 + v * 3) % 9 + 1
+fg.add_edges_from((u, v, d) for u, v, d in G.edges(data=True))
+centers = set(range(0, 400, 80))
+
+fnx_voronoi = lambda: fnx.voronoi_cells(fg, centers)
+nx_voronoi = lambda: nx.voronoi_cells(G, centers)
+
+# Correctness gate baked into the bench: cells (order-insensitive) match nx.
+assert fnx_voronoi() == nx_voronoi(), "voronoi_cells diverged from NetworkX"
+"#,
+        )
+        .as_c_str(),
+        Some(&locals),
+        Some(&locals),
+    )?;
+
+    let callable = |name: &str| -> PyResult<Py<PyAny>> {
+        let callable = locals.get_item(name)?.ok_or_else(|| {
+            pyo3::exceptions::PyKeyError::new_err(format!("missing Python callable {name}"))
+        })?;
+        Ok(callable.unbind())
+    };
+
+    Ok(VoronoiWorkloads {
+        fnx_voronoi: callable("fnx_voronoi")?,
+        nx_voronoi: callable("nx_voronoi")?,
+    })
+}
+
+fn voronoi_head_to_head(c: &mut Criterion) {
+    Python::initialize();
+    let workloads = Python::attach(prepare_voronoi_workloads)
+        .expect("failed to prepare voronoi Python workloads");
+    let mut group = c.benchmark_group("networkx_head_to_head_voronoi");
+    group.sample_size(20);
+
+    bench_python_callable(
+        &mut group,
+        "fnx_voronoi_cells_weighted_n400",
+        &workloads.fnx_voronoi,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_voronoi_cells_weighted_n400",
+        &workloads.nx_voronoi,
+    );
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
+    voronoi_head_to_head,
     tsp_head_to_head,
     construction_copy_head_to_head,
     sticky_edge_dirty_head_to_head,
