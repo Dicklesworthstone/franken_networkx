@@ -8,6 +8,39 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## SHIPPED (cc, 2026-06-28): all_pairs_dijkstra_path_length / closeness_centrality(distance) FLOAT weights 1.0x/0.69x -> 3.76x/3.44x vs nx
+
+A second fnx-vs-nx algo sweep (per-edge add_edge-built, float weights) found weighted
+closeness_centrality at **0.694x** (fnx 597ms vs nx 415ms). Profile: the native all_pairs_dijkstra
+kernel is fast (0.2s) but `all_pairs_dijkstra_path_length`'s mixed/float branch ran
+`_sp_propagate_int_types` per source — which, for any distance that is integer-VALUED (a sum of
+float weights like 1.0+2.0=3.0), walks the whole path doing per-edge `G[u][v]` PyO3 lookups
+(~497k calls = 0.95s) just to re-derive int-vs-float typing... and for all-FLOAT weights it always
+concludes "float". Pure waste.
+
+FIX (br-apdfloat): add an all-float fast path to `all_pairs_dijkstra_path_length` (symmetric to the
+existing all-int one). New `_sp_edge_weights_all_float(G, weight)` returns True iff every edge
+carries an explicit non-bool float; then no distance can be int EXCEPT nx's source seed
+(`dist[source]=0`, int), so use the cheap length-only kernel `_raw_all_pairs_dijkstra_path_length`,
+set `inner[source]=0`, and skip `_sp_propagate_int_types` + the paths kernel entirely. Proven
+byte-identical to the old mixed path (the only int it ever produced for an all-float graph was the
+source 0).
+
+RESULT (measured n=500 directed float): `all_pairs_dijkstra_path_length` fnx 119ms vs nx 448ms =
+**3.76x** (was ~1.0x parity); `closeness_centrality(distance="weight")` fnx 120.87ms vs nx 415ms =
+**3.44x** (was 0.694x). Benefits every weighted all_pairs consumer (harmonic via distance, etc.).
+PARITY: EXACT (values + int/float TYPES + per-source order) verified vs nx across
+directed/undirected x float/int/mixed, and closeness exact for directed+undirected float.
+Pure-Python wrapper change, no .so rebuild. Conformance: 4568 passed in the
+dijkstra/shortest/closeness/centrality/weighted suite; full tests/python 49243 passed, the 8
+remaining fails are ALL pre-existing & unrelated (find_induced_nodes delegation cluster + coverage/
+gexf/unused-raw report-currency meta-tests + waxman RNG — none call all_pairs/closeness; my only
+code delta vs main is this +43-line dijkstra float branch).
+
+LEVER: type-preservation post-processing (int-vs-float, key re-typing) over native results is a
+common hidden O(V^2) tax; add a fast path for the homogeneous case where the re-derivation is a
+provable no-op. Audit single_source_dijkstra / bellman_ford for the same all-float skip.
+
 ## SHIPPED (cc, 2026-06-28): DiGraph/MDG weighted pagerank 0.50x -> 6.66x vs nx — directed edges_dirty never cleared after sync (+2 correctness fixes)
 
 A fnx-vs-nx algorithm sweep (n=600/2000) found weighted pagerank the worst gap: DiGraph weighted

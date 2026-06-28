@@ -20024,6 +20024,34 @@ def _sp_edge_weights_all_int(G, weight):
     return True
 
 
+def _sp_edge_weights_all_float(G, weight):
+    """Return True iff ``weight`` is a str attr and EVERY edge carries an
+    explicit non-bool ``float`` value at that attr.
+
+    br-apdfloat (cc): when this holds, no shortest-path distance can ever be an
+    integer (nx keeps a distance int only when the WHOLE path sums ints; a single
+    float taints it, and there are no ints here — a missing attr would default to
+    int 1, which is why we require every edge to carry an explicit float). So
+    ``_sp_propagate_int_types`` is a guaranteed no-op for every target EXCEPT the
+    source seed (nx seeds ``dist[source] = 0`` as int), and the cheap length-only
+    kernel suffices — skipping the O(sum-of-path-lengths) per-source path walk
+    (per-edge ``G[u][v]`` PyO3 lookups) that dominated weighted all_pairs/closeness
+    on float-weighted graphs. Requires at least one edge so an empty graph falls
+    through to the unchanged path.
+    """
+    if not isinstance(weight, str):
+        return False
+    saw_edge = False
+    for _, _, attrs in G.edges(data=True):
+        if not isinstance(attrs, dict) or weight not in attrs:
+            return False
+        w = attrs[weight]
+        if isinstance(w, bool) or not isinstance(w, float):
+            return False
+        saw_edge = True
+    return saw_edge
+
+
 def _sp_propagate_int_types(G, weight, dists, paths):
     """br-r37-c1-srczero generalized: nx never coerces — each distance's
     TYPE follows the Python sum along the chosen shortest path
@@ -20438,6 +20466,21 @@ def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
                 order = _reorder_by_distance(inner)
                 inner = {k: inner[k] for k in order}
                 yield (node, _sp_coerce_dist_to_int(inner))
+        return
+    # br-apdfloat (cc): all-float weights — no distance can be int (except the
+    # source seed, which nx keeps as int 0), so the length-only kernel is exact
+    # and we skip the expensive per-source path walk in _sp_propagate_int_types
+    # (its 497k per-edge G[u][v] PyO3 lookups dominated weighted closeness). This
+    # yields byte-identical output to the mixed path below for an all-float graph.
+    if _sp_edge_weights_all_float(G, weight):
+        raw = _raw_all_pairs_dijkstra_path_length(G, weight=weight)
+        for node in G.nodes():
+            if node in raw:
+                inner = dict(raw[node])
+                if node in inner:
+                    inner[node] = 0  # nx seeds dist[source] as int 0
+                order = _reorder_by_distance(inner)
+                yield (node, {k: inner[k] for k in order})
         return
     # mixed/float weights: nx preserves an int distance only where EVERY
     # weight along the chosen path is int (int+int=int, any float taints), so
