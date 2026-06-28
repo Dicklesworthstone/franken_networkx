@@ -33470,10 +33470,23 @@ def flow_hierarchy(G, weight=None):
 
 
 def _flow_hierarchy_weighted_scc_fold(G, weight):
+    # br-flowhier (cc): nx computes the cyclic weight as
+    # ``sum(G.subgraph(c).size(weight) for c in strongly_connected_components(G))``,
+    # i.e. the total weight of edges whose endpoints lie in the SAME SCC. fnx's
+    # ``subgraph(view).size(weight)`` runs the filtered-view degree machinery, and
+    # building one such view PER SCC made flow_hierarchy(weighted) ~22x slower than nx
+    # (subgraph-in-loop bomb, br-r37-c1-wfoee family). Replace it with a single O(V+E)
+    # pass: tag each node with its SCC id once, then sum the weights of intra-SCC edges
+    # directly. Same value as the per-SCC subgraph sizes (a self-loop sits in its node's
+    # own SCC, counted once, matching subgraph.size); float summation order differs by
+    # ~ULP, well within the round(.,9)/approx parity the conformance suite asserts.
     total_weight = G.size(weight=weight)
+    scc_id = {}
+    for index, component in enumerate(strongly_connected_components(G)):
+        for node in component:
+            scc_id[node] = index
     cyclic_weight = sum(
-        G.subgraph(component).size(weight=weight)
-        for component in strongly_connected_components(G)
+        w for u, v, w in G.edges(data=weight, default=1) if scc_id[u] == scc_id[v]
     )
     return 1 - cyclic_weight / total_weight
 

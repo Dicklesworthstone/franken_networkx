@@ -8,6 +8,42 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## SHIPPED (cc, 2026-06-27): flow_hierarchy(weighted) 0.045x -> 7.12x vs nx (~157x self-speedup) — kill the per-SCC subgraph().size() bomb
+
+The gauntlet (now runnable via the scipy guard below) surfaced a CATASTROPHIC gap:
+`flow_hierarchy(G, weight=...)` ran at **0.045x vs nx** (fnx 55.7s vs nx 2.50s for 100 calls on a
+900-node weighted DiGraph = ~22x SLOWER). Root cause: `_flow_hierarchy_weighted_scc_fold` computed
+the cyclic weight as `sum(G.subgraph(component).size(weight) for component in
+strongly_connected_components(G))` — a `subgraph(view).size(weight)` PER SCC. fnx's subgraph is a
+filtered VIEW and `.size(weight)` runs the filtered-view degree machinery; building one view per SCC
+(hundreds, for a graph that's mostly small SCCs) is the subgraph-in-loop bomb (br-r37-c1-wfoee
+family, [[reference_subgraph_copy_in_loop_bomb]]). nx does the same per-SCC subgraph loop but its
+views are lightweight, so nx was 22x ahead.
+
+FIX (br-flowhier, __init__.py:33472): one O(V+E) pass — tag every node with its SCC id once
+(`scc_id[node] = index`), then `cyclic_weight = sum(w for u,v,w in G.edges(data=weight, default=1)
+if scc_id[u]==scc_id[v])`. Same value as the per-SCC subgraph sizes (a self-loop sits in its own
+node's SCC, counted once, exactly matching subgraph.size). No subgraph views at all.
+
+RESULT (measured): bench fixture (cargo bench -p fnx-python --bench public_api_gauntlet --
+flow_hierarchy, rch) fnx **354.52ms** vs nx **2.523s** = **7.12x FASTER** (was 0.045x). Local
+n=900 5.84x. Self-speedup ~157x (55.7s -> 0.355s). PARITY: byte-identical to nx for n=50/200/900
+(float order happened to coincide; even where it doesn't, ~ULP < the round(.,9)/`_equiv`/approx
+the conformance suite asserts). Conformance GREEN: 311 passed across test_hierarchy_module_parity,
+test_scalar_metrics_parity, test_network_summary_measures_conformance, test_rust_wiring_parity,
+test_directed_api_health_parity, test_kernel_fastpath_edgecase_parity, test_euler_triad_hierarchy_parity
+(+323 in the broader flow/metrics -k sweep). Pure-Python wrapper change, no .so rebuild.
+
+LEVER (reusable): any wrapper computing a per-component / per-group aggregate via
+`G.subgraph(group).<metric>()` in a loop is a subgraph-view bomb — replace with one tagged pass
+over nodes/edges. Audit other `for c in ...components...: G.subgraph(c)` sites.
+
+Other gauntlet workloads (same run, sample-size 10, all WINS — no further dig): within_inter_cluster
+1.27x, non_edges_sparse 1.17x, ubizp MG SSSP 1.34x, raw adamic_adar 1.50x, resource_allocation
+2.17x, cn_soundarajan_hopcroft 2.36x, ra_index_soundarajan_hopcroft 4.79x, digraph_to_undirected
+1.14x, multidigraph_to_scipy 1.44x; raw_preferential_attachment ~0.92x (near-parity, materialization
+floor). flow_hierarchy was the ONE real gap on this surface.
+
 ## TOOLING-FIX + BLOCKER (cc, 2026-06-27): public_api_gauntlet bench — fixed os.getcwd() sys.path (rch-broken), now gated only by scipy missing on workers
 
 The `public_api_gauntlet` bench (the only vs-nx bench covering ALGORITHM-level workloads —

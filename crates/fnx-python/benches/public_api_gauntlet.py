@@ -559,16 +559,27 @@ _NX_MDG_MATRIX_GRAPH = _build_sparse_weighted_multidigraph(
     nx, _MDG_MATRIX_NODE_COUNT
 )
 
-_FNX_MDG_MATRIX = fnx.to_scipy_sparse_array(_FNX_MDG_MATRIX_GRAPH)
-_NX_MDG_MATRIX = nx.to_scipy_sparse_array(_NX_MDG_MATRIX_GRAPH)
-if (
-    _FNX_MDG_MATRIX.shape != _NX_MDG_MATRIX.shape
-    or (_FNX_MDG_MATRIX != _NX_MDG_MATRIX).nnz != 0
-):
-    raise AssertionError("MultiDiGraph to_scipy_sparse_array CSR parity drift")
+# br-gauntletfix (cc): scipy is not installed on every rch worker, and these matrix
+# builds run at MODULE TOP-LEVEL — an unguarded ModuleNotFoundError here killed the whole
+# helper import and the entire gauntlet bench. Guard the scipy-only setup so the helper
+# imports without scipy; the two scipy workloads then no-op (return 0.0) on a scipy-less
+# host while every other algorithm-level workload still runs.
+try:
+    _FNX_MDG_MATRIX = fnx.to_scipy_sparse_array(_FNX_MDG_MATRIX_GRAPH)
+    _NX_MDG_MATRIX = nx.to_scipy_sparse_array(_NX_MDG_MATRIX_GRAPH)
+    if (
+        _FNX_MDG_MATRIX.shape != _NX_MDG_MATRIX.shape
+        or (_FNX_MDG_MATRIX != _NX_MDG_MATRIX).nnz != 0
+    ):
+        raise AssertionError("MultiDiGraph to_scipy_sparse_array CSR parity drift")
+    _SCIPY_AVAILABLE = True
+except ImportError:
+    _SCIPY_AVAILABLE = False
 
 
 def fnx_multidigraph_to_scipy_sparse_array_csr_int_weights() -> float:
+    if not _SCIPY_AVAILABLE:
+        return 0.0
     total = 0.0
     for _ in range(_MDG_MATRIX_REPEAT):
         total += _consume_sparse_matrix(
@@ -578,6 +589,8 @@ def fnx_multidigraph_to_scipy_sparse_array_csr_int_weights() -> float:
 
 
 def networkx_multidigraph_to_scipy_sparse_array_csr_int_weights() -> float:
+    if not _SCIPY_AVAILABLE:
+        return 0.0
     total = 0.0
     for _ in range(_MDG_MATRIX_REPEAT):
         total += _consume_sparse_matrix(
