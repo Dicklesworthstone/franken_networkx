@@ -8759,3 +8759,35 @@ clean local abi3 wheel (warm target dir from the edge build, ~2.5min). Touches:
 crates/fnx-python/src/{lib.rs,digraph.rs}, python/franken_networkx/__init__.py.
 The set_*_attributes mutation-op vein is now fully worked (scalar + dict-of-dicts,
 edge + node).
+
+## 2026-06-28 CopperCliff REFINEMENT of the multi_source_dijkstra finalize-order block — it's a STRUCTURE-DEPENDENT KERNEL divergence, not the wrapper reorder (sharpens 8b2949932)
+
+Re-investigated the parked multi_source_dijkstra weighted de-delegation (the
+0.20-0.24x gap on multi_source_dijkstra_path_length / _path / multi_source_dijkstra,
+all delegated weighted via the `_mst_has_weight_edge_attr` gate). CORRECTION to
+the 8b2949932 hypothesis (which blamed my wrapper's `_reorder_by_distance`): the
+divergence is in the KERNEL itself.
+
+The fnx-algorithms `multi_source_dijkstra` kernel DOES compute a `finalize_order`
+(heap-pop order, the `br-r37-c1-k9q6q` treatment) using a `(distance, seq)`
+BinaryHeap with `seq` = push counter, and emits `result.distances` in that order
+to match nx's `(distance, next(c))` pop order. MEASURED: the raw binding's
+finalize-order matches nx EXACTLY on gnp_random_graph (0/250 weighted, dir+undir)
+— BUT DIVERGES on connected_watts_strogatz / denser structures (64/400 all-int
+order mismatches, all undirected; `list(raw.keys()) != list(nx.keys())` with
+identical VALUES and TYPES). So the kernel's `seq`-counter push order does NOT
+perfectly replicate nx's `next(c)` counter for all adjacency structures — the
+relaxation/push sequence diverges on graphs with more equal-distance tie groups.
+
+CONSEQUENCE: the weighted de-delegation (which would win — the native kernel
+gives byte-exact VALUES, verified 250 cases, and a length-only binding skips the
+O(V*path_len) paths_dict) stays BLOCKED on order parity for the order-sensitive
+regression lock (test_dicsr_cache_parity), since the failure is structural and
+can't be gated cheaply (can't know tie-density without running the algorithm).
+The REAL fix is in the kernel's push-sequence: make the seq counter increment in
+the exact order nx pushes (nx pushes a node every time it's relaxed to a smaller
+tentative distance, in `G_succ[v].items()` adjacency-iteration order of each
+finalized v) so finalize_order is bit-identical for ALL structures, not just gnp.
+This is a fnx-algorithms kernel change (TealSpring's lib.rs), not a wrapper/
+binding lever — confirmed NOT a 60-min safe win. Voronoi (bcd6c7c17) remains the
+only weighted multi-source consumer that's de-delegatable (order-insensitive).
