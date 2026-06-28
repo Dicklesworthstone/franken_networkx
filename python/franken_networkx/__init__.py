@@ -39460,12 +39460,43 @@ class _FilteredGraphView:
         ):
             fast = []
             if self.is_directed():
-                for source in nodes:
-                    row = _fast_succ_row(parent, source)
-                    for target in row:
-                        if target not in visible_keep:
-                            continue
-                        fast.append((source, target, row[target]) if data else (source, target))
+                # br-cvsubedges (cc): the per-source _fast_succ_row(parent, source)
+                # calls parent._native_adjacency_dict()[source] — a WHOLE-GRAPH
+                # adjacency rebuild EVERY call => O(V*(V+E)). list(subgraph.edges())
+                # was 0.009x (111x slower than nx). Hoist the whole-graph snapshot
+                # out of the loop: key-only for data=False; for data=True keep
+                # _fast_succ_row's live-attr merge but snapshot the key/order rows
+                # once (the live per-node row is O(deg)). Byte-identical output.
+                na_keys = getattr(parent, "_native_adjacency_keys", None)
+                na_adj = getattr(parent, "_native_adjacency_dict", None)
+                na_row = getattr(parent, "_native_successor_row_dict", None)
+                if not data and na_keys is not None:
+                    succ_keys = dict(na_keys())
+                    for source in nodes:
+                        for target in succ_keys[source]:
+                            if target in visible_keep:
+                                fast.append((source, target))
+                elif data and na_adj is not None and na_row is not None:
+                    full = na_adj()
+                    for source in nodes:
+                        live = na_row(source)
+                        keyrow = full[source]
+                        for target in keyrow:
+                            if target in visible_keep:
+                                fast.append(
+                                    (source, target, live.get(target, keyrow[target]))
+                                )
+                else:
+                    for source in nodes:
+                        row = _fast_succ_row(parent, source)
+                        for target in row:
+                            if target not in visible_keep:
+                                continue
+                            fast.append(
+                                (source, target, row[target])
+                                if data
+                                else (source, target)
+                            )
             else:
                 seen = set()
                 for source in nodes:

@@ -8,6 +8,31 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## SHIPPED (cc, 2026-06-28): directed subgraph.edges() 0.009x -> 2.56x vs nx (111x slower -> 2.6x faster, ~268x self) — hoist whole-graph snapshot out of per-source loop
+
+THE BIG conversion/view-wall find. `list(G.subgraph(nodes).edges())` on a DiGraph was **0.009x vs
+nx** (fnx 194ms vs nx 1.74ms, 111x SLOWER), n=600/sub-500. The default-node-set subgraph edge fast
+path (br-r37-c1-r3gjb) called `_fast_succ_row(parent, source)` PER source — and for a DiGraph that
+does `parent._native_adjacency_dict()[source]`, i.e. a WHOLE-GRAPH adjacency rebuild (0.55ms) EVERY
+call => O(V*(V+E)). (Undirected was already fine: `_fast_adj_row` uses per-node
+`_native_adjacency_row_dict(node)`.)
+
+FIX (br-cvsubedges): hoist the whole-graph snapshot OUT of the source loop. data=False -> one
+`dict(parent._native_adjacency_keys())` (key-only, cheapest; key order verified == adjacency_dict ==
+_fast_succ_row across all nodes), iterate keys filtered by visible_keep. data=True -> one
+`_native_adjacency_dict()` for the key/order rows + per-source `_native_successor_row_dict(source)`
+(O(deg)) for LIVE attrs, replicating _fast_succ_row's `live.get(target, keyrow[target])` merge
+exactly. Absent-native fallback keeps the old per-source path.
+
+RESULT (n=600/sub-500): list(subgraph.edges()) fnx 0.726ms vs nx 1.806ms = **2.56x FASTER** (was
+0.009x; ~268x self-speedup); edges(data=True) 1.09ms vs 2.36ms = ~2.2x. PARITY: order + data=True +
+data=str + nbunch byte-exact vs nx over 8 seeds incl self-loops; edge-attr IDENTITY preserved
+(d is G[u][v]). PURE-PYTHON (all natives pre-existed). Conformance: 5453 view/subgraph suite +
+**full tests/python 49240 passed, 0 failures**. LEVER (reusable + AUDIT): any per-source/per-node
+loop calling a helper that internally does a WHOLE-GRAPH native rebuild (`_native_adjacency_dict()`,
+`_native_*_dict()` with no node arg) is an O(V*(V+E)) bomb — hoist the snapshot. Grep `_fast_succ_row`
+callers and `_native_adjacency_dict()` inside loops.
+
 ## SHIPPED (cc, 2026-06-28): view edges() (data=False) skip unused attr materialization — to_undirected 0.20x->0.55x; + FOUND subgraph.edges() 0.009x bomb (111x)
 
 `_ConversionGraphViewBase._edges` AND `_FilteredGraphView._edges` fetched `attrs =
