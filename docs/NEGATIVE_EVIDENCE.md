@@ -2,6 +2,67 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-28 BlackThrush MultiDiGraph in_edges data-key CSR predecessor scan - NO-SHIP (`cod-a`)
+
+Scope: LAND-OR-DIG pass on current `main` base `ddd516ac4`. Read-only
+`.scratch`/`.worktrees` audit found no measured bench-worktree source win
+absent from `main`: the old BlackThrush edge-view audit worktree is stale and
+would revert newer main work, while the CopperCliff adjacency outer-cache
+worktree is already represented by the landed `DictOfDictsCache.shared_outer`
+implementation. Agent Mail registration/read worked as `BlackThrush`, but
+reservation writes hit the existing SQLite corruption circuit breaker; no
+`settings.json` or hook files were touched.
+
+Fresh current-main routing sweep used the accepted release-profile equivalent
+of the requested per-crate bench command because this Cargo toolchain rejects
+`cargo bench --release`:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head networkx_head_to_head_core_laggards -- --quiet`
+
+Worst live gap was `MultiDiGraph.in_edges(keys=True, data="weight", default=0)`:
+
+| workload | runner | FNX median | ORIG median | ratio vs ORIG |
+| --- | --- | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | `rch` remote `hz2` | `2.9295 ms` | `1.5721 ms` | `0.537x` |
+| `mg_selfloop_keys_weight_n2500_loops2502` | `rch` remote `hz2` | `1.3850 ms` | `479.17 us` | `0.346x` |
+| `mdg_edges_keys_n700_e12662` | `rch` remote `hz2` | `1.0432 ms` | `1.0729 ms` | `1.028x` |
+| `mdg_in_edges_data_n700_e12662` | `rch` remote `hz2` | `13.166 ms` | `2.5558 ms` | `0.194x` |
+| `mdg_out_edges_nbunch_keys_data_n700_e12600` | `rch` remote `hz2` | `223.36 us` | `442.83 us` | `1.982x` |
+| `mdg_out_edges_nbunch_keys_weight_n700_e12600` | `rch` remote `hz2` | `747.63 us` | `432.20 us` | `0.578x` |
+
+Targeted lever: keep the canonical `_InMultiEdgeDataView` list subclass, but
+replace the pristine/default-edge-key full-graph fast path's target string rows
+with one cached node-display vector plus the multigraph CSR predecessor row.
+The candidate avoided per-target `predecessors(target)` vector allocation,
+per-pair `edge_keys(source, target)` vector allocation, and repeated
+`py_node_key` reconstruction while preserving the existing scalar attr store
+read and tuple materialization. This is distinct from the earlier batch view
+constructor and default-key-only no-ships.
+
+Validation before timing:
+
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`: passed remotely on `hz2`.
+
+Focused same-worker A/B on `ovh-a`:
+
+| workload | state | runner | FNX median | ORIG median | ratio vs ORIG | self vs clean |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `mdg_in_edges_data_n700_e12662` | CSR predecessor scan candidate | `rch` remote `ovh-a` | `5.8648 ms` | `4.4049 ms` | `0.751x` | `0.968x` |
+| `mdg_in_edges_data_n700_e12662` | clean comparator after hunk removal | `rch` remote `ovh-a` | `5.6744 ms` | `2.5214 ms` | `0.444x` | baseline |
+
+Decision: REVERTED / NO-SHIP. The candidate's ratio vs ORIG looked better only
+because the paired ORIG row slowed sharply on that run; the source-side FNX
+median regressed on the same worker (`5.8648 ms` vs `5.6744 ms`). The temporary
+hunk in `crates/fnx-python/src/digraph.rs` was manually reverted before this
+ledger commit. Do not retry a CSR predecessor reshuffle as a standalone
+`in_edges(keys,data=<attr>)` fix; the remaining work is tuple/value
+materialization, not predecessor/key vector allocation.
+
+Validation:
+
+- Candidate hunk reverted; final source diff is empty.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-a rch exec -- cargo test -p fnx-conformance --profile release`: passed remotely on `ovh-a`.
+
 ## 2026-06-28 BlackThrush MultiDiGraph weighted in-degree one-pass store scan - NO-SHIP (`cod-b`)
 
 Scope: BOLD-VERIFY LAND-OR-DIG pass on current `main` base `e3827592b`.
