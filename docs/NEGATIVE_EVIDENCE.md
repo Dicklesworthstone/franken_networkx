@@ -8954,3 +8954,32 @@ documented architectural lever, not a 60-min change. The add_edge penalty
 store/mirror-consistency-risky for a result that still LOSES to nx (0.40x) — a
 loss-reduction, not a win; deferred. Re-confirmed: the read-side view-op vein is
 floor-bound; do NOT re-dig it with kernel/micro-opts.
+
+## 2026-06-28 CopperCliff SURFACE: Graph((u,v,attr_dict)) constructor 0.46x — the ctor edge-batch is slower than add_edges_from's batch (measured 3.9x lever, root-caused)
+
+NEW measured gap (fresh, not in the prior maps): `fnx.Graph([(u,v,{'weight':w}),
+...])` — the weighted-3-tuple constructor, a VERY common pattern — is **0.46x**
+vs nx (fnx 9.94ms vs nx 4.61ms, 8000 edges). Byte-exact result (==nx).
+
+ROOT CAUSE (located): routing the SAME edges through `add_edges_from` is **3.9x
+faster** — `fnx.Graph(); g.add_edges_from(Ew)` = 2.56ms = **1.80x vs nx** (a WIN),
+identical result. The constructors' native batch path (PyGraph/PyDiGraph/
+PyMulti* `new()` at lib.rs:8792 etc., `extend_edges_with_attrs_unrecorded` with
+the z6uka display-object / eager-AttrMap-per-edge semantics) is ~4x slower than
+`add_edges_from`'s `_try_add_attr_edges_from_batch` (lazy mirrors, one
+extend_keyed). The 2-tuple case is milder (`Graph(E)` 0.73x vs aef ~1.07x). The
+slow path is reached because each constructor's
+`try_absorb_exact_int_str_keyed_ctor_edges` fast batch only accepts `(u,v)` and
+`(u,v,key_string)` — a `(u,v,attr_dict)` 3-tuple (3rd = dict) returns false and
+falls to a per-edge `add_edge` loop / the slower display-semantics batch.
+
+THE LEVER (deferred — touches 4 complex constructors, late-session risk): make
+the constructor edge-batch adopt `add_edges_from`'s faster lazy batch (or extend
+`try_absorb` to handle `(u,v,attr_dict)` 3-tuples with the lazy-mirror path).
+`Graph`/`DiGraph`/`MultiGraph`/`MultiDiGraph` are the Rust pyclasses (imported
+directly from `_fnx`), and `new()` absorbs edges BEFORE any Python `__init__`, so
+there is no clean Python-level reroute — the fix is in the Rust `new()` /
+`try_absorb`. Estimated payoff: weighted constructors 0.46x -> ~1.8x (a real WIN,
+not a floor — unlike the read-side view ops, this is avoidable batch overhead the
+add_edges_from path already eliminated). This is the cleanest remaining 60-min-ish
+win, deferred only for risk; HIGH PRIORITY for a focused next turn.
