@@ -8658,3 +8658,33 @@ architectural lazy-view / persistent-ordered-mirror primitive, NOT kernel work)
 and (b) the parked weighted multi-source finalize-order tie-break (needs a Rust
 kernel order fix). Both are large levers, not 60-min wins. Recorded so the fleet
 stops re-sweeping these domains.
+
+## 2026-06-28 CopperCliff frontier sweep PART 2 — operators/generators/IO/spectral/tree also all at-or-above nx (completes the map)
+
+Extends the fdadc3767 algorithm-domain sweep to the remaining domains; same
+conclusion (no new sub-0.6x lever; vein mined). Representative ratios (fnx/nx):
+
+- operators: compose 2.12x, difference 1.68x, symmetric_difference 1.81x,
+  cartesian_product 2.74x, tensor_product 3.21x, line_graph 4.35x,
+  to_directed 3.38x; NEAR-PARITY (construction-substrate, not gaps): union 0.94x,
+  barabasi_albert 0.78x, relabel/convert_node_labels 2.51x.
+- I/O (readwrite): parse_gml 6.36x, parse_adjlist 1.25x, parse_edgelist 1.06x,
+  generate_edgelist 1.12x, node_link_data 1.13x, to_dict_of_dicts 1.73x,
+  to_dict_of_lists 1.68x; NEAR-PARITY: adjacency_data 0.82x, generate_adjlist
+  0.91x, generate_gml 0.95x, generate_graphml 0.96x.
+- spectral/linalg: adjacency_spectrum 86.7x, modularity_matrix 1.89x,
+  normalized_laplacian_matrix 1.19x; NEAR-PARITY: laplacian_spectrum 0.85x,
+  number_of_spanning_trees 0.83x (numerical-substrate bound).
+- tree/matching: is_tree 19.9x, prufer_sequence 3.60x, maximal_matching 3.76x,
+  junction_tree 2.28x, random_spanning_tree 1.02x; NEAR-PARITY: min_weight_matching
+  0.91x.
+
+NET (across both sweep parts, ~70 functions, 13 domains): the kernel /
+conversion-floor / delegation vein is MINED — fnx is at-or-above nx everywhere
+measured. The only sub-0.6x residuals remain the two ARCHITECTURAL levers
+(covered PyObject-materialization view ops → lazy-view primitive; parked weighted
+multi-source finalize-order tie-break → Rust kernel order fix). No 60-min win
+remains in the algorithm/operator/generator/IO/spectral/tree surface; the
+near-parity items (0.78-0.96x) are construction/numerical-substrate bound and
+loss-reduction-only (skip per REVERT-~0-gain). Future perf effort should target
+the two architectural levers, not domain sweeps.
