@@ -8526,3 +8526,42 @@ remotely. Do NOT stage a `lib_fnx.so` into the repo package dir as
 `_fnx.abi3.so` (it links libpython and breaks remote imports); for remote benches
 get a portable abi3 `.so` via `rch maturin build`/wheel-extract, or run the bench
 binary locally where libpython is present.
+
+## 2026-06-28 CopperCliff multi_source_dijkstra_path_length 0.20x — NO-SHIP (length-only de-delegation is value-exact but ORDER-blocked by the parked br-r37-c1-86xx9 tie-break)
+
+`multi_source_dijkstra_path_length(G, sources)` measures 0.203x vs nx (fnx
+2.93ms vs nx 0.60ms, weighted n=400). ROOT CAUSE: it calls `multi_source_dijkstra`,
+which delegates ANY weighted input to nx (the `_mst_has_weight_edge_attr` gate:
+"the Rust multi_source_dijkstra inherits the same weight-ignoring bug as
+single_source"), paying the full O(V+E) `_networkx_graph_for_parity` conversion
+EVERY call. The native kernel `_raw_multi_source_dijkstra` runs in 0.91ms but is
+gated off for weighted graphs.
+
+FINDING (the gate is VALUE-stale for the length output): the native kernel's
+weighted distance VALUES are byte-identical to nx across 250 adversarial graphs
+(directed + undirected, int + float weights, multi-source) — 0 value-mismatches.
+Dijkstra distances are unique-by-construction regardless of the priority-queue
+tie-break order that makes the PATH variant diverge, so the kernel does NOT
+ignore weights for lengths. I built a length-only native binding
+(`multi_source_dijkstra_path_length`, skipping the O(V*path_len) `paths_dict`
+construction) + a wrapper that bypasses the stale weighted gate (delegating only
+callable/negative/sync-gated weights and MIXED int+float sets, where per-node
+distance TYPING needs the path).
+
+BLOCKER (why it's a NO-SHIP): the public contract includes DICT ORDER, and the
+regression-lock `test_dicsr_cache_parity.py::test_multi_source_dijkstra_directed_finalize_order`
+asserts `[(repr(k), v, type(v).__name__) for k,v in result.items()] == nx`. The
+native kernel's equal-distance finalize order does NOT match nx's heap-push order
+for UNDIRECTED weighted graphs (11/240 order-mismatches on all-int graphs;
+directed was 0/240). This is exactly the parked `br-r37-c1-86xx9` tie-break:
+matching nx's pop order on equal-distance ties requires simulating nx's heap
+(re-running the algorithm in Python = no win), and a "fall back when distances
+have ties" salvage makes EVERY realistic integer-weighted graph (which is
+tie-dense) fall back, erasing the win. The existing code's blanket delegation is
+load-bearing for ORDER parity, not just values. REVERTED in full; conformance
+restored GREEN. The real fix is a Rust kernel change to emit nx's heap-push
+finalize order for the undirected weighted multi-source kernel (the deep parked
+issue), not a wrapper-level de-delegation. LEVER (recorded): a delegation gate
+can be VALUE-stale yet ORDER-load-bearing — verify dict-iteration order
+(repr+type) against the order-sensitive regression locks, not just values,
+before de-delegating an ordered-dict-returning shortest-path function.
