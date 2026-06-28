@@ -2,6 +2,71 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-27 BlackThrush MultiGraph selfloop scalar-only borrowed-node scan - NO-SHIP (`cod-b`)
+
+Scope: BOLD-VERIFY land-or-dig pass on current `main` base `e3b767cb3`.
+Read-only scratch/worktree audit found no measured bench worktree win missing
+from `main`: the old adjacency outer-cache worktree is already represented by
+the landed `DictOfDictsCache.shared_outer` implementation and ledger entries,
+the recent edge-view worktree is a docs/no-ship audit, and the remaining A*
+worktree is parity-only. Agent Mail registration still read inbox state, but
+ack/reservation writes were blocked by the existing SQLite corruption circuit
+breaker. No `settings.json` or hook files were touched.
+
+The requested literal per-crate release bench form was retried first:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --release --features pyo3/abi3-py310 --bench networkx_head_to_head networkx_head_to_head_core_laggards -- --quiet`
+
+Cargo rejected that syntax remotely on `hz2` with
+`error: unexpected argument '--release' found`, so the equivalent release
+profile form was used through `rch exec` with the requested `fnx-python` crate
+scope and cod-b target directory.
+
+Fresh current-main routing sweep (`rch exec` local fallback):
+
+| workload | FNX median | ORIG median | ratio vs ORIG |
+| --- | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | `17.282 ms` | `8.3692 ms` | `0.484x` |
+| `mg_selfloop_keys_weight_n2500_loops2502` | `5.2216 ms` | `910.18 us` | `0.174x` |
+| `mdg_edges_keys_n700_e12662` | `1.8522 ms` | `2.9718 ms` | `1.604x` |
+| `mdg_in_edges_data_n700_e12662` | `23.064 ms` | `8.5611 ms` | `0.371x` |
+| `mdg_out_edges_nbunch_keys_data_n700_e12600` | `251.28 us` | `534.11 us` | `2.126x` |
+| `mdg_out_edges_nbunch_keys_weight_n700_e12600` | `896.28 us` | `837.28 us` | `0.934x` |
+
+Targeted lever: add a scalar-only borrowed-node scan ahead of
+`PyMultiGraph::_native_selfloop_edges`' existing
+`selfloop_edges(keys=True, data="<attr>")` direct scalar emission path. The
+candidate kept the existing mirror-preserving path for `Map` values, but for
+clean scalar attrs it avoided cloning all node names into `Vec<String>` and
+skipped setup for mirror fallback work the benchmark fixture cannot need. This
+was distinct from the earlier rejected list-iterator handoff, tuple cache,
+clean-int mirror bypass, direct scalar emission, and small-int object cache
+attempts.
+
+Validation before timing:
+
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`: passed remotely on `hz2`.
+
+Focused same-worker A/B on `hz2`:
+
+| workload | state | runner | FNX median | ORIG median | ratio vs ORIG | self vs clean |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `mg_selfloop_keys_weight_n2500_loops2502` | scalar-only borrowed-node candidate | `rch` remote `hz2` | `1.3611 ms` | `497.67 us` | `0.366x` | `0.994x` |
+| `mg_selfloop_keys_weight_n2500_loops2502` | clean comparator after hunk removal | `rch` remote `hz2` | `1.3527 ms` | `484.71 us` | `0.358x` | baseline |
+
+Decision: REVERTED / NO-SHIP. The candidate's FNX median was slightly slower
+than the same-worker clean comparator (`1.3611 ms` vs `1.3527 ms`); the small
+ratio movement (`0.358x` to `0.366x`) came from paired ORIG noise, not a real
+source-side gain. The temporary hunk in `crates/fnx-python/src/lib.rs` was
+manually reverted before this ledger commit. Do not retry borrowed-node
+scalar-only scanning as a standalone fix for this self-loop row; the remaining
+cost is still tuple/value materialization, not the `Vec<String>` node clone.
+
+Validation:
+
+- Candidate hunk reverted; final source diff is empty.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo test -p fnx-conformance`: passed remotely on `ovh-a`.
+
 ## 2026-06-27 BlackThrush MultiDiGraph in_edges data-key streaming - KEEP (`cod-b`)
 
 Scope: BOLD-VERIFY land-or-dig pass on `main` base `89661143c`.
