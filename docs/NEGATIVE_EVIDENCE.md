@@ -9283,3 +9283,32 @@ sub-1.0x ratio. NET: the IO/numerical/operator surface is mined; no real gap
 here. Combined with the prior sweeps, the ONLY remaining real vs-nx gap is the
 MultiGraph keyed-edge substrate floor (needs a CGSE columnar weight aggregate,
 not a binding — see the size(weight) NO-SHIP above).
+
+## 2026-06-28 CopperCliff SURFACE: spectral / dense-numerical (safe-Rust-ceiling) zone all at-or-above nx; the "JAX-as-different-primitive" lever is infeasible here
+
+Dug the dense-numerical / spectral family (the zone where a hand-rolled safe-Rust
+kernel can't beat BLAS — the suggested place for a JAX/"different primitive"
+lever). RESULT: all at-or-above nx. WINS: estrada_index 19.6x, resistance_distance
+123x, current_flow_betweenness 46x, current_flow_closeness 10.7x, subgraph_
+centrality 4.2x, algebraic_connectivity 8x, fiedler_vector 8.8x, katz_numpy
+4.8x (n=1000), eigenvector_numpy 1.49x, adjacency_spectrum 1.73x; nx TIMES OUT on
+communicability / communicability_betweenness / second_order_centrality (fnx's
+native Padé-expm / Woodbury kernels win outright).
+
+NOISE CORRECTIONS (dense LAPACK timing is brutally thread-contention-noisy; even
+a reps=11 min lies): `laplacian_spectrum` first read 0.619x but interleaved
+min-of-15 is **1.04-1.22x WIN** (np.linalg.eigvalsh vs scipy.linalg.eigvalsh are
+within noise — 0.93x at 64 threads / 1.20x at 1 thread — so the "swap to scipy"
+idea is a WASH, NOT a 4.6x win as a single-shot bench suggested; do NOT swap).
+`number_of_spanning_trees` 0.154x was a test artifact (hasattr fallback → 0.00ms).
+`spectral_ordering` ~0.96x = parity.
+
+JAX lever — INFEASIBLE in this environment: no jax/jaxlib/numba/cupy/torch
+installed, NO GPU (64 CPU cores only). CPU-only XLA wraps the same LAPACK/Eigen
+that numpy/scipy already use, so it won't beat BLAS on single dense eigvalsh/solve
+(the JAX win is GPU + op-fusion, neither applicable to these one-shot O(n^3) calls);
+and JAX's float results diverge from scipy (default float32; even float64 differs
+~1e-6..1e-12), breaking the byte/tolerance spectral contracts. Adding jax as a
+runtime dep is also an architecture decision, not a perf patch. NET: the
+safe-Rust-ceiling zone is mined — fnx already wins it via native expm/eigsolver
++ faster matrix builds. No 60-min lever here.
