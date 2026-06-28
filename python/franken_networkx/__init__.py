@@ -32330,6 +32330,32 @@ def multi_source_dijkstra_path_length(G, sources, cutoff=None, weight="weight"):
     dict
         ``{target: length}``
     """
+    if not sources:
+        raise ValueError("sources must not be empty")
+    G = _coerce_arg_to_fnx_graph(G)
+    # br-r37-c1-msd-projfix (cc): the weighted path delegated the whole call to
+    # nx (the _mst_has_weight_edge_attr gate -> O(V+E) conversion every call,
+    # ~0.20x). The native length-only binding now runs the kernel on the BORROWED
+    # ORIGINAL graph (after syncing the mirror) rather than the rebuilt dijkstra
+    # projection — so its finalize order is byte-identical to nx's heap-pop order
+    # even on DENSE tie-heavy graphs (the rebuilt projection reordered adjacency,
+    # the old blocker). For INTEGER weights the distance VALUES, TYPES (after
+    # int-coerce) AND dict ORDER all match the delegated result. Float/mixed
+    # weights keep the delegated path (per-node int-typing needs the path); so do
+    # callable / negative / sync-gated weights, multigraphs, and cutoff.
+    if (
+        cutoff is None
+        and isinstance(weight, str)
+        and type(G) in (Graph, DiGraph)
+        and not _should_delegate_dijkstra_to_networkx(G, weight)
+        and not _binding_self_syncs_gate(G, weight)
+        and _sp_edge_weights_all_int(G, weight)
+    ):
+        for s in sources:
+            if s not in G:
+                raise NodeNotFound(f"Node {s} not found in graph")
+        dists = _fnx.multi_source_dijkstra_path_length(G, sources, weight=weight)
+        return _sp_coerce_dist_to_int(dists)
     dists, _ = multi_source_dijkstra(G, sources, cutoff=cutoff, weight=weight)
     return dists
 

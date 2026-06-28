@@ -3945,6 +3945,73 @@ pub fn multi_source_dijkstra(
     ))
 }
 
+/// Length-only multi-source Dijkstra: returns just `{node: distance}` in the
+/// kernel's FINALIZE (heap-pop) order, skipping the O(V*path_len) `paths_dict`.
+///
+/// CRITICAL (br-r37-c1-msd-projfix cc): unlike `multi_source_dijkstra`, this
+/// syncs the Python edge-attr mirror to the store and runs the kernel on the
+/// BORROWED ORIGINAL graph (`weighted_*_projection`) — NOT the REBUILT
+/// `dijkstra_*_projection`, whose `dijkstra_single_weight_graph_projection`
+/// rebuild REORDERS per-node adjacency, which shifts the heap push-sequence and
+/// makes the finalize order diverge from NetworkX on DENSE tie-heavy graphs
+/// (the single_source kernel is correct precisely because it sync+borrows the
+/// original). With the original adjacency the finalize order is byte-identical
+/// to nx's `(distance, next(c))` pop order. The Python wrapper gates to integer
+/// weights (float/mixed keep the delegated path for per-node int-typing).
+#[pyfunction]
+#[pyo3(signature = (g, sources, weight="weight"))]
+pub fn multi_source_dijkstra_path_length(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    sources: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<PyObject> {
+    sync_rust_attrs_if_available(g)?;
+    let gr = extract_graph(g)?;
+    let iter = pyo3::types::PyIterator::from_object(sources)?;
+    let mut source_strs = Vec::new();
+    let mut seed_objs: std::collections::HashMap<String, PyObject> =
+        std::collections::HashMap::new();
+    for item in iter {
+        let item = item?;
+        let s = node_key_to_string(py, &item)?;
+        validate_node_str(&gr, &s, "Source")?;
+        seed_objs.entry(s.clone()).or_insert_with(|| item.unbind());
+        source_strs.push(s);
+    }
+    let source_refs: Vec<&str> = source_strs.iter().map(String::as_str).collect();
+
+    let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
+        let __wp = weighted_projection.as_ref();
+        py.allow_threads(|| {
+            fnx_algorithms::multi_source_dijkstra_directed(__wp, &source_refs, weight)
+        })
+    } else {
+        let weighted_projection = gr.weighted_undirected_projection(weight);
+        let __wp = weighted_projection.as_ref();
+        py.allow_threads(|| fnx_algorithms::multi_source_dijkstra(__wp, &source_refs, weight))
+    };
+
+    let pred_map: std::collections::HashMap<&str, Option<&str>> = result
+        .predecessors
+        .iter()
+        .map(|e| (e.node.as_str(), e.predecessor.as_deref()))
+        .collect();
+    let mut disp: std::collections::HashMap<String, PyObject> = seed_objs;
+    for entry in &result.distances {
+        if let Some(Some(p)) = pred_map.get(entry.node.as_str()) {
+            disp.entry(entry.node.clone())
+                .or_insert_with(|| gr.py_row_key(py, p, &entry.node));
+        }
+    }
+
+    let dist_dict = PyDict::new(py);
+    for entry in &result.distances {
+        dist_dict.set_item(gr.disp_or_node_key(py, &disp, &entry.node), entry.distance)?;
+    }
+    Ok(dist_dict.into_any().unbind())
+}
+
 // ---------------------------------------------------------------------------
 // bidirectional_dijkstra (undirected native kernel, br-r37-c1-k4p0b)
 // ---------------------------------------------------------------------------
@@ -22467,6 +22534,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(graph_has_any_attrs, m)?)?;
     m.add_function(wrap_pyfunction!(bellman_ford_path, m)?)?;
     m.add_function(wrap_pyfunction!(multi_source_dijkstra, m)?)?;
+    m.add_function(wrap_pyfunction!(multi_source_dijkstra_path_length, m)?)?;
     m.add_function(wrap_pyfunction!(multi_source_nearest_source, m)?)?;
     m.add_function(wrap_pyfunction!(bidirectional_dijkstra, m)?)?;
     m.add_function(wrap_pyfunction!(dijkstra_path_to_target, m)?)?;

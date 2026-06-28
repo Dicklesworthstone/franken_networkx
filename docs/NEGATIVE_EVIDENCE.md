@@ -8821,3 +8821,45 @@ the algorithm), so the de-delegation stays BLOCKED. The fix must be in the
 fnx-algorithms kernel push sequence (make it bit-identical to nx's next(c) order
 for dense graphs) — a deep, deferred kernel change. Voronoi (bcd6c7c17) remains
 the only de-delegatable weighted multi-source consumer (order-insensitive).
+
+## 2026-06-28 CopperCliff SHIP: multi_source_dijkstra_path_length 0.20x->2.7-4.3x — RESOLVED (the blocker was the dijkstra-projection adjacency REBUILD, not a kernel bug)
+
+RESOLVES the 8b2949932 / 1dd22870f / ccd071b80 saga. All three earlier entries
+mis-diagnosed the multi_source_dijkstra_path_length weighted block (0.20x):
+8b29 blamed the wrapper reorder, 1dd2 blamed adjacency construction, ccd07
+blamed a "deep kernel push-sequence bug". The REAL root cause: the
+`multi_source_dijkstra` binding ran the kernel on a REBUILT projection
+(`dijkstra_weighted_undirected_projection` -> `dijkstra_single_weight_graph_projection`,
+which re-extends the graph from edges_ordered_indices and REORDERS per-node
+adjacency), shifting the heap push-sequence so the finalize order diverged from
+nx on DENSE tie-heavy graphs. The single_source kernel was correct precisely
+because its binding sync+BORROWS the original graph (`weighted_undirected_projection`
+= `Borrowed(&pg.inner)`); the multi_source binding skipped the sync (for simple
+graphs) and used the rebuild to read the fresh mirror.
+
+FIX: a length-only native binding `multi_source_dijkstra_path_length` that (1)
+syncs the Python edge-attr mirror to the store, then (2) runs the kernel on the
+BORROWED ORIGINAL graph (correct adjacency = nx's), and (3) skips the
+O(V*path_len) paths_dict, emitting `result.distances` in finalize order with NO
+`_reorder_by_distance` (the kernel order is already nx's). The Python wrapper
+routes INTEGER-weight simple Graph/DiGraph here (`_sp_coerce_dist_to_int` for
+type parity); float/mixed (per-node int-typing), callable/negative/sync-gated
+weights, multigraphs, and cutoff keep the delegated path. The borrow ALSO kills
+the per-call O(E) projection rebuild that an earlier length-only attempt (on the
+dijkstra projection) paid — which is why this is a 2.7-4.3x WIN, not the ~1.0x
+that attempt measured.
+
+Bench (Python timeit, min-of-9, weighted gnp, vendored nx): n=200 p=0.1 fnx
+0.257ms vs nx 0.694ms = **2.70x**; n=400 p=0.05 = **2.70x**; n=400 p=0.3 (dense)
+fnx 2.21ms vs nx 9.48ms = **4.29x** (the win grows with density — the delegated
+conversion tax it replaces is O(V+E)). Correctness: 0/400 adversarial (dense +
+sparse, int weights, dir+undir, multi-source) + the exact conformance-test
+replica 0/50 (incl. the dense trial 18 that exposed the bug); conformance 99
+tests pass (test_dicsr_cache_parity incl. the order-lock + test_shortest_path),
+unweighted/cutoff/empty-sources(ValueError)/missing-source(NodeNotFound)
+contracts verified. LEVER (generalizable): a kernel that REBUILDS its input graph
+projection can silently REORDER adjacency, diverging order-sensitive output from
+the reference ONLY on dense/tie-heavy inputs (sparse tests pass — coverage trap).
+Prefer sync+BORROW the original graph over a rebuilt projection for
+order-sensitive kernels. Audit other `dijkstra_*_projection` consumers
+(dijkstra_path tie-break paths) for the same latent reorder.
