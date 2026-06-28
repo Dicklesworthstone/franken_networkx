@@ -8,6 +8,46 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## SHIPPED (cc, 2026-06-28): DiGraph/MDG weighted pagerank 0.50x -> 6.66x vs nx — directed edges_dirty never cleared after sync (+2 correctness fixes)
+
+A fnx-vs-nx algorithm sweep (n=600/2000) found weighted pagerank the worst gap: DiGraph weighted
+pagerank **0.50x vs nx** (fnx 8.5ms vs nx 4.2ms at n=2000), gap GROWING with n. Root cause: the
+DiGraph/MultiDiGraph `_fnx_sync_edge_attrs_to_inner` / `_fnx_sync_attrs_to_inner` (digraph.rs)
+flushed the Python edge-attr mirror into `inner` but — unlike PyGraph (lib.rs:11098) — NEVER did
+`edges_dirty.store(false)`. So after a per-edge `add_edge(u,v,weight=w)` (the most natural nx
+idiom) or any `edges(data=True)` walk, `edges_dirty` stayed TRUE forever: EVERY weighted native
+call (pagerank / dijkstra / matrix exporters) re-walked the whole O(E) mirror AND the scipy matrix
+cache (gated on the dirty token, algorithms.rs:3677) never engaged → matrix rebuilt every call.
+Measured: DiGraph weighted pagerank on an add_edge-built n=2000 graph was **27ms** vs **0.63ms**
+for a bulk-built (clean) graph = 43x self.
+
+FIX (br-syncdirty): (1) clear `edges_dirty` (+ reset granular `edge_dirty_keys`) at the end of the
+four directed sync methods, mirroring PyGraph. (2) CORRECTNESS — clearing dirty exposed a
+PRE-EXISTING latent bug present for undirected Graph too: the scipy matrix cache key is structural
+(nodes_seq/edges_seq), NOT attr VALUES, so `pagerank` after `G[u][v]['weight']=x` returned the
+STALE result; its only invalidation had silently relied on edges_dirty never being cleared. Added
+an explicit cache drop in `_sync_rust_edge_attrs`: when a cached matrix exists AND attrs are dirty
+(about to flush), pop `_fnx_pagerank_scipy_matrix_cache`. A subsequent edge-dict access re-marks
+dirty, so repeat calls stay both fast (clean → cache hit) and correct (mutated → rebuild).
+
+RESULT (measured, rebuilt .so via rch cargo build --features extension-module): DiGraph weighted
+pagerank n=2000 fnx **0.632ms** vs nx **4.206ms** = **6.66x FASTER** (was 0.50x / 8.5ms; 43x self
+on dirty graphs). Affects dijkstra / weighted shortest paths / to_scipy/to_numpy on
+add_edge-built or edges-walked directed graphs too. CORRECTNESS verified: post-`G[u][v][...]=x`
+mutation now matches nx for Graph/DiGraph/MultiGraph/MultiDiGraph (was wrong for undirected on
+main; would have been wrong for directed). Conformance GREEN: 11579 passed (full tests/python; the
+1 unrelated fail = pre-existing `test_coverage_gaps` on find_induced_*/read_edgelist delegation,
+untouched by this change, identical on origin/main).
+
+BONUS FIX (br-prcallable): the non-string-weight-key pagerank path raised `NameError: name 'G' is
+not defined` — `_pagerank_outgoing_weights(succ_row, ...)`'s simple-graph branch still referenced
+`G.succ[node]` (stale from the succ-snapshot refactor; neither G nor node in scope). Use the
+`succ_row` param (matching the multigraph branch + docstring). Was RED on origin/main; now green.
+
+LEVER: when a perf path's correctness silently depends on a dirty flag never being cleared, clearing
+it for speed needs an EXPLICIT cache invalidation. Audit other `vars(G)[...]` caches keyed on
+nodes_seq/edges_seq for attr-mutation staleness.
+
 ## SHIPPED (cc, 2026-06-27): flow_hierarchy(weighted) 0.045x -> 7.12x vs nx (~157x self-speedup) — kill the per-SCC subgraph().size() bomb
 
 The gauntlet (now runnable via the scipy guard below) surfaced a CATASTROPHIC gap:

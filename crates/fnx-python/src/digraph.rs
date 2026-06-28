@@ -6420,6 +6420,15 @@ impl PyMultiDiGraph {
         for (u, v, key, attrs) in edges {
             self.inner.replace_edge_attrs(&u, &v, key, attrs);
         }
+        // br-syncdirty (cc): clear the dirty flag + reset the granular dirty-key set
+        // once the mirror has been flushed into `inner` (mirrors PyGraph). Without
+        // this, edges_dirty stayed true forever after a per-edge add_edge / an
+        // edges(data=True) walk, so every weighted native call (pagerank / matrix
+        // exporters / weighted shortest paths) re-walked the mirror and the dirty
+        // token never let the caches engage. A later edge-dict access re-marks dirty,
+        // so post-mutation reads stay correct.
+        self.edges_dirty.store(false, Ordering::Relaxed);
+        *self.edge_dirty_keys.lock().unwrap() = Some(HashSet::new());
         Ok(())
     }
 
@@ -6453,6 +6462,15 @@ impl PyMultiDiGraph {
         for (u, v, key, attrs) in edges {
             self.inner.replace_edge_attrs(&u, &v, key, attrs);
         }
+        // br-syncdirty (cc): clear the dirty flag + reset the granular dirty-key set
+        // once the mirror has been flushed into `inner` (mirrors PyGraph). Without
+        // this, edges_dirty stayed true forever after a per-edge add_edge / an
+        // edges(data=True) walk, so every weighted native call (pagerank / matrix
+        // exporters / weighted shortest paths) re-walked the mirror and the dirty
+        // token never let the caches engage. A later edge-dict access re-marks dirty,
+        // so post-mutation reads stay correct.
+        self.edges_dirty.store(false, Ordering::Relaxed);
+        *self.edge_dirty_keys.lock().unwrap() = Some(HashSet::new());
         Ok(())
     }
 
@@ -10425,6 +10443,15 @@ impl PyDiGraph {
         for (u, v, attrs) in edges {
             self.inner.replace_edge_attrs(&u, &v, attrs);
         }
+        // br-syncdirty (cc): clear the dirty flag once the Python mirror has been
+        // flushed into `inner`, mirroring PyGraph::_fnx_sync_attrs_to_inner. Without
+        // this, edges_dirty stayed true forever after a per-edge add_edge(weight=) or
+        // an edges(data=True) walk, so EVERY weighted native call (pagerank/dijkstra)
+        // re-walked the whole mirror AND the scipy matrix cache (keyed on the dirty
+        // token) never engaged — DiGraph weighted pagerank was ~20x slower than the
+        // already-clearing undirected Graph. A subsequent G[u][v] access re-marks
+        // dirty, so post-mutation reads stay correct.
+        self.edges_dirty.store(false, Ordering::Relaxed);
         Ok(())
     }
 
@@ -10441,6 +10468,9 @@ impl PyDiGraph {
         for (u, v, attrs) in edges {
             self.inner.replace_edge_attrs(&u, &v, attrs);
         }
+        // br-syncdirty (cc): clear dirty after the flush so repeat weighted calls
+        // early-exit and the scipy matrix cache engages (see sibling above).
+        self.edges_dirty.store(false, Ordering::Relaxed);
         Ok(())
     }
 

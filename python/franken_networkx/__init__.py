@@ -7906,6 +7906,25 @@ def _sync_rust_edge_attrs(G, *, edge_only=False):
         sync = getattr(G, "_fnx_sync_attrs_to_inner", None)
     if not callable(sync):
         return
+    # br-syncdirty (cc): if a cached scipy PageRank matrix exists AND the edge
+    # attrs are dirty, this sync is about to flush Python-side mutations
+    # (``G[u][v]['weight'] = w``) into ``inner``. The cached CSR was built from the
+    # pre-flush state and is now stale, so drop it; the next consumer rebuilds from
+    # the freshly synced ``inner``. This also closes a pre-existing correctness gap
+    # (present for undirected Graph too): the matrix cache key tracks structure
+    # (nodes_seq/edges_seq), not attr VALUES, so its invalidation had silently
+    # relied on ``edges_dirty`` never being cleared — once we clear it (so repeat
+    # weighted calls stay fast) the cache must be invalidated explicitly here. Gated
+    # on the cache already existing, so graphs that never ran PageRank pay nothing.
+    if _native_dijkstra_weight_cache_token is not None:
+        gd = vars(G)
+        if "_fnx_pagerank_scipy_matrix_cache" in gd:
+            try:
+                _tok = _native_dijkstra_weight_cache_token(G)
+            except Exception:
+                _tok = None
+            if _tok is None or _tok[2]:
+                gd.pop("_fnx_pagerank_scipy_matrix_cache", None)
     # Retry budget: a sync of a 200-node path graph takes well under
     # a millisecond, so even 8 yields is enough to win the race in
     # practice without risking lockup if the holder is genuinely slow.
@@ -22762,7 +22781,11 @@ def _pagerank_outgoing_weights(succ_row, weight, is_multigraph):
 
     return {
         nbr: 1.0 if weight is None else attrs.get(weight, 1)
-        for nbr, attrs in G.succ[node].items()
+        # br-prcallable fix (cc): use the pre-fetched succ_row (the function's
+        # contract — see the is_multigraph branch above). The pre-snapshot refactor
+        # left a stale ``G.succ[node]`` here, but neither ``G`` nor ``node`` is in
+        # scope, so the non-string-weight-key pagerank path raised NameError.
+        for nbr, attrs in succ_row.items()
     }
 
 
