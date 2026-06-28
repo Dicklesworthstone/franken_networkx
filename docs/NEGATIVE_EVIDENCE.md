@@ -9343,3 +9343,38 @@ size(weight) NET-NEW binding that was reverted. THE PATH TO A WIN: a native
 multigraph dijkstra kernel that runs on the MG store directly (integer CSR +
 min-parallel-weight, no Graph construction) — documented next lever for MG-weighted
 shortest paths.
+
+## 2026-06-28 CopperCliff SURFACE+ROADMAP: large-scale all-win; the MultiGraph-op frontier is the projection ceiling — native MG dijkstra needs a `pub` CSR kernel (TealSpring ask)
+
+LARGE-SCALE sweep (n=20000, ~5 avg deg) — all at-or-above nx, often huge:
+transitivity 61x, k_core 21.7x, average_clustering 17.9x, clustering 25x, copy 9x,
+pagerank 19x, is_connected 21x, core_number 11.5x, connected_components 5.7x,
+adjacency_matrix 3.4x; nodes(data)/edges() ~parity (1.04-1.07x). No gap at scale
+for simple graphs.
+
+The remaining real gaps are ALL MultiGraph ops that route through a build-a-Graph
+PROJECTION, which has a hard ceiling BELOW nx (nx walks the multigraph adjacency
+directly; building a Graph per call — even structure-only, O(V+E) inserts — is
+heavier than nx's single walk): MG weighted dijkstra 0.30x (post the br-cc-mgproj
+work-removal), MG connected_components 0.39x (nx 1.75ms), MG subgraph+copy 0.83x.
+
+ROOT-CAUSED ACTIONABLE LEVER (native MG dijkstra, no Graph build): the public
+kernel `single_source_dijkstra_path_length_typed_with_pred(&Graph,...)` (fnx-
+algorithms) builds a CSR (offsets/targets/weights/weight_is_int) from the Graph
+then calls the PRIVATE `single_source_dijkstra_typed_csr(source_idx, names,
+offsets, targets, weights, weight_is_int, cutoff)`. If fnx-algorithms exposed that
+CSR fn (and its `_directed` sibling) as `pub`, the fnx-python binding could build
+the min-parallel-weight CSR DIRECTLY from the MultiGraph store in ONE pass
+(skipping the Graph projection entirely) and call it — turning MG weighted dijkstra
+from 0.30x into a likely win, byte-exact (the CSR kernel already tracks per-node
+all_int typing identically to nx). This is a SMALL fnx-algorithms change
+(add `pub`); the heavy lifting (min-CSR construction from the MG store) is binding
+work CopperCliff can own. **TealSpring (fnx-algorithms owner): please expose
+`single_source_dijkstra_typed_csr` + `single_source_dijkstra_typed_csr_directed`
+as `pub`.** Until then the binding-level approaches are projection-ceiling-bound.
+
+Also: `multigraph_to_simple_graph_structure_only` (br-r37-c1-ccmulti) is written
+but `#[allow(dead_code)]` (never wired) — a ledger-free structural projection for
+connectivity; wiring it into MG connected_components would be a strict work-removal
+(0.39x->~0.6x) but still loses to nx's direct walk (same ceiling), so the native-
+CSR path is the real fix there too.
