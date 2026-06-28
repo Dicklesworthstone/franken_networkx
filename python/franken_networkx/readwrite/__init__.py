@@ -1640,29 +1640,41 @@ def parse_pajek(lines, *, backend=None, **backend_kwargs):
                 graph.graph["name"] = name
         elif lower.startswith("*vertices"):
             _, node_count = line.split()
+            # br-cc-pajekbatch: build each node's attr dict locally and commit all
+            # nodes in ONE add_nodes_from (was per-node add_node + per-node
+            # nodes[label][...] PyO3 attr writes). Same attr keys/order, so the
+            # parsed graph is byte-identical.
+            nodes_batch = []
             for _ in range(int(node_count)):
                 splitline = split_line(next(lines_iter))
                 node_id, label = splitline[0:2]
                 labels.append(label)
-                graph.add_node(label)
                 node_labels[node_id] = label
-                graph.nodes[label]["id"] = node_id
+                node_attrs = {"id": node_id}
                 try:
-                    node_position = {
-                        "x": float(splitline[2]),
-                        "y": float(splitline[3]),
-                        "shape": splitline[4],
-                    }
+                    node_attrs.update(
+                        {
+                            "x": float(splitline[2]),
+                            "y": float(splitline[3]),
+                            "shape": splitline[4],
+                        }
+                    )
                 except (IndexError, TypeError, ValueError):
-                    node_position = None
-                if node_position is not None:
-                    graph.nodes[label].update(node_position)
-                graph.nodes[label].update(zip(splitline[5::2], splitline[6::2]))
+                    pass
+                node_attrs.update(zip(splitline[5::2], splitline[6::2]))
+                nodes_batch.append((label, node_attrs))
+            graph.add_nodes_from(nodes_batch)
         elif lower.startswith("*edges") or lower.startswith("*arcs"):
             if lower.startswith("*edge"):
                 graph = graph_as(graph, fnx.MultiGraph)
             if lower.startswith("*arcs"):
                 graph = graph.to_directed()
+            # br-cc-pajekbatch: collect the parsed edges and commit them in ONE
+            # add_edges_from instead of per-edge add_edge (the per-edge native
+            # round-trip dominated parse_pajek at ~0.66x vs nx). Edge order +
+            # per-edge attr dicts (and multigraph key assignment 0,1,... per
+            # parallel pair) are identical, so the parsed graph is byte-identical.
+            edges_batch = []
             for line in lines_iter:
                 splitline = split_line(line)
                 if len(splitline) < 2:
@@ -1678,13 +1690,16 @@ def parse_pajek(lines, *, backend=None, **backend_kwargs):
                 if edge_weight is not None:
                     edge_data["weight"] = edge_weight
                 edge_data.update(zip(splitline[3::2], splitline[4::2]))
-                graph.add_edge(left, right, **edge_data)
+                edges_batch.append((left, right, edge_data))
+            graph.add_edges_from(edges_batch)
         elif lower.startswith("*matrix"):
             graph = graph_as(graph, fnx.DiGraph)
+            edges_batch = []
             for row, matrix_line in enumerate(lines_iter):
                 for col, data in enumerate(matrix_line.split()):
                     if int(data) != 0:
-                        graph.add_edge(labels[row], labels[col], weight=int(data))
+                        edges_batch.append((labels[row], labels[col], {"weight": int(data)}))
+            graph.add_edges_from(edges_batch)
 
     return graph
 
