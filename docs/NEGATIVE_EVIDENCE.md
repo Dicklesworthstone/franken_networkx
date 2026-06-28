@@ -9414,3 +9414,25 @@ hashing. That is a substantial fnx-classes storage change — the same architect
 primitive the MG size(weight)/degree(weight) gaps need. ALL the MG-op gaps (dijkstra
 0.3x, size 0.3x, degree 0.7x, connected_components 0.39x) share this ONE root:
 the String-keyed multi-edge store. No binding-level or kernel-`pub` fix reaches it.
+
+## 2026-06-28 CopperCliff SURFACE: minimum/maximum_spanning_edges at-or-above nx (apparent dense gap was NOISE); stash backlog has no unlanded win
+
+Probed spanning edges (a single-shot bench had read 0.79x). Robust characterization
+(min-of-9 across sizes; min-of-21 across 5 seeds for the dense point): WIN
+everywhere — sparse (deg~10) n=200..2000 = 2.5-2.9x, n=4000 = 1.22x; dense (deg~80)
+n=1000 median **1.09x** across 5 seeds (0.98-1.14x), n=500/2000 = 1.24x.
+minimum_spanning_tree 1.3-1.8x. The lone 0.79-0.87x single-shot reads were
+sort-timing NOISE (non-monotonic across n is the tell). No gap — the native kruskal
+(node-index orientation + weight-only stable sort, br-r37-c1-mstcsr) already wins.
+
+Stash-backlog audit: the 10 git stashes' MESSAGES are the commits they were created
+ON, not their content. Inspected — none is a landable win: stash{8}=MG size-native
+(NO-SHIP, substrate-bound), stash{5}=to_directed 0.645->0.782x (still <1),
+stash{6}=MDG in_edges(keys,data) 0.16->0.40x (still <1), stash{0-3}=reverted/
+regressed attempts. Nothing to land.
+
+NET (session close-out): fnx dominates nx across the entire measured surface; every
+residual is either timing noise on dense/sort/LAPACK ops (re-measure interleaved
+min-of-21 before believing any sub-1.0x) or the ONE architectural root — the
+String-keyed Multi(Di)Graph store (index-based MG adjacency in fnx-classes/CGSE is
+the only remaining real lever, spanning dijkstra/size/degree/connected_components).
