@@ -9182,3 +9182,46 @@ tsp/anneal/approx tests pass. LEVER: a fast path that bails on a "named" input
 for — IF the resolution is deterministic (RNG-free) so the downstream stochastic
 stream is unperturbed. Resolve it AFTER the cheap viability gates to avoid paying
 on the bail path.
+
+## 2026-06-28 CopperCliff SURFACE: post-TSP broad sweep — path/dag/flow/cut/bipartite/centrality/community all at-or-above nx; residual sub-1.0x are FLOOR-bound or matching-conversion-bound
+
+After landing the three TSP-family wins this session (greedy_tsp tie 1.4x,
+eulerian_circuit directed 12x, annealing greedy-init 1.45x), swept ~50 more
+workloads across five areas to find the next gap. RESULT: the surface is mined —
+representative ratios:
+
+- single-pair / single-source path (delegated, small query): all_simple_paths
+  1.54x, bidirectional_dijkstra 1.87x, bellman_ford_path 3.52x,
+  single_source_dijkstra_path 3.44x, goldberg_radzik 2.18x, johnson 1.96x;
+  shortest_simple_paths 0.94x and bellman_ford_predecessor 1.06x = parity.
+- dag/structural: descendants/ancestors 4.6x, find_cliques_recursive 1.01x.
+- flow/cut (single s-t): maximum_flow 7.4x, minimum_cut 6.5x, minimum_edge_cut
+  5.2x, minimum_node_cut 2.8x, stoer_wagner 8.8x, edge/node_disjoint_paths
+  8.2-8.6x, local_node_connectivity 2.5x.
+- bipartite/tree: maximum_matching / hopcroft_karp 12.2x, minimum_spanning_
+  arborescence 3.4x.
+- centrality: harmonic 15x, subgraph 32x, percolation 8.7x, information 9.7x,
+  current_flow_closeness 9.4x, load 30x, group_closeness 8.5x, dispersion 3.1x,
+  edge_load 1.4x; group_betweenness 0.996x / girvan_newman 0.969x = parity.
+- community/clustering/link-pred: greedy_modularity 24x, asyn_lpa 1.79x,
+  square_clustering 18.7x, generalized_degree 4.2x, rich_club 82.9x,
+  jaccard/adamic_adar (few pairs) 1.4-1.9x.
+
+The ONLY measured sub-0.9x residuals and why they are NOT 60-min levers:
+- `clustering(nbunch=few)` 0.857x / `triangles(nbunch=few)` 0.871x — the local
+  fast path is already O(deg); the residual is the per-neighbour `set(G[x])`
+  AtlasView materialization FLOOR (same persistent-mirror primitive the read-side
+  view ops need; multiple prior kernel-micro-opt NO-SHIPs). ~10us absolute on a
+  ~60us op.
+- `christofides` 0.82x — matching-dominated (Blossom O(V^3)); the gap is the
+  fnx->nx conversion tax, but de-delegating needs an in-process min_weight_matching
+  (itself nx-fallback Blossom), a large chain for a small gap. SKIP.
+- `simulated_annealing_tsp` small N_inner (0.86x) — fixed W-build O(n^2) overhead
+  not amortized at tiny iteration counts; the nx DEFAULT (N_inner=100) is a win.
+- `max_weight_matching` 0.872x — the known order-sensitive rebuild benchmark
+  ARTIFACT (already in the ledger), not a real gap.
+
+NET: the delegated-conversion-tax vein (the greedy_tsp/eulerian/annealing family)
+is now mined; what remains vs nx is the persistent-Python-object / AtlasView
+materialization substrate primitive (architectural) and a couple of
+Blossom-matching-conversion residuals not worth their complexity.
