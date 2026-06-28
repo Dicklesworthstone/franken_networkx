@@ -8924,3 +8924,33 @@ weighted shortest-path / flow / matching / community surface is mined — fnx at
 or-above nx everywhere measured. The only sub-1.0x residuals are order/seed-locked
 (louvain, blossom matching) or the covered read-side PyObject-materialization view
 ops (lazy-view primitive) — no 60-min wins remain in the weighted-input surface.
+
+## 2026-06-28 CopperCliff read-side materialization laggards RE-EXAMINED (post multi-source lesson) — confirmed FLOOR-bound, but state-dependent (add_edge skips the pristine fast path)
+
+After the multi-source family turned out to be a fixable projection swap (not the
+"deep kernel bug" I'd diagnosed), I re-examined the documented read-side
+materialization-floor laggards with the same skepticism. Re-measured (MDG n=700
+/ MG n=2500): mdg in_edges(keys,data=weight) **0.184x**, mdg in_degree(weight)
+0.267x, mg selfloop_edges(keys,data=weight) 0.454x, mg size(weight) 0.836x, mdg
+edges(keys) 0.919x. All value-correct (==nx).
+
+NEW PRECISE FINDING (state-dependence): mdg in_edges(keys,data) is 11.5ms when
+the graph is built via per-edge `add_edge(weight=)` (the common pattern + what
+the head_to_head bench does) but 5.1ms when built via bulk `add_edges_from` — a
+2.2x gap. Cause: `add_edge` POPULATES the edge_py_attrs MIRROR per edge, leaving
+the graph NON-PRISTINE, so the `edge_py_attrs.is_empty()`-gated store-read fast
+path (8fd930863 / 89661143c) is SKIPPED; bulk `add_edges_from` leaves the mirror
+empty (pristine) so the fast path engages. A subsequent `list(edges(data=True))`
+also de-pristines a bulk graph (5.1->7.8ms).
+
+VERDICT (unlike multi-source — this IS the architectural floor): even the
+pristine fast path is **0.40x** vs nx. fnx stores edges as Rust data and must
+RECONSTRUCT PyObject (u,v,key,value) tuples per edge; nx's storage IS PyObjects
+(it just iterates its native dicts). Beating nx needs a persistent ordered
+Python-object edge mirror (store the tuples/dicts, skip reconstruction) — the
+documented architectural lever, not a 60-min change. The add_edge penalty
+(0.18x vs the 0.40x floor) could be closed by broadening the fast-path gate from
+`is_empty()` to also accept `!edges_dirty` (store-authoritative), but that is
+store/mirror-consistency-risky for a result that still LOSES to nx (0.40x) — a
+loss-reduction, not a win; deferred. Re-confirmed: the read-side view-op vein is
+floor-bound; do NOT re-dig it with kernel/micro-opts.
