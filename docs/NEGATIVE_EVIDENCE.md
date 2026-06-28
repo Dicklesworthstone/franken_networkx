@@ -9155,3 +9155,30 @@ different first neighbour. NOT fixed: it passes all 603 euler conformance tests
 "48/48 byte-identical" only held for the small/complete fixtures tested, and
 replicating `Graph.copy()._adj` ordering is fiddly with no perf upside. The
 directed fix is immune because `reverse()` has no second-direction reordering.
+
+## 2026-06-28 CopperCliff SHIP: simulated_annealing_tsp / threshold_accepting_tsp init_cycle="greedy" 0.86x->1.45x (default cfg) — wire byte-exact greedy_tsp into the existing fast path
+
+The annealing fast path (`_tsp_anneal_prep`, index-space vectorised cost) already
+beats nx for an EXPLICIT integer init_cycle (1.49x), but it bailed to the full
+nx delegation for ANY string init_cycle — including the common `init_cycle=
+"greedy"` — leaving it at **0.66x (N_inner=10) / 0.86x (N_inner=100, nx default)**
+on integer-weighted complete graphs. nx resolves "greedy" by computing
+`cycle = greedy_tsp(G, weight=weight, source=source)` (DETERMINISTIC, no RNG) and
+then annealing. With greedy_tsp now byte-exact + fast in-process, resolve "greedy"
+inside `_tsp_anneal_prep` and let the explicit-cycle fast path engage. The greedy
+COMPUTATION is deferred until AFTER the integer + completeness gates pass, so the
+float/incomplete bail path pays nothing extra (no wasted greedy_tsp call).
+
+Because greedy is RNG-free, the annealing RNG stream is identical to nx's, so the
+result is byte-identical. Verified 0/1920 == nx (SA + TA, greedy + explicit init,
+int + float weights, n=3..30, both moves "1-1"/"1-0", source None/explicit, 30
+seeds) — the float cases still delegate and match; explicit cases unchanged.
+Measured (integer complete n=40): N_inner=100 (nx default) SA **1.451x** / TA
+**1.489x** (was ~0.86x); N_inner=10 SA 0.86x (was 0.66x — improved, every config
+strictly beats the old delegation). Float unaffected (fast path still bails on
+non-integer weights — float-sum order matters). 118 tsp/approx-parity + 639
+tsp/anneal/approx tests pass. LEVER: a fast path that bails on a "named" input
+(here `"greedy"`) can often resolve that name to the explicit input it stands
+for — IF the resolution is deterministic (RNG-free) so the downstream stochastic
+stream is unperturbed. Resolve it AFTER the cheap viability gates to avoid paying
+on the bail path.

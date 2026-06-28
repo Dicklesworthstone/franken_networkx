@@ -18700,8 +18700,7 @@ class _ApproximationNamespace:
             _networkx_graph_for_parity(G), weight=weight, source=source
         )
 
-    @staticmethod
-    def _tsp_anneal_prep(G, init_cycle, weight, source, move):
+    def _tsp_anneal_prep(self, G, init_cycle, weight, source, move):
         # Shared fast-path setup for simulated_annealing_tsp /
         # threshold_accepting_tsp. Returns (nodes, W, mv, cyc_idx, rng_seed) for
         # the index-space vectorised loop, or ``None`` to signal the caller to
@@ -18721,8 +18720,21 @@ class _ApproximationNamespace:
 
         if type(G) not in (Graph, DiGraph):
             return None
-        if isinstance(init_cycle, str):  # "greedy" -> delegate (calls greedy_tsp)
-            return None
+        # br-cc-tspanngreedy: nx resolves init_cycle="greedy" by computing
+        # ``cycle = greedy_tsp(G, weight=weight, source=source)`` (a
+        # DETERMINISTIC, RNG-free step) and then annealing from that cycle.
+        # Previously we bailed to the full nx delegation for ANY str init_cycle
+        # (~0.66-0.86x on integer-weighted complete graphs). We now resolve
+        # "greedy" in-process with the byte-exact greedy_tsp so the explicit-cycle
+        # fast path below engages (greedy is RNG-free, so the annealing RNG stream
+        # is unchanged). The greedy COMPUTATION is deferred until after the
+        # integer/completeness gates pass, so the float/incomplete bail path does
+        # not pay for a wasted greedy_tsp call. Unknown strings -> bail so nx raises.
+        init_is_greedy = False
+        if isinstance(init_cycle, str):
+            if init_cycle != "greedy":
+                return None
+            init_is_greedy = True
         if move == "1-1":
             mv = _swap_two_nodes
         elif move == "1-0":
@@ -18759,6 +18771,15 @@ class _ApproximationNamespace:
         finite = _np.isfinite(W)
         if not bool((finite.sum(axis=1) == (n - 1)).all()):
             return None
+
+        # Fast path is viable -> NOW resolve "greedy" (deferred to here so the
+        # bail paths above never pay for it). If greedy can't run (it won't here,
+        # the weights are numeric+complete) we still bail and nx reproduces it.
+        if init_is_greedy:
+            try:
+                init_cycle = self.greedy_tsp(G, weight=weight, source=source)
+            except Exception:
+                return None
 
         # Validate the explicit init_cycle exactly as nx does; on any deviation
         # fall back so nx raises the precise error.
