@@ -42378,6 +42378,22 @@ class _ConversionGraphViewBase:
         return len(self)
 
     def number_of_edges(self):
+        # br-cvundeg (cc): an UNDIRECTED view of a simple DiGraph can count edges
+        # natively (sum(undirected_degree)//2) instead of materializing the whole
+        # conversion-view edge list (per-edge tuple build + reciprocal dedup in
+        # Python) — ~16x slower than nx. The native sequence dedups succ∪pred and
+        # counts self-loops twice, so sum//2 is the exact undirected edge count.
+        src = self._graph
+        if (
+            not self.is_directed()
+            and not self.is_multigraph()
+            and getattr(src, "is_directed", None)
+            and src.is_directed()
+            and not src.is_multigraph()
+        ):
+            native = getattr(src, "_native_undirected_degree_counts", None)
+            if native is not None:
+                return sum(native()) // 2
         if self.is_multigraph():
             return len(self.edges(keys=True))
         return len(self.edges())

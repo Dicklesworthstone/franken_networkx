@@ -11246,6 +11246,40 @@ impl PyDiGraph {
             .collect()
     }
 
+    /// br-cvundeg (cc): UNDIRECTED degree per node (node-index order) for a
+    /// to_undirected VIEW of this directed graph — the merged succ∪pred neighbour
+    /// count, deduping reciprocal edges, with a self-loop counted twice (nx
+    /// undirected-degree semantics). Lets `_ConversionGraphViewBase.number_of_edges`
+    /// / `size` answer via `sum(.)//2` from native index rows instead of walking
+    /// the Python-synthesized conversion-view adjacency (which materialized attr
+    /// dicts per neighbour — ~16x slower than nx's plain-dict view).
+    fn _native_undirected_degree_counts(&self) -> Vec<usize> {
+        (0..self.inner.node_count())
+            .map(|i| {
+                let succ = self.inner.successors_indices(i).unwrap_or(&[]);
+                let pred = self.inner.predecessors_indices(i).unwrap_or(&[]);
+                let mut neighbors: HashSet<usize> =
+                    HashSet::with_capacity(succ.len() + pred.len());
+                let mut self_loop = false;
+                for &s in succ {
+                    if s == i {
+                        self_loop = true;
+                    } else {
+                        neighbors.insert(s);
+                    }
+                }
+                for &p in pred {
+                    if p == i {
+                        self_loop = true;
+                    } else {
+                        neighbors.insert(p);
+                    }
+                }
+                neighbors.len() + if self_loop { 2 } else { 0 }
+            })
+            .collect()
+    }
+
     /// br-r37-c1-degnbnative (cc): one-pass (node, total/in/out-degree) pairs for a
     /// node subset (directed degree(nbunch)). Directed analog of
     /// PyGraph::_native_degree_pairs_subset — collapses the Python nbunch_iter

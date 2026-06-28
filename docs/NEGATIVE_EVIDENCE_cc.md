@@ -8,6 +8,32 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## SHIPPED (cc, 2026-06-28): to_undirected-view number_of_edges/size 0.063x -> 8.69x vs nx — native undirected degree count (first crack in the conversion-view wall)
+
+The conversion-view materialization wall (flagged as the next-lever blocker in SWEEP 4 below) — its
+cheapest, most common query is now NATIVE. `to_undirected(G).number_of_edges()` (and `.size()`) on a
+DiGraph was 0.063x vs nx (fnx 7.9ms vs nx 0.44ms, 16x): `_ConversionGraphViewBase.number_of_edges`
+did `len(self.edges())`, materializing the whole conversion-view edge list (per-edge tuple build +
+reciprocal dedup in Python). nx's frozen view answers via sum(degree)//2 over plain dicts. A pure
+Python `sum(self.degree())//2` did NOT help (NO-SHIP, prior turn) because the view's degree iterates
+the same Python-synthesized per-node adjacency.
+
+FIX (br-cvundeg): native `PyDiGraph::_native_undirected_degree_counts` — per node (index order) the
+merged succ∪pred neighbour count, deduping reciprocal edges, self-loop counted twice (nx undirected
+degree). `_ConversionGraphViewBase.number_of_edges` routes the undirected-view-of-simple-DiGraph case
+to `sum(native())//2` (the exact undirected edge count). Other conversions (undirected source,
+multigraph, to_directed) fall through unchanged.
+
+RESULT (measured, rebuilt .so via rch cargo build --features extension-module): n=400 fnx 0.054ms vs
+nx 0.467ms = **8.69x FASTER** (was 0.063x; ~140x self-speedup). PARITY: exact vs nx over 8 random
+directed graphs incl reciprocal pairs + self-loops; fallback cases (undirected src / multigraph /
+to_directed) re-verified exact. Conformance GREEN: 5832 passed in the conversion/view/degree/operator
+suite; full tests/python 49243 passed (only the 3 pre-existing find_induced_nodes-cluster fails, zero
+new). NOTE: this fixes number_of_edges/size; the iterate-the-view case (edges()/degree() materializing
+attrs) still needs the broader native conversion-view adjacency — the degree-count native is the
+reusable foundation for it. LEVER: route VIEW aggregate queries to a native index-space scan over the
+SOURCE graph instead of the Python-synthesized view adjacency.
+
 ## SWEEP 4 (cc, 2026-06-28): generators / IO / tree / approximation — ALL wins; algorithm vein MINED across 4 sweeps
 
 4th fnx-vs-nx sweep (generators, IO round-trips, tree, approximation; n=400-2000). ALL wins vs nx:
