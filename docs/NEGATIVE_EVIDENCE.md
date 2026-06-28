@@ -9483,3 +9483,21 @@ crossing >1x needs the index-based MG storage primitive. parse_graphml (0.73x,
 delegates to nx's XML parser — de-delegation = rewriting an XML parser, not worth
 it) and barabasi_albert (0.79x, RNG `rng.choice` rejection loop = pure-Python,
 identical to nx, unbeatable without breaking byte-exactness) are NOT takeable.
+
+## 2026-06-28 CopperCliff SURFACE: bipartite / tournament / link-analysis / cut / chordal / cores — all at-or-above nx
+
+Fresh-area sweep (previously unbenched). All win-or-parity: bipartite.clustering
+2.77x, bipartite.projected_graph 2.42x, bipartite.density 3.41x, is_bipartite 15x,
+voterank 2.33x, hits 1.45x, pagerank(tol=1e-10) 10.8x, tournament.is_tournament
+7.1x, is_chordal 2.47x, onion_layers 8.9x, k_truss 1.41x, k_core 75x, core_number
+14x, find_cliques 1.01x, node_clique_number 1.00x (parity), kernighan_lin 1.02x.
+The lone apparent sub-1.0x (graph_clique_number 0.80x) was a TEST ARTIFACT —
+neither nx nor fnx exposes graph_clique_number (deprecated/removed), so both ran the
+same find_cliques()+max fallback; the delta was find_cliques timing noise.
+
+NET (≈22 dimensions surveyed this session): fnx dominates nx across the entire
+measured surface. Every genuine residual converges on the ONE architectural root —
+the String-keyed Multi(Di)Graph store (MG dijkstra/size/degree/connected_components/
+pajek-parse). Index-based Multi(Di)Graph adjacency in fnx-classes/CGSE is the single
+remaining real lever; it is a coordinated multi-session storage change, not a
+60-minute patch. Clean per-function algorithmic wins are mined out.
