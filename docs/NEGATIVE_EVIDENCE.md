@@ -9225,3 +9225,36 @@ NET: the delegated-conversion-tax vein (the greedy_tsp/eulerian/annealing family
 is now mined; what remains vs nx is the persistent-Python-object / AtlasView
 materialization substrate primitive (architectural) and a couple of
 Blossom-matching-conversion residuals not worth their complexity.
+
+## 2026-06-28 CopperCliff NO-SHIP: MultiGraph size(weight) native scalar — substrate-bound below nx (REVERTED, 2 approaches tried)
+
+Re-measured the multigraph weighted-degree gaps memory flagged (most read-side
+view gaps — nodes(data), edges(data), in_edges(data) — are now FIXED/WIN per a
+fresh sweep; stale memory). The real residual: **MultiGraph `size(weight)`
+0.21-0.34x** vs nx (n=4000, dirty/clean), and `degree(nbunch,weight)` ~0.53-0.63x
+all types. `size(weight)` is a SCALAR (`sum(d for _,d in degree(weight))/2`), so it
+is NOT the per-node view-materialization floor — there's a real avoidable cost:
+the canonical `size()` routes through the MultiGraph `_native_weighted_degree`
+path, which builds a Python list + `builtins.sum` per node and materialises V
+`(node, degree)` PyObject pairs the scalar never needs.
+
+Tried a native scalar `_native_weighted_size` two ways, both byte-exact (0/400,
+int-gated, pristine/float fall back to the faithful degree route):
+1. Reuse the per-node int-store row (`weighted_degree_py_int_row`) summed in Rust,
+   /2: **0.34x -> 0.81x clean / 0.21x -> 0.49x dirty** (2.4x self-gain) — but
+   STILL loses to nx. The residual is the per-edge `edge_key` String alloc +
+   mirror probe + DOUBLE traversal (each edge visited from both endpoints).
+2. Single-pass over `inner.edges_ordered_borrowed()` (each edge once, no String
+   key), pristine-gated: **WORSE, 0.35x clean** — that API builds an
+   insertion-ordered Vec<(&str,&str,usize,&AttrMap)>; its construction cost
+   exceeds the per-node adjacency walk.
+
+REVERTED both. nx's MultiGraph `size(weight)` walks its native nested
+`_adj` dicts (C-level), which is faster than ANY path over fnx's CGSE
+String-keyed multi-edge store — the same keyed-edge substrate floor that blocks
+mg degree(weight)/selfloop_keys_weight (eilce accumulator NO-SHIP, reference_mdg_
+weighted_degree_store_int). A real win needs a columnar/store-level weight sum in
+the CGSE layer (large primitive), not a binding over the existing store. DON'T
+re-attempt the binding-level approach. `degree(nbunch,weight)` 0.53x is a fixed
+per-call Python overhead (view construction ~12us) on a tiny (8-node) result —
+also not beatable without lower view-construction overhead.
