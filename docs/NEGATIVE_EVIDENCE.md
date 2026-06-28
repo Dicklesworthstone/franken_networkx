@@ -8458,3 +8458,71 @@ method on the approximation namespace), `crates/fnx-python/benches/networkx_head
 a delegated heuristic whose only floor is an O(n^2) fnx->nx conversion can be
 WON with a native kernel that returns a verified-byte-exact result on the
 order-independent (tie-free) case and delegates the order-sensitive remainder.
+
+## 2026-06-28 CopperCliff SHIP: simulated_annealing_tsp 0.26x->2.44x, threshold_accepting_tsp 0.42x->2.87x — index-space vectorised de-delegation
+
+After greedy_tsp, the next-biggest gaps in the approximation/TSP delegation
+family. Both `simulated_annealing_tsp` and `threshold_accepting_tsp` had no
+concrete method, so they went through the `_ApproximationNamespace`
+`__getattr__` wrapper, paying the O(n^2) `_networkx_graph_for_parity` conversion
+EVERY call — AND nx's inner loop recomputes the FULL O(n) cycle cost (per-edge
+Python `G[u][v].get(weight,1)` dict lookups) `N_inner*max_iterations` times.
+Measured (n=120, default config): SA 0.260x, TA 0.416x.
+
+LEVER (pure-Python, no rebuild): de-delegate by running the metaheuristic in
+INDEX SPACE with a vectorised cost. nx's move functions (`swap_two_nodes`,
+`move_one_node`) swap CYCLE POSITIONS — their RNG draws (`seed.sample(range(1,
+len-1), 2)`) depend only on `len(cycle)`, NOT the node labels — so the loop runs
+byte-identically on an integer index-cycle while reusing nx's EXACT move
+functions + `create_py_random_state` seed (identical draw sequence). The cycle
+cost becomes ONE vectorised numpy fancy-index sum `W[cyc[:-1], cyc[1:]].sum()`
+over a dense weight matrix instead of n per-edge Python dict lookups. At nx's
+default `N_inner=100`, the matrix build amortises and the vectorised cost crushes
+nx's dict.gets.
+
+BYTE-EXACTNESS gates (else fall back to the faithful nx delegation, preserving
+nx's exact tours AND errors): simple Graph/DiGraph, explicit `init_cycle` (not
+"greedy"), a known move ("1-1"/"1-0"), n>=3, a COMPLETE graph, and
+INTEGER-valued weights — the last so the numpy pairwise sum equals nx's
+left-to-right Python `sum()` exactly (float weights -> sum-order-sensitive ->
+delegate). The init_cycle is validated exactly as nx does; any deviation falls
+back so nx raises the precise error.
+
+SUBTLE BUG found + fixed: nx's `move(cycle, seed)` MUTATES the cycle IN PLACE and
+nx passes the LIVE cycle (not a copy), so a REJECTED move is NOT reverted — the
+"current solution" is a random walk and only `cost` gates on acceptance. A first
+prototype that passed `cyc[:]` (a copy) matched nx only because high-temp early
+iterations rarely reject; the adversarial sweep exposed 282/600 mismatches (and
+TA ran 2x SLOWER — a divergence symptom: more best-resets -> more outer
+iterations). Mirroring nx's in-place semantics (`mv(cyc, rng)`, no revert on
+reject) fixed both correctness and speed.
+
+Bench (criterion median, `cargo bench -p fnx-python --bench
+networkx_head_to_head -- networkx_head_to_head_tsp`, complete integer-weighted
+graph n=200, nx default config, seed=7):
+
+| workload | FNX | NetworkX | ratio vs nx |
+| --- | ---: | ---: | ---: |
+| `simulated_annealing_tsp` n=200 | `44.90 ms` | `109.75 ms` | **2.44x** |
+| `threshold_accepting_tsp` n=200 | `62.33 ms` | `179.11 ms` | **2.87x** |
+
+Correctness: 800-case adversarial sweep (int + float weights, SA + TA, move
+"1-1"/"1-0", mixed N_inner/max_iterations/seed) = 0 mismatches wrapper-vs-nx
+(float-weight cases delegate; int-weight cases run native — both == nx). Error
+contracts (bad init_cycle, source != cycle[0]) match nx exactly. Conformance:
+`test_tsp_approximation_conformance.py` + `test_approximation_signature_parity.py`
+= 118 passed, 0 failures (incl. the seeded exact-tour SA/TA tests for seeds
+[1,7,42,1000] and signature parity). Gates: `rustfmt --check` clean on the bench
+file; `py_compile` clean. Touches: `python/franken_networkx/__init__.py`
+(concrete `simulated_annealing_tsp` + `threshold_accepting_tsp` methods + shared
+`_tsp_anneal_prep`), `crates/fnx-python/benches/networkx_head_to_head.rs` (SA/TA
+workloads in the `tsp_head_to_head` group with baked fnx==nx asserts).
+
+BUILD-INFRA caveat re-confirmed (memory feedback_rch_no_local_so_extract_wheel):
+the criterion bench had to run LOCALLY — the remote worker (hz2) lacks
+`libpython3.13.so.1.0`, and the bench's CARGO_TARGET_DIR loader imports the
+libpython-linked `lib_fnx.so` (a cdylib, not an abi3 wheel), which fails to load
+remotely. Do NOT stage a `lib_fnx.so` into the repo package dir as
+`_fnx.abi3.so` (it links libpython and breaks remote imports); for remote benches
+get a portable abi3 `.so` via `rch maturin build`/wheel-extract, or run the bench
+binary locally where libpython is present.

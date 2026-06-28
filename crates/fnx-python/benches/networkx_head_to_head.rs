@@ -126,6 +126,10 @@ struct CoreLaggardWorkloads {
 struct TspWorkloads {
     fnx_greedy_tsp: Py<PyAny>,
     nx_greedy_tsp: Py<PyAny>,
+    fnx_sa_tsp: Py<PyAny>,
+    nx_sa_tsp: Py<PyAny>,
+    fnx_ta_tsp: Py<PyAny>,
+    nx_ta_tsp: Py<PyAny>,
 }
 
 struct ConstructionCopyWorkloads {
@@ -2394,6 +2398,29 @@ nx_greedy_tsp = lambda: nx.approximation.greedy_tsp(tsp_nx, source=0)
 
 # Correctness gate baked into the bench: the native tour must equal nx's.
 assert fnx_greedy_tsp() == nx_greedy_tsp(), "greedy_tsp tour diverged from NetworkX"
+
+# simulated_annealing / threshold_accepting TSP: integer weights (so the
+# vectorised numpy cycle cost equals nx's left-to-right Python sum exactly) on
+# a complete graph, run at nx's default config (N_inner=100).
+def _complete_int_weighted(n):
+    fg = fnx.complete_graph(n)
+    ng = nx.complete_graph(n)
+    for u, v in list(ng.edges()):
+        w = (u * 7 + v * 3) % 50 + 1
+        fg.edges[u, v]["weight"] = w
+        ng.edges[u, v]["weight"] = w
+    return fg, ng
+
+anneal_fnx, anneal_nx = _complete_int_weighted(200)
+anneal_init = list(range(200)) + [0]
+
+fnx_sa_tsp = lambda: fnx.approximation.simulated_annealing_tsp(anneal_fnx, anneal_init, source=0, seed=7)
+nx_sa_tsp = lambda: nx.approximation.simulated_annealing_tsp(anneal_nx, anneal_init, source=0, seed=7)
+fnx_ta_tsp = lambda: fnx.approximation.threshold_accepting_tsp(anneal_fnx, anneal_init, source=0, seed=7)
+nx_ta_tsp = lambda: nx.approximation.threshold_accepting_tsp(anneal_nx, anneal_init, source=0, seed=7)
+
+assert fnx_sa_tsp() == nx_sa_tsp(), "simulated_annealing_tsp tour diverged from NetworkX"
+assert fnx_ta_tsp() == nx_ta_tsp(), "threshold_accepting_tsp tour diverged from NetworkX"
 "#,
         )
         .as_c_str(),
@@ -2411,6 +2438,10 @@ assert fnx_greedy_tsp() == nx_greedy_tsp(), "greedy_tsp tour diverged from Netwo
     Ok(TspWorkloads {
         fnx_greedy_tsp: callable("fnx_greedy_tsp")?,
         nx_greedy_tsp: callable("nx_greedy_tsp")?,
+        fnx_sa_tsp: callable("fnx_sa_tsp")?,
+        nx_sa_tsp: callable("nx_sa_tsp")?,
+        fnx_ta_tsp: callable("fnx_ta_tsp")?,
+        nx_ta_tsp: callable("nx_ta_tsp")?,
     })
 }
 
@@ -2430,6 +2461,26 @@ fn tsp_head_to_head(c: &mut Criterion) {
         &mut group,
         "nx_greedy_tsp_complete_n250",
         &workloads.nx_greedy_tsp,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_simulated_annealing_tsp_complete_n200",
+        &workloads.fnx_sa_tsp,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_simulated_annealing_tsp_complete_n200",
+        &workloads.nx_sa_tsp,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_threshold_accepting_tsp_complete_n200",
+        &workloads.fnx_ta_tsp,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_threshold_accepting_tsp_complete_n200",
+        &workloads.nx_ta_tsp,
     );
 
     group.finish();

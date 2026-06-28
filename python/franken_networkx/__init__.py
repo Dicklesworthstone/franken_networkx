@@ -18625,6 +18625,221 @@ class _ApproximationNamespace:
             _networkx_graph_for_parity(G), weight=weight, source=source
         )
 
+    @staticmethod
+    def _tsp_anneal_prep(G, init_cycle, weight, source, move):
+        # Shared fast-path setup for simulated_annealing_tsp /
+        # threshold_accepting_tsp. Returns (nodes, W, mv, cyc_idx, rng_seed) for
+        # the index-space vectorised loop, or ``None`` to signal the caller to
+        # fall back to the faithful nx delegation. nx's move functions swap
+        # CYCLE POSITIONS (their RNG draws depend only on len(cycle), not the
+        # node labels), so the loop runs in index space byte-identically, while
+        # the cycle cost becomes one vectorised numpy fancy-index sum instead of
+        # n per-edge Python dict lookups. We gate to the cases where this is
+        # provably == nx: simple Graph/DiGraph, an explicit init_cycle, a
+        # known move, n>=3, a COMPLETE graph, and INTEGER-valued weights (so the
+        # numpy pairwise sum equals nx's left-to-right Python sum exactly).
+        import numpy as _np
+        from networkx.algorithms.approximation.traveling_salesman import (
+            move_one_node as _move_one_node,
+            swap_two_nodes as _swap_two_nodes,
+        )
+
+        if type(G) not in (Graph, DiGraph):
+            return None
+        if isinstance(init_cycle, str):  # "greedy" -> delegate (calls greedy_tsp)
+            return None
+        if move == "1-1":
+            mv = _swap_two_nodes
+        elif move == "1-0":
+            mv = _move_one_node
+        else:
+            return None
+
+        nodes = list(G)
+        n = len(nodes)
+        if n < 3:
+            return None
+        idx = {node: i for i, node in enumerate(nodes)}
+
+        directed = type(G) is DiGraph
+        W = _np.full((n, n), _np.inf, dtype=_np.float64)
+        try:
+            for u, v, w in G.edges(data=weight, default=1):
+                if u == v:
+                    continue  # selfloops ignored, like nx's completeness check
+                if isinstance(w, bool) or not isinstance(w, (int, float)):
+                    return None
+                iw = int(w)
+                if w != iw:
+                    return None  # non-integer weight -> float-sum order matters
+                i, j = idx[u], idx[v]
+                W[i, j] = w
+                if not directed:
+                    W[j, i] = w
+        except (KeyError, TypeError, ValueError):
+            return None
+
+        # Completeness (mirror nx, ignoring selfloops): each node reaches every
+        # other. For directed this is the out-neighbour count.
+        finite = _np.isfinite(W)
+        if not bool((finite.sum(axis=1) == (n - 1)).all()):
+            return None
+
+        # Validate the explicit init_cycle exactly as nx does; on any deviation
+        # fall back so nx raises the precise error.
+        cyc = list(init_cycle)
+        src = cyc[0] if source is None else source
+        if src != cyc[0] or cyc[0] != cyc[-1]:
+            return None
+        if len(cyc) - 1 != n:
+            return None
+        body = cyc[:-1]
+        if len(set(body)) != n or any(node not in idx for node in body):
+            return None
+
+        cyc_idx = [idx[node] for node in body] + [idx[cyc[-1]]]
+        return nodes, W, mv, cyc_idx
+
+    def simulated_annealing_tsp(
+        self,
+        G,
+        init_cycle,
+        weight="weight",
+        source=None,
+        temp=100,
+        move="1-1",
+        max_iterations=10,
+        N_inner=100,
+        alpha=0.01,
+        seed=None,
+        *,
+        backend=None,
+        **backend_kwargs,
+    ):
+        # simulated_annealing_tsp delegates through __getattr__ at ~0.26x vs nx:
+        # the O(n^2) _networkx_graph_for_parity conversion dominates AND nx's
+        # inner loop recomputes the full O(n) cycle cost (per-edge Python dict
+        # lookups) N_inner*max_iterations times. De-delegate with an index-space
+        # loop reusing nx's exact move functions + RNG (byte-identical draws)
+        # and a vectorised numpy cycle cost. At nx's default config
+        # (N_inner=100) this is ~2x faster than nx; it strictly beats the old
+        # delegated path in every config. Falls back to nx for any case
+        # _tsp_anneal_prep can't prove byte-exact (see its doc-comment).
+        _validate_backend_dispatch_keywords(
+            "simulated_annealing_tsp", backend, backend_kwargs
+        )
+        if backend is None and not backend_kwargs:
+            prep = self._tsp_anneal_prep(G, init_cycle, weight, source, move)
+            if prep is not None:
+                import math as _math
+
+                from networkx.utils import create_py_random_state as _cprs
+
+                nodes, W, mv, cyc = prep
+                rng = _cprs(seed)
+                cost = float(W[cyc[:-1], cyc[1:]].sum())
+                best_cycle = cyc.copy()
+                best_cost = cost
+                count = 0
+                t = temp
+                while count <= max_iterations and t > 0:
+                    count += 1
+                    for _ in range(N_inner):
+                        # nx's move() mutates the cycle IN PLACE and nx passes
+                        # the live cycle, so a rejected move is NOT reverted —
+                        # only `cost` gates on acceptance. Mirror that exactly.
+                        mv(cyc, rng)
+                        adj_cost = float(W[cyc[:-1], cyc[1:]].sum())
+                        delta = adj_cost - cost
+                        if delta <= 0:
+                            cost = adj_cost
+                            if cost < best_cost:
+                                count = 0
+                                best_cycle = cyc.copy()
+                                best_cost = cost
+                        elif _math.exp(-delta / t) >= rng.random():
+                            cost = adj_cost
+                    t -= t * alpha
+                return [nodes[i] for i in best_cycle]
+        return _nx.approximation.simulated_annealing_tsp(
+            _networkx_graph_for_parity(G),
+            init_cycle,
+            weight=weight,
+            source=source,
+            temp=temp,
+            move=move,
+            max_iterations=max_iterations,
+            N_inner=N_inner,
+            alpha=alpha,
+            seed=seed,
+        )
+
+    def threshold_accepting_tsp(
+        self,
+        G,
+        init_cycle,
+        weight="weight",
+        source=None,
+        threshold=1,
+        move="1-1",
+        max_iterations=10,
+        N_inner=100,
+        alpha=0.1,
+        seed=None,
+        *,
+        backend=None,
+        **backend_kwargs,
+    ):
+        # Same de-delegation as simulated_annealing_tsp (~0.42x -> >1x at the
+        # default config); threshold-accepting differs only in the accept rule
+        # (delta <= threshold) and the threshold cooldown (only on an accepted
+        # iteration).
+        _validate_backend_dispatch_keywords(
+            "threshold_accepting_tsp", backend, backend_kwargs
+        )
+        if backend is None and not backend_kwargs:
+            prep = self._tsp_anneal_prep(G, init_cycle, weight, source, move)
+            if prep is not None:
+                from networkx.utils import create_py_random_state as _cprs
+
+                nodes, W, mv, cyc = prep
+                rng = _cprs(seed)
+                cost = float(W[cyc[:-1], cyc[1:]].sum())
+                best_cycle = cyc.copy()
+                best_cost = cost
+                count = 0
+                thr = threshold
+                while count <= max_iterations:
+                    count += 1
+                    accepted = False
+                    for _ in range(N_inner):
+                        # In-place move with no revert on reject (see SA note).
+                        mv(cyc, rng)
+                        adj_cost = float(W[cyc[:-1], cyc[1:]].sum())
+                        delta = adj_cost - cost
+                        if delta <= thr:
+                            accepted = True
+                            cost = adj_cost
+                            if cost < best_cost:
+                                count = 0
+                                best_cycle = cyc.copy()
+                                best_cost = cost
+                    if accepted:
+                        thr -= thr * alpha
+                return [nodes[i] for i in best_cycle]
+        return _nx.approximation.threshold_accepting_tsp(
+            _networkx_graph_for_parity(G),
+            init_cycle,
+            weight=weight,
+            source=source,
+            threshold=threshold,
+            move=move,
+            max_iterations=max_iterations,
+            N_inner=N_inner,
+            alpha=alpha,
+            seed=seed,
+        )
+
     def __getattr__(self, name):
         nx_func = getattr(_nx.approximation, name)
 
