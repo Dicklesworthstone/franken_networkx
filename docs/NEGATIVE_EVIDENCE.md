@@ -2,6 +2,55 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-28 BlackThrush MultiGraph selfloop heterogenous tuple constructor - NO-SHIP (`cod-b`)
+
+Scope: LAND-OR-DIG pass on current `main` after a scratch/worktree audit found
+no measured bench-worktree win absent from `main`. The old adjacency
+outer-cache worktree is already represented on `main`, the edge-view worktree
+is docs/no-ship evidence, and the A* worktree is parity-only. Agent Mail writes
+remained blocked by the existing SQLite corruption circuit breaker, so no
+reservation or ack artifact could be recorded. No `settings.json` or hook files
+were touched.
+
+Fresh current-main routing kept `mg_selfloop_keys_weight_n2500_loops2502` as
+the live gap to attack. The new lever came from the object-materialization
+floor rather than another scan tweak: replace the clean
+`selfloop_edges(keys=True, data="<attr>")` direct scalar path's explicit
+`[PyObject; 4]` + `PyTuple::new` assembly with PyO3's heterogenous tuple
+conversion, letting PyO3 build `(node, node, key, value)` directly from borrowed
+node handles, the Rust `usize` key, and the already-converted value object. This
+is distinct from the previous list-iterator handoff, attr tuple cache, clean-int
+mirror bypass, direct scalar emission, small-int object cache, and borrowed-node
+scan attempts.
+
+Validation before timing:
+
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`: passed via local `rch` fallback.
+
+Focused per-crate A/B commands:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head mg_selfloop_keys_weight -- --quiet`
+
+| workload | state | runner | FNX median | ORIG median | ratio vs ORIG | self vs clean |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `mg_selfloop_keys_weight_n2500_loops2502` | heterogenous tuple candidate, first pass | local fallback via `rch exec` | `1.4646 ms` | `901.10 us` | `0.615x` | `1.08x` |
+| `mg_selfloop_keys_weight_n2500_loops2502` | clean comparator after hunk removal | local fallback via `rch exec` | `1.5801 ms` | `645.86 us` | `0.409x` | baseline |
+| `mg_selfloop_keys_weight_n2500_loops2502` | heterogenous tuple candidate, confirmation | local fallback via `rch exec` | `1.9826 ms` | `723.76 us` | `0.365x` | `0.80x` |
+
+Decision: REVERTED / NO-SHIP. The first pass showed only a marginal FNX-side
+gain and the confirmation regressed below the clean comparator. The paired ORIG
+medians were also noisy (`901.10 us`, `645.86 us`, `723.76 us`), so the
+candidate does not clear the measured-win bar. The temporary hunk in
+`crates/fnx-python/src/lib.rs` was manually reverted before this ledger commit.
+Do not retry PyO3 heterogenous tuple conversion as a standalone fix for this
+self-loop row; the residual gap is still broader Python tuple/value
+materialization overhead.
+
+Validation:
+
+- Candidate hunk reverted; final source diff is empty.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo test -p fnx-conformance`: passed remotely on `hz2`.
+
 ## 2026-06-27 BlackThrush MultiGraph selfloop scalar-only borrowed-node scan - NO-SHIP (`cod-b`)
 
 Scope: BOLD-VERIFY land-or-dig pass on current `main` base `e3b767cb3`.
