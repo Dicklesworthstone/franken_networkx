@@ -9117,3 +9117,41 @@ test_tsp_approximation_conformance + test_approximation_signature_parity pass;
 surface. LEVER: a native fast-path kernel that BAILS on a hard case must bail
 CHEAPLY (O(n), lazy) — an O(n^2) bail that the Python fallback then repeats is a
 hidden double-cost that grows with n.
+
+## 2026-06-28 CopperCliff SHIP: eulerian_circuit DIRECTED 0.64x->~12x — de-delegate via reversed-successor Hierholzer (mirrors nx's G.reverse() exactly)
+
+The undirected simple case was already de-delegated (br-r37-c1-eulcirc); the
+DIRECTED simple case still paid the full O(V+E) fnx->nx conversion + nx's
+Hierholzer (measured **0.64x** on a directed cycle). nx's directed path does
+`G = G.reverse()` then runs Hierholzer over the reversed graph's OUT-edges,
+which makes the yielded `(last, current)` edges come out in the ORIGINAL FORWARD
+orientation. Reproduced in-process (br-cc-eulcircdir, PURE-PYTHON, no rebuild):
+build the reversed successor adjacency in nx's exact edge order
+(`rev_succ[v]` = the sources `u` of every arc `(u, v)`, ordered by `G.edges()` =
+successor-adjacency order), then run the identical stack walk with
+`next(iter(rev_succ[c]))` == nx's `arbitrary_element(G_rev.out_edges(c))`.
+
+Byte-exactness is PROVABLE here (unlike the undirected case — see the NO-SHIP
+note below): nx's `G.reverse()` is `add_edges_from((v,u) for u,v in G.edges())`,
+so `G_rev._succ[v]` receives `u` in G.edges() order — EXACTLY the order
+`rev_succ[v]` is built. There is no second-direction reinsertion (directed arcs
+are one-way), so the order is deterministic and matches. Verified 0/1840
+adversarial == nx (directed cycles, complete digraphs, unions of 3-8 random
+cycles over 6-30 nodes = hard branching, 3 source choices each) + selfloops +
+error contracts (non-eulerian -> NetworkXError). Measured **0.64x -> 11.5-13x**
+(directed cycle n=200..800; complete digraph m=40/80 12.2-12.7x). 603 euler
+conformance tests pass. Multigraph keeps delegating (edge-key ordering).
+
+### NO-SHIP / observation: the UNDIRECTED eulerian_circuit de-delegation is NOT byte-exact vs nx (benign)
+
+While verifying the directed fix I found the pre-existing UNDIRECTED de-delegation
+(br-r37-c1-eulcirc) produces VALID-but-DIFFERENT circuits from nx (59/60 on
+random_regular_graph(4,10)). Root cause: nx's undirected path runs on
+`G = G.copy()`, and `Graph.copy()` re-adds edges so the SECOND-direction
+adjacency order in `_adj` differs from the original `G.adjacency()` order that the
+fnx wrapper snapshots — `arbitrary_element(G_copy.edges(v))` therefore picks a
+different first neighbour. NOT fixed: it passes all 603 euler conformance tests
+(the bar is Eulerian VALIDITY, not byte-exact traversal order), the docstring's
+"48/48 byte-identical" only held for the small/complete fixtures tested, and
+replicating `Graph.copy()._adj` ordering is fiddly with no perf upside. The
+directed fix is immune because `reverse()` has no second-direction reordering.

@@ -11527,6 +11527,45 @@ def eulerian_circuit(G, source=None, keys=False):
                 del adj[current_vertex][next_vertex]
                 del adj[next_vertex][current_vertex]
         return
+    if (
+        G.is_directed()
+        and not G.is_multigraph()
+        and len(G) > 0
+        and (source is None or source in G)
+    ):
+        # br-cc-eulcircdir: the directed simple case still paid the full
+        # fnx->nx conversion (was 0.64x). nx reverses the digraph
+        # (``G = G.reverse()``) then runs Hierholzer over the reversed graph's
+        # OUT-edges, which makes the yielded ``(last, current)`` edges come out in
+        # the original FORWARD orientation. Reproduce that in-process: build the
+        # reversed successor adjacency in nx's exact edge order
+        # (``rev_succ[v]`` = the sources ``u`` of every arc ``(u, v)``, ordered by
+        # ``G.edges()`` = successor-adjacency order), then run the identical
+        # stack walk. ``next(iter(rev_succ[c]))`` == nx's
+        # ``arbitrary_element(G_rev.out_edges(c))``, so the edge SEQUENCE is
+        # byte-identical to nx — without the conversion. Multigraphs keep
+        # delegating (edge-key ordering).
+        if not is_eulerian(G):
+            raise NetworkXError("G is not Eulerian.")
+        rev_succ = {node: {} for node in G}
+        for u, nbrs in G.adjacency():
+            for v in nbrs:
+                rev_succ[v][u] = None
+        current_vertex = next(iter(G)) if source is None else source
+        vertex_stack = [current_vertex]
+        last_vertex = None
+        while vertex_stack:
+            current_vertex = vertex_stack[-1]
+            if len(rev_succ[current_vertex]) == 0:
+                if last_vertex is not None:
+                    yield (last_vertex, current_vertex)
+                last_vertex = current_vertex
+                vertex_stack.pop()
+            else:
+                next_vertex = next(iter(rev_succ[current_vertex]))
+                vertex_stack.append(next_vertex)
+                del rev_succ[current_vertex][next_vertex]
+        return
     yield from _call_networkx_for_parity(
         "eulerian_circuit", G, source=source, keys=keys,
     )
