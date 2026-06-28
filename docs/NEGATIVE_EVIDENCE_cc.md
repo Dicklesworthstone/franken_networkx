@@ -8,6 +8,34 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## SWEEP 4 (cc, 2026-06-28): generators / IO / tree / approximation — ALL wins; algorithm vein MINED across 4 sweeps
+
+4th fnx-vs-nx sweep (generators, IO round-trips, tree, approximation; n=400-2000). ALL wins vs nx:
+complete_graph 13.9x, is_forest 772x, is_tree 27x, balanced_tree 6.4x, random_regular 4.2x,
+approx_vertex_cover 3.6x, grid_2d 2.5x, read_weighted_edgelist 2.4x, mst_edges 2.3x, random_tree
+2.2x, convert_node_labels 1.9x, gnp 1.8x, approx_clique 1.6x, watts_strogatz 1.3x, barabasi_albert
+1.1x, relabel/read_adjlist/powerlaw ~1.0-1.04x. Only sub-1.0 (all marginal, not fixable in Python):
+adjacency_data 0.678x (ALREADY native `adjacency_data_simple` — this is the native-build floor),
+approx_node_conn 0.779x (delegated namespace), write→node_link 0.919x (~parity).
+
+FRONTIER after 4 sweeps (~80 fns across shortest-path/centrality/flow/matching/operators/traversal/
+community/tree/generators/IO/approximation): the findable algorithm-level vein is MINED. This
+session shipped the 3 substantial gaps it found (flow_hierarchy 7.1x, pagerank 6.7x,
+all_pairs_dijkstra/closeness 3.4-3.8x). Every remaining vs-nx gap is ONE of three big-primitive /
+hard classes, NONE Python-wrapper-fixable (proven by repeated no-gain attempts this session):
+  1. CONVERSION-VIEW / VIEW MATERIALIZATION — to_undirected/to_directed query (number_of_edges/
+     edges/degree/adj 0.06-0.7x), in_edges(data)/nodes(data)/adjacency. Needs a NATIVE conversion-
+     view adjacency + persistent ordered Python-object mirror. Narrow native sub-fix for conversion
+     number_of_edges (documented below): undirected_view = D - reciprocal_pairs (native
+     overall_reciprocity); directed_view = 2*(U - selfloops) + selfloops; same-direction = source
+     count — but the iterate-the-view case still needs the adjacency primitive.
+  2. CONSTRUCTION TAX — union 0.80x etc., parity-bound by per-node label PyO3 round-trips
+     ([[reference_construction_tax_relabel_lever]]).
+  3. SCIPY/LAPACK — subgraph_centrality 0.70x, non_randomness 0.87x, hits small-n
+     ([[reference_native_vein_mined_lapack_frontier]], [[reference_dense_eigsolver_tax]]).
+NEXT REAL LEVER = the native conversion-view/object-mirror primitive (a multi-turn Rust build), not
+another sweep. See [[reference_all_pairs_dijkstra_float_typeprop_tax]] for the full sweep record.
+
 ## DOMAIN MAP + 2 NO-SHIPs + BLOCKER (cc, 2026-06-28): dijkstra/bellman_ford family & flow/matching/operators/traversal sweeps — all wins except the conversion-view materialization wall
 
 Two more fnx-vs-nx sweeps after the closeness win (per-edge add_edge-built, float weights, n=400-500):
