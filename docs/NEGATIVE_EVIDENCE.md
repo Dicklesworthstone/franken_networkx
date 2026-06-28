@@ -2,6 +2,72 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-28 BlackThrush MultiDiGraph weighted in-degree one-pass store scan - NO-SHIP (`cod-b`)
+
+Scope: BOLD-VERIFY LAND-OR-DIG pass on current `main` base `e3827592b`.
+Scratch/worktree audit found no measured bench-worktree source win absent from
+`main`: the only non-ancestor bench branch head was the old
+`cc-adjouter-land-20260624` adjacency outer-cache worktree, already represented
+by the landed `DictOfDictsCache.shared_outer` implementation and existing
+ledger entries. Agent Mail reads worked, but ack/reservation writes still hit
+the SQLite corruption circuit breaker; no `settings.json` or hook files were
+touched.
+
+The requested literal per-crate release bench form was retried first:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --release --features pyo3/abi3-py310 --bench networkx_head_to_head networkx_head_to_head_core_laggards -- --quiet`
+
+Cargo rejected that syntax remotely on `ovh-a` with
+`error: unexpected argument '--release' found`, so the equivalent accepted
+release profile form was used through `rch exec` with the requested
+`fnx-python` crate scope and cod-b target directory.
+
+Fresh current-main routing sweep (`rch exec` local fallback):
+
+| workload | FNX median | ORIG median | ratio vs ORIG |
+| --- | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | `7.2323 ms` | `2.1067 ms` | `0.291x` |
+| `mg_selfloop_keys_weight_n2500_loops2502` | `3.1155 ms` | `599.89 us` | `0.193x` |
+| `mdg_edges_keys_n700_e12662` | `1.5854 ms` | `1.8303 ms` | `1.154x` |
+| `mdg_in_edges_data_n700_e12662` | `18.120 ms` | `9.1747 ms` | `0.506x` |
+| `mdg_out_edges_nbunch_keys_data_n700_e12600` | `273.09 us` | `843.35 us` | `3.088x` |
+| `mdg_out_edges_nbunch_keys_weight_n700_e12600` | `935.42 us` | `579.75 us` | `0.620x` |
+
+Targeted lever: apply the graveyard "constants kill you" / cache-sized batch
+principle to `MultiDiGraph.in_degree(weight="weight")` by replacing the clean
+Rust-store integer directional weighted-degree path's per-node predecessor row
+walk with one indexed edge scan. The candidate accumulated all target-node
+totals in a contiguous `Vec<i128>` via
+`try_for_each_indexed_edge_ordered_borrowed`, then emitted `(node, total)` in
+node order. Dirty edge mirrors, non-int weights, missing weights, and overflow
+kept the existing fallback behavior.
+
+Validation before timing:
+
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`: passed via local `rch` fallback.
+
+Focused per-crate BOLD-VERIFY command:
+
+`AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310 --bench networkx_head_to_head mdg_in_degree_weight -- --quiet`
+
+| workload | state | runner | FNX median | ORIG median | ratio vs ORIG | self vs clean |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `mdg_in_degree_weight_n700_e12662` | clean routing baseline | local fallback via `rch exec` | `7.2323 ms` | `2.1067 ms` | `0.291x` | baseline |
+| `mdg_in_degree_weight_n700_e12662` | one-pass indexed store scan candidate | local fallback via `rch exec` | `10.339 ms` | `2.1421 ms` | `0.207x` | `0.70x` |
+
+Decision: REVERTED / NO-SHIP. The one-pass edge scan worsened the FNX median
+from `7.2323 ms` to `10.339 ms`; the added target-index lookup and all-edge
+scan lost to the existing predecessor-row walk. The temporary hunk in
+`crates/fnx-python/src/digraph.rs` was manually reverted before this ledger
+commit. Do not retry a standalone all-edge indexed accumulator for this row;
+the remaining weighted in-degree work needs a lower-level cached target-row or
+bucket-sum primitive, not a scan-order reshuffle.
+
+Validation:
+
+- Candidate hunk reverted; final source diff is empty.
+- `AGENT_NAME=BlackThrush CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod-b rch exec -- cargo test -p fnx-conformance`: passed via local `rch` fallback after worker queue timeout.
+
 ## 2026-06-28 BlackThrush MultiGraph selfloop heterogenous tuple constructor - NO-SHIP (`cod-b`)
 
 Scope: LAND-OR-DIG pass on current `main` after a scratch/worktree audit found
