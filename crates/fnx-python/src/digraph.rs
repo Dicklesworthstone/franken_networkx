@@ -1751,10 +1751,18 @@ impl PyMultiDiGraph {
         if self.has_remapped_int_key {
             return;
         }
-        if let Ok(i) = py_key.extract::<i64>() {
-            if usize::try_from(i).ok() != Some(internal_key) {
-                self.has_remapped_int_key = true;
-            }
+        // See PyMultiGraph::note_public_key_value: the fast path is valid only
+        // when every public key is the identity int (public == internal). A
+        // non-int key occupies an internal int slot without the matching public
+        // int slot, and a remapped int uses a different public int — either one
+        // forces the slow public-key scan.
+        let is_identity_int = py_key
+            .extract::<i64>()
+            .ok()
+            .and_then(|i| usize::try_from(i).ok())
+            == Some(internal_key);
+        if !is_identity_int {
+            self.has_remapped_int_key = true;
         }
     }
 

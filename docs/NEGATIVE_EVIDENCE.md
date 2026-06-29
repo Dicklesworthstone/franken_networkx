@@ -11122,3 +11122,33 @@ key 1, independent parallel sets), remove-gap, explicit-int-crossing, string/boo
 RESIDUAL: add_edges_from([(u,v),...]) with duplicate pairs is STILL O(N^2) for BOTH Multi types —
 routes through the Python __init__.py _multi_add_edges_from wrapper (per-edge Python add_edge w/ its
 own key probe), never the native batch. Separate surface; deferred.
+
+## 2026-06-29 BlackThrush FIX+SHIP: Multi*Graph.add_edges_from(non-fresh) O(N^2)->O(N) 0.002x->0.37-0.61x + auto-key fast-path correctness fix
+
+PURE-PYTHON perf + a Rust CORRECTNESS fix to the two prior add_edge fast-path commits (79876a932
+MG, 8b939e3f7 MDG). Found while digging the documented add_edges_from residual.
+
+PERF: add_edges_from's native batch fast paths only fire on a FRESH graph; on a NON-fresh graph
+(any pre-existing edge) it falls to the per-edge Python loop in `_multi_add_edges_from` (__init__.py
+~3381), which for key=None did `existing = self.get_edge_data(u, v); actual_key = len(existing);
+while actual_key in existing: actual_key += 1` — an O(existing) keydict build + Python search PER
+add = O(N^2) (single-pair N=4000 = 2794ms, 0.002x vs nx). But native add_edge(key=None) now
+auto-allocates the nx public key in O(1), so that whole precompute is REDUNDANT: drop it, pass
+key=None to native, use the returned key for the attr mutation. add_edges_from(non-fresh single
+pair) now LINEAR -> 0.37-0.61x (both Multi types, ~100x faster at N=8000); fresh add_edges_from
+unchanged (1.5-2.4x, native batch).
+
+CORRECTNESS FIX (note_public_key_value, lib.rs + digraph.rs): the fast path echoes the INTERNAL
+auto key, valid ONLY when the internal int-key space == the PUBLIC int-key space, i.e. every public
+key is the IDENTITY int. The shipped flag only tripped on int REMAPS, so a graph mixing an
+explicit-int-fresh key (internal==explicit, sets internal SPARSE via add_fresh_edge_with_key) with a
+non-int key (str/float occupies an internal int slot but NOT the matching public int slot) then
+autos echoed a wrong auto key (fnx 9 vs nx 8). Fix: set the flag for ANY non-identity public key
+(str/float/remap), routing such graphs to the slow public scan (= nx's exact algorithm). The
+common pure-parallel-int-add stays flag-clear -> O(1). Proven: non-float differential 1600/1600
+byte-exact (int/str/auto/attr x fresh/non-fresh x add_edge/add_edges_from x MG/MDG). PRE-EXISTING
+(NOT regressed): fnx treats a float key 4.0 as distinct from int 4 in the auto-key search (nx
+hash-collapses them) — confirmed identical divergence at parent e77b7764a; float graphs now use the
+slow scan == original behavior. 10205 conformance pass, 0 fail.
+RESIDUAL: float-key/int hash-collision in the auto-key search is a pre-existing separate bug
+(edge_key canonicalization), out of scope. add_edges_from with a GENERATOR ebunch still per-edge.

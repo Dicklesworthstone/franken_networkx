@@ -3377,15 +3377,14 @@ def _multi_add_edges_from(self, ebunch_to_add, **attr):
             if ne != 3:
                 raise
             key = dd  # ne == 3 with non-dict-able third: it's the key
-        actual_key = key
-        if actual_key is None:
-            existing = self.get_edge_data(u, v)
-            if existing:
-                actual_key = len(existing)
-                while actual_key in existing:
-                    actual_key += 1
-        # native add_edge returns the key actually used (auto-assigns when None)
-        actual_key = _add_edge(u, v, key=actual_key)
+        # br-paralleladd (bt): native add_edge (key=None) now auto-allocates the
+        # nx public key in O(1) (has_remapped_int_key fast path, 79876a932 +
+        # 8b939e3f7), so the old per-edge ``get_edge_data(u, v)`` keydict build +
+        # Python ``while key in existing`` search — O(existing) per add, O(N^2)
+        # for N parallel edges on a NON-fresh graph (the native batch fast paths
+        # above only fire on a fresh graph) — is dropped. add_edge returns the
+        # key actually used, which the attr mutation below targets.
+        actual_key = _add_edge(u, v, key=key)
         if ddd:
             self.get_edge_data(u, v, actual_key).update(ddd)
 

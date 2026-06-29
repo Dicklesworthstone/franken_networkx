@@ -2782,10 +2782,20 @@ impl PyMultiGraph {
         if self.has_remapped_int_key {
             return;
         }
-        if let Ok(i) = py_key.extract::<i64>() {
-            if usize::try_from(i).ok() != Some(internal_key) {
-                self.has_remapped_int_key = true;
-            }
+        // The O(1) auto-key fast path (echo the internal auto key) is valid ONLY
+        // when the internal int-key space equals the PUBLIC int-key space. That
+        // holds iff every public key is the identity int (public == internal).
+        // A non-int key (str/float) occupies an internal int slot WITHOUT
+        // occupying the matching public int slot, and a remapped int occupies a
+        // different public int — both break the correspondence, so either one
+        // forces the slow public-key scan (= nx's exact `len; while k in keys`).
+        let is_identity_int = py_key
+            .extract::<i64>()
+            .ok()
+            .and_then(|i| usize::try_from(i).ok())
+            == Some(internal_key);
+        if !is_identity_int {
+            self.has_remapped_int_key = true;
         }
     }
 
