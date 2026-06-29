@@ -10911,3 +10911,24 @@ add_edge_with_key in Rust, bail on ANYTHING else (custom/gapped keys, collisions
 preserve the first-wins display + partial-prefix error contracts. Construction-tax vein has prior
 REVERTs (reference_construction_tax_relabel_lever) — needs careful unhurried work + full
 explicit-key parity (first-wins, attr identity), not a 60-min window.
+
+## 2026-06-29 BlackThrush SHIP: MultiDiGraph keyed add_edges_from(4-tuple) batch — 0.33x -> 0.95x (parity)
+
+Acting on the surfaced construction-tax finding (ddf6cc61c): add_edges_from with EXPLICIT-KEY
+4-tuples (u,v,key,attrs) on a FRESH MultiDiGraph bailed the auto-key batch (digraph.rs:3387,
+2-3 tuples only) -> per-edge PyO3 loop 0.33x vs nx. Added collect_fresh_exact_int_keyed_attr_
+edge_batch (4-tuple sibling of the auto-key collector) reusing add_fresh_exact_int_attr_edge_
+batch's commit (extend_fresh_index_keyed handles arbitrary keys; IndexMap bucket preserves
+insertion order = nx keydict order). Wired into _try_add_attr_edges_from_batch after the auto-key
+attempt. SELF-VALIDATES + bails to per-edge (return false) outside the safe subset: custom/string
+keys, negative/oversized keys, non-scalar attrs (the 4-tuple attr is UNCHECKED by ebunch_batch_
+lossless which only inspects 3-tuples -> added attr_dict_is_batch_lossless guard in the collector),
+duplicate (u,v,key) within batch (nx's later-overwrites-earlier replayed per-edge), non-fresh
+graph (node_count!=0). MEASURED: fresh keyed add_edges_from(list) 0.33x -> 0.95x (parity); batch
+vs forced-per-edge = 4.68x. byte-exact 12/0 ad-hoc + new test 11/11 (seq/parallel/gapped/
+out-of-order keys, dup-overwrite, non-scalar/string/negative-key bails, attr identity+mutation,
+new_edge_key after batch); conformance 3613 passed.
+SCOPE NOTE: this fixes FRESH keyed construction. subgraph().copy() still does NOT benefit — it
+add_nodes_from FIRST (node attrs + isolated nodes, in subgraph node order) so node_count!=0 bails
+the batch; a node-fresh restructure would reorder nodes (byte-divergence). That remains the
+deferred bigger lever. MultiGraph (undirected, separate struct) keyed batch not yet done.

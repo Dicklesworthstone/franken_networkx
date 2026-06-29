@@ -2296,6 +2296,171 @@ impl PyMultiDiGraph {
         self.add_fresh_exact_int_attr_edge_batch(py, node_labels, node_objects, edges, node_bumps)?;
         Ok(true)
     }
+
+    /// br-edgekeyedbatch (bt): keyed sibling of collect_fresh_exact_int_attr_edge_batch
+    /// for 4-tuples `(u, v, key, attrs)` with an EXPLICIT integer key (e.g. the output
+    /// of subgraph().copy() / any keyed multigraph rebuild — `add_edges_from` with
+    /// 4-tuples was 0.33x vs nx because explicit keys bailed the auto-key batch). The
+    /// key is taken verbatim (plain non-negative int only); a DUPLICATE (u, v, key)
+    /// within the batch bails to None so the per-edge path owns nx's "later overwrites
+    /// earlier" update semantics. Reuses add_fresh_exact_int_attr_edge_batch's commit
+    /// (the IndexMap bucket stores arbitrary keys in insertion order = nx keydict
+    /// order). Custom non-int keys / collisions / non-int nodes all bail -> per-edge.
+    fn collect_fresh_exact_int_keyed_attr_edge_batch<'py, I>(
+        &self,
+        py: Python<'py>,
+        items: I,
+        len: usize,
+    ) -> PyResult<Option<MultiDiIndexedAttrEdgeBatch>>
+    where
+        I: IntoIterator<Item = Bound<'py, PyAny>>,
+    {
+        let mut node_indices: HashMap<i64, usize> = HashMap::new();
+        let mut node_labels: Vec<String> = Vec::new();
+        let mut node_objects: Vec<PyObject> = Vec::new();
+        let mut seen_pair_key: HashSet<(usize, usize, usize)> = HashSet::new();
+        let mut edges: Vec<(usize, usize, usize, AttrMap, Py<PyDict>)> = Vec::with_capacity(len);
+        let mut node_bumps = 0_u64;
+
+        for item in items {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(None);
+            };
+            if tuple.len() != 4 {
+                return Ok(None);
+            }
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            if !u.is_exact_instance_of::<PyInt>()
+                || !v.is_exact_instance_of::<PyInt>()
+                || u.is_exact_instance_of::<PyBool>()
+                || v.is_exact_instance_of::<PyBool>()
+            {
+                return Ok(None);
+            }
+            let Ok(u_value) = u.extract::<i64>() else {
+                return Ok(None);
+            };
+            let Ok(v_value) = v.extract::<i64>() else {
+                return Ok(None);
+            };
+            // EXPLICIT key: plain non-negative int only (bool excluded). Anything
+            // else (custom str/object key, negative, oversized) bails to per-edge.
+            let key_obj = tuple.get_item(2)?;
+            if !key_obj.is_exact_instance_of::<PyInt>()
+                || key_obj.is_exact_instance_of::<PyBool>()
+            {
+                return Ok(None);
+            }
+            let Ok(key) = key_obj.extract::<usize>() else {
+                return Ok(None);
+            };
+
+            let fourth = tuple.get_item(3)?;
+            let Ok(dict) = fourth.downcast::<PyDict>() else {
+                return Ok(None);
+            };
+            // ebunch_batch_lossless only validates 3-tuples, so the 4-tuple's attr
+            // dict is unchecked upstream — a non-scalar value (tuple/list/dict/None/
+            // bigint) would be STRINGIFIED by the converters below (batch corruption,
+            // br-r37-c1 batch_attr_nonscalar). Validate here; bail to per-edge if lossy.
+            if !crate::attr_dict_is_batch_lossless(dict) {
+                return Ok(None);
+            }
+            let fast_weight = match single_weight_float_attr_map_with_mirror(py, dict) {
+                Ok(converted) => converted,
+                Err(_) => return Ok(None),
+            };
+            let (attrs, mirror) = match fast_weight {
+                Some(converted) => converted,
+                None => match py_dict_to_attr_map_with_mirror(py, dict) {
+                    Ok(converted) => converted,
+                    Err(_) => return Ok(None),
+                },
+            };
+            if attrs
+                .keys()
+                .any(|key| key.starts_with("__fnx_incompatible"))
+            {
+                return Ok(None);
+            }
+
+            let mut edge_added_node = false;
+            let u_index = match node_indices.get(&u_value).copied() {
+                Some(index) => index,
+                None => {
+                    let index = node_labels.len();
+                    node_indices.insert(u_value, index);
+                    node_labels.push(u_value.to_string());
+                    node_objects.push(u.clone().unbind());
+                    edge_added_node = true;
+                    index
+                }
+            };
+            let v_index = match node_indices.get(&v_value).copied() {
+                Some(index) => index,
+                None => {
+                    let index = node_labels.len();
+                    node_indices.insert(v_value, index);
+                    node_labels.push(v_value.to_string());
+                    node_objects.push(v.clone().unbind());
+                    edge_added_node = true;
+                    index
+                }
+            };
+            if edge_added_node {
+                node_bumps = node_bumps.wrapping_add(1);
+            }
+
+            // DUP (u, v, key) within the batch -> bail; nx overwrites the earlier
+            // edge's data, which the per-edge path replays exactly.
+            if !seen_pair_key.insert((u_index, v_index, key)) {
+                return Ok(None);
+            }
+            edges.push((u_index, v_index, key, attrs, mirror));
+        }
+
+        Ok(Some((node_labels, node_objects, edges, node_bumps)))
+    }
+
+    fn try_add_fresh_exact_int_keyed_attr_edge_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        const ATTR_EDGE_BATCH_MIN: usize = 8;
+        if self.inner.node_count() != 0
+            || self.inner.edge_count() != 0
+            || !self.node_key_map.is_empty()
+            || !self.node_py_attrs.is_empty()
+            || !self.edge_py_attrs.is_empty()
+            || !self.edge_py_keys.is_empty()
+            || !self.succ_py_keys.is_empty()
+            || !self.pred_py_keys.is_empty()
+        {
+            return Ok(false);
+        }
+
+        let collected = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+            if list.len() < ATTR_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            self.collect_fresh_exact_int_keyed_attr_edge_batch(py, list.iter(), list.len())?
+        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+            if tuple.len() < ATTR_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            self.collect_fresh_exact_int_keyed_attr_edge_batch(py, tuple.iter(), tuple.len())?
+        } else {
+            return Ok(false);
+        };
+
+        let Some((node_labels, node_objects, edges, node_bumps)) = collected else {
+            return Ok(false);
+        };
+        self.add_fresh_exact_int_attr_edge_batch(py, node_labels, node_objects, edges, node_bumps)?;
+        Ok(true)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -3329,6 +3494,16 @@ impl PyMultiDiGraph {
         }
         if global_attr.is_none_or(|attrs| attrs.is_empty())
             && self.try_add_fresh_exact_int_attr_edge_batch(py, ebunch_to_add)?
+        {
+            return Ok(true);
+        }
+        // br-edgekeyedbatch (bt): 4-tuple (u, v, key, attrs) explicit-key sibling —
+        // the auto-key attempt above bails on the 4-tuple shape. Self-validates
+        // (fresh graph, plain-int nodes/keys, lossless attrs, no (u,v,key) dup) and
+        // bails to per-edge otherwise, so add_edges_from of keyed multigraph edges
+        // (subgraph().copy(), keyed rebuilds) stops paying per-edge PyO3 (was 0.33x).
+        if global_attr.is_none_or(|attrs| attrs.is_empty())
+            && self.try_add_fresh_exact_int_keyed_attr_edge_batch(py, ebunch_to_add)?
         {
             return Ok(true);
         }
