@@ -739,6 +739,16 @@ class EdgeDataView:
                 # Should be unreachable — set() failed but every
                 # element hashes individually; re-raise the original.
                 raise
+            # br-edgenbunchdedup (bt): nx's EdgeDataView builds
+            # ``nbunch = dict.fromkeys(viewer._graph.nbunch_iter(nbunch))`` —
+            # an ORDER-PRESERVING DEDUP — so a node repeated in nbunch has its
+            # incident edges emitted ONCE (the per-node ``seen`` set only blocks
+            # double-emission across endpoints, not a repeated nbunch node). fnx
+            # walked the raw list, so e.g. ``G.edges([1, 1])`` on a simple Graph
+            # emitted node 1's edges twice. Dedup here (set() above already proved
+            # every element hashable) so the native + fallback + count paths all
+            # match nx. The DiGraph/MultiGraph nbunch kernels dedup internally.
+            self._nbunch_list = list(dict.fromkeys(nbunch_list))
         # br-r37-c1-dc14n: graph reference (when known) lets the
         # adj-walk path compute edges in nx-matching adj order. Look
         # up via the global EdgeView->Graph map populated by the

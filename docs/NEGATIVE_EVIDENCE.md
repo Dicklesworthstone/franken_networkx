@@ -10864,3 +10864,21 @@ conformance 7931 passed / 0 failed. MG degree(weight) confirmed 0.83x near-parit
 int store accumulator engages) — NOT a gap (earlier 0.39x was load noise).
 RESIDUAL: selfloop_edges(keys,data) 0.42x is a separate FUNCTION path (tiny absolute
 0.3-0.7ms), not the edges view.
+
+## 2026-06-29 BlackThrush SHIP (correctness): simple-Graph edges(nbunch) dedups repeated nbunch nodes
+
+Found via broad view sweep (Graph edges(nbunch,data) showed 0.38x AND a value MISMATCH).
+The "perf gap" was an ARTIFACT: nx's EdgeDataView builds
+``nbunch = dict.fromkeys(viewer._graph.nbunch_iter(nbunch))`` (order-preserving dedup), so a
+node repeated in nbunch has its incident edges emitted ONCE. fnx walked the raw nbunch list, so
+``G.edges([1,1])`` on a simple undirected Graph emitted node 1's edges TWICE (the per-node
+``seen`` set only blocks double-emission across endpoints, not a repeated nbunch node) -> 3x work
+on the bench's (i*7)%700 nbunch (100 unique x3) = the fake 0.38x. DiGraph/MultiGraph nbunch
+kernels already dedup; only the simple-Graph EdgeDataView path diverged.
+FIX (pure-Python, no rebuild): dedup ``self._nbunch_list = list(dict.fromkeys(nbunch_list))`` in
+EdgeDataView.__init__ (after the existing set()-based hashability validation), so the native +
+fallback + count paths all match nx. With a UNIQUE nbunch fnx was already 1.21x (correct+fast).
+CORRECTNESS: 17/0 ad-hoc (dup/self-loop/unique/None/single-node) + new test 26/26; edges/nbunch/
+view conformance 7996 passed. NOTE: 2 PRE-EXISTING failures on HEAD unrelated to this change
+(stale docs/unused_raw_exposures.md 46-vs-45 + write_gexf classification lock) -- confirmed by
+re-running with my diff stashed.
