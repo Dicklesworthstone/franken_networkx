@@ -9512,3 +9512,23 @@ periphery/radius/wiener_index 14-15x, barycenter 14x; simple_cycles 1.01x /
 dominance_frontiers 1.05x parity. No gap. (~24 dimensions surveyed this session;
 every residual remains the String-keyed Multi(Di)Graph store — the index-based MG
 adjacency primitive in fnx-classes/CGSE is the sole remaining real lever.)
+
+## 2026-06-28 CopperCliff NO-SHIP: multi_source_dijkstra_path_length on a MultiGraph 0.088x — projection + gate-overhead bound (~0-gain to fix)
+
+Survey found weighted-MultiGraph `multi_source_dijkstra_path_length` at **0.088x**
+vs nx (12x slower; all_pairs MG dijkstra is a 5.8x WIN — its native path amortises
+the projection over V sources). Root: the native length-only fast path is gated to
+`type(G) in (Graph, DiGraph)`, so multigraphs fall to `multi_source_dijkstra` which
+computes the full PATH TREE and discards it for this length-only API.
+
+Tried routing int-weighted multigraphs to the native length-only binding
+(`_fnx.multi_source_dijkstra_path_length`, which DOES handle multigraphs byte-exact:
+0/80 adversarial incl. parallel edges, self-loops, directed; float/mixed correctly
+fail `_sp_edge_weights_all_int` and keep the faithful path). REVERTED — **~0-gain**:
+(1) the bare binding is only **0.222x** (projection-bound — same String-keyed MG
+store floor as single-source MG dijkstra), and (2) the wrapper's own gate checks
+(`_should_delegate_dijkstra_to_networkx` syncs + scans, `_sp_edge_weights_all_int`
+scans) add several O(E) edge passes for multigraphs, dragging the routed result back
+to ~0.11x (vs 0.088x before — within noise). Both the algorithm floor AND the
+gate-evaluation overhead are the String-keyed MG store; index-based MG adjacency
+(fnx-classes/CGSE) is the only fix. DON'T re-attempt the gate change.
