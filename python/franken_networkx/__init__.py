@@ -11656,25 +11656,29 @@ def has_eulerian_path(G, source=None):
         if not G.is_multigraph():
             return _raw_has_eulerian_path(G)
         return _call_networkx_for_parity("has_eulerian_path", G, source=source)
-    # br-r37-c1-792dv: the UNDIRECTED Rust _raw_has_eulerian_path mishandles
-    # self-loops (each self-loop adds 2 to degree, keeping parity even). On
-    # undirected graphs with self-loops the Rust path returns False where nx
-    # returns True (e.g. K3 + self-loop). Delegate undirected self-loop graphs.
-    if number_of_selfloops(G) > 0:  # br-r37-c1-5i5gb: native O(|V|) check, not O(|E|) EdgeView pass
-        return _call_networkx_for_parity("has_eulerian_path", G, source=source)
-    # br-r37-c1-mgisol (cc): for self-loop-free MULTIgraphs the native
+    # br-r37-c1-mgisol (cc): undirected MULTIgraph fast path. The native
     # _raw_has_eulerian_path built a FULL gr.undirected() simple-graph projection
     # (attr clones + per-element ledger) AND crossed into Python once per node for
-    # the degree view (~1.5ms / 0.11x vs nx at n=300). nx's undirected test is just
+    # the degree view (~1.5ms / 0.11x vs nx at n=300); self-loop multigraphs
+    # additionally delegated to nx (~2ms / 0.05x). nx's undirected test is just
     # "<=2 odd-degree vertices AND connected" — run it directly on the fast
     # MultiGraph degree view + native is_connected, mirroring is_eulerian's
-    # br-euldense fast path. Byte-exact (same primitives, parallel-edge degree).
-    # Simple graphs keep the native kernel (already fast); directed handled above.
+    # br-euldense fast path. The degree view counts self-loops as +2 (even, no
+    # parity effect) and is_connected ignores them, so this handles self-loops
+    # too — byte-exact 0/500 incl. self-loops/parallels (vs the native kernel
+    # which mishandles undirected self-loops, br-r37-c1-792dv). Runs BEFORE the
+    # simple-graph self-loop guard below so MG/MDG never pay the delegation.
     if G.is_multigraph():
         odd = sum(1 for _n, deg in G.degree() if deg % 2 != 0)
         if odd not in (0, 2):
             return False
         return is_connected(G)
+    # br-r37-c1-792dv: the UNDIRECTED Rust _raw_has_eulerian_path mishandles
+    # self-loops (each self-loop adds 2 to degree, keeping parity even). On
+    # SIMPLE undirected graphs with self-loops the Rust path returns False where
+    # nx returns True (e.g. K3 + self-loop). Delegate simple self-loop graphs.
+    if number_of_selfloops(G) > 0:  # br-r37-c1-5i5gb: native O(|V|) check, not O(|E|) EdgeView pass
+        return _call_networkx_for_parity("has_eulerian_path", G, source=source)
     return _raw_has_eulerian_path(G)
 
 # Algorithm functions — paths and cycles
