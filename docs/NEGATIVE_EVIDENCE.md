@@ -10020,3 +10020,25 @@ The earlier "store path dead" conclusion was wrong for THIS path: the gate is pe
 selfloop CLEAN==DIRTY probe was confounded (selfloop has a separate value_attr_name
 gate). FOLLOW-UPS: same routing for MG `_native_edge_view_list` (lib.rs) want_value;
 selfloop_edges variants (0.43-0.55x) still on the mirror path.
+
+## 2026-06-29 CopperCliff NO-SHIP (REVERTED): MG edges(data=<attr>) store-read routing — neutral/regression
+
+Tried to extend the MDG edges(data=<attr>) store-read win (80e12629a) to MultiGraph:
+added a `!edges_dirty` store-first fast path to `edge_data_value_or_default_with_key`
+(lib.rs) and routed `_native_edge_view_list`'s want_value branch through it. Byte-exact
+288/288 + post-mutation coherent, BUT measured neutral-to-REGRESSION (clean isolated,
+min-of-30, n=700/e12662): awef fnx 18.8->18.5ms (flat), add fnx 16.8->20.4ms (~21%
+SLOWER). REVERTED (git checkout lib.rs); nothing shipped.
+
+WHY it works for MDG but not MG: MDG's `native_edge_view_list` want_value called
+`ensure_edge_py_attrs(source,target,key)`, which builds the `edge_key` String tuple
+INTERNALLY per edge — so the store path's win was eliminating that per-edge String
+build. MG's loop ALREADY constructs `ek` (line ~6804, for the `seen` dedup set) and used
+a light `edge_py_attrs.get(&ek)` probe (NOT ensure_edge_py_attrs / no materialization).
+So the store path saved nothing on MG and ADDED cost (an extra `inner.edge_attrs` lookup
++ a fresh `cgse_value_to_py` PyFloat alloc vs returning the cached mirror PyObject).
+LESSON: the store-read routing lever only pays when the existing path builds the
+edge_key String per edge (or materializes the mirror); if `ek` is already in hand and
+the mirror is a cheap probe returning a cached object, store-read is a net loss. MG
+edges(data=<attr>) residual (0.34-0.82x) is the genuine per-edge mirror floor; closing
+it needs the integer-keyed mirror (deferred). selfloop_edges variants similarly.
