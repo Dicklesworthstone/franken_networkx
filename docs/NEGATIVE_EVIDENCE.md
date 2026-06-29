@@ -10784,3 +10784,29 @@ RESIDUAL (NOT fixed, materialization floor): edge-LISTING views (in_edges/edges/
 with keys+data) stay ~0.19-0.34x even clean -- per-edge PyObject 4-tuple materialization
 nx avoids by yielding live `_pred`/`_adj` dicts. Separate architectural lever (integer-keyed
 mirror / lazy view-iter), NOT the dirty flag. The py_node_key hoist there is null (099cf0279).
+
+## 2026-06-29 BlackThrush NO-SHIP: edge_py_keys default-int gate is NOT the in_edges(keys,data) floor
+
+After the parallel-edge dirty-fix (c4b874876) cleaned per-edge-built multigraphs, the
+edge-LISTING views (mdg in_edges/edges/out_edges with keys+data=<attr>) stayed ~0.2-0.35x.
+Hypothesis: per-edge add_edge populates `edge_py_keys` (bulk add_edges_from leaves it empty),
+so the read paths' `default_int_keys = edge_py_keys.is_empty()` gate is false -> per-edge
+`py_edge_key` String-build instead of cheap int. DISPROVEN by direct A/B (warm min-of-10,
+n=700, both clean post-fix):
+  per-edge (edge_py_keys POPULATED) in_edges(keys,data) = 5.52ms  (0.35x)
+  bulk add_edges_from (keys EMPTY)  in_edges(keys,data) = 6.16ms  (0.32x)   <- NOT faster
+  nx                                                    = 1.96ms
+=> edge_py_keys population is NOT the bottleneck; a default-int read fast path would be ~0 gain.
+The gap is the pure per-edge PyObject materialization in the store-read walk (edge_attrs store
+probe + cgse_value_to_py + py_node_key x2 + key obj + 4-tuple alloc) that nx avoids by yielding
+its live `_pred`/`_adj` attr dicts. THREE non-architectural levers on this view now null/blocked:
+py_node_key hoist (099cf0279), edge_py_keys gate (here), and the value can't be a live-dict
+(scalar). DON'T re-dig these.
+
+ONLY remaining non-architectural candidate: a RESULT cache for the data=<attr> path (the
+data=True path already caches live-dict tuples and beats nx 5-9x on repeat reads). Risky: the
+scalar-snapshot cache must invalidate on attr mutation (key on nodes_seq/edges_seq + gate
+!edges_dirty), single-slot so it thrashes if the caller varies the attr name, and cache
+invalidation is where the matrix-cache/sync staleness bugs lived. Deferred (needs careful
+invalidation + struct-field plumbing, not a 6-min change). Architectural fix remains the
+integer-keyed edge mirror / lazy view-iter.
