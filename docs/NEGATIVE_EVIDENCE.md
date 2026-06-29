@@ -10307,3 +10307,39 @@ was NOT pinned down. FOLLOW-UP: instrument with a print/debugger to find WHICH n
 method materializes the stringified edge for Graph (n>=8 fresh), then apply the
 attr_dict_is_batch_lossless bail there (and the Multi GLOBAL **attr path). The fix
 PATTERN is proven (node fix); only the edge call-site location is unresolved.
+
+## 2026-06-29 CopperCliff CONCRETE BLOCKER (traced): edge-batch non-scalar-attr corruption sprawls across ~6 collectors
+
+Completing the trace of the edge-batch analog of the shipped node fix (7a6590b38). The
+bug: batched add_edges_from (>=8 edges, fresh graph) corrupts non-scalar edge attrs
+(tuple/list/None/oversized-int/nested-dict) to their str()/lossy-float on Graph + DiGraph;
+MultiGraph/MultiDiGraph per-edge dicts are OK but their GLOBAL **attr path corrupts too.
+LATENT — no conformance test catches it (my probe does: 97/120 over the 4 types).
+
+LIVE PATH for the COMMON int-node case (why a single-collector guard failed): Python
+add_edges_from -> native `_try_add_edges_from_batch` (lib.rs:9438) ->
+`try_add_attr_edge_batch` (2178) which tries, IN ORDER:
+  1. try_add_fresh_exact_int_attr_edge_batch (2092) -> collect_fresh_exact_int_attr_edge_batch
+  2. try_add_existing_exact_int_attr_edge_index_batch (1539)
+  3. try_add_existing_int_label_attr_edge_batch (1650)
+  4. collect_attr_edge_batch (1869, String-keyed general)  <- the ONLY one I guarded
+Int-node edges (the common shape) are consumed by #1 BEFORE reaching #4, so guarding only
+collect_attr_edge_batch was ~0-gain (REVERTED, both attempts). PyDiGraph mirrors this
+(digraph.rs collect_attr_edge_batch:7913 + int siblings); Multi global is in
+_try_add_attr_edges_from_batch's global_attr.
+
+ROOT: every collector builds the CgseValue store via py_dict_to_attr_map -> py_value_to_cgse
+(stringifies non-representable: `CgseValue::String(v.str())`) AND drops/lazy-rebuilds the
+Python mirror from that store. A blanket py_value_to_cgse "Err on non-representable" is
+UNSAFE: single add_edge/add_node store-writes also call it and keep the mirror separately;
+erroring would break them.
+
+RECOMMENDED FIX (dedicated multi-collector cycle): add a strict
+`py_dict_to_attr_map_lossless` (Err if any value is not exact bool/i64-int/float/str) and
+swap it into EACH batch collector's per-edge conversion (collect_fresh_exact_int_attr_edge_batch,
+collect_existing_exact_int_attr_edge_index_batch, collect_existing_int_label_attr_edge_batch,
+collect_attr_edge_batch x Graph/DiGraph, + Multi global path). Their existing
+`let Ok(attrs)=... else { return Ok(None/false) }` then bails to per-edge add_edge (proven to
+preserve). Reuse the shipped `attr_dict_is_batch_lossless` predicate. The node fix proves the
+pattern; this is purely a "apply to all ~6 edge collectors + verify byte-exact across 4 types"
+effort. Node-attr corruption already FIXED (7a6590b38, waxman conformance restored).
