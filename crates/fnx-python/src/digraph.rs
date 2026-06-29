@@ -176,6 +176,15 @@ pub struct PyMultiDiGraph {
     /// repeats clone instead of rebuilding. The bool selects keys=False
     /// ((s,t,attr)) vs keys=True ((s,t,key,attr)), one variant cached at a time.
     pub(crate) in_edges_with_data_cache: Option<(u64, u64, bool, Vec<PyObject>)>,
+    /// br-inedges-attrcache (bt): (nodes_seq, edges_seq, keys, attr_name, default)-keyed
+    /// cache of the SCALAR (s,t[,key],value) tuples for in_edges(data=<attr>). Unlike the
+    /// data=True caches (live dicts -> only structural invalidation), these hold frozen
+    /// scalar snapshots, so the cache is DROPPED on any edge-attr mutation via
+    /// mark_edges_dirty / mark_edge_dirty (which fire when a live mirror dict is exposed)
+    /// and is only ever served while !edges_dirty. Mutex so the &self mark_*dirty hooks
+    /// can clear it. Single-slot (last attr/keys/default wins).
+    pub(crate) in_edges_data_attr_cache:
+        std::sync::Mutex<Option<(u64, u64, bool, String, PyObject, Vec<PyObject>)>>,
     /// br-r37-c1-qwqvn: (nodes_seq, edges_seq)-keyed cache of immutable
     /// (u, v, key) tuples for edges(keys=True, data=False, no nbunch).
     pub(crate) edges_with_keys_cache: Option<(u64, u64, Vec<PyObject>)>,
@@ -1752,6 +1761,7 @@ impl PyMultiDiGraph {
         runtime_policy: RuntimePolicy,
     ) -> PyResult<Self> {
         Ok(Self {
+            in_edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: MultiDiGraph::with_runtime_policy(runtime_policy),
             node_key_map: HashMap::new(),
             succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
@@ -1790,6 +1800,10 @@ impl PyMultiDiGraph {
     pub(crate) fn mark_edges_dirty(&self) {
         self.edges_dirty.store(true, Ordering::Relaxed);
         *self.edge_dirty_keys.lock().unwrap() = None;
+        // br-inedges-attrcache (bt): an attr mutation that dirties the graph
+        // invalidates the frozen scalar snapshot (edges_seq is NOT bumped on
+        // attr edits, so the seq key cannot catch it).
+        *self.in_edges_data_attr_cache.lock().unwrap() = None;
     }
 
     fn mark_edge_dirty(&self, u: &str, v: &str, key: usize) {
@@ -1797,6 +1811,7 @@ impl PyMultiDiGraph {
         if let Some(keys) = self.edge_dirty_keys.lock().unwrap().as_mut() {
             keys.insert(Self::edge_key(u, v, key));
         }
+        *self.in_edges_data_attr_cache.lock().unwrap() = None;
     }
 
     fn try_absorb_exact_int_str_keyed_ctor_edges(
@@ -5015,6 +5030,27 @@ impl PyMultiDiGraph {
             && let Ok(attr_name) = data.downcast::<PyString>()
         {
             let attr_name = attr_name.to_str()?;
+            // br-inedges-attrcache (bt): serve the frozen scalar snapshot when the
+            // graph is unchanged (same seqs, keys, attr, default) and clean. The
+            // !edges_dirty guard above + the mark_*dirty cache-drop guarantee no
+            // attr mutation occurred since the snapshot; structural change bumps a
+            // seq -> key miss. nx rebuilds the OutMultiEdgeDataView every call, so
+            // repeat in_edges(data=<attr>) reads clone refs instead of re-walking.
+            {
+                let cache = self.in_edges_data_attr_cache.lock().unwrap();
+                if let Some((ns, es, kf, cattr, cdef, ctuples)) = cache.as_ref()
+                    && *ns == self.nodes_seq
+                    && *es == self.edges_seq
+                    && *kf == keys
+                    && cattr.as_str() == attr_name
+                    && cdef.bind(py).eq(default.bind(py))?
+                {
+                    let fresh: Vec<PyObject> =
+                        ctuples.iter().map(|t| t.clone_ref(py)).collect();
+                    return Ok(Some(fresh.into_pyobject(py)?.into_any().unbind()));
+                }
+            }
+            let cache_attr_name = attr_name.to_owned();
             let default_int_keys = self.edge_py_keys.is_empty();
             let mut out: Vec<PyObject> = Vec::with_capacity(self.inner.edge_count());
             let mut scalar_only = true;
@@ -5058,6 +5094,18 @@ impl PyMultiDiGraph {
                 }
             }
             if scalar_only {
+                // br-inedges-attrcache (bt): snapshot the scalar tuples (clean +
+                // store-authoritative here), return a fresh clone. Dropped on the
+                // next attr mutation via mark_*dirty.
+                let snapshot: Vec<PyObject> = out.iter().map(|t| t.clone_ref(py)).collect();
+                *self.in_edges_data_attr_cache.lock().unwrap() = Some((
+                    self.nodes_seq,
+                    self.edges_seq,
+                    keys,
+                    cache_attr_name,
+                    default.clone_ref(py),
+                    snapshot,
+                ));
                 return Ok(Some(out.into_pyobject(py)?.into_any().unbind()));
             }
         }
@@ -5839,6 +5887,7 @@ impl PyMultiDiGraph {
         // edge_dirty_keys clean. (We also drop the rebuild's eager empty edge attr
         // PyDicts — lazy materialize is identity-preserving, br-r37-c1-aab122464.)
         let mut new_graph = Self {
+            in_edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: self.inner.clone_with_fresh_policy(),
             node_key_map: self
                 .node_key_map
@@ -5886,6 +5935,7 @@ impl PyMultiDiGraph {
     fn _native_to_directed_deepcopy(&self, py: Python<'_>) -> PyResult<Self> {
         let deepcopy = py.import("copy")?.getattr("deepcopy")?;
         let mut new_graph = Self {
+            in_edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: MultiDiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
             succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
@@ -6184,6 +6234,7 @@ impl PyMultiDiGraph {
         // insertion order exactly; only the deep-copy of the Python attr dicts /
         // key objects remains.
         let mut new_graph = Self {
+            in_edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: self.inner.clone_with_fresh_policy(), // br-r37-c1-7dpyg: skip ledger
             node_key_map: HashMap::with_capacity(self.node_key_map.len()),
             // br-r37-c1-z6uka: succ overrides survive nx's u-major copy walk;
@@ -6256,6 +6307,7 @@ impl PyMultiDiGraph {
         // dicts are clone_ref'd so attrs stay SHARED (shallow-copy
         // semantics); row-key override maps clone exactly.
         Ok(Self {
+            in_edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: self.inner.clone_with_fresh_policy(), // br-r37-c1-7dpyg: skip ledger
             node_key_map: self
                 .node_key_map
@@ -6356,6 +6408,7 @@ impl PyMultiDiGraph {
         }
 
         let mut new_graph = Self {
+            in_edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: MultiDiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
             succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
@@ -6437,6 +6490,7 @@ impl PyMultiDiGraph {
         let iter = PyIterator::from_object(edges)?;
         let mut involved_nodes: HashSet<String> = HashSet::new();
         let mut new_graph = Self {
+            in_edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: MultiDiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
             succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
@@ -6621,6 +6675,7 @@ impl PyMultiDiGraph {
             Some(HashSet::new())
         };
         let mut new_graph = Self {
+            in_edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: self.inner.reversed(),
             node_key_map: HashMap::with_capacity(self.node_key_map.len()),
             // br-r37-c1-z6uka: nx reverse walks edges(keys=True, data=True)

@@ -10810,3 +10810,19 @@ scalar-snapshot cache must invalidate on attr mutation (key on nodes_seq/edges_s
 invalidation is where the matrix-cache/sync staleness bugs lived. Deferred (needs careful
 invalidation + struct-field plumbing, not a 6-min change). Architectural fix remains the
 integer-keyed edge mirror / lazy view-iter.
+
+## 2026-06-29 BlackThrush SHIP: in_edges(data=<attr>) result cache — mdg 0.19x->4.05x
+
+The biggest remaining laggard, mdg `in_edges(keys,data=<attr>)`, was 0.19x vs nx (per-edge
+PyObject 4-tuple materialization floor). nx's data=True paths already cache live-dict tuples
+and beat nx 5-9x on repeats; the data=<attr> path (scalar values) did NOT cache. Added a
+single-slot scalar-snapshot cache on PyMultiDiGraph keyed (nodes_seq, edges_seq, keys,
+attr_name, default), served in the store-read path. INVALIDATION (the hazard: attr edits do
+NOT bump edges_seq): Mutex field dropped inside mark_edges_dirty/mark_edge_dirty (fire on any
+mirror-dict exposure) and only ever served while !edges_dirty. CORRECTNESS PROVEN: same-object
+oracle (cached read vs dirty-forced cache-bypass read on the identical graph after 50-60 random
+add/remove/attr-mutate/set_edge_attributes ops) = 244/0 + 200/0 stale; direct invalidation
+(attr mutation / add / remove / attr-switch / default-switch / keys-switch / set_edge_attributes)
+all parity; conformance 6143 passed / 0 failed. MEASURED canonical h2h in_edges(keys,data=weight)
+0.19x -> 4.05x win. (A pre-existing fnx-vs-nx in_edges ORDER divergence after random remove/re-add
+is NOT introduced by this cache — HEAD no-cache shows the same 16 diffs; separate latent issue.)

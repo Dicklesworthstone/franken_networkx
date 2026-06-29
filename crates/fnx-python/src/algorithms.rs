@@ -9380,6 +9380,7 @@ pub fn stochastic_graph_copy_multidigraph(
     }
 
     let new_graph = PyMultiDiGraph {
+        in_edges_data_attr_cache: std::sync::Mutex::new(None),
         inner,
         node_key_map,
         succ_py_keys: PyDiGraph::clone_row_keys(py, &graph.succ_py_keys),
@@ -13492,6 +13493,7 @@ pub fn multidigraph_transitive_closure(
     inner.extend_keyed_edges_with_attrs_unrecorded(closure_edges);
 
     let mut result = PyMultiDiGraph {
+        in_edges_data_attr_cache: std::sync::Mutex::new(None),
         inner,
         node_key_map: HashMap::with_capacity(mdg.node_key_map.len()),
         succ_py_keys: PyDiGraph::clone_row_keys(py, &mdg.succ_py_keys),
