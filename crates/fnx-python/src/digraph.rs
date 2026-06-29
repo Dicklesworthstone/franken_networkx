@@ -1236,6 +1236,96 @@ impl PyMultiDiGraph {
         )
     }
 
+    /// br-r37-c1-mdgwdegf: MultiDiGraph total weighted degree of `node` as an
+    /// f64 iff at least one (succ or pred) edge exists AND every contributing
+    /// weight value is an exact float in the live mirror; else None (caller
+    /// uses the exact PyList+builtins.sum fallback). nx's DiMultiDegreeView
+    /// total is `sum(<succ>) + sum(<pred>)` — two independent Neumaier-
+    /// compensated sums added with a plain `+` — so accumulate succ and pred
+    /// separately (bit-identical to builtins.sum, verified 30k cases) and add.
+    /// An empty direction contributes a clean 0.0 (Python's int-0 + float is
+    /// exact); both empty returns None so an edgeless node keeps nx's int 0.
+    fn weighted_total_degree_float_node(
+        &self,
+        py: Python<'_>,
+        node: &str,
+        weight: &str,
+    ) -> PyResult<Option<f64>> {
+        let mut sf = 0.0f64;
+        let mut sc = 0.0f64;
+        let mut succ_saw = false;
+        for successor in self.inner.successors(node).unwrap_or_default() {
+            for key in self.inner.edge_keys(node, successor).unwrap_or_default() {
+                let Some(x) = self.edge_weight_exact_f64_mirror(py, node, successor, key, weight)?
+                else {
+                    return Ok(None);
+                };
+                succ_saw = true;
+                let t = sf + x;
+                if sf.abs() >= x.abs() {
+                    sc += (sf - t) + x;
+                } else {
+                    sc += (x - t) + sf;
+                }
+                sf = t;
+            }
+        }
+        let mut pf = 0.0f64;
+        let mut pc = 0.0f64;
+        let mut pred_saw = false;
+        for predecessor in self.inner.predecessors(node).unwrap_or_default() {
+            for key in self.inner.edge_keys(predecessor, node).unwrap_or_default() {
+                let Some(x) =
+                    self.edge_weight_exact_f64_mirror(py, predecessor, node, key, weight)?
+                else {
+                    return Ok(None);
+                };
+                pred_saw = true;
+                let t = pf + x;
+                if pf.abs() >= x.abs() {
+                    pc += (pf - t) + x;
+                } else {
+                    pc += (x - t) + pf;
+                }
+                pf = t;
+            }
+        }
+        if !succ_saw && !pred_saw {
+            return Ok(None);
+        }
+        let succ_total = if succ_saw { sf + sc } else { 0.0 };
+        let pred_total = if pred_saw { pf + pc } else { 0.0 };
+        Ok(Some(succ_total + pred_total))
+    }
+
+    /// Exact-float weight value for one directed multigraph edge, read ONLY from
+    /// the live edge-attr mirror (matching the `_native_weighted_degree`
+    /// fallback's value fetch); None when the edge/weight is absent (nx default
+    /// int 1) or non-float, routing the caller to the exact PyList+sum path.
+    fn edge_weight_exact_f64_mirror(
+        &self,
+        py: Python<'_>,
+        u: &str,
+        v: &str,
+        key: usize,
+        weight: &str,
+    ) -> PyResult<Option<f64>> {
+        let ek = Self::edge_key(u, v, key);
+        match self.edge_py_attrs.get(&ek) {
+            Some(d) => match d.bind(py).get_item(weight).ok().flatten() {
+                Some(val) => {
+                    if val.is_exact_instance_of::<pyo3::types::PyFloat>() {
+                        Ok(Some(val.extract::<f64>()?))
+                    } else {
+                        Ok(None)
+                    }
+                }
+                None => Ok(None),
+            },
+            None => Ok(None),
+        }
+    }
+
     /// br-r37-c1-fpssi: all node display objects as a Vec, reusing the
     /// nodes_seq-keyed tuple cache (clone_ref of cached elements) instead of
     /// rebuilding via py_node_key per node. Backs the graph node iterator
@@ -5285,6 +5375,22 @@ impl PyMultiDiGraph {
         let sum_fn = py.import("builtins")?.getattr("sum")?;
         let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(self.inner.node_count());
         for node in self.inner.nodes_ordered() {
+            // br-r37-c1-mdgwdegf (cc): float fast path. When EVERY contributing
+            // succ+pred weight value is an exact float in the mirror (and the
+            // node has >=1 edge), compute nx's `sum(succ) + sum(pred)` as two
+            // Rust Neumaier (Kahan-Babuska) sums added — bit-identical to
+            // builtins.sum (verified 30k cases) — skipping the per-edge PyList
+            // appends and the two per-node builtins.sum calls. Returns None
+            // (-> exact PyList+sum fallback below) on ANY non-float/absent value
+            // and for an edgeless node, so int/mixed parity, numeric promotion,
+            // and nx's int-0 for isolated nodes stay byte-exact.
+            if let Some(total) = self.weighted_total_degree_float_node(py, node, weight)? {
+                out.push((
+                    self.py_node_key(py, node),
+                    pyo3::types::PyFloat::new(py, total).into_any().unbind(),
+                ));
+                continue;
+            }
             let succ_vals = pyo3::types::PyList::empty(py);
             for successor in self.inner.successors(node).unwrap_or_default() {
                 for key in self.inner.edge_keys(node, successor).unwrap_or_default() {

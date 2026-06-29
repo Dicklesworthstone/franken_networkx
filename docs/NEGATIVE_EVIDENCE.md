@@ -9906,3 +9906,27 @@ agent-mail degraded_read_only blocks safe coordination there). INT-weight MG sta
 ~0.67x (fallback path; future Rust i64-sum target with overflow->bigint care).
 Per-crate build via rch (CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cc),
 cargo check + maturin release wheel, .so verified (0 undefined crossbeam).
+
+## 2026-06-29 CopperCliff SHIP (PARTIAL): MultiDiGraph degree(weight) float Neumaier fast path 0.70-0.78x->0.86-0.93x
+
+Extended the proven MG Neumaier lever (efdcfca36) to the MultiDiGraph sibling.
+The native MDG `_native_weighted_degree` (digraph.rs:5271) — after its int store/
+mirror fast paths return None for float weights — built per-node succ_vals + pred_vals
+PyLists and computed `sum(succ) + sum(pred)` via builtins.sum. FIX: when every
+contributing succ+pred weight value is an exact float in the live mirror (and the node
+has >=1 edge), compute the two sums as independent Rust Neumaier (Kahan-Babuska)
+accumulations added with a plain `+` — bit-identical to builtins.sum (verified 30k
+cases). Bails to the exact PyList+sum path on ANY non-float/absent value (mirror miss
+-> nx default int 1) and for an edgeless node, so int/mixed parity, numeric promotion,
+and nx's int-0 for isolated nodes stay byte-exact. The helper reads ONLY the mirror,
+exactly matching the fallback's value fetch, guaranteeing byte-exact deferral.
+
+Clean A/B (same machine, min-of-20): total degree(weight) n=400 0.78x->0.93x
+(0.763->0.652ms), n=800 0.78x->0.89x (1.608->1.405ms), n=1500 0.70x->0.86x
+(3.358->2.746ms) — ~14-22% self-speedup. Byte-exact 22560/22560 over 128 graphs x
+{total,in,out} (float/int/self-loops/missing-weights, type-exact); conformance 7461
+pass. PARTIAL (still <nx): same residual as MG — per-edge `Self::edge_key` String
+alloc + HashMap mirror probe; closing past nx needs an indexed mirror (deferred,
+spans shared fnx-classes). INT-weight MDG keeps its store/mirror int fast paths.
+Per-crate build via rch (CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cc),
+cargo check + maturin release, .so verified (0 undefined crossbeam).
