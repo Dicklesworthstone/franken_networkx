@@ -338,13 +338,16 @@ impl PyMultiDiGraph {
                     .into_any();
                 tuple_object(py, &[py_u, py_v, py_key, attrs])?
             } else if want_value {
-                let val = self
-                    .ensure_edge_py_attrs(py, source, target, *key)
-                    .bind(py)
-                    .get_item(data)
-                    .ok()
-                    .flatten()
-                    .map_or_else(|| default.clone_ref(py), |v| v.unbind());
+                // br-r37-c1-edgeattrstore (cc): route scalar data=<attr> through
+                // edge_data_value_or_default, which reads the value straight from the
+                // CgseValue store when no mirror mutations are pending (!edges_dirty),
+                // skipping the per-edge ensure_edge_py_attrs mirror materialization +
+                // get_item that dominated this whole-graph edges(data=<attr>) path
+                // (~0.43x at n700/e12662). Falls back to the mirror (dict identity /
+                // dirty / Map) so values stay byte-exact — the SAME store fast path the
+                // nbunch out/in_edges data=<key> views already use.
+                let val =
+                    self.edge_data_value_or_default(py, source, target, *key, data, &default)?;
                 if keys {
                     tuple_object(py, &[py_u, py_v, py_key, val])?
                 } else {

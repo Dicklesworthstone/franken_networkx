@@ -9993,3 +9993,30 @@ site), spans shared fnx-classes/fnx-python; deferred — too big/risky for a sin
 and agent-mail degraded_read_only blocks safe multi-agent coordination on those files.
 Session shipped 4 wins (complement 65d56efed; MG degree efdcfca36; MDG total 8e3018901;
 MDG in/out 06c495789); the perf frontier for safe single-cycle work is now this refactor.
+
+## 2026-06-29 CopperCliff SHIP: MultiDiGraph edges(data=<attr>) ~1.6x self via store-read routing
+
+CORRECTS the prior "store path is DEAD" entry: the whole-graph edges(data=<attr>)
+kernel (`native_edge_view_list`, digraph.rs) used the slow per-edge
+`ensure_edge_py_attrs` (mirror materialize/probe + get_item) for its want_value branch,
+while the sibling `edge_data_value_or_default` ALREADY has a `!edges_dirty` CgseValue
+store fast path (cgse_value_to_py, no per-edge edge_key String + mirror probe) used by
+the nbunch out/in_edges data=<key> views. Routed the want_value branch through
+`edge_data_value_or_default`. It engages the store read for freshly-built graphs (both
+add_weighted_edges_from AND per-edge add_edge) and falls back to the mirror on
+dirty/Map/missing — so values stay byte-exact AND post-mutation coherent.
+
+Clean isolated A/B (fresh processes, min-of-30) edges(data='weight') MDG n=700/e12662:
+fnx 16.5-17.4ms -> 10.8ms = **~1.6x self-speedup** (both build modes), ratio ~0.43-0.65x
+-> ~0.53x. Still <nx (nx ~5.7ms; nested-dict iteration is very fast) but a 35%
+self-improvement on a very common op. Byte-exact 288/288 configs (float/int, awef/add
+builds, missing weights, default, keys) + POST-MUTATION coherence verified
+(G[u][v][k]['weight']=x IS reflected, 0 mismatches — the dirty path correctly falls to
+the mirror). Conformance 9334 pass (sole failure write_gexf classification is
+PRE-EXISTING on HEAD, unrelated). Per-crate build via rch.
+
+The earlier "store path dead" conclusion was wrong for THIS path: the gate is per-graph
+(`!edges_dirty`), and a built-not-mutated graph IS clean enough for the store read; my
+selfloop CLEAN==DIRTY probe was confounded (selfloop has a separate value_attr_name
+gate). FOLLOW-UPS: same routing for MG `_native_edge_view_list` (lib.rs) want_value;
+selfloop_edges variants (0.43-0.55x) still on the mirror path.
