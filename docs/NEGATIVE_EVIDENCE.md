@@ -10117,3 +10117,28 @@ fully mined for MG/MDG edge views. The remaining gaps are construction-tax subst
 (copy/reverse: per-element dict copy + parity reorder) and the selfloop mirror floor —
 no clean single-cycle lever; the architectural primitives (shared-copy semantics can't
 change; integer-keyed mirror) remain the only path past them. Session: 7 perf ships.
+
+## 2026-06-29 CopperCliff scan: simple Graph edges(nbunch) — only data=True residual (0.80x); rest wins
+
+Checked simple (non-multi) Graph edge views (n=700/e8000) — the one type not covered by
+this session's MG/MDG edge-view work. Whole-graph edges()/data/data='weight' all WIN
+(0.98-1.06x). edges(nbunch) variants via the Python nbunch path: no-data 1.96x,
+data='weight' 1.04x (both WIN), but edges(nbunch, data=True) 0.80x (2.07 vs 1.66ms) —
+the only residual. PyGraph has NO native edges-nbunch methods (confirmed:
+hasattr _native_out_edges_nbunch_data == False; only DiGraph/MG/MDG have them); simple
+Graph edges(nbunch) is Python-only. The data=True case being slower than data='weight'
+in the same path is odd (returning the live dict should be cheaper than scalar extract)
+— points to a fixable Python inefficiency rather than substrate, but it is a single
+modest variant (~0.4ms) on a less-common call form. SCOPED LEVER (low priority): a
+native simple-Graph edges-nbunch kernel (node-dedup, like the MG variants ce0928c58)
+would cover it, but no-data/data='weight' already win so net gain is small.
+
+SESSION SUMMARY (cc, 2026-06-29): 7 perf ships — complement(MG/MDG) 65d56efed; MG
+degree(weight) efdcfca36; MDG total degree(weight) 8e3018901; MDG in/out degree(weight)
+06c495789; MDG edges(data=attr) store-routing 80e12629a; MG edges() node-dedup
+ebb754a2c; MG edges(nbunch) node-dedup ce0928c58 — plus NO-SHIP/frontier evidence
+commits. Two reusable levers banked: store-read routing (edge_data_value_or_default)
+and node-dedup (replace per-edge canonical seen-set with O(N) processed-node set,
+nx's first-encounter algorithm; mind duplicate-nbunch). Remaining gaps all
+substrate-bound (copy/reverse) or mirror-floor (selfloop data, in_degree weight) —
+architectural primitives (integer-keyed mirror) only.
