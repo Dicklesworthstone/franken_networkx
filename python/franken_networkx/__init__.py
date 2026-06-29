@@ -22726,17 +22726,22 @@ def _native_graph_product(G, H, *, kind="cartesian"):
     ``kind`` is one of ``cartesian`` / ``tensor`` / ``strong`` /
     ``lexicographic`` (br-r37-c1-prodstronglex). Gated to the case the native
     kernel reproduces exactly: simple (non-multi) graphs of matching
-    directedness, with no node/edge attributes to pair and no self-loops
-    (self-loops would need attr pairing / tensor de-duplication that the Python
-    path handles). Result node tuples and the empty-attr edge SET are identical
-    to the Python construction; only the build path (and insertion order, which
-    the product parity tests canonicalise away) differs.
+    directedness, with no node/edge attributes to pair. SELF-LOOPS ARE NOW
+    HANDLED (br-r37-c1-prodself): the kernel enumerates each factor's edges with
+    ``v >= u`` so self-loop pairs are included, and the simple-graph
+    ``extend_edges_unrecorded`` inherently de-duplicates the tensor/lexicographic
+    double-push of a self-loop-induced product edge (a simple Graph cannot hold a
+    parallel edge), so the edge SET matches nx's idempotent ``add_edge``
+    construction — even a handful of incidental self-loops no longer drops the
+    whole product to the ~4x-slower Python path. Result node tuples and the
+    empty-attr edge set are identical to the Python construction; only the build
+    path (and insertion order, which the product parity tests canonicalise away)
+    differs. Attributed graphs still fall back (self-loop edges would need attr
+    pairing the kernel does not do).
     """
     if G.is_multigraph() or H.is_multigraph():
         return None
     if G.is_directed() != H.is_directed():
-        return None
-    if number_of_selfloops(G) or number_of_selfloops(H):
         return None
     if _graph_has_any_attrs(G) or _graph_has_any_attrs(H):
         return None

@@ -2,6 +2,37 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-29 CopperCliff SHIP: graph products (cartesian/tensor/strong/lexicographic) with self-loops 0.18-0.28x->2.4-4.8x (`br-r37-c1-prodself`)
+
+Same "kernel gated to bail on a rare structural feature" lever as line_graph
+(`br-r37-c1-lgself`), found by the SAME bench trap: `_native_graph_product` (the
+shipped fe0dbee38 kind-enum kernel, 2.3-4.8x nx) bailed via
+`if number_of_selfloops(G) or number_of_selfloops(H): return None`, so a product
+where EITHER factor had even ONE self-loop dropped to the ~4x-SLOWER Python
+construction: cartesian **0.25x**, tensor **0.28x**, strong **0.26x**,
+lexicographic **0.18x** vs nx (200x40-node factors, 1 incidental self-loop each).
+
+ROOT CAUSE the gate was wrong, not needed: the Rust kernel already enumerates each
+factor's edges with `v >= u` (self-loop pairs INCLUDED), and the simple-graph
+`extend_edges_unrecorded` inherently de-duplicates the tensor/lexicographic
+double-push of a self-loop-induced product edge (a simple Graph cannot hold a
+parallel edge) — so the edge SET already matches nx's idempotent `add_edge`
+construction. FIX (pure-Python, NO rebuild): drop the `number_of_selfloops` bail
+from the wrapper gate; keep the multigraph / mismatched-directedness / attr bails
+(attr graphs still need the Python attr-pairing path).
+
+MEASURED vs NetworkX (min of 5, with self-loops): cartesian **0.25x->2.41x**,
+tensor **0.28x->4.22x**, strong **0.26x->4.79x**, lexicographic **0.18x->2.44x**;
+self-loop-free unaffected (still 3.4-5.4x). Byte-EXACT 480/480 random
+directed+undirected self-loop factor pairs (node set + edge set + node/EDGE COUNTS)
++ explicit both-factors-self-loop + self-loop-free cases; new regression
+`test_graph_product_selfloop_native_parity.py`; product suite 676 passed. LEVER
+(reinforced): when a native kernel ALREADY computes the rare feature correctly, the
+conservative Python `return None` guard is pure deadweight that taxes the whole
+input — drop the guard, don't just route around it. Audit remaining
+`number_of_selfloops(...)==0` / `is_multigraph()` wrapper gates that front a kernel
+which already handles the case.
+
 ## 2026-06-29 CopperCliff SHIP: line_graph() with self-loops 0.65x->5-8x — native kernel now handles self-loops (`br-r37-c1-lgself`)
 
 `line_graph(G)` had a native fast path (`line_graph_fast`, 6x nx) for self-loop-FREE
