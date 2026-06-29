@@ -3081,6 +3081,129 @@ impl PyMultiGraph {
         Ok(true)
     }
 
+    /// br-edgekeyedbatch (bt): undirected sibling of PyMultiDiGraph's
+    /// try_add_keyed_attr_edges_existing_nodes_batch — an EDGES-ONLY 4-tuple
+    /// (u, v, key, attrs) batch for an EDGELESS graph whose nodes already exist
+    /// (MultiGraph subgraph().copy(): add_nodes_from THEN add_edges_from(4-tuples),
+    /// node_count!=0 bails the fresh batch -> per-edge PyO3 ~0.76x vs nx). Every
+    /// endpoint MUST already be a node (any new node bails to per-edge). One Rust
+    /// extend_keyed_edges_with_attrs_unrecorded commit (undirected: symmetric
+    /// adjacency built in the given (u, v) order = the per-edge add_edge order, so
+    /// edges() output stays byte-identical). edge_py_attrs mirror keyed via the
+    /// CANONICAL edge_key (u<=v). Safe-subset bail-to-per-edge for everything else.
+    fn try_add_keyed_attr_edges_existing_nodes_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        const ATTR_EDGE_BATCH_MIN: usize = 8;
+        if self.inner.edge_count() != 0
+            || !self.edge_py_attrs.is_empty()
+            || !self.edge_py_keys.is_empty()
+            || !self.adj_py_keys.is_empty()
+        {
+            return Ok(false);
+        }
+        let items: Vec<Bound<'_, PyAny>> = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+            if list.len() < ATTR_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            list.iter().collect()
+        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+            if tuple.len() < ATTR_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            tuple.iter().collect()
+        } else {
+            return Ok(false);
+        };
+
+        let mut edges: Vec<(String, String, usize, AttrMap)> = Vec::with_capacity(items.len());
+        let mut mirrors: Vec<((String, String, usize), Py<PyDict>)> = Vec::new();
+        let mut seen_canonical: HashSet<(String, String, usize)> = HashSet::new();
+        for item in &items {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(false);
+            };
+            if tuple.len() != 4 {
+                return Ok(false);
+            }
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            if !u.is_exact_instance_of::<PyInt>()
+                || !v.is_exact_instance_of::<PyInt>()
+                || u.is_exact_instance_of::<PyBool>()
+                || v.is_exact_instance_of::<PyBool>()
+            {
+                return Ok(false);
+            }
+            let (Ok(u_value), Ok(v_value)) = (u.extract::<i64>(), v.extract::<i64>()) else {
+                return Ok(false);
+            };
+            let u_canonical = u_value.to_string();
+            let v_canonical = v_value.to_string();
+            if !self.node_key_map.contains_key(&u_canonical)
+                || !self.node_key_map.contains_key(&v_canonical)
+            {
+                return Ok(false);
+            }
+            let key_obj = tuple.get_item(2)?;
+            if !key_obj.is_exact_instance_of::<PyInt>()
+                || key_obj.is_exact_instance_of::<PyBool>()
+            {
+                return Ok(false);
+            }
+            let Ok(key) = key_obj.extract::<usize>() else {
+                return Ok(false);
+            };
+            let fourth = tuple.get_item(3)?;
+            let Ok(dict) = fourth.downcast::<PyDict>() else {
+                return Ok(false);
+            };
+            // ebunch_batch_lossless only inspects 3-tuples -> validate the 4-tuple's
+            // attrs here (a non-scalar value would be stringified = batch corruption).
+            if !attr_dict_is_batch_lossless(dict) {
+                return Ok(false);
+            }
+            let fast_weight = match single_weight_float_attr_map_with_mirror(py, dict) {
+                Ok(converted) => converted,
+                Err(_) => return Ok(false),
+            };
+            let (attrs, mirror) = match fast_weight {
+                Some((attrs, mirror)) => (attrs, Some(mirror)),
+                None => match py_dict_to_attr_map_with_mirror(py, dict) {
+                    Ok((attrs, mirror)) => {
+                        let mirror = if dict.is_empty() { None } else { Some(mirror) };
+                        (attrs, mirror)
+                    }
+                    Err(_) => return Ok(false),
+                },
+            };
+            if attrs.keys().any(|k| k.starts_with("__fnx_incompatible")) {
+                return Ok(false);
+            }
+            // canonical (u<=v) dedup: an undirected (u,v,key) == (v,u,key)
+            let canon = Self::edge_key(&u_canonical, &v_canonical, key);
+            if !seen_canonical.insert(canon.clone()) {
+                return Ok(false);
+            }
+            if let Some(mirror) = mirror {
+                mirrors.push((canon, mirror));
+            }
+            // store edges in the GIVEN (u, v) order so extend_keyed builds the same
+            // symmetric adjacency the per-edge path would.
+            edges.push((u_canonical, v_canonical, key, attrs));
+        }
+
+        let edge_bumps = u64::try_from(edges.len()).unwrap_or(u64::MAX);
+        for (canon, mirror) in mirrors {
+            self.edge_py_attrs.entry(canon).or_insert(mirror);
+        }
+        let _inserted = self.inner.extend_keyed_edges_with_attrs_unrecorded(edges);
+        self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
+        Ok(true)
+    }
+
     fn try_absorb_exact_int_str_keyed_ctor_edges(
         &mut self,
         py: Python<'_>,
@@ -4743,6 +4866,14 @@ impl PyMultiGraph {
             return Ok(false);
         }
         if self.try_add_fresh_exact_int_keyed_attr_edge_batch(py, ebunch_to_add, global_attr)? {
+            return Ok(true);
+        }
+        // br-edgekeyedbatch (bt): edges-only 4-tuple keyed batch for an edgeless graph
+        // whose nodes already exist (MultiGraph subgraph().copy()). Bails to per-edge
+        // if any endpoint is new. Only when there is no global **attr to merge.
+        if global_attr.is_none_or(|attrs| attrs.is_empty())
+            && self.try_add_keyed_attr_edges_existing_nodes_batch(py, ebunch_to_add)?
+        {
             return Ok(true);
         }
         const ATTR_EDGE_BATCH_MIN: usize = 8;

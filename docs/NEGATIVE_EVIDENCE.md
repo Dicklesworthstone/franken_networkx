@@ -10951,3 +10951,19 @@ bail + attr identity/mutation + parent independence); conformance 4500 passed in
 NOTE: 3 PRE-EXISTING reds (TestFindInducedNodesParity test_*_without_fallback) are UNRELATED —
 fnx.find_induced_nodes delegates to nx by design (runs nx's algo on a copy, commit 17040bd66) and
 the no-fallback test monkeypatch-raises; my diff touches no chordal/induced code.
+
+## 2026-06-29 BlackThrush SHIP: MultiGraph (undirected) subgraph().copy() 0.76x -> 1.09x (beats nx)
+
+Undirected sibling of the MDG subgraph-copy batch (48560565e). Added
+try_add_keyed_attr_edges_existing_nodes_batch to PyMultiGraph (lib.rs): edges-only 4-tuple
+keyed batch for an edgeless graph whose nodes already exist. Stores edges in the GIVEN (u,v)
+order so the inner extend_keyed_edges_with_attrs_unrecorded builds the same SYMMETRIC adjacency
+the per-edge add_edge would (undirected orientation byte-identical); edge_py_attrs mirror keyed
+via the CANONICAL edge_key (u<=v). Self-validates + bails to per-edge for new endpoints,
+custom/negative keys, non-scalar attrs, (u,v,key) collision (canonical dedup), non-fresh graph.
+Wired into PyMultiGraph::_try_add_attr_edges_from_batch after the fresh attempt. (MG's existing
+"fresh_keyed" batch is actually a 3-tuple auto-key collector — no 4-tuple path existed.)
+MEASURED: MG subgraph(nb).copy() 0.76x -> 1.09x (8.3 vs 9.5ms). byte-exact 20/20 ad-hoc
+(incl edges() ORIENTATION + self-loops + batch-vs-per-edge oracle) + new test 17/17;
+conformance 4517 passed changed-area. find_induced/unused_raw_exposures/write_gexf reds remain
+pre-existing + unrelated. CONSTRUCTION-TAX vein now done for MG+MDG subgraph copy + fresh keyed.
