@@ -15175,9 +15175,13 @@ def symmetric_difference(G, H):
     ):
         if set(G) != set(H):
             raise NetworkXError("Node sets of graphs not equal")
-        _native_R = G._native_symmetric_difference(H)
-        if _native_R is not None:
-            return _native_R
+        # br-edgekeyedbatch (bt): _native_symmetric_difference PREDATES the fast
+        # no-data keyed batch and is ~3x SLOWER for multigraphs (MG 43.5ms vs the
+        # set-snapshot + _native_add_keyed_edges_no_data fallback 15.2ms; MDG 24.7
+        # vs 7.3ms). Skip it for multigraphs and fall through to that fallback
+        # (byte-identical, 2698/2698 edges). The set-equality check above preserves
+        # the error contract before create_empty_copy. (Simple Graph/DiGraph keep
+        # their native path below.)
     # br-r37-c1-natsymdiff(-di): fully-native simple Graph/DiGraph
     # symmetric_difference — same lever as the Multi* path above (G-only then
     # H-only edges, in Rust, no create_empty_copy + EdgeView sets + add_edges_from).

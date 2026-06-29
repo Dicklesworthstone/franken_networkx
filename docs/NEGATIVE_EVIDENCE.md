@@ -11018,3 +11018,18 @@ RESIDUAL: remaining 0.72-0.76x is the dual-storage construction floor (CgseValue
 string-keyed inner adjacency vs nx's dict assignment). lazy-mirror is ~0-gain (mirror is only ~1.4ms
 of a 28ms batch — the 1-attr/2-attr delta is 5ms, mostly CgseValue not mirror). DON'T re-dig lazy-mirror.
 square_clustering(nbunch-subset) 0.58x is a TINY-absolute Python-path case (full-graph is 23x win) — skip.
+
+## 2026-06-29 BlackThrush SHIP: multigraph symmetric_difference() 0.19-0.29x -> 0.42-0.7x
+
+PURE-PYTHON. Applying the lever from 3ff35fe02 (audit native methods predating the batches):
+multigraph symmetric_difference used `_native_symmetric_difference`, which is ~3x SLOWER than the
+existing set-snapshot + `_native_add_keyed_edges_no_data` fallback (MG native 43.5ms vs fallback
+15.2ms; MDG 24.7 vs 7.3ms — both byte-identical, 2698/2698 edges). Skipped the native for
+multigraphs (the node-set equality check stays before create_empty_copy so the error contract is
+unchanged); simple Graph/DiGraph keep their native path. MEASURED: MG sym_diff 0.19x->0.42-0.49x,
+MDG 0.29x->0.56-1.05x. byte-exact across drop in {0,0.3,0.7,1.0} + distinct edge sets + self-loops
++ parallel edges; unequal-nodes raises NetworkXError; new test 12/12; 1107 set-operator conformance.
+RELATED GAPS (same family, follow-ups): difference MG 0.30x/MDG 0.36x (already uses the no-data
+batch; residual = Python set-build of the H snapshot, 2x inserts for undirected); intersection
+0.46-0.47x (set-based, edge_intersection may be a SET not list -> per-edge; could route to
+_native_add_keyed_edges_no_data with a list). disjoint_union ~parity.
