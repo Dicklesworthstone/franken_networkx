@@ -9959,3 +9959,37 @@ lever to close ALL of them is an INTEGER-keyed edge mirror (a different primitiv
 a safe-Rust micro-opt) — large, spans shared fnx-classes/fnx-python; deferred while
 agent-mail is degraded_read_only (no safe reservation/coordination). selfloop_edges
 data=True correctly shares the live mirror dict (no copy bug).
+
+## 2026-06-29 CopperCliff FRONTIER MAP (measured): edges(data=attr) biggest gap; store-direct path is DEAD for real graphs
+
+After completing the weighted-degree family, swept the remaining tracked laggards at
+bench sizes (MDG n=700/e12662, MG selfloop n=2500/loops2502). Most "laggards" now WIN:
+edges(keys,data=True) 7.84x, in_edges(data) 29x, out_edges(nbunch,keys,data) 35x.
+GENUINE remaining gaps (biggest-first):
+  - edges(data='weight') MDG: **0.43x** (fnx 16.3ms vs nx 7.0ms) — BIGGEST absolute gap.
+  - selfloop_edges MG: keys+data 0.43x, keys 0.48x, data 0.47x, keys+weight 0.55x.
+  - out_edges(nbunch,keys,data='weight') 0.87x (marginal).
+
+ROOT CAUSE (all of them): the per-edge value/dict path calls `ensure_edge_py_attrs`/
+`edge_data_value_or_default`, which builds a `(String,String,usize)` edge_key and
+probes the mirror HashMap PER EDGE — nx (nested Python dicts) has the value in hand.
+For data='weight' this is a per-edge edge_key String alloc + mirror probe + get_item
+over ALL edges; data=True avoids it by returning the bulk-cached live dict.
+
+DEAD LEVER (measured, do NOT retry): the obvious fix — read the scalar from the
+CgseValue store via cgse_value_to_py (the selfloop pristine path) — does NOT engage for
+real graphs. The store-direct path gates on `edge_py_attrs.is_empty()` / `!edges_dirty`,
+but ANY graph built through the Python API with edge attrs has a POPULATED mirror and is
+dirty. PROOF: selfloop_edges(data='weight') CLEAN(add_weighted_edges_from) 0.57x ==
+DIRTY(per-edge add_edge) 0.61x — identical, the store path never fires. And reading the
+store on a populated-mirror graph is a CORRECTNESS risk: the conservative dirty flag is
+necessary because user dict mutations (G[u][v][k]['weight']=x) can't be intercepted, so
+there is no per-edge coherence signal to safely prefer the store.
+
+ONLY remaining lever (a DIFFERENT primitive, not safe-Rust-ceiling): re-key the
+edge-attr mirror from (String,String,usize) to an integer EdgeId so the per-edge probe
+during edges_ordered_borrowed needs no String alloc. LARGE (touches every edge_key call
+site), spans shared fnx-classes/fnx-python; deferred — too big/risky for a single cycle
+and agent-mail degraded_read_only blocks safe multi-agent coordination on those files.
+Session shipped 4 wins (complement 65d56efed; MG degree efdcfca36; MDG total 8e3018901;
+MDG in/out 06c495789); the perf frontier for safe single-cycle work is now this refactor.
