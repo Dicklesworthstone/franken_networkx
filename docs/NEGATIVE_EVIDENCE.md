@@ -10281,3 +10281,29 @@ find_induced_nodes + write_gexf failures remain, not from this fix). Scalar node
 (5000 nodes, 2 attrs) 3.48ms — lossless-check overhead negligible. Per-crate build via rch.
 FOLLOW-UP: the EDGE batch collectors (collect_attr_edge_batch, lib.rs:1902/4704) have the
 SAME bug (Graph/DiGraph edge tuple attr -> string) — apply the same guard next.
+
+## 2026-06-29 CopperCliff EDGE-batch corruption: same class as node fix, but dispatch tangled — attempt REVERTED
+
+The node-batch non-scalar-attr corruption fix shipped (7a6590b38). The PARALLEL edge-batch
+bug is confirmed real: batched add_edges_from (>=8 edges, fresh graph) on Graph + DiGraph
+stringifies non-scalar edge attrs (tuple/list/None/oversized-int/nested) — e.g.
+edges(data='pts') tuple -> '(x,y)' string; MultiGraph/MultiDiGraph per-edge dicts are OK
+but their GLOBAL **attr path also stringifies. Same root (py_value_to_cgse stringify +
+lazy-from-store mirror).
+
+ATTEMPT (REVERTED, ~0-effect): added the attr_dict_is_batch_lossless guard to
+`collect_attr_edge_batch` (PyGraph lib.rs:1869 per-edge+global; PyDiGraph digraph.rs:7913
+per-edge). Built + measured: edge attrs STILL stringified (97/120, node fix unaffected
+108/108). So `collect_attr_edge_batch` is NOT the live path for Graph/DiGraph
+add_edges_from(3-tuple attr). Reverted both files (git checkout); baseline .so restored.
+
+DISPATCH IS TANGLED (why the guess missed): Python add_edges_from (__init__.py:3482) calls
+native `_try_add_attr_edges_from_batch`, but that pymethod exists only on PyMultiGraph
+(lib.rs:4657) / PyMultiDiGraph (digraph.rs:3111). PyGraph has a private
+`try_add_attr_edge_batch` (lib.rs:2169 -> collect_attr_edge_batch) AND
+`try_add_fresh_exact_int_keyed_attr_edge_batch`; native add_edges_from (lib.rs:6198) is
+per-edge (preserves). The actual batch entry for Graph add_edges_from(non-scalar 3-tuple)
+was NOT pinned down. FOLLOW-UP: instrument with a print/debugger to find WHICH native
+method materializes the stringified edge for Graph (n>=8 fresh), then apply the
+attr_dict_is_batch_lossless bail there (and the Multi GLOBAL **attr path). The fix
+PATTERN is proven (node fix); only the edge call-site location is unresolved.
