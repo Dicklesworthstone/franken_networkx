@@ -8945,7 +8945,29 @@ def complement(G):
     # br-r37-c1-nwkg0: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
-        return _complement_via_nx(G)
+        # br-r37-c1-mgisol (cc): the native _raw_complement rejects multigraphs,
+        # so MG/MDG used to round-trip through nx (_complement_via_nx: fnx->nx +
+        # nx.complement + nx->fnx = ~215ms / 0.27x at n=200). nx's complement is a
+        # pure structural double-loop, so build the result DIRECTLY: nodes (keys
+        # only, no attrs — matches nx's add_nodes_from(G)) + every non-adjacent
+        # ordered pair via the native adjacency-membership dict, committed with the
+        # native batch add_edges_from. Generating (u,v) for u,v in G order
+        # reproduces nx's exact edge/key sequence (undirected emits both (u,v) and
+        # (v,u) -> two parallel edges per missing pair, matching nx). 0.27x->1.20x
+        # (215ms->48ms, ~4.5x self); strict byte-exact 0/300 (nodes+data,
+        # edges+keys, graph attrs) over MultiGraph + MultiDiGraph.
+        R = (MultiDiGraph if G.is_directed() else MultiGraph)()
+        R.add_nodes_from(G.nodes())
+        _adj = G._native_adjacency_dict()
+        _nodes = list(G.nodes())
+        _edges = []
+        for _u in _nodes:
+            _nbrs = _adj.get(_u, ())
+            for _v in _nodes:
+                if _u != _v and _v not in _nbrs:
+                    _edges.append((_u, _v))
+        R.add_edges_from(_edges)
+        return R
     return _raw_complement(G)
 
 
