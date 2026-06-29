@@ -11238,3 +11238,27 @@ NOTE: MDG `_native_weighted_degree` / weighted_degree_subset_impl PyObject fallb
 `None => one.clone()` but the int/float store TWINS engage first (degree(weight) verified correct on
 bulk), so those fallbacks are not reached for store-only edges. Audit complete: dag was the last
 reachable store-only value-read.
+
+## 2026-06-29 BlackThrush SURFACE: perf veins MINED — remaining gaps are the materialization floor (adjacency mirror primitive)
+
+After the add_edge/add_edges_from O(N^2) wins + 2 store-only correctness fixes (151fdd624, 0ad42b25c),
+swept for the next perf lever. State of the veins (DIRECT fnx.foo(fnx_g) vs nx.foo(nx_g), n=200-300):
+- ALGORITHMS: fnx beats nx 1.0-84x on triangles/clustering/transitivity/betweenness/closeness/
+  eccentricity/harmonic/square_clustering/pagerank/constraint/effective_size/core/k_core. MINED.
+- MUTATION O(N^2): add_edge/add_edges_from fixed this session. MINED.
+- KEYED MULTI-EDGE VIEWS: MG/MDG edges(keys[,data]) 2.7-31x FASTER (caches shipped). Not gaps.
+- STORE-ONLY value-reads: audited + fixed (in_edges, dag_longest_path). Complete.
+The ONLY remaining gaps are the per-element PyObject MATERIALIZATION FLOOR: G[u]/neighbors(u) loops
+0.46-0.55x (fnx converts each neighbor name -> PyObject via node_key_map; nx returns live
+dict_keyiterator with zero conversion). neighbors is a Python wrapper that builds a Rust Vec<PyObject>
+then wraps an iterator; the cost is the name->PyObject conversion per neighbor, fundamental to the
+String-keyed inner store. A micro-opt (kill the list->iter->list double pass) is ~10-20%, doesn't
+close it. The real fix is the persistent ordered {node:{nbr:live_attr_dict}} Python adjacency mirror
+(4b5ie) kept coherent across mutations — a multi-session architectural primitive, NOT a 60-min dig.
+nodes(data) + dict(adjacency()) were the same floor and are NOW CLOSED (node_data_mirror +
+dict_of_dicts outer cache shipped earlier) -> the mirror approach WORKS; extending it to adj/neighbors
+subscript views is the lever.
+METHODOLOGY WARNING (cost me a sweep this cycle): benching `nx.foo(fnx_graph)` on BOTH sides hits the
+nx BACKEND-DISPATCH trap (fnx is a registered backend) -> bogus ratios (constraint looked 0.42x, is
+really 1.2x faster). ALWAYS call fnx.foo(fnx_g) vs nx.foo(nx_g) directly. See
+reference_nx_backend_dispatch_benchmark_trap.
