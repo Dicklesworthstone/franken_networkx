@@ -10882,3 +10882,32 @@ CORRECTNESS: 17/0 ad-hoc (dup/self-loop/unique/None/single-node) + new test 26/2
 view conformance 7996 passed. NOTE: 2 PRE-EXISTING failures on HEAD unrelated to this change
 (stale docs/unused_raw_exposures.md 46-vs-45 + write_gexf classification lock) -- confirmed by
 re-running with my diff stashed.
+
+## 2026-06-29 BlackThrush SURFACE: MultiDiGraph subgraph().copy() 0.46-0.53x = explicit-key add_edges_from construction tax
+
+Broad warm sweep (after the view-cache family): the residual real multigraph gap is
+node-induced subgraph().copy() — MDG 0.46-0.53x, MG ~0.67-0.88x. DECOMPOSED: the subgraph
+VIEW's edges(keys,data=True) iteration is 3.07x FASTER than nx (native filtered view);
+the cost is the .copy() CONSTRUCTION. `_copy_induced_simple_fast` (__init__.py ~40364)
+BAILS for multigraphs (`if self.is_multigraph(): return None`), so MG/MDG fall to the
+generic `add_edges_from((u,v,key,dict(attrs)) for ... in self.edges(keys=True,data=True))`.
+
+ROOT CAUSE: fnx `add_edges_from` with EXPLICIT-KEY 4-tuples on a FRESH MultiDiGraph is
+**0.33x** vs nx (5.64ms vs 1.90ms for 1608 edges, lists pre-built, view iteration excluded).
+The native `_try_add_attr_edges_from_batch` (digraph.rs:3387) only accepts 2-3 tuples (auto-key
+DATA edges) -> 4-tuples bail to the per-edge PyO3 path. nx's keyed add_edges_from is pure-Python
+`_adj[u][v][k]=dd` dict assignment (~3x faster than the PyO3 boundary).
+
+EASY FIXES RULED OUT: (a) list vs generator into multigraph add_edges_from = NO difference
+(9.18 vs 9.16ms) -> generator is NOT the bottleneck; (b) extending the simple-graph fast path's
+parent-raw_neighbors approach to multigraphs = the documented induced-REORDER NO-SHIP
+(reference_mg_subgraph_copy_induced_reorder_noship: induced view reorders adjacency, parent
+order != view order for multigraphs).
+
+NEXT LEVER (deferred, correctness-sensitive — NOT rushed): a native 4-tuple (explicit-key)
+multigraph edge batch, using the collect-then-commit BAIL-to-per-edge pattern. Safe subset for
+subgraph copy: fresh graph + all-int distinct keys + scalar attrs + no (u,v,key) collision ->
+add_edge_with_key in Rust, bail on ANYTHING else (custom/gapped keys, collisions, non-fresh) to
+preserve the first-wins display + partial-prefix error contracts. Construction-tax vein has prior
+REVERTs (reference_construction_tax_relabel_lever) — needs careful unhurried work + full
+explicit-key parity (first-wins, attr identity), not a 60-min window.
