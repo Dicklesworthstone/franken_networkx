@@ -10255,3 +10255,29 @@ meta-docs. NOT fixed here: editing those would collide with active peers, and ag
 is degraded_read_only (no reservations to coordinate) — flagged for the responsible
 owners. Session ships remain solid; my de-delegations (complement) verified by the
 delegated-exports meta-test NOT listing them.
+
+## 2026-06-29 CopperCliff BUGFIX: native node-batch add_nodes_from stringified non-scalar attrs (data corruption)
+
+Root-caused a full-conformance failure (test_waxman_graph_positions_match_nx: pos stored
+as STRING '(x,y)' not a tuple) to a BROAD core-construction data-corruption bug in my
+own domain (reference_attr_node_batch_construction). The attributed node-batch fast path
+(collect_attr_node_batch -> add_attr_node_batch, PyGraph + PyMultiGraph) drops the source
+PyDict mirror and rebuilds the node-attr mirror LAZILY from the CgseValue store on first
+read (br-r37-c1-lazynodeattr). But py_value_to_cgse stringifies (or lossily floats) any
+non-scalar value, so a batched add_nodes_from (>=8 nodes, fresh graph) silently corrupted
+tuple/list/None/oversized-int/dict node attrs to their str() — affecting waxman pos and
+any bulk-built graph with coordinate/label attrs. Size-gated (NODE_BATCH_MIN=8): n<8 used
+per-node add_node, which keeps the real Python object, so the bug only showed on bulk
+construction. Confirmed on Graph + MultiGraph (DiGraph/MultiDiGraph node batches already OK).
+
+FIX: a shared `attr_dict_is_batch_lossless` guard — when any attr value is not losslessly
+store-representable (only exact bool / i64-int / float / str are), bail the batch to the
+per-node path (which preserves the Python object in the mirror). Scalar batches (the
+perf-optimized common case) are unaffected. Byte-exact 108/108 across {Graph, DiGraph,
+MultiGraph, MultiDiGraph} x sizes {3,10,50} x {tuple,list,None,bigint,nested-dict,int,
+float,str,bool}; waxman pos now tuple-exact (test_waxman_graph_seed_parity 21 pass);
+construction/batch/geometric conformance 496 pass; broad net 28587 pass (only PRE-EXISTING
+find_induced_nodes + write_gexf failures remain, not from this fix). Scalar node batch
+(5000 nodes, 2 attrs) 3.48ms — lossless-check overhead negligible. Per-crate build via rch.
+FOLLOW-UP: the EDGE batch collectors (collect_attr_edge_batch, lib.rs:1902/4704) have the
+SAME bug (Graph/DiGraph edge tuple attr -> string) — apply the same guard next.

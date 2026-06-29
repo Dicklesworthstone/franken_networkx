@@ -584,6 +584,23 @@ pub(crate) fn py_value_to_cgse(v: &Bound<'_, PyAny>) -> PyResult<CgseValue> {
     }
 }
 
+/// br-r37-c1-nodebatchlossless (cc): the attributed node-batch fast path rebuilds the
+/// node-attr mirror LAZILY from the CgseValue store on first read
+/// (br-r37-c1-lazynodeattr), so a batch is only correct when every attr value round-trips
+/// through the store. Scalars (bool / exact-i64 int / float / str) do; tuples, lists,
+/// None, nested dicts, oversized ints, and custom objects do NOT — `py_value_to_cgse`
+/// stringifies (or lossily floats) them, corrupting the value (e.g. a `pos` tuple ->
+/// '(x, y)' string, as in waxman_graph). Returning false routes the batch to the
+/// per-node `add_node` path, which keeps the real Python object in the mirror.
+pub(crate) fn attr_dict_is_batch_lossless(d: &Bound<'_, PyDict>) -> bool {
+    d.iter().all(|(_, v)| {
+        v.is_exact_instance_of::<PyBool>()
+            || v.is_exact_instance_of::<PyFloat>()
+            || v.is_exact_instance_of::<PyString>()
+            || (v.is_exact_instance_of::<PyInt>() && v.extract::<i64>().is_ok())
+    })
+}
+
 pub(crate) fn collect_index_weight_attr_edges(
     rows: &Bound<'_, PyAny>,
     cols: &Bound<'_, PyAny>,
@@ -2258,6 +2275,12 @@ impl PyGraph {
 
             let (rust_attrs, src) = match &src_dict {
                 Some(d) => {
+                    if !attr_dict_is_batch_lossless(d) {
+                        // non-store-round-trippable attr (tuple/list/None/dict/oversized
+                        // int/custom) -> bail to the per-node path, which preserves the
+                        // Python object in the mirror (br-r37-c1-nodebatchlossless).
+                        return Ok(None);
+                    }
                     let Ok(attrs) = py_dict_to_attr_map(d) else {
                         return Ok(None);
                     };
@@ -3203,6 +3226,12 @@ impl PyMultiGraph {
 
             let (rust_attrs, src) = match &src_dict {
                 Some(d) => {
+                    if !attr_dict_is_batch_lossless(d) {
+                        // non-store-round-trippable attr (tuple/list/None/dict/oversized
+                        // int/custom) -> bail to the per-node path, which preserves the
+                        // Python object in the mirror (br-r37-c1-nodebatchlossless).
+                        return Ok(None);
+                    }
                     let Ok(attrs) = py_dict_to_attr_map(d) else {
                         return Ok(None);
                     };
