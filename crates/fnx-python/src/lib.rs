@@ -5571,7 +5571,12 @@ impl PyMultiGraph {
             return Ok(None);
         }
         let mut out: Vec<PyObject> = Vec::new();
-        let mut seen: std::collections::HashSet<(String, String, usize)> =
+        // br-r37-c1-mgnbdedup (cc): dedup by processed nbunch SOURCE node (nx's exact
+        // edges(nbunch) algorithm) instead of a per-edge canonical (String,String,usize)
+        // seen-set — drops the per-edge (lo,hi) tuple clone + hash insert. A neighbor
+        // already a processed source had the edge emitted from its side; matches nx
+        // including duplicate-nbunch re-emission (the per-edge set diverged there).
+        let mut seen_nodes: std::collections::HashSet<String> =
             std::collections::HashSet::new();
         for item in nbunch.try_iter()? {
             let node = item?;
@@ -5585,22 +5590,20 @@ impl PyMultiGraph {
                 )));
             }
             let canonical = node_key_to_string(py, &node)?;
+            if seen_nodes.contains(canonical.as_str()) {
+                continue; // duplicate nbunch node — already emitted as a source (nx dedups)
+            }
             let neighbors: Vec<String> = match self.inner.neighbors(&canonical) {
                 Some(v) => v.iter().map(|s| (*s).to_owned()).collect(),
                 None => continue,
             };
             for nbr in &neighbors {
-                let (lo, hi) = if canonical.as_str() <= nbr.as_str() {
-                    (canonical.clone(), nbr.clone())
-                } else {
-                    (nbr.clone(), canonical.clone())
-                };
+                if seen_nodes.contains(nbr.as_str()) {
+                    continue;
+                }
                 let keys_vec: Vec<usize> =
                     self.inner.edge_keys(&canonical, nbr).unwrap_or_default();
                 for key in keys_vec {
-                    if !seen.insert((lo.clone(), hi.clone(), key)) {
-                        continue;
-                    }
                     let nbr_obj = self.py_node_key(py, nbr);
                     let attrs = self
                         .ensure_edge_py_attrs(py, &canonical, nbr, key)
@@ -5628,6 +5631,7 @@ impl PyMultiGraph {
                     }
                 }
             }
+            seen_nodes.insert(canonical);
         }
         Ok(Some(out))
     }
@@ -5657,7 +5661,10 @@ impl PyMultiGraph {
             None
         };
         let mut out: Vec<PyObject> = Vec::new();
-        let mut seen: std::collections::HashSet<(String, String, usize)> =
+        // br-r37-c1-mgnbdedup (cc): dedup by processed nbunch SOURCE node (nx's exact
+        // algorithm), replacing the per-edge canonical seen-set. See
+        // _native_mg_edges_nbunch_data for the rationale + correctness notes.
+        let mut seen_nodes: std::collections::HashSet<String> =
             std::collections::HashSet::new();
         for item in nbunch.try_iter()? {
             let node = item?;
@@ -5671,22 +5678,20 @@ impl PyMultiGraph {
                 )));
             }
             let canonical = node_key_to_string(py, &node)?;
+            if seen_nodes.contains(canonical.as_str()) {
+                continue; // duplicate nbunch node — already emitted as a source (nx dedups)
+            }
             let neighbors: Vec<String> = match self.inner.neighbors(&canonical) {
                 Some(v) => v.iter().map(|s| (*s).to_owned()).collect(),
                 None => continue,
             };
             for nbr in &neighbors {
-                let (lo, hi) = if canonical.as_str() <= nbr.as_str() {
-                    (canonical.clone(), nbr.clone())
-                } else {
-                    (nbr.clone(), canonical.clone())
-                };
+                if seen_nodes.contains(nbr.as_str()) {
+                    continue;
+                }
                 let keys_vec: Vec<usize> =
                     self.inner.edge_keys(&canonical, nbr).unwrap_or_default();
                 for key in keys_vec {
-                    if !seen.insert((lo.clone(), hi.clone(), key)) {
-                        continue;
-                    }
                     let nbr_obj = self.py_node_key(py, nbr);
                     let value = if let Some(an) = attr_name.as_deref() {
                         match self
@@ -5725,6 +5730,7 @@ impl PyMultiGraph {
                     }
                 }
             }
+            seen_nodes.insert(canonical);
         }
         Ok(Some(out))
     }

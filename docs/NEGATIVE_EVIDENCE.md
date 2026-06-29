@@ -10064,3 +10064,24 @@ Conformance 10771 pass (sole failure write_gexf classification is PRE-EXISTING o
 Per-crate build via rch. The per-edge String-tuple dedup set was the dominant cost (not
 the value extraction) — removing it closed most of the gap. Orientation + node->neighbor
 ->key order + self-loop multiplicity all preserved (nx's first-encounter semantics).
+
+## 2026-06-29 CopperCliff SHIP: MultiGraph edges(nbunch, data/keys) node-dedup — up to 1.41x self
+
+Extended the MG edges() node-dedup (ebb754a2c) to the nbunch variants
+(`_native_mg_edges_nbunch_data` + `_native_mg_edges_nbunch_data_key`, lib.rs), which
+had the same per-edge canonical (String,String,usize) seen-set. Replaced with nx's exact
+edges(nbunch) dedup: a `seen_nodes` set of processed nbunch SOURCE nodes — skip a
+neighbor that is an already-processed source (edge emitted from its side) AND skip a
+duplicate nbunch node (already processed as a source). Both checks use `seen_nodes`;
+insert canonical AFTER the node's neighbor loop. The duplicate-nbunch source-skip is
+required: a naive node-dedup double-emits (fnx 6 vs nx 3) — nx dedups nbunch.
+
+Clean A/B (min-of-30) MG n=700/e12662, nbunch=every-other-node:
+  edges(nbunch,data=True)     0.40x -> 0.57x (10.0 -> 7.1ms, 1.41x self)
+  edges(nbunch,data='weight') 0.50x -> 0.88x (9.9 -> 7.7ms, 1.29x self)
+  edges(nbunch,keys,data='w') 0.39x -> 0.63x (12.9 -> 10.1ms, 1.28x self)
+  edges(nbunch,keys)          0.41x -> 0.46x (9.5 -> 8.4ms, modest)
+Byte-exact 560/560 over 80 graphs with NON-SORTED insertion + DUPLICATE nbunch +
+self-loops + parallel edges (all 7 variants incl data=True live-dict identity, default).
+Conformance 10332 pass (sole failure write_gexf classification PRE-EXISTING on HEAD).
+no_data variant (0.91x, marginal) left unchanged. Per-crate build via rch.
