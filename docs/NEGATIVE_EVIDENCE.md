@@ -10722,3 +10722,38 @@ architectural work). RESULT: insufficient — a true deadlock requiring hands-on
     `am service restart` is NOT enough (empirically tested today).
 NET: the architectural integer-keyed-mirror lever stays blocked on this; per-agent perf veins
 mined out (see handoff ae81b9c6f + fresh-family sweep 28c5f1b5b). No safe single-cycle lever.
+
+## 2026-06-29 BlackThrush NO-SHIP: MDG in_edges(keys,data=<attr>) py_node_key hoist — ~0 gain
+
+Re-benched the canonical head_to_head multigraph-edge laggards (warm min-of-10, HEAD .so freshly
+built+installed, ratios robust under load~50 since nx+fnx share the process). Biggest live gap:
+  - mdg `in_edges(keys=True, data="weight", default=0)` = **0.19x** (fnx ~10.2ms vs nx ~1.9ms) on
+    `_paired_multidigraph(700)` built PER-EDGE (the bench's `add_edge` loop).
+  - (siblings: mg `selfloop_edges(keys,data=weight)` 0.46x; mdg `out_edges(nbunch,keys,data=weight)`
+    0.57x; `edges(keys=True)` 0.95x; `out_edges(nbunch,keys,data=True)` 2.14x WIN.)
+
+MECHANISM established before touching code: MDG `add_edge` (digraph.rs:3898-3909) writes the weight
+to BOTH the inner CgseValue store AND the edge_py_attrs PyDict mirror but does NOT `mark_edges_dirty`
+— so per-edge-built graphs are `!edges_dirty` + mirror-populated. `_native_mdg_in_edges_data_key`
+therefore SKIPS the pristine path (path 1, gated `edge_py_attrs.is_empty()`) and should hit the
+store-read scalar path (path 2, gated `!edges_dirty && !edge_py_attrs.is_empty()`).
+
+LEVER TRIED: path 2 (and the pristine path 1) re-derive the CONSTANT `target` node object (and the
+per-source object) via a `node_key_map` `HashMap<String>` string-hash lookup ON EVERY EDGE (~33.6k
+redundant lookups). Hoisted both out of the per-edge loop, `clone_ref` (refcount bump) into each
+tuple instead; also guarded the wasted `py_edge_key` edge_key String build behind
+`edge_py_keys.is_empty()`. Pure work-removal, structure-preserving (aligns with ef897a28e's
+"String-alloc removal wins, restructure doesn't").
+
+RESULT: **byte-exact 24/24** (peredge/bulk/custom-keys × {keys,data=weight,default,missing-attr,
+Map-valued-attr,no-data}, 0 mismatches) but **~0 perf gain** — in_edges(keys,data) stayed 0.19x.
+=> The redundant py_node_key is NOT the bottleneck for this view. Either the per-edge-built bench
+hits the path-3 fallback (owned (String,String,usize) triples + per-edge `edge_data_value_or_default`
+edge_key-String build + mirror probe) rather than path 2, OR the dominant cost is the per-edge VALUE
+materialization itself (`inner.edge_attrs(u,v,key)` store probe + `cgse_value_to_py` + 4-tuple alloc)
+— the PyObject materialization floor nx avoids by yielding values already living in `_pred` dicts.
+Reverted (stash `bt-inedges-nodehoist-NOSHIP-zerogain`). The real lever stays the architectural
+integer-keyed edge mirror / lazy view-iter (consolidated handoff ae81b9c6f), not a kernel micro-opt.
+NEXT (for whoever picks this up): confirm which path executes (add a temporary counter), and if it
+is path 3, the win is routing per-edge-built `!edges_dirty` graphs to the path-2 store-read — NOT the
+py_node_key hoist (proven null here).
