@@ -9532,3 +9532,31 @@ scans) add several O(E) edge passes for multigraphs, dragging the routed result 
 to ~0.11x (vs 0.088x before — within noise). Both the algorithm floor AND the
 gate-evaluation overhead are the String-keyed MG store; index-based MG adjacency
 (fnx-classes/CGSE) is the only fix. DON'T re-attempt the gate change.
+
+## 2026-06-28 CopperCliff ROADMAP (lever precisely located + precedented): port the d58s8 index-based adjacency from Graph to MultiGraph
+
+Traced the SOURCE of the entire MG frontier (dijkstra 0.3x, size 0.3x, degree 0.7x,
+connected_components 0.39x, multi_source 0.09x — all String-keyed-store bound).
+ROOT CONFIRMED at the struct level (crates/fnx-classes/src/lib.rs):
+
+- simple `Graph` (struct ~line 121) ALREADY has INDEX-based storage from the
+  br-r37-c1-d58s8 effort: `adj_indices: Vec<Vec<usize>>` (O(1) integer adjacency,
+  "avoids string hashing during BFS/CC") + `edges: FxIndexMap<(usize,usize),AttrMap>`
+  (index-canonical pair keys, "zero String allocs/hashes per insert"). THIS is why
+  every simple-graph traversal (dijkstra/CC/clustering/...) beats nx.
+- `MultiGraph` (struct line 2207) did NOT get d58s8: it still has
+  `adjacency: FxIndexMap<String, IndexMap<String, IndexSet<usize>>>` (nested STRING
+  maps) + `edges: FxIndexMap<EdgeKey, IndexMap<usize, AttrMap>>` (String-pair keys).
+  Every neighbour/edge access hashes Strings (O(len), ×2 per edge) — the floor that
+  loses to nx's interned-key dict walk. (FxHash is ALREADY in use, so the hasher is
+  not the lever; the integer-vs-String KEY is.)
+
+THE LEVER (only fix; multi-session, NOT a 60-min patch): port d58s8 to
+Multi(Di)Graph — add `adj_indices: Vec<Vec<usize>>` + an index-pair-keyed edge
+bucket store, maintained in add_edge/remove_edge/remove_node (with index rekeying,
+exactly as Graph does), and expose `neighbors_indices` + index-based edge-bucket
+access. The Graph implementation is the working TEMPLATE. This ONE change unlocks
+the whole MG frontier at once. High conformance risk (touches the hot MG construction
+path + the entire MG test surface) + shared core file — should be done with
+agent-mail coordination (currently down) and per-slice conformance gating, like the
+original d58s8 was. NOT attempted unilaterally here.
