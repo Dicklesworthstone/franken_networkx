@@ -10422,3 +10422,23 @@ owner PID 2093388, deleted-executable, supervised_restart_required=true; root-ca
 RECOVERY = supervised `am service restart` of PID 2093388 then `am doctor reconstruct --yes`
 (dry-run clean: 17 projects/2245 msgs) — operator-gated, NOT done unilaterally (shared infra,
 17 projects). Until then no coordinated architectural work; per-agent perf veins are mined out.
+
+## 2026-06-29 CopperCliff fresh-family sweep (unmeasured domains) — confirms frontier, NO new gap
+
+Dug ~20 algorithm families NOT benched earlier this session (flow/cut, dominance, similarity,
+spanning-arborescence, structural centralities) to test the "dominated" claim. ALL win or
+parity (n=200/e800 unless noted, isolated min-of-4):
+  stoer_wagner 10.9x, bridges 21x, chain_decomposition 11.3x, articulation_points 3.2x,
+  immediate_dominators 4.4x, laplacian_centrality 24x, percolation_centrality 9.3x,
+  effective_size 11.8x, local_constraint 5.1x, reciprocity 13x, flow_hierarchy 115x,
+  global_reaching_centrality 2.6x, tree_broadcast_center 4.7x.
+PARITY (large compute-bound, fnx delegates with conversion negligible vs ~100ms compute):
+  group_betweenness 1.00x, panther_similarity 1.05x, non_randomness 1.02x.
+MARGINAL: trophic_levels 0.92x (52 vs 48ms, numpy linear solve) — not a clean lever.
+NO sub-0.9x dig-able gap. (gomory_hu/min_spanning_arborescence errored on the random fixture;
+second_order_centrality timed out at n=200 both sides — O(n^3) solve, not a gap.)
+
+CONFIRMS the consolidated handoff (ae81b9c6f): the vs-nx surface is dominated even in the
+long-tail families; the only remaining levers are architectural (integer-keyed edge mirror,
+multi-cycle, blocked on agent-mail) / substrate (copy/reverse) / risky-port (simple_cycles).
+Do NOT re-sweep these families.
