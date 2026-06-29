@@ -9601,3 +9601,28 @@ mehlhorn. NO-SHIP (in-process is a regression). A real win needs a NATIVE Rust
 mehlhorn kernel (multi-source Voronoi + 2x MST + path expansion, weight-exact) —
 complex, not worth the reward for one approximation function. steiner_tree stays
 delegated at 0.556x.
+
+## 2026-06-28 CopperCliff TERMINAL STATE: surface mined; sole lever (d58s8 MG port) is coordination-blocked by a wedged agent-mail process
+
+Final sweeps confirm no remaining 60-min win: eulerian_path DIR 31.8x / UND 7.2x,
+has_eulerian_path 88x, is_semieulerian 91x (all WIN). Across ~26 surveyed dimensions
+(hundreds of function-calls) fnx dominates nx everywhere; every residual is timing
+noise or the String-keyed Multi(Di)Graph store floor.
+
+The ONE remaining real lever — porting the d58s8 index-based adjacency
+(`adj_indices: Vec<Vec<usize>>` + index-pair-keyed edges) from `Graph` to
+Multi(Di)Graph (would unlock MG dijkstra/size/degree/connected_components/
+multi_source at once) — is a multi-session core-storage change on a SHARED
+fnx-classes file. It needs fleet coordination, which is BLOCKED: agent-mail's DB is
+corrupt and the lock is held by a WEDGED process (PID 2093388, `am (deleted)`
+executable, ~4 days stale, owner_class=wedged) that the tooling explicitly says not
+to kill directly. REMEDIATION (needs operator/supervisor): drain/restart the `am`
+MCP server via the supervisor, then `am doctor reconstruct` (dry-run recovers 17
+projects / 70 agents / 2245 messages / 876 thread digests cleanly). Until then,
+git/this ledger is the only coordination channel, and the d58s8 MG port should NOT
+be attempted as an unilateral solo rewrite (high conformance risk, no coordination).
+
+A partial port is NOT independently shippable: adding `adj_indices` without USING it
+just slows the hot add_edge path (regression); it only pays off once both
+adj_indices AND index-keyed edges are in place and wired into the MG read paths —
+i.e. the whole slice must land together. That is the documented next major work item.
