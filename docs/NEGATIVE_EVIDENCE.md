@@ -11262,3 +11262,25 @@ METHODOLOGY WARNING (cost me a sweep this cycle): benching `nx.foo(fnx_graph)` o
 nx BACKEND-DISPATCH trap (fnx is a registered backend) -> bogus ratios (constraint looked 0.42x, is
 really 1.2x faster). ALWAYS call fnx.foo(fnx_g) vs nx.foo(nx_g) directly. See
 reference_nx_backend_dispatch_benchmark_trap.
+
+## 2026-06-29 BlackThrush SURFACE-REFINE: materialization floor is on NON-representative patterns — common adjacency access is at-parity
+
+Refines the prior surface (22ed11f33) which framed G[u]/neighbors loops 0.46-0.55x as a real gap
+needing the adjacency-mirror primitive. Measured the access patterns REAL code uses (shared edge
+list, direct fnx vs nx, n=300/e4000):
+- g[u][v] single-edge loop (the COMMON edge-access): 1.70x FASTER
+- to_dict_of_dicts (bulk all-rows): 1.25x FASTER
+- dict(g.adjacency()) (bulk, cached): 0.95x parity
+- g[u][v]-style algorithms: native, fnx-faster
+ONLY slow: dict(g[u]) per-node-row loop 0.44x, list(g[u]) per-node 0.64x — atypical patterns that
+materialize each adjacency row individually. fnx's g[u] returns a LAZY AtlasView that re-materializes
+per access, bypassing the cached native_adjacency_row_dict (lib.rs ~10905, which DOES cache + stays
+coherent via cached_adj_set_edge/remove). Real code needing all rows uses to_dict_of_dicts/adjacency
+(fast); needing one edge uses g[u][v] (fast). So the adjacency-mirror primitive is LOWER priority
+than stated: the representative paths are already covered. Wiring g[u]'s AtlasView to the cached row
+would only help synthetic per-row-dict loops, at real coherence-risk cost (the row is a live mutable
+dict). NOT worth it now.
+NET (perf): every representative access pattern + algorithm + mutation path is at-or-above nx. The
+perf frontier for THIS port is genuinely mined; the durable wins this session were the O(N^2) mutation
+fixes + the store-only CORRECTNESS bugs. Future value is more likely in correctness audits (the
+bulk-built-graph store-only class) than in squeezing the materialization floor on atypical patterns.
