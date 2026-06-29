@@ -16799,19 +16799,19 @@ fn is_isolate(py: Python<'_>, g: &Bound<'_, PyAny>, node: &Bound<'_, PyAny>) -> 
             let __dg_inner = &dg.inner;
             py.allow_threads(|| fnx_algorithms::is_isolate_directed(__dg_inner, &key))
         }),
-        _ => {
-            if gr.is_directed() {
-                Ok({
-                    let __gr_digraph = gr.digraph().expect("is_directed checked above");
-                    py.allow_threads(|| fnx_algorithms::is_isolate_directed(__gr_digraph, &key))
-                })
-            } else {
-                Ok({
-                    let __gr_undirected = gr.undirected();
-                    py.allow_threads(|| fnx_algorithms::is_isolate(__gr_undirected, &key))
-                })
-            }
-        }
+        // br-r37-c1-mgisol (cc): isolate predicates are pure adjacency-row
+        // emptiness checks; serve them straight off the multigraph inner so we
+        // skip the per-call O(V+E) simple-graph projection (`gr.undirected()` /
+        // `gr.digraph()`) that dominated these on Multi types (~140x slower than
+        // the simple-graph path for n=200).
+        GraphRef::MultiUndirected { mg, .. } => Ok({
+            let __mg_inner = &mg.inner;
+            py.allow_threads(|| __mg_inner.is_isolate(&key))
+        }),
+        GraphRef::MultiDirected { mdg, .. } => Ok({
+            let __mdg_inner = &mdg.inner;
+            py.allow_threads(|| __mdg_inner.is_isolate(&key))
+        }),
     }
 }
 
@@ -16829,18 +16829,16 @@ fn isolates(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
             let __dg_inner = &dg.inner;
             py.allow_threads(|| fnx_algorithms::isolates_directed(__dg_inner))
         }
-        _ => {
-            if gr.is_directed() {
-                {
-                    let __gr_digraph = gr.digraph().expect("is_directed checked above");
-                    py.allow_threads(|| fnx_algorithms::isolates_directed(__gr_digraph))
-                }
-            } else {
-                {
-                    let __gr_undirected = gr.undirected();
-                    py.allow_threads(|| fnx_algorithms::isolates(__gr_undirected))
-                }
-            }
+        // br-r37-c1-mgisol (cc): native multigraph isolate listing (insertion
+        // order, same as the projection path) without the per-call simple-graph
+        // rebuild.
+        GraphRef::MultiUndirected { mg, .. } => {
+            let __mg_inner = &mg.inner;
+            py.allow_threads(|| __mg_inner.isolates())
+        }
+        GraphRef::MultiDirected { mdg, .. } => {
+            let __mdg_inner = &mdg.inner;
+            py.allow_threads(|| __mdg_inner.isolates())
         }
     };
     Ok(result.iter().map(|n| gr.py_node_key(py, n)).collect())
@@ -16860,19 +16858,16 @@ fn number_of_isolates(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> {
             let __dg_inner = &dg.inner;
             py.allow_threads(|| fnx_algorithms::number_of_isolates_directed(__dg_inner))
         }),
-        _ => {
-            if gr.is_directed() {
-                Ok({
-                    let __gr_digraph = gr.digraph().expect("is_directed checked above");
-                    py.allow_threads(|| fnx_algorithms::number_of_isolates_directed(__gr_digraph))
-                })
-            } else {
-                Ok({
-                    let __gr_undirected = gr.undirected();
-                    py.allow_threads(|| fnx_algorithms::number_of_isolates(__gr_undirected))
-                })
-            }
-        }
+        // br-r37-c1-mgisol (cc): native multigraph isolate count without the
+        // per-call simple-graph projection.
+        GraphRef::MultiUndirected { mg, .. } => Ok({
+            let __mg_inner = &mg.inner;
+            py.allow_threads(|| __mg_inner.number_of_isolates())
+        }),
+        GraphRef::MultiDirected { mdg, .. } => Ok({
+            let __mdg_inner = &mdg.inner;
+            py.allow_threads(|| __mdg_inner.number_of_isolates())
+        }),
     }
 }
 

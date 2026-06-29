@@ -2471,6 +2471,46 @@ impl MultiGraph {
         })
     }
 
+    /// br-r37-c1-mgisol (cc): native isolate detection for MultiGraph. A node
+    /// is isolated iff it has no incident edges (empty/absent adjacency row);
+    /// a self-loop keeps a node non-isolated (the loop records the node in its
+    /// own row, matching nx's degree-2 self-loop convention). Yields nodes in
+    /// insertion order — identical to the `G.degree()`-driven nx generator and
+    /// to the old `multigraph_to_simple_graph` projection path, but WITHOUT the
+    /// per-call O(V+E) simple-graph rebuild that dominated the binding.
+    #[must_use]
+    pub fn isolates(&self) -> Vec<String> {
+        self.nodes
+            .keys()
+            .filter(|node| {
+                self.adjacency
+                    .get(node.as_str())
+                    .is_none_or(IndexMap::is_empty)
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// br-r37-c1-mgisol (cc): isolate count without the simple-graph projection.
+    #[must_use]
+    pub fn number_of_isolates(&self) -> usize {
+        self.nodes
+            .keys()
+            .filter(|node| {
+                self.adjacency
+                    .get(node.as_str())
+                    .is_none_or(IndexMap::is_empty)
+            })
+            .count()
+    }
+
+    /// br-r37-c1-mgisol (cc): O(1) isolate predicate. Absent node -> false
+    /// (mirrors `is_isolate(&Graph)`); the binding validates presence first.
+    #[must_use]
+    pub fn is_isolate(&self, node: &str) -> bool {
+        self.nodes.contains_key(node) && self.adjacency.get(node).is_none_or(IndexMap::is_empty)
+    }
+
     pub fn add_node(&mut self, node: impl Into<String>) -> bool {
         self.add_node_with_attrs(node, AttrMap::new())
     }

@@ -2,6 +2,41 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-28 CopperCliff SHIP: Multi isolates/number_of_isolates 0.08-0.13x -> 17-59x vs nx — native path drops the per-call simple-graph projection (`br-r37-c1-mgisol`)
+
+A MultiGraph/MultiDiGraph auto-sweep surfaced a cluster of trivial utilities
+sitting at a near-constant ~1.1ms (vs nx's ~0.1ms): `number_of_isolates` 0.09x,
+`isolates` 0.08x, plus the same ~1.1ms tax on `has_eulerian_path`,
+`dfs_preorder_nodes`, etc. — all paying ONE shared cost. Root cause for isolates:
+the `isolates`/`number_of_isolates`/`is_isolate` bindings dispatch Multi types
+through the `GraphRef` `_` arm, which calls `gr.undirected()`/`gr.digraph()` —
+and for `MultiUndirected`/`MultiDirected` those run a FULL O(V+E)
+`multigraph_to_simple_graph` / `multidigraph_to_simple_digraph` rebuild on EVERY
+call (GraphRef is reconstructed per call by `extract_graph`, so the OnceCell never
+amortizes). Isolate detection only needs per-node adjacency-row emptiness, so the
+whole projection is pure waste (~140x slower than the simple-graph isolate path:
+native `_raw_number_of_isolates` measured 0.008ms for Graph/DiGraph but 1.11ms /
+0.95ms for MG / MDG at n=200).
+
+FIX: native isolate methods on `fnx_classes::MultiGraph` (lib.rs) and
+`MultiDiGraph` (digraph.rs) — isolated iff the adjacency row (MG) / both
+successor+predecessor rows (MDG) are empty/absent. Self-loops record the node in
+its own row so a self-loop node stays NON-isolated, matching nx's degree-2
+self-loop convention. The binding (fnx-python/algorithms.rs) gains explicit
+`MultiUndirected`/`MultiDirected` arms; the match is now exhaustive (no `_`), so
+no Multi type can silently fall back to the projection path again.
+
+MEASURED head-to-head (min of 8, n=200, 1000 edges + parallels + self-loops + 20
+isolates): MG `number_of_isolates` **0.09x -> 58.66x**, MG `isolates`
+**0.08x -> 19.46x**, MDG `number_of_isolates` **0.13x -> 27.06x**, MDG `isolates`
+**0.13x -> 17.32x** vs NetworkX. Byte-exact: 0 mismatches over 800 random
+multigraphs x3 checks (incl. isolates / self-loops / parallels); 639 + 534
+conformance tests pass. Artifact: `tests/artifacts/perf/20260628T-multi-isolates-native-cc/`.
+LEVER: the same per-call `gr.undirected()`/`gr.digraph()` projection taxes EVERY
+Multi function routed through the `_` arm (dfs/edge_dfs/has_eulerian_path were all
+~1.1ms in the sweep) — caching the projection on the Py wrapper keyed by the
+`revision` mutation counter would fix the whole class at once (follow-up).
+
 ## 2026-06-28 BlackThrush MultiDiGraph in_edges data-key CSR predecessor scan - NO-SHIP (`cod-a`)
 
 Scope: LAND-OR-DIG pass on current `main` base `ddd516ac4`. Read-only

@@ -2129,6 +2129,40 @@ impl MultiDiGraph {
         self.in_degree(node) + self.out_degree(node)
     }
 
+    /// br-r37-c1-mgisol (cc): native isolate detection for MultiDiGraph. A node
+    /// is isolated iff it has no incident edges in either direction (empty/absent
+    /// successor AND predecessor rows). A self-loop records the node in both its
+    /// own successor and predecessor rows, keeping it non-isolated (matches nx's
+    /// degree-2 self-loop convention). Yields nodes in insertion order, identical
+    /// to the old `multidigraph_to_simple_digraph` projection path but without the
+    /// per-call O(V+E) simple-graph rebuild.
+    #[must_use]
+    pub fn isolates(&self) -> Vec<String> {
+        self.nodes
+            .keys()
+            .filter(|node| self.is_isolate(node.as_str()))
+            .cloned()
+            .collect()
+    }
+
+    /// br-r37-c1-mgisol (cc): isolate count without the simple-digraph projection.
+    #[must_use]
+    pub fn number_of_isolates(&self) -> usize {
+        self.nodes
+            .keys()
+            .filter(|node| self.is_isolate(node.as_str()))
+            .count()
+    }
+
+    /// br-r37-c1-mgisol (cc): O(1) isolate predicate. Absent node -> false
+    /// (mirrors `is_isolate_directed(&DiGraph)`); the binding validates presence.
+    #[must_use]
+    pub fn is_isolate(&self, node: &str) -> bool {
+        self.nodes.contains_key(node)
+            && self.successors.get(node).is_none_or(IndexMap::is_empty)
+            && self.predecessors.get(node).is_none_or(IndexMap::is_empty)
+    }
+
     pub fn add_node(&mut self, node: impl Into<String>) -> bool {
         self.add_node_with_attrs(node, AttrMap::new())
     }
