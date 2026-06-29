@@ -10370,3 +10370,24 @@ add_edges_from(dict) +4%, but fnx STILL DOMINATES nx (weighted 1.81x, dict 2.48x
 FOLLOW-UP (margin recovery): move the lossless check INTO each sub-collector's existing
 per-edge loop (no extra pre-scan pass) to erase the +18%; the dispatcher guard is the
 correct-but-slightly-costlier interim. Per-crate build via rch.
+
+## 2026-06-29 CopperCliff DECISION: edge-batch fix +18% is the ACCEPTED cost; all-inline recovery DE-RECOMMENDED
+
+Follow-up reassessment of the edge-batch corruption fix (7e859f4d5) +18% add_weighted_edges_from
+self-cost. Mapped the "move the check into each sub-collector" recovery: it requires inline
+attr_dict_is_batch_lossless checks at ~12 edge-collector per-edge conversion sites
+(collect_fresh_exact_int_attr_edge_batch, collect_existing_exact_int_attr_edge_indices,
+collect_existing_int_label_attr_edge_indices, collect_fresh_exact_int_keyed_attr_edge_batch,
+collect_attr_edge_batch, _try_add_attr_edges_from_batch — x lib.rs/digraph.rs) PLUS removing the
+4 dispatcher pre-scans + the helper. That is a ~17-edit change on the HOTTEST construction path
+with real re-corruption risk if ANY collector is missed (silent, latent — only the 120/120
+probe catches it), to recover 18% on an op where fnx ALREADY dominates nx 1.81x (weighted) /
+2.48x (dict).
+
+CONCLUSION: NOT worth it. The shipped dispatcher-guard approach (one ebunch_batch_lossless guard
+per type, covering all ~12 sub-collectors in 4 sites) is the CORRECT, SAFE, COMPLETE fix; the
++18% is its acceptable price (still strongly dominant). The all-inline recovery is DE-RECOMMENDED
+unless add_weighted_edges_from becomes perf-critical AND someone does the full ~12-site change
+with the 120/120 + conformance + generator-consumption gate. Batch-attr corruption (nodes
+7a6590b38 + edges 7e859f4d5) is DONE. Net vs-nx surface remains dominated; the only larger
+remaining lever is the integer-keyed edge mirror (architectural, blocked — see prior entries).
