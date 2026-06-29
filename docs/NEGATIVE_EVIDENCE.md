@@ -10195,3 +10195,36 @@ DOMINATES NetworkX. The ONLY remaining vs-nx gaps are: (a) construction substrat
 data=True, in_degree weight), (c) simple_cycles delegation tax. (a)+(b) need
 architectural primitives (integer-keyed mirror); (c) needs a complex algo port. No clean
 single-cycle lever remains; perf frontier reached.
+
+## 2026-06-29 CopperCliff BLOCKER ROOT-CAUSE (operator action required): agent-mail wedged ~4.3 days
+
+The perf surface is comprehensively dominated (this session: 7 ships + full-domain
+scans). The one substantial remaining lever — an integer-keyed edge-attr mirror to close
+the (String,String,usize)-mirror gaps (selfloop data 0.43-0.55x, edges(nbunch,data=True)
+~0.80x, in_degree weight 0.42x) and the copy/reverse construction substrate — is a
+multi-cycle refactor across shared fnx-classes/fnx-python that needs multi-agent
+coordination (file reservations / messaging). That coordination layer (agent-mail) has
+been DOWN the entire session. FULLY DIAGNOSED today:
+
+  - Symptom: every agent-mail WRITE (file_reservation_paths, send_message) fails with
+    "database disk image is malformed: ... page 1513 ... cursor is_table flag". DB is
+    `recovery.mode = degraded_read_only`. (health_check verdicts read green — they check
+    schema presence, not index integrity — so trust the write probe, not the verdicts.)
+  - ROOT CAUSE (am doctor locks --json): a WEDGED owner PID 2093388 (PPID 3867, started
+    Wed Jun 24 18:49:42, ~4.3 days) running a DELETED executable
+    (/home/ubuntu/.local/bin/am (deleted); binary since upgraded to 0.3.17) holds the
+    exclusive storage_root lock (.mailbox.activity.lock, age ~373628s) + sqlite_lock +
+    db_file. disposition=deleted_executable, supervised_restart_required=true.
+  - `am doctor reconstruct --dry-run` is CLEAN (would recover 17 projects / 70 agents /
+    2245 message files / 876 thread digests; 0 unparseable, 0 duplicate) — but the real
+    reconstruct/repair REFUSE (exit 3) while the wedged owner is live.
+  - RECOVERY (OPERATOR ACTION — do NOT `kill -9 am`): supervised drain/restart of PID
+    2093388 (e.g. `am service restart` or `systemctl --user stop mcp-agent-mail`), then
+    `am doctor drain` until safe_to_mutate=true, then `am doctor reconstruct --yes`.
+    NOT done unilaterally: it is the live MCP server this session is using; the doctor
+    requires operator confirmation.
+
+NET: franken_networkx perf is at its architectural frontier; further substantial gains
+are gated on (1) restoring agent-mail (operator-supervised restart of PID 2093388) so
+the swarm can coordinate, then (2) the integer-keyed-mirror refactor as a dedicated
+multi-agent effort. No safe single-cycle perf lever remains.
