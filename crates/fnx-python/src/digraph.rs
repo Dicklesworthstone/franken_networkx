@@ -114,6 +114,16 @@ pub struct PyDiGraph {
     /// (source, target, live_attr) tuples. out_edges(data=True) was 12x faster
     /// than in_edges purely because in_edges rebuilt every call; this caches it.
     pub(crate) in_edges_with_data_cache: Option<(u64, u64, Vec<PyObject>)>,
+    /// br-inedges-diattrcache (bt): scalar SNAPSHOT cache for in_edges(data=<attr>)
+    /// — the PyMultiDiGraph analog (in_edges_data_attr_cache). nx rebuilds the
+    /// InEdgeDataView every call, so in_edges(data=<attr>) was 0.70x while
+    /// out_edges(data=<attr>) (which has the bulk integer-indexed fast path) was
+    /// 1.23x. Keyed (nodes_seq, edges_seq, attr, default); holds frozen
+    /// (source, target, value) tuples. Caches VALUES not live dicts, so it is
+    /// served ONLY while !edges_dirty and DROPPED in mark_edges_dirty (attr edits
+    /// don't bump edges_seq). Mutex so the &self read path can populate it.
+    pub(crate) in_edges_data_attr_cache:
+        std::sync::Mutex<Option<(u64, u64, String, PyObject, Vec<PyObject>)>>,
     /// (nodes_seq, edges_seq)-keyed live attr-dict handles in edge iteration
     /// order for `edges(data=<key>)`. This caches dict lookup by edge, not
     /// attr values, so edge-attr mutations remain visible.
@@ -9222,6 +9232,7 @@ impl PyDiGraph {
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
             in_edges_with_data_cache: None,
+            in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         })
@@ -9242,6 +9253,9 @@ impl PyDiGraph {
     #[inline]
     pub(crate) fn mark_edges_dirty(&self) {
         self.edges_dirty.store(true, Ordering::Relaxed);
+        // br-inedges-diattrcache (bt): a pending attr mutation invalidates the
+        // frozen scalar snapshots (edges_seq is NOT bumped on attr edits).
+        *self.in_edges_data_attr_cache.lock().unwrap() = None;
     }
 
     fn materialize_edge_py_attrs(&mut self, py: Python<'_>, u: &str, v: &str) -> Py<PyDict> {
@@ -10774,6 +10788,7 @@ impl PyDiGraph {
                 dict_of_dicts_cache: None,
                 edges_with_data_cache: None,
                 in_edges_with_data_cache: None,
+                in_edges_data_attr_cache: std::sync::Mutex::new(None),
                 edges_attr_dicts_cache: None,
                 node_iter_mirror: std::sync::Mutex::new(None),
             };
@@ -10801,6 +10816,7 @@ impl PyDiGraph {
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
             in_edges_with_data_cache: None,
+            in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
@@ -11034,6 +11050,7 @@ impl PyDiGraph {
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
             in_edges_with_data_cache: None,
+            in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
@@ -11106,6 +11123,7 @@ impl PyDiGraph {
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
             in_edges_with_data_cache: None,
+            in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
@@ -11190,6 +11208,7 @@ impl PyDiGraph {
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
             in_edges_with_data_cache: None,
+            in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
@@ -11759,23 +11778,70 @@ impl PyDiGraph {
         key: &Bound<'_, PyAny>,
         default: PyObject,
     ) -> PyResult<PyObject> {
+        // br-inedges-diattrcache (bt): a clean graph with a string attr serves
+        // the frozen (source, target, value) snapshot — nx rebuilds the
+        // InEdgeDataView every call, so warm repeats clone refs instead of
+        // re-walking predecessors x edge_py_attrs.get. Values are frozen, so the
+        // cache is gated !edges_dirty and dropped on the next mark_edges_dirty.
+        // A string attr can live in the CgseValue store (bulk-built graphs leave
+        // edge_py_attrs empty), so resolve it once here and read mirror-then-store
+        // per edge via edge_attr_py_value below.
+        let attr_str: Option<String> = key.extract::<String>().ok();
+        let cacheable_attr: Option<String> = if self.edges_dirty.load(Ordering::Relaxed) {
+            None
+        } else {
+            attr_str.clone()
+        };
+        if let Some(attr_name) = &cacheable_attr {
+            let cache = self.in_edges_data_attr_cache.lock().unwrap();
+            if let Some((ns, es, cattr, cdef, ctuples)) = cache.as_ref()
+                && *ns == self.nodes_seq
+                && *es == self.edges_seq
+                && cattr == attr_name
+                && cdef.bind(py).eq(default.bind(py))?
+            {
+                let fresh: Vec<PyObject> = ctuples.iter().map(|t| t.clone_ref(py)).collect();
+                return Ok(fresh.into_pyobject(py)?.into_any().unbind());
+            }
+        }
         let mut items = Vec::with_capacity(self.inner.edge_count());
         for target in self.inner.nodes_ordered() {
             let py_t = self.py_node_key(py, target);
             for source in self.inner.predecessors(target).unwrap_or_default() {
                 let py_s = self.py_pred_key(py, target, source) /* br-r37-c1-z6uka */;
-                let ek = Self::edge_key(source, target);
-                let value = match self.edge_py_attrs.get(&ek) {
-                    Some(d) => d
-                        .bind(py)
-                        .get_item(key)
-                        .ok()
-                        .flatten()
-                        .map_or_else(|| default.clone_ref(py), |val| val.unbind()),
-                    None => default.clone_ref(py),
+                // br-inedges-distorefix (bt): a string attr reads mirror-THEN-store
+                // (edge_attr_py_value). The old code read ONLY edge_py_attrs and
+                // returned `default` for store-only edges, so in_edges(data=<attr>)
+                // on a bulk-built DiGraph (empty mirror) was WRONG (returned the
+                // default for every edge). A non-str key can only live in the mirror.
+                let value = match &attr_str {
+                    Some(attr) => self
+                        .edge_attr_py_value(py, source, target, attr)?
+                        .unwrap_or_else(|| default.clone_ref(py)),
+                    None => {
+                        let ek = Self::edge_key(source, target);
+                        match self.edge_py_attrs.get(&ek) {
+                            Some(d) => d
+                                .bind(py)
+                                .get_item(key)
+                                .ok()
+                                .flatten()
+                                .map_or_else(|| default.clone_ref(py), |val| val.unbind()),
+                            None => default.clone_ref(py),
+                        }
+                    }
                 };
                 items.push(tuple_object(py, &[py_s, py_t.clone_ref(py), value])?);
             }
+        }
+        if let Some(attr_name) = cacheable_attr {
+            *self.in_edges_data_attr_cache.lock().unwrap() = Some((
+                self.nodes_seq,
+                self.edges_seq,
+                attr_name,
+                default.clone_ref(py),
+                items.iter().map(|t| t.clone_ref(py)).collect(),
+            ));
         }
         Ok(items.into_pyobject(py)?.into_any().unbind())
     }
@@ -12980,6 +13046,7 @@ impl PyDiGraph {
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
             in_edges_with_data_cache: None,
+            in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         })

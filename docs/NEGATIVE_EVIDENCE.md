@@ -11203,3 +11203,20 @@ REMAINING VEIN STATE: mutation O(N^2) MINED this session (3 wins). Left = (1) de
 (needs careful deepcopy-safe cache design), (2) the materialization-floor view paths
 (nodes(data=attr), dict(adjacency()), in_edges(data), degree(nbunch,weight)) — all need the
 persistent ordered Python-object adjacency/node mirror primitive (4b5ie), not kernel micro-opts.
+
+## 2026-06-29 BlackThrush FIX+SHIP: DiGraph in_edges(data=<attr>) store-only CORRECTNESS bug + warm-repeat cache
+
+CORRECTNESS (pre-existing since e77b7764a, confirmed): `_native_in_edges_data_key` read ONLY
+edge_py_attrs (the lazy Python mirror) and returned `default` when absent — so DiGraph
+`in_edges(data=<attr>)` on ANY bulk-built graph (>=8 edges -> native add_edges_from batch leaves
+the mirror EMPTY) returned the DEFAULT for EVERY edge instead of the real stored value (e.g.
+in_edges(data='weight') -> all None). The out-edges path materializes from the store
+(materialize_edge_py_attrs); the in-edges path didn't. Found while perf-profiling in_edges(data)
+0.70x — the slow path was also WRONG on bulk graphs. FIX: read mirror-THEN-store via the existing
+edge_attr_py_value(source,target,attr) helper (string attr resolved once); non-str keys can only
+live in the mirror. Differential 320/320 byte-exact (bulk/missing/float/self-loop x warm x nbunch,
+was 75/130 before); mutate-then-reread reflects (cache invalidation); 11847 conformance pass.
+PERF: added in_edges_data_attr_cache (PyMultiDiGraph analog) — nx rebuilds the InEdgeDataView every
+call, so the frozen (s,t,value) snapshot serves warm repeats (clone refs vs re-walk). Gated
+!edges_dirty, dropped in mark_edges_dirty (attr edits don't bump edges_seq); Mutex for the &self
+read path. get_edge_data marks dirty so a post-read mutation invalidates (verified).

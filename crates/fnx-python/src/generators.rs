@@ -74,6 +74,7 @@ fn report_to_pydigraph(
         dict_of_dicts_cache: None,
         edges_with_data_cache: None,
         in_edges_with_data_cache: None,
+        in_edges_data_attr_cache: std::sync::Mutex::new(None),
         edges_attr_dicts_cache: None,
         node_iter_mirror: std::sync::Mutex::new(None),
     };
