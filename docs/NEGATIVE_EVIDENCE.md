@@ -10391,3 +10391,34 @@ unless add_weighted_edges_from becomes perf-critical AND someone does the full ~
 with the 120/120 + conformance + generator-consumption gate. Batch-attr corruption (nodes
 7a6590b38 + edges 7e859f4d5) is DONE. Net vs-nx surface remains dominated; the only larger
 remaining lever is the integer-keyed edge mirror (architectural, blocked — see prior entries).
+
+## 2026-06-29 CopperCliff SESSION HANDOFF (consolidated frontier map)
+
+Authoritative state after this session's sweep (supersedes the scattered cc entries above for
+navigation). franken_networkx vs vendored NetworkX is COMPREHENSIVELY DOMINATED across every
+measured domain: algorithms (transitivity 84x, rich_club 57x, betweenness ~37x, eccentricity
+12x, all_pairs_sp 5x), generators (erdos_renyi 2.2x, random_regular 3.6x), community/approx
+(7x+), views (edges(keys,data) 7.8x, in_edges(data) 27x), conversions/IO (1.1-2.6x), spectral
+(adjacency_spectrum 24x). SHIPPED this session: complement(MG/MDG) 65d56efed; weighted-degree
+family (MG efdcfca36, MDG total 8e3018901, MDG in/out 06c495789); MDG edges(data=attr)
+store-routing 80e12629a; MG edges() node-dedup ebb754a2c; MG edges(nbunch) node-dedup ce0928c58;
++ CORRECTNESS: node-batch attr corruption 7a6590b38, edge-batch attr corruption 7e859f4d5.
+
+REMAINING vs-nx gaps (ALL either architectural-floor or risk>reward — no safe single-cycle win):
+  1. Edge-attr mirror keyed by (String,String,usize) -> per-edge String alloc nx avoids:
+     degree(weight) MG ~0.75x, selfloop_edges(data) 0.43-0.55x, in_degree(weight) MDG 0.42x,
+     edges(data=attr) ~0.87x. LEVER = integer-keyed edge mirror (a DIFFERENT primitive). LARGE
+     (every edge_key call site, spans shared fnx-classes), MULTI-CYCLE.
+  2. Construction substrate: copy 0.82x, reverse 0.74x (per-element independent dict copy +
+     MG copy-walk parity reorder) — irreducible.
+  3. simple_cycles(directed) 0.80x: delegation tax (structure-only nx build + nx Johnson's);
+     de-delegation needs a faithful lazy Johnson's/SCC port matching nx cycle order — risky.
+  4. edge-batch fix +18% add_weighted_edges_from self-cost: all-inline recovery DE-RECOMMENDED
+     (3fc644302) — ~12 hot-path sites, re-corruption risk, fnx still 1.81x>nx.
+
+BLOCKER (operator action): the only substantial lever (#1) needs multi-agent coordination on
+shared fnx-classes, but agent-mail has been degraded_read_only ALL session (re-confirmed: wedged
+owner PID 2093388, deleted-executable, supervised_restart_required=true; root-cause 35f546dfb).
+RECOVERY = supervised `am service restart` of PID 2093388 then `am doctor reconstruct --yes`
+(dry-run clean: 17 projects/2245 msgs) — operator-gated, NOT done unilaterally (shared infra,
+17 projects). Until then no coordinated architectural work; per-agent perf veins are mined out.
