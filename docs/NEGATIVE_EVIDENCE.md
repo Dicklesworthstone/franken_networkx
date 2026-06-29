@@ -10228,3 +10228,30 @@ NET: franken_networkx perf is at its architectural frontier; further substantial
 are gated on (1) restoring agent-mail (operator-supervised restart of PID 2093388) so
 the swarm can coordinate, then (2) the integer-keyed-mirror refactor as a dedicated
 multi-agent effort. No safe single-cycle perf lever remains.
+
+## 2026-06-29 CopperCliff SESSION CERTIFICATION + main conformance flag (9 failures, NONE from this session's ships)
+
+Ran the FULL Python conformance suite against HEAD (35f546dfb) to certify this session's
+7 native perf ships are collectively green: **49240 passed, 1065 skipped, 9 failed**
+(216s). The 9 failures are ALL outside this session's blast radius (my commits touched
+ONLY: complement in __init__.py, degree/edge-views in lib.rs + digraph.rs):
+  - test_waxman_graph_positions_match_nx: waxman stores `pos` as a STRING
+    '(x, y)' instead of a tuple — from PEER commit a3feb2d3b
+    "fix(geometric_generators): align 4 signatures" (active peer's domain).
+  - test_coverage_gaps (x2): find_induced_nodes + read_edgelist (+1) still classify as
+    NX_DELEGATED -> "no delegated exports" + "coverage matrix current" meta-tests fail.
+    (My complement is correctly NOT in the delegated list — de-delegation 65d56efed held.)
+  - TestFindInducedNodesParity (x3): find_induced_nodes (chordal) parity/error-contract
+    mismatch — delegates to nx, not my domain.
+  - test_unused_raw_exposures (x2): generated "unused raw exposure" report stale — meta,
+    not my code (I added only PRIVATE plain-impl helpers, no new #[pymethods]/raw exports).
+  - test_write_gexf_classified...: PRE-EXISTING on HEAD (confirmed earlier this session).
+
+NONE are regressions from my edge-view/degree/complement ships (each was conformance-green
+in its blast radius at ship time, and the full suite confirms the 49240-pass body). The 9
+are main-wide failures from recent multi-agent commits in active peers' domains
+(geometric_generators / chordal find_induced_nodes / read_edgelist IO) + stale generated
+meta-docs. NOT fixed here: editing those would collide with active peers, and agent-mail
+is degraded_read_only (no reservations to coordinate) — flagged for the responsible
+owners. Session ships remain solid; my de-delegations (complement) verified by the
+delegated-exports meta-test NOT listing them.
