@@ -9665,3 +9665,16 @@ single-pair/small query that only needs an ANCESTRAL/local subgraph pays a full-
 conversion; run nx's exact algo in-process on a local snapshot (works when the result
 is a deterministic set/value — no order subtlety). [is_minimal_d_separator with
 included/restricted has the same delegation, a smaller follow-up.]
+
+## 2026-06-28 CopperCliff SHIP: is_minimal_d_separator(included/restricted) 0.18x->3.8-49x — same in-process de-delegation (reuses _reachable_dsep)
+
+The documented follow-up to find_minimal_d_separator (1c17ba83f). The
+included/restricted form of is_minimal_d_separator delegated via the full O(V+E)
+conversion (~0.18x). nx's criteria algorithm (a/b/c, van der Zander & Liskiewicz
+2020) uses the SAME primitives — ancestors + 2x Bayes-Ball _reachable — so it
+de-delegates in-process REUSING the shipped `_reachable_dsep` helper + a local
+ancestral snapshot. Returns a deterministic BOOL. Byte-exact 0/288 through the
+wrapper (valid/perturbed/empty z, included, restricted; error contracts match);
+179 d-separation conformance tests pass. Measured 0.18x->**3.8x** (n=300) /
+**49x** (n=800). The no-constraint path (native is_d_separator + O(|z|) reducer) is
+unchanged. Plain DiGraph only; SubgraphViews/multigraphs/private storage delegate.
