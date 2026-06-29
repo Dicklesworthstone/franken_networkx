@@ -9678,3 +9678,19 @@ wrapper (valid/perturbed/empty z, included, restricted; error contracts match);
 179 d-separation conformance tests pass. Measured 0.18x->**3.8x** (n=300) /
 **49x** (n=800). The no-constraint path (native is_d_separator + O(|z|) reducer) is
 unchanged. Plain DiGraph only; SubgraphViews/multigraphs/private storage delegate.
+
+## 2026-06-28 CopperCliff SURFACE: matching-validators win typical / floor only on huge |M|; long-tail sweep continues
+
+After the two d-separation wins (find_minimal 1c17ba83f, is_minimal aa56981bd),
+swept more obscure delegated/validator functions. WINS: trophic_levels 2.2x,
+hyper_wiener_index 2.2x, k_edge_components 17x, k_edge_subgraphs 14x,
+average_shortest_path_length 15x, all_shortest_paths 9.6x, antichains (nx TIMEOUT).
+is_maximal_matching ~parity. The matching VALIDATORS (is_matching /
+is_perfect_matching) already use native Rust validators (only directed/multi
+delegate); they are O(|matching|) and WIN for small/typical matchings (1.32-1.36x,
+graph-size-independent) — they only dip to ~0.83x on a HUGE matching (|M|~V/2,
+n=2000) where the per-edge node-key conversion (Python node -> canonical store key,
+x2 per edge) trails nx's native int-dict has_edge. That is the node-key-rep
+substrate floor (same family as the MG store), not a typical-case gap — NOT worth
+"fixing". LESSON CONFIRMED: the long tail of obscure delegated functions still pays
+off (2 d-sep wins this session); periodic sweeps beat declaring the surface terminal.
