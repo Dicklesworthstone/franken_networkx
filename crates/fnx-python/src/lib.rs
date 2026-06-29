@@ -2425,6 +2425,16 @@ pub(crate) struct PyMultiGraph {
     pub(crate) node_py_attrs: HashMap<String, Py<PyDict>>,
     pub(crate) edge_py_attrs: HashMap<(String, String, usize), Py<PyDict>>,
     pub(crate) edge_py_keys: HashMap<(String, String, usize), PyObject>,
+    /// br-paralleladd (bt): true once some edge carries an INT public key whose
+    /// value differs from its internal key (the only thing that makes the public
+    /// int-key space diverge from the dense/gapped internal key space). While
+    /// this is `false`, an auto (`key=None`) add's public key is exactly the
+    /// internal auto key, so `add_edge` skips the O(existing-keys) PyO3
+    /// public-key scan — repeated parallel `add_edge(u, v)` drops from O(N^2) to
+    /// O(N). Maintained by `note_public_key_value` at every key-store site and
+    /// propagated verbatim across copy/clone. String/float keys never occupy an
+    /// int slot, so they leave it clear.
+    pub(crate) has_remapped_int_key: bool,
     pub(crate) edge_mirrors_stale: bool,
     pub(crate) graph_attrs: Py<PyDict>,
     /// br-r37-c1-39d82: see PyGraph::nodes_seq.
@@ -2759,6 +2769,26 @@ impl PyMultiGraph {
             )
     }
 
+    /// br-paralleladd (bt): record whether a stored public key REMAPS the int
+    /// key space — i.e. it is an int whose value differs from its internal key.
+    /// Only such an override can collide with a future auto key (`k in G[u][v]`
+    /// where `k` is the int auto candidate), so it is exactly the condition that
+    /// disables the O(1) auto-key fast path. Non-int keys (str/float) never
+    /// occupy an int slot and leave the flag clear; an int key stored AT its own
+    /// value (the identity case, including the `add_fresh_edge_with_key`
+    /// explicit-int path) also leaves it clear.
+    #[inline]
+    fn note_public_key_value(&mut self, internal_key: usize, py_key: &Bound<'_, PyAny>) {
+        if self.has_remapped_int_key {
+            return;
+        }
+        if let Ok(i) = py_key.extract::<i64>() {
+            if usize::try_from(i).ok() != Some(internal_key) {
+                self.has_remapped_int_key = true;
+            }
+        }
+    }
+
     fn remember_edge_key(
         &mut self,
         py: Python<'_>,
@@ -2784,6 +2814,7 @@ impl PyMultiGraph {
         self.edge_py_keys
             .entry(Self::edge_key(u, v, key))
             .or_insert_with(|| py_key.clone_ref(py));
+        self.note_public_key_value(key, py_key.bind(py));
         py_key
     }
 
@@ -2799,6 +2830,7 @@ impl PyMultiGraph {
         self.edge_py_keys
             .entry(Self::edge_key(u, v, key))
             .or_insert_with(|| external_key.clone_ref(py));
+        self.note_public_key_value(key, external_key.bind(py));
     }
 
     fn resolve_internal_edge_key(
@@ -2840,6 +2872,7 @@ impl PyMultiGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
+            has_remapped_int_key: false,
             edge_mirrors_stale: false,
             graph_attrs: PyDict::new(py).unbind(),
             nodes_seq: 0,
@@ -3508,6 +3541,9 @@ impl PyMultiGraph {
             .inner
             .extend_keyed_edges_with_attrs_unrecorded(edge_batch);
         self.edge_py_attrs.extend(edge_attrs);
+        for (ek, obj) in &edge_keys {
+            self.note_public_key_value(ek.2, obj.bind(py));
+        }
         self.edge_py_keys.extend(edge_keys);
         if !node_seen.is_empty() {
             self.bump_nodes_seq();
@@ -4727,7 +4763,16 @@ impl PyMultiGraph {
         // when explicit non-sequential public keys were added (e.g. an explicit
         // public key 1 mapped to internal key 0), so the auto key would COLLIDE
         // with an existing public key and silently overwrite that parallel edge.
-        let auto_public_key: Option<PyObject> = if key.is_none() {
+        //
+        // br-paralleladd (bt): that divergence happens ONLY when some int public
+        // key was remapped off its internal key (tracked by has_remapped_int_key).
+        // While no such remap exists, the public int space equals the internal
+        // key space exactly (gaps included), so the internal auto key computed by
+        // `inner.add_edge_with_attrs` below IS the public key — leave
+        // `auto_public_key = None` and let `remember_edge_key` echo `int(actual
+        // _key)`. This skips the O(existing-keys) PyO3 scan, turning a loop of
+        // parallel `add_edge(u, v)` from O(N^2) into O(N).
+        let auto_public_key: Option<PyObject> = if key.is_none() && self.has_remapped_int_key {
             let existing = self
                 .inner
                 .edge_keys(&u_canonical, &v_canonical)
@@ -5316,6 +5361,7 @@ impl PyMultiGraph {
         }
         self.inner.extend_keyed_edges_with_attrs_unrecorded(edges);
         for (u, v, key, obj) in display_keys {
+            self.note_public_key_value(key, obj.bind(py));
             self.edge_py_keys
                 .entry(Self::edge_key(&u, &v, key))
                 .or_insert(obj);
@@ -5460,6 +5506,7 @@ impl PyMultiGraph {
         for (u, v, key, obj) in display_keys {
             let u = u.to_string();
             let v = v.to_string();
+            self.note_public_key_value(key, obj.bind(py));
             self.edge_py_keys
                 .entry(Self::edge_key(&u, &v, key))
                 .or_insert(obj);
@@ -5577,6 +5624,7 @@ impl PyMultiGraph {
         for (u, v, key, obj) in display_keys {
             // br-r37-c1-urle5b: `py_edge_key` looks up the CANONICALIZED key
             // (u <= v for undirected) — store under the same form.
+            self.note_public_key_value(key, obj.bind(py));
             self.edge_py_keys
                 .entry(Self::edge_key(&u, &v, key))
                 .or_insert(obj);
@@ -6232,6 +6280,7 @@ impl PyMultiGraph {
             total_edges += edge_batch.len();
             let _ = g.inner.extend_keyed_edges_with_attrs_unrecorded(edge_batch);
             for (u, v, key, obj) in display {
+                g.note_public_key_value(key, obj.bind(py));
                 g.edge_py_keys
                     .entry(Self::edge_key(&u, &v, key))
                     .or_insert(obj);
@@ -6328,6 +6377,7 @@ impl PyMultiGraph {
         let n_edges = edges.len();
         let _ = r.inner.extend_keyed_edges_with_attrs_unrecorded(edges);
         for (u, v, key, obj) in display {
+            r.note_public_key_value(key, obj.bind(py));
             r.edge_py_keys
                 .entry(Self::edge_key(&u, &v, key))
                 .or_insert(obj);
@@ -6466,6 +6516,7 @@ impl PyMultiGraph {
         let n_edges = edges.len();
         let _ = r.inner.extend_keyed_edges_with_attrs_unrecorded(edges);
         for (u, v, key, obj) in display {
+            r.note_public_key_value(key, obj.bind(py));
             r.edge_py_keys
                 .entry(Self::edge_key(&u, &v, key))
                 .or_insert(obj);
@@ -6573,6 +6624,7 @@ impl PyMultiGraph {
         };
         let ek = Self::edge_key(&u_canonical, &v_canonical, actual_key);
         let py_key = key.clone().unbind();
+        self.note_public_key_value(actual_key, key);
         self.edge_py_keys.insert(ek, py_key.clone_ref(py));
         self.bump_edges_seq();
         Ok(Some(py_key))
@@ -7684,6 +7736,7 @@ impl PyMultiGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
+            has_remapped_int_key: self.has_remapped_int_key,
             edge_mirrors_stale: false,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
@@ -7788,6 +7841,7 @@ impl PyMultiGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
+            has_remapped_int_key: self.has_remapped_int_key,
             edge_mirrors_stale: false,
             graph_attrs: deepcopy_py_dict(py, &deepcopy, &self.graph_attrs)?,
             nodes_seq: 0,
@@ -7948,6 +8002,7 @@ impl PyMultiGraph {
             node_py_attrs: HashMap::with_capacity(self.node_py_attrs.len()),
             edge_py_attrs: HashMap::with_capacity(self.edge_py_attrs.len()),
             edge_py_keys: HashMap::with_capacity(self.edge_py_keys.len()),
+            has_remapped_int_key: self.has_remapped_int_key,
             edge_mirrors_stale: self.edge_mirrors_stale,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
@@ -8037,6 +8092,7 @@ impl PyMultiGraph {
                 .iter()
                 .map(|(k, v)| (k.clone(), v.clone_ref(py)))
                 .collect(),
+            has_remapped_int_key: self.has_remapped_int_key,
             edge_mirrors_stale: self.edge_mirrors_stale,
             // SHARE the graph attrs dict (shallow copy)
             graph_attrs: self.graph_attrs.clone_ref(py),
@@ -8109,6 +8165,7 @@ impl PyMultiGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
+            has_remapped_int_key: self.has_remapped_int_key,
             edge_mirrors_stale: false,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
@@ -8224,6 +8281,7 @@ impl PyMultiGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
+            has_remapped_int_key: self.has_remapped_int_key,
             edge_mirrors_stale: false,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,

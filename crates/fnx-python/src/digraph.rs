@@ -6357,6 +6357,9 @@ impl PyMultiDiGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
+            // br-paralleladd (bt): cross-type MDG->MG conversion may carry
+            // remapped int keys; stay on the always-correct slow auto-key path.
+            has_remapped_int_key: true,
             edge_mirrors_stale: false,
             graph_attrs: crate::deepcopy_py_dict(py, &deepcopy, &self.graph_attrs)?,
             nodes_seq: 0,
@@ -6964,6 +6967,9 @@ impl PyMultiDiGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
+            // br-paralleladd (bt): cross-type MDG->MG conversion may carry
+            // remapped int keys; stay on the always-correct slow auto-key path.
+            has_remapped_int_key: true,
             edge_mirrors_stale: false,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,

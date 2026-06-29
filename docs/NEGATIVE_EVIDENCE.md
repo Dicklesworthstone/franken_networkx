@@ -11066,3 +11066,33 @@ dicts). _native_graph_product BAILS for multigraphs (and for ANY attrs even simp
 needs a native MULTIGRAPH product kernel (canonicalize each product node ONCE + assemble keyed
 attributed edges in Rust). Big deferred kernel. DON'T re-try collect-to-list (slower: big tuple-
 node list triggers batch-attempt iteration before bailing).
+
+## 2026-06-29 BlackThrush SHIP: native MultiGraph.add_edge auto-key O(N^2)->O(N) — repeated parallel add_edge 0.002x->0.23-0.39x
+
+NATIVE (fnx-python). Repeated `G.add_edge(u, v)` (key=None) on a MultiGraph was QUADRATIC: the
+binding recomputed the nx auto public key `k = len(G[u][v]); while k in G[u][v]: k += 1` from
+scratch on EVERY add by building a HashSet of all existing parallel keys via a per-key `py_edge_key`
+PyO3 round-trip + i64 extract (lib.rs ~4762). Adding N parallel edges = sum_i O(i) PyO3 calls =
+O(N^2). MEASURED HEAD: N=500..4000 -> 15.5/49.5/200/874ms (ratio 0.016x collapsing to 0.002x vs nx,
+a clean quadratic curve); nx is O(N) (pure dict len/in).
+FIX: the public int-key space can only diverge from the dense/gapped INTERNAL key space when some
+INT public key is remapped off its internal key (the lone thing that can collide with a future int
+auto key). Track that with one bool `has_remapped_int_key`, maintained by `note_public_key_value`
+at every key-store site (remember_edge_key / _object, the keyed-ctor/union/diff/symdiff batches,
+the fresh-int fast path) and propagated verbatim across copy/__copy__/subgraph/edge_subgraph;
+cross-type MDG->MG conversions stay conservatively `true`. While the flag is clear, skip the up-front
+PyO3 scan entirely (auto_public_key=None) and let inner.add_edge_with_attrs' O(1) internal auto key
+flow through as the echoed public key — with no remap, internal==public exactly (gaps included).
+Str/float keys never occupy an int slot and leave the flag clear (still fast + correct); explicit
+int key=k via add_fresh_edge_with_key_unrecorded sets internal key=k (identity, no remap) so it too
+stays clear. MEASURED RELEASE: parallel add_edge now LINEAR 1.07/2.15/2.55/7.64/16.5ms for
+N=500..8000 (ratio flat ~0.23-0.39x; ~200x faster than HEAD at N=8000). byte-exact vs nx across 7
+differential key-sequence cases (pure-auto, remove-gap->next, explicit-int-1-then-autos,
+explicit-int-5-crossing, string-keys-then-auto, bool-True->2, hash-equiv 0-then-0.0 first-wins);
+6138 multigraph/copy/operator/relabel/add_edges conformance pass, 0 fail.
+RESIDUAL: `G.add_edges_from([(u,v),...])` with duplicate pairs is STILL O(N^2) (0.007x->0.002x) —
+it routes through the Python `__init__.py` `MultiGraph.add_edges_from` wrapper that re-implements
+key resolution in Python and never reaches this native add_edge fast path (single-pair N=4000 =
+2735ms). That is a SEPARATE surface (the locked __init__.py wrapper, or a native keyed parallel
+batch); deferred. MultiDiGraph.add_edge likely carries the same O(N^2) auto-key scan -> audit
+digraph.rs add_edge for the same has_remapped_int_key treatment.
