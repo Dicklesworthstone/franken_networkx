@@ -9580,3 +9580,24 @@ PRESERVE value identity (nx shares the value object across edges); a store-only
 CgseValue write would be faster but break `G[u][v][name] is value` for non-interned
 values. Not takeable without sacrificing identity. NET: surface remains fully mined;
 the sole real lever is the d58s8 index-storage port to Multi(Di)Graph (prior entry).
+
+## 2026-06-28 CopperCliff NO-SHIP: steiner_tree 0.556x — in-process mehlhorn is WORSE (0.346x); needs a native kernel
+
+approximation.steiner_tree (approximation.py) delegates to nx (default 'mehlhorn')
+then converts the result — consistently **0.556x** vs nx (conversion tax). The
+conformance bar is the TREE WEIGHT (test_flow_cut_matching_value_parity:
+`tw(fnx)==tw(nx)`) + validity (spans terminals, is a tree), NOT exact edges.
+
+Prototyped the proven de-delegation pattern — run nx's EXACT mehlhorn in-process
+with fnx primitives (multi_source_dijkstra + minimum_spanning_edges + shortest_path
++ edge_subgraph). It is byte-exact on WEIGHT (0/39 == nx) and produces valid trees
+(5/5), BUT it is **0.346x — SLOWER than the 0.556x delegation**. Reason: mehlhorn
+calls `multi_source_dijkstra` (FULL paths for every node — only paths[v][0] is
+needed) + K per-terminal-pair `shortest_path` calls + a Python edge-iteration loop;
+the per-call fnx wrapper overhead + Python-loop cost exceed the O(V+E) fnx->nx
+conversion the delegation pays. fnx's individual primitives beat nx, but composed in
+a Python algorithm with per-call overhead they lose to nx's tighter native-graph
+mehlhorn. NO-SHIP (in-process is a regression). A real win needs a NATIVE Rust
+mehlhorn kernel (multi-source Voronoi + 2x MST + path expansion, weight-exact) —
+complex, not worth the reward for one approximation function. steiner_tree stays
+delegated at 0.556x.
