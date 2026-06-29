@@ -9638,3 +9638,30 @@ fast contracted_nodes after a has_edge check, exactly like nx). No gap. Confirms
 terminal state: ~27 dimensions surveyed, fnx dominates nx everywhere; the only real
 residual is the String-keyed Multi(Di)Graph store (d58s8 MG port — 83 adj_indices
 touch-points, multi-session, coordination-blocked).
+
+## 2026-06-28 CopperCliff SHIP: find_minimal_d_separator 0.15x->4.5-74x — de-delegate (in-process Bayes-Ball on an ancestral snapshot)
+
+A wide sweep of obscure nx-fallback functions found find_minimal_d_separator
+delegating (`_call_networkx_for_parity` -> full O(V+E) conversion) for a single
+small query that only touches the ANCESTRAL subgraph of {x,y,included} — 0.15-0.17x
+vs nx (consistent across seeds). Conversion-tax-on-small-input vein (cf. link-pred
+c7ffab536).
+
+FIX (br-cc-dsepinproc, PURE-PYTHON): run nx's EXACT algorithm (van der Zander &
+Liskiewicz 2020) in-process — ancestral set via the native `ancestors()`, ONE bulk
+`G.adjacency()` snapshot restricted to that set + inverted for predecessors, and the
+Bayes-Ball `_reachable` over plain dicts. The reimplemented `_reachable` uses a SET
+for `processed` membership where nx uses a list (O(E*|processed|) -> O(E), identical
+reachable set). Gated to plain DiGraph; SubgraphViews / multigraphs / nx-private
+storage keep delegation.
+
+Byte-exact: 0/163 adversarial through the wrapper (x/y/included/restricted, node+set
+inputs); error contracts match (non-DAG->NetworkXError, bad-node->NodeNotFound,
+disjointness->NetworkXError); result is a deterministic SET (content-compared). 179
+d-separation + 757 dag/moral/ancestors conformance tests pass. Measured 0.15x->**4.5x**
+(n=200) / **23.8x** (n=500) / **74.2x** (n=1000) — the win GROWS with n because it
+beats BOTH the conversion tax AND nx's own O(E^2) reachable. LEVER: a delegated
+single-pair/small query that only needs an ANCESTRAL/local subgraph pays a full-graph
+conversion; run nx's exact algo in-process on a local snapshot (works when the result
+is a deterministic set/value — no order subtlety). [is_minimal_d_separator with
+included/restricted has the same delegation, a smaller follow-up.]
