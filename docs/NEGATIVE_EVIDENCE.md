@@ -10442,3 +10442,27 @@ CONFIRMS the consolidated handoff (ae81b9c6f): the vs-nx surface is dominated ev
 long-tail families; the only remaining levers are architectural (integer-keyed edge mirror,
 multi-cycle, blocked on agent-mail) / substrate (copy/reverse) / risky-port (simple_cycles).
 Do NOT re-sweep these families.
+
+## 2026-06-29 CopperCliff ESCALATED BLOCKER: sanctioned agent-mail recovery ATTEMPTED, INSUFFICIENT (operator-only)
+
+Attempted the tool-recommended recovery for the 5-day agent-mail wedge (gating coordinated
+architectural work). RESULT: insufficient — a true deadlock requiring hands-on operator action.
+  - `am service status`: agent-mail.service is `activating (auto-restart)` — systemd's fresh
+    instances FAIL at `ExecStartPre=/home/ubuntu/.local/bin/am migrate` (exit 1, corrupt DB),
+    while the OLD orphan PID 2093388 (deleted-executable) still holds storage/sqlite locks and
+    keeps serving reads. The status output itself says: "next: run `am service restart`".
+  - Ran `am service restart` (graceful SIGTERM + force-kill fallback, systemd-managed): FAILED
+    ("Job for agent-mail.service failed"). Verified after: PID 2093388 STILL ALIVE (Sl+, still
+    wedged, still holding locks); health_check still degraded_read_only + serving reads (I did
+    NOT make it worse).
+  - DEADLOCK: `am doctor reconstruct` (the DB fix; dry-run clean 17 proj/2245 msgs) REFUSES
+    while the live owner is present; the orphan won't drain via the sanctioned graceful restart;
+    `kill -9 am` is explicitly FORBIDDEN (DB-corruption risk); and `am migrate` ExecStartPre
+    fails on the corrupt DB so a fresh instance can't take over even if started.
+  - OPERATOR ACTION REQUIRED (beyond the documented one-liner): manually + safely terminate
+    orphan PID 2093388 (it ignored systemd's SIGTERM — investigate why, e.g. stuck syscall, or
+    `systemctl --user kill --signal=TERM` then verify), THEN `am doctor reconstruct --yes`, THEN
+    the auto-restarting unit's `am migrate` will succeed and it serves clean. The simple
+    `am service restart` is NOT enough (empirically tested today).
+NET: the architectural integer-keyed-mirror lever stays blocked on this; per-agent perf veins
+mined out (see handoff ae81b9c6f + fresh-family sweep 28c5f1b5b). No safe single-cycle lever.
