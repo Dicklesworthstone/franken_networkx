@@ -11177,3 +11177,29 @@ String edge_key build + neighbors() Vec alloc that nx avoids by reading live Pyt
 dicts -> needs the persistent ordered Python-object adjacency mirror (4b5ie/materialization floor),
 not a kernel twin. DON'T re-dig the int-accumulator; a clean win needs single-neighbors-walk +
 store-direct read gated on edge_py_attrs.is_empty() (bulk only) — small, and still <1x nx.
+
+## 2026-06-29 BlackThrush SURFACE: single-node degree(n) 0.31x — property-rebuild + cached_property deepcopy LANDMINE
+
+After the add_edge/add_edges_from O(N^2) wins (79876a932/8b939e3f7/20e090e49), swept for the next
+lever. Result of a broad battery (Graph/DiGraph/MultiGraph/MultiDiGraph): remove_edges_from
+0.58-0.85x (linear), remove_nodes_from 1.7-1.85x, to_undirected/to_directed >=0.83x, copy()
+1.1-12x, Graph(G) ctor 1.8-12x, gauntlet workloads mined (flow_hierarchy was the last). The one
+broad gap: SINGLE-NODE `G.degree(n)` in a tight loop is 0.31-0.36x (Graph/DiGraph), 0.82x (MG),
+>=1.16x (MDG). Breakdown (us): `G.degree` property access 0.255 (REBUILDS the DegreeView wrapper
+every access — nx uses @cached_property, built once), __call__ 0.43, vs __getitem__ 0.11. So nx is
+faster purely because it caches the view; fnx's `Graph.degree = property(_graph_degree)` reconstructs
+per access.
+WHY NOT FIXED (caching is a LANDMINE): caching the view via cached_property in instance __dict__ is
+g.copy()-safe (copy() builds fresh __dict__) BUT NOT deepcopy-safe — `copy.deepcopy(G)` copies
+__dict__ including the cached view, and `_WeightAwareDegreeView.__deepcopy__` returns self (nx-parity
+for deepcopy(view)), so the deepcopied graph's cached `.degree` is a BROKEN view (verified: KeyError
+on a valid node of the deepcopy). A correct cache needs the graph to drop cached views on deepcopy
+(custom __deepcopy__ on the pyclass) or the view's __deepcopy__ to rebuild — both touch nx-parity
+surfaces. The safe partial fix (trim __call__'s pre-checks to reach self._raw[nbunch] sooner) only
+addresses 0.43->~0.15us and leaves the 0.255us property rebuild = the dominant gap. Also UNCERTAIN
+benchmark relevance: most fnx algorithms are native (don't loop Python degree(n)); head_to_head does
+not measure single-node degree(n) loops. NOT forced (risk + marginal measured impact).
+REMAINING VEIN STATE: mutation O(N^2) MINED this session (3 wins). Left = (1) degree(n) caching
+(needs careful deepcopy-safe cache design), (2) the materialization-floor view paths
+(nodes(data=attr), dict(adjacency()), in_edges(data), degree(nbunch,weight)) — all need the
+persistent ordered Python-object adjacency/node mirror primitive (4b5ie), not kernel micro-opts.
