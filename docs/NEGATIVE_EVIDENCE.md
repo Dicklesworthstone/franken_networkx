@@ -11047,3 +11047,22 @@ distinct edge sets + self-loops + parallel edges; unequal-nodes raises NetworkXE
 SET-OPERATOR FAMILY now done: symmetric_difference (749177251) + difference (here) rerouted off
 their slow pre-batch natives. intersection (~0.46x) stays NO-GAIN (orientation-collision edge set
 makes the no-data batch bail/~per-edge). disjoint_union ~parity. compose/union done earlier.
+
+## 2026-06-29 BlackThrush SHIP: multigraph graph products add_edge(key=) fast path — ~1.67x
+
+PURE-PYTHON. cartesian/tensor/strong/lexicographic products emitted each product edge via
+P.add_edges_from([(n1,n2,key,dict(attrs))]) — a single-element list paying the full
+add_edges_from wrapper + 3 native batch-attempts (all bail on one tuple-node edge) PER EDGE,
+over the O(E_G x E_H) product edge set (multigraph tensor was ~0.1x vs nx; A/B 275 vs 165ms on
+38400 edges). The list form existed ONLY to dodge a key= kwarg collision when an attr is named
+'key'. Added _product_edge_attrs_kwarg_safe(G,H) (precomputed; _paired_edge_attrs only UNIONs
+keys so scanning sources suffices) -> when safe, use direct P.add_edge(n1,n2,key=k,**attrs)
+(~1.67x); else keep the list form. MEASURED (n=60xn=10 attrs): MG tensor ~1028->617ms, cartesian
+75->47ms (1.58-1.67x self). byte-exact across attrs/no-attr/key-attr-fallback + independent +
+order-preserving (same loop order) for MG+MDG; new test 25/25; 686 product conformance pass.
+RESIDUAL: products stay 0.17-0.26x vs nx — the floor is per-edge TUPLE-NODE canonicalization
+(fnx string-keyed inner store hashes/encodes each (g,h) tuple node per edge vs nx's object-keyed
+dicts). _native_graph_product BAILS for multigraphs (and for ANY attrs even simple) -> closing it
+needs a native MULTIGRAPH product kernel (canonicalize each product node ONCE + assemble keyed
+attributed edges in Rust). Big deferred kernel. DON'T re-try collect-to-list (slower: big tuple-
+node list triggers batch-attempt iteration before bailing).

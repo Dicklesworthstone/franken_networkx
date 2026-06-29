@@ -22795,6 +22795,32 @@ def _native_graph_product(G, H, *, kind="cartesian"):
     return fast(G, H)
 
 
+def _product_edge_attrs_kwarg_safe(G, H):
+    """br-prodfast (bt): True iff every edge-attribute key in G and H is a ``str``
+    other than ``'key'`` — so the multigraph product loops can use the direct
+    ``P.add_edge(n1, n2, key=k, **attrs)`` instead of the
+    ``P.add_edges_from([(n1, n2, k, dict(attrs))])`` form. That list form exists
+    ONLY to dodge the ``key=`` kwarg collision when an attr is named 'key', but it
+    pays the full add_edges_from wrapper + three native batch-attempts (all bail on
+    a single tuple-node edge) PER EDGE — pathological over the O(E_G x E_H) product
+    edge set (multigraph tensor_product was 0.13x vs nx). ``_paired_edge_attrs``
+    only UNIONs G/H attr keys (no renaming), so scanning the source graphs covers
+    every product edge's keys."""
+    for _g in (G, H):
+        for _e in _g.edges(data=True):
+            for _k in _e[-1]:
+                if type(_k) is not str or _k == "key":
+                    return False
+    return True
+
+
+def _product_add_keyed_edge(P, n1, n2, key, attrs, attr_safe):
+    if attr_safe:
+        P.add_edge(n1, n2, key=key, **attrs)
+    else:
+        P.add_edges_from([(n1, n2, key, dict(attrs))])
+
+
 def cartesian_product(G, H):
     """Return the Cartesian product of *G* and *H*.
 
@@ -22811,6 +22837,7 @@ def cartesian_product(G, H):
     if _fast is not None:
         return _fast
     P = _product_graph_class(G, H)()
+    _attr_safe = _product_edge_attrs_kwarg_safe(G, H)
 
     for g, g_attrs in G.nodes(data=True):
         for h, h_attrs in H.nodes(data=True):
@@ -22821,7 +22848,7 @@ def cartesian_product(G, H):
             for h in H.nodes():
                 # 4-tuple form avoids `key=key, **attrs` collision when attrs
                 # contains a 'key' entry (franken_networkx-uphdr).
-                P.add_edges_from([((u, h), (v, h), key, dict(attrs))])
+                _product_add_keyed_edge(P, (u, h), (v, h), key, attrs, _attr_safe)
     else:
         for u, v, attrs in G.edges(data=True):
             for h in H.nodes():
@@ -22830,7 +22857,7 @@ def cartesian_product(G, H):
     if H.is_multigraph():
         for u, v, key, attrs in H.edges(keys=True, data=True):
             for g in G.nodes():
-                P.add_edges_from([((g, u), (g, v), key, dict(attrs))])
+                _product_add_keyed_edge(P, (g, u), (g, v), key, attrs, _attr_safe)
     else:
         for u, v, attrs in H.edges(data=True):
             for g in G.nodes():
@@ -22850,6 +22877,7 @@ def tensor_product(G, H):
     if _fast is not None:
         return _fast
     P = _product_graph_class(G, H)()
+    _attr_safe = _product_edge_attrs_kwarg_safe(G, H)
 
     for g, g_attrs in G.nodes(data=True):
         for h, h_attrs in H.nodes(data=True):
@@ -22878,7 +22906,7 @@ def tensor_product(G, H):
                 # 4-tuple form avoids `key=edge_key, **edge_attrs`
                 # collision when edge_attrs contains a 'key' entry
                 # (franken_networkx-uphdr).
-                P.add_edges_from([((gu, hu), (gv, hv), edge_key, dict(edge_attrs))])
+                _product_add_keyed_edge(P, (gu, hu), (gv, hv), edge_key, edge_attrs, _attr_safe)
             else:
                 P.add_edge((gu, hu), (gv, hv), **edge_attrs)
     if not G.is_directed():
@@ -22889,7 +22917,7 @@ def tensor_product(G, H):
                     edge_key = _cross_product_edge_key(
                         G.is_multigraph(), H.is_multigraph(), gk, hk
                     )
-                    P.add_edges_from([((gv, hu), (gu, hv), edge_key, dict(edge_attrs))])
+                    _product_add_keyed_edge(P, (gv, hu), (gu, hv), edge_key, edge_attrs, _attr_safe)
                 else:
                     P.add_edge((gv, hu), (gu, hv), **edge_attrs)
 
@@ -22916,6 +22944,7 @@ def strong_product(G, H):
     # (3) tensor directed cross (gu,hu)-(gv,hv), (4) undirected-only tensor cross
     # (gv,hu)-(gu,hv). The previous build-on-cartesian-then-interleave diverged.
     P = _product_graph_class(G, H)()
+    _attr_safe = _product_edge_attrs_kwarg_safe(G, H)
 
     for g, g_attrs in G.nodes(data=True):
         for h, h_attrs in H.nodes(data=True):
@@ -22934,14 +22963,14 @@ def strong_product(G, H):
     for g in G.nodes():
         for hu, hv, hk, h_attrs in h_edges:
             if P.is_multigraph():
-                P.add_edges_from([((g, hu), (g, hv), hk, dict(h_attrs))])
+                _product_add_keyed_edge(P, (g, hu), (g, hv), hk, h_attrs, _attr_safe)
             else:
                 P.add_edge((g, hu), (g, hv), **dict(h_attrs))
     # 2. _edges_cross_nodes: x == y and (u, v) an edge of G (G's edge attrs).
     for gu, gv, gk, g_attrs in g_edges:
         for h in H.nodes():
             if P.is_multigraph():
-                P.add_edges_from([((gu, h), (gv, h), gk, dict(g_attrs))])
+                _product_add_keyed_edge(P, (gu, h), (gv, h), gk, g_attrs, _attr_safe)
             else:
                 P.add_edge((gu, h), (gv, h), **dict(g_attrs))
     # 3. tensor directed cross.
@@ -22950,7 +22979,7 @@ def strong_product(G, H):
             edge_attrs = _paired_edge_attrs(dict(g_attrs), dict(h_attrs))
             if P.is_multigraph():
                 edge_key = _cross_product_edge_key(G.is_multigraph(), H.is_multigraph(), gk, hk)
-                P.add_edges_from([((gu, hu), (gv, hv), edge_key, dict(edge_attrs))])
+                _product_add_keyed_edge(P, (gu, hu), (gv, hv), edge_key, edge_attrs, _attr_safe)
             else:
                 P.add_edge((gu, hu), (gv, hv), **edge_attrs)
     # 4. tensor undirected cross (undirected only).
@@ -22962,7 +22991,7 @@ def strong_product(G, H):
                     edge_key = _cross_product_edge_key(
                         G.is_multigraph(), H.is_multigraph(), gk, hk
                     )
-                    P.add_edges_from([((gv, hu), (gu, hv), edge_key, dict(edge_attrs))])
+                    _product_add_keyed_edge(P, (gv, hu), (gu, hv), edge_key, edge_attrs, _attr_safe)
                 else:
                     P.add_edge((gv, hu), (gu, hv), **edge_attrs)
 
@@ -34978,6 +35007,7 @@ def lexicographic_product(G, H):
     if _fast is not None:
         return _fast
     P = _product_graph_class(G, H)()
+    _attr_safe = _product_edge_attrs_kwarg_safe(G, H)
 
     for g, g_attrs in G.nodes(data=True):
         for h, h_attrs in H.nodes(data=True):
@@ -34989,7 +35019,7 @@ def lexicographic_product(G, H):
                 for hv in H.nodes():
                     # 4-tuple form avoids `key=key, **attrs` collision
                     # (franken_networkx-uphdr).
-                    P.add_edges_from([((u, hu), (v, hv), key, dict(attrs))])
+                    _product_add_keyed_edge(P, (u, hu), (v, hv), key, attrs, _attr_safe)
     else:
         for u, v, attrs in G.edges(data=True):
             for hu in H.nodes():
@@ -34999,7 +35029,7 @@ def lexicographic_product(G, H):
     if H.is_multigraph():
         for u, v, key, attrs in H.edges(keys=True, data=True):
             for g in G.nodes():
-                P.add_edges_from([((g, u), (g, v), key, dict(attrs))])
+                _product_add_keyed_edge(P, (g, u), (g, v), key, attrs, _attr_safe)
     else:
         for u, v, attrs in H.edges(data=True):
             for g in G.nodes():
