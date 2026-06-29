@@ -10984,3 +10984,20 @@ MEASURED: MG fresh keyed add_edges_from(list) 0.31x -> 0.95x; batch vs forced-pe
 byte-exact 12/12 ad-hoc (orientation, reverse-orientation, self-loops, canonical dup bail,
 new_edge_key after batch) + new test 11/11; conformance 4153 passed changed-area. Multigraph
 keyed-construction vein now COMPLETE (fresh + non-fresh, both types).
+
+## 2026-06-29 BlackThrush SHIP: multigraph union() 0.40x -> 0.55-0.72x (route to keyed batch)
+
+PURE-PYTHON (no rebuild): union(MG/MDG) ran TWO separate add_edges_from(VIEW) calls — a view
+isn't list/tuple so it skipped the native batch dispatch, and the 2nd ran per-edge on a non-fresh
+graph (0.40x vs nx). union requires DISJOINT node sets (no keyed-edge collisions), so combine
+G's + H's edges into ONE list -> the node-populated edgeless result hits the keyed edges-only
+batch (160cb9ed0/48560565e). MEASURED warm min-of-15 x3: MG 0.62-0.72x, MDG 0.52-0.57x (both up
+from 0.40x). byte-exact + INDEPENDENT (result attr dicts NOT shared with G/H — verified mutate-
+parent-untouched) across basic/no-node-attrs/rename/overlap-raises/empty/self-loops/multi-attr;
+new test 12/12; conformance 990 union/operator + targeted pass.
+DECOMPOSED RESIDUAL: view materialization is only 0.66ms; the cost is the batch's per-edge mirror
+build — union's 2-attr edges miss the single-weight fast path and hit py_dict_to_attr_map_with_mirror
+(PyDict per edge). A LAZY-mirror non-fresh batch (store AttrMap only, materialize on read) would
+push union to a WIN but is a Rust change touching the shipped subgraph-copy/keyed batches (deferred).
+compose ~0.61-0.67x is already list+_native_add_keyed_edges_with_data routed (residual = its
+_edge_map Python pre-merge).

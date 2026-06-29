@@ -14918,8 +14918,15 @@ def union(G, H, rename=()):
     rebuilt.add_nodes_from(G.nodes(data=True))
     rebuilt.add_nodes_from(H.nodes(data=True))
     if rebuilt.is_multigraph():
-        rebuilt.add_edges_from(G.edges(keys=True, data=True))
-        rebuilt.add_edges_from(H.edges(keys=True, data=True))
+        # br-edgekeyedbatch (bt): union requires DISJOINT node sets, so G's and H's
+        # keyed edges never collide — combine both into ONE list and commit in a
+        # single add_edges_from. The combined 4-tuple LIST on the node-populated
+        # edgeless ``rebuilt`` engages the native keyed edges-only batch (was 0.40x:
+        # two separate add_edges_from of VIEWS — a view isn't list/tuple so it skips
+        # the batch dispatch, and the second ran per-edge on a non-fresh graph).
+        rebuilt.add_edges_from(
+            list(G.edges(keys=True, data=True)) + list(H.edges(keys=True, data=True))
+        )
     else:
         rebuilt.add_edges_from(G.edges(data=True))
         rebuilt.add_edges_from(H.edges(data=True))
