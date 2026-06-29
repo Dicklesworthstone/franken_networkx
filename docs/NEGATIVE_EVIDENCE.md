@@ -2,6 +2,23 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-28 CopperCliff SHIP: MultiGraph average_degree_connectivity 0.11x->1.18x (~10x self) + has_eulerian_path self-loop case 0.05x->1.2x (`br-r37-c1-mgisol`)
+
+Two more MG fallback-tax fixes (pure-Python). (1) `average_degree_connectivity`'s
+unweighted-undirected fast path was gated to plain Graph
+(`_raw_neighbors_dispatch` excludes Multi), so multigraphs hit the per-node AtlasView
+fallback (~13.6ms / 0.11x at n=200). nx sums over DISTINCT neighbors weighted by MULTI
+degree, so: multi-degree from native `G.degree()`, distinct neighbor pairs from the
+cheap simple projection's edges, accumulate both directions per edge (per-node bucket
+init mirrors nx's `dsum[k]+=s` so degree-0 nodes keep their bucket). **0.11x->1.18x**
+(13.57ms->1.33ms), byte-IDENTICAL 0/1200 maxdiff 0.0 (integer arithmetic) over
+MG/Graph/MDG incl. parallels/self-loops/isolates; 967 assortativity tests pass.
+(2) `has_eulerian_path`/`is_semieulerian` self-loop multigraphs were still delegating
+to nx (the b98c6a995 fast path ran AFTER the self-loop guard) — 0.05x. The Python
+formula (odd-degree count via `G.degree()`, self-loops +2 = even; + is_connected) is
+byte-exact for self-loops too (0/500), so moved it BEFORE the guard: **0.05x->1.2x**.
+Only SIMPLE self-loop graphs still delegate (native kernel mishandles them).
+
 ## 2026-06-28 CopperCliff SHIP: MultiGraph/MultiDiGraph load_centrality 0.43x->19.55x/13.59x — simple-projection + native kernel (`br-r37-c1-mgisol`)
 
 Third win in the MultiGraph fallback-tax cluster. `load_centrality`'s native fast

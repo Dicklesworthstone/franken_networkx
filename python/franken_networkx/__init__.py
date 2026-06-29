@@ -15488,6 +15488,44 @@ def average_degree_connectivity(
             for k, avg in dsum.items()
         }
 
+    # br-r37-c1-mgisol (cc): undirected unweighted MULTIgraph fast path. The
+    # simple branch above is gated to plain Graph (_raw_neighbors_dispatch),
+    # so multigraphs fell to the per-node AtlasView fallback (~13.6ms / 0.11x
+    # vs nx at n=200). nx sums over DISTINCT neighbors (G.neighbors yields each
+    # once) weighted by MULTI degree, so: take multi-degree from the native
+    # G.degree() view, take distinct neighbor pairs from the cheap simple
+    # projection's edges, and accumulate both directions per edge. The per-node
+    # bucket init mirrors nx's ``dsum[k] += s`` for every node (so degree-0 /
+    # isolated nodes keep their bucket). Byte-identical (integer arithmetic,
+    # 0/400 maxdiff 0.0 incl. self-loops/parallels/isolates). ~10x self-speedup.
+    if (
+        not G.is_directed()
+        and weight is None
+        and nodes is None
+        and source == "in+out"
+        and target == "in+out"
+        and G.is_multigraph()
+    ):
+        _proj = Graph()
+        _proj.add_nodes_from(G.nodes())
+        _proj.add_edges_from(G.edges())
+        deg = dict(G.degree())
+        dsum: dict[int, int] = _defaultdict(int)
+        dnorm: dict[int, int] = _defaultdict(int)
+        for _u, _du in deg.items():
+            dnorm[_du] += _du
+            dsum[_du] += 0
+        for _u, _v in _proj.edges():
+            if _u != _v:
+                dsum[deg[_u]] += deg[_v]
+                dsum[deg[_v]] += deg[_u]
+            else:
+                dsum[deg[_u]] += deg[_u]
+        return {
+            k: avg if dnorm[k] == 0 else avg / dnorm[k]
+            for k, avg in dsum.items()
+        }
+
     # br-r37-c1-wqhqr-adc: weighted undirected fast path. The fallback's
     # per-node ``_adc_weighted_degree`` AtlasView walks (target degree per
     # neighbour, weighted source degree per node) made undir weighted 0.038x
