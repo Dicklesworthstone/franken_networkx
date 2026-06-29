@@ -9560,3 +9560,23 @@ the whole MG frontier at once. High conformance risk (touches the hot MG constru
 path + the entire MG test surface) + shared core file — should be done with
 agent-mail coordination (currently down) and per-slice conformance gating, like the
 original d58s8 was. NOT attempted unilaterally here.
+
+## 2026-06-28 CopperCliff VERIFY: 6 session wins hold (no regression); wide-net sweep all at-or-above nx
+
+Regression sweep — all 6 shipped wins still beat nx on HEAD: greedy_tsp INT-tie
+1.46x / FLOAT 3.85x, eulerian_circuit DIR 15.3x, annealing greedy-init 1.32x,
+transitive_closure_dag 1.55x, parse_pajek 0.91x (the shipped near-parity).
+
+Wide-net over ~25 diverse untouched functions — all win-or-parity: reciprocity 8.5x,
+degree_assortativity 110x, average_neighbor_degree 11.6x, s_metric 178x, edge_dfs
+1.23x, edge_bfs 2.14x, dfs_preorder 2.0x, descendants_at_distance 1.63x, power(G,3)
+2.38x, triadic_census 19.6x, rich_club 111x, global/local_efficiency 17-20x,
+degree_mixing_matrix 3.7x, get_node_attributes 2.53x, set_node_attributes(scalar)
+1.12x. Noise-corrected: dfs_postorder_nodes 1.26x (WIN; single-shot 0.93x was noise),
+WL subgraph_hashes ~0.94x (parity, noisy). Only consistent sub-1.0x:
+set_edge_attributes(SCALAR) 0.74x — the documented attr-substrate floor: its native
+one-pass (_native_broadcast_edge_attribute) writes the Python edge_py_attrs MIRROR to
+PRESERVE value identity (nx shares the value object across edges); a store-only
+CgseValue write would be faster but break `G[u][v][name] is value` for non-interned
+values. Not takeable without sacrificing identity. NET: surface remains fully mined;
+the sole real lever is the d58s8 index-storage port to Multi(Di)Graph (prior entry).
