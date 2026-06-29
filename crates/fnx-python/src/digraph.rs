@@ -1326,6 +1326,67 @@ impl PyMultiDiGraph {
         }
     }
 
+    /// br-r37-c1-mdgwdegf: single-direction (in OR out) weighted degree of
+    /// `node` as an f64 iff the direction has >=1 edge AND every contributing
+    /// weight value is an exact float in the mirror; else None (caller uses the
+    /// exact PyList+builtins.sum fallback). nx's in/out DiMultiDegreeView is a
+    /// single `sum(<flat over pred/succ>)` — one Neumaier-compensated sum —
+    /// so accumulate that direction with the same compensation (bit-identical to
+    /// builtins.sum, verified 30k cases). An edgeless direction returns None so
+    /// the node keeps nx's int 0 (sum of an empty sequence).
+    fn weighted_directional_degree_float_node(
+        &self,
+        py: Python<'_>,
+        node: &str,
+        weight: &str,
+        outgoing: bool,
+    ) -> PyResult<Option<f64>> {
+        let mut f = 0.0f64;
+        let mut c = 0.0f64;
+        let mut saw = false;
+        if outgoing {
+            for successor in self.inner.successors(node).unwrap_or_default() {
+                for key in self.inner.edge_keys(node, successor).unwrap_or_default() {
+                    let Some(x) =
+                        self.edge_weight_exact_f64_mirror(py, node, successor, key, weight)?
+                    else {
+                        return Ok(None);
+                    };
+                    saw = true;
+                    let t = f + x;
+                    if f.abs() >= x.abs() {
+                        c += (f - t) + x;
+                    } else {
+                        c += (x - t) + f;
+                    }
+                    f = t;
+                }
+            }
+        } else {
+            for predecessor in self.inner.predecessors(node).unwrap_or_default() {
+                for key in self.inner.edge_keys(predecessor, node).unwrap_or_default() {
+                    let Some(x) =
+                        self.edge_weight_exact_f64_mirror(py, predecessor, node, key, weight)?
+                    else {
+                        return Ok(None);
+                    };
+                    saw = true;
+                    let t = f + x;
+                    if f.abs() >= x.abs() {
+                        c += (f - t) + x;
+                    } else {
+                        c += (x - t) + f;
+                    }
+                    f = t;
+                }
+            }
+        }
+        if !saw {
+            return Ok(None);
+        }
+        Ok(Some(f + c))
+    }
+
     /// br-r37-c1-fpssi: all node display objects as a Vec, reusing the
     /// nodes_seq-keyed tuple cache (clone_ref of cached elements) instead of
     /// rebuilding via py_node_key per node. Backs the graph node iterator
@@ -5479,6 +5540,22 @@ impl PyMultiDiGraph {
         let sum_fn = py.import("builtins")?.getattr("sum")?;
         let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(self.inner.node_count());
         for node in self.inner.nodes_ordered() {
+            // br-r37-c1-mdgwdegf (cc): float fast path (single direction). When
+            // every contributing weight value is an exact float in the mirror
+            // (and the direction has >=1 edge), sum the f64s with CPython's
+            // Neumaier compensation in Rust — bit-identical to builtins.sum —
+            // skipping the per-edge PyList append + per-node builtins.sum.
+            // Returns None (-> exact fallback) on any non-float/absent value
+            // and for an edgeless direction, keeping nx's int-0 byte-exact.
+            if let Some(total) =
+                self.weighted_directional_degree_float_node(py, node, weight, outgoing)?
+            {
+                out.push((
+                    self.py_node_key(py, node),
+                    pyo3::types::PyFloat::new(py, total).into_any().unbind(),
+                ));
+                continue;
+            }
             let vals = pyo3::types::PyList::empty(py);
             if outgoing {
                 for successor in self.inner.successors(node).unwrap_or_default() {

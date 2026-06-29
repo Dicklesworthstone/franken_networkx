@@ -9930,3 +9930,32 @@ alloc + HashMap mirror probe; closing past nx needs an indexed mirror (deferred,
 spans shared fnx-classes). INT-weight MDG keeps its store/mirror int fast paths.
 Per-crate build via rch (CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cc),
 cargo check + maturin release, .so verified (0 undefined crossbeam).
+
+## 2026-06-29 CopperCliff SHIP: MultiDiGraph in/out_degree(weight) float Neumaier fast path (directional)
+
+Completed the MDG weighted-degree family: the DIRECTIONAL in_degree/out_degree(weight)
+(core_laggards `fnx_mdg_in_degree_weight`) used a separate kernel
+(`native_weighted_directional_degree`, digraph.rs) whose float path (after its int
+store/mirror fast paths return None) built a single per-node PyList + builtins.sum.
+Same proven Neumaier lever as the total path: when every contributing single-direction
+weight value is an exact float in the mirror (and the direction has >=1 edge), sum the
+f64s with CPython's Kahan-Babuska compensation in Rust — bit-identical to builtins.sum
+— reusing the `edge_weight_exact_f64_mirror` helper. Bails on any non-float/absent
+value and edgeless direction (nx int-0). Byte-exact 22560/22560 over 128 graphs x
+{in,out,total} (float/int/self-loops/missing, type-exact); conformance 7461 pass.
+
+Clean A/B (fresh processes, min-of-25): out_degree n=700/e12662 0.23x->0.77x (3.36x
+self), n=1500 0.83x->0.93x, n=400 0.86x->0.98x; in_degree n=700 0.37x->0.42x, n=1500
+0.70x->0.74x, n=400 0.76x->0.83x (~1.12-1.15x self). out_degree gains are large;
+in_degree stays lower (0.42x at the dense bench size) because the predecessor
+traversal in fnx-classes is the structural floor (not the sum) — a separate lever.
+Per-crate build via rch (CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cc).
+
+ROOT-CAUSE NOTE for the remaining edge-view laggards (selfloop_edges 0.42-0.65x,
+mdg_edges_keys, mdg_in_edges_data): all bottleneck on the edge-attr mirror being keyed
+by (String,String,usize), forcing a per-edge String allocation + HashMap probe that nx
+(nested Python dicts) avoids. mark_edges_dirty confirmed O(1) (ruled out). The radical
+lever to close ALL of them is an INTEGER-keyed edge mirror (a different primitive, not
+a safe-Rust micro-opt) — large, spans shared fnx-classes/fnx-python; deferred while
+agent-mail is degraded_read_only (no safe reservation/coordination). selfloop_edges
+data=True correctly shares the live mirror dict (no copy bug).
