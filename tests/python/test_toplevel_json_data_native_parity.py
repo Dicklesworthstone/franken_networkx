@@ -83,18 +83,39 @@ def test_toplevel_multigraph_falls_back():
     )
 
 
-def test_toplevel_native_path_taken_for_simple_graph():
-    Gf = fnx.Graph([(0, 1), (1, 2)])
-    orig = fnx._fnx.node_link_data_simple
-    calls = []
+def _build_batch_weighted(module, directed):
+    # add_weighted_edges_from / add_edges_from commit edge attrs straight into
+    # the native CgseValue store and leave the Python edge mirror lazy -- the
+    # case the removed native *_simple kernels mis-served by reading the empty
+    # mirror.
+    G = (module.DiGraph if directed else module.Graph)()
+    G.add_nodes_from(range(6))
+    G.add_weighted_edges_from([(0, 1, 1.5), (1, 2, 2.5), (2, 3, 3.5), (3, 4, 4.5)])
+    G.add_edges_from([(4, 5, {"color": "red", "cap": 7})])
+    return G
 
-    def spy(*a, **k):
-        calls.append(1)
-        return orig(*a, **k)
 
-    fnx._fnx.node_link_data_simple = spy
-    try:
-        fnx.node_link_data(Gf, edges="edges")
-    finally:
-        fnx._fnx.node_link_data_simple = orig
-    assert calls, "top-level node_link_data did not use the native kernel"
+def test_toplevel_batch_built_edge_attrs_survive_serialization():
+    # Regression for the data-loss bug (cc, adjdataedgeattr): the native
+    # adjacency_data_simple / node_link_data_simple kernels dropped EVERY edge
+    # attribute on graphs built with the bulk edge APIs (the mirror is empty;
+    # attrs live in the native store). Both serializers must now be byte-exact
+    # with networkx, weights and all.
+    for directed in (False, True):
+        Gx = _build_batch_weighted(nx, directed)
+        Gf = _build_batch_weighted(fnx, directed)
+
+        adj_f = fnx.adjacency_data(Gf)
+        assert adj_f == nx.adjacency_data(Gx)
+        # the bug manifested as missing 'weight'/'color' keys in adjacency rows
+        assert any("weight" in e for row in adj_f["adjacency"] for e in row)
+
+        nld_f = fnx.node_link_data(Gf, edges="edges")
+        assert nld_f == nx.node_link_data(Gx, edges="edges")
+        assert any("weight" in e for e in nld_f["edges"])
+
+        # json_graph module wrappers must agree with the top-level functions
+        assert fnx.readwrite.json_graph.adjacency_data(Gf) == adj_f
+        assert (
+            fnx.readwrite.json_graph.node_link_data(Gf, edges="edges") == nld_f
+        )

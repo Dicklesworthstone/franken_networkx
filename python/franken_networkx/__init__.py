@@ -29458,21 +29458,49 @@ def adjacency_data(G, attrs={"id": "id", "key": "key"}):  # noqa: B006
     if id_ == key:
         raise NetworkXError("Attribute names are not unique.")
 
-    # br-r37-c1-9kpev: native fast path for exact simple Graph / DiGraph,
-    # building the nodes + adjacency arrays in Rust (copying live attr dicts +
-    # appending id_) instead of walking the per-edge AdjacencyView. ~6x faster;
-    # multigraphs and any subclass / filtered view fall through to the loop.
-    if type(G) in (Graph, DiGraph):
-        native = _fnx.adjacency_data_simple(G, id_)
-        if native is not None:
-            nodes_list, adjacency_list = native
-            return {
-                "directed": G.is_directed(),
-                "multigraph": multigraph,
-                "graph": list(G.graph.items()),
-                "nodes": nodes_list,
-                "adjacency": adjacency_list,
-            }
+    # br-r37-c1-9kpev native fast path REMOVED (cc, adjdataedgeattr): the Rust
+    # adjacency_data_simple binding copied edge attrs from the Python edge
+    # MIRROR (edge_py_attrs), which is EMPTY for batch-built simple graphs —
+    # add_weighted_edges_from / add_edges_from commit edge attrs straight into
+    # the native CgseValue store and leave the mirror lazy. So on any graph
+    # built with the bulk edge APIs the native serializer silently DROPPED
+    # every edge attribute (e.g. `weight`), corrupting JSON round-trips. Route
+    # exact simple Graph through G.adjacency() instead: its rows read the store
+    # correctly AND the cached outer/row dicts make it byte-exact + ~1.2-1.3x
+    # faster than nx (vs the buggy native path's 0.79x). Simple DiGraph,
+    # multigraphs and any subclass / filtered view use the correct per-node
+    # G[node] loop below.
+    if type(G) is Graph:
+        return {
+            "directed": False,
+            "multigraph": False,
+            "graph": list(G.graph.items()),
+            "nodes": [{**node_attrs, id_: node} for node, node_attrs in G.nodes(data=True)],
+            "adjacency": [
+                [{**edge_attrs, id_: nbr} for nbr, edge_attrs in nbrs.items()]
+                for _, nbrs in G.adjacency()
+            ],
+        }
+
+    if type(G) is DiGraph:
+        # Successor adjacency built from the bulk store-backed edge view.
+        # G.edges(data=True) yields out-edges grouped by source in node order
+        # and, within a source, in successor (adjacency) order — exactly nx's
+        # per-node G[node] iteration — so grouping by source reproduces nx's
+        # adjacency list byte-for-byte while avoiding the slow per-node
+        # AdjacencyView materialisation (0.26x -> faster).
+        nodelist = list(G)
+        index = {node: i for i, node in enumerate(nodelist)}
+        adjacency = [[] for _ in nodelist]
+        for u, v, edge_attrs in G.edges(data=True):
+            adjacency[index[u]].append({**edge_attrs, id_: v})
+        return {
+            "directed": True,
+            "multigraph": False,
+            "graph": list(G.graph.items()),
+            "nodes": [{**node_attrs, id_: node} for node, node_attrs in G.nodes(data=True)],
+            "adjacency": adjacency,
+        }
 
     data = {
         "directed": G.is_directed(),
@@ -29523,23 +29551,14 @@ def node_link_data(
     if len(set(internal_names)) != len(internal_names):
         raise NetworkXError("Attribute names are not unique.")
 
-    # br-r37-c1-9kpev: native fast path for exact simple Graph / DiGraph,
-    # building the nodes + edges arrays in Rust (copying live attr dicts +
-    # appending name/source/target) instead of walking the per-edge EdgeView.
-    # The edge order matches nx's G.edges() dedup order. Multigraphs and any
-    # subclass / filtered view fall through to the comprehensions below.
-    if type(G) in (Graph, DiGraph):
-        native = _fnx.node_link_data_simple(G, name, source, target)
-        if native is not None:
-            node_list, edge_list = native
-            return {
-                "directed": G.is_directed(),
-                "multigraph": False,
-                "graph": dict(G.graph),
-                nodes: node_list,
-                edges: edge_list,
-            }
-
+    # br-r37-c1-9kpev native fast path REMOVED (cc, adjdataedgeattr): like
+    # adjacency_data, node_link_data_simple copied edge attrs from the Python
+    # edge MIRROR, which is empty for batch-built simple graphs (attrs live in
+    # the native CgseValue store) — so it silently DROPPED every edge attribute
+    # on graphs built with add_weighted_edges_from / add_edges_from, corrupting
+    # node-link JSON. The comprehension fallback below sources edges from
+    # G.edges(data=True), which reads the store correctly and stays byte-exact
+    # with nx for both directed and undirected inputs.
     payload = {
         "directed": G.is_directed(),
         "multigraph": G.is_multigraph(),

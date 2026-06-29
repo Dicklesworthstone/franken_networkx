@@ -523,22 +523,14 @@ def adjacency_data(G, attrs={"id": "id", "key": "key"}):  # noqa: B006
     """Return adjacency JSON data using fnx's graph-preserving wrapper."""
     import franken_networkx as fnx
 
-    # Native fast path for exact simple Graph / DiGraph: build the `nodes`
-    # and `adjacency` arrays in Rust, bypassing the per-edge AdjacencyView
-    # Python machinery that made this ~14x slower than nx. Multigraphs and any
-    # subclass / filtered view (SubgraphView etc.) take the general wrapper.
-    if type(G) in (fnx.Graph, fnx.DiGraph):
-        _attrs = {"id": "id", "key": "key"} if attrs is None else attrs
-        native = fnx._fnx.adjacency_data_simple(G, _attrs["id"])
-        if native is not None:
-            nodes, adjacency = native
-            return {
-                "directed": G.is_directed(),
-                "multigraph": False,
-                "graph": list(G.graph.items()),
-                "nodes": nodes,
-                "adjacency": adjacency,
-            }
+    # The native adjacency_data_simple fast path was REMOVED (cc,
+    # adjdataedgeattr): it copied edge attrs from the Python edge mirror, which
+    # is empty for batch-built simple graphs (add_weighted_edges_from /
+    # add_edges_from store attrs natively), so it silently dropped every edge
+    # attribute. Delegate to the corrected top-level wrapper, which routes
+    # simple Graph through G.adjacency() and simple DiGraph through the
+    # store-backed edge view — both byte-exact with nx and faster than the
+    # buggy native path.
     return fnx.adjacency_data(G, attrs=attrs)
 
 
@@ -578,24 +570,11 @@ def node_link_data(
     """Return node-link JSON data using fnx's wrapper."""
     import franken_networkx as fnx
 
-    # Native fast path for exact simple Graph / DiGraph: build the node and
-    # edge arrays in Rust, bypassing the per-edge EdgeView Python machinery
-    # that made this ~3.5x slower than nx. Multigraphs and any subclass /
-    # filtered view take the general wrapper.
-    if type(G) in (fnx.Graph, fnx.DiGraph):
-        # Field-name uniqueness (key is multigraph-only, excluded here).
-        if len({source, target, name}) != 3:
-            raise fnx.NetworkXError("Attribute names are not unique.")
-        native = fnx._fnx.node_link_data_simple(G, name, source, target)
-        if native is not None:
-            node_list, edge_list = native
-            return {
-                "directed": G.is_directed(),
-                "multigraph": False,
-                "graph": dict(G.graph),
-                nodes: node_list,
-                edges: edge_list,
-            }
+    # The native node_link_data_simple fast path was REMOVED (cc,
+    # adjdataedgeattr): like adjacency_data it copied edge attrs from the empty
+    # Python edge mirror on batch-built simple graphs and silently dropped them.
+    # Delegate to the corrected top-level wrapper, which sources edges from the
+    # store-backed G.edges(data=True) view (byte-exact with nx).
     return fnx.node_link_data(
         G,
         source=source,

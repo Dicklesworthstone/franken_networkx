@@ -2,6 +2,37 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-29 CopperCliff FIX+SHIP: adjacency_data / node_link_data DATA-LOSS bug — native *_simple kernels dropped edge attrs on batch-built graphs (`adjdataedgeattr`)
+
+CORRECTNESS bug (not just perf). The `br-r37-c1-9kpev` native fast paths
+(`_fnx.adjacency_data_simple` / `node_link_data_simple`, gated to exact simple
+Graph/DiGraph in BOTH the top-level `__init__.py` and the
+`readwrite.json_graph` wrappers) copied each edge's attrs from the **Python edge
+mirror** (`edge_py_attrs`). That mirror is **empty** for graphs built with the
+bulk edge APIs — `add_weighted_edges_from` / `add_edges_from` commit edge attrs
+straight into the native CgseValue store and leave the mirror lazy. So on any
+graph built with the batch APIs the native serializers **silently DROPPED every
+edge attribute** (e.g. `weight`), corrupting JSON round-trips (the most common
+real-world way these graphs are serialized).
+
+FIX (pure-Python, NO Rust rebuild — the buggy bindings are simply no longer
+called): route exact simple `Graph` through `G.adjacency()` (rows read the store
+correctly + cached outer/row dicts), and exact simple `DiGraph` through the
+store-backed `G.edges(data=True)` view grouped by source (byte-identical to nx's
+per-node `G[node]` adjacency order). `node_link_data` falls through to the
+existing `G.edges(data=True)` comprehension. All four removed call sites replaced
+with a documented bail.
+
+MEASURED head-to-head vs NetworkX (min of 7, n=2000 batch-weighted cycle):
+adjacency_data undirected **1.23x**, directed **1.42x** (was buggy native 0.79x);
+node_link_data undirected **1.01x**, directed **1.23x** — at-or-above nx AND
+correct. Byte-EXACT vs nx (weights/color survive) over directed+undirected; new
+regression `test_toplevel_batch_built_edge_attrs_survive_serialization`; full
+json/adjacency/node_link/readwrite suite **634 passed, 4 skipped**. LEVER
+(reusable): a native serializer that reads the Python attr MIRROR instead of the
+store is silently wrong for batch-built graphs — audit any `*_simple` kernel that
+copies `edge_py_attrs`/`node_py_attrs` for the same mirror-vs-store data loss.
+
 ## 2026-06-28 CopperCliff SHIP: MultiGraph average_degree_connectivity 0.11x->1.18x (~10x self) + has_eulerian_path self-loop case 0.05x->1.2x (`br-r37-c1-mgisol`)
 
 Two more MG fallback-tax fixes (pure-Python). (1) `average_degree_connectivity`'s
