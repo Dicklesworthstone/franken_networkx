@@ -6782,7 +6782,15 @@ impl PyMultiGraph {
             let cached = &self.edges_with_data_cache.as_ref().unwrap().3;
             return Ok(cached.iter().map(|t| t.clone_ref(py)).collect());
         }
-        let mut seen: HashSet<(String, String, usize)> = HashSet::new();
+        // br-r37-c1-mgedgededup (cc): dedup undirected edges by NODE (emit each edge
+        // from the first-encountered endpoint) — nx's exact algorithm — instead of a
+        // per-edge canonical (String,String,usize) seen-set. Drops the per-edge ek
+        // clone + tuple-hash insert (O(E)) for an O(N) node-processed set; the raw ek
+        // is now built only for the want_value mirror probe. Orientation
+        // (current-node-first), node->neighbor->key order, and self-loop-once are all
+        // unchanged: a self-loop's `node` is not yet in `processed`, and a neighbor
+        // already processed (earlier in node order) had this edge emitted from its side.
+        let mut processed: HashSet<String> = HashSet::new();
         let mut result: Vec<PyObject> = Vec::with_capacity(self.inner.edge_count());
         let nodes: Vec<String> = self
             .inner
@@ -6799,12 +6807,11 @@ impl PyMultiGraph {
                 .map(str::to_owned)
                 .collect();
             for neighbor in &neighbors {
+                if processed.contains(neighbor.as_str()) {
+                    continue;
+                }
                 let edge_keys = self.inner.edge_keys(node, neighbor).unwrap_or_default();
                 for key in edge_keys {
-                    let ek = Self::edge_key(node, neighbor, key);
-                    if !seen.insert(ek.clone()) {
-                        continue;
-                    }
                     let mut elems: Vec<PyObject> = Vec::with_capacity(4);
                     elems.push(self.py_node_key(py, node));
                     elems.push(
@@ -6820,6 +6827,7 @@ impl PyMultiGraph {
                             .into_any();
                         elems.push(attrs);
                     } else if want_value {
+                        let ek = Self::edge_key(node, neighbor, key);
                         let val = match self.edge_py_attrs.get(&ek) {
                             Some(d) => d
                                 .bind(py)
@@ -6840,6 +6848,7 @@ impl PyMultiGraph {
                     result.push(PyTuple::new(py, &elems)?.into_any().unbind());
                 }
             }
+            processed.insert(node.clone());
         }
         if cacheable {
             let cached: Vec<PyObject> = result.iter().map(|t| t.clone_ref(py)).collect();

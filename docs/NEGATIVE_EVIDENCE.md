@@ -10042,3 +10042,25 @@ edge_key String per edge (or materializes the mirror); if `ek` is already in han
 the mirror is a cheap probe returning a cached object, store-read is a net loss. MG
 edges(data=<attr>) residual (0.34-0.82x) is the genuine per-edge mirror floor; closing
 it needs the integer-keyed mirror (deferred). selfloop_edges variants similarly.
+
+## 2026-06-29 CopperCliff SHIP: MultiGraph edges() node-dedup — up to 2.15x self, plain edges now BEATS nx
+
+The MG edges() kernel (`_native_edge_view_list`, lib.rs) deduped undirected edges with a
+per-edge canonical `(String,String,usize)` seen-set (`seen.insert(ek.clone())` PER EDGE
+= a String-tuple clone + tuple-hash insert over O(E)). Replaced with nx's actual
+algorithm: dedup by NODE via an O(N) `processed` set, emitting each edge from the
+first-encountered endpoint (a neighbor already in `processed` had the edge emitted from
+its side; a self-loop's node isn't yet processed -> emitted once). The raw `ek` is now
+built ONLY for the want_value mirror probe (plain data=False builds no ek at all).
+
+Clean isolated A/B (min-of-30) MG n=700/e12662, byte-exact 360/360 over 60 graphs with
+NON-SORTED node insertion order + self-loops + parallel edges (all 6 variants), incl
+data=True live-dict identity:
+  edges()              0.71x -> **1.34x** (8.04 -> 4.27ms, 1.88x self) — now BEATS nx
+  edges(data='weight') 0.53x -> **0.97x** (13.44 -> 7.48ms, 1.80x self)
+  edges(keys,data='w') 0.42x -> **0.89x** (17.40 -> 8.11ms, 2.15x self)
+  edges(keys), edges(data=True): unchanged (already cached/fast, 4.5x/5x)
+Conformance 10771 pass (sole failure write_gexf classification is PRE-EXISTING on HEAD).
+Per-crate build via rch. The per-edge String-tuple dedup set was the dominant cost (not
+the value extraction) — removing it closed most of the gap. Orientation + node->neighbor
+->key order + self-loop multiplicity all preserved (nx's first-encounter semantics).
