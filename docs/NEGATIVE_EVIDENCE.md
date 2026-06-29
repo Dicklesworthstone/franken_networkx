@@ -10757,3 +10757,30 @@ integer-keyed edge mirror / lazy view-iter (consolidated handoff ae81b9c6f), not
 NEXT (for whoever picks this up): confirm which path executes (add a temporary counter), and if it
 is path 3, the win is routing per-edge-built `!edges_dirty` graphs to the path-2 store-read — NOT the
 py_node_key hoist (proven null here).
+
+## 2026-06-29 BlackThrush SHIP: parallel-edge add_edge spurious dirty-mark -> weighted aggregates 0.46x->2.1-2.3x
+
+ROOT CAUSE (traced via instrumented build + backtrace): the Multi*Graph auto-key
+`add_edge` wrapper (key=None) computed nx's `new_edge_key` by calling
+`get_edge_data(u, v)` purely to inspect the existing keydict. But get_edge_data hands
+out LIVE mutable mirror attr dicts, so it calls `mark_edges_dirty()` on the WHOLE graph.
+Running on EVERY parallel-edge add, a per-edge-built multigraph ended up permanently
+`edges_dirty=true`, forcing the `!edges_dirty`-gated store fast paths OFF. MDG
+`in/out/degree(weight)` + `size(weight)` were ~0.46-0.55x vs nx (slow mirror walk).
+
+FIX: native side-effect-free `_native_edge_key_set(u,v)` (PySet of public key objects;
+no attr materialization, no dirty mark) on PyMultiGraph (lib.rs) + PyMultiDiGraph
+(digraph.rs); auto-key wrapper uses it instead of get_edge_data. Graph stays clean.
+
+MEASURED (warm min-of-10, per-edge-built parallel-edge MultiDiGraph n=700):
+  in_degree(weight)  0.46x -> 2.08-2.12x ;  out_degree(weight) 0.55x -> 2.24-2.26x
+  degree(weight)             -> 2.29x    ;  size(weight)              -> 2.31x
+PARITY byte-exact: new_edge_key 20/20 (parallel/gap/custom/mixed/random) + in_edges view
+shapes 24/24 + new test 26/26. CONFORMANCE GREEN: 6186 passed / 0 failed (multigraph/
+edge/degree/mutation net). MG-undirected weighted degree stays ~0.86x (no store fast path
+there yet -- audit lib.rs ~8059, neutral, cleaning dirty cannot regress reads).
+
+RESIDUAL (NOT fixed, materialization floor): edge-LISTING views (in_edges/edges/out_edges
+with keys+data) stay ~0.19-0.34x even clean -- per-edge PyObject 4-tuple materialization
+nx avoids by yielding live `_pred`/`_adj` dicts. Separate architectural lever (integer-keyed
+mirror / lazy view-iter), NOT the dirty flag. The py_node_key hoist there is null (099cf0279).

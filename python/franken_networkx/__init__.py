@@ -3238,15 +3238,24 @@ def _multi_add_edge_auto_key(raw_add_edge):
             if fast_key is not None:
                 return fast_key
         if key is None:
-            # br-r37-c1-mgaek: use the native O(1) get_edge_data(u, v) keydict
-            # instead of ``self[u_for_edge][v_for_edge]``, which rebuilds the
-            # full MultiAdjacencyView (O(E)) on EVERY add_edge — making the
-            # public multigraph add_edge O(E) and any per-edge build O(E^2)
-            # (e.g. from_dict_of_dicts of 8k edges took 137s). Same gap-aware
-            # key (nx.MultiGraph.new_edge_key: key = len(keydict); while key in
+            # br-r37-c1-mgaek: use the native O(1) keydict instead of
+            # ``self[u_for_edge][v_for_edge]``, which rebuilds the full
+            # MultiAdjacencyView (O(E)) on EVERY add_edge — making the public
+            # multigraph add_edge O(E) and any per-edge build O(E^2) (e.g.
+            # from_dict_of_dicts of 8k edges took 137s). Same gap-aware key
+            # (nx.MultiGraph.new_edge_key: key = len(keydict); while key in
             # keydict: key += 1), so explicit/auto key mixes still match nx.
+            #
+            # br-inedges-autokey (bt): use ``_native_edge_key_set`` (key objects
+            # only) rather than ``get_edge_data`` here. get_edge_data hands out
+            # LIVE mutable mirror dicts, so it marks the WHOLE graph dirty — and
+            # since this runs on EVERY parallel-edge add, a per-edge-built
+            # multigraph ends up permanently dirty, forcing in_edges/edges/degree
+            # (with data) onto their slow non-store-read paths (mdg
+            # in_edges(keys,data) was 0.19x vs nx). The key set is all the
+            # new_edge_key search needs and leaves the graph clean.
             try:
-                existing = self.get_edge_data(u_for_edge, v_for_edge)
+                existing = self._native_edge_key_set(u_for_edge, v_for_edge)
             except TypeError:
                 # br-r37-c1 mutation-state batch 2: unhashable endpoint —
                 # fall through so raw_add_edge raises with nx's

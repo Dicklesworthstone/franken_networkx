@@ -4010,6 +4010,30 @@ impl PyMultiGraph {
         }
     }
 
+    /// br-inedges-autokey (bt): side-effect-free public-key set for a (u, v)
+    /// pair, for the auto-key add_edge path's `new_edge_key` computation. Unlike
+    /// `get_edge_data(u, v)` (which materializes live mirror attr dicts AND marks
+    /// the WHOLE graph dirty so it can hand out mutable dicts), this returns ONLY
+    /// the key objects -- no attr materialization, no dirty mark. Keeping the
+    /// graph clean lets subsequent read-views stay on their store-read fast paths
+    /// after a parallel-edge build.
+    fn _native_edge_key_set(
+        &self,
+        py: Python<'_>,
+        u: &Bound<'_, PyAny>,
+        v: &Bound<'_, PyAny>,
+    ) -> PyResult<PyObject> {
+        let u_c = node_key_to_string(py, u)?;
+        let v_c = node_key_to_string(py, v)?;
+        let set = pyo3::types::PySet::empty(py)?;
+        if let Some(keys) = self.inner.edge_keys(&u_c, &v_c) {
+            for k in keys {
+                set.add(self.py_edge_key(py, &u_c, &v_c, k))?;
+            }
+        }
+        Ok(set.into_any().unbind())
+    }
+
     /// Return attributes of the edge (u, v).
     /// br-r37-c1-sjf4t: push the per-node and per-edge Python attribute
     /// dicts back into the Rust ``inner`` graph. Called by Python-level
