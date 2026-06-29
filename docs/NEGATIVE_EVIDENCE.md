@@ -10967,3 +10967,20 @@ MEASURED: MG subgraph(nb).copy() 0.76x -> 1.09x (8.3 vs 9.5ms). byte-exact 20/20
 (incl edges() ORIENTATION + self-loops + batch-vs-per-edge oracle) + new test 17/17;
 conformance 4517 passed changed-area. find_induced/unused_raw_exposures/write_gexf reds remain
 pre-existing + unrelated. CONSTRUCTION-TAX vein now done for MG+MDG subgraph copy + fresh keyed.
+
+## 2026-06-29 BlackThrush SHIP: MultiGraph fresh keyed add_edges_from(4-tuple) 0.31x -> 0.95x
+
+Completes the multigraph keyed-construction family (MDG fresh 3826c6c12, MDG+MG non-fresh
+48560565e/90824273a). MG's "fresh_keyed" batch (collect_fresh_exact_int_keyed_attr_edge_batch
+lib.rs:2887) is actually a 3-tuple AUTO-key collector, so fresh MultiGraph add_edges_from of
+EXPLICIT-KEY 4-tuples had no batch -> per-edge PyO3, 0.31x vs nx. Added
+collect_fresh_exact_int_keyed4_attr_edge_batch + try_add_fresh_exact_int_keyed4_attr_edge_batch
+(node first-seen order + GIVEN (u,v) edge order = per-edge symmetric-adjacency layout, byte-exact
+undirected orientation), reusing add_fresh_exact_int_keyed_attr_edge_batch's commit (mirror keyed
+CANONICAL edge_key u<=v). Wired into _try_add_attr_edges_from_batch before the non-fresh attempt.
+Self-validates + bails to per-edge: custom/negative keys, non-scalar attrs (ebunch_batch_lossless
+skips 4-tuples -> own guard), canonical (min,max,key) collision, non-fresh graph.
+MEASURED: MG fresh keyed add_edges_from(list) 0.31x -> 0.95x; batch vs forced-per-edge = 3.95x.
+byte-exact 12/12 ad-hoc (orientation, reverse-orientation, self-loops, canonical dup bail,
+new_edge_key after batch) + new test 11/11; conformance 4153 passed changed-area. Multigraph
+keyed-construction vein now COMPLETE (fresh + non-fresh, both types).
