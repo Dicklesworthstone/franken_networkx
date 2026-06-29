@@ -11096,3 +11096,29 @@ key resolution in Python and never reaches this native add_edge fast path (singl
 2735ms). That is a SEPARATE surface (the locked __init__.py wrapper, or a native keyed parallel
 batch); deferred. MultiDiGraph.add_edge likely carries the same O(N^2) auto-key scan -> audit
 digraph.rs add_edge for the same has_remapped_int_key treatment.
+
+## 2026-06-29 BlackThrush SHIP: MultiDiGraph.add_edge auto-key O(N^2)->O(N) — parallel add_edge 0.002x->0.15-0.29x
+
+NATIVE (fnx-python) + drop a Python wrapper. Sibling of the MultiGraph add_edge win (79876a932).
+MultiGraph.add_edge was already migrated to raw-native (key=None auto-allocation owned by
+PyMultiGraph.add_edge), but MultiDiGraph.add_edge was STILL bound to the Python wrapper
+`_multi_add_edge_auto_key` (__init__.py ~3288), whose body calls `self._native_edge_key_set(u, v)`
++ a Python `while candidate in existing` loop on EVERY add — O(existing) per parallel add = O(N^2)
+total. HEAD: N=500..4000 -> 24/100/424/1697ms (0.011x collapsing to 0.002x vs nx, clean quadratic).
+FIX: give PyMultiDiGraph the same `has_remapped_int_key` machinery as PyMultiGraph
+(note_public_key_value at remember_edge_key/_object + the keyed/union/diff batches + the deep-copy
+display-key insert; propagated across _native_copy/copy/__copy__/subgraph/edge_subgraph/reverse/
+to_directed_deepcopy + the cross-type/algorithm/generator literals — compiler E0063-enumerated all
+13 PyMultiDiGraph initializers). In native add_edge, for key=None: when the flag is clear, skip the
+public-key scan and let inner.add_edge_with_attrs' O(1) internal auto key flow through as the echoed
+public key (no remap => directed internal==public exactly, gaps incl); when set, run the nx public
+scan. Then DROP the wrapper: `MultiDiGraph.add_edge = _MULTIDIGRAPH_ADD_EDGE` (raw native).
+RELEASE: parallel add_edge now LINEAR 1.12/1.67/4.03/9.80/25.75ms for N=500..8000 (flat ~0.15-0.29x;
+~260x faster than HEAD at N=8000). MultiGraph add_edge unchanged (0.20-0.36x, no regression). byte
+-exact vs nx across 8 differential key-sequence cases incl directed separation (0->1 key 2 vs 1->0
+key 1, independent parallel sets), remove-gap, explicit-int-crossing, string/bool/hash-equiv;
+10196 digraph/multigraph/copy/operator/convert/relabel/reverse/subgraph/generator conformance pass,
+0 fail.
+RESIDUAL: add_edges_from([(u,v),...]) with duplicate pairs is STILL O(N^2) for BOTH Multi types —
+routes through the Python __init__.py _multi_add_edges_from wrapper (per-edge Python add_edge w/ its
+own key probe), never the native batch. Separate surface; deferred.

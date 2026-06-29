@@ -3284,8 +3284,13 @@ def _multi_add_edge_auto_key(raw_add_edge):
 # br-r37-c1-kt0vp: PyMultiGraph.add_edge now owns the exact-type no-attr
 # fast path plus key=None auto-allocation, so the extra Python auto-key wrapper
 # only adds dispatch overhead on the measured public add_edge loop.
+# br-paralleladd (bt): PyMultiDiGraph.add_edge now likewise owns key=None
+# auto-allocation natively (gated O(1) auto key via has_remapped_int_key), so the
+# _multi_add_edge_auto_key wrapper — whose `_native_edge_key_set` rebuilt the full
+# parallel-key set on EVERY add, making repeated parallel add_edge O(N^2) — is
+# dropped. Native echoes int(actual_key) for the clean case (== nx public key).
 MultiGraph.add_edge = _MULTIGRAPH_ADD_EDGE_RAW
-MultiDiGraph.add_edge = _multi_add_edge_auto_key(_MULTIDIGRAPH_ADD_EDGE)
+MultiDiGraph.add_edge = _MULTIDIGRAPH_ADD_EDGE
 
 
 def _multi_add_edges_from(self, ebunch_to_add, **attr):

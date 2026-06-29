@@ -9388,6 +9388,7 @@ pub fn stochastic_graph_copy_multidigraph(
         pred_py_keys: HashMap::new(),
         node_py_attrs,
         edge_py_attrs: HashMap::new(),
+        has_remapped_int_key: graph.has_remapped_int_key,
         edge_py_keys: graph
             .edge_py_keys
             .iter()
@@ -13503,6 +13504,7 @@ pub fn multidigraph_transitive_closure(
         node_py_attrs: HashMap::with_capacity(mdg.node_py_attrs.len()),
         edge_py_attrs: HashMap::with_capacity(mdg.edge_py_attrs.len()),
         edge_py_keys: HashMap::with_capacity(mdg.edge_py_keys.len()),
+        has_remapped_int_key: mdg.has_remapped_int_key,
         graph_attrs: mdg.graph_attrs.bind(py).copy()?.unbind(),
         nodes_seq: 0,
         edges_seq: 0,

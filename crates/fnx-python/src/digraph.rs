@@ -145,6 +145,13 @@ pub struct PyMultiDiGraph {
     pub(crate) node_py_attrs: HashMap<String, Py<PyDict>>,
     pub(crate) edge_py_attrs: HashMap<(String, String, usize), Py<PyDict>>,
     pub(crate) edge_py_keys: HashMap<(String, String, usize), PyObject>,
+    /// br-paralleladd (bt): see PyMultiGraph::has_remapped_int_key. True once an
+    /// int public key is remapped off its internal key, which is the only thing
+    /// that lets the public int-key space diverge from the directed internal key
+    /// space. While false, native add_edge's O(1) internal auto key IS the public
+    /// key, so MultiDiGraph.add_edge needs no Python auto-key wrapper (the O(N^2)
+    /// `_native_edge_key_set` scan per parallel add).
+    pub(crate) has_remapped_int_key: bool,
     pub(crate) graph_attrs: Py<PyDict>,
     /// br-r37-c1-39d82: see PyGraph::nodes_seq.
     pub(crate) nodes_seq: u64,
@@ -1735,6 +1742,22 @@ impl PyMultiDiGraph {
         }
     }
 
+    /// br-paralleladd (bt): see PyMultiGraph::note_public_key_value. Record
+    /// whether a stored public key REMAPS the int key space (an int whose value
+    /// differs from its internal key) — the only thing that can collide with a
+    /// future int auto key and so disable the O(1) auto-key fast path.
+    #[inline]
+    fn note_public_key_value(&mut self, internal_key: usize, py_key: &Bound<'_, PyAny>) {
+        if self.has_remapped_int_key {
+            return;
+        }
+        if let Ok(i) = py_key.extract::<i64>() {
+            if usize::try_from(i).ok() != Some(internal_key) {
+                self.has_remapped_int_key = true;
+            }
+        }
+    }
+
     fn remember_edge_key(
         &mut self,
         py: Python<'_>,
@@ -1754,6 +1777,7 @@ impl PyMultiDiGraph {
         self.edge_py_keys
             .entry(Self::edge_key(u, v, key))
             .or_insert_with(|| py_key.clone_ref(py));
+        self.note_public_key_value(key, py_key.bind(py));
         py_key
     }
 
@@ -1769,6 +1793,7 @@ impl PyMultiDiGraph {
         self.edge_py_keys
             .entry(Self::edge_key(u, v, key))
             .or_insert_with(|| external_key.clone_ref(py));
+        self.note_public_key_value(key, external_key.bind(py));
     }
 
     fn resolve_internal_edge_key(
@@ -1812,6 +1837,7 @@ impl PyMultiDiGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
+            has_remapped_int_key: false,
             graph_attrs: PyDict::new(py).unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -2002,6 +2028,9 @@ impl PyMultiDiGraph {
             .inner
             .extend_keyed_edges_with_attrs_unrecorded(edge_batch);
         self.edge_py_attrs.extend(edge_attrs);
+        for (ek, obj) in &edge_keys {
+            self.note_public_key_value(ek.2, obj.bind(py));
+        }
         self.edge_py_keys.extend(edge_keys);
         if !node_seen.is_empty() {
             self.bump_nodes_seq();
@@ -3865,6 +3894,7 @@ impl PyMultiDiGraph {
         }
         self.inner.extend_keyed_edges_with_attrs_unrecorded(edges);
         for (u, v, key, obj) in display_keys {
+            self.note_public_key_value(key, obj.bind(py));
             self.edge_py_keys
                 .entry(Self::edge_key(&u, &v, key))
                 .or_insert(obj);
@@ -3995,6 +4025,7 @@ impl PyMultiDiGraph {
             self.edge_py_attrs.entry(ek).or_insert(dict);
         }
         for (u, v, key, obj) in display_keys {
+            self.note_public_key_value(key, obj.bind(py));
             self.edge_py_keys
                 .entry(Self::edge_key(&u, &v, key))
                 .or_insert(obj);
@@ -4075,6 +4106,7 @@ impl PyMultiDiGraph {
         let n_edges = edges.len();
         let _ = r.inner.extend_keyed_edges_with_attrs_unrecorded(edges);
         for (u, v, key, obj) in display {
+            r.note_public_key_value(key, obj.bind(py));
             r.edge_py_keys
                 .entry(Self::edge_key(&u, &v, key))
                 .or_insert(obj);
@@ -4182,6 +4214,7 @@ impl PyMultiDiGraph {
         let n_edges = edges.len();
         let _ = r.inner.extend_keyed_edges_with_attrs_unrecorded(edges);
         for (u, v, key, obj) in display {
+            r.note_public_key_value(key, obj.bind(py));
             r.edge_py_keys
                 .entry(Self::edge_key(&u, &v, key))
                 .or_insert(obj);
@@ -4256,6 +4289,37 @@ impl PyMultiDiGraph {
             self.add_node(py, v, None)?;
             explicit_key.hash()?;
         }
+        // br-paralleladd (bt): mirror PyMultiGraph's auto-key. For an AUTO key
+        // (key=None) the public key equals nx's `k = len(G[u][v]); while k in
+        // G[u][v]: k += 1` ONLY when some int public key was remapped off its
+        // internal key. While clean (has_remapped_int_key false), the O(1)
+        // internal auto key computed below IS the public key, so we echo
+        // int(actual_key) with no scan — this is what lets MultiDiGraph.add_edge
+        // drop the O(N^2) `_native_edge_key_set` Python auto-key wrapper.
+        let auto_public_key: Option<PyObject> = if key.is_none() && self.has_remapped_int_key {
+            let existing = self
+                .inner
+                .edge_keys(&u_canonical, &v_canonical)
+                .unwrap_or_default();
+            let mut int_public_keys = std::collections::HashSet::<i64>::new();
+            for &k in &existing {
+                if let Ok(i) = self
+                    .py_edge_key(py, &u_canonical, &v_canonical, k)
+                    .bind(py)
+                    .extract::<i64>()
+                {
+                    int_public_keys.insert(i);
+                }
+            }
+            let mut pk = existing.len() as i64;
+            while int_public_keys.contains(&pk) {
+                pk += 1;
+            }
+            Some(pk.into_pyobject(py)?.into_any().unbind())
+        } else {
+            None
+        };
+
         let actual_key = match key {
             Some(explicit_key) => {
                 if let Some(internal_key) =
@@ -4293,7 +4357,11 @@ impl PyMultiDiGraph {
         }
         // br-r37-c1-jft0i: bump edges_seq so view-materialization caches invalidate.
         self.bump_edges_seq();
-        Ok(self.remember_edge_key(py, &u_canonical, &v_canonical, actual_key, key))
+        // br-paralleladd (bt): for a clean auto-add, external is None and
+        // remember_edge_key echoes int(actual_key) (== public key); for the
+        // remapped case it echoes the scanned public key.
+        let external = key.or_else(|| auto_public_key.as_ref().map(|o| o.bind(py)));
+        Ok(self.remember_edge_key(py, &u_canonical, &v_canonical, actual_key, external))
     }
 
     #[pyo3(signature = (ebunch_to_add, **attr))]
@@ -6256,6 +6324,7 @@ impl PyMultiDiGraph {
                 .iter()
                 .map(|(k, v)| Ok((k.clone(), v.bind(py).copy()?.unbind())))
                 .collect::<PyResult<_>>()?,
+            has_remapped_int_key: self.has_remapped_int_key,
             edge_py_keys: self
                 .edge_py_keys
                 .iter()
@@ -6292,6 +6361,7 @@ impl PyMultiDiGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
+            has_remapped_int_key: self.has_remapped_int_key,
             graph_attrs: crate::deepcopy_py_dict(py, &deepcopy, &self.graph_attrs)?,
             nodes_seq: 0,
             edges_seq: 0,
@@ -6556,6 +6626,7 @@ impl PyMultiDiGraph {
                                 .insert(dst_ek.clone(), attrs.bind(py).copy()?.unbind());
                         }
                         if let Some(display_key) = part.edge_py_keys.get(&src_ek) {
+                            g.note_public_key_value(key, display_key.bind(py));
                             g.edge_py_keys.insert(dst_ek, display_key.clone_ref(py));
                         }
                         edge_batch.push((
@@ -6598,6 +6669,7 @@ impl PyMultiDiGraph {
             node_py_attrs: HashMap::with_capacity(self.node_py_attrs.len()),
             edge_py_attrs: HashMap::with_capacity(self.edge_py_attrs.len()),
             edge_py_keys: HashMap::with_capacity(self.edge_py_keys.len()),
+            has_remapped_int_key: self.has_remapped_int_key,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -6681,6 +6753,7 @@ impl PyMultiDiGraph {
                 .iter()
                 .map(|(k, v)| Ok((k.clone(), v.bind(py).copy()?.unbind())))
                 .collect::<PyResult<_>>()?,
+            has_remapped_int_key: self.has_remapped_int_key,
             edge_py_keys: self
                 .edge_py_keys
                 .iter()
@@ -6772,6 +6845,7 @@ impl PyMultiDiGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
+            has_remapped_int_key: self.has_remapped_int_key,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -6855,6 +6929,7 @@ impl PyMultiDiGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
+            has_remapped_int_key: self.has_remapped_int_key,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -7048,6 +7123,7 @@ impl PyMultiDiGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::with_capacity(self.edge_py_keys.len()),
+            has_remapped_int_key: self.has_remapped_int_key,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
