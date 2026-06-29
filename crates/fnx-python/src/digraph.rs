@@ -11908,21 +11908,34 @@ impl PyDiGraph {
             .into_any()
             .unbind();
 
+        // br-inedges-distorefix (bt): a string attr reads mirror-THEN-store. The
+        // old code read ONLY edge_py_attrs and returned `default` for store-only
+        // edges, so dag_longest_path(weight=<attr>) on a bulk-built DiGraph (empty
+        // mirror) read every weight as the default -> wrong longest path. Same bug
+        // class as in_edges(data=<attr>). A non-str key can only live in the mirror.
+        let attr_str: Option<String> = key.extract::<String>().ok();
         let mut pred_groups = Vec::with_capacity(node_count);
         for &target_idx in &topo_indices {
             let target = nodes[target_idx];
             let mut preds = Vec::new();
             for source in self.inner.predecessors(target).unwrap_or_default() {
                 let py_s = self.py_pred_key(py, target, source) /* br-r37-c1-z6uka */;
-                let ek = Self::edge_key(source, target);
-                let value = match self.edge_py_attrs.get(&ek) {
-                    Some(d) => d
-                        .bind(py)
-                        .get_item(key)
-                        .ok()
-                        .flatten()
-                        .map_or_else(|| default.clone_ref(py), |val| val.unbind()),
-                    None => default.clone_ref(py),
+                let value = match &attr_str {
+                    Some(attr) => self
+                        .edge_attr_py_value(py, source, target, attr)?
+                        .unwrap_or_else(|| default.clone_ref(py)),
+                    None => {
+                        let ek = Self::edge_key(source, target);
+                        match self.edge_py_attrs.get(&ek) {
+                            Some(d) => d
+                                .bind(py)
+                                .get_item(key)
+                                .ok()
+                                .flatten()
+                                .map_or_else(|| default.clone_ref(py), |val| val.unbind()),
+                            None => default.clone_ref(py),
+                        }
+                    }
                 };
                 preds.push(tuple_object(py, &[py_s, value])?);
             }

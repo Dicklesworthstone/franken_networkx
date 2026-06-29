@@ -11220,3 +11220,21 @@ PERF: added in_edges_data_attr_cache (PyMultiDiGraph analog) — nx rebuilds the
 call, so the frozen (s,t,value) snapshot serves warm repeats (clone refs vs re-walk). Gated
 !edges_dirty, dropped in mark_edges_dirty (attr edits don't bump edges_seq); Mutex for the &self
 read path. get_edge_data marks dirty so a post-read mutation invalidates (verified).
+
+## 2026-06-29 BlackThrush FIX+SHIP: dag_longest_path(weight=<attr>) store-only bug — SIBLING of in_edges
+
+CORRECTNESS (pre-existing). Audit follow-up to 151fdd624 (in_edges store-only fix): swept value-read
+paths for the same `edge_py_attrs.get -> None => default` shape WITHOUT a store fallback. Empirical
+sweep on BULK-built graphs (>=8 edges -> native batch leaves the Python mirror EMPTY): degree/size/
+edges/in_edges/in_degree/out_degree/dijkstra/pagerank/adjacency_matrix all CORRECT (they read the
+CgseValue store), but `_native_dag_topo_pred_data_key` (digraph.rs ~11918, drives dag_longest_path
++ dag_longest_path_length) read ONLY edge_py_attrs and returned `default` for store-only edges -> on
+a bulk-built DiGraph every predecessor weight read as the default_weight -> WRONG longest path
+(e.g. fnx 63 vs nx 83). Per-edge-built (mirror populated) was correct; bulk wrong -> classic
+store-only bug. FIX: read mirror-THEN-store via edge_attr_py_value (string attr resolved once; non
+-str keys only live in the mirror) — same one-liner pattern as the in_edges fix. 60/60 random bulk
+DAGs byte-exact (length AND path-weight); 3626 dag/longest/topo/digraph conformance pass.
+NOTE: MDG `_native_weighted_degree` / weighted_degree_subset_impl PyObject fallbacks also have
+`None => one.clone()` but the int/float store TWINS engage first (degree(weight) verified correct on
+bulk), so those fallbacks are not reached for store-only edges. Audit complete: dag was the last
+reachable store-only value-read.
