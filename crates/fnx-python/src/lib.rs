@@ -7496,6 +7496,7 @@ impl PyMultiGraph {
         // the bindings tolerate absent entries throughout).
         let mut mdg = crate::digraph::PyMultiDiGraph {
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
+            edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: fnx_classes::digraph::MultiDiGraph::with_runtime_policy(
                 fnx_runtime::RuntimePolicy::new(self.inner.mode()),
             ),
@@ -7962,6 +7963,7 @@ impl PyMultiGraph {
     fn to_directed(&self, py: Python<'_>) -> PyResult<crate::digraph::PyMultiDiGraph> {
         let mut mdg = crate::digraph::PyMultiDiGraph {
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
+            edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: fnx_classes::digraph::MultiDiGraph::with_runtime_policy(
                 self.inner.runtime_policy().clone(),
             ),

@@ -10826,3 +10826,22 @@ add/remove/attr-mutate/set_edge_attributes ops) = 244/0 + 200/0 stale; direct in
 all parity; conformance 6143 passed / 0 failed. MEASURED canonical h2h in_edges(keys,data=weight)
 0.19x -> 4.05x win. (A pre-existing fnx-vs-nx in_edges ORDER divergence after random remove/re-add
 is NOT introduced by this cache — HEAD no-cache shows the same 16 diffs; separate latent issue.)
+
+## 2026-06-29 BlackThrush SHIP: MultiDiGraph edges()/out_edges() data=<attr> cache — 0.32-0.68x -> 4.5-6.0x
+
+Out-major sibling of the in_edges(data=<attr>) cache (bff7daa50). Whole-graph
+MultiDiGraph edges(data=<attr>) / out_edges(data=<attr>) rebuilt the scalar tuples
+every call via native_edge_view_list's want_value branch (NO cache, per-edge
+edge_data_value_or_default). Added edges_data_attr_cache (Mutex<Option<(nodes_seq,
+edges_seq, keys, attr, default, tuples)>>) served in that branch while !edges_dirty,
+dropped in mark_edges_dirty/mark_edge_dirty (attr edits don't bump edges_seq). Both
+edges() and out_edges(no nbunch) route through native_edge_view_list, so one cache
+fixes both. MEASURED (warm min-of-10, parallel-edge per-edge MDG n=700):
+  edges(keys,data=weight)     0.68x -> 4.86x
+  edges(data=weight)          0.56x -> 6.02x
+  out_edges(keys,data=weight) 0.32x -> 4.47x
+CORRECTNESS: 508/0 (vs-nx repeats + same-object oracle over 60 random add/remove/
+attr-mutate/set_edge_attributes ops for BOTH views + edges()==out_edges() identity) +
+new test 7/7; conformance 7453 passed / 0 failed.
+RESIDUAL: MG (undirected) edges(keys,data) 0.61x + selfloop_edges 0.41-0.65x are a
+SEPARATE struct (PyMultiGraph, with dedup) — not covered by this directed-only cache.

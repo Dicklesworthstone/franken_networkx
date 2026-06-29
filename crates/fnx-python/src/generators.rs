@@ -107,6 +107,7 @@ fn report_to_pymultidigraph(
 ) -> PyResult<PyMultiDiGraph> {
     let mut pg = PyMultiDiGraph {
         in_edges_data_attr_cache: std::sync::Mutex::new(None),
+        edges_data_attr_cache: std::sync::Mutex::new(None),
         inner: graph,
         node_key_map: HashMap::new(),
         succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
