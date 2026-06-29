@@ -2,6 +2,31 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-28 CopperCliff SHIP: MultiGraph/MultiDiGraph load_centrality 0.43x->19.55x/13.59x — simple-projection + native kernel (`br-r37-c1-mgisol`)
+
+Third win in the MultiGraph fallback-tax cluster. `load_centrality`'s native fast
+path is gated `not G.is_multigraph()`, so multigraphs fell to the nx delegation
+(~137ms at n=200, **0.43x**) — the 2nd-biggest absolute MG gap from the auto-sweep.
+KEY OBSERVATION: Newman's load centrality (split-equally-among-predecessors over
+node-SEQUENCE shortest paths) is unaffected by parallel edges, so multigraph load ==
+load on the simple projection, which has a bit-exact native kernel.
+
+FIX (pure-Python, NO Rust rebuild): for unweighted whole-graph
+(`v is None and cutoff is None and weight is None`) multigraphs, build the simple
+projection (Graph/DiGraph; nodes in G order, `add_edges_from` dedupes parallels,
+keeps self-loops) and route to `_raw_load_centrality`. The projection build
+(~3ms incl. native kernel) dwarfs nx's per-source Newman loop.
+
+MEASURED head-to-head vs NetworkX (min of 6, n=200, 1250 edges incl. parallels):
+MultiGraph **0.43x->19.55x** (59.5ms->3.0ms), MultiDiGraph **->13.59x**
+(44.2ms->3.3ms). Byte-exact: 0 mismatches over 600 random MultiGraph/MultiDiGraph
+(maxdiff 1.67e-16), incl. parallels / self-loops / isolates + empty/single/2-node
+edge cases; 2386 centrality conformance tests pass. Artifact:
+`tests/artifacts/perf/20260628T-multi-load-centrality-cc/`. LEVER (reusable): when a
+node-path algorithm has a `not is_multigraph()`-gated native kernel, multigraphs
+often equal the simple projection (parallel edges don't change node-path results) —
+route MG/MDG through a cheap projection instead of delegating.
+
 ## 2026-06-28 CopperCliff SHIP: MultiGraph has_eulerian_path 0.11x->1.46x, is_semieulerian 0.20x->1.53x — pure-Python wrapper fast path (`br-r37-c1-mgisol`)
 
 Follow-up to the isolates win (c13e173b1) in the same MultiGraph `_`-arm

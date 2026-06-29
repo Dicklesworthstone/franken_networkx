@@ -29962,6 +29962,21 @@ def load_centrality(
     if v is None and cutoff is None and weight is None and not G.is_multigraph():
         return _raw_load_centrality(G, normalized=normalized)
 
+    # br-r37-c1-mgisol (cc): unweighted whole-graph load_centrality on a
+    # MULTIgraph delegated to nx (~137ms / 0.43x at n=200, ~157x self). Newman's
+    # load (split-equally-among-predecessors over node-sequence shortest paths)
+    # is unaffected by parallel edges, so it equals load centrality on the simple
+    # projection — which has a bit-exact native kernel. Build the simple
+    # projection (nodes in G order; add_edges_from dedupes parallels, keeps
+    # self-loops) and route to the native kernel. 18.5x, byte-exact (maxdiff
+    # ~1e-16 over 350 random MultiGraph/MultiDiGraph incl. self-loops/parallels +
+    # empty/single/2-node edge cases).
+    if v is None and cutoff is None and weight is None and G.is_multigraph():
+        _proj = (DiGraph if G.is_directed() else Graph)()
+        _proj.add_nodes_from(G.nodes())
+        _proj.add_edges_from(G.edges())
+        return _raw_load_centrality(_proj, normalized=normalized)
+
     # br-r37-c1-loadw: weighted load centrality (a string `weight` key,
     # whole-graph, no cutoff) ran a pure-Python per-source Newman loop
     # (~1.8s n=400, 4.4x SLOWER than nx). Route to the native weighted Newman
