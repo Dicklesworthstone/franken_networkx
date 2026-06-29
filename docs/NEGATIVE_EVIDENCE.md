@@ -2,6 +2,38 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-29 CopperCliff SHIP: DiGraph.to_directed() 0.58x->10-23x — deep-copy fast path ahead of the materialize wrapper (`br-r37-c1-dgtodir`)
+
+DiGraph was the ONLY graph type whose `to_directed()` had no native fast path
+(Graph/MultiGraph/MultiDiGraph all route to `_native_to_directed_deepcopy`). It
+rebuilt via a per-arc Python `add_edges_from` loop AND was wrapped by
+`_materialize_attrs_before_convert`, whose post-conversion probe walks
+`result.edges(data=True)` — forcing an O(E) mirror materialisation of the copy
+(~10x the cost of the copy itself). Net 0.58x nx (22.97ms vs 13.31ms, n=1500).
+KEY DIAGNOSIS: the per-arc rebuild was only ~half the cost; the materialize
+wrapper's probe was the dominant hidden tax (decomposed: inner copy 0.6ms, full
+wrapped call 7.9ms with NO redo triggered — the probe alone forced the O(E) walk).
+
+FIX (pure-Python, no rebuild): an already-directed DiGraph's `to_directed()` is a
+full deep copy into the same class, so route to `copy.deepcopy` (native deep-copy
+machinery: preserves store edge attrs AND deep-copies graph-level attrs) AHEAD of
+the materialize wrapper, returning directly so the pointless O(E) probe never runs
+(`_digraph_to_directed_deepcopy_fastpath`, gated `type is DiGraph` + default
+`to_directed_class` + no nx private storage + `as_view is not True`). Subclasses /
+custom class / nx-private storage / as_view fall through to the wrapped path.
+
+MEASURED vs NetworkX (min of 15): n=500 **10.50x**, n=1500 **20.23x**, n=3000
+**22.92x** (fnx 0.4-1.3ms via native deepcopy vs nx's per-edge Python rebuild
+12-29ms; was 0.58x). Byte-EXACT 120/120 random (nodes/edges/graph attrs/order/
+flags) + batch-built weight survival + source-independence + as_view view +
+subclass fall-through + empty; new regression
+`test_digraph_to_directed_deepcopy_fastpath.py`; signature `(self, as_view=False)`
+preserved; conversion/copy suite **5388 passed**, algo consumers **4077 passed**.
+LEVER (reusable): a correctness GUARD wrapper (here the attr-materialize probe)
+can dominate a fast path's cost — route a known-correct fast path AHEAD of the
+guard, not inside it. And: `to_directed()` on an already-directed graph == deep
+copy; `to_undirected()` on undirected likewise — audit those for the same.
+
 ## 2026-06-29 CopperCliff SHIP: MultiGraph INT weighted degree 0.54x->1.28x — store-backed int accumulator (`br-r37-c1-mgwdegfs`)
 
 MultiGraph `degree(weight=...)` had NO store-backed int accumulator (unlike

@@ -42412,6 +42412,36 @@ Graph.to_undirected = _materialize_attrs_before_convert(Graph.to_undirected)
 DiGraph.to_undirected = _materialize_attrs_before_convert(DiGraph.to_undirected)
 
 
+def _digraph_to_directed_deepcopy_fastpath(wrapped):
+    # br-r37-c1-dgtodir (cc): an already-directed DiGraph's to_directed() is a full
+    # deep copy into the same class. copy.deepcopy uses the native deep-copy
+    # machinery (it preserves edge attrs from the store AND deep-copies graph-level
+    # attrs) so it is byte-exact with networkx AND ~1.5-2.8x faster than nx. Route
+    # there for an exact DiGraph with the default to_directed_class (and no nx
+    # private storage), AHEAD of the _materialize_attrs_before_convert wrapper —
+    # that wrapper's post-conversion probe walks result.edges(data=True), forcing an
+    # O(E) mirror materialisation of the copy (~10x the deepcopy itself), and it is
+    # pointless here because the deepcopy never drops attrs. Subclasses, nx-private
+    # storage, custom to_directed_class, and as_view=True fall through to `wrapped`.
+    import functools as _functools
+
+    @_functools.wraps(wrapped)
+    def to_directed(self, as_view=False):
+        if (
+            as_view is not True
+            and type(self) is DiGraph
+            and not _has_networkx_private_storage(self)
+            and self.to_directed_class() is DiGraph
+        ):
+            return _deepcopy(self)
+        return wrapped(self, as_view=as_view)
+
+    return to_directed
+
+
+DiGraph.to_directed = _digraph_to_directed_deepcopy_fastpath(DiGraph.to_directed)
+
+
 # br-r37-c1-methodqualname: align ``method.__qualname__`` (and
 # ``__name__``) on the wrapped Graph methods with nx's canonical
 # ``Graph.method`` form so:
