@@ -10085,3 +10085,35 @@ Byte-exact 560/560 over 80 graphs with NON-SORTED insertion + DUPLICATE nbunch +
 self-loops + parallel edges (all 7 variants incl data=True live-dict identity, default).
 Conformance 10332 pass (sole failure write_gexf classification PRE-EXISTING on HEAD).
 no_data variant (0.91x, marginal) left unchanged. Per-crate build via rch.
+
+## 2026-06-29 CopperCliff FRONTIER MAP: MG/MDG copy 0.82x, reverse 0.74x, selfloop_edges 0.43-0.55x — all substrate/floor-bound
+
+After 7 edge-view/degree ships, scanned remaining multigraph ops. Most WIN (degree()
+2.3-3.4x, to_dict_of_dicts 1.1-1.2x, subgraph 1.09x, adjacency ~parity). GENUINE
+remaining gaps, with WHY each resists the dedup / store-routing levers that worked this
+session (measured n=600/e8000 unless noted):
+  - MG copy 0.82x (37.5 vs 30.9ms), MDG copy 0.81x (20.2 vs 16.4ms): `_native_copy` is
+    ALREADY a tuned single-pass native clone (bulk extend_keyed_edges_with_attrs_
+    unrecorded, fresh ledger, single-pass attr crossing). The residual is irreducible
+    per-element substrate: every node + edge attr dict is shallow-.copy()'d (copy MUST
+    be independent — can't share), PLUS MG's required `reorder_rows_for_nx_copy_walk`
+    (input-order-dependent parity reorder). nx copies every dict too; fnx's per-element
+    overhead + parity reorder is the gap. No clean lever.
+  - MDG reverse 0.74x (36.5 vs 26.9ms): ALREADY uses inner.reversed() integer-index
+    transpose + conditional mirror copy (skips clean lossless mirrors). The gap is the
+    per-edge mirror re-key (v,u,key) String clones + dict copy on DIRTY graphs (add_edge
+    -built). Same construction substrate.
+  - selfloop_edges MG 0.43-0.55x (keys+data 0.43x, data 0.47x, keys 0.48x, keys+weight
+    0.55x): pre-collects `selfloops: Vec<(String,Vec<usize>)>` (String clone+Vec per
+    self-loop node) then per-loop mirror probe. data=True is mirror-floor (returns live
+    dict) — UNLIKE edges(data=True) it has NO result cache (the edges_with_data_cache
+    analog). Possible future levers: (a) cache selfloop tuples keyed on (nodes_seq,
+    edges_seq, flags) like edges_with_data_cache (helps repeated calls only — borderline
+    for a rarely-looped op); (b) skip the pre-collection for the non-data (keys/plain)
+    variants (no &mut needed) — modest, niche.
+
+NET: the dedup lever (ebb754a2c/ce0928c58) and store-routing lever (80e12629a) are
+fully mined for MG/MDG edge views. The remaining gaps are construction-tax substrate
+(copy/reverse: per-element dict copy + parity reorder) and the selfloop mirror floor —
+no clean single-cycle lever; the architectural primitives (shared-copy semantics can't
+change; integer-keyed mirror) remain the only path past them. Session: 7 perf ships.
