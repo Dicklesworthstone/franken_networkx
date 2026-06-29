@@ -2,6 +2,33 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-29 CopperCliff SHIP: MultiGraph INT weighted degree 0.54x->1.28x — store-backed int accumulator (`br-r37-c1-mgwdegfs`)
+
+MultiGraph `degree(weight=...)` had NO store-backed int accumulator (unlike
+MultiDiGraph's ac98e77d4) — every int-weighted degree went through a per-node
+`PyList` + `builtins.sum` (~0.54x nx at n=1500, m=6000, int weights, bulk-built).
+FIX: `weighted_degree_store_int_node` / `native_weighted_total_degree_store_int`
+(lib.rs PyMultiGraph) sum int weights straight from the native CgseValue store
+(zero per-edge PyO3), gated on `!edges_dirty`, wired ahead of the float Neumaier
+path and the PyList fallback. nx's MultiDegreeView counts a self-loop's weight
+TWICE, so self-loop weights are accumulated into a separate bucket and added back;
+integer addition is associative, so the store iteration order need not match nx's
+adjacency order — only the multiset (each neighbor edge once, each self-loop edge
+twice). Bails to None on any non-int value so float/mixed/missing-default-1 stay
+byte-exact; edgeless node returns int 0.
+
+MEASURED vs NetworkX (min of 11, n=1500, m=6000, bulk-built): MG int
+`degree(weight)` **0.54x->1.28x** (now beats nx); `size(weight)` (routes via
+degree) **->1.21x**. Float unchanged 0.81x (a float store-direct read was tried
+and REVERTED — benchmark-neutral 0.85x->0.83x; the MG float floor is the per-node
+`neighbors()`/`edge_keys()` Vec allocs, not the value read). Byte-EXACT: 80/80
+random int + self-loop(counted twice)/parallel/missing/isolated + float/mixed
+fallback cases; new regression `test_mg_weighted_degree_store_int_parity.py`
+(bulk builder); degree/multigraph/weighted/size/assortativity suite **7790
+passed**, clippy clean (2 pre-existing lib.rs warnings). LEVER: MultiGraph weighted
+degree had the int store accumulator MISSING that MultiDiGraph already had —
+symmetric port; int is the easy half (order-independent, no Neumaier).
+
 ## 2026-06-29 CopperCliff SHIP: MultiDiGraph FLOAT weighted degree 0.51-0.72x->2.1-2.5x — store-backed float fast path (`br-r37-c1-mdgwdegfs`)
 
 Same mirror-vs-store bug class as the adjacency_data fix, this time in a perf

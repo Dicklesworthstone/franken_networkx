@@ -6953,11 +6953,77 @@ impl PyMultiGraph {
     /// floats, and the association of the running total matters), we build
     /// the value list in nx's exact order and call the SAME builtin ``sum``
     /// rather than folding with ``+`` in Rust.
+    /// br-r37-c1-mgwdegfs (cc): all-int weighted total degree of one node read
+    /// straight from the native CgseValue store (zero PyO3). nx's undirected
+    /// MultiDegreeView sums every incident edge's weight once and adds a
+    /// self-loop's weight a SECOND time, so accumulate the self-loop weights into
+    /// a separate bucket and add it back. Integer addition is associative, so the
+    /// store iteration order need not match nx's adjacency order — only the
+    /// multiset of contributing weights does (each neighbor edge once, each
+    /// self-loop edge twice). `None` (-> exact fallback) on any non-int value so
+    /// missing-default-1, float, and mixed weights stay byte-exact. Edgeless node
+    /// returns Some(0) = nx's int 0. CALLER gates on `!edges_dirty`.
+    fn weighted_degree_store_int_node(&self, node: &str, weight: &str) -> Option<i128> {
+        let mut total = 0i128;
+        let mut selfloop_extra = 0i128;
+        if let Some(neighbors) = self.inner.neighbors_iter(node) {
+            for neighbor in neighbors {
+                let is_self = neighbor == node;
+                if let Some(keys) = self.inner.edge_keys_iter(node, neighbor) {
+                    for &key in keys {
+                        let attrs = self.inner.edge_attrs(node, neighbor, key)?;
+                        let value = match attrs.get(weight) {
+                            Some(CgseValue::Int(v)) => i128::from(*v),
+                            Some(_) => return None,
+                            None => 1,
+                        };
+                        total = total.checked_add(value)?;
+                        if is_self {
+                            selfloop_extra = selfloop_extra.checked_add(value)?;
+                        }
+                    }
+                }
+            }
+        }
+        total.checked_add(selfloop_extra)
+    }
+
+    /// All-node int weighted total degree from the store, gated on a clean graph
+    /// (no pending mirror edits -> store authoritative). Bails to None on the
+    /// first non-int node so the float/PyList fallbacks handle float/mixed graphs.
+    fn native_weighted_total_degree_store_int(
+        &self,
+        py: Python<'_>,
+        weight: &str,
+    ) -> PyResult<Option<Vec<(PyObject, PyObject)>>> {
+        if self.edges_dirty.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(self.inner.node_count());
+        for node in self.inner.nodes_ordered() {
+            let Some(total) = self.weighted_degree_store_int_node(node, weight) else {
+                return Ok(None);
+            };
+            let Ok(total_i64) = i64::try_from(total) else {
+                return Ok(None);
+            };
+            out.push((self.py_node_key(py, node), total_i64.into_py_any(py)?));
+        }
+        Ok(Some(out))
+    }
+
     fn _native_weighted_degree(
         &self,
         py: Python<'_>,
         weight: &str,
     ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        // br-r37-c1-mgwdegfs (cc): Rust-store int path first (zero per-edge PyO3
+        // on a clean graph), before the float Neumaier path and the PyList+sum
+        // fallback. The store accumulator is the int analog of the MultiDiGraph
+        // path; integer sums are order-independent so it needs no order match.
+        if let Some(out) = self.native_weighted_total_degree_store_int(py, weight)? {
+            return Ok(out);
+        }
         let one = 1i64.into_pyobject(py)?.into_any();
         let sum_fn = py.import("builtins")?.getattr("sum")?;
         let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(self.inner.node_count());
