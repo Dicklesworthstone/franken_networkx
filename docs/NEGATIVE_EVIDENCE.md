@@ -9626,3 +9626,15 @@ A partial port is NOT independently shippable: adding `adj_indices` without USIN
 just slows the hot add_edge path (regression); it only pays off once both
 adj_indices AND index-keyed edges are in place and wired into the MG read paths —
 i.e. the whole slice must land together. That is the documented next major work item.
+
+## 2026-06-28 CopperCliff SURFACE: graph-transformations all at-or-above nx (contracted_edge 0.446x was NOISE)
+
+Fresh sweep of graph transformations — all win: line_graph 5.8x, contracted_nodes
+9.7x, quotient_graph 2.6x, identified_nodes 8.1x, complement 3.0x, compose 2.6x,
+union 1.8x, disjoint_union 3.4x, relabel_nodes 1.24x, subgraph.copy 1.53x,
+to_directed 4.5x, ego_graph 1.44x. The lone single-shot sub-1.0x (contracted_edge
+0.446x) was NOISE — robust min-of-11/4-seeds is **6.8x** (it already routes to the
+fast contracted_nodes after a has_edge check, exactly like nx). No gap. Confirms the
+terminal state: ~27 dimensions surveyed, fnx dominates nx everywhere; the only real
+residual is the String-keyed Multi(Di)Graph store (d58s8 MG port — 83 adj_indices
+touch-points, multi-session, coordination-blocked).
