@@ -40467,9 +40467,16 @@ class _FilteredGraphView:
         if self.is_multigraph():
             # 4-tuple shape avoids the ``key=key, **attrs`` collision when an
             # edge attribute is literally named "key" (franken_networkx-9x7r0).
+            # br-edgekeyedbatch (bt): materialize as a LIST (not a generator) so the
+            # native keyed edges-only batch engages (nodes were already added above,
+            # so the graph is node-populated + edgeless) — the generator shape skips
+            # the batch dispatch (`isinstance(ebunch, (list, tuple))`) and pays the
+            # per-edge PyO3 loop (~0.46x vs nx on a MultiDiGraph subgraph copy).
             result.add_edges_from(
-                (u, v, key, dict(attrs))
-                for u, v, key, attrs in self.edges(keys=True, data=True)
+                [
+                    (u, v, key, dict(attrs))
+                    for u, v, key, attrs in self.edges(keys=True, data=True)
+                ]
             )
         else:
             result.add_edges_from(

@@ -10932,3 +10932,22 @@ SCOPE NOTE: this fixes FRESH keyed construction. subgraph().copy() still does NO
 add_nodes_from FIRST (node attrs + isolated nodes, in subgraph node order) so node_count!=0 bails
 the batch; a node-fresh restructure would reorder nodes (byte-divergence). That remains the
 deferred bigger lever. MultiGraph (undirected, separate struct) keyed batch not yet done.
+
+## 2026-06-29 BlackThrush SHIP: MultiDiGraph subgraph().copy() 0.46x -> 1.12x (beats nx)
+
+Completes the construction-tax fix (3826c6c12 did fresh keyed construction; this does the
+node-populated case). subgraph().copy() does add_nodes_from(attrs, subgraph node order) THEN
+add_edges_from(4-tuples) -> node_count!=0 bailed the FRESH keyed batch -> per-edge PyO3, 0.46x.
+Added try_add_keyed_attr_edges_existing_nodes_batch: an EDGES-ONLY keyed batch for an edgeless
+graph whose nodes already exist. Every endpoint MUST already be a node (any new node bails to
+per-edge so node-order/new-node tracking stays the per-edge path's job); one Rust
+extend_keyed_edges_with_attrs_unrecorded commit (string-keyed, IndexMap key insertion order =
+nx keydict order, ledger recorded ONCE). _FilteredGraphView.copy now materializes the (byte-correct
+filtered-VIEW) edges as a LIST so the batch dispatch (isinstance list/tuple) engages — the previous
+generator shape skipped it. Same 4-tuple safe subset + bail-to-per-edge.
+MEASURED: MDG subgraph(nb).copy() 0.46x -> 1.12x (now BEATS nx, 4.9 vs 5.1ms). byte-exact 20/20
+ad-hoc + new test 17/17 (12 random nbunch + isolated nodes + node-populated direct + new-node
+bail + attr identity/mutation + parent independence); conformance 4500 passed in the changed area.
+NOTE: 3 PRE-EXISTING reds (TestFindInducedNodesParity test_*_without_fallback) are UNRELATED —
+fnx.find_induced_nodes delegates to nx by design (runs nx's algo on a copy, commit 17040bd66) and
+the no-fallback test monkeypatch-raises; my diff touches no chordal/induced code.
