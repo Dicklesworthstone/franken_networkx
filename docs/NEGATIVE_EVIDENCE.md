@@ -11001,3 +11001,20 @@ build — union's 2-attr edges miss the single-weight fast path and hit py_dict_
 push union to a WIN but is a Rust change touching the shipped subgraph-copy/keyed batches (deferred).
 compose ~0.61-0.67x is already list+_native_add_keyed_edges_with_data routed (residual = its
 _edge_map Python pre-merge).
+
+## 2026-06-29 BlackThrush SHIP: multigraph compose() routed to keyed batch — MDG 0.49x->0.76x
+
+PURE-PYTHON (no rebuild). compose pre-merges G's+H's keyed edges into one deduped list
+(_edge_map, H wins on overlap) and committed it via _native_add_keyed_edges_with_data, which
+PREDATES and is SLOWER than the keyed edges-only batch (48560565e). Standalone commit of 12600
+edges: _native 43.0ms vs add_edges_from(batch) 28.9ms. compose now tries
+_try_add_attr_edges_from_batch FIRST (out is node-populated+edgeless, all endpoints exist, each
+(u,v,key) deduped) and keeps _native as the FALLBACK for non-int graphs where the int batch bails
+(returns False = nothing added, so fallbacks are safe). CLEAN A/B (min-of-25, same process):
+MDG compose HEAD 45.6ms -> 28.8ms (1.58x, 0.49x->0.76x vs nx); MG ~31ms both (neutral, no
+regression). byte-exact + INDEPENDENT for int AND string nodes (string -> native fallback, verified)
+across overlap/disjoint/empty; new test 10/10; 1390 compose/operator conformance pass.
+RESIDUAL: remaining 0.72-0.76x is the dual-storage construction floor (CgseValue store + per-edge
+string-keyed inner adjacency vs nx's dict assignment). lazy-mirror is ~0-gain (mirror is only ~1.4ms
+of a 28ms batch — the 1-attr/2-attr delta is 5ms, mostly CgseValue not mirror). DON'T re-dig lazy-mirror.
+square_clustering(nbunch-subset) 0.58x is a TINY-absolute Python-path case (full-graph is 23x win) — skip.

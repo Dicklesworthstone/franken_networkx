@@ -14996,9 +14996,17 @@ def compose(G, H):
             else:
                 _slot.update(d)
         _all_edges = [(u, v, key, data) for (u, v, key), data in _edge_map.items()]
-        _native = getattr(out, "_native_add_keyed_edges_with_data", None)
-        if _native is None or not _native(_all_edges):
-            out.add_edges_from(_all_edges)
+        # br-edgekeyedbatch (bt): the keyed edges-only batch (via
+        # _try_add_attr_edges_from_batch — out is node-populated + edgeless, every
+        # endpoint already a node, each (u,v,key) deduped above) is faster than
+        # _native_add_keyed_edges_with_data for the common int-node case (28.9 vs
+        # 43ms at n=400^2). Try it first; keep _native for the non-int case where the
+        # int batch bails (returns False = nothing added, so the fallbacks are safe).
+        _batch = getattr(out, "_try_add_attr_edges_from_batch", None)
+        if _batch is None or not _batch(_all_edges):
+            _native = getattr(out, "_native_add_keyed_edges_with_data", None)
+            if _native is None or not _native(_all_edges):
+                out.add_edges_from(_all_edges)
     else:
         out.add_edges_from((u, v, dict(d)) for u, v, d in G.edges(data=True))
         out.add_edges_from((u, v, dict(d)) for u, v, d in H.edges(data=True))
