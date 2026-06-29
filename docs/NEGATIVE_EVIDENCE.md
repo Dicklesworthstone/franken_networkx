@@ -10845,3 +10845,22 @@ attr-mutate/set_edge_attributes ops for BOTH views + edges()==out_edges() identi
 new test 7/7; conformance 7453 passed / 0 failed.
 RESIDUAL: MG (undirected) edges(keys,data) 0.61x + selfloop_edges 0.41-0.65x are a
 SEPARATE struct (PyMultiGraph, with dedup) — not covered by this directed-only cache.
+
+## 2026-06-29 BlackThrush SHIP: MultiGraph (undirected) edges() data=<attr> cache — 0.64-0.72x -> 3.4x
+
+Completes the data=<attr> scalar-snapshot cache family (in_edges bff7daa50, MDG
+edges/out_edges 2058992d8) onto the undirected PyMultiGraph struct. Whole-graph MG
+edges(data=<attr>) rebuilt the scalar tuples every call in _native_edge_view_list's
+want_value branch (only data=True was cached). Added edges_data_attr_cache (Mutex,
+keyed nodes_seq/edges_seq/keys/attr/default), served while !edges_dirty, dropped in
+PyMultiGraph::mark_edges_dirty (its single dirty-transition; no mark_edge_dirty
+singular). The undirected first-encounter dedup + self-loop-once ordering already
+happens in the build path, so the cache just stores the correct result. MEASURED
+(warm min-of-15, parallel-edge per-edge MG n=700):
+  edges(keys,data=weight) 0.72x -> 3.40x ; edges(data=weight) 0.64x -> 3.37x
+CORRECTNESS: 253/0 (vs-nx repeats + attr-mutation + same-object oracle over 60 random
+add/remove/attr-mutate/set_edge_attributes ops, WITH self-loops) + new test 5/5;
+conformance 7931 passed / 0 failed. MG degree(weight) confirmed 0.83x near-parity (the
+int store accumulator engages) — NOT a gap (earlier 0.39x was load noise).
+RESIDUAL: selfloop_edges(keys,data) 0.42x is a separate FUNCTION path (tiny absolute
+0.3-0.7ms), not the edges view.

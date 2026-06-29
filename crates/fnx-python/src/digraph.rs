@@ -6046,6 +6046,7 @@ impl PyMultiDiGraph {
         // br-r37-c1-l5ve7: fresh ledger + lazy attr mirrors (see the
         // PyMultiGraph::_native_to_directed_deepcopy sibling).
         let mut ug = crate::PyMultiGraph {
+            edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: fnx_classes::MultiGraph::with_runtime_policy(fnx_runtime::RuntimePolicy::new(
                 self.inner.mode(),
             )),
@@ -6652,6 +6653,7 @@ impl PyMultiDiGraph {
 
     fn to_undirected(&self, py: Python<'_>) -> PyResult<crate::PyMultiGraph> {
         let mut ug = crate::PyMultiGraph {
+            edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: fnx_classes::MultiGraph::with_runtime_policy(
                 self.inner.runtime_policy().clone(),
             ),
