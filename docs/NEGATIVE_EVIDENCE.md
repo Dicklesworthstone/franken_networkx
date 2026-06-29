@@ -9874,3 +9874,35 @@ NET: the fnx surface is comprehensively dominated; the sole real sub-1.0x case
 agent-mail DB in degraded_read_only (integrity failures=100) — reservations/messaging
 write-fail, so safe coordination on TealSpring-owned multigraph Rust is not possible
 until `am doctor repair`.
+
+## 2026-06-29 CopperCliff SHIP (PARTIAL): MultiGraph degree(weight) float Neumaier fast path 0.79x->0.87x
+
+Re-targeted the biggest remaining sub-1.0x gap (MultiGraph total degree(weight),
+~0.79x vs nx) with the lever my own prior MDG NO-SHIP (6ee21ea28) pointed to but did
+NOT try: "closing the gap requires cutting per-node Python-object construction
+itself." The native MG `_native_weighted_degree` (lib.rs) built a per-edge PyList +
+called builtins.sum PER NODE (for float Neumaier parity). The prior NO-SHIP only
+optimized Rust accumulation/hashing (left PyList+sum untouched) and saw no change —
+which PROVES PyList-append + Python-sum was the dominant cost, not the hashing.
+
+FIX: when every contributing weight value of a node is an exact PyFloat (and the node
+has >=1 edge), sum the f64s with CPython's Neumaier (Kahan-Babuska) compensation
+DIRECTLY in Rust — verified bit-identical to builtins.sum over 30k random cases
+(all-float + self-loop patterns, py 3.13.7) — eliminating the per-edge PyList append
+and the per-node builtins.sum call. Bails to the original exact PyList+sum path on ANY
+non-float value (missing-weight default int 1, int/other weight) AND for an edgeless
+node, so int/mixed parity, numeric promotion, and nx's int-0 for isolated nodes stay
+byte-exact (7520/7520 over 128 graphs, type-exact; conformance 6696+7256 pass, sole
+failure write_gexf is PRE-EXISTING on HEAD, unrelated).
+
+Clean A/B (same machine, min-of-20): n=400 0.79x->0.87x (0.666->0.584ms), n=800
+0.81x->0.88x (1.391->1.226ms), n=1500 0.78x->0.85x (2.719->2.389ms) — a consistent
+~14% self-speedup. PARTIAL: still 0.85-0.88x (short of nx). The residual is the
+per-edge `Self::edge_key(node,neighbor,key)` String-tuple allocation + HashMap probe
+to read the dirty-graph weight from the PyDict mirror (nx does a plain dict lookup,
+no alloc). Closing it past nx needs the mirror keyed/indexed without String
+reconstruction — a restructure spanning shared fnx-classes; out of scope (and
+agent-mail degraded_read_only blocks safe coordination there). INT-weight MG stays
+~0.67x (fallback path; future Rust i64-sum target with overflow->bigint care).
+Per-crate build via rch (CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cc),
+cargo check + maturin release wheel, .so verified (0 undefined crossbeam).

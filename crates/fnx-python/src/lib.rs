@@ -6873,6 +6873,22 @@ impl PyMultiGraph {
         let sum_fn = py.import("builtins")?.getattr("sum")?;
         let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(self.inner.node_count());
         for node in self.inner.nodes_ordered() {
+            // br-r37-c1-mgwdegf (cc): float fast path. When EVERY contributing
+            // weight value is an exact float (and the node has >=1 edge), sum
+            // them with CPython's Neumaier (Kahan-Babuska) compensation directly
+            // in Rust — bit-identical to builtins.sum (verified 30k cases) —
+            // skipping the per-edge PyList append and the per-node builtins.sum
+            // call. Returns None (-> exact PyList+sum fallback below) on ANY
+            // non-float value (missing-weight default int 1, or an int/other
+            // weight) AND for an edgeless node, so int/mixed parity, numeric
+            // promotion, and nx's int-0 for isolated nodes stay byte-exact.
+            if let Some(total) = self.weighted_degree_float_node(py, node, weight)? {
+                out.push((
+                    self.py_node_key(py, node),
+                    pyo3::types::PyFloat::new(py, total).into_any().unbind(),
+                ));
+                continue;
+            }
             let values = pyo3::types::PyList::empty(py);
             let mut selfloop = false;
             for neighbor in self.inner.neighbors(node).unwrap_or_default() {
@@ -8066,6 +8082,100 @@ impl PyMultiGraph {
             },
             |obj| obj.clone_ref(py),
         )
+    }
+
+    /// br-r37-c1-mgwdegf: total weighted degree of `node` as an f64 iff the node
+    /// has at least one edge AND every contributing weight value is an exact
+    /// float; otherwise None (signalling the caller's exact builtins.sum
+    /// fallback). Replicates CPython sum's Neumaier compensation over the main
+    /// (neighbor, key) pass in adjacency order and re-adds the self-loop weights
+    /// with a second compensated sum, matching nx's `sum(main) + sum(self_loop)`
+    /// bitwise. Returning None for an edgeless node preserves nx's int `0`
+    /// (sum of an empty sequence) rather than a float `0.0`.
+    fn weighted_degree_float_node(
+        &self,
+        py: Python<'_>,
+        node: &str,
+        weight: &str,
+    ) -> PyResult<Option<f64>> {
+        let mut f = 0.0f64;
+        let mut c = 0.0f64;
+        let mut sf = 0.0f64;
+        let mut sc = 0.0f64;
+        let mut has_selfloop = false;
+        let mut saw = false;
+        for neighbor in self.inner.neighbors(node).unwrap_or_default() {
+            let is_self = neighbor == node;
+            if is_self {
+                has_selfloop = true;
+            }
+            for key in self.inner.edge_keys(node, neighbor).unwrap_or_default() {
+                let Some(x) = self.edge_weight_exact_f64(py, node, neighbor, key, weight)? else {
+                    return Ok(None);
+                };
+                saw = true;
+                let t = f + x;
+                if f.abs() >= x.abs() {
+                    c += (f - t) + x;
+                } else {
+                    c += (x - t) + f;
+                }
+                f = t;
+                if is_self {
+                    let ts = sf + x;
+                    if sf.abs() >= x.abs() {
+                        sc += (sf - ts) + x;
+                    } else {
+                        sc += (x - ts) + sf;
+                    }
+                    sf = ts;
+                }
+            }
+        }
+        if !saw {
+            return Ok(None);
+        }
+        let mut total = f + c;
+        if has_selfloop {
+            total += sf + sc;
+        }
+        Ok(Some(total))
+    }
+
+    /// Exact-float weight value for one multigraph edge, or None when the value
+    /// is missing (nx default int 1) or any non-float — both routing the caller
+    /// to the exact PyList+builtins.sum path. Mirrors the fallback's value fetch
+    /// (live edge-attr mirror first, then the CgseValue store) exactly.
+    fn edge_weight_exact_f64(
+        &self,
+        py: Python<'_>,
+        node: &str,
+        neighbor: &str,
+        key: usize,
+        weight: &str,
+    ) -> PyResult<Option<f64>> {
+        let ek = Self::edge_key(node, neighbor, key);
+        if let Some(d) = self.edge_py_attrs.get(&ek) {
+            match d.bind(py).get_item(weight).ok().flatten() {
+                Some(v) => {
+                    if v.is_exact_instance_of::<pyo3::types::PyFloat>() {
+                        Ok(Some(v.extract::<f64>()?))
+                    } else {
+                        Ok(None)
+                    }
+                }
+                None => Ok(None),
+            }
+        } else if let Some(value) = self.edge_attr_py_value(py, node, neighbor, key, weight)? {
+            let vb = value.bind(py);
+            if vb.is_exact_instance_of::<pyo3::types::PyFloat>() {
+                Ok(Some(vb.extract::<f64>()?))
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(None)
+        }
     }
 
     /// br-r37-c1-fpssi: all node display objects as a Vec, reusing the
