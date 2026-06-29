@@ -11152,3 +11152,28 @@ hash-collapses them) — confirmed identical divergence at parent e77b7764a; flo
 slow scan == original behavior. 10205 conformance pass, 0 fail.
 RESIDUAL: float-key/int hash-collision in the auto-key search is a pre-existing separate bug
 (edge_key canonicalization), out of scope. add_edges_from with a GENERATOR ebunch still per-edge.
+
+## 2026-06-29 BlackThrush NO-SHIP: PyGraph degree(nbunch, weight) int-accumulator twin — store-read floor, trades workloads
+
+degree(nbunch, weight) is ~0.18-0.66x vs nx across types (urgent gap, mail #2189). For PyGraph,
+`_native_weighted_degree_subset` (lib.rs ~12000) builds a PyList of every incident edge-weight
+PyObject per node and calls `builtins.sum` — O(E) PyObject + O(N) Python calls. Mirrored
+PyMultiGraph's int fast path: per-node `weighted_degree_int_row` accumulates i128 in Rust
+(graph_py_int_weight reads the live mirror dict if present, else the CgseValue store directly),
+one int PyObject out, per-node bail to the PyObject sum for non-int weights. byte-exact 8/8
+(int/float/mixed/missing x self-loops) + bulk-store path.
+WHY NO-SHIP: clean interleaved min-of-40 (NEW vs e77b7764a, fnx absolute, nx control):
+int-bulk 2.27ms vs 2.58ms (+14%, real work-removal of PyList+sum+PyObject) BUT float-bulk
+3.15ms vs 2.89ms (-9% REGRESSION, consistent) — the int row walks `inner.neighbors(node)` (Vec
+alloc), bails on the first float, then the PyObject fallback re-walks neighbors = a DOUBLE
+neighbors walk on non-int graphs. AND the head_to_head factory builds via per-edge add_edge
+(populates edge_py_attrs), where the mirror is authoritative (live-dict mutation IS reflected in
+degree, verified) so graph_py_int_weight must `PyDict.get_item + extract` per edge == the slow
+path's per-edge cost -> ~0-gain (0.18x->0.21x) on the measured benchmark. Net: trades bulk-int
+(+14%) for bulk-float (-9%), ~0 on the benchmark. Reverted (stash bt-degnbwint-NOSHIP).
+FLOOR: the existing slow path ALREADY reads the CgseValue store via edge_attr_py_value, so an int
+twin only strips PyList+sum overhead. The real floor is per-node node_key_to_string + per-edge
+String edge_key build + neighbors() Vec alloc that nx avoids by reading live Python adjacency
+dicts -> needs the persistent ordered Python-object adjacency mirror (4b5ie/materialization floor),
+not a kernel twin. DON'T re-dig the int-accumulator; a clean win needs single-neighbors-walk +
+store-direct read gated on edge_py_attrs.is_empty() (bulk only) — small, and still <1x nx.
