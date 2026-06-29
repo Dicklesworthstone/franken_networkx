@@ -2,6 +2,35 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-29 CopperCliff SHIP: line_graph() with self-loops 0.65x->5-8x — native kernel now handles self-loops (`br-r37-c1-lgself`)
+
+`line_graph(G)` had a native fast path (`line_graph_fast`, 6x nx) for self-loop-FREE
+simple graphs, but the kernel BAILED (returned None) on ANY self-loop — so a graph
+with even ONE self-loop fell to the slow Python tuple-rebuild path: undirected
+**0.65x** nx (104ms vs 68ms), directed similar. Self-loops are common in real graphs
+(and the whole-graph bench had ~3 incidental ones), so the gap is realistic.
+
+FIX: extend the undirected kernel (algorithms.rs:14931) to treat a self-loop `(u,u)`
+as an undirected edge -> an L-node incident at u EXACTLY ONCE (nx's `G.edges(u)`
+yields it once), paired with u's other incident edges in u's clique. The "two
+distinct edges share at most one endpoint -> emit once, no dedup" invariant still
+holds (a self-loop shares only endpoint u with other edges); a `self_loop_done`
+guard prevents any double-listing in adj_indices. The directed kernel already
+reproduced nx's `(u,u)->(u,w)` L-edges (incl. the L self-loop `(u,u)->(u,u)`), so
+just relaxed the Python wrapper's `number_of_selfloops(G)==0` gate to let self-loop
+graphs reach the native path (both directions); the kernel returns None for anything
+it can't serve (multigraphs / create_using).
+
+MEASURED vs NetworkX (min of 7, n=1200, m=5000, ~3 self-loops): undirected
+`line_graph` **0.65x->8.36x** (11.3ms vs 84ms), directed **->5.07x** (7.9ms vs
+37ms). Self-loop-free unaffected (still 6x). Byte-EXACT (order-insensitive L-node +
+L-edge sets, nx's parity convention) 240/240 random directed+undirected self-loop
+graphs + explicit undirected/directed/lone-self-loop cases; new regression
+`test_line_graph_selfloop_native_parity.py`; line_graph suite 286 passed, +86 with
+the new test; clippy clean (2 pre-existing). LEVER: a native kernel gated to bail on
+a rare structural feature (self-loop) sends the WHOLE input to the slow path — handle
+the feature in-kernel when the core invariant still holds, rather than bailing.
+
 ## 2026-06-29 CopperCliff NO-SHIP: DiGraph weighted degree(weight) store accumulator — ~0 gain, materialization floor (`br-r37-c1-dgwdegs`)
 
 Measured gap: simple `DiGraph.degree(weight)` **0.75x** (int) / **0.82x** (float) vs

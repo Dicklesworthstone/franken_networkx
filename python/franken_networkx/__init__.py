@@ -24663,21 +24663,20 @@ def line_graph(G, create_using=None):
 
     br-r37-c1-cfcls: Always use fnx type as default, not G.__class__.
     """
-    # br-r37-c1-lgnative / br-r37-c1-ez7lx: native fast path for the simple
-    # (non-multi, self-loop-free, create_using-default) case, BOTH directed and
-    # undirected. L(G)'s nodes are tuple-keyed edges; the native kernel
-    # canonicalizes each tuple once and assembles the L-edges in Rust by integer
-    # index (vs the per-edge tuple re-canonicalization below — the tuple-key
-    # construction tax, ~55% of the Python path). The directed L-edge orientation
-    # is intrinsic; the undirected output's node/edge ITERATION ORDER differs
-    # from nx's CPython-set order, which is safe because every line_graph parity
-    # test is order-insensitive (sorted(edges()), endpoint normalization). The
-    # multigraph / self-loop / create_using cases stay on the Python path below.
-    if (
-        create_using is None
-        and not G.is_multigraph()
-        and number_of_selfloops(G) == 0
-    ):
+    # br-r37-c1-lgnative / br-r37-c1-ez7lx / br-r37-c1-lgself: native fast path for
+    # the simple (non-multi, create_using-default) case, BOTH directed and
+    # undirected, INCLUDING self-loops (br-r37-c1-lgself — a self-loop (u,u) is an
+    # L-node incident at u once, paired with u's other edges; the directed kernel
+    # likewise reproduces nx's (u,u)->(u,w) L-edges). L(G)'s nodes are tuple-keyed
+    # edges; the native kernel canonicalizes each tuple once and assembles the
+    # L-edges in Rust by integer index (vs the per-edge tuple re-canonicalization
+    # below — the tuple-key construction tax, ~55% of the Python path). The
+    # directed L-edge orientation is intrinsic; the undirected output's node/edge
+    # ITERATION ORDER differs from nx's CPython-set order, which is safe because
+    # every line_graph parity test is order-insensitive (sorted(edges()), endpoint
+    # normalization). Multigraphs / create_using cases stay on the Python path
+    # below; the kernel returns None for anything it can't serve.
+    if create_using is None and not G.is_multigraph():
         _fast = _fnx.line_graph_fast(_coerce_arg_to_fnx_graph(G))
         if _fast is not None:
             return _fast

@@ -14910,7 +14910,8 @@ fn line_graph_fast(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<PyOb
         // So we need only reproduce the L-node SET — each L-node carrying the
         // ORIGINAL node objects, oriented by node index exactly like nx's
         // `tuple(sorted(edge, key=node_index.get))` (smaller node index first)
-        // — plus the L-edge SET. Multigraphs and self-loops fall back to Python.
+        // — plus the L-edge SET. Self-loops are handled (br-r37-c1-lgself);
+        // multigraphs fall back to Python.
         if gr.is_multigraph() {
             return Ok(None);
         }
@@ -14924,16 +14925,29 @@ fn line_graph_fast(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<PyOb
         let g_py: Vec<PyObject> = names.iter().map(|s| gr.py_node_key(py, s)).collect();
 
         // Enumerate each undirected edge once, oriented (u < v by node index) to
-        // match nx's node-index sort. Bail to Python on any self-loop. Build the
-        // per-node incident-edge lists in the same pass.
+        // match nx's node-index sort. Build the per-node incident-edge lists in
+        // the same pass.
         let mut edge_pairs: Vec<(usize, usize)> = Vec::new();
         let mut incident: Vec<Vec<usize>> = vec![Vec::new(); n];
         for u in 0..n {
+            // br-r37-c1-lgself (cc): a self-loop (u,u) is an undirected edge -> an
+            // L-node incident at u EXACTLY ONCE (nx's `G.edges(u)` yields the
+            // self-loop once). It pairs with every other edge at u in u's incident
+            // clique, sharing only endpoint u with them, so the "two distinct
+            // edges share at most one endpoint -> emit once, no dedup" invariant
+            // below still holds. A simple graph has at most one self-loop per
+            // node; guard against any double-listing in adj_indices so the L-node
+            // and its L-edges are never duplicated.
+            let mut self_loop_done = false;
             for &v in g_inner.neighbors_indices(u).unwrap_or(&[]) {
                 if v == u {
-                    return Ok(None); // self-loop: defer to Python
-                }
-                if v > u {
+                    if !self_loop_done {
+                        self_loop_done = true;
+                        let eid = edge_pairs.len();
+                        edge_pairs.push((u, u));
+                        incident[u].push(eid);
+                    }
+                } else if v > u {
                     let eid = edge_pairs.len();
                     edge_pairs.push((u, v));
                     incident[u].push(eid);
