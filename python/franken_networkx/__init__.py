@@ -15093,9 +15093,12 @@ def difference(G, H):
     ):
         if set(G) != set(H):
             raise NetworkXError("Node sets of graphs not equal")
-        _native_R = G._native_difference(H)
-        if _native_R is not None:
-            return _native_R
+        # br-edgekeyedbatch (bt): _native_difference PREDATES the fast no-data keyed
+        # batch and is ~2.4x SLOWER for multigraphs (MG 19.8ms vs the set-snapshot +
+        # _native_add_keyed_edges_no_data fallback 8.2ms). Skip it for multigraphs and
+        # fall through to that fallback (byte-identical; the set-equality check above
+        # preserves the error contract before create_empty_copy). Sibling of the
+        # symmetric_difference reroute. Simple Graph/DiGraph keep their native below.
     # br-r37-c1-natdiffsimple: fully-native simple-Graph difference — same lever
     # as the MultiGraph path above but for ``type(G) is Graph``. Builds the result
     # in Rust (no create_empty_copy + EdgeView set + add_edges_from). The node-set

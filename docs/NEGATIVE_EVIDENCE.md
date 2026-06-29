@@ -11033,3 +11033,17 @@ RELATED GAPS (same family, follow-ups): difference MG 0.30x/MDG 0.36x (already u
 batch; residual = Python set-build of the H snapshot, 2x inserts for undirected); intersection
 0.46-0.47x (set-based, edge_intersection may be a SET not list -> per-edge; could route to
 _native_add_keyed_edges_no_data with a list). disjoint_union ~parity.
+
+## 2026-06-29 BlackThrush SHIP: multigraph difference() 0.30-0.36x -> 0.48-0.82x
+
+PURE-PYTHON. Sibling of the symmetric_difference reroute (749177251). multigraph difference used
+_native_difference, which PREDATES the fast no-data keyed batch and is ~2.4x SLOWER (MG full
+fnx.difference 19.8ms via native vs the set-snapshot + _native_add_keyed_edges_no_data fallback
+8.2ms). Skipped the native for multigraphs (node-set equality check stays before create_empty_copy
+so the error contract is unchanged); simple Graph/DiGraph keep their native path. MEASURED: MG
+difference 0.30x->0.48-0.6x, MDG 0.36x->0.73-0.82x. byte-exact across drop {0,0.3,0.7,1.0} +
+distinct edge sets + self-loops + parallel edges; unequal-nodes raises NetworkXError; new test
+12/12; 1119 set-operator conformance pass.
+SET-OPERATOR FAMILY now done: symmetric_difference (749177251) + difference (here) rerouted off
+their slow pre-batch natives. intersection (~0.46x) stays NO-GAIN (orientation-collision edge set
+makes the no-data batch bail/~per-edge). disjoint_union ~parity. compose/union done earlier.
