@@ -2,6 +2,36 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-29 CopperCliff NO-SHIP: MG/MDG induced subgraph().copy() parent.edges() shortcut — nx induced-view REORDERS edges (`br-r37-c1-mgsubcopy`)
+
+Measured gap: `MultiDiGraph.subgraph(half).copy()` **0.54x** nx (17.2ms vs 9.2ms),
+`MultiGraph` **0.73x** — both fall to the slow generic rebuild because
+`_copy_induced_simple_fast` bails for multigraphs (init.py:40339), iterating the
+FILTERED VIEW's `edges(keys=True, data=True)` (per-edge view-wrapper overhead).
+Simple Graph/DiGraph subgraph copy is already 1.2-1.5x.
+
+ATTEMPTED (the symmetric trick to the edge_subgraph fast path at init.py:40429):
+filter the parent's FAST native `edges(keys=True, data=True)` (8x faster than nx)
+by node-set membership instead of walking the view. Perf was promising — MG
+0.73x->1.70x — BUT BYTE-EXACT FAILED 14/400 (MG and MDG). REVERTED.
+
+ROOT CAUSE: nx's INDUCED subgraph view does NOT preserve parent adjacency order
+when filtering removes nodes. Verified pure-nx (n=5, seed=79): parent
+`adj[2]=[4,1,2,0,3]`; manual parent-order filter to {2,4} = `[4,2]`; but
+`subgraph([2,4]).adj[2]` = `[2,4]` (the self-loop / surviving-neighbor order is
+permuted by the filter). When NO filtering occurs (subgraph keeps all of a node's
+neighbors) parent order IS preserved (controlled 5-node test) — so the reorder is
+filter-dependent and is NOT a simple parent-order, sub-iteration-order, or sorted
+rule. fnx's own VIEW `edges()` already reproduces nx's order exactly (the slow
+copy path is byte-exact); `parent.edges()` cannot. UNLIKE edge_subgraph (selected
+edges keep parent order -> the 40429 shortcut is valid there), node-induced
+multigraph copy needs nx's exact filtered-adjacency permutation. LEVER FOR A REAL
+FIX (deferred, non-trivial): reproduce nx's induced multigraph adjacency ordering
+natively (study FilterAtlas iteration for MultiDiGraph under node removal) — a
+native `subgraph_copy` kernel, not a Python parent.edges() filter. Conformance
+GREEN after revert (0/240 byte-exact). DON'T re-attempt the naive parent.edges()
+filter for NODE-induced multigraph subgraphs.
+
 ## 2026-06-29 CopperCliff SHIP: DiGraph.to_directed() 0.58x->10-23x — deep-copy fast path ahead of the materialize wrapper (`br-r37-c1-dgtodir`)
 
 DiGraph was the ONLY graph type whose `to_directed()` had no native fast path
