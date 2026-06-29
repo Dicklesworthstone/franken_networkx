@@ -2,6 +2,46 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-29 CopperCliff SHIP: MultiDiGraph FLOAT weighted degree 0.51-0.72x->2.1-2.5x — store-backed float fast path (`br-r37-c1-mdgwdegfs`)
+
+Same mirror-vs-store bug class as the adjacency_data fix, this time in a perf
+fast path. The MDG weighted-degree FLOAT fast paths
+(`weighted_directional_degree_float_node` / `weighted_total_degree_float_node`,
+br-r37-c1-mdgwdegf) read every edge weight from the Python edge MIRROR
+(`edge_py_attrs`). That mirror is **empty** for graphs built with the bulk edge
+APIs (`add_weighted_edges_from` / `add_edges_from` commit weights straight into
+the native CgseValue store and leave the mirror lazy), so the float path returned
+None on the FIRST edge and **never engaged** on bulk-built weighted multigraphs —
+the overwhelmingly common case. They fell to the per-edge `PyList` +
+`builtins.sum` path: `in_degree(weight)` **0.51x**, `degree(weight)` **0.72x** vs
+nx (n=1500, m=6000, float weights). The INT path (ac98e77d4) already read the
+store, so only int weights were fast.
+
+FIX: added store-backed twins `weighted_directional_degree_float_node_store` /
+`weighted_total_degree_float_node_store` that read exact `CgseValue::Float`
+weights from the native store using the SAME succ/pred adjacency iteration order
+as the proven int store row and the SAME Neumaier (Kahan-Babuska) compensation as
+the mirror twins — so bit-identical to `builtins.sum`. Both `_native_weighted_degree`
+(total) and `native_weighted_directional_degree` (in/out) prefer the store path
+when `!edges_dirty` (store authoritative), else the live mirror (pending edits).
+Bails to None (-> exact fallback) on any non-float/absent value or edgeless
+direction, so int/mixed/missing-weight parity and nx's int-0 for isolated nodes
+stay byte-exact.
+
+MEASURED head-to-head vs NetworkX (min of 9): MDG float `in_degree(weight)`
+**0.51x->2.10x**, `out_degree(weight)` **->2.29x**, `degree(weight)`
+**0.72x->2.51x**; int weights unchanged (1.4-1.8x, store-int path). Byte-EXACT:
+540/540 random float/int/mixed cases (value+type) + empty/isolated/self-loop/
+parallel/missing-weight edge cases + catastrophic-cancellation (1e16,1,-1e16)
+compensation; new regression `test_mdg_weighted_degree_store_float_parity.py`
+(bulk builders, unlike the old selfloop test which used per-edge add_edge and so
+never hit the store path); degree/multidigraph/weighted suite **5645 passed**,
+centrality/assortativity/flow consumers **6254 passed**. clippy clean (2 warnings
+pre-existing in lib.rs). LEVER (reusable): any `*_float_node`/`*_exact_f64_mirror`
+helper that reads `edge_py_attrs`/`node_py_attrs` is DEAD for bulk-built graphs —
+add a store-backed twin gated on `!edges_dirty`, reusing the int store row's
+iteration order for byte-exactness.
+
 ## 2026-06-29 CopperCliff FIX+SHIP: adjacency_data / node_link_data DATA-LOSS bug — native *_simple kernels dropped edge attrs on batch-built graphs (`adjdataedgeattr`)
 
 CORRECTNESS bug (not just perf). The `br-r37-c1-9kpev` native fast paths

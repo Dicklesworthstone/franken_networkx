@@ -1301,6 +1301,69 @@ impl PyMultiDiGraph {
         Ok(Some(succ_total + pred_total))
     }
 
+    /// br-r37-c1-mdgwdegfs (cc): store-backed twin of
+    /// `weighted_total_degree_float_node`. The mirror twin reads
+    /// `edge_py_attrs`, which is EMPTY for graphs built with the bulk edge APIs
+    /// (`add_weighted_edges_from` / `add_edges_from` commit weights straight
+    /// into the native CgseValue store and leave the mirror lazy), so it never
+    /// engaged on bulk-built weighted multigraphs (the common case) — they fell
+    /// to the per-edge PyList + builtins.sum path (~0.7x nx). This reads exact
+    /// floats from the store using the SAME succ/pred adjacency iteration order
+    /// as the proven int store row and the SAME two Neumaier-compensated sums as
+    /// the mirror twin, so it is bit-identical to `sum(succ) + sum(pred)`.
+    /// `None` on any non-float/absent value or a fully edgeless node (nx int 0).
+    /// CALLER must gate on `!edges_dirty` (store authoritative).
+    fn weighted_total_degree_float_node_store(&self, node: &str, weight: &str) -> Option<f64> {
+        let mut sf = 0.0f64;
+        let mut sc = 0.0f64;
+        let mut succ_saw = false;
+        if let Some(successors) = self.inner.successors_iter(node) {
+            for successor in successors {
+                for attrs in self.inner.edge_attr_values(node, successor)? {
+                    let CgseValue::Float(x) = attrs.get(weight)? else {
+                        return None;
+                    };
+                    let x = *x;
+                    succ_saw = true;
+                    let t = sf + x;
+                    if sf.abs() >= x.abs() {
+                        sc += (sf - t) + x;
+                    } else {
+                        sc += (x - t) + sf;
+                    }
+                    sf = t;
+                }
+            }
+        }
+        let mut pf = 0.0f64;
+        let mut pc = 0.0f64;
+        let mut pred_saw = false;
+        if let Some(predecessors) = self.inner.predecessors_iter(node) {
+            for predecessor in predecessors {
+                for attrs in self.inner.edge_attr_values(predecessor, node)? {
+                    let CgseValue::Float(x) = attrs.get(weight)? else {
+                        return None;
+                    };
+                    let x = *x;
+                    pred_saw = true;
+                    let t = pf + x;
+                    if pf.abs() >= x.abs() {
+                        pc += (pf - t) + x;
+                    } else {
+                        pc += (x - t) + pf;
+                    }
+                    pf = t;
+                }
+            }
+        }
+        if !succ_saw && !pred_saw {
+            return None;
+        }
+        let succ_total = if succ_saw { sf + sc } else { 0.0 };
+        let pred_total = if pred_saw { pf + pc } else { 0.0 };
+        Some(succ_total + pred_total)
+    }
+
     /// Exact-float weight value for one directed multigraph edge, read ONLY from
     /// the live edge-attr mirror (matching the `_native_weighted_degree`
     /// fallback's value fetch); None when the edge/weight is absent (nx default
@@ -1388,6 +1451,64 @@ impl PyMultiDiGraph {
             return Ok(None);
         }
         Ok(Some(f + c))
+    }
+
+    /// br-r37-c1-mdgwdegfs (cc): store-backed twin of
+    /// `weighted_directional_degree_float_node` for a single direction (in OR
+    /// out). Same store-read rationale as `weighted_total_degree_float_node_store`
+    /// — the mirror twin is dead for bulk-built weighted multigraphs. Same nx
+    /// adjacency order as the proven int store row and the same single
+    /// Neumaier-compensated sum as the mirror twin, so bit-identical to
+    /// `builtins.sum`. `None` on any non-float/absent value or an edgeless
+    /// direction. CALLER must gate on `!edges_dirty` (store authoritative).
+    fn weighted_directional_degree_float_node_store(
+        &self,
+        node: &str,
+        weight: &str,
+        outgoing: bool,
+    ) -> Option<f64> {
+        let mut f = 0.0f64;
+        let mut c = 0.0f64;
+        let mut saw = false;
+        if outgoing {
+            for successor in self.inner.successors_iter(node)? {
+                for attrs in self.inner.edge_attr_values(node, successor)? {
+                    let CgseValue::Float(x) = attrs.get(weight)? else {
+                        return None;
+                    };
+                    let x = *x;
+                    saw = true;
+                    let t = f + x;
+                    if f.abs() >= x.abs() {
+                        c += (f - t) + x;
+                    } else {
+                        c += (x - t) + f;
+                    }
+                    f = t;
+                }
+            }
+        } else {
+            for predecessor in self.inner.predecessors_iter(node)? {
+                for attrs in self.inner.edge_attr_values(predecessor, node)? {
+                    let CgseValue::Float(x) = attrs.get(weight)? else {
+                        return None;
+                    };
+                    let x = *x;
+                    saw = true;
+                    let t = f + x;
+                    if f.abs() >= x.abs() {
+                        c += (f - t) + x;
+                    } else {
+                        c += (x - t) + f;
+                    }
+                    f = t;
+                }
+            }
+        }
+        if !saw {
+            return None;
+        }
+        Some(f + c)
     }
 
     /// br-r37-c1-fpssi: all node display objects as a Vec, reusing the
@@ -5444,18 +5565,29 @@ impl PyMultiDiGraph {
         }
         let one = 1i64.into_pyobject(py)?.into_any();
         let sum_fn = py.import("builtins")?.getattr("sum")?;
+        // br-r37-c1-mdgwdegfs (cc): when the store is authoritative (no pending
+        // mirror mutations) prefer the store-backed float path — the mirror float
+        // path is empty for bulk-built weighted graphs.
+        let store_clean = !self.edges_dirty.load(Ordering::Relaxed);
         let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(self.inner.node_count());
         for node in self.inner.nodes_ordered() {
             // br-r37-c1-mdgwdegf (cc): float fast path. When EVERY contributing
-            // succ+pred weight value is an exact float in the mirror (and the
-            // node has >=1 edge), compute nx's `sum(succ) + sum(pred)` as two
-            // Rust Neumaier (Kahan-Babuska) sums added — bit-identical to
-            // builtins.sum (verified 30k cases) — skipping the per-edge PyList
-            // appends and the two per-node builtins.sum calls. Returns None
-            // (-> exact PyList+sum fallback below) on ANY non-float/absent value
-            // and for an edgeless node, so int/mixed parity, numeric promotion,
-            // and nx's int-0 for isolated nodes stay byte-exact.
-            if let Some(total) = self.weighted_total_degree_float_node(py, node, weight)? {
+            // succ+pred weight value is an exact float (and the node has >=1
+            // edge), compute nx's `sum(succ) + sum(pred)` as two Rust Neumaier
+            // (Kahan-Babuska) sums added — bit-identical to builtins.sum
+            // (verified 30k cases) — skipping the per-edge PyList appends and the
+            // two per-node builtins.sum calls. Read from the native store when
+            // clean (covers bulk-built graphs), else the live mirror (pending
+            // edits). Returns None (-> exact PyList+sum fallback below) on ANY
+            // non-float/absent value and for an edgeless node, so int/mixed
+            // parity, numeric promotion, and nx's int-0 for isolated nodes stay
+            // byte-exact.
+            let float_total = if store_clean {
+                self.weighted_total_degree_float_node_store(node, weight)
+            } else {
+                self.weighted_total_degree_float_node(py, node, weight)?
+            };
+            if let Some(total) = float_total {
                 out.push((
                     self.py_node_key(py, node),
                     pyo3::types::PyFloat::new(py, total).into_any().unbind(),
@@ -5548,18 +5680,26 @@ impl PyMultiDiGraph {
 
         let one = 1i64.into_pyobject(py)?.into_any();
         let sum_fn = py.import("builtins")?.getattr("sum")?;
+        // br-r37-c1-mdgwdegfs (cc): prefer the store-backed float path when no
+        // mirror edits are pending (the mirror float path is empty for bulk-built
+        // weighted graphs).
+        let store_clean = !self.edges_dirty.load(Ordering::Relaxed);
         let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(self.inner.node_count());
         for node in self.inner.nodes_ordered() {
             // br-r37-c1-mdgwdegf (cc): float fast path (single direction). When
-            // every contributing weight value is an exact float in the mirror
-            // (and the direction has >=1 edge), sum the f64s with CPython's
-            // Neumaier compensation in Rust — bit-identical to builtins.sum —
-            // skipping the per-edge PyList append + per-node builtins.sum.
+            // every contributing weight value is an exact float (and the
+            // direction has >=1 edge), sum the f64s with CPython's Neumaier
+            // compensation in Rust — bit-identical to builtins.sum — skipping the
+            // per-edge PyList append + per-node builtins.sum. Read from the native
+            // store when clean (covers bulk-built graphs), else the live mirror.
             // Returns None (-> exact fallback) on any non-float/absent value
             // and for an edgeless direction, keeping nx's int-0 byte-exact.
-            if let Some(total) =
+            let float_total = if store_clean {
+                self.weighted_directional_degree_float_node_store(node, weight, outgoing)
+            } else {
                 self.weighted_directional_degree_float_node(py, node, weight, outgoing)?
-            {
+            };
+            if let Some(total) = float_total {
                 out.push((
                     self.py_node_key(py, node),
                     pyo3::types::PyFloat::new(py, total).into_any().unbind(),
