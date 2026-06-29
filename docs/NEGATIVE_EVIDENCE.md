@@ -9803,3 +9803,35 @@ x2 per edge) trails nx's native int-dict has_edge. That is the node-key-rep
 substrate floor (same family as the MG store), not a typical-case gap — NOT worth
 "fixing". LESSON CONFIRMED: the long tail of obscure delegated functions still pays
 off (2 d-sep wins this session); periodic sweeps beat declaring the surface terminal.
+
+## 2026-06-28 CopperCliff SHIP complement(MG/MDG) + comprehensive re-sweep (view gaps now FIXED)
+
+SHIP 65d56efed: `complement(MultiGraph/MultiDiGraph)` round-tripped through nx
+(`_complement_via_nx`: fnx->nx + nx.complement + nx->fnx) because native
+`_raw_complement` rejects multigraphs — a catastrophe (42-995ms MG / 61-1431ms MDG
+over n=100..400 = 0.20-0.31x vs nx). nx.complement is a structural double-loop, so
+build DIRECTLY: keys-only add_nodes_from(G.nodes()) + non-adjacent ordered pairs via
+`G._native_adjacency_dict()` membership + native batch `add_edges_from(LIST)`. Warm
+min-of-12: MG 0.31x->1.57x(n=100)/1.17x(n=200)/0.79x(n=400); MDG 0.20x->1.20x/0.88x
+/0.75x. 3-5x self at EVERY size = strict win over main. Byte-exact 40/40 (nodes+data,
+edges+keys, graph attrs); 254 operator/complement parity tests pass. PURE-PYTHON.
+NOTE: `add_edges_from(GENERATOR)` is a multigraph TRAP (382ms vs 98ms for a
+materialized list at n=300) — always build the list. RESIDUAL: complement n>=300
+still 0.75-0.79x (materializing ~88k Python tuples); only past nx = native MG
+_raw_complement in Rust (low ROI, dense-output workload is rare).
+
+RE-SWEEP (3 batches, warm): the view-materialization gaps recorded in older memories
+are now FIXED and WINNING — in_edges(data=True) DiGraph 7.4x / MDG 27x, edges(keys)
+3.7-4.4x, edges(keys,data) 5-7.8x, edges(data='weight') 1.3-1.5x. Algorithm surface:
+all WIN 1.0-339x (betweenness 37x, transitivity 116x, k_core 38x, square_clustering
+24x). Small-input/delegated surface (where conversion-tax hides): all WIN
+(resistance_distance 52x, has_path 10x, max_flow 8.7x, dijkstra_path 7.7x, node_conn
+2.9x); the only sub-1.0x there (preferential_attachment 0.69x, common_neighbors
+0.85x) are single-digit-MICROSECOND noise, not real. The ONLY real sub-1.0x residual
+across the whole sweep is `degree(weight)` MultiGraph/MultiDiGraph ~0.60-0.88x — the
+documented PyObject per-node degree-view materialization floor (REFUTED+NO-SHIP
+6ee21ea28: halving Rust work was invisible behind the tuple-build wall). LESSON: the
+view vein that older memory flagged as the standing gap has been closed by prior
+sessions; the surface is now near-uniformly dominated. INFRA BLOCKER: agent-mail DB
+in degraded_read_only recovery (integrity failures=100) — reservations/messaging
+write-fail; reads OK; needs `am doctor repair`.
