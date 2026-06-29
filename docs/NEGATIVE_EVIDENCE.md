@@ -10343,3 +10343,30 @@ collect_attr_edge_batch x Graph/DiGraph, + Multi global path). Their existing
 preserve). Reuse the shipped `attr_dict_is_batch_lossless` predicate. The node fix proves the
 pattern; this is purely a "apply to all ~6 edge collectors + verify byte-exact across 4 types"
 effort. Node-attr corruption already FIXED (7a6590b38, waxman conformance restored).
+
+## 2026-06-29 CopperCliff FIX SHIPPED: edge-batch non-scalar-attr corruption (companion to node fix 7a6590b38)
+
+Completed the edge-batch analog of the node-batch corruption fix. Batched add_edges_from
+(>=8 edges, fresh graph) stringified/lossy-floated non-scalar edge attrs
+(tuple/list/None/oversized-int/nested-dict) on Graph + DiGraph (per-edge) and all types
+(global **attr), because each of ~6 int/general sub-collectors rebuilds its edge mirror
+LAZILY from the scalar-only CgseValue store. The COMMON int-node shape routes through
+try_add_fresh_exact_int_attr_edge_batch FIRST (not the String-keyed collect_attr_edge_batch),
+which is why two earlier single-collector guards were ~0-gain (reverted).
+
+FIX: one `ebunch_batch_lossless` guard at each of the 4 type dispatchers
+(try_add_attr_edge_batch x2, _try_add_attr_edges_from_batch x2) — bails the whole batch to
+the per-edge add_edge path (preserves the Python object) when any per-edge 3-tuple dict OR
+the global **attr is non-store-representable. One guard per type covers all sub-collectors.
+CRITICAL bug caught by conformance + fixed: the guard must NOT iterate a one-shot generator
+ebunch (it would exhaust it before the per-edge fallback -> 0 edges); it now returns true
+(no scan) for any non-list/tuple ebunch (those never reach a stringifying sub-collector).
+
+Byte-exact 120/120 over {Graph,DiGraph,MultiGraph,MultiDiGraph} x {3,10,50} x
+{tuple,list,None,bigint,nested,int,float,str,bool} + global **attr; node fix intact
+(108/108); dicsr_cache_parity 21 pass (regression fixed); broad construction net 12048 pass.
+PERF: the pre-scan costs add_weighted_edges_from(20k) +18% (7.7->9.1ms) and
+add_edges_from(dict) +4%, but fnx STILL DOMINATES nx (weighted 1.81x, dict 2.48x).
+FOLLOW-UP (margin recovery): move the lossless check INTO each sub-collector's existing
+per-edge loop (no extra pre-scan pass) to erase the +18%; the dispatcher guard is the
+correct-but-slightly-costlier interim. Per-crate build via rch.

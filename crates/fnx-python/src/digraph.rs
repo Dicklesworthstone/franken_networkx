@@ -3115,6 +3115,13 @@ impl PyMultiDiGraph {
         global_attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<bool> {
         const ATTR_EDGE_BATCH_MIN: usize = 8;
+        // br-r37-c1-edgebatchlossless (cc): non-scalar per-edge/global attr -> per-edge
+        // add_edge (sub-batches rebuild lazy mirrors from the scalar-only store).
+        if global_attr.is_some_and(|a| !crate::attr_dict_is_batch_lossless(a))
+            || !crate::ebunch_batch_lossless(ebunch_to_add)?
+        {
+            return Ok(false);
+        }
         if global_attr.is_none_or(|attrs| attrs.is_empty())
             && self.try_add_fresh_exact_int_attr_edge_batch(py, ebunch_to_add)?
         {
@@ -8363,6 +8370,11 @@ impl PyDiGraph {
     ) -> PyResult<bool> {
         const ATTR_EDGE_BATCH_MIN: usize = 8;
         if !self.succ_row_py.is_empty() || !self.pred_row_py.is_empty() {
+            return Ok(false);
+        }
+        // br-r37-c1-edgebatchlossless (cc): non-scalar per-edge attr -> per-edge add_edge
+        // (sub-batches rebuild lazy mirrors from the scalar-only store).
+        if !crate::ebunch_batch_lossless(ebunch_to_add)? {
             return Ok(false);
         }
         if self.try_add_fresh_exact_int_attr_edge_batch(py, ebunch_to_add, final_edge_bump)? {

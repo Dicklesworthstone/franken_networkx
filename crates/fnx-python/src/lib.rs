@@ -601,6 +601,34 @@ pub(crate) fn attr_dict_is_batch_lossless(d: &Bound<'_, PyDict>) -> bool {
     })
 }
 
+/// br-r37-c1-edgebatchlossless (cc): true iff every 3-tuple edge's attr dict in the
+/// ebunch is losslessly store-representable (see attr_dict_is_batch_lossless). The
+/// attributed edge-batch dispatchers and their int/general sub-collectors rebuild edge
+/// mirrors LAZILY from the CgseValue store, so a non-scalar edge attr (tuple/list/None/
+/// dict/oversized int/custom) would be corrupted to its str()/lossy-float. `false`
+/// routes the whole batch to the per-edge add_edge path (keeps the Python object).
+///
+/// CRITICAL: the batch sub-collectors only consume a list/tuple ebunch (they downcast).
+/// A one-shot generator must NOT be iterated here — doing so would EXHAUST it before the
+/// per-edge fallback runs (dropping every edge). So return `true` (no bail, no scan) for
+/// any non-list/tuple ebunch; it never reaches a stringifying sub-collector anyway.
+pub(crate) fn ebunch_batch_lossless(ebunch: &Bound<'_, PyAny>) -> PyResult<bool> {
+    if ebunch.downcast::<PyList>().is_err() && ebunch.downcast::<PyTuple>().is_err() {
+        return Ok(true);
+    }
+    for item in ebunch.try_iter()? {
+        let item = item?;
+        if let Ok(tuple) = item.downcast::<PyTuple>()
+            && tuple.len() == 3
+            && let Ok(d) = tuple.get_item(2)?.downcast::<PyDict>()
+            && !attr_dict_is_batch_lossless(&d)
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 pub(crate) fn collect_index_weight_attr_edges(
     rows: &Bound<'_, PyAny>,
     cols: &Bound<'_, PyAny>,
@@ -2174,6 +2202,16 @@ impl PyGraph {
     ) -> PyResult<bool> {
         const ATTR_EDGE_BATCH_MIN: usize = 8;
         if !self.adj_row_py.is_empty() {
+            return Ok(false);
+        }
+        // br-r37-c1-edgebatchlossless (cc): a non-scalar per-edge OR global attr can't
+        // round-trip the CgseValue store that the int/general sub-batches below rebuild
+        // their lazy mirrors from -> bail the whole batch to the per-edge add_edge path
+        // (which keeps the Python object). Scalar batches (incl. weighted {w:float})
+        // proceed unchanged.
+        if global_attr.is_some_and(|a| !attr_dict_is_batch_lossless(a))
+            || !ebunch_batch_lossless(ebunch_to_add)?
+        {
             return Ok(false);
         }
         if global_attr.is_none_or(|attrs| attrs.is_empty())
@@ -4661,6 +4699,13 @@ impl PyMultiGraph {
         global_attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<bool> {
         self.clear_stale_edge_mirrors();
+        // br-r37-c1-edgebatchlossless (cc): non-scalar per-edge/global attr -> per-edge
+        // add_edge (sub-batches rebuild lazy mirrors from the scalar-only store).
+        if global_attr.is_some_and(|a| !attr_dict_is_batch_lossless(a))
+            || !ebunch_batch_lossless(ebunch_to_add)?
+        {
+            return Ok(false);
+        }
         if self.try_add_fresh_exact_int_keyed_attr_edge_batch(py, ebunch_to_add, global_attr)? {
             return Ok(true);
         }
