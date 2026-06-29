@@ -42442,6 +42442,35 @@ def _digraph_to_directed_deepcopy_fastpath(wrapped):
 DiGraph.to_directed = _digraph_to_directed_deepcopy_fastpath(DiGraph.to_directed)
 
 
+def _graph_to_undirected_deepcopy_fastpath(wrapped):
+    # br-r37-c1-dgtodir (cc): symmetric to the DiGraph.to_directed fast path — an
+    # already-undirected Graph's to_undirected() is a full deep copy into the same
+    # class, so route to copy.deepcopy AHEAD of the _materialize_attrs_before_convert
+    # wrapper (whose post-conversion edges(data=True) probe forces an O(E) mirror
+    # build of the copy). Simple Graph had no native shortcut (MultiGraph already
+    # routes to _native_to_undirected_deepcopy). NOTE: only the undirected->Graph
+    # case is a deepcopy; DiGraph.to_undirected COLLAPSES reciprocal edges and is
+    # left untouched. Subclasses / nx-private storage / custom to_undirected_class /
+    # as_view fall through.
+    import functools as _functools
+
+    @_functools.wraps(wrapped)
+    def to_undirected(self, as_view=False):
+        if (
+            as_view is not True
+            and type(self) is Graph
+            and not _has_networkx_private_storage(self)
+            and self.to_undirected_class() is Graph
+        ):
+            return _deepcopy(self)
+        return wrapped(self, as_view=as_view)
+
+    return to_undirected
+
+
+Graph.to_undirected = _graph_to_undirected_deepcopy_fastpath(Graph.to_undirected)
+
+
 # br-r37-c1-methodqualname: align ``method.__qualname__`` (and
 # ``__name__``) on the wrapped Graph methods with nx's canonical
 # ``Graph.method`` form so:

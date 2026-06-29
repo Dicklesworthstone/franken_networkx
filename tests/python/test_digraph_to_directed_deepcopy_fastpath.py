@@ -112,3 +112,52 @@ def test_subclass_falls_through():
 
 def test_empty_graph():
     assert _estrict(fnx.DiGraph().to_directed(), nx.DiGraph().to_directed())
+
+
+def test_graph_to_undirected_byte_exact_vs_networkx():
+    # Symmetric fast path: an already-undirected Graph's to_undirected() is a deep
+    # copy into the same class.
+    for seed in range(60):
+        r = random.Random(seed)
+        nn = r.randint(0, 25)
+        nodes = [(i, {"w": r.random(), "tag": [i]}) for i in range(nn)]
+        edges = (
+            [(r.randrange(nn), r.randrange(nn), {"weight": r.random(), "lst": [r.randint(0, 3)]})
+             for _ in range(r.randint(0, 70))]
+            if nn
+            else []
+        )
+        gf, gx = fnx.Graph(), nx.Graph()
+        gf.graph["m"] = {"k": [seed]}
+        gx.graph["m"] = {"k": [seed]}
+        gf.add_nodes_from([(n, copy.deepcopy(d)) for n, d in nodes])
+        gx.add_nodes_from([(n, copy.deepcopy(d)) for n, d in nodes])
+        gf.add_edges_from([(u, v, copy.deepcopy(d)) for u, v, d in edges])
+        gx.add_edges_from([(u, v, copy.deepcopy(d)) for u, v, d in edges])
+        assert _estrict(gf.to_undirected(), gx.to_undirected()), seed
+
+
+def test_digraph_to_undirected_collapse_untouched():
+    # DiGraph.to_undirected COLLAPSES reciprocal edges (not a deepcopy) and must
+    # stay correct (the fast path deliberately does not touch it).
+    gf, gx = fnx.DiGraph(), nx.DiGraph()
+    for g in (gf, gx):
+        g.add_edges_from(
+            [(0, 1, {"weight": 1.0}), (1, 0, {"weight": 2.0}), (2, 3, {"weight": 5.0})]
+        )
+    assert _estrict(gf.to_undirected(), gx.to_undirected())
+
+
+def test_graph_to_undirected_batch_built_weights_survive():
+    gf, gx = fnx.Graph(), nx.Graph()
+    gf.add_nodes_from(range(5))
+    gx.add_nodes_from(range(5))
+    gf.add_weighted_edges_from([(0, 1, 2.5), (1, 2, 3.5)])
+    gx.add_weighted_edges_from([(0, 1, 2.5), (1, 2, 3.5)])
+    assert _estrict(gf.to_undirected(), gx.to_undirected())
+
+
+def test_graph_to_undirected_as_view_and_empty():
+    v = fnx.Graph([(0, 1, {"weight": 1.0})]).to_undirected(as_view=True)
+    assert not v.is_directed()
+    assert _estrict(fnx.Graph().to_undirected(), nx.Graph().to_undirected())

@@ -32,7 +32,14 @@ preserved; conversion/copy suite **5388 passed**, algo consumers **4077 passed**
 LEVER (reusable): a correctness GUARD wrapper (here the attr-materialize probe)
 can dominate a fast path's cost — route a known-correct fast path AHEAD of the
 guard, not inside it. And: `to_directed()` on an already-directed graph == deep
-copy; `to_undirected()` on undirected likewise — audit those for the same.
+copy; `to_undirected()` on undirected likewise.
+
+SYMMETRIC FOLLOW-UP (same commit): applied the identical fast path to
+`Graph.to_undirected()` (undirected->Graph is also a deep copy; simple Graph had no
+native shortcut, only MultiGraph did). **1.25x->40.86x** (fnx 0.48ms vs nx 19.6ms,
+n=1500). `DiGraph.to_undirected` is left untouched — it COLLAPSES reciprocal edges
+(not a deep copy) — and its parity is locked by a regression test. Byte-exact
+80/80; to_undirected/convert/copy suite 2942 passed.
 
 ## 2026-06-29 CopperCliff SHIP: MultiGraph INT weighted degree 0.54x->1.28x — store-backed int accumulator (`br-r37-c1-mgwdegfs`)
 
