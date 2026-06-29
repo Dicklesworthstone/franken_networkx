@@ -10142,3 +10142,28 @@ and node-dedup (replace per-edge canonical seen-set with O(N) processed-node set
 nx's first-encounter algorithm; mind duplicate-nbunch). Remaining gaps all
 substrate-bound (copy/reverse) or mirror-floor (selfloop data, in_degree weight) —
 architectural primitives (integer-keyed mirror) only.
+
+## 2026-06-29 CopperCliff CORRECTION: simple Graph edges(nbunch,data=True) 0.80x is mirror-floor, NOT a Python fix
+
+Last cycle's note speculated the simple-Graph edges(nbunch,data=True) 0.80x was "a
+fixable Python inefficiency." TRACED it: simple Graph's edge view is a NATIVE Rust type
+(EdgeView, views.rs:657 __call__). The nbunch data=True branch calls `edge_alldata_items`
+(must return the LIVE mirror PyDict per edge -> per-edge edge_key + mirror probe/
+materialize), whereas the data='weight' branch reads scalars straight from the store via
+`edges_ordered_borrowed` (no edge_key, no mirror). So data=True is slower for the SAME
+reason every data=True path is mirror-bound; it's the mirror floor, not a Python fix.
+A warm-cache-reuse (filter edges_with_data_cache by node_set) would be invisible to the
+benchmark (which only calls the nbunch form, never populating the full cache) and risks a
+cold/small-nbunch regression — NOT worth it. NO clean single-cycle lever.
+
+CONFIRMED FRONTIER (all remaining vs-nx gaps reduce to TWO architectural primitives):
+  1. Construction substrate: copy 0.82x, reverse 0.74x — per-element attr-dict copy
+     (independent-copy semantics forbid sharing) + MG copy-walk parity reorder.
+  2. Edge-attr mirror keyed by (String,String,usize): selfloop_edges(data) 0.43-0.55x,
+     edges(nbunch,data=True) all types ~0.80x, in_degree(weight) predecessor floor —
+     per-edge String edge_key build + mirror probe that nx's nested dicts avoid. The
+     radical lever is an INTEGER-keyed edge mirror.
+BLOCKER (one sentence): the integer-keyed-mirror refactor spans every edge_key call site
+across shared fnx-classes/fnx-python and is a multi-cycle change that cannot be safely
+coordinated while agent-mail is degraded_read_only (no reservations) — so the perf
+frontier for SAFE single-cycle work is reached; this needs a dedicated coordinated effort.
