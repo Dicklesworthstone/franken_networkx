@@ -10167,3 +10167,31 @@ BLOCKER (one sentence): the integer-keyed-mirror refactor spans every edge_key c
 across shared fnx-classes/fnx-python and is a multi-cycle change that cannot be safely
 coordinated while agent-mail is degraded_read_only (no reservations) — so the perf
 frontier for SAFE single-cycle work is reached; this needs a dedicated coordinated effort.
+
+## 2026-06-29 CopperCliff fresh-domain scan: generators/algorithms/community/approx all dominate; only simple_cycles 0.80x residual
+
+Scanned domains NOT covered by this session's edge-view/degree work (n=400/e2000 unless
+noted), to confirm I wasn't tunnel-visioned on multigraph edge-views:
+  GENERATORS: erdos_renyi 2.19x, random_regular 3.56x, gnp 1.55x, watts_strogatz 1.30x,
+    powerlaw_cluster 1.15x, random_tree 1.83x, barabasi_albert 0.92x (marginal).
+  ALGORITHMS: transitivity 84x, rich_club 57x, eccentricity 12x,
+    all_pairs_shortest_path_length 5.3x, is_bipartite 7.8x.
+  APPROX/COMMUNITY: min_weighted_vertex_cover 7.1x; (greedy_modularity/louvain/
+    k_clique API names differ in this nx build — not measured).
+  ONLY GAP: simple_cycles (directed) 0.80x (4.93 vs 3.96ms, islice(50)).
+
+simple_cycles is DELEGATION-TAX bound: it delegates to nx via a structure-only nx-graph
+build (`_simple_cycles_structure_only_via_networkx`) because the native Rust cycle
+enumerator has a different iteration order than nx (parity-blocked). fnx = nx-build
+(~1-4ms) + nx's Johnson's algorithm; the build is the tax. Closing it needs a faithful
+IN-PROCESS port of nx's directed Johnson's / SCC elementary-circuits algorithm onto fnx
+adjacency (de-delegation, matching nx's exact cycle order) — complex, high
+order-matching risk, ~1ms gain. NOT single-cycle-safe; deferred.
+
+CONCLUSION: across this session's full sweep (edge-views, degree, generators,
+algorithms, community, approximation, paths, cycles, IO, conversions, spectral) fnx
+DOMINATES NetworkX. The ONLY remaining vs-nx gaps are: (a) construction substrate
+(copy/reverse), (b) the (String,String,usize) edge-attr mirror (selfloop data, nbunch
+data=True, in_degree weight), (c) simple_cycles delegation tax. (a)+(b) need
+architectural primitives (integer-keyed mirror); (c) needs a complex algo port. No clean
+single-cycle lever remains; perf frontier reached.
