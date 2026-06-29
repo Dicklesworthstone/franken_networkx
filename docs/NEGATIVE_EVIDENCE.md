@@ -2,6 +2,38 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-28 CopperCliff SHIP: MultiGraph has_eulerian_path 0.11x->1.46x, is_semieulerian 0.20x->1.53x — pure-Python wrapper fast path (`br-r37-c1-mgisol`)
+
+Follow-up to the isolates win (c13e173b1) in the same MultiGraph `_`-arm
+projection-tax cluster. The `has_eulerian_path` wrapper called
+`_raw_has_eulerian_path(G)` for self-loop-free undirected multigraphs; that binding
+built the FULL `gr.undirected()` simple-graph projection (clones every node/edge
+attr + per-element ledger) AND crossed into Python once per node for the degree view
+(~1.44ms / **0.11x vs nx** at n=300). `is_semieulerian` (= `has_eulerian_path and not
+is_eulerian`) inherited it (0.20x). `is_eulerian` was ALREADY fast — its wrapper uses
+the br-euldense Python fast path — which is the tell: the same trick fixes
+has_eulerian_path.
+
+FIX (pure-Python, NO Rust rebuild): for self-loop-free multigraphs, nx's undirected
+test is just "<=2 odd-degree vertices AND connected", so run it directly on the fast
+MultiGraph degree view + native `is_connected` (which has its own fast multigraph
+path), mirroring `is_eulerian`. Self-loop multigraphs still delegate to nx; simple
+graphs keep the native kernel; directed unchanged.
+
+NEGATIVE RESULT folded in: a NATIVE-BINDING variant (native multi-degree parity +
+`multigraph_to_simple_graph_structure_only` connectivity) was built, measured, and
+REVERTED — it only reached **0.31x** because allocating the simple Graph +
+`is_connected(&simple)` is itself the bottleneck. The Python path REUSING the fast
+`is_connected(MultiGraph)` wrapper wins outright (1.46x). LESSON: when a fast wrapper
+path already exists for a sibling predicate (is_eulerian), prefer composing the
+existing fast primitives over a fresh native kernel that re-pays the projection.
+
+MEASURED (min of 8, undirected MultiGraph n=300, cycle + parallels): has_eulerian_path
+**0.11x->1.46x**, is_semieulerian **0.20x->1.53x** vs NetworkX. Byte-exact: 0
+mismatches over 600 random multigraphs x3 predicates (parallels / +/- self-loops /
++/- isolates / error contracts) + empty/single-node edge cases; 603 euler conformance
+tests pass. Artifact: `tests/artifacts/perf/20260628T-multi-eulerian-native-cc/`.
+
 ## 2026-06-28 CopperCliff SHIP: Multi isolates/number_of_isolates 0.08-0.13x -> 17-59x vs nx — native path drops the per-call simple-graph projection (`br-r37-c1-mgisol`)
 
 A MultiGraph/MultiDiGraph auto-sweep surfaced a cluster of trivial utilities

@@ -11662,6 +11662,19 @@ def has_eulerian_path(G, source=None):
     # returns True (e.g. K3 + self-loop). Delegate undirected self-loop graphs.
     if number_of_selfloops(G) > 0:  # br-r37-c1-5i5gb: native O(|V|) check, not O(|E|) EdgeView pass
         return _call_networkx_for_parity("has_eulerian_path", G, source=source)
+    # br-r37-c1-mgisol (cc): for self-loop-free MULTIgraphs the native
+    # _raw_has_eulerian_path built a FULL gr.undirected() simple-graph projection
+    # (attr clones + per-element ledger) AND crossed into Python once per node for
+    # the degree view (~1.5ms / 0.11x vs nx at n=300). nx's undirected test is just
+    # "<=2 odd-degree vertices AND connected" — run it directly on the fast
+    # MultiGraph degree view + native is_connected, mirroring is_eulerian's
+    # br-euldense fast path. Byte-exact (same primitives, parallel-edge degree).
+    # Simple graphs keep the native kernel (already fast); directed handled above.
+    if G.is_multigraph():
+        odd = sum(1 for _n, deg in G.degree() if deg % 2 != 0)
+        if odd not in (0, 2):
+            return False
+        return is_connected(G)
     return _raw_has_eulerian_path(G)
 
 # Algorithm functions — paths and cycles
