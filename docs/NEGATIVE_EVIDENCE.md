@@ -2,6 +2,35 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-06-29 CopperCliff NO-SHIP: DiGraph weighted degree(weight) store accumulator — ~0 gain, materialization floor (`br-r37-c1-dgwdegs`)
+
+Measured gap: simple `DiGraph.degree(weight)` **0.75x** (int) / **0.82x** (float) vs
+nx (n=1500, m=6000), in/out_degree similar 0.74-0.84x. Simple Graph is near parity
+(0.93-0.96x). The DiGraph total `_native_weighted_degree` (digraph.rs:11408) builds
+a per-node succ PyList + pred PyList from the edge mirror + two `builtins.sum`.
+
+ATTEMPTED the exact lever that WON for MultiDiGraph (9f0e40cb8) and MultiGraph
+(03686f5ab): added store-int (`weighted_degree_store_int_node_dg` /
+`native_weighted_total_degree_store_int_dg`) + store-float
+(`weighted_total_degree_float_node_store_dg`) fast paths reading CgseValue from the
+store (zero PyO3, gated !edges_dirty). Byte-EXACT 240/240 (float/int/mixed +
+self-loop-counted-twice + missing-default-1 + mutation). VERIFIED the store path
+ENGAGES (a fresh/lazy-mirror DiGraph returns correct results — only possible if the
+store path runs, since the mirror is empty). BUT perf UNCHANGED (0.75x->0.75x int,
+0.84x float). REVERTED.
+
+ROOT CAUSE: simple DiGraph is SPARSE (~4 edges/node), so the per-edge PyList-append
++ `builtins.sum` overhead the store path removes is SMALL; the dominant cost is the
+per-node PyObject MATERIALIZATION floor (building 1500 `(py_node_key, into_py_any)`
+tuples), identical on both paths. MultiDiGraph won (1.8-2.5x) only because parallel
+edges made the per-edge PyList+sum+edge_key overhead LARGE relative to the per-node
+materialization. The store lever pays off iff edge-read overhead dominates per-node
+materialization — true for multigraphs, FALSE for sparse simple DiGraph. DON'T
+re-attempt a store/kernel optimization on simple Graph/DiGraph weighted degree; the
+floor is per-node Python-object construction (see
+[[reference_head2head_vein_map_materialization_floor]]). Conformance GREEN, .so
+rebuilt to HEAD.
+
 ## 2026-06-29 CopperCliff NO-SHIP: MG/MDG induced subgraph().copy() parent.edges() shortcut — nx induced-view REORDERS edges (`br-r37-c1-mgsubcopy`)
 
 Measured gap: `MultiDiGraph.subgraph(half).copy()` **0.54x** nx (17.2ms vs 9.2ms),
