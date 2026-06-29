@@ -9835,3 +9835,42 @@ view vein that older memory flagged as the standing gap has been closed by prior
 sessions; the surface is now near-uniformly dominated. INFRA BLOCKER: agent-mail DB
 in degraded_read_only recovery (integrity failures=100) — reservations/messaging
 write-fail; reads OK; needs `am doctor repair`.
+
+## 2026-06-29 CopperCliff DIG (REFUTED): degree(weight) MultiGraph is a native-view floor, not a missing Python fast-path
+
+Targeted the one genuine sub-1.0x residual from the prior sweep: `degree(weight)`
+MultiGraph ~0.71-0.77x vs nx (n=200..800; fnx 0.32-1.39ms vs nx 0.23-1.07ms).
+Simple Graph/DiGraph total weighted degree were routed (br-r37-c1-wdeg2) to a
+pure-Python sum over a `to_dict_of_dicts` snapshot (whose inner dicts ARE the live
+edge attr dicts) — beats the native PyList-building kernel. HYPOTHESIS: transfer the
+same lever to MultiGraph. REFUTED: `to_dict_of_dicts(MG)` returns a DEEP 3-level
+nested dict `{node:{nbr:{key:attrdict}}}` whose inner per-key dicts are freshly
+allocated (NOT shared live dicts as in the simple case), so the Python sum over it is
+**0.04x** (5.7-25ms vs the native kernel's 0.32-1.39ms) — ~16x SLOWER. Byte-exact
+values+types confirmed (0/80) but the snapshot build dominates. Do NOT ship; nothing
+committed (scratch only).
+
+ROOT CAUSE: `franken_networkx.MultiGraph` IS the native Rust type and `G.degree`
+returns a native `MultiGraphDegreeView` (NOT the Python `_DegreeView` in __init__.py).
+So the gap is the native view's PyObject materialization (build n (node, float-sum)
+tuples), the SAME floor documented at 6ee21ea28 (REFUTED+NO-SHIP: halving Rust work
+was invisible behind the tuple-build wall) and ac98e77d4. There is NO pure-Python
+lever; closing it needs Rust work inside the native multigraph degree view + a .so
+rebuild. Lowest-quality sub-case is INT-weight clean MG (~0.60x) — a future Rust
+target for whoever owns multigraph degree, if ever (sub-ms op, low ROI).
+
+NOISE CORRECTION: a sequential single-process domain sweep flagged
+katz_centrality_numpy 0.41x, communicability TIMEOUT, transitive_closure TIMEOUT,
+dominating_set 0.88x as gaps. ALL FALSE — measured in isolation fnx WINS:
+katz_centrality_numpy 2.5x (9ms vs nx 23ms; the 0.41x was BLAS-thread contention from
+heavy numpy/scipy fns earlier in the same process), communicability 12-14x (nx is the
+slow one ~2s@n=150, it overran the per-fn cap), transitive_closure 3.55x,
+dominating_set sub-ms noise. LESSON: never trust a long sequential single-process
+sweep for numpy/scipy-backed functions — BLAS pool state + memory pressure inflate
+later calls; isolate + warm each suspected gap before believing it.
+
+NET: the fnx surface is comprehensively dominated; the sole real sub-1.0x case
+(degree(weight) MG) is a native-view floor needing Rust + a rebuild. BLOCKER persists:
+agent-mail DB in degraded_read_only (integrity failures=100) — reservations/messaging
+write-fail, so safe coordination on TealSpring-owned multigraph Rust is not possible
+until `am doctor repair`.
