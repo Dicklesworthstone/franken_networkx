@@ -11348,3 +11348,26 @@ materialization path. REAL FIX is in subgraph().copy() (stop the parent-mirror p
 must not mutate the parent) OR to_directed must read the store authoritatively when the source may be
 non-pristine. NICHE (subgraph.copy then to_directed on the SAME parent) but a genuine correctness
 footgun. Deferred for a dedicated debugging session (needs Rust-side mirror-state tracing).
+
+## 2026-06-29 BlackThrush SURFACE-REFINE: subgraph/to_directed corruption ROOT is get_edge_data(v,u) REVERSED orientation
+
+Sharpened the 1671b61fc surface to a DETERMINISTIC MINIMAL repro — the trigger is NOT subgraph-specific,
+it is `get_edge_data(v, u)` called in the orientation REVERSED from insertion:
+    es = [(i, i+10, {'weight': i+1}) for i in range(10)]
+    g = fnx.Graph(); g.add_edges_from(es)          # bulk -> empty mirror
+    g.get_edge_data(15, 5)                          # REVERSED (edge inserted as (5,15))
+    g.to_directed()                                 # -> drops attrs ({}) for ALL edges
+`get_edge_data(5, 15)` (insertion orientation) does NOT trigger it; doing get_edge_data for ALL edges
+(either orientation) does NOT trigger it either — it is the SINGLE reversed call leaving a PARTIAL
+mirror that flips to_directed's `mirror_pristine = edge_py_attrs.is_empty()` (lib.rs:11495) to false,
+after which to_directed yields empty attrs for every edge while g itself (edges(data=True),
+get_edge_data, to_dict_of_dicts, adjacency) stays fully correct. Confirmed pre-existing on clean HEAD.
+NARROWED but NOT root-fixed: edge_key (lib.rs:907, string u<=v) and inner.edge_attrs (fnx-classes:960,
+via edge_pair_key) are BOTH order-independent, so the mirror entry from get_edge_data(15,5) is a
+correct, canonically-keyed dict — yet to_directed still empties all edges, implying the store path
+(edges_ordered_borrowed) or the partial-mirror gate interacts wrongly under reversed-materialize.
+Two NO-SHIP to_directed None-arm store-materialize attempts did NOT fix it (the all-edges-empty is
+upstream of the None arm) -> stashes bt-todirected-noneArm-NOSHIP{,2}. REAL FIX needs Rust-side
+mirror/store-state tracing of get_edge_data(reversed) -> materialize_edge_py_attrs -> edges_ordered
+_borrowed. Common-call trigger (get_edge_data arg order) makes this MORE than niche; high-priority for
+a dedicated Rust debugging session. The minimal repro above makes it a ~10-line bisect for that session.
