@@ -11326,3 +11326,25 @@ fnx-classes change with enormous blast radius (every AttrMap iteration/compariso
 assumes sorted order — it's a DELIBERATE canonical-determinism choice), NOT a 60-min dig. Surfaced
 as an architectural decision for a dedicated effort, not forced. The sorted-AttrMap tradeoff (canonical
 comparison determinism) vs nx byte-exact attr order is a maintainer call.
+
+## 2026-06-29 BlackThrush SURFACE: state-corruption bug — G.subgraph(nodes).copy() corrupts a later G.to_directed()
+
+Found via a bulk-graph op-attr-preservation sweep (continuing the store-only audit). REAL, pre-existing
+(confirmed on clean HEAD), reproducible bug: on a bulk-built simple Graph, `G.subgraph(some_nodes).copy()`
+leaves G in a state where a SUBSEQUENT `G.to_directed()` DROPS edge attrs (empty {}) for boundary /
+store-only edges (e.g. edge 6-9 with 6 in the subgraph node set, 9 not). PLAIN `G.copy()` does NOT
+trigger it; G ITSELF stays fully correct (G.edges(data=True), get_edge_data(6,9), to_dict_of_dicts,
+adjacency() all return the right attrs) — ONLY the derived to_directed is wrong. So subgraph().copy()
+has a READ-OP SIDE-EFFECT that pollutes G's edge_py_attrs mirror (partial), and to_directed
+(lib.rs:11463, mirror_pristine = edge_py_attrs.is_empty() gate) then reads the partial mirror and
+produces a partially-pristine DiGraph that drops store-only edges' attrs. A structural mutation does
+NOT clear it (not a seq-cache).
+INVESTIGATED, NOT ROOT-CAUSED: tried to_directed reading mirror-THEN-store on the `None` arm
+(materialize from the borrowed store AttrMap) — DID NOT FIX (the bug edges hit the `Some(stale/empty)`
+arm, not None), so reverted (stash bt-todirected-noneArm-NOSHIP). The inconsistency (G reads correct
+via edge_key(6,9) but to_directed reads empty via the same edge_py_attrs) points at subgraph.copy()
+inserting stale/empty mirror entries and/or an edge-key orientation mismatch in the subgraph
+materialization path. REAL FIX is in subgraph().copy() (stop the parent-mirror pollution — a read op
+must not mutate the parent) OR to_directed must read the store authoritatively when the source may be
+non-pristine. NICHE (subgraph.copy then to_directed on the SAME parent) but a genuine correctness
+footgun. Deferred for a dedicated debugging session (needs Rust-side mirror-state tracing).
