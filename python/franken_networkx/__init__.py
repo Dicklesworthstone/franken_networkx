@@ -493,6 +493,20 @@ def _size_with_unweighted_int(size_impl):
         # kept in the signature for call-site compatibility.)
         # br-r37-c1-sizeweight: this also fixes the prior TypeError on callable/
         # non-str weight, since the Rust size_impl's PyO3 signature was ``weight: str``.
+        #
+        # br-r37-c1-wsize (cc): the degree route still materialises N
+        # ``(node, PyFloat)`` degree pairs just to reduce them to one scalar
+        # (~all of size(weight)'s cost). When ``weight`` is a string key, try the
+        # native store scalar first: on a clean graph with all-integer weights it
+        # sums the CgseValue store in one walk (no per-node PyObject) and returns
+        # the size directly — byte-identical to ``sum(int degrees)/2``. It returns
+        # None (→ the exact degree path below) on a dirty mirror, any non-integer
+        # weight, or a non-string/callable weight, so float/mixed parity is
+        # unchanged.
+        if type(weight) is str:
+            fast = self._weighted_size_fast(weight)
+            if fast is not None:
+                return fast
         s = sum(d for _, d in self.degree(weight=weight))
         return s / 2
 

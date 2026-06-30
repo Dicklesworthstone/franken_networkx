@@ -1636,6 +1636,27 @@ impl DiGraph {
         ordered
     }
 
+    /// br-r37-c1-wsize (cc): integer `size(weight)` from the store — directed
+    /// twin of `Graph::weighted_size_int`. A directed edge `(u,v,w)` adds `w` to
+    /// `out_degree(u)` and `in_degree(v)`, so `sum(degree)/2` halves back to each
+    /// edge's weight once; a self-loop adds `w` to both in and out of one node →
+    /// `2w` → halves to `w`, again one stored edge counted once. Returns `None` on
+    /// any non-integer weight (caller uses the exact degree path); missing weight
+    /// defaults to nx's int `1`.
+    #[must_use]
+    pub fn weighted_size_int(&self, weight: &str) -> Option<i128> {
+        let mut total: i128 = 0;
+        for attrs in self.edges.values() {
+            let value = match attrs.get(weight) {
+                Some(CgseValue::Int(v)) => i128::from(*v),
+                Some(_) => return None,
+                None => 1,
+            };
+            total = total.checked_add(value)?;
+        }
+        Some(total)
+    }
+
     /// br-r37-c1-revborrow: O(V+E) directed transpose. The reverse of a
     /// `DiGraph` keeps the SAME node table (identical insertion order, identical
     /// indices), so reversing is a pure topology flip — no String hashing, no
@@ -2801,6 +2822,27 @@ impl MultiDiGraph {
         }
 
         ordered
+    }
+
+    /// br-r37-c1-wsize (cc): integer `size(weight)` from the store — directed
+    /// multigraph twin of `Graph::weighted_size_int`. Each parallel directed edge
+    /// is one bucket entry contributing its weight once (size halves degree's
+    /// in+out double count). Returns `None` on any non-integer weight (caller uses
+    /// the exact degree path); missing weight defaults to nx's int `1`.
+    #[must_use]
+    pub fn weighted_size_int(&self, weight: &str) -> Option<i128> {
+        let mut total: i128 = 0;
+        for bucket in self.edges.values() {
+            for attrs in bucket.values() {
+                let value = match attrs.get(weight) {
+                    Some(CgseValue::Int(v)) => i128::from(*v),
+                    Some(_) => return None,
+                    None => 1,
+                };
+                total = total.checked_add(value)?;
+            }
+        }
+        Some(total)
     }
 
     pub fn try_for_each_edge_ordered_borrowed<E>(

@@ -7449,6 +7449,23 @@ impl PyMultiGraph {
         Ok(Some(out))
     }
 
+    /// br-r37-c1-wsize (cc): native scalar `size(weight)` for the integer/clean
+    /// case. The Python `size` wrapper routes weighted size through
+    /// `sum(d for _, d in self.degree(weight))/2`, which materialises N
+    /// `(node, PyFloat)` degree pairs only to reduce them to one number. When the
+    /// graph is clean (store authoritative) and every weight is an integer, sum
+    /// the CgseValue store once and return the scalar directly — no per-node
+    /// PyObject. Returns `None` (Python falls back to the exact degree path) on a
+    /// dirty mirror or any non-integer weight. Byte-identical to nx's
+    /// `sum(int degrees)/2`: integer degree sums are exact (`2 * size`), and
+    /// `(2*size)/2` rounds to the same f64 as `size as f64`.
+    fn _weighted_size_fast(&self, weight: &str) -> Option<f64> {
+        if self.edges_dirty.load(Ordering::Relaxed) {
+            return None;
+        }
+        self.inner.weighted_size_int(weight).map(|t| t as f64)
+    }
+
     fn _native_weighted_degree(
         &self,
         py: Python<'_>,
@@ -11960,6 +11977,18 @@ impl PyGraph {
         let py = slf.py();
         let graph_py: Py<PyGraph> = Py::from(slf);
         views::new_degree_view(py, graph_py)
+    }
+
+    /// br-r37-c1-wsize (cc): native scalar `size(weight)` for the integer/clean
+    /// case — see `PyMultiGraph::_weighted_size_fast`. PyGraph's
+    /// `_native_weighted_degree` has no store fast path at all (it always builds a
+    /// per-node PyList + `builtins.sum`), so weighted `size` paid full per-node
+    /// PyObject materialisation; this skips straight to the store scalar.
+    fn _weighted_size_fast(&self, weight: &str) -> Option<f64> {
+        if self.edges_dirty.load(Ordering::Relaxed) {
+            return None;
+        }
+        self.inner.weighted_size_int(weight).map(|t| t as f64)
     }
 
     /// br-r37-c1-yo1nt: native weighted degree, returning the full

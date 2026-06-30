@@ -2096,6 +2096,30 @@ impl Graph {
         ordered
     }
 
+    /// br-r37-c1-wsize (cc): integer `size(weight)` straight from the CgseValue
+    /// store. `size(weight)` is `sum(degree(weight))/2`; the `/2` exactly cancels
+    /// the double-endpoint counting, so the weighted size equals each stored
+    /// edge's weight summed ONCE (a self-loop is one stored edge → counted once,
+    /// matching nx's degree-counts-it-twice-then-halves). Each edge appears once
+    /// in `self.edges`, so a single store walk is the whole answer — no per-node
+    /// PyObject degree materialization. Returns `None` (caller falls back to the
+    /// exact float/PyObject degree path) on ANY non-integer weight value; a
+    /// missing weight defaults to nx's int `1`. Integer addition is associative,
+    /// so iteration order is irrelevant.
+    #[must_use]
+    pub fn weighted_size_int(&self, weight: &str) -> Option<i128> {
+        let mut total: i128 = 0;
+        for attrs in self.edges.values() {
+            let value = match attrs.get(weight) {
+                Some(CgseValue::Int(v)) => i128::from(*v),
+                Some(_) => return None,
+                None => 1,
+            };
+            total = total.checked_add(value)?;
+        }
+        Some(total)
+    }
+
     /// br-r37-c1-2a00r: index-space twin of `edges_ordered_borrowed` — yields
     /// `(u, v)` node indices in the SAME node-major traversed order/orientation,
     /// without resolving endpoints to `&str`. Lets the EdgeView iterate edges and
@@ -3219,6 +3243,28 @@ impl MultiGraph {
         }
 
         ordered
+    }
+
+    /// br-r37-c1-wsize (cc): integer `size(weight)` from the store — the
+    /// multigraph twin of `Graph::weighted_size_int`. Each parallel edge is one
+    /// bucket entry in `self.edges` and contributes its weight once (size halves
+    /// degree's double count); a self-loop key is one stored edge counted once.
+    /// Returns `None` on any non-integer weight (caller uses the exact
+    /// float/PyObject degree path); missing weight defaults to nx's int `1`.
+    #[must_use]
+    pub fn weighted_size_int(&self, weight: &str) -> Option<i128> {
+        let mut total: i128 = 0;
+        for bucket in self.edges.values() {
+            for attrs in bucket.values() {
+                let value = match attrs.get(weight) {
+                    Some(CgseValue::Int(v)) => i128::from(*v),
+                    Some(_) => return None,
+                    None => 1,
+                };
+                total = total.checked_add(value)?;
+            }
+        }
+        Some(total)
     }
 
     #[must_use]

@@ -3341,6 +3341,18 @@ impl PyMultiDiGraph {
         }
     }
 
+    /// br-r37-c1-wsize (cc): native scalar `size(weight)` for the integer/clean
+    /// case — directed-multigraph analog of `PyGraph::_weighted_size_fast`. Sums
+    /// the store once instead of materialising N `(node, PyFloat)` degree pairs.
+    /// Returns `None` (Python falls back to the exact degree path) on a dirty
+    /// mirror or any non-integer weight.
+    fn _weighted_size_fast(&self, weight: &str) -> Option<f64> {
+        if self.edges_dirty.load(Ordering::Relaxed) {
+            return None;
+        }
+        self.inner.weighted_size_int(weight).map(|t| t as f64)
+    }
+
     /// br-inedges-autokey (bt): side-effect-free public-key set for a (u, v)
     /// pair, for the auto-key add_edge path's `new_edge_key` computation. Unlike
     /// `get_edge_data(u, v)` (which materializes live mirror attr dicts AND marks
@@ -9961,6 +9973,19 @@ impl PyDiGraph {
 
     fn number_of_edges(&self) -> usize {
         self.inner.edge_count()
+    }
+
+    /// br-r37-c1-wsize (cc): native scalar `size(weight)` for the integer/clean
+    /// case — directed analog of `PyGraph::_weighted_size_fast`. The Python `size`
+    /// wrapper reduces `sum(d for _, d in self.degree(weight))/2`, materialising N
+    /// `(node, PyFloat)` pairs for one number; this sums the store once. Returns
+    /// `None` (Python falls back to the exact degree path) on a dirty mirror or any
+    /// non-integer weight. Byte-identical to nx's `sum(int degrees)/2`.
+    fn _weighted_size_fast(&self, weight: &str) -> Option<f64> {
+        if self.edges_dirty.load(Ordering::Relaxed) {
+            return None;
+        }
+        self.inner.weighted_size_int(weight).map(|t| t as f64)
     }
 
     /// Number of edges, optionally weighted.

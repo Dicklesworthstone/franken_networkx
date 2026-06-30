@@ -8,6 +8,47 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## SHIPPED (cc, 2026-06-30): size(weight) 0.62-0.87x -> 19.6x (cargo bench) / 31-39x (micro) — native store SCALAR, no per-node degree materialization
+
+The documented `mg size(weight) 0.625x` head2head gap (head2head_vein_map) was lumped with the
+weighted-degree "materialization floor" family — WRONGLY. `size(weight)` returns a **scalar**, so
+there is NO materialization floor: the implementation just wastefully materialized N `(node,
+PyFloat)` degree pairs only to `sum(...)/2` them down to one number. The Python `size` wrapper
+(`_size_with_unweighted_int`, __init__.py:481) routes weighted size through
+`sum(d for _, d in self.degree(weight))/2`; profiling showed ~all of size(weight)'s cost IS that
+degree materialization (Graph: size 3.32ms ≈ degree-materialize 3.28ms), and PyGraph's
+`_native_weighted_degree` has NO store fast path at all (it always builds a per-node PyList +
+`builtins.sum`).
+
+INSIGHT: `size(weight)` == sum of each stored edge's weight ONCE — the `/2` exactly cancels the
+double-endpoint counting (an undirected edge adds `w` to both endpoints' degree; a directed edge
+adds `w` to `out(u)`+`in(v)`; a self-loop adds `2w` at its node → all halve back to `w` per stored
+edge). True for ALL 4 graph types. So a single O(E) store walk is the whole answer.
+
+FIX (br-r37-c1-wsize): `weighted_size_int(weight) -> Option<i128>` on inner Graph/MultiGraph
+(fnx-classes/lib.rs) + DiGraph/MultiDiGraph (fnx-classes/digraph.rs) sums the CgseValue store once
+(each edge once; missing weight = nx's int 1; bails `None` on ANY non-int value). Py-layer
+`_weighted_size_fast` on all 4 PyGraph classes gates `!edges_dirty` (store authoritative) and returns
+`total as f64`. The `size` closure tries it first when `type(weight) is str`. Byte-identical to nx's
+`sum(int degrees)/2`: integer degree sums are exact (`2*size`), and `(2*size)/2` rounds to the same
+f64 as `size as f64` (both round-to-nearest-even). Float/mixed/Bool weights, callable weights, a
+dirty mirror (get_edge_data / per-edge mutation) all return `None` → the exact degree path is
+UNCHANGED (zero regression risk).
+
+RESULTS: authoritative cargo bench `networkx_head_to_head_multigraph_weighted_degree` ->
+`fnx_size_weight_mg400_e3224` 62.05µs vs `nx_size_weight_mg400_e3224` 1.217ms = **19.6x** (was
+0.625x). Micro (N=3000, 15k int-weight edges, warm min-of-25): Graph 0.78x->31.3x, MultiGraph
+0.74x->31.4x, DiGraph 0.76x->38.7x, MultiDiGraph 1.97x->34.4x. Byte-exact 12 categories × 4 types
+(int/float/self-loop/negative/missing-default-1/mixed-bail/bool-bail/other-key/empty/None/dirty/
+callable). Conformance GREEN: utilities+density 696, flow_hierarchy/size net 930, assortativity+
+hierarchy 276, whole-suite weighted/degree/weight net 6305 — all pass. clippy clean (my additions).
+
+LEVER (general): a SCALAR-returning weighted reduction (`size`, total weight, density numerator)
+routed through a per-node degree VIEW pays N PyObject materializations for one number — it is NOT a
+materialization floor (those are for collection-returning views). Fast-path it with a single store
+walk; integer reductions are order-independent so byte-exactness is free. AUDIT other scalar
+reductions that call `self.degree(weight=...)` / `self.size(weight=...)` internally.
+
 ## SHIPPED (cc, 2026-06-28): directed subgraph.edges() 0.009x -> 2.56x vs nx (111x slower -> 2.6x faster, ~268x self) — hoist whole-graph snapshot out of per-source loop
 
 THE BIG conversion/view-wall find. `list(G.subgraph(nodes).edges())` on a DiGraph was **0.009x vs
