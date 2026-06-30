@@ -11394,3 +11394,27 @@ DiGraph.to_undirected with RECIPROCAL directed edges carrying CONFLICTING attrs 
 poke picks the first-touch direction (the `seen` guard at digraph.rs:10981 processes first-touch
 only) where nx is last-wins -> 3/320. Fixing needs the None/store arm to also do the reciprocal
 `existing.update` merge that only the Some(mirror) arm does today. Deferred; conformance-green.
+
+## 2026-06-29 BlackThrush NO-SHIP (cargo-bench-confirmed): clear_edges 0.351x is per-edge CONSTRUCTION fragmentation, not a clear_edges bug
+
+Ran the AUTHORITATIVE per-crate bench (rch exec -- cargo bench -p fnx-python --bench
+networkx_head_to_head, vendored-nx oracle). Of 17 cleanly-paired fnx-vs-nx workloads, the gaps
+(ratio<1.0): clear_edges 0.351x (fnx 1.13ms / nx 0.40ms), construction_copy 0.611x (239/146ms),
+core_laggards 0.626x, adjacency_outer_cache 0.811x; the other 13 are fnx>=nx.
+ROOT-CAUSED clear_edges (the biggest) with Rust Instant instrumentation: the cost is
+inner.clear_edges() -> self.edges.clear(), and it is 2.11ms for a PER-EDGE-built graph vs 0.33ms
+for a BULK-built one (same 896 edge buckets / 4000 edges). Pure ALLOCATOR FRAGMENTATION: per-edge
+add_edge allocates 4000 AttrMap (BTreeMap) nodes INTERLEAVED with the per-edge decision-ledger
+pushes (the known construction tax, reference_read_adjlist_native_and_ledger_tax) + incremental
+IndexMap growth, scattering them across the heap; eagerly free-ing 4000 scattered small allocations
+is ~6x slower than bulk's contiguous ones. clear_edges itself is OPTIMAL (just drops the structures),
+and clear_edges on a BULK-built MultiGraph BEATS nx (1.16x) -- nx is only "faster" here because Python
+defers deallocation to GC while Rust frees eagerly. The bench's _make_multigraph builds per-edge, so
+it measures the construction-fragmentation tax at clear time, NOT a clear_edges defect. Fix would need
+an arena/pool allocator for AttrMaps or a deferred/background drop -- a large/risky change, not a
+clear_edges edit. REVERTED instrumentation; ~0 clean gain available here.
+FRONTIER CONFIRMED: the cargo bench VALIDATES the synthetic conclusion -- every remaining gap is the
+per-edge CONSTRUCTION tax (ledger + fragmentation: clear_edges, construction_copy, core_laggards) or
+the materialization floor (adjacency_outer_cache, already a documented no-ship). Both are large
+architectural levers (bulk-unrecorded everywhere / arena alloc / persistent Python mirror), not
+60-min kernel edits. The kernel/algorithm/mutation veins are mined.
