@@ -11371,3 +11371,26 @@ upstream of the None arm) -> stashes bt-todirected-noneArm-NOSHIP{,2}. REAL FIX 
 mirror/store-state tracing of get_edge_data(reversed) -> materialize_edge_py_attrs -> edges_ordered
 _borrowed. Common-call trigger (get_edge_data arg order) makes this MORE than niche; high-priority for
 a dedicated Rust debugging session. The minimal repro above makes it a ~10-line bisect for that session.
+
+## 2026-06-29 BlackThrush FIX+SHIP: to_directed/to_undirected dropped store attrs after a stray mirror entry (the 2-cycle bug)
+
+ROOT-CAUSED + FIXED the bug surfaced in 1671b61fc/393676c86. The REAL path is the deepcopy kernels
+_native_to_directed_deepcopy (lib.rs ~11790, Graph.to_directed) and _native_to_undirected_deepcopy
+(digraph.rs ~10989, DiGraph.to_undirected) — NOT the lib.rs:11463 method I instrumented first (that
+one is unused for the public call). Both built each arc's attrs from `edge_py_attrs.get(...) { Some
+=> deepcopy, None => Default::default() }` — reading ONLY the Python mirror. When the mirror is
+PRISTINE (empty) the lazy/Default arc is fine (store flows through the edge_batch path); but ONE
+stray mirror entry (a single get_edge_data(v,u) reversed materializes one edge; subgraph().copy()
+materializes the induced edges) makes the mirror NON-pristine, after which `Default` DROPPED every
+store-only edge's attrs -> a bulk-built graph lost ALL edge attrs on to_directed/to_undirected.
+DETERMINISTIC: g.add_edges_from([(i,i+10,{'weight':i+1}) for i in range(10)]); g.get_edge_data(15,5);
+g.to_directed() -> empty attrs. FIX: gate `None if mirror_pristine => Default` else read the
+CgseValue store (self.inner.edge_attrs(source,target).cloned()) — preserves the pristine fast path
+(no fresh perf change) and reads the store only in the non-pristine case. Graph.to_directed 320/320
++ DiGraph 317/320; 13466 conformance pass (the 3 reds are the PRE-EXISTING find_induced_nodes
+stale no-fallback tests, fail on HEAD too).
+RESIDUAL (rarer, pre-existing, NOT regressed — HEAD dropped ALL attrs here, mine drops only this):
+DiGraph.to_undirected with RECIPROCAL directed edges carrying CONFLICTING attrs + a non-pristine
+poke picks the first-touch direction (the `seen` guard at digraph.rs:10981 processes first-touch
+only) where nx is last-wins -> 3/320. Fixing needs the None/store arm to also do the reciprocal
+`existing.update` merge that only the Some(mirror) arm does today. Deferred; conformance-green.

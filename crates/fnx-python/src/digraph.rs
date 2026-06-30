@@ -10971,6 +10971,11 @@ impl PyDiGraph {
             Vec::with_capacity(self.inner.edge_count());
         let mut seen: std::collections::HashSet<(String, String)> =
             std::collections::HashSet::with_capacity(self.inner.edge_count());
+        // br-inedges-distorefix (bt): see PyGraph::_native_to_directed_deepcopy —
+        // a NON-pristine mirror (one stray get_edge_data/subgraph.copy entry) made
+        // the `None => Default` arm drop store-only edges' attrs. Read the store
+        // for store-only edges when the mirror is non-pristine.
+        let mirror_pristine = self.edge_py_attrs.is_empty();
         for source in self.inner.nodes_ordered() {
             for target in self.inner.successors(source).unwrap_or_default() {
                 let unordered = if source <= target {
@@ -11008,7 +11013,12 @@ impl PyDiGraph {
                         rust_attrs
                     }
                     // attr-less edge stays lazy (no PyDict alloc)
-                    None => Default::default(),
+                    None if mirror_pristine => Default::default(),
+                    None => self
+                        .inner
+                        .edge_attrs(source, target)
+                        .cloned()
+                        .unwrap_or_default(),
                 };
                 edge_batch.push((source.to_owned(), target.to_owned(), rust_attrs));
             }

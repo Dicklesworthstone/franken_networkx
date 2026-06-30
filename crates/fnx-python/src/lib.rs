@@ -11787,6 +11787,14 @@ impl PyGraph {
         let _ = dg.inner.extend_nodes_with_attrs_unrecorded(node_batch);
         let mut edge_batch: Vec<(String, String, fnx_classes::AttrMap)> =
             Vec::with_capacity(self.inner.edge_count() * 2);
+        // br-inedges-distorefix (bt): when the mirror is PRISTINE (empty), the
+        // attr-less `Default` arc is correct — the lazy mirror carries nothing and
+        // the store attrs flow through the edge_batch path. But once the mirror is
+        // NON-pristine (e.g. a single get_edge_data(v, u) materialized ONE edge),
+        // `Default` for a store-only edge DROPPED its attrs — a bulk-built graph
+        // with one stray mirror entry lost every store-only arc's attrs. Read the
+        // CgseValue store for store-only edges in that case.
+        let mirror_pristine = self.edge_py_attrs.is_empty();
         for source in self.inner.nodes_ordered() {
             for target in self.inner.neighbors(source).unwrap_or_default() {
                 let entry = self
@@ -11801,8 +11809,12 @@ impl PyGraph {
                             .insert((source.to_owned(), target.to_owned()), py_attrs);
                         rust_attrs
                     }
-                    // Attr-less arc stays lazy (no PyDict alloc).
-                    None => Default::default(),
+                    None if mirror_pristine => Default::default(),
+                    None => self
+                        .inner
+                        .edge_attrs(source, target)
+                        .cloned()
+                        .unwrap_or_default(),
                 };
                 edge_batch.push((source.to_owned(), target.to_owned(), rust_attrs));
             }
