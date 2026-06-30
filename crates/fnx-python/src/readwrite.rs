@@ -1464,7 +1464,17 @@ pub fn edges_nbunch_data(
                     let ek = PyGraph::edge_key(u_name, v_name);
                     match pg.edge_py_attrs.get(&ek) {
                         Some(edge_dict) => edge_dict.clone_ref(py).into_any(),
-                        None => PyDict::new(py).into_any().unbind(),
+                        // br-inedges-distorefix (bt): a bulk-built graph leaves the
+                        // Python mirror EMPTY, so a store-only edge had no edge_py_attrs
+                        // entry -> the old empty-dict made edges(nbunch, data='attr')
+                        // read the DEFAULT (None) for every edge and edges(nbunch,
+                        // data=True) drop all attrs. Materialize the dict from the
+                        // CgseValue store. (Same bulk-built store-only class as the
+                        // in_edges/dag fixes.)
+                        None => match pg.inner.edge_attrs(u_name, v_name) {
+                            Some(attrs) => attr_map_to_pydict(py, attrs)?.into_any(),
+                            None => PyDict::new(py).into_any().unbind(),
+                        },
                     }
                 } else {
                     py.None()

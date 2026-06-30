@@ -11284,3 +11284,23 @@ NET (perf): every representative access pattern + algorithm + mutation path is a
 perf frontier for THIS port is genuinely mined; the durable wins this session were the O(N^2) mutation
 fixes + the store-only CORRECTNESS bugs. Future value is more likely in correctness audits (the
 bulk-built-graph store-only class) than in squeezing the materialization floor on atypical patterns.
+
+## 2026-06-29 BlackThrush FIX+SHIP: Graph.edges(nbunch, data=<attr>) store-only bug — 3rd bulk-built store-only fix
+
+CORRECTNESS (pre-existing). Continued the bulk-built store-only audit (after in_edges 151fdd624 +
+dag_longest_path 0ad42b25c). The native `edges_nbunch_data` (readwrite.rs ~1465) attached the
+edge_py_attrs mirror dict per edge and used an EMPTY PyDict when absent -> on a bulk-built simple
+Graph (>=8 edges -> native batch leaves the mirror EMPTY) `edges(nbunch, data='attr')` read the
+DEFAULT (None) for every store-only edge, and `edges(nbunch, data=True)` dropped all attrs (empty
+dict). Whole-graph edges(data=) was fine (bulk ordered_edge_attr_dicts path); only the NBUNCH
+variant was wrong, and only for simple Graph (MG nbunch already reads the store). FIX: materialize
+the dict from the CgseValue store via attr_map_to_pydict when the mirror is absent (&self-safe, no
+borrow_mut/dirty). 160/160 byte-exact (scalar/default/missing/data=True content x int/float x
+self-loops); 14770 conformance pass (the 3 find_induced_nodes failures are PRE-EXISTING — identical
+on the e77b7764a session-start .so, unrelated).
+RESIDUAL (minor, no regression): data=True on a store-only edge yields a FRESH (content-correct but
+non-LIVE) dict; mutating it doesn't persist (nx yields the live dict). The old empty-dict was equally
+non-live AND wrong-content, so this is strictly better. Full liveness needs materialize_edge_py_attrs
+(&mut + marks dirty), a perf cost on the common scalar read path -> deferred. AUDIT NOTE: the
+bulk-built store-only class now has 3 fixes; grep `edge_py_attrs.get ... None => PyDict::new/default`
+for any remaining (whole-graph edges/degree/dijkstra/pagerank/matrix all verified store-correct).
