@@ -11304,3 +11304,25 @@ non-live AND wrong-content, so this is strictly better. Full liveness needs mate
 (&mut + marks dirty), a perf cost on the common scalar read path -> deferred. AUDIT NOTE: the
 bulk-built store-only class now has 3 fixes; grep `edge_py_attrs.get ... None => PyDict::new/default`
 for any remaining (whole-graph edges/degree/dijkstra/pagerank/matrix all verified store-correct).
+
+## 2026-06-29 BlackThrush SURFACE: bulk-built store-only audit COMPLETE (3 data-loss fixes) + AttrMap-sorts-attrs design divergence
+
+Closed the bulk-built-graph store-only correctness audit (native paths reading the EMPTY Python mirror
+on >=8-edge add_edges_from graphs). Found + FIXED 3 DATA-LOSS bugs: in_edges(data=attr) 151fdd624,
+dag_longest_path(weight) 0ad42b25c, edges(nbunch,data=attr) 901a7e00e. Then swept the remaining
+weight/attr read paths on bulk graphs — ALL correct: dijkstra/bellman/pagerank/adjacency_matrix/
+laplacian/MST/floyd/astar/max_flow/min_cut/max_weight_matching/johnson (weights), to_dict_of_dicts/
+generate_edgelist/node_link_data/adjacency_data/edges(data=True) (serialization), nodes(data) (node
+attrs). The DATA-LOSS class is mined.
+ONE residual divergence (NOT data-loss, semantic-equivalent, PRE-EXISTING since e77b7764a): bulk-built
+simple Graph/DiGraph do NOT preserve attr INSERTION ORDER. Edges added {'weight':_,'color':_} come
+back ['color','weight'] (ALPHABETICAL) where nx preserves ['weight','color']. ROOT:
+`AttrMap = BTreeMap<String, CgseValue>` (fnx-classes/src/lib.rs:22) SORTS keys; per-edge graphs are
+masked by the insertion-ordered edge_py_attrs mirror, but a bulk graph's empty mirror exposes the
+sort. Multi types preserve order (different storage). IMPACT: only byte-ORDER serialization (JSON
+dict order, edgelist data=True repr, str(G[u][v])) — all attrs+values present, round-trips
+semantically fine, no test currently fails on it. FIX would be AttrMap BTreeMap->IndexMap: a CORE
+fnx-classes change with enormous blast radius (every AttrMap iteration/comparison/golden snapshot
+assumes sorted order — it's a DELIBERATE canonical-determinism choice), NOT a 60-min dig. Surfaced
+as an architectural decision for a dedicated effort, not forced. The sorted-AttrMap tradeoff (canonical
+comparison determinism) vs nx byte-exact attr order is a maintainer call.
