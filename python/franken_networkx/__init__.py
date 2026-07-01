@@ -18083,14 +18083,16 @@ def volume(G, S, weight=None):
         and not G.is_multigraph()
         and not G.is_directed()
     ):
-        # br-r37-c1-u34tv: ``sum(G.degree(v) for v in S)`` pays the
-        # DegreeView wrapper cost per node. Materialize the full
-        # degree dict once (one batched iteration) — 4x faster on
-        # BA200 m=3 |S|=100 (32 µs vs 133 µs). Wins even for
-        # |S| < |V|/2 because the per-call wrapper overhead
-        # dominates the per-node lookup cost.
-        deg = dict(G.degree())
-        return sum(deg.get(v, 0) for v in S)
+        # br-r37-c1-volsubdeg (cc): pass S straight to the degree view —
+        # ``sum(d for v, d in G.degree(S))``, nx's own formula. The prior
+        # ``dict(G.degree())`` materialized ALL |V| degrees regardless of |S|,
+        # which is O(V) even for a handful of query nodes: at N=2000 it was
+        # 216 µs / 0.06x vs nx for |S|=40 (16x SLOWER). The subset degree view is
+        # O(|S|) and BEATS nx across the board (small 6.9 vs 13.5 µs, |S|=500
+        # 73 vs 82, |S|=all 285 vs 316). Byte-exact incl self-loops (degree counts
+        # them twice) and missing nodes (degree(nbunch) skips them == the old
+        # get(v, 0) contributing 0).
+        return sum(d for v, d in G.degree(S))
     return sum(
         _adc_weighted_degree(
             G,

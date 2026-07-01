@@ -2,6 +2,25 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-01 CopperCliff SHIP: cuts.volume(S) 0.06x -> 1.40x (|S|=40, N=2000) — subset degree view, not a whole-graph dict(G.degree())
+
+Same "un-extended subset fast path" family as the clique wins. `volume(G, S)` (sum of
+degrees of nodes in S; feeds conductance/normalized_cut/cut metrics) had a fast path
+that materialized the ENTIRE degree dict — `deg = dict(G.degree()); sum(deg.get(v,0)
+for v in S)` — O(V) regardless of |S|. Its comment claimed a win "even for |S|<|V|/2",
+but that was measured against the old per-node AtlasView walk, NOT vs nx: at N=2000 the
+whole-dict path is 216 µs / **0.06x vs nx** for |S|=40 (16x SLOWER).
+
+FIX (br-r37-c1-volsubdeg, PURE-PYTHON): `sum(d for v, d in G.degree(S))` — nx's own
+formula, passing S straight to the O(|S|) subset degree view. fnx's degree(nbunch) view
+is fast enough to BEAT nx in EVERY regime: |S|=40 0.06x->1.40x, |S|=500 0.34x->1.14x,
+|S|=all 1.08x->1.10x. Byte-exact 0 mismatches over 40 random subsets incl injected-
+missing nodes (degree(nbunch) skips them == the old get(v,0)=0), self-loops (counted
+twice), empty, list-input, and the weighted/directed/multigraph SLOW paths (unchanged).
+Conformance GREEN (2174 volume/conductance/cut/boundary/expansion). LESSON: a fast-path
+comment that benchmarks only against the OLD fnx path (not nx) can hide a regression vs
+nx — re-measure vs ORIG. Same lever as node_clique_number / number_of_cliques.
+
 ## 2026-07-01 CopperCliff SHIP: number_of_cliques(LIST of nodes) 0.838x -> 2.03x (list-20) / 7.69x (list-5) — per-node ego count (sibling of node_clique_number)
 
 Immediately applied the node_clique_number lever to its sibling. `number_of_cliques(G,
