@@ -7630,16 +7630,23 @@ impl MultiDiGraphNodeView {
         }
     }
 
-    fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<PyObject> {
-        let g = self.graph.borrow(py);
+    fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+        // br-r37-c1-mdgnodeget (cc): MATERIALIZE + cache the live mirror dict, as
+        // DiGraph (br-r37-c1-d58s8) and MultiGraph already do. The old
+        // `node_py_attrs.get().map_or_else(|| PyDict::new(py), ..)` returned a FRESH
+        // UNSTORED dict on a mirror miss — and nodes created implicitly by
+        // add_edges_from have no mirror entry — so `G.nodes[n].update({..})` /
+        // `G.nodes[n][k]=v` silently LOST the write (batch-built MultiDiGraph
+        // data-loss bug). borrow_mut + materialize_node_py_attrs (entry/or_insert)
+        // hands back the SAME cached object so in-place mutations persist. Attributed
+        // nodes are already in the mirror (add_nodes_from populates it), so the
+        // or_insert-empty fallback only fires for genuinely attr-less nodes.
+        let mut g = self.graph.borrow_mut(py);
         let canonical = node_key_to_string(py, n)?;
         if !g.inner.has_node(&canonical) {
             return Err(crate::missing_key_error(n));
         }
-        Ok(g.node_py_attrs.get(&canonical).map_or_else(
-            || PyDict::new(py).into_any().unbind(),
-            |d| d.clone_ref(py).into_any(),
-        ))
+        Ok(g.materialize_node_py_attrs(py, &canonical))
     }
 
     #[pyo3(signature = (n, default=None))]

@@ -2,6 +2,27 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-01 CopperCliff FIX: batch-built MultiDiGraph `G.nodes[n].update()` data-loss (was silently dropped) — behavior gap vs nx closed
+
+Followed up the correctness bug surfaced the same day (1438d4495). ROOT: the
+MultiDiGraph NodeView `__getitem__` (digraph.rs ~7633) did `let g =
+self.graph.borrow(py); g.node_py_attrs.get(canonical).map_or_else(|| PyDict::new(py),
+|d| d.clone_ref(py))` — on a mirror MISS it returned a FRESH UNSTORED dict, and nodes
+created implicitly by `add_edges_from` have no mirror entry, so `G.nodes[n].update({..})`
+/ `G.nodes[n][k]=v` mutated a throwaway dict and the write was LOST. DiGraph
+(br-r37-c1-d58s8) and MultiGraph already fixed this exact class; MDG was missed.
+FIX (br-r37-c1-mdgnodeget): `borrow_mut` + `materialize_node_py_attrs` (entry/or_insert
++ clone_ref) hands back the SAME cached mirror object so in-place mutations persist —
+one-line-equivalent copy of the DiGraph pattern. Attributed nodes are already in the
+mirror (add_nodes_from populates it), so the or_insert-empty fallback only fires for
+genuinely attr-less nodes. VERIFIED: verify_mdg 0 failures across all 4 types ×
+batch/per-edge (view mutation persistence, read parity vs nx for store+mirror attrs,
+mutate-then-serialize, shared-object identity, missing-node KeyError); conformance
+6577 + 3026 green (the 3 reds are the pre-existing find_induced_nodes no-fallback
+tests, unrelated). TRADEOFF: `G.nodes[n]` read now materializes-on-access (0.23x vs
+nx, matching DiGraph's existing 0.25x) — the required cost of a persistent write
+target; correctness > read speed, consistent with the other 3 types.
+
 ## 2026-07-01 CopperCliff NO-SHIP: node_link_data 0.70x vs nx is the materialization floor (native binding 0.90-0.95x vs the comprehension — REVERTED)
 
 `node_link_data(G)` measures 0.67-0.79x vs nx (fnx 16.5ms / nx 11.0ms at
