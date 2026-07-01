@@ -2,6 +2,26 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-01 CopperCliff SHIP: generalized_degree(SUBSET, |S|>=32) 0.81x -> 2.6-4.08x — native subset kernel (sibling of square_clustering)
+
+Applied the square_clustering subset lever to generalized_degree. A LIST of nodes ran
+the Python `_triangles_and_degree_iter_local` neighbor-intersection port (0.76-0.81x vs
+nx, growing absolute with |S|); the native all-node `generalized_degree_rust` kernel was
+nodes=None only. The per-node kernel is lazy (`graph.neighbors` per node, no whole-graph
+setup), so a subset variant is O(|S|*deg^2). FIX (br-r37-c1-gdsub): refactored the
+kernel -> `generalized_degree_for(graph, targets)` + binding
+`generalized_degree_rust_subset` + Python routes the exact-simple-Graph no-self-loop
+subset case (same self-loop gate as nodes=None — the kernel counts a self-loop as a
+neighbour). RESULT (12-regular): N=2000 |S|=100 3.65x / |S|=500 4.08x; N=6000 |S|=100
+2.61x / |S|=500 4.08x. Byte-exact 0 mismatches over single(->Counter) / lists / all /
+missing / empty / set / tuple / self-loop (falls to Python). Conformance GREEN (833
+generalized_degree/triangle). GUARD: a `len(selected_nodes) >= 32` gate keeps TINY
+subsets on the Python port — at N=6000 |S|=10 the O(E) number_of_selfloops gate + binding
+overhead made the native path 0.44x (WORSE than the 0.76x port); the guard restores the
+0.73x port for tiny subsets while keeping the |S|>=100 wins. LESSON: a native subset
+kernel still carries per-call SETUP (here the O(E) self-loop gate) — guard it out for
+subsets too small to amortize.
+
 ## 2026-07-01 CopperCliff SHIP: square_clustering(SUBSET) 0.51-0.66x -> 1.15-23.8x — native subset kernel (compute only the targets), overturning the prior SURFACE
 
 Overturned the SAME-DAY surface below with a corrected cost model. The surface said a

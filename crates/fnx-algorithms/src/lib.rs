@@ -34712,9 +34712,23 @@ pub fn generalized_degree(
     graph: &Graph,
 ) -> std::collections::HashMap<String, std::collections::HashMap<usize, usize>> {
     let nodes = graph.nodes_ordered();
+    generalized_degree_for(graph, &nodes)
+}
+
+/// br-r37-c1-gdsub (cc): generalized-degree triangle-multiplicity distribution for a
+/// SUBSET of nodes. `generalized_degree(G, nodes=<list>)` previously ran the Python
+/// `_triangles_and_degree_iter_local` neighbor-intersection loop (0.76-0.81x vs nx); the
+/// per-node kernel here is lazy (`graph.neighbors` per node, no whole-graph setup), so
+/// restricting it to `targets` is O(|S|*deg^2). Byte-identical to the all-node path (same
+/// per-node body) — the caller gates on `number_of_selfloops(G) == 0` because this kernel
+/// counts a self-loop as a neighbour (nx excludes them), matching the nodes=None gate.
+pub fn generalized_degree_for(
+    graph: &Graph,
+    targets: &[&str],
+) -> std::collections::HashMap<String, std::collections::HashMap<usize, usize>> {
     let mut result = std::collections::HashMap::new();
 
-    for &node in &nodes {
+    for &node in targets {
         let nbrs: Vec<&str> = graph.neighbors(node).unwrap_or_default();
         let nbr_set: std::collections::HashSet<&str> = nbrs.iter().copied().collect();
 

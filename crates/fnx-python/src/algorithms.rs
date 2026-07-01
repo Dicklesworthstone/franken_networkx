@@ -20630,6 +20630,42 @@ pub fn generalized_degree_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult
     Ok(outer.unbind())
 }
 
+/// br-r37-c1-gdsub (cc): native `generalized_degree` for a SUBSET of nodes on an exact
+/// simple `Graph` with NO self-loops (the Python wrapper gates on both). `nodes` is the
+/// already-selected node list; each is resolved to its canonical key, the lazy per-node
+/// kernel runs over only those targets, and the result is keyed by the ORIGINAL node
+/// objects (a `{tri_count: count}` dict each). Byte-identical to the all-node fast path
+/// and the `_triangles_and_degree_iter_local` port.
+#[pyfunction]
+pub fn generalized_degree_rust_subset(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    nodes: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let mut canon: Vec<String> = Vec::new();
+    let mut keys: Vec<Py<PyAny>> = Vec::new();
+    for node in nodes.try_iter()? {
+        let node = node?;
+        canon.push(node_key_to_string(py, &node)?);
+        keys.push(node.unbind());
+    }
+    let targets: Vec<&str> = canon.iter().map(String::as_str).collect();
+    let result = py.allow_threads(|| fnx_algorithms::generalized_degree_for(inner, &targets));
+    let outer = PyDict::new(py);
+    for (key, c) in keys.into_iter().zip(canon.iter()) {
+        let inner_dict = PyDict::new(py);
+        if let Some(degree_dist) = result.get(c) {
+            for (tri_count, count) in degree_dist {
+                inner_dict.set_item(tri_count, count)?;
+            }
+        }
+        outer.set_item(key, inner_dict)?;
+    }
+    Ok(outer.unbind())
+}
+
 // ---------------------------------------------------------------------------
 // Is strongly regular
 // ---------------------------------------------------------------------------
@@ -23066,6 +23102,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(transitivity_rust, m)?)?;
     // Generalized degree
     m.add_function(wrap_pyfunction!(generalized_degree_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(generalized_degree_rust_subset, m)?)?;
     // Is strongly regular
     m.add_function(wrap_pyfunction!(is_strongly_regular_rust, m)?)?;
     // Flow hierarchy

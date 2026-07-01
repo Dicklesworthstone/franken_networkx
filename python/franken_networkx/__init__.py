@@ -30383,6 +30383,30 @@ def generalized_degree(G, nodes=None):
         }
 
     selected_nodes, single_node = _triangle_selection(G, nodes)
+    # br-r37-c1-gdsub (cc): native subset kernel for an exact simple Graph with no
+    # self-loops (same gate + per-node distribution as the nodes=None fast path; the
+    # kernel counts self-loops as neighbours, so self-loop graphs keep the Python
+    # triangle iterator). Computes only selected_nodes — O(|S|*deg^2), no whole-graph
+    # walk — vs the per-node `_triangles_and_degree_iter_local` port (0.76-0.81x). The
+    # Counter wrap + selected_nodes order match the port and nx byte-for-byte.
+    if (
+        type(G) is Graph
+        and len(selected_nodes) >= 32
+        and number_of_selfloops(G) == 0
+    ):
+        # len>=32 guard: the O(E) number_of_selfloops gate + binding overhead only
+        # pays off once the subset is non-trivial; tiny subsets on large graphs keep
+        # the O(|S|*deg) Python port (no whole-graph selfloop scan). Native wins
+        # 2.6-4x for |S|>=100.
+        from collections import Counter as _gd_counter
+
+        kr = dict(_fnx.generalized_degree_rust_subset(G, list(selected_nodes)))
+        generalized_degrees = {
+            node: _gd_counter(dict(kr[node])) for node in selected_nodes
+        }
+        if single_node:
+            return generalized_degrees[nodes]
+        return generalized_degrees
     generalized_degrees = {
         node: generalized_degree_counter
         for node, _, _, generalized_degree_counter in _triangles_and_degree_iter_local(
