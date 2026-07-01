@@ -2,6 +2,23 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-01 CopperCliff SURFACE: subset-kernel vein mined out — approximation/assortativity/lca/hashing families all wins; residual gaps near-zero or architectural
+
+After 5 subset-kernel ships this session (node_clique_number, number_of_cliques, volume,
+square_clustering, generalized_degree), swept the remaining un-benched families for the
+same lever. ALL wins: numeric/attribute_assortativity 1.6-1.8x, large_clique_size 2.3x,
+approximation.diameter 2.7x, min_weighted_vertex_cover 6.3x, triadic_census 15x,
+transitivity 40x, all_pairs_lca 1.06x, maximal_independent_set 1.11x. Only sub-1.0:
+wl_subgraph_hashes 0.92x + wl_graph_hash 0.96x (parity, iterated-hash constant factor),
+shortest_simple_paths 0.85x (Yen's, ~40 µs absolute — near-zero). None takeable
+(near-zero absolute or algorithmic constant factor). BLOCKER (unchanged): the only
+remaining MEASURED gaps with real absolute stakes are the materialization/dual-storage
+floors — in_edges/edges-view PyObject rebuild (0.24-0.35x), to_directed-scalar dual-store
+(0.65x), degree/edge-view subset materialization (~40 µs, near-zero) — all needing a
+persistent ordered Python-object mirror (a large architectural primitive), not a
+bench-and-edit lever. The subset-computes-whole-graph vein that yielded this session's 5
+ships is mined out.
+
 ## 2026-07-01 CopperCliff SHIP: generalized_degree(SUBSET, |S|>=32) 0.81x -> 2.6-4.08x — native subset kernel (sibling of square_clustering)
 
 Applied the square_clustering subset lever to generalized_degree. A LIST of nodes ran
