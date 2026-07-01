@@ -2,6 +2,33 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-01 CopperCliff SHIP: node_clique_number(LIST of nodes) 0.506x -> 1.28x — per-node ego_graph instead of whole-graph find_cliques + scan
+
+Found in a fresh community/clique/similarity/structural-holes sweep (all other
+workloads wins: find_cliques parity, constraint/effective_size 590x, louvain 16x,
+greedy_modularity 23x, closeness_vitality 39x). The lone gap: `node_clique_number(G,
+nodes=<list>)` 0.506x (fnx 4.5ms / nx 2.3ms, N=500/5N, 20-node list).
+
+ROOT: fnx already ego-optimized the SINGLE-node case (br-r37-c1-ncliqueego) but a LIST
+of nodes fell to `cliques = list(find_cliques(G))` over the WHOLE graph + a per-node
+membership scan — O(all maximal cliques) regardless of how few nodes are queried. nx's
+own algorithm runs `find_cliques(ego_graph(G, n))` PER node (each node is universal in
+its ego graph, so max-size there == its clique number; order-invariant).
+
+FIX (br-r37-c1-ncliquelistego, PURE-PYTHON, no rebuild): extend the ego fast path to
+the list branch — `{n: max(len(c) for c in find_cliques(ego_graph(G, n))) for n in
+nodes}`, exactly nx's structure but on fnx's native find_cliques + ego_graph. RESULT:
+list-20 0.506x->1.281x, list-5 1.282x (BEATS nx both). Byte-exact 0 mismatches over
+single / lists sized 1..N / None / empty / cliques-provided, and the error contract
+(NodeNotFound "Source .. is not in G" for a missing list node; TypeError for a single
+non-node; {node:0} for unhashable-in-list). Conformance GREEN (1150 clique + 178
+node_clique/ego). NOTE: the explicit ALL-nodes list is the one case where the old
+whole-graph find_cliques (31ms) beat per-node ego (45ms) — but that path is
+`nodes=None` in normal use (unchanged), and even the list form still beats nx (57ms).
+LEVER: an existing single-element fast path often just needs extending to the
+collection case (grep fast paths gated on a single hashable arg that fall back to a
+whole-graph scan for the list form).
+
 ## 2026-07-01 CopperCliff SURFACE: paths/cycles/flow/planarity family swept — non-takeable gaps mapped (hits is a warm WIN, simple_cycles/double_edge_swap already-optimized)
 
 Fresh family sweep (untouched before): every workload a win — cycle_basis 2.5x,

@@ -14176,22 +14176,22 @@ def node_clique_number(G, nodes=None, cliques=None, separate_nodes=False):
                 single = False
             if single:
                 return max(len(c) for c in find_cliques(ego_graph(G, nodes)))
-        cliques = list(find_cliques(G))
-        if nodes is not None:
-            if nodes in G:
-                return max(len(clique) for clique in cliques if nodes in clique)
+            # br-r37-c1-ncliquelistego (cc): a LIST of nodes gets the SAME per-node
+            # ego treatment (nx's exact algorithm) instead of one find_cliques over
+            # the WHOLE graph + a per-node membership scan. Each node is universal in
+            # its ego graph, so every maximal clique there contains it; max-size is
+            # order-invariant -> byte-exact vs nx (0/30 random-list trials) including
+            # the NodeNotFound("Source .. is not in G") contract (ego_graph raises it)
+            # and the {node:0} fallback for an unhashable-in-list node. ~2.6x on small
+            # lists (beats nx); the whole-graph find_cliques path is now nodes=None only.
             try:
-                requested_nodes = []
-                for node in nodes:
-                    if node not in G:
-                        raise NodeNotFound(f"Source {node} is not in G")
-                    requested_nodes.append(node)
                 return {
-                    node: max(len(clique) for clique in cliques if node in clique)
-                    for node in requested_nodes
+                    node: max(len(c) for c in find_cliques(ego_graph(G, node)))
+                    for node in nodes
                 }
             except TypeError:
                 return {node: 0 for node in nodes}
+        cliques = list(find_cliques(G))
 
     if nodes in G:
         return max(len(clique) for clique in cliques if nodes in clique)
