@@ -2,6 +2,43 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-01 CopperCliff NO-SHIP: node_link_data 0.70x vs nx is the materialization floor (native binding 0.90-0.95x vs the comprehension — REVERTED)
+
+`node_link_data(G)` measures 0.67-0.79x vs nx (fnx 16.5ms / nx 11.0ms at
+N=5000 Graph). Unlike `size(weight)` (a scalar, fixed 2026-06-30 → 19.6x), this
+returns E edge dicts + V node dicts — a genuine collection materialization. Its
+sibling `adjacency_data` wins (1.16x) only because it routes through the
+store-reading `G.adjacency()` Python path; `node_link_data`'s native binding
+(`node_link_data_simple`) was previously REMOVED (br-r37-c1-9kpev) for reading the
+empty edge MIRROR on bulk-built graphs (dropped attrs).
+
+ATTEMPT (br-r37-c1-nldstore): gave `node_link_data_simple` the proven `Some(mirror)
+else store` fallback (attr_map_to_pydict on mirror-miss — same fix shape as
+to_directed 589a8d036) and re-enabled the native path for exact Graph/DiGraph.
+VERIFIED byte-IDENTICAL to the comprehension it replaces (nodes+edges, key order
+included, across batch/per-edge/large builds) and json/node_link conformance GREEN
+(130 + 62 tests). BUT the native binding measured **0.90-0.95x vs the
+comprehension** (constructor 16.2 vs 15.5ms; add_edges_from 14.9 vs 13.4ms) — NO
+speedup. ROOT: both the constructor and add_edges_from POPULATE the edge mirror, so
+the binding takes the `d.bind(py).copy()` per-edge path (one PyDict copy/edge) —
+identical cost to the comprehension's `{**ea, source, target}` spread. The
+store-fallback single-alloc advantage only exists for a genuinely mirror-empty
+graph, which these construction paths don't produce. Building E Python dicts from
+Rust is the FLOOR nx escapes by spreading E live dicts. ~0-gain → REVERTED per
+"REVERT ~0-gain" (stash `cc-nodelinkdata-NOSHIP-materialization-floor-0.90x-native-
+vs-comprehension`). LEVER CONFIRMED: the scalar-reduction win (size) does NOT
+generalize to collection-returning serializers — those stay materialization-floor
+bound, needing a persistent ordered Python-object mirror (a large primitive).
+
+SURFACED (separate PRE-EXISTING correctness bug, NOT introduced here): on a
+**batch-built (add_edges_from) MultiDiGraph ONLY**, `G.nodes[n].update({...})` and
+`G.nodes[n]['k']=v` silently DROP the mutation — `G.nodes[n]` returns a detached
+dict. Graph / DiGraph / MultiGraph (batch + per-edge) and per-edge MultiDiGraph all
+persist correctly; `add_node(n, **attrs)` on the same MDG persists too. So the
+data-loss is confined to the NodeView mutable-view path for batch-built MDG. Needs
+a proper node-mirror fix (materialize-from-store + write-back on `nodes[n]`) with
+full node-mutation conformance — deferred, flagged for follow-up.
+
 ## 2026-06-29 CopperCliff SHIP: graph products (cartesian/tensor/strong/lexicographic) with self-loops 0.18-0.28x->2.4-4.8x (`br-r37-c1-prodself`)
 
 Same "kernel gated to bail on a rare structural feature" lever as line_graph
