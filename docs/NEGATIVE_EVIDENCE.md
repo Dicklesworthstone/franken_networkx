@@ -2,6 +2,25 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-01 CopperCliff SURFACE: paths/cycles/flow/planarity family swept — non-takeable gaps mapped (hits is a warm WIN, simple_cycles/double_edge_swap already-optimized)
+
+Fresh family sweep (untouched before): every workload a win — cycle_basis 2.5x,
+min_cut_value 2.7x, immediate_dominators 3.3x, is_chordal 3.5x, global_reaching 3.9x,
+maximum_flow_value 4.0x, check_planarity 7.2x, all_shortest_paths 10.5x,
+all_simple_paths 1.4x. THREE apparent sub-1.0 gaps, ALL confirmed non-takeable on
+isolated re-measure:
+- `hits` 0.775x was scipy COLD-START noise (min-of-4, cold ARPACK). WARM min-of-11 =
+  1.09x (fnx 1.87ms / nx 2.03ms) — a WIN. Same cold-eig/scipy trap as
+  warm_saturation_map_and_coldeig_noise; hits is svds-bound, matrix build is a win.
+- `double_edge_swap` 0.85x — ALREADY optimized (br-r37-c1-vbwpl: O(1) in-place edge-
+  slot updates, not O(E)/swap rebuild). Residual = inherent per-swap add/remove PyO3;
+  fnx uses uniform-pick (intentional divergence, only degree-seq parity owed).
+- `simple_cycles` 0.70x — ALREADY de-delegated (br-r37-c1-sccnv:
+  `_simple_cycles_structure_only_via_networkx` builds a BARE attr-less nx graph, not
+  the ~3x `_fnx_to_nx`, then runs nx's Johnson). Residual = the fnx->nx edge-view
+  conversion + Johnson itself; fully closing needs a native exact-cycle-ORDER Johnson
+  kernel (the Rust simple_cycles emits a different order) — a large port, not 60-min.
+
 ## 2026-07-01 CopperCliff SURFACE: mutable-view correctness class fully closed + `G.nodes[n]` read 0.19-0.26x is the node_key_to_string floor (uniform, not takeable)
 
 Post-MDG-node-fix (4bfe8b411) sweep. TWO results:
