@@ -2,6 +2,26 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-01 CopperCliff SHIP: number_of_cliques(LIST of nodes) 0.838x -> 2.03x (list-20) / 7.69x (list-5) — per-node ego count (sibling of node_clique_number)
+
+Immediately applied the node_clique_number lever to its sibling. `number_of_cliques(G,
+nodes=<list>)` was 0.838x: fnx already ego-optimized the SINGLE-node case
+(br-r37-c1-ncliqueego) but a LIST fell to whole-graph `find_cliques(G)` + a
+`Counter(chain.from_iterable(...))` — nx's own algorithm, on which fnx was even a hair
+slower (Python `Counter.update` loop vs nx's single-C-call constructor).
+
+By the ego bijection (maximal cliques of G containing n == maximal cliques of ego(n)),
+`number_of_cliques(G, n) == len(find_cliques(ego(n)))`. FIX (br-r37-c1-ncliquelistego,
+PURE-PYTHON): the list branch becomes `{n: (len(find_cliques(ego(G,n))) if n in G else
+0) for n in nodes}`. CRITICAL contract difference from node_clique_number: nx returns
+**0** for a missing list node (its `Counter[missing]`), so the naive per-node ego
+(which raises NodeNotFound) would DIVERGE — the `if n in G else 0` guard preserves it;
+an unhashable-in-list still raises TypeError (via `n in G`) exactly like nx's
+`Counter[unhashable]`. Byte-exact 0 mismatches over single / lists 1..N / injected-
+missing / None / empty / cliques-provided / set-arg. list-5 7.69x, list-20 2.03x (both
+beat nx; nx pays a full graph find_cliques even for 5 nodes). Conformance GREEN (1176
+clique + ego). nodes=None + precomputed-cliques paths keep the whole-graph Counter.
+
 ## 2026-07-01 CopperCliff SHIP: node_clique_number(LIST of nodes) 0.506x -> 1.28x — per-node ego_graph instead of whole-graph find_cliques + scan
 
 Found in a fresh community/clique/similarity/structural-holes sweep (all other
