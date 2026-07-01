@@ -2,6 +2,26 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-01 CopperCliff SURFACE: clustering-family SUBSET gaps (square_clustering 0.51x, triangles/clustering/generalized_degree ~0.78x) are the materialization floor — NOT the volume lever
+
+Chased the clustering family after volume (same "fast-path comment benchmarked vs
+old-fnx not nx" smell). Confirmed NON-takeable without a native sparse kernel:
+- triangles/clustering/generalized_degree(subset) ~0.78x, ~150 µs and CONSTANT with N
+  for fixed |S|=10 (even on a 10-REGULAR graph). Per-node local port whose cost is the
+  `_raw_neighbors(G,n)` -> Python `set()` materialization (CachedNeighborSets), ~25%
+  over nx's live-dict adjacency. Pure per-node materialization floor.
+- square_clustering(subset) 0.51-0.66x is worse AND grows with N (10-regular, |S|=10:
+  833/1284/1471 µs at N=500/2000/6000). The native `square_clustering_fast` CSR kernel
+  (square_clustering_pairs) exists but is nodes=None ONLY; it builds the WHOLE-graph adj
+  (O(V+E)) + size-n stamp arrays, so any subset variant reusing it stays O(N).
+  MEASURED the native-all+filter route: only wins when |S| is a large fraction —
+  N=500 |S|>=10 (native 510 µs flat), but N=6000 |S|=10 native-all 15.9ms >> port 2ms.
+  So no clean pure-Python routing: native-all+filter is O(N), the port is
+  O(|S|*deg^2). A real fix needs a NATIVE SUBSET kernel with LAZY sparse adjacency
+  (HashMap over the 2-hop closure of S) + sparse/HashMap stamps to avoid the O(N)
+  whole-adj build and O(N) stamp init — a substantial byte-exact-risky rewrite for a
+  niche case (nodes=None, the common call, is already the native fast path). Deferred.
+
 ## 2026-07-01 CopperCliff SHIP: cuts.volume(S) 0.06x -> 1.40x (|S|=40, N=2000) — subset degree view, not a whole-graph dict(G.degree())
 
 Same "un-extended subset fast path" family as the clique wins. `volume(G, S)` (sum of
