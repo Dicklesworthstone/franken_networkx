@@ -2,6 +2,36 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-01 CopperCliff SURFACE: mutable-view correctness class fully closed + `G.nodes[n]` read 0.19-0.26x is the node_key_to_string floor (uniform, not takeable)
+
+Post-MDG-node-fix (4bfe8b411) sweep. TWO results:
+
+(1) MUTABLE-VIEW CORRECTNESS CLASS NOW FULLY CLOSED. Exhaustively verified in-place
+mutation persists byte-exact vs nx across ALL 4 types × batch/per-edge for every
+entry point: `nodes[n].update()`/`[k]=v`, `nodes.get(n)`, `nodes[n].setdefault()`,
+`nodes(data=True)` yielded dict, `edges(data=True)` yielded dict, `G[u][v][..]=x` /
+`G[u][v][key][..]=x`, `adj[u][v]`, `get_edge_data(..)`, and isolated-node mutation.
+0 failures. The MDG NodeView getitem was the last hole; no second instance exists.
+
+(2) `G.nodes[n]` READ is 0.19-0.26x vs nx — WARM (all nodes pre-materialized), UNIFORM
+across G/DG/MDG (0.19/0.26/0.23x), i.e. NOT a type divergence and NOT the borrow_mut.
+ROOT = the node_key_to_string floor (4b5ie): every access canonicalizes the Python
+node object to a String store/mirror key + runs the Python keystr wrapper
+(`hash(node)` + try/except), vs nx's direct `self._nodes[n]` live-dict lookup. A
+`borrow()`-instead-of-`borrow_mut()` fast path on the mirror-hit case is a micro-opt
+that cannot touch the 4-5x gap (the String canonicalization + Python wrapper dominate),
+so NOT taken. Same floor as the degree/edge view-materialization gaps.
+
+FRONTIER (this session's sweep — operators, structural transforms, graph-invariants,
+serializers, mutable-views): every non-floor workload is a WIN (union 2.4x, compose
+1.9x, difference 2.1x, disjoint_union 3.6x, complement 5.7x, contracted_nodes 6.2x,
+relabel 1.24x, is_isomorphic 190x, rich_club 68x, fast_could_be_isomorphic 6.1x,
+triangles 6.6x, to_undirected-plain 84x). Residual gaps ALL floor/no-ship: degree_seq
+0.85x + bipartite_degrees 0.81x (degree-view), node_link_data 0.70x + mg_selfloop_keys
+0.35x (serializer/edge-view materialization), to_directed-scalar 0.65x (dual-storage),
+multigraph_clear_edges 0.36x (construction fragmentation). All need the same large
+primitive — a persistent ordered Python-object mirror — not a 60-min kernel edit.
+
 ## 2026-07-01 CopperCliff FIX: batch-built MultiDiGraph `G.nodes[n].update()` data-loss (was silently dropped) — behavior gap vs nx closed
 
 Followed up the correctness bug surfaced the same day (1438d4495). ROOT: the
