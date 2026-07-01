@@ -2,7 +2,29 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
-## 2026-07-01 CopperCliff SURFACE: clustering-family SUBSET gaps (square_clustering 0.51x, triangles/clustering/generalized_degree ~0.78x) are the materialization floor — NOT the volume lever
+## 2026-07-01 CopperCliff SHIP: square_clustering(SUBSET) 0.51-0.66x -> 1.15-23.8x — native subset kernel (compute only the targets), overturning the prior SURFACE
+
+Overturned the SAME-DAY surface below with a corrected cost model. The surface said a
+subset kernel "stays O(N)" because it builds whole-graph adj + size-n stamps. TRUE, but
+that O(V+E) adj build + O(V) stamp init is MICROSECONDS in Rust — the native all-node
+kernel's cost is COMPUTE-dominated (~2.6 µs/node square-count). So a kernel that builds
+the full adj once but computes ONLY the target nodes is fast for any |S|, no lazy sparse
+adjacency needed.
+
+FIX (br-r37-c1-sqclsub): refactored `square_clustering_pairs` -> `square_clustering_pairs_for(graph, targets: &[usize])` (all-node path passes `0..n`, ONE copy of the stamp-array
+arithmetic); new binding `square_clustering_fast_subset(g, nodes)` maps the already-
+validated in-graph node list to indices and runs the kernel over just those; the Python
+`square_clustering` wrapper routes the exact-simple-Graph subset case (single OR list) to
+it. RESULT: 10-regular N=500 |S|=5 0.6x->11.1x, |S|=50 ->23.8x; N=2000 ->3.8x/17.4x;
+N=6000 ->1.15x/8.8x. Byte-exact 0 mismatches over single (returns SCALAR) / list / all-
+list / with-missing (skipped) / empty / isolated / self-loops / set+tuple nbunch, and
+the `squares/potential if potential>0 else 0` (float / int-0) result shape. nodes=None
+all-node fast path UNCHANGED (still square_clustering_fast). Conformance GREEN (976
+clustering + 748 nbunch/triangles/generalized_degree); clippy clean. LESSON: "reusing an
+O(N)-setup kernel stays O(N)" ignores that O(N) SETUP is cheap when the real cost is the
+O(sum deg^2) COMPUTE — restrict the compute, keep the cheap setup.
+
+## 2026-07-01 CopperCliff SURFACE (SUPERSEDED by the SHIP above): clustering-family SUBSET gaps (square_clustering 0.51x, triangles/clustering/generalized_degree ~0.78x) are the materialization floor — NOT the volume lever
 
 Chased the clustering family after volume (same "fast-path comment benchmarked vs
 old-fnx not nx" smell). Confirmed NON-takeable without a native sparse kernel:

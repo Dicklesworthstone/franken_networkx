@@ -34994,7 +34994,22 @@ pub fn square_clustering_map(graph: &Graph) -> std::collections::HashMap<String,
 #[must_use]
 pub fn square_clustering_pairs(graph: &Graph) -> Vec<(u64, i64)> {
     let n = graph.node_count();
-    let mut out: Vec<(u64, i64)> = Vec::with_capacity(n);
+    let targets: Vec<usize> = (0..n).collect();
+    square_clustering_pairs_for(graph, &targets)
+}
+
+/// br-r37-c1-sqclsub (cc): square-clustering `(squares, potential)` pairs for a
+/// SUBSET of node indices, aligned to `targets`. `square_clustering(G, nodes)`
+/// with an explicit node list previously ran the Python neighbor-set port
+/// (per-node `_raw_neighbors -> set()` materialization, 0.5-0.66x vs nx and
+/// growing with N). This shares the exact stamp-array kernel below: the full
+/// adjacency + stamp arrays are built once (O(V+E) + O(V), microseconds in Rust),
+/// then ONLY the `targets` nodes are computed — the compute term (O(sum deg^2))
+/// dominates whole-node runtime, so restricting it to the subset is the win.
+/// Byte-identical to the all-node path (same arithmetic, same order).
+pub fn square_clustering_pairs_for(graph: &Graph, targets: &[usize]) -> Vec<(u64, i64)> {
+    let n = graph.node_count();
+    let mut out: Vec<(u64, i64)> = Vec::with_capacity(targets.len());
     if n == 0 {
         return out;
     }
@@ -35021,7 +35036,7 @@ pub fn square_clustering_pairs(graph: &Graph) -> Vec<(u64, i64)> {
     let mut seen: Vec<u32> = vec![0; n];
     let mut stamp: u32 = 0;
 
-    for v in 0..n {
+    for &v in targets {
         let nv = &adj[v];
         let k = nv.len();
         if k < 2 {

@@ -43936,6 +43936,17 @@ def square_clustering(G, nodes=None):
     else:
         node_iter = _global_nbunch_nodes(G, nodes)
 
+    # br-r37-c1-sqclsub (cc): exact simple Graph SUBSET -> native stamp-array
+    # kernel over just node_iter instead of the per-node Python neighbor-set port
+    # (which materialized `_raw_neighbors -> set()` per touched node, 0.5-0.66x vs
+    # nx and growing with N). node_iter is the already-validated in-graph list
+    # (single node -> [nodes]); the kernel builds the whole-graph adjacency once
+    # (O(V+E) µs) and computes only the targets. Byte-identical to the port below.
+    # (nodes is None + type(G) is Graph already returned via square_clustering_fast.)
+    if type(G) is Graph:
+        result = _fnx.square_clustering_fast_subset(G, list(node_iter))
+        return result[nodes] if single_node else result
+
     square_coefficients = {}
     # br-r37-c1-7t95c: bypass G.adj[node] (AtlasView with per-element
     # PyO3 attribute-dict materialization, same wrapper overhead

@@ -20726,6 +20726,45 @@ pub fn square_clustering_fast(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<
     Ok(dict.unbind())
 }
 
+/// br-r37-c1-sqclsub (cc): native `square_clustering` for a SUBSET of nodes on an
+/// exact simple `Graph`. `nodes` is the ALREADY-validated in-graph node list (the
+/// Python wrapper resolves nbunch via `_global_nbunch_nodes` first), so this just
+/// maps each to its index, runs the stamp-array kernel over ONLY those targets
+/// (the whole-graph adjacency build is O(V+E) microseconds; the per-node square
+/// count is what dominates, and is now restricted to the subset), and returns a
+/// dict keyed by the ORIGINAL node objects. Byte-identical to the Python port and
+/// the all-node fast path: same `(squares, potential)` arithmetic and the same
+/// `squares/potential if potential > 0 else 0` (float / int-0) result shape.
+#[pyfunction]
+pub fn square_clustering_fast_subset(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    nodes: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let mut indices: Vec<usize> = Vec::new();
+    let mut keys: Vec<Py<PyAny>> = Vec::new();
+    for node in nodes.try_iter()? {
+        let node = node?;
+        let canonical = node_key_to_string(py, &node)?;
+        if let Some(idx) = inner.get_node_index(&canonical) {
+            indices.push(idx);
+            keys.push(node.unbind());
+        }
+    }
+    let pairs = py.allow_threads(|| fnx_algorithms::square_clustering_pairs_for(inner, &indices));
+    let dict = PyDict::new(py);
+    for (key, (squares, potential)) in keys.into_iter().zip(pairs) {
+        if potential > 0 {
+            dict.set_item(key, squares as f64 / potential as f64)?;
+        } else {
+            dict.set_item(key, 0i64)?;
+        }
+    }
+    Ok(dict.unbind())
+}
+
 // ---------------------------------------------------------------------------
 // Ego graph
 // ---------------------------------------------------------------------------
@@ -23036,6 +23075,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Square clustering
     m.add_function(wrap_pyfunction!(square_clustering_rust, m)?)?;
     m.add_function(wrap_pyfunction!(square_clustering_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(square_clustering_fast_subset, m)?)?;
     // Ego graph
     m.add_function(wrap_pyfunction!(ego_graph_rust, m)?)?;
     // Degree mixing
