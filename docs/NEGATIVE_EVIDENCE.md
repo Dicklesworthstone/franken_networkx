@@ -2,6 +2,27 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SURFACE: guard-probe lever exhausted — the other 3 canonical gaps re-profiled as genuine native floors (100% in binding)
+
+Follow-up to the to_directed SHIP: re-profiled the remaining 3 canonical head2head gaps
+with the same "re-profile, don't trust the label" lens, and swept for other eager-probe
+guard wrappers. Results — all confirmed non-peelable:
+- mdg_out_edges_nbunch_keys_weight (canonical 0.57x; custom-key repro 0.88x): cProfile =
+  100% in `_native_mdg_out_edges_nbunch_data_key` (already native, custom keys DON'T make
+  it bail). Genuine native 4-tuple materialization floor (build (u,v,key_obj,weight) per
+  edge vs nx's live dicts). data=True sibling is 2.05x.
+- mg_selfloop_keys_weight 0.33x: 100% in `_native_selfloop_edges` — native PyObject-
+  materialization floor (nx hands out live dicts).
+- multigraph_clear_edges 0.30x: per-edge construction fragmentation (NO-SHIP, cargo-bench
+  root-caused with Instant instrumentation in a prior session).
+- OTHER eager-probe guards: the only sibling of the to_directed probe was
+  `edge_connectivity`'s `any("capacity" in d for ... edges(data=True))`, ALREADY native
+  (`_graph_has_edge_attribute`, br-r37-c1-capnative). No other unfixed probes exist.
+CONCLUSION: the guard/machinery-peel lever (which yielded selfloop-simple + to_directed
+this session) is exhausted. The 3 residual canonical gaps are the per-element PyObject-
+materialization / construction-fragmentation floors — bounded by the persistent
+Python-object mirror primitive, not a bench-and-edit.
+
 ## 2026-07-02 CopperCliff SHIP: Graph.to_directed/to_undirected(scalar) 0.85x -> 2.39x / 7.40x — kill the guard's eager result-EdgeView probe
 
 Re-profiled the authoritative gap `graph_to_directed_scalar_attrs` (0.61x, 233ms — biggest
