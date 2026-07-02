@@ -2,6 +2,25 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SURFACE (no shippable win this turn): reverse in/out_degree constant-factor + a native reverse-multigraph-weighted-degree ULP gap
+
+Continuing the view-remnant sweep — no shippable win, three dead ends + one surfaced bug:
+(1) reverse_view.in/out_degree 0.06x (constant-factor, O(V) after the earlier 9961532e2 fix).
+Root: the InDegreeView computes `len(reverse.pred[node])` per node -> `_ReverseNeighborMap.__len__`
+-> `len(_fast_succ_row(...))` BUILDS a per-node row dict just to count it. Native per-node
+count accessors EXIST (`_native_out_degree(node)`/`_native_in_degree(node)`); wiring them into
+`__len__` (gated simple DiGraph; reverse pred=parent succ->out_degree, reverse succ=parent
+pred->in_degree) was byte-exact BUT only marginal (1.81->1.60ms, still 0.05x) — the residual is
+the InDegreeView's per-node `_ReverseNeighborMap` OBJECT CREATION + `pred[node]` property access,
+not the dict build. REVERTED (added code, no real win). To actually close it: a native bulk
+reverse-degree-pairs path or making the InDegreeView read `_native_out_degree_pairs()` directly.
+(2) SURFACED BUG (byte-exactness, native): reverse_view multigraph WEIGHTED in/out_degree diverges
+from nx by ULP on ~4.5% of values (152/3350; 0 real-value errors, all <1e-9) — a Neumaier
+SUM-ORDER gap. reverse in/out_degree returns a NATIVE `_InMultiDegreeView` (not the Python
+`_degree_compute`), so the naive-vs-builtin-sum fix that worked for filtered-view weighted degree
+(2b4a12bea) does NOT apply from Python — it's in the native reverse degree kernel. Deferred to a
+Rust-side Neumaier-order audit. (Simple DiGraph reverse weighted degree is byte-exact.)
+
 ## 2026-07-02 CopperCliff SURFACE + NO-SHIP: greedy_color(smallest_last) is a conversion FLOOR; filtered-view adjacency() fast-row reverted byte-wrong
 
 Two negatives this turn (documented so future turns don't re-dig):
