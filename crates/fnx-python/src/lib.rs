@@ -12308,9 +12308,10 @@ impl PyGraph {
         nbunch: &Bound<'_, PyAny>,
         weight: &str,
     ) -> PyResult<Vec<(PyObject, PyObject)>> {
-        let one = 1i64.into_pyobject(py)?.into_any();
-        let sum_fn = py.import("builtins")?.getattr("sum")?;
-        let mut out: Vec<(PyObject, PyObject)> = Vec::new();
+        // Materialize the (validated, in-graph) nbunch ONCE — nbunch may be a
+        // one-shot iterator, and both the int-store fast path and the exact path
+        // walk it. Preserve nx validation: unhashable -> TypeError, absent -> skip.
+        let mut items: Vec<(Bound<'_, PyAny>, String)> = Vec::new();
         for item in nbunch.try_iter()? {
             let node = item?;
             if node.hash().is_err() {
@@ -12326,21 +12327,79 @@ impl PyGraph {
             if self.inner.get_node_index(&canonical).is_none() {
                 continue;
             }
+            items.push((node, canonical));
+        }
+
+        // br-cc-undegnbint: INT-store fast path — i128 accumulate per node straight
+        // from the CgseValue store via integer index rows (undirected self-loop is
+        // counted twice), reusing the passed nbunch object as the key (== nx). Skips
+        // the per-node PyList + builtins.sum + per-neighbour String-keyed
+        // edge_attr_py_value probe of the exact path (degree(nbunch,w) was 0.58x).
+        // Gated !edges_dirty; bails (whole subset) on any non-int weight / overflow.
+        if !self.edges_dirty.load(Ordering::Relaxed) {
+            let mut int_pairs: Vec<(PyObject, PyObject)> = Vec::with_capacity(items.len());
+            let mut all_int = true;
+            'nodes: for (node, canonical) in &items {
+                let Some(idx) = self.inner.get_node_index(canonical) else {
+                    all_int = false;
+                    break;
+                };
+                let mut total: i128 = 0;
+                if let Some(nbrs) = self.inner.neighbors_indices(idx) {
+                    for &j in nbrs {
+                        let w = match self.inner.edge_attrs_by_indices(idx, j).map(|a| a.get(weight))
+                        {
+                            Some(Some(CgseValue::Int(v))) => i128::from(*v),
+                            Some(Some(_)) => {
+                                all_int = false;
+                                break 'nodes;
+                            }
+                            _ => 1,
+                        };
+                        // Undirected self-loop counts twice.
+                        let contrib = if idx == j { w.checked_mul(2) } else { Some(w) };
+                        let Some(t) = contrib.and_then(|c| total.checked_add(c)) else {
+                            all_int = false;
+                            break 'nodes;
+                        };
+                        total = t;
+                    }
+                }
+                match i64::try_from(total) {
+                    Ok(t64) => int_pairs.push((
+                        node.clone().unbind(),
+                        t64.into_pyobject(py)?.into_any().unbind(),
+                    )),
+                    Err(_) => {
+                        all_int = false;
+                        break;
+                    }
+                }
+            }
+            if all_int {
+                return Ok(int_pairs);
+            }
+        }
+
+        let one = 1i64.into_pyobject(py)?.into_any();
+        let sum_fn = py.import("builtins")?.getattr("sum")?;
+        let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(items.len());
+        for (node, canonical) in &items {
             let values = pyo3::types::PyList::empty(py);
             let mut selfloop = false;
-            for neighbor in self.inner.neighbors(&canonical).unwrap_or_default() {
+            for neighbor in self.inner.neighbors(canonical).unwrap_or_default() {
                 if neighbor == canonical.as_str() {
                     selfloop = true;
                 }
                 let value = self
-                    .edge_attr_py_value(py, &canonical, neighbor, weight)?
+                    .edge_attr_py_value(py, canonical, neighbor, weight)?
                     .unwrap_or_else(|| one.clone().unbind());
                 values.append(value.bind(py))?;
             }
             let mut deg = sum_fn.call1((values,))?;
             if selfloop {
                 let value = self
-                    .edge_attr_py_value(py, &canonical, &canonical, weight)?
+                    .edge_attr_py_value(py, canonical, canonical, weight)?
                     .unwrap_or_else(|| one.clone().unbind());
                 deg = deg.add(value.bind(py))?;
             }
@@ -12348,6 +12407,7 @@ impl PyGraph {
         }
         Ok(out)
     }
+
 
     /// Equality check — two graphs are equal if they have the same nodes, edges, and attributes.
     fn __eq__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<bool> {

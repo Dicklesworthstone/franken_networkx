@@ -4007,3 +4007,24 @@ introspection habit caught it fast.
 FOLLOWUP: undirected Graph in/out have no direction (total only); FLOAT undirected degree(weight)
 0.93x could reach ~2x with a store-float Neumaier values path (as DiGraph has) — low ROI, near-parity.
 The whole weighted-degree surface (Graph/DiGraph/MultiGraph/MultiDiGraph, int) now BEATS nx 2.2-3.7x.
+
+## Graph.degree(nbunch, weight) INT 0.58x -> 1.68x — SHIPPED (CopperCliff)
+
+Weighted degree over a node SUBSET was the last weighted-degree gap (Graph 0.58x, DiGraph 0.73x).
+The undirected subset native `_native_weighted_degree_subset` already reused the passed nbunch object
+as the key (== nx, no py_node_key redundancy) but paid per-node: `neighbors(canonical)` Vec<&str>
+alloc + String hashing, `edge_attr_py_value` per neighbour (String edge_key + PyO3), PyList append,
+and Python `sum()`. Added an INT-store fast path: materialize the (validated, in-graph) nbunch ONCE
+(nbunch may be a one-shot generator), then i128-accumulate per node from the CgseValue store via
+`neighbors_indices` + `edge_attrs_by_indices` (undirected self-loop counts 2·w), reusing the nbunch
+object. Gated !edges_dirty; a labeled-break bails the whole subset to the exact path on any non-int
+weight / overflow (so float/heterogeneous keep the byte-identical builtins.sum result).
+
+MEASURED (n=600,m=3000,nbunch=200 nodes): Graph.degree(nbunch,w) INT 0.58x -> **1.68x**. Byte-exact
+across list/tuple/set/absent-node/generator/all/single/empty/float/mixed/missing/bigint(overflow-bail)/
+neg/unhashable(TypeError) + 6393 conformance. This corrects the reference_degree_nbunch_weight_store_floor
+NO-SHIP (that was a mirror int-accumulator twin double-walking neighbours; the INDEX-store read + nbunch
+materialization is the clean version). FLOAT subset stays 0.70x (exact PyList+sum path; a store-float
+Neumaier subset path would win but is lower ROI). DiGraph subset (0.73x, weighted_degree_subset_impl)
+is the remaining follow-up. HARNESS GOTCHA: a shared generator nbunch is consumed by the first call —
+use a factory (fresh nbunch per graph) or it falsely reports a mismatch.
