@@ -43,6 +43,11 @@ scalar-edge / node-attrs-only / no-attrs / nodes-only / digraph / multigraph x
 {to_directed,to_undirected}; conformance GREEN (4820 to_directed/to_undirected/convert).
 LESSON (again): a "floor" gap can hide a guard-WRAPPER eager-probe tax — re-profile, don't
 trust the label. This also lifts the canonical `graph_to_directed_scalar_attrs` gap.
+FOLLOW-UP (do NOT re-dig): MultiGraph/MultiDiGraph to_directed/to_undirected are ALREADY
+wins (1.13-1.39x) and need NO probe fix — `graph_has_any_attrs(multigraph)` returns None,
+so the guard's `if ... and None:` SKIPS the whole block (probe never runs) for multigraph
+SOURCES. Extending `graph_has_any_edge_attrs` to multigraphs would be dead code. The
+to_directed/to_undirected family is fully optimal across all 4 types.
 
 ## 2026-07-02 CopperCliff SURFACE (AUTHORITATIVE cargo bench): head2head 20/24 workloads WIN; the 4 residual gaps are ALL documented floor/NO-SHIP
 
