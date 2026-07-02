@@ -12208,6 +12208,53 @@ impl PyGraph {
         self.inner.weighted_size_int(weight).map(|t| t as f64)
     }
 
+    /// br-cc-undegvals: values-only INT total weighted degree in node-index order
+    /// (NO per-node `py_node_key`, NO whole-graph `to_dict_of_dicts`). The Python
+    /// total-degree gen zips these with the cached node list — the same win the
+    /// DiGraph degree(weight) path carries (0.76x -> 3.7x). Accumulates i128 per
+    /// node straight from the CgseValue store via the integer index rows; an
+    /// undirected self-loop appears ONCE in `adj_indices` but nx counts its weight
+    /// TWICE, so it contributes 2·w. Gated on `!edges_dirty`; returns None (-> the
+    /// byte-identical `to_dict_of_dicts` sum) on a dirty store, any non-int weight,
+    /// or i128->i64 overflow, so float/heterogeneous/bignum graphs are unaffected.
+    fn _native_weighted_degree_int_values(
+        &self,
+        py: Python<'_>,
+        weight: &str,
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        if self.edges_dirty.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        let n = self.inner.node_count();
+        let mut out: Vec<PyObject> = Vec::with_capacity(n);
+        for i in 0..n {
+            let mut total: i128 = 0;
+            if let Some(nbrs) = self.inner.neighbors_indices(i) {
+                for &j in nbrs {
+                    let w = match self.inner.edge_attrs_by_indices(i, j).map(|a| a.get(weight)) {
+                        Some(Some(CgseValue::Int(v))) => i128::from(*v),
+                        Some(Some(_)) => return Ok(None), // non-int -> gen fallback
+                        _ => 1,                           // missing weight -> default 1
+                    };
+                    // Undirected self-loop counts twice (nx degree semantics).
+                    let contrib = if i == j { w.checked_mul(2) } else { Some(w) };
+                    let Some(contrib) = contrib else {
+                        return Ok(None);
+                    };
+                    let Some(t) = total.checked_add(contrib) else {
+                        return Ok(None);
+                    };
+                    total = t;
+                }
+            }
+            let Ok(total_i64) = i64::try_from(total) else {
+                return Ok(None);
+            };
+            out.push(total_i64.into_pyobject(py)?.into_any().unbind());
+        }
+        Ok(Some(out))
+    }
+
     /// br-r37-c1-yo1nt: native weighted degree, returning the full
     /// ``(node, total)`` sequence in node order. The Python
     /// `_WeightAwareDegreeView` weighted path builds ``dict(G.adj[node])``

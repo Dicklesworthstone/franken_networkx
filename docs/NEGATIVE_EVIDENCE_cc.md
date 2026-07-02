@@ -3985,3 +3985,25 @@ Generalized the store/exact value helpers to directional (inc_out/inc_in), added
 MEASURED: in_degree(w) 0.85x->3.06x, out_degree(w) 0.69x->3.05x (INT); ~2.0-2.04x (FLOAT). degree(w)
 holds 3.68x/2.12x. Byte-exact (int/float/mixed/missing/bool/self-loop/bignum/neg/str/isolated for
 all three) + 8787 conformance tests. The whole DiGraph weighted-degree family now BEATS nx 2-3.7x.
+
+## undirected Graph.degree(weight) INT 0.80x -> 2.80x — SHIPPED (CopperCliff)
+
+Same lever as the DiGraph weighted-degree family, applied to the last graph type with the gap
+(Multi types already fast via store twins). `dict(g.degree(weight))` for undirected Graph routed to
+`_weighted_degree_gen` (__init__.py ~5483) which materialized the WHOLE `to_dict_of_dicts(G)` +
+Python sum() per node. Added `_native_weighted_degree_int_values` to PyGraph (i128 accumulate per
+node straight from the CgseValue store via neighbors_indices + edge_attrs_by_indices; undirected
+self-loop appears ONCE in adj_indices but counts 2·w per nx; gated !edges_dirty; None on non-int/
+overflow -> gen fallback) and routed the gen to zip(list(G), values(weight)) for INT.
+
+MEASURED (n=600,m=3000): Graph.degree(w) INT 0.80x -> **2.80x**. FLOAT stays on the near-parity gen
+(0.93x, unchanged — the lazy undirected mirror means the exact-float path can't cheaply read the
+mirror; low ROI given near-parity). Byte-exact across int/float/mixed/missing/bool/self-loop(x2)/
+bignum(i64-overflow bail)/neg-zero/str(raises)/isolated + 6305 conformance. DiGraph wins intact
+(3.67x/3.02x). GOTCHA this session: first placed the method in the wrong impl block (PyMultiGraph
+2475-8703 vs PyGraph 905-2410/9363+) — `hasattr(g, method)` returned False, exposing it; the
+introspection habit caught it fast.
+
+FOLLOWUP: undirected Graph in/out have no direction (total only); FLOAT undirected degree(weight)
+0.93x could reach ~2x with a store-float Neumaier values path (as DiGraph has) — low ROI, near-parity.
+The whole weighted-degree surface (Graph/DiGraph/MultiGraph/MultiDiGraph, int) now BEATS nx 2.2-3.7x.

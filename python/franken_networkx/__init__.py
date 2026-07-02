@@ -5478,6 +5478,19 @@ class _WeightAwareDegreeView:
                 # nx parity. DiGraph total degree (in+out) and multigraph keep
                 # the native kernel (to_dict_of_dicts there is successors-only).
                 if type(self._graph) is Graph:
+                    # br-cc-undegvals: INT weights zip the cached node list with a
+                    # VALUES-only native store accumulator (no py_node_key rebuild, no
+                    # whole-graph to_dict_of_dicts materialization) — the same win the
+                    # DiGraph degree(weight) path carries (0.80x -> ~3x). Returns None
+                    # for a dirty store / non-int weight, which keeps FLOAT and mutated
+                    # graphs on the byte-identical to_dict_of_dicts sum below.
+                    _iv = getattr(
+                        self._graph, "_native_weighted_degree_int_values", None
+                    )
+                    if _iv is not None:
+                        _vals = _iv(weight)
+                        if _vals is not None:
+                            return iter(zip(self._graph, _vals))
                     dod = to_dict_of_dicts(self._graph)
 
                     def _weighted_degree_gen():
