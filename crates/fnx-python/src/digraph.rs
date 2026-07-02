@@ -12107,14 +12107,85 @@ impl PyDiGraph {
     /// separate Neumaier-compensated ``sum`` accumulations added — so we build
     /// the succ/pred value lists in adjacency order and call the SAME builtin
     /// ``sum`` for each, for bit-identical numeric parity.
-    fn _native_weighted_degree(
+    /// br-cc-diwdegint: INT-store fast path for total weighted degree. nx's int
+    /// degree is `sum(succ_ints) + sum(pred_ints)` = a plain integer sum
+    /// (associative + exact), so accumulate i128 per node straight from the native
+    /// CgseValue store via the INTEGER index rows — no per-edge String edge_key
+    /// alloc, no mirror HashMap probe, no PyDict `get_item`/`extract` PyO3 round
+    /// trip (which is what left the mirror path at the eager-mirror floor and the
+    /// prior store-twin NO-SHIP 704254a93 — that read the store through the
+    /// String-keyed `edge_attrs`; this uses `edge_attrs_by_indices`, pure integer).
+    /// Gated on `!edges_dirty` so the store is authoritative (a pending mirror edit
+    /// falls through to the exact path). Returns None (-> exact fallback) on the
+    /// first non-int weight or i128->i64 overflow, so float/heterogeneous/bignum
+    /// graphs keep their byte-identical `builtins.sum` result. A missing weight
+    /// attr defaults to 1 (int), matching the exact path's `one`. Self-loops appear
+    /// in BOTH successors_indices and predecessors_indices, so they are counted
+    /// twice — exactly nx's total-degree semantics.
+    fn weighted_degree_total_int_store_values(
         &self,
         py: Python<'_>,
         weight: &str,
-    ) -> PyResult<Vec<(PyObject, PyObject)>> {
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        if self.edges_dirty.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        let n = self.inner.node_count();
+        let mut out: Vec<PyObject> = Vec::with_capacity(n);
+        for i in 0..n {
+            let mut total: i128 = 0;
+            if let Some(succs) = self.inner.successors_indices(i) {
+                for &j in succs {
+                    let value = match self.inner.edge_attrs_by_indices(i, j).map(|a| a.get(weight)) {
+                        Some(Some(CgseValue::Int(v))) => i128::from(*v),
+                        Some(Some(_)) => return Ok(None), // non-int -> exact path
+                        _ => 1,                           // missing weight -> default 1
+                    };
+                    let Some(t) = total.checked_add(value) else {
+                        return Ok(None);
+                    };
+                    total = t;
+                }
+            }
+            if let Some(preds) = self.inner.predecessors_indices(i) {
+                for &j in preds {
+                    let value = match self.inner.edge_attrs_by_indices(j, i).map(|a| a.get(weight)) {
+                        Some(Some(CgseValue::Int(v))) => i128::from(*v),
+                        Some(Some(_)) => return Ok(None),
+                        _ => 1,
+                    };
+                    let Some(t) = total.checked_add(value) else {
+                        return Ok(None);
+                    };
+                    total = t;
+                }
+            }
+            let Ok(total_i64) = i64::try_from(total) else {
+                return Ok(None);
+            };
+            out.push(total_i64.into_py_any(py)?);
+        }
+        Ok(Some(out))
+    }
+
+    /// Values-only total weighted degree in node-index order (NO per-node
+    /// `py_node_key` rebuild). The Python `DiDegreeView` zips these with the cached
+    /// node list (`list(G)` via node_iter_mirror) — the same win the unweighted
+    /// `_native_*_degree_counts` path already carries (removing `py_node_key` took
+    /// in/out degree 0.62x -> 1.4x). Tries the int-store fast path (bulk-built
+    /// graphs), else the exact PyList + `builtins.sum` path (float / heterogeneous /
+    /// bignum), still values-only, so the numeric result stays byte-identical.
+    fn _native_weighted_degree_values(
+        &self,
+        py: Python<'_>,
+        weight: &str,
+    ) -> PyResult<Vec<PyObject>> {
+        if let Some(vals) = self.weighted_degree_total_int_store_values(py, weight)? {
+            return Ok(vals);
+        }
         let one = 1i64.into_pyobject(py)?.into_any();
         let sum_fn = py.import("builtins")?.getattr("sum")?;
-        let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(self.inner.node_count());
+        let mut out: Vec<PyObject> = Vec::with_capacity(self.inner.node_count());
         for node in self.inner.nodes_ordered() {
             let succ_vals = pyo3::types::PyList::empty(py);
             for successor in self.inner.successors(node).unwrap_or_default() {
@@ -12147,7 +12218,23 @@ impl PyDiGraph {
             let deg = sum_fn
                 .call1((succ_vals,))?
                 .add(sum_fn.call1((pred_vals,))?)?;
-            out.push((self.py_node_key(py, node), deg.unbind()));
+            out.push(deg.unbind());
+        }
+        Ok(out)
+    }
+
+    fn _native_weighted_degree(
+        &self,
+        py: Python<'_>,
+        weight: &str,
+    ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        // Pairs path for callers that need (node, value) — reuses the values
+        // method + attaches py_node_key. The full-graph total-degree view uses
+        // the values+zip path directly (skipping these py_node_key rebuilds).
+        let values = self._native_weighted_degree_values(py, weight)?;
+        let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(values.len());
+        for (node, value) in self.inner.nodes_ordered().into_iter().zip(values) {
+            out.push((self.py_node_key(py, node), value));
         }
         Ok(out)
     }

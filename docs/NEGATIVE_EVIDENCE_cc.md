@@ -3949,3 +3949,29 @@ fast paths (degree/edge-data -> potential ~2x like MDG) AND speeds builds (no pe
 is a large refactor (every DiGraph edge_py_attrs reader must handle materialize-on-demand), NOT a
 one-session lever — but it's the single highest-value remaining architectural lever, distinct from
 the mutation-cluster PyO3 floor and the simple-Graph remove_node int-index renumber bomb.
+
+## DiGraph degree(weight) 0.76x -> 3.7x (INT) / 2.1x (FLOAT) — SHIPPED (CopperCliff), corrects the "eager-mirror floor"
+
+The DiGraph weighted-degree gap I'd repeatedly surfaced as an "eager-mirror floor" (NO-SHIP
+704254a93) was a MISDIAGNOSIS. Root cause found by introspecting the actual generator
+(`gen.gi_code.co_name`): `dict(g.degree(weight))` routed to `_di_total_weighted_gen` (__init__.py),
+which called `_native_adjacency_row_dict(node)` + `_native_predecessor_row_dict(node)` PER NODE
+(materializing a full {neighbor: attr_dict} PyDict per node — AND marking the store dirty on a READ)
+then Python `sum()`. My store-int / mirror-int accumulator experiments looked "bench-neutral" ONLY
+because they were wired into a DIFFERENT view path (`_native_weighted_degree` / the wrong
+`MultiGraphDegreeView.__iter__`) that `g.degree(weight)` never hits.
+
+FIX: added `_native_weighted_degree_values` (values-only total degree in node-index order: int-store
+fast path via `edge_attrs_by_indices` + `successors_indices`/`predecessors_indices`, else exact
+PyList+sum) and routed `_di_total_weighted_gen` to `zip(list(G), values(weight))` — no per-node
+row-dict materialization, no py_node_key rebuild, no store-dirtying. list(G) order == nodes_ordered()
+order (verified). MEASURED (n=600,m=3000): degree(w) INT 0.76x -> **3.72x**, FLOAT 0.84x -> **2.10x**.
+No regression (in/out_degree untouched at 0.69-0.85x; unweighted 1.1x). Byte-exact across
+int/float/mixed/missing/bool/self-loop/bignum(i64-overflow bail)/neg-zero/str(raises)/isolated +
+6305 conformance tests.
+
+LEVER: when a perf change measures "bench-neutral", VERIFY THE DISPATCH ACTUALLY HITS YOUR CODE
+(introspect the generator/method via co_name/co_filename) before concluding it's a floor — the wrong
+path masked a real 3.7x win for THREE turns. FOLLOW-UP: in/out_degree(weight) (0.69-0.85x) use the
+same row-dict `_di_*` gens — a directional `_native_weighted_{out,in}_degree_values` + zip would give
+the same win.
