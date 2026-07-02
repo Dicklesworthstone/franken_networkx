@@ -35074,6 +35074,23 @@ def corona_product(G, H):
         if _fast is not None:
             return _fast
 
+    # br-r37-c1-prodedgeattr (cc): EDGE-attributed corona. Only H's edge attrs reach
+    # the output (copied onto each G-node's H-block); G's edge attrs + all node attrs
+    # are dropped. When both factors are simple Graphs and H's edge attrs are SCALAR
+    # (pristine H edge mirror), the native kernel clones H's store attrs onto the
+    # H-copy edges -> beats nx instead of the O(V_G*E_H) Python batch. None -> batch.
+    if (
+        type(G) is Graph
+        and type(H) is Graph
+        and not number_of_selfloops(G)
+        and not number_of_selfloops(H)
+    ):
+        _corona_edge_native = getattr(_fnx, "corona_product_edge_attrs_fast", None)
+        if _corona_edge_native is not None:
+            _r = _corona_edge_native(G, H)
+            if _r is not None:
+                return _r
+
     P = _product_graph_class(G, H)()
     P.add_nodes_from(G.nodes())
 

@@ -12040,3 +12040,20 @@ str-keys/node+edge fire; non-scalar list/dict + self-loops + per-edge-built + no
 no-attr). Undirected harness 13/13 regression-clean. 1216 product/operator conf green. cartesian edge-attr
 now covers BOTH Graph + DiGraph. FOLLOW-UP: corona edge-attr (H-copies direct-copy); tensor/strong/lexico
 (tuple-pairing -> non-scalar mirror, harder); modular.
+
+
+## 2026-07-02 CopperCliff SHIP (BEATS nx, RUST): corona edge-attr native kernel — 0.21x -> 2.18x
+
+Completes the DIRECT-COPY product family. In a corona product the ONLY surviving edge attrs come from H's
+edges copied onto each G-node's H-block (direct copy, no pairing); G's edge attrs + ALL node attrs are
+dropped (matches nx). New pyfunction corona_product_edge_attrs_fast clones H's store AttrMap onto the
+H-copy edges, gated on H's PRISTINE edge mirror only (G's mirror is IRRELEVANT — its edge attrs are dropped
+regardless, so even a non-scalar-G-edge graph fires the native path correctly). No node decoration (dropped).
+corona(G, H-weighted-bulk) 0.21x -> 2.18x vs nx. Differential 13/13 byte-exact incl the G-non-scalar-edge-
+dropped case + all bails (H non-scalar/self-loop/per-edge-built/non-pristine); cartesian regression 13/13
+undirected + 11/11 directed clean; 1216 product/operator conf green.
+
+DIRECT-COPY PRODUCT FAMILY COMPLETE (edge-attr, pristine-mirror lever): cartesian (Graph c3527f601 +
+DiGraph 20eeac3f6), corona (this). REMAINING product edge-attr levers need the Python mirror (non-scalar
+paired tuples): tensor/strong/lexico (_paired_edge_attrs -> tuples) + modular — a harder Rust dig (must
+build edge_py_attrs mirror entries in-kernel, not just store AttrMaps). Node-attr: all 7 already beat nx.

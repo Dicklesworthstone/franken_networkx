@@ -15006,6 +15006,89 @@ fn corona_product_fast(
     Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
 }
 
+/// br-r37-c1-prodedgeattr (cc): native corona product carrying H's SCALAR edge
+/// attrs. In a corona product the ONLY output edge attrs come from H's edges copied
+/// onto each G-node's H-block (a direct copy — no pairing); G's edge attrs and ALL
+/// node attrs are dropped (matches nx). So this gates on H's PRISTINE edge mirror
+/// (`edge_py_attrs` empty => H's edge attrs are all scalar/store-complete => byte-
+/// exact clone, zero non-scalar data-loss); G's mirror is irrelevant (its edge attrs
+/// are dropped regardless). Returns None on directed/multigraph/non-pristine-H shapes
+/// (the Python wrapper then batches). Node attrs need no decoration (dropped).
+#[pyfunction]
+#[pyo3(signature = (g, h))]
+fn corona_product_edge_attrs_fast(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    h: &Bound<'_, PyAny>,
+) -> PyResult<Option<PyObject>> {
+    let gr1 = extract_graph(g)?;
+    let gr2 = extract_graph(h)?;
+    let (g1, pg2) = match (&gr1, &gr2) {
+        (GraphRef::Undirected(pg1), GraphRef::Undirected(pg2)) => (&pg1.inner, pg2),
+        _ => return Ok(None),
+    };
+    // Only H's edge attrs survive (on the H-copies); require H's mirror pristine so
+    // they are all scalar and store-complete.
+    if !pg2.edge_py_attrs.is_empty() {
+        return Ok(None);
+    }
+    let g2 = &pg2.inner;
+    let g_names: Vec<String> = g1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+    let h_names: Vec<String> = g2.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+    let ng = g_names.len();
+    let nh = h_names.len();
+    let (tup_canon, mut node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
+    for gname in &g_names {
+        node_key_map
+            .entry(gname.clone())
+            .or_insert_with(|| gr1.py_node_key(py, gname));
+    }
+    let mut all_nodes: Vec<String> = Vec::with_capacity(ng + ng * nh);
+    all_nodes.extend(g_names.iter().cloned());
+    all_nodes.extend(tup_canon.iter().cloned());
+
+    let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
+    // G's original edges — attrs DROPPED (matches nx corona).
+    for gu in 0..ng {
+        for &gv in g1.neighbors_indices(gu).unwrap_or(&[]) {
+            if gv > gu {
+                edges.push((g_names[gu].clone(), g_names[gv].clone(), AttrMap::new()));
+            }
+        }
+    }
+    for gi in 0..ng {
+        // H-copy edges — inherit H's edge attrs (direct copy).
+        for hu in 0..nh {
+            for &hv in g2.neighbors_indices(hu).unwrap_or(&[]) {
+                if hv > hu {
+                    let attrs = g2.edge_attrs_by_indices(hu, hv).cloned().unwrap_or_default();
+                    edges.push((
+                        tup_canon[gi * nh + hu].clone(),
+                        tup_canon[gi * nh + hv].clone(),
+                        attrs,
+                    ));
+                }
+            }
+        }
+        // Join G-node to each of its H-copy nodes — attr-free.
+        for hi in 0..nh {
+            edges.push((
+                g_names[gi].clone(),
+                tup_canon[gi * nh + hi].clone(),
+                AttrMap::new(),
+            ));
+        }
+    }
+
+    let mut inner = fnx_classes::Graph::with_runtime_policy(g1.runtime_policy().clone());
+    let _ = inner.extend_nodes_unrecorded(all_nodes.iter().cloned());
+    let _ = inner.extend_edges_with_attrs_unrecorded(edges);
+    let mut py_graph = PyGraph::new_empty_with_policy(py, g1.runtime_policy().clone())?;
+    py_graph.inner = inner;
+    py_graph.node_key_map = node_key_map;
+    Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
+}
+
 // br-r37-c1-lgnative: native line graph for the simple (non-multi),
 // no-create_using, self-loop-free case. L(G)'s nodes are G's EDGES, represented
 // as Python tuples `(u, v)`; the Python path adds them one PyO3 call at a time
@@ -23081,6 +23164,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(modular_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(rooted_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(corona_product_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(corona_product_edge_attrs_fast, m)?)?;
     m.add_function(wrap_pyfunction!(line_graph_fast, m)?)?;
     m.add_function(wrap_pyfunction!(degree_histogram, m)?)?;
     // A* shortest path
