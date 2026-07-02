@@ -12169,3 +12169,18 @@ list; 999 union/operator conf green. 0.71x -> 1.05x. LEVER (relabel-then-combine
 combine` operator pays N intermediate materialized copies; fuse into a direct shifted-label build.
 (Conversion to/from dict/numpy/scipy/pandas/edgelist all already beat nx 1.1-3.3x; union_all/compose_all/
 intersection_all already 1.09-1.44x.)
+
+
+## 2026-07-02 CopperCliff SHIP: union(DiGraph) combine edge lists — 0.56x -> 1.26x (beats nx)
+
+union's simple non-Graph (DiGraph) rebuild branch did TWO separate add_edges_from(VIEW):
+`rebuilt.add_edges_from(G.edges(data=True)); rebuilt.add_edges_from(H.edges(data=True))`. Both flaws:
+a VIEW isn't a list/tuple so it SKIPS the native batch gate (materialize+retry), AND the second runs on
+a non-fresh graph (wasted touches-existing pre-scan). The multigraph branch just above already fixed this
+(combine into one 4-tuple LIST). Applied the same to the simple branch: node sets are disjoint (checked
+above) so combine list(G.edges(data=True)) + list(H.edges(data=True)) into ONE add_edges_from on the
+fresh, node-populated rebuilt. 0.56x -> 1.26x (beats nx). Byte-exact vs nx (node/edge order + node/edge/
+graph attrs); 999 union/operator conf green. Graph x Graph union still uses _native_compose (~0.64x,
+construction tax) and Multi* the combined-list path (~0.71x) — both native/construction-tax bound.
+Sweep: disjoint_union (binary) 1.95x, reverse 1.80x, ego_graph 1.97x, subgraph 1.45x, edge_subgraph 2.14x,
+complement 4.78x all beat nx.
