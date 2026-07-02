@@ -2,6 +2,24 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SURFACE: bipartite submodule swept — projected_graph 0.85x is the construction-tax floor (already de-delegated+batched); rest wins
+
+Swept the whole `bipartite` submodule (untouched this campaign). WINS: spectral_bipartivity
+567x, density 58x, is_bipartite 48x, sets 12x, clustering 1.79x, weighted_projected 1.17x.
+Two sub-1.0:
+- `bipartite.degrees(B, set)` 0.552x but 46 µs absolute — degree-subset materialization,
+  near-zero (not takeable, would be a revert).
+- `projected_graph` 0.849x (15 vs 12.8ms): ALREADY de-delegated + one-shot batched
+  (br-r37-c1-bpproj/bpprojbatch), output byte-EXACT vs nx incl edge order (14720 edges).
+  cProfile: 58% in `_try_add_edges_from_batch` — building 14720 store edges (per-edge
+  AttrMap alloc + node String-canonicalization + decision ledger) vs nx's Python-dict
+  add_edges. This is the documented CONSTRUCTION-TAX floor
+  ([[reference_construction_tax_relabel_lever]]), NOT a peelable machinery/guard layer.
+  A dedup-before-batch would risk the byte-exact edge order for a modest 2.3ms gain — not
+  taken. Bounded by the same per-edge store-construction primitive (arena/pool AttrMap).
+CONCLUSION: bipartite confirms the global pattern — every residual gap is
+materialization / construction-tax / dual-storage, all architectural-primitive-bounded.
+
 ## 2026-07-02 CopperCliff SURFACE: guard-probe lever exhausted — the other 3 canonical gaps re-profiled as genuine native floors (100% in binding)
 
 Follow-up to the to_directed SHIP: re-profiled the remaining 3 canonical head2head gaps
