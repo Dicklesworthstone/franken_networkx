@@ -11875,6 +11875,58 @@ impl PyGraph {
         }
     }
 
+    /// br-r37-c1-slgraph (cc): native simple-Graph self-loop edge emission. The
+    /// Python `selfloop_edges` path did `G[n]` / `nbrs[n]` per self-loop node --
+    /// the AtlasView + keydict machinery (~75k Python calls) made
+    /// `selfloop_edges(data=True)` 0.16x vs nx even though the underlying attr-dict
+    /// build is cheap and cached. Emit the NetworkX-shaped tuples directly in node
+    /// order, handing out the LIVE edge attr dict (`materialize_edge_py_attrs`) so
+    /// `data=True` mutations persist exactly like nx's live adjacency dict. Returns
+    /// `None` (Python fallback) for the `data="<attr>"` value form (out of scope).
+    #[pyo3(signature = (data, default=None))]
+    fn _native_selfloop_edges(
+        &mut self,
+        py: Python<'_>,
+        data: &Bound<'_, PyAny>,
+        default: Option<PyObject>,
+    ) -> PyResult<Option<Py<NodeIterator>>> {
+        let _ = default;
+        if !data.is_instance_of::<PyBool>() {
+            return Ok(None); // data="<attr>" value form -> Python path
+        }
+        let want_dict = data.extract::<bool>()?;
+        if want_dict && self.inner.edge_count() > 0 {
+            self.mark_edges_dirty();
+        }
+        let sl_nodes: Vec<String> = self
+            .inner
+            .nodes_ordered()
+            .iter()
+            .filter(|n| self.inner.has_edge(n, n))
+            .map(|n| (*n).to_owned())
+            .collect();
+        let mut out: Vec<PyObject> = Vec::with_capacity(sl_nodes.len());
+        for node in &sl_nodes {
+            let node = node.as_str();
+            let py_node = self.py_node_key(py, node);
+            if want_dict {
+                let d = self.materialize_edge_py_attrs(py, node, node);
+                out.push(
+                    PyTuple::new(py, [py_node.clone_ref(py), py_node, d.into_any()])?
+                        .into_any()
+                        .unbind(),
+                );
+            } else {
+                out.push(
+                    PyTuple::new(py, [py_node.clone_ref(py), py_node])?
+                        .into_any()
+                        .unbind(),
+                );
+            }
+        }
+        Ok(Some(Py::new(py, NodeIterator::unguarded(out))?))
+    }
+
     /// Return attributes of the edge (u, v).
     #[pyo3(signature = (u, v, default=None))]
     fn get_edge_data(

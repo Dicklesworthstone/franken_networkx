@@ -2,6 +2,26 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP (work-removal): simple-Graph selfloop_edges(data=True) 0.16x -> 0.48x — native batch emission (kill the per-node AtlasView machinery)
+
+`selfloop_edges(G, data=True)` on a simple Graph was 0.16x vs nx (6x SLOWER) — the
+worst gap in the whole selfloop family (mg/mdg variants 0.40-0.68x). ROOT (cProfile):
+NOT the attr-dict build (cached, cheap) but the Python `G[n]`/`nbrs[n]` per-self-loop-
+node machinery — `_graph_getitem_from_adj` -> AtlasView `__getitem__` -> `_keydict`,
+~75k Python calls for 2500 self-loops. MultiGraph/MultiDiGraph already have a native
+`_native_selfloop_edges`; simple PyGraph did NOT (it fell to the Python adjacency walk).
+FIX (br-r37-c1-slgraph): added a PyGraph `_native_selfloop_edges` that emits the
+`(n, n, dict)` tuples in one Rust pass, handing out the LIVE `materialize_edge_py_attrs`
+dict (data=True mutations persist == nx) and `mark_edges_dirty` like the multigraph path.
+Wired ONLY for data=True (data=False keeps its faster generator fast path — native was
+~6% slower there; data="<attr>" keeps the Python value path). RESULT: 0.16x -> 0.476x
+(2.9x self). Byte-exact 0 mismatches over data True/False/attr/missing x keys, mutation-
+persist, str nodes, no-selfloop, N=20..2500; conformance GREEN (798 selfloop). RESIDUAL:
+0.48x is now the dict-MATERIALIZATION floor (fnx builds V_selfloop PyDicts; nx hands out
+live adj dicts) — needs the persistent Python-object mirror. LESSON: a "materialization
+floor" 0.16x can hide a THICK Python-machinery layer on top — a native batch peels it
+(6x->2x slower) even when the true floor remains.
+
 ## 2026-07-02 CopperCliff SHIP (work-removal): MDG in_edges(keys=True) 0.677x -> 0.791x — hoist per-key py_node_key out of the loops (residual = String-hash floor)
 
 Fresh re-measure showed the documented mdg in_edges gaps are mostly STALE WINS now

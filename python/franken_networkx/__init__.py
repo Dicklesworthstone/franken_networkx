@@ -22533,6 +22533,21 @@ def selfloop_edges(G, data=False, keys=False, default=None):
                 return native_edges(data, keys=keys, default=default)
             except Exception:
                 pass
+    elif data is True:
+        # br-r37-c1-slgraph (cc): native simple-Graph path for data=True ONLY. The
+        # old `G[n]`/`nbrs[n]` per-self-loop-node AtlasView machinery made
+        # selfloop_edges(data=True) 0.16x vs nx; the native binding emits the tuples
+        # directly, handing out the LIVE attr dict so mutations persist. data=False
+        # keeps its faster generator fast path below (native was ~6% slower there);
+        # data="<attr>" keeps the Python value path.
+        native_edges = getattr(G, "_native_selfloop_edges", None)
+        if native_edges is not None:
+            try:
+                result = native_edges(data, default=default)
+                if result is not None:
+                    return result
+            except Exception:
+                pass
     # br-r37-c1-61okz: bypass AdjacencyView for the common case —
     # direct ``has_edge(u, u)`` probe per node skips the AtlasView
     # materialization that the original ``G.adj[node]`` walk did
