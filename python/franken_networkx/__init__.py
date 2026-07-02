@@ -42542,14 +42542,23 @@ def _materialize_attrs_before_convert(method):
     @_functools.wraps(method)
     def wrapped(self, *args, **kwargs):
         result = method(self, *args, **kwargs)
-        if (
-            self.number_of_edges()
-            and _fnx.graph_has_any_attrs(self)
-            and not any(True for *_edge, _data in result.edges(data=True) if _data)
-        ):
-            for _ in self.edges(data=True):
-                pass
-            result = method(self, *args, **kwargs)
+        if self.number_of_edges() and _fnx.graph_has_any_attrs(self):
+            # br-r37-c1-todirprobe (cc): the old probe materialised the WHOLE result
+            # EdgeView (`result.edges(data=True)`, ~28% of to_directed/to_undirected
+            # wall time) AND marked it dirty, just to short-circuit `any(... if data)`.
+            # The native edge-attr check is byte-identical (`any_edge_has_attrs` ==
+            # `edges.values().any(!is_empty)` == Python's `if _data`), read-only, and
+            # skips all PyObject materialization. Multigraph results return None ->
+            # keep the Python probe (native check is simple-graph only).
+            _res_has_edge_data = _fnx.graph_has_any_edge_attrs(result)
+            if _res_has_edge_data is None:
+                _res_has_edge_data = any(
+                    True for *_edge, _data in result.edges(data=True) if _data
+                )
+            if not _res_has_edge_data:
+                for _ in self.edges(data=True):
+                    pass
+                result = method(self, *args, **kwargs)
         return result
 
     # ``functools.wraps`` carries ``__wrapped__`` so ``inspect.signature``

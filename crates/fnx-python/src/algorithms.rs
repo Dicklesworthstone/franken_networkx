@@ -3496,6 +3496,33 @@ pub fn graph_has_any_attrs(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Opt
     Ok(has_attrs)
 }
 
+/// br-r37-c1-todirprobe (cc): does any simple-graph EDGE carry a non-empty attr
+/// dict? Edge-only sibling of `graph_has_any_attrs`, for the
+/// `_materialize_attrs_before_convert` guard's `not any(result.edges(data=True) if
+/// data)` post-probe — which eagerly materialised the WHOLE result EdgeView
+/// (`_native_edges_with_data`, ~28% of to_directed/to_undirected wall time) just to
+/// short-circuit. `inner.any_edge_has_attrs()` is `edges.values().any(|a|
+/// !a.is_empty())` — byte-identical to Python's `if _data` (non-empty dict) — and
+/// short-circuits with NO PyObject materialization and NO dirty-marking of the
+/// result. Returns `None` for multigraphs so the caller keeps the Python probe.
+#[pyfunction]
+pub fn graph_has_any_edge_attrs(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<bool>> {
+    let gr = extract_graph(g)?;
+    let dict_nonempty = |d: &Bound<'_, PyDict>| !d.is_empty();
+    let has = match &gr {
+        GraphRef::Undirected(pg) => Some(
+            pg.inner.any_edge_has_attrs()
+                || pg.edge_py_attrs.values().any(|d| dict_nonempty(d.bind(py))),
+        ),
+        GraphRef::Directed { dg, .. } => Some(
+            dg.inner.any_edge_has_attrs()
+                || dg.edge_py_attrs.values().any(|d| dict_nonempty(d.bind(py))),
+        ),
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => None,
+    };
+    Ok(has)
+}
+
 /// Return whether any simple-graph edge has a present non-unit weight attr.
 ///
 /// This mirrors Python's ``attrs[weight] != 1`` check against the live
@@ -22643,6 +22670,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(fnx_to_nx_adjacency, m)?)?;
     m.add_function(wrap_pyfunction!(graph_has_edge_attr, m)?)?;
     m.add_function(wrap_pyfunction!(graph_has_any_attrs, m)?)?;
+    m.add_function(wrap_pyfunction!(graph_has_any_edge_attrs, m)?)?;
     m.add_function(wrap_pyfunction!(bellman_ford_path, m)?)?;
     m.add_function(wrap_pyfunction!(multi_source_dijkstra, m)?)?;
     m.add_function(wrap_pyfunction!(multi_source_dijkstra_path_length, m)?)?;

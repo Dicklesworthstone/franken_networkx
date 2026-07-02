@@ -2,6 +2,27 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP: Graph.to_directed/to_undirected(scalar) 0.85x -> 2.39x / 7.40x — kill the guard's eager result-EdgeView probe
+
+Re-profiled the authoritative gap `graph_to_directed_scalar_attrs` (0.61x, 233ms — biggest
+absolute) instead of trusting the "dual-storage floor" memory. cProfile revealed 28% of
+to_directed wall time in `_native_edges_with_data` on the RESULT: the
+`_materialize_attrs_before_convert` guard's post-probe
+`not any(True for *_e,_d in result.edges(data=True) if _d)` EAGERLY materialised the whole
+result EdgeView (and marked it dirty) merely to short-circuit. Since 589a8d036 made the
+native deepcopy read the store, the guard's re-run branch is effectively dead, but the
+probe itself was pure O(E) tax. FIX (br-r37-c1-todirprobe): new native
+`graph_has_any_edge_attrs` (inner `any_edge_has_attrs()` = `edges.values().any(!is_empty)`
+== Python's `if _data`, short-circuits, read-only, no PyObject build / no dirty-mark) +
+Python-probe fallback for multigraph results. Kept the re-run branch intact (still fires
+if a fallback path drops edge attrs — verified the 589a8d036 stray-get_edge_data scenario
+preserves attrs). RESULT: to_directed(scalar) 0.85x->2.39x (13.6ms vs 29.3ms),
+to_undirected(scalar) ->7.40x (both now BEAT nx). Byte-exact 0 mismatches over
+scalar-edge / node-attrs-only / no-attrs / nodes-only / digraph / multigraph x
+{to_directed,to_undirected}; conformance GREEN (4820 to_directed/to_undirected/convert).
+LESSON (again): a "floor" gap can hide a guard-WRAPPER eager-probe tax — re-profile, don't
+trust the label. This also lifts the canonical `graph_to_directed_scalar_attrs` gap.
+
 ## 2026-07-02 CopperCliff SURFACE (AUTHORITATIVE cargo bench): head2head 20/24 workloads WIN; the 4 residual gaps are ALL documented floor/NO-SHIP
 
 Ran the canonical per-crate bench (`rch exec -- cargo bench -p fnx-python --bench
