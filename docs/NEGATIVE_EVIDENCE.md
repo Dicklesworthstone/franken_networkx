@@ -12184,3 +12184,23 @@ graph attrs); 999 union/operator conf green. Graph x Graph union still uses _nat
 construction tax) and Multi* the combined-list path (~0.71x) — both native/construction-tax bound.
 Sweep: disjoint_union (binary) 1.95x, reverse 1.80x, ego_graph 1.97x, subgraph 1.45x, edge_subgraph 2.14x,
 complement 4.78x all beat nx.
+
+
+## 2026-07-02 CopperCliff SHIP (RUST, via /alien-graveyard): skip redundant edge_py_keys mirror for identity-int keys — MG difference 0.58x -> 0.67x
+
+/alien-graveyard-guided (profile -> match the "eager per-edge allocation" lever -> the proven
+has_remapped_int_key pattern). The multigraph keyed-batch kernels (_native_add_keyed_edges_no_data +
+_try_add_str_keyed_edges_from_batch, lib.rs) built an edge_py_keys mirror entry for EVERY edge — per-edge
+String clones (uc/vc) + Self::edge_key String build + HashMap insert + note_public_key_value. But
+display_key_lookup (lib.rs:2564) falls back to `int:{internal}` when the mirror is ABSENT, so a public key
+that is the EXACT non-negative int equal to its internal auto-key (the common add_edge/G.edges(keys=True)
+case) needs NO mirror entry. FIX: gate the mirror push on `!(k is exact PyInt && k as usize == internal_key)`
+— only NON-identity keys (str/float/bool/remapped-int) mirror; identity keys skip the per-edge mirror work.
+Byte-EXACT: 28/28 vs nx across auto/str/explicit-int/float/removed-noncontiguous keys x MG/MDG x
+difference/symmetric_difference/compose/union (the read path is identical — mirror-absent identity keys
+resolve to int:{internal}); 4966 edges/keys/degree/batch conformance green. difference MG 0.58->0.67x,
+MultiGraph add_edges_from(3000) 0.82x (~15% strict work removal on the keyed-batch cluster; union uses the
+with-data batch, unaffected). Still <nx (the extend_keyed_edges insertion itself is the residual construction
+tax) but the FIRST reduction of the multigraph construction tax — it is PARTIALLY reducible, not purely
+architectural. FOLLOW-UP: the same identity-key mirror-skip applies to the with-data keyed batch
+(_native_add_keyed_edges_with_data / _try_add_attr_edges_from_batch) used by compose/union — next.

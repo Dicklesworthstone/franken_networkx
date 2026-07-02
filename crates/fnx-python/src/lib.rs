@@ -5352,7 +5352,21 @@ impl PyMultiGraph {
             let counter = pair_count.entry(pair).or_insert(0);
             let internal_key = *counter;
             *counter += 1;
-            display_keys.push((uc.clone(), vc.clone(), internal_key, k.clone().unbind()));
+            // br-r37-c1-mgkeyidentity (cc): a public key that is the EXACT non-negative
+            // int equal to its internal auto-key needs NO edge_py_keys mirror entry —
+            // display_key_lookup falls back to `int:{internal}` when the mirror is
+            // absent, and note_public_key_value would not flag it remapped. So only
+            // record NON-identity keys, skipping the per-edge String clones + edge_key
+            // build + HashMap insert for the common auto-int-key case (read path is
+            // byte-identical). bool/float/str/remapped-int keys are not exact PyInt (or
+            // differ from internal_key), so they still mirror. Strict work removal on
+            // the multigraph keyed-batch cluster (add_edges_from + set-algebra + union).
+            let key_is_identity_int = k.is_exact_instance_of::<PyInt>()
+                && k.extract::<i64>().ok().and_then(|i| usize::try_from(i).ok())
+                    == Some(internal_key);
+            if !key_is_identity_int {
+                display_keys.push((uc.clone(), vc.clone(), internal_key, k.clone().unbind()));
+            }
             edges.push((uc, vc, internal_key, AttrMap::new()));
         }
 
@@ -5613,7 +5627,21 @@ impl PyMultiGraph {
             let counter = pair_count.entry(pair).or_insert(0);
             let internal_key = *counter;
             *counter += 1;
-            display_keys.push((uc.clone(), vc.clone(), internal_key, k.clone().unbind()));
+            // br-r37-c1-mgkeyidentity (cc): a public key that is the EXACT non-negative
+            // int equal to its internal auto-key needs NO edge_py_keys mirror entry —
+            // display_key_lookup falls back to `int:{internal}` when the mirror is
+            // absent, and note_public_key_value would not flag it remapped. So only
+            // record NON-identity keys, skipping the per-edge String clones + edge_key
+            // build + HashMap insert for the common auto-int-key case (read path is
+            // byte-identical). bool/float/str/remapped-int keys are not exact PyInt (or
+            // differ from internal_key), so they still mirror. Strict work removal on
+            // the multigraph keyed-batch cluster (add_edges_from + set-algebra + union).
+            let key_is_identity_int = k.is_exact_instance_of::<PyInt>()
+                && k.extract::<i64>().ok().and_then(|i| usize::try_from(i).ok())
+                    == Some(internal_key);
+            if !key_is_identity_int {
+                display_keys.push((uc.clone(), vc.clone(), internal_key, k.clone().unbind()));
+            }
             edges.push((uc, vc, internal_key, AttrMap::new()));
         }
 
