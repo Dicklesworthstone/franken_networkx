@@ -41742,7 +41742,7 @@ class _AssignedPrivateDegreeView:
         # double-counting a self-loop exactly as nx's total degree does. Weighted /
         # directed / multigraph / nbunch / the node-set+default-edge case (already
         # fast via `_filtered_set_count`) keep the per-node path.
-        if self._weight is not None or self._nodes is not None:
+        if self._nodes is not None:
             return None
         view = self._graph
         if not isinstance(view, _FilteredGraphView) or type(view._graph) not in (
@@ -41752,11 +41752,20 @@ class _AssignedPrivateDegreeView:
             MultiDiGraph,
         ):
             return None
+        weight = self._weight
         edge_default = getattr(view, "_filter_edge_is_default", False)
         keep_is_set = getattr(getattr(view, "_filter_node", None), "nodes", None) is not None
-        if edge_default and keep_is_set:
+        if weight is None and edge_default and keep_is_set:
             return None  # per-node _filtered_set_count already handles this fast
         parent = view._graph
+        # cc-rvdegwt: weighted degree is a float SUM; CPython's builtin `sum` is
+        # Neumaier-compensated (3.12+), so a naive `+=` accumulator would diverge by
+        # ULPs. Directed weighted total = sum(out) + sum(in) with nx's specific
+        # per-direction order — deferred to the slow path (weighted DIRECTED returns
+        # None below). Undirected weighted collects the per-edge values in adjacency
+        # order and reduces with the builtin `sum`, matching nx bit-for-bit.
+        if weight is not None and parent.is_directed():
+            return None
         filter_edge = view._filter_edge
         multi = view.is_multigraph()
         order = list(iter(view))  # visible nodes in view order (== _iter_nodes)
@@ -41803,16 +41812,50 @@ class _AssignedPrivateDegreeView:
                             deg[v] += 1
             return list(deg.items())
         pairs = []
+        if weight is None:
+            for node in order:
+                row = _fast_adj_row(parent, node)
+                total = 0
+                for nbr in row:
+                    if nbr not in visible:
+                        continue
+                    c = _pair_count(node, nbr, row[nbr] if multi else None)
+                    total += c
+                    if nbr == node:  # undirected degree double-counts a self-loop
+                        total += c
+                pairs.append((node, total))
+            return pairs
+        # Weighted undirected: nx computes
+        #   deg = sum(dd.get(w,1) for dd in nbrs.values())
+        #   if n in nbrs: deg += (self-loop weight, once more)
+        # over the FILTERED adjacency (visible + filter_edge-passing), neighbour-
+        # major / key-minor order. Collect the values in that order and reduce with
+        # the builtin `sum` so the Neumaier compensation matches nx bit-for-bit; add
+        # the self-loop's weight a second time (undirected double-count) exactly as
+        # nx's trailing `+=` does.
         for node in order:
             row = _fast_adj_row(parent, node)
-            total = 0
+            vals = []
+            selfloop_extra = 0
             for nbr in row:
                 if nbr not in visible:
                     continue
-                c = _pair_count(node, nbr, row[nbr] if multi else None)
-                total += c
-                if nbr == node:  # undirected total degree double-counts a self-loop
-                    total += c
+                if multi:
+                    passing = [
+                        attrs.get(weight, 1)
+                        for key, attrs in row[nbr].items()
+                        if edge_default or filter_edge(node, nbr, key)
+                    ]
+                    vals.extend(passing)
+                    if nbr == node:
+                        selfloop_extra = sum(passing)
+                else:
+                    if edge_default or filter_edge(node, nbr):
+                        val = row[nbr].get(weight, 1)
+                        vals.append(val)
+                        if nbr == node:
+                            selfloop_extra = val
+            total = sum(vals) + selfloop_extra
             pairs.append((node, total))
         return pairs
 

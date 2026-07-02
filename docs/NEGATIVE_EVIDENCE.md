@@ -2,6 +2,26 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP: undirected restricted_view.degree(WEIGHT) 0.10x -> 2.26x — weighted degree bulk path with builtin-sum Neumaier match
+
+Extended the degree bulk path (cc-rvdegfast) to WEIGHTED undirected degree. TRAP handled:
+CPython's builtin `sum` is Neumaier-compensated (3.12+), so a naive `+=` float accumulator
+diverges by ULPs — collect the per-edge `attrs.get(weight,1)` values in nx's neighbour-major/
+key-minor adjacency order and reduce with the BUILTIN `sum`, then add the self-loop weight a
+second time (undirected double-count) exactly as nx's trailing `+=` does. Weighted DIRECTED
+(total = sum(out) + sum(in) with nx's specific per-direction order) is deferred to the slow
+path — returns None. MEASURED: Graph restr.degree(weight) 0.10x->2.26x (beats nx);
+MultiGraph 0.10x->0.62x (6x fnx, same per-parallel-edge filter_edge substrate floor as
+unweighted MG degree); also lifts subgraph.degree(weight). Byte-exact: 600 cases (Graph +
+MultiGraph) incl ADVERSARIAL magnitude-spanning floats (1e16/1/-1e16/1e-9 — the Neumaier
+stress), self-loops, missing-weight-default-1, hidden nodes + edges 0 fails; directed weighted
+verified correct via the slow path; 7486 conformance pass (1 pre-existing gexf failure).
+PURE-PYTHON. LEVER: a float-reduction fast path must reduce with the builtin `sum` (not `+=`)
+to inherit CPython 3.12+ Neumaier compensation and stay byte-exact vs nx. FOLLOW-UP: weighted
+DIRECTED filtered degree (needs the out/in per-direction sum order) + the other view gaps
+(reverse.edges(data) 0.33x, MDG reverse.edges 0.17x, adjacency() 0.15-0.30x, reverse in/out
+degree constant-factor 0.06x).
+
 ## 2026-07-02 CopperCliff SHIP: reverse_view.in/out_degree O(V^2)->O(V) — `_fast_succ_row` DiGraph branch dropped a whole-graph rebuild (844ms -> 1.81ms @ n=1000)
 
 New view sweep (reverse views, subgraph-view data/adjacency) found reverse_view(D).in_degree()
