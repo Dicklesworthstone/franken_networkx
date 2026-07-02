@@ -19,6 +19,13 @@ Two sub-1.0:
   taken. Bounded by the same per-edge store-construction primitive (arena/pool AttrMap).
 CONCLUSION: bipartite confirms the global pattern — every residual gap is
 materialization / construction-tax / dual-storage, all architectural-primitive-bounded.
+ALSO SWEPT (all WINS, no gap): community.modularity 1.59x, partition_quality 1.65x,
+bipartite.hopcroft_karp 7.4x, tournament.is_tournament 7.8x, is_graphical 1.14x,
+dispersion 2.9x, number_of_walks 13x, rich_club 82x, s_metric 151x. Coverage now spans
+~every submodule; safe bench-and-edit levers are EXHAUSTED. The next investment is the
+persistent Python-object mirror (unblocks materialization floors: adj[n], selfloop-multi,
+in/out_edges data=attr) and/or an arena/pool AttrMap allocator (unblocks construction-tax:
+projected_graph, clear_edges) — deliberate multi-file primitives, not bench-and-edit.
 
 ## 2026-07-02 CopperCliff SURFACE: guard-probe lever exhausted — the other 3 canonical gaps re-profiled as genuine native floors (100% in binding)
 
