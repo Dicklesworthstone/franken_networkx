@@ -2,11 +2,11 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
-## 2026-07-02 CopperCliff SURFACE (AUTHORITATIVE cargo bench): head2head 16/20 workloads WIN; the 4 residual gaps are ALL documented floor/NO-SHIP
+## 2026-07-02 CopperCliff SURFACE (AUTHORITATIVE cargo bench): head2head 20/24 workloads WIN; the 4 residual gaps are ALL documented floor/NO-SHIP
 
 Ran the canonical per-crate bench (`rch exec -- cargo bench -p fnx-python --bench
 networkx_head_to_head`, CARGO_TARGET_DIR=.rch-targets/franken_networkx-cc) to validate the
-ad-hoc frontier with the authoritative harness. 20 paired fnx-vs-nx workloads: 16 WINS
+ad-hoc frontier with the authoritative harness. FINAL: 24 paired fnx-vs-nx workloads: 20 WINS
 (1.02x-7.30x: dijkstra-after-edges-data 7.30x, mdg_in_edges_data 4.57x, edge_expansion
 4.58x, greedy_tsp 4.03x, mdg_in_degree_weight 3.24x, node_expansion 3.58x, tsp variants
 1.88-2.23x, mdg_out_edges_nbunch_keys_DATA 2.05x, voronoi 1.61x, mdg_edges_keys 1.02x,
