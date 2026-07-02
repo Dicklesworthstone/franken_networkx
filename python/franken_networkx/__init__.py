@@ -22938,8 +22938,10 @@ def cartesian_product(G, H):
     # any other shape (non-pristine mirror / non-scalar attrs / self-loops); node
     # attrs are decorated here afterward.
     if (
-        type(G) is Graph
-        and type(H) is Graph
+        (
+            (type(G) is Graph and type(H) is Graph)
+            or (type(G) is DiGraph and type(H) is DiGraph)
+        )
         and not number_of_selfloops(G)
         and not number_of_selfloops(H)
     ):

@@ -14705,62 +14705,110 @@ fn cartesian_product_edge_attrs_fast(
 ) -> PyResult<Option<PyObject>> {
     let gr1 = extract_graph(g)?;
     let gr2 = extract_graph(h)?;
-    let (pg1, pg2) = match (&gr1, &gr2) {
-        (GraphRef::Undirected(a), GraphRef::Undirected(b)) => (a, b),
-        _ => return Ok(None),
-    };
-    // Pristine edge mirror => every edge attr is scalar (store-only). A single
-    // non-scalar (list/dict/tuple) attr would leave a mirror entry, so this bails.
-    if !pg1.edge_py_attrs.is_empty() || !pg2.edge_py_attrs.is_empty() {
-        return Ok(None);
-    }
-    let g1 = &pg1.inner;
-    let h1 = &pg2.inner;
-    let g_names: Vec<String> = g1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
-    let h_names: Vec<String> = h1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
-    let ng = g_names.len();
-    let nh = h_names.len();
-    let (canon, node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
+    match (&gr1, &gr2) {
+        (GraphRef::Undirected(pg1), GraphRef::Undirected(pg2)) => {
+            // Pristine edge mirror => every edge attr is scalar (store-only). A single
+            // non-scalar (list/dict/tuple) attr would leave a mirror entry -> bail.
+            if !pg1.edge_py_attrs.is_empty() || !pg2.edge_py_attrs.is_empty() {
+                return Ok(None);
+            }
+            let g1 = &pg1.inner;
+            let h1 = &pg2.inner;
+            let g_names: Vec<String> =
+                g1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+            let h_names: Vec<String> =
+                h1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+            let ng = g_names.len();
+            let nh = h_names.len();
+            let (canon, node_key_map) =
+                product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
 
-    // Undirected edges of each factor, each unordered pair once (u <= v) — the same
-    // enumeration the no-attr native path uses (self-loops included via v >= u).
-    let undirected_edges = |graph: &fnx_classes::Graph, n: usize| -> Vec<(usize, usize)> {
-        let mut es = Vec::new();
-        for u in 0..n {
-            for &v in graph.neighbors_indices(u).unwrap_or(&[]) {
-                if v >= u {
-                    es.push((u, v));
+            // Undirected edges of each factor, each unordered pair once (u <= v) —
+            // the same enumeration the no-attr native path uses (self-loops via v>=u).
+            let undirected_edges = |graph: &fnx_classes::Graph, n: usize| -> Vec<(usize, usize)> {
+                let mut es = Vec::new();
+                for u in 0..n {
+                    for &v in graph.neighbors_indices(u).unwrap_or(&[]) {
+                        if v >= u {
+                            es.push((u, v));
+                        }
+                    }
+                }
+                es
+            };
+            let g_edges = undirected_edges(g1, ng);
+            let h_edges = undirected_edges(h1, nh);
+
+            let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
+            // G-layer: same G-node + H-edge -> inherit the H-edge's attrs.
+            for gi in 0..ng {
+                for &(hu, hv) in &h_edges {
+                    let attrs = h1.edge_attrs_by_indices(hu, hv).cloned().unwrap_or_default();
+                    edges.push((canon[gi * nh + hu].clone(), canon[gi * nh + hv].clone(), attrs));
                 }
             }
-        }
-        es
-    };
-    let g_edges = undirected_edges(g1, ng);
-    let h_edges = undirected_edges(h1, nh);
+            // H-layer: same H-node + G-edge -> inherit the G-edge's attrs.
+            for &(gu, gv) in &g_edges {
+                for hi in 0..nh {
+                    let attrs = g1.edge_attrs_by_indices(gu, gv).cloned().unwrap_or_default();
+                    edges.push((canon[gu * nh + hi].clone(), canon[gv * nh + hi].clone(), attrs));
+                }
+            }
 
-    let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
-    // G-layer: same G-node + H-edge -> inherit the H-edge's attrs.
-    for gi in 0..ng {
-        for &(hu, hv) in &h_edges {
-            let attrs = h1.edge_attrs_by_indices(hu, hv).cloned().unwrap_or_default();
-            edges.push((canon[gi * nh + hu].clone(), canon[gi * nh + hv].clone(), attrs));
+            let mut inner = fnx_classes::Graph::with_runtime_policy(g1.runtime_policy().clone());
+            let _ = inner.extend_nodes_unrecorded(canon.iter().cloned());
+            let _ = inner.extend_edges_with_attrs_unrecorded(edges);
+            let mut py_graph = PyGraph::new_empty_with_policy(py, g1.runtime_policy().clone())?;
+            py_graph.inner = inner;
+            py_graph.node_key_map = node_key_map;
+            Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
         }
-    }
-    // H-layer: same H-node + G-edge -> inherit the G-edge's attrs.
-    for &(gu, gv) in &g_edges {
-        for hi in 0..nh {
-            let attrs = g1.edge_attrs_by_indices(gu, gv).cloned().unwrap_or_default();
-            edges.push((canon[gu * nh + hi].clone(), canon[gv * nh + hi].clone(), attrs));
-        }
-    }
+        (GraphRef::Directed { dg: dg1, .. }, GraphRef::Directed { dg: dg2, .. }) => {
+            if !dg1.edge_py_attrs.is_empty() || !dg2.edge_py_attrs.is_empty() {
+                return Ok(None);
+            }
+            let d1 = &dg1.inner;
+            let d2 = &dg2.inner;
+            let g_names: Vec<String> =
+                d1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+            let h_names: Vec<String> =
+                d2.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+            let ng = g_names.len();
+            let nh = h_names.len();
+            let (canon, node_key_map) =
+                product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
 
-    let mut inner = fnx_classes::Graph::with_runtime_policy(g1.runtime_policy().clone());
-    let _ = inner.extend_nodes_unrecorded(canon.iter().cloned());
-    let _ = inner.extend_edges_with_attrs_unrecorded(edges);
-    let mut py_graph = PyGraph::new_empty_with_policy(py, g1.runtime_policy().clone())?;
-    py_graph.inner = inner;
-    py_graph.node_key_map = node_key_map;
-    Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
+            let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
+            // G-layer: same G-node + directed H-edge (hu->hv) -> inherit H-edge attrs.
+            for gi in 0..ng {
+                for hu in 0..nh {
+                    for &hv in d2.successors_indices(hu).unwrap_or(&[]) {
+                        let attrs = d2.edge_attrs_by_indices(hu, hv).cloned().unwrap_or_default();
+                        edges.push((canon[gi * nh + hu].clone(), canon[gi * nh + hv].clone(), attrs));
+                    }
+                }
+            }
+            // H-layer: same H-node + directed G-edge (gu->gv) -> inherit G-edge attrs.
+            for gu in 0..ng {
+                for &gv in d1.successors_indices(gu).unwrap_or(&[]) {
+                    for hi in 0..nh {
+                        let attrs = d1.edge_attrs_by_indices(gu, gv).cloned().unwrap_or_default();
+                        edges.push((canon[gu * nh + hi].clone(), canon[gv * nh + hi].clone(), attrs));
+                    }
+                }
+            }
+
+            let mut inner =
+                fnx_classes::digraph::DiGraph::with_runtime_policy(d1.runtime_policy().clone());
+            let _ = inner.extend_nodes_unrecorded(canon.iter().cloned());
+            let _ = inner.extend_edges_with_attrs_unrecorded(edges);
+            let mut py_dg = PyDiGraph::new_empty_with_policy(py, d1.runtime_policy().clone())?;
+            py_dg.inner = inner;
+            py_dg.node_key_map = node_key_map;
+            Ok(Some(py_dg.into_pyobject(py)?.into_any().unbind()))
+        }
+        _ => Ok(None),
+    }
 }
 
 /// br-r37-c1-prodmodular: native modular product fast path (undirected only).

@@ -12026,3 +12026,17 @@ SCOPE: cartesian only (direct-copy). tensor/strong/lexico pair attrs into non-sc
 harder; corona edge attrs are direct-copy (H-copies) -> same lever applies next. GATE caveat: only fires
 for freshly-bulk-built graphs whose edge mirror is still pristine (per-edge-built / edge-accessed graphs
 materialize the mirror -> batch); the common build-then-product workflow keeps it pristine.
+
+
+## 2026-07-02 CopperCliff SHIP (BEATS nx, RUST): cartesian edge-attr kernel EXTENDED to DiGraph — 0.30x -> 1.94x
+
+Extended cartesian_product_edge_attrs_fast (c3527f601) to the DIRECTED case (DiGraph x DiGraph), doubling
+coverage. Same pristine-mirror safety gate + direct-copy (each directed product edge inherits one source
+directed edge: G-layer copies an H-edge hu->hv, H-layer copies a G-edge gu->gv). Reads via
+GraphRef::Directed{dg}.inner + dg.edge_py_attrs + DiGraph::edge_attrs_by_indices/successors_indices;
+builds a DiGraph via extend_edges_with_attrs_unrecorded. Directed bulk-built weighted cartesian_product
+0.30x -> 1.94x vs nx (BEATS nx). Directed differential harness 11/11 byte-exact (scalar int/float/multi/
+str-keys/node+edge fire; non-scalar list/dict + self-loops + per-edge-built + non-pristine-access BAIL;
+no-attr). Undirected harness 13/13 regression-clean. 1216 product/operator conf green. cartesian edge-attr
+now covers BOTH Graph + DiGraph. FOLLOW-UP: corona edge-attr (H-copies direct-copy); tensor/strong/lexico
+(tuple-pairing -> non-scalar mirror, harder); modular.
