@@ -11945,3 +11945,24 @@ Rust dig, deferred. Shipped the batch because it fixes the lexicographic near-ti
 exact. FRONTIER RE-CONFIRMED: this session's ~80-fn sweep shows fnx beats nx on ~all scalar/dict/algorithm
 work; every remaining <1x is construction-tax (products/operators on tuple keys) or a native kernel
 (condensation 0.35x, compose 0.50x) — both Rust/architectural, matching the documented mined-out frontier.
+
+## 2026-07-01 CopperCliff PARTIAL-SHIP: corona_product 0.17->0.21x + rooted_product 0.22->0.39x (product-family batch)
+
+Extended the attributed-product batch (f9f3f7e7d) to the remaining product FAMILY. Same mechanism: the
+native corona_product_fast/rooted_product_fast kernels BAIL on `_graph_has_any_attrs` -> attributed
+graphs fall to a per-node/edge add_node/add_edge Python build. corona_product 0.15-0.17x (124ms/60n):
+batch the G-edge layer + per-G-node H-copy layers (star edges then H-copy edges, preserving that per-g
+insertion order) via add_edges_from/add_nodes_from -> 0.21x (1.3x self). rooted_product 0.22x (carries
+NO edge attrs but the native path bails on ANY attr, so attributed input lands in the attr-free Python
+build): batch node + both edge layers -> 0.39x (1.8x self). Byte-IDENTICAL incl exact node AND edge
+ORDER: corona 10/10 (Graph + MultiGraph H x attrs/self-loops), rooted 5/5; both match nx canonical edge
+set; 786 product/operator conformance tests green.
+
+NOT chased: modular_product is O((V_G*V_H)^2) has_edge-BOUND (nested product-node-pair loop with a
+has_edge per pair) — batching the add_edge does NOT touch the dominant has_edge cost, so its attributed
+fallback stays slow (needs the native bitmatrix kernel path or a Python adjacency-set snapshot; low ROI).
+power(k) already BEATS nx (2.37x). HONEST: like the main-4 products these are PARTIAL improvements bounded
+by the tuple-key construction tax — a beat-nx product win needs native attr-pairing in the Rust kernels
+(read/pair arbitrary Python attrs + build the mirror per product edge), a dedicated Rust dig. The whole
+product family (cartesian/tensor/strong/lexicographic/corona/rooted) now shares one Python-batch idiom;
+modular + the Rust attr-pairing kernel are the only remaining product levers.

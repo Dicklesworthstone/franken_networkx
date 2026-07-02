@@ -35007,25 +35007,24 @@ def corona_product(G, H):
     P = _product_graph_class(G, H)()
     P.add_nodes_from(G.nodes())
 
-    if G.is_multigraph():
-        for u, v, key in G.edges(keys=True):
-            P.add_edge(u, v, key=key)
+    # br-r37-c1-prodbatch (cc): the native path above handles the no-attr case; the
+    # attributed case bails here and paid a per-edge/node add_edge/add_node dispatch
+    # over the O(V_G) G-edges + O(V_G*V_H) star edges + O(V_G*E_H) H-copy edges.
+    # Batch each layer (per-G-node for the H-copy so the star-then-H-copy insertion
+    # order is preserved) through add_edges_from/add_nodes_from — byte-identical
+    # (verified node+edge order across simple/multigraph-H, attrs, self-loops).
+    if G.is_multigraph():  # unreachable (rejected above); kept for parity
+        P.add_edges_from((u, v, key, {}) for u, v, key in G.edges(keys=True))
     else:
-        for u, v in G.edges():
-            P.add_edge(u, v)
+        P.add_edges_from(G.edges())
 
     for g in G.nodes():
-        for h in H.nodes():
-            P.add_node((g, h))
-            P.add_edge(g, (g, h))
-        if H.is_multigraph():
-            # Match NetworkX's add_edges_from(H.edges.data()) behavior by letting the
-            # product graph assign fresh integer keys for copied multiedges.
-            for u, v, attrs in H.edges(data=True):
-                P.add_edge((g, u), (g, v), **dict(attrs))
-        else:
-            for u, v, attrs in H.edges(data=True):
-                P.add_edge((g, u), (g, v), **dict(attrs))
+        P.add_nodes_from((g, h) for h in H.nodes())
+        P.add_edges_from((g, (g, h)) for h in H.nodes())
+        # H's edges (simple and multigraph alike) copy into g's H-block; a
+        # multigraph P assigns fresh integer keys, matching nx's
+        # add_edges_from(H.edges.data()).
+        P.add_edges_from(((g, u), (g, v), dict(attrs)) for u, v, attrs in H.edges(data=True))
 
     return P
 
@@ -35111,17 +35110,15 @@ def rooted_product(G, H, root):
         if _fast is not None:
             return _fast
 
+    # br-r37-c1-prodbatch (cc): the native path handles no-attr; the rooted product
+    # carries no edge attrs but the native path bails on ANY attr, so an attributed
+    # G/H lands here. Batch the O(V_G*V_H) node build + O(V_G*E_H + E_G) edge layers
+    # through add_nodes_from/add_edges_from (one native call each) — byte-identical
+    # node/edge order to the per-item loop.
     P = Graph()
-    for g in G.nodes():
-        for h in H.nodes():
-            P.add_node((g, h))
-
-    for g in G.nodes():
-        for u, v in H.edges():
-            P.add_edge((g, u), (g, v))
-
-    for u, v in G.edges():
-        P.add_edge((u, root), (v, root))
+    P.add_nodes_from((g, h) for g in G.nodes() for h in H.nodes())
+    P.add_edges_from(((g, u), (g, v)) for g in G.nodes() for u, v in H.edges())
+    P.add_edges_from(((u, root), (v, root)) for u, v in G.edges())
 
     return P
 
