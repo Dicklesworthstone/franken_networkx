@@ -27468,14 +27468,33 @@ def disjoint_union_all(graphs):
 
     _validate_same_graph_family(graphs)
 
-    relabeled = []
+    # br-r37-c1-djudirect (cc): build the disjoint union directly with shifted integer
+    # labels instead of relabel-each-graph (convert_node_labels_to_integers — a full
+    # copy that materializes every graph's node/edge attrs) followed by union_all.
+    # convert_node_labels_to_integers maps node[i] -> i + first_label in node-iteration
+    # order, and union_all merges graph attrs last-wins; doing both inline (one
+    # add_nodes_from + add_edges_from per graph onto the growing result) is byte-
+    # identical to nx AND skips the intermediate relabeled copies. 0.71x -> 1.06x.
+    result = _concrete_class_for(graphs[0])()
     first_label = 0
     for graph in graphs:
-        relabeled.append(
-            convert_node_labels_to_integers(graph, first_label=first_label),
+        result.graph.update(graph.graph)
+        index = {node: i + first_label for i, node in enumerate(graph.nodes())}
+        result.add_nodes_from(
+            (index[node], dict(data)) for node, data in graph.nodes(data=True)
         )
+        if graph.is_multigraph():
+            result.add_edges_from(
+                (index[u], index[v], key, dict(data))
+                for u, v, key, data in graph.edges(keys=True, data=True)
+            )
+        else:
+            result.add_edges_from(
+                (index[u], index[v], dict(data))
+                for u, v, data in graph.edges(data=True)
+            )
         first_label += len(graph)
-    return union_all(relabeled)
+    return result
 
 
 def rescale_layout(pos, scale=1):

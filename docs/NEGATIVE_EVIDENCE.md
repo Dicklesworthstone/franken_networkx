@@ -12155,3 +12155,17 @@ Byte-exact vs nx (node+edge order, m2=0/1/large, error cases); 1658 barbell/clas
 (3rd pre-scan-bypass hit): grep add_edges_from(<generator/list> of provably-disjoint-new-node edges) onto
 a NON-fresh graph -> materialize + direct _try_add_edges_from_batch. (Tiny named graphs sedgewick/tutte/
 desargues 0.68-0.83x are 0.05ms = noise, skip; nonisomorphic_trees 0.75x is a recursive tree enumerator.)
+
+
+## 2026-07-02 CopperCliff SHIP: disjoint_union_all direct-build — 0.71x -> 1.05x (beats nx)
+
+Operator sweep: disjoint_union_all 0.71x (union_all itself is 1.29x, so the cost was elsewhere). cProfile:
+per-graph convert_node_labels_to_integers (relabel_nodes 0.030s + _materialize 0.034s — a full copy that
+materializes each graph's node/edge attrs) THEN union_all. FIX: build the union DIRECTLY with shifted
+integer labels — one add_nodes_from + add_edges_from per graph onto the growing result (node[i] -> i +
+first_label in node-iteration order, graph-attr last-wins merge), skipping the intermediate relabeled
+copies. Byte-exact vs nx across ALL 4 graph types + node/edge/graph attrs + parallel edges + single/empty
+list; 999 union/operator conf green. 0.71x -> 1.05x. LEVER (relabel-then-combine): a `relabel each ->
+combine` operator pays N intermediate materialized copies; fuse into a direct shifted-label build.
+(Conversion to/from dict/numpy/scipy/pandas/edgelist all already beat nx 1.1-3.3x; union_all/compose_all/
+intersection_all already 1.09-1.44x.)
