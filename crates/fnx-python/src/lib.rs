@@ -11302,6 +11302,42 @@ impl PyGraph {
         Ok(self.inner.has_node(&canonical))
     }
 
+    /// br-cc-nbunchbulk: bulk nbunch filter — the in-graph members of `nbunch`, in
+    /// order, as the ORIGINAL objects (== nx `nbunch_iter`). One Python->Rust
+    /// crossing for the whole (re-iterable list/tuple/set) nbunch instead of the
+    /// per-node `n in self.adj` the Python generator pays (each of which crosses the
+    /// PyO3 boundary + allocates a canonical String). An EXACT int sitting at its own
+    /// index is present with NO String work (`node_index_matches_int`). Returns None
+    /// (-> the Python lazy generator, which raises nx's exact NetworkXError) on the
+    /// first unhashable element, so error semantics stay byte-identical. Caller must
+    /// only pass a re-iterable nbunch (a one-shot generator would be half-consumed
+    /// before the None fallback).
+    fn _nbunch_present(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        let mut out: Vec<PyObject> = Vec::new();
+        for item in nbunch.try_iter()? {
+            let item = item?;
+            if item.hash().is_err() {
+                return Ok(None);
+            }
+            if item.is_exact_instance_of::<PyInt>()
+                && let Ok(i) = item.extract::<usize>()
+                && self.inner.node_index_matches_int(i)
+            {
+                out.push(item.clone().unbind());
+                continue;
+            }
+            let canonical = node_key_to_string(py, &item)?;
+            if self.inner.has_node(&canonical) {
+                out.push(item.clone().unbind());
+            }
+        }
+        Ok(Some(out))
+    }
+
     /// Iterate over nodes (called by ``for n in G``).
     fn __iter__(slf: PyRef<'_, Self>) -> PyResult<PyObject> {
         let py = slf.py();

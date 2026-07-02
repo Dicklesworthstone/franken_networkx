@@ -4048,3 +4048,30 @@ floor nx avoids (int dict key direct); total degree beats nx because its 2x edge
 per-node overhead. FOLLOWUPS: MG/MDG subset (0.71-0.73x, multi parallel-key int accumulate) + FLOAT
 subset (store-Neumaier). BUILD NOTE: `&canonical` on a `for (_,canonical) in &items` loop is `&&String`
 -> pass `canonical` (deref-coerces to &str), not `&canonical`.
+
+## Graph.nbunch_iter 0.25x -> 0.64x (int) — SHIPPED (CopperCliff), PyO3-membership floor lifted
+
+nbunch_iter (filter a nbunch to in-graph nodes, yielding the ORIGINAL objects) was the biggest gap
+in a fresh broad sweep (0.247x). `_graph_nbunch_iter` (Python) built `self.adj` then did `hash(n)` +
+`n in adj` PER NODE — each `n in adj` crosses the PyO3 boundary (adjacency-view __contains__ ->
+node_key_to_string int->String alloc + has_node). nx uses a plain dict (C-level). Ratio worsened
+with k (per-node dominated, not the O(1) adj construction).
+
+FIX: native `PyGraph::_nbunch_present(nbunch) -> Option<Vec<PyObject>>` — one Python->Rust crossing
+for the whole (re-iterable list/tuple/set) nbunch, returning present members in order as the original
+objects. An EXACT int at its own index is present with NO String work (node_index_matches_int).
+Returns None on the first unhashable element -> the Python lazy generator raises nx's exact
+NetworkXError, so error semantics stay byte-identical. Routed from `_graph_nbunch_iter` gated
+`isinstance(nbunch,(list,tuple,set,frozenset)) and not hasattr(self,'_graph')` — generators keep the
+lazy path; PROXY VIEWS (conversion/filtered/reverse carry a `_graph` parent + EMPTY native inner,
+membership behind the Python self.adj proxy) MUST skip the native (else it drops all nodes — caught
+by test_conversion_live_view_exposes_nbunch_iter).
+
+MEASURED: Graph.nbunch_iter k=1000 int 0.156x -> 0.64x, k=100 0.27x -> 0.57x; str-nodes ~0.35x (bulk
+without the int fast path). Downstream subgraph(sub).copy() 1.22x (no regression). Byte-exact 0 mism
+across 4 types x list/tuple/set/absent/generator/str/mixed/noncontig/unhashable/single/None + 6702
+conformance. STILL below parity: the eager Vec + per-int PyO3 extract is a floor vs nx's C dict, but a
+real ~2.5x self-speedup on a broadly-used primitive. FOLLOWUP: DiGraph/MG/MDG lack node_index_matches_int
+on their inners + _nbunch_present (would need adding) — they keep the generator (still 0.25x).
+GOTCHA: `self` in `_graph_nbunch_iter` IS the raw graph (no `_graph` wrapper) — `getattr(self,...)`,
+not `self._graph`.

@@ -456,6 +456,19 @@ def _graph_nbunch_iter(self, nbunch=None):
         return iter(self)
     if nbunch in self:
         return iter([nbunch])
+    # br-cc-nbunchbulk: for a RE-ITERABLE nbunch on a REAL graph, filter to in-graph
+    # members in ONE native call (int fast path for contiguous-int nodes) instead of
+    # the per-node `n in self.adj` PyO3 crossing below. Skipped for:
+    #  - generators (a native pass would half-consume them before the None fallback);
+    #  - proxy VIEWS (conversion/filtered/reverse), which carry a `_graph` parent and
+    #    an EMPTY native inner — their node membership lives behind the Python `self.adj`
+    #    proxy that the generator path uses, so the raw-inner native would drop nodes.
+    if isinstance(nbunch, (list, tuple, set, frozenset)) and not hasattr(self, "_graph"):
+        _bulk = getattr(self, "_nbunch_present", None)
+        if _bulk is not None:
+            _present = _bulk(nbunch)
+            if _present is not None:
+                return iter(_present)
     adjacency = self.adj
 
     def bunch_iter(nlist, adj):
