@@ -2,6 +2,33 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SURFACE (String-keyed-storage floor family): has_edge/neighbors/successors bulk 0.34-0.52x — identity-int fast path blocked by index-stability-under-removal
+
+Follow-up to the set_edge_attributes win (284e5fd75). Checked the attr-setter SIBLINGS + a
+subgraph/neighbors/lookup sweep. No shippable win — findings:
+- Attr-setter siblings are FLOORS, not the same lever: set_node_attributes(scalar) 0.47x is a
+  MATERIALIZATION floor (its native broadcast must CREATE a PyDict per node — nx nodes always have
+  one; the `edge_py_attrs.values()` lever does NOT transfer because attr-less nodes have no mirror
+  entry, so len<node_count and it correctly falls through). set_edge_attributes(dict)/
+  set_node_attributes(dict) 0.54-0.70x are STRING-CONVERSION floors (the user-supplied (u,v)/node
+  keys must be canonicalized to Strings + resolved — inherent to String-keyed storage).
+- has_edge bulk 0.34x, neighbors/successors/predecessors bulk 0.40-0.52x: the SAME
+  String-keyed-storage floor. fnx's has_edge does 2 `i.to_string()` heap allocs + 2 String-hash
+  `get_index_of` + a tuple `contains_key`; nx does `v in adj[u]` (2 int-dict lookups). The fix is an
+  identity-int fast path (int u in the identity range -> index == value -> `edges.contains_key((iu,
+  iv))`, no String), and the machinery EXISTS (`lazy_int_node_stop`, `has_remapped_int_key`,
+  `adj_indices`). BLOCKER (why NOT built): the index==value invariant is not provably preserved under
+  removal. `lazy_int_node_stop` resets ONLY on clear()/`__setstate__` (grep: all assignments), NOT on
+  remove_node; a candidate gate `node_count == lazy_int_node_stop` catches a plain removal (count
+  drops below stop) but NOT remove-then-readd (node re-added at a new index while count==stop again),
+  and `has_remapped_int_key` tracks edge-key stores, not node re-adds. Building the fast path on an
+  unproven identity gate is the exact identity-int latent-bug class ([[reference_mg_parallel_add_autokey_oN2]]:
+  "note MUST flag ANY non-identity"). SAFE PREREQUISITE for a future dig: a single flag set on EVERY
+  index==value-breaking op (shift-removal, remove+readd, out-of-order/remapped int add), verified
+  across the mutation surface — then gate has_edge/neighbors index paths on it. Until then it's a
+  floor. LEVER (meta): before building an identity-int fast path, PROVE the identity flag is reset on
+  the full mutation surface (esp. remove+readd), not just construction.
+
 ## 2026-07-02 CopperCliff SHIP: set_edge_attributes(scalar) 0.27x -> 2.94x — iterate mirror dicts directly instead of per-edge String-key re-lookup
 
 readwrite/attrs sweep (fresh domain). set_edge_attributes(G, scalar, name) on a simple Graph was
