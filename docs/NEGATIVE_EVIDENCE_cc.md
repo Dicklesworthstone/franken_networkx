@@ -4075,3 +4075,19 @@ real ~2.5x self-speedup on a broadly-used primitive. FOLLOWUP: DiGraph/MG/MDG la
 on their inners + _nbunch_present (would need adding) — they keep the generator (still 0.25x).
 GOTCHA: `self` in `_graph_nbunch_iter` IS the raw graph (no `_graph` wrapper) — `getattr(self,...)`,
 not `self._graph`.
+
+## nbunch_iter extended to DiGraph/MultiGraph/MultiDiGraph — 0.10-0.15x -> 0.62-0.66x — SHIPPED (CopperCliff)
+
+Follow-up to the undirected Graph nbunch_iter win (c3961bdbe). The 3 remaining types were still 0.15x
+(DiGraph) / 0.10x (MultiGraph) / 0.11x (MultiDiGraph) — Multi even worse (heavier MultiAdjacencyView
+`n in adj`). Added `node_index_matches_int` to the DiGraph/MultiGraph/MultiDiGraph inners (identical
+O(1) index-probe + no-alloc parse) and `_nbunch_present` to all 3 pyclasses (identical to PyGraph's).
+No Python change — `_graph_nbunch_iter`'s `getattr(self,'_nbunch_present')` + `not hasattr(self,'_graph')`
+view gate already route/protect all 4 types.
+
+MEASURED (k=1000, contiguous-int): DiGraph 0.154x -> **0.657x**, MultiGraph 0.105x -> **0.663x**,
+MultiDiGraph 0.111x -> **0.615x** (Graph 0.83x). Byte-exact 0 mism across all 4 types x
+list/tuple/set/absent/generator/str/mixed/noncontig/unhashable/single/None + 6319 conformance (view
+gate holds for conversion/filtered/reverse across all types). All 4 nbunch_iter now ~0.6-0.8x (from
+0.10-0.25x) — still PyO3-floored below parity but a 4-6x self-speedup on a broadly-used primitive
+(edges/degree/subgraph over nbunch all route through it).

@@ -401,6 +401,16 @@ impl DiGraph {
         self.nodes.keys().map(String::as_str).collect()
     }
 
+    /// br-cc-nbunchbulk: does the node at contiguous index `idx` have the exact int
+    /// name `idx`? O(1) index probe + no-alloc parse — the int membership fast path
+    /// for `_nbunch_present` (sibling of the undirected Graph accessor).
+    #[must_use]
+    pub fn node_index_matches_int(&self, idx: usize) -> bool {
+        self.nodes
+            .get_index(idx)
+            .is_some_and(|(k, _)| k.parse::<usize>() == Ok(idx))
+    }
+
     #[must_use]
     pub fn get_node_index(&self, node: &str) -> Option<usize> {
         self.nodes.get_index_of(node)
@@ -2040,6 +2050,15 @@ impl MultiDiGraph {
     #[must_use]
     pub fn nodes_ordered(&self) -> Vec<&str> {
         self.nodes.keys().map(String::as_str).collect()
+    }
+
+    /// br-cc-nbunchbulk: int membership fast path for `_nbunch_present` — see the
+    /// DiGraph accessor.
+    #[must_use]
+    pub fn node_index_matches_int(&self, idx: usize) -> bool {
+        self.nodes
+            .get_index(idx)
+            .is_some_and(|(k, _)| k.parse::<usize>() == Ok(idx))
     }
 
     #[must_use]

@@ -4806,6 +4806,33 @@ impl PyMultiDiGraph {
         Ok(self.inner.has_node(&canonical))
     }
 
+    /// br-cc-nbunchbulk: bulk nbunch filter — see PyGraph::_nbunch_present.
+    fn _nbunch_present(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        let mut out: Vec<PyObject> = Vec::new();
+        for item in nbunch.try_iter()? {
+            let item = item?;
+            if item.hash().is_err() {
+                return Ok(None);
+            }
+            if item.is_exact_instance_of::<PyInt>()
+                && let Ok(i) = item.extract::<usize>()
+                && self.inner.node_index_matches_int(i)
+            {
+                out.push(item.clone().unbind());
+                continue;
+            }
+            let canonical = node_key_to_string(py, &item)?;
+            if self.inner.has_node(&canonical) {
+                out.push(item.clone().unbind());
+            }
+        }
+        Ok(Some(out))
+    }
+
     fn __iter__(slf: PyRef<'_, Self>) -> PyResult<PyObject> {
         // Serve iteration from the live node_iter_mirror dict_keyiterator
         // (matching nx) instead of rebuilding a Vec<PyObject> per call.
@@ -13200,6 +13227,33 @@ impl PyDiGraph {
     fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
         let canonical = node_key_to_string(py, n)?;
         Ok(self.inner.has_node(&canonical))
+    }
+
+    /// br-cc-nbunchbulk: bulk nbunch filter — see PyGraph::_nbunch_present.
+    fn _nbunch_present(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        let mut out: Vec<PyObject> = Vec::new();
+        for item in nbunch.try_iter()? {
+            let item = item?;
+            if item.hash().is_err() {
+                return Ok(None);
+            }
+            if item.is_exact_instance_of::<PyInt>()
+                && let Ok(i) = item.extract::<usize>()
+                && self.inner.node_index_matches_int(i)
+            {
+                out.push(item.clone().unbind());
+                continue;
+            }
+            let canonical = node_key_to_string(py, &item)?;
+            if self.inner.has_node(&canonical) {
+                out.push(item.clone().unbind());
+            }
+        }
+        Ok(Some(out))
     }
 
     fn __iter__(slf: PyRef<'_, Self>) -> PyResult<PyObject> {
