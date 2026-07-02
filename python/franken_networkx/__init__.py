@@ -30035,15 +30035,35 @@ def node_link_data(
     # node-link JSON. The comprehension fallback below sources edges from
     # G.edges(data=True), which reads the store correctly and stays byte-exact
     # with nx for both directed and undirected inputs.
+    # cc-nldmaterialize: iterate the RAW materialized view lists, not the
+    # _FailFastEdgeIterator/_gen-guarded generators. `_materialize()` (present on
+    # every NodeDataView and the simple-Graph EdgeDataView) returns the exact same
+    # (node, attrs)/(u, v, attrs) tuples in the same order, but skips the per-element
+    # mutation-guard `__next__` dispatch (1.85x on the edge walk: 0.73->0.39ms at
+    # 3000 edges) — node_link_data never mutates G mid-build, so the guard is pure
+    # overhead. `hasattr` fallback keeps the guarded path for views without it
+    # (DiGraph/Multi edge views), which are already >= nx. Byte-identical.
+    _node_view = G.nodes(data=True)
+    _node_iter = (
+        _node_view._materialize()
+        if hasattr(_node_view, "_materialize")
+        else _node_view
+    )
     payload = {
         "directed": G.is_directed(),
         "multigraph": G.is_multigraph(),
         "graph": dict(G.graph),
-        nodes: [{**node_attrs, name: node} for node, node_attrs in G.nodes(data=True)],
+        nodes: [{**node_attrs, name: node} for node, node_attrs in _node_iter],
     }
     edge_payloads = []
     if G.is_multigraph():
-        for u, v, edge_key, edge_attrs in G.edges(keys=True, data=True):
+        _edge_view = G.edges(keys=True, data=True)
+        _edge_iter = (
+            _edge_view._materialize()
+            if hasattr(_edge_view, "_materialize")
+            else _edge_view
+        )
+        for u, v, edge_key, edge_attrs in _edge_iter:
             edge_payloads.append(
                 {
                     **edge_attrs,
@@ -30053,7 +30073,13 @@ def node_link_data(
                 }
             )
     else:
-        for u, v, edge_attrs in G.edges(data=True):
+        _edge_view = G.edges(data=True)
+        _edge_iter = (
+            _edge_view._materialize()
+            if hasattr(_edge_view, "_materialize")
+            else _edge_view
+        )
+        for u, v, edge_attrs in _edge_iter:
             edge_payloads.append({**edge_attrs, source: u, target: v})
     payload[edges] = edge_payloads
     return payload

@@ -2,6 +2,26 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP (pure-Python): node_link_data(simple Graph) 0.80-0.88x -> 0.94-1.03x — bypass the _FailFastEdgeIterator per-element guard
+
+Re-examined a documented "materialization floor" via the /alien-graveyard discipline (profile ->
+one lever). node_link_data(simple Graph) was 0.80-0.88x nx. Profile: the edge loop
+`for u,v,d in G.edges(data=True)` iterates the view as a Python GENERATOR through
+`_FailFastEdgeIterator._gen` — a per-element mutation-during-iteration GUARD (177k __next__
+dispatches at 3000 edges). node_link_data never mutates G mid-build, so the guard is pure overhead.
+LEVER (cc-nldmaterialize): `view._materialize()` (present on EVERY NodeDataView + the simple-Graph
+EdgeDataView) returns the SAME (node,attrs)/(u,v,attrs) tuples in the SAME order but as a RAW list,
+skipping the guard — 1.85x on the edge walk alone (0.73->0.39ms). Iterate that with an `hasattr`
+fallback for views lacking it (DiGraph/Multi edge views — already >= nx). Byte-exact 300 cases
+(4 types, node/edge attrs, empty, custom field names, multigraph keys) + roundtrip; 116 conf pass.
+0.80-0.88x -> 0.94-1.03x (parity-to-slight-beat; DiGraph 1.15x / MultiGraph 1.45x already won,
+their node loop now also guard-free). The residual (~parity, not a runaway beat) is the per-edge
+`{**attrs, source, target}` payload-dict build over fnx's store-materialized attrs — an inherent
+floor nx avoids via live dicts. LEVER (reusable): an internal read-only consumer of
+`G.edges(data=True)`/`G.nodes(data=True)` pays the `_FailFastEdgeIterator`/`_gen` per-element guard
+nx doesn't — call `view._materialize()` (hasattr-guarded) for the raw list. Grep internal
+`for ... in G.edges(data`/`G.nodes(data` loops in serializers/exporters.
+
 ## 2026-07-02 CopperCliff SURFACE: redundant-copy vein MINED (relabel was it); compose is a native dual-storage FLOOR
 
 Followed the redundant-copy lever (d061e3db2). Grepped `dict(d)`/`.copy()` inside add_*_from
