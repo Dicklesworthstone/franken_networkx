@@ -7398,18 +7398,18 @@ impl PyMultiGraph {
         if let Some(neighbors) = self.inner.neighbors_iter(node) {
             for neighbor in neighbors {
                 let is_self = neighbor == node;
-                if let Some(keys) = self.inner.edge_keys_iter(node, neighbor) {
-                    for &key in keys {
-                        let attrs = self.inner.edge_attrs(node, neighbor, key)?;
-                        let value = match attrs.get(weight) {
-                            Some(CgseValue::Int(v)) => i128::from(*v),
-                            Some(_) => return None,
-                            None => 1,
-                        };
-                        total = total.checked_add(value)?;
-                        if is_self {
-                            selfloop_extra = selfloop_extra.checked_add(value)?;
-                        }
+                // Integer addition is associative, so order is irrelevant; iterate
+                // the pair's AttrMaps directly (one bucket lookup) rather than a
+                // per-key hash lookup per parallel edge.
+                for attrs in self.inner.edge_attr_values(node, neighbor)? {
+                    let value = match attrs.get(weight) {
+                        Some(CgseValue::Int(v)) => i128::from(*v),
+                        Some(_) => return None,
+                        None => 1,
+                    };
+                    total = total.checked_add(value)?;
+                    if is_self {
+                        selfloop_extra = selfloop_extra.checked_add(value)?;
                     }
                 }
             }
@@ -8792,33 +8792,39 @@ impl PyMultiGraph {
         let mut sc = 0.0f64;
         let mut has_selfloop = false;
         let mut saw = false;
-        for neighbor in self.inner.neighbors(node).unwrap_or_default() {
-            let is_self = neighbor == node;
-            if is_self {
-                has_selfloop = true;
-            }
-            for key in self.inner.edge_keys(node, neighbor).unwrap_or_default() {
-                let attrs = self.inner.edge_attrs(node, neighbor, key)?;
-                let CgseValue::Float(x) = attrs.get(weight)? else {
-                    return None;
-                };
-                let x = *x;
-                saw = true;
-                let t = f + x;
-                if f.abs() >= x.abs() {
-                    c += (f - t) + x;
-                } else {
-                    c += (x - t) + f;
-                }
-                f = t;
+        if let Some(neighbors) = self.inner.neighbors_iter(node) {
+            for neighbor in neighbors {
+                let is_self = neighbor == node;
                 if is_self {
-                    let ts = sf + x;
-                    if sf.abs() >= x.abs() {
-                        sc += (sf - ts) + x;
+                    has_selfloop = true;
+                }
+                // `edge_attr_values` yields the pair's AttrMaps in the SAME order
+                // as `edge_keys` (adjacency IndexSet and the edges IndexMap stay
+                // key-synced), so this is bit-identical to the per-key path but
+                // does ONE bucket lookup per pair instead of two hash lookups per
+                // parallel edge — the residual cost that kept MG below nx.
+                for attrs in self.inner.edge_attr_values(node, neighbor)? {
+                    let CgseValue::Float(x) = attrs.get(weight)? else {
+                        return None;
+                    };
+                    let x = *x;
+                    saw = true;
+                    let t = f + x;
+                    if f.abs() >= x.abs() {
+                        c += (f - t) + x;
                     } else {
-                        sc += (x - ts) + sf;
+                        c += (x - t) + f;
                     }
-                    sf = ts;
+                    f = t;
+                    if is_self {
+                        let ts = sf + x;
+                        if sf.abs() >= x.abs() {
+                            sc += (sf - ts) + x;
+                        } else {
+                            sc += (x - ts) + sf;
+                        }
+                        sf = ts;
+                    }
                 }
             }
         }

@@ -2451,6 +2451,25 @@ impl MultiGraph {
             .and_then(|edge_bucket| edge_bucket.get(&key))
     }
 
+    /// Iterator over the `AttrMap`s of every parallel edge between `left` and
+    /// `right` (undirected: the single canonical bucket), yielded in the SAME
+    /// order as `edge_keys` / `edge_keys_iter`. The adjacency `IndexSet<usize>`
+    /// and this `edges` `IndexMap<usize, AttrMap>` are appended together on add
+    /// and both `shift_remove`d on per-key remove (whole bucket dropped on
+    /// node/endpoint removal), so their key order stays identical — callers that
+    /// need adjacency-order iteration (e.g. the order-sensitive Neumaier weighted
+    /// degree) may consume this directly instead of re-looking-up each key.
+    /// Undirected sibling of `MultiDiGraph::edge_attr_values`.
+    pub fn edge_attr_values(
+        &self,
+        left: &str,
+        right: &str,
+    ) -> Option<impl Iterator<Item = &AttrMap> + '_> {
+        self.edges
+            .get(&EdgeKeyRef::new(left, right))
+            .map(|edge_bucket| edge_bucket.values())
+    }
+
     #[must_use]
     pub fn evidence_ledger(&self) -> &EvidenceLedger {
         self.runtime_policy.decision_log()

@@ -2,6 +2,33 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP: MG degree(weight) now BEATS nx (0.76-0.84x -> 1.21-1.31x float, ~1.03x int) — edge_attr_values per-pair accessor closes the residual
+
+Follow-up to the MG float store twin (5b5b1ae43). That twin still read weights via
+`edge_keys(u,v)` + per-key `edge_attrs(u,v,key)` — TWO FxIndexMap hash lookups (pair bucket
++ key) per parallel edge, plus a `neighbors`/`edge_keys` Vec alloc per node. That per-edge
+double-hash was the residual keeping MG below nx while MDG (which reads via
+`edge_attr_values`, one bucket lookup per pair) beat it. FIX (cc-mgedgeattrvalues): added
+`MultiGraph::edge_attr_values(l,r)` to the fnx-classes inner (undirected sibling of the MDG
+accessor — `edges.get(EdgeKeyRef).map(|b| b.values())`), and rewrote BOTH MG weighted-degree
+store twins to iterate it via `neighbors_iter` (no Vec): one bucket lookup per pair, values
+iterated directly. ORDER-SAFE for the order-sensitive FLOAT Neumaier sum — PROVED: the
+adjacency `IndexSet<usize>` and the edges `IndexMap<usize,AttrMap>` are appended together on
+add and BOTH `shift_remove`d on per-key remove (whole bucket dropped on endpoint/node
+removal), so their key order is always identical (earlier ledger's order-doubt was WRONG —
+that warning was the simple-Graph swap_remove path, not the multigraph per-key path). int
+twin is order-independent regardless. MEASURED (interleaved warm min-of-9, n=3000/m=15000):
+MG float nodeattrs=0 0.84x->1.31x (fnx 16.72->12.03ms), nodeattrs=1 0.76x->1.21x (18.92->
+11.74ms); MG int 0.79x->1.02x, 0.68x->1.04x — MG degree(weight) now BEATS nx on all 4.
+MDG UNAFFECTED (1.35-1.41x float, 1.07-1.08x int). VERIFY: 0 fails on the full byte-exact
+matrix (order-sensitive-Neumaier / self-loop-double / mixed / missing / node-attrs / all-int
+/ non-'weight') + 600 build stress + 800 REMOVAL-ORDER stress (edge removals -> non-contig
+keys + interleaved re-adds, the exact case that would expose an adjacency-vs-bucket order
+divergence — none); clippy clean; 7592 conformance pass. LEVER: when a sibling type's store
+twin beats nx and yours doesn't, diff the ACCESSOR — a per-key double-hash vs a per-pair
+`.values()` iterator is the whole gap; verify order-safety by the storage's add/remove
+semantics, then port the accessor.
+
 ## 2026-07-02 CopperCliff SHIP: MultiGraph degree(weight) FLOAT store twin — the "AUDIT MG float" TODO from 9f0e40cb8; 0.59-0.70x -> 0.76-0.84x, byte-exact
 
 BIGGEST-GAP-FIRST warm head-to-head scan flagged Multi(Di)Graph `degree(weight)` as the
