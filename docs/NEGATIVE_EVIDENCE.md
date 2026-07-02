@@ -2,6 +2,24 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff NO-SHIP (reverted, bench rejection): dense DiGraph.edges() 0.60x — gap is OutEdgeView, not DiEdgeView/contains_key
+
+Follow-up to the undirected edges win (a94bc942c). Dense DiGraph edges() is 0.60x (n=600 p=0.2
+m=72201: 6.5 vs 3.8ms). Tried two native changes, BOTH ineffective, reverted:
+(1) removed the O(E) `self.edges.contains_key` probe in DiGraph `edges_ordered_indices`
+(fnx-classes) — byte-exact but only marginal (0.59->0.58x); the lookup wasn't the bottleneck.
+(2) added the cached-key-vec index fast path to `DiEdgeView::__iter__` (fnx-python) — DEAD CODE:
+`type(DiG.edges)` / `type(DiG.edges())` is `OutEdgeView`, NOT `DiEdgeView`, so the edited
+`__iter__` never runs. THE REAL BLOCKER (root-caused, one sentence): dense DiGraph edges()
+materializes tuples in the `OutEdgeView` iterator via a per-edge `py_node_key` String hash
+(`HashMap<String,PyObject>`) on each endpoint — the exact cost the undirected `EdgeView` fast
+path (cached-key-vec + `edges_ordered_indices` + O(1) incref) already removes — so the fix is
+to port that index fast path to `OutEdgeView::__iter__` (grep the OutEdgeView struct/impl in
+digraph.rs; gate on display-uniform like the undirected one; needs a rebuild). Byte-exact
+harness ready (500 int+removals, 500 mixed/float/str labels, 0 fails) for when it lands.
+LESSON: verify the actual view CLASS (`type(G.edges).__name__`) before editing an `__iter__` —
+DiGraph edges route through OutEdgeView, not the same-named DiEdgeView.
+
 ## 2026-07-02 CopperCliff SHIP: dense Graph.edges() 0.57-0.76x -> 1.2-1.5x — O(E) pair-dedup -> O(N) node-dedup in the native kernel
 
 VARIED-PROFILE sweep (dense / star / complete / large-sparse) — the fix for two no-win
