@@ -10827,6 +10827,24 @@ impl PyGraph {
         name: &str,
         value: &Bound<'_, PyAny>,
     ) -> PyResult<()> {
+        // cc-broadcastattrmirror: when the edge-attr mirror is COMPLETE (one PyDict
+        // per edge — the common state, since a simple Graph populates edge_py_attrs
+        // eagerly), set the attribute straight on each mirror dict. The general path
+        // below collects an `edges_ordered()` Vec of owned (String, String) pairs
+        // (2 String clones/edge) and re-derives each edge's (String, String, usize)
+        // mirror key to `materialize_edge_py_attrs` (hash 2 Strings/edge) — pure
+        // overhead when the dict already exists. Iterating `edge_py_attrs.values()`
+        // skips both; the result is byte-identical (same PyDict objects, same
+        // set_item append) and order-independent (same scalar on every edge). Gated
+        // on len == edge_count so a lazy/partial mirror (which would MISS edges)
+        // falls through to the exact per-edge materialize path.
+        if self.edge_py_attrs.len() == self.inner.edge_count() {
+            for dict in self.edge_py_attrs.values() {
+                dict.bind(py).set_item(name, value)?;
+            }
+            self.mark_edges_dirty();
+            return Ok(());
+        }
         let edges: Vec<(String, String)> = self
             .inner
             .edges_ordered()

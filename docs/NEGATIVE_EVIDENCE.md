@@ -2,6 +2,31 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP: set_edge_attributes(scalar) 0.27x -> 2.94x — iterate mirror dicts directly instead of per-edge String-key re-lookup
+
+readwrite/attrs sweep (fresh domain). set_edge_attributes(G, scalar, name) on a simple Graph was
+0.27x nx (8000 edges: 13.3 vs 3.6ms) — and it ALREADY routed to native
+`_native_broadcast_edge_attribute`. Root (bisected: slow on EVERY call, not just the first, so NOT
+mirror materialization): the native path collected an `edges_ordered()` Vec of owned (String,String)
+pairs (2 String clones/edge) then re-derived each edge's (String,String,usize) mirror key to
+`materialize_edge_py_attrs` (hash 2 Strings/edge) — pure overhead when the PyDict already exists. nx
+just walks its live nested dicts (`for u,v,attrs in edges(data=True): attrs[name]=value`). FIX
+(cc-broadcastattrmirror): when the mirror is COMPLETE (`edge_py_attrs.len() == edge_count()` — the
+common state; a simple Graph populates edge_py_attrs eagerly), set the attr straight on each
+`edge_py_attrs.values()` PyDict — no String clone, no per-edge HashMap lookup. Byte-identical (SAME
+PyDict objects, same set_item append; order-independent since it's one scalar on every edge), gated on
+len==edge_count so a lazy/partial mirror falls through to the exact per-edge materialize path.
+MEASURED 0.27x->2.94x (13.3->1.09ms, ~11x self, BEATS nx). Byte-exact 600 cases (multi-attr edges,
+attr names sorting BEFORE existing (a<cap<weight) AND after (z), random removals stressing the
+len-gate, edges(data=True)-materialized-first, + subsequent degree(weight) consistency) 0 fails;
+clippy clean; 10733 conf pass (1 pre-existing gexf-classification failure, unrelated). REJECTED the
+store-write approach first: AttrMap is BTreeMap (SORTED), so writing the store + rebuilding the mirror
+would reorder attrs vs nx's insertion order — the MIRROR (insertion-ordered PyDict) is order-
+authoritative, proven by `{'weight','a'}` matching nx. LEVER: a bulk edge-attr op that re-derives the
+mirror KEY per edge (edges_ordered String pairs -> HashMap probe) is pure overhead when the mirror is
+complete — iterate `edge_py_attrs.values()` directly; gate on len==edge_count for the lazy case.
+Sibling to check: set_node_attributes(scalar) 0.47x (node_py_attrs.values(), smaller absolute).
+
 ## 2026-07-02 CopperCliff SURFACE (conditional FLOOR): MG/MDG weighted degree store path BEATS nx clean (1.67-1.82x) but a mirror-materializing READ collapses it to 0.24-0.44x
 
 Dense MultiGraph/MultiDiGraph sweep (untested profile). Apparent big gaps — MG degree(weight)
