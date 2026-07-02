@@ -2,6 +2,23 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP: shortest_path(G) all-pairs unweighted 0.76x -> 1.51-1.73x — route to the fixed all_pairs_shortest_path
+
+Path-family sweep after the all_pairs_shortest_path index-emitter fix (cc-apspidx, 3fc266d5e):
+almost all wins (dijkstra_path 7x, astar 7x, single_source_dijkstra 4.5x, all_pairs_dijkstra
+1.5x, johnson 2.1x). Lone gap: `shortest_path(G)` with no source/target + weight=None (all
+pairs, unweighted) 0.76x — the weighted all-pairs variant was 1.81x. ROOT CAUSE: that branch
+fell through to `_raw_shortest_path(source=None,target=None)`, a DIFFERENT native kernel that
+still materialized a String-cloned dict-of-dicts — it never picked up the index-emitter fix
+that landed on `all_pairs_shortest_path`. FIX (cc-spapsp): nx.shortest_path(G) all-pairs
+unweighted dispatches to all_pairs_shortest_path, so route there directly (pure-Python, no
+rebuild). MEASURED: 0.76x->1.73x (n=300), ->1.51x (n=400). Byte-exact: 200 cases
+(directed/undirected) 0 fails on outer-key + inner-key order + exact path lists; 1855
+shortest-path conformance pass. LEVER: when a kernel-level fast path lands, grep the
+public-API DISPATCHERS (shortest_path, etc.) for sibling branches that reach the SLOW kernel
+directly instead of the just-fixed function — route them to it (matches the reference lib's
+own dispatch).
+
 ## 2026-07-02 CopperCliff SHIP: all_pairs_shortest_path 0.77x -> 1.25-1.36x — route index-space paths straight to the index emitter (drop the String-clone layer)
 
 Swept nx-delegated functions (178 `_call_networkx_for_parity` sites): almost all are native

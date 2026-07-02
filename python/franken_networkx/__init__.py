@@ -8639,6 +8639,14 @@ def shortest_path(
         # byte-identical (both match nx exactly, 15/15 parity incl. BFS-discovery
         # key order and the source self-path).
         return single_source_shortest_path(G, source)
+    if weight is None and source is None and target is None:
+        # cc-spapsp: nx.shortest_path(G) (all pairs, unweighted) dispatches to
+        # all_pairs_shortest_path. Route there — it uses the index-emitter fast
+        # path (cc-apspidx) — instead of falling through to _raw_shortest_path's
+        # all-pairs branch, which materialized a String-cloned dict-of-dicts
+        # (~0.76x nx). Byte-identical: same (source, paths_dict) generator
+        # contract, same BFS-discovery inner-key order, same source node order.
+        return all_pairs_shortest_path(G)
     if isinstance(weight, str) and source is not None and target is not None:
         # br-r37-c1-spw (cc): the weighted SINGLE-PAIR case must match nx's path
         # tie-break. nx.shortest_path routes weighted point-to-point through
