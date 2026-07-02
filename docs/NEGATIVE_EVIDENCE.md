@@ -2,6 +2,30 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff NO-SHIP (reverted, bench rejection): simple-DiGraph degree(weight) store twins — eager mirror means NOT strict work removal
+
+Ported the MG/MDG weighted-degree store twins (int `native_weighted_total_degree_store_int`
++ float `weighted_total_degree_float_node_store`, succ+pred, gated `!edges_dirty`) to
+PyDiGraph — the only weighted-degree class lacking them. Byte-exact: 0 fails over
+DiGraph degree/in_degree/out_degree(weight) x {order-sensitive-Neumaier / self-loop-in+out /
+mixed / missing / isolated / all-int / i64-overflow / non-'weight' / removals} + 700 random
+stress. BUT NO MEASURABLE WIN -> reverted. ROOT CAUSE: unlike MG/MDG (which leave
+`edge_py_attrs` lazy on bulk add, so `degree(weight)` paid per-edge PyObject *materialisation*
+that the store twin removed), simple DiGraph EAGERLY populates `edge_py_attrs` on
+`add_edges_from` (digraph.rs ~9041: one PyDict per edge inserted at build). So the existing
+mirror path only REFERENCES pre-built dicts (`edge_py_attrs.get(ek).get_item(weight)`) — no
+per-edge PyObject creation to remove. The store twin swaps a mirror HashMap.get for an
+equal-cost `inner.edge_attrs` FxIndexMap lookup and still creates one result PyObject per
+node, so it is BREAK-EVEN, not strict work removal: float degree(weight) unchanged
+(1.00x->1.01x), int lost in load-noise (fnx-only min-of-25 swung 20-30% same-`.so` under
+load avg 12-17). Per the noise-discipline rule (feedback_rch_bench_worker_noise), an
+ADDED-code path with no measured win and a mechanistic reason for none = REVERT. LEVER
+CORRECTION: the "sibling has a store twin, port it" lever (which flipped MG degree to beat
+nx, f90725116) does NOT transfer to DiGraph — DiGraph's eager edge mirror removes the very
+per-edge-PyObject cost the twin exists to eliminate. DiGraph/MG differ in mirror laziness;
+confirm the target class leaves the mirror lazy before porting a store twin. DiGraph
+degree(weight) sits at parity (~1.0x float) and is a genuine eager-mirror floor here.
+
 ## 2026-07-02 CopperCliff SHIP: MG degree(weight) now BEATS nx (0.76-0.84x -> 1.21-1.31x float, ~1.03x int) — edge_attr_values per-pair accessor closes the residual
 
 Follow-up to the MG float store twin (5b5b1ae43). That twin still read weights via
