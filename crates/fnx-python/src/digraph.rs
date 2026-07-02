@@ -3905,7 +3905,16 @@ impl PyMultiDiGraph {
             let counter = pair_count.entry((uc.clone(), vc.clone())).or_insert(0);
             let internal_key = *counter;
             *counter += 1;
-            display_keys.push((uc.clone(), vc.clone(), internal_key, k.clone().unbind()));
+            // br-r37-c1-mgkeyidentity (cc): identity-int public key (== internal
+            // auto-key) needs no edge_py_keys mirror — display_key_lookup falls back to
+            // int:{internal}. Skip recording it (MG lib.rs sibling); non-identity keys
+            // still mirror. Strict work removal on MDG difference/symmetric_difference.
+            let key_is_identity_int = k.is_exact_instance_of::<PyInt>()
+                && k.extract::<i64>().ok().and_then(|i| usize::try_from(i).ok())
+                    == Some(internal_key);
+            if !key_is_identity_int {
+                display_keys.push((uc.clone(), vc.clone(), internal_key, k.clone().unbind()));
+            }
             edges.push((uc, vc, internal_key, fnx_classes::AttrMap::new()));
         }
 
@@ -4033,7 +4042,15 @@ impl PyMultiDiGraph {
                 mirror.update(d.as_mapping())?;
                 mirrors.push((Self::edge_key(&uc, &vc, internal_key), mirror.unbind()));
             }
-            display_keys.push((uc.clone(), vc.clone(), internal_key, k.clone().unbind()));
+            // br-r37-c1-mgkeyidentity (cc): identity-int key needs no edge_py_keys
+            // mirror (display_key_lookup falls back to int:{internal}); skip recording
+            // it. MDG compose/union replay auto-key sources as 4-tuples (u,v,0/1/2,data).
+            let key_is_identity_int = k.is_exact_instance_of::<PyInt>()
+                && k.extract::<i64>().ok().and_then(|i| usize::try_from(i).ok())
+                    == Some(internal_key);
+            if !key_is_identity_int {
+                display_keys.push((uc.clone(), vc.clone(), internal_key, k.clone().unbind()));
+            }
             edges.push((uc, vc, internal_key, rust_attrs));
         }
 

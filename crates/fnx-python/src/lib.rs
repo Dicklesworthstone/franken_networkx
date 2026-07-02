@@ -3528,9 +3528,21 @@ impl PyMultiGraph {
                 AttrMap::new()
             };
             if let Some(key) = key {
-                edge_keys
-                    .entry(edge_key)
-                    .or_insert_with(|| key.clone().unbind());
+                // br-r37-c1-mgkeyidentity (cc): an EXACT non-negative int public key
+                // equal to its internal auto-key needs NO edge_py_keys mirror entry —
+                // display_key_lookup falls back to int:{internal}. Skip recording it so
+                // the common identity-int keyed batch (compose/union of auto-key
+                // multigraphs pass 4-tuples (u,v,0/1/2,data)) avoids the per-edge mirror
+                // insert + note_public_key_value. Non-identity (str/float/bool/remapped)
+                // keys still mirror. Byte-identical read path.
+                let key_is_identity_int = key.is_exact_instance_of::<PyInt>()
+                    && key.extract::<i64>().ok().and_then(|i| usize::try_from(i).ok())
+                        == Some(internal_key);
+                if !key_is_identity_int {
+                    edge_keys
+                        .entry(edge_key)
+                        .or_insert_with(|| key.clone().unbind());
+                }
             }
             edge_batch.push((u_canonical, v_canonical, internal_key, rust_attrs));
         }

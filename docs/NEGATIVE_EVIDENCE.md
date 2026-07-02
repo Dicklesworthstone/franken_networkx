@@ -12204,3 +12204,22 @@ with-data batch, unaffected). Still <nx (the extend_keyed_edges insertion itself
 tax) but the FIRST reduction of the multigraph construction tax — it is PARTIALLY reducible, not purely
 architectural. FOLLOW-UP: the same identity-key mirror-skip applies to the with-data keyed batch
 (_native_add_keyed_edges_with_data / _try_add_attr_edges_from_batch) used by compose/union — next.
+
+
+## 2026-07-02 CopperCliff SHIP (RUST): identity-int mirror-skip extended to WITH-DATA + MDG keyed batches — whole MG/MDG cluster lifted
+
+Follow-up to 7a49dd943 (which covered the MG no-data batch). Extended the identity-int edge_py_keys
+mirror-skip to the 3 remaining LIVE keyed-batch kernels: MG with-data (try_add_fresh_exact_int_keyed4_
+attr_edge_batch, lib.rs:3530 — compose/union pass 4-tuples (u,v,0/1/2,data)), MDG no-data (digraph.rs:3908
+— MDG set-algebra), MDG with-data (digraph.rs:4045 — MDG compose/union). (The _native_difference/_native_
+symmetric_difference kernels are DEAD for multigraphs — the Python path skips them as slower — so left
+untouched.) Same gate: a public key that is the EXACT non-negative int == internal auto-key skips the
+per-edge edge_py_keys entry + note_public_key_value (read falls back to int:{internal}). Byte-EXACT 28/28
+vs nx (auto/str/explicit-int/float/removed-noncontiguous x MG/MDG x difference/symmetric_difference/
+compose/union); 9060 multigraph/operator/conversion/edges/degree/subgraph conformance green. CLUSTER
+LIFT vs session baselines: union MG 0.71->0.86x, union MDG 0.60->0.73x, symmetric_difference MDG
+0.62->0.74x, compose MG 0.73->0.82x, compose MDG 0.60->0.65x, difference MG 0.58->0.70x, difference MDG
+0.71->0.73x. Still <nx (the extend_keyed_edges insertion is the residual tax) but the multigraph
+construction tax is now materially reduced across the WHOLE set-algebra + compose/union family via one
+proven lever (has_remapped_int_key). The /alien-graveyard skill cracked what I'd surfaced as "purely
+architectural" — it was partially reducible.
