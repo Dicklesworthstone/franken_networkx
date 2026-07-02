@@ -12074,3 +12074,22 @@ int + str-keys via convert; iterations 0/1/2/3; node/edge/graph-attr all BAIL; e
 regressions clean (cart 13+11, corona 13); 2789 mycielski+product+generator conf green. LEVER: a batched
 construction still >nx = base per-edge construction tax; a native int-keyed structure kernel (no attrs,
 no tuples) is the cheapest beat-nx path. Grep other batched-but-<nx graph builders (construction tax).
+
+
+## 2026-07-02 CopperCliff SHIP: binomial_tree pre-check bypass — 0.53-0.58x -> 0.73-0.76x (pure-Python)
+
+Fresh generator sweep found binomial_tree at 0.53-0.65x. cProfile: a THIRD of the build is
+`_simple_add_edges_from_touches_existing_plain_edge` — add_edges_from's O(E) "does any edge touch an
+existing plain edge" pre-scan, run on each doubling step. But every shifted-copy edge (u+N, v+N) has BOTH
+endpoints >= N (fresh nodes N..2N-1), so it can NEVER collide with an existing edge (all among nodes < N).
+The pre-scan is pure waste. FIX (pure-Python, no rebuild): call the native batch `_try_add_edges_from_batch`
+directly (skipping the pre-scan); fall back to add_edges_from only if it bails (multigraph/non-int, returns
+False + adds nothing -> fallback byte-identical). 0.53->0.73x (n=12), 0.58->0.76x (n=13), 1.3-1.4x self.
+Byte-exact n=0..14 across all create_using types (Graph/DiGraph/Multi*); 4286 tree/generator conf green.
+STILL <nx: the residual is the native edge-insertion construction tax (`_try_add_edges_from_batch` itself);
+a native beat-nx kernel is HARDER than mycielskian's — binomial_tree's node/edge order follows G.edges()
+ADJACENCY-iteration order (node-then-neighbor dedup), not edge-insertion, so pure-Python edge_list doubling
+diverges from nx at n=4 (verified) and a Rust kernel must replicate edges()'s adjacency order, not
+edges_ordered(). LEVER: any incremental builder adding provably-disjoint new-node edges can skip the
+touches-existing pre-scan via a direct _try_add_edges_from_batch. (watts_strogatz 0.79x = stochastic, needs
+PythonRandom-sequence replication — deferred.)
