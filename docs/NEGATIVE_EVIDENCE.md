@@ -2,6 +2,23 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP: dual_barabasi_albert_graph 0.88x -> 1.78-1.88x — seed-into-batch lever transfers (the flagged candidate)
+
+The barabasi_albert seed-into-batch lever (cc-bastarbatch, 7ecde5151) flagged dual_ba /
+powerlaw_cluster as candidates; generator sweep confirmed dual_barabasi_albert 0.88x (the
+only new sub-0.90x besides dense_gnm 0.90x borderline). IDENTICAL pattern: it pre-built
+`star_graph(max(m1,m2))` then bulk-added attachment edges, so the final `add_edges_from`
+paid the O(bunch) touches-existing pre-scan against the star. FIX (cc-dualbastarbatch): for
+the default seed prepend the star edges to `_edge_accum`, seed `repeated_nodes` from the
+star's degree sequence (`[0]*mm + [1..mm]`), build on the EMPTY graph -> scan short-circuits
++ fresh-batch fast path. Net fnx HALVED (7.65->3.73ms). MEASURED: dualBA(2000,4,2)
+0.88x->1.78x, (4000,4,2) ->1.88x, (2000,8,3) ->1.80x — beats nx. Byte-exact: 350 cases
+(50 seeds x 7 (n,m1,m2,p) incl p=0/1 delegation to the fixed BA) 0 fails node+edge order;
+initial_graph + create_using paths preserved; 1789 conformance pass. PURE-PYTHON. The lever
+generalizes cleanly to the seed-then-preferential-attachment family. (powerlaw_cluster is
+already 1.23x — its seed is built differently; dense_gnm 0.90x is a shuffle-bound borderline,
+not this pattern.)
+
 ## 2026-07-02 CopperCliff SHIP: barabasi_albert_graph 0.86x -> 1.82x — seed the star INTO the batch so the add_edges_from touches-scan short-circuits
 
 Generator sweep found BA the only sub-0.90x (0.86-0.88x; everything else 1.05-296x wins).

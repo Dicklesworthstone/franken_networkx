@@ -55835,8 +55835,23 @@ def dual_barabasi_albert_graph(
             create_using=create_using,
         )
 
+    rng = _random.Random(seed)
     if initial_graph is None:
-        graph = star_graph(max(m1, m2))
+        # cc-dualbastarbatch: same lever as barabasi_albert_graph
+        # (cc-bastarbatch) — don't pre-build ``star_graph(max(m1,m2))`` then
+        # bulk-extend, which makes the final ``add_edges_from`` pay the O(bunch)
+        # touches-existing pre-scan against the star even though no attachment
+        # edge can touch it (every source is a fresh node > max(m1,m2)). Prepend
+        # the star edges to the batch, seed ``repeated_nodes`` from the star's
+        # known degree sequence (center 0 has degree mm; each leaf 1..mm degree 1),
+        # and build on the EMPTY graph so the scan short-circuits (edge_count == 0)
+        # and the fresh-batch fast path applies. Node/edge insertion order (star
+        # first, then sources in increasing order) is byte-identical.
+        mm = max(m1, m2)
+        graph = Graph()
+        _edge_accum = [(0, leaf) for leaf in range(1, mm + 1)]
+        repeated_nodes = [0] * mm + list(range(1, mm + 1))
+        source = mm + 1
     else:
         if len(initial_graph) < max(m1, m2) or len(initial_graph) > n:
             raise NetworkXError(
@@ -55849,18 +55864,17 @@ def dual_barabasi_albert_graph(
             graph.add_node(node, **dict(attrs))
         for u, v, attrs in initial_graph.edges(data=True):
             graph.add_edge(u, v, **dict(attrs))
-
-    rng = _random.Random(seed)
-    repeated_nodes = [
-        node for node, degree_value in graph.degree for _ in range(degree_value)
-    ]
-    source = len(graph)
+        repeated_nodes = [
+            node for node, degree_value in graph.degree for _ in range(degree_value)
+        ]
+        source = len(graph)
+        _edge_accum = []
     # br-r37-c1-yrdso: preferential attachment reads only ``repeated_nodes``
     # (never the graph) inside the loop, so accumulate every new edge and commit
     # through ONE add_edges_from instead of ``n`` tiny per-source calls that each
     # fell below the batch threshold (8) and ran per-edge add_edge PyO3. Same
-    # source-ascending, targets-set insertion order -> byte-identical.
-    _edge_accum = []
+    # source-ascending, targets-set insertion order -> byte-identical. (``_edge_accum``
+    # is seeded above — with the star edges in the cc-dualbastarbatch fast path.)
     while source < n:
         m = m1 if rng.random() < p else m2
         targets = set()
