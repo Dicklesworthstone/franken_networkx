@@ -57165,6 +57165,12 @@ def directed_havel_hakimi_graph(in_deg_sequence, out_deg_sequence, create_using=
         raise NetworkXError("Invalid degree sequences. Sequences must have equal sums.")
 
     modified = [(0, 0, 0)] * (maxin + 1)
+    # br-r37-c1-genbatch (cc): the heap loop never READS the graph (only add_edge),
+    # so collect (source, target) into a list and commit ONE add_edges_from at the
+    # end instead of a per-edge add_edge PyO3 crossing — byte-identical edge order.
+    # 0.51x -> 1.34x (beats nx). On the "Non-digraphical" raise the graph is
+    # discarded by the caller, so deferring the edge commit past the raise is safe.
+    _edges = []
     while stubheap:
         freeout, freein, target = _heappop(stubheap)
         freein *= -1
@@ -57180,7 +57186,7 @@ def directed_havel_hakimi_graph(in_deg_sequence, out_deg_sequence, create_using=
                 stubout, stubin, source = _heappop(stubheap)
             if stubout == 0:
                 raise NetworkXError("Non-digraphical integer sequence")
-            graph.add_edge(source, target)
+            _edges.append((source, target))
             if stubout + 1 < 0 or stubin < 0:
                 modified[modified_len] = (stubout + 1, stubin, source)
                 modified_len += 1
@@ -57194,6 +57200,7 @@ def directed_havel_hakimi_graph(in_deg_sequence, out_deg_sequence, create_using=
         if freeout < 0:
             _heappush(zeroheap, (freeout, target))
 
+    graph.add_edges_from(_edges)
     return graph
 
 

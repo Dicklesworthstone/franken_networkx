@@ -12126,3 +12126,17 @@ inner-star nodes n..2n-1 are added via edge-encounter so cycle_graph + the batch
 1939 petersen/generator/classic conf green. LEVER: a native generator kernel that's SLOWER than nx is worth
 a byte-exactness check — several produce isomorphic-but-differently-labelled graphs (grep _rust_*_graph
 fast paths, diff node/edge order + graph attrs vs nx, route divergent ones to Python).
+
+
+## 2026-07-02 CopperCliff SHIP: directed_havel_hakimi_graph batch — 0.51x -> 1.40x (beats nx)
+
+The heap-based degree-sequence realization added edges one at a time via graph.add_edge(source, target)
+inside the stub-processing loop. But the loop NEVER READS the graph (all state is in the stub/zero heaps),
+so the edges can be collected into a list and committed via ONE add_edges_from at the end — byte-identical
+edge order. (The "Non-digraphical" raise discards the graph via the caller, so deferring the commit past
+the raise is safe.) 0.51x -> 1.40x (beats nx, int keys). 30/30 byte-exact vs nx + error cases match; 2192
+havel/degree-seq/generator conf green. LEVER (extends reference_batch_add_edges_from_construction): even
+ALGORITHMIC builders (heap/greedy degree-sequence realizers) that add_edge in a loop WITHOUT reading the
+graph can defer to one add_edges_from. Also swept all 26 named native generator kernels for byte-exactness
+vs nx — ALL clean except generalized_petersen (fixed 76ab197ef); the _rust_*_graph fast paths are
+byte-correct.
