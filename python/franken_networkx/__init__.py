@@ -3979,6 +3979,37 @@ def _decode_dict_of_dicts_into(self, data, is_multigraph, multigraph_input=None)
         )
         return
 
+    # cc-dolctor: simple-graph dict-of-LIST fast path. The general per-node loop
+    # below commits each edge with a per-edge ``self.add_edge(u, v)`` (O(E) PyO3),
+    # so ``Graph({u: [v, ...]})`` ran ~0.36x nx even though the standalone
+    # ``from_dict_of_lists`` — identical result — is >1x. Mirror it exactly: build
+    # ONE deduped batch (an undirected dict-of-list lists every edge twice; drop
+    # the symmetric reverse so the whole set commits through the bulk
+    # ``add_edges_from`` instead of bailing to the per-edge path) and add it in a
+    # single call. ``add_nodes_from(data)`` adds the source nodes in dict order
+    # (isolated sources preserved) exactly as ``from_dict_of_lists`` does, so node
+    # AND edge order stay byte-identical to nx. Gated to a CLEAN dict-of-list
+    # (every value a non-dict, non-str/bytes iterable) so mixed / dict-of-dict /
+    # string-valued / non-iterable shapes keep the general loop's exact semantics.
+    if not is_multigraph and data and all(
+        not isinstance(_nbrs, (dict, str, bytes)) and hasattr(_nbrs, "__iter__")
+        for _nbrs in data.values()
+    ):
+        self.add_nodes_from(data)
+        if self.is_directed():
+            batch = [(u, v) for u, nbrs in data.items() for v in nbrs]
+        else:
+            seen = set()
+            batch = []
+            for u, nbrs in data.items():
+                for v in nbrs:
+                    if u != v and (v, u) in seen:
+                        continue
+                    batch.append((u, v))
+                    seen.add((u, v))
+        self.add_edges_from(batch)
+        return
+
     for u, nbrs in data.items():
         self.add_node(u)
         if isinstance(nbrs, dict):

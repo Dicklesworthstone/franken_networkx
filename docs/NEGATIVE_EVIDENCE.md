@@ -2,6 +2,30 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP: Graph/DiGraph(dict_of_list) constructor 0.36x -> 1.64x — route the decoder's dict-of-LIST branch through the batch
+
+Domain-sweep for a NEW gap: algorithms are ALL wins (2.6-198x, vein confirmed mined out);
+warm view/degree family all wins; I/O/convert sweep surfaced `Graph(dict_of_lists)` 0.36x
+(the biggest live gap). Isolated: `from_dict_of_lists(dol)` 3.26ms and `to_networkx_graph(dol)`
+4.43ms are BOTH fast (~1.5x nx), but `Graph(dol)` was 19ms — the constructor's dict decoder
+`_decode_dict_of_dicts_into` had a fast batch path for dict-of-DICTS (all-dict values ->
+one add_edges_from, `Graph(dod)` 1.16x) but the dict-of-LIST case fell through to the general
+per-node loop that commits each edge with a per-edge `self.add_edge(u,v)` (O(E) PyO3), and
+for a simple UNDIRECTED graph it doesn't even dedup (dedupe_dict_of_list is multigraph-only),
+so it paid ~2x add_edge calls. FIX (cc-dolctor): add a simple-graph dict-of-list batch fast
+path mirroring `from_dict_of_lists` exactly — `add_nodes_from(data)` (source order) + ONE
+deduped `add_edges_from` (undirected drops the symmetric reverse; directed keeps all).
+Gated to a CLEAN dict-of-list (every value a non-dict, non-str/bytes iterable) so
+mixed/dict-of-dict/string-valued/non-iterable shapes keep the general loop's exact
+semantics. PURE-PYTHON (no .so rebuild). MEASURED: Graph(dol) 0.36x->1.64x (19->3.92ms),
+DiGraph(dol) ->1.09x — both now BEAT nx. Byte-exact: 0 fails on node-order + edge-order over
+self-loops / isolated / empty-list / neighbor-only-node / tuple-values / string-keys +
+300 random roundtrip-through-to_dict_of_lists stress; 902 convert/constructor conformance
+pass; MultiGraph dict-of-list untouched (still general loop, byte-exact). LEVER: a constructor
+decoder can have a fast batch for ONE input shape (dict-of-dicts) but a per-edge loop for a
+sibling shape (dict-of-list) that a standalone converter already handles fast — grep decoder
+branches for `self.add_edge(` loops and route them through the same batch the standalone uses.
+
 ## 2026-07-02 CopperCliff NO-SHIP (reverted, bench rejection): simple-DiGraph degree(weight) store twins — eager mirror means NOT strict work removal
 
 Ported the MG/MDG weighted-degree store twins (int `native_weighted_total_degree_store_int`
