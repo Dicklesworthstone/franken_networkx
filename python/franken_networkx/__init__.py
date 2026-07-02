@@ -39906,16 +39906,18 @@ def _fast_pred_row(graph, node):
 def _fast_succ_row(graph, node):
     # br-r37-c1-gchm1: type-correct O(deg) successor row (plain dict-of-dicts)
     # for reverse/filtered views; falls back to G[node] (native succ).
+    # cc-succrowoV: the DiGraph branch used to build the whole-graph
+    # `_native_adjacency_dict()[node]` (O(V+E)) merely for the neighbour KEY
+    # ORDER, then overlay `_native_successor_row_dict(node)` for live attrs — so
+    # every per-node caller (reverse-view in/out_degree hit it once per node ->
+    # reverse.in_degree was O(V^2), 844ms @ n=1000) paid a whole-graph rebuild.
+    # The per-row accessor already yields the SAME key order AND live attrs
+    # (verified byte-identical over mutated / edge-removed graphs), so use it
+    # alone — O(deg), byte-identical output.
     if type(graph) is DiGraph:
-        native_adjacency = getattr(graph, "_native_adjacency_dict", None)
         native_row = getattr(graph, "_native_successor_row_dict", None)
-        if native_adjacency is not None and native_row is not None:
-            fresh_keys = native_adjacency()[node]
-            live_row = native_row(node)
-            return {
-                neighbor: live_row.get(neighbor, attrs)
-                for neighbor, attrs in fresh_keys.items()
-            }
+        if native_row is not None:
+            return native_row(node)
     if type(graph) is MultiDiGraph:  # br-r37-c1-kum9v: views -> G[node]
         native_dict = getattr(graph, "_native_successor_row_dict", None)
         if native_dict is not None:

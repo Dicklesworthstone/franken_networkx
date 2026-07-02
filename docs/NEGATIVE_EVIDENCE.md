@@ -2,6 +2,28 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP: reverse_view.in/out_degree O(V^2)->O(V) — `_fast_succ_row` DiGraph branch dropped a whole-graph rebuild (844ms -> 1.81ms @ n=1000)
+
+New view sweep (reverse views, subgraph-view data/adjacency) found reverse_view(D).in_degree()
+at 0.00x — 844ms @ n=1000, 195->854ms for n=500->1000 = O(V^2). ROOT: the reverse view's
+in/out_degree read `self.pred[node]`/`self.succ[node]` via `_ReverseNeighborMap` ->
+`_fast_succ_row(parent, node)`, whose DiGraph branch built the WHOLE-graph
+`_native_adjacency_dict()[node]` (O(V+E)) just for the neighbour KEY ORDER, overlaying
+`_native_successor_row_dict(node)` for live attrs — so once per node = O(V^2). The per-row
+accessor already yields the SAME key order AND live attrs (verified byte-identical over
+mutated / edge-removed graphs, 0 mismatches), so `_fast_succ_row` now uses it alone: O(deg),
+byte-identical. MEASURED: reverse.in_degree() 844->1.81ms @ n=1000 (466x fnx), now LINEAR
+(1.81->3.66ms for 2x). Byte-exact: 900 cases (reverse in/out/total degree + edges + DiGraph
+subgraph edges) 0 fails; 9341 conformance pass (1 pre-existing gexf failure). PURE-PYTHON.
+Fixes ANY `_fast_succ_row` caller that hit the whole-graph rebuild per node. RESIDUAL: reverse
+in/out_degree is now O(V) but still ~0.04x — a CONSTANT-factor (fnx builds a per-node row
+dict just to `len` it; nx `len`s a live dict) — needs a count-only native accessor or a
+view-type-preserving delegation to the parent's native out/in degree (deferred; the O(V^2)
+scaling catastrophe is the real fix). OTHER view gaps surfaced this sweep (untouched):
+reverse.edges(data) 0.21x / MDG reverse.edges(keys,data) 0.09x, subgraph/restricted
+.adjacency() 0.13-0.24x, restricted_view.degree(WEIGHT) 0.11x (my degree fast path bails on
+weight), restricted_view.nodes(data) 0.24x.
+
 ## 2026-07-02 CopperCliff SHIP: Multi(Di)Graph restricted_view.degree() 0.04-0.05x -> 0.74x/4.1x — degree bulk path extended to multigraphs (COMPLETES the filtered-view domain)
 
 Last filtered-view gap. Extended `_fast_filtered_degree_pairs` to multigraphs: a `_pair_count`
