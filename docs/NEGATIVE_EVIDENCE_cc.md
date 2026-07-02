@@ -3890,3 +3890,37 @@ RESIDUAL: even small-k is ~0.20x — the inner's final adjacency.retain + nodes.
 (IndexMap can't O(1)-delete preserving order; nx's dict can). That O(|V|) compaction floor is the
 storage-model wall for k<<N. Simple Graph/DiGraph small-k (0.05x) is the separate int-index renumber
 bomb (architectural). Single remove_node loop 0.014x remains the biggest architectural gap (slotmap).
+
+## Mutation-cluster residual is a PyO3 call-boundary floor — SURFACED (CopperCliff, no-ship)
+
+After shipping the remove_nodes_from cluster (batch + walk-removal + FxHash + incident-only small-k),
+ran a fresh broad cross-domain sweep (24 ops, n=800/m=4000) to find the next lever. Result: fnx is
+at-or-above nx on 20/24 — algorithms 3-50x (clustering 49.9x, k_core 46.5x, betweenness 31.1x,
+core_number 13.0x, connected_components 10.4x, triangles 7.0x, bfs/pagerank/dijkstra 3.6-4.4x),
+conversions 1.2-3.5x (to_dict_of_lists 3.49x, adjacency_matrix 2.64x, to_scipy 2.47x), generators
+1.4-3.9x. The only sub-1.0x are near-parity floors: degree_weight 0.85x, nodes_data 0.92x,
+reverse_digraph 0.98x, adj_iter 0.99x. This algorithm/view/conversion vein is MINED OUT.
+
+Every DRAMATIC gap is the single-element mutation cluster (n=1000/m=5000): single remove_node loop
+0.014x, remove_edge loop 0.28x, has_edge 0.32-0.35x, add_edge 0.39x. Proved these are a PyO3
+call-boundary floor, NOT a fixable inefficiency:
+- has_edge int-node (existing `has_edge_by_indices` fast path — NO alloc, NO String hash): **0.316x**.
+- has_edge str-node (node_key_to_string heap-alloc path): 0.194x.
+So the alloc costs ~40%, but even the ALLOC-FREE fast path floors at 0.316x — that residual is the
+PyO3 boundary crossing (arg extract + into-Rust call + return) which for a micro-op costs MORE than
+nx's pure-Python C-level dict lookup it replaces. remove_edge/add_edge can't even use the int fast
+path: the canonical String is needed downstream (String-keyed store + edge mirror), so the alloc is
+load-bearing. Micro-opts (defer py_adj_key when adj_row_py empty) net ~3-5% — below the 9-18% rch
+bench-worker noise. NON-TAKEABLE without eliminating the FFI boundary (impossible for a PyO3 ext).
+
+Single remove_node loop 0.014x is additionally the int-index CONTIGUITY renumber bomb: simple
+Graph/DiGraph store adj_indices/edge_index_endpoints/edges by contiguous [0,N) position, so removing
+one node renumbers every index > idx = O(|V|+|E|) per call (loop = O(k(|V|+|E|))). Requires a
+stable-id (slotmap/generational-arena) storage rewrite with a decoupled insertion-order index — a
+multi-day refactor touching every `_by_index`/matrix-export consumer across 57k lines, NOT a
+one-session lever. MG/MDG avoid the renumber (string-keyed adjacency) which is why the incident-only
+small-k win landed there and not for simple Graph.
+
+CONCLUSION: the remaining vs-nx gaps are architectural floors (PyO3 boundary for micro-mutations;
+int-index renumber for simple-Graph remove_node). Future cycles on has_edge/add_edge/remove_edge
+micro-opts are low-EV (capped ~0.35x by FFI). The only real remaining lever is the slotmap rewrite.
