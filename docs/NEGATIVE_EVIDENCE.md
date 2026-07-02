@@ -11921,3 +11921,27 @@ delegation sweep otherwise CONFIRMS the mined-out frontier — triadic_census 16
 17.3x, wiener_index 14.1x, chain_decomposition 11.5x, degree_assortativity 107x, s_metric 121x all
 beat nx; transitive_closure was the lone straggler. (rich_club_coefficient ZeroDivisionError on a graph
 with no populated k-degree class is a separate SURFACE — nx returns {} there; not chased this session.)
+
+## 2026-07-01 CopperCliff PARTIAL-SHIP: attributed graph products batch — 0.12-0.19x -> 0.19-0.30x (1.3-2x self, still <nx)
+
+Broad binary-operator sweep found cartesian/tensor/strong/lexicographic_product at 0.12-0.19x vs nx on
+ATTRIBUTED simple graphs (lexicographic ~1.3s/call, near-timeout). NOT the native kernel: the native
+`*_product_fast` (fe0dbee38, beats nx) BAILS on `_graph_has_any_attrs(G|H)` (can't pair attrs), so any
+weighted/node-attr product falls to the Python O(V_G*V_H node + E_G*V_H... edge) build, which paid a
+Python->native add_node/add_edge dispatch PER product node/edge. FIX (pure-Python): batch the node
+build + each SIMPLE (non-multigraph factor) edge layer through add_nodes_from/add_edges_from (one native
+call/layer); multigraph factors keep the per-edge keyed path (4-tuple key= collision dodge) UNTOUCHED.
+Byte-IDENTICAL: 40/40 vs current public across {Graph,DiGraph,MultiGraph,MultiDiGraph}^2 + MIXED type
+pairs (MultiGraph x Graph etc.) + parallel-edge + self-loop + node/edge-attr configs; 259 product/
+operator conformance tests green. Result: cartesian 0.18->0.30x, tensor 0.12->0.22x, strong 0.19->0.22x,
+lexicographic 0.12->0.19x (1.3-2.1x self).
+
+HONEST FRAMING: this is a PARTIAL improvement, NOT a beat-nx win — the residual <1x is the tuple-key
+CONSTRUCTION TAX (fnx stores tuple nodes via node_key_to_string; nx uses native tuple dict keys). Batching
+strips per-call dispatch (real strict work-removal, cf. feedback_rch_bench_worker_noise) but cannot close
+the O(V*H) tuple-materialization gap. The ONLY path to beat nx on attributed products is native attr-
+pairing in the Rust kernel (relax the `_graph_has_any_attrs` gate + pair attrs in `*_product_fast`) — a
+Rust dig, deferred. Shipped the batch because it fixes the lexicographic near-timeout and is safe/byte-
+exact. FRONTIER RE-CONFIRMED: this session's ~80-fn sweep shows fnx beats nx on ~all scalar/dict/algorithm
+work; every remaining <1x is construction-tax (products/operators on tuple keys) or a native kernel
+(condensation 0.35x, compose 0.50x) — both Rust/architectural, matching the documented mined-out frontier.
