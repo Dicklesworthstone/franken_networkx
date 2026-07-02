@@ -22929,6 +22929,31 @@ def cartesian_product(G, H):
     _fast = _native_graph_product(G, H, kind="cartesian")
     if _fast is not None:
         return _fast
+    # br-r37-c1-prodedgeattr (cc): EDGE-attributed cartesian products fall through the
+    # node-only relaxation above. When both factors are simple Graphs with SCALAR-only
+    # edge attrs (pristine edge mirror -> store-complete, e.g. a freshly bulk-built
+    # weighted graph), the native kernel clones each source edge's store AttrMap onto
+    # the product edges (each cartesian edge inherits exactly one source edge, no
+    # pairing) — beating nx instead of the O(E_product) Python batch. Returns None on
+    # any other shape (non-pristine mirror / non-scalar attrs / self-loops); node
+    # attrs are decorated here afterward.
+    if (
+        type(G) is Graph
+        and type(H) is Graph
+        and not number_of_selfloops(G)
+        and not number_of_selfloops(H)
+    ):
+        _edge_native = getattr(_fnx, "cartesian_product_edge_attrs_fast", None)
+        if _edge_native is not None:
+            _r = _edge_native(G, H)
+            if _r is not None:
+                if _graph_has_any_node_attrs(G) or _graph_has_any_node_attrs(H):
+                    _r.add_nodes_from(
+                        ((g, h), _product_node_attrs(dict(g_attrs), dict(h_attrs)))
+                        for g, g_attrs in G.nodes(data=True)
+                        for h, h_attrs in H.nodes(data=True)
+                    )
+                return _r
     P = _product_graph_class(G, H)()
     _attr_safe = _product_edge_attrs_kwarg_safe(G, H)
 

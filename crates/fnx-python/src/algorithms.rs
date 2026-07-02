@@ -14685,6 +14685,84 @@ fn lexicographic_product_fast(
     graph_product_fast(py, g, h, 3)
 }
 
+/// br-r37-c1-prodedgeattr (cc): native cartesian product carrying SCALAR edge
+/// attrs. Gated to simple undirected Graph x Graph with PRISTINE edge mirrors
+/// (`edge_py_attrs` empty) — which GUARANTEES every edge attribute lives in the
+/// CgseValue store (a non-scalar attr always forces a Python-mirror entry), so
+/// cloning each source edge's `AttrMap` onto the product edges is byte-exact with
+/// zero non-scalar data-loss risk. Each cartesian product edge inherits exactly one
+/// source edge's attrs (G-layer copies an H-edge, H-layer copies a G-edge — no
+/// pairing), so this is a direct clone. Returns None on any other shape (directed /
+/// multigraph / non-pristine mirror), letting the Python wrapper batch. Edge order
+/// matches the no-attr native path (parity tests canonicalise); node attrs are
+/// decorated by the Python wrapper.
+#[pyfunction]
+#[pyo3(signature = (g, h))]
+fn cartesian_product_edge_attrs_fast(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    h: &Bound<'_, PyAny>,
+) -> PyResult<Option<PyObject>> {
+    let gr1 = extract_graph(g)?;
+    let gr2 = extract_graph(h)?;
+    let (pg1, pg2) = match (&gr1, &gr2) {
+        (GraphRef::Undirected(a), GraphRef::Undirected(b)) => (a, b),
+        _ => return Ok(None),
+    };
+    // Pristine edge mirror => every edge attr is scalar (store-only). A single
+    // non-scalar (list/dict/tuple) attr would leave a mirror entry, so this bails.
+    if !pg1.edge_py_attrs.is_empty() || !pg2.edge_py_attrs.is_empty() {
+        return Ok(None);
+    }
+    let g1 = &pg1.inner;
+    let h1 = &pg2.inner;
+    let g_names: Vec<String> = g1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+    let h_names: Vec<String> = h1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+    let ng = g_names.len();
+    let nh = h_names.len();
+    let (canon, node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
+
+    // Undirected edges of each factor, each unordered pair once (u <= v) — the same
+    // enumeration the no-attr native path uses (self-loops included via v >= u).
+    let undirected_edges = |graph: &fnx_classes::Graph, n: usize| -> Vec<(usize, usize)> {
+        let mut es = Vec::new();
+        for u in 0..n {
+            for &v in graph.neighbors_indices(u).unwrap_or(&[]) {
+                if v >= u {
+                    es.push((u, v));
+                }
+            }
+        }
+        es
+    };
+    let g_edges = undirected_edges(g1, ng);
+    let h_edges = undirected_edges(h1, nh);
+
+    let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
+    // G-layer: same G-node + H-edge -> inherit the H-edge's attrs.
+    for gi in 0..ng {
+        for &(hu, hv) in &h_edges {
+            let attrs = h1.edge_attrs_by_indices(hu, hv).cloned().unwrap_or_default();
+            edges.push((canon[gi * nh + hu].clone(), canon[gi * nh + hv].clone(), attrs));
+        }
+    }
+    // H-layer: same H-node + G-edge -> inherit the G-edge's attrs.
+    for &(gu, gv) in &g_edges {
+        for hi in 0..nh {
+            let attrs = g1.edge_attrs_by_indices(gu, gv).cloned().unwrap_or_default();
+            edges.push((canon[gu * nh + hi].clone(), canon[gv * nh + hi].clone(), attrs));
+        }
+    }
+
+    let mut inner = fnx_classes::Graph::with_runtime_policy(g1.runtime_policy().clone());
+    let _ = inner.extend_nodes_unrecorded(canon.iter().cloned());
+    let _ = inner.extend_edges_with_attrs_unrecorded(edges);
+    let mut py_graph = PyGraph::new_empty_with_policy(py, g1.runtime_policy().clone())?;
+    py_graph.inner = inner;
+    py_graph.node_key_map = node_key_map;
+    Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
+}
+
 /// br-r37-c1-prodmodular: native modular product fast path (undirected only).
 /// Two distinct product nodes (g1,h1),(g2,h2) are adjacent iff g1!=g2, h1!=h2,
 /// and G-adjacency(g1,g2) == H-adjacency(h1,h2) (both edges, or both non-edges).
@@ -22948,6 +23026,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(cartesian_product, m)?)?;
     m.add_function(wrap_pyfunction!(tensor_product, m)?)?;
     m.add_function(wrap_pyfunction!(cartesian_product_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(cartesian_product_edge_attrs_fast, m)?)?;
     m.add_function(wrap_pyfunction!(tensor_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(strong_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(lexicographic_product_fast, m)?)?;

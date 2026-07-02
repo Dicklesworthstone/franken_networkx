@@ -12004,3 +12004,25 @@ all BEAT nx. Byte-exact 8/8 vs nx (nodeonly/edgeonly/both/none x corona/rooted);
 conformance tests green. corona EDGE-attr still batches (H-copies carry H's edge attrs = the pairing axis).
 Product family status: no-attr + node-attr (all 6) beat nx; edge-attr = cartesian/tensor/strong/lexico/
 corona batch (0.19-0.30x partial), rooted native (beats nx). Remaining: edge-attr pairing (Rust) + modular.
+
+
+## 2026-07-02 CopperCliff SHIP (BEATS nx, RUST): cartesian EDGE-attr native kernel — 0.30x -> 1.98x
+
+The edge-attr product lever (previously "Rust dig, deferred") LANDED for cartesian. New Rust pyfunction
+`cartesian_product_edge_attrs_fast` (crates/fnx-python/src/algorithms.rs) clones each source edge's store
+AttrMap onto the product edges (cartesian = each product edge inherits exactly ONE source edge, no
+pairing). SAFETY GATE = PRISTINE edge mirror (`edge_py_attrs.is_empty()`): a non-scalar attr
+(list/dict/tuple/None) always forces a Python-mirror entry, so an empty mirror GUARANTEES all edge attrs
+are scalar + store-complete -> cloning is byte-exact with ZERO non-scalar data-loss risk (the recurring
+bug class here). Returns None (->Python batch) on directed/multigraph/non-pristine-mirror/self-loops. The
+Python wrapper tries it after the node-only relaxation and decorates node attrs afterward.
+
+RESULT: bulk-built weighted cartesian_product 0.30x -> 1.98x vs nx (BEATS nx). Differential harness 13/13
+byte-exact vs nx: scalar int/float/multi/bigint fire native; str-node-keys; node+edge attrs; NON-scalar
+list/None/dict BAIL to batch (byte-exact); self-loops BAIL; non-pristine (edge-accessed) BAILS; per-edge-
+built BAILS; result edge attrs LIVE/mutable. 1216 product/operator + 5487 broader conformance green.
+Build: `maturin build --release -o <dir>` (~1.5-3.7m; .so gitignored/rebuilt -> source is truth).
+SCOPE: cartesian only (direct-copy). tensor/strong/lexico pair attrs into non-scalar tuples (mirror) =
+harder; corona edge attrs are direct-copy (H-copies) -> same lever applies next. GATE caveat: only fires
+for freshly-bulk-built graphs whose edge mirror is still pristine (per-edge-built / edge-accessed graphs
+materialize the mirror -> batch); the common build-then-product workflow keeps it pristine.
