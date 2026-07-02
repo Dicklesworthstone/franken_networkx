@@ -28838,10 +28838,16 @@ def tutte_graph(create_using=None):
 
 
 def generalized_petersen_graph(n, k, *, create_using=None):
-    """Return the generalized Petersen graph G(n, k)."""
-    if create_using is None:
-        return _rust_generalized_petersen_graph(n, k)
+    """Return the generalized Petersen graph G(n, k).
 
+    br-r37-c1-gpcanon (cc): the native ``_rust_generalized_petersen_graph`` produced an
+    ISOMORPHIC graph with a DIFFERENT node labelling (e.g. node 7 before 6 at n=5) and
+    dropped the ``name`` graph attr — diverging from nx byte-for-byte — AND was ~1.7x
+    slower than nx. Build it in Python instead (cycle_graph + the spoke/inner-star edges
+    in nx's exact order); batched through one add_edges_from it is byte-identical to nx
+    (node + edge order + name) and beats the native kernel (0.58x -> 0.86x). Same
+    canonical-labelling routing family as pappus_graph / hoffman_singleton_graph.
+    """
     if n <= 2:
         raise NetworkXError(f"n >= 3 required. Got {n=}")
     if k < 1 or k > n / 2:
@@ -28850,9 +28856,11 @@ def generalized_petersen_graph(n, k, *, create_using=None):
     G = cycle_graph(range(n), create_using=create_using)
     if G.is_directed():
         raise NetworkXError("Directed Graph not supported in create_using")
+    edges = []
     for i in range(n):
-        G.add_edge(i, n + i)
-        G.add_edge(n + i, n + (i + k) % n)
+        edges.append((i, n + i))
+        edges.append((n + i, n + (i + k) % n))
+    G.add_edges_from(edges)
     G.graph["name"] = f"Generalized Petersen Graph GP({n}, {k})"
     return G
 

@@ -12109,3 +12109,20 @@ the tuple-key construction tax keeps it <nx, same ceiling as products). 2600 har
 via add_edges_from(LIST) — int-keyed builders reach/beat nx, tuple-keyed get a partial reduction. (NOTE the
 0.35x margulis reading right after a heavy pytest run was LOAD NOISE; clean re-measure 0.44-0.46x — always
 re-measure a lone outlier.)
+
+
+## 2026-07-02 CopperCliff FIX+SHIP: generalized_petersen_graph native kernel DIVERGED from nx (byte-inexact) — routed to Python, 0.58x -> 0.91x
+
+Generator sweep flagged generalized_petersen_graph at 0.58-0.67x for create_using=None (the native
+_rust_generalized_petersen_graph path). Investigation revealed the native kernel is NOT byte-exact with
+nx: it produces an ISOMORPHIC graph with a DIFFERENT node LABELLING (node 7 before 6 at n=5 — nx adds the
+inner-star nodes in a specific edge-encounter order) AND drops the ``name`` graph attr. Edge SET matches
+but node/edge ORDER + name diverge — a latent correctness bug (downstream order/name-dependent code breaks),
+same class as pappus_graph / hoffman_singleton (both already forced to the Python canonical-labelling path).
+FIX: drop the native call, build in Python (cycle_graph + spoke/inner edges in nx's exact order, batched
+through one add_edges_from). Now BYTE-EXACT vs nx (node order + edge order + name + error messages +
+create_using=MultiGraph) AND FASTER than the broken kernel: 0.58x -> 0.91x (near parity; still <nx because
+inner-star nodes n..2n-1 are added via edge-encounter so cycle_graph + the batch pays 2 construction passes).
+1939 petersen/generator/classic conf green. LEVER: a native generator kernel that's SLOWER than nx is worth
+a byte-exactness check — several produce isomorphic-but-differently-labelled graphs (grep _rust_*_graph
+fast paths, diff node/edge order + graph attrs vs nx, route divergent ones to Python).
