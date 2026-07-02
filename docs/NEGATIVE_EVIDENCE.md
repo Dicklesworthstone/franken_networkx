@@ -2,6 +2,25 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP (pure-Python, polish): cytoscape_data guard-bypass 1.22x -> 1.37x + shared `_materialized_view` helper; NOISE lesson (reps=4)
+
+Followed the guard-bypass lever (88bf4181b) into the serializer family. Extracted the pattern into a
+shared `_materialized_view(view)` helper (returns `view._materialize()` when present — every
+NodeDataView + simple-Graph EdgeDataView — else the view) and applied it to cytoscape_data.
+cytoscape_data(simple Graph) 1.22x -> 1.37x (byte-exact 200 cases, 4 types + attrs; 134 conf).
+NOT a gap-closer — cytoscape_data ALREADY beat nx; this is a strict-work-removal that widens the
+margin (removes the per-element `_FailFastEdgeIterator` guard). DiGraph/Multi already 1.5-2.3x
+(their edge views lack `_materialize`; node loop now guard-free). BENCH NOISE LESSON (cost me time,
+now the second harness trap after build-inside-lambda): a reps=4 sweep FALSELY flagged
+cytoscape_data 0.86x and generate_graphml 0.84x as GAPS; reps=12-20 re-measure showed 1.22x and
+1.03x (generate_graphml is XML-stdlib `_serialize_xml`-bound, byte-exact). LEVER: treat any
+single-digit-reps sub-1x on a fast (<5ms) op as UNCONFIRMED until re-measured at reps>=12 with a
+warmup — micro-op timings swing 20-40%. The other candidates (_copy_attrs_into = DEAD no-callers;
+`.update(dict(...))` = 40 sites but ~all one-time `.graph.update(dict(G.graph))` micro, not
+per-element hot) were dry. Fresh sweep (tournament/isomorphism/planar/chordal/eulerian/atlas) = ALL
+wins (1.36-243x). Accessible serializer/guard-bypass vein now MINED (node_link_data was the real
+sub-1x; the rest already win).
+
 ## 2026-07-02 CopperCliff SHIP (pure-Python): node_link_data(simple Graph) 0.80-0.88x -> 0.94-1.03x — bypass the _FailFastEdgeIterator per-element guard
 
 Re-examined a documented "materialization floor" via the /alien-graveyard discipline (profile ->
