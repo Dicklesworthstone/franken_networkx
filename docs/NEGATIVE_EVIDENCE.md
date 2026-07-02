@@ -11989,3 +11989,18 @@ and both-attr products still fall to the batch path (0.19-0.30x, the f9f3f7e7d p
 pairing remains the Rust dig. This is the first BEAT-nx product win of the session (vs the earlier batch
 partials). Only 4 main products relaxed (via _native_graph_product); corona/rooted use their own
 _fnx.*_fast gate and could get the same node-attr relaxation next (follow-up).
+
+## 2026-07-01 CopperCliff SHIP (BEATS nx): corona/rooted product node-attr relaxation — 0.21-0.39x -> 2.24-2.38x
+
+Applied the dbce71884 "structure is attr-independent -> run native + bail only on the pairing axis"
+lever to the rest of the product family. KEY per-function attr semantics (both nx and fnx AGREE):
+corona DROPS node attrs (output node dicts empty) but PRESERVES H's per-copy EDGE attrs; rooted DROPS
+ALL attrs (node AND edge). So: corona gate `_graph_has_any_attrs`->`_graph_has_any_edge_attrs` (node
+attrs never affect output, no decoration needed); rooted gate DROP the attr check entirely (native's
+attr-free output matches nx for ANY input). NEITHER needs node decoration (unlike the main-4, which
+carry paired node attrs). Result: corona node-attr-only 0.21x->2.38x, rooted node-attr-only 0.39x->2.24x,
+AND rooted EDGE-attr 0.39x->2.24x (rooted drops all attrs so native handles edge-attributed input too) —
+all BEAT nx. Byte-exact 8/8 vs nx (nodeonly/edgeonly/both/none x corona/rooted); 326 corona/rooted/product
+conformance tests green. corona EDGE-attr still batches (H-copies carry H's edge attrs = the pairing axis).
+Product family status: no-attr + node-attr (all 6) beat nx; edge-attr = cartesian/tensor/strong/lexico/
+corona batch (0.19-0.30x partial), rooted native (beats nx). Remaining: edge-attr pairing (Rust) + modular.

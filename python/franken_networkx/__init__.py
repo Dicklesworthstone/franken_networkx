@@ -35024,17 +35024,22 @@ def corona_product(G, H):
         raise NetworkXNotImplemented("not implemented for directed type")
     _validate_product_graph_types(G, H, allow_multigraph=True)
 
-    # br-r37-c1-prodrooted: native fast path (simple, no-attr, self-loop-free).
+    # br-r37-c1-prodrooted: native fast path (simple, self-loop-free).
     # corona's result mixes G's original nodes with (g, h) tuples; the native
     # kernel builds that node table + the edge set in Rust (canonicalising each
     # product tuple once) instead of the per-edge Python construction. Same edge
-    # set (parity tests canonicalise edges); H-multigraph / attrs / self-loops
+    # set (parity tests canonicalise edges); H-multigraph / EDGE-attrs / self-loops
     # fall back to the Python build below.
+    # br-r37-c1-prodnodeattr (cc): corona DROPS node attrs (both nx and the Python
+    # fallback yield empty node dicts), so NODE attrs never affect the output — only
+    # H's per-copy EDGE attrs need the Python path. Gate on EDGE attrs alone so a
+    # node-attributed (edge-attr-free) corona goes native (byte-identical to nx,
+    # which also drops the node attrs) instead of the ~5x-slower Python build.
     if (
         not H.is_directed()
         and not H.is_multigraph()
-        and not _graph_has_any_attrs(G)
-        and not _graph_has_any_attrs(H)
+        and not _graph_has_any_edge_attrs(G)
+        and not _graph_has_any_edge_attrs(H)
         and not number_of_selfloops(G)
         and not number_of_selfloops(H)
     ):
@@ -35135,12 +35140,16 @@ def rooted_product(G, H, root):
     # tuple-key construction tax. The native kernel canonicalises each product
     # tuple once and assembles the edge set in Rust. Same edge set (parity tests
     # canonicalise edges); other shapes fall back to the Python build below.
+    # br-r37-c1-prodnodeattr (cc): the rooted product carries NO attrs at all — both
+    # nx and the Python fallback drop every node AND edge attr. So the native kernel
+    # (which builds the attr-free structure) is correct for ANY attributed input;
+    # only directed/multigraph-H/self-loop shapes need the Python path. Dropping the
+    # `_graph_has_any_attrs` gate routes attributed rooted products through the fast
+    # native build (byte-identical to nx's attr-free output).
     if (
         not G.is_directed()
         and not H.is_directed()
         and not H.is_multigraph()
-        and not _graph_has_any_attrs(G)
-        and not _graph_has_any_attrs(H)
         and not number_of_selfloops(G)
         and not number_of_selfloops(H)
     ):
