@@ -40557,6 +40557,52 @@ class _FilteredGraphView:
 
     def _edges(self, nbunch=None, data=False, keys=False):
         nodes = self._nbunch(nbunch)
+        # cc-rvfast: concrete-parent fast path for a NON-default edge filter
+        # (restricted_view and other generic filter_edge closures). The generic
+        # slow path below accesses ``self.adj[source][target]`` per edge, routing
+        # every endpoint through ``_node_visible`` (``__contains__`` +
+        # ``_private_override`` + ``predicate``) and per-edge ``is_multigraph`` /
+        # ``vars`` — ``restricted_view(G).edges()`` ran ~0.13x nx. When the parent
+        # is a CONCRETE simple graph and no nbunch is given, walk its native
+        # adjacency rows once and apply the raw filters directly: target visibility
+        # via the precomputed visible-node set (== ``filter_node`` for a concrete
+        # parent, since every row target is a parent node) and the raw
+        # ``filter_edge`` closure in the SAME single orientation, row order, and
+        # undirected ``seen`` dedup as the slow ``self.adj`` path. Byte-identical.
+        if (
+            nbunch is None
+            and not self._filter_edge_is_default
+            and not isinstance(data, str)
+            and data is not None
+            and not keys
+            and type(self._graph) in (Graph, DiGraph)
+        ):
+            parent = self._graph
+            filter_edge = self._filter_edge
+            visible_set = set(nodes)
+            fast = []
+            if parent.is_directed():
+                for source in nodes:
+                    row = _fast_succ_row(parent, source)
+                    for target in row:
+                        if target in visible_set and filter_edge(source, target):
+                            fast.append(
+                                (source, target, row[target]) if data else (source, target)
+                            )
+            else:
+                seen = set()
+                for source in nodes:
+                    row = _fast_adj_row(parent, source)
+                    for target in row:
+                        if target in seen or target not in visible_set:
+                            continue
+                        if not filter_edge(source, target):
+                            continue
+                        fast.append(
+                            (source, target, row[target]) if data else (source, target)
+                        )
+                    seen.add(source)
+            return fast
         # br-r37-c1-r3gjb/TealSpring nested-view pass: for chains of
         # default-edge, node-set subgraph views, walk the concrete parent's
         # native PLAIN-dict rows once. Source order stays `nodes` above. Simple

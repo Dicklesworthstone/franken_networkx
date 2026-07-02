@@ -2,6 +2,30 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP: restricted_view(G).edges() 0.13x -> 3.04x — concrete-parent fast path for non-default filter_edge (REFUTES last turn's "mined out")
+
+Last turn's SURFACE ("vein mined out") was WRONG — a fresh sweep of previously-untouched areas
+(I/O parse-side, nbunch ops, subgraph VIEWS, hashing, assortativity) found restricted_view(G)
+.edges() at 0.13x (57ms vs 7ms @ n=1000) — a 7.7x LOSS, the biggest gap of the whole session.
+Node-only subgraph_view.edges() was already 3.5x (fast native-parent chain path), but a
+NON-default filter_edge (restricted_view builds a filter_edge closure) fell to the generic
+slow `_edges`: it accesses `self.adj[source][target]` per edge, routing every endpoint through
+`_node_visible` (`__contains__` + `_private_override` + `predicate`) plus per-edge
+`is_multigraph`/`vars` (profile: 311k is_multigraph, 547k vars calls). FIX (cc-rvfast): a
+concrete-parent fast path in `_edges` — when the parent is a simple Graph/DiGraph, no nbunch,
+walk the native adjacency rows ONCE and apply the raw filters directly (target visibility via
+a precomputed visible-node set == filter_node for a concrete parent; the raw filter_edge
+closure in the SAME single orientation + row order + undirected `seen` dedup as the slow
+`self.adj` path). MEASURED: 0.13x->3.04x (n=1000), ->3.10x (n=2000); fnx 57->2.23ms. Byte-exact:
+800 cases (hidden NODES + hidden EDGES, data=True/False, directed/undirected, order-sensitive)
+0 fails; nbunch path preserved (falls to slow path); 2967 view/subgraph conformance pass. PURE-
+PYTHON. LEVER: a filtered-VIEW that has a fast path for the node-only case can still fall to
+the O(E)·view-object slow path when a second filter (edge) is set — extend the native-parent
+fast path to carry the second filter as a raw closure. META-LESSON: "vein mined out" was
+premature — the untouched sub-domain (filtered VIEW edge iteration) held the session's biggest
+gap. PRE-EXISTING (NOT mine, unrelated): find_induced_nodes Graph-Graph parity (3 fails) +
+write_gexf classification (1 fail) fail identically on HEAD — flagged for a future turn.
+
 ## 2026-07-02 CopperCliff SURFACE: 12-domain fresh sweep — accessible clean-win vein mined out; remaining sub-1x are 3 documented architectural floors + noise/parity
 
 After 11 shipped wins this session, a broad fresh sweep this turn found NO new accessible
