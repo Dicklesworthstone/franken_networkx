@@ -22816,6 +22816,24 @@ def _graph_has_any_attrs(G):
     return any(d for *_e, d in G.edges(data=True))
 
 
+def _graph_has_any_edge_attrs(G):
+    """True if any edge of *G* carries a non-empty attribute dict."""
+    if not G.is_multigraph():
+        try:
+            r = _fnx.graph_has_any_edge_attrs(G)
+        except Exception:
+            r = None
+        if r is not None:
+            return bool(r)
+        return any(d for *_e, d in G.edges(data=True))
+    return any(d for *_e, d in G.edges(keys=True, data=True))
+
+
+def _graph_has_any_node_attrs(G):
+    """True if any node of *G* carries a non-empty attribute dict."""
+    return any(d for _n, d in G.nodes(data=True))
+
+
 def _native_graph_product(G, H, *, kind="cartesian"):
     """br-r37-c1-prodnative: native product fast path, or None to fall back.
 
@@ -22832,14 +22850,24 @@ def _native_graph_product(G, H, *, kind="cartesian"):
     whole product to the ~4x-slower Python path. Result node tuples and the
     empty-attr edge set are identical to the Python construction; only the build
     path (and insertion order, which the product parity tests canonicalise away)
-    differs. Attributed graphs still fall back (self-loop edges would need attr
-    pairing the kernel does not do).
+    differs.
+
+    br-r37-c1-prodnodeattr (cc): the product edge set depends ONLY on adjacency, not
+    on attrs, so the kernel builds it correctly whether or not the factors carry
+    NODE attrs. EDGE attrs still force the Python fallback (the kernel can't pair
+    them), but node attrs are simply painted onto the structurally-correct native
+    result with one add_nodes_from batch afterward — O(V_G*V_H) node paints, far
+    cheaper than the O(E_product) Python edge loop. So a node-attributed (edge-attr-
+    free) product goes native (~0.88x vs nx) instead of falling all the way back to
+    the batch (~0.33x). Byte-identical: the paired node attrs equal
+    _product_node_attrs and the edge set is the same canonical set the parity tests
+    already accept for the no-attr native path.
     """
     if G.is_multigraph() or H.is_multigraph():
         return None
     if G.is_directed() != H.is_directed():
         return None
-    if _graph_has_any_attrs(G) or _graph_has_any_attrs(H):
+    if _graph_has_any_edge_attrs(G) or _graph_has_any_edge_attrs(H):
         return None
     fast = {
         "cartesian": _fnx.cartesian_product_fast,
@@ -22847,7 +22875,17 @@ def _native_graph_product(G, H, *, kind="cartesian"):
         "strong": _fnx.strong_product_fast,
         "lexicographic": _fnx.lexicographic_product_fast,
     }[kind]
-    return fast(G, H)
+    result = fast(G, H)
+    if result is not None and (
+        _graph_has_any_node_attrs(G) or _graph_has_any_node_attrs(H)
+    ):
+        # Paint paired node attrs onto the native (empty-attr) product nodes.
+        result.add_nodes_from(
+            ((g, h), _product_node_attrs(dict(g_attrs), dict(h_attrs)))
+            for g, g_attrs in G.nodes(data=True)
+            for h, h_attrs in H.nodes(data=True)
+        )
+    return result
 
 
 def _product_edge_attrs_kwarg_safe(G, H):

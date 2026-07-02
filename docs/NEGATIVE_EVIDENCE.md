@@ -11966,3 +11966,26 @@ by the tuple-key construction tax — a beat-nx product win needs native attr-pa
 (read/pair arbitrary Python attrs + build the mirror per product edge), a dedicated Rust dig. The whole
 product family (cartesian/tensor/strong/lexicographic/corona/rooted) now shares one Python-batch idiom;
 modular + the Rust attr-pairing kernel are the only remaining product levers.
+
+## 2026-07-01 CopperCliff SHIP (BEATS nx): node-attributed products via native-structure + node-decorate — 0.12-0.33x -> 0.98-3.37x
+
+BREAKTHROUGH on the "attributed products are construction-tax-bound" conclusion — it was only HALF true.
+A product's EDGE SET depends ONLY on adjacency, NOT on attrs, so the native `*_product_fast` kernel
+builds the correct structure whether or not the factors carry NODE attrs. The old gate
+(`_graph_has_any_attrs`) bailed on ANY attr, sending node-attributed products all the way to the slow
+Python edge loop. INSIGHT: only EDGE attrs actually need the kernel to pair-per-edge (which it can't);
+NODE attrs just DECORATE the structurally-correct native result. FIX: relax the gate to
+`_graph_has_any_EDGE_attrs` (new native-backed helper) + after the native call, if node attrs are
+present, paint paired node attrs on via ONE `add_nodes_from(((g,h), _product_node_attrs(...)) ...)`
+batch — O(V_G*V_H) node paints << the O(E_product) Python edge loop.
+
+RESULT (node-attr-only, edge-attr-free): cartesian 0.33x->0.98x (parity), tensor ~0.12x->2.54x, strong
+~0.19x->2.84x, lexicographic ~0.12x->3.37x — tensor/strong/lexico now BEAT nx by 2.5-3.4x (their denser
+O(E_G*E_H) edge sets make the native build's win dwarf the node-paint cost). Byte-IDENTICAL: 32/32 vs
+nx across nodeonly/edgeonly/both/none x Graph/DiGraph (edge set + node attrs), 16/16 vs current-public
+incl self-loops; 1216 product/operator conformance tests green (the node-attr path now uses the native
+canonical order the no-attr path already used — parity tests canonicalise, so no regression). EDGE-attr
+and both-attr products still fall to the batch path (0.19-0.30x, the f9f3f7e7d partial) — edge-attr
+pairing remains the Rust dig. This is the first BEAT-nx product win of the session (vs the earlier batch
+partials). Only 4 main products relaxed (via _native_graph_product); corona/rooted use their own
+_fnx.*_fast gate and could get the same node-attr relaxation next (follow-up).
