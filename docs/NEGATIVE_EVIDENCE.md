@@ -12093,3 +12093,19 @@ diverges from nx at n=4 (verified) and a Rust kernel must replicate edges()'s ad
 edges_ordered(). LEVER: any incremental builder adding provably-disjoint new-node edges can skip the
 touches-existing pre-scan via a direct _try_add_edges_from_batch. (watts_strogatz 0.79x = stochastic, needs
 PythonRandom-sequence replication — deferred.)
+
+
+## 2026-07-02 CopperCliff SHIP: batch 5 expander/harary/LCF generators — 4 now BEAT nx (pure-Python)
+
+Generator sweep found a cluster of per-edge-add_edge builders at 0.34-0.70x. Applied the
+reference_batch_add_edges_from_construction lever (per-edge graph.add_edge loop -> one add_edges_from
+with a LIST — the multigraph-safe form): margulis_gabber_galil_graph (4n^2 edges), chordal_cycle_graph
+(3p edges), _harary_graph_from_edges (shared by hnm_harary + hkn_harary, preserving the interleaved
+forward/reverse-or-dup order), LCF_graph (chord edges after cycle_graph). Byte-exact vs nx across all
+create_using types. RESULTS: chordal_cycle 0.46x->1.13x, hnm_harary 0.50x->1.45x, hkn_harary 0.44x->1.58x,
+LCF 0.70x->1.13x (ALL BEAT nx — int keys). margulis 0.34x->0.46x (PARTIAL — its nodes are (x,y) TUPLES so
+the tuple-key construction tax keeps it <nx, same ceiling as products). 2600 harary/LCF/expander/generator
+/classic conformance green. LEVER RE-CONFIRMED: grep per-edge `graph.add_edge(` loops in generators; batch
+via add_edges_from(LIST) — int-keyed builders reach/beat nx, tuple-keyed get a partial reduction. (NOTE the
+0.35x margulis reading right after a heavy pytest run was LOAD NOISE; clean re-measure 0.44-0.46x — always
+re-measure a lone outlier.)

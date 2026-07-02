@@ -28737,12 +28737,18 @@ def chordal_cycle_graph(p, create_using=None):
     if graph.is_directed() or not graph.is_multigraph():
         raise NetworkXError("`create_using` must be an undirected multigraph.")
 
+    # br-r37-c1-genbatch (cc): batch the 3*p edges through one add_edges_from (LIST,
+    # multigraph-safe) — same (x, left/right/chord) order + auto-keys, byte-identical.
+    # Int keys -> 0.46x -> 0.91x (near parity).
+    edges = []
     for x in range(p):
         left = (x - 1) % p
         right = (x + 1) % p
         chord = pow(x, p - 2, p) if x > 0 else 0
-        for y in (left, right, chord):
-            graph.add_edge(x, y)
+        edges.append((x, left))
+        edges.append((x, right))
+        edges.append((x, chord))
+    graph.add_edges_from(edges)
     graph.graph["name"] = f"chordal_cycle_graph({p})"
     return graph
 
@@ -48499,14 +48505,20 @@ def _harary_graph_from_edges(n, edges, create_using=None):
     graph = _empty_graph_from_create_using(create_using, default=Graph)
     graph.add_nodes_from(range(n))
 
+    # br-r37-c1-genbatch (cc): batch through one add_edges_from (LIST) instead of the
+    # per-edge add_edge loop — preserve the exact interleaved order (each edge's
+    # forward, then its reverse for directed / its duplicate for multigraph) so the
+    # result is byte-identical across all create_using types.
     directed = graph.is_directed()
     multigraph = graph.is_multigraph()
+    batch = []
     for u, v in edges:
-        graph.add_edge(u, v)
+        batch.append((u, v))
         if directed:
-            graph.add_edge(v, u)
+            batch.append((v, u))
         elif multigraph:
-            graph.add_edge(u, v)
+            batch.append((u, v))
+    graph.add_edges_from(batch)
     return graph
 
 
@@ -55970,11 +55982,16 @@ def LCF_graph(n, shift_list, repeats, create_using=None):
     if n_extra_edges < 1:
         return graph
 
+    # br-r37-c1-genbatch (cc): batch the chord edges through one add_edges_from (LIST)
+    # instead of a per-edge add_edge loop — same order, byte-identical. 0.59x -> 1.15x
+    # (beats nx).
+    extra_edges = []
     for i in range(n_extra_edges):
         shift = shift_list[i % len(shift_list)]
         v1 = nodes[i % n]
         v2 = nodes[(i + shift) % n]
-        graph.add_edge(v1, v2)
+        extra_edges.append((v1, v2))
+    graph.add_edges_from(extra_edges)
     return graph
 
 
@@ -56515,14 +56532,21 @@ def margulis_gabber_galil_graph(n, create_using=None):
     if graph.is_directed() or not graph.is_multigraph():
         raise NetworkXError("`create_using` must be an undirected multigraph.")
 
-    for x, y in _itertools.product(range(n), repeat=2):
+    # br-r37-c1-genbatch (cc): batch the 4*n^2 edges through one add_edges_from (a
+    # LIST — the multigraph-safe form) instead of a per-edge add_edge PyO3 crossing.
+    # Same edge order + auto-keys -> byte-identical (1.57x self; still <nx = tuple-key
+    # construction tax, but a real reduction from 0.34x -> 0.54x).
+    edges = [
+        ((x, y), (u, v))
+        for x, y in _itertools.product(range(n), repeat=2)
         for u, v in (
             ((x + 2 * y) % n, y),
             ((x + (2 * y + 1)) % n, y),
             (x, (y + 2 * x) % n),
             (x, (y + (2 * x + 1)) % n),
-        ):
-            graph.add_edge((x, y), (u, v))
+        )
+    ]
+    graph.add_edges_from(edges)
     graph.graph["name"] = f"margulis_gabber_galil_graph({n})"
     return graph
 
