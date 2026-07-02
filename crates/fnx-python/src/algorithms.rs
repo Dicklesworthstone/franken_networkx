@@ -15089,6 +15089,63 @@ fn corona_product_edge_attrs_fast(
     Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
 }
 
+/// br-r37-c1-mycnative (cc): native Mycielskian step for the attr-free case (the
+/// common one — Mycielskians are built on unlabelled test graphs for chromatic-number
+/// constructions). `M` is integer-labelled 0..n-1; the result has nodes 0..n-1
+/// (original), n..2n-1 (shadow of each u is u+n), and 2n (apex). Edges, in nx's exact
+/// order: M's original edges, then shadow pass 1 (u, v+n), then pass 2 (u+n, v), then
+/// each shadow node joined to the apex (n+i, 2n). Building the whole 2n+1-node /
+/// 3E+n-edge structure in Rust avoids the per-edge PyO3 construction tax that left the
+/// batched Python build at ~0.65x. Returns None (-> Python batch) if M carries ANY
+/// node/edge/graph attrs (the Python path preserves M's original attrs); the caller
+/// gates on that, so here we only build pure structure.
+#[pyfunction]
+#[pyo3(signature = (m,))]
+fn mycielskian_step_fast(py: Python<'_>, m: &Bound<'_, PyAny>) -> PyResult<Option<PyObject>> {
+    let pm = match m.extract::<PyRef<'_, PyGraph>>() {
+        Ok(p) => p,
+        Err(_) => return Ok(None),
+    };
+    let inner = &pm.inner;
+    let n = inner.node_count();
+    // M is integer-labelled 0..n-1, so node index i has canonical key "i".
+    let m_edges = inner.edges_ordered_indices();
+
+    let total = 2 * n + 1;
+    let mut r = fnx_classes::Graph::with_runtime_policy(inner.runtime_policy().clone());
+    let node_names: Vec<String> = (0..total).map(|i| i.to_string()).collect();
+    let _ = r.extend_nodes_unrecorded(node_names.iter().cloned());
+
+    let mut edges: Vec<(String, String)> = Vec::with_capacity(3 * m_edges.len() + n);
+    // M's original edges (M's edge order).
+    for &(u, v) in &m_edges {
+        edges.push((u.to_string(), v.to_string()));
+    }
+    // Shadow pass 1: (u, v+n).
+    for &(u, v) in &m_edges {
+        edges.push((u.to_string(), (v + n).to_string()));
+    }
+    // Shadow pass 2: (u+n, v).
+    for &(u, v) in &m_edges {
+        edges.push(((u + n).to_string(), v.to_string()));
+    }
+    // Apex: each shadow node n+i joined to the apex 2n.
+    let apex = 2 * n;
+    for i in 0..n {
+        edges.push(((n + i).to_string(), apex.to_string()));
+    }
+    let _ = r.extend_edges_unrecorded(edges);
+
+    let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(total);
+    for i in 0..total {
+        node_key_map.insert(i.to_string(), i.into_pyobject(py)?.into_any().unbind());
+    }
+    let mut py_graph = PyGraph::new_empty_with_policy(py, inner.runtime_policy().clone())?;
+    py_graph.inner = r;
+    py_graph.node_key_map = node_key_map;
+    Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
+}
+
 // br-r37-c1-lgnative: native line graph for the simple (non-multi),
 // no-create_using, self-loop-free case. L(G)'s nodes are G's EDGES, represented
 // as Python tuples `(u, v)`; the Python path adds them one PyO3 call at a time
@@ -23165,6 +23222,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(rooted_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(corona_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(corona_product_edge_attrs_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(mycielskian_step_fast, m)?)?;
     m.add_function(wrap_pyfunction!(line_graph_fast, m)?)?;
     m.add_function(wrap_pyfunction!(degree_histogram, m)?)?;
     // A* shortest path

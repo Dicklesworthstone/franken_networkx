@@ -50598,6 +50598,17 @@ def _mycielskian_step(M):
     # add_edges_from instead of a per-edge add_edge loop (each a separate PyO3
     # crossing + per-edge dict/key construction). The node + edge order is
     # preserved, so the result is byte-identical — only the build path differs.
+    # br-r37-c1-mycnative (cc): the attr-free case (Mycielskians are built on
+    # unlabelled test graphs) assembles the whole 2n+1-node / 3E+n-edge structure in
+    # Rust, skipping the per-edge PyO3 construction tax (batched Python build ~0.65x
+    # vs nx). Only fires when M has no node/edge/graph attrs (the native kernel builds
+    # pure structure); otherwise fall through to the attr-preserving Python build.
+    if type(M) is Graph and not M.graph and not _graph_has_any_attrs(M):
+        _fast = getattr(_fnx, "mycielskian_step_fast", None)
+        if _fast is not None:
+            _r = _fast(M)
+            if _r is not None:
+                return _r
     n = M.number_of_nodes()
     R = Graph()
     R.add_nodes_from((node, dict(data)) for node, data in M.nodes(data=True))

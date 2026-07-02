@@ -12057,3 +12057,20 @@ DIRECT-COPY PRODUCT FAMILY COMPLETE (edge-attr, pristine-mirror lever): cartesia
 DiGraph 20eeac3f6), corona (this). REMAINING product edge-attr levers need the Python mirror (non-scalar
 paired tuples): tensor/strong/lexico (_paired_edge_attrs -> tuples) + modular — a harder Rust dig (must
 build edge_py_attrs mirror entries in-kernel, not just store AttrMaps). Node-attr: all 7 already beat nx.
+
+
+## 2026-07-02 CopperCliff SHIP (BEATS nx, RUST): native mycielskian_step (attr-free) — 0.65x -> 3.07-3.35x
+
+Fresh non-product dig. mycielskian was 0.5-0.65x: the batched Python _mycielskian_step still paid the
+per-edge PyO3 construction tax (add_nodes_from + 4x add_edges_from build a 2n+1-node / 3E+n-edge graph;
+profile hotspot was _simple_add_edges_from_touches_existing_plain_edge scanning growing edge sets — but
+COMBINING the 4 add_edges_from into 1 gave 1.01x self, proving the cost is edge INSERTION, not the
+pre-check). New pyfunction mycielskian_step_fast assembles the whole structure in Rust (nodes 0..2n int
+keys, edges: M's originals + shadow (u,v+n)+(u+n,v) + apex (n+i,2n), nx's exact order). Gated to the
+ATTR-FREE case (Mycielskians are built on unlabelled test graphs) — Python wrapper only calls it when
+`not M.graph and not _graph_has_any_attrs(M)`; attributed M keeps the attr-preserving Python build. n=150
+0.65x->3.07x, n=300 ->3.35x (~5x self). Differential 12/12 byte-exact vs nx (exact node+edge order+attrs;
+int + str-keys via convert; iterations 0/1/2/3; node/edge/graph-attr all BAIL; empty/single-edge); product
+regressions clean (cart 13+11, corona 13); 2789 mycielski+product+generator conf green. LEVER: a batched
+construction still >nx = base per-edge construction tax; a native int-keyed structure kernel (no attrs,
+no tuples) is the cheapest beat-nx path. Grep other batched-but-<nx graph builders (construction tax).
