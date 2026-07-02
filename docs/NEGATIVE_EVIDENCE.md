@@ -2,6 +2,29 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP (strict-work-removal, NOT a beat): has_edge(int) 22% faster via dynamic-verified identity-int path; residual is a PyO3-dispatch FLOOR
+
+Unblocked last turn's has_edge SURFACE. The identity-int fast path is safe WITHOUT the
+lazy_int_node_stop reset question: verify identity DYNAMICALLY per call. For exact-int u
+(`is_exact_instance_of::<PyInt>()`, bool excluded, fits usize), `node_index_matches_int(iu)` =
+`nodes.get_index(iu)` (O(1)) + a no-alloc `str::parse` == iu — confirming the node AT index iu IS
+int iu. Any removal / remove+readd / remap that broke index==value simply fails the check ->
+string fallback. Then `edges.contains_key(canon_pair(iu,iv))`. NO `i.to_string()` heap alloc, NO
+String-hash `get_index_of`. Byte-exact 1500 graphs (removals, remove+readd, negative/large/float
+(5.0==5)/bool/str/out-of-range probes) 0 fails; clippy clean; 2878 conf pass.
+MEASURED: int has_edge 0.66->0.515ms (22%, above the 9-18% rch noise band) and 2.41x vs the
+string-path fallback (1.24ms) — a REAL strict-work-removal. BUT still 0.39x vs nx (0.515 vs
+0.201ms) — DOES NOT BEAT NX. ROOT of the residual: has_edge is a micro-op bounded by the Rust
+`#[pymethod]` PyO3 dispatch (~258ns/call even with zero string work) vs nx's trivial in-Python
+`v in adj[u]` (~100ns/call). A Rust pymethod cannot beat a Python dict lookup for a per-call
+trivial op — dispatch-bound FLOOR, not a string floor (my last-turn hypothesis was half-wrong).
+Shipped on mechanistic grounds (strict work removal + byte-exact + no regression) and because it
+establishes the proven-safe DYNAMIC-VERIFIED identity-int technique — reusable where string work
+is NOT dispatch-dominated. LEVER: the technique beats nx only on ops that do enough work per call
+to amortize the pymethod dispatch (list-returning neighbors/successors, batch probes) — has_edge
+alone is too small. NEXT: apply to neighbors/DiGraph.has_edge/successors (list-returning ->
+dispatch amortized -> string-removal likely a real beat).
+
 ## 2026-07-02 CopperCliff SURFACE (String-keyed-storage floor family): has_edge/neighbors/successors bulk 0.34-0.52x — identity-int fast path blocked by index-stability-under-removal
 
 Follow-up to the set_edge_attributes win (284e5fd75). Checked the attr-setter SIBLINGS + a

@@ -10656,6 +10656,23 @@ impl PyGraph {
         u: &Bound<'_, PyAny>,
         v: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
+        // cc-hasedgeintidx: identity-int fast path. `G.has_edge(u, v)` on int nodes
+        // otherwise pays 2 `i.to_string()` heap allocs + 2 String-hash
+        // `get_index_of` (vs nx's 2 int-dict lookups). When u and v are EXACT ints
+        // (bool excluded: it's an int subclass with canonical "0"/"1") that fit in
+        // usize AND the node stored at each index IS that int (verified per call —
+        // any removal / re-add / remap that broke index==value fails the check and
+        // falls through), resolve the edge straight by index: no alloc, no String
+        // hash. `node_index_matches_int` is O(1) index access + a no-alloc parse.
+        if u.is_exact_instance_of::<PyInt>()
+            && v.is_exact_instance_of::<PyInt>()
+            && let Ok(iu) = u.extract::<usize>()
+            && let Ok(iv) = v.extract::<usize>()
+            && self.inner.node_index_matches_int(iu)
+            && self.inner.node_index_matches_int(iv)
+        {
+            return Ok(self.inner.has_edge_by_indices(iu, iv));
+        }
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
         Ok(self.inner.has_edge(&u_c, &v_c))

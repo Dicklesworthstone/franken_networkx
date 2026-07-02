@@ -754,6 +754,27 @@ impl Graph {
             .is_some_and(|k| self.edges.contains_key(&k))
     }
 
+    /// cc-hasedgeintidx: true iff the node stored at `idx` IS the integer `idx`
+    /// (its canonical string parses back to `idx`). Lets a caller VERIFY, per call
+    /// and with no allocation, that an exact-int node lands at its own index before
+    /// probing an edge by index — so any removal / re-add / remap that shifted
+    /// indices simply returns false and the caller falls back to the string path.
+    /// O(1) index access + a no-alloc `str::parse`.
+    #[must_use]
+    pub fn node_index_matches_int(&self, idx: usize) -> bool {
+        self.nodes
+            .get_index(idx)
+            .is_some_and(|(k, _)| k.parse::<usize>() == Ok(idx))
+    }
+
+    /// cc-hasedgeintidx: undirected edge existence by node INDEX (canonical
+    /// min/max pair). Caller must have validated both indices (e.g. via
+    /// `node_index_matches_int`).
+    #[must_use]
+    pub fn has_edge_by_indices(&self, l: usize, r: usize) -> bool {
+        self.edges.contains_key(&Self::canon_pair(l, r))
+    }
+
     #[must_use]
     pub fn nodes_ordered(&self) -> Vec<&str> {
         self.nodes.keys().map(String::as_str).collect()
