@@ -4602,60 +4602,70 @@ impl PyMultiDiGraph {
     }
 
     fn remove_nodes_from(&mut self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<()> {
+        // br-r37-c1-mgrnf2: batch inner removal AND kill the O(k·degree) per-node
+        // succ/pred edge_keys walk. The old version looped inner.remove_node
+        // (three O(|V|) shift_removes each => O(k·|V|)) and walked
+        // successors()/predecessors()+edge_keys() per node (a fresh Vec alloc per
+        // incident edge) purely to purge the edge mirrors. Purge node-side mirrors
+        // O(k), sweep each edge/adjacency mirror ONCE via an endpoint-keyed retain
+        // (0 for pristine graphs), then compact inner ONCE. Mirrors the simple
+        // DiGraph / MultiGraph bindings.
         let iter = PyIterator::from_object(nodes)?;
-        let mut had_incident_edges = false;
+        let mut present: Vec<String> = Vec::new();
+        // FxHashSet: probed once per edge-mirror / adjacency-override entry below.
+        let mut present_set: rustc_hash::FxHashSet<String> = rustc_hash::FxHashSet::default();
         for item in iter {
             let item = item?;
             let canonical = node_key_to_string(py, &item)?;
-            if self.inner.has_node(&canonical) {
-                let succs = self
-                    .inner
-                    .successors(&canonical)
-                    .map(|succs| succs.into_iter().map(str::to_owned).collect::<Vec<_>>());
-                if let Some(succs) = succs {
-                    for v in succs {
-                        if let Some(keys) = self.inner.edge_keys(&canonical, &v) {
-                            for key in keys {
-                                self.remove_edge_metadata(&canonical, &v, key);
-                                had_incident_edges = true;
-                            }
-                        }
-                    }
-                }
-                let preds = self
-                    .inner
-                    .predecessors(&canonical)
-                    .map(|preds| preds.into_iter().map(str::to_owned).collect::<Vec<_>>());
-                if let Some(preds) = preds {
-                    for u in preds {
-                        if let Some(keys) = self.inner.edge_keys(&u, &canonical) {
-                            for key in keys {
-                                self.remove_edge_metadata(&u, &canonical, key);
-                                had_incident_edges = true;
-                            }
-                        }
-                    }
-                }
-                if self.node_iter_mirror_active() {
-                    // Remove from the live mirror before node_key_map drops the
-                    // display object (mirror keys are the display py objects).
-                    let py_key = self.py_node_key(py, &canonical);
-                    self.node_iter_mirror_remove_key(py, py_key.bind(py));
-                }
-                self.inner.remove_node(&canonical);
-                self.node_key_map.remove(&canonical);
-                self.node_py_attrs.remove(&canonical);
-                if !self.succ_py_keys.is_empty() || !self.pred_py_keys.is_empty() {
-                    // br-r37-c1-z6uka: drop cell overrides touching removed nodes.
-                    self.succ_py_keys
-                        .retain(|(a, b), _| a != &canonical && b != &canonical);
-                    self.pred_py_keys
-                        .retain(|(a, b), _| a != &canonical && b != &canonical);
-                }
+            if self.inner.has_node(&canonical) && present_set.insert(canonical.clone()) {
+                present.push(canonical);
             }
         }
+        if present.is_empty() {
+            self.bump_nodes_seq();
+            return Ok(());
+        }
+        // Node-side mirror purge — O(k), independent of degree.
+        for canonical in &present {
+            if self.node_iter_mirror_active() {
+                // Remove from the live mirror while node_key_map still holds the
+                // display object (mirror keys are the display py objects).
+                let py_key = self.py_node_key(py, canonical);
+                self.node_iter_mirror_remove_key(py, py_key.bind(py));
+            }
+            self.node_key_map.remove(canonical);
+            self.node_py_attrs.remove(canonical);
+        }
+        // Edge/adjacency mirror purge — one endpoint-keyed pass over each mirror
+        // (drop an entry iff EITHER endpoint is removed; correct regardless of key
+        // canonicalisation, and sweeps stale entries the inner-walk would miss).
+        let mut removed_py_edge_mirror = false;
+        if !self.edge_py_attrs.is_empty() {
+            self.edge_py_attrs.retain(|(l, r, _k), _| {
+                let keep = !present_set.contains(l) && !present_set.contains(r);
+                if !keep {
+                    removed_py_edge_mirror = true;
+                }
+                keep
+            });
+        }
+        if !self.edge_py_keys.is_empty() {
+            self.edge_py_keys
+                .retain(|(l, r, _k), _| !present_set.contains(l) && !present_set.contains(r));
+        }
+        if !self.succ_py_keys.is_empty() {
+            self.succ_py_keys
+                .retain(|(a, b), _| !present_set.contains(a) && !present_set.contains(b));
+        }
+        if !self.pred_py_keys.is_empty() {
+            self.pred_py_keys
+                .retain(|(a, b), _| !present_set.contains(a) && !present_set.contains(b));
+        }
+        let present_refs: Vec<&str> = present.iter().map(String::as_str).collect();
+        let (_removed_nodes, removed_edges) =
+            self.inner.remove_nodes_from(present_refs.iter().copied());
         self.bump_nodes_seq();
-        if had_incident_edges {
+        if removed_edges > 0 || removed_py_edge_mirror {
             self.bump_edges_seq(); // br-r37-c1-jft0i
         }
         Ok(())

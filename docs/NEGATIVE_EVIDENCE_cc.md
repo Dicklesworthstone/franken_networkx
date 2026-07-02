@@ -3845,3 +3845,22 @@ k~N/2 the whole-scan is order-comparable but has a ~3x constant (Rust IndexMap r
 Python dict del). MultiDiGraph sibling (identical pattern, inner batch + binding written, FxHash)
 is STASHED UNVERIFIED (cc-mdg-remove_nodes_from-batch-UNVERIFIED-never-built) — build+byte-verify
 then ship. MDG rnf still 0.16x.
+
+## MultiDiGraph.remove_nodes_from — batch inner + kill binding edge-walk (CopperCliff, MEASURED WIN, follow-up)
+
+Shipped the MDG sibling of the MG fix (was stashed unverified; rebuilt + verified). MultiDiGraph
+had NO inner batch (looped inner.remove_node = three O(|V|) shift_removes each => O(k·|V|)) AND the
+binding walked successors()/predecessors()+edge_keys() per node (O(k·degree) allocs). Added
+MultiDiGraph::remove_nodes_from (one retain per structure over edges/successors/predecessors/nodes
+= O(|V|+|E|); revision bump invalidates csr_cache) + routed the binding to node-side O(k) purge +
+single endpoint-keyed retains over edge_py_attrs/edge_py_keys/succ_py_keys/pred_py_keys + FxHashSet.
+
+MEASURED (n=1000,k=500): MDG rnf 0.102x -> **0.424x @ m=2000**, 0.125x -> **0.239x @ m=5000**,
+0.109x -> **0.166x @ m=10000**. Byte-exact 256/256 MG + 256/256 MDG (512 checks: parallel edges,
+self-loops, node/edge attrs, str+int explicit keys, touched mirrors, dup+nonexistent victims,
+stale-resurrection on re-add) + 3116 targeted conformance tests pass. FxHash confirmed the MG floor
+too: MG rnf now 0.236x @ m=5000 / 0.374x @ m=2000 (above the 0.203x std-hash floor reported in the
+prior commit).
+
+RESIDUAL (both types): whole-graph O(|E|) inner retain scan regardless of k (~3x nx incident-only
+dict dels) — the last lever for k<<N.

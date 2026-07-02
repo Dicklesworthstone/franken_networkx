@@ -2779,6 +2779,68 @@ impl MultiDiGraph {
         true
     }
 
+    /// br-r37-c1-mgrnf: batch node removal — amortised analogue of `remove_node`.
+    /// `MultiDiGraph::remove_node` pays THREE O(|V|) `shift_remove`s (successors,
+    /// predecessors, nodes) per call, so a caller loop of `k` removals was
+    /// O(k·|V|). This does each pass ONCE via `retain` — O(|V|+|E|) total, matching
+    /// the simple `DiGraph::remove_nodes_from` batch. Returns
+    /// `(removed_node_count, removed_edge_instance_count)`. The `revision` bump
+    /// invalidates `csr_cache` exactly as repeated `remove_node` would.
+    pub fn remove_nodes_from<'a, I>(&mut self, nodes: I) -> (usize, usize)
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let remove_set: rustc_hash::FxHashSet<&str> = nodes
+            .into_iter()
+            .filter(|node| self.nodes.contains_key(*node))
+            .collect();
+        if remove_set.is_empty() {
+            return (0, 0);
+        }
+
+        let old_node_count = self.nodes.len();
+        let old_edge_count = self.edge_count;
+
+        // Drop every edge bucket incident to a removed node (source OR target) in
+        // one pass, tallying parallel-edge instances so `edge_count` stays exact.
+        // `edges` map order is unobserved externally (consumers walk `edges_ordered`
+        // = successor order), so `retain` is order-safe — same rationale as
+        // `remove_node`.
+        let mut removed_instances = 0usize;
+        self.edges.retain(|key, bucket| {
+            let keep = !remove_set.contains(key.source.as_str())
+                && !remove_set.contains(key.target.as_str());
+            if !keep {
+                removed_instances += bucket.len();
+            }
+            keep
+        });
+        self.edge_count -= removed_instances;
+
+        // successors + predecessors: drop the removed nodes' own rows, then prune
+        // references to removed nodes from every surviving row. Order-preserving
+        // `retain`, so byte-identical to repeated `remove_node`.
+        self.successors
+            .retain(|node, _| !remove_set.contains(node.as_str()));
+        for row in self.successors.values_mut() {
+            row.retain(|target, _| !remove_set.contains(target.as_str()));
+        }
+        self.predecessors
+            .retain(|node, _| !remove_set.contains(node.as_str()));
+        for row in self.predecessors.values_mut() {
+            row.retain(|source, _| !remove_set.contains(source.as_str()));
+        }
+        self.nodes
+            .retain(|node, _| !remove_set.contains(node.as_str()));
+
+        let removed_nodes = old_node_count - self.nodes.len();
+        let removed_edges = old_edge_count - self.edge_count;
+        self.revision = self
+            .revision
+            .saturating_add(u64::try_from(removed_nodes).unwrap_or(u64::MAX));
+        (removed_nodes, removed_edges)
+    }
+
     #[must_use]
     pub fn edges_ordered(&self) -> Vec<MultiDiEdgeSnapshot> {
         let mut ordered = Vec::with_capacity(self.edge_count());
