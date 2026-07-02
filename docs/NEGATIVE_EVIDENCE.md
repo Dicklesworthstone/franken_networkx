@@ -12140,3 +12140,18 @@ ALGORITHMIC builders (heap/greedy degree-sequence realizers) that add_edge in a 
 graph can defer to one add_edges_from. Also swept all 26 named native generator kernels for byte-exactness
 vs nx — ALL clean except generalized_petersen (fixed 76ab197ef); the _rust_*_graph fast paths are
 byte-correct.
+
+
+## 2026-07-02 CopperCliff SHIP: barbell_graph second-bell pre-scan bypass — 0.79x -> 1.48x (beats nx)
+
+Generator sweep: barbell_graph 0.79x at m1=500. The first bell is complete_graph(m1) (native), but the
+SECOND bell K_{m1} is add_edges_from(GENERATOR) onto the ALREADY-POPULATED graph -> add_edges_from
+materializes the generator then runs the touches-existing pre-scan (build existing-edge set of ~m1^2/2 +
+membership-test every one of the m1^2/2 second-bell edges), ~doubling the work. But the second bell spans
+ONLY fresh nodes m1+m2..2m1+m2-1 (first bell+bar live in 0..m1+m2-1), so no edge can touch an existing one.
+FIX (same binomial_tree bf226b815 lever): materialize the second bell to a LIST + call the native batch
+_try_add_edges_from_batch directly, skipping the pre-scan; fall back if it bails. 0.79x -> 1.48x (beats nx).
+Byte-exact vs nx (node+edge order, m2=0/1/large, error cases); 1658 barbell/classic conf green. LEVER
+(3rd pre-scan-bypass hit): grep add_edges_from(<generator/list> of provably-disjoint-new-node edges) onto
+a NON-fresh graph -> materialize + direct _try_add_edges_from_batch. (Tiny named graphs sedgewick/tutte/
+desargues 0.68-0.83x are 0.05ms = noise, skip; nonisomorphic_trees 0.75x is a recursive tree enumerator.)
