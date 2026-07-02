@@ -2,6 +2,26 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP: Multi(Di)Graph restricted_view.degree() 0.04-0.05x -> 0.74x/4.1x — degree bulk path extended to multigraphs (COMPLETES the filtered-view domain)
+
+Last filtered-view gap. Extended `_fast_filtered_degree_pairs` to multigraphs: a `_pair_count`
+helper contributes 1 per simple edge (if it passes filter_edge) or sums the parallel keys that
+pass `filter_edge(u,v,key)` per pair. Degree is a SUM so key order is irrelevant (no reorder
+concern, unlike the edges view — so no closure-filter gate needed). Directed: MultiDiGraph
+uses per-source `_fast_succ_row` (O(deg), per-row native dict), simple DiGraph keeps the
+hoisted successor snapshot (its `_fast_succ_row` is O(V)); self-loop double-counts via out+in
+(directed) or the trailing `+= c` (undirected). MEASURED: MultiDiGraph restr.degree()
+0.05x->4.09x (n=2000, beats nx); MultiGraph 0.04x->0.74x — an 18x fnx speedup (414->22.5ms)
+but still <1x: the residual is the per-parallel-edge `filter_edge(u,v,key)` closure call
+(a `frozenset` build per key for undirected), which nx's FilterMultiInner pays too, so the
+gap is thin substrate not removable work. Byte-exact: 600 cases across ALL 4 types (self-loops,
+hidden nodes + edges, parallel edges) 0 fails; in/out_degree unaffected; 7707 conformance pass
+(4 pre-existing failures unchanged). PURE-PYTHON. FILTERED-VIEW DOMAIN COMPLETE: restricted_view
+(and plain subgraph_view(filter_edge)) edges+degree across Graph/DiGraph/MultiGraph/
+MultiDiGraph all lifted from 0.01-0.14x to 0.64x-4.1x (7 of 8 beat nx; MG degree 0.74x is the
+substrate floor). META: last turn's "vein mined out" surface missed this ENTIRE domain — it
+yielded 6 wins + a self-caught regression across 4 turns.
+
 ## 2026-07-02 CopperCliff SHIP: Multi(Di)Graph restricted_view.edges() 0.11-0.14x -> 1.6-4.1x — multigraph sibling of the concrete-parent fast path
 
 Extended cc-rvfast to multigraph parents. Empirically confirmed restricted_view (closure
