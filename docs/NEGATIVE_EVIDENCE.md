@@ -2,6 +2,30 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP: dense Graph.edges() 0.57-0.76x -> 1.2-1.5x — O(E) pair-dedup -> O(N) node-dedup in the native kernel
+
+VARIED-PROFILE sweep (dense / star / complete / large-sparse) — the fix for two no-win
+turns: my earlier sweeps used moderate density (m~5k) and MISSED this. `list(G.edges())` on a
+DENSE simple Graph was 0.57x nx (n=500 p=0.3, m=37422: 6.52 vs 3.74ms), the gap GROWING with
+edge count. cProfile saw nothing (native iteration). ROOT: `MultiGraph`-style trap in the
+SIMPLE-Graph `edges_ordered_indices` (fnx-classes) — it built a `HashSet<(usize,usize)>`
+`present` set (all edges) PLUS a per-edge `seen_pairs` `HashSet<(usize,usize)>` pair-dedup
+(~150k pair hashes @ 37k edges). nx dedups in O(N) via first-encounter NODE tracking
+(`seen[source]`). FIX (cc-edgesnodeded): the exact `reference_mg_edges_node_dedup` lever ported
+to simple Graph — yield `(u,v)` when `v` is not yet a processed source, `vec![bool]` node
+marker (O(1)/neighbour, no hashing); same node-major adjacency order + earlier-endpoint-first
+orientation => byte-identical. Falls back to the present/seen_pairs rebuild only if the
+adjacency walk doesn't reproduce the full edge set (degenerate adjacency). MEASURED: dense
+edges() 0.57x->1.29x (n=500, 6.52->2.67ms), 0.63x->1.22x (n=200 p=.8), 0.76x->1.50x (n=1000
+p=.05) — all BEAT nx; edges(data=True) 0.62x->0.92x (residual = the per-edge edge_key String
+attr-mirror probe, a separate lever). Byte-exact: 500 cases (dense/sparse/self-loops/removals/
+shuffled-node-order, order-sensitive) 0 fails incl edges(data) + edge_subgraph; clippy clean;
+6336 conformance pass (2 pre-existing coverage.md doc-drift failures, unrelated — only Rust
+changed). LEVER (RE-CONFIRMED, cross-type): grep native edge iterators for
+`HashSet<(usize,usize)>`/`seen_pairs` pair-dedup -> replace with nx's O(N) `seen[source]`
+first-encounter node-dedup. META: a NARROW graph profile (fixed density) hides scaling gaps —
+sweep dense/sparse/star/complete/large to surface them. Native (Rust) vein is NOT exhausted.
+
 ## 2026-07-02 CopperCliff SURFACE (no shippable win this turn): reverse in/out_degree constant-factor + a native reverse-multigraph-weighted-degree ULP gap
 
 Continuing the view-remnant sweep — no shippable win, three dead ends + one surfaced bug:

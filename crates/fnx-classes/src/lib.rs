@@ -2127,6 +2127,31 @@ impl Graph {
     /// of hashing the canonical String per endpoint via `py_node_key`.
     #[must_use]
     pub fn edges_ordered_indices(&self) -> Vec<(usize, usize)> {
+        // cc-edgesnodeded: nx's O(N) first-encounter edge dedup — yield (u, v) when
+        // v has NOT yet been processed as a source (so each undirected edge emits
+        // once, from its earlier-processed endpoint). Replaces the O(E)
+        // `HashSet<(usize,usize)>` pair-dedup + `present` membership set that made
+        // `list(G.edges())` ~0.57x nx on dense graphs (37k edges = ~150k pair
+        // hashes). Same node-major adjacency order and same orientation, so
+        // byte-identical. A `vec![bool]` node marker is O(1) per neighbour, no
+        // hashing. Falls back to the exact present/seen_pairs rebuild only if the
+        // adjacency walk does not reproduce the full edge set (degenerate /
+        // inconsistent adjacency), preserving the original contract there.
+        let node_count = self.adj_indices.len();
+        let mut ordered = Vec::with_capacity(self.edges.len());
+        let mut seen_source = vec![false; node_count];
+        for (u, row) in self.adj_indices.iter().enumerate() {
+            for &v in row {
+                if !seen_source[v] {
+                    ordered.push((u, v));
+                }
+            }
+            seen_source[u] = true;
+        }
+        if ordered.len() == self.edges.len() {
+            return ordered;
+        }
+        // Fallback (degenerate adjacency): the exact present/seen_pairs rebuild.
         let mut present: HashSet<(usize, usize)> = HashSet::with_capacity(self.edges.len());
         for &(l, r) in &self.edge_index_endpoints {
             present.insert(if l <= r { (l, r) } else { (r, l) });
