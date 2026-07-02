@@ -8176,9 +8176,13 @@ impl PyDiGraph {
         weight: &str,
         kind: DegreeKind,
     ) -> PyResult<Vec<(PyObject, PyObject)>> {
-        let one = 1i64.into_pyobject(py)?.into_any();
-        let sum_fn = py.import("builtins")?.getattr("sum")?;
-        let mut out: Vec<(PyObject, PyObject)> = Vec::new();
+        let build_out = matches!(kind, DegreeKind::Total | DegreeKind::Out);
+        let build_in = matches!(kind, DegreeKind::Total | DegreeKind::In);
+
+        // Materialize the (validated, in-graph) nbunch ONCE — nbunch may be a
+        // one-shot iterator, and both the int-store fast path and the exact path
+        // walk it. nx validation: unhashable -> TypeError, absent -> skip.
+        let mut items: Vec<(Bound<'_, PyAny>, String)> = Vec::new();
         for item in nbunch.try_iter()? {
             let node = item?;
             if node.hash().is_err() {
@@ -8194,23 +8198,92 @@ impl PyDiGraph {
             if !self.inner.has_node(&canonical) {
                 continue;
             }
-            let build_out = matches!(kind, DegreeKind::Total | DegreeKind::Out);
-            let build_in = matches!(kind, DegreeKind::Total | DegreeKind::In);
+            items.push((node, canonical));
+        }
 
+        // br-cc-didegnbint: INT-store fast path — i128 accumulate per node from the
+        // CgseValue store via integer index rows (out = successors_indices, in =
+        // predecessors_indices; a directed self-loop sits in each once, so Total's
+        // out+in counts it twice = nx). Reuses the nbunch object as key. Gated
+        // !edges_dirty; labeled-break bails the whole subset to the exact path on
+        // any non-int weight / overflow, keeping float/heterogeneous byte-identical.
+        if !self.edges_dirty.load(Ordering::Relaxed) {
+            let mut int_pairs: Vec<(PyObject, PyObject)> = Vec::with_capacity(items.len());
+            let mut all_int = true;
+            'nodes: for (node, canonical) in &items {
+                let Some(idx) = self.inner.get_node_index(canonical) else {
+                    all_int = false;
+                    break;
+                };
+                let mut total: i128 = 0;
+                if build_out && let Some(succs) = self.inner.successors_indices(idx) {
+                    for &j in succs {
+                        let w = match self.inner.edge_attrs_by_indices(idx, j).map(|a| a.get(weight))
+                        {
+                            Some(Some(CgseValue::Int(v))) => i128::from(*v),
+                            Some(Some(_)) => {
+                                all_int = false;
+                                break 'nodes;
+                            }
+                            _ => 1,
+                        };
+                        let Some(t) = total.checked_add(w) else {
+                            all_int = false;
+                            break 'nodes;
+                        };
+                        total = t;
+                    }
+                }
+                if build_in && let Some(preds) = self.inner.predecessors_indices(idx) {
+                    for &j in preds {
+                        let w = match self.inner.edge_attrs_by_indices(j, idx).map(|a| a.get(weight))
+                        {
+                            Some(Some(CgseValue::Int(v))) => i128::from(*v),
+                            Some(Some(_)) => {
+                                all_int = false;
+                                break 'nodes;
+                            }
+                            _ => 1,
+                        };
+                        let Some(t) = total.checked_add(w) else {
+                            all_int = false;
+                            break 'nodes;
+                        };
+                        total = t;
+                    }
+                }
+                match i64::try_from(total) {
+                    Ok(t64) => int_pairs
+                        .push((node.clone().unbind(), t64.into_py_any(py)?)),
+                    Err(_) => {
+                        all_int = false;
+                        break;
+                    }
+                }
+            }
+            if all_int {
+                return Ok(int_pairs);
+            }
+        }
+
+        let one = 1i64.into_pyobject(py)?.into_any();
+        let sum_fn = py.import("builtins")?.getattr("sum")?;
+        let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(items.len());
+        for (node, canonical) in &items {
             let out_vals = pyo3::types::PyList::empty(py);
             if build_out {
-                for successor in self.inner.successors(&canonical).unwrap_or_default() {
+                for successor in self.inner.successors(canonical).unwrap_or_default() {
                     let value = self
-                        .edge_attr_py_value(py, &canonical, successor, weight)?
+                        .edge_attr_py_value(py, canonical, successor, weight)?
                         .unwrap_or_else(|| one.clone().unbind());
                     out_vals.append(value.bind(py))?;
                 }
             }
             let in_vals = pyo3::types::PyList::empty(py);
             if build_in {
-                for predecessor in self.inner.predecessors(&canonical).unwrap_or_default() {
+                for predecessor in self.inner.predecessors(canonical).unwrap_or_default() {
                     let value = self
-                        .edge_attr_py_value(py, predecessor, &canonical, weight)?
+                        .edge_attr_py_value(py, predecessor, canonical, weight)?
                         .unwrap_or_else(|| one.clone().unbind());
                     in_vals.append(value.bind(py))?;
                 }

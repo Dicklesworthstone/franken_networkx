@@ -4028,3 +4028,23 @@ materialization is the clean version). FLOAT subset stays 0.70x (exact PyList+su
 Neumaier subset path would win but is lower ROI). DiGraph subset (0.73x, weighted_degree_subset_impl)
 is the remaining follow-up. HARNESS GOTCHA: a shared generator nbunch is consumed by the first call —
 use a factory (fresh nbunch per graph) or it falsely reports a mismatch.
+
+## DiGraph degree/in/out(nbunch, weight) 0.55-0.80x -> 0.89-2.15x — SHIPPED (CopperCliff)
+
+Directed subset weighted degree (same lever as the undirected subset + full-graph family). PyDiGraph
+`weighted_degree_subset_impl` (out/in/total via DegreeKind) built per-node PyLists via
+`edge_attr_py_value` (String edge_key + PyO3 per edge) + Python `sum()`. Added an INT-store fast path:
+materialize the validated in-graph nbunch ONCE (may be one-shot generator), i128-accumulate per node
+from the CgseValue store via `successors_indices`/`predecessors_indices` + `edge_attrs_by_indices`
+(directed self-loop sits in each direction once, so Total's out+in counts it twice = nx — NO special
+doubling, unlike undirected). Reuses the nbunch object as key; gated !edges_dirty; labeled-break bails
+the whole subset to the exact path on non-int/overflow.
+
+MEASURED (n=600,m=3000,nbunch=200): degree(nb,w) 0.80x -> **2.15x**, in_degree(nb,w) 0.55x -> ~0.89x,
+out_degree(nb,w) 0.55x -> ~0.89x. Byte-exact across list/tuple/set/absent/generator/all/empty/float/
+mixed/missing/bigint/neg for all three methods + 6393 conformance. in/out stay just below parity: the
+per-node node_key_to_string (int->String) + get_node_index (String hash) is the residual String-key
+floor nx avoids (int dict key direct); total degree beats nx because its 2x edge work amortizes that
+per-node overhead. FOLLOWUPS: MG/MDG subset (0.71-0.73x, multi parallel-key int accumulate) + FLOAT
+subset (store-Neumaier). BUILD NOTE: `&canonical` on a `for (_,canonical) in &items` loop is `&&String`
+-> pass `canonical` (deref-coerces to &str), not `&canonical`.
