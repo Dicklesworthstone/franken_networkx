@@ -7472,6 +7472,10 @@ impl PyMultiGraph {
         }
         let one = 1i64.into_pyobject(py)?.into_any();
         let sum_fn = py.import("builtins")?.getattr("sum")?;
+        // cc-mgwdegfstore: on a clean graph the CgseValue store is authoritative,
+        // so read exact floats straight from it (no per-edge PyObject); on a dirty
+        // graph the live mirror is authoritative, so keep the PyObject mirror twin.
+        let store_authoritative = !self.edges_dirty.load(Ordering::Relaxed);
         let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(self.inner.node_count());
         for node in self.inner.nodes_ordered() {
             // br-r37-c1-mgwdegf (cc): float fast path. When EVERY contributing
@@ -7483,7 +7487,12 @@ impl PyMultiGraph {
             // non-float value (missing-weight default int 1, or an int/other
             // weight) AND for an edgeless node, so int/mixed parity, numeric
             // promotion, and nx's int-0 for isolated nodes stay byte-exact.
-            if let Some(total) = self.weighted_degree_float_node(py, node, weight)? {
+            let float_total = if store_authoritative {
+                self.weighted_degree_float_node_store(node, weight)
+            } else {
+                self.weighted_degree_float_node(py, node, weight)?
+            };
+            if let Some(total) = float_total {
                 out.push((
                     self.py_node_key(py, node),
                     pyo3::types::PyFloat::new(py, total).into_any().unbind(),
@@ -8759,6 +8768,68 @@ impl PyMultiGraph {
             total += sf + sc;
         }
         Ok(Some(total))
+    }
+
+    /// cc-mgwdegfstore: store twin of `weighted_degree_float_node`. The mirror
+    /// twin fetches each edge's weight through `edge_weight_exact_f64`, which on a
+    /// bulk-built graph (`edge_py_attrs` left lazy/empty by `add_edges_from` /
+    /// `add_weighted_edges_from`) materialises a PyObject per edge via the store —
+    /// so the float fast path paid a per-edge PyObject on the common weighted case
+    /// and `degree(weight)` fell to ~0.5x nx. This reads the exact float straight
+    /// from the CgseValue store in the SAME `neighbors -> edge_keys` order as the
+    /// (proven byte-exact) mirror twin and with the SAME two Neumaier-compensated
+    /// sums (every incident edge once, plus a SECOND pass over self-loop weights —
+    /// nx's undirected `MultiDegreeView` counts a self-loop's weight twice), so it
+    /// is bit-identical to the mirror twin's store-fallback path. Returns `None`
+    /// (caller uses the exact PyList+`builtins.sum` fallback) on any non-float or
+    /// absent value (nx default int 1) or a fully edgeless node (nx int 0). CALLER
+    /// must gate on `!edges_dirty` (store authoritative). Undirected sibling of
+    /// `PyMultiDiGraph::weighted_total_degree_float_node_store`.
+    fn weighted_degree_float_node_store(&self, node: &str, weight: &str) -> Option<f64> {
+        let mut f = 0.0f64;
+        let mut c = 0.0f64;
+        let mut sf = 0.0f64;
+        let mut sc = 0.0f64;
+        let mut has_selfloop = false;
+        let mut saw = false;
+        for neighbor in self.inner.neighbors(node).unwrap_or_default() {
+            let is_self = neighbor == node;
+            if is_self {
+                has_selfloop = true;
+            }
+            for key in self.inner.edge_keys(node, neighbor).unwrap_or_default() {
+                let attrs = self.inner.edge_attrs(node, neighbor, key)?;
+                let CgseValue::Float(x) = attrs.get(weight)? else {
+                    return None;
+                };
+                let x = *x;
+                saw = true;
+                let t = f + x;
+                if f.abs() >= x.abs() {
+                    c += (f - t) + x;
+                } else {
+                    c += (x - t) + f;
+                }
+                f = t;
+                if is_self {
+                    let ts = sf + x;
+                    if sf.abs() >= x.abs() {
+                        sc += (sf - ts) + x;
+                    } else {
+                        sc += (x - ts) + sf;
+                    }
+                    sf = ts;
+                }
+            }
+        }
+        if !saw {
+            return None;
+        }
+        let mut total = f + c;
+        if has_selfloop {
+            total += sf + sc;
+        }
+        Some(total)
     }
 
     /// Exact-float weight value for one multigraph edge, or None when the value

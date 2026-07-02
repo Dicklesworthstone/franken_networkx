@@ -2,6 +2,39 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP: MultiGraph degree(weight) FLOAT store twin — the "AUDIT MG float" TODO from 9f0e40cb8; 0.59-0.70x -> 0.76-0.84x, byte-exact
+
+BIGGEST-GAP-FIRST warm head-to-head scan flagged Multi(Di)Graph `degree(weight)` as the
+largest live gap (0.23x contaminated by prior edge-view materialization; isolated ~0.6x
+MG float). Root cause was the KNOWN follow-up flagged in the MDG store-twin note
+(9f0e40cb8, "AUDIT MG float lib.rs ~8059"): MDG got `weighted_total_degree_float_node_store`
++ `weighted_directional_degree_float_node_store` reading exact floats straight from the
+CgseValue store, but the UNDIRECTED MG float path still went through
+`weighted_degree_float_node` -> `edge_weight_exact_f64` -> `edge_attr_py_value`, which
+MATERIALISES a PyObject per edge on bulk-built graphs (`add_edges_from` leaves
+`edge_py_attrs` lazy/empty), so `degree(weight)` on the common weighted MG fell to ~0.6x.
+FIX (cc-mgwdegfstore): new `weighted_degree_float_node_store` — reads `CgseValue::Float`
+directly via `edge_attrs(node,neighbor,key)` in the SAME `neighbors -> edge_keys` order as
+the proven byte-exact mirror twin, with the SAME two Neumaier-compensated sums (every
+incident edge once + a SECOND self-loop pass, since nx's undirected `MultiDegreeView`
+counts a self-loop's weight twice). Dispatch gates on `!edges_dirty` (store authoritative)
+else keeps the PyObject mirror twin (dirty mirror is authoritative). Bit-identical BY
+CONSTRUCTION (same order, same values, same compensation as the mirror twin's store
+fallback). MEASURED (in-process before/after via .so swap, n=3000/m=15000 float, min-of-9):
+MG float nodeattrs=0 0.70x->0.84x (fnx 22.15->16.72ms), nodeattrs=1 0.59x->0.76x (21.64->
+18.92ms) — ~15-25% fnx-time cut from zero per-edge PyObject. MDG UNAFFECTED (1.24-1.37x,
+no regression). Still <1x vs nx: residual is the per-key `edge_attrs` HashMap lookup + the
+`neighbors`/`edge_keys` Vec allocs (MDG beats nx because its `edge_attr_values` returns all
+parallel-edge AttrMaps per pair in one call, no per-key lookup). VERIFY: 0 fails over
+MG+MDG degree(weight) x {order-sensitive-Neumaier / self-loop-double-count / mixed-int-float
+/ missing-default-1 / node-attrs / isolated-nodes / all-int / non-'weight' key} + 600 random
+stress; clippy clean; 7592 degree/weighted/multigraph/size conformance pass. FOLLOW-UP (real
+headroom, NOT yet done): add `edge_attr_values(u,v)` to the fnx-classes MultiGraph inner
+(the MDG inner has it) so BOTH MG store twins (int `weighted_degree_store_int_node` + this
+float twin) drop the per-key HashMap lookup and could reach MDG's >1x. LEVER: when one type
+(MDG) ships a store twin and the sibling (MG) is flagged "AUDIT", the sibling almost always
+still pays the per-edge PyObject the twin was built to remove — port it.
+
 ## 2026-07-02 CopperCliff SHIP: native Multi(Di)Graph difference/symmetric_difference identity-int rewrite — beats the set-snapshot fallback 1.1-2.0x, byte-exact
 
 Re-activated the native multigraph set-op kernels (previously DEAD — the wrapper skipped
