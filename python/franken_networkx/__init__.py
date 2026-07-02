@@ -40627,6 +40627,61 @@ class _FilteredGraphView:
                         )
                     seen.add(source)
             return fast
+        # cc-rvfastmg: multigraph sibling of cc-rvfast — restricted_view (closure
+        # filter_node + non-default filter_edge) over a CONCRETE multigraph. The
+        # slow path pays per-edge FilterMultiAdjacency machinery
+        # (MultiGraph/MultiDiGraph restricted_view.edges() ran 0.11-0.14x). Walk the
+        # native per-node row ({target: keydict}, O(deg) — the multigraph
+        # `_fast_succ_row`/`_fast_adj_row` use per-row native dicts, NOT the O(V)
+        # whole-graph rebuild that simple DiGraph uses) in ROW order (a closure
+        # filter_node yields nx's FilterMultiInner atlas order — verified byte-exact,
+        # no `_multigraph_filtered_target_order` reorder, which is set-filter-only),
+        # apply the visible-node set to each target and the raw (u, v, key)
+        # filter_edge to each parallel edge. Gated to a CLOSURE filter_node (no
+        # `.nodes` set) so a node-set filter — which CAN take nx's reordered
+        # intersection order — keeps the slow/node-set path.
+        if (
+            nbunch is None
+            and not self._filter_edge_is_default
+            and getattr(getattr(self, "_filter_node", None), "nodes", None) is None
+            and not isinstance(data, str)
+            and data is not None
+            and type(self._graph) in (MultiGraph, MultiDiGraph)
+        ):
+            parent = self._graph
+            filter_edge = self._filter_edge
+            visible_set = set(nodes)
+            fast = []
+
+            def _emit_mg(source, target, keydict):
+                for key, attrs in keydict.items():
+                    if not filter_edge(source, target, key):
+                        continue
+                    if data and keys:
+                        fast.append((source, target, key, attrs))
+                    elif data:
+                        fast.append((source, target, attrs))
+                    elif keys:
+                        fast.append((source, target, key))
+                    else:
+                        fast.append((source, target))
+
+            if parent.is_directed():
+                for source in nodes:
+                    row = _fast_succ_row(parent, source)
+                    for target in row:
+                        if target in visible_set:
+                            _emit_mg(source, target, row[target])
+            else:
+                seen = set()
+                for source in nodes:
+                    row = _fast_adj_row(parent, source)
+                    for target in row:
+                        if target in seen or target not in visible_set:
+                            continue
+                        _emit_mg(source, target, row[target])
+                    seen.add(source)
+            return fast
         # br-r37-c1-r3gjb/TealSpring nested-view pass: for chains of
         # default-edge, node-set subgraph views, walk the concrete parent's
         # native PLAIN-dict rows once. Source order stays `nodes` above. Simple

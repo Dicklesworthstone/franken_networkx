@@ -2,6 +2,25 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP: Multi(Di)Graph restricted_view.edges() 0.11-0.14x -> 1.6-4.1x — multigraph sibling of the concrete-parent fast path
+
+Extended cc-rvfast to multigraph parents. Empirically confirmed restricted_view (closure
+filter_node) yields nx's FilterMultiInner ROW order for parallel edges (NO
+`_multigraph_filtered_target_order` reorder — that heuristic is node-SET-filter-only), so the
+fast path walks the native per-node row ({target: keydict}) in row order, applies the
+visible-node set to each target and the raw (u, v, key) filter_edge to each parallel edge.
+NO O(V^2) trap: multigraph `_fast_succ_row`/`_fast_adj_row` use per-ROW native dicts
+(`_native_successor_row_dict`/`_native_adjacency_row_dict`), O(deg) per node — unlike simple
+DiGraph's `_native_adjacency_dict()[node]` whole-graph rebuild (the bug I shipped + fixed for
+simple DiGraph two commits back). Gated to a CLOSURE filter_node so a node-set filter (which
+can take nx's reordered intersection order) keeps the slow path. MEASURED: MultiGraph
+restr.edges(keys) 0.14x->1.79x (n=1000), MultiDiGraph 0.11x->4.13x; linear scaling verified
+(n=1000->2000 ~2.4-2.8x time, not O(V^2)). Byte-exact: 2500 cases (keys/data/'weight'
+variants x hidden nodes + hidden edges x parallel edges x self-loops x directed/undirected)
+0 fails; 4993 conformance pass (4 pre-existing failures unchanged). PURE-PYTHON. FOLLOW-UP
+(last filtered-view gap): MultiGraph/MultiDiGraph restricted_view.degree() 0.04-0.05x —
+needs parallel-edge multiplicity count in the degree bulk path.
+
 ## 2026-07-02 CopperCliff SHIP: DiGraph restricted_view.degree() 0.05x -> 1.90x — extend the degree bulk path to directed via a single edge pass (out+in)
 
 Follow-up to the undirected degree fast path (cc-rvdegfast): DiGraph restricted_view.degree()
