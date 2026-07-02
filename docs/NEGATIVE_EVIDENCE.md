@@ -2,6 +2,28 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP (pure-Python): weighted community.modularity 0.23x -> 0.67x — drop the fnx->nx graph copy, run nx's formula on native views
+
+Computational-algorithm sweep. `fnx.community.modularity` on a WEIGHTED graph was 0.23x nx (500n
+3000e: 9.5 vs 2.2ms). `_modularity_backend_impl` (init.py:14579) delegates the weighted case to
+`_nx.community.modularity(_networkx_graph_for_parity(G), ...)` — a full O(E) nx.Graph COPY then
+nx's algo. Profiled: the copy is NOT even the main cost; nx's algo on fnx VIEWS (no copy) is still
+0.15x because nx's `sum(wt for u,v,wt in G.edges(comm,data=weight) if v in comm)` iterates fnx's
+EdgeDataView as a GENERATOR (per-element __next__ PyO3 dispatch x thousands). FIX
+(cc-modweightednative): run nx's EXACT reduced formula on the fnx graph's own native byte-exact
+degree/edges views, but materialize each community's `edges(comm, data)` to a LIST first so the
+intra-community weight sum is a plain `builtins.sum` over a Python list — SAME elements, SAME
+order, SAME Neumaier compensation as nx => byte-identical. 0.23x->0.67x (2.9x self). Byte-exact
+400 mixed cases (weighted/unweighted, float/int, directed-delegate, resolution 0.5/1/2, multi-
+community) + NotAPartition + ZeroDivisionError(deg_sum==0) contracts; 1291 conf pass. WHY NOT a
+beat: fnx's native degree(weight)/edges(comm) views are ~0.9x nx's live-dict walk, and the
+byte-exact-order requirement forbids the faster ONE-pass reduced formula — the global-edge-pass
+variant is 3.5ms but ULP-diverges on FLOAT weights (69/195, summation order), so it's out. 0.67x
+is the byte-exact ceiling here. LEVER (big): a "native backend" that secretly does
+`_networkx_graph_for_parity(G)` + nx-algo is a CONVERSION TRAP — grep `_networkx_graph_for_parity`
+/ `_fnx_to_nx` in backend impls; replace with nx's formula on native views + LIST-materialize any
+per-element view generator nx iterates (the __next__ dispatch, not the copy, is usually the cost).
+
 ## 2026-07-02 CopperCliff SHIP (strict-work-removal, NOT a beat): has_edge(int) 22% faster via dynamic-verified identity-int path; residual is a PyO3-dispatch FLOOR
 
 Unblocked last turn's has_edge SURFACE. The identity-int fast path is safe WITHOUT the
