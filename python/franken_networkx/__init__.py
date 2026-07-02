@@ -41665,8 +41665,53 @@ class _AssignedPrivateDegreeView:
         return self._out_degree(node) + self._in_degree(node)
 
     def __iter__(self):
+        fast = self._fast_filtered_degree_pairs()
+        if fast is not None:
+            yield from fast
+            return
         for node in self._iter_nodes():
             yield (node, self._degree(node))
+
+    def _fast_filtered_degree_pairs(self):
+        # cc-rvdegfast: bulk fast path for UNWEIGHTED total degree over an
+        # UNDIRECTED simple _FilteredGraphView whose filter shape makes the
+        # per-node `_filtered_set_count` bail — a closure filter_node (no `.nodes`
+        # set) and/or a non-default filter_edge (e.g. restricted_view). Those walk
+        # the filtered `self.adj` per node, paying the per-edge
+        # `_node_visible`/`_edge_visible` machinery (~0.04x nx). Compute the visible
+        # node set ONCE per iteration (live-safe: recomputed each call, never
+        # cached, so a mutated parent stays reflected), then count each visible
+        # node's filter_edge-passing visible neighbours off the native parent row,
+        # double-counting a self-loop exactly as nx's total degree does. Weighted /
+        # directed / multigraph / nbunch / the node-set+default-edge case (already
+        # fast via `_filtered_set_count`) keep the per-node path.
+        if self._weight is not None or self._nodes is not None:
+            return None
+        view = self._graph
+        if not isinstance(view, _FilteredGraphView) or type(view._graph) is not Graph:
+            return None
+        edge_default = getattr(view, "_filter_edge_is_default", False)
+        keep_is_set = getattr(getattr(view, "_filter_node", None), "nodes", None) is not None
+        if edge_default and keep_is_set:
+            return None  # per-node _filtered_set_count already handles this fast
+        parent = view._graph
+        filter_edge = view._filter_edge
+        order = list(iter(view))  # visible nodes in view order (== _iter_nodes)
+        visible = set(order)
+        pairs = []
+        for node in order:
+            row = _fast_adj_row(parent, node)
+            total = 0
+            for nbr in row:
+                if nbr not in visible:
+                    continue
+                if not edge_default and not filter_edge(node, nbr):
+                    continue
+                total += 1
+                if nbr == node:
+                    total += 1
+            pairs.append((node, total))
+        return pairs
 
     def __len__(self):
         if self._nodes is None:

@@ -2,6 +2,30 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP: undirected restricted_view.degree() 0.04x -> 1.07-1.18x — bulk fast path, visible set computed once per iteration
+
+Biggest of last turn's surfaced follow-ups: restricted_view.degree() 0.04-0.05x (74ms @
+n=1000). Same substrate as the edges gap — the DegreeView walks the filtered `self.adj` per
+node, paying per-edge `_node_visible`/`_edge_visible`/`is_multigraph` machinery. The existing
+per-node fast path `_filtered_set_count` BAILS for restricted_view (non-default filter_edge AND
+a closure filter_node with no `.nodes` set). Fixing it per-node is unsafe: the visible set for
+a closure filter_node can't be precomputed-and-cached (would break LIVE-view semantics) and
+computing it per node is O(V^2). FIX (cc-rvdegfast): a BULK `_AssignedPrivateDegreeView.__iter__`
+fast path — compute the visible node set ONCE per iteration (live-safe: recomputed each call,
+never cached), then count each visible node's filter_edge-passing visible neighbours off the
+native parent row, double-counting a self-loop as nx's total degree does. SCOPED TIGHTLY
+(learning from last turn's rushed-fast-path regression): UNDIRECTED simple graph, unweighted,
+nbunch=None, only the slow filter shapes (closure filter_node or non-default edge); directed /
+multigraph / weighted / node-set+default-edge keep the proven per-node path. MEASURED: Graph
+restricted_view.degree() 0.04x->1.18x (n=1000, 74->2.13ms), ->1.07x (n=2000). Byte-exact: 500
+cases (self-loops, hidden nodes + edges, order-sensitive) 0 fails; single-node degree[n]
+unaffected (uses __getitem__, not __iter__); 5751 view/degree conformance pass (4 pre-existing
+failures unchanged). PURE-PYTHON. LEVER: a per-node view fast path that needs a precomputed
+node set can't serve a CLOSURE filter without breaking live-view semantics — move it to a BULK
+iteration that snapshots the visible set once per call. FOLLOW-UP (still open): DiGraph/multi
+restricted_view.degree() (directed in+out / parallel-edge count) + MultiGraph/MultiDiGraph
+restricted_view.edges() 0.11-0.14x — same lever, more sub-cases.
+
 ## 2026-07-02 CopperCliff FIX (regression I shipped): DiGraph restricted_view.edges() c4e62a596 introduced O(V^2) 0.01x — hoist the directed snapshot -> 1.44-1.78x
 
 Extending the filtered-view sweep across ALL types caught a REGRESSION my own prior commit
