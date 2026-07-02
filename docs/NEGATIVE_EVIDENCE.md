@@ -2,6 +2,31 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SURFACE (conditional FLOOR): MG/MDG weighted degree store path BEATS nx clean (1.67-1.82x) but a mirror-materializing READ collapses it to 0.24-0.44x
+
+Dense MultiGraph/MultiDiGraph sweep (untested profile). Apparent big gaps — MG degree(weight)
+0.24x, MDG in_degree(weight) 0.44x — are NOT live bugs. Bisected by build/access state:
+- CLEAN batch (add_edges_from, then degree(weight) FIRST): fnx 1.67-1.82x nx — the CgseValue store
+  fast path (`weighted_degree_float_node_store`, gated `!edges_dirty`, cc-mgwdegfstore) wins.
+- POST-`edges(data=True)`: MG 0.25x (2.08->15.2ms), MDG 0.38x (1.29->5.89ms).
+- per-edge add_edge(weight=): ~0.85-0.95x (near parity).
+ROOT: `edges(data=True)` returns nx's LIVE MUTABLE attr dicts, so MG/MDG `_native_edge_view_list`
+(lib.rs:7231) calls `mark_edges_dirty()` — CORRECTLY, because a user can mutate a returned dict and
+fnx cannot detect a raw PyDict mutation (it would have to return a tracking dict subclass; nx returns
+plain dict). Once dirty, `_native_weighted_degree` (lib.rs:7478 `store_authoritative = !edges_dirty`)
+must fall to the mirror twin `weighted_degree_float_node` -> `edge_weight_exact_f64` per edge, which
+reconstructs an `edge_key` String + probes `HashMap<String,PyDict>` (~20k String allocs on the dense
+MG) — nx walks its live nested adj dicts with NO String work. This is the documented dual-storage
+mirror-materialization floor: fixing it needs an ADJACENCY-INDEXED mirror (walk the materialized
+PyDicts by (node->neighbor->key) without edge_key String reconstruction), or write-through mutation
+tracking to keep the store authoritative — both architectural, not bench-and-edit. The common case
+(clean degree(weight)) already SHIPS a win. LEVER: when a store fast path "regresses", bisect by
+edges_dirty state — a read that exposes live dicts (edges(data=True)) is a legit dirtier, and the
+resulting mirror walk is a String-edge-key floor, NOT a store-path bug. Other dense-MG siblings
+(MG copy() 0.77x, MDG reverse() 0.66x) are SINGLE NATIVE kernels (`_native_copy` / native
+`MultiDiGraph.reverse`; cProfile sees nothing inside) — NOT per-edge-Python batchable, so they need
+in-Rust kernel profiling, a dedicated native pass (uncertain payoff, same class as DiGraph.edges).
+
 ## 2026-07-02 CopperCliff NO-SHIP (reverted, FLOOR closed): dense DiGraph.edges() — nx's directed generator is near-optimal; eager reaches only 0.75x + trades break-early
 
 Closes the DiGraph.edges() investigation (3rd pass; supersedes the prior OutEdgeView entry).
