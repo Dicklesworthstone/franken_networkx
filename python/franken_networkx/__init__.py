@@ -27940,27 +27940,44 @@ def barabasi_albert_graph(
             f"Barabási–Albert network must have m >= 1 and m < n, m = {m}, n = {n}"
         )
 
-    if initial_graph is None:
-        graph = star_graph(m, create_using=graph)
+    # cc-bastarbatch: for the default star seed (initial_graph is None) on a plain
+    # Graph, don't pre-populate the star and then bulk-extend — that leaves the
+    # graph with the star's m edges, so the final add_edges_from pays the
+    # O(bunch) touches-existing pre-scan (frozenset per BA edge vs the star set)
+    # even though NO BA edge can touch the star (every source is a fresh node
+    # > m). Instead prepend the star edges to the batch and commit everything to
+    # the still-EMPTY graph: the pre-scan short-circuits on edge_count == 0 and
+    # the whole set uses the fresh-batch fast path. repeated_nodes is seeded
+    # directly from the star's known degree sequence (center 0 has degree m; each
+    # leaf 1..m degree 1) in star_graph node order, byte-identical to reading
+    # ``graph.degree``. Node/edge insertion order (star first, then sources in
+    # increasing order) is unchanged.
+    star_seed_fastpath = initial_graph is None and type(graph) is Graph
+    if star_seed_fastpath:
+        new_edges = [(0, leaf) for leaf in range(1, m + 1)]
+        repeated_nodes = [0] * m + list(range(1, m + 1))
     else:
-        if len(initial_graph) < m or len(initial_graph) > n:
-            raise NetworkXError(
-                f"Barabási–Albert initial graph needs between m={m} and n={n} nodes"
-            )
-        graph = _copy_graph_into(initial_graph, graph)
+        if initial_graph is None:
+            graph = star_graph(m, create_using=graph)
+        else:
+            if len(initial_graph) < m or len(initial_graph) > n:
+                raise NetworkXError(
+                    f"Barabási–Albert initial graph needs between m={m} and n={n} nodes"
+                )
+            graph = _copy_graph_into(initial_graph, graph)
+        repeated_nodes = [
+            node for node, degree_value in graph.degree for _ in range(degree_value)
+        ]
+        new_edges = []
 
     rng = _generator_random_state(seed)
-    repeated_nodes = [
-        node for node, degree_value in graph.degree for _ in range(degree_value)
-    ]
-    source = len(graph)
+    source = len(graph) if not star_seed_fastpath else m + 1
     # br-r37-c1-bagen: the BA loop never READS the graph — the degree state lives
     # entirely in ``repeated_nodes`` — so accumulate every edge and add them in a
     # SINGLE add_edges_from at the end. The previous per-step add_edges_from paid
     # ~(n - m) native binding round-trips (the dominant cost). Edge + node
     # insertion order is preserved (sources processed in increasing order), so the
     # result is identical to networkx's incremental build.
-    new_edges = []
     while source < n:
         targets = _random_generator_subset(repeated_nodes, m, rng)
         new_edges.extend((source, target) for target in targets)

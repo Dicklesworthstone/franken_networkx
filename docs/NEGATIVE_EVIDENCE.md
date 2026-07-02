@@ -2,6 +2,26 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP: barabasi_albert_graph 0.86x -> 1.82x — seed the star INTO the batch so the add_edges_from touches-scan short-circuits
+
+Generator sweep found BA the only sub-0.90x (0.86-0.88x; everything else 1.05-296x wins).
+cProfile: ~8% in `_simple_add_edges_from_touches_existing_plain_edge` — BA pre-populated
+`star_graph(m)` (m edges) then bulk-added ~m*(n-m) edges, so the final `add_edges_from`
+snapshotted the star into a set and built a frozenset PER BA edge to test membership, even
+though NO BA edge can touch the star (every source is a fresh node > m). FIX (cc-bastarbatch):
+for the default seed (initial_graph is None, plain Graph) DON'T pre-build the star — prepend
+its edges `[(0,leaf) for leaf in 1..m]` to the batch and seed `repeated_nodes` directly from
+the star's known degree sequence (`[0]*m + [1..m]`, byte-identical to reading graph.degree),
+then commit everything to the still-EMPTY graph. The touches-scan short-circuits on
+`edge_count == 0` AND the whole set takes the fresh-batch fast path. Net fnx time HALVED
+(11.2->5.49ms). MEASURED: BA(2000,5) 0.88x->1.82x, BA(4000,5) 0.86x->1.72x, BA(2000,10)
+0.86x->1.91x — now BEATS nx. Byte-exact: 360 cases (60 seeds x 6 (n,m)) 0 fails on node +
+edge order; initial_graph path preserved (non-fastpath branch unchanged); 1654 generator
+conformance pass. PURE-PYTHON. LEVER: a generator that seeds a tiny graph then bulk-extends
+pays add_edges_from's O(bunch) touches-existing pre-scan against the seed — if the extension
+provably can't touch the seed (fresh source nodes), fold the seed edges into the batch and
+build on an empty graph so the scan short-circuits.
+
 ## 2026-07-02 CopperCliff SHIP: Multi(Di)Graph(dict_of_dicts/dict_of_list) constructor — 0.24-0.54x -> 0.62-1.05x, batch the decoder's multigraph branches
 
 Extended the simple-graph constructor-decoder batch lever (359edba84) to multigraphs — the
