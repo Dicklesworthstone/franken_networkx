@@ -2,6 +2,27 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SURFACE: redundant-copy vein MINED (relabel was it); compose is a native dual-storage FLOOR
+
+Followed the redundant-copy lever (d061e3db2). Grepped `dict(d)`/`.copy()` inside add_*_from
+comprehensions: candidates were compose (15179), edge_connectivity-scrub (9327), lattice_reference
+(56977), panther (49350). Only compose is a common op — but its `dict(d)` fallback is NOT taken:
+Graph×Graph / DiGraph×DiGraph route to native `_native_compose` (lib.rs:11675) FIRST. So no
+Python-level win there. compose is 0.73x (ea=1) / 0.47-0.59x (ea=5, scales with attr count) — a
+DUAL-STORAGE floor: `_native_compose` populates BOTH the mirror (`node_py_attrs`/`edge_py_attrs`,
+per-node/edge PyDict copy+update for H-wins overlap) AND the CgseValue store
+(`extend_nodes_with_attrs_unrecorded` + edge_batch) — nx does ONE dict op/element. Confirmed
+neither the two-pass Python fallback (8.8ms), a single pre-merged batch (6.6-10ms), nor the native
+(6-9ms) beats nx (~5ms) — all ~0.5-0.7x, all byte-exact. The multigraph compose path's `dict(d)`
+is genuinely NEEDED (it `.update()`s the slot in place). FUTURE NATIVE LEVER (deferred, not a quick
+win): a store-only `_native_compose` that leaves the mirror LAZY (rebuild from the merged store on
+first edges(data)/nodes(data)) would skip the per-element PyDict — BUT simple Graph's convention is
+EAGER mirror (add_edges_from populates edge_py_attrs), so this diverges from the rest of the class
+and needs the lazy-rebuilt mirror proven byte-exact (attr order + H-wins merge) across the read
+surface. Same class as the persistent-mirror architecture item. LEVER (confirmed): before chasing a
+`dict(d)`-in-comprehension site, check it's the TAKEN path — a native `_native_<op>` earlier in the
+function usually shadows the Python fallback (grep `getattr(G, "_native_<op>"` at the function top).
+
 ## 2026-07-02 CopperCliff SHIP (pure-Python): relabel_nodes drop redundant dict(d) copy — no-attr 1.55x / weight 1.18x / node-attr 1.07x
 
 Follow-up to b3d4d930e (attribute-heavy profile sweep). relabel's node+edge list comprehensions
