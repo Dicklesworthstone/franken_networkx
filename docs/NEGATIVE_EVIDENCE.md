@@ -20,6 +20,13 @@ tiny maps, worse for large), and byte-exact iteration order + get semantics must
 preserved — a deliberate typed-wrapper change with full conformance, not a loop edit.
 This + the persistent Python-object mirror (for the materialization floors) are the two
 scoped architectural investments; everything bench-and-edit is shipped.
+BLAST RADIUS (measured, so the scope is concrete): AttrMap has 605 refs across crates, 26
+BTreeMap-specific `.entry()`/`.range()`/`.split_off()` sites to reimplement on any
+wrapper, AND `CgseValue::Map(BTreeMap<String,CgseValue>)` (fnx-runtime lib.rs:49) is a
+SEPARATE BTreeMap that must move in lock-step for nested-attr consistency + serialization.
+Add full 50k-test conformance + byte-exact iteration/get validation = a deliberate
+multi-day change, categorically not a loop-turn edit. Scope is now fully specified for a
+future dedicated effort.
 
 ## 2026-07-02 CopperCliff SURFACE: bipartite submodule swept — projected_graph 0.85x is the construction-tax floor (already de-delegated+batched); rest wins
 
