@@ -2,6 +2,32 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SURFACE + NO-SHIP: greedy_color(smallest_last) is a conversion FLOOR; filtered-view adjacency() fast-row reverted byte-wrong
+
+Two negatives this turn (documented so future turns don't re-dig):
+(1) FRESH-DOMAIN SWEEP (approximation/coloring/degree-seq/core): almost all WINS (largest_first
+11x, triangles 7x, square_clustering 20x, generalized_degree 4.7x, DSATUR ~1.0x). Only real
+gap: greedy_color('smallest_last') 0.76x — CONVERSION FLOOR. `_greedy_color_structural_nx`
+builds a structural `nx.Graph` (add_nodes_from(G)+add_edges_from(G.edges()), 2.40ms) then runs
+nx's algo (8.11ms). PROVED it's irreducible without a native kernel: running
+`nx.greedy_color(fnx_graph)` DIRECTLY (no conversion) is the SAME speed (10.81 vs 10.79ms) —
+nx's Python algo pays fnx-view-access overhead per step == the conversion cost. (Confirmed
+smallest_last/saturation/independent_set are adj-ORDER-INVARIANT — nx-direct byte-matches the
+conversion; only random_sequential diverges, RNG-seeded by node order.) Needs a native Rust
+smallest_last (bucket-degeneracy ordering + set-based coloring, byte-exact tie-break) — a real
+kernel, not worth 0.76x. min_weighted_dominating_set 0.88x borderline.
+(2) NO-SHIP (reverted): tried a cached filtered-row fast path in `_FilteredNeighborMap`
+(backs FilterAtlas -> adjacency() 0.15x) replacing the per-neighbour `_node_visible`/
+`_edge_visible` walk with raw `filter_node`/`filter_edge`. BYTE-WRONG 297/400 — and it broke
+even the node-SET subgraph case (my ungated fast row overrode the correct node-set `__iter__`
+path). The `_node_visible`/`_edge_visible` composition has subtleties a naive raw-filter
+replication misses (the massive fail rate is a systematic logic error, not an edge case).
+REVERTED; adjacency byte-exact again (0 fails). LESSON (again): `_FilteredNeighborMap` is
+high-blast-radius shared machinery (adjacency + subgraph edges + self.adj); its fast path must
+be root-caused against the exact `_node_visible`/`_edge_visible` semantics + node-set path
+interaction, not rushed. The filtered-view adjacency() gap stays open (deferred to a careful
+dedicated pass).
+
 ## 2026-07-02 CopperCliff SHIP: reverse_view.edges(data/keys) 0.17-0.33x -> 0.51-0.74x — iterate the native pred row, not the AtlasView
 
 reverse_view `_edges` iterated `self._graph.pred[source].items()` per source; for a concrete
