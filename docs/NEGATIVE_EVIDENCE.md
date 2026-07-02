@@ -2,6 +2,24 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP (work-removal): MDG in_edges(keys=True) 0.677x -> 0.791x — hoist per-key py_node_key out of the loops (residual = String-hash floor)
+
+Fresh re-measure showed the documented mdg in_edges gaps are mostly STALE WINS now
+(in_edges(keys,data=True) 26x, edges(keys) 2.8x, out_edges(keys) 2.6x) — but
+`in_edges(keys=True)` (keys, NO data) was 0.677x, the odd one out: out_edges/edges route
+through the fast `_MultiDiGraphEdgeView` while in_edges uses
+`_native_mdg_in_edges_no_data`. ROOT: that binding recomputed `py_node_key` (String-hash
++ node_key_map lookup + incref) for BOTH endpoints PER KEY — i.e. per parallel edge, and
+twice per simple edge. FIX (br-r37-c1-mdginedgeshoist): hoist the target object out of
+the predecessor loop and the source object out of the key loop, reuse by O(1)
+`clone_ref`. Strict work-removal, byte-identical order (0 mismatches over
+parallel/self-loop/custom-key/nbunch/str-nodes), conformance GREEN (247 in_edges).
+RESULT: 0.677x -> 0.791x. RESIDUAL (not takeable cheaply): still below nx because the
+per-pair `py_node_key` String-hash remains — the O(1)-index materialization that makes
+out_edges/edges fast needs index-based adjacency, which the classes `MultiDiGraph` does
+NOT have (it's String-keyed IndexMaps internally, unlike DiGraph's succ/pred_indices).
+Closing the last 0.79x->1.0x needs index adjacency on MultiDiGraph (a larger change).
+
 ## 2026-07-01 CopperCliff SURFACE: subset-kernel vein mined out — approximation/assortativity/lca/hashing families all wins; residual gaps near-zero or architectural
 
 After 5 subset-kernel ships this session (node_clique_number, number_of_cliques, volume,

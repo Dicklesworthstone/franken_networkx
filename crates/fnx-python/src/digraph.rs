@@ -5385,13 +5385,24 @@ impl PyMultiDiGraph {
         if !self.pred_py_keys.is_empty() {
             return Ok(None);
         }
+        // br-r37-c1-mdginedgeshoist (cc): the old walk recomputed `py_node_key`
+        // (String-hash + node_key_map lookup + incref) for BOTH endpoints PER KEY --
+        // i.e. per parallel edge, and twice per edge even for simple pairs --
+        // making in_edges(keys=True) 0.677x vs nx. Hoist the target object out of the
+        // predecessor loop (once per target) and the source object out of the key loop
+        // (once per (source,target) pair); reuse them by O(1) `clone_ref`. Byte-
+        // identical iteration order (same string `predecessors`/`edge_keys` walk).
         let mut out: Vec<PyObject> = Vec::with_capacity(self.inner.edge_count());
         for target in self.inner.nodes_ordered() {
             if let Some(preds) = self.inner.predecessors(target) {
+                let tgt_obj = self.py_node_key(py, target);
                 for source in preds {
-                    for key in self.inner.edge_keys(source, target).unwrap_or_default() {
-                        let src_obj = self.py_node_key(py, source);
-                        let tgt_obj = self.py_node_key(py, target);
+                    let keys_iter = self.inner.edge_keys(source, target).unwrap_or_default();
+                    if keys_iter.is_empty() {
+                        continue;
+                    }
+                    let src_obj = self.py_node_key(py, source);
+                    for key in keys_iter {
                         if keys {
                             // fast-path default int keys: py_edge_key builds a String
                             // edge-key for the mirror lookup every call — skip it when
@@ -5403,9 +5414,15 @@ impl PyMultiDiGraph {
                             } else {
                                 self.py_edge_key(py, source, target, key)
                             };
-                            out.push(tuple_object(py, &[src_obj, tgt_obj, key_obj])?);
+                            out.push(tuple_object(
+                                py,
+                                &[src_obj.clone_ref(py), tgt_obj.clone_ref(py), key_obj],
+                            )?);
                         } else {
-                            out.push(tuple_object(py, &[src_obj, tgt_obj])?);
+                            out.push(tuple_object(
+                                py,
+                                &[src_obj.clone_ref(py), tgt_obj.clone_ref(py)],
+                            )?);
                         }
                     }
                 }
