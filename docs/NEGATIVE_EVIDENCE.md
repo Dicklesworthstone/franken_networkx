@@ -2,6 +2,26 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP: DiGraph restricted_view.degree() 0.05x -> 1.90x — extend the degree bulk path to directed via a single edge pass (out+in)
+
+Follow-up to the undirected degree fast path (cc-rvdegfast): DiGraph restricted_view.degree()
+was still 0.05x (73.5ms @ n=1000). Extended `_fast_filtered_degree_pairs` to DIRECTED simple
+graphs. Directed TOTAL degree = out + in; rather than a per-node predecessor row
+(`_fast_succ_row`/pred rows are O(V) per call -> O(V^2)), iterate each visible directed edge
+ONCE off the hoisted successor snapshot (`dict(_native_adjacency_keys())`) and credit +1 out
+to the source and +1 in to the target — a self-loop (u,u) is both a successor and predecessor
+of u so it lands +2, matching nx. MEASURED: DiGraph restricted_view.degree() 0.05x->1.91x
+(n=1000, 73.5->1.41ms), ->1.90x (n=2000). Byte-exact: 500 cases (self-loops, hidden nodes +
+edges, order-sensitive) 0 fails; in_degree()/out_degree() explicitly verified byte-exact
+(they use `_in_degree`/`_out_degree`, not the total-degree `__iter__`); undirected path
+unchanged; 5751 view/degree conformance pass (4 pre-existing failures unchanged). PURE-PYTHON.
+SIMPLE-GRAPH restricted_view is now FULLY fast: Graph/DiGraph x edges/degree all beat nx
+(2.9x/1.1x, 1.8x/1.9x), and the fast paths also cover plain subgraph_view(filter_edge)
+(edges 3.7x, degree 1.5x). LEVER: directed total degree without a predecessor-row scan — one
+edge pass off the successor snapshot, crediting out-to-source + in-to-target. FOLLOW-UP (still
+open, multigraph-only now): MultiGraph/MultiDiGraph restricted_view.edges() 0.11-0.14x +
+.degree() 0.04-0.05x — need parallel-edge key handling / multiplicity count.
+
 ## 2026-07-02 CopperCliff SHIP: undirected restricted_view.degree() 0.04x -> 1.07-1.18x — bulk fast path, visible set computed once per iteration
 
 Biggest of last turn's surfaced follow-ups: restricted_view.degree() 0.04-0.05x (74ms @

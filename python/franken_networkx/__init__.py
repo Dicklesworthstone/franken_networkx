@@ -41688,7 +41688,10 @@ class _AssignedPrivateDegreeView:
         if self._weight is not None or self._nodes is not None:
             return None
         view = self._graph
-        if not isinstance(view, _FilteredGraphView) or type(view._graph) is not Graph:
+        if not isinstance(view, _FilteredGraphView) or type(view._graph) not in (
+            Graph,
+            DiGraph,
+        ):
             return None
         edge_default = getattr(view, "_filter_edge_is_default", False)
         keep_is_set = getattr(getattr(view, "_filter_node", None), "nodes", None) is not None
@@ -41698,6 +41701,23 @@ class _AssignedPrivateDegreeView:
         filter_edge = view._filter_edge
         order = list(iter(view))  # visible nodes in view order (== _iter_nodes)
         visible = set(order)
+        if parent.is_directed():
+            # Directed total degree = out + in. Iterate each visible directed edge
+            # ONCE off the hoisted successor snapshot (no per-node predecessor row —
+            # `_fast_succ_row`/pred rows are O(V) per call) and credit out to the
+            # source, in to the target; a self-loop (u, u) is both a successor and a
+            # predecessor of u, so it lands +1 out and +1 in = the double nx gives.
+            na_keys = getattr(parent, "_native_adjacency_keys", None)
+            if na_keys is None:
+                return None
+            succ = dict(na_keys())
+            deg = {n: 0 for n in order}
+            for u in order:
+                for v in succ[u]:
+                    if v in visible and (edge_default or filter_edge(u, v)):
+                        deg[u] += 1
+                        deg[v] += 1
+            return list(deg.items())
         pairs = []
         for node in order:
             row = _fast_adj_row(parent, node)
