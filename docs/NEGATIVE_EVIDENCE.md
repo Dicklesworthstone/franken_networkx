@@ -2,6 +2,30 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SURFACE: remaining view-path gaps are core-AtlasView machinery (adj[n] 0.40x, dict(G.adj) 0.68x) — not a safe bench-and-edit; readwrite all parity/win
+
+Applied the selfloop "egregious ratio may be Python machinery, not the floor" lens to a
+fresh view-path + readwrite sweep. Findings:
+- MOST view paths now WIN or parity: nodes(data=True) 0.98x, nodes(data=attr) 1.33x,
+  dict(adjacency()) 0.98x (outer-cache, reference_adjacency_outer_dict_cache),
+  edges(data=attr) 1.35x, degree(dict) 1.10x, nodes.data(attr) 1.17x.
+- READWRITE all parity/win: generate_edgelist 1.02x, generate_adjlist 0.97x,
+  parse_edgelist 1.08x, parse_adjlist 1.14x, to_dict_of_lists 1.99x, from_dict_of_lists
+  0.94x, generate_gml 0.95x. No takeable gap.
+- REMAINING view gaps: `dict(G.adj[n])` 0.40x and `dict(G.adj)` 0.68x. cProfile shows
+  `dict(G.adj[n])` is Python-machinery bound (per-NEIGHBOR `_keydict` + AtlasView
+  `__getitem__`, ~200k calls) — peelable IN PRINCIPLE like selfloop, but ONLY by making
+  the core AtlasView `__getitem__` native (it backs EVERY `G[u][v]` access — high-risk,
+  heavily-used, likely already tuned) or by intercepting `dict()` (impossible). Not a
+  safe 60-min bench-and-edit. `dict(G.adj)` builds V lazy row-view objects; the cost is
+  view-object construction, and the outer cache that fixed `dict(G.adjacency())` can't be
+  reached through `dict(G.adj)` (no interception point).
+BLOCKER (stable across the session): the clean-win vein is exhausted. Real remaining
+levers are architectural — a native AtlasView row-materialization / snapshot method, or
+the persistent ordered Python-object mirror — each a multi-file primitive, not a
+bench-and-edit. This session shipped 7 commits (5 clean wins + 2 work-removals:
+in_edges(keys) 0.68x->0.79x, selfloop(data=True) 0.16x->0.48x).
+
 ## 2026-07-02 CopperCliff SHIP (work-removal): simple-Graph selfloop_edges(data=True) 0.16x -> 0.48x — native batch emission (kill the per-node AtlasView machinery)
 
 `selfloop_edges(G, data=True)` on a simple Graph was 0.16x vs nx (6x SLOWER) — the
