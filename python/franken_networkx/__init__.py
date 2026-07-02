@@ -15380,12 +15380,16 @@ def transitive_closure(G, reflexive=False):
     # graph-level attrs; the kernel drops them, so restore here too.
     if G.graph:
         result.graph.update(dict(G.graph))
-    for node, attrs in G.nodes(data=True):
-        if attrs and node in result:
-            result.nodes[node].update(attrs)
-    for u, v, attrs in G.edges(data=True):
-        if attrs and result.has_edge(u, v):
-            result[u][v].update(attrs)
+    # br-r37-c1-tcbatch: nx's transitive_closure does ``TC = G.copy()`` so the
+    # original edges keep their attrs for free; the native kernel strips node/edge
+    # attrs, so restore them. The old per-item ``result[u][v].update(attrs)`` forced
+    # a full adjacency-keydict row materialization (``_native_adjacency_dict``) for
+    # EACH source node on the DENSE closure — ~90% of wall time (0.16x vs nx at 200
+    # nodes). Route through add_nodes_from/add_edges_from, which write attrs straight
+    # to the store. Byte-identical: the closure already contains every G node and
+    # edge, so these are pure in-place attr updates (0.16x -> 1.86x vs nx).
+    result.add_nodes_from((n, a) for n, a in G.nodes(data=True) if a)
+    result.add_edges_from((u, v, a) for u, v, a in G.edges(data=True) if a)
     return result
 
 

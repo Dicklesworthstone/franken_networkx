@@ -11884,3 +11884,40 @@ per-edge CONSTRUCTION tax (ledger + fragmentation: clear_edges, construction_cop
 the materialization floor (adjacency_outer_cache, already a documented no-ship). Both are large
 architectural levers (bulk-unrecorded everywhere / arena alloc / persistent Python mirror), not
 60-min kernel edits. The kernel/algorithm/mutation veins are mined.
+
+## 2026-07-01 CopperCliff FIX+SHIP: transitive_closure(DiGraph) attr-copy 0.16x -> 1.86x vs nx (pure-Python)
+
+REAL gap surfaced by a corrected broad delegation sweep (fnx-at-HEAD via PYTHONPATH=python vs vendored
+nx, min-of-7, single-call timing). NOTE the first pass MIS-FILED trophic_levels as 0.33x — a bench-
+helper bug: the `hasattr(...)/isinstance(...)` guard called the fn 3x/iter, inflating the fnx column.
+Fixed harness confirms trophic_levels at 1.02x (parity, byte-identical numpy `inv` to nx). The ONE
+true gap in the sweep: `transitive_closure` at **0.16x** (fnx 105.9ms / nx 17.0ms, 200-node DAG).
+
+ROOT (cProfile): NOT the native kernel (`_fnx.transitive_closure` = 0.033s) and NOT delegation (the
+DAG/acyclic + reflexive=False path is native since br-r37-c1-tc-cyclic). The cost was the attr-restore
+loop `for u,v,attrs in G.edges(data=True): result[u][v].update(attrs)` — `result[u][v]` routes through
+`_keydict`->`_cached_adj_row_keydict`->`_native_adjacency_dict`, materializing the FULL adjacency
+keydict row for each source node on the DENSE closure (4582 edges/200 nodes). 800 `_native_adjacency_dict`
+calls = 0.446s of 0.569s (~90%). nx avoids it entirely: `TC = G.copy()` carries original edge attrs for
+free, then only ADDS attr-less closure edges.
+
+FIX (10 lines, pure-Python, no .so rebuild): replace the per-item `result[u][v].update`/`result.nodes[n].update`
+loops with `result.add_edges_from((u,v,a) for u,v,a in G.edges(data=True) if a)` +
+`result.add_nodes_from(...)`, which write attrs straight to the store (no row-keydict materialization).
+Byte-IDENTICAL to the old output — the closure already contains every G node+edge, so these are pure
+in-place attr updates. Verified `batch==current` EXACT (node order, edge order, node/edge/graph attrs)
+across cyclic+mixed-attrs, self-loop-with-attrs, DAG-no-attrs, cyclic-nodeattr, dense-random-60, AND
+non-scalar attrs (list/dict/None/tuple/bigint) preserved. **105.9ms -> 9.2ms (11.5x self), 0.16x ->
+1.86x vs nx** (now BEATS nx). Conformance: 142 transitive_closure tests + 988 referencing tests green;
+the 1 red (test_write_gexf_classified...) is PRE-EXISTING (fails identically with the change stashed,
+unrelated GEXF classification).
+
+LEVER (RE-CONFIRMED, cf. reference_adjacency_outer_dict_cache / _native_adjacency_dict floor): any
+attr-restore / edge-decoration loop that does `H[u][v].update(...)` or `H.nodes[n].update(...)` PER
+ITEM on a graph whose adjacency rows are DENSE pays a full-row keydict materialization each access ->
+route through add_edges_from/add_nodes_from batch (store-direct). Grep result-graph post-processing
+loops that index `result[u][v]` / `result.nodes[n]` inside a per-edge/per-node loop. Also: the
+delegation sweep otherwise CONFIRMS the mined-out frontier — triadic_census 16.9x, harmonic_centrality
+17.3x, wiener_index 14.1x, chain_decomposition 11.5x, degree_assortativity 107x, s_metric 121x all
+beat nx; transitive_closure was the lone straggler. (rich_club_coefficient ZeroDivisionError on a graph
+with no populated k-degree class is a separate SURFACE — nx returns {} there; not chased this session.)
