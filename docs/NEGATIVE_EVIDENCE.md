@@ -2,6 +2,24 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP (pure-Python): relabel_nodes(attributed) ~0.95x -> 1.10x — node loop via nodes(data=True), not per-node G.nodes[n]
+
+STRING-NODE profile sweep (per the build-outside bench-trap lesson 55664096c). relabel_nodes on a
+500-node string-keyed weighted Graph was ~0.78-0.95x nx. Profiled: the attributed copy path's node
+list `[(map.get(n,n), dict(G.nodes[n])) for n in G]` (init.py ~53742) paid a per-node NodeView
+`__getitem__` + `G.nodes` property RE-EVAL per node — 0.361ms for the node list vs 0.055ms via one
+`G.nodes(data=True)` native iteration (6.6x on that list, ~9% of the whole relabel). FIX
+(cc-relabelnodesdata): `[(get(n,n), dict(d)) for n, d in G.nodes(data=True)]` — same (node,
+attr-copy) 2-tuples in the same node order => byte-identical, incl node-MERGING relabels (later
+duplicate wins). ~0.95x -> 1.10x (BEATS nx). Byte-exact 800 cases (Graph/DiGraph/Multi(Di)Graph,
+node+edge attrs, merging/bijective/callable mappings, string+int nodes, copy=True/False) 0 fails;
+1835 conf pass. Pure-Python. LEVER (recurring modularity-family): a copy/rebuild that does
+`dict(G.nodes[n]) for n in G` or `G[node] for node in G` pays per-node view __getitem__ + property
+re-eval — replace with ONE `G.nodes(data=True)` / `G.edges(data=True)` / `to_dict_of_*` native
+iteration; byte-exact when order preserved. STRING-NODE profile ALSO surfaced (unfixed, floors):
+has_edge bulk 0.23x + neighbors bulk 0.47x — the string variant of the PyO3-dispatch/String-canon
+floor (dff7a99f0; the int identity fast path can't apply to strings).
+
 ## 2026-07-02 CopperCliff SURFACE: conversion-trap vein MINED; most "gaps" this sweep were BENCH-TRAPS (build inside the timed lambda)
 
 Followed the modularity conversion-trap lever (c1b59f38c). Grepped 198 `_networkx_graph_for_parity`

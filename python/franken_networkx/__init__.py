@@ -53742,7 +53742,13 @@ def relabel_nodes(G, mapping, copy=True):
         # per-node attrs + identity; node-MERGING relabels keep iteration-order
         # merge semantics (duplicate node updates attrs, later wins).
         get = _map.get
-        H.add_nodes_from([(get(n, n), dict(G.nodes[n])) for n in G])
+        # cc-relabelnodesdata: iterate G.nodes(data=True) ONCE (native bulk) rather
+        # than `dict(G.nodes[n]) for n in G`, which paid a per-node NodeView
+        # __getitem__ + `G.nodes` property re-eval (~6.6x slower on the node list:
+        # 0.36ms vs 0.055ms at 500 nodes). Same (node, attr-dict-copy) 2-tuples in
+        # the same node order, so per-node attrs, identity, and node-MERGING
+        # relabel semantics (later duplicate wins) stay byte-identical.
+        H.add_nodes_from([(get(n, n), dict(d)) for n, d in G.nodes(data=True)])
         if G.is_multigraph():
             # 4-tuple form avoids `key=key, **d` collision when d contains
             # a 'key' attribute (franken_networkx-uphdr).
