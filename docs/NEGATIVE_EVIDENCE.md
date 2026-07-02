@@ -2,7 +2,22 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
-## 2026-07-02 CopperCliff SURFACE: remaining view-path gaps are core-AtlasView machinery (adj[n] 0.40x, dict(G.adj) 0.68x) — not a safe bench-and-edit; readwrite all parity/win
+## 2026-07-02 CopperCliff SURFACE (definitive): adj[n] 0.40x is the persistent-mirror floor (root-caused); tree/dag/connectivity-predicate family all wins — clean-win vein confirmed exhausted
+
+ROOT-CAUSED the `dict(G.adj[n])` 0.40x floor precisely: fnx's AtlasView already caches
+its `_keydict` per `(nodes_seq, edges_seq)`, but `__getitem__` must RE-VALIDATE that
+token against the Rust store on every access (2 attr reads + tuple + compare per
+neighbor). nx has no such cost — its keydict IS the live `G._adj[u]` dict (the dict is
+the source of truth). So `dict(G.adj[n])` = per-neighbor validated getitem in fnx vs a
+C-level copy of a live dict in nx. Eliminating the validation requires storing adjacency
+AS live Python dicts = the persistent ordered Python-object mirror (the same primitive
+behind every remaining materialization gap). A dict-subclass AtlasView would break the
+live-view contract (G[n] must reflect mutations), so it is NOT a safe local change.
+Confirmed the tuple-alloc micro-opt in `_keydict` is near-zero (reverted, unshipped).
+FRESH FAMILIES THIS TURN, all WINS: is_tree 31x, is_semiconnected 7.6x,
+attracting_components 6.2x, condensation 4.3x, to_prufer_sequence 3.8x, is_eulerian 2.7x;
+readwrite generate/parse/to-from_dict_of_lists 0.94-1.99x. The clean bench-and-edit vein
+is exhausted; the sole remaining lever is the persistent-mirror architectural primitive.
 
 Applied the selfloop "egregious ratio may be Python machinery, not the floor" lens to a
 fresh view-path + readwrite sweep. Findings:
