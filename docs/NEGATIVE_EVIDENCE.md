@@ -2,6 +2,39 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SURFACE: 12-domain fresh sweep — accessible clean-win vein mined out; remaining sub-1x are 3 documented architectural floors + noise/parity
+
+After 11 shipped wins this session, a broad fresh sweep this turn found NO new accessible
+bench-and-edit lever. Domains measured warm/isolated vs nx (all WINS unless noted):
+- ALGORITHMS: link-prediction (jaccard/adamic_adar/pref-attach 2.2-2.9x), community, matching
+  (max_weight 1.0x delegated-parity), cycles, centrality (betweenness 119x, load 32x,
+  eccentricity/diameter/center/periphery 15x, harmonic 177x), reciprocity 10x, constraint 7x.
+- FLOW/CONNECTIVITY/TREE: max_flow 3.8x, MST 2.7x, node_connectivity 27x, stoer_wagner 8.8x,
+  triadic_census 19x, bridges 86x, floyd_warshall 35x, wiener 16x, resistance_distance 55x.
+  (k_components 1.00x = delegated, ~20s inherent — no lever.)
+- DAG/PRODUCT/CLIQUE/BOUNDARY/EFFICIENCY: transitive_reduction 1.4x, cartesian 3.3x, tensor
+  5.9x, global/local_efficiency 18-25x, is_tree/is_forest 53-350x, double_edge_swap 1.65x.
+- PATH FAMILY: dijkstra_path 7x, astar 7x, single_source_dijkstra 4.5x, all_pairs_dijkstra
+  1.5x, johnson 2.1x, bellman_ford 3.3x (+ the two shortest_path wins landed this session).
+- BIPARTITE: projected_graph 2.3x, clustering 2.2x, spectral_bipartivity 4090x, is_bipartite 34x.
+- SERIALIZATION: generate_gml 0.94x, generate_graphml 0.99x, adjlist 1.03x (all ~parity).
+The ONLY sub-1x that aren't noise-floor (<0.1ms: common_neighbors 0.86x, bip.degrees 0.71x)
+or delegated-parity (~1.0x) are THREE documented architectural floors:
+  1. node_link_data 0.76x — CONFIRMED this turn it's NOT a double-copy bug: edges/nodes
+     (data=True) yield LIVE dicts (one materialization, like nx), so the gap is the view-
+     iteration substrate (`_gen`/`_materialize` per element) — the persistent-Python-object-
+     mirror floor. A prior native binding reached only 0.90-0.95x AND dropped edge attrs
+     (adjdataedgeattr NO-SHIP). Needs the persistent ordered mirror (scoped multi-day).
+  2. check_planarity(PLANAR) ~0.81x — the fnx->nx conversion tax for the PlanarEmbedding
+     certificate (non-planar already fixed to ~10x this session). Needs a native embedding
+     kernel (big).
+  3. dense_gnm_random_graph 0.90x — shuffle/RNG-bound; gnm-family RNG levers are a known
+     session-sink trap (yrdso). Borderline; not worth the byte-exact RNG risk.
+CONCLUSION: the bench-and-edit vein this campaign has mined for 11 wins/session is at its
+floor; the remaining ratio-narrowing requires the two scoped architectural investments
+(persistent Python-object mirror; native planar-embedding kernel). NEXT AGENT: don't re-sweep
+these 12 domains — target an architectural investment or a domain not listed above.
+
 ## 2026-07-02 CopperCliff SHIP: shortest_path(G) all-pairs unweighted 0.76x -> 1.51-1.73x — route to the fixed all_pairs_shortest_path
 
 Path-family sweep after the all_pairs_shortest_path index-emitter fix (cc-apspidx, 3fc266d5e):
