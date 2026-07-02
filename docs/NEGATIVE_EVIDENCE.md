@@ -2,6 +2,29 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff NO-SHIP (reverted, FLOOR closed): dense DiGraph.edges() — nx's directed generator is near-optimal; eager reaches only 0.75x + trades break-early
+
+Closes the DiGraph.edges() investigation (3rd pass; supersedes the prior OutEdgeView entry).
+Correctly traced the path this time: `DiG.edges` is the PYTHON `_DiGraphEdgeView` (__name__ set to
+"OutEdgeView"), whose __iter__ uses the native `_native_guarded_edge_stream_iter` ->
+`DiGraphGuardedEdgeStreamIter`, a LAZY iterator that re-walked successor_indices + borrowed the
+graph + built the tuple on EVERY __next__ (72k Rust-__next__ dispatches on a dense DiGraph). The
+undirected `EdgeView` instead EAGER-materializes a Rust Vec once and pops per next (cheap guarded
+pop) — which is WHY undirected edges() beats nx (a94bc942c). Rebuilt the DiGraph stream iterator
+to the SAME eager pattern (pre-materialized Vec + O(1) both-seq guard) + removed the O(E)
+`contains_key` in `edges_ordered_indices`. RESULT: 0.60x -> 0.75x (n=600 m=72201: 5.94->4.94ms),
+byte-exact 600 cases (int/float/str/mixed labels + removals), mutation guard (add_edge AND
+add_node both raise) preserved, break-early correct. But 0.75x still LOSES to nx and going eager
+regresses `next(iter(edges()))` (materializes all). REVERTED. ROOT / FLOOR: nx's DIRECTED
+edges() generator is ~50ns/edge (plain adjacency walk, NO dedup, cheap CPython generator resume);
+fnx's guarded eager-Vec is ~67ns/edge (per-next PyO3 __next__ dispatch + seq-guard borrow). The
+undirected fix worked only because nx's UNDIRECTED edges() is SLOW (~92ns/edge, dedup seen-set) —
+there fnx's 71ns/edge wins. Against nx's fast directed generator there is no bench-and-edit win:
+matching it needs a CPython-generator-equivalent, which a guarded Rust iterator cannot be. Harness
+saved (dig_stream_conf.py). LEVER (asymmetry): fnx's guarded-Rust-iteration BEATS nx only where
+nx's own generator is slowed by work fnx does natively (dedup); where nx's generator is already a
+bare adjacency walk, it's a floor. DON'T re-dig DiGraph.edges().
+
 ## 2026-07-02 CopperCliff NO-SHIP (reverted, bench rejection): dense DiGraph.edges() 0.60x — gap is OutEdgeView, not DiEdgeView/contains_key
 
 Follow-up to the undirected edges win (a94bc942c). Dense DiGraph edges() is 0.60x (n=600 p=0.2
