@@ -2,6 +2,25 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP (pure-Python): relabel_nodes drop redundant dict(d) copy — no-attr 1.55x / weight 1.18x / node-attr 1.07x
+
+Follow-up to b3d4d930e (attribute-heavy profile sweep). relabel's node+edge list comprehensions
+copied each attr dict via `dict(d)` before handing it to add_nodes_from/add_edges_from — but fnx's
+add_*_from ALWAYS materialises H's own independent dict (proven: H's dict `is not` the source dict;
+mutating the relabeled H never touches G — node attrs, edge attrs, all 4 types, AND node-MERGING
+where source dicts stay untouched; nodes/edges(data=True) also yield a DISTINCT dict per element, not
+a reused buffer). So `dict(d)` was a pure SECOND copy — 3500 redundant dict allocations on a
+500n/3000e graph. FIX (cc-relabelnodict): pass the mirror dict `d` directly in all 3 loops (node,
+simple-edge, multigraph-edge keyed). Byte-exact 800 cases + explicit ISOLATION test (mutate result,
+G unchanged) 0 fails; 1919 conf pass. Pure-Python. no-attr 1.55x, weight-only 1.18x, node-attr(5)
+1.07x — all BEAT nx; the MANY-edge-attr case (5 attrs) improved 0.75x->0.80x but stays a dual-storage
+FLOOR (native `_try_add_edges_from_batch` converts each scalar attr to a CgseValue + builds the
+mirror, ~15k conversions at 5x3000 — nx stores the dict by reference; scales with attr COUNT, so
+1-attr wins, 5-attr floors). LEVER: a copy/rebuild that wraps view dicts in `dict(...)`/`.copy()`
+before add_*_from is double-copying — fnx's batch adders already isolate; pass the view dict directly
+(verify: result `is not` source + mutate-result-leaves-source test). Grep `dict(d)`/`d.copy()` inside
+add_nodes_from/add_edges_from comprehensions.
+
 ## 2026-07-02 CopperCliff SHIP (pure-Python): relabel_nodes(attributed) ~0.95x -> 1.10x — node loop via nodes(data=True), not per-node G.nodes[n]
 
 STRING-NODE profile sweep (per the build-outside bench-trap lesson 55664096c). relabel_nodes on a

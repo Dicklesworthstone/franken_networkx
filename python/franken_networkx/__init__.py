@@ -53745,15 +53745,21 @@ def relabel_nodes(G, mapping, copy=True):
         # cc-relabelnodesdata: iterate G.nodes(data=True) ONCE (native bulk) rather
         # than `dict(G.nodes[n]) for n in G`, which paid a per-node NodeView
         # __getitem__ + `G.nodes` property re-eval (~6.6x slower on the node list:
-        # 0.36ms vs 0.055ms at 500 nodes). Same (node, attr-dict-copy) 2-tuples in
-        # the same node order, so per-node attrs, identity, and node-MERGING
-        # relabel semantics (later duplicate wins) stay byte-identical.
-        H.add_nodes_from([(get(n, n), dict(d)) for n, d in G.nodes(data=True)])
+        # 0.36ms vs 0.055ms at 500 nodes). Same (node, attr-dict) 2-tuples in the
+        # same node order.
+        # cc-relabelnodict: pass the mirror dict `d` DIRECTLY (no `dict(d)` copy) —
+        # add_nodes_from ALWAYS materialises H's own independent dict (verified: H's
+        # dict is a distinct object; mutating H never touches G, incl node-MERGING
+        # where source dicts stay untouched), and nodes(data=True) yields a distinct
+        # dict per node, so the extra copy was pure overhead. Byte-identical.
+        H.add_nodes_from([(get(n, n), d) for n, d in G.nodes(data=True)])
         if G.is_multigraph():
             # 4-tuple form avoids `key=key, **d` collision when d contains
             # a 'key' attribute (franken_networkx-uphdr).
             new_edges = [
-                (_map.get(u, u), _map.get(v, v), key, dict(d))
+                # cc-relabelnodict: mirror dict `d` passed directly (add_edges_from
+                # copies it into H; the dedup loop below rebinds `key` not `d`).
+                (_map.get(u, u), _map.get(v, v), key, d)
                 for u, v, key, d in G.edges(keys=True, data=True)
             ]
             undirected = not G.is_directed()
@@ -53775,7 +53781,9 @@ def relabel_nodes(G, mapping, copy=True):
             # the per-edge add_edge sequence it replaces.
             H.add_edges_from(
                 [
-                    (_map.get(u, u), _map.get(v, v), dict(d))
+                    # cc-relabelnodict: mirror dict passed directly (add_edges_from
+                    # copies into H; verified H never aliases G).
+                    (_map.get(u, u), _map.get(v, v), d)
                     for u, v, d in G.edges(data=True)
                 ]
             )
