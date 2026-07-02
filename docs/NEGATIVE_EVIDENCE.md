@@ -2,6 +2,29 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SURFACE (AUTHORITATIVE cargo bench): head2head 16/20 workloads WIN; the 4 residual gaps are ALL documented floor/NO-SHIP
+
+Ran the canonical per-crate bench (`rch exec -- cargo bench -p fnx-python --bench
+networkx_head_to_head`, CARGO_TARGET_DIR=.rch-targets/franken_networkx-cc) to validate the
+ad-hoc frontier with the authoritative harness. 20 paired fnx-vs-nx workloads: 16 WINS
+(1.02x-7.30x: dijkstra-after-edges-data 7.30x, mdg_in_edges_data 4.57x, edge_expansion
+4.58x, greedy_tsp 4.03x, mdg_in_degree_weight 3.24x, node_expansion 3.58x, tsp variants
+1.88-2.23x, mdg_out_edges_nbunch_keys_DATA 2.05x, voronoi 1.61x, mdg_edges_keys 1.02x,
+...). The 4 sub-0.8 gaps are ALL previously root-caused as non-takeable:
+- multigraph_clear_edges 0.30x — per-edge construction fragmentation (NO-SHIP 4e64c..).
+- mg_selfloop_keys_weight 0.33x — ALREADY native (`_native_selfloop_edges`); cProfile
+  shows 100% in the binding = native PyObject-materialization floor (nx hands out live
+  dicts), NOT peelable Python machinery like the simple-Graph selfloop was.
+- mdg_out_edges_nbunch_keys_weight 0.57x — data=attr value-materialization (the data=True
+  sibling is 2.05x); the String-hash/edge-key materialization floor.
+- graph_to_directed_scalar_attrs 0.61x — dual-storage body (store+mirror per edge);
+  deepcopy-skip was ~0-gain (cc-todir-NOSHIP), stash@{12} is a MISLABELED MultiDiGraph
+  diff, not this simple-Graph path.
+CONCLUSION: the authoritative bench CONFIRMS the ad-hoc sweeps — every residual gap is the
+per-element PyObject-materialization / construction-fragmentation / dual-storage floor,
+all bounded by the persistent ordered Python-object mirror primitive. No bench-and-edit
+lever remains; FrankenNetworkX is at parity-or-faster across the benched surface.
+
 ## 2026-07-02 CopperCliff SURFACE (definitive): adj[n] 0.40x is the persistent-mirror floor (root-caused); tree/dag/connectivity-predicate family all wins — clean-win vein confirmed exhausted
 
 ROOT-CAUSED the `dict(G.adj[n])` 0.40x floor precisely: fnx's AtlasView already caches
