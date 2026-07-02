@@ -2,6 +2,34 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SURFACE (MAJOR gap cluster, previously invisible): incremental MUTATION-in-a-loop is 0.01-0.57x — index-store O(N+E)-per-removal
+
+Benched a stressor NO prior sweep had touched: incremental mutation (add/remove one element at a
+time), reps=15, builds outside. CONFIRMED cluster (n=1000, m=5000):
+- **remove_node loop (500x) = 0.01x** (49.8 vs 0.56ms — ~90x slower, ~100us/call vs nx ~1us). THE
+  biggest single gap found this campaign.
+- remove_edge loop (2500x) = 0.21x
+- add_edge loop (2000x) = 0.34x
+- add_edges_from NON-FRESH (5000 onto a 5000-edge graph) = 0.42x; FRESH = 0.84x
+- remove_nodes_from / remove_node BATCH = 1.00x (FINE — the batch amortizes the repair).
+ROOT CAUSE (fnx-classes remove_node, lib.rs:1850, already "incrementally optimized"): the store is
+INDEX-BASED (nodes = IndexMap; adj_indices/edge_index_endpoints are integer rows). Removing a node
+does `shift_remove` (O(N)) + an O(E) `keep`-mask edge retain + an O(N+E) index-repair pass
+(decrement every index > idx to keep them contiguous & preserve node ORDER). So ONE remove_node is
+O(N+E); a LOOP of k is O(k*(N+E)) — the O(N^2) bomb. nx's dict store deletes a key in O(1)+O(degree)
+with NO index repair (dicts preserve order for free). remove_nodes_from does the repair ONCE for all
+k, hence 1.00x. This is the SAME class as compose/attributed-batch: fnx's dual/index storage pays
+per-element what nx gets free from live dicts. FIX PLAN (dedicated native build, NOT a land-or-dig
+turn): defer the index compaction — remove_node marks a tombstone + drops incident edges/mirror
+(O(degree)), and the O(N+E) shift/repair runs LAZILY & ONCE before the next index-dependent read
+(edges()/degree()/matrix), OR swap_remove (O(1)) with node display-order decoupled from the internal
+index. Both need byte-exactness proven across the node-order/index surface (the exact risk that
+keeps this out of a normal turn). MEASUREMENT META: this cluster was invisible for ~30 turns because
+every sweep benched WHOLE-GRAPH ops (build once, measure once), never a per-element mutation loop —
+add mutation-in-loop to the standard sweep. Add/remove SINGLE-call floors (add_edge 0.34x) are the
+per-call PyO3-dispatch + String-canon + dual-store tax (same family as has_edge dff7a99f0); the
+removal loops are the fixable-with-architecture O(N+E)-repair.
+
 ## 2026-07-02 CopperCliff SHIP (pure-Python, polish): cytoscape_data guard-bypass 1.22x -> 1.37x + shared `_materialized_view` helper; NOISE lesson (reps=4)
 
 Followed the guard-bypass lever (88bf4181b) into the serializer family. Extracted the pattern into a
