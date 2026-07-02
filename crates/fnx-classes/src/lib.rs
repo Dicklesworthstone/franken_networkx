@@ -3265,7 +3265,11 @@ impl MultiGraph {
     where
         I: IntoIterator<Item = &'a str>,
     {
-        let remove_set: HashSet<&str> = nodes
+        // FxHashSet (not std SipHash): `remove_set` is probed once per adjacency
+        // entry (O(|E|) lookups) in the retains below — SipHash on those string
+        // keys dominated wall time, so use the fast hasher the rest of the store
+        // already uses.
+        let remove_set: rustc_hash::FxHashSet<&str> = nodes
             .into_iter()
             .filter(|node| self.nodes.contains_key(*node))
             .collect();

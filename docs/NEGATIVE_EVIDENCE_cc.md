@@ -3814,3 +3814,34 @@ complexity fix (helps at large |V|, closes the Graph/DiGraph parity gap) but is 
 the win: collapse the per-node neighbors()/edge_keys() allocation loop into a single borrowed adjacency
 walk (or skip it entirely when edge_py_attrs/edge_py_keys mirrors are empty — the pristine-mirror case).
 MultiDiGraph binding still loops inner.remove_node (no inner batch added yet) — same fix pending.
+
+## MultiGraph.remove_nodes_from — kill the O(k·degree) binding edge-walk (CopperCliff, MEASURED WIN)
+
+Follow-up to the bench-neutral inner batch (7faa668e6). Profiled the residual floor: the
+PyMultiGraph binding walked `inner.neighbors(n)` + `inner.edge_keys(n,nb)` PER removed node —
+a fresh Vec<String>+Vec<usize> alloc per incident edge plus a canonical-String edge_key build
+per HashMap probe — purely to purge the edge mirrors. Per-removal cost scaled LINEARLY with
+degree (3.3us@deg4 -> 9.3us@deg10 -> 22.7us@deg20 -> 57.8us@deg40), confirming O(k·degree).
+
+FIX (SHIPPED, byte-exact 256/256 structural + 256/256 mirror-coherence incl. touched mirrors +
+stale-resurrection on re-add): dropped the per-node edge walk for a single endpoint-keyed
+`retain` over each edge mirror (edge_py_attrs/edge_py_keys) — O(mirror size) once, and 0 for the
+common bulk-built/pristine graph. Node-side mirror purge stays O(k). `had_incident_edges` now
+comes free from the inner batch's returned `removed_edges`. Also swapped the inner `remove_set`
+and binding `present_set` from std SipHash to FxHashSet (probed once per adjacency entry in the
+O(|E|) retains; SipHash on those string keys was a profiled hot spot; byte-exact by construction).
+
+MEASURED (n=1000, k=500, MG rnf): ~0.13x -> **0.203x @ m=5000**, 0.223x -> **0.326x @ m=2000**
+(per-edge-built). Batch-built/pristine-mirror **0.343x @ m=10000**. Real ~25-45% self-speedup;
+closes the per-node-alloc floor. NOTE: the FxHash swap is compile-checked + byte-exact by
+construction but its magnitude was not separately benchmarked (build was frozen mid-measure);
+the 0.20x/0.33x figures are the pre-FxHash std-hash FLOOR.
+
+RESIDUAL / NEXT LEVER: even batch-built (empty mirror) is 0.34x — the inner MultiGraph batch does
+a WHOLE-GRAPH O(|E|) retain scan (edges map + every surviving adjacency row) regardless of k,
+where nx touches only incident edges. For k << N an incident-only batch (walk removed nodes'
+adjacency, swap_remove... but MG rows are order-observed so must shift_remove) would win; for
+k~N/2 the whole-scan is order-comparable but has a ~3x constant (Rust IndexMap retain+shift vs
+Python dict del). MultiDiGraph sibling (identical pattern, inner batch + binding written, FxHash)
+is STASHED UNVERIFIED (cc-mdg-remove_nodes_from-batch-UNVERIFIED-never-built) — build+byte-verify
+then ship. MDG rnf still 0.16x.

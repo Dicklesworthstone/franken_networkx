@@ -4622,7 +4622,9 @@ impl PyMultiGraph {
         // binding already carries (see PyGraph::remove_nodes_from).
         let iter = PyIterator::from_object(nodes)?;
         let mut present: Vec<String> = Vec::new();
-        let mut present_set: HashSet<String> = HashSet::new();
+        // FxHashSet: probed once per edge-mirror / adj-override entry in the
+        // retains below (SipHash on those string keys was a hot spot).
+        let mut present_set: rustc_hash::FxHashSet<String> = rustc_hash::FxHashSet::default();
         for item in iter {
             let item = item?;
             let canonical = node_key_to_string(py, &item)?;
@@ -4634,25 +4636,8 @@ impl PyMultiGraph {
             self.bump_nodes_seq();
             return Ok(());
         }
-        let mut had_incident_edges = false;
+        // br-r37-c1-mgrnf2: node-side mirror purge is O(k), independent of degree.
         for canonical in &present {
-            let neighbors = self
-                .inner
-                .neighbors(canonical)
-                .map(|neighbors| neighbors.into_iter().map(str::to_owned).collect::<Vec<_>>());
-            if let Some(neighbors) = neighbors {
-                for nb in neighbors {
-                    if let Some(keys) = self.inner.edge_keys(canonical, &nb) {
-                        for key in keys {
-                            // Idempotent: a shared (a,b) edge between two removed
-                            // nodes is visited from both endpoints; the second
-                            // remove is a no-op HashMap remove.
-                            self.remove_edge_metadata(canonical, &nb, key);
-                            had_incident_edges = true;
-                        }
-                    }
-                }
-            }
             if self.node_iter_mirror_active() {
                 // Remove from the live mirror while node_key_map still holds the
                 // display object (mirror keys are the display py objects).
@@ -4662,15 +4647,42 @@ impl PyMultiGraph {
             self.node_key_map.remove(canonical);
             self.node_py_attrs.remove(canonical);
         }
-        let present_refs: Vec<&str> = present.iter().map(String::as_str).collect();
-        self.inner.remove_nodes_from(present_refs.iter().copied());
+        // br-r37-c1-mgrnf2: KILL the O(k·degree) per-node edge walk. The prior
+        // version called inner.neighbors()+edge_keys() per removed node (a fresh
+        // Vec<String>+Vec<usize> alloc per incident edge plus a canonical-String
+        // edge_key build per HashMap probe) purely to purge the edge mirrors —
+        // O(k·degree) allocations that DOMINATED wall time (per-removal cost scaled
+        // linearly with degree: 3.3us@deg4 -> 56us@deg40). Drop it for a single
+        // endpoint-keyed retain over each mirror (O(mirror size) once, and 0 for
+        // the common bulk-built/pristine graph). An entry (l,r,k) is dropped iff
+        // EITHER endpoint is removed — correct regardless of key canonicalisation,
+        // and also sweeps any stale entry the inner-walk would have missed.
+        let mut removed_py_edge_mirror = false;
+        if !self.edge_py_attrs.is_empty() {
+            self.edge_py_attrs.retain(|(l, r, _k), _| {
+                let keep = !present_set.contains(l) && !present_set.contains(r);
+                if !keep {
+                    removed_py_edge_mirror = true;
+                }
+                keep
+            });
+        }
+        if !self.edge_py_keys.is_empty() {
+            self.edge_py_keys
+                .retain(|(l, r, _k), _| !present_set.contains(l) && !present_set.contains(r));
+        }
         if !self.adj_py_keys.is_empty() {
             // br-r37-c1-z6uka: drop cell overrides touching any removed node.
             self.adj_py_keys
                 .retain(|(a, b), _| !present_set.contains(a) && !present_set.contains(b));
         }
+        let present_refs: Vec<&str> = present.iter().map(String::as_str).collect();
+        // removed_edges (parallel-edge instances) tells us whether the edge set
+        // changed — the had_incident_edges signal, now free from the inner batch.
+        let (_removed_nodes, removed_edges) =
+            self.inner.remove_nodes_from(present_refs.iter().copied());
         self.bump_nodes_seq();
-        if had_incident_edges {
+        if removed_edges > 0 || removed_py_edge_mirror {
             self.bump_edges_seq(); // br-r37-c1-jft0i
         }
         Ok(())
