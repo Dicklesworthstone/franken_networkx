@@ -29257,6 +29257,20 @@ def _check_planarity_certificate(G, counterexample=False, recursive=False):
                 return False, None
         except (AttributeError, TypeError, NetworkXError):
             pass
+        # cc-planarlr: when no certificate is requested a NON-planar result's
+        # certificate is just ``None``, so the native LR bool test settles it
+        # without the O(V+E) nx-graph conversion + nx's Python LR (~10x the native
+        # kernel) that ``_planarity_graph_for_certificate`` + ``nx.check_planarity``
+        # below otherwise pay. Only the PLANAR branch needs the PlanarEmbedding
+        # certificate, so fall through to nx for those. Byte-identical: the native
+        # LR bool matches ``nx.check_planarity(G)[0]`` (verified incl. self-loops,
+        # K5/K3,3, grid) and nx returns ``(False, None)`` for non-planar without a
+        # counterexample.
+        try:
+            if not _fnx.is_planar_lr(G):
+                return False, None
+        except (AttributeError, TypeError, NetworkXError):
+            pass
 
     from networkx.algorithms import planarity as nx_planarity
 

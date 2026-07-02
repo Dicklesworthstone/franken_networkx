@@ -2,6 +2,29 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP: check_planarity(non-planar, no counterexample) 0.67x -> ~10x — native LR bool settles the certificate-less non-planar case
+
+Flow/connectivity/tree sweep found check_planarity 0.67x (5.19ms vs 3.46ms) — the only real
+non-scipy algorithm gap (everything else 1.2-119x). ROOT CAUSE: `_check_planarity_certificate`
+had an O(1) Euler pre-reject only for DENSE graphs (m > 3n-6); for everything else it CONVERTED
+the fnx graph to an nx graph (`_planarity_graph_for_certificate`) and ran nx's PYTHON LR
+(`nx.check_planarity`) — because it must return a certificate (PlanarEmbedding / Kuratowski).
+So fnx = conversion + nx-algo, strictly slower than nx alone. But a native `_fnx.is_planar_lr`
+(bool, ~10x faster than nx's LR) already backs `is_planar`. KEY: for `counterexample=False` a
+NON-planar result's certificate is just `None`, so the native bool settles it — no conversion,
+no nx-algo. FIX (cc-planarlr): after the Euler reject, `if not _fnx.is_planar_lr(G): return
+(False, None)`. Planar graphs still need the embedding certificate -> fall through to nx.
+MEASURED (non-planar): 0.67x->9.8-10.5x (0.30ms vs 2.97ms @ n=400). Planar graphs pay only
+the native LR (~4% of their total; the conversion+nx cost is pre-existing and unchanged) —
+0.84x->0.81x, negligible. Byte-exact: is_planar_lr matches nx's planarity bool over 620 cases
+incl self-loops / K5 / K3,3 / grid; full check_planarity (bool + None/PlanarEmbedding cert)
+0 fails over 800 planar/non-planar/self-loop cases; counterexample=True path unchanged; 690
+planarity conformance pass. PURE-PYTHON. LEVER: a wrapper that must return a CERTIFICATE
+falls back to a slow reference path even when the certificate is trivially None (the negative
+case) — short-circuit the negative case with the fast native bool kernel, keep the reference
+path only for the branch that actually needs the certificate. RESIDUAL: planar check_planarity
+~0.81x is the fnx->nx conversion tax for the embedding (needs a native embedding kernel — big).
+
 ## 2026-07-02 CopperCliff SHIP: dual_barabasi_albert_graph 0.88x -> 1.78-1.88x — seed-into-batch lever transfers (the flagged candidate)
 
 The barabasi_albert seed-into-batch lever (cc-bastarbatch, 7ecde5151) flagged dual_ba /
