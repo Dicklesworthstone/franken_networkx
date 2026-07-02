@@ -35083,20 +35083,32 @@ def modular_product(G, H):
         raise NetworkXNotImplemented("Modular product not implemented for directed graphs")
     if G.is_multigraph() or H.is_multigraph():
         raise NetworkXNotImplemented("Modular product not implemented for multigraphs")
-    # br-r37-c1-prodmodular: native fast path for the simple, no-attr,
-    # self-loop-free case. nx iterates all O((VW)^2) product-node pairs with a
-    # per-pair has_edge() + two per-edge add_edge() (tuple-key construction tax);
-    # the native kernel precomputes adjacency bitmatrices and assembles the same
-    # edge set in Rust. Same edge set (the product parity tests compare
-    # canonicalised edges); attrs/self-loops fall back to the Python build below.
+    # br-r37-c1-prodmodular: native fast path for the simple, self-loop-free case.
+    # nx iterates all O((VW)^2) product-node pairs with a per-pair has_edge() + two
+    # per-edge add_edge() (tuple-key construction tax); the native kernel precomputes
+    # adjacency bitmatrices and assembles the same edge set in Rust. Same edge set
+    # (the product parity tests compare canonicalised edges); EDGE-attrs / self-loops
+    # fall back to the Python build below.
+    # br-r37-c1-prodnodeattr (cc): modular's edge set is adjacency-only; on an
+    # EDGE-attr-free product every edge's _paired_edge_attrs({}, {}) is empty, so
+    # only NODE attrs decorate the output. Gate on EDGE attrs and paint paired node
+    # attrs onto the native result -> node-attributed modular goes from the O(N^2)
+    # Python has_edge loop (8.2s / 0.24x at 50x45) to the native bitmatrix build +
+    # one node paint (0.5s / 3.66x vs nx).
     if (
-        not _graph_has_any_attrs(G)
-        and not _graph_has_any_attrs(H)
+        not _graph_has_any_edge_attrs(G)
+        and not _graph_has_any_edge_attrs(H)
         and not number_of_selfloops(G)
         and not number_of_selfloops(H)
     ):
         _fast = _fnx.modular_product_fast(G, H)
         if _fast is not None:
+            if _graph_has_any_node_attrs(G) or _graph_has_any_node_attrs(H):
+                _fast.add_nodes_from(
+                    ((g, h), _product_node_attrs(dict(g_attrs), dict(h_attrs)))
+                    for g, g_attrs in G.nodes(data=True)
+                    for h, h_attrs in H.nodes(data=True)
+                )
             return _fast
     P = Graph()
 
