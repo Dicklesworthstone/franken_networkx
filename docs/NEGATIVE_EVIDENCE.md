@@ -2,6 +2,28 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SURFACE: conversion-trap vein MINED; most "gaps" this sweep were BENCH-TRAPS (build inside the timed lambda)
+
+Followed the modularity conversion-trap lever (c1b59f38c). Grepped 198 `_networkx_graph_for_parity`
+sites + benched 5 domains (conversion ops, link prediction, matrix exporters, flow/matching/
+connectivity, structural metrics). RESULT: no shippable win — two findings worth more than churn:
+(1) CONVERSION VEIN MINED: the conversions that mattered were modularity (already fixed); every
+other converting op is a WIN or parity when measured correctly (intersection 1.29x, dag_longest_path
+1.6x, MST 1.65x, is_isomorphic 2.1x, ...). Real residual gaps are all modest FLOORS: treewidth_min_
+degree 0.72x (pure-Python heuristic + double adjacency snapshot; a native to_dict_of_lists snapshot
+saves only ~6% and stays sub-1x — NOT worth it + inherent frozenset-node canonicalization for the
+result Graph), treewidth_min_fill_in 0.86x, max_weight_matching 0.86x (Blossom), non_randomness 0.76x
+(scipy eigenvalue-bound).
+(2) BENCH-TRAP (recurring, COSTLY — this is the real lesson): my sweep harness builds graphs INSIDE
+the timed lambda for ops that take a 2nd graph or a fresh graph (`fnx.op(mk(fnx,...))`), so the O(E)
+BUILD is timed too and inflates the apparent gap. EVERY "gap" that survived re-measurement with the
+graph built OUTSIDE was either a win or a smaller floor: effective_size 0.77x->6.1x REAL, constraint
+0.86x->fine, intersection 0.51x->1.29x, non_randomness 0.54x->0.76x, treewidth 0.52x->0.72x. LEVER:
+NEVER build/copy a graph inside `run(lambda: op(mk(...)))` — hoist ALL graph construction outside the
+reps loop; an apparent 0.2-0.5x gap on an op that takes a second/fresh graph is a build-time artifact
+until proven otherwise by a build-outside re-measure. (set_edge_attributes 284e5fd75 + modularity
+c1b59f38c survived this check — they were real; many sibling "gaps" did not.)
+
 ## 2026-07-02 CopperCliff SHIP (pure-Python): weighted community.modularity 0.23x -> 0.67x — drop the fnx->nx graph copy, run nx's formula on native views
 
 Computational-algorithm sweep. `fnx.community.modularity` on a WEIGHTED graph was 0.23x nx (500n
