@@ -3924,3 +3924,28 @@ small-k win landed there and not for simple Graph.
 CONCLUSION: the remaining vs-nx gaps are architectural floors (PyO3 boundary for micro-mutations;
 int-index renumber for simple-Graph remove_node). Future cycles on has_edge/add_edge/remove_edge
 micro-opts are low-EV (capped ~0.35x by FFI). The only real remaining lever is the slotmap rewrite.
+
+## I/O + Multi-type sweep clean; DiGraph weighted-degree floor = EAGER-MIRROR (lever: lazy unification) — SURFACED (CopperCliff)
+
+Fresh sweep of previously-unswept domains (I/O formats, flow, Multi-type ops, 24 ops, n=600/m=3000):
+fnx at-or-above nx on all but near-parity floors. Wins: transitivity 60x, mg_number_of_edges huge,
+multidigraph_edges_kd 7.6x, diameter/harmonic/eccentricity 5.7-6.6x, square_clustering/dfs 4.5x,
+multigraph_degree_w 2.2x, edgelist/adjlist_write 1.5-2x, multigraph_copy/reverse 1.2-1.4x. Sub-parity:
+DiGraph in_degree(w) ~0.85-0.90x, out_degree(w) ~0.83-0.87x (the only real one), plus near-parity
+gexf/graphml/adjacency_data/node_link 0.88-0.97x. No NEW one-session-takeable gap.
+
+DiGraph weighted-degree ROOT CAUSE (new framing): DiGraph is the ONLY graph type with an EAGER edge
+mirror (add_edges_from populates one PyDict/edge, digraph.rs ~9041). So its weighted degree goes
+through per-node row-dict materialization (successor_row_dict_by_canonical/predecessor_*, which also
+mark_edges_dirty on a READ) + Python sum(). MultiDiGraph/MultiGraph are LAZY -> their store twins
+(native_weighted_directional_degree, read-only, sums in Rust) ENGAGE. DIRECT EVIDENCE (batch-built,
+same op): **MultiDiGraph out_degree(w) = 2.16x (BEATS nx)** vs **DiGraph out_degree(w) = 0.85x**.
+
+Confirmed NOT a store-twin fix: the DiGraph int+float store-twin port is a fresh NO-SHIP (704254a93,
+2026-07-02) that POSTDATES the edges_dirty-clear fix (c314372dd, 2026-06-28) by 4 days, so it was
+tested with the store accessible and STILL break-even — the eager mirror makes store-vs-mirror
+equal-cost. The ACTUAL lever is unifying DiGraph to a LAZY mirror like MG/MDG: unlocks the store
+fast paths (degree/edge-data -> potential ~2x like MDG) AND speeds builds (no per-edge PyDict). This
+is a large refactor (every DiGraph edge_py_attrs reader must handle materialize-on-demand), NOT a
+one-session lever — but it's the single highest-value remaining architectural lever, distinct from
+the mutation-cluster PyO3 floor and the simple-Graph remove_node int-index renumber bomb.
