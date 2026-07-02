@@ -39104,9 +39104,16 @@ class _ReverseDirectedViewBase:
     def _edges(self, nbunch=None, data=False, keys=False, default=None):
         nodes = self._nbunch(nbunch)
         result = []
+        # cc-revedgespred: iterate the parent's native per-node predecessor row
+        # (`_fast_pred_row` -> a PLAIN dict in one native call) instead of
+        # `self._graph.pred[source]`, which returns a MultiAdjacencyView/AtlasView
+        # that re-materialises `_native_predecessor_row` ~3x per edge (MDG
+        # reverse.edges(keys,data) ran 0.17x nx). `_fast_pred_row` is O(deg) and
+        # already falls back to `graph.pred[node]` for a nested-view parent, so it
+        # is byte-identical (same row keys/order, same keydicts, same attrs).
         if self._graph.is_multigraph():
             for source in nodes:
-                for target, keyed_attrs in self._graph.pred[source].items():
+                for target, keyed_attrs in _fast_pred_row(self._graph, source).items():
                     for key, attrs in keyed_attrs.items():
                         if isinstance(data, str):
                             result.append(
@@ -39128,7 +39135,7 @@ class _ReverseDirectedViewBase:
                             result.append((source, target))
         else:
             for source in nodes:
-                for target, attrs in self._graph.pred[source].items():
+                for target, attrs in _fast_pred_row(self._graph, source).items():
                     if isinstance(data, str):
                         result.append((source, target, attrs.get(data, default)))
                     elif data is None:

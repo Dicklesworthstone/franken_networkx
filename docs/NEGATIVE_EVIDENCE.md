@@ -2,6 +2,24 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP: reverse_view.edges(data/keys) 0.17-0.33x -> 0.51-0.74x — iterate the native pred row, not the AtlasView
+
+reverse_view `_edges` iterated `self._graph.pred[source].items()` per source; for a concrete
+parent that returns a MultiAdjacencyView/AtlasView that re-materialises
+`_native_predecessor_row` ~3x per edge (profile: 159860 native-row calls for 50000 edges).
+FIX (cc-revedgespred): iterate `_fast_pred_row(self._graph, source)` instead — a PLAIN dict
+built in ONE native call (O(deg)); it already falls back to `graph.pred[node]` for a
+nested-view parent, so byte-identical (same row keys/order, keydicts, attrs). MEASURED:
+MultiDiGraph reverse.edges(keys,data) 0.17x->0.51x (n=1000), DiGraph reverse.edges(data)
+0.33x->0.74x — ~2-3x fnx (removes the AtlasView triple-materialisation). Still <1x: the
+residual is the per-source plain-dict BUILD vs nx iterating its live `_pred` nested dict
+(no dict build) + tuple materialisation — would need a native bulk reverse-edges-WITH-data
+exporter (the no-data DiGraph case already has `_native_reverse_edges_no_data`). Byte-exact:
+1942 cases (DiGraph+MultiDiGraph x edges/keys/data/'weight' + nested reverse-of-subgraph)
+0 fails; 6152 conformance pass (1 pre-existing gexf failure). PURE-PYTHON. LEVER: a live-view
+edge/adj iterator that indexes `G.pred[n]`/`G.adj[n]` (AtlasView, re-materialises the native
+row per access) should use the plain-dict `_fast_*_row` accessor (one native call).
+
 ## 2026-07-02 CopperCliff SHIP: undirected restricted_view.degree(WEIGHT) 0.10x -> 2.26x — weighted degree bulk path with builtin-sum Neumaier match
 
 Extended the degree bulk path (cc-rvdegfast) to WEIGHTED undirected degree. TRAP handled:
