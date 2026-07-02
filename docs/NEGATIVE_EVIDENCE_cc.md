@@ -3975,3 +3975,13 @@ LEVER: when a perf change measures "bench-neutral", VERIFY THE DISPATCH ACTUALLY
 path masked a real 3.7x win for THREE turns. FOLLOW-UP: in/out_degree(weight) (0.69-0.85x) use the
 same row-dict `_di_*` gens — a directional `_native_weighted_{out,in}_degree_values` + zip would give
 the same win.
+
+## DiGraph in/out_degree(weight) 0.69-0.85x -> 3.0x INT / 2.0x FLOAT — SHIPPED (CopperCliff, follow-up)
+
+Same lever as the total-degree win: the in/out weighted gens (__init__.py ~5016) materialized
+`_native_adjacency_row_dict(node)` / `_native_predecessor_row_dict(node)` per node + Python sum().
+Generalized the store/exact value helpers to directional (inc_out/inc_in), added
+`_native_weighted_{out,in}_degree_values`, and routed the in/out gens to zip(list(G), values(w)).
+MEASURED: in_degree(w) 0.85x->3.06x, out_degree(w) 0.69x->3.05x (INT); ~2.0-2.04x (FLOAT). degree(w)
+holds 3.68x/2.12x. Byte-exact (int/float/mixed/missing/bool/self-loop/bignum/neg/str/isolated for
+all three) + 8787 conformance tests. The whole DiGraph weighted-degree family now BEATS nx 2-3.7x.

@@ -5014,6 +5014,20 @@ class _DirectedDegreeView:
             )
         ):
             _w = self._weight
+            # br-cc-diwdegvals: zip cached node list with a VALUES-only directional
+            # native accumulator (int-store fast path, else exact) — no per-node
+            # row-dict materialization / py_node_key rebuild / store-dirtying. Same
+            # win as the total-degree path (0.7x -> ~3x). Falls back to the row-dict
+            # sum if the native method is absent.
+            _vname = (
+                "_native_weighted_out_degree_values"
+                if self._adjacency_attr == "succ"
+                else "_native_weighted_in_degree_values"
+            )
+            _values = getattr(self._graph, _vname, None)
+            if _values is not None:
+                yield from zip(self._graph, _values(_w))
+                return
             _row = (
                 self._graph._native_adjacency_row_dict
                 if self._adjacency_attr == "succ"

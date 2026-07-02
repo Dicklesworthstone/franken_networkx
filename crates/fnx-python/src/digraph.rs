@@ -12122,10 +12122,12 @@ impl PyDiGraph {
     /// attr defaults to 1 (int), matching the exact path's `one`. Self-loops appear
     /// in BOTH successors_indices and predecessors_indices, so they are counted
     /// twice — exactly nx's total-degree semantics.
-    fn weighted_degree_total_int_store_values(
+    fn weighted_degree_int_store_values(
         &self,
         py: Python<'_>,
         weight: &str,
+        inc_out: bool,
+        inc_in: bool,
     ) -> PyResult<Option<Vec<PyObject>>> {
         if self.edges_dirty.load(Ordering::Relaxed) {
             return Ok(None);
@@ -12134,7 +12136,7 @@ impl PyDiGraph {
         let mut out: Vec<PyObject> = Vec::with_capacity(n);
         for i in 0..n {
             let mut total: i128 = 0;
-            if let Some(succs) = self.inner.successors_indices(i) {
+            if inc_out && let Some(succs) = self.inner.successors_indices(i) {
                 for &j in succs {
                     let value = match self.inner.edge_attrs_by_indices(i, j).map(|a| a.get(weight)) {
                         Some(Some(CgseValue::Int(v))) => i128::from(*v),
@@ -12147,7 +12149,7 @@ impl PyDiGraph {
                     total = t;
                 }
             }
-            if let Some(preds) = self.inner.predecessors_indices(i) {
+            if inc_in && let Some(preds) = self.inner.predecessors_indices(i) {
                 for &j in preds {
                     let value = match self.inner.edge_attrs_by_indices(j, i).map(|a| a.get(weight)) {
                         Some(Some(CgseValue::Int(v))) => i128::from(*v),
@@ -12175,52 +12177,84 @@ impl PyDiGraph {
     /// in/out degree 0.62x -> 1.4x). Tries the int-store fast path (bulk-built
     /// graphs), else the exact PyList + `builtins.sum` path (float / heterogeneous /
     /// bignum), still values-only, so the numeric result stays byte-identical.
-    fn _native_weighted_degree_values(
+    /// Exact (PyList + builtins.sum) values fallback — byte-identical for
+    /// float/heterogeneous/bignum weights. Directional via inc_out/inc_in; the total
+    /// (both) sums the succ and pred groups SEPARATELY then adds them, reproducing
+    /// nx's `sum(succ) + sum(pred)` (order + float compensation identical).
+    fn weighted_degree_exact_values(
         &self,
         py: Python<'_>,
         weight: &str,
+        inc_out: bool,
+        inc_in: bool,
     ) -> PyResult<Vec<PyObject>> {
-        if let Some(vals) = self.weighted_degree_total_int_store_values(py, weight)? {
-            return Ok(vals);
-        }
         let one = 1i64.into_pyobject(py)?.into_any();
         let sum_fn = py.import("builtins")?.getattr("sum")?;
         let mut out: Vec<PyObject> = Vec::with_capacity(self.inner.node_count());
         for node in self.inner.nodes_ordered() {
-            let succ_vals = pyo3::types::PyList::empty(py);
-            for successor in self.inner.successors(node).unwrap_or_default() {
-                let ek = Self::edge_key(node, successor);
-                let value = match self.edge_py_attrs.get(&ek) {
-                    Some(d) => d
-                        .bind(py)
-                        .get_item(weight)
-                        .ok()
-                        .flatten()
-                        .unwrap_or_else(|| one.clone()),
-                    None => one.clone(),
-                };
-                succ_vals.append(value)?;
-            }
-            let pred_vals = pyo3::types::PyList::empty(py);
-            for predecessor in self.inner.predecessors(node).unwrap_or_default() {
-                let ek = Self::edge_key(predecessor, node);
-                let value = match self.edge_py_attrs.get(&ek) {
-                    Some(d) => d
-                        .bind(py)
-                        .get_item(weight)
-                        .ok()
-                        .flatten()
-                        .unwrap_or_else(|| one.clone()),
-                    None => one.clone(),
-                };
-                pred_vals.append(value)?;
-            }
-            let deg = sum_fn
-                .call1((succ_vals,))?
-                .add(sum_fn.call1((pred_vals,))?)?;
+            let out_sum = if inc_out {
+                let succ_vals = pyo3::types::PyList::empty(py);
+                for successor in self.inner.successors(node).unwrap_or_default() {
+                    let ek = Self::edge_key(node, successor);
+                    let value = match self.edge_py_attrs.get(&ek) {
+                        Some(d) => d.bind(py).get_item(weight).ok().flatten().unwrap_or_else(|| one.clone()),
+                        None => one.clone(),
+                    };
+                    succ_vals.append(value)?;
+                }
+                Some(sum_fn.call1((succ_vals,))?)
+            } else {
+                None
+            };
+            let in_sum = if inc_in {
+                let pred_vals = pyo3::types::PyList::empty(py);
+                for predecessor in self.inner.predecessors(node).unwrap_or_default() {
+                    let ek = Self::edge_key(predecessor, node);
+                    let value = match self.edge_py_attrs.get(&ek) {
+                        Some(d) => d.bind(py).get_item(weight).ok().flatten().unwrap_or_else(|| one.clone()),
+                        None => one.clone(),
+                    };
+                    pred_vals.append(value)?;
+                }
+                Some(sum_fn.call1((pred_vals,))?)
+            } else {
+                None
+            };
+            let deg = match (out_sum, in_sum) {
+                (Some(o), Some(i)) => o.add(i)?,
+                (Some(o), None) => o,
+                (None, Some(i)) => i,
+                (None, None) => sum_fn.call1((pyo3::types::PyList::empty(py),))?,
+            };
             out.push(deg.unbind());
         }
         Ok(out)
+    }
+
+    /// Values-only TOTAL weighted degree, node-index order (no per-node py_node_key).
+    /// The Python DiDegreeView zips these with the cached node list — the win the
+    /// unweighted degcounts path carries. Int-store fast path, else exact.
+    fn _native_weighted_degree_values(&self, py: Python<'_>, weight: &str) -> PyResult<Vec<PyObject>> {
+        if let Some(v) = self.weighted_degree_int_store_values(py, weight, true, true)? {
+            return Ok(v);
+        }
+        self.weighted_degree_exact_values(py, weight, true, true)
+    }
+
+    /// Values-only OUT weighted degree (successors only), node-index order.
+    fn _native_weighted_out_degree_values(&self, py: Python<'_>, weight: &str) -> PyResult<Vec<PyObject>> {
+        if let Some(v) = self.weighted_degree_int_store_values(py, weight, true, false)? {
+            return Ok(v);
+        }
+        self.weighted_degree_exact_values(py, weight, true, false)
+    }
+
+    /// Values-only IN weighted degree (predecessors only), node-index order.
+    fn _native_weighted_in_degree_values(&self, py: Python<'_>, weight: &str) -> PyResult<Vec<PyObject>> {
+        if let Some(v) = self.weighted_degree_int_store_values(py, weight, false, true)? {
+            return Ok(v);
+        }
+        self.weighted_degree_exact_values(py, weight, false, true)
     }
 
     fn _native_weighted_degree(
