@@ -3280,12 +3280,57 @@ impl MultiGraph {
         let old_node_count = self.nodes.len();
         let old_edge_count = self.edge_count;
 
+        // br-r37-c1-mgrnf-incident: when removing a SMALL fraction of nodes, the
+        // whole-graph retain scans (O(|V|+|E|)) dwarf the actual incident work —
+        // removing 10 nodes from a 2000/10000 graph was ~100x slower than nx (which
+        // touches only incident edges). Fast path: walk ONLY the removed nodes'
+        // adjacency (like `remove_node`), dropping incident edge buckets O(1) and
+        // pruning the removed node from each SURVIVING neighbour's row, then compact
+        // the two outer maps ONCE. O(|V| + sum_removed_degrees) instead of O(|V|+|E|).
+        // Gate on node fraction: for large removals the per-neighbour `shift_remove`
+        // can repeat on hub survivors, so fall through to the whole-graph retain.
+        let mut removed_instances = 0usize;
+        if remove_set.len().saturating_mul(4) <= old_node_count {
+            for &rn in &remove_set {
+                let neighbor_names: Vec<String> = match self.adjacency.get(rn) {
+                    Some(row) => row.keys().cloned().collect(),
+                    None => continue,
+                };
+                for nb in &neighbor_names {
+                    // Prune `rn` from a surviving neighbour's row (removed
+                    // neighbours' rows are dropped wholesale below). Self-loop
+                    // (nb == rn) also skips — the row is being removed.
+                    if nb.as_str() != rn && !remove_set.contains(nb.as_str())
+                        && let Some(remote) = self.adjacency.get_mut(nb)
+                    {
+                        remote.shift_remove(rn);
+                    }
+                    // Drop the shared edge bucket exactly once: swap_remove returns
+                    // it only on the first endpoint that reaches it (an (a,b) pair
+                    // with both removed is visited twice; the second is a no-op).
+                    if let Some(bucket) = self.edges.swap_remove(&EdgeKeyRef::new(rn, nb)) {
+                        removed_instances += bucket.len();
+                    }
+                }
+            }
+            self.edge_count -= removed_instances;
+            self.adjacency
+                .retain(|node, _| !remove_set.contains(node.as_str()));
+            self.nodes
+                .retain(|node, _| !remove_set.contains(node.as_str()));
+            let removed_nodes = old_node_count - self.nodes.len();
+            let removed_edges = old_edge_count - self.edge_count;
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(removed_nodes).unwrap_or(u64::MAX));
+            return (removed_nodes, removed_edges);
+        }
+
         // Drop every edge bucket incident to a removed node (either endpoint in
         // `remove_set`) in one pass, tallying the parallel-edge instances so
         // `edge_count` stays exact. The `edges` map order is never observed
         // externally (every consumer walks `edges_ordered`, i.e. adjacency
         // order), so `retain` is order-safe — same rationale as `remove_node`.
-        let mut removed_instances = 0usize;
         self.edges.retain(|key, bucket| {
             let keep = !remove_set.contains(key.left.as_str())
                 && !remove_set.contains(key.right.as_str());

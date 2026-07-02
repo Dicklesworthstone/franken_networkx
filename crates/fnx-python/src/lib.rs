@@ -4657,19 +4657,48 @@ impl PyMultiGraph {
         // the common bulk-built/pristine graph). An entry (l,r,k) is dropped iff
         // EITHER endpoint is removed — correct regardless of key canonicalisation,
         // and also sweeps any stale entry the inner-walk would have missed.
+        // br-r37-c1-mgrnf-incident: adaptive mirror purge. The whole-mirror retain
+        // is O(|mirror|) — fine for a large removal, but it scans EVERY edge-attr
+        // entry even to drop a handful of nodes, so on per-edge-built graphs (whose
+        // mirrors are populated eagerly) a small removal paid O(|E|) (removing 10
+        // nodes from a 2000/10000 graph was 0.02x). For a small removal, reconstruct
+        // exactly the removed nodes' incident mirror keys from `inner` (still intact)
+        // — O(k·degree), cheap when k is small — and drop only those.
         let mut removed_py_edge_mirror = false;
-        if !self.edge_py_attrs.is_empty() {
-            self.edge_py_attrs.retain(|(l, r, _k), _| {
-                let keep = !present_set.contains(l) && !present_set.contains(r);
-                if !keep {
-                    removed_py_edge_mirror = true;
+        let mirrors_populated = !self.edge_py_attrs.is_empty() || !self.edge_py_keys.is_empty();
+        if mirrors_populated {
+            if present.len().saturating_mul(4) <= self.inner.node_count() {
+                for canonical in &present {
+                    if let Some(neighbors) = self
+                        .inner
+                        .neighbors(canonical)
+                        .map(|v| v.into_iter().map(str::to_owned).collect::<Vec<_>>())
+                    {
+                        for nb in &neighbors {
+                            if let Some(keys) = self.inner.edge_keys(canonical, nb) {
+                                for key in keys {
+                                    self.remove_edge_metadata(canonical, nb, key);
+                                    removed_py_edge_mirror = true;
+                                }
+                            }
+                        }
+                    }
                 }
-                keep
-            });
-        }
-        if !self.edge_py_keys.is_empty() {
-            self.edge_py_keys
-                .retain(|(l, r, _k), _| !present_set.contains(l) && !present_set.contains(r));
+            } else {
+                if !self.edge_py_attrs.is_empty() {
+                    self.edge_py_attrs.retain(|(l, r, _k), _| {
+                        let keep = !present_set.contains(l) && !present_set.contains(r);
+                        if !keep {
+                            removed_py_edge_mirror = true;
+                        }
+                        keep
+                    });
+                }
+                if !self.edge_py_keys.is_empty() {
+                    self.edge_py_keys
+                        .retain(|(l, r, _k), _| !present_set.contains(l) && !present_set.contains(r));
+                }
+            }
         }
         if !self.adj_py_keys.is_empty() {
             // br-r37-c1-z6uka: drop cell overrides touching any removed node.

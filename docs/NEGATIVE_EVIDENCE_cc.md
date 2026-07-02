@@ -3864,3 +3864,29 @@ prior commit).
 
 RESIDUAL (both types): whole-graph O(|E|) inner retain scan regardless of k (~3x nx incident-only
 dict dels) — the last lever for k<<N.
+
+## Multi(Di)Graph.remove_nodes_from — incident-only small-k fast path (CopperCliff, MEASURED WIN)
+
+Profiled remove_nodes_from at varying k: the whole-graph O(|V|+|E|) batch (retain scans over the
+entire edges map + every adjacency row + the whole Python edge mirror) is catastrophic when k<<N —
+removing 10 nodes from a 2000/10000 graph was **0.01x (100x slower than nx)**, which touches only
+incident edges (O(sum_removed_degrees)). This is the realistic case: prune a few nodes from a large
+graph.
+
+FIX (SHIPPED, byte-exact): adaptive dispatch gated on `k*4 <= |V|`. Small-k path walks ONLY the
+removed nodes' adjacency (inner: drop incident edge buckets O(1) + prune the removed node from each
+SURVIVING neighbour's opposite row + compact the outer maps ONCE; binding: reconstruct exactly the
+incident Python-mirror keys from `inner` while intact and drop only those). Large-k falls through to
+the whole-graph retain (avoids repeated hub shift_remove). Applied to BOTH inner
+(MultiGraph/MultiDiGraph::remove_nodes_from) AND binding (edge_py_attrs/edge_py_keys purge).
+
+MEASURED (n=2000, m=10000, per-edge-built): MG rnf k=10 **0.01x -> 0.20x (20x)**, k=200 0.09x -> 0.17x;
+MDG k=10 0.02x -> 0.13x. Batch-built/empty-mirror MG k=10 -> 0.21x. No regression at k=N/2 (whole-graph
+path unchanged: MG 0.225x, MDG 0.279x). Byte-exact 1792 checks (k in {1,2,N/8,N/4,N/4+1,N/2,N} x
+parallel edges/self-loops/attrs/str+int keys/touched-mirrors/dup+nonexistent victims + stale-
+resurrection on re-add for BOTH paths) + 512 k=N/2 checks + 3799 conformance tests.
+
+RESIDUAL: even small-k is ~0.20x — the inner's final adjacency.retain + nodes.retain are O(|V|) once
+(IndexMap can't O(1)-delete preserving order; nx's dict can). That O(|V|) compaction floor is the
+storage-model wall for k<<N. Simple Graph/DiGraph small-k (0.05x) is the separate int-index renumber
+bomb (architectural). Single remove_node loop 0.014x remains the biggest architectural gap (slotmap).

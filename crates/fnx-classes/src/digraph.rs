@@ -2801,12 +2801,68 @@ impl MultiDiGraph {
         let old_node_count = self.nodes.len();
         let old_edge_count = self.edge_count;
 
+        // br-r37-c1-mgrnf-incident: SMALL-fraction fast path — walk only the removed
+        // nodes' out/in adjacency (like `remove_node`), pruning the removed node from
+        // each surviving neighbour's opposite row and dropping incident edge buckets
+        // O(1), then compact the three outer maps ONCE. O(|V| + sum_removed_degrees)
+        // vs the whole-graph O(|V|+|E|) retain (removing 10 nodes from a 2000/10000
+        // graph was ~100x nx). Large removals fall through (repeated hub shift_remove).
+        let mut removed_instances = 0usize;
+        if remove_set.len().saturating_mul(4) <= old_node_count {
+            for &rn in &remove_set {
+                // Out-edges: rn -> target. Drop rn from a surviving target's preds.
+                let targets: Vec<String> = match self.successors.get(rn) {
+                    Some(row) => row.keys().cloned().collect(),
+                    None => Vec::new(),
+                };
+                for t in &targets {
+                    if t.as_str() != rn && !remove_set.contains(t.as_str())
+                        && let Some(preds) = self.predecessors.get_mut(t)
+                    {
+                        preds.shift_remove(rn);
+                    }
+                    if let Some(bucket) = self.edges.swap_remove(&DirectedEdgeKeyRef::new(rn, t)) {
+                        removed_instances += bucket.len();
+                    }
+                }
+                // In-edges: source -> rn. Drop rn from a surviving source's succs.
+                let sources: Vec<String> = match self.predecessors.get(rn) {
+                    Some(row) => row.keys().cloned().collect(),
+                    None => Vec::new(),
+                };
+                for s in &sources {
+                    if s.as_str() != rn && !remove_set.contains(s.as_str())
+                        && let Some(succs) = self.successors.get_mut(s)
+                    {
+                        succs.shift_remove(rn);
+                    }
+                    // Self-loop (rn,rn) already dropped in the out-edges pass, so
+                    // swap_remove returns None here — no double count.
+                    if let Some(bucket) = self.edges.swap_remove(&DirectedEdgeKeyRef::new(s, rn)) {
+                        removed_instances += bucket.len();
+                    }
+                }
+            }
+            self.edge_count -= removed_instances;
+            self.successors
+                .retain(|node, _| !remove_set.contains(node.as_str()));
+            self.predecessors
+                .retain(|node, _| !remove_set.contains(node.as_str()));
+            self.nodes
+                .retain(|node, _| !remove_set.contains(node.as_str()));
+            let removed_nodes = old_node_count - self.nodes.len();
+            let removed_edges = old_edge_count - self.edge_count;
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(removed_nodes).unwrap_or(u64::MAX));
+            return (removed_nodes, removed_edges);
+        }
+
         // Drop every edge bucket incident to a removed node (source OR target) in
         // one pass, tallying parallel-edge instances so `edge_count` stays exact.
         // `edges` map order is unobserved externally (consumers walk `edges_ordered`
         // = successor order), so `retain` is order-safe — same rationale as
         // `remove_node`.
-        let mut removed_instances = 0usize;
         self.edges.retain(|key, bucket| {
             let keep = !remove_set.contains(key.source.as_str())
                 && !remove_set.contains(key.target.as_str());

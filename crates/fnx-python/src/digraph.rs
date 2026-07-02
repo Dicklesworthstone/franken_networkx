@@ -4636,22 +4636,61 @@ impl PyMultiDiGraph {
             self.node_key_map.remove(canonical);
             self.node_py_attrs.remove(canonical);
         }
-        // Edge/adjacency mirror purge — one endpoint-keyed pass over each mirror
-        // (drop an entry iff EITHER endpoint is removed; correct regardless of key
-        // canonicalisation, and sweeps stale entries the inner-walk would miss).
+        // br-r37-c1-mgrnf-incident: adaptive mirror purge. Whole-mirror retain is
+        // O(|mirror|) — scans every edge-attr entry even for a tiny removal, so a
+        // small removal on a per-edge-built graph paid O(|E|). For a small removal,
+        // reconstruct exactly the removed nodes' incident mirror keys from `inner`
+        // (still intact) via successors + predecessors — O(k·degree), cheap for
+        // small k — and drop only those.
         let mut removed_py_edge_mirror = false;
-        if !self.edge_py_attrs.is_empty() {
-            self.edge_py_attrs.retain(|(l, r, _k), _| {
-                let keep = !present_set.contains(l) && !present_set.contains(r);
-                if !keep {
-                    removed_py_edge_mirror = true;
+        let mirrors_populated = !self.edge_py_attrs.is_empty() || !self.edge_py_keys.is_empty();
+        if mirrors_populated {
+            if present.len().saturating_mul(4) <= self.inner.node_count() {
+                for canonical in &present {
+                    if let Some(succs) = self
+                        .inner
+                        .successors(canonical)
+                        .map(|v| v.into_iter().map(str::to_owned).collect::<Vec<_>>())
+                    {
+                        for t in &succs {
+                            if let Some(keys) = self.inner.edge_keys(canonical, t) {
+                                for key in keys {
+                                    self.remove_edge_metadata(canonical, t, key);
+                                    removed_py_edge_mirror = true;
+                                }
+                            }
+                        }
+                    }
+                    if let Some(preds) = self
+                        .inner
+                        .predecessors(canonical)
+                        .map(|v| v.into_iter().map(str::to_owned).collect::<Vec<_>>())
+                    {
+                        for s in &preds {
+                            if let Some(keys) = self.inner.edge_keys(s, canonical) {
+                                for key in keys {
+                                    self.remove_edge_metadata(s, canonical, key);
+                                    removed_py_edge_mirror = true;
+                                }
+                            }
+                        }
+                    }
                 }
-                keep
-            });
-        }
-        if !self.edge_py_keys.is_empty() {
-            self.edge_py_keys
-                .retain(|(l, r, _k), _| !present_set.contains(l) && !present_set.contains(r));
+            } else {
+                if !self.edge_py_attrs.is_empty() {
+                    self.edge_py_attrs.retain(|(l, r, _k), _| {
+                        let keep = !present_set.contains(l) && !present_set.contains(r);
+                        if !keep {
+                            removed_py_edge_mirror = true;
+                        }
+                        keep
+                    });
+                }
+                if !self.edge_py_keys.is_empty() {
+                    self.edge_py_keys
+                        .retain(|(l, r, _k), _| !present_set.contains(l) && !present_set.contains(r));
+                }
+            }
         }
         if !self.succ_py_keys.is_empty() {
             self.succ_py_keys
