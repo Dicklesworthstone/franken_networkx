@@ -40582,13 +40582,37 @@ class _FilteredGraphView:
             visible_set = set(nodes)
             fast = []
             if parent.is_directed():
-                for source in nodes:
-                    row = _fast_succ_row(parent, source)
-                    for target in row:
-                        if target in visible_set and filter_edge(source, target):
-                            fast.append(
-                                (source, target, row[target]) if data else (source, target)
-                            )
+                # br-cvsubedges: per-source `_fast_succ_row` rebuilds the WHOLE
+                # native adjacency each call (O(V*(V+E))); hoist the snapshot out of
+                # the loop exactly as the node-set chain path below does. na_row is
+                # the O(deg) live-attr row used only for the data=True merge.
+                na_keys = getattr(parent, "_native_adjacency_keys", None)
+                na_adj = getattr(parent, "_native_adjacency_dict", None)
+                na_row = getattr(parent, "_native_successor_row_dict", None)
+                if not data and na_keys is not None:
+                    succ_keys = dict(na_keys())
+                    for source in nodes:
+                        for target in succ_keys[source]:
+                            if target in visible_set and filter_edge(source, target):
+                                fast.append((source, target))
+                elif data and na_adj is not None and na_row is not None:
+                    full = na_adj()
+                    for source in nodes:
+                        live = na_row(source)
+                        keyrow = full[source]
+                        for target in keyrow:
+                            if target in visible_set and filter_edge(source, target):
+                                fast.append(
+                                    (source, target, live.get(target, keyrow[target]))
+                                )
+                else:
+                    for source in nodes:
+                        row = _fast_succ_row(parent, source)
+                        for target in row:
+                            if target in visible_set and filter_edge(source, target):
+                                fast.append(
+                                    (source, target, row[target]) if data else (source, target)
+                                )
             else:
                 seen = set()
                 for source in nodes:

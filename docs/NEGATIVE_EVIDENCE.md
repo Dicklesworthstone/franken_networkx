@@ -2,6 +2,27 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff FIX (regression I shipped): DiGraph restricted_view.edges() c4e62a596 introduced O(V^2) 0.01x — hoist the directed snapshot -> 1.44-1.78x
+
+Extending the filtered-view sweep across ALL types caught a REGRESSION my own prior commit
+(c4e62a596, restricted_view fast path) introduced: DiGraph restricted_view.edges() went
+0.01x (778ms @ n=1000) because my directed branch called `_fast_succ_row(parent, source)`
+PER SOURCE — and that rebuilds the WHOLE native adjacency each call (O(V*(V+E))), the exact
+trap the node-set chain path documents and avoids. Graph was fine (`_fast_adj_row` is O(deg))
+so my Graph->DiGraph symmetry assumption hid it. FIX: hoist the directed snapshot out of the
+loop (dict(na_keys()) once for data=False; na_adj() once + O(deg) na_row(source) live-attr
+merge for data=True), mirroring the node-set path's three-branch directed structure. RESULT:
+DiGraph restricted_view.edges() 0.01x->1.78x (data=False), ->1.67x (data=True), ->1.44x
+(data='weight'); Graph unchanged (3.0-4.3x). Byte-exact: 1200 cases (Graph+DiGraph, hidden
+nodes + edges, data=False/True/weight, order-sensitive) 0 fails; 2967 view conformance pass
+(4 pre-existing failures unchanged). PURE-PYTHON. LESSON: when adding a fast path that handles
+directed+undirected in one branch, the directed native-row accessor (`_fast_succ_row`) is
+O(V) per call while the undirected one (`_fast_adj_row`) is O(deg) — NEVER call `_fast_succ_row`
+in a per-source loop; hoist the `_native_adjacency_*` snapshot. FOLLOW-UP (real gaps, pre-
+existing, NOT regressions): MultiGraph/MultiDiGraph restricted_view.edges() 0.11-0.14x (fast
+path is Graph/DiGraph-only) + restricted_view.degree() 0.04-0.05x ALL types (filtered-view
+degree machinery) — both untouched veins.
+
 ## 2026-07-02 CopperCliff SHIP: restricted_view(G).edges() 0.13x -> 3.04x — concrete-parent fast path for non-default filter_edge (REFUTES last turn's "mined out")
 
 Last turn's SURFACE ("vein mined out") was WRONG — a fresh sweep of previously-untouched areas
