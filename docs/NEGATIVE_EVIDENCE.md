@@ -2,6 +2,25 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SURFACE (blocker pinpointed to a data structure): the construction-tax floor IS `AttrMap = BTreeMap<String, CgseValue>`; ledger already batch-skipped
+
+Chased the construction-tax floor to its root instead of leaving it as a label. Ruled out
+the decision ledger as a lever: the batch construction path (`_try_add_edges_from_batch`
+-> `extend_keyed_edges_with_attrs_unrecorded`) ALREADY skips the per-edge
+`record_decision` (br-r37-c1-pr8q6). So the residual construction cost — projected_graph's
+58%-in-batch (build 14720 store edges) and multigraph_clear_edges 0.30x (dealloc scattered
+edges) — is precisely the per-edge **`AttrMap = BTreeMap<String, CgseValue>`** (fnx-classes/
+src/lib.rs:22): a BTreeMap heap-node allocation per edge on construction, and scattered
+BTreeMap-node deallocation on clear. THE actionable primitive: change AttrMap to a sorted
+`SmallVec<[(String, CgseValue); N]>` (or Vec) — typical edge attr maps are 1-3 keys, where
+a small sorted Vec beats BTreeMap on alloc count, cache locality, and drop, AND preserves
+the sorted iteration order fnx relies on. RISK (why NOT a bench-and-edit): AttrMap is used
+at hundreds of call sites (get/insert/iter/entry/range/extend), get becomes O(n) (fine for
+tiny maps, worse for large), and byte-exact iteration order + get semantics must be
+preserved — a deliberate typed-wrapper change with full conformance, not a loop edit.
+This + the persistent Python-object mirror (for the materialization floors) are the two
+scoped architectural investments; everything bench-and-edit is shipped.
+
 ## 2026-07-02 CopperCliff SURFACE: bipartite submodule swept — projected_graph 0.85x is the construction-tax floor (already de-delegated+batched); rest wins
 
 Swept the whole `bipartite` submodule (untouched this campaign). WINS: spectral_bipartivity
