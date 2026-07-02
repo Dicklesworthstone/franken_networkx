@@ -3254,6 +3254,64 @@ impl MultiGraph {
         true
     }
 
+    /// br-r37-c1-mgrnf: batch node removal — the amortised analogue of
+    /// `remove_node`. `MultiGraph::remove_node` pays two O(|V|) `shift_remove`s
+    /// (the `adjacency` and `nodes` IndexMaps preserve insertion order), so a
+    /// caller loop of `k` removals was O(k·|V|). This does each pass ONCE via
+    /// `retain` — O(|V|+|E|) total, matching the simple-`Graph` batch
+    /// (`Graph::remove_nodes_from`) that the directed types already carry.
+    /// Returns `(removed_node_count, removed_edge_instance_count)`.
+    pub fn remove_nodes_from<'a, I>(&mut self, nodes: I) -> (usize, usize)
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let remove_set: HashSet<&str> = nodes
+            .into_iter()
+            .filter(|node| self.nodes.contains_key(*node))
+            .collect();
+        if remove_set.is_empty() {
+            return (0, 0);
+        }
+
+        let old_node_count = self.nodes.len();
+        let old_edge_count = self.edge_count;
+
+        // Drop every edge bucket incident to a removed node (either endpoint in
+        // `remove_set`) in one pass, tallying the parallel-edge instances so
+        // `edge_count` stays exact. The `edges` map order is never observed
+        // externally (every consumer walks `edges_ordered`, i.e. adjacency
+        // order), so `retain` is order-safe — same rationale as `remove_node`.
+        let mut removed_instances = 0usize;
+        self.edges.retain(|key, bucket| {
+            let keep = !remove_set.contains(key.left.as_str())
+                && !remove_set.contains(key.right.as_str());
+            if !keep {
+                removed_instances += bucket.len();
+            }
+            keep
+        });
+        self.edge_count -= removed_instances;
+
+        // Adjacency: drop the removed nodes' own rows, then prune references to
+        // removed nodes from every surviving row. Both `retain`s preserve
+        // insertion order (IndexMap), so the surviving adjacency is byte-identical
+        // to repeated `remove_node`.
+        self.adjacency
+            .retain(|node, _| !remove_set.contains(node.as_str()));
+        for row in self.adjacency.values_mut() {
+            row.retain(|neighbor, _| !remove_set.contains(neighbor.as_str()));
+        }
+        self.nodes
+            .retain(|node, _| !remove_set.contains(node.as_str()));
+
+        let removed_nodes = old_node_count - self.nodes.len();
+        let removed_edges = old_edge_count - self.edge_count;
+        self.revision = self
+            .revision
+            .saturating_add(u64::try_from(removed_nodes).unwrap_or(u64::MAX));
+        (removed_nodes, removed_edges)
+    }
+
     #[must_use]
     pub fn edges_ordered(&self) -> Vec<MultiEdgeSnapshot> {
         let mut ordered = Vec::with_capacity(self.edge_count());

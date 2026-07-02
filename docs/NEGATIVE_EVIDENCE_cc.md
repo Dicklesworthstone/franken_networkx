@@ -3791,3 +3791,26 @@ Not a correctness bug (values match); a no-fallback contract violation in the pe
 the owner (find_induced_nodes needs a native non-nx path to satisfy without_fallback, or the test relaxed).
 LESSON (again): re-confirmed via clean rebuild before attributing a conformance failure (the 3 fails were
 CONSTANT across my fix + revert -> pre-existing, not mine).
+
+## MultiGraph/MultiDiGraph remove_nodes_from — batched inner, byte-exact, BENCH-NEUTRAL at N=1000 (CopperCliff)
+
+Surfaced the mutation-loop cluster's `remove_nodes_from` asymmetry: simple `Graph`/`DiGraph`
+bindings compact via a batched `inner.remove_nodes_from` (Graph rnf 1.05x), but `MultiGraph`/
+`MultiDiGraph` bindings LOOPED `inner.remove_node` per node — and `MultiGraph::remove_node` pays
+two O(|V|) `shift_remove`s (adjacency + nodes IndexMaps preserve insertion order) per call, so the
+loop was O(k·|V|). Measured (n=1000, m=5000, k=500): MultiGraph rnf 0.118x (8.5x slower), MDG 0.126x.
+
+FIX (SHIPPED, byte-exact): added `MultiGraph::remove_nodes_from` batch (one `retain` per structure =
+O(|V|+|E|) total; edges-map order unobserved so `retain` is order-safe; edge_count tallied from dropped
+parallel-edge buckets) + routed `PyMultiGraph::remove_nodes_from` to purge Python mirrors while `inner`
+is intact, then compact `inner` ONCE. Byte-exact 256/256 (64 specs × 4 seeds: parallel edges, self-loops,
+node/edge attrs, explicit str/int keys, mixed dup+nonexistent victims).
+
+BENCH REJECTION / next-lever: end-to-end MultiGraph rnf stayed 0.13x — the O(k·|V|) inner shift_remove
+was NOT the dominant term at N=1000. The real floor is the BINDING's per-node mirror-cleanup loop:
+`inner.neighbors(n)` returns a fresh Vec and each neighbor triggers `inner.edge_keys(n,nb)` returning
+another Vec — O(k·degree) allocations nx avoids by walking live dicts. The inner batch is the correct
+complexity fix (helps at large |V|, closes the Graph/DiGraph parity gap) but is masked here. LEVER for
+the win: collapse the per-node neighbors()/edge_keys() allocation loop into a single borrowed adjacency
+walk (or skip it entirely when edge_py_attrs/edge_py_keys mirrors are empty — the pristine-mirror case).
+MultiDiGraph binding still loops inner.remove_node (no inner batch added yet) — same fix pending.

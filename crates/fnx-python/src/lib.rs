@@ -4613,41 +4613,61 @@ impl PyMultiGraph {
     }
 
     fn remove_nodes_from(&mut self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<()> {
+        // br-r37-c1-mgrnf: batch the inner removal. The old per-node loop called
+        // `inner.remove_node` k times, and MultiGraph::remove_node does two
+        // O(|V|) `shift_remove`s per call, so `remove_nodes_from` was O(k·|V|)
+        // (~8x slower than nx on a 500-node sweep). Purge each removed node's
+        // Python-side mirror entries while `inner` is still intact, then compact
+        // `inner` ONCE via `remove_nodes_from` — the same fix the simple `Graph`
+        // binding already carries (see PyGraph::remove_nodes_from).
         let iter = PyIterator::from_object(nodes)?;
-        let mut had_incident_edges = false;
+        let mut present: Vec<String> = Vec::new();
+        let mut present_set: HashSet<String> = HashSet::new();
         for item in iter {
             let item = item?;
             let canonical = node_key_to_string(py, &item)?;
-            if self.inner.has_node(&canonical) {
-                let neighbors = self
-                    .inner
-                    .neighbors(&canonical)
-                    .map(|neighbors| neighbors.into_iter().map(str::to_owned).collect::<Vec<_>>());
-                if let Some(neighbors) = neighbors {
-                    for nb in neighbors {
-                        if let Some(keys) = self.inner.edge_keys(&canonical, &nb) {
-                            for key in keys {
-                                self.remove_edge_metadata(&canonical, &nb, key);
-                                had_incident_edges = true;
-                            }
+            if self.inner.has_node(&canonical) && present_set.insert(canonical.clone()) {
+                present.push(canonical);
+            }
+        }
+        if present.is_empty() {
+            self.bump_nodes_seq();
+            return Ok(());
+        }
+        let mut had_incident_edges = false;
+        for canonical in &present {
+            let neighbors = self
+                .inner
+                .neighbors(canonical)
+                .map(|neighbors| neighbors.into_iter().map(str::to_owned).collect::<Vec<_>>());
+            if let Some(neighbors) = neighbors {
+                for nb in neighbors {
+                    if let Some(keys) = self.inner.edge_keys(canonical, &nb) {
+                        for key in keys {
+                            // Idempotent: a shared (a,b) edge between two removed
+                            // nodes is visited from both endpoints; the second
+                            // remove is a no-op HashMap remove.
+                            self.remove_edge_metadata(canonical, &nb, key);
+                            had_incident_edges = true;
                         }
                     }
                 }
-                if self.node_iter_mirror_active() {
-                    // Remove from the live mirror before node_key_map drops the
-                    // display object (mirror keys are the display py objects).
-                    let py_key = self.py_node_key(py, &canonical);
-                    self.node_iter_mirror_remove_key(py, py_key.bind(py));
-                }
-                self.inner.remove_node(&canonical);
-                self.node_key_map.remove(&canonical);
-                self.node_py_attrs.remove(&canonical);
-                if !self.adj_py_keys.is_empty() {
-                    // br-r37-c1-z6uka: drop cell overrides touching removed nodes.
-                    self.adj_py_keys
-                        .retain(|(a, b), _| a != &canonical && b != &canonical);
-                }
             }
+            if self.node_iter_mirror_active() {
+                // Remove from the live mirror while node_key_map still holds the
+                // display object (mirror keys are the display py objects).
+                let py_key = self.py_node_key(py, canonical);
+                self.node_iter_mirror_remove_key(py, py_key.bind(py));
+            }
+            self.node_key_map.remove(canonical);
+            self.node_py_attrs.remove(canonical);
+        }
+        let present_refs: Vec<&str> = present.iter().map(String::as_str).collect();
+        self.inner.remove_nodes_from(present_refs.iter().copied());
+        if !self.adj_py_keys.is_empty() {
+            // br-r37-c1-z6uka: drop cell overrides touching any removed node.
+            self.adj_py_keys
+                .retain(|(a, b), _| !present_set.contains(a) && !present_set.contains(b));
         }
         self.bump_nodes_seq();
         if had_incident_edges {
