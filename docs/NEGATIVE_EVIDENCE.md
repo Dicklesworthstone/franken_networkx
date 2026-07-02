@@ -28,6 +28,22 @@ Add full 50k-test conformance + byte-exact iteration/get validation = a delibera
 multi-day change, categorically not a loop-turn edit. Scope is now fully specified for a
 future dedicated effort.
 
+CORRECTION (precision, verified): the construction-tax floor is actually TWO distinct
+sub-floors, and AttrMap=BTreeMap is only HALF:
+  (a) WEIGHTED construction (multigraph_clear_edges): edges carry attrs -> per-edge
+      BTreeMap HEAP alloc + scattered dealloc -> fixed by the arena/SmallVec AttrMap.
+  (b) UNWEIGHTED construction (projected_graph, verified all edges empty-attr -> BTreeMap
+      does NOT heap-alloc when empty): the cost is per-endpoint STRING node canonicalization
+      + hashing in the store (nx uses the node OBJECT directly as a dict key; fnx must
+      int->String + hash each endpoint, ~29k times for 14720 edges). This is the SAME
+      String-keyed-store representation cost as the node_key_to_string materialization
+      floor -> fixed by an integer-keyed store / the persistent Python-object mirror, NOT
+      the AttrMap allocator.
+So the TWO architectural primitives cover everything: (1) integer-keyed store / persistent
+mirror -> all materialization floors (adj[n], selfloop, in/out_edges data=attr) AND
+unweighted construction (projected_graph); (2) arena/SmallVec AttrMap -> weighted
+construction fragmentation (clear_edges). Frontier fully partitioned.
+
 ## 2026-07-02 CopperCliff SURFACE: bipartite submodule swept — projected_graph 0.85x is the construction-tax floor (already de-delegated+batched); rest wins
 
 Swept the whole `bipartite` submodule (untouched this campaign). WINS: spectral_bipartivity
