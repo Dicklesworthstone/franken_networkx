@@ -4010,6 +4010,72 @@ def _decode_dict_of_dicts_into(self, data, is_multigraph, multigraph_input=None)
         self.add_edges_from(batch)
         return
 
+    # cc-mgdodctor: 4-level multigraph dict-of-dicts fast path (the
+    # ``to_dict_of_dicts`` roundtrip). The general per-edge loop below does
+    # ``add_edge(u,v,key=key)`` + ``self[u][v][key].update(...)`` per edge — an
+    # O(E) PyO3 adjacency-view chain that ran MultiGraph(dod) at ~0.24x nx. Build
+    # ONE keyed ``(u, v, key, attrs)`` batch and commit via ``add_edges_from``.
+    # Undirected input lists every edge twice (``dod[u][v][k]`` and
+    # ``dod[v][u][k]``); dedupe the symmetric ``(v,u,key)`` reverse exactly as
+    # ``nx.convert.from_dict_of_dicts`` does so each edge commits once and the
+    # whole set uses the bulk keyed batch (the reverse duplicates otherwise bail
+    # it to the per-edge path). Gated to a clean dict-of-dicts value shape so
+    # 3-level / dict-of-list / mixed inputs keep the general loop's exact
+    # semantics. ``add_nodes_from(data)`` preserves isolated sources.
+    if is_multigraph and multigraph_input and data and all(
+        isinstance(_nbrs, dict) for _nbrs in data.values()
+    ):
+        self.add_nodes_from(data)
+        batch = []
+        if self.is_directed():
+            for u, nbrs in data.items():
+                for v, inner in nbrs.items():
+                    if isinstance(inner, dict):
+                        for key, attrs in inner.items():
+                            batch.append(
+                                (u, v, key, dict(attrs) if isinstance(attrs, dict) else {})
+                            )
+        else:
+            seen = set()
+            for u, nbrs in data.items():
+                for v, inner in nbrs.items():
+                    if isinstance(inner, dict):
+                        for key, attrs in inner.items():
+                            if (u, v, key) not in seen:
+                                batch.append(
+                                    (u, v, key, dict(attrs) if isinstance(attrs, dict) else {})
+                                )
+                            seen.add((v, u, key))
+        self.add_edges_from(batch)
+        return
+
+    # cc-mgdolctor: multigraph dict-of-LIST fast path. Mirrors
+    # ``nx.convert.from_dict_of_lists`` for multigraphs: undirected dedupes the
+    # symmetric representation by already-processed SOURCE node (each edge added
+    # once when its earlier-listed endpoint is the source), directed keeps every
+    # ``(u, v)`` — both committed through the bulk auto-key ``add_edges_from``
+    # instead of the general loop's per-edge ``add_edge``. Gated to a clean
+    # dict-of-list value shape so other shapes keep the general loop.
+    if is_multigraph and data and all(
+        not isinstance(_nbrs, (dict, str, bytes)) and hasattr(_nbrs, "__iter__")
+        for _nbrs in data.values()
+    ):
+        self.add_nodes_from(data)
+        batch = []
+        if self.is_directed():
+            for u, nbrs in data.items():
+                for v in nbrs:
+                    batch.append((u, v))
+        else:
+            seen = set()
+            for u, nbrs in data.items():
+                for v in nbrs:
+                    if v not in seen:
+                        batch.append((u, v))
+                seen.add(u)
+        self.add_edges_from(batch)
+        return
+
     for u, nbrs in data.items():
         self.add_node(u)
         if isinstance(nbrs, dict):

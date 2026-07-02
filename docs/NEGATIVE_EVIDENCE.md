@@ -2,6 +2,32 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP: Multi(Di)Graph(dict_of_dicts/dict_of_list) constructor — 0.24-0.54x -> 0.62-1.05x, batch the decoder's multigraph branches
+
+Extended the simple-graph constructor-decoder batch lever (359edba84) to multigraphs — the
+biggest remaining constructor gaps: MG(dod) 0.24x (65ms!), MDG(dod) 0.26x, MG(dol) 0.41x,
+MDG(dol) 0.54x. All hit `_decode_dict_of_dicts_into`'s multigraph branch doing per-edge
+`add_edge(u,v,key=key)` + `self[u][v][key].update(...)` (O(E) PyO3 adjacency-view chain).
+FIX (cc-mgdodctor + cc-mgdolctor): two batched fast paths mirroring
+`nx.convert.from_dict_of_dicts` / `from_dict_of_lists` for multigraphs. 4-level dict-of-dicts:
+one keyed `(u,v,key,attrs)` batch, undirected dedupes the symmetric `(v,u,key)` reverse
+(the reverse dupes otherwise bail the fast keyed batch to per-edge — measured: full 11998-dupe
+batch 30ms vs deduped 6000 batch 6ms). dict-of-list: auto-key `(u,v)` batch, undirected
+dedupes by processed-SOURCE node (nx `from_dict_of_lists` semantics). Both gated to a CLEAN
+value shape (dod: all values dicts + multigraph_input; dol: all values non-dict/str
+iterables) so 3-level / mixed / string-valued shapes keep the general loop. PURE-PYTHON.
+MEASURED: MG(dod) 0.24x->0.73x, MDG(dod) 0.26x->0.62x, MG(dol) 0.41x->0.65x, MDG(dol)
+0.54x->1.05x (beats nx). Byte-exact: 0 fails on node + (u,v,key,sorted-attrs) edge order over
+800 roundtrip-through-to_dict_of_dicts/to_dict_of_lists + hand-built parallel/self-loop/
+neighbor-only/empty-inner cases; 3514 convert/multigraph conformance pass. RESIDUAL (why dod
+still <1x): the Python batch-BUILD (per-edge `dict(attrs)` copies + the dedupe seen-set) is
+itself ~nx-total-cost, and add_edges_from runs on top; the win is the Rust keyed batch
+beating per-edge PyO3 by more than that overhead, but not enough to clear nx on the
+attr-heavy dod path. dict-of-list (no attrs) is the cleaner win (MDG(dol) beats nx). LEVER:
+extend a proven simple-graph decoder batch to the multigraph branches, but dedupe the
+symmetric reverse (undirected multigraph dod/dol list every edge twice) or the keyed batch
+bails to per-edge.
+
 ## 2026-07-02 CopperCliff SHIP: Graph/DiGraph(dict_of_list) constructor 0.36x -> 1.64x — route the decoder's dict-of-LIST branch through the batch
 
 Domain-sweep for a NEW gap: algorithms are ALL wins (2.6-198x, vein confirmed mined out);
