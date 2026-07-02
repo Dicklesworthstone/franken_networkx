@@ -15134,12 +15134,18 @@ def difference(G, H):
     ):
         if set(G) != set(H):
             raise NetworkXError("Node sets of graphs not equal")
-        # br-edgekeyedbatch (bt): _native_difference PREDATES the fast no-data keyed
-        # batch and is ~2.4x SLOWER for multigraphs (MG 19.8ms vs the set-snapshot +
-        # _native_add_keyed_edges_no_data fallback 8.2ms). Skip it for multigraphs and
-        # fall through to that fallback (byte-identical; the set-equality check above
-        # preserves the error contract before create_empty_copy). Sibling of the
-        # symmetric_difference reroute. Simple Graph/DiGraph keep their native below.
+        # cc-mgnatdiff-identity: the native multigraph difference was rewritten to a
+        # lean identity-int fast path — internal-key membership (no per-edge
+        # display_key_lookup), G's exact keys preserved (no re-sequencing), and NO
+        # edge_py_keys mirror. It now beats the set-snapshot + keyed-batch fallback
+        # (which pays a full Python edges(keys=True) materialization + re-parse) by
+        # skipping all Python edge materialization. Declines (-> None) when either
+        # operand has remapped/str/float keys or z6uka display overrides, in which
+        # case we fall through to the proven byte-identical fallback below. The
+        # node-set check above preserves the error contract before create_empty_copy.
+        _native_R = G._native_difference(H)
+        if _native_R is not None:
+            return _native_R
     # br-r37-c1-natdiffsimple: fully-native simple-Graph difference — same lever
     # as the MultiGraph path above but for ``type(G) is Graph``. Builds the result
     # in Rust (no create_empty_copy + EdgeView set + add_edges_from). The node-set
@@ -15219,13 +15225,17 @@ def symmetric_difference(G, H):
     ):
         if set(G) != set(H):
             raise NetworkXError("Node sets of graphs not equal")
-        # br-edgekeyedbatch (bt): _native_symmetric_difference PREDATES the fast
-        # no-data keyed batch and is ~3x SLOWER for multigraphs (MG 43.5ms vs the
-        # set-snapshot + _native_add_keyed_edges_no_data fallback 15.2ms; MDG 24.7
-        # vs 7.3ms). Skip it for multigraphs and fall through to that fallback
-        # (byte-identical, 2698/2698 edges). The set-equality check above preserves
-        # the error contract before create_empty_copy. (Simple Graph/DiGraph keep
-        # their native path below.)
+        # cc-mgnatsymdiff-identity: the native multigraph symmetric_difference was
+        # rewritten to a lean identity-int fast path — internal-key membership, each
+        # operand's own keys PRESERVED (the old re-sequencing was byte-wrong for
+        # pairs with non-contiguous kept keys), and NO edge_py_keys mirror. It beats
+        # the set-snapshot + keyed-batch fallback (which materializes BOTH graphs'
+        # edges(keys=True) into Python sets) by doing everything in Rust. Declines
+        # (-> None) for remapped/str/float keys or z6uka display overrides -> proven
+        # byte-identical fallback below. The set check preserves the error contract.
+        _native_R = G._native_symmetric_difference(H)
+        if _native_R is not None:
+            return _native_R
     # br-r37-c1-natsymdiff(-di): fully-native simple Graph/DiGraph
     # symmetric_difference — same lever as the Multi* path above (G-only then
     # H-only edges, in Rust, no create_empty_copy + EdgeView sets + add_edges_from).

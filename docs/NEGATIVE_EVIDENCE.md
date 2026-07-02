@@ -2,6 +2,37 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP: native Multi(Di)Graph difference/symmetric_difference identity-int rewrite — beats the set-snapshot fallback 1.1-2.0x, byte-exact
+
+Re-activated the native multigraph set-op kernels (previously DEAD — the wrapper skipped
+them because the OLD native path, which rebuilt a full `edge_py_keys` display mirror + per-
+pair re-sequenced keys, was ~2.4-3x SLOWER than the set-snapshot + keyed-batch fallback).
+REWRITE (cc-mgnatdiff-identity / cc-mgnatsymdiff-identity + MDG siblings): a lean
+identity-int FAST PATH gated on `!has_remapped_int_key` (and, for MG, empty `adj_py_keys`
+z6uka overrides). For all-identity-int keys a multigraph edge's key value EQUALS its
+internal key, so (a) membership is tested on INTERNAL `(u,v,key)` — no per-edge
+`display_key_lookup` String build; (b) each operand's EXACT keys are PRESERVED on the
+result — no re-sequencing (the old re-sequencing was byte-WRONG for pairs with
+non-contiguous kept keys, e.g. G{0,1} minus H{0} must yield key 1, not a re-keyed 0); and
+(c) NO `edge_py_keys` mirror is built (`display_key_lookup` reconstructs `int:{internal}`).
+The kernel declines (-> None) for remapped/str/float keys or display overrides, falling
+through to the proven byte-identical set-snapshot fallback. Removed the two now-dead
+`display_key_lookup` helpers (MG lib.rs, MDG digraph.rs; zero call sites).
+MEASURED (in-process A/B, native vs the exact HEAD fallback, n=2000/m=12000 identity-int,
+min-of-9): MDG difference 1.86-2.00x, MDG symmetric_difference 1.34-1.42x, MG
+symmetric_difference 1.11-1.14x, MG difference 1.02-1.35x — all `same=True` byte-identical.
+Narrows the vs-nx ratio (e.g. MDG difference ~0.47x -> 0.88x). Still <1x vs nx (materialize
+floor on the smaller operands' side) but a strict improvement over the committed fallback.
+VERIFY: 0 fails over MG+MDG x {difference,symmetric_difference} x
+{auto/explicit-int-contig/non-contig/str/float/mixed/disjoint/identical/superset} + 400
+random mixed-key stress; 273 operator conformance tests pass. Also cleared PRE-EXISTING
+`clippy -D warnings` breakage this area inherited from a6e8a9a0d/7a49dd943 (E0063 stale
+`PyMultiGraph` test literal in algorithms.rs missing `edges_data_attr_cache` +
+`has_remapped_int_key`; needless-borrow + chunks_exact lib warnings) — crate now clippy
+clean. LEVER: a native kernel declared DEAD because it "predates the fast batch" can be
+resurrected by stripping its display-mirror/re-sequencing tax down to the identity-int
+invariant the fallback already relies on.
+
 ## 2026-07-02 CopperCliff SURFACE (blocker pinpointed to a data structure): the construction-tax floor IS `AttrMap = BTreeMap<String, CgseValue>`; ledger already batch-skipped
 
 Chased the construction-tax floor to its root instead of leaving it as a label. Ruled out

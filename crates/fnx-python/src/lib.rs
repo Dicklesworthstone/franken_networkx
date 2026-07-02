@@ -621,7 +621,7 @@ pub(crate) fn ebunch_batch_lossless(ebunch: &Bound<'_, PyAny>) -> PyResult<bool>
         if let Ok(tuple) = item.downcast::<PyTuple>()
             && tuple.len() == 3
             && let Ok(d) = tuple.get_item(2)?.downcast::<PyDict>()
-            && !attr_dict_is_batch_lossless(&d)
+            && !attr_dict_is_batch_lossless(d)
         {
             return Ok(false);
         }
@@ -2556,16 +2556,6 @@ impl PyMultiGraph {
         let owned = dict.unbind();
         *self.node_data_mirror.lock().unwrap() = Some((seq, owned.clone_ref(py)));
         Ok(owned.bind(py).call_method0("items")?.unbind())
-    }
-
-    /// br-r37-c1-natdiff: canonical lookup string of the DISPLAY edge key for
-    /// `(u, v, internal_key)` — the form nx compares in set-ops. No `edge_py_keys`
-    /// entry => the display key is the internal usize as an int.
-    fn display_key_lookup(&self, py: Python<'_>, u: &str, v: &str, key: usize) -> PyResult<String> {
-        match self.edge_py_keys.get(&Self::edge_key(u, v, key)) {
-            Some(obj) => edge_key_lookup_string(py, obj.bind(py)),
-            None => Ok(format!("int:{key}")),
-        }
     }
 
     /// br-r37-c1-urle5: display-conflict guard for the plain-edge batch (mirrors
@@ -6341,15 +6331,21 @@ impl PyMultiGraph {
         Py::new(py, g)
     }
 
-    /// br-r37-c1-natdiff: fully-native `difference(G, H)` for MultiGraph (the
-    /// undirected sibling of `PyMultiDiGraph::_native_difference`). H's DISPLAY
-    /// edges are hashed into a canonical set in BOTH orientations; G is walked in
-    /// `edges(keys=True)` order (node-major, each undirected edge once via the
-    /// canonical-bucket `seen` set) and kept edges are re-keyed sequentially per
-    /// canonical pair on the fresh result, carrying G's display key object.
-    /// Returns `None` (wrapper falls back) when H is not an exact MultiGraph or
-    /// when either graph carries z6uka adjacency-cell display overrides (mixed
-    /// hash-equal node objects), which the plain node_key_map path can't honour.
+    /// br-r37-c1-natdiff / cc-mgnatdiff-identity: fully-native `difference(G, H)`
+    /// for MultiGraph (the undirected sibling of `PyMultiDiGraph::_native_difference`).
+    /// FAST identity-int path only: when both operands are all-identity-int keyed
+    /// (`!has_remapped_int_key`) and carry no z6uka adjacency-cell display overrides,
+    /// a multigraph edge key value equals its internal key, so membership can be
+    /// tested on INTERNAL `(u, v, key)` (no per-edge `display_key_lookup` String
+    /// build) and G's exact keys are preserved on the result (no re-sequencing, no
+    /// `edge_py_keys` mirror — `display_key_lookup` reconstructs `int:{internal}`).
+    /// H's edges are hashed BOTH orientations (an undirected edge matches either
+    /// way); G is walked in `edges(keys=True)` order (node-major, each undirected
+    /// edge once via the canonical-bucket `seen` set). This eliminates the Python
+    /// `set(*.edges(keys=True))` materialization the wrapper otherwise pays plus the
+    /// mirror/display tax the old native path carried. Returns `None` (wrapper falls
+    /// back to the proven set-snapshot path) when H is not an exact MultiGraph or
+    /// either operand carries remapped/str/float keys or display overrides.
     fn _native_difference(
         slf: PyRef<'_, Self>,
         py: Python<'_>,
@@ -6360,23 +6356,22 @@ impl PyMultiGraph {
         };
         let g = &*slf;
         let hh = &*h_ref;
-        if !g.adj_py_keys.is_empty() || !hh.adj_py_keys.is_empty() {
+        if g.has_remapped_int_key
+            || hh.has_remapped_int_key
+            || !g.adj_py_keys.is_empty()
+            || !hh.adj_py_keys.is_empty()
+        {
             return Ok(None);
         }
 
-        // H's display-edge canonical set, BOTH orientations (an undirected edge
-        // matches in either direction).
-        let mut h_set: HashSet<(String, String, String)> = HashSet::new();
-        let mut h_seen: HashSet<(String, String, usize)> = HashSet::new();
+        // H's edge set on INTERNAL keys (== display for identity-int), BOTH
+        // orientations (an undirected edge matches in either direction).
+        let mut h_set: HashSet<(String, String, usize)> = HashSet::new();
         for u in hh.inner.nodes_ordered() {
             for v in hh.inner.neighbors(u).unwrap_or_default() {
                 for key in hh.inner.edge_keys(u, v).unwrap_or_default() {
-                    if !h_seen.insert(Self::edge_key(u, v, key)) {
-                        continue;
-                    }
-                    let kl = hh.display_key_lookup(py, u, v, key)?;
-                    h_set.insert((u.to_owned(), v.to_owned(), kl.clone()));
-                    h_set.insert((v.to_owned(), u.to_owned(), kl));
+                    h_set.insert((u.to_owned(), v.to_owned(), key));
+                    h_set.insert((v.to_owned(), u.to_owned(), key));
                 }
             }
         }
@@ -6396,8 +6391,6 @@ impl PyMultiGraph {
         );
 
         let mut edges: Vec<(String, String, usize, AttrMap)> = Vec::new();
-        let mut display: Vec<(String, String, usize, PyObject)> = Vec::new();
-        let mut pair_count: HashMap<(String, String), usize> = HashMap::new();
         let mut g_seen: HashSet<(String, String, usize)> = HashSet::new();
         for u in &g_nodes {
             for v in g.inner.neighbors(u).unwrap_or_default() {
@@ -6406,43 +6399,36 @@ impl PyMultiGraph {
                     if !g_seen.insert(Self::edge_key(u, &vk, key)) {
                         continue;
                     }
-                    let kl = g.display_key_lookup(py, u, &vk, key)?;
-                    if !h_set.contains(&(u.clone(), vk.clone(), kl)) {
-                        // canonical (string-ordered) pair for the per-pair counter
-                        let pair = if *u <= vk {
-                            (u.clone(), vk.clone())
-                        } else {
-                            (vk.clone(), u.clone())
-                        };
-                        let counter = pair_count.entry(pair).or_insert(0);
-                        let internal = *counter;
-                        *counter += 1;
-                        let disp = g.py_edge_key(py, u, &vk, key);
-                        edges.push((u.clone(), vk.clone(), internal, AttrMap::new()));
-                        display.push((u.clone(), vk.clone(), internal, disp));
+                    if !h_set.contains(&(u.clone(), vk.clone(), key)) {
+                        // Preserve G's exact key (identity-int -> byte-exact,
+                        // incl. removed-noncontiguous buckets; no mirror needed).
+                        edges.push((u.clone(), vk.clone(), key, AttrMap::new()));
                     }
                 }
             }
         }
         let n_edges = edges.len();
         let _ = r.inner.extend_keyed_edges_with_attrs_unrecorded(edges);
-        for (u, v, key, obj) in display {
-            r.note_public_key_value(key, obj.bind(py));
-            r.edge_py_keys
-                .entry(Self::edge_key(&u, &v, key))
-                .or_insert(obj);
-        }
         r.nodes_seq = u64::try_from(g_nodes.len()).unwrap_or(u64::MAX);
         r.edges_seq = u64::try_from(n_edges).unwrap_or(u64::MAX);
         Py::new(py, r).map(Some)
     }
 
-    /// br-r37-c1-y0xps: fully-native `symmetric_difference(G, H)` for
-    /// MultiGraph. This is the two-sided sibling of `_native_difference`: build
-    /// display-edge membership sets for both operands, then emit G-only edges
-    /// followed by H-only edges, matching the Python wrapper's two list
-    /// comprehensions exactly. Set-op outputs carry no edge attrs and preserve
-    /// original display key objects. Falls back for z6uka row-display overrides.
+    /// br-r37-c1-y0xps / cc-mgnatsymdiff-identity: fully-native
+    /// `symmetric_difference(G, H)` for MultiGraph — the two-sided sibling of
+    /// `_native_difference`. FAST identity-int path only (both operands
+    /// `!has_remapped_int_key`, no z6uka display overrides): membership is tested
+    /// on INTERNAL `(u, v, key)` (== display for identity-int, no per-edge
+    /// `display_key_lookup`), and each operand's own keys are PRESERVED on the
+    /// result — NOT re-sequenced. Re-sequencing (the old dead-code path) diverged
+    /// from NetworkX whenever a pair had non-contiguous kept keys (e.g. G keys
+    /// {0,1} minus H {0} must yield key 1, not a re-keyed 0). G-only edges are
+    /// emitted first, then H-only, matching the wrapper's two comprehensions; the
+    /// two key sets for any pair are disjoint (a key present in both graphs is in
+    /// neither pass), so no bucket collision. No `edge_py_keys` mirror is built
+    /// (identity-int -> `display_key_lookup` reconstructs `int:{internal}`).
+    /// Returns `None` (wrapper falls back) for non-MultiGraph H or
+    /// remapped/str/float keys / display overrides.
     fn _native_symmetric_difference(
         slf: PyRef<'_, Self>,
         py: Python<'_>,
@@ -6453,36 +6439,30 @@ impl PyMultiGraph {
         };
         let g = &*slf;
         let hh = &*h_ref;
-        if !g.adj_py_keys.is_empty() || !hh.adj_py_keys.is_empty() {
+        if g.has_remapped_int_key
+            || hh.has_remapped_int_key
+            || !g.adj_py_keys.is_empty()
+            || !hh.adj_py_keys.is_empty()
+        {
             return Ok(None);
         }
 
-        let mut h_set: HashSet<(String, String, String)> = HashSet::new();
-        let mut h_seen: HashSet<(String, String, usize)> = HashSet::new();
+        // Internal-key membership sets, BOTH orientations (undirected).
+        let mut h_set: HashSet<(String, String, usize)> = HashSet::new();
         for u in hh.inner.nodes_ordered() {
             for v in hh.inner.neighbors(u).unwrap_or_default() {
                 for key in hh.inner.edge_keys(u, v).unwrap_or_default() {
-                    if !h_seen.insert(Self::edge_key(u, v, key)) {
-                        continue;
-                    }
-                    let kl = hh.display_key_lookup(py, u, v, key)?;
-                    h_set.insert((u.to_owned(), v.to_owned(), kl.clone()));
-                    h_set.insert((v.to_owned(), u.to_owned(), kl));
+                    h_set.insert((u.to_owned(), v.to_owned(), key));
+                    h_set.insert((v.to_owned(), u.to_owned(), key));
                 }
             }
         }
-
-        let mut g_set: HashSet<(String, String, String)> = HashSet::new();
-        let mut g_seen_for_set: HashSet<(String, String, usize)> = HashSet::new();
+        let mut g_set: HashSet<(String, String, usize)> = HashSet::new();
         for u in g.inner.nodes_ordered() {
             for v in g.inner.neighbors(u).unwrap_or_default() {
                 for key in g.inner.edge_keys(u, v).unwrap_or_default() {
-                    if !g_seen_for_set.insert(Self::edge_key(u, v, key)) {
-                        continue;
-                    }
-                    let kl = g.display_key_lookup(py, u, v, key)?;
-                    g_set.insert((u.to_owned(), v.to_owned(), kl.clone()));
-                    g_set.insert((v.to_owned(), u.to_owned(), kl));
+                    g_set.insert((u.to_owned(), v.to_owned(), key));
+                    g_set.insert((v.to_owned(), u.to_owned(), key));
                 }
             }
         }
@@ -6502,9 +6482,8 @@ impl PyMultiGraph {
         );
 
         let mut edges: Vec<(String, String, usize, AttrMap)> = Vec::new();
-        let mut display: Vec<(String, String, usize, PyObject)> = Vec::new();
-        let mut pair_count: HashMap<(String, String), usize> = HashMap::new();
 
+        // G-only edges (preserve G's keys).
         let mut g_seen: HashSet<(String, String, usize)> = HashSet::new();
         for u in &g_nodes {
             for v in g.inner.neighbors(u).unwrap_or_default() {
@@ -6513,24 +6492,14 @@ impl PyMultiGraph {
                     if !g_seen.insert(Self::edge_key(u, &vk, key)) {
                         continue;
                     }
-                    let kl = g.display_key_lookup(py, u, &vk, key)?;
-                    if !h_set.contains(&(u.clone(), vk.clone(), kl)) {
-                        let pair = if *u <= vk {
-                            (u.clone(), vk.clone())
-                        } else {
-                            (vk.clone(), u.clone())
-                        };
-                        let counter = pair_count.entry(pair).or_insert(0);
-                        let internal = *counter;
-                        *counter += 1;
-                        let disp = g.py_edge_key(py, u, &vk, key);
-                        edges.push((u.clone(), vk.clone(), internal, AttrMap::new()));
-                        display.push((u.clone(), vk.clone(), internal, disp));
+                    if !h_set.contains(&(u.clone(), vk.clone(), key)) {
+                        edges.push((u.clone(), vk.clone(), key, AttrMap::new()));
                     }
                 }
             }
         }
 
+        // H-only edges (preserve H's keys).
         let h_nodes: Vec<String> = hh
             .inner
             .nodes_ordered()
@@ -6545,19 +6514,8 @@ impl PyMultiGraph {
                     if !h_seen_for_emit.insert(Self::edge_key(u, &vk, key)) {
                         continue;
                     }
-                    let kl = hh.display_key_lookup(py, u, &vk, key)?;
-                    if !g_set.contains(&(u.clone(), vk.clone(), kl)) {
-                        let pair = if *u <= vk {
-                            (u.clone(), vk.clone())
-                        } else {
-                            (vk.clone(), u.clone())
-                        };
-                        let counter = pair_count.entry(pair).or_insert(0);
-                        let internal = *counter;
-                        *counter += 1;
-                        let disp = hh.py_edge_key(py, u, &vk, key);
-                        edges.push((u.clone(), vk.clone(), internal, AttrMap::new()));
-                        display.push((u.clone(), vk.clone(), internal, disp));
+                    if !g_set.contains(&(u.clone(), vk.clone(), key)) {
+                        edges.push((u.clone(), vk.clone(), key, AttrMap::new()));
                     }
                 }
             }
@@ -6565,12 +6523,6 @@ impl PyMultiGraph {
 
         let n_edges = edges.len();
         let _ = r.inner.extend_keyed_edges_with_attrs_unrecorded(edges);
-        for (u, v, key, obj) in display {
-            r.note_public_key_value(key, obj.bind(py));
-            r.edge_py_keys
-                .entry(Self::edge_key(&u, &v, key))
-                .or_insert(obj);
-        }
         r.nodes_seq = u64::try_from(g_nodes.len()).unwrap_or(u64::MAX);
         r.edges_seq = u64::try_from(n_edges).unwrap_or(u64::MAX);
         Py::new(py, r).map(Some)
@@ -10433,7 +10385,7 @@ impl PyGraph {
             ));
         }
         let empty_attrs = AttrMap::new();
-        for pair in flat.chunks_exact(2) {
+        for pair in flat.as_chunks::<2>().0 {
             let u = pair[0];
             let v = pair[1];
             let u_s = u.to_string();
