@@ -2,6 +2,27 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-02 CopperCliff SHIP: all_pairs_shortest_path 0.77x -> 1.25-1.36x — route index-space paths straight to the index emitter (drop the String-clone layer)
+
+Swept nx-delegated functions (178 `_call_networkx_for_parity` sites): almost all are native
+wins (eccentricity/diameter/center/periphery 15x, triadic_census 19x, bridges 86x,
+resistance_distance 55x) or delegated-parity (k_components 1.00x, ~20s inherent). Only real
+gap: `all_pairs_shortest_path` 0.77x (returns actual paths, not lengths). ROOT CAUSE: the
+native kernel `all_pairs_shortest_path_from_adjacency` already returns INDEX-space paths
+(`Vec<(usize, Vec<usize>)>`), and an index-space emitter `emit_paths_dict_discovery_index`
+(no String allocation) already exists and is used by the single_source path — but the
+all-pairs binding converted every path to `Vec<(String, Vec<String>)>` first (one
+`nodes[idx].to_owned()` String clone per path element = V^2·L allocations) before calling the
+String emitter. FIX (cc-apspidx): route the kernel's index paths straight through
+`emit_paths_dict_discovery_index` — reads `nodes[idx]` directly, byte-identical dict (same
+disp dedup, same outer/inner key order). MEASURED: 0.77x->1.25x (n=200), ->1.36x (n=400);
+fnx 19.0->11.3ms. Byte-exact: 251 cases (directed/undirected, cutoff None/1/2/3, string
+keys) 0 fails on outer-key order + inner-key order + exact path lists; clippy clean; 2241
+shortest-path conformance pass. LEVER: a binding built an intermediate String projection of
+data the kernel already had in index form AND a String-free emitter already existed —
+grep bindings that `.to_owned()` node keys into `Vec<(String, Vec<String>)>` when an
+index-space `_index` emitter sibling exists.
+
 ## 2026-07-02 CopperCliff SHIP: check_planarity(non-planar, no counterexample) 0.67x -> ~10x — native LR bool settles the certificate-less non-planar case
 
 Flow/connectivity/tree sweep found check_planarity 0.67x (5.19ms vs 3.46ms) — the only real

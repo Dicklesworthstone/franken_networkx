@@ -11811,24 +11811,22 @@ pub fn all_pairs_shortest_path(
     };
     let outer_dict = pyo3::types::PyDict::new(py);
     for (source, paths) in &result {
-        // br-r37-c1-6hpa9: discovery objects per source; sources keep their
-        // node-map object (nx iterates G). `paths` is already in BFS-visit
-        // order, so emit_paths_dict_discovery preserves nx's inner key order.
-        let target_paths: Vec<(String, Vec<String>)> = paths
-            .iter()
-            .map(|(target, path)| {
-                (
-                    nodes[*target].to_owned(),
-                    path.iter().map(|&idx| nodes[idx].to_owned()).collect(),
-                )
-            })
-            .collect();
+        // br-r37-c1-6hpa9 / cc-apspidx: discovery objects per source; sources keep
+        // their node-map object (nx iterates G). `paths` is already in BFS-visit
+        // order AND index-space, so route it straight through
+        // `emit_paths_dict_discovery_index` — the String variant used to pay an
+        // intermediate `Vec<(String, Vec<String>)>` (one `to_owned` per path
+        // element, V^2·L String allocations) before rebuilding the Python objects,
+        // which dropped all_pairs_shortest_path to ~0.77x nx; the index emitter
+        // reads `nodes[idx]` directly (byte-identical dict — same disp dedup, same
+        // key order). The sibling single_source path already uses this variant.
         let source_key = nodes[*source];
-        let inner_dict = emit_paths_dict_discovery(
+        let inner_dict = emit_paths_dict_discovery_index(
             py,
             &gr,
-            &target_paths,
-            source_key,
+            paths,
+            &nodes,
+            *source,
             gr.py_node_key(py, source_key),
         )?;
         outer_dict.set_item(gr.py_node_key(py, source_key), inner_dict)?;
