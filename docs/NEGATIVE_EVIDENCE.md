@@ -2,6 +2,28 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP (partial): read_gexf 0.47x -> 0.72x — one fused scan pass, skip node-metadata restore when all nodes are labelled
+
+Format sweep found read_gexf 0.47-0.61x (the biggest readwrite laggard). Split probe: the native
+`_fnx.read_gexf` parse is itself FASTER than nx (4.4ms vs 6.9ms), but read_gexf then runs FOUR more expat
+passes over the raw XML — `_gexf_document_is_multigraph` (1.7ms) + `_gexf_document_has_hierarchy` (1.9ms)
+routing checks, then `_restore_gexf_node_metadata` (2.7ms) + `_restore_gexf_graph_metadata` (2.2ms) to
+recover the metadata the native reader drops. Fused the two routing checks into ONE `_gexf_scan_document`
+pass that ALSO reports whether any `<node>` lacks a `label` attribute; on the native branch, skip the
+node-metadata restore when none do (its ONLY native-path effect is nx's missing-label->None surface, and
+nx-written GEXF always writes labels). Four passes -> two for the common case. **0.47x -> 0.72x** (16.1ms
+-> 10.3ms), byte-exact 210/210 (simple/directed/nodeattr/no-label/multigraph-parallel/no-parallel) + 47
+gexf conformance (the 1 remaining failure `test_write_gexf_classified...` is PRE-EXISTING — fails on clean
+HEAD). TRAPS: (1) skipping node-metadata restore UNCONDITIONALLY breaks nx's missing-label->None
+(hand-crafted GEXF with a label-less `<node>`) — my first "safe to skip 0/150" test used nx.write_gexf
+which ALWAYS labels, so it missed the case; must GATE on any-missing-label. (2) my fused scan returned
+`needs_nx=True` on ExpatError (empty/malformed) -> routed to nx which then ParseError'd on empty bytes;
+the originals returned False (native path handles empty) -> return `(False, True)` on parse failure.
+STILL <1x: native+graph-metadata restore is 2 passes vs nx's 1; a full BEAT needs the Rust reader to
+capture graph/node metadata (the graph-metadata restore's 2.2ms is the residual). Same family as the
+graphml native-reader route (3417e5763), but GEXF can't fully drop the metadata restore (native reader
+drops more).
+
 ## 2026-07-03 CopperCliff SHIP (BEATS nx): read_graphml(<file>) 0.78x -> 1.98x — route filename reads through parse_graphml's native fast path
 
 Follow-up to parse_graphml (3417e5763): a delegator sweep found `read_graphml(<file>)` still 0.78x (the

@@ -2450,11 +2450,18 @@ def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backen
         with open(path, "rb") as handle:
             raw = handle.read()
 
-    if _gexf_document_is_multigraph(raw) or _gexf_document_has_hierarchy(raw):
+    _needs_nx, _any_missing_label = _gexf_scan_document(raw)
+    if _needs_nx:
         graph = _read_gexf_via_nx(raw, version=version)
     else:
+        # br-cc-gexf: the native parse is itself 2x nx. ONE fused scan pass (above)
+        # replaces the two routing parses AND tells us whether any node lacks a
+        # label; when none do (nx-written GEXF always writes labels), the
+        # node-metadata restore is a no-op on this NON-hierarchy branch, so skip
+        # its whole expat pass. Four redundant passes -> two for the common case.
         graph = _fnx.read_gexf(_BytesIO(raw))
-        _restore_gexf_node_metadata(graph, raw)
+        if _any_missing_label:
+            _restore_gexf_node_metadata(graph, raw)
         _restore_gexf_graph_metadata(graph, raw)
 
     graph = _apply_gexf_node_type(graph, node_type)
@@ -2659,6 +2666,63 @@ def _gexf_document_has_hierarchy(raw_bytes):
     except expat.ExpatError:
         return False
     return has_hierarchy
+
+
+def _gexf_scan_document(raw_bytes):
+    """br-cc-gexf: ONE expat pass returning ``(needs_nx, any_missing_label)``,
+    fusing what previously took THREE passes: ``_gexf_document_is_multigraph`` +
+    ``_gexf_document_has_hierarchy`` (read_gexf routing = their OR) AND a peek at
+    whether any ``<node>`` lacks a ``label`` attr. ``needs_nx`` -> repeated
+    ``(source, target)`` pairs (or ``parallel="true"``) OR nested ``<node>``/
+    ``pid``/``<parent>``. ``any_missing_label`` lets the native branch SKIP
+    ``_restore_gexf_node_metadata`` when every node already has a label
+    (nx-written GEXF always does), since that restore's ONLY native-path effect
+    is mirroring nx's missing-label->None. Byte-identical routing to the two
+    originals (kept for any other callers)."""
+    try:
+        text = raw_bytes.decode("utf-8", errors="ignore")
+    except Exception:
+        return False, True
+    parallel = 'parallel="true"' in text or "parallel='true'" in text
+
+    from xml.parsers import expat
+
+    pairs = []
+    state = {"hierarchy": False, "node_depth": 0, "missing_label": False}
+
+    def start_element(name, attrs):
+        tag = _xml_local_name(name)
+        if tag == "edge":
+            source = attrs.get("source")
+            target = attrs.get("target")
+            if source is not None and target is not None:
+                pairs.append((source, target))
+        elif tag == "node":
+            if state["node_depth"] > 0 or attrs.get("pid") is not None:
+                state["hierarchy"] = True
+            if "label" not in attrs:
+                state["missing_label"] = True
+            state["node_depth"] += 1
+        elif tag == "parent":
+            state["hierarchy"] = True
+
+    def end_element(name):
+        if _xml_local_name(name) == "node" and state["node_depth"]:
+            state["node_depth"] -= 1
+
+    parser = expat.ParserCreate(namespace_separator="}")
+    parser.StartElementHandler = start_element
+    parser.EndElementHandler = end_element
+    try:
+        parser.Parse(raw_bytes, True)
+    except expat.ExpatError:
+        return False, True
+    needs_nx = (
+        parallel
+        or state["hierarchy"]
+        or (bool(pairs) and len(pairs) != len(set(pairs)))
+    )
+    return needs_nx, state["missing_label"]
 
 
 def _xml_local_name(name):
