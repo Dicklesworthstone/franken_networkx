@@ -21360,7 +21360,23 @@ def single_source_bellman_ford_path_length(G, source, weight="weight"):
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     hash(source)
     # br-bfignoreweight: delegate weighted inputs.
-    if _should_delegate_bellman_ford_to_networkx(weight) or _binding_self_syncs_gate(G, weight):
+    if _should_delegate_bellman_ford_to_networkx(weight):
+        return _call_networkx_for_parity(
+            "single_source_bellman_ford_path_length", G, source, weight=weight
+        )
+    # br-cc-mgdijkstra: multigraph Bellman-Ford LENGTH -> collapse parallels to the
+    # simple min-weight graph (keep negatives; delegate NaN/inf/nonnumeric) + fast
+    # simple kernel. Length is order-independent -> byte-exact. This also fixes the
+    # pre-existing bad-weight divergence (the native multigraph kernel was reached
+    # for NaN/inf/nonnumeric weights the collapse now delegates to nx).
+    if G.is_multigraph() and isinstance(weight, str):
+        _simple, _delegate = _multigraph_collapse_min_weight_bellman(G, weight)
+        if _delegate:
+            return _call_networkx_for_parity(
+                "single_source_bellman_ford_path_length", G, source, weight=weight
+            )
+        return single_source_bellman_ford_path_length(_simple, source, weight=weight)
+    if _binding_self_syncs_gate(G, weight):
         return _call_networkx_for_parity(
             "single_source_bellman_ford_path_length", G, source, weight=weight
         )

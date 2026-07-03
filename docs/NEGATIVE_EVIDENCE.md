@@ -2,6 +2,23 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP: single_source_bellman_ford_path_length MultiGraph 0.45x->1.04x, MultiDiGraph 0.20x->0.60x — negative-allowing min-weight-collapse
+
+Extended the negative-allowing collapse to `single_source_bellman_ford_path_length`. It has a DIFFERENT
+delegation gate than `bellman_ford_path_length` (`_should_delegate_bellman_ford_to_networkx` = callable/
+non-str only, plus `_binding_self_syncs_gate`) — so the collapse's own bad-weight validation
+(`_multigraph_collapse_min_weight_bellman`: delegate NaN/inf/nonnumeric, keep negatives) supplies the
+NaN/inf/nonnumeric delegation the multigraph path previously LACKED (its native kernel was reached for those
+and diverged from nx). Split the gate: `_should_delegate` (callable/non-str) first, then the MG collapse,
+then `_binding_self_syncs_gate` for non-multigraphs — so simple graphs are byte-IDENTICAL to HEAD (verified:
+`{0:0,1:2,2:3,3:4.0}` unchanged on a -inf simple graph). **MG 0.45x->1.04x (WIN), MDG 0.20x->0.60x**,
+byte-exact 1600/1600 (MG/MDG x int/float x with-negatives x NaN/+inf/-inf/nonnumeric — incl. negative-cycle
+NetworkXUnbounded parity) + 422 bellman conformance. NOTE (pre-existing, out of scope): single_source_bellman
+on a SIMPLE graph does NOT delegate NaN/-inf/nonnumeric (its gate misses them, unchanged by this commit) so
+it diverges from nx there — a separate simple-graph gate bug. Multigraph distance shortest-path family now:
+single_source_dijkstra_path_length, dijkstra_path_length, astar_path_length, bellman_ford_path_length,
+single_source_bellman_ford_path_length, shortest_path_length(source), all_pairs_dijkstra(cutoff).
+
 ## 2026-07-03 CopperCliff SHIP: all_pairs_dijkstra_path_length(cutoff) MultiGraph 0.12x->1.85x, MultiDiGraph 0.01x->0.54x — collapse the multigraph ONCE, not per source
 
 The cutoff branch of `all_pairs_dijkstra_path_length` calls `single_source_dijkstra_path_length` per node.
