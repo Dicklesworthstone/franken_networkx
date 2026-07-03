@@ -2,6 +2,41 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP (partial, #1 laggard): remove_node loop fused ~9|E| passes -> ~3|E| — 0.059x -> 0.082x (simple Graph)
+
+The single biggest measured gap of the campaign is the incremental `remove_node`-in-a-loop
+(0.005-0.06x, ~17-200x slower). Root cause is architectural: the store is index-based, so every
+removal renumbers indices > idx to stay contiguous (O(|V|+|E|), quadratic over a loop of k). A
+scaling probe (fix |V|, vary |E|) proved the per-removal cost is E-DOMINATED (N=2000: 27us @ M=1000
+-> 366us @ M=16000, ~linear in |E|; only weakly N-linear). So the levers are the O(|E|) passes, not
+the renumber floor.
+
+The simple-`Graph::remove_node` made ~9 separate O(|E|)-ish passes per call: build a keep-mask,
+`edges.retain`, `edge_index_endpoints.retain`, `adj_indices` retain, `adj_indices` decrement,
+`edge_index_endpoints` decrement, and a full `edges` map REKEY rebuild (alloc + rehash). But the
+removal ALWAYS rebuilds the edges map (the rekey), and `retain` + `rekey` BOTH preserve survivor
+order — so the incident-drop, the index-decrement, and the rekey can be FUSED into ONE
+order-preserving rebuild pass over the element-parallel `(edges, edge_index_endpoints)`, and the
+adjacency retain+decrement into ONE pass per row. Survivor order is untouched, so `edges_ordered()`
+(the only observed edge order, walked from the adjacency rows, NOT the map storage order — verified:
+`edges_storage_order_index_iter` consumers are all order-independent matrix/weight aggregates or
+add-path-only unit tests) is BYTE-IDENTICAL by construction — zero reordering risk, unlike the
+swap_remove route (which the directed types use and which IS order-perturbing but safe there).
+
+Edge work per removal: ~9|E| -> ~3|E| (`adj` repair ~2|E| + fused edge rebuild ~|E|). Measured:
+- simple `Graph` remove_node loop(500) @ n=1000/m=5000: **0.059x -> 0.082x** (50.8ms -> 37.0ms, 1.37x
+  self); per-removal @ N=2000/M=16000: **366us -> 319us**; @ N=2000/M=4000: 96us -> 84us.
+- `DiGraph::remove_node`: incident-drop was already O(degree) `swap_remove`; fused the succ/pred
+  retain+decrement into one pass each (smaller, same class).
+STILL SUB-1x: this removes the reducible per-pass overhead but NOT the O(|V|+|E|) renumber floor —
+matching nx's O(degree) needs stable node ids (swap_remove the node + a decoupled display-order
+vector, OR deferred/tombstone compaction at read chokepoints), a large cross-surface rewrite that
+gates the whole index architecture. Byte-exact: 74/74 cases (Graph + DiGraph × 6 seeds × attrs ×
+{random30, front25, back25} + self-loop/isolated) across base/copy/pickle/deepcopy; 71 fnx-classes
+unit tests green. LEVER: when a per-element mutation ALWAYS rebuilds a container downstream (here the
+rekey), FUSE the earlier retain/filter/decrement passes INTO that rebuild — order-preserving, so
+byte-identical, and it collapses N passes to 1 with no invariant change.
+
 ## 2026-07-02 CopperCliff SURFACE (MAJOR gap cluster, previously invisible): incremental MUTATION-in-a-loop is 0.01-0.57x — index-store O(N+E)-per-removal
 
 Benched a stressor NO prior sweep had touched: incremental mutation (add/remove one element at a

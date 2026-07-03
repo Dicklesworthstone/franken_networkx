@@ -1862,74 +1862,66 @@ impl Graph {
         // place (drop dangling refs to the removed index, decrement indices that
         // shifted down) — no hashing, no full rebuild.
 
-        // 1a: String rows gone (P2(c) slice 2) — index repair below covers it.
-        // 1b. Remove ALL incident edges from `edges` + the parallel
-        // `edge_index_endpoints` in ONE O(|E|) pass (avoids O(degree*|E|) from
-        // per-edge `shift_remove`). The two retains share the same keep-mask so
-        // the vectors stay element-for-element parallel.
-        // br-r37-c1-d58s8 P2(c) slice 1: the keep-mask is a pure INTEGER
-        // test — an edge is incident iff either endpoint index == idx
-        // (edge_index_endpoints is element-parallel with edges). The old
-        // version built a HashSet<EdgeKey> from the String row and hashed
-        // every edge key against it.
-        let has_incident = self.adj_indices.get(idx).is_some_and(|row| !row.is_empty());
-        if has_incident {
-            let keep: Vec<bool> = self
-                .edge_index_endpoints
-                .iter()
-                .map(|&(l, r)| l != idx && r != idx)
-                .collect();
-            let mut i = 0usize;
-            self.edges.retain(|_, _| {
-                let k = keep[i];
-                i += 1;
-                k
-            });
-            let mut j = 0usize;
-            self.edge_index_endpoints.retain(|_| {
-                let k = keep[j];
-                j += 1;
-                k
-            });
-        }
+        // br-cc-rmnode-fuse: the previous version made ~9 separate O(|E|)
+        // passes over the edge storage per removal (keep-mask, edges.retain,
+        // endpoints.retain, adj retain, adj decrement, endpoint decrement,
+        // full edges rekey). Since the removal ALWAYS rebuilds the edges map
+        // (indices > idx shift down when `nodes.shift_remove` renumbers),
+        // FUSE incident-drop + index-decrement + rekey into ONE order-
+        // preserving rebuild pass, and FUSE the adjacency retain+decrement
+        // into one pass per row. Survivor order is untouched (both the old
+        // retain and the old rekey preserved insertion order), so
+        // `edges_ordered()` — the only observed edge order, walked from the
+        // adjacency rows — is byte-identical. Cuts the per-removal edge work
+        // from ~9|E| to ~3|E| (the O(|V|+|E|) renumber floor stays; killing
+        // it needs stable node ids, see docs/NEGATIVE_EVIDENCE.md).
 
-        // 2. Drop the node's own adjacency-index vec (outer Vec shifts to stay
-        // aligned with `nodes`/`adjacency` after their shift_remove below).
+        // 1. Drop the node's own adjacency-index vec (outer Vec shifts to stay
+        //    aligned with `nodes` after the shift_remove below).
         self.adj_indices.remove(idx);
-        // 3. Remove from the string maps (renumbers indices > idx down by 1).
+        // 2. Remove from the node map (renumbers positions > idx down by 1).
         self.nodes.shift_remove(node);
-        // 4. Repair integer indices in place: drop any remaining reference to the
-        // removed node (`idx`) and decrement every index that shifted down.
+        // 3. Adjacency repair — ONE pass per row: drop any remaining reference
+        //    to the removed index and decrement every index that shifted down.
         for nbrs in &mut self.adj_indices {
-            nbrs.retain(|&e| e != idx);
-            for e in nbrs.iter_mut() {
-                if *e > idx {
-                    *e -= 1;
+            let mut w = 0usize;
+            for read in 0..nbrs.len() {
+                let e = nbrs[read];
+                if e == idx {
+                    continue;
                 }
+                nbrs[w] = if e > idx { e - 1 } else { e };
+                w += 1;
             }
+            nbrs.truncate(w);
         }
-        for (left, right) in &mut self.edge_index_endpoints {
-            if *left > idx {
-                *left -= 1;
+        // 4. Edge storage — ONE fused pass over the element-parallel
+        //    (edges, edge_index_endpoints): skip incident edges (either
+        //    endpoint index == idx), decrement shifted indices, and rebuild
+        //    both containers in the SAME survivor order they had before.
+        let old_edges = std::mem::take(&mut self.edges);
+        let old_endpoints = std::mem::take(&mut self.edge_index_endpoints);
+        let mut new_edges =
+            FxIndexMap::with_capacity_and_hasher(old_edges.len(), rustc_hash::FxBuildHasher);
+        let mut new_endpoints = Vec::with_capacity(old_endpoints.len());
+        for (((l, r), attrs), (le, re)) in old_edges.into_iter().zip(old_endpoints) {
+            if le == idx || re == idx {
+                continue;
             }
-            if *right > idx {
-                *right -= 1;
-            }
-        }
-        // br-r37-c1-d58s8 edges-map flip: REKEY surviving edges (integer
-        // rehash; order preserved by the in-order rebuild).
-        self.edges = std::mem::take(&mut self.edges)
-            .into_iter()
-            .map(|((l, r), attrs)| {
+            new_edges.insert(
                 (
-                    (
-                        if l > idx { l - 1 } else { l },
-                        if r > idx { r - 1 } else { r },
-                    ),
-                    attrs,
-                )
-            })
-            .collect();
+                    if l > idx { l - 1 } else { l },
+                    if r > idx { r - 1 } else { r },
+                ),
+                attrs,
+            );
+            new_endpoints.push((
+                if le > idx { le - 1 } else { le },
+                if re > idx { re - 1 } else { re },
+            ));
+        }
+        self.edges = new_edges;
+        self.edge_index_endpoints = new_endpoints;
 
         self.revision = self.revision.saturating_add(1);
         true

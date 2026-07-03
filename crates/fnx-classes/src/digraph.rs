@@ -1522,14 +1522,21 @@ impl DiGraph {
         self.nodes.shift_remove(node);
         self.succ_indices.remove(idx);
         self.pred_indices.remove(idx);
+        // br-cc-rmnode-fuse: one pass per row (was retain THEN decrement) —
+        // drop refs to the removed index and decrement shifted indices in a
+        // single traversal. Order preserved.
         for rows in [&mut self.succ_indices, &mut self.pred_indices] {
             for row in rows.iter_mut() {
-                row.retain(|&e| e != idx);
-                for e in row.iter_mut() {
-                    if *e > idx {
-                        *e -= 1;
+                let mut w = 0usize;
+                for read in 0..row.len() {
+                    let e = row[read];
+                    if e == idx {
+                        continue;
                     }
+                    row[w] = if e > idx { e - 1 } else { e };
+                    w += 1;
                 }
+                row.truncate(w);
             }
         }
         // br-r37-c1-d58s8 edges-map flip: REKEY surviving edges past the
