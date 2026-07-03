@@ -2,6 +2,26 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff CORRECTNESS FIX: MST (boruvka/kruskal/prim) returned a WRONG tree with DROPPED weights on batch-built weighted graphs — native fnx_to_nx_adjacency read the mirror only, not the store
+
+Found while probing the string-node construction cost: `minimum_spanning_edges`/`minimum_spanning_tree`
+(and `maximum_*`) computed a WRONG tree — fnx MST weight 161 vs nx 77 — AND the returned edges had NO
+`weight` attribute, whenever the MST was the FIRST attribute access on a freshly BATCH-built weighted
+graph (`Graph([(u,v,{'weight':w}), ...])`, `>=8` edges). Root: the native `fnx_to_nx_adjacency`
+(algorithms.rs), used by boruvka's in-proc kernel + `backend._fnx_to_nx` conversion + community, read edge
+attrs from the `edge_py_attrs` MIRROR only (`edge_attrs_for_undirected/-directed`), returning an EMPTY dict
+on mirror-miss. A batch-built graph leaves the mirror UNMATERIALISED (store authoritative), so every edge
+looked attribute-less -> `attrs.get(weight, 1)` defaulted every weight to 1 -> wrong tree, dropped attrs.
+The sibling `graph_has_edge_attr` already carried this exact lazy-mirror fix (br-r37-c1-hasattrlazyfix);
+`fnx_to_nx_adjacency` had missed it. Fix: on mirror-miss read the Rust STORE (`inner.edge_attrs` ->
+`attr_map_to_pydict`), mirror-first-then-store, same as `edge_attr_py_value`. Byte-exact 300/300
+(boruvka/kruskal/prim x int/str nodes x first-touch, MST weight + attrs == nx) + 2697 spanning/MST/community
+conformance (the 17 previously-latent `test_spanning_edge_iterators_relabeling_equivariant[*-boruvka]` all
+green). No perf regression — store-read fires only on mirror-miss, O(1)/edge: boruvka 2.25x, kruskal 3.13x,
+prim 2.74x vs nx at 400n/3000m. LEVER: grep every `edge_py_attrs.get`/`edge_attrs_for_*` that returns
+empty/None on miss WITHOUT an `inner.edge_attrs` store fallback — batch construction defers the mirror, so
+mirror-only reads silently corrupt weighted algorithms. Sibling of the flow_hierarchy store-miss bug.
+
 ## 2026-07-03 CopperCliff SURFACE (no takeable win): transform/copy "laggards" are GC/memory-pressure NOISE; the one real residual is the string-node CONSTRUCTION floor
 
 Swept graph transforms (copy/to_undirected/contracted/reverse/subgraph/relabel) hunting the next

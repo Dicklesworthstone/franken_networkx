@@ -3371,9 +3371,20 @@ pub fn fnx_to_nx_adjacency(
                 let mut nbrs: Vec<(PyObject, PyObject)> = Vec::new();
                 if let Some(it) = inner.neighbors_iter(node) {
                     for nbr in it {
+                        // br-cc-mst-storemiss: mirror FIRST (authoritative — holds
+                        // Python-set attrs), then the Rust STORE on mirror-miss. A
+                        // freshly batch-built weighted graph has an UNMATERIALISED
+                        // edge_py_attrs mirror, so the old mirror-only read returned
+                        // an empty dict here -> boruvka MST (and every other
+                        // fnx_to_nx_adjacency consumer) saw weight=default-1 and
+                        // computed a WRONG tree with the attrs dropped. Same lazy-
+                        // mirror fix graph_has_edge_attr already carries.
                         let attrs = match gr.edge_attrs_for_undirected(node, nbr) {
                             Some(d) => d.clone_ref(py).into_any(),
-                            None => empty.clone_ref(py),
+                            None => match pg.inner.edge_attrs(node, nbr) {
+                                Some(a) => crate::attr_map_to_pydict(py, a)?.into_any(),
+                                None => empty.clone_ref(py),
+                            },
                         };
                         nbrs.push((gr.py_node_key(py, nbr), attrs));
                     }
@@ -3391,9 +3402,13 @@ pub fn fnx_to_nx_adjacency(
                 let mut nbrs: Vec<(PyObject, PyObject)> = Vec::new();
                 if let Some(it) = inner.successors_iter(node) {
                     for nbr in it {
+                        // br-cc-mst-storemiss: mirror-then-STORE (see undirected arm).
                         let attrs = match gr.edge_attrs_for_directed(node, nbr) {
                             Some(d) => d.clone_ref(py).into_any(),
-                            None => empty.clone_ref(py),
+                            None => match dg.inner.edge_attrs(node, nbr) {
+                                Some(a) => crate::attr_map_to_pydict(py, a)?.into_any(),
+                                None => empty.clone_ref(py),
+                            },
                         };
                         nbrs.push((gr.py_node_key(py, nbr), attrs));
                     }
