@@ -2,6 +2,31 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP (pure-Python): max_weight_clique 0.48x -> 1.30-1.54x — nx's branch-and-bound run natively over precomputed adjacency, not the nx delegation
+
+`max_weight_clique` ALWAYS delegated to nx via `_fnx_to_nx` because the Rust binding solves max-
+CARDINALITY (ignores node weights, returns clique size as the weight) — verified 117/120 node mismatch
+vs nx, so it is simply the wrong algorithm. Split probe: the conversion alone (0.34ms @ n=60) EXCEEDED
+nx's entire runtime (0.29ms), and running nx's algo directly on the fnx graph's slow views was no faster
+(0.70ms) — the conversion is the floor. Fix: copy nx's exact `MaxWeightClique` branch-and-bound VERBATIM
+into pure Python with the ONLY change being `self.G.has_edge(v, w)` -> `w in adj[v]` over a precomputed
+native adjacency (`to_dict_of_lists` -> {node: set}) and `self.G.degree(v)` -> one bulk `dict(G.degree())`.
+Same node order (degree sort) + same expand/branch order + same weight validation -> byte-identical.
+**0.48x -> 1.30-1.54x**, byte-exact 456/456 (weight=str/None x weight-mods x self-loops + empty/single/
+directed/missing-weight/float-weight/multigraph) + 1150 clique conformance tests green. Directed raises
+as nx; multigraph keeps the nx delegation. Pure-Python. LEVER (extends greedy_color/MIS): a delegated
+algo whose whole tax is the `_fnx_to_nx` conversion, and whose only hot graph op is `has_edge`/adjacency,
+runs natively when you copy nx's exact algorithm over a precomputed native adjacency set — the set-
+membership `has_edge` is even FASTER than nx's dict method, so it BEATS nx after dropping the conversion.
+
+BENCH-TRAP CORRECTION (build-inside-timing, generalises checklist #8 beyond in-place mutation): a
+shortest-path/centrality sweep that built each graph INSIDE the timed lambda flagged FALSE laggards —
+`effective_graph_resistance` 0.66x, `kemeny_constant` 0.80x, `group_betweenness` 0.90x — because fnx's
+per-call `add_edge` build loop (slower than nx's) is charged to the fnx side. Rebuilt OUTSIDE timing they
+are all wins/parity: EGR **1.62-2.12x**, kemeny **1.24-1.25x**, group_betweenness 0.97x. RULE: build the
+graph OUTSIDE the timed region for ANY op whose runtime is comparable to an O(V+E) construction, not just
+in-place mutations — fnx's add_edge-loop build is the slower side and silently taxes the measurement.
+
 ## 2026-07-03 CopperCliff SHIP (pure-Python): greedy_color(connected_sequential_*) 0.32-0.36x -> 1.72-3.47x — run the strategy natively, don't convert to an nx.Graph
 
 Iso/hashing/coloring/chordal sweep found `greedy_color(strategy='connected_sequential_bfs'/'_dfs')` at
