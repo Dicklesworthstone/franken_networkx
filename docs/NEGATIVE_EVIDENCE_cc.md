@@ -4122,3 +4122,28 @@ strictly less than shift_remove, never slower) and correct, and speeds up Rust-s
 callers that bypass the Python cache wrapper (double_edge_swap family), but the Python remove_edges_from
 gap needs the wrapper/per-edge O(|E|) localized next. NEXT LEVER: profile the exact 19us/edge split
 (native raw() vs _invalidate_adjacency_row_caches vs Python validation loop) on a SMALL per-crate bench.
+
+## 2026-07-02 CopperCliff CORRECTION (BIG measured WIN, not neutral): remove_edge O(|E|)->O(1) — DG 0.018x->0.82x, MG 0.016x->0.35x, MDG 0.016x->0.42x
+
+The prior entry (same session) claimed the swap_remove fix "did NOT move the Python-facing
+remove_edges_from ratio (still 0.016x)". THAT WAS A STALE-BINARY ARTIFACT: `python3` (system) loads
+the .so from ~/.local/lib/python3.13/site-packages (mtime Jul-1, PRE-change, missing many recent
+commits), while `maturin develop` installs the editable build into ./python/franken_networkx (loaded
+only by ./.venv/bin/python). ALL my probes ran against the stale .so, so the fix looked inert. LESSON
+(load-bearing): after `maturin develop`, VERIFY which .so Python actually imports
+(`franken_networkx._fnx.__file__` + mtime) before trusting ANY before/after bench — plain `python3`
+here is NOT the maturin target. Use `.venv/bin/python` (or check __file__).
+
+Re-run on the FRESH .so: the shift_remove->swap_remove on the inner edges/node-pair map turned
+remove_edge from O(|E|) into O(1) exactly as designed. NAIL probe (remove_edge us/call, E=6k/24k/96k):
+STALE 11.5/48.8/201.7 (linear O(|E|)) -> FRESH 1.11/1.52/2.85 (FLAT O(1)). Head-to-head vs nx
+(n=2000 m=12000, isolated removal):
+  DG  remove_edges_from: 0.018x -> 0.819x (k=6000) / 0.502x (k=100)   ~55x self
+  MG  remove_edges_from: 0.016x -> 0.349x / 0.332x                    ~17x self
+  MDG remove_edges_from: 0.016x -> 0.419x / 0.347x                    ~24x self
+  G   unchanged 0.585x (already had swap_remove_full via br-r37-c1-vbwpl)
+Byte-EXACT on the fresh .so: 120/120 differential (all 4 types, mixed (u,v)/(u,v,key) removals,
+non-existent skips, re-add/slot-reuse) + MG/MDG middle-key-removal order preserved. This was THE
+biggest measured gap of the session (55-60x slower) and is now within 2-3x of nx (residual = the
+multigraph per-pair bucket + PyO3 mirror maintenance, a much smaller floor). code already shipped in
+d947bf3fa; this entry corrects the (stale-binary) framing to record the real win.
