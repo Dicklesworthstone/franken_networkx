@@ -4396,3 +4396,18 @@ order x 4 types x insertion orders x batch sizes) + dup-node merge OK (all 4 typ
 order still 103/103. PERF: single-attr add_nodes_from 0.96x (was 0.73x with the over-eager first pass, now
 parity), multi-attr 0.585x (the inherent double-storage cost — mirror for order + BTreeMap store for
 kernels; nx keeps one dict). CORRECTNESS > perf; the common single-attr path is untouched.
+
+## 2026-07-02 CopperCliff VERIFY (clean): mutation/attr layer byte-exact after the 3 correctness fixes — 80/80 metamorphic + 6th bench trap
+
+After fixing flow_hierarchy (15099d2ff) + edge/node attr key-order (4c6c1fc80/bb6d5895d), ran a metamorphic
+differential oracle: 80 random interleaved-op sequences (add/remove edge+node, set edge/node attr, on
+batch-built multi-attr graphs) across all 4 types, comparing full structure (nodes(data), edges(keys,data),
+adjacency, degree, size(weight)) to nx byte-for-byte -> 80/80 EXACT. Plus focused audits all clean:
+relabel_nodes/graph-attrs/subgraph-views/node_link/adjacency_data/to_dict_of_dicts/graphml (38/38),
+data-key edges/in_edges/out_edges(data=custom,default)/size/degree(custom weight)/post-mutation (60/60).
+The mutation/attr layer is now certified byte-exact; the 3 shipped fixes closed the batch-mirror bug family
+(sorted-order + mirror-miss-default). 6th BENCH-SUBSTRATE TRAP (differential-testing variant): calling
+rng.randint() SEPARATELY for the fnx and nx graph in the same op (`gf.add_node(u,x=rng.randint());
+gn.add_node(u,x=rng.randint())`) feeds DIFFERENT random values -> 78/80 false "divergences" that were all
+value (not structure) mismatches. Compute the random value ONCE and use it for both graphs. Add to
+[[reference_bench_substrate_checklist]].
