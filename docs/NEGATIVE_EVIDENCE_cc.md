@@ -4476,3 +4476,19 @@ insertion order). Transform audit 30/30 + 6507 pytest. The ENTIRE batch-attr-ord
 existing-exact-int + existing-int-label, edges + nodes, Graph+DiGraph) now preserves nx insertion order at
 ~0.67-1.2x (multi-attr pays the inherent ordered-mirror creation; single-attr unchanged and >=nx). Bug
 family CLOSED.
+
+## 2026-07-02 CopperCliff CORRECTNESS FIX (DATA LOSS): Graph/MultiGraph pickle/deepcopy DROPPED single-attr NODE attributes
+
+Node analog of the DiGraph edge pickle data-loss (5bfc143f2). PyGraph + PyMultiGraph __getstate__ (lib.rs
+~8842/12848) read each node's attrs from node_py_attrs (mirror) with map_or_else(|| PyDict::new(py)) ->
+EMPTY dict on a miss. After the node-attr-order fix (bb6d5895d), Graph/MultiGraph only eagerly mirror
+MULTI-attr (>=2 key) nodes; SINGLE-attr nodes stay LAZY in the store with no mirror entry. So
+pickle.loads(pickle.dumps(G)) / copy.deepcopy(G) returned every node as {} for single-attr batch-built
+nodes — e.g. add_nodes_from([(i,{'p':i})]) or convert_node_labels_to_integers -> pickle -> node attrs GONE.
+DiGraph/MultiDiGraph were fine (their node batch eagerly mirrors ALL nodes). FIX (br-r37-c1-getstate-
+storemiss): on a node-mirror miss, materialise from the store's node AttrMap (self.inner.node_attrs) via
+attr_map_to_pydict instead of an empty dict. Byte-exact: single-attr node pickle x 4 types OK + pickle2
+audit 32/32 (nodes-first/from_dict/single-attr/convert_labels x pickle+deepcopy x 4 types) + 1632 pickle/
+serialization pytest. Third mirror-miss instance (degree/flow_hierarchy, DiGraph edge pickle, now
+Graph/MG node pickle); the __getstate__ EDGE sections already read the store (single-attr edge pickle was
+fine). CORRECTNESS (silent data loss).

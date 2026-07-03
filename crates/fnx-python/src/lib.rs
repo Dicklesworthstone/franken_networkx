@@ -8834,15 +8834,25 @@ impl PyMultiGraph {
             .inner
             .nodes_ordered()
             .into_iter()
-            .map(|n| {
+            .map(|n| -> PyResult<_> {
                 let py_key = self.py_node_key(py, n);
-                let attrs = self
-                    .node_py_attrs
-                    .get(n)
-                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-                (py_key, attrs)
+                // br-r37-c1-getstate-storemiss (cc): a MISSING node mirror does NOT
+                // mean empty attrs — single-attr / bulk-added nodes stay LAZY in the
+                // CgseValue store with no node_py_attrs entry (only multi-attr nodes
+                // get an eager mirror). The old `map_or_else(|| PyDict::new(...))`
+                // DROPPED single-attr node attributes on pickle/deepcopy (e.g.
+                // add_nodes_from([(i,{'p':i})]) or convert_node_labels_to_integers ->
+                // pickle -> every node came back {}). Fall back to the store's AttrMap.
+                let attrs = match self.node_py_attrs.get(n) {
+                    Some(d) => d.clone_ref(py),
+                    None => match self.inner.node_attrs(n) {
+                        Some(a) => attr_map_to_pydict(py, a)?,
+                        None => PyDict::new(py).unbind(),
+                    },
+                };
+                Ok((py_key, attrs))
             })
-            .collect();
+            .collect::<PyResult<Vec<_>>>()?;
         state.set_item("nodes", nodes_list)?;
 
         let edges_list: Vec<(PyObject, PyObject, PyObject, Py<PyDict>)> = self
@@ -12840,15 +12850,25 @@ impl PyGraph {
             .inner
             .nodes_ordered()
             .into_iter()
-            .map(|n| {
+            .map(|n| -> PyResult<_> {
                 let py_key = self.py_node_key(py, n);
-                let attrs = self
-                    .node_py_attrs
-                    .get(n)
-                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-                (py_key, attrs)
+                // br-r37-c1-getstate-storemiss (cc): a MISSING node mirror does NOT
+                // mean empty attrs — single-attr / bulk-added nodes stay LAZY in the
+                // CgseValue store with no node_py_attrs entry (only multi-attr nodes
+                // get an eager mirror). The old `map_or_else(|| PyDict::new(...))`
+                // DROPPED single-attr node attributes on pickle/deepcopy (e.g.
+                // add_nodes_from([(i,{'p':i})]) or convert_node_labels_to_integers ->
+                // pickle -> every node came back {}). Fall back to the store's AttrMap.
+                let attrs = match self.node_py_attrs.get(n) {
+                    Some(d) => d.clone_ref(py),
+                    None => match self.inner.node_attrs(n) {
+                        Some(a) => attr_map_to_pydict(py, a)?,
+                        None => PyDict::new(py).unbind(),
+                    },
+                };
+                Ok((py_key, attrs))
             })
-            .collect();
+            .collect::<PyResult<Vec<_>>>()?;
         state.set_item("nodes", nodes_list)?;
 
         // Store edges as list of (u, v, attrs) tuples. Generated and fresh-batch
