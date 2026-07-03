@@ -2,6 +2,43 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SURFACE (floor certified): the add-side + read-side single-call laggards are PyO3-dispatch + dual-String-store bound — NOT takeable; fusion complete at Graph+DiGraph
+
+After shipping the remove_node fusion (below), swept the rest of the single-call mutation/read
+surface for a NEW lever. Conclusion: every remaining sub-1x is the per-call floor, architectural.
+Fresh evidence (n=1000/m=5000, gc-off, fresh binary):
+- **add_edge loop 0.30x, add_node loop 0.36x**: fnx pays ~1.9us vs nx ~0.59us per add_edge. Cost is
+  IDENTICAL for int-nodes (9.42ms) vs str-nodes (9.61ms) — so it is NOT node_key_to_string
+  canonicalization; it is the DUAL String store (`node_key_map` HashMap + `inner.nodes` IndexMap,
+  BOTH keyed by the canonical String -> ~10 String hashes/edge across contains_key/entry/has_edge/
+  differs/inner) plus the PyO3 dispatch + dual-store bookkeeping (adj_py_keys display-object mirror).
+  add_node does 3 stores/node (node_key_map + node_iter_mirror + inner.nodes) vs nx's 1 dict insert.
+  The one provably-local micro-opt (skip the adj_py_keys block when BOTH endpoints are new) helps only
+  ~15% of edges in a lazy-node build and saves ~3 of ~10 hashes -> ~5% overall; a broader "all nodes
+  exact-int" gate needs a tracked homogeneity flag = the mixed int/float/bool latent-bug surface the
+  ledger repeatedly warns off. NOT worth the risk.
+- **has_edge 0.28x, get_edge_data 0.26x, neighbors/successors 0.5x, adj-iterate 0.46x** (reads):
+  has_edge ALREADY carries an identity-int fast path (br strict-work-removal) and STILL sits at 0.28x
+  -> the read floor is PyO3-method-dispatch-bound, not String-bound (nx `x in G`/`G[u][v]` go through
+  CPython's C-level dict protocol with no extension-call boundary; a #[pymethod] cannot match that).
+  get_edge_data additionally MUST materialize the edge into the persistent `edge_py_attrs` mirror and
+  mark the whole store dirty (it returns a LIVE mutable dict — `materialize_edge_py_attrs` inserts an
+  entry unconditionally, so the `has_edge` guard cannot be fused out). `len(g[x])` is double-dispatch +
+  fresh AtlasView object construction (the AtlasView `__len__` is already O(1) `neighbor_count`; `g[x]`
+  alone BEATS nx 1.22x — the gap is the second dispatch, unreducible without changing the user idiom).
+- **O(degree) remove_node** (the O(|V|+|E|) renumber floor that survives the fusion below): needs the
+  node display-order DECOUPLED from the physical contiguous index (swap_remove the node + a display
+  vector, or deferred/tombstone compaction). Measured the coupling: **149** `get_index`/`adj_indices`/
+  `node_index` sites in fnx-algorithms + 18 in the bindings + 39 node-iteration sites in fnx-classes all
+  assume index==display==contiguous 0..N. A large cross-surface rewrite, NOT turn-sized.
+- MG/MDG remove_node are STRING-keyed nested maps (no index renumber) -> nothing to fuse; the fusion
+  lever is COMPLETE at simple Graph (big) + simple DiGraph (small).
+- readwrite/convert/generator/algorithm domains ALL win 1.06-82x (to_dict_of_lists 2.99x, from_edgelist
+  1.68x, to_scipy_sparse 2.23x, density 82x, is_connected 34x, dfs_tree 4.2x, ...) — the floor is
+  isolated to the per-element mutation/read PRIMITIVES. No shippable single-call win this dig; the only
+  real remaining frontier is the integer-node-key storage rewrite (unifies the dual store AND unblocks
+  O(degree) removal).
+
 ## 2026-07-03 CopperCliff SHIP (partial, #1 laggard): remove_node loop fused ~9|E| passes -> ~3|E| — 0.059x -> 0.082x (simple Graph)
 
 The single biggest measured gap of the campaign is the incremental `remove_node`-in-a-loop
