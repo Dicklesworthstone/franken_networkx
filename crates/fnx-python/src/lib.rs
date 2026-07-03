@@ -2242,6 +2242,153 @@ impl PyGraph {
         Ok(true)
     }
 
+    /// br-cc-strnodeidremap: fresh-graph attributed-edge batch for STR / TUPLE
+    /// (any non-exact-int) node labels — the integer-node-id-remapping primitive.
+    /// The general `collect_attr_edge_batch` path stores edges String-keyed, so
+    /// `extend_edges_with_attrs_unrecorded` pays a `nodes.get_index_of(&String)`
+    /// hash lookup PER ENDPOINT (2*|E| lookups into the growing store). That made
+    /// str+attr construction ~0.46x vs nx while int+attr — which already remaps to
+    /// a dense index and uses `extend_fresh_index_edges_with_attrs_unrecorded` —
+    /// wins 1.15x. Canonicalise each DISTINCT node ONCE, remap to a 0..N index, and
+    /// reuse the int fast path's index extend + applier. Same mirror rule as the int
+    /// batch (>=2 attrs -> fresh ordered mirror; <2 -> deferred; the deferred single-
+    /// attr case is safe now that fnx_to_nx_adjacency store-falls-back). Declines
+    /// (-> the general merge path) on duplicate edges or non-plain nodes.
+    fn collect_fresh_general_attr_edge_batch<'py, I>(
+        &self,
+        py: Python<'py>,
+        items: I,
+        len: usize,
+    ) -> PyResult<Option<IndexedAttrEdgeBatch>>
+    where
+        I: IntoIterator<Item = Bound<'py, PyAny>>,
+    {
+        let mut node_indices: HashMap<String, usize> = HashMap::new();
+        let mut node_labels: Vec<String> = Vec::new();
+        let mut node_objects: Vec<PyObject> = Vec::new();
+        let mut edges: Vec<(usize, usize, AttrMap, Option<Py<PyDict>>)> = Vec::with_capacity(len);
+        let mut seen_edges: HashSet<(usize, usize)> = HashSet::with_capacity(len);
+        let mut node_bumps = 0_u64;
+
+        for item in items {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(None);
+            };
+            if tuple.len() != 3 {
+                return Ok(None);
+            }
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            if !Self::is_plain_batch_node(&u) || !Self::is_plain_batch_node(&v) {
+                return Ok(None);
+            }
+            let u_canon = node_key_to_string(py, &u)?;
+            let v_canon = node_key_to_string(py, &v)?;
+
+            let third = tuple.get_item(2)?;
+            let Ok(dict) = third.downcast::<PyDict>() else {
+                return Ok(None);
+            };
+            // Mirror rule identical to collect_fresh_exact_int_attr_edge_batch.
+            let (attrs, mirror) = if dict.len() >= 2 {
+                let Ok((attrs, m)) = py_dict_to_attr_map_with_mirror(py, dict) else {
+                    return Ok(None);
+                };
+                (attrs, Some(m))
+            } else {
+                let Ok(attrs) = py_dict_to_attr_map(dict) else {
+                    return Ok(None);
+                };
+                (attrs, None)
+            };
+            if attrs
+                .keys()
+                .any(|key| key.starts_with("__fnx_incompatible"))
+            {
+                return Ok(None);
+            }
+
+            let mut edge_added_node = false;
+            let u_index = match node_indices.get(&u_canon).copied() {
+                Some(index) => index,
+                None => {
+                    let index = node_labels.len();
+                    node_indices.insert(u_canon.clone(), index);
+                    node_labels.push(u_canon);
+                    node_objects.push(u.clone().unbind());
+                    edge_added_node = true;
+                    index
+                }
+            };
+            let v_index = match node_indices.get(&v_canon).copied() {
+                Some(index) => index,
+                None => {
+                    let index = node_labels.len();
+                    node_indices.insert(v_canon.clone(), index);
+                    node_labels.push(v_canon);
+                    node_objects.push(v.clone().unbind());
+                    edge_added_node = true;
+                    index
+                }
+            };
+            if edge_added_node {
+                node_bumps = node_bumps.wrapping_add(1);
+            }
+            // Undirected: (u,v)==(v,u) — canonicalise the index pair. A duplicate
+            // in-batch edge needs nx's dict.update merge, which this fast path does
+            // NOT do, so decline to the general (merge-aware) path.
+            let canon = if u_index <= v_index {
+                (u_index, v_index)
+            } else {
+                (v_index, u_index)
+            };
+            if !seen_edges.insert(canon) {
+                return Ok(None);
+            }
+            edges.push((u_index, v_index, attrs, mirror));
+        }
+
+        Ok(Some((node_labels, node_objects, edges, node_bumps)))
+    }
+
+    fn try_add_fresh_general_attr_edge_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        const ATTR_EDGE_BATCH_MIN: usize = 8;
+        if self.inner.node_count() != 0
+            || self.inner.edge_count() != 0
+            || !self.node_key_map.is_empty()
+            || !self.adj_py_keys.is_empty()
+            || !self.node_py_attrs.is_empty()
+            || !self.edge_py_attrs.is_empty()
+            || !self.adj_row_py.is_empty()
+        {
+            return Ok(false);
+        }
+
+        let collected = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+            if list.len() < ATTR_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            self.collect_fresh_general_attr_edge_batch(py, list.iter(), list.len())?
+        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+            if tuple.len() < ATTR_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            self.collect_fresh_general_attr_edge_batch(py, tuple.iter(), tuple.len())?
+        } else {
+            return Ok(false);
+        };
+
+        let Some((node_labels, node_objects, edges, node_bumps)) = collected else {
+            return Ok(false);
+        };
+        self.add_fresh_exact_int_attr_edge_batch(py, node_labels, node_objects, edges, node_bumps)?;
+        Ok(true)
+    }
+
     /// Commit a collected attributed-edge batch: PyDict mirrors first
     /// (entry+update — merges into an existing edge's dict exactly like
     /// the per-edge `add_edge` does), then ONE
@@ -2328,6 +2475,16 @@ impl PyGraph {
         // map lookup beats the String-keyed general batch.
         if global_attr.is_none_or(|attrs| attrs.is_empty())
             && self.try_add_existing_int_label_attr_edge_batch(py, ebunch_to_add)?
+        {
+            return Ok(true);
+        }
+        // br-cc-strnodeidremap: FRESH graph with STR / TUPLE (non-exact-int) nodes —
+        // remap to a dense index and reuse the int fast path's index extend instead
+        // of the String-keyed general batch's per-endpoint get_index_of. Only per-edge
+        // attrs (no global), fresh graph; declines (dup edge / non-plain node / global
+        // attr) fall through to the general collect_attr_edge_batch below.
+        if global_attr.is_none_or(|attrs| attrs.is_empty())
+            && self.try_add_fresh_general_attr_edge_batch(py, ebunch_to_add)?
         {
             return Ok(true);
         }

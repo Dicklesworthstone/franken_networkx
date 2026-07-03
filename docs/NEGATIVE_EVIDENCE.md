@@ -2,6 +2,27 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff perf(construct): str/tuple+attr edge batch now uses the int fast index-remap path (str/int 2.57x-slower -> equal) — integer node-id remapping primitive; attributed-construction FLOOR is not string-specific
+
+The "string-node construction floor" is really an ATTRIBUTED-construction floor common to ALL node types
+(stable total-wall: int+single `Graph([(u,v,{'weight':w}),...])` 0.42x, str+single 0.54x vs nx — both pay
+the per-edge `py_dict_to_attr_map` CgseValue dual-store conversion nx skips). But str/tuple carried an
+EXTRA string-specific penalty: the fresh `>=8`-edge attributed batch remapped INT nodes to a dense 0..N
+index and used `extend_fresh_index_edges_with_attrs_unrecorded` (O(1)/endpoint), while str/tuple fell to
+the general String-keyed `collect_attr_edge_batch` -> `extend_edges_with_attrs_unrecorded`, which does a
+`nodes.get_index_of(&String)` HASH LOOKUP per endpoint (2*|E| into the growing store). RADICAL PRIMITIVE
+(integer node-id remapping): new `collect_fresh_general_attr_edge_batch` canonicalises each DISTINCT node
+ONCE, remaps to a dense index, and reuses the int fast path's index extend + applier + proven mirror rule
+(>=2 attrs eager ordered mirror; <2 deferred — safe now that fnx_to_nx_adjacency store-falls-back, see the
+MST fix above). MEASURED: str+attr construction now EQUALS int+attr (str/int 2.57 -> 0.93, i.e. the
+string-hash penalty is gone), str+single 0.46x -> 0.54x vs nx. Byte-exact 561/561 (str/tuple/longstr/int x
+single/multi/unordered/none/dup-merge + MST first-touch + mutation-after-build) + 4249 construction/
+spanning/convert conformance. NOT a beat-nx: the residual ~0.5x is the attributed dual-store floor (all
+types); a full beat needs the store to accept the Python dict without the CgseValue round-trip (a deeper
+storage change). LEVER: a fast path gated on `is_exact_int` node keys can be GENERALISED to any node type
+by canonicalising to the String key ONCE per distinct node and reusing the same index-based extend — grep
+`collect_fresh_exact_int_*` siblings that leave str/tuple on the String-keyed general path.
+
 ## 2026-07-03 CopperCliff CORRECTNESS FIX: MST (boruvka/kruskal/prim) returned a WRONG tree with DROPPED weights on batch-built weighted graphs — native fnx_to_nx_adjacency read the mirror only, not the store
 
 Found while probing the string-node construction cost: `minimum_spanning_edges`/`minimum_spanning_tree`
