@@ -2,6 +2,31 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SURFACE: string-node domain swept CLEAN (algorithms/operators/products all win in isolation — sweep laggards were memory-pressure noise); writer-delegation vein mined; write_gml(int+attr) the one residual (generation-bound, native writer bails on attrs)
+
+After shipping write_edgelist + write_adjlist (string-node delegation lever), swept the rest of the
+string-node domain for the next laggard. NONE reliable — every flagged sub-1x re-verified in isolation as a
+WIN or parity; the perceived laggards were substrate trap #9 (memory-pressure GC on alloc-heavy ops):
+- 24 string-node ALGORITHMS (600n/4000m): all win, most hugely (clustering 52x, transitivity 72x, k_core
+  26x, rich_club 94x, betweenness-k 9x, MST 3.7x, complement 5.6x). `subgraph.copy` read 0.66x in the sweep
+  -> 1.2-1.27x isolated.
+- OPERATORS/PRODUCTS (held 6 large graphs -> heavy noise): `cartesian_product` read 0.13x, `tensor` 0.29x,
+  `strong` 0.20x -> ISOLATED cartesian 3.26x, all products WIN. `compose` 0.75x -> 0.9-0.99x, `intersection`
+  0.70x -> consistent parity. `reverse(DG)` 0.30x / `to_undirected(DG)` 0.68x were BUILD-INSIDE-TIMING
+  (graph built in the timed lambda). All noise/artifact.
+- WRITERS: write_multiline_adjlist ~parity, write_weighted_edgelist 1.58x (win), write_graphml 0.86-0.91x
+  (near parity, 80ms absolute).
+The ONE reliable residual: `write_gml(int + edge attrs)` 0.57-0.67x (~20ms vs ~12ms). NOT the delegation
+lever — write_gml already avoids `_to_nx` (br-gmldirect drives nx's raw writer over the fnx graph), and
+driving fnx's own `generate_gml` instead gives 0.60x (same). It is GENERATION-bound: the native
+`write_gml_nx_int_noattr` fast path handles only int-nodes + NO attrs; with edge attrs it falls to the
+pure-Python `generate_gml` (nx's algorithm copied), which is slower than nx's native for int nodes. str+attr
+GML is ~parity/win (str-node generate is the slow half for nx too). LEVER (deferred, Rust): extend the
+native GML writer to format edge/node attr dicts (byte-exact with generate_gml's GML escaping) so the
+int+attr case gets the native path — a real but sizeable Rust project, not turn-sized. String-node
+canonicalization floor CONFIRMED clean of scoped levers yet again (see prior 3 closures); the live
+string-related wins were writer delegation (mined) — remaining laggards are native-kernel extensions.
+
 ## 2026-07-03 CopperCliff SHIP: write_adjlist string-node 0.59x->1.07x — same writer-delegation lever as write_edgelist (drop the _to_nx conversion, drive nx's header+loop over fnx's generate_adjlist)
 
 Extended the write_edgelist lever (19fb1d644) to its sibling. `write_adjlist` ALWAYS delegated via
