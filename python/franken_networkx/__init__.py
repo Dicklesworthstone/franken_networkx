@@ -13830,7 +13830,29 @@ def condensation(G, scc=None):
     G = _coerce_arg_to_fnx_graph(G)
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
-    return _condensation_nx_ordered(G)
+    # br-cc-cond-scc: the native `condensation_nx_ordered` kernel computes SCCs
+    # fast but then spends ~5x nx's build time MATERIALISING the per-SCC
+    # `members` Python sets from Rust (0.59-0.70x for few-but-large SCCs). fnx's
+    # native `strongly_connected_components` ALREADY yields Python sets in nx's
+    # exact order (verified identical), so run nx's own condensation build over
+    # them: the `members` sets come straight from the SCC result (no re-
+    # materialisation) and the edge set is one batched `add_edges_from`. Byte-
+    # exact node/edge order + mapping + members vs nx; 1.24-2.28x (was 0.59-0.93x).
+    scc = strongly_connected_components(G)
+    mapping = {}
+    members = {}
+    C = DiGraph()
+    i = -1
+    for i, component in enumerate(scc):
+        members[i] = component
+        mapping.update((n, i) for n in component)
+    C.add_nodes_from(range(i + 1))
+    C.add_edges_from(
+        (mapping[u], mapping[v]) for u, v in G.edges() if mapping[u] != mapping[v]
+    )
+    C.graph["mapping"] = mapping
+    set_node_attributes(C, members, "members")
+    return C
 
 
 # Algorithm functions — all-pairs shortest paths

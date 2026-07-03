@@ -2,6 +2,34 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP (pure-Python): condensation 0.59-0.70x -> 1.22-2.29x — build over the fast native SCC (which is already nx-ordered) instead of the members-materialising native kernel
+
+Continued the less-common-algorithm sweep (3 more batches, ~90 funcs: approximation, covering,
+tournament, traversal, bipartite, generators, flow, tree, operators). Almost all win 1.1-16000x; the
+ONE clean takeable laggard was `condensation` 0.70x (0.59x for few-but-large SCCs). Root cause via a
+shape probe: `condensation` (default path) routes to the native `condensation_nx_ordered` kernel, whose
+SCC computation is fast BUT which then spends ~5x nx's build time MATERIALISING the per-SCC `members`
+Python sets from Rust — measured `strongly_connected_components` alone 0.097ms vs full `condensation`
+0.715ms (build = 0.62ms) while nx's build is only ~0.125ms. Since fnx's native
+`strongly_connected_components` ALREADY yields Python sets in nx's EXACT order (verified SCC order,
+mapping, members, edges all identical), just run nx's own condensation build over them: the `members`
+come straight from the SCC result (zero re-materialisation) and inter-SCC edges are one batched
+`add_edges_from`. **0.59-0.70x -> 1.22-2.29x** (bigSCC 1.92x, cyclic400 2.29x, DAG 1.22x, sparse 1.45x),
+byte-exact 85/85 + strict order-sensitive 60/60 (node/edge order + mapping + members; empty/single/
+self-loop/provided-scc/string-node) + 355 condensation conformance tests green. Pure-Python, no rebuild.
+LEVER: a native kernel that computes structure fast but MATERIALISES a large Python result (members
+sets / attr dicts) can LOSE to nx — when a faster native primitive already emits the Python pieces in
+nx's order, assemble the result in Python from them (batched add_*_from) instead of the monolithic
+native kernel. Grep native `*_nx_ordered` result-BUILDING kernels whose only job is to reshape a fast
+native primitive into a Python graph.
+
+Residuals surfaced NOT takeable this sweep: `dfs_labeled_edges` 0.81x (already snapshot-optimised — the
+0.09ms `to_dict_of_lists` snapshot is pure dual-store materialisation overhead; its Python generator is
+already FASTER than nx's, 0.30 vs 0.32ms — nx just has live dicts for free); `bipartite.degrees` 0.70x
+(0.013ms delta = DegreeView-construction floor); min_edge_cover/panther_similarity/min_node_cut ~0.98x
+(expensive-op parity). The less-common algorithm long-tail is now SWEPT (~110 funcs across 4 batches):
+takeable wins were MIS (prior) + condensation; everything else wins or is the per-call/materialisation floor.
+
 ## 2026-07-03 CopperCliff SHIP (pure-Python, laggard closed): maximal_independent_set 0.58x -> ~1.0x — read adjacency via native G.neighbors not the pure-Python keydict view
 
 Fresh algorithm sweep (~36 less-common funcs) found ONE real laggard: `maximal_independent_set`
