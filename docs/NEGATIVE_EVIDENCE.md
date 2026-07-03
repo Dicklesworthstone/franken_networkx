@@ -2,6 +2,42 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SCOPED BLOCKER (measured): the attributed-construction floor is PyO3-CONVERSION-bound, NOT allocation-bound — interning / small-string / arena / perfect-hash all RULED OUT empirically; the only lever is a lazy CgseValue store (deep, layering-breaking)
+
+Continuing the string-node momentum after the str-node-id-remap ship (5c1f0f252, which equalised str+attr
+to int+attr): the residual ~0.5x is an ATTRIBUTED-construction floor common to ALL node types. Profiled it
+to root instead of guessing a primitive.
+
+PER-ATTR SLOPE (int nodes, `Graph([(u,v,dict)])`, 400 edges, total-wall vs nx):
+  0 attrs 0.99x (PARITY, fnx==nx) | 1 attr 0.43x | 2 attrs 0.32x | 3 attrs 0.29x.
+0-attr construction already ties nx — the whole gap is the per-edge attr dict conversion. First attr costs
+fnx ~1495 ns/edge vs nx ~77 ns/edge (~20x).
+
+ALLOCATION IS NOT THE COST (the decisive test that rules out the graveyard allocation primitives):
+  short key "w" 0.44x  ==  long key ">24 chars" 0.49x  (key-length INVARIANT)
+  short val         ==  long >24-char string val       (value-length INVARIANT)
+Cost is independent of string length, so String-key heap allocation, BTreeMap-node allocation, and
+CgseValue string allocation are NOT the bottleneck. Therefore, EMPIRICALLY RULED OUT for this floor:
+string interning, small-string inline (CompactString/SmolStr), arena/bump allocation, perfect-hash node
+table — every one targets allocation, which is not where the time goes.
+
+ACTUAL ROOT: the batch collect does ~14 PyO3 boundary crossings PER EDGE (get_item x3, is_exact_instance
+x4, extract x2, dict downcast, py_dict_to_attr_map's iter+extract+py_value_to_cgse) to pull each edge's
+nodes + attr dict into the Rust CgseValue store. nx does ~2-3 (it stores the dict object wholesale). The
+plain-batch pre-attempts early-bail O(1) on the first 3-tuple, so that is not the cost — it is the genuine
+per-item Python->Rust conversion. 0-attr ties nx precisely because it skips this conversion.
+
+THE ONLY LEVER is a LAZY CgseValue store: store the Python attr dict at construction (as the mirror already
+can) and defer the CgseValue conversion until a Rust algorithm first reads the store. This INVERTS the
+current eager-store / lazy-mirror invariant and — critically — requires the fnx-classes `edges` map to hold
+a PyObject (or a store-read hook back into fnx-python), which BREAKS the fnx-classes/fnx-python layering
+(fnx-classes is PyO3-free today). That is a large multi-crate storage-model change touching every store
+reader plus the mirror-miss fallbacks — NOT a scoped commit. A within-model micro-option (drop the 2
+redundant `is_exact_instance_of::<PyBool>` checks — exact-PyInt already excludes bool; unpack the tuple
+once instead of 3 get_item) is ~10-20% at best and still <1x. SCOPE: the floor is real and its only true
+lever is architectural (lazy store / integer-index storage), consistent with the long-standing
+single-call dual-store floor. Do NOT chase allocation primitives here — measured dead ends.
+
 ## 2026-07-03 CopperCliff perf(construct): str/tuple+attr edge batch now uses the int fast index-remap path (str/int 2.57x-slower -> equal) — integer node-id remapping primitive; attributed-construction FLOOR is not string-specific
 
 The "string-node construction floor" is really an ATTRIBUTED-construction floor common to ALL node types
