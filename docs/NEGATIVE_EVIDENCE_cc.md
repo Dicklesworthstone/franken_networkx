@@ -4447,3 +4447,18 @@ PERF: single-attr from_dict_of_dicts 1.20x (unchanged); MULTI-attr from_dict_of_
 > perf, narrow case (multi-attr from_dict). FOLLOW-UP (scoped): retain the ordered mirror IN the index batch
 (thread Option<Py<PyDict>> for >=2-key, store under the int-label key) to recover the fast path — same
 pattern as the fresh-batch fix, avoids the decline.
+
+## 2026-07-02 CopperCliff PERF-RECOVERY (of my own regression): exact-int existing-nodes batch retains ordered mirror — Graph from_dict multi-attr 0.376x->0.685x
+
+The prior commit (87499b300) fixed the existing-nodes multi-attr order bug by DECLINING >=2-key dicts to
+the slow String-keyed collect_attr_edge_batch (Graph multi-attr from_dict_of_dicts dropped to 0.376x).
+Recovered the common contiguous-int path (from_dict_of_dicts of a 0..n graph, convert_node_labels) by
+RETAINING the ordered mirror IN the exact-int index batch (collect_existing_exact_int_attr_edge_indices +
+try_add_existing_exact_int_attr_edge_index_batch, lib.rs): thread Option<Py<PyDict>> for >=2-key dicts
+(py_dict_to_attr_map_with_mirror), store under the canonical edge_key (label==index for the contiguous
+prefix), + duplicate-edge decline (seen-set). Single-key/empty stay mirror-free (no order cost). RESULT:
+Graph from_dict_of_dicts multi-attr 0.376x -> 0.685x (1.8x recovery; residual < nx = the per-multi-attr-edge
+ordered-mirror creation, same inherent cost as the fresh-batch multi-attr path). Byte-exact: transform audit
+30/30 + 5677 pytest. NOTE: DiGraph (int-label index batch, digraph.rs 9082) + Graph scrambled-int
+(int-label, lib.rs 1613) still DECLINE multi-attr (0.376x) — narrower cases; the same retain-mirror
+(key from the int label, not index) is the remaining scoped follow-up.
