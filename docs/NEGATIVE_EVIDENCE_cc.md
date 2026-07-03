@@ -4286,3 +4286,40 @@ NET: the Python view-access family is now MINED (simple G[u][v] shipped 4e2a3cf7
 membership are per-call PyO3/materialization floors or bench artifacts, not clean O(...) cracks). The only
 architectural lever left across this family is the persistent ordered Python-object mirror (repeatedly
 flagged) — a large primitive, not a single-session ship.
+
+## 2026-07-02 CopperCliff SURFACE: correct-methodology broad sweep = fnx wins/parity everywhere; remaining gaps architectural + a CONSOLIDATED bench-substrate checklist
+
+Broad head-to-head across untouched domains (conversions, IO serializers, operators, products, structural,
+traversal). After correcting FIVE distinct measurement traps, the real result: fnx WINS or is at parity on
+every non-architectural workload (to_pandas_adjacency 1.09x, to_numpy 1.1x, to_dict_of_dicts 1.7x,
+complement 3.8x, bfs/dfs 2.6-2.9x, reverse 5.4x, difference simple 1.7-2.4x, disjoint_union 1.0-1.13x,
+copy 1.7x, subgraph 1.4x). The ONLY sub-0.7x results are the already-documented architectural gaps:
+- Multigraph union/compose/difference 0.45-0.76x = the nested-bucket construction tax (add_edges_from for
+  Multi(Di)Graph ~0.70x — IndexMap<EdgeKey, IndexMap<key, AttrMap>> insertion vs nx dict-of-dict-of-dict).
+  Partially mined (has_remapped_int_key mirror-skip, 7a49dd943/a6e8a9a0d); residual = extend_keyed_edges
+  insertion. Simple Graph/DiGraph operators are at/near parity (0.76-2.4x). Next deep-dive candidate for
+  /alien-graveyard (needs a profile of extend_keyed_edges first — is it hashing / order-maintenance /
+  alloc?).
+- Edge-attributed tensor/strong/lexicographic products 0.23-0.28x = "Rust dig" (per-element-pairing axis,
+  each product edge pairs TWO factor edges — not decoratable). cartesian IS handled (0.98x, single-factor-
+  edge decoration, dbce71884).
+
+CONSOLIDATED BENCH-SUBSTRATE CHECKLIST (5 traps hit THIS session — every one made a non-gap look like a
+gap or vice-versa; verify ALL before trusting a ratio):
+1. WRONG BINARY: `python3` loads stale ~/.local .so; maturin installs to ./python. Use `.venv/bin/python`;
+   assert `franken_networkx._fnx.__file__` + mtime. (feedback_maturin_stale_so_wrong_python)
+2. GC NOISE: 100K-PyDict builds are GC-dominated (swung 0.3-10ms same op). gc.collect();gc.disable() around
+   the timed region. (reference_node_removal_storage_wall)
+3. REBUILD-PER-REP WARMUP: rebuilding the graph each rep pays one-time per-graph warmup (node_key_to_string
+   first-touch ~12us) every rep -> min() reports it as per-call. For one-time costs build ONCE, measure
+   steady-state. Single-op perf_counter+gc.collect has a ~15-30us FLOOR. (reference_atlasview...)
+4. nx.X ON fnx GRAPH: for MODULE-level funcs, `nx.to_pandas_adjacency(fnx_graph)` runs REAL nx's impl over
+   fnx's slow Python views (false 0.54x). Call `fnx.X(fnx_graph)` vs `nx.X(nx_graph)`. (Methods dispatch
+   correctly.)
+5. RANDOM SELF-LOOPS: `(randrange, randrange)` edges inject incidental self-loops that BAIL self-loop-gated
+   fast paths (products, line_graph) -> false gaps. Use self-loop-free generators when testing those.
+6. list(g.edges())[:k] in setup is O(|E|)-contaminated (fnx wins edges()) -> use pre-known edge lists.
+
+NET: the value/mutation/view/conversion/IO/algorithm/operator veins are MINED. Real remaining levers are
+all LARGE primitives: nested-bucket multigraph construction, edge-attr product pairing kernel, persistent
+ordered Python-object mirror, tombstone/slotmap node storage. None is a clean single-session crack.
