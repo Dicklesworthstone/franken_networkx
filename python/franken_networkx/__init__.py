@@ -20684,6 +20684,14 @@ def dijkstra_path_length(G, source, target, weight="weight"):
     if no path exists.
     """
     G = _coerce_arg_to_fnx_graph(G)
+    # br-cc-mgdijkstra: multigraph -> simple min-weight graph + fast simple kernel.
+    if G.is_multigraph() and isinstance(weight, str):
+        _simple, _delegate = _multigraph_collapse_min_weight(G, weight)
+        if _delegate:
+            return _call_networkx_for_parity(
+                "dijkstra_path_length", G, source, target, weight=weight
+            )
+        return dijkstra_path_length(_simple, source, target, weight=weight)
     if _should_delegate_dijkstra_to_networkx(G, weight):
         return _call_networkx_for_parity(
             "dijkstra_path_length", G, source, target, weight=weight
@@ -21123,6 +21131,36 @@ def single_source_dijkstra_path(G, source, cutoff=None, weight="weight"):
     return paths
 
 
+def _multigraph_collapse_min_weight(G, weight):
+    """br-cc-mgdijkstra: collapse a multigraph to a simple MIN-weight graph for the
+    dijkstra family (nx's multigraph shortest path uses the min weight over each
+    pair's parallel edges). ONE pass over ``edges(keys, data)`` that BOTH validates
+    the weights (returns ``(None, True)`` -> caller delegates to nx on non-numeric /
+    negative / +inf, the exact ``_should_delegate_dijkstra_to_networkx`` predicate)
+    AND accumulates the per-pair minimum. Returns ``(simple_graph, False)`` on
+    success. The native multigraph dijkstra kernel is ~4-5x slower than nx's Python
+    dijkstra and the weight gate has no native multigraph variant, so this + the fast
+    simple-graph kernel replaces both (0.08-0.27x -> 0.35-0.63x)."""
+    simple = DiGraph() if G.is_directed() else Graph()
+    simple.add_nodes_from(G)
+    best = {}
+    for _u, _v, _k, _attrs in G.edges(keys=True, data=True):
+        if isinstance(_attrs, dict) and weight in _attrs:
+            _raw = _attrs[weight]
+            if not isinstance(_raw, bool) and not isinstance(_raw, _numbers.Real):
+                return None, True
+        _val = _attrs.get(weight, 1)
+        if isinstance(_val, _numbers.Real) and not _math.isnan(_val):
+            if _val < 0 or (_math.isinf(_val) and _val > 0):
+                return None, True
+        _pair = (_u, _v)
+        _cur = best.get(_pair)
+        if _cur is None or _val < _cur:
+            best[_pair] = _val
+    simple.add_edges_from((_u, _v, {weight: _w}) for (_u, _v), _w in best.items())
+    return simple, False
+
+
 def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
     """Single-source weighted shortest path lengths from ``source``.
 
@@ -21132,34 +21170,10 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     hash(source)
     G = _coerce_arg_to_fnx_graph(G)
-    # br-cc-mgdijkstra: the native multigraph dijkstra kernel is ~4-5x SLOWER than
-    # nx's Python dijkstra (0.10-0.26x), AND the weight-validity gate has no native
-    # multigraph variant (3 O(|E|) Python rescans). nx's multigraph shortest path
-    # uses the MIN weight over each pair's parallel edges, so do ONE pass over
-    # edges(keys, data) that BOTH validates (delegate to nx on non-numeric /
-    # negative / +inf — the exact _should_delegate predicate) AND collapses the
-    # parallels to their min weight, then run the FAST simple-graph kernel on the
-    # collapsed graph. Byte-identical distances (min-over-parallels == nx).
+    # br-cc-mgdijkstra: collapse a multigraph to its simple min-weight graph and run
+    # the fast simple kernel (see _multigraph_collapse_min_weight).
     if G.is_multigraph() and isinstance(weight, str):
-        _simple = DiGraph() if G.is_directed() else Graph()
-        _simple.add_nodes_from(G)
-        _best = {}
-        _delegate = False
-        for _u, _v, _k, _attrs in G.edges(keys=True, data=True):
-            if isinstance(_attrs, dict) and weight in _attrs:
-                _raw = _attrs[weight]
-                if not isinstance(_raw, bool) and not isinstance(_raw, _numbers.Real):
-                    _delegate = True
-                    break
-            _val = _attrs.get(weight, 1)
-            if isinstance(_val, _numbers.Real) and not _math.isnan(_val):
-                if _val < 0 or (_math.isinf(_val) and _val > 0):
-                    _delegate = True
-                    break
-            _pair = (_u, _v)
-            _cur = _best.get(_pair)
-            if _cur is None or _val < _cur:
-                _best[_pair] = _val
+        _simple, _delegate = _multigraph_collapse_min_weight(G, weight)
         if _delegate:
             return _call_networkx_for_parity(
                 "single_source_dijkstra_path_length",
@@ -21170,7 +21184,6 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
             )
         if source not in G:
             raise NodeNotFound(f"Node {source} not found in graph")
-        _simple.add_edges_from((_u, _v, {weight: _w}) for (_u, _v), _w in _best.items())
         return _raw_single_source_dijkstra_path_length(
             _simple, source, weight=weight, cutoff=cutoff
         )

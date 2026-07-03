@@ -2,6 +2,25 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP: dijkstra_path_length MultiGraph 0.16x->0.58x, MultiDiGraph 0.08x->0.19x — extend the min-weight-collapse lever (distance funcs only; PATH funcs diverge on tie-breaking)
+
+Extended the multigraph min-weight-collapse (0ac2a1a44) to the other lagging dijkstra entry points, via a
+shared `_multigraph_collapse_min_weight(G, weight)` helper (one-pass validate + per-pair min). Applied to
+`dijkstra_path_length` (MG 0.16x->0.58x, MDG 0.08x->0.19x — 3.6x/2.4x self), byte-exact 1500/1500.
+KEY CORRECTNESS FINDING: the collapse is byte-exact for DISTANCES but NOT for PATHS. Attempting it on
+`single_source_dijkstra` / `single_source_dijkstra_path` / `dijkstra_path` gave 16/1280 mismatches — all
+MultiGraph PATHS, distances identical. The collapsed simple graph's per-node neighbour order differs from
+nx's multigraph adjacency order (edges() yields each undirected edge once in canonical direction, vs nx's
+merged bidirectional adjacency), so equal-distance TIE-BREAKING (heap push order) picks a different — but
+equally-shortest — predecessor chain. So the lever applies ONLY to distance-returning dijkstra functions;
+the path funcs stay on the (correct, slow ~0.1-0.27x) native kernel + nx delegation. RULE for the collapse
+lever: safe for any per-pair-reduction result that is ORDER-INDEPENDENT (distances, lengths, counts); NOT
+for order-sensitive results (paths, predecessor trees) unless the collapsed adjacency order is reconstructed
+to match nx's multigraph iteration exactly. 3201 dijkstra/shortest-path conformance. Residual (both distance
+funcs): the O(|E|) Python weight-validation + full collapse-graph construction even for single-target queries
+(MDG dpl 0.19x — nx early-exits at target, fnx builds the whole simple graph); a native MG weight-scan +
+target-aware collapse would lift it further.
+
 ## 2026-07-03 CopperCliff SHIP: single_source_dijkstra_path_length MultiGraph 0.26x->0.63x, MultiDiGraph 0.11x->0.35x — collapse parallels to min-weight simple graph + fast simple kernel, fused with the weight-validity gate
 
 Careful ISOLATED MG/MDG op sweep (dodging trap #9) found `single_source_dijkstra_path_length` on
