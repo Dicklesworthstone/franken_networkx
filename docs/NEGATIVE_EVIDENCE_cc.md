@@ -4323,3 +4323,20 @@ gap or vice-versa; verify ALL before trusting a ratio):
 NET: the value/mutation/view/conversion/IO/algorithm/operator veins are MINED. Real remaining levers are
 all LARGE primitives: nested-bucket multigraph construction, edge-attr product pairing kernel, persistent
 ordered Python-object mirror, tombstone/slotmap node storage. None is a clean single-session crack.
+
+## 2026-07-02 CopperCliff /alien-graveyard dig on MG construction tax — clean number 0.80x, residual is ARCHITECTURAL nested-bucket (profiled, not strippable)
+
+Per the meta-lesson (don't declare architectural without trying graveyard levers), profiled the multigraph
+construction tax. CORRECTED clean number (self-loop-free, correct methodology): MG add_edges_from(12k) =
+0.799x (2.49us/edge), MDG = 0.888x (2.42us/edge) — NOT the 0.45-0.70x my earlier parallel-edge-heavy +
+operator-wrapper tests showed. Simple Graph = 1.664x (0.43us/edge), DiGraph = 1.684x — fnx WINS. So the
+multigraph residual is 5x the per-edge cost of simple graphs. DIG RESULT: the extra cost is the NESTED
+bucket level `edges: IndexMap<EdgeKey, IndexMap<key, AttrMap>>` + adjacency `IndexMap<node, IndexMap<nbr,
+IndexSet<key>>>` — TWO nested inserts/edge vs simple Graph's flat maps. NOT a strippable tax: simple Graph
+uses the SAME String node-keying + FxHash + PyDict->AttrMap collect and WINS, so the differentiator is
+purely the parallel-edge-capable nested structure (which nx also pays as dict-of-dict-of-dict; fnx is 20%
+slower on the nested build). The graveyard-reducible part (the redundant edge_py_keys mirror) was already
+cracked (7a49dd943). No further avoidable per-edge work found — the 20% is the IndexMap-nested vs dict-
+nested constant factor. VERDICT: architectural, low-EV; a native bulk-nested-builder (pre-sized, single
+pass) MIGHT shave the constant but is high-effort for ~20%. Operators (union/compose/difference Multi*
+0.45-0.76x) = this 0.80x construction + view-iteration wrapper overhead; same architectural root.
