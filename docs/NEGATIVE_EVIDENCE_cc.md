@@ -4180,3 +4180,38 @@ weighted MG/MDG) + 120/120 differential — the exact kuxuc/0a0uo fuzz patterns 
 protected are covered and pass. LEVER: an O(|E|) full-mirror `retain` used as a correctness backstop ->
 capture the bucket keys before removal + gate the exhaustive scan behind the key-remap flag that is the
 ONLY source of key-space mismatch.
+
+## 2026-07-02 CopperCliff SURFACE (architectural, NO-SHIP this pass): node removal is the storage-model wall — 0.003-0.14x, needs slotmap/deferred-compaction
+
+After the two remove_EDGE wins, the biggest remaining MUTATION gap is node removal (remove_node /
+remove_nodes_from). Clean measurement (n=16000, m=96000 weighted, GC DISABLED during the timed region —
+see below): remove_node(0) fnx 4.4-10.8ms vs nx 0.03ms = 0.003-0.007x (150-300x slower). remove_nodes_from
+small-k similar. This is the "storage-model wall" — fnx pays ~O(|V|+|E|) per removal where nx pays
+O(degree):
+
+- DG/G (INTEGER-indexed, nodes: IndexMap, edges keyed by (usize,usize) or endpoint indices): removing ANY
+  node forces an index RENUMBER — decrement every adjacency-row index > removed + rekey the whole edges
+  map. PROVEN architectural: (a) removing an ISOLATED node (degree 0) still costs 2.2ms (pure renumber,
+  no incident work); (b) index-INDEPENDENT — first/mid/last node all ~4.5-5.5ms; (c) weight-independent.
+  nx's dict-of-dicts has no indices to renumber -> O(degree). This is the compact-integer-index tradeoff.
+- MG/MDG (STRING-keyed adjacency, no integer renumber): isolated-node removal is FAST (0.02ms), but a node
+  WITH incident edges costs 4-13ms. Weakly index-dependent (LAST node 4.4ms < FIRST 10.8ms — the
+  nodes.shift_remove O(|V|-idx) shift shows through). The exact super-linear factor for incident-edge
+  removal was not cleanly localized (candidates: per-incident adjacency shift_remove, edges-map ops).
+
+WHAT'S ALREADY DONE (so this is NOT low-hanging): the PyO3 bindings already carry the adaptive
+small-fraction mirror purge (br-r37-c1-mgrnf-incident: reconstruct incident mirror keys for small k
+instead of O(|E|) whole-mirror retain) AND the batched single-pass inner remove_nodes_from
+(br-r37-c1-d58s8: one renumber pass, not k). The residual is the INHERENT renumber/compaction cost of the
+storage model, not a stray O(|E|) retain like the two remove_edge bombs.
+
+LEVER (deferred, LARGE primitive): tombstone/slotmap node storage or DEFERRED compaction — don't renumber
+on remove; free-list the slot and reuse on add; compact lazily. This is the "slotmap rewrite" flagged
+across the ledger as the one remaining structural lever for the per-call mutation floor. High-risk
+(touches core storage of all 4 types + every index consumer); NOT a clean single-session ship. Surfacing
+with the measured decomposition so the next pass can scope it.
+
+MEASUREMENT NOTE (load-bearing): benching node removal on 16k/96k WEIGHTED graphs (~100K Py<PyDict>
+allocations per build) is GC-DOMINATED — naive timing swung 0.3ms..10ms for the SAME op. Must
+`gc.collect(); gc.disable()` around the timed region (re-enable after) for a stable signal. Sibling of
+[[feedback_maturin_stale_so_wrong_python]] / [[feedback_rch_bench_worker_noise]] — verify the substrate.
