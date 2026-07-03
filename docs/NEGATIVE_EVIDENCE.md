@@ -2,6 +2,33 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP + CORRECTNESS: write_edgelist string-node 0.27x->1.18x (dropped the _to_nx conversion) AND fixed a pre-existing multi-attr sorted-order byte-mismatch
+
+Writer sweep (string node keys) found `write_edgelist` 0.27x (16ms vs 4.4ms) while `generate_edgelist` was a
+WIN (1.32x). Root: `write_edgelist` only used the native `_rust_write_edgelist` when
+`_edgelist_native_writer_preserves_node_labels(G)` = no string nodes; ANY string node fell to
+`_write_edgelist_via_nx`, which pays a full `_to_nx(G)` conversion + nx's writer. Since
+`nx.write_edgelist` IS `for line in generate_edgelist(G, d, data): path.write((line+chr(10)).encode())`, and
+fnx's `generate_edgelist` is fast AND byte-identical, drive that exact loop over it (new
+`_write_edgelist_generate_fast`, `open_file`-wrapped for the filename/file-object contract). **str+weight
+0.27x->1.18x, str+multi-attr ->1.23x**, byte-exact.
+
+CORRECTNESS bonus (found by the same byte-exact test): `_rust_write_edgelist` reads edge attrs from the
+SORTED Rust store (BTreeMap), so a >=2-attr edge was emitted ALPHABETICALLY — `{'c': .., 'weight': ..}` vs
+nx's INSERTION order `{'weight': .., 'c': ..}` — a pre-existing byte-mismatch (confirmed on HEAD via stash;
+the native writer only has `&inner`, not the insertion-order mirror). Gate it out: `_rust` now requires
+non-string nodes AND `not _edgelist_has_multiattr_edge(G)` (cheap native has-any-attrs first, then an
+O(|E|) scan that short-circuits on the first multi-attr edge); multi-attr graphs take the mirror-ordered
+generate path. Byte-exact 74/74 (str/int x weight/multi-attr/no-attr x directed + filename + multigraph) +
+306 edgelist conformance. Ratios now: str+w 1.18x, str+mix 1.23x, int+w 1.42x, int+multi 0.99x (was BUGGY),
+int+no-attr 7.46x — every case ties/beats nx and all byte-exact. TRADE: int single-attr 2.49x->1.42x (the
+O(|E|) multi-attr gate); still > nx. A native `any_edge_has_multiple_attrs` (fnx-classes) would restore the
+2.49x without the Python scan — a cheap follow-up if int-weighted write throughput matters. LEVER: a writer
+gated to a native fast path "only when node labels round-trip" that delegates the rest via a FULL graph
+conversion -> drive the fast native `generate_*` + the upstream write loop instead (byte-identical, no
+conversion); and a native writer reading the SORTED store emits multi-attr dicts in the wrong order — gate
+it to <=1-attr edges.
+
 ## 2026-07-03 CopperCliff CAPSTONE (string-node floor CLOSED across all ops): every string-node laggard is the per-call canonicalise + PyO3-dispatch + fresh-hash floor — reverse-lookup PROVEN not-the-cost; only lever is architectural (integer-index storage / cached-hash key)
 
 Fresh string-node-keyed sweep (node names `'node_%d'`, 800n/6000m) to find a REDUCIBLE string lever (not
