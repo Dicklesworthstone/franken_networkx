@@ -4518,3 +4518,27 @@ degree/flow_hierarchy + DiGraph-edge/Graph-MG-node pickle __getstate__. The rema
 ARCHITECTURAL PERF only: nested-bucket multigraph construction (~0.80x), edge-attr product pairing kernel
 (0.23-0.28x), node-removal slotmap (0.003-0.14x), persistent Python-object view mirror — all LARGE
 primitives, none a single-session crack (see the profiled wall map + [[reference_bench_substrate_checklist]]).
+
+## 2026-07-02 CopperCliff SURFACE: fresh correct-methodology perf landscape — view-access "floor" is STALE (in_edges/edges(data) now WIN 15-32x)
+
+Ran a wide fresh-binary perf sweep (fnx.X vs nx.X, gc.disable, warm, self-loop-controlled) over the
+view-access workloads my earlier notes ([[reference_head2head_vein_map_materialization_floor]]) flagged as
+the "per-element materialization floor". THAT CONCLUSION IS NOW STALE — those paths WIN big:
+  MDG in_edges(keys,data=weight) 32.0x, MDG in_edges(data=True) 21.0x, DG in_edges(data=weight) 15.7x,
+  MDG out_edges(data=weight) 14.4x, MG edges(keys,data=weight) 14.1x, MG edges(data=True) 6.0x,
+  subgraph(view).edges 4.1x, adj-dict 2.5x, edge_subgraph 2.0x, nodes(data=True) 1.7x.
+(These were fixed over the session by the store-read/edges_dirty/mirror work — the integer-keyed-mirror
+primitive I'd flagged as "needed" was effectively achieved for the read paths.) REAL remaining gaps are now
+NARROW view/query ops with SMALL absolute cost (all <1ms on n=1500/m=9000), NOT the whole vein:
+  selfloop_edges(MG,keys,data=weight) ~0.13-0.27x (native path taken but O(V)-scan with per-node String
+    clone+2 hashes vs nx's O(V) live-dict walk — a constant-factor gap on ~3 self-loops in 9000 edges;
+    comparable-algorithm, not a clean crack),
+  degree(u) single-node ~0.37x, len(g[u]) ~0.56x (both build/reuse the row keydict; a native O(1)
+    row-length getter would help but is a new primitive for a small-absolute win),
+  MG degree(weight) view 0.75x, MDG in_degree(weight) 0.86x.
+METHODOLOGY: the raw sweep initially showed selfloop_edges 0.075-0.108x — that was the nx.X-on-fnx-graph
+trap (selfloop_edges/number_of_selfloops are FUNCTIONS; must call fnx.selfloop_edges, and number_of_selfloops
+is a function not a method). CONCLUSION: the view-access vein is NOT a uniform floor anymore — it's mostly
+wins; remaining gaps are a handful of narrow single-node/self-loop query paths (constant-factor, low ROI).
+The genuine frontier stays the ARCHITECTURAL primitives (multigraph nested-bucket construction, edge-attr
+product kernel, node-removal slotmap).
