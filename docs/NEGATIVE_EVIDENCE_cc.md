@@ -4245,3 +4245,34 @@ native getter that shares the materialization entry point (identity-safe), gate 
 keep iteration parity. (Sibling of [[reference_single_arg_fastpath_extend_to_list]].)
 NOTE: 1 pre-existing UNRELATED pytest failure (test_write_gexf...: find_induced_nodes/read_edgelist
 classify NX_DELEGATED) — a policy regression-lock, not touched by this change.
+
+## 2026-07-02 CopperCliff SURFACE: view-access family map after the G[u][v] win — MG[u][v] real gap (scoped), membership/DG[u] are ARTIFACTS
+
+Followed the G[u][v] win (4e2a3cf72) into sibling view-access paths. Findings (fresh .venv binary,
+gc.disable()):
+
+REAL, still-open gap (scoped follow-up):
+- MG[u][v] / MDG[u][v] edge-bucket access = 0.055-0.11x (COLD, distinct rows). `MG[u]`
+  (_multigraph_getitem_from_native_row) + AdjacencyView.__getitem__ build node u's ENTIRE multi-adjacency
+  row `{v:{key:attrs}}` via `_native_adjacency_row(u)` (O(degree), materializes every parallel-edge attr
+  dict) — the multigraph analog of the simple-G row-keydict build I just fixed. For `for u,v in
+  MG.edges(): MG[u][v]` each distinct u is a cold row build. The native `MultiAtlasView.__getitem__`
+  (lib.rs:3711) ALREADY does the O(1) has_edge + MultiKeyDictView, but the Python getitem override routes
+  through a generic AdjacencyView that rebuilds the whole row. LEVER (same as atlasget): native
+  single-bucket getter `_fnx_multi_edge_bucket_fast(u,v)` + route the MG-row view's __getitem__ to it.
+  BLOCKED-not-done: the fix touches the SHARED AdjacencyView.__getitem__ (also serves G.adj / DG succ-pred
+  inner rows) and must preserve `type(MG[u][v]) == AtlasView` (conformance type-lock) — needs a scoped
+  refactor + type/identity validation, NOT a rushed edit. Partial no-op checked: removing the MG[u]
+  existence-check row build is NET ZERO (the row is cached per-u; AdjacencyView reuses it, so still 1
+  build). Only a genuine single-bucket fetch helps.
+
+ARTIFACTS — DO NOT CHASE (rebuild-per-rep benching captured one-time / measurement-floor costs):
+- `n in G` / has_node MG/MDG "0.018x (7us)" and DG[u] "30us single access" are NOT per-call bombs. They
+  are ONE-TIME-per-graph warmup (first access on a fresh graph builds/caches _native_adjacency_dict or a
+  lazy node structure) + the perf_counter+gc.collect single-op MEASUREMENT FLOOR (~15-30us even for nx).
+  Amortized over repeated access they are 0.3-2.7us (membership warm 0.31us, DG[u] warm 2.7us). The
+  rebuild-fresh-graph-each-rep harness (correct for O(degree)/O(E) probes) MISLEADS on one-time costs —
+  for those, build ONCE and measure steady-state. (Third substrate trap this session; see
+  [[reference_node_removal_storage_wall]] gc note + [[feedback_maturin_stale_so_wrong_python]].)
+- neighbors() list = per-call node-key MATERIALIZATION floor (nx yields live adjacency-dict keys; fnx
+  reconstructs degree PyObjects) — not a whole-row overbuild, genuine floor.
