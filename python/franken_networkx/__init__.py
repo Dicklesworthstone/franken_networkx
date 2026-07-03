@@ -35793,12 +35793,16 @@ def modular_product(G, H):
     # attrs onto the native result -> node-attributed modular goes from the O(N^2)
     # Python has_edge loop (8.2s / 0.24x at 50x45) to the native bitmatrix build +
     # one node paint (0.5s / 3.66x vs nx).
-    if (
-        not _graph_has_any_edge_attrs(G)
-        and not _graph_has_any_edge_attrs(H)
-        and not number_of_selfloops(G)
-        and not number_of_selfloops(H)
-    ):
+    # br-cc-prod-edgeattr: EDGE attrs no longer force the O((V_G*V_H)^2) Python
+    # has_edge loop. modular's edge set is adjacency-only, and its edge ATTRS are
+    # non-empty ONLY on the "both-edge" product edges ((u1,u2)∈G AND (v1,v2)∈H,
+    # paired) — a SMALL O(E_G*E_H) subset — while the huge "neither-edge" majority
+    # stays attr-free (empty _paired_edge_attrs({},{})). So build the whole
+    # structure natively (the kernel is adjacency-only, ignores edge attrs) and
+    # DECORATE only that small both-edge subset with one set_edge_attributes.
+    # UNLIKE tensor/strong (whose whole dense edge set needs decoration -> partial
+    # <1x), here decoration << structure, so it BEATS nx: 0.24x -> 3.1-3.4x.
+    if not number_of_selfloops(G) and not number_of_selfloops(H):
         _fast = _fnx.modular_product_fast(G, H)
         if _fast is not None:
             if _graph_has_any_node_attrs(G) or _graph_has_any_node_attrs(H):
@@ -35807,6 +35811,16 @@ def modular_product(G, H):
                     for g, g_attrs in G.nodes(data=True)
                     for h, h_attrs in H.nodes(data=True)
                 )
+            if _graph_has_any_edge_attrs(G) or _graph_has_any_edge_attrs(H):
+                _g_edges = list(G.edges(data=True))
+                _h_edges = list(H.edges(data=True))
+                _em = {}
+                for _u1, _u2, _ga in _g_edges:
+                    for _v1, _v2, _ha in _h_edges:
+                        _pa = _paired_edge_attrs(_ga, _ha)
+                        _em[((_u1, _v1), (_u2, _v2))] = _pa
+                        _em[((_u1, _v2), (_u2, _v1))] = _pa
+                set_edge_attributes(_fast, _em)
             return _fast
     P = Graph()
 

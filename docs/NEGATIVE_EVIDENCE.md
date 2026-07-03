@@ -2,6 +2,22 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP (BEATS nx, not a partial): modular_product(edge-attr) 0.24x -> 3.07-3.39x — decorate only the SMALL both-edge subset
+
+Unlike tensor/strong (whose WHOLE dense edge set needs decoration -> pure-Python ceiling ~0.5x),
+modular_product's edge ATTRS are non-empty ONLY on the "both-edge" product edges ((u1,u2)∈G AND
+(v1,v2)∈H, paired) — an O(E_G*E_H) subset — while the huge "neither-edge" majority stays attr-free.
+So the native `modular_product_fast` kernel (adjacency-only, ignores edge attrs) builds the whole
+O((V_G*V_H)^2) structure and one `set_edge_attributes` decorates only the tiny both-edge subset. The
+edge-attr gate that bailed to the O((V_G*V_H)^2) Python has_edge loop is REMOVED (self-loop gate kept).
+**0.24x -> 3.07-3.39x** (13-14x self; 977ms -> 73ms @ 40x20), byte-exact vs nx (edge-attr/node-attr/
+both/none/multi-attr, non-self-loop hybrid path 75/75 + 80/80 prototype). Self-loops STILL bail to the
+Python fallback (pre-existing modular+self-loop divergence, confirmed on OLD code 10/10 — out of scope,
+not a regression). LEVER: the tensor/strong edge-attr hybrid BEATS nx (not just partial) when the
+DECORATION set is a small subset of the product edges — i.e. when only some product edges carry attrs
+(modular both-edge) rather than all of them (tensor). Check the attr density before assuming the hybrid
+is a ceiling.
+
 ## 2026-07-03 CopperCliff SHIP (partial, pure-Python ceiling): strong_product(edge-attr) 0.29x -> 0.53x — same native-structure + set_edge_attributes lever as tensor; lexico NO-GO
 
 Extended the tensor_product edge-attr hybrid (6f015e69c) to strong_product: build the (cartesian ∪
