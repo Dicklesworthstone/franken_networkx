@@ -2,6 +2,20 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP (BEATS nx): read_graphml(<file>) 0.78x -> 1.98x — route filename reads through parse_graphml's native fast path
+
+Follow-up to parse_graphml (3417e5763): a delegator sweep found `read_graphml(<file>)` still 0.78x (the
+string-path parse_graphml fix didn't cover the file-path entry point). Route it: for the DEFAULT case
+(node_type=str, edge_key_type=int, not force_multigraph) and a FILENAME/Path input, read the file bytes
+and hand them to parse_graphml (which carries the native-reader + parallel-collapse guard). File-object
+inputs — including the BytesIO that parse_graphml's own fallback passes back into read_graphml — are NOT
+filenames, so they skip this and delegate: NO recursion, NO double-parse. **0.78x -> 1.98x** (5.1ms vs
+10.1ms @ 300/1200), byte-exact 480/480 (str-path/pathlib.Path/file-object/node_type=int-delegated x
+simple/directed/no-attr/multigraph-parallel/multigraph-no-parallel) + 135 graphml conformance. Multigraph
+file UNCHANGED (pre-check -> delegation; the extra in-memory file read is ~4% of the pre-existing MG
+delegation floor). The graphml read family (parse + read, string + file) now all beat nx for the common
+simple case.
+
 ## 2026-07-03 CopperCliff SHIP (BEATS nx): parse_graphml(default) 0.77x -> 2.03x — route the default case to the native reader, gated on no collapsed parallel edges
 
 readwrite sweep found parse_graphml the ONE laggard (0.77x); everything else wins 1.0-7.4x. `read_graphml`

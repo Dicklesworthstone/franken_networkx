@@ -22277,6 +22277,25 @@ def read_graphml(
     ``edge_key_type``, and ``force_multigraph`` kwargs are honoured.
     The Rust-native reader only accepts ``(path,)``.
     """
+    # br-cc-graphml: for the DEFAULT case, read a FILENAME/Path into memory and
+    # route through parse_graphml's native fast path (2x nx via `_fnx.read_graphml`
+    # guarded against parallel-edge collapse; see parse_graphml). File-object
+    # inputs (incl. the BytesIO that parse_graphml's own fallback passes back
+    # here) are not filenames, so they skip this and delegate — no recursion, no
+    # double-parse. 0.78x -> ~2x on read_graphml(<file>).
+    if (
+        node_type is str
+        and edge_key_type is int
+        and not force_multigraph
+        and (isinstance(path, str) or hasattr(path, "__fspath__"))
+    ):
+        try:
+            with open(path, "rb") as _fh:
+                _content = _fh.read()
+        except Exception:
+            _content = None
+        if _content is not None:
+            return parse_graphml(_content)
     return _read_graphml_via_nx(
         path,
         node_type=node_type,
