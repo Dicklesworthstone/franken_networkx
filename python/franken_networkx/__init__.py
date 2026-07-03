@@ -43581,20 +43581,29 @@ def _directed_to_undirected_with_view(to_undirected_impl):
         result = self.to_undirected_class()()
         result.graph.update(_deepcopy(self.graph))
         result.add_nodes_from((node, _deepcopy(attrs)) for node, attrs in self.nodes(data=True))
+        # br-cc-recip: the reciprocal filter iterated ``self.adj[u]`` /
+        # ``self.pred[u]`` (the pure-Python keydict views) O(|E|) times -> 0.03x
+        # (DiGraph, 68ms) / 0.08x (MultiDiGraph). Read the edges via the FAST
+        # native ``edges()`` and test reciprocity as O(1) set membership on the
+        # directed ``(u, v, key)`` / ``(u, v)`` triples. ``edges()`` walks the
+        # adjacency node-major (same order as the old view loop), and
+        # ``(v, u, key) in edge_set`` is exactly ``key in self.pred[u][v]``, so
+        # the kept edges, their order, and the deepcopied attrs are byte-identical.
         if self.is_multigraph():
+            _edges = list(self.edges(keys=True, data=True))
+            _edge_set = {(u, v, key) for u, v, key, _ in _edges}
             result.add_edges_from(
                 (u, v, key, _deepcopy(attrs))
-                for u in self
-                for v, keyed_attrs in self.adj[u].items()
-                for key, attrs in keyed_attrs.items()
-                if v in self.pred[u] and key in self.pred[u][v]
+                for u, v, key, attrs in _edges
+                if (v, u, key) in _edge_set
             )
         else:
+            _edges = list(self.edges(data=True))
+            _edge_set = {(u, v) for u, v, _ in _edges}
             result.add_edges_from(
                 (u, v, _deepcopy(attrs))
-                for u in self
-                for v, attrs in self.adj[u].items()
-                if v in self.pred[u]
+                for u, v, attrs in _edges
+                if (v, u) in _edge_set
             )
         return result
 

@@ -2,6 +2,22 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP: to_undirected(reciprocal=True) DiGraph 0.03x->0.69x, MultiDiGraph 0.08x->0.50x — native edges() + set-membership reciprocity, not adj/pred keydict views
+
+MultiGraph/MultiDiGraph op sweep found `MDG.to_undirected(reciprocal=True)` at 0.08x (9ms) — and the
+simple `DiGraph` version was an even bigger HIDDEN laggard at 0.03x (68ms!). Both iterated the pure-Python
+keydict views `self.adj[u]` + `self.pred[u]` O(|E|) times to keep only edges whose reverse also exists.
+Replace with the FAST native `edges()` (4.3x self) + O(1) set membership: build a set of the directed
+`(u, v, key)` / `(u, v)` triples, keep an edge iff its reverse triple is in the set (exactly nx's
+`key in self.pred[u][v]`). `edges()` walks the adjacency node-major (same order as the old view loop), so
+kept edges + order + deepcopied attrs are byte-identical. **DiGraph 0.03x -> 0.69x (23x self), MultiDiGraph
+0.08x -> 0.50x (6x self)**, byte-exact 164/164 (MDG/DG x self-loop/empty/one-way-no-reciprocal) + 2144
+undirected conformance. Still <1x: the residual is `add_edges_from` rebuilding the (keyed) undirected
+edges (the multigraph nested-bucket construction floor) — nx pays the same but on its native store; a full
+beat needs a native reciprocal-undirected kernel. LEVER (recurring): any method iterating `self.adj[u]`/
+`self.pred[u]`/`self[u]` (the keydict views) O(|E|) times is paying the per-node view floor — read via
+native `edges()` and move the per-edge predicate to a set/dict lookup. Grep `for u in self:.*self.adj[u]`.
+
 ## 2026-07-03 CopperCliff SHIP (partial): read_gexf 0.47x -> 0.72x — one fused scan pass, skip node-metadata restore when all nodes are labelled
 
 Format sweep found read_gexf 0.47-0.61x (the biggest readwrite laggard). Split probe: the native
