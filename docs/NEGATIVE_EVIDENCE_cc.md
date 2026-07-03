@@ -4411,3 +4411,20 @@ rng.randint() SEPARATELY for the fnx and nx graph in the same op (`gf.add_node(u
 gn.add_node(u,x=rng.randint())`) feeds DIFFERENT random values -> 78/80 false "divergences" that were all
 value (not structure) mismatches. Compute the random value ONCE and use it for both graphs. Add to
 [[reference_bench_substrate_checklist]].
+
+## 2026-07-02 CopperCliff CORRECTNESS FIX (DATA LOSS): DiGraph pickle/deepcopy DROPPED all edge attributes for store-only edges
+
+Found via the pickle round-trip audit. `PyDiGraph::__getstate__` (digraph.rs ~13568) built the edges list
+from `inner.edges_ordered()` (correct order) but read each edge's attrs from `self.edge_py_attrs`
+(the mirror) with `.map_or_else(|| PyDict::new(py), ...)` -> a MISSING mirror entry defaulted to an EMPTY
+dict. Non-fresh / bulk `add_edges_from` stores attrs in the CgseValue store and leaves the mirror EMPTY
+(e.g. `add_nodes_from(attrs)` THEN `add_edges_from(attrs)` — the node insert makes the graph non-fresh so
+the edge batch declines the mirror-populating fast path). Result: `pickle.loads(pickle.dumps(G))` /
+`copy.deepcopy(G)` returned EVERY edge as `{}` — total edge-attr DATA LOSS. The LIVE graph was fine
+(edges(data) materialises from the store); only the SERIALIZED state dropped them. Simple DiGraph ONLY —
+Graph/MultiGraph/MultiDiGraph __getstate__ already read the store. FIX (br-r37-c1-getstate-storemiss): on a
+mirror miss, materialise from the store's AttrMap (edge.attrs from edges_ordered) via attr_map_to_pydict
+instead of an empty dict. Byte-exact: pickle+deepcopy x 4 types x nodes-first/edges-first ALL OK + 20/20
+pickle audit (self-loop/parallel/multi-attr) + 1576 pickle/serialization pytest. Same mirror-vs-store bug
+class as flow_hierarchy (15099d2ff) but in the pickle serializer, and the WORST symptom yet (silent data
+loss on a std pickle/deepcopy). CORRECTNESS.

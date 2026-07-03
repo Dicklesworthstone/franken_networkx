@@ -13562,16 +13562,24 @@ impl PyDiGraph {
             .inner
             .edges_ordered()
             .into_iter()
-            .map(|edge| {
+            .map(|edge| -> PyResult<_> {
                 let py_u = self.py_node_key(py, &edge.left);
                 let py_v = self.py_node_key(py, &edge.right);
-                let attrs = self
-                    .edge_py_attrs
-                    .get(&Self::edge_key(&edge.left, &edge.right))
-                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-                (py_u, py_v, attrs)
+                // br-r37-c1-getstate-storemiss (cc): a MISSING mirror entry does NOT
+                // mean empty attrs — bulk/non-fresh add_edges_from stores attrs in the
+                // CgseValue store and leaves edge_py_attrs empty. The old
+                // `map_or_else(|| PyDict::new(...))` DROPPED all edge attributes on
+                // pickle/__reduce__ for those graphs (build nodes-with-attrs THEN
+                // edges-with-attrs -> pickle -> every edge came back {}). Fall back to
+                // the store's AttrMap (edge.attrs from edges_ordered) so the round-trip
+                // preserves them.
+                let attrs = match self.edge_py_attrs.get(&Self::edge_key(&edge.left, &edge.right)) {
+                    Some(d) => d.clone_ref(py),
+                    None => crate::attr_map_to_pydict(py, &edge.attrs)?,
+                };
+                Ok((py_u, py_v, attrs))
             })
-            .collect();
+            .collect::<PyResult<Vec<_>>>()?;
         state.set_item("edges", edges_list)?;
         state.set_item("graph", self.graph_attrs.bind(py))?;
         // br-r37-c1-u3qyn: store succ/pred rows + display overrides so the
