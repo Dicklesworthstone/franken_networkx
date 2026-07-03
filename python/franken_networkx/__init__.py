@@ -22087,6 +22087,33 @@ def _write_edgelist_generate_fast(G, path, delimiter, data, encoding):
     _emit(G, path)
 
 
+def _write_adjlist_generate_fast(G, path, comments, delimiter, encoding):
+    # br-cc-wadj-genfast: replicate nx.write_adjlist EXACTLY (comment header with
+    # argv + GMT timestamp + graph name, then the generate_adjlist write loop)
+    # over fnx's fast, byte-identical generate_adjlist — skipping the _to_nx(G)
+    # conversion that _write_adjlist_via_nx pays for string/tuple-node graphs.
+    import sys
+    import time
+
+    from networkx.utils import open_file as _open_file
+
+    @_open_file(1, mode="wb")
+    def _emit(G, path):
+        pargs = comments + " ".join(sys.argv) + "\n"
+        header = (
+            pargs
+            + comments
+            + f" GMT {time.asctime(time.gmtime())}\n"
+            + comments
+            + f" {G.name}\n"
+        )
+        path.write(header.encode(encoding))
+        for line in generate_adjlist(G, delimiter):
+            path.write((line + "\n").encode(encoding))
+
+    _emit(G, path)
+
+
 def write_edgelist(G, path, comments="#", delimiter=" ", data=True, encoding="utf-8"):
     """Write a graph as a list of edges.
 
@@ -22219,6 +22246,14 @@ def write_adjlist(G, path, comments="#", delimiter=" ", encoding="utf-8"):
     private name for callers that explicitly want the no-header
     variant; the public `write_adjlist` matches nx exactly.
     """
+    # br-cc-wadj-genfast: string/tuple-node graphs paid a full _to_nx(G) conversion
+    # inside _write_adjlist_via_nx (0.59x vs nx). fnx's generate_adjlist is byte-
+    # identical to nx's, and nx.write_adjlist is exactly its header + a write loop
+    # over it, so drive that directly and skip the conversion. Int-labelled graphs
+    # keep the existing delegated path (already a win). Byte-exact incl. the GMT
+    # header (same-second timestamp, as nx's own snapshots are compared).
+    if not _edgelist_native_writer_preserves_node_labels(G):
+        return _write_adjlist_generate_fast(G, path, comments, delimiter, encoding)
     return _write_adjlist_via_nx(
         G, path, comments=comments, delimiter=delimiter, encoding=encoding
     )

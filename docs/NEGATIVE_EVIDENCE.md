@@ -2,6 +2,24 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP: write_adjlist string-node 0.59x->1.07x — same writer-delegation lever as write_edgelist (drop the _to_nx conversion, drive nx's header+loop over fnx's generate_adjlist)
+
+Extended the write_edgelist lever (19fb1d644) to its sibling. `write_adjlist` ALWAYS delegated via
+`_write_adjlist_via_nx` = `nx.write_adjlist(_to_nx(G), ...)` (the native writer was rejected long ago for
+omitting nx's comment header + trailing newline). For STRING-node graphs the `_to_nx(G)` conversion made it
+0.59x vs nx. Fix: `nx.write_adjlist` is exactly a comment header (argv + GMT timestamp + G.name) followed by
+a write loop over `generate_adjlist`, and fnx's `generate_adjlist` is byte-identical (40/40) — so replicate
+that header+loop over it (`_write_adjlist_generate_fast`, `open_file`-wrapped), skipping the conversion.
+Gated to string/tuple nodes (`not _edgelist_native_writer_preserves_node_labels`); int graphs keep the
+delegated path (their small ~1.5ms write is noise-dominated: via_nx measured 0.80-1.45x, generate 0.57-1.30x
+across trials — no reliable winner, so left untouched). **write_adjlist(str) 0.59x -> 1.07x**, byte-exact
+33/33 (str/int x directed x seeds + filename, GMT-timestamp line normalised as nx snapshots always are) +
+92 adjlist conformance. Same LEVER, now proven on 2 writers: a writer that delegates via a whole-graph
+`_to_nx` conversion, when its output is `header + loop over generate_*` and fnx's `generate_*` is byte-
+identical, should drive that loop directly. STILL sub-1x sibling for a later pass: `write_gml` 0.63-0.70x
+(BOTH int+str, ~20ms) — same `_to_nx`+delegate shape but GML is more involved (stringizer/escaping);
+`generate_gml` is ~0.94x so the conversion is the tax there too.
+
 ## 2026-07-03 CopperCliff SHIP + CORRECTNESS: write_edgelist string-node 0.27x->1.18x (dropped the _to_nx conversion) AND fixed a pre-existing multi-attr sorted-order byte-mismatch
 
 Writer sweep (string node keys) found `write_edgelist` 0.27x (16ms vs 4.4ms) while `generate_edgelist` was a
