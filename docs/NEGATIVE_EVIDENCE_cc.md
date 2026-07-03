@@ -4542,3 +4542,23 @@ is a function not a method). CONCLUSION: the view-access vein is NOT a uniform f
 wins; remaining gaps are a handful of narrow single-node/self-loop query paths (constant-factor, low ROI).
 The genuine frontier stays the ARCHITECTURAL primitives (multigraph nested-bucket construction, edge-attr
 product kernel, node-removal slotmap).
+
+## 2026-07-02 CopperCliff SURFACE (profiled root-cause): the last narrow per-call gaps = the STRING-NODE-KEY floor, not crackable without integer-node-index storage
+
+Profiled the remaining narrow view/query gaps to their root. `g.degree(u)` single-node = 0.626us/call vs
+nx 0.238us (0.38x). COMPONENT BREAKDOWN (n=1500/m=9000): `u in g` membership 0.301us (HALF the cost, itself
+0.33x vs nx's ~0.1us) + `G.degree` property/view creation 0.178us + base_view+getitem ~0.15us. The
+membership check (needed to disambiguate single-node from iterable in DegreeView.__call__) dominates, and
+it is the GENERAL node-access floor: fnx `n in G` / has_node / degree(u) / has_edge all pay
+node_key_to_string (int -> canonical String "690") + String hashing, where nx hashes the int directly
+against a live Python dict. This String-node-key materialization is fnx's architectural node-storage
+choice; it is the SAME root as the node-removal renumber wall ([[reference_node_removal_storage_wall]]).
+CONCLUSION: the last sub-1x per-call ops (membership 0.33x, degree(u) 0.38x, len(g[u]) 0.56x, has_edge
+~0.35x) are all the string-node-key + PyO3-crossing floor — a ~0.3us/call constant that a native
+single-degree method or base_view cache can only shave partially (correctness-sensitive routing for a
+~0.3us win). The ONLY structural fix is integer-node-index storage (keep the Python node objects, key
+adjacency by compact int index, hash ints not strings) — the same large primitive as the tombstone/slotmap
+node store. NET (definitive): every remaining fnx-vs-nx gap is now one of {string-node-key per-call floor,
+multigraph nested-bucket construction ~0.80x, edge-attr product pairing kernel, node-removal renumber} —
+all ARCHITECTURAL. The value + correctness + crackable-perf surfaces are exhausted; the frontier is a
+deliberate multi-session storage-model primitive, not a single-turn lever.
