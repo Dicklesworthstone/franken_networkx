@@ -4492,3 +4492,29 @@ audit 32/32 (nodes-first/from_dict/single-attr/convert_labels x pickle+deepcopy 
 serialization pytest. Third mirror-miss instance (degree/flow_hierarchy, DiGraph edge pickle, now
 Graph/MG node pickle); the __getstate__ EDGE sections already read the store (single-attr edge pickle was
 fine). CORRECTNESS (silent data loss).
+
+## 2026-07-02 CopperCliff CERTIFY: correctness surface comprehensively audited after 7 fixes — remaining frontier is architectural perf only
+
+After the 7 correctness fixes (flow_hierarchy value; batch edge/node attr-order fresh+existing; DiGraph
+edge + Graph/MG node pickle DATA-LOSS; + the perf recoveries), ran a broad correctness-oracle sweep. ALL
+clean (fnx byte-exact vs nx) across ~14 dimensions — coverage recorded so future passes don't re-audit:
+- mutation metamorphic (random interleaved add/remove/set-attr): 80/80
+- copy independence / attr-dict aliasing (copy/deepcopy/pickle x eager+store-only x 4 types): 96/96
+- exotic node types (tuple/float/str/mixed/bool-int-collision/bignum + pickle): 168/168
+- algorithm edge cases (selfloop/disconnected/star/complete/neg-weight/single, ~12 algos): 100/100
+- numeric edge cases (NaN/inf/largeint/tiny weights, batch+per-edge): 56/56
+- data-key / custom-weight / mirror-miss / post-mutation reads: 60/60
+- error/exception-type parity (missing edge/node, unhashable, no-path, neg-cycle, empty): 20/20
+- multigraph key handling (explicit/auto/non-contiguous/copy/subgraph/reverse/pickle/batch): 26/26
+- graph transforms (convert_node_labels/contracted/ego/induced/relabel/freeze): 30/30
+- to_directed/to_undirected/update/compose on store-only multi-attr: 22/22
+- pickle/deepcopy store-only shapes (nodes-first/from_dict/single-attr/convert_labels): 32/32
+- serializers on store-only (node_link/adjacency/cytoscape/to_dict/to_numpy/scipy/generate_edgelist/
+  graphml/gexf) single+multi attr: 42/42 + 20/20
+The correctness bugs this session ALL clustered in TWO families now CLOSED: (1) batch-attr-order
+(AttrMap=BTreeMap sorts; batch drops the ordered mirror) across fresh/existing-exact-int/existing-int-label
++ edges/nodes + Graph/DiGraph/MG; (2) mirror-miss-default (empty batch mirror read as default) across
+degree/flow_hierarchy + DiGraph-edge/Graph-MG-node pickle __getstate__. The remaining frontier is
+ARCHITECTURAL PERF only: nested-bucket multigraph construction (~0.80x), edge-attr product pairing kernel
+(0.23-0.28x), node-removal slotmap (0.003-0.14x), persistent Python-object view mirror — all LARGE
+primitives, none a single-session crack (see the profiled wall map + [[reference_bench_substrate_checklist]]).
