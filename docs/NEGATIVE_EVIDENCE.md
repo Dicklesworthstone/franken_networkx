@@ -2,6 +2,24 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP (partial, pure-Python ceiling): strong_product(edge-attr) 0.29x -> 0.53x — same native-structure + set_edge_attributes lever as tensor; lexico NO-GO
+
+Extended the tensor_product edge-attr hybrid (6f015e69c) to strong_product: build the (cartesian ∪
+tensor) STRUCTURE via `strong_product_fast` regardless of edge attrs, then DECORATE the four edge passes
+(1 nodes×H-edges=H attrs, 2 G-edges×nodes=G attrs, 3 tensor directed cross=paired, 4 undirected-only
+tensor cross=paired) with ONE `set_edge_attributes`, avoiding the O(E_product) tuple-node `add_edges_from`.
+**0.29x -> 0.53x** (~1.8x self), byte-exact 201/201 (directed/self-loop/node-attr/no-attr/multi-attr +
+multigraph fallback) + 696 product conformance. Same pure-Python ceiling (<1x, tuple-node key resolution
+floor; full beat needs the Rust mirror kernel). Unweighted still native 5.6x.
+
+LEXICOGRAPHIC NO-GO (this dig): the same hybrid on lexicographic_product (a) BROKE self-loop parity —
+20/140 mism, all self-loop cases (the native lexico kernel's self-loop de-dup diverges from a naive
+em-map build for the dense E_G×V_H×V_H pass), AND (b) barely moved perf (0.27x -> 0.32x) because lexico's
+edge set is DENSE (E_G·V_H² dominant), so the em build + set_edge_attributes is nearly as large as the
+add_edges_from it replaces. Lexico stays on the Python batch; a real lexico win needs the Rust kernel.
+Cartesian/corona already have Rust edge-attr kernels (beat nx); tensor+strong now have the pure-Python
+hybrid; lexico+modular remain Rust-only levers.
+
 ## 2026-07-03 CopperCliff SHIP (partial, pure-Python ceiling): tensor_product(edge-attr) 0.24x -> 0.42-0.57x — native structure + set_edge_attributes decorate, not add_edges_from of tuple-node edges
 
 Products sweep: UNWEIGHTED tensor/strong/lexico/cartesian WIN 3-6x (native kernel), but EDGE-attributed
