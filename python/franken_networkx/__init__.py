@@ -17976,7 +17976,15 @@ def maximal_independent_set(G, nodes=None, seed=None, *, backend=None, **backend
         nodes = set(nodes)
     if not nodes.issubset(node_set):
         raise NetworkXUnfeasible(f"{nodes} is not a subset of the nodes of G")
-    neighbors = set.union(*[set(G[v]) for v in nodes])
+    # br-cc-mis-neighbors: nx's algorithm reads adjacency as ``G[v]`` (a live
+    # AtlasView). On fnx that routes through the pure-Python row-keydict layer
+    # (a fresh view object + keydict rebuild per access — the 0.58x gap, since
+    # the algorithm is otherwise byte-for-byte nx for seed parity). The
+    # algorithm only needs the neighbour KEYS and uses them exclusively in
+    # order-independent set ops, so read them via the native ``G.neighbors``
+    # (one PyO3 call, cached node objects, self-loops included) — byte-exact
+    # with nx, skips the keydict machinery.
+    neighbors = set.union(*[set(G.neighbors(v)) for v in nodes])
     if set.intersection(neighbors, nodes):
         raise NetworkXUnfeasible(f"{nodes} is not an independent set of G")
     indep_nodes = list(nodes)
@@ -17984,7 +17992,12 @@ def maximal_independent_set(G, nodes=None, seed=None, *, backend=None, **backend
     while available_nodes:
         node = seed.choice(list(available_nodes))
         indep_nodes.append(node)
-        available_nodes.difference_update(list(G[node]) + [node])
+        # Materialise the neighbour keys to a LIST before difference_update:
+        # feeding the raw ``neighbors`` iterator perturbs the set's internal
+        # layout vs nx's ``list(G[node]) + [node]``, which (via list()
+        # ordering of the shrinking available set) changes a later
+        # seed.choice pick and breaks byte-exactness.
+        available_nodes.difference_update(list(G.neighbors(node)) + [node])
     return indep_nodes
 
 

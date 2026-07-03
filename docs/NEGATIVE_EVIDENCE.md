@@ -2,6 +2,34 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP (pure-Python, laggard closed): maximal_independent_set 0.58x -> ~1.0x — read adjacency via native G.neighbors not the pure-Python keydict view
+
+Fresh algorithm sweep (~36 less-common funcs) found ONE real laggard: `maximal_independent_set`
+0.58x (fnx 0.49ms vs nx 0.28ms @ n=400/m=1500). Not a floor — an algorithm gap. `maximal_independent_set`
+runs nx's algorithm VERBATIM in Python (the native kernel picks a different valid set because it
+seed.choices over string-hashed keys — a documented parity break), so its only fnx-slow step is the
+per-node adjacency read `G[v]` in the hot loop. cProfile pinned it: `G[node]` routes through the
+pure-Python row-view layer (`_graph_getitem_from_adj` builds a fresh view object + a `_keydict` per
+access — 69300 keydict calls for a 116-node MIS). The algorithm only needs neighbour KEYS and uses
+them exclusively in ORDER-INDEPENDENT set ops (verified: row/reversed/sorted neighbour order all yield
+the identical MIS), so read them via the native `G.neighbors` (skips the intermediate AtlasView object)
+-> **0.58x -> 0.98-1.01x** (1.77x self-speedup), byte-exact 413/413 (seeds x graph types x provided-
+nodes x self-loop/isolated/string-node/directed error paths) + 217 MIS conformance tests green.
+
+TWO NO-GO variants proved out along the way:
+- **Whole-graph precompute** (`to_dict_of_lists` OR `_native_adjacency_keys()` once -> dict-of-sets):
+  byte-exact but PERF-NEUTRAL/WORSE (0.58-0.69x). MIS reads only ~29% of nodes (|MIS|≈116 of 400), so
+  materialising ALL adjacency eats the saving — confirms the original code's comment that a full
+  snapshot is slower here. LAZY per-node access wins.
+- **Passing `G.neighbors`'s raw iterator to `set.difference_update`** (instead of `list(...) + [node]`):
+  measured FASTER (1.10x) but BYTE-WRONG (90/300 mismatch). Root cause is a CPython set-internals
+  subtlety: feeding the `dict_keyiterator` vs a materialised `list` perturbs `available_nodes`' internal
+  layout, so a later `seed.choice(list(available_nodes))` picks a different (still-valid) node and the
+  result diverges. `list(G.neighbors(node)) + [node]` (matching nx's exact `list(G[node]) + [node]`
+  grouping) is required for byte-exactness — and `.discard(node)` as a SEPARATE step ALSO breaks it
+  (87/375). LESSON: when reimplementing an nx algorithm for speed, the argument TYPE and grouping fed
+  to set mutators is parity-load-bearing, not just the element set — match nx's exact expression shape.
+
 ## 2026-07-03 CopperCliff SURFACE (floor certified): the add-side + read-side single-call laggards are PyO3-dispatch + dual-String-store bound — NOT takeable; fusion complete at Graph+DiGraph
 
 After shipping the remove_node fusion (below), swept the rest of the single-call mutation/read
