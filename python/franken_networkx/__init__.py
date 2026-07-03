@@ -8554,6 +8554,19 @@ def dijkstra_path(G, source, target, weight="weight"):
     # br-r37-c1-c4agn: hash-check for nx-shaped TypeError parity.
     hash(source)
     hash(target)
+    # br-cc-mgdijkstra-dir: a DIRECTED multigraph collapses to a simple min-weight
+    # DiGraph byte-EXACTLY even for the PATH (unlike undirected MG, where edges()'
+    # canonical direction reorders per-node adjacency and perturbs tie-breaking).
+    # In a directed multigraph edges(keys,data) is node-major over OUT-edges, so the
+    # collapsed DiGraph's adjacency order == the multigraph's out-adjacency order ->
+    # identical heap-push/tie-break -> byte-identical predecessor chain. Verified.
+    if G.is_directed() and G.is_multigraph() and isinstance(weight, str):
+        _simple, _delegate = _multigraph_collapse_min_weight(G, weight)
+        if _delegate:
+            return _call_networkx_for_parity(
+                "dijkstra_path", G, source, target, weight=weight
+            )
+        return dijkstra_path(_simple, source, target, weight=weight)
     if _should_delegate_dijkstra_to_networkx(G, weight):
         return _call_networkx_for_parity(
             "dijkstra_path", G, source, target, weight=weight
@@ -17856,6 +17869,24 @@ def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=Non
             weight=weight,
             cutoff=cutoff,
         )
+    # br-cc-mgdijkstra-dir: DIRECTED multigraph A* PATH -> collapse to the simple
+    # min-weight DiGraph + recurse. Directed edges(keys,data) preserves out-adjacency
+    # order so the collapsed A* explores identically -> byte-identical path.
+    if G.is_directed() and G.is_multigraph() and isinstance(weight, str):
+        _simple, _delegate = _multigraph_collapse_min_weight(G, weight)
+        if _delegate:
+            return _call_networkx_for_parity(
+                "astar_path",
+                G,
+                source,
+                target,
+                heuristic=heuristic,
+                weight=weight,
+                cutoff=cutoff,
+            )
+        return astar_path(
+            _simple, source, target, heuristic=heuristic, weight=weight, cutoff=cutoff
+        )
     # br-r37-c1-0x9pd: A* reads edge weights from inner.AttrMap, so
     # post-creation Python mutations (G[u][v]['weight']=v) need to be
     # synced first — same architectural fix as br-r37-c1-sjf4t for
@@ -21147,6 +21178,25 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
     # x cutoff x directed sweep. Only the genuinely-unhandleable cases
     # (negative / +inf / non-numeric / callable weight) still delegate, via
     # `_should_delegate_dijkstra_to_networkx`.
+    # br-cc-mgdijkstra-dir: DIRECTED multigraph -> collapse to the simple min-weight
+    # DiGraph and recurse. Byte-exact for BOTH distances AND paths (directed
+    # edges(keys,data) is node-major over out-edges, so the collapsed adjacency
+    # order == the multigraph out-adjacency order -> identical tie-breaking). Fixes
+    # single_source_dijkstra AND single_source_dijkstra_path (delegates here).
+    if G.is_directed() and G.is_multigraph() and isinstance(weight, str):
+        _simple, _delegate = _multigraph_collapse_min_weight(G, weight)
+        if _delegate:
+            return _call_networkx_for_parity(
+                "single_source_dijkstra",
+                G,
+                source,
+                target=target,
+                cutoff=cutoff,
+                weight=weight,
+            )
+        return single_source_dijkstra(
+            _simple, source, target=target, cutoff=cutoff, weight=weight
+        )
     if _should_delegate_dijkstra_to_networkx(G, weight):
         return _call_networkx_for_parity(
             "single_source_dijkstra",

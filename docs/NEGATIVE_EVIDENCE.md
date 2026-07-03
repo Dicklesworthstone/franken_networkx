@@ -2,6 +2,23 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP: DIRECTED-multigraph PATH functions (dijkstra_path/astar_path/single_source_dijkstra) 0.02-0.11x -> 0.08-0.34x — the collapse IS path-byte-exact for DIRECTED multigraphs
+
+KEY FINDING that reopens the path functions: the min-weight-collapse was excluded from PATH-returning
+shortest-path funcs because of tie-breaking (b802abed1) — but that divergence is UNDIRECTED-MG ONLY. In a
+DIRECTED multigraph `edges(keys, data)` is node-major over OUT-edges, so the collapsed simple DiGraph's
+per-node adjacency order == the multigraph's out-adjacency order -> identical heap-push/tie-break -> BYTE-
+IDENTICAL predecessor chain (verified 720/720 incl. the actual path lists + single_source_dijkstra_path dict,
++ undirected-MG no-regression, + neg/nonnumeric delegation). Undirected MG stays excluded (edges() canonical
+direction reorders adjacency). Added the directed-multigraph collapse branch to `dijkstra_path`, `astar_path`,
+`single_source_dijkstra` (which also fixes single_source_dijkstra_path + shortest_path source-only). MDG
+**dijkstra_path 0.02x->0.08x, astar_path 0.03x->0.08x, single_source_dijkstra_path 0.11x->0.34x** (3-4x self;
+HEAD's native MDG kernel re-walks parallel edges catastrophically). + 1864 dijkstra/astar/shortest_path
+conformance. Still <1x on single-pair (the collapse builds the whole simple graph while nx early-exits at the
+target — a target-aware collapse would lift it further); all-paths gets the full benefit. LEVER: a path-
+tie-break exclusion that was blanket "multigraph" may be DIRECTED-safe — directed edges() preserves out-
+adjacency order, undirected doesn't; re-test the directed case before writing off order-sensitive collapses.
+
 ## 2026-07-03 CopperCliff SHIP: bfs_layers(single source) MultiGraph 0.03x->1.41x, MultiDiGraph 0.03x->1.46x — group single_source_shortest_path_length by distance
 
 Same class as the descendants/ancestors fix: on a MULTIGRAPH the raw `bfs_layers` kernel re-walks the
