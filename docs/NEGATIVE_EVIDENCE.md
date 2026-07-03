@@ -2,6 +2,31 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SURFACE (no takeable win): transform/copy "laggards" are GC/memory-pressure NOISE; the one real residual is the string-node CONSTRUCTION floor
+
+Swept graph transforms (copy/to_undirected/contracted/reverse/subgraph/relabel) hunting the next
+keydict-view lever after the reciprocal-to_undirected ship (be99f63de). EVERY flagged sub-0.8x turned
+out to be a MEASUREMENT ARTIFACT, not a real gap:
+- `DG to_undirected()` read 0.30x in a graph-REUSE sweep -> really 1.98x isolated (native
+  `_native_to_undirected_deepcopy` fires; the sweep reused one DG across many prior ops).
+- `contracted_edge`/`contracted_nodes` swung 0.36x-1.54x across IDENTICAL trials — pure GC noise on the
+  alloc-heavy full-graph copy each call; no reliable gap.
+- `MG copy` read 0.58x (100ms) in a sweep holding FOUR large graphs (800/6000 each) -> really 0.96x
+  (38ms) isolated. `MDG to_undirected` 0.56x sweep -> 0.73-0.93x isolated. `DG copy` 0.56x build-inside
+  -> 1.4-1.55x build-once.
+NEW SUBSTRATE TRAP (checklist #9): holding MULTIPLE large graphs in memory during a build-once sweep
+creates GC pressure that INFLATES alloc-heavy op timings 2-3x and is class-correlated (the biggest graph's
+op looks worst). Verify any alloc-heavy sub-1x in ISOLATION (one graph pair, `del`+`gc.collect()` between
+classes). Ratios can stay stable while absolute times swing 2x — trust a ratio only if it repeats across
+independent process-fresh runs.
+The ONE reliable residual: `relabel_nodes(int->str)` DiGraph 0.68x (consistent) — isolated to the
+STRING-NODE CONSTRUCTION floor: building `DiGraph([(str,str,...)])` is 0.48x (7.2ms vs nx 3.5ms) while
+`DiGraph([(int,int,...)])` is 1.35x (WIN). Root: fnx canonicalises a str node "5" to `str:1:5` (the
+`str:{len}:{s}` disambiguator vs int 5's `"5"`), so per-node it allocs+hashes a LONGER key. Architectural
+(the canonical-string storage model), same family as the add_edge string floor; a Rust micro-opt on the
+`format!("str:{}:{s}")` canonicaliser is the only lever and it's marginal (the dual-store insert dominates,
+not the format). relabel int->int, and all-int-node construction, WIN — only str/tuple node labels pay it.
+
 ## 2026-07-03 CopperCliff SHIP: to_undirected(reciprocal=True) DiGraph 0.03x->0.69x, MultiDiGraph 0.08x->0.50x — native edges() + set-membership reciprocity, not adj/pred keydict views
 
 MultiGraph/MultiDiGraph op sweep found `MDG.to_undirected(reciprocal=True)` at 0.08x (9ms) — and the
