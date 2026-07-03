@@ -2,6 +2,31 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP: single_source_dijkstra_path_length MultiGraph 0.26x->0.63x, MultiDiGraph 0.11x->0.35x — collapse parallels to min-weight simple graph + fast simple kernel, fused with the weight-validity gate
+
+Careful ISOLATED MG/MDG op sweep (dodging trap #9) found `single_source_dijkstra_path_length` on
+MultiGraph 0.19-0.26x / MultiDiGraph 0.09-0.11x — a big reliable laggard (12-18ms vs nx 1.7-3ms). Two
+compounding causes: (1) the native multigraph dijkstra KERNEL is ~4-5x SLOWER than nx's Python dijkstra;
+(2) the weight-validity gate has NO native multigraph variant, so it ran three O(|E|) Python edge rescans
+(`_native_check_dijkstra_weights_fast` returns None for multigraphs — verified). cProfile said the gates
+were 57% but that was profiler inflation; the real split is kernel-bound + gate-bound both material.
+FIX: nx's multigraph shortest path uses the MIN weight over each pair's parallel edges, so do ONE pass over
+`edges(keys, data)` that BOTH validates (delegate to nx on non-numeric / negative / +inf — the exact
+`_should_delegate` predicate) AND collapses parallels to their min weight, then run the FAST simple-graph
+kernel on the collapsed graph. Prototype (collapse only, no gate) hit 0.96x/0.58x; the full function keeps
+the validation (needed for bad-weight error parity) fused into the same pass -> **MG 0.26x->0.63x, MDG
+0.11x->0.35x** (2.4-3.2x self). Byte-exact 1200/1200 (MG/MDG x int/float weights x cutoff None/int/float x
+valid/neg/+inf/nonnumeric) + 3201 dijkstra/shortest-path conformance. Also fused the 3 multigraph gates in
+`_should_delegate_dijkstra_to_networkx` into one pass (byte-exact, helps the other multigraph dijkstra
+entry points marginally). STILL <1x: the residual is the O(|E|) PYTHON weight-validation (no native MG
+scan) + the collapse-graph construction, vs nx's single Python dijkstra. FOLLOW-UPS: (a) a native MG
+weight-validity scan (Rust, reading the STORE not the mirror — cf. the boruvka fix) would push toward
+~0.9x; (b) extend the same min-collapse to `dijkstra_path_length` / `single_source_dijkstra` /
+`dijkstra_path` (still on the slow native MG kernel). PRE-EXISTING (not this change): MG dijkstra with a
+NaN weight diverges from nx (both old + new run the raw kernel; the gate doesn't route NaN to nx). LEVER:
+a delegated/native op slow on multigraphs where nx's semantics reduce to "min weight per pair" -> collapse
+to a simple min-weight graph and reuse the fast simple kernel; fuse the validity gate into the collapse pass.
+
 ## 2026-07-03 CopperCliff SURFACE: string-node domain swept CLEAN (algorithms/operators/products all win in isolation — sweep laggards were memory-pressure noise); writer-delegation vein mined; write_gml(int+attr) the one residual (generation-bound, native writer bails on attrs)
 
 After shipping write_edgelist + write_adjlist (string-node delegation lever), swept the rest of the

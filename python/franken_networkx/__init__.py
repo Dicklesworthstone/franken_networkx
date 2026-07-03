@@ -8021,9 +8021,28 @@ def _should_delegate_dijkstra_to_networkx(G, weight):
             if cache_key is not None:
                 vars(G)["_fnx_dijkstra_weight_check_cache"] = (cache_key, should_delegate)
             return should_delegate
-    # Multigraph or fallback: sync once, then run three gates with _skip_sync.
-    if not G.is_multigraph():
-        _sync_rust_edge_attrs(G)
+    # br-cc-mgdijkstra: multigraphs have no native weight-validity scan, so the
+    # three gates below each iterate the parallel edges independently — 3 x O(|E|)
+    # that measured ~57% of MultiGraph/MultiDiGraph dijkstra wall time (0.09-0.19x
+    # vs nx). FUSE them into ONE pass over edges(keys=True, data=True) (itself a
+    # fnx win): delegate iff any weight is non-numeric / negative (incl -inf) /
+    # +inf — byte-identical to running the three gates in sequence (each just
+    # decides "delegate", and the fused check ORs the same predicates over the
+    # same edge set with the same attrs.get(weight, 1) default and bool handling).
+    if G.is_multigraph():
+        for _u, _v, _k, _attrs in G.edges(keys=True, data=True):
+            if isinstance(_attrs, dict) and weight in _attrs:
+                _raw = _attrs[weight]
+                if not isinstance(_raw, bool) and not isinstance(_raw, _numbers.Real):
+                    return True
+            _value = _attrs.get(weight, 1)
+            if isinstance(_value, _numbers.Real) and not _math.isnan(_value):
+                if _value < 0 or (_math.isinf(_value) and _value > 0):
+                    return True
+        return False
+    # Non-multigraph fallback: sync once, then run three gates with _skip_sync
+    # (each has its own native fast path for simple graphs).
+    _sync_rust_edge_attrs(G)
     if _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True):
         return True
     if _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True):
@@ -21113,6 +21132,48 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     hash(source)
     G = _coerce_arg_to_fnx_graph(G)
+    # br-cc-mgdijkstra: the native multigraph dijkstra kernel is ~4-5x SLOWER than
+    # nx's Python dijkstra (0.10-0.26x), AND the weight-validity gate has no native
+    # multigraph variant (3 O(|E|) Python rescans). nx's multigraph shortest path
+    # uses the MIN weight over each pair's parallel edges, so do ONE pass over
+    # edges(keys, data) that BOTH validates (delegate to nx on non-numeric /
+    # negative / +inf — the exact _should_delegate predicate) AND collapses the
+    # parallels to their min weight, then run the FAST simple-graph kernel on the
+    # collapsed graph. Byte-identical distances (min-over-parallels == nx).
+    if G.is_multigraph() and isinstance(weight, str):
+        _simple = DiGraph() if G.is_directed() else Graph()
+        _simple.add_nodes_from(G)
+        _best = {}
+        _delegate = False
+        for _u, _v, _k, _attrs in G.edges(keys=True, data=True):
+            if isinstance(_attrs, dict) and weight in _attrs:
+                _raw = _attrs[weight]
+                if not isinstance(_raw, bool) and not isinstance(_raw, _numbers.Real):
+                    _delegate = True
+                    break
+            _val = _attrs.get(weight, 1)
+            if isinstance(_val, _numbers.Real) and not _math.isnan(_val):
+                if _val < 0 or (_math.isinf(_val) and _val > 0):
+                    _delegate = True
+                    break
+            _pair = (_u, _v)
+            _cur = _best.get(_pair)
+            if _cur is None or _val < _cur:
+                _best[_pair] = _val
+        if _delegate:
+            return _call_networkx_for_parity(
+                "single_source_dijkstra_path_length",
+                G,
+                source,
+                cutoff=cutoff,
+                weight=weight,
+            )
+        if source not in G:
+            raise NodeNotFound(f"Node {source} not found in graph")
+        _simple.add_edges_from((_u, _v, {weight: _w}) for (_u, _v), _w in _best.items())
+        return _raw_single_source_dijkstra_path_length(
+            _simple, source, weight=weight, cutoff=cutoff
+        )
     if _should_delegate_dijkstra_to_networkx(G, weight):
         return _call_networkx_for_parity(
             "single_source_dijkstra_path_length",
