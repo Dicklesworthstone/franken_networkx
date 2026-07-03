@@ -12320,7 +12320,18 @@ impl PyDiGraph {
                     let ek = Self::edge_key(node, successor);
                     let value = match self.edge_py_attrs.get(&ek) {
                         Some(d) => d.bind(py).get_item(weight).ok().flatten().unwrap_or_else(|| one.clone()),
-                        None => one.clone(),
+                        // br-r37-c1-degf-storemiss (cc): a MISSING mirror entry does
+                        // NOT mean weight==1 — it means the edge was never mirrored
+                        // (bulk/batch-built graphs leave edge_py_attrs empty). Read
+                        // the authoritative CgseValue store; only a store entry that
+                        // lacks `weight` is nx's default int 1. Without this,
+                        // degree/size(weight) on a batch-built FLOAT DiGraph returned
+                        // the edge COUNT (every weight defaulted to 1) -> flow_hierarchy
+                        // went negative. INT weights were unaffected (int store twin).
+                        None => match self.inner.edge_attrs(node, successor).and_then(|a| a.get(weight)) {
+                            Some(v) => crate::cgse_value_to_py(py, v)?.into_bound(py),
+                            None => one.clone(),
+                        },
                     };
                     succ_vals.append(value)?;
                 }
@@ -12334,7 +12345,12 @@ impl PyDiGraph {
                     let ek = Self::edge_key(predecessor, node);
                     let value = match self.edge_py_attrs.get(&ek) {
                         Some(d) => d.bind(py).get_item(weight).ok().flatten().unwrap_or_else(|| one.clone()),
-                        None => one.clone(),
+                        // br-r37-c1-degf-storemiss (cc): see the succ branch above —
+                        // mirror-miss reads the authoritative store, not default 1.
+                        None => match self.inner.edge_attrs(predecessor, node).and_then(|a| a.get(weight)) {
+                            Some(v) => crate::cgse_value_to_py(py, v)?.into_bound(py),
+                            None => one.clone(),
+                        },
                     };
                     pred_vals.append(value)?;
                 }

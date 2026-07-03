@@ -4340,3 +4340,28 @@ cracked (7a49dd943). No further avoidable per-edge work found — the 20% is the
 nested constant factor. VERDICT: architectural, low-EV; a native bulk-nested-builder (pre-sized, single
 pass) MIGHT shave the constant but is high-effort for ~20%. Operators (union/compose/difference Multi*
 0.45-0.76x) = this 0.80x construction + view-iteration wrapper overhead; same architectural root.
+## 2026-07-02 CopperCliff CORRECTNESS FIX: DiGraph size/degree(weight) FLOAT on batch-built graphs returned edge COUNT -> flow_hierarchy went negative
+
+Found via the public_api_gauntlet (its flow_hierarchy parity assertion FAILED: fnx=-2.54 vs nx=0.517).
+ROOT: for a simple DiGraph built via the batch path (add_edges_from/add_weighted_edges_from >= 8 edges,
+FLOAT weights), the inner CgseValue store correctly holds the float weights BUT the edge_py_attrs mirror is
+left EMPTY (the fresh-int-attr batch, digraph.rs:8940, skips the eager mirror population the rest of
+DiGraph assumes). `weighted_degree_exact_values` (digraph.rs:12306 — the float/exact degree fallback,
+reached because weighted_size_int bails on non-int) read the weight value from `self.edge_py_attrs.get(ek)`
+ONLY and defaulted to nx's int 1 on a mirror MISS: `None => one.clone()`. Mirror-empty batch graph => every
+edge's weight read as 1 => degree(weight)/size(weight) returned the EDGE COUNT. size(weight) feeds
+flow_hierarchy's total_weight denominator, so `1 - cyclic/total` with a too-small total went NEGATIVE
+(-2.54). INT weights were unaffected (the int store twin weighted_degree_int_store_values reads the store).
+Other 3 types (Graph/MultiGraph/MultiDiGraph) were correct (store twins / lazy-store-materialising paths).
+
+FIX (br-r37-c1-degf-storemiss): on a mirror MISS, read the authoritative CgseValue store
+(`self.inner.edge_attrs(u, v).get(weight)` -> cgse_value_to_py), defaulting to int 1 ONLY when the STORE
+also lacks `weight` (nx's actual contract). A mirror miss means the edge was never exposed/edited (bulk
+graph), so the store is current — safe even when edges_dirty (a pending edit would have mirrored the edge).
+`weight` is always a str so the str-keyed store is authoritative (the non-str data-key paths at 12043/12149
+correctly stay mirror-only). BYTE-EXACT: 149/149 (flow_hierarchy n=12..900 + size/degree/in_degree/
+out_degree(weight) x Graph/DiGraph/MultiGraph/MultiDiGraph x batch sizes 8/10/20/50 x float/int/int-valued-
+float + post-mutation dirty path) + 5525 pytest (degree/size/flow_hierarchy/weighted) + gauntlet
+flow_hierarchy assertion now PASSES. No perf change (only the mirror-MISS arm reads the store now; the
+mirror-hit path is untouched). degree(nbunch,weight) was already correct (index-store reads). CORRECTNESS
+bug > perf: flow_hierarchy(weighted) went from a WRONG negative value to nx-exact.
