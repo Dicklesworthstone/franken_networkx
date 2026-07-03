@@ -1457,7 +1457,18 @@ impl DiGraph {
         let Some(pair) = self.edge_pair_key(source, target) else {
             return false;
         };
-        let removed = self.edges.shift_remove(&pair).is_some();
+        // br-r37-c1-vbwpl (cc, ported from PyGraph::remove_edge): swap_remove
+        // (O(1)) instead of shift_remove (O(|E|)) — turns remove-heavy work
+        // (remove_edges_from, double_edge_swap) from O(k*|E|) into O(k). The
+        // `edges` map's STORAGE order is never observed externally: `edges_ordered`
+        // /`edges_ordered_borrowed` walk `succ_indices` and look edges up by key;
+        // COO/CSR exporters (`edges_indexed`) are triple-order-irrelevant (scipy
+        // CSR canonicalises); `weighted_size_int`/attr scans are order-insensitive
+        // sums/`any`. `remove_node` already swap_removes this same map (see below),
+        // so the "unobserved" invariant is already committed. DiGraph has no
+        // edge_index_endpoints parallel vector (that is PyGraph-only), so no
+        // parallel structure needs the matching swap.
+        let removed = self.edges.swap_remove(&pair).is_some();
         if removed {
             if let (Some(s_idx), Some(t_idx)) = (
                 self.nodes.get_index_of(source),
@@ -2718,7 +2729,13 @@ impl MultiDiGraph {
 
         let should_drop_bucket = self.edges.get(&edge_key).is_some_and(IndexMap::is_empty);
         if should_drop_bucket {
-            self.edges.shift_remove(&edge_key);
+            // br-r37-c1-vbwpl (cc): swap_remove (O(1)) on the OUTER node-pair map
+            // — its storage order is never observed (edges_ordered walks
+            // successors and looks pairs up by key; remove_node already
+            // swap_removes this same map). The inner bucket above keeps
+            // shift_remove because per-pair key order IS observed. Turns
+            // remove_edges_from from O(k*pairs) into O(k).
+            self.edges.swap_remove(&edge_key);
         }
 
         self.remove_successor_key(source, target, removal_key);

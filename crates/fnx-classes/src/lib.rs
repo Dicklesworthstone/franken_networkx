@@ -3192,11 +3192,19 @@ impl MultiGraph {
         };
 
         let removed = if let Some(edge_bucket) = self.edges.get_mut(&edge_key) {
+            // Inner bucket keeps shift_remove: per-pair KEY order IS observed
+            // (edges(keys=True) yields the bucket's key order; nx preserves
+            // insertion order of surviving keys after a dict-key deletion).
             let was_removed = edge_bucket.shift_remove(&removal_key).is_some();
             if was_removed {
                 self.edge_count -= 1;
                 if edge_bucket.is_empty() {
-                    self.edges.shift_remove(&edge_key);
+                    // br-r37-c1-vbwpl (cc): swap_remove (O(1)) on the OUTER
+                    // node-pair map — its storage order is never observed
+                    // (edges_ordered walks adjacency and looks pairs up by key;
+                    // remove_node already swap_removes this same map). Turns
+                    // remove_edges_from from O(k*pairs) into O(k).
+                    self.edges.swap_remove(&edge_key);
                 }
             }
             was_removed

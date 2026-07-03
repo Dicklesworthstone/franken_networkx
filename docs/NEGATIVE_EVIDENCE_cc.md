@@ -4091,3 +4091,34 @@ list/tuple/set/absent/generator/str/mixed/noncontig/unhashable/single/None + 631
 gate holds for conversion/filtered/reverse across all types). All 4 nbunch_iter now ~0.6-0.8x (from
 0.10-0.25x) — still PyO3-floored below parity but a 4-6x self-speedup on a broadly-used primitive
 (edges/degree/subgraph over nbunch all route through it).
+
+## 2026-07-02 CopperCliff SHIP (strict-work-removal): DG/MG/MDG inner remove_edge shift_remove->swap_remove (O(|E|)->O(1)) + BLOCKER surfaced
+
+BIGGEST measured gap this session: remove_edges_from is catastrophic for the 3 non-simple types
+(isolated us/edge, n=2000 m=12000): DG 18-22us/edge ratio 0.015x, MG 29-36us/edge 0.016x, MDG
+30-36us/edge 0.016x — vs simple Graph 0.4us/edge 0.55x (55-60x slower than nx). Scale probe (fix
+k=100, vary E): DG 4.9->22.6->96.7 us/edge as E=3k->12k->48k with CONSTANT avg degree 6 -> genuinely
+O(|E|), not O(degree).
+
+ROOT (one lever found, one still open):
+(1) FIXED — the inner *::remove_edge for DiGraph (digraph.rs:1460), MultiGraph (lib.rs:3199 OUTER
+node-pair map), MultiDiGraph (digraph.rs:2721 OUTER map) used `self.edges.shift_remove` = O(|E|)
+IndexMap shift. Simple Graph was ALREADY ported to `swap_remove_full` (br-r37-c1-vbwpl); the 3 others
+only got swap_remove for remove_NODE, missing it for remove_EDGE. Ported: shift_remove->swap_remove
+on the edges map. SAFE: edges-map STORAGE order is never observed (edges_ordered walks adjacency/
+succ_indices and looks pairs up by key; COO exporters are triple-order-irrelevant; weighted_size sums
+are order-insensitive) — and remove_node already swap_removes the SAME map under full conformance, so
+the invariant is committed. Multigraph INNER bucket keeps shift_remove (per-pair key order IS observed
+by edges(keys=True); nx preserves surviving-key insertion order). Byte-EXACT: 120/120 differential
+(random build + mixed (u,v)/(u,v,key) removals + non-existent skips + re-add/slot-reuse, all 4 types)
++ targeted MG/MDG middle-key-removal order preserved.
+
+(2) BLOCKER (residual, dominant) — the fix did NOT move the Python-facing remove_edges_from ratio
+(still 0.016x). The O(|E|) that dominates the API path is NOT the edges-map shift: it is the
+Python-wrapper `_invalidate_adjacency_row_caches(self)` (called once per batch, walks the cached
+adjacency-row dict) and/or a still-unlocalized per-edge O(|E|) in the DiGraph remove path — per-edge
+cost stayed 19-22us after the swap. The inner swap_remove is strict-work-removal (swap_remove does
+strictly less than shift_remove, never slower) and correct, and speeds up Rust-side remove-heavy
+callers that bypass the Python cache wrapper (double_edge_swap family), but the Python remove_edges_from
+gap needs the wrapper/per-edge O(|E|) localized next. NEXT LEVER: profile the exact 19us/edge split
+(native raw() vs _invalidate_adjacency_row_caches vs Python validation loop) on a SMALL per-crate bench.
