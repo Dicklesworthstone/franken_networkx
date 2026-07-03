@@ -6819,6 +6819,21 @@ impl PyMultiGraph {
                 .edge_keys(&u_canonical, &v_canonical)
                 .and_then(|keys| keys.last().copied()),
         };
+        // br-r37-c1-rmedge-oE (cc): capture the pair's INTERNAL bucket keys
+        // BEFORE removal so the pair-empty purge below can drop the exact
+        // mirror slots in O(bucket) instead of the O(|E|) scan over the whole
+        // edge_py_attrs/edge_py_keys maps. Only needed when a mirror exists and
+        // keys are identity-int (the common weighted add_edges_from case, where
+        // the mirror is keyed by the internal bucket key). Under key remapping
+        // the mirror can live under a public key not in the bucket, so that
+        // path keeps the exhaustive retain (see below).
+        let bucket_keys_before: Option<Vec<usize>> = if !self.has_remapped_int_key
+            && (!self.edge_py_attrs.is_empty() || !self.edge_py_keys.is_empty())
+        {
+            self.inner.edge_keys(&u_canonical, &v_canonical)
+        } else {
+            None
+        };
         let removed = auto_removal_key.is_some()
             && self
                 .inner
@@ -6858,15 +6873,31 @@ impl PyMultiGraph {
             // silently resurrects (add(0,0,attrs); remove; re-add showed the
             // old attrs — hypothesis fuzz catch). Exhaustive-by-pair removal
             // is exact regardless of which key space the entries used.
-            let (a, b) = if u_canonical <= v_canonical {
-                (u_canonical.clone(), v_canonical.clone())
+            //
+            // br-r37-c1-rmedge-oE (cc): the retain is O(|E|) over the WHOLE
+            // mirror and fired on EVERY pair-emptying removal — the dominant
+            // cost of weighted-MultiGraph remove_edges_from (O(k*|E|); MG
+            // weighted removal was 0.002x at scale). When keys are identity-int
+            // (!has_remapped_int_key) the mirror is keyed by exactly the
+            // internal bucket keys, so purging the captured bucket keys +
+            // removed_key drops every entry for the pair in O(bucket). Only the
+            // remapped case (mirror possibly under a public key not in the
+            // bucket) still needs the exhaustive scan.
+            if let Some(keys) = bucket_keys_before {
+                for k in keys {
+                    self.remove_edge_metadata(&u_canonical, &v_canonical, k);
+                }
             } else {
-                (v_canonical.clone(), u_canonical.clone())
-            };
-            self.edge_py_attrs
-                .retain(|(x, y, _), _| !(x == &a && y == &b));
-            self.edge_py_keys
-                .retain(|(x, y, _), _| !(x == &a && y == &b));
+                let (a, b) = if u_canonical <= v_canonical {
+                    (u_canonical.clone(), v_canonical.clone())
+                } else {
+                    (v_canonical.clone(), u_canonical.clone())
+                };
+                self.edge_py_attrs
+                    .retain(|(x, y, _), _| !(x == &a && y == &b));
+                self.edge_py_keys
+                    .retain(|(x, y, _), _| !(x == &a && y == &b));
+            }
         }
         self.bump_edges_seq();
         Ok(())

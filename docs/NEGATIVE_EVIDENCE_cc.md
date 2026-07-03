@@ -4147,3 +4147,36 @@ non-existent skips, re-add/slot-reuse) + MG/MDG middle-key-removal order preserv
 biggest measured gap of the session (55-60x slower) and is now within 2-3x of nx (residual = the
 multigraph per-pair bucket + PyO3 mirror maintenance, a much smaller floor). code already shipped in
 d947bf3fa; this entry corrects the (stale-binary) framing to record the real win.
+
+## 2026-07-02 CopperCliff SHIP: MultiGraph weighted remove_edge O(|E|)->O(1) — MG weighted removal 0.002x->0.32x (159x self at scale)
+
+Follow-up to the shift_remove->swap_remove remove_edge fix. After that, a scale probe (isolate removal,
+k=100, vary E, on the FRESH .venv binary) exposed a SECOND O(|E|) — SPECIFIC to undirected MultiGraph
+WITH edge attrs: MG weighted removal was 26.8/116.8/722.9 us/edge at E=6k/24k/96k (ratio 0.021x->0.008x
+->0.002x — 500x slower than nx at scale). MG unweighted, MDG (both weighted/unweighted), DG: all fine
+(~O(1)). The weighted-only + undirected-only signature localized it.
+
+ROOT: PyMultiGraph::remove_edge (lib.rs ~6866), when the last parallel key empties a (u,v) pair, purged
+the pair's mirror entries with `self.edge_py_attrs.retain(|(x,y,_),_| !(x==a && y==b))` +
+`edge_py_keys.retain(...)` — an O(|edge_py_attrs|)=O(|E|) scan over the WHOLE mirror, on EVERY
+pair-emptying removal. For a typical multigraph (single edge per pair) EVERY removal empties its pair ->
+O(k*|E|). It only fires when edge_py_attrs is populated (weighted), hence weighted-only. (MDG's
+remove_edge never had this exhaustive retain — it was already fine; only undirected MG.) The retain was
+a br-r37-c1-kuxuc correctness backstop: mirror entries can live under a key != removed_key when keys are
+REMAPPED (mirror under a public key not in the inner bucket); exhaustive-by-pair is exact regardless of
+key space.
+
+FIX (br-r37-c1-rmedge-oE): capture the pair's INTERNAL bucket keys BEFORE removal (only when
+!has_remapped_int_key AND a mirror exists), and on pair-empty drop exactly those `(a,b,k)` mirror slots
+via remove_edge_metadata — O(bucket) instead of O(|E|). When keys are identity-int the mirror is keyed
+by exactly the internal bucket keys (note_public_key_value flags ANY non-identity key str/float/bool/
+remapped as has_remapped_int_key=true), so the targeted purge is COMPLETE. The remapped case keeps the
+exhaustive retain (rare, O(|E|) acceptable). RESULT: MG weighted removal 26.8/116.8/722.9 ->
+2.01/3.25/4.55 us/edge (FLAT O(1), 159x self at E=96k), ratio 0.002x->0.32x (now == MG unweighted, the
+per-pair-bucket+PyO3 mirror floor). End-to-end MG remove_edges_from(weighted, incl construction)
+0.079x->0.642x. Byte-EXACT: 50/50 metamorphic resurrection (self-loop add(w)/remove/re-add, parallel
+remove-last/re-add, empty-then-readd-fresh, explicit-int-key, str/float-key remapped path, 40 random
+weighted MG/MDG) + 120/120 differential — the exact kuxuc/0a0uo fuzz patterns the exhaustive retain
+protected are covered and pass. LEVER: an O(|E|) full-mirror `retain` used as a correctness backstop ->
+capture the bucket keys before removal + gate the exhaustive scan behind the key-remap flag that is the
+ONLY source of key-space mismatch.
