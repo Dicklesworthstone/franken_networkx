@@ -12351,6 +12351,20 @@ def bfs_layers(G, sources):
     # returns a ``list_iterator`` (eagerly materialised); without
     # the wrapping yield-from, drop-in callers using
     # ``inspect.isgenerator`` saw a False where nx returned True.
+    # br-cc-descmg: on a MULTIGRAPH the raw kernel re-walks the parallel-edge
+    # adjacency (0.03x / ~35x slower than nx). A node's BFS layer is exactly its
+    # unweighted single_source_shortest_path_length distance, and that kernel is a
+    # fnx WIN and yields the dict in BFS-discovery order — so for a SINGLE source
+    # group it by distance (layer index ascending, discovery order within a layer,
+    # byte-identical to nx.bfs_layers). Multi-source keeps the raw kernel.
+    if single_node and G.is_multigraph():
+        _spl = single_source_shortest_path_length(G, sources_list[0])
+        _layers = {}
+        for _node, _dist in _spl.items():
+            _layers.setdefault(_dist, []).append(_node)
+        for _d in sorted(_layers):
+            yield _layers[_d]
+        return
     yield from _bfs_layers_raw(G, sources)
 
 

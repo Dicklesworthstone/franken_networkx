@@ -2,6 +2,23 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP: bfs_layers(single source) MultiGraph 0.03x->1.41x, MultiDiGraph 0.03x->1.46x — group single_source_shortest_path_length by distance
+
+Same class as the descendants/ancestors fix: on a MULTIGRAPH the raw `bfs_layers` kernel re-walks the
+parallel-edge adjacency (0.03x / ~35-40x slower than nx). A node's BFS layer is EXACTLY its unweighted
+`single_source_shortest_path_length` distance — and that kernel is a fnx WIN that yields the dict in
+BFS-discovery order. So for a SINGLE source, group the distance dict by value (layer index ascending,
+discovery order within a layer) — byte-identical to `nx.bfs_layers`. **MG 0.03x->1.41x, MDG 0.03x->1.46x**
+(~40x self, now WINS), byte-exact 3004/3004 (MG/MDG/Graph/DiGraph x disconnected..connected x single AND
+multi sources x missing-source/partial-missing NetworkXError parity) + 817 bfs conformance. Gated to
+single-source multigraphs; multi-source keeps the raw kernel, simple graphs unchanged (already 2.66x).
+LEVER (extends descendants/ancestors component route): a native BFS-family kernel slow on multigraphs
+(parallel-edge re-walk) whose result is an ORDER-INVARIANT function of BFS distance (layers / reachable set
+/ eccentricity) -> compute it from the fast `single_source_shortest_path_length` (unweighted BFS, a win)
+which already yields nx's discovery order. Other MG traversal laggards (Rust/tie-break, later): find_cycle
+with explicit source 0.08x, mst_edges MG 0.40x (nx-kruskal-over-fnx-views, not the conversion),
+single_target_shortest_path_length MDG 0.03x, single_source_shortest_path (PATHS) MDG 0.03x (tie-break).
+
 ## 2026-07-03 CopperCliff SHIP: descendants/ancestors on undirected MultiGraph 0.04x->1.48x — route to node_connected_component (native BFS re-walks parallel edges)
 
 A fresh MG tree/traversal sweep found `descendants`/`ancestors` on an UNDIRECTED MultiGraph at 0.04x (25-47x
