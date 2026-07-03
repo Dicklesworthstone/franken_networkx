@@ -8846,7 +8846,7 @@ impl PyDiGraph {
 
     fn collect_fresh_exact_int_attr_edge_batch<'py, I>(
         &self,
-        _py: Python<'py>,
+        py: Python<'py>,
         items: I,
         len: usize,
     ) -> PyResult<Option<DiIndexedAttrEdgeBatch>>
@@ -8857,7 +8857,13 @@ impl PyDiGraph {
         let mut node_indices: HashMap<i64, usize> = HashMap::with_capacity(node_capacity);
         let mut node_labels: Vec<String> = Vec::with_capacity(node_capacity);
         let mut node_objects: Vec<PyObject> = Vec::with_capacity(node_capacity);
-        let mut edges: Vec<(usize, usize, AttrMap)> = Vec::with_capacity(len);
+        let mut edges: Vec<(usize, usize, AttrMap, Option<Py<PyDict>>)> = Vec::with_capacity(len);
+        // br-r37-c1-batchattrorder (cc): a DUPLICATE edge in the batch means nx
+        // MERGES the attr dicts (dict.update: first-seen key order, last values).
+        // The store merges correctly but the ordered mirror would need the same
+        // multi-occurrence merge — decline to the per-edge path, which handles both
+        // merge and order exactly. Duplicates in a fresh batch are rare.
+        let mut seen_edges: HashSet<(i64, i64)> = HashSet::with_capacity(len);
         let mut node_bumps = 0_u64;
 
         for item in items {
@@ -8883,18 +8889,33 @@ impl PyDiGraph {
             let Ok(v_value) = v.extract::<i64>() else {
                 return Ok(None);
             };
+            // Directed: (u,v) and (v,u) are distinct edges.
+            if !seen_edges.insert((u_value, v_value)) {
+                return Ok(None);
+            }
 
             let third = tuple.get_item(2)?;
             let Ok(dict) = third.downcast::<PyDict>() else {
                 return Ok(None);
             };
-            let attrs = match single_weight_float_attr_map(dict) {
-                Ok(Some(attrs)) => attrs,
+            let (attrs, mirror) = match single_weight_float_attr_map(dict) {
+                // Single {'weight': float}: one key, order trivial -> no mirror.
+                Ok(Some(attrs)) => (attrs, None),
                 Ok(None) => {
-                    let Ok(attrs) = py_dict_to_attr_map(dict) else {
-                        return Ok(None);
-                    };
-                    attrs
+                    if dict.len() >= 2 {
+                        // br-r37-c1-batchattrorder (cc): >=2 keys -> retain the ORDERED
+                        // mirror so edges(data)/get_edge_data preserve nx insertion order
+                        // instead of the BTreeMap store's sorted keys.
+                        let Ok((attrs, m)) = py_dict_to_attr_map_with_mirror(py, dict) else {
+                            return Ok(None);
+                        };
+                        (attrs, Some(m))
+                    } else {
+                        let Ok(attrs) = py_dict_to_attr_map(dict) else {
+                            return Ok(None);
+                        };
+                        (attrs, None)
+                    }
                 }
                 Err(_) => return Ok(None),
             };
@@ -8931,7 +8952,7 @@ impl PyDiGraph {
             if edge_added_node {
                 node_bumps = node_bumps.wrapping_add(1);
             }
-            edges.push((u_index, v_index, attrs));
+            edges.push((u_index, v_index, attrs, mirror));
         }
 
         Ok(Some((node_labels, node_objects, edges, node_bumps)))
@@ -8942,7 +8963,7 @@ impl PyDiGraph {
         py: Python<'_>,
         node_labels: Vec<String>,
         node_objects: Vec<PyObject>,
-        edges: Vec<(usize, usize, AttrMap)>,
+        edges: Vec<(usize, usize, AttrMap, Option<Py<PyDict>>)>,
         node_bumps: u64,
         final_edge_bump: bool,
     ) -> PyResult<()> {
@@ -8961,7 +8982,17 @@ impl PyDiGraph {
         }
 
         let mut inner_edges = Vec::with_capacity(edge_count);
-        for (source_idx, target_idx, attrs) in edges {
+        for (source_idx, target_idx, attrs, mirror) in edges {
+            if let Some(m) = mirror {
+                // br-r37-c1-batchattrorder (cc): store the ORDERED mirror dict so
+                // edges(data)/get_edge_data preserve nx insertion order for multi-attr
+                // edges. Directed key = (source, target), NOT canonicalised.
+                let ek = (
+                    node_labels[source_idx].clone(),
+                    node_labels[target_idx].clone(),
+                );
+                self.edge_py_attrs.insert(ek, m);
+            }
             inner_edges.push((source_idx, target_idx, attrs));
         }
 
@@ -9644,7 +9675,12 @@ type DiAttrEdgeBatch = (
 type DiIndexedAttrEdgeBatch = (
     Vec<String>,
     Vec<PyObject>,
-    Vec<(usize, usize, AttrMap)>,
+    // br-r37-c1-batchattrorder (cc): the 4th slot is the ORDERED mirror PyDict,
+    // populated ONLY for multi-key (>=2) attr dicts. The store's AttrMap is a
+    // BTreeMap (sorted keys), so materialising edges(data)/get_edge_data from it
+    // alphabetises multi-attr dicts, diverging from nx's insertion order. Single-
+    // key/empty dicts have no order to preserve (None -> stay mirror-free/fast).
+    Vec<(usize, usize, AttrMap, Option<Py<PyDict>>)>,
     u64,
 );
 type MultiDiIndexedAttrEdgeBatch = (

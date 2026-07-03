@@ -4365,3 +4365,19 @@ float + post-mutation dirty path) + 5525 pytest (degree/size/flow_hierarchy/weig
 flow_hierarchy assertion now PASSES. No perf change (only the mirror-MISS arm reads the store now; the
 mirror-hit path is untouched). degree(nbunch,weight) was already correct (index-store reads). CORRECTNESS
 bug > perf: flow_hierarchy(weighted) went from a WRONG negative value to nx-exact.
+
+## 2026-07-02 CopperCliff CORRECTNESS FIX: simple Graph/DiGraph batch add_edges_from ALPHABETISED multi-attr edge keys (nx = insertion order)
+
+Found via the attr-preservation audit. AttrMap = BTreeMap<String,CgseValue> (sorted keys). Simple Graph/
+DiGraph batch add_edges_from (>=8, fresh) left the edge_py_attrs mirror EMPTY, so edges(data)/get_edge_data
+materialised MULTI-attr dicts from the sorted store -> alphabetical keys (alpha,color,cost,weight) vs nx's
+insertion order (weight,cost,color,alpha). Per-edge add_edge and both multigraph types were correct (they
+retain the ordered mirror; MultiDiIndexedAttrEdgeBatch already carried a Py<PyDict>, DiIndexedAttrEdgeBatch
+did not). FIX (br-r37-c1-batchattrorder): the batch tuple now carries an Option<Py<PyDict>> ordered mirror,
+populated ONLY for >=2-key dicts (single-key/weight-float stay mirror-free -> no perf cost) and stored in
+edge_py_attrs (directed key raw, undirected canonicalised). DUPLICATE edges in a batch -> nx merges attrs
+(dict.update); rather than replicate the multi-occurrence merge in the mirror, collect declines to the
+per-edge path on any duplicate (seen-edges HashSet; directed (u,v), undirected canonical) — rare in a fresh
+batch. Byte-exact 103/103 (order across 4 types x insertion orders x batch sizes + mixed single/multi + post-
+mutation) + 27/27 test_add_edges_attr_batch_parity (3 were failing) + values unchanged (size/to_numpy/
+flow_hierarchy). Perf: single-weight batch 1.56x, multi-attr 1.42x (both still BEAT nx). CORRECTNESS bug.
