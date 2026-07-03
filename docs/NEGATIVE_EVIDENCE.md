@@ -2,6 +2,22 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP: closeness_centrality(u, distance) MultiDiGraph 0.55x->2.55x — collapse BEFORE reversing (skip the expensive multigraph reverse)
+
+Single-source weighted closeness on a DIRECTED multigraph did `H = G.reverse()` then
+`single_source_dijkstra_path_length(H, u, distance)`. Split-probe: the `G.reverse()` alone was ~half the
+wall time — reversing a MultiDiGraph rebuilds a whole new multigraph (the nested-bucket construction floor),
+then single_source RE-collapses it. Fix: for the directed-multigraph case, collapse G to the simple
+min-weight graph FIRST (`_multigraph_collapse_min_weight`) and reverse THAT (a simple DiGraph — cheap, no
+parallels); bad weights (collapse declines) fall back to the original reverse-then-collapse path, preserving
+its exact contract. Incoming distances are byte-identical. **MDG 0.55x->2.55x (WIN)**, MG unchanged (0.62x —
+undirected never reverses, it's the single_source floor). Byte-exact 1440/1440 (MG/MDG/DiGraph/Graph x
+neg/+inf/nonnumeric x multiple u) + 371 closeness conformance. LEVER: when a routine does `expensive_reshape(G)`
+(reverse / to_undirected / relabel) THEN a collapse-capable shortest-path on the result, and the reshape is on
+a MULTIGRAPH, COLLAPSE FIRST then reshape the (cheap) simple graph — the reshape's cost is the multigraph
+construction floor, which the collapse erases. (Whole-graph closeness(distance, directed) has the same
+reverse — a follow-up.)
+
 ## 2026-07-03 CopperCliff SHIP: single_source_bellman_ford_path_length MultiGraph 0.45x->1.04x, MultiDiGraph 0.20x->0.60x — negative-allowing min-weight-collapse
 
 Extended the negative-allowing collapse to `single_source_bellman_ford_path_length`. It has a DIFFERENT

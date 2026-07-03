@@ -24837,7 +24837,17 @@ def closeness_centrality(
     # (negative / +inf / non-numeric weights raise/delegate identically), so bad
     # weights surface the same error as nx; clean weights give byte-exact sums.
     if u is not None and distance is not None and wf_improved and u in G:
-        H = G.reverse() if G.is_directed() else G
+        # br-cc-mgdijkstra: for a DIRECTED multigraph, reversing G builds a whole
+        # new multigraph (the nested-bucket construction floor, ~half the wall
+        # time). Collapse to the simple min-weight graph FIRST and reverse THAT
+        # (cheap, no parallels) — byte-identical incoming distances. Bad weights
+        # (collapse declines) fall back to the original reverse-then-collapse path
+        # inside single_source_dijkstra_path_length, preserving its exact contract.
+        if G.is_directed() and G.is_multigraph() and isinstance(distance, str):
+            _simple, _delegate = _multigraph_collapse_min_weight(G, distance)
+            H = G.reverse() if _delegate else _simple.reverse()
+        else:
+            H = G.reverse() if G.is_directed() else G
         sp = single_source_dijkstra_path_length(H, u, weight=distance)
         totsp = sum(sp.values())
         len_G = len(G)
