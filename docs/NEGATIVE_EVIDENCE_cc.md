@@ -4381,3 +4381,18 @@ per-edge path on any duplicate (seen-edges HashSet; directed (u,v), undirected c
 batch. Byte-exact 103/103 (order across 4 types x insertion orders x batch sizes + mixed single/multi + post-
 mutation) + 27/27 test_add_edges_attr_batch_parity (3 were failing) + values unchanged (size/to_numpy/
 flow_hierarchy). Perf: single-weight batch 1.56x, multi-attr 1.42x (both still BEAT nx). CORRECTNESS bug.
+
+## 2026-07-02 CopperCliff CORRECTNESS FIX: Graph/MultiGraph batch add_nodes_from ALPHABETISED multi-attr NODE keys (node analog of the edge fix)
+
+Found via the node-attr audit (sibling of the edge-attr-order fix). Same root: AttrMap=BTreeMap sorts keys.
+Graph/MultiGraph `add_attr_node_batch` (br-r37-c1-lazynodeattr) DROPPED the ordered src mirror
+(`nodes.into_iter().map(|(c,a,_)|(c,a))`) to save O(N) PyDict alloc, relying on lazy materialisation from
+the sorted store -> nodes(data)/nodes[n] returned MULTI-attr node dicts alphabetically vs nx insertion
+order. DiGraph/MultiDiGraph already carried the mirror (create empty dict + dict.update(src)) so they were
+correct. FIX (br-r37-c1-batchattrorder): create+update the ordered mirror ONLY for MULTI-attr (>=2 key)
+nodes (single-key/plain stay lazy -> single-attr construction stays at PARITY 0.96x); duplicate node in the
+batch declines to the per-node path (nx merges via dict.update; seen-node HashSet). Byte-exact 58/58 (node
+order x 4 types x insertion orders x batch sizes) + dup-node merge OK (all 4 types) + 4229 pytest + edge
+order still 103/103. PERF: single-attr add_nodes_from 0.96x (was 0.73x with the over-eager first pass, now
+parity), multi-attr 0.585x (the inherent double-storage cost — mirror for order + BTreeMap store for
+kernels; nx keeps one dict). CORRECTNESS > perf; the common single-attr path is untouched.

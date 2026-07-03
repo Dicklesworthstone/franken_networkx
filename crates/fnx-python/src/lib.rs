@@ -2373,10 +2373,14 @@ impl PyGraph {
             if self.plain_batch_display_conflict(py, &canonical, &node, &mut batch_first) {
                 return Ok(None);
             }
-            if seen_nodes.insert(canonical.clone()) {
+            if !seen_nodes.insert(canonical.clone()) {
+                // br-r37-c1-batchattrorder (cc): duplicate node -> nx merges attrs; decline to
+                // the per-node path (exact merge+order); the multi-attr mirror only keeps the
+                // last occurrence, so a per-node merge is required for correctness.
+                return Ok(None);
+                }
                 node_bumps = node_bumps.wrapping_add(1);
                 new_nodes.push((canonical.clone(), node.clone().unbind()));
-            }
             nodes.push((canonical, rust_attrs, src));
         }
 
@@ -2400,11 +2404,26 @@ impl PyGraph {
             self.node_key_map.entry(canonical.clone()).or_insert(node);
             self.node_iter_mirror_insert(py, &canonical)?;
         }
-        // br-r37-c1-lazynodeattr: do NOT eagerly alloc+copy a mirror PyDict per
-        // node — the values are already parsed into the inner AttrMap below, and
-        // materialize_node_py_attrs now builds the mirror lazily from the inner on
-        // first read (identity-preserving via or_insert cache). Drops O(N) PyDict
-        // alloc + dict-copy from attributed add_nodes_from construction.
+        // br-r37-c1-batchattrorder (cc): create+merge the ORDERED mirror for ATTR'd
+        // nodes. The store's AttrMap (BTreeMap) sorts keys, so lazy materialisation
+        // of nodes(data)/nodes[n] from it ALPHABETISED multi-attr dicts vs nx's
+        // insertion order. `dict.update(src)` preserves the src key order and merges
+        // duplicate-node attrs exactly like the per-node add_node sequence. Plain
+        // (attr-less) nodes stay mirror-free (empty -> order trivial), so single-
+        // weight bulk construction keeps the lazynodeattr win. Matches the DiGraph
+        // node batch, which already carried this.
+        for (canonical, _, src) in &nodes {
+            if let Some(src) = src {
+                let bound = src.bind(py);
+                if bound.len() >= 2 {
+                    let dict = self
+                        .node_py_attrs
+                        .entry(canonical.clone())
+                        .or_insert_with(|| PyDict::new(py).unbind());
+                    dict.bind(py).update(bound.as_mapping())?;
+                }
+            }
+        }
         let _inserted = self
             .inner
             .extend_nodes_with_attrs_unrecorded(nodes.into_iter().map(|(c, a, _)| (c, a)));
@@ -3674,10 +3693,14 @@ impl PyMultiGraph {
             if self.batch_display_conflict(py, &canonical, &node, &mut batch_first) {
                 return Ok(None);
             }
-            if seen_nodes.insert(canonical.clone()) {
+            if !seen_nodes.insert(canonical.clone()) {
+                // br-r37-c1-batchattrorder (cc): duplicate node -> nx merges attrs; decline to
+                // the per-node path (exact merge+order); the multi-attr mirror only keeps the
+                // last occurrence, so a per-node merge is required for correctness.
+                return Ok(None);
+                }
                 node_bumps = node_bumps.wrapping_add(1);
                 new_nodes.push((canonical.clone(), node.clone().unbind()));
-            }
             nodes.push((canonical, rust_attrs, src));
         }
 
@@ -3708,8 +3731,21 @@ impl PyMultiGraph {
                 let _ = self.node_iter_mirror_insert(py, &c);
             }
         }
-        // br-r37-c1-lazynodeattr: no eager per-node mirror — ensure_node_py_attrs
-        // builds it lazily from the inner AttrMap on first read.
+        // br-r37-c1-batchattrorder (cc): ordered mirror for ATTR'd nodes so
+        // nodes(data) preserves nx insertion order (the BTreeMap store sorts) +
+        // merges duplicate-node attrs. Plain nodes stay lazy. See PyGraph twin.
+        for (canonical, _, src) in &nodes {
+            if let Some(src) = src {
+                let bound = src.bind(py);
+                if bound.len() >= 2 {
+                    let dict = self
+                        .node_py_attrs
+                        .entry(canonical.clone())
+                        .or_insert_with(|| PyDict::new(py).unbind());
+                    dict.bind(py).update(bound.as_mapping())?;
+                }
+            }
+        }
         let _inserted = self
             .inner
             .extend_nodes_with_attrs_unrecorded(nodes.into_iter().map(|(c, a, _)| (c, a)));
