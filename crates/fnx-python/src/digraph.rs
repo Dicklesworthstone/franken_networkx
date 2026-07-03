@@ -11530,6 +11530,28 @@ impl PyDiGraph {
         Ok(self.materialize_edge_py_attrs(py, &u_c, &v_c).into_any())
     }
 
+    /// br-r37-c1-atlasget (cc): O(1) single-directed-edge live attr dict for
+    /// `AtlasView.__getitem__` (`G[u][v]` / `G.succ[u][v]` / `G.pred[u][v]`).
+    /// `u`/`v` are (source, target) — the Python caller orients them by row
+    /// kind (succ/adj: source=row_node; pred: source=neighbour). Returns `None`
+    /// when the directed edge is absent (caller raises `KeyError`), else the
+    /// SAME live `edge_py_attrs` dict `_native_successor_row_dict(u)[v]` yields.
+    /// Skips the O(degree) row-keydict build for a single access.
+    fn _fnx_edge_attr_dict_fast(
+        &mut self,
+        py: Python<'_>,
+        u: &Bound<'_, PyAny>,
+        v: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<Py<PyDict>>> {
+        let u_c = node_key_to_string(py, u)?;
+        let v_c = node_key_to_string(py, v)?;
+        if !self.inner.has_edge(&u_c, &v_c) {
+            return Ok(None);
+        }
+        self.mark_edges_dirty();
+        Ok(Some(self.materialize_edge_py_attrs(py, &u_c, &v_c)))
+    }
+
     /// br-r37-c1-sjf4t: push the per-node and per-edge Python attribute
     /// dicts back into the Rust ``inner`` graph. Called by Python-level
     /// wrappers before invoking native algorithms so post-creation

@@ -12204,6 +12204,31 @@ impl PyGraph {
         Ok(self.materialize_edge_py_attrs(py, &u_c, &v_c).into_any())
     }
 
+    /// br-r37-c1-atlasget (cc): O(1) single-edge live attr dict for
+    /// `AtlasView.__getitem__` (`G[u][v]`). Returns `None` when the edge is
+    /// absent (the Python caller raises `KeyError(v)` with the original key),
+    /// else the SAME live `edge_py_attrs` dict that
+    /// `_native_adjacency_row_dict(u)[v]` yields (materialize_edge_py_attrs is
+    /// the shared entry point, so identity + mutation-reflection are preserved).
+    /// Skips building the whole row keydict (O(degree)) for one edge access —
+    /// `G[u][v]` was 0.04x vs nx because AtlasView fell back to the row build.
+    /// Marks edges dirty exactly as the row-dict path does (the returned dict is
+    /// live + mutable).
+    fn _fnx_edge_attr_dict_fast(
+        &mut self,
+        py: Python<'_>,
+        u: &Bound<'_, PyAny>,
+        v: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<Py<PyDict>>> {
+        let u_c = node_key_to_string(py, u)?;
+        let v_c = node_key_to_string(py, v)?;
+        if !self.inner.has_edge(&u_c, &v_c) {
+            return Ok(None);
+        }
+        self.mark_edges_dirty();
+        Ok(Some(self.materialize_edge_py_attrs(py, &u_c, &v_c)))
+    }
+
     /// br-r37-c1-sjf4t: push the per-node and per-edge Python attribute
     /// dicts back into the Rust ``inner`` graph. Called by Python-level
     /// wrappers before invoking native algorithms so post-creation

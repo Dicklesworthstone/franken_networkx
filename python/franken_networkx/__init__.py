@@ -1509,6 +1509,34 @@ class AtlasView(_Mapping):
         # mutations reflect), so serve from it — pure-Python dict lookup, no PyO3
         # round-trip, identity-preserving. keydict[node] raises KeyError(node)
         # with the original key, matching nx's self._adj[u][v].
+        #
+        # br-r37-c1-atlasget (cc): serve from an ALREADY-WARM keydict (pure
+        # Python, covers iterated/repeated rows), else take a single-edge O(1)
+        # native fast path INSTEAD of building the whole row keydict. Distinct
+        # G[u][v] (the common `for u, v in G.edges(): G[u][v][...]` pattern) was
+        # 0.04x vs nx precisely because each cold access built u's entire row
+        # (O(degree)); the single-edge fetch returns the SAME live edge_py_attrs
+        # dict materialize_edge_py_attrs(u, v) caches, so identity + mutation
+        # reflection match the keydict path exactly.
+        owner = self._fnx_owner
+        cached = self._fnx_kd_cache
+        if cached is not None and owner is not None:
+            try:
+                if cached[0] == (owner.nodes_seq, owner.edges_seq):
+                    return cached[1][node]
+            except (AttributeError, TypeError):
+                pass
+        if owner is not None:
+            fast = getattr(owner, "_fnx_edge_attr_dict_fast", None)
+            if fast is not None:
+                hash(node)  # nx-shaped TypeError on unhashable, like dict lookup
+                if self._fnx_row_kind == "pred":
+                    d = fast(node, self._fnx_row_node)
+                else:
+                    d = fast(self._fnx_row_node, node)
+                if d is not None:
+                    return d
+                raise KeyError(node)
         keydict = self._keydict()
         if keydict is not None:
             return keydict[node]

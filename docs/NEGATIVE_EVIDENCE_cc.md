@@ -4215,3 +4215,33 @@ MEASUREMENT NOTE (load-bearing): benching node removal on 16k/96k WEIGHTED graph
 allocations per build) is GC-DOMINATED — naive timing swung 0.3ms..10ms for the SAME op. Must
 `gc.collect(); gc.disable()` around the timed region (re-enable after) for a stable signal. Sibling of
 [[feedback_maturin_stale_so_wrong_python]] / [[feedback_rch_bench_worker_noise]] — verify the substrate.
+
+## 2026-07-02 CopperCliff SHIP: G[u][v] edge-attr access 0.04x->0.18x (4.5x self) — single-edge fast path, kill the O(degree) row-keydict build
+
+Scale-probing attribute/access paths (fresh .venv binary, gc.disable()) surfaced the biggest CLEAN
+per-call gap outside node removal: `G[u][v]` (edge attr dict access) was 0.040-0.057x vs nx (20-25x
+slower), and `G[u][v]['k']=x` / `g.adj[u][v]` the same (both dominated by the `G[u][v]` getitem).
+ROOT: AtlasView.__getitem__ (Python) served every access from the row KEYDICT, and a COLD keydict is
+built by `_native_adjacency_row_dict(u)` = one PyO3 round-trip that materializes u's ENTIRE row
+{nbr: edge_dict} (O(degree)). For the common `for u, v in G.edges(): G[u][v][...]` pattern every access
+hits a distinct (cold) row -> O(degree) per single-edge access. Diagnosis: distinct G[u][v] 0.04x vs
+SAME-edge-repeated 0.27x (warm keydict) vs get_edge_data 0.17x (single-edge native) -> the row build is
+the cost.
+
+FIX (br-r37-c1-atlasget): new native `_fnx_edge_attr_dict_fast(u, v)` on PyGraph + PyDiGraph — O(1)
+single-edge live dict via the SHARED `materialize_edge_py_attrs` entry point (so identity + mutation
+reflection are byte-identical to the keydict path; marks edges dirty exactly as `_native_adjacency_row_
+dict` does). AtlasView.__getitem__ now: (a) serve from an ALREADY-WARM keydict (pure-Python, covers
+iterated/repeated rows — no regression), else (b) single-edge fast path on cold access (skip the row
+build), (c) keydict fallback for multigraph-inner / private-storage / view owners lacking the method.
+Directed succ/adj rows pass (row_node, node); pred rows pass (node, row_node). RESULT: distinct G[u][v]
+13-20us/access (O(degree)) -> 2.6-4.1us (flat O(1)); 0.04x -> 0.18x (G) / ~0.18x (DG), 4.5x self.
+Residual 0.18x = the per-call node_key_to_string x2 + PyO3 crossing floor (same as get_edge_data/has_edge).
+Byte-EXACT: 584/584 (identity G[u][v] is G[u][v] is get_edge_data, mutation reflection, KeyError(orig key)
+on missing, TypeError on unhashable, DiGraph succ/pred direction, 30-trial warm+cold differential vs nx) +
+3718 pytest (adjacency/atlas/edge-data/views/neighbors). MG/MDG use MultiAtlasView (unaffected). LEVER:
+single-element view access falling to whole-row/collection materialization -> add an O(1) single-element
+native getter that shares the materialization entry point (identity-safe), gate on a warm-cache check to
+keep iteration parity. (Sibling of [[reference_single_arg_fastpath_extend_to_list]].)
+NOTE: 1 pre-existing UNRELATED pytest failure (test_write_gexf...: find_induced_nodes/read_edgelist
+classify NX_DELEGATED) — a policy regression-lock, not touched by this change.
