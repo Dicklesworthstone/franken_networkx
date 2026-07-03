@@ -17086,6 +17086,11 @@ def ancestors(G, source):
     # directed (predecessor reachability) — see algorithms.rs::ancestors. The
     # previous undirected Python BFS over G[n] paid the per-neighbor PyO3 tax.
     # Returns a plain set (order-invariant) matching nx.
+    # br-cc-descmg: undirected multigraph -> connected component minus source (the
+    # native BFS is 0.03x there; ancestors == descendants on undirected). See
+    # descendants().
+    if not G.is_directed() and G.is_multigraph():
+        return node_connected_component(G, source) - {source}
     return _raw_ancestors(G, source)
 
 
@@ -17109,6 +17114,12 @@ def descendants(G, source):
     # BFS over the lazy AtlasView (per-neighbor PyO3 tax, ~5x slower than nx);
     # route it through the native kernel too. Returns a plain set (order-
     # invariant) matching nx.
+    # br-cc-descmg: on an UNDIRECTED MULTIGRAPH the native BFS re-walks the
+    # parallel-edge adjacency (0.03x / 25-47x slower than nx). descendants there
+    # is exactly the connected component minus source, and node_connected_component
+    # is a fnx WIN on multigraphs — route it through that.
+    if not G.is_directed() and G.is_multigraph():
+        return node_connected_component(G, source) - {source}
     return _raw_descendants(G, source)
 
 

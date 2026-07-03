@@ -2,6 +2,21 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP: descendants/ancestors on undirected MultiGraph 0.04x->1.48x — route to node_connected_component (native BFS re-walks parallel edges)
+
+A fresh MG tree/traversal sweep found `descendants`/`ancestors` on an UNDIRECTED MultiGraph at 0.04x (25-47x
+slower than nx; ~5ms vs 0.2ms), while the DIRECTED (MultiDiGraph) case WINS. Root: the native
+`_raw_descendants`/`_raw_ancestors` kernel does a component BFS via bfs_edges that RE-WALKS the parallel-edge
+adjacency on a multigraph. But on an UNDIRECTED graph descendants == ancestors == the connected component
+MINUS source, and `node_connected_component` is a fnx WIN on multigraphs. Route the undirected-multigraph
+case through it. **MG descendants 0.04x->1.48x, ancestors 0.04x->1.46x** (~37x self, now WINS), byte-exact
+2881/2881 (MG/MDG/Graph/DiGraph x disconnected..connected x sources + missing-source NetworkXError parity) +
+936 conformance. Gated to undirected multigraphs only — directed (MDG/DiGraph, native wins) and simple
+undirected (native fine) unchanged. LEVER: a native reachability/traversal kernel that re-walks parallel
+edges on a multigraph -> for the UNDIRECTED case reachability == the connected component (order-invariant set),
+so serve it from the fast native component kernel. Other MG traversal laggards from the sweep (later):
+find_cycle MG 0.08x, mst_edges MG 0.36x.
+
 ## 2026-07-03 CopperCliff SHIP: closeness_centrality(u, distance) MultiDiGraph 0.55x->2.55x — collapse BEFORE reversing (skip the expensive multigraph reverse)
 
 Single-source weighted closeness on a DIRECTED multigraph did `H = G.reverse()` then
