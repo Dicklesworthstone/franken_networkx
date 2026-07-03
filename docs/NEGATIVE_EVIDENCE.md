@@ -2,6 +2,20 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP (pure-Python): directed_edge_swap ~1.0x -> 1.80-1.96x — same batch-simulate lever as double_edge_swap, directed sibling
+
+Extended the double_edge_swap batch-simulate lever (b6d9f0f0c) to its directed sibling. `directed_edge_swap`
+had the same shape: per swap 6 PyO3 calls (2 directed has_edge + 4 add/remove), and it already diverges
+from nx's exact algorithm (uniform-pick; only the in/out-degree sequences owed). Fast path (gated on no
+edge attrs): simulate the whole swap sequence on a pure-Python DIRECTED edge-set (ordered `(u,v)` tuples —
+no min/max needed, type-safe by construction) with the IDENTICAL rng draws + skip/accept logic, apply the
+NET change via one remove_edges_from + one add_edges_from in a `finally` (exhaustion partial-apply parity).
+**~1.0x (parity) -> 1.80-1.96x** (~1.9x self); byte-exact vs the old per-call algorithm 40/40 + in/out-
+degree preservation + exhaustion + self-loop + attributed-graph slow-path fallback + 3 error contracts;
+299 swap conformance tests green. Pure-Python, no rebuild. The two edge-swap siblings that were parity/
+loss are now both clean beats; connected_double_edge_swap already wins 1.17-1.31x (nx's connectivity-check
+inner loop dominates, no restructure needed). CONFIRMS the lever generalises across the mutation-loop family.
+
 ## 2026-07-03 CopperCliff SHIP (pure-Python): double_edge_swap 0.73-0.75x -> 1.21-1.25x — simulate the swap sequence on a Python edge-set, apply the NET change in two batch calls
 
 Minors/quotients/contractions sweep found `double_edge_swap` as the laggard. It already had O(1)

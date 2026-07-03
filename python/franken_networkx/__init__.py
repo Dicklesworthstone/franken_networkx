@@ -35072,6 +35072,56 @@ def directed_edge_swap(G, *, nswap=1, max_tries=100, seed=None):
     if G.number_of_edges() < 2:
         return G
 
+    # br-cc-des-batch (directed sibling of double_edge_swap): the per-swap loop
+    # pays 6 PyO3 calls/swap (2 directed has_edge + 4 add/remove). fnx's swap
+    # already diverges from nx's exact algorithm (uniform-pick; only the in/out-
+    # degree sequences are owed), so when G has no edge attributes, simulate the
+    # whole swap sequence on a pure-Python directed edge-set (ordered (u,v)
+    # tuples — has_edge -> O(1) membership, no PyO3) with the IDENTICAL rng draws
+    # + skip/accept logic, then apply the NET change with two batch calls. The
+    # apply runs in a ``finally`` so a max_tries-exhaustion leaves the partial
+    # swaps (per-swap-path parity). Byte-identical final edge set (same rng, same
+    # accept boolean since ``(u, y) in edge_set`` == ``G.has_edge(u, y)``).
+    if not _graph_has_any_edge_attrs(G):
+        edges = list(G.edges())
+        n_edges = len(edges)
+        orig_set = set(edges)
+        edge_set = set(orig_set)
+        swaps_done = 0
+        tries = 0
+        try:
+            while swaps_done < nswap:
+                tries += 1
+                if tries > max_tries:
+                    raise NetworkXAlgorithmError(
+                        f"Maximum number of swap attempts ({tries}) exceeded "
+                        f"before desired swaps achieved ({nswap})."
+                    )
+                i1 = rng.randint(0, n_edges - 1)
+                i2 = rng.randint(0, n_edges - 1)
+                u, v = edges[i1]
+                x, y = edges[i2]
+                if u == x or v == y:
+                    continue
+                if u == y or x == v:
+                    continue
+                if (u, y) not in edge_set and (x, v) not in edge_set:
+                    edge_set.discard((u, v))
+                    edge_set.discard((x, y))
+                    edge_set.add((u, y))
+                    edge_set.add((x, v))
+                    edges[i1] = (u, y)
+                    edges[i2] = (x, v)
+                    swaps_done += 1
+        finally:
+            removed = list(orig_set - edge_set)
+            added = list(edge_set - orig_set)
+            if removed:
+                G.remove_edges_from(removed)
+            if added:
+                G.add_edges_from(added)
+        return G
+
     edges = list(G.edges())
     swaps_done = 0
     tries = 0
