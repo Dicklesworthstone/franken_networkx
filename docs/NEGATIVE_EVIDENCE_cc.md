@@ -4462,3 +4462,17 @@ ordered-mirror creation, same inherent cost as the fresh-batch multi-attr path).
 30/30 + 5677 pytest. NOTE: DiGraph (int-label index batch, digraph.rs 9082) + Graph scrambled-int
 (int-label, lib.rs 1613) still DECLINE multi-attr (0.376x) — narrower cases; the same retain-mirror
 (key from the int label, not index) is the remaining scoped follow-up.
+
+## 2026-07-02 CopperCliff PERF-RECOVERY complete: int-label existing-nodes batches retain ordered mirror — DiGraph from_dict multi-attr 0.376x->0.672x
+
+Completed the batch-attr-order family. The remaining int-label existing-nodes batches (Graph scrambled-int
+lib.rs 1644, DiGraph any-int digraph.rs 9082 — DiGraph has NO exact-int batch so ALL its from_dict/
+convert_node_labels multi-attr went through here) were still DECLINING >=2-key dicts (0.376x). Applied the
+retain-mirror pattern: thread Option<((String,String),Py<PyDict>)> (the canonical/directed LABEL pair as the
+key, since label != index for these batches) via py_dict_to_attr_map_with_mirror, store in edge_py_attrs;
+single-key/empty stay lazy; duplicate-edge decline (seen-set). RESULT: DiGraph from_dict_of_dicts multi-attr
+0.376x -> 0.672x; Graph scrambled-int likewise; order byte-exact (DiGraph/Graph-scrambled nodes-first =
+insertion order). Transform audit 30/30 + 6507 pytest. The ENTIRE batch-attr-order family (fresh +
+existing-exact-int + existing-int-label, edges + nodes, Graph+DiGraph) now preserves nx insertion order at
+~0.67-1.2x (multi-attr pays the inherent ordered-mirror creation; single-attr unchanged and >=nx). Bug
+family CLOSED.

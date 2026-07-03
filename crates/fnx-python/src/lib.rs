@@ -1641,11 +1641,13 @@ impl PyGraph {
     /// that map (one int hash, vs the String hashing of the general path). Bails
     /// on any non-int node, a 2-tuple/4-tuple, or an endpoint that is not an
     /// already-present node (this batch never creates nodes).
+    #[allow(clippy::type_complexity)]
     fn collect_existing_int_label_attr_edge_indices<'py, I>(
         &self,
+        py: Python<'py>,
         items: I,
         len: usize,
-    ) -> PyResult<Option<Vec<(usize, usize, AttrMap)>>>
+    ) -> PyResult<Option<Vec<(usize, usize, AttrMap, Option<((String, String), Py<PyDict>)>)>>>
     where
         I: IntoIterator<Item = Bound<'py, PyAny>>,
     {
@@ -1658,6 +1660,8 @@ impl PyGraph {
             label_to_index.insert(label, idx);
         }
         let mut edges = Vec::with_capacity(len);
+        // br-r37-c1-batchattrorder (cc): dup edge -> decline (nx merges); rare.
+        let mut seen_edges: HashSet<(usize, usize)> = HashSet::with_capacity(len);
         for item in items {
             let Ok(tuple) = item.downcast::<PyTuple>() else {
                 return Ok(None);
@@ -1686,17 +1690,27 @@ impl PyGraph {
             let Some(&v_index) = label_to_index.get(&v_value) else {
                 return Ok(None);
             };
+            if !seen_edges.insert((u_index, v_index)) {
+                return Ok(None);
+            }
             let third = tuple.get_item(2)?;
             let Ok(dict) = third.downcast::<PyDict>() else {
                 return Ok(None);
             };
-            // br-r37-c1-batchattrorder (cc): >=2-key dict -> decline to the order-
-            // preserving collect_attr_edge_batch path (see the exact-int twin).
-            if dict.len() >= 2 {
-                return Ok(None);
-            }
-            let Ok(attrs) = py_dict_to_attr_map(dict) else {
-                return Ok(None);
+            // br-r37-c1-batchattrorder (cc): >=2-key dict -> retain the ORDERED
+            // mirror keyed by the canonical LABEL pair (label != index here) so
+            // edges(data) preserves nx insertion order; single-key/empty stay lazy.
+            let (attrs, mirror) = if dict.len() >= 2 {
+                let Ok((attrs, m)) = py_dict_to_attr_map_with_mirror(py, dict) else {
+                    return Ok(None);
+                };
+                let ek = Self::edge_key(&u_value.to_string(), &v_value.to_string());
+                (attrs, Some((ek, m)))
+            } else {
+                let Ok(attrs) = py_dict_to_attr_map(dict) else {
+                    return Ok(None);
+                };
+                (attrs, None)
             };
             if attrs
                 .keys()
@@ -1704,7 +1718,7 @@ impl PyGraph {
             {
                 return Ok(None);
             }
-            edges.push((u_index, v_index, attrs));
+            edges.push((u_index, v_index, attrs, mirror));
         }
         Ok(Some(edges))
     }
@@ -1728,12 +1742,12 @@ impl PyGraph {
             if list.len() < INT_LABEL_ATTR_BATCH_MIN {
                 return Ok(false);
             }
-            self.collect_existing_int_label_attr_edge_indices(list.iter(), list.len())?
+            self.collect_existing_int_label_attr_edge_indices(py, list.iter(), list.len())?
         } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
             if tuple.len() < INT_LABEL_ATTR_BATCH_MIN {
                 return Ok(false);
             }
-            self.collect_existing_int_label_attr_edge_indices(tuple.iter(), tuple.len())?
+            self.collect_existing_int_label_attr_edge_indices(py, tuple.iter(), tuple.len())?
         } else {
             return Ok(false);
         };
@@ -1743,9 +1757,18 @@ impl PyGraph {
         let edge_bumps = u64::try_from(edges.len())
             .unwrap_or(u64::MAX)
             .wrapping_add(1);
+        // br-r37-c1-batchattrorder (cc): store the ordered mirror (canonical label
+        // key) for multi-attr edges so edges(data) keeps nx insertion order.
+        let mut store_edges: Vec<(usize, usize, AttrMap)> = Vec::with_capacity(edges.len());
+        for (u_index, v_index, attrs, mirror) in edges {
+            if let Some((ek, m)) = mirror {
+                self.edge_py_attrs.insert(ek, m);
+            }
+            store_edges.push((u_index, v_index, attrs));
+        }
         let _ = self
             .inner
-            .extend_existing_index_edges_with_attrs_unrecorded(edges);
+            .extend_existing_index_edges_with_attrs_unrecorded(store_edges);
         self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
         Ok(true)
     }
