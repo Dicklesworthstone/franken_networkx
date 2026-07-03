@@ -1544,6 +1544,14 @@ impl PyGraph {
             let Ok(dict) = third.downcast::<PyDict>() else {
                 return Ok(None);
             };
+            // br-r37-c1-batchattrorder (cc): a >=2-key dict must keep nx insertion
+            // order, but this index batch stores attrs in the sorted BTreeMap store
+            // with no ordered mirror -> decline so try_add_attr_edge_batch falls
+            // through to collect_attr_edge_batch (which retains the ordered mirror).
+            // Single-key/empty dicts have no order to preserve and stay on this fast path.
+            if dict.len() >= 2 {
+                return Ok(None);
+            }
             let Ok(attrs) = py_dict_to_attr_map(dict) else {
                 return Ok(None);
             };
@@ -1659,6 +1667,11 @@ impl PyGraph {
             let Ok(dict) = third.downcast::<PyDict>() else {
                 return Ok(None);
             };
+            // br-r37-c1-batchattrorder (cc): >=2-key dict -> decline to the order-
+            // preserving collect_attr_edge_batch path (see the exact-int twin).
+            if dict.len() >= 2 {
+                return Ok(None);
+            }
             let Ok(attrs) = py_dict_to_attr_map(dict) else {
                 return Ok(None);
             };

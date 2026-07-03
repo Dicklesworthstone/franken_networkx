@@ -9128,6 +9128,12 @@ impl PyDiGraph {
             let Ok(dict) = third.downcast::<PyDict>() else {
                 return Ok(None);
             };
+            // br-r37-c1-batchattrorder (cc): >=2-key dict -> decline so the
+            // dispatcher falls through to the order-preserving attr batch (this
+            // index batch would alphabetise multi-attr keys via the BTreeMap store).
+            if dict.len() >= 2 {
+                return Ok(None);
+            }
             let Ok(attrs) = crate::py_dict_to_attr_map(dict) else {
                 return Ok(None);
             };

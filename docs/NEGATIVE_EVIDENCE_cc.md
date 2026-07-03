@@ -4428,3 +4428,22 @@ instead of an empty dict. Byte-exact: pickle+deepcopy x 4 types x nodes-first/ed
 pickle audit (self-loop/parallel/multi-attr) + 1576 pickle/serialization pytest. Same mirror-vs-store bug
 class as flow_hierarchy (15099d2ff) but in the pickle serializer, and the WORST symptom yet (silent data
 loss on a std pickle/deepcopy). CORRECTNESS.
+
+## 2026-07-02 CopperCliff CORRECTNESS FIX: EXISTING-NODES batch add_edges_from also alphabetised multi-attr edge keys (from_dict_of_dicts / nodes-first)
+
+The batch edge-order fix (4c6c1fc80) only covered the FRESH batch (node_count==0). The EXISTING-NODES index
+batches — try_add_existing_exact_int_attr_edge_index_batch + try_add_existing_int_label_attr_edge_batch
+(lib.rs 1499/1613, digraph.rs 9082), used when nodes are pre-added (add_nodes_from(range) THEN
+add_edges_from, i.e. from_dict_of_dicts / convert_node_labels_to_integers / contracted_nodes / ego_graph /
+induced_subgraph.copy) — still stored multi-attr edges to the sorted BTreeMap store with NO ordered mirror
+("attrs stay LAZY... matching the fresh path" — but the fresh path was since fixed). So those transforms
+returned edges(data) with ALPHABETISED keys (cap,name,weight) vs nx (weight,cap,name). Simple Graph/DiGraph
+only (multigraphs kept order). FIX (br-r37-c1-batchattrorder): the 3 existing-nodes collects DECLINE on a
+>=2-key dict -> the dispatcher falls through to collect_attr_edge_batch (which retains the ordered mirror
+via create+update). Single-key/empty stay on the fast index path. Byte-exact: transform audit 30/30
+(convert_node_labels/contracted_nodes/ego_graph/induced_subgraph/relabel/freeze x 4 types) + 8229 pytest.
+PERF: single-attr from_dict_of_dicts 1.20x (unchanged); MULTI-attr from_dict_of_dicts 0.376x (REGRESSED from
+~1.2x — the decline routes multi-attr to the ~4x-slower String-keyed collect_attr_edge_batch). CORRECTNESS
+> perf, narrow case (multi-attr from_dict). FOLLOW-UP (scoped): retain the ordered mirror IN the index batch
+(thread Option<Py<PyDict>> for >=2-key, store under the int-label key) to recover the fast path — same
+pattern as the fresh-batch fix, avoids the decline.
