@@ -2,6 +2,36 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP (partial, pure-Python ceiling): tensor_product(edge-attr) 0.24x -> 0.42-0.57x — native structure + set_edge_attributes decorate, not add_edges_from of tuple-node edges
+
+Products sweep: UNWEIGHTED tensor/strong/lexico/cartesian WIN 3-6x (native kernel), but EDGE-attributed
+ones LOSE 0.24-0.38x. Split probe on weighted tensor (31ms): `add_edges_from` of the 6000 TUPLE-NODE
+product edges is 22.6ms — the tuple-node insertion floor; the paired-attr build is only ~1.1ms and the
+`dict()` copies only ~0.7ms. `_native_graph_product` bails on edge attrs (`return None` before calling
+the kernel) and drops to that Python `add_edges_from`. But the native `tensor_product_fast` kernel builds
+the STRUCTURE regardless of edge attrs, so build it natively then DECORATE the paired edge attrs with ONE
+`set_edge_attributes` (a per-edge attr SET on already-built edges, not a re-insertion). **0.24x ->
+0.42-0.57x** (~2x self), byte-exact 201/201 (directed/self-loop/node-attr/no-attr/multi-attr + multigraph
+fallback) + 248 product conformance. PARTIAL/ceiling: `set_edge_attributes` STILL pays tuple-node key
+resolution per edge, so it stays <1x and DEGRADES at scale (0.57x @ 6k edges -> 0.42x @ 20k); the full
+beat needs the Rust kernel to pair attrs by internal edge index (the documented "Rust dig"). Same lever
+applies to strong/lexico (also `_paired_edge_attrs`) and cartesian (single-operand attrs, `_edges_cross_
+nodes`/`_nodes_cross_edges` — different decoration) as follow-ups. LEVER (extends node-attr product fix
+dbce71884 to EDGES): native kernel bails on edge attrs but builds structure anyway -> build native +
+decorate edge attrs via one set_edge_attributes; ceiling is the tuple-node key-resolution floor.
+
+## 2026-07-03 CopperCliff RE-CONFIRM NO-SHIP (independent repro): steiner_tree de-delegation is parity-blocked AND not faster
+
+Independently reproduced the prior BlackThrush finding (20260621T-steiner-dedelegation-parityblocked-noship):
+copying nx's exact mehlhorn into pure Python over fnx-native multi_source_dijkstra + shortest_path is
+(a) PARITY-BLOCKED — mehlhorn keys on `s[v]=paths[v][0]` (nearest terminal), tie-break-dependent; my
+spanning-path builder happened to avoid ties (0/240) but the prior's watts graphs diverge 19/40 — a VALID
+different tree, and (b) NOT FASTER — 0.51-0.64x even in-process (fnx.multi_source_dijkstra's PATHS
+materialization negates the conversion saving). steiner_tree STAYS delegated. Also re-confirmed
+max_weight_matching (blossom) / treewidth_min_degree / louvain as native-kernel/stochastic floors, and
+that effective_graph_resistance/kemeny/group_betweenness "laggards" from an earlier sweep were build-
+inside-timing artifacts (really 1.0-2.1x).
+
 ## 2026-07-03 CopperCliff SHIP (pure-Python): max_weight_clique 0.48x -> 1.30-1.54x — nx's branch-and-bound run natively over precomputed adjacency, not the nx delegation
 
 `max_weight_clique` ALWAYS delegated to nx via `_fnx_to_nx` because the Rust binding solves max-
