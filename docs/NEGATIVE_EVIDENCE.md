@@ -2,6 +2,41 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff CAPSTONE (string-node floor CLOSED across all ops): every string-node laggard is the per-call canonicalise + PyO3-dispatch + fresh-hash floor — reverse-lookup PROVEN not-the-cost; only lever is architectural (integer-index storage / cached-hash key)
+
+Fresh string-node-keyed sweep (node names `'node_%d'`, 800n/6000m) to find a REDUCIBLE string lever (not
+the allocation floor already closed). Two laggards, both re-traced to the same architectural root:
+
+`G neighbors(x)` 0.54x (deg 15) — NEW proof the reverse-lookup is NOT the cost. It returns a
+`dict_keyiterator` (matches nx, no eager list). Split by degree: deg15 0.54x, deg100 0.71x — the ratio
+IMPROVES with degree, so the per-neighbor `node_key_map` String-hash reverse-lookup is fine (fnx ~6.4
+ns/neighbor == nx ~5.5). ITERATING the neighbors is 0.88x (near parity); only CREATING the iterator is 4x
+slower (fnx 89us vs nx 22us / 300 calls) — the FIXED per-call cost: canonicalise(x) + build the neighbor
+structure + PyO3 dispatch. So the index-based reverse-lookup idea (expose adj_indices + index a cached
+node-object tuple) would gain ~nothing — abandoned before implementing on this evidence.
+
+`G relabel(map)` (str->str) 0.76x — the relabeled graph is built add_nodes_from THEN add_edges_from, so H is
+NOT fresh when the edges go in; the fresh str index-remap batch (5c1f0f252) can't fire and the edges fall to
+the String-keyed general batch's per-endpoint `get_index_of` (String hash into the store). No faster str
+existing-node batch exists because the store IS keyed by the canonical String.
+
+CONSOLIDATED string-node floor evidence (all measured, all this session):
+- construction: per-attr slope 0-attr 0.99x (PARITY) -> 1-attr 0.43x; cost STRING-LENGTH-INVARIANT (short
+  key == long key) => NOT allocation; ~14 PyO3 crossings/edge for the dict->CgseValue conversion (9af303fa7).
+- has_node 0.24x / has_edge 0.18x: IMPLEMENTED a no-heap stack-buffer canonical -> tiny REGRESSION
+  (245->253ns); the safe from_utf8 revalidation exceeds the malloc saved (acf0bf1ef).
+- neighbors / relabel: this entry — fixed per-call canonicalise + PyO3, reverse-lookup proven fine.
+ROOT (invariant across every op): fnx keys its node/edge store by the CANONICAL String and must RE-DERIVE +
+RE-HASH it on every call across the PyO3 boundary; nx looks the raw Python object up in a dict and reuses its
+CACHED hash, and its adjacency dicts pre-exist so `neighbors`/`__contains__` build nothing. No allocator,
+interner, arena, small-string, perfect-hash, or reverse-lookup change touches this — ALL empirically ruled
+out (2 implemented-and-measured, 2 measured-by-invariance).
+ONLY remaining lever = ARCHITECTURAL: either key the store by the Python object + its cached hash (needs
+PyO3 inside the PyO3-free `fnx-classes`, a layering change) or integer-index node storage (dense int ids,
+object<->id via identity). Both are multi-crate rewrites, not scoped commits. RECOMMENDATION: stop
+re-attempting scoped string levers (this is the 3rd measured closure); the string-node floor is a settled
+architectural boundary — pursue it only as a deliberate storage-model project, else mine other domains.
+
 ## 2026-07-03 CopperCliff IMPLEMENTED-AND-MEASURED NEGATIVE: no-heap stack-buffer node canonical for has_node/has_edge is a tiny REGRESSION — the string-node lookup floor is fresh-canonicalise+fresh-hash+PyO3, NOT allocation (allocation line now empirically CLOSED)
 
 Directive asked to crush the string-node floor with an allocation primitive (interning / small-string /
