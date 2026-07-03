@@ -17885,6 +17885,26 @@ def astar_path_length(
             weight=weight,
             cutoff=cutoff,
         )
+    # br-cc-mgdijkstra: multigraph A* length -> collapse parallels to the simple
+    # min-weight graph (nx uses min weight per pair) + fast simple A* kernel. A*
+    # LENGTH is order-independent (unlike the path), so this is byte-exact. The
+    # helper's validation delegates non-numeric / negative / +inf, matching A*'s
+    # own weight-validity scans.
+    if G.is_multigraph() and isinstance(weight, str):
+        _simple, _delegate = _multigraph_collapse_min_weight(G, weight)
+        if _delegate:
+            return _call_networkx_for_parity(
+                "astar_path_length",
+                G,
+                source,
+                target,
+                heuristic=heuristic,
+                weight=weight,
+                cutoff=cutoff,
+            )
+        return astar_path_length(
+            _simple, source, target, heuristic=heuristic, weight=weight, cutoff=cutoff
+        )
     # br-r37-c1-astgate: sync inner ONCE, then only run the O(|E|) negative/
     # inf/nonnumeric weight scans when the graph actually carries the weight
     # attribute. Each scan previously re-synced (4x redundant sync) and ran

@@ -2,6 +2,21 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP: astar_path_length MultiGraph 0.19x->0.59x, MultiDiGraph 0.09x->0.18x — min-weight-collapse lever (distance func) reused for A*
+
+Continued the multigraph distance-function sweep: `astar_path_length` MG 0.19x / MDG 0.09x (native A* kernel
+slow on multigraphs, same as dijkstra). A* LENGTH is order-independent, so the shared
+`_multigraph_collapse_min_weight` helper applies verbatim: collapse parallels to the simple min-weight graph
+(A*'s weight-validity semantics — delegate non-numeric/negative/+inf — match the helper's exactly) and run
+the fast simple A* kernel. **MG 0.19x->0.59x, MDG 0.09x->0.18x** (3x/2x self), byte-exact 1600/1600
+(MG/MDG x int/float weights x heuristic None/zero x targets x valid/neg/+inf/nonnumeric) + 108 astar conf.
+Multigraph distance-dijkstra family now collapse-fixed: single_source_dijkstra_path_length,
+dijkstra_path_length, astar_path_length. NOT done (function-specific): `bellman_ford_path_length` MG 0.32x /
+MDG 0.14x needs a NEGATIVE-ALLOWING collapse (bellman-ford keeps negatives, delegates only NaN/inf/nonnumeric
+via `_should_delegate_bellman_ford_path_to_networkx`) — a separate fused validate+collapse, deferred. PATH
+funcs still excluded (tie-breaking, b802abed1). Other MG weighted sweeps: all_pairs_bellman/johnson/resistance
+WIN, eccentricity ~0.76x (tiny/noise).
+
 ## 2026-07-03 CopperCliff SHIP: dijkstra_path_length MultiGraph 0.16x->0.58x, MultiDiGraph 0.08x->0.19x — extend the min-weight-collapse lever (distance funcs only; PATH funcs diverge on tie-breaking)
 
 Extended the multigraph min-weight-collapse (0ac2a1a44) to the other lagging dijkstra entry points, via a
