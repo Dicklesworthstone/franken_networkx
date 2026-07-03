@@ -21425,6 +21425,26 @@ def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
     G = _coerce_arg_to_fnx_graph(G)
     # br-dijkignoreweight: Rust path ignores weights; delegate.
     if cutoff is not None:
+        # br-cc-mgdijkstra: for a multigraph, collapse to the simple min-weight
+        # graph ONCE and run per-source dijkstra on it — calling
+        # single_source_dijkstra_path_length per node would re-collapse the whole
+        # graph N times (all_pairs_dijkstra_path_length(cutoff) on MDG was 0.01x /
+        # 100x slower). Length is order-independent so the collapse is byte-exact.
+        if G.is_multigraph() and isinstance(weight, str):
+            _simple, _delegate = _multigraph_collapse_min_weight(G, weight)
+            if _delegate:
+                yield from _call_networkx_for_parity(
+                    "all_pairs_dijkstra_path_length", G, cutoff=cutoff, weight=weight
+                )
+                return
+            for node in G:
+                yield (
+                    node,
+                    _raw_single_source_dijkstra_path_length(
+                        _simple, node, weight=weight, cutoff=cutoff
+                    ),
+                )
+            return
         for node in G:
             yield (
                 node,

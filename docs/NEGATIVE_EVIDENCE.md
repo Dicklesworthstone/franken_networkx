@@ -2,6 +2,22 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP: all_pairs_dijkstra_path_length(cutoff) MultiGraph 0.12x->1.85x, MultiDiGraph 0.01x->0.54x — collapse the multigraph ONCE, not per source
+
+The cutoff branch of `all_pairs_dijkstra_path_length` calls `single_source_dijkstra_path_length` per node.
+Once single_source got the MG min-weight collapse (0ac2a1a44), this re-collapsed the WHOLE multigraph N
+times inside the loop — MDG all_pairs(cutoff) went to 0.01x (100x slower than nx, ~N x collapse-build). Fix:
+for a multigraph, collapse ONCE up front (`_multigraph_collapse_min_weight`) then run
+`_raw_single_source_dijkstra_path_length` per source on the shared simple graph. Length is order-independent
+so byte-exact; bad weights delegate the whole call (the helper's validation). **MG 0.12x->1.85x (now a WIN),
+MDG 0.01x->0.54x (54x self)**, byte-exact 960/960 (MG/MDG x int/float x cutoff int/float/None x
+valid/neg/+inf/nonnumeric) + 2100 all_pairs/dijkstra/shortest_path conformance. LEVER (self-inflicted-regression
+class): when you add a per-call collapse/conversion to a single-source primitive, GREP its callers for loops
+that invoke it per node/source — hoist the collapse out of the loop (collapse once, reuse). Other MG laggards
+from the same sweep for a later pass: single_source_bellman_ford_path_length 0.45x/0.20x + bellman_ford_
+predecessor_and_distance 0.38x/0.25x (bellman distance/pred — negative-allowing collapse, pred is tie-break-
+risky) ; closeness_centrality(distance) 0.57x (uses single-source shortest path).
+
 ## 2026-07-03 CopperCliff SHIP: shortest_path_length(MultiGraph, source) 0.45x->0.74x, MDG 0.25x->0.38x — drop the redundant O(|E|) dijkstra gate (downstream collapse already validates)
 
 `shortest_path_length` on a weighted multigraph ran the O(|E|) `_should_delegate_dijkstra_to_networkx` gate
