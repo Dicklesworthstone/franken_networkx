@@ -2,6 +2,33 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff IMPLEMENTED-AND-MEASURED NEGATIVE: no-heap stack-buffer node canonical for has_node/has_edge is a tiny REGRESSION — the string-node lookup floor is fresh-canonicalise+fresh-hash+PyO3, NOT allocation (allocation line now empirically CLOSED)
+
+Directive asked to crush the string-node floor with an allocation primitive (interning / small-string /
+arena / perfect-hash). Instead of predicting, I BUILT one and measured it. Added `StackCanon` (a 48-byte
+`fmt::Write` stack buffer) + `with_node_canonical`, building the int/short-str node canonical with ZERO
+heap allocation, and routed the read-hot `has_node` / `__contains__` / plain `has_edge` (PyGraph) through
+it. Byte-exact 423/423 (int/str/longstr/float/float-as-int/tuple/bool/neg + str-vs-int collision + present/
+absent + reversed undirected + DiGraph). Stash `stash@{0}` (NOSHIP artifact, kept).
+
+SAME-SESSION before/after (build HEAD, measure; apply, measure; N=4000 lookups, min-of-30 x4 trials):
+  has_node str : HEAD 245 ns  ->  stack-canon 253 ns
+  has_node int : HEAD 227 ns  ->  stack-canon 231 ns
+  has_edge str : HEAD 416 ns  ->  stack-canon 430 ns
+A tiny REGRESSION, not a win. Removing the per-lookup heap allocation gained nothing measurable, and the
+safe `str::from_utf8` re-validation the buffer needs (the crate is `#![forbid(unsafe_code)]`, so
+`from_utf8_unchecked` is out) plus the closure indirection cost slightly MORE than the malloc it removed.
+
+This EMPIRICALLY CLOSES the allocation-primitive line for the string-node floor (last turn's length-
+invariance test already ruled it out for attributed construction; this is the direct implement-and-measure
+proof for the single-call lookup path). has_node is 0.24x / has_edge ~0.18x because fnx keys its node/edge
+store by the CANONICAL String and must RE-DERIVE + RE-HASH that key on every call, while nx looks the raw
+Python node object up in a dict and reuses the object's CACHED hash (Python caches str/-int hashes) — never
+re-deriving. The gap is PyO3 dispatch + canonicalisation + a fresh hash, none of which an allocator touches.
+The only true levers are architectural: (a) key the store by the Python object + its cached hash, which
+requires PyO3 inside the PyO3-free `fnx-classes` (layering break), or (b) integer-index node storage. Do
+NOT re-attempt interning / small-string / arena / perfect-hash here — all four are now measured dead ends.
+
 ## 2026-07-03 CopperCliff SCOPED BLOCKER (measured): the attributed-construction floor is PyO3-CONVERSION-bound, NOT allocation-bound — interning / small-string / arena / perfect-hash all RULED OUT empirically; the only lever is a lazy CgseValue store (deep, layering-breaking)
 
 Continuing the string-node momentum after the str-node-id-remap ship (5c1f0f252, which equalised str+attr
