@@ -34939,6 +34939,60 @@ def double_edge_swap(G, nswap=1, max_tries=100, seed=None):
     # instance. Detect that and reuse the pre-built RNG so the dispatch
     # path doesn't crash on ``Random.Random(<Random>)``.
     rng = seed if isinstance(seed, _random.Random) else _random.Random(seed)
+
+    # br-cc-des-batch: the per-swap path pays 6 PyO3 calls/swap (2 has_edge +
+    # 4 add/remove) — the per-call mutation floor in a loop (0.49x vs nx). When
+    # G carries no edge attributes, simulate the WHOLE swap sequence on a
+    # pure-Python edge set (``has_edge`` -> O(1) frozenset membership, no PyO3)
+    # with the IDENTICAL rng draw pattern + uniform-edge-pick + acceptance
+    # logic, then apply the NET structural change to G with two batch calls.
+    # Byte-identical swap sequence and final edge list to the per-swap path
+    # (same rng, same accept test). Gated on no-edge-attrs: an edge removed and
+    # later re-added would keep its original attrs under net-apply but be fresh
+    # under the per-swap path — irrelevant when there are no edge attrs. The
+    # net change is applied in a ``finally`` so a max_tries-exhaustion still
+    # leaves G with the partial swaps done (matching the per-swap in-place path).
+    if not _graph_has_any_edge_attrs(G):
+        edges = list(G.edges())
+        n_edges = len(edges)
+        orig_set = {frozenset(e) for e in edges}
+        edge_set = set(orig_set)
+        swaps_done = 0
+        tries = 0
+        max_attempts = max_tries
+        try:
+            while swaps_done < nswap:
+                if tries >= max_attempts:
+                    raise NetworkXAlgorithmError(
+                        f"Maximum number of swap attempts ({tries}) exceeded "
+                        f"before desired swaps achieved ({nswap})."
+                    )
+                tries += 1
+                i1 = rng.randint(0, n_edges - 1)
+                i2 = rng.randint(0, n_edges - 1)
+                u, v = edges[i1]
+                x, y = edges[i2]
+                if len({u, v, x, y}) < 4:
+                    continue
+                ex1 = frozenset((u, x))
+                ex2 = frozenset((v, y))
+                if ex1 not in edge_set and ex2 not in edge_set and u != x and v != y:
+                    edge_set.discard(frozenset((u, v)))
+                    edge_set.discard(frozenset((x, y)))
+                    edge_set.add(ex1)
+                    edge_set.add(ex2)
+                    edges[i1] = (u, x)
+                    edges[i2] = (v, y)
+                    swaps_done += 1
+        finally:
+            removed = [tuple(e) for e in (orig_set - edge_set)]
+            added = [tuple(e) for e in (edge_set - orig_set)]
+            if removed:
+                G.remove_edges_from(removed)
+            if added:
+                G.add_edges_from(added)
+        return G
+
     edges = list(G.edges())
     swaps_done = 0
     tries = 0

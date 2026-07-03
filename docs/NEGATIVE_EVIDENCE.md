@@ -2,6 +2,34 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP (pure-Python): double_edge_swap 0.73-0.75x -> 1.21-1.25x — simulate the swap sequence on a Python edge-set, apply the NET change in two batch calls
+
+Minors/quotients/contractions sweep found `double_edge_swap` as the laggard. It already had O(1)
+edge-list slot updates but still paid 6 PyO3 calls PER SWAP (2 `has_edge` + 4 `add/remove_edge`) — the
+per-call mutation floor inside a loop. fnx's swap already DIVERGES from nx's degree-CDF algorithm
+(uniform-edge-pick; only the degree sequence is owed, not exact output), which gives room to change HOW
+the swaps are realised. Fast path (gated on no edge attrs): simulate the ENTIRE swap sequence on a
+pure-Python `edge_set` of `frozenset`s (`has_edge` -> O(1) membership, no PyO3) with the IDENTICAL rng
+draw pattern + uniform-pick + acceptance test, then apply the NET structural change to G with one
+`remove_edges_from` + one `add_edges_from`. The net change is applied in a `finally` so a
+max_tries-exhaustion still leaves G with the partial swaps done (matching the per-swap in-place path).
+Byte-identical final edge set to the per-swap path (same rng, same accept boolean since
+`frozenset((u,x)) in edge_set` == `G.has_edge(u,x)` at every step). **0.73-0.75x -> 1.21-1.25x**
+(~1.7x self), byte-exact vs the old per-call algorithm 40/40 + degree-preservation + exhaustion
+partial-apply parity + attributed-graph slow-path fallback + 4 error contracts; 115 edge-swap/
+seed-parity + 837 broader conformance tests green. `frozenset` keys (not min/max tuples) keep it
+type-safe for non-comparable/mixed node labels. Pure-Python, no rebuild.
+
+LEVER: an in-place mutation LOOP that pays N per-call PyO3 ops per iteration (has_edge/add/remove) can
+be simulated on a pure-Python mirror (structure only, no PyO3) and applied as ONE net batch — when the
+op's exact intermediate state is not observable (only the final graph is) and the rng/accept logic is
+replicated bit-for-bit. Gate on no-edge-attrs so a removed-then-readded edge's attrs can't diverge.
+BENCH TRAP (cost a wrong 0.49x/0.78x reading): `double_edge_swap` MUTATES IN PLACE, so a fresh graph is
+needed per rep — building it INSIDE the timed lambda charges the O(V+E) construction (comparable to the
+swap time) to the op. Build OUTSIDE the timed region (fresh graph per rep, time only the swap): the
+same op read 0.49x contaminated vs 1.2x clean. Add to the substrate checklist: in-place-mutation benches
+must build outside timing.
+
 ## 2026-07-03 CopperCliff SHIP (pure-Python): condensation 0.59-0.70x -> 1.22-2.29x — build over the fast native SCC (which is already nx-ordered) instead of the members-materialising native kernel
 
 Continued the less-common-algorithm sweep (3 more batches, ~90 funcs: approximation, covering,
