@@ -20755,6 +20755,18 @@ def bellman_ford_path_length(G, source, target, weight="weight"):
     G = _coerce_arg_to_fnx_graph(G)
     hash(source)
     hash(target)
+    # br-cc-mgdijkstra: multigraph Bellman-Ford LENGTH -> collapse parallels to the
+    # simple min-weight graph (nx uses min weight per pair; length is order-
+    # independent) + fast simple kernel. The fused validate+collapse replaces the
+    # slow native multigraph kernel AND the two O(|E|) Python gate scans, keeping
+    # negatives (valid for Bellman-Ford) and delegating only NaN/inf/nonnumeric.
+    if G.is_multigraph() and isinstance(weight, str):
+        _simple, _delegate = _multigraph_collapse_min_weight_bellman(G, weight)
+        if _delegate:
+            return _call_networkx_for_parity(
+                "bellman_ford_path_length", G, source, target, weight=weight
+            )
+        return bellman_ford_path_length(_simple, source, target, weight=weight)
     if _should_delegate_bellman_ford_path_to_networkx(G, weight):
         return _call_networkx_for_parity(
             "bellman_ford_path_length", G, source, target, weight=weight
@@ -21173,6 +21185,36 @@ def _multigraph_collapse_min_weight(G, weight):
         if isinstance(_val, _numbers.Real) and not _math.isnan(_val):
             if _val < 0 or (_math.isinf(_val) and _val > 0):
                 return None, True
+        _pair = (_u, _v)
+        _cur = best.get(_pair)
+        if _cur is None or _val < _cur:
+            best[_pair] = _val
+    simple.add_edges_from((_u, _v, {weight: _w}) for (_u, _v), _w in best.items())
+    return simple, False
+
+
+def _multigraph_collapse_min_weight_bellman(G, weight):
+    """br-cc-mgdijkstra: Bellman-Ford variant of the min-weight collapse. Bellman-Ford
+    KEEPS negative weights (valid), so validate + delegate only on NaN / +/-inf /
+    non-numeric — the exact multigraph predicate of
+    ``_should_delegate_bellman_ford_path_to_networkx`` (``_has_nan_or_inf_edge_weight``
+    OR ``_has_nonnumeric_edge_weight``). One pass: returns ``(None, True)`` to delegate,
+    else ``(simple_min_weight_graph, False)``. Negatives (and hence negative cycles) are
+    preserved by the per-pair min, so NetworkXUnbounded detection stays byte-exact."""
+    simple = DiGraph() if G.is_directed() else Graph()
+    simple.add_nodes_from(G)
+    best = {}
+    for _u, _v, _k, _attrs in G.edges(keys=True, data=True):
+        if isinstance(_attrs, dict) and weight in _attrs:
+            _value = _attrs[weight]
+            if not isinstance(_value, bool):
+                if not isinstance(_value, _numbers.Real):
+                    return None, True
+                if isinstance(_value, float) and (
+                    _math.isnan(_value) or _math.isinf(_value)
+                ):
+                    return None, True
+        _val = _attrs.get(weight, 1)
         _pair = (_u, _v)
         _cur = best.get(_pair)
         if _cur is None or _val < _cur:

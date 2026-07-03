@@ -2,6 +2,21 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP: bellman_ford_path_length MultiGraph 0.32x->0.96x, MultiDiGraph 0.14x->0.61x — negative-allowing min-weight-collapse
+
+Landed the deferred Bellman-Ford case of the multigraph min-weight-collapse. Bellman-Ford KEEPS negative
+weights (unlike dijkstra/A*), so a dedicated `_multigraph_collapse_min_weight_bellman` helper validates +
+delegates only NaN / +/-inf / non-numeric (the exact multigraph predicate of
+`_should_delegate_bellman_ford_path_to_networkx` = `_has_nan_or_inf_edge_weight` OR
+`_has_nonnumeric_edge_weight`) while preserving negatives via the per-pair min. Fused validate+collapse
+(replacing the two O(|E|) Python gate scans + the slow native multigraph kernel) then the fast simple kernel.
+**MG 0.32x->0.96x (near parity), MDG 0.14x->0.61x** (3-4.4x self). Byte-exact 2400/2400 (MG/MDG x int/float x
+with-negatives x NaN/+inf/-inf/nonnumeric x targets — incl. NetworkXUnbounded negative-cycle parity, since
+the per-pair min preserves negative cycles) + 422 bellman conformance. Multigraph distance shortest-path
+family now collapse-fixed: single_source_dijkstra_path_length, dijkstra_path_length, astar_path_length,
+bellman_ford_path_length. Remaining: PATH-returning funcs (tie-breaking, excluded) + a native MG
+weight-scan (Rust) to erase the residual O(|E|) Python validation.
+
 ## 2026-07-03 CopperCliff SHIP: astar_path_length MultiGraph 0.19x->0.59x, MultiDiGraph 0.09x->0.18x — min-weight-collapse lever (distance func) reused for A*
 
 Continued the multigraph distance-function sweep: `astar_path_length` MG 0.19x / MDG 0.09x (native A* kernel
