@@ -2,6 +2,21 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP: shortest_path_length(MultiGraph, source) 0.45x->0.74x, MDG 0.25x->0.38x — drop the redundant O(|E|) dijkstra gate (downstream collapse already validates)
+
+`shortest_path_length` on a weighted multigraph ran the O(|E|) `_should_delegate_dijkstra_to_networkx` gate
+(no native multigraph variant) AND THEN dispatched to `dijkstra_path_length` / `single_source_dijkstra_path_length`,
+which — after the collapse ships (0ac2a1a44..fdb16574a) — ALREADY validate + delegate bad weights via the
+min-weight collapse. So the upfront gate was DOUBLE O(|E|) work (shortest_path_length(MG,source) 0.45x vs the
+collapse funcs' 0.58x). Skip the gate ONLY for `G.is_multigraph() and source is not None` (the source-given
+dispatch routes through the validating collapse funcs); the source-less all_pairs dispatch STILL needs the gate
+(all_pairs_dijkstra does NOT self-validate — skipping it broke neg/nonnumeric weights: 227 mismatches ->
+restricted to source-given -> 1280/1280 byte-exact incl. simple-graph no-regression + neg/+inf/nonnumeric x
+source/source+target/target-only/neither). MG spl(src) 0.45x->0.74x, spl(src,tgt) 0.40x->0.48x; MDG 0.25x->0.38x,
+0.23x->0.31x. +2288 shortest_path/eccentricity/dijkstra conformance. Also lifts every shortest_path_length
+caller (eccentricity etc.). TEST TRAP: the "neither" dispatch returns a GENERATOR — comparing generator objects
+(not materialised) gave 142 false mismatches on graphs my edit never touched; always materialise before diffing.
+
 ## 2026-07-03 CopperCliff SHIP: bellman_ford_path_length MultiGraph 0.32x->0.96x, MultiDiGraph 0.14x->0.61x — negative-allowing min-weight-collapse
 
 Landed the deferred Bellman-Ford case of the multigraph min-weight-collapse. Bellman-Ford KEEPS negative

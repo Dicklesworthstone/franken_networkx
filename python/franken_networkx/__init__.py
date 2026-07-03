@@ -8792,7 +8792,19 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
         )
 
     if weight is not None:
-        if method == "dijkstra" and _should_delegate_dijkstra_to_networkx(G, weight):
+        # br-cc-mgdijkstra: for a MULTIGRAPH with a SOURCE given, the dijkstra
+        # weight-validity gate is redundant — the dispatch routes through
+        # dijkstra_path_length / single_source_dijkstra_path_length, which already
+        # validate + delegate bad weights via the min-weight collapse, so running
+        # the O(|E|) gate too (no native multigraph variant) was DOUBLE work
+        # (shortest_path_length(MG,source) 0.45x vs the collapse funcs' 0.58x).
+        # Skip it only there; the source-less all_pairs dispatch still needs the gate.
+        _mg_source_collapse = G.is_multigraph() and source is not None
+        if (
+            method == "dijkstra"
+            and not _mg_source_collapse
+            and _should_delegate_dijkstra_to_networkx(G, weight)
+        ):
             return _call_networkx_for_parity(
                 "shortest_path_length",
                 G,
