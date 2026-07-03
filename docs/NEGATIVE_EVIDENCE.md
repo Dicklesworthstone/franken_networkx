@@ -2,6 +2,26 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP (pure-Python): greedy_color(connected_sequential_*) 0.32-0.36x -> 1.72-3.47x — run the strategy natively, don't convert to an nx.Graph
+
+Iso/hashing/coloring/chordal sweep found `greedy_color(strategy='connected_sequential_bfs'/'_dfs')` at
+0.32-0.36x (largest_first is native 9.7x; dsatur 0.99x). The connected_sequential strategies route
+through the FAITHFUL `_fnx_to_nx` conversion (the other str strategies use a cheap structural nx.Graph,
+but connected_sequential's BFS/DFS traversal depends on per-node adjacency order, which the structural
+`add_edges_from(G.edges())` scrambles). Split probe: the conversion is the ENTIRE tax — 1.31ms convert +
+0.66ms colour vs nx's 0.66ms native (conversion already optimised via native bulk adjacency, not
+reducible further). Only ELIMINATING the conversion beats nx. Ran nx's connected_sequential coloring
+NATIVELY in pure Python over fnx: node order from native `connected_components` + `bfs_edges`/`dfs_edges`
+(traversal order matches nx EXACTLY — verified) + `next(iter(component))` for the source, then greedy
+colour assignment reading neighbour colours as an ORDER-INDEPENDENT set via native `G.neighbors`.
+**0.32-0.36x -> 1.72-3.47x** (bfs 1.7-1.9x, dfs 3.4x), byte-exact 278/278 (30 seeds x 3 strategy names
+x 1/2/4 components + empty/single/self-loop/string) + 1744 coloring conformance tests green. Pure-Python.
+LEVER (sibling of the condensation/MIS ones): a delegated algorithm that pays a faithful `_fnx_to_nx`
+conversion whose ONLY purpose is to feed an nx traversal can be run natively when fnx's native traversal
+primitives (connected_components/bfs_edges/dfs_edges) already match nx's order AND the per-step reads are
+order-independent (set of neighbour colours). Grep `_call_networkx_for_parity` / `_fnx_to_nx` callers
+whose delegated algo is a plain traversal + order-independent per-node reduction.
+
 ## 2026-07-03 CopperCliff SHIP (pure-Python): directed_edge_swap ~1.0x -> 1.80-1.96x — same batch-simulate lever as double_edge_swap, directed sibling
 
 Extended the double_edge_swap batch-simulate lever (b6d9f0f0c) to its directed sibling. `directed_edge_swap`

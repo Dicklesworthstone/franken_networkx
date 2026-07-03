@@ -13769,12 +13769,37 @@ def greedy_color(G, strategy="largest_first", interchange=False):
             "connected_sequential_bfs",
             "connected_sequential_dfs",
         ):
-            return _call_networkx_for_parity(
-                "greedy_color",
-                G,
-                strategy=strategy,
-                interchange=interchange,
-            )
+            # br-cc-gc-connected: run the connected_sequential coloring NATIVELY
+            # instead of the faithful ``_fnx_to_nx`` conversion, which was the
+            # WHOLE 0.32x tax (~1.3ms convert + 0.66ms color vs nx's 0.66ms). The
+            # BFS/DFS traversal order from fnx's native ``connected_components`` +
+            # ``bfs_edges``/``dfs_edges`` matches nx EXACTLY (verified byte-exact
+            # across bfs/dfs x single/multi-component), and greedy colour
+            # assignment reads neighbour colours as an ORDER-INDEPENDENT set
+            # (native ``G.neighbors``), so the {node: colour} result is
+            # byte-identical. (interchange=True already delegated above.)
+            traversal_dfs = strategy == "connected_sequential_dfs"
+            colors = {}
+            order = []
+            for component in connected_components(G):
+                source = next(iter(component))
+                order.append(source)
+                tree = (
+                    dfs_edges(G, source)
+                    if traversal_dfs
+                    else bfs_edges(G, source)
+                )
+                for _start, end in tree:
+                    order.append(end)
+            for u in order:
+                neighbor_colors = {
+                    colors[v] for v in G.neighbors(u) if v in colors
+                }
+                for color in _count():
+                    if color not in neighbor_colors:
+                        break
+                colors[u] = color
+            return colors
         return _greedy_color_structural_nx(G, strategy, interchange)
     return _call_networkx_for_parity(
         "greedy_color",
