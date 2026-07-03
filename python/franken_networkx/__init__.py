@@ -51317,8 +51317,62 @@ def parse_graphml(
     """Parse a GraphML string."""
     if isinstance(graphml_string, str):
         payload = graphml_string.encode("utf-8")
+        _text = graphml_string
     else:
         payload = graphml_string
+        try:
+            _text = bytes(graphml_string).decode("utf-8")
+        except Exception:
+            _text = None
+
+    # br-cc-graphml: default-kwargs fast path via the native `_fnx.read_graphml`
+    # (2x nx, vs the 0.77x nx-delegation). The native reader COLLAPSES parallel
+    # edges to a simple graph (that is why read_graphml delegates), but nx only
+    # promotes to a multigraph when it actually SEES parallel edges (a multigraph
+    # with no parallels round-trips to a simple graph in nx too — verified). So
+    # count the `<edge>` elements: if the native graph kept them ALL
+    # (number_of_edges == element count) no parallels were collapsed and the
+    # result is byte-identical to nx's; otherwise fall back to the nx delegation.
+    if (
+        node_type is str
+        and edge_key_type is int
+        and not force_multigraph
+        and _text is not None
+    ):
+        # Cheap pre-check to AVOID double-parsing an nx-written multigraph: nx
+        # emits an ``id=`` attribute on every edge ONLY for multigraphs, so if the
+        # first edge element carries one, skip the native attempt and go straight
+        # to the nx delegation. (Correctness does not depend on this — the
+        # element-count check below is the backstop for any other multigraph
+        # source — it is purely to not pay a wasted native parse before falling
+        # back.)
+        _first_edge = _text.find("<edge ")
+        _skip_native = False
+        if _first_edge != -1:
+            _tag_end = _text.find(">", _first_edge)
+            _skip_native = _tag_end != -1 and "id=" in _text[_first_edge:_tag_end]
+        if not _skip_native:
+            # Count `<edge>` ELEMENTS (not `<edgedefault>`): the char after "edge"
+            # must be a space/`>`/`/` for a real edge element. The native reader
+            # collapses parallel edges to a simple graph; if it kept ALL edge
+            # elements (count matches) no parallels were collapsed and the result
+            # is byte-identical to nx's (which also down-converts a parallel-free
+            # multigraph to a simple graph).
+            _edge_elems = (
+                _text.count("<edge ")
+                + _text.count("<edge>")
+                + _text.count("<edge/")
+            )
+            try:
+                _native = _fnx.read_graphml(_io.BytesIO(payload))
+            except Exception:
+                _native = None
+            if (
+                _native is not None
+                and not _native.is_multigraph()
+                and _native.number_of_edges() == _edge_elems
+            ):
+                return _native
 
     graph = read_graphml(_io.BytesIO(payload))
 

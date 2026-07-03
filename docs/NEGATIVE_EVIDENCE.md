@@ -2,6 +2,24 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-03 CopperCliff SHIP (BEATS nx): parse_graphml(default) 0.77x -> 2.03x — route the default case to the native reader, gated on no collapsed parallel edges
+
+readwrite sweep found parse_graphml the ONE laggard (0.77x); everything else wins 1.0-7.4x. `read_graphml`
+DELEGATES to nx entirely because the native `_fnx.read_graphml` COLLAPSES parallel edges to a simple
+graph. But `parse_graphml` has the STRING in hand, and nx ALSO down-converts a parallel-free multigraph
+to a simple graph on read (verified), so the native reader is byte-identical EXCEPT when there are
+actual parallel edges. Route the default case (node_type=str, edge_key_type=int, not force_multigraph)
+to the native reader and accept it only if it kept ALL `<edge>` elements (number_of_edges == element
+count) — a collapse (count mismatch) means a real multigraph -> fall back to nx. A cheap pre-check
+(first `<edge>` has an `id=`, which nx emits only for multigraphs) skips the native attempt for
+nx-written multigraphs so they don't pay a wasted parse before the fallback. **0.77x -> 2.03x** (native
+reader is itself 2x nx; 13.2ms -> 7.0ms @ 300/1200), byte-exact 185/185 (simple/directed/no-attr/
+multigraph-parallel/multigraph-no-parallel/empty/single/self-loop/string-node/node_type=int-delegated)
++ 135 graphml conformance. Multigraph parse UNCHANGED (pre-check -> delegation, no double-parse). LEVER:
+a fully-delegated reader that has a native fast path "only for the simple case" can be routed by parsing
+natively + a cheap post-check that the fast path didn't lose data (here: edge-element count), falling
+back to the delegation when it did.
+
 ## 2026-07-03 CopperCliff SHIP (BEATS nx, not a partial): modular_product(edge-attr) 0.24x -> 3.07-3.39x — decorate only the SMALL both-edge subset
 
 Unlike tensor/strong (whose WHOLE dense edge set needs decoration -> pure-Python ceiling ~0.5x),
