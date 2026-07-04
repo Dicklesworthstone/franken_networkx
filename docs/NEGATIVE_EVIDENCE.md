@@ -2,6 +2,48 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-04 CopperCliff SURFACE: `hz2` PageRank oracle blocked; local 5-row graph slice remains above NetworkX
+
+Session start had no tracked unstaged work to commit; only the local untracked `.rch-targets/`
+cache was present and left untouched. Agent Mail registration/reservation is still blocked by the
+storage SQLite corruption circuit breaker. The requested short per-crate `rch exec` run selected
+worker `hz2`, but that worker failed before timing because the legacy NetworkX PageRank oracle
+requires `scipy` and the worker Python environment did not have it installed. I then ran the same
+5-row BFS/SSSP/PageRank/connected-components slice locally with `AGENT_NAME=CopperCliff` and
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod`; medians below are same-run Criterion
+`new/estimates.json` values.
+
+Short per-crate bench (`fnx-python`, `public_api_gauntlet`) on local fallback:
+
+| Row | FNX median | NetworkX median | Ratio vs ORIG / NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| `ubizp_multigraph_single_source_shortest_path` | `228.82 ms` | `245.63 ms` | `1.073x` | covered; no code lever kept |
+| `multidigraph_single_target_shortest_path_length` | `37.495 ms` | `57.330 ms` | `1.529x` | covered; no code lever kept |
+| `multidigraph_bfs_edges` | `15.410 ms` | `24.237 ms` | `1.573x` | covered; no new BFS lever |
+| `multidigraph_strongly_connected_components` | `14.159 ms` | `105.95 ms` | `7.483x` | covered; SCC win remains landed |
+| `directed_pagerank_large` | `33.833 ms` | `91.825 ms` | `2.714x` | covered; PageRank win remains landed |
+
+Commands:
+
+```text
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+timeout 700 rch exec -- cargo bench --profile release -p fnx-python
+--bench public_api_gauntlet
+'directed_pagerank_large|multidigraph_bfs_edges|multidigraph_strongly_connected_components|ubizp_multigraph_single_source_shortest_path|multidigraph_single_target_shortest_path_length'
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+timeout 700 cargo bench --profile release -p fnx-python
+--bench public_api_gauntlet
+'directed_pagerank_large|multidigraph_bfs_edges|multidigraph_strongly_connected_components|ubizp_multigraph_single_source_shortest_path|multidigraph_single_target_shortest_path_length'
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+```
+
+Conformance subset: `public_api_gauntlet.py` asserts FNX-vs-NetworkX parity before registering the
+timed callables, including the PageRank max-absolute-difference guard. No code variant was kept from
+this pass; the measured slice remains above NetworkX and does not reproduce the reported
+`0.04x-0.22x` laggard band.
+
 ## 2026-07-04 CopperCliff SURFACE: short 5-row local rerun stays above NetworkX despite loaded host
 
 Session start had no tracked unstaged work to commit; only the local untracked `.rch-targets/`
