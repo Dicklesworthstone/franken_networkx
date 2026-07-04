@@ -2,6 +2,39 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-04 CopperCliff SURFACE: warmed 5-row graph rerun remains above NetworkX
+
+After the scratch/worktree scan commit, tracked files were clean except the local untracked
+`.rch-targets/` cache. I ran a fresh short per-crate 5-row graph slice locally, using
+`AGENT_NAME=CopperCliff` and `CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod`, because
+recent remote workers failed the PageRank row before timing when their Python environment lacked
+`scipy`.
+
+Short per-crate bench (`fnx-python`, `public_api_gauntlet`) on local fallback:
+
+| Row | FNX median | NetworkX median | Ratio vs ORIG / NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| `ubizp_multigraph_single_source_shortest_path` | `68.224 ms` | `87.447 ms` | `1.282x` | covered; no code lever kept |
+| `multidigraph_bfs_edges` | `8.8692 ms` | `15.986 ms` | `1.802x` | covered; no new BFS lever |
+| `multidigraph_strongly_connected_components` | `7.2516 ms` | `59.923 ms` | `8.263x` | covered; SCC win remains landed |
+| `directed_pagerank_large` | `13.694 ms` | `64.685 ms` | `4.724x` | covered; PageRank win remains landed |
+| `multidigraph_single_source_dijkstra_path_length` | `86.637 ms` | `106.37 ms` | `1.228x` | covered; no Dijkstra lever kept |
+
+Command:
+
+```text
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+timeout 700 cargo bench --profile release -p fnx-python
+--bench public_api_gauntlet
+'directed_pagerank_large|multidigraph_bfs_edges|multidigraph_strongly_connected_components|ubizp_multigraph_single_source_shortest_path|multidigraph_single_source_dijkstra_path_length'
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+```
+
+Conformance subset: `public_api_gauntlet.py` asserts FNX-vs-NetworkX parity before registering the
+timed callables, including the PageRank max-absolute-difference guard. No code variant was kept from
+this pass; the measured slice remains above NetworkX and does not reproduce the reported
+`0.04x-0.22x` laggard band.
+
 ## 2026-07-04 CopperCliff SURFACE: `hz2` PageRank oracle blocked; local 5-row graph slice remains above NetworkX
 
 Session start had no tracked unstaged work to commit; only the local untracked `.rch-targets/`
