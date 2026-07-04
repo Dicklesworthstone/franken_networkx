@@ -2,13 +2,13 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
-## 2026-07-04 CopperCliff SHIP: MultiDiGraph dijkstra_path 0.565x -> 4.966x — cached packed target rows
+## 2026-07-04 CopperCliff SHIP: MultiDiGraph target Dijkstra 0.565x -> 11.04x — cached packed target rows
 
 Fresh residual after the directed-multigraph target-path primitive: the public API gauntlet
-`dijkstra_path(MultiDiGraph, source, target, weight="weight")` early-exit workload still trailed
-NetworkX because the raw Rust helper rebuilt a full node-to-index map and dense `distances`,
-`predecessors`, and `finalized` vectors for every target-only query. NetworkX only keeps reached
-state in dictionaries while it scans the frontier.
+`dijkstra_path(MultiDiGraph, source, target, weight="weight")` and
+`dijkstra_path_length(MultiDiGraph, source, target, weight="weight")` early-exit workloads still
+trailed NetworkX because the raw Rust helper rebuilt node-to-index state and rescanned parallel
+edge weights for every target-only query.
 
 The shipped lever builds a one-slot, mutation-keyed packed-row cache for clean directed multigraph
 Dijkstra target queries. The cache holds node index, CSR successor rows, and the selected minimum
@@ -18,32 +18,38 @@ has an unsupported weight, the raw helper falls back to borrowed-row traversal o
 fallback. Source-wide Dijkstra remains on its existing indexed kernel.
 
 Per-crate benchmark (`fnx-python`, `public_api_gauntlet`,
-`multidigraph_dijkstra_path_target_early_exit`, 64 calls per Criterion iteration):
+target Dijkstra rows, 64 calls per Criterion iteration):
 
-| State | Worker | FNX median | NetworkX median | Ratio vs NetworkX | Decision |
-| --- | --- | ---: | ---: | ---: | --- |
-| before, dense per-call index/vector setup | `rch` worker `ovh-a` | `6.8482 ms` | `3.8717 ms` | `0.565x` | baseline |
-| after, cached packed target rows | `rch` worker `ovh-a` | `781.30 us` | `3.8800 ms` | `4.966x` | SHIP |
+| Row | State | Worker | FNX median | NetworkX median | Ratio vs NetworkX | Decision |
+| --- | --- | --- | ---: | ---: | ---: | --- |
+| `multidigraph_dijkstra_path_target_early_exit` | before, dense per-call index/vector setup | `rch` worker `ovh-a` | `6.8482 ms` | `3.8717 ms` | `0.565x` | baseline |
+| `multidigraph_dijkstra_path_target_early_exit` | after, cached packed target rows | `rch` worker `ovh-a` | `354.24 us` | `3.9121 ms` | `11.044x` | SHIP |
+| `multidigraph_dijkstra_path_length_target_early_exit` | after, cached packed target rows | `rch` worker `ovh-a` | `297.38 us` | `3.4591 ms` | `11.632x` | SHIP |
 
-Same-worker self-speedup: `6.8482 ms / 0.78130 ms = 8.765x`. Final measured ratio:
-`3.8800 ms / 0.78130 ms = 4.966x` vs NetworkX. Criterion self-change:
-`[-88.702%, -88.646%, -88.587%]`, `p = 0.00`.
+Same-worker target-path self-speedup versus the dense baseline:
+`6.8482 ms / 0.35424 ms = 19.332x`. Final measured target-path ratio:
+`3.9121 ms / 0.35424 ms = 11.044x` vs NetworkX. Final measured target-length ratio:
+`3.4591 ms / 0.29738 ms = 11.632x` vs NetworkX. Criterion self-change for target path:
+`[-55.274%, -54.280%, -53.110%]`, `p = 0.00`, after the previously measured borrowed-row win.
 
 Command notes: measured with `AGENT_NAME=CopperCliff` and
-`CARGO_TARGET_DIR=/data/projects/franken_networkx/.rch-targets/coppercliff` using
+`CARGO_TARGET_DIR=/data/projects/franken_networkx/.rch-targets/coppercliff-next` using
 `rch exec -- cargo bench -p fnx-python --bench public_api_gauntlet
-multidigraph_dijkstra_path_target_early_exit -- --sample-size 10 --warm-up-time 0.2
---measurement-time 0.6`.
+multidigraph_dijkstra_path_length_target_early_exit|multidigraph_dijkstra_path_target_early_exit
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.6`. `RCH_WORKER=hz2` was requested,
+but RCH selected `ovh-a`; each ratio above is still same-run FNX vs NetworkX on that worker.
 
 Validation:
 - `cargo check -p fnx-python --all-targets`: passed via RCH.
 - `cargo clippy -p fnx-python --all-targets -- -D warnings`: passed via RCH.
-- `rustfmt --edition 2024 --check crates/fnx-python/src/algorithms.rs`: passed.
+- `cargo fmt --check -p fnx-python`: passed.
 - `git diff --check`: passed.
+- `timeout 90 ubs crates/fnx-python/src/algorithms.rs docs/NEGATIVE_EVIDENCE.md`: timed out
+  during the Rust scan before reporting findings.
 - The benchmark helper imports both FNX and NetworkX graphs and asserts
-  `fnx.dijkstra_path(...) == nx.dijkstra_path(...)` for the measured MultiDiGraph row before timing.
-- `timeout 60 ubs crates/fnx-python/src/algorithms.rs docs/NEGATIVE_EVIDENCE.md`: timed out before
-  reporting findings.
+  `fnx.dijkstra_path(...) == nx.dijkstra_path(...)` and
+  `fnx.dijkstra_path_length(...) == nx.dijkstra_path_length(...)` for the measured MultiDiGraph
+  rows before timing.
 
 ## 2026-07-04 CopperCliff SHIP: MultiDiGraph single_source_dijkstra_path_length 0.354x -> 2.481x — borrowed-row source Dijkstra, no full min-weight projection
 
