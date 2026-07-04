@@ -106,3 +106,37 @@ def test_custom_weight_key_matches_networkx():
         _norm(dict(fnx.single_source_dijkstra_path_length(gf, 0, weight="cost"))),
     )
     assert _close(_norm(nx.pagerank(gn, weight="cost")), _norm(fnx.pagerank(gf, weight="cost")))
+
+
+def test_multidigraph_dijkstra_path_length_parallel_min_matches_networkx():
+    def build(mod):
+        graph = mod.MultiDiGraph()
+        graph.add_nodes_from(range(5))
+        graph.add_edge(0, 1, key="slow", weight=9)
+        graph.add_edge(0, 1, key="fast", weight=2)
+        graph.add_edge(1, 4, key="tail", weight=2)
+        graph.add_edge(0, 2, key="float", weight=1.5)
+        graph.add_edge(2, 4, key="bad-tail", weight=10)
+        graph.add_edge(0, 4, key="direct", weight=20)
+        return graph
+
+    expected = nx.dijkstra_path_length(build(nx), 0, 4, weight="weight")
+    actual = fnx.dijkstra_path_length(build(fnx), 0, 4, weight="weight")
+    assert type(actual) is type(expected)
+    assert actual == expected
+
+
+def test_multidigraph_dijkstra_path_length_missing_weight_default_matches_networkx():
+    def build(mod):
+        graph = mod.MultiDiGraph()
+        graph.add_nodes_from(range(4))
+        graph.add_edge(0, 1, key="missing")
+        graph.add_edge(0, 1, key="weighted", weight=5)
+        graph.add_edge(1, 3, key="tail")
+        graph.add_edge(0, 3, key="direct", weight=7)
+        return graph
+
+    expected = nx.dijkstra_path_length(build(nx), 0, 3, weight="weight")
+    actual = fnx.dijkstra_path_length(build(fnx), 0, 3, weight="weight")
+    assert type(actual) is type(expected)
+    assert actual == expected

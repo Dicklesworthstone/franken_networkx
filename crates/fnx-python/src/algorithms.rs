@@ -17901,10 +17901,12 @@ fn multidigraph_dijkstra_target_length_borrowed(
     weight_attr: &str,
 ) -> MultiDiDijkstraTargetLength {
     let names = mdg.nodes_ordered();
-    let Some(source_idx) = names.iter().position(|node| *node == source) else {
-        return MultiDiDijkstraTargetLength::NoPath;
-    };
-    let Some(target_idx) = names.iter().position(|node| *node == target) else {
+    let n = names.len();
+    let mut index = HashMap::<&str, usize>::with_capacity(n);
+    for (idx, node) in names.iter().copied().enumerate() {
+        index.insert(node, idx);
+    }
+    let (Some(&source_idx), Some(&target_idx)) = (index.get(source), index.get(target)) else {
         return MultiDiDijkstraTargetLength::NoPath;
     };
     if source_idx == target_idx {
@@ -17914,11 +17916,9 @@ fn multidigraph_dijkstra_target_length_borrowed(
         };
     }
 
-    let csr = mdg.csr();
-    let node_count = names.len();
-    let mut distances = vec![f64::INFINITY; node_count];
-    let mut all_int_paths = vec![false; node_count];
-    let mut finalized = vec![false; node_count];
+    let mut distances = vec![f64::INFINITY; n];
+    let mut all_int_paths = vec![false; n];
+    let mut finalized = vec![false; n];
     let mut pq: BinaryHeap<PyDijkstraState> = BinaryHeap::new();
     let mut seq_counter = 0_u64;
 
@@ -17949,14 +17949,17 @@ fn multidigraph_dijkstra_target_length_borrowed(
                 };
             }
         }
-        for &successor_idx in csr.successors(node_idx) {
-            let successor_idx = successor_idx as usize;
-            let Some((edge_weight, edge_int)) = multidigraph_min_parallel_dijkstra_weight(
-                mdg,
-                names[node_idx],
-                names[successor_idx],
-                weight_attr,
-            ) else {
+        let node = names[node_idx];
+        let Some(successors) = mdg.successors_iter(node) else {
+            continue;
+        };
+        for successor in successors {
+            let Some(&successor_idx) = index.get(successor) else {
+                continue;
+            };
+            let Some((edge_weight, edge_int)) =
+                multidigraph_min_parallel_dijkstra_weight(mdg, node, successor, weight_attr)
+            else {
                 return MultiDiDijkstraTargetLength::Delegate;
             };
             let next_distance = distance + edge_weight;
