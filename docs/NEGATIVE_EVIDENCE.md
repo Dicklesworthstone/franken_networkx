@@ -2,6 +2,55 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-04 CopperCliff SURFACE: remote PageRank oracle blocked; loaded local 9-row slice shows SSSP near-parity losses
+
+Session start had no tracked unstaged work to commit; only the local untracked `.rch-targets/`
+cache was present and left untouched. Agent Mail registration/reservation is still blocked by the
+storage SQLite corruption circuit breaker, so this entry records the coordination blocker inside git.
+The requested short per-crate `rch exec` run selected worker `vmi1152480`, but that worker failed
+before timing because the legacy NetworkX PageRank oracle requires `scipy` and the worker Python
+environment did not have it installed. I then ran the same per-crate row set locally with
+`AGENT_NAME=CopperCliff` and the requested dedicated target dir
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod`. This host was visibly loaded, so the
+absolute times regressed; the FNX-vs-NetworkX ratios below are still same-run medians from Criterion
+`new/estimates.json`.
+
+Short per-crate bench (`fnx-python`, `public_api_gauntlet`) on local fallback:
+
+| Row | FNX median | NetworkX median | Ratio vs ORIG / NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| `ubizp_multigraph_single_source_shortest_path` | `267.29 ms` | `242.80 ms` | `0.908x` | residual near-parity SSSP loss; no code variant kept |
+| `multidigraph_single_target_shortest_path_length` | `45.418 ms` | `36.743 ms` | `0.809x` | residual near-parity SSSP loss; no code variant kept |
+| `multidigraph_single_source_shortest_path` | `92.854 ms` | `85.790 ms` | `0.924x` | residual near-parity SSSP loss; no code variant kept |
+| `multidigraph_bfs_edges` | `16.931 ms` | `51.698 ms` | `3.053x` | covered; no new BFS lever |
+| `multidigraph_strongly_connected_components` | `16.855 ms` | `131.07 ms` | `7.777x` | covered; SCC win remains landed |
+| `directed_pagerank_large` | `32.667 ms` | `100.24 ms` | `3.068x` | covered; PageRank win remains landed |
+| `multidigraph_dijkstra_path_length_target_early_exit` | `947.81 us` | `10.338 ms` | `10.907x` | covered; no code lever kept |
+| `multidigraph_dijkstra_path_target_early_exit` | `1.1423 ms` | `14.519 ms` | `12.710x` | covered; no code lever kept |
+| `multidigraph_single_source_dijkstra_path_length` | `235.90 ms` | `342.46 ms` | `1.452x` | covered; no Dijkstra lever kept |
+
+Commands:
+
+```text
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+timeout 900 rch exec -- cargo bench --profile release -p fnx-python
+--bench public_api_gauntlet
+'ubizp_multigraph_single_source_shortest_path|multidigraph_single_target_shortest_path_length|multidigraph_single_source_shortest_path|multidigraph_bfs_edges|multidigraph_strongly_connected_components|directed_pagerank_large|multidigraph_dijkstra_path_length_target_early_exit|multidigraph_dijkstra_path_target_early_exit|multidigraph_single_source_dijkstra_path_length'
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+timeout 700 cargo bench --profile release -p fnx-python
+--bench public_api_gauntlet
+'ubizp_multigraph_single_source_shortest_path|multidigraph_single_target_shortest_path_length|multidigraph_single_source_shortest_path|multidigraph_bfs_edges|multidigraph_strongly_connected_components|directed_pagerank_large|multidigraph_dijkstra_path_length_target_early_exit|multidigraph_dijkstra_path_target_early_exit|multidigraph_single_source_dijkstra_path_length'
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+```
+
+Conformance subset: `public_api_gauntlet.py` asserts FNX-vs-NetworkX parity for each measured row
+before registering the timed callables, including the PageRank max-absolute-difference guard. No code
+variant was kept from this pass. The biggest measured residual in this loaded run is SSSP at
+`0.809x-0.924x`, not the reported `0.04x-0.22x` laggard band; BFS/PageRank/connected-components
+remain above NetworkX.
+
 ## 2026-07-04 CopperCliff SURFACE: remote PageRank oracle blocked on `scipy`; local fallback graph slice stays above NetworkX
 
 Session start had no tracked unstaged work to commit; only the local untracked `.rch-targets/`
