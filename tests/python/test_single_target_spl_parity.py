@@ -57,17 +57,23 @@ def test_directed_uses_reverse_distances():
 
 
 def test_multidigraph_value_and_order():
+    edges = []
+    for node in range(11):
+        edges.append((node, node + 1, None))
+        edges.append((node, node + 1, f"p{node}"))
+    edges.extend((u, v, None) for u, v in [(0, 5), (2, 8), (4, 8), (7, 11), (3, 10)])
+
     G = nx.MultiDiGraph()
     G.add_nodes_from(range(12))
-    for node in range(11):
-        G.add_edge(node, node + 1)
-        G.add_edge(node, node + 1, key=f"p{node}")
-    G.add_edges_from([(0, 5), (2, 8), (4, 8), (7, 11), (3, 10)])
-
     F = fnx.MultiDiGraph()
     F.add_nodes_from(G.nodes())
-    for u, v, key in G.edges(keys=True):
-        F.add_edge(u, v, key=key)
+    for u, v, key in edges:
+        if key is None:
+            G.add_edge(u, v)
+            F.add_edge(u, v)
+        else:
+            G.add_edge(u, v, key=key)
+            F.add_edge(u, v, key=key)
 
     for cutoff in (None, 0, 1, 2, 4):
         assert list(

@@ -1647,7 +1647,16 @@ impl PyGraph {
         py: Python<'py>,
         items: I,
         len: usize,
-    ) -> PyResult<Option<Vec<(usize, usize, AttrMap, Option<((String, String), Py<PyDict>)>)>>>
+    ) -> PyResult<
+        Option<
+            Vec<(
+                usize,
+                usize,
+                AttrMap,
+                Option<((String, String), Py<PyDict>)>,
+            )>,
+        >,
+    >
     where
         I: IntoIterator<Item = Bound<'py, PyAny>>,
     {
@@ -2594,9 +2603,9 @@ impl PyGraph {
                 // the per-node path (exact merge+order); the multi-attr mirror only keeps the
                 // last occurrence, so a per-node merge is required for correctness.
                 return Ok(None);
-                }
-                node_bumps = node_bumps.wrapping_add(1);
-                new_nodes.push((canonical.clone(), node.clone().unbind()));
+            }
+            node_bumps = node_bumps.wrapping_add(1);
+            new_nodes.push((canonical.clone(), node.clone().unbind()));
             nodes.push((canonical, rust_attrs, src));
         }
 
@@ -3361,7 +3370,8 @@ impl PyMultiGraph {
         if items.len() > (u32::MAX as usize) / 2 {
             return Ok(None);
         }
-        let mut seen_canonical: HashSet<(usize, usize, usize)> = HashSet::with_capacity(items.len());
+        let mut seen_canonical: HashSet<(usize, usize, usize)> =
+            HashSet::with_capacity(items.len());
         let mut edges: Vec<(usize, usize, usize, AttrMap, Option<Py<PyDict>>)> =
             Vec::with_capacity(items.len());
         let mut node_bumps = 0_u64;
@@ -3386,8 +3396,7 @@ impl PyMultiGraph {
                 return Ok(None);
             };
             let key_obj = tuple.get_item(2)?;
-            if !key_obj.is_exact_instance_of::<PyInt>()
-                || key_obj.is_exact_instance_of::<PyBool>()
+            if !key_obj.is_exact_instance_of::<PyInt>() || key_obj.is_exact_instance_of::<PyBool>()
             {
                 return Ok(None);
             }
@@ -3620,8 +3629,7 @@ impl PyMultiGraph {
                 return Ok(false);
             }
             let key_obj = tuple.get_item(2)?;
-            if !key_obj.is_exact_instance_of::<PyInt>()
-                || key_obj.is_exact_instance_of::<PyBool>()
+            if !key_obj.is_exact_instance_of::<PyInt>() || key_obj.is_exact_instance_of::<PyBool>()
             {
                 return Ok(false);
             }
@@ -3801,7 +3809,10 @@ impl PyMultiGraph {
                 // insert + note_public_key_value. Non-identity (str/float/bool/remapped)
                 // keys still mirror. Byte-identical read path.
                 let key_is_identity_int = key.is_exact_instance_of::<PyInt>()
-                    && key.extract::<i64>().ok().and_then(|i| usize::try_from(i).ok())
+                    && key
+                        .extract::<i64>()
+                        .ok()
+                        .and_then(|i| usize::try_from(i).ok())
                         == Some(internal_key);
                 if !key_is_identity_int {
                     edge_keys
@@ -3914,9 +3925,9 @@ impl PyMultiGraph {
                 // the per-node path (exact merge+order); the multi-attr mirror only keeps the
                 // last occurrence, so a per-node merge is required for correctness.
                 return Ok(None);
-                }
-                node_bumps = node_bumps.wrapping_add(1);
-                new_nodes.push((canonical.clone(), node.clone().unbind()));
+            }
+            node_bumps = node_bumps.wrapping_add(1);
+            new_nodes.push((canonical.clone(), node.clone().unbind()));
             nodes.push((canonical, rust_attrs, src));
         }
 
@@ -4987,8 +4998,9 @@ impl PyMultiGraph {
                     });
                 }
                 if !self.edge_py_keys.is_empty() {
-                    self.edge_py_keys
-                        .retain(|(l, r, _k), _| !present_set.contains(l) && !present_set.contains(r));
+                    self.edge_py_keys.retain(|(l, r, _k), _| {
+                        !present_set.contains(l) && !present_set.contains(r)
+                    });
                 }
             }
         }
@@ -5717,7 +5729,9 @@ impl PyMultiGraph {
             // differ from internal_key), so they still mirror. Strict work removal on
             // the multigraph keyed-batch cluster (add_edges_from + set-algebra + union).
             let key_is_identity_int = k.is_exact_instance_of::<PyInt>()
-                && k.extract::<i64>().ok().and_then(|i| usize::try_from(i).ok())
+                && k.extract::<i64>()
+                    .ok()
+                    .and_then(|i| usize::try_from(i).ok())
                     == Some(internal_key);
             if !key_is_identity_int {
                 display_keys.push((uc.clone(), vc.clone(), internal_key, k.clone().unbind()));
@@ -5992,7 +6006,9 @@ impl PyMultiGraph {
             // differ from internal_key), so they still mirror. Strict work removal on
             // the multigraph keyed-batch cluster (add_edges_from + set-algebra + union).
             let key_is_identity_int = k.is_exact_instance_of::<PyInt>()
-                && k.extract::<i64>().ok().and_then(|i| usize::try_from(i).ok())
+                && k.extract::<i64>()
+                    .ok()
+                    .and_then(|i| usize::try_from(i).ok())
                     == Some(internal_key);
             if !key_is_identity_int {
                 display_keys.push((uc.clone(), vc.clone(), internal_key, k.clone().unbind()));
@@ -6430,8 +6446,7 @@ impl PyMultiGraph {
         // seen-set — drops the per-edge (lo,hi) tuple clone + hash insert. A neighbor
         // already a processed source had the edge emitted from its side; matches nx
         // including duplicate-nbunch re-emission (the per-edge set diverged there).
-        let mut seen_nodes: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
+        let mut seen_nodes: std::collections::HashSet<String> = std::collections::HashSet::new();
         for item in nbunch.try_iter()? {
             let node = item?;
             if node.hash().is_err() {
@@ -6518,8 +6533,7 @@ impl PyMultiGraph {
         // br-r37-c1-mgnbdedup (cc): dedup by processed nbunch SOURCE node (nx's exact
         // algorithm), replacing the per-edge canonical seen-set. See
         // _native_mg_edges_nbunch_data for the rationale + correctness notes.
-        let mut seen_nodes: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
+        let mut seen_nodes: std::collections::HashSet<String> = std::collections::HashSet::new();
         for item in nbunch.try_iter()? {
             let node = item?;
             if node.hash().is_err() {
@@ -7670,13 +7684,12 @@ impl PyMultiGraph {
         // cache. Only a string attr on a clean graph is cacheable; served while
         // seqs/keys/attr/default match, dropped on the next mark_edges_dirty. nx
         // rebuilds its MultiEdgeDataView every call -> repeats clone refs.
-        let cacheable_attr: Option<String> = if want_value
-            && !self.edges_dirty.load(Ordering::Relaxed)
-        {
-            data.extract::<String>().ok()
-        } else {
-            None
-        };
+        let cacheable_attr: Option<String> =
+            if want_value && !self.edges_dirty.load(Ordering::Relaxed) {
+                data.extract::<String>().ok()
+            } else {
+                None
+            };
         if let Some(attr_name) = &cacheable_attr {
             let cache = self.edges_data_attr_cache.lock().unwrap();
             if let Some((ns, es, kf, cattr, cdef, ctuples)) = cache.as_ref()
@@ -12652,7 +12665,11 @@ impl PyGraph {
             let mut total: i128 = 0;
             if let Some(nbrs) = self.inner.neighbors_indices(i) {
                 for &j in nbrs {
-                    let w = match self.inner.edge_attrs_by_indices(i, j).map(|a| a.get(weight)) {
+                    let w = match self
+                        .inner
+                        .edge_attrs_by_indices(i, j)
+                        .map(|a| a.get(weight))
+                    {
                         Some(Some(CgseValue::Int(v))) => i128::from(*v),
                         Some(Some(_)) => return Ok(None), // non-int -> gen fallback
                         _ => 1,                           // missing weight -> default 1
@@ -12768,7 +12785,10 @@ impl PyGraph {
                 let mut total: i128 = 0;
                 if let Some(nbrs) = self.inner.neighbors_indices(idx) {
                     for &j in nbrs {
-                        let w = match self.inner.edge_attrs_by_indices(idx, j).map(|a| a.get(weight))
+                        let w = match self
+                            .inner
+                            .edge_attrs_by_indices(idx, j)
+                            .map(|a| a.get(weight))
                         {
                             Some(Some(CgseValue::Int(v))) => i128::from(*v),
                             Some(Some(_)) => {
@@ -12828,7 +12848,6 @@ impl PyGraph {
         }
         Ok(out)
     }
-
 
     /// Equality check — two graphs are equal if they have the same nodes, edges, and attributes.
     fn __eq__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<bool> {

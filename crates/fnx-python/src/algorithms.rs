@@ -14727,14 +14727,11 @@ fn cartesian_product_edge_attrs_fast(
             }
             let g1 = &pg1.inner;
             let h1 = &pg2.inner;
-            let g_names: Vec<String> =
-                g1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
-            let h_names: Vec<String> =
-                h1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+            let g_names: Vec<String> = g1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+            let h_names: Vec<String> = h1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
             let ng = g_names.len();
             let nh = h_names.len();
-            let (canon, node_key_map) =
-                product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
+            let (canon, node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
 
             // Undirected edges of each factor, each unordered pair once (u <= v) —
             // the same enumeration the no-attr native path uses (self-loops via v>=u).
@@ -14756,15 +14753,29 @@ fn cartesian_product_edge_attrs_fast(
             // G-layer: same G-node + H-edge -> inherit the H-edge's attrs.
             for gi in 0..ng {
                 for &(hu, hv) in &h_edges {
-                    let attrs = h1.edge_attrs_by_indices(hu, hv).cloned().unwrap_or_default();
-                    edges.push((canon[gi * nh + hu].clone(), canon[gi * nh + hv].clone(), attrs));
+                    let attrs = h1
+                        .edge_attrs_by_indices(hu, hv)
+                        .cloned()
+                        .unwrap_or_default();
+                    edges.push((
+                        canon[gi * nh + hu].clone(),
+                        canon[gi * nh + hv].clone(),
+                        attrs,
+                    ));
                 }
             }
             // H-layer: same H-node + G-edge -> inherit the G-edge's attrs.
             for &(gu, gv) in &g_edges {
                 for hi in 0..nh {
-                    let attrs = g1.edge_attrs_by_indices(gu, gv).cloned().unwrap_or_default();
-                    edges.push((canon[gu * nh + hi].clone(), canon[gv * nh + hi].clone(), attrs));
+                    let attrs = g1
+                        .edge_attrs_by_indices(gu, gv)
+                        .cloned()
+                        .unwrap_or_default();
+                    edges.push((
+                        canon[gu * nh + hi].clone(),
+                        canon[gv * nh + hi].clone(),
+                        attrs,
+                    ));
                 }
             }
 
@@ -14782,22 +14793,26 @@ fn cartesian_product_edge_attrs_fast(
             }
             let d1 = &dg1.inner;
             let d2 = &dg2.inner;
-            let g_names: Vec<String> =
-                d1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
-            let h_names: Vec<String> =
-                d2.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+            let g_names: Vec<String> = d1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+            let h_names: Vec<String> = d2.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
             let ng = g_names.len();
             let nh = h_names.len();
-            let (canon, node_key_map) =
-                product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
+            let (canon, node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
 
             let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
             // G-layer: same G-node + directed H-edge (hu->hv) -> inherit H-edge attrs.
             for gi in 0..ng {
                 for hu in 0..nh {
                     for &hv in d2.successors_indices(hu).unwrap_or(&[]) {
-                        let attrs = d2.edge_attrs_by_indices(hu, hv).cloned().unwrap_or_default();
-                        edges.push((canon[gi * nh + hu].clone(), canon[gi * nh + hv].clone(), attrs));
+                        let attrs = d2
+                            .edge_attrs_by_indices(hu, hv)
+                            .cloned()
+                            .unwrap_or_default();
+                        edges.push((
+                            canon[gi * nh + hu].clone(),
+                            canon[gi * nh + hv].clone(),
+                            attrs,
+                        ));
                     }
                 }
             }
@@ -14805,8 +14820,15 @@ fn cartesian_product_edge_attrs_fast(
             for gu in 0..ng {
                 for &gv in d1.successors_indices(gu).unwrap_or(&[]) {
                     for hi in 0..nh {
-                        let attrs = d1.edge_attrs_by_indices(gu, gv).cloned().unwrap_or_default();
-                        edges.push((canon[gu * nh + hi].clone(), canon[gv * nh + hi].clone(), attrs));
+                        let attrs = d1
+                            .edge_attrs_by_indices(gu, gv)
+                            .cloned()
+                            .unwrap_or_default();
+                        edges.push((
+                            canon[gu * nh + hi].clone(),
+                            canon[gv * nh + hi].clone(),
+                            attrs,
+                        ));
                     }
                 }
             }
@@ -15074,7 +15096,10 @@ fn corona_product_edge_attrs_fast(
         for hu in 0..nh {
             for &hv in g2.neighbors_indices(hu).unwrap_or(&[]) {
                 if hv > hu {
-                    let attrs = g2.edge_attrs_by_indices(hu, hv).cloned().unwrap_or_default();
+                    let attrs = g2
+                        .edge_attrs_by_indices(hu, hv)
+                        .cloned()
+                        .unwrap_or_default();
                     edges.push((
                         tup_canon[gi * nh + hu].clone(),
                         tup_canon[gi * nh + hv].clone(),
@@ -18356,15 +18381,21 @@ fn single_target_shortest_path_tree_from_digraph_predecessors(
 }
 
 /// MultiDiGraph reverse BFS over distinct predecessor rows. Single-target
-/// unweighted paths are multiplicity-invariant, and `MultiDiCsr` preserves the
-/// same predecessor-row order as the projected simple DiGraph.
+/// unweighted paths are multiplicity-invariant. Walk the row-order predecessor
+/// map directly because the compact CSR predecessor order is source-index order,
+/// while NetworkX discovers from `G.pred[node]` insertion order.
 fn single_target_shortest_path_tree_from_multidigraph_predecessors(
     multidigraph: &fnx_classes::digraph::MultiDiGraph,
     target: usize,
     cutoff: Option<usize>,
 ) -> (Vec<usize>, Vec<usize>) {
     let node_count = multidigraph.node_count();
-    let csr = multidigraph.csr();
+    let nodes = multidigraph.nodes_ordered();
+    let node_index: HashMap<&str, usize> = nodes
+        .iter()
+        .enumerate()
+        .map(|(index, &node)| (node, index))
+        .collect();
     let mut seen = vec![false; node_count];
     let mut successor = vec![0usize; node_count];
     let mut order: Vec<usize> = Vec::with_capacity(node_count);
@@ -18379,13 +18410,17 @@ fn single_target_shortest_path_tree_from_multidigraph_predecessors(
     while !frontier.is_empty() && level < cutoff {
         next_frontier.clear();
         for &node in &frontier {
-            for &neighbor in csr.predecessors(node) {
-                let neighbor = neighbor as usize;
-                if !seen[neighbor] {
-                    seen[neighbor] = true;
-                    successor[neighbor] = node;
-                    order.push(neighbor);
-                    next_frontier.push(neighbor);
+            if let Some(predecessors) = multidigraph.predecessors_iter(nodes[node]) {
+                for pred in predecessors {
+                    let Some(&neighbor) = node_index.get(pred) else {
+                        continue;
+                    };
+                    if !seen[neighbor] {
+                        seen[neighbor] = true;
+                        successor[neighbor] = node;
+                        order.push(neighbor);
+                        next_frontier.push(neighbor);
+                    }
                 }
             }
         }
@@ -18402,29 +18437,28 @@ fn single_target_shortest_path_length_multidigraph<'a>(
     cutoff: Option<usize>,
 ) -> Vec<(&'a str, usize)> {
     let nodes = multidigraph.nodes_ordered();
-    let Some(target_idx) = nodes.iter().position(|&node| node == target) else {
+    let Some(target_ref) = nodes.iter().copied().find(|&node| node == target) else {
         return Vec::new();
     };
-    let csr = multidigraph.csr();
-    let mut seen = vec![false; nodes.len()];
+    let mut seen: HashSet<&'a str> = HashSet::new();
     let mut out = Vec::with_capacity(nodes.len());
-    let mut frontier = vec![target_idx];
+    let mut frontier = vec![target_ref];
     let mut next_frontier = Vec::new();
-    seen[target_idx] = true;
-    out.push((nodes[target_idx], 0));
+    seen.insert(target_ref);
+    out.push((target_ref, 0));
 
     let cutoff = cutoff.unwrap_or(usize::MAX);
     let mut level = 0usize;
     while !frontier.is_empty() && level < cutoff {
         next_frontier.clear();
         let next_dist = level + 1;
-        for &node in &frontier {
-            for &neighbor in csr.predecessors(node) {
-                let neighbor = neighbor as usize;
-                if !seen[neighbor] {
-                    seen[neighbor] = true;
-                    out.push((nodes[neighbor], next_dist));
-                    next_frontier.push(neighbor);
+        for node in &frontier {
+            if let Some(predecessors) = multidigraph.predecessors_iter(node) {
+                for pred in predecessors {
+                    if seen.insert(pred) {
+                        out.push((pred, next_dist));
+                        next_frontier.push(pred);
+                    }
                 }
             }
         }
@@ -23773,8 +23807,7 @@ pub fn greedy_tsp_native(
                     if visited[j] {
                         continue;
                     }
-                    let wj = match tsp_edge_weight(inner.edge_attrs_by_indices(cur, j), weight)
-                    {
+                    let wj = match tsp_edge_weight(inner.edge_attrs_by_indices(cur, j), weight) {
                         Some(value) => value,
                         None => return Ok(None),
                     };

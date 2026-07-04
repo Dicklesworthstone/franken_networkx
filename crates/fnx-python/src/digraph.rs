@@ -356,13 +356,12 @@ impl PyMultiDiGraph {
         // on a clean graph is cacheable; served while seqs/keys/attr/default match,
         // dropped on the next mark_*dirty. nx rebuilds the OutMultiEdgeDataView each
         // call, so repeats clone refs instead of re-walking edge_data_value_or_default.
-        let cacheable_attr: Option<String> = if want_value
-            && !self.edges_dirty.load(Ordering::Relaxed)
-        {
-            data.extract::<String>().ok()
-        } else {
-            None
-        };
+        let cacheable_attr: Option<String> =
+            if want_value && !self.edges_dirty.load(Ordering::Relaxed) {
+                data.extract::<String>().ok()
+            } else {
+                None
+            };
         if let Some(attr_name) = &cacheable_attr {
             let cache = self.edges_data_attr_cache.lock().unwrap();
             if let Some((ns, es, kf, cattr, cdef, ctuples)) = cache.as_ref()
@@ -1316,7 +1315,8 @@ impl PyMultiDiGraph {
         let mut succ_saw = false;
         for successor in self.inner.successors(node).unwrap_or_default() {
             for key in self.inner.edge_keys(node, successor).unwrap_or_default() {
-                let Some(x) = self.edge_weight_exact_f64_mirror(py, node, successor, key, weight)?
+                let Some(x) =
+                    self.edge_weight_exact_f64_mirror(py, node, successor, key, weight)?
                 else {
                     return Ok(None);
                 };
@@ -2383,8 +2383,7 @@ impl PyMultiDiGraph {
             // EXPLICIT key: plain non-negative int only (bool excluded). Anything
             // else (custom str/object key, negative, oversized) bails to per-edge.
             let key_obj = tuple.get_item(2)?;
-            if !key_obj.is_exact_instance_of::<PyInt>()
-                || key_obj.is_exact_instance_of::<PyBool>()
+            if !key_obj.is_exact_instance_of::<PyInt>() || key_obj.is_exact_instance_of::<PyBool>()
             {
                 return Ok(None);
             }
@@ -2568,8 +2567,7 @@ impl PyMultiDiGraph {
                 return Ok(false);
             }
             let key_obj = tuple.get_item(2)?;
-            if !key_obj.is_exact_instance_of::<PyInt>()
-                || key_obj.is_exact_instance_of::<PyBool>()
+            if !key_obj.is_exact_instance_of::<PyInt>() || key_obj.is_exact_instance_of::<PyBool>()
             {
                 return Ok(false);
             }
@@ -3899,7 +3897,9 @@ impl PyMultiDiGraph {
             // int:{internal}. Skip recording it (MG lib.rs sibling); non-identity keys
             // still mirror. Strict work removal on MDG difference/symmetric_difference.
             let key_is_identity_int = k.is_exact_instance_of::<PyInt>()
-                && k.extract::<i64>().ok().and_then(|i| usize::try_from(i).ok())
+                && k.extract::<i64>()
+                    .ok()
+                    .and_then(|i| usize::try_from(i).ok())
                     == Some(internal_key);
             if !key_is_identity_int {
                 display_keys.push((uc.clone(), vc.clone(), internal_key, k.clone().unbind()));
@@ -4035,7 +4035,9 @@ impl PyMultiDiGraph {
             // mirror (display_key_lookup falls back to int:{internal}); skip recording
             // it. MDG compose/union replay auto-key sources as 4-tuples (u,v,0/1/2,data).
             let key_is_identity_int = k.is_exact_instance_of::<PyInt>()
-                && k.extract::<i64>().ok().and_then(|i| usize::try_from(i).ok())
+                && k.extract::<i64>()
+                    .ok()
+                    .and_then(|i| usize::try_from(i).ok())
                     == Some(internal_key);
             if !key_is_identity_int {
                 display_keys.push((uc.clone(), vc.clone(), internal_key, k.clone().unbind()));
@@ -4687,8 +4689,9 @@ impl PyMultiDiGraph {
                     });
                 }
                 if !self.edge_py_keys.is_empty() {
-                    self.edge_py_keys
-                        .retain(|(l, r, _k), _| !present_set.contains(l) && !present_set.contains(r));
+                    self.edge_py_keys.retain(|(l, r, _k), _| {
+                        !present_set.contains(l) && !present_set.contains(r)
+                    });
                 }
             }
         }
@@ -5573,8 +5576,7 @@ impl PyMultiDiGraph {
                     && cattr.as_str() == attr_name
                     && cdef.bind(py).eq(default.bind(py))?
                 {
-                    let fresh: Vec<PyObject> =
-                        ctuples.iter().map(|t| t.clone_ref(py)).collect();
+                    let fresh: Vec<PyObject> = ctuples.iter().map(|t| t.clone_ref(py)).collect();
                     return Ok(Some(fresh.into_pyobject(py)?.into_any().unbind()));
                 }
             }
@@ -8245,7 +8247,10 @@ impl PyDiGraph {
                 let mut total: i128 = 0;
                 if build_out && let Some(succs) = self.inner.successors_indices(idx) {
                     for &j in succs {
-                        let w = match self.inner.edge_attrs_by_indices(idx, j).map(|a| a.get(weight))
+                        let w = match self
+                            .inner
+                            .edge_attrs_by_indices(idx, j)
+                            .map(|a| a.get(weight))
                         {
                             Some(Some(CgseValue::Int(v))) => i128::from(*v),
                             Some(Some(_)) => {
@@ -8263,7 +8268,10 @@ impl PyDiGraph {
                 }
                 if build_in && let Some(preds) = self.inner.predecessors_indices(idx) {
                     for &j in preds {
-                        let w = match self.inner.edge_attrs_by_indices(j, idx).map(|a| a.get(weight))
+                        let w = match self
+                            .inner
+                            .edge_attrs_by_indices(j, idx)
+                            .map(|a| a.get(weight))
                         {
                             Some(Some(CgseValue::Int(v))) => i128::from(*v),
                             Some(Some(_)) => {
@@ -8280,8 +8288,7 @@ impl PyDiGraph {
                     }
                 }
                 match i64::try_from(total) {
-                    Ok(t64) => int_pairs
-                        .push((node.clone().unbind(), t64.into_py_any(py)?)),
+                    Ok(t64) => int_pairs.push((node.clone().unbind(), t64.into_py_any(py)?)),
                     Err(_) => {
                         all_int = false;
                         break;
@@ -9085,7 +9092,16 @@ impl PyDiGraph {
         py: Python<'py>,
         items: I,
         len: usize,
-    ) -> PyResult<Option<Vec<(usize, usize, AttrMap, Option<((String, String), Py<PyDict>)>)>>>
+    ) -> PyResult<
+        Option<
+            Vec<(
+                usize,
+                usize,
+                AttrMap,
+                Option<((String, String), Py<PyDict>)>,
+            )>,
+        >,
+    >
     where
         I: IntoIterator<Item = Bound<'py, PyAny>>,
     {
@@ -12324,7 +12340,11 @@ impl PyDiGraph {
             let mut total: i128 = 0;
             if inc_out && let Some(succs) = self.inner.successors_indices(i) {
                 for &j in succs {
-                    let value = match self.inner.edge_attrs_by_indices(i, j).map(|a| a.get(weight)) {
+                    let value = match self
+                        .inner
+                        .edge_attrs_by_indices(i, j)
+                        .map(|a| a.get(weight))
+                    {
                         Some(Some(CgseValue::Int(v))) => i128::from(*v),
                         Some(Some(_)) => return Ok(None), // non-int -> exact path
                         _ => 1,                           // missing weight -> default 1
@@ -12337,7 +12357,11 @@ impl PyDiGraph {
             }
             if inc_in && let Some(preds) = self.inner.predecessors_indices(i) {
                 for &j in preds {
-                    let value = match self.inner.edge_attrs_by_indices(j, i).map(|a| a.get(weight)) {
+                    let value = match self
+                        .inner
+                        .edge_attrs_by_indices(j, i)
+                        .map(|a| a.get(weight))
+                    {
                         Some(Some(CgseValue::Int(v))) => i128::from(*v),
                         Some(Some(_)) => return Ok(None),
                         _ => 1,
@@ -12383,7 +12407,12 @@ impl PyDiGraph {
                 for successor in self.inner.successors(node).unwrap_or_default() {
                     let ek = Self::edge_key(node, successor);
                     let value = match self.edge_py_attrs.get(&ek) {
-                        Some(d) => d.bind(py).get_item(weight).ok().flatten().unwrap_or_else(|| one.clone()),
+                        Some(d) => d
+                            .bind(py)
+                            .get_item(weight)
+                            .ok()
+                            .flatten()
+                            .unwrap_or_else(|| one.clone()),
                         // br-r37-c1-degf-storemiss (cc): a MISSING mirror entry does
                         // NOT mean weight==1 — it means the edge was never mirrored
                         // (bulk/batch-built graphs leave edge_py_attrs empty). Read
@@ -12392,7 +12421,11 @@ impl PyDiGraph {
                         // degree/size(weight) on a batch-built FLOAT DiGraph returned
                         // the edge COUNT (every weight defaulted to 1) -> flow_hierarchy
                         // went negative. INT weights were unaffected (int store twin).
-                        None => match self.inner.edge_attrs(node, successor).and_then(|a| a.get(weight)) {
+                        None => match self
+                            .inner
+                            .edge_attrs(node, successor)
+                            .and_then(|a| a.get(weight))
+                        {
                             Some(v) => crate::cgse_value_to_py(py, v)?.into_bound(py),
                             None => one.clone(),
                         },
@@ -12408,10 +12441,19 @@ impl PyDiGraph {
                 for predecessor in self.inner.predecessors(node).unwrap_or_default() {
                     let ek = Self::edge_key(predecessor, node);
                     let value = match self.edge_py_attrs.get(&ek) {
-                        Some(d) => d.bind(py).get_item(weight).ok().flatten().unwrap_or_else(|| one.clone()),
+                        Some(d) => d
+                            .bind(py)
+                            .get_item(weight)
+                            .ok()
+                            .flatten()
+                            .unwrap_or_else(|| one.clone()),
                         // br-r37-c1-degf-storemiss (cc): see the succ branch above —
                         // mirror-miss reads the authoritative store, not default 1.
-                        None => match self.inner.edge_attrs(predecessor, node).and_then(|a| a.get(weight)) {
+                        None => match self
+                            .inner
+                            .edge_attrs(predecessor, node)
+                            .and_then(|a| a.get(weight))
+                        {
                             Some(v) => crate::cgse_value_to_py(py, v)?.into_bound(py),
                             None => one.clone(),
                         },
@@ -12436,7 +12478,11 @@ impl PyDiGraph {
     /// Values-only TOTAL weighted degree, node-index order (no per-node py_node_key).
     /// The Python DiDegreeView zips these with the cached node list — the win the
     /// unweighted degcounts path carries. Int-store fast path, else exact.
-    fn _native_weighted_degree_values(&self, py: Python<'_>, weight: &str) -> PyResult<Vec<PyObject>> {
+    fn _native_weighted_degree_values(
+        &self,
+        py: Python<'_>,
+        weight: &str,
+    ) -> PyResult<Vec<PyObject>> {
         if let Some(v) = self.weighted_degree_int_store_values(py, weight, true, true)? {
             return Ok(v);
         }
@@ -12444,7 +12490,11 @@ impl PyDiGraph {
     }
 
     /// Values-only OUT weighted degree (successors only), node-index order.
-    fn _native_weighted_out_degree_values(&self, py: Python<'_>, weight: &str) -> PyResult<Vec<PyObject>> {
+    fn _native_weighted_out_degree_values(
+        &self,
+        py: Python<'_>,
+        weight: &str,
+    ) -> PyResult<Vec<PyObject>> {
         if let Some(v) = self.weighted_degree_int_store_values(py, weight, true, false)? {
             return Ok(v);
         }
@@ -12452,7 +12502,11 @@ impl PyDiGraph {
     }
 
     /// Values-only IN weighted degree (predecessors only), node-index order.
-    fn _native_weighted_in_degree_values(&self, py: Python<'_>, weight: &str) -> PyResult<Vec<PyObject>> {
+    fn _native_weighted_in_degree_values(
+        &self,
+        py: Python<'_>,
+        weight: &str,
+    ) -> PyResult<Vec<PyObject>> {
         if let Some(v) = self.weighted_degree_int_store_values(py, weight, false, true)? {
             return Ok(v);
         }
@@ -12708,8 +12762,7 @@ impl PyDiGraph {
             .map(|i| {
                 let succ = self.inner.successors_indices(i).unwrap_or(&[]);
                 let pred = self.inner.predecessors_indices(i).unwrap_or(&[]);
-                let mut neighbors: HashSet<usize> =
-                    HashSet::with_capacity(succ.len() + pred.len());
+                let mut neighbors: HashSet<usize> = HashSet::with_capacity(succ.len() + pred.len());
                 let mut self_loop = false;
                 for &s in succ {
                     if s == i {
@@ -13601,7 +13654,10 @@ impl PyDiGraph {
                 // edges-with-attrs -> pickle -> every edge came back {}). Fall back to
                 // the store's AttrMap (edge.attrs from edges_ordered) so the round-trip
                 // preserves them.
-                let attrs = match self.edge_py_attrs.get(&Self::edge_key(&edge.left, &edge.right)) {
+                let attrs = match self
+                    .edge_py_attrs
+                    .get(&Self::edge_key(&edge.left, &edge.right))
+                {
                     Some(d) => d.clone_ref(py),
                     None => crate::attr_map_to_pydict(py, &edge.attrs)?,
                 };

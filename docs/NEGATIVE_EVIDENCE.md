@@ -2,14 +2,14 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
-## 2026-07-04 CopperCliff SHIP: MultiDiGraph single_target_shortest_path_length 0.015x -> 3.31x — direct predecessor-CSR reverse BFS
+## 2026-07-04 CopperCliff SHIP/CORRECTION: MultiDiGraph single_target_shortest_path_length 0.012x -> 1.05x — direct predecessor-row reverse BFS
 
 Fresh land-or-dig target from the current traversal ledger: `single_target_shortest_path_length`
 on a `MultiDiGraph` still routed through the projected simple `DiGraph`, even though
 unweighted single-target reachability is multiplicity-invariant. That projection rebuilt a whole
-simple directed graph before running reverse BFS. The new path walks `MultiDiGraph`'s revision-keyed
-distinct predecessor CSR directly, preserving predecessor-row order and emitting the same
-BFS-discovery order as NetworkX. The same predecessor table now feeds `single_target_shortest_path`
+simple directed graph before running reverse BFS. The valid new path walks `MultiDiGraph` predecessor
+rows directly, preserving NetworkX's `G.pred[node]` discovery order and emitting the same
+BFS-discovery order as NetworkX. The same predecessor traversal feeds `single_target_shortest_path`
 path emission, so the path-valued API avoids the same projection floor.
 
 Per-crate benchmark (`fnx-python`, `public_api_gauntlet`, n=1400, fanout=5, 3 parallel edges per
@@ -17,22 +17,26 @@ arc, 30 calls per Criterion iteration):
 
 | State | FNX median | NetworkX median | Ratio vs original NetworkX | Decision |
 | --- | ---: | ---: | ---: | --- |
-| before | `1.5087 s` | `22.933 ms` | `0.015x` | projection floor |
-| after | `7.1451 ms` | `23.674 ms` | `3.31x` | SHIP |
+| before | `1.7705 s` | `21.061 ms` | `0.012x` | projection floor |
+| rejected CSR-only variant | `5.0880 ms` | `17.745 ms` | `3.49x` | DROP: predecessor order drift |
+| after, row-order valid | `15.758 ms` | `16.470 ms` | `1.05x` | SHIP |
 
-Self-speedup: `~211x` on the FNX side. Behavior proof: the result is a reverse BFS over the same
-distinct predecessor relation that the old simple-DiGraph projection exposed; parallel edge
-multiplicity never affects hop counts or successor-toward-target paths, and `MultiDiCsr` preserves the
-map-backed predecessor row order used by the projection.
+Self-speedup vs the measured pre-route FNX median: `~112x`. The earlier CSR-only variant was faster,
+but focused conformance found it emitted source-index predecessor order (`7, 10`) instead of NetworkX
+`G.pred` insertion order (`10, 7`) on an explicit `MultiDiGraph` fixture, so that variant is not
+behavior-preserving and is not shipped. Behavior proof for the shipped path: hop counts and
+successor-toward-target paths are multiplicity-invariant, but discovery order is not; direct predecessor
+row iteration preserves that order without building the attr-heavy simple-DiGraph projection.
 
-Command notes: the requested `rch exec -- cargo bench ... --release` form selected worker
-`vmi1149989` but RCH sync timed out after 30s, then local Cargo rejected `--release` for
-`cargo bench`. Per the fallback rule, the measured run used
-`AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod-a
-PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 cargo bench -p fnx-python --profile
-release --features pyo3/abi3-py310 --bench public_api_gauntlet
-multidigraph_single_target_shortest_path_length -- --sample-size 10 --warm-up-time 0.2
---measurement-time 0.5`.
+Command notes: this Cargo toolchain rejects the requested literal `cargo bench --release` form for
+bench targets (`unexpected argument '--release'`), so the measured per-crate Criterion runs used Cargo's
+bench profile via `rch exec -- cargo bench -p fnx-python --bench public_api_gauntlet --
+multidigraph_single_target_shortest_path_length --sample-size 10 --warm-up-time 0.2
+--measurement-time 0.6` with `AGENT_NAME=CopperCliff` and
+`CARGO_TARGET_DIR=/data/projects/franken_networkx/.rch-targets/coppercliff` (rewritten by RCH to a
+worker-scoped target directory). Conformance: `_fnx` preloaded from
+`.rch-targets/coppercliff/release/lib_fnx.so`, `pytest tests/python/test_single_target_spl_parity.py -q`
+=> `5 passed`.
 
 ## 2026-07-03 CopperCliff SHIP: DIRECTED-multigraph PATH functions (dijkstra_path/astar_path/single_source_dijkstra) 0.02-0.11x -> 0.08-0.34x — the collapse IS path-byte-exact for DIRECTED multigraphs
 
