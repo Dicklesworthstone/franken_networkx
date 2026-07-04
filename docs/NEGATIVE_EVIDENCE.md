@@ -2,6 +2,43 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-04 CopperCliff SURFACE: `networkx-cod` short graph rerun shows SCC/PageRank/BFS wins; residual SSSP gap is near parity
+
+Session start had no tracked unstaged work to commit; only the local untracked `.rch-targets/`
+cache was present and was left untouched. Agent Mail registration/reservation could not be refreshed
+because the MCP Agent Mail database corruption circuit breaker is open (`database disk image is
+malformed`), so this entry records the coordination blocker while keeping the git flow moving.
+
+Short per-crate bench (`fnx-python`, `public_api_gauntlet`) on RCH worker `vmi1227854`, with
+`AGENT_NAME=CopperCliff` and `CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod`:
+
+| Row | FNX median | NetworkX median | Ratio vs ORIG / NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| `ubizp_multigraph_single_source_shortest_path` | `92.152 ms` | `90.266 ms` | `0.980x` | residual near-parity loss; next SSSP dig target |
+| `multidigraph_single_target_shortest_path_length` | `21.467 ms` | `23.145 ms` | `1.078x` | covered; no new lever |
+| `multidigraph_single_source_shortest_path` | `24.651 ms` | `42.323 ms` | `1.717x` | covered; no new lever |
+| `multidigraph_bfs_edges` | `9.6194 ms` | `20.431 ms` | `2.124x` | covered; no new BFS lever |
+| `multidigraph_strongly_connected_components` | `7.7181 ms` | `71.548 ms` | `9.270x` | covered; SCC win remains landed |
+| `directed_pagerank_large` | `21.331 ms` | `44.407 ms` | `2.082x` | covered; PageRank win remains landed |
+| `multidigraph_dijkstra_path_length_target_early_exit` | `385.64 us` | `5.1884 ms` | `13.454x` | covered; no new lever |
+| `multidigraph_dijkstra_path_target_early_exit` | `482.99 us` | `6.1139 ms` | `12.659x` | covered; no new lever |
+| `multidigraph_single_source_dijkstra_path_length` | `145.92 ms` | `150.73 ms` | `1.033x` | residual near-parity SSSP/Dijkstra target |
+
+Command:
+
+```text
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+timeout 900 rch exec -- cargo bench --profile release -p fnx-python
+--bench public_api_gauntlet
+'ubizp_multigraph_single_source_shortest_path|multidigraph_single_target_shortest_path_length|multidigraph_single_source_shortest_path|multidigraph_bfs_edges|multidigraph_strongly_connected_components|directed_pagerank_large|multidigraph_dijkstra_path_length_target_early_exit|multidigraph_dijkstra_path_target_early_exit|multidigraph_single_source_dijkstra_path_length'
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+```
+
+Conformance subset: `public_api_gauntlet.py` asserts FNX-vs-NetworkX parity for each measured row
+before registering the timed callables. No code variant was kept from this pass; the biggest
+realistic-workload residual is now SSSP/Dijkstra around parity, not the reported `0.04x-0.22x`
+fleet-laggard band.
+
 ## 2026-07-04 CopperCliff SURFACE: `networkx-cod` priority graph slice still does not reproduce 0.04x-0.22x; PageRank is 2.024x
 
 Land-or-dig scan found no unrepresented measured BFS/SSSP/PageRank/connected-components win to land
