@@ -5,7 +5,7 @@ FROM target, so single_target_shortest_path_length now routes to the native
 single_source kernel (~2.5x faster than networkx) instead of a per-node Python
 reverse BFS (~6x slower). Hop counts are integers and both build the dict in
 BFS-from-target order, so the result is byte-identical (value + key order).
-Directed graphs keep the Python reverse BFS.
+Directed graphs use native reverse BFS while preserving NetworkX discovery order.
 """
 
 import random
@@ -54,6 +54,28 @@ def test_directed_uses_reverse_distances():
     assert fnx.single_target_shortest_path_length(F, 0) == dict(
         nx.single_target_shortest_path_length(G, 0)
     )
+
+
+def test_multidigraph_value_and_order():
+    G = nx.MultiDiGraph()
+    G.add_nodes_from(range(12))
+    for node in range(11):
+        G.add_edge(node, node + 1)
+        G.add_edge(node, node + 1, key=f"p{node}")
+    G.add_edges_from([(0, 5), (2, 8), (4, 8), (7, 11), (3, 10)])
+
+    F = fnx.MultiDiGraph()
+    F.add_nodes_from(G.nodes())
+    for u, v, key in G.edges(keys=True):
+        F.add_edge(u, v, key=key)
+
+    for cutoff in (None, 0, 1, 2, 4):
+        assert list(
+            fnx.single_target_shortest_path_length(F, 11, cutoff=cutoff).items()
+        ) == list(nx.single_target_shortest_path_length(G, 11, cutoff=cutoff).items())
+        assert list(fnx.single_target_shortest_path(F, 11, cutoff=cutoff).items()) == list(
+            nx.single_target_shortest_path(G, 11, cutoff=cutoff).items()
+        )
 
 
 def test_subgraphview():

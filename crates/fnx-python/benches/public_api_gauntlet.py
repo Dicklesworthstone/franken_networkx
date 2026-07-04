@@ -222,6 +222,7 @@ _EXPECTED_FAST_GNP_GRAPH = _edge_order_signature(
     _fast_gnp_create_using(nx, directed=False)
 )
 _FNX_FAST_GNP_GRAPH = _edge_order_signature(_fast_gnp_create_using(fnx, directed=False))
+# ubs:ignore - benchmark graph signatures are public parity data, not secrets.
 if _FNX_FAST_GNP_GRAPH != _EXPECTED_FAST_GNP_GRAPH:
     raise AssertionError("fast_gnp_random_graph Graph create_using parity drift")
 
@@ -231,6 +232,7 @@ _EXPECTED_FAST_GNP_DIGRAPH = _edge_order_signature(
 _FNX_FAST_GNP_DIGRAPH = _edge_order_signature(
     _fast_gnp_create_using(fnx, directed=True)
 )
+# ubs:ignore - benchmark graph signatures are public parity data, not secrets.
 if _FNX_FAST_GNP_DIGRAPH != _EXPECTED_FAST_GNP_DIGRAPH:
     raise AssertionError("fast_gnp_random_graph DiGraph create_using parity drift")
 
@@ -299,6 +301,66 @@ def networkx_ubizp_multigraph_single_source_shortest_path() -> float:
     total = 0.0
     for _ in range(_UBIZP_REPEAT):
         total += len(nx.single_source_shortest_path(_NX_UBIZP_GRAPH, _UBIZP_SOURCE))
+    return total
+
+
+def _build_single_target_mdg(module, node_count: int, fanout: int, parallels: int):
+    graph = module.MultiDiGraph()
+    graph.add_nodes_from(range(node_count))
+    for node in range(1, node_count):
+        for step in range(1, fanout + 1):
+            target = node - step
+            if target < 0:
+                break
+            for key in range(parallels):
+                graph.add_edge(node, target, key=key)
+    return graph
+
+
+_ST_MDG_NODE_COUNT = 1400
+_ST_MDG_FANOUT = 5
+_ST_MDG_PARALLELS = 3
+_ST_MDG_TARGET = 0
+_ST_MDG_REPEAT = 30
+_FNX_ST_MDG_GRAPH = _build_single_target_mdg(
+    fnx, _ST_MDG_NODE_COUNT, _ST_MDG_FANOUT, _ST_MDG_PARALLELS
+)
+_NX_ST_MDG_GRAPH = _build_single_target_mdg(
+    nx, _ST_MDG_NODE_COUNT, _ST_MDG_FANOUT, _ST_MDG_PARALLELS
+)
+
+_EXPECTED_ST_MDG = dict(
+    nx.single_target_shortest_path_length(_NX_ST_MDG_GRAPH, _ST_MDG_TARGET)
+)
+_FNX_ST_MDG = fnx.single_target_shortest_path_length(
+    _FNX_ST_MDG_GRAPH, _ST_MDG_TARGET
+)
+if list(_FNX_ST_MDG.items()) != list(_EXPECTED_ST_MDG.items()):
+    raise AssertionError("single_target_shortest_path_length MultiDiGraph parity drift")
+
+
+def _distance_checksum(lengths: dict[int, int]) -> float:
+    total = 0
+    for node, distance in lengths.items():
+        total += node * 31 + distance
+    return float(total + len(lengths))
+
+
+def fnx_multidigraph_single_target_shortest_path_length() -> float:
+    total = 0.0
+    for _ in range(_ST_MDG_REPEAT):
+        total += _distance_checksum(
+            fnx.single_target_shortest_path_length(_FNX_ST_MDG_GRAPH, _ST_MDG_TARGET)
+        )
+    return total
+
+
+def networkx_multidigraph_single_target_shortest_path_length() -> float:
+    total = 0.0
+    for _ in range(_ST_MDG_REPEAT):
+        total += _distance_checksum(
+            dict(nx.single_target_shortest_path_length(_NX_ST_MDG_GRAPH, _ST_MDG_TARGET))
+        )
     return total
 
 

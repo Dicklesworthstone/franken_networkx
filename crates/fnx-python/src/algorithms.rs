@@ -18223,7 +18223,21 @@ fn single_target_shortest_path(
     let gr = extract_graph(g)?;
     let t = node_key_to_string(py, target)?;
     validate_node_str(&gr, &t, "Target")?;
-    let (nodes, target_idx, discovery, successor) = if let Some(dg) = gr.digraph() {
+    let (nodes, target_idx, discovery, successor) = if let GraphRef::MultiDirected { mdg, .. } = &gr
+    {
+        let inner = &mdg.inner;
+        let nodes = inner.nodes_ordered();
+        let target_idx = nodes
+            .iter()
+            .position(|&node| node == t)
+            .expect("target validated above");
+        let (discovery, successor) = py.allow_threads(|| {
+            single_target_shortest_path_tree_from_multidigraph_predecessors(
+                inner, target_idx, cutoff,
+            )
+        });
+        (nodes, target_idx, discovery, successor)
+    } else if let Some(dg) = gr.digraph() {
         let nodes = dg.nodes_ordered();
         let target_idx = dg.get_node_index(&t).expect("target validated above");
         let (discovery, successor) = py.allow_threads(|| {
@@ -18341,6 +18355,86 @@ fn single_target_shortest_path_tree_from_digraph_predecessors(
     (order, successor)
 }
 
+/// MultiDiGraph reverse BFS over distinct predecessor rows. Single-target
+/// unweighted paths are multiplicity-invariant, and `MultiDiCsr` preserves the
+/// same predecessor-row order as the projected simple DiGraph.
+fn single_target_shortest_path_tree_from_multidigraph_predecessors(
+    multidigraph: &fnx_classes::digraph::MultiDiGraph,
+    target: usize,
+    cutoff: Option<usize>,
+) -> (Vec<usize>, Vec<usize>) {
+    let node_count = multidigraph.node_count();
+    let csr = multidigraph.csr();
+    let mut seen = vec![false; node_count];
+    let mut successor = vec![0usize; node_count];
+    let mut order: Vec<usize> = Vec::with_capacity(node_count);
+    let mut frontier = vec![target];
+    let mut next_frontier = Vec::new();
+    seen[target] = true;
+    successor[target] = target;
+    order.push(target);
+
+    let cutoff = cutoff.unwrap_or(usize::MAX);
+    let mut level = 0usize;
+    while !frontier.is_empty() && level < cutoff {
+        next_frontier.clear();
+        for &node in &frontier {
+            for &neighbor in csr.predecessors(node) {
+                let neighbor = neighbor as usize;
+                if !seen[neighbor] {
+                    seen[neighbor] = true;
+                    successor[neighbor] = node;
+                    order.push(neighbor);
+                    next_frontier.push(neighbor);
+                }
+            }
+        }
+        std::mem::swap(&mut frontier, &mut next_frontier);
+        level += 1;
+    }
+
+    (order, successor)
+}
+
+fn single_target_shortest_path_length_multidigraph<'a>(
+    multidigraph: &'a fnx_classes::digraph::MultiDiGraph,
+    target: &str,
+    cutoff: Option<usize>,
+) -> Vec<(&'a str, usize)> {
+    let nodes = multidigraph.nodes_ordered();
+    let Some(target_idx) = nodes.iter().position(|&node| node == target) else {
+        return Vec::new();
+    };
+    let csr = multidigraph.csr();
+    let mut seen = vec![false; nodes.len()];
+    let mut out = Vec::with_capacity(nodes.len());
+    let mut frontier = vec![target_idx];
+    let mut next_frontier = Vec::new();
+    seen[target_idx] = true;
+    out.push((nodes[target_idx], 0));
+
+    let cutoff = cutoff.unwrap_or(usize::MAX);
+    let mut level = 0usize;
+    while !frontier.is_empty() && level < cutoff {
+        next_frontier.clear();
+        let next_dist = level + 1;
+        for &node in &frontier {
+            for &neighbor in csr.predecessors(node) {
+                let neighbor = neighbor as usize;
+                if !seen[neighbor] {
+                    seen[neighbor] = true;
+                    out.push((nodes[neighbor], next_dist));
+                    next_frontier.push(neighbor);
+                }
+            }
+        }
+        std::mem::swap(&mut frontier, &mut next_frontier);
+        level = next_dist;
+    }
+
+    out
+}
+
 /// Return shortest path lengths from all nodes to a single target (unweighted BFS).
 #[pyfunction]
 #[pyo3(signature = (g, target, cutoff=None))]
@@ -18354,7 +18448,14 @@ fn single_target_shortest_path_length(
     let t = node_key_to_string(py, target)?;
     validate_node_str(&gr, &t, "Target")?;
     let dict = PyDict::new(py);
-    if let Some(dg) = gr.digraph() {
+    if let GraphRef::MultiDirected { mdg, .. } = &gr {
+        let inner = &mdg.inner;
+        let result =
+            py.allow_threads(|| single_target_shortest_path_length_multidigraph(inner, &t, cutoff));
+        for (node, length) in &result {
+            dict.set_item(gr.py_node_key(py, node), *length)?;
+        }
+    } else if let Some(dg) = gr.digraph() {
         let result = py.allow_threads(|| {
             fnx_algorithms::single_target_shortest_path_length_directed(dg, &t, cutoff)
         });

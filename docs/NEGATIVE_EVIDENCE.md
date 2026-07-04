@@ -2,6 +2,38 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-04 CopperCliff SHIP: MultiDiGraph single_target_shortest_path_length 0.015x -> 3.31x — direct predecessor-CSR reverse BFS
+
+Fresh land-or-dig target from the current traversal ledger: `single_target_shortest_path_length`
+on a `MultiDiGraph` still routed through the projected simple `DiGraph`, even though
+unweighted single-target reachability is multiplicity-invariant. That projection rebuilt a whole
+simple directed graph before running reverse BFS. The new path walks `MultiDiGraph`'s revision-keyed
+distinct predecessor CSR directly, preserving predecessor-row order and emitting the same
+BFS-discovery order as NetworkX. The same predecessor table now feeds `single_target_shortest_path`
+path emission, so the path-valued API avoids the same projection floor.
+
+Per-crate benchmark (`fnx-python`, `public_api_gauntlet`, n=1400, fanout=5, 3 parallel edges per
+arc, 30 calls per Criterion iteration):
+
+| State | FNX median | NetworkX median | Ratio vs original NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| before | `1.5087 s` | `22.933 ms` | `0.015x` | projection floor |
+| after | `7.1451 ms` | `23.674 ms` | `3.31x` | SHIP |
+
+Self-speedup: `~211x` on the FNX side. Behavior proof: the result is a reverse BFS over the same
+distinct predecessor relation that the old simple-DiGraph projection exposed; parallel edge
+multiplicity never affects hop counts or successor-toward-target paths, and `MultiDiCsr` preserves the
+map-backed predecessor row order used by the projection.
+
+Command notes: the requested `rch exec -- cargo bench ... --release` form selected worker
+`vmi1149989` but RCH sync timed out after 30s, then local Cargo rejected `--release` for
+`cargo bench`. Per the fallback rule, the measured run used
+`AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod-a
+PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 cargo bench -p fnx-python --profile
+release --features pyo3/abi3-py310 --bench public_api_gauntlet
+multidigraph_single_target_shortest_path_length -- --sample-size 10 --warm-up-time 0.2
+--measurement-time 0.5`.
+
 ## 2026-07-03 CopperCliff SHIP: DIRECTED-multigraph PATH functions (dijkstra_path/astar_path/single_source_dijkstra) 0.02-0.11x -> 0.08-0.34x — the collapse IS path-byte-exact for DIRECTED multigraphs
 
 KEY FINDING that reopens the path functions: the min-weight-collapse was excluded from PATH-returning
