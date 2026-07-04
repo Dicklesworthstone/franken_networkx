@@ -11,6 +11,7 @@ malformed`), so this entry records the coordination blocker while keeping the gi
 
 Short per-crate bench (`fnx-python`, `public_api_gauntlet`) on RCH worker `vmi1227854`, with
 `AGENT_NAME=CopperCliff` and `CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod`:
+medians below were verified from Criterion `new/estimates.json` artifacts in that target dir.
 
 | Row | FNX median | NetworkX median | Ratio vs ORIG / NetworkX | Decision |
 | --- | ---: | ---: | ---: | --- |
