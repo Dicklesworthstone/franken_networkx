@@ -2,6 +2,46 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-04 CopperCliff SURFACE: current priority graph slice is no longer the 0.04x-0.22x fleet laggard
+
+Land-or-dig scan found no unrepresented measured BFS/SSSP/PageRank/connected-components win to land
+from scratch/worktree heads. The only relevant unmerged scratch head was
+`8a24d8540a63f8e78624247be65a1e32abe9949e` (`blackthrush-ship-20260627T0521`), an old edge-view
+audit whose measured win was already present on `main`; its remaining gap is `MultiDiGraph.in_edges`
+data-key emission, not the current large-graph BFS/SSSP/PageRank/CC priority lane.
+
+I then reran a short per-crate `fnx-python` priority slice on current `main` to avoid digging a covered
+row. The public large-graph BFS/SSSP/Dijkstra rows in this slice are all at or above NetworkX on the
+same worker, so no new code lever was kept from this pass.
+
+Short per-crate bench (`fnx-python`, `public_api_gauntlet`) on RCH worker `vmi1227854`, with
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod`:
+
+| Row | FNX median | NetworkX median | Ratio vs ORIG / NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| `ubizp_multigraph_single_source_shortest_path` | `80.868 ms` | `88.946 ms` | `1.100x` | covered; no new lever |
+| `multidigraph_single_target_shortest_path_length` | `17.953 ms` | `19.536 ms` | `1.088x` | covered; no new lever |
+| `multidigraph_single_source_shortest_path` | `19.198 ms` | `28.232 ms` | `1.471x` | covered; no new lever |
+| `multidigraph_bfs_edges` | `7.9412 ms` | `16.567 ms` | `2.086x` | covered; no new lever |
+| `multidigraph_dijkstra_path_length_target_early_exit` | `352.13 us` | `4.1011 ms` | `11.647x` | covered; no new lever |
+| `multidigraph_dijkstra_path_target_early_exit` | `384.60 us` | `4.9290 ms` | `12.816x` | covered; no new lever |
+| `multidigraph_single_source_dijkstra_path_length` | `92.585 ms` | `113.53 ms` | `1.226x` | covered; no new lever |
+
+Command:
+
+```text
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod
+timeout 900 rch exec -- cargo bench --profile release -p fnx-python
+--bench public_api_gauntlet
+'ubizp_multigraph_single_source_shortest_path|multidigraph_single_target_shortest_path_length|multidigraph_single_source_shortest_path|multidigraph_bfs_edges|multidigraph_dijkstra_path_length_target_early_exit|multidigraph_dijkstra_path_target_early_exit|multidigraph_single_source_dijkstra_path_length'
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+```
+
+Conformance subset: `public_api_gauntlet.py` asserts exact FNX-vs-NetworkX parity for each measured
+row before registering the timed callables. `rch` completed the remote command successfully; artifact
+retrieval needed one retry after SSH reset, then succeeded. Agent Mail registration/reservation was
+blocked by its SQLite corruption circuit breaker, so no mail write was recorded.
+
 ## 2026-07-04 CopperCliff SHIP: MultiDiGraph `bfs_edges` via cached CSR row walk — 2.010x vs NetworkX
 
 Land-or-dig scan had no unrepresented scratch/worktree win to land. The remaining graph-family
