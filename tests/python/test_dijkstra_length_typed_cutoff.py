@@ -141,6 +141,25 @@ def test_multidigraph_dijkstra_path_length_target_raw_skips_projection(monkeypat
         assert _type_name(raw) == _type_name(expected)
 
 
+def test_multidigraph_dijkstra_path_target_raw_skips_projection(monkeypatch):
+    gf, gn = _build_weighted_multidigraphs()
+
+    def fail_collapse(*args, **kwargs):
+        raise AssertionError("directed multigraph target path should not collapse")
+
+    monkeypatch.setattr(fnx, "_multigraph_collapse_min_weight", fail_collapse)
+
+    for target in ("z", "tail", "s"):
+        public = fnx.dijkstra_path(gf, "s", target, weight="weight")
+        raw = fnx._raw_multidigraph_dijkstra_path_target(
+            gf, "s", target, weight="weight"
+        )
+        expected = nx.dijkstra_path(gn, "s", target, weight="weight")
+
+        assert public == expected
+        assert raw == expected
+
+
 def test_multidigraph_dijkstra_path_length_target_raw_delegates_nonnumeric():
     gf = fnx.MultiDiGraph()
     gf.add_edge("s", "a", weight="bad")
@@ -148,6 +167,19 @@ def test_multidigraph_dijkstra_path_length_target_raw_delegates_nonnumeric():
 
     assert (
         fnx._raw_multidigraph_dijkstra_path_length_target(
+            gf, "s", "z", weight="weight"
+        )
+        is None
+    )
+
+
+def test_multidigraph_dijkstra_path_target_raw_delegates_nonnumeric():
+    gf = fnx.MultiDiGraph()
+    gf.add_edge("s", "a", weight="bad")
+    gf.add_edge("a", "z", weight=1)
+
+    assert (
+        fnx._raw_multidigraph_dijkstra_path_target(
             gf, "s", "z", weight="weight"
         )
         is None
