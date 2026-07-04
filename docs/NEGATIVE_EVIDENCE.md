@@ -2,6 +2,39 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-04 CopperCliff SURFACE: residual SSSP row now measures 2.124x vs NetworkX
+
+Session start had no tracked unstaged work to commit; only the local untracked `.rch-targets/`
+cache was present and left untouched. Agent Mail registration/reservation remains blocked by its
+SQLite corruption circuit breaker (`database disk image is malformed`). Scratch/worktree scan found
+no landable measured win not already on `main`: the two non-ancestor heads were the stale
+`blackthrush-ship` edge-view audit and `cc-adjouter-land-20260624` adjacency-cache branch, both
+already represented by prior ledger entries and landed `main` code.
+
+The current dig target was the known historical graph-family residual,
+`multidigraph_single_source_shortest_path`. The SSSP path-list prefix-copy and cached CSR traversal
+primitive is already on `main`, so no new code variant was kept. A fresh short per-crate local bench
+with `AGENT_NAME=CopperCliff` and `CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod`
+measured the row above NetworkX:
+
+| Row | FNX median | NetworkX median | Ratio vs ORIG / NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| `multidigraph_single_source_shortest_path` | `29.667 ms` | `62.999 ms` | `2.124x` | covered; current primitive remains above NetworkX |
+
+Command:
+
+```text
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+timeout 900 cargo bench --profile release -p fnx-python
+--bench public_api_gauntlet multidigraph_single_source_shortest_path
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+```
+
+Conformance subset: `public_api_gauntlet.py` asserts
+`fnx.single_source_shortest_path(...) == nx.single_source_shortest_path(...)` for this MultiDiGraph
+row before Criterion registers the timed callables. This run does not reproduce the reported
+`0.04x-0.22x` laggard band.
+
 ## 2026-07-04 CopperCliff SURFACE: post-commit short graph slice still above NetworkX
 
 Session start had no tracked unstaged work to commit; only the local untracked `.rch-targets/`
