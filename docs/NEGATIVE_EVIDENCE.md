@@ -2,6 +2,38 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-04 CopperCliff SURFACE: `networkx-cod` local-fallback priority graph slice remains above NetworkX
+
+Session start had no tracked unstaged work to commit; only the local untracked `.rch-targets/`
+cache was present and left untouched. The requested short per-crate RCH bench fell open to local
+execution because no worker was admissible (`critical_pressure=3`, `insufficient_slots=8`), but it
+used the requested `AGENT_NAME=CopperCliff` and
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod`.
+
+Short per-crate bench (`fnx-python`, `public_api_gauntlet`) on local fallback:
+
+| Row | FNX median | NetworkX median | Ratio vs ORIG / NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| `ubizp_multigraph_single_source_shortest_path` | `66.216 ms` | `87.700 ms` | `1.324x` | covered; no code lever kept |
+| `multidigraph_bfs_edges` | `8.5437 ms` | `18.710 ms` | `2.190x` | covered; no new BFS lever |
+| `multidigraph_strongly_connected_components` | `7.2099 ms` | `59.084 ms` | `8.195x` | covered; SCC win remains landed |
+| `directed_pagerank_large` | `13.250 ms` | `38.400 ms` | `2.898x` | covered; PageRank win remains landed |
+| `multidigraph_single_source_dijkstra_path_length` | `72.405 ms` | `108.92 ms` | `1.504x` | covered; no Dijkstra lever kept |
+
+Command:
+
+```text
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+timeout 700 rch exec -- cargo bench --profile release -p fnx-python
+--bench public_api_gauntlet
+'directed_pagerank_large|multidigraph_bfs_edges|multidigraph_strongly_connected_components|ubizp_multigraph_single_source_shortest_path|multidigraph_single_source_dijkstra_path_length'
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+```
+
+Conformance subset: `public_api_gauntlet.py` asserts FNX-vs-NetworkX parity for each measured row
+before registering the timed callables. No code variant was kept from this pass; this measured slice
+does not reproduce the reported `0.04x-0.22x` laggard band.
+
 ## 2026-07-04 CopperCliff SURFACE: `networkx-cod` short graph rerun shows SCC/PageRank/BFS wins; residual SSSP gap is near parity
 
 Session start had no tracked unstaged work to commit; only the local untracked `.rch-targets/`
