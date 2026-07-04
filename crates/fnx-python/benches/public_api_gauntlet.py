@@ -188,6 +188,81 @@ def networkx_non_edges_sparse_undirected() -> float:
     return total
 
 
+_FAST_GNP_GRAPH_N = 1500
+_FAST_GNP_GRAPH_P = 0.008
+_FAST_GNP_DIGRAPH_N = 900
+_FAST_GNP_DIGRAPH_P = 0.012
+_FAST_GNP_SEED = 1234
+_FAST_GNP_REPEAT = 20
+
+
+def _fast_gnp_create_using(module, *, directed: bool):
+    graph_type = module.DiGraph if directed else module.Graph
+    if directed:
+        return module.fast_gnp_random_graph(
+            _FAST_GNP_DIGRAPH_N,
+            _FAST_GNP_DIGRAPH_P,
+            seed=_FAST_GNP_SEED,
+            directed=True,
+            create_using=graph_type(),
+        )
+    return module.fast_gnp_random_graph(
+        _FAST_GNP_GRAPH_N,
+        _FAST_GNP_GRAPH_P,
+        seed=_FAST_GNP_SEED,
+        create_using=graph_type(),
+    )
+
+
+def _edge_order_signature(graph) -> tuple[tuple, tuple]:
+    return tuple(graph.nodes()), tuple(graph.edges())
+
+
+_EXPECTED_FAST_GNP_GRAPH = _edge_order_signature(
+    _fast_gnp_create_using(nx, directed=False)
+)
+_FNX_FAST_GNP_GRAPH = _edge_order_signature(_fast_gnp_create_using(fnx, directed=False))
+if _FNX_FAST_GNP_GRAPH != _EXPECTED_FAST_GNP_GRAPH:
+    raise AssertionError("fast_gnp_random_graph Graph create_using parity drift")
+
+_EXPECTED_FAST_GNP_DIGRAPH = _edge_order_signature(
+    _fast_gnp_create_using(nx, directed=True)
+)
+_FNX_FAST_GNP_DIGRAPH = _edge_order_signature(
+    _fast_gnp_create_using(fnx, directed=True)
+)
+if _FNX_FAST_GNP_DIGRAPH != _EXPECTED_FAST_GNP_DIGRAPH:
+    raise AssertionError("fast_gnp_random_graph DiGraph create_using parity drift")
+
+
+def fnx_fast_gnp_create_using_graph() -> float:
+    total = 0.0
+    for _ in range(_FAST_GNP_REPEAT):
+        total += _fast_gnp_create_using(fnx, directed=False).number_of_edges()
+    return total
+
+
+def networkx_fast_gnp_create_using_graph() -> float:
+    total = 0.0
+    for _ in range(_FAST_GNP_REPEAT):
+        total += _fast_gnp_create_using(nx, directed=False).number_of_edges()
+    return total
+
+
+def fnx_fast_gnp_create_using_digraph() -> float:
+    total = 0.0
+    for _ in range(_FAST_GNP_REPEAT):
+        total += _fast_gnp_create_using(fnx, directed=True).number_of_edges()
+    return total
+
+
+def networkx_fast_gnp_create_using_digraph() -> float:
+    total = 0.0
+    for _ in range(_FAST_GNP_REPEAT):
+        total += _fast_gnp_create_using(nx, directed=True).number_of_edges()
+    return total
+
+
 def _build_ubizp_multigraph(module, node_count: int):
     graph = module.MultiGraph()
     graph.add_nodes_from(range(node_count))

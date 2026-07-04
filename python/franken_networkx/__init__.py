@@ -58001,6 +58001,7 @@ def fast_gnp_random_graph(n, p, seed=None, directed=False, *, create_using=None,
 
     graph = empty_graph(n, create_using=graph, default=default)
     lp = _math.log(1.0 - p)
+    edges = []
 
     if directed:
         v = 1
@@ -58012,7 +58013,7 @@ def fast_gnp_random_graph(n, p, seed=None, directed=False, *, create_using=None,
                 w = w - v
                 v += 1
             if v < n:
-                graph.add_edge(w, v)
+                edges.append((w, v))
 
     v = 1
     w = -1
@@ -58023,7 +58024,8 @@ def fast_gnp_random_graph(n, p, seed=None, directed=False, *, create_using=None,
             w = w - v
             v += 1
         if v < n:
-            graph.add_edge(v, w)
+            edges.append((v, w))
+    graph.add_edges_from(edges)
     return graph
 
 

@@ -112,6 +112,26 @@ if target_dir:
                 "networkx_non_edges_sparse_undirected",
             ),
             (
+                "fast_gnp_create_using_graph",
+                "fnx",
+                "fnx_fast_gnp_create_using_graph",
+            ),
+            (
+                "fast_gnp_create_using_graph",
+                "networkx",
+                "networkx_fast_gnp_create_using_graph",
+            ),
+            (
+                "fast_gnp_create_using_digraph",
+                "fnx",
+                "fnx_fast_gnp_create_using_digraph",
+            ),
+            (
+                "fast_gnp_create_using_digraph",
+                "networkx",
+                "networkx_fast_gnp_create_using_digraph",
+            ),
+            (
                 "ubizp_multigraph_single_source_shortest_path",
                 "fnx",
                 "fnx_ubizp_multigraph_single_source_shortest_path",

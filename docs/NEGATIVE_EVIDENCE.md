@@ -13856,3 +13856,28 @@ LIFT vs session baselines: union MG 0.71->0.86x, union MDG 0.60->0.73x, symmetri
 construction tax is now materially reduced across the WHOLE set-algebra + compose/union family via one
 proven lever (has_remapped_int_key). The /alien-graveyard skill cracked what I'd surfaced as "purely
 architectural" — it was partially reducible.
+
+
+## 2026-07-04 CopperCliff SHIP: fast_gnp_random_graph(create_using=...) batch commit - 0.31-0.39x -> 1.31-2.10x
+
+`fast_gnp_random_graph` already used the Rust native default path when `create_using is None`, but its
+`create_using=Graph()/DiGraph()` branch ran the Batagelj-Brandes skip loop in Python and called
+`graph.add_edge(...)` for every accepted edge. The loop never reads the graph after pre-populating nodes,
+so accepted edges can be accumulated in the exact generated order and committed through one
+`add_edges_from` call. RNG state, directed edge order, node order, boundary routing, and create_using
+family checks are unchanged.
+
+Baseline direct A/B against vendored NetworkX: Graph n=1500 p=0.008 seed=1234 was 0.386x median
+(fnx 19.93ms, nx 7.69ms); DiGraph n=900 p=0.012 seed=1234 was 0.310x median (fnx 25.83ms, nx 8.02ms).
+After the batch commit: Graph is 2.099x median (fnx 3.55ms, nx 7.45ms) and DiGraph is 1.311x median
+(fnx 5.84ms, nx 7.66ms). SHA256 structural digests matched NetworkX for both shapes:
+Graph `cf544f4d5a02a1f5d49874f1098fb37bf41716c388cd8fa19b9188181c7d923b`, DiGraph
+`605bac6d8fd03287d666afb4875812b7ba77b0396f40b1c7bf257a7baa3f5473`.
+
+Per-crate local bench after the rch workers stalled:
+`AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod-a cargo bench -p
+fnx-python --bench public_api_gauntlet fast_gnp_create_using -- --sample-size 10 --warm-up-time 0.2
+--measurement-time 0.5`. Criterion means: Graph fnx 84.807ms vs NetworkX 275.68ms (3.25x);
+DiGraph fnx 195.83ms vs NetworkX 304.10ms (1.55x). Added the workload to
+`public_api_gauntlet` with import-time node/edge-order parity assertions so future per-crate benches keep
+this path visible.
