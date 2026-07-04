@@ -2,6 +2,51 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-04 CopperCliff SURFACE: short SSSP audit does not reproduce the 0.04x-0.22x laggard band
+
+Land-or-dig pass after `de35e675d` found no relevant measured win sitting ahead of `origin/main`
+in the scanned scratch/worktree heads. The obvious CopperCliff bench worktrees were already
+contained in `main`, and the earlier depth-filled MultiDiGraph path emitter regression is already
+ledgered below. No code variant is kept from this pass.
+
+The literal requested bench form was checked first and is not a valid Cargo invocation:
+
+```text
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod
+timeout 120 rch exec -- cargo bench --release -p fnx-python --bench public_api_gauntlet
+'ubizp_multigraph_single_source_shortest_path|multidigraph_single_source_shortest_path'
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+
+error: unexpected argument '--release' found
+```
+
+Valid optimized bench-profile command used for the short per-crate subset:
+
+```text
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod
+timeout 900 rch exec -- cargo bench -p fnx-python --bench public_api_gauntlet
+'ubizp_multigraph_single_source_shortest_path|multidigraph_single_source_shortest_path'
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+```
+
+Measured on RCH worker `vmi1149989`:
+
+| Row | FNX median | NetworkX median | Ratio vs ORIG / NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| `ubizp_multigraph_single_source_shortest_path` | `78.038 ms` | `74.054 ms` | `0.949x` | no binding-side variant kept |
+| `multidigraph_single_source_shortest_path` | `36.223 ms` | `31.601 ms` | `0.872x` | residual gap, not the reported 0.04x-0.22x band |
+
+Conformance subset: `public_api_gauntlet.py` performs import-time parity checks for both timed rows
+(`fnx.single_source_shortest_path(...) == nx.single_source_shortest_path(...)`) before Criterion
+starts timing, so the measured run would fail closed on output drift.
+
+Routing decision: the alien-graveyard GraphBLAS/semiring lever still points at indexed CSR/CSC style
+frontiers, but current public BFS/path rows are near parity and previously ledgered MultiGraph
+weighted-Dijkstra CSR experiments did not beat NetworkX while reading through the string-keyed
+MultiGraph/MultiDiGraph store. The next radical lever is therefore not another Python binding
+path-list materializer; it is an `fnx-classes` indexed multigraph adjacency/edge-bucket primitive
+that lets BFS/SSSP/pagerank/connected-components consume integer node and edge IDs directly.
+
 ## 2026-07-04 CopperCliff NO-SHIP: MultiDiGraph single_source_shortest_path depth-filled emitter regressed 0.867x -> 0.531x
 
 Land-or-dig pass after commit `0f6a25e9d` found no unlanded measured win in the non-ancestor
