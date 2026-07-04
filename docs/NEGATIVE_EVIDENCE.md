@@ -13874,10 +13874,10 @@ After the batch commit: Graph is 2.099x median (fnx 3.55ms, nx 7.45ms) and DiGra
 Graph `cf544f4d5a02a1f5d49874f1098fb37bf41716c388cd8fa19b9188181c7d923b`, DiGraph
 `605bac6d8fd03287d666afb4875812b7ba77b0396f40b1c7bf257a7baa3f5473`.
 
-Per-crate local bench after the rch workers stalled:
-`AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod-a cargo bench -p
-fnx-python --bench public_api_gauntlet fast_gnp_create_using -- --sample-size 10 --warm-up-time 0.2
---measurement-time 0.5`. Criterion means: Graph fnx 84.807ms vs NetworkX 275.68ms (3.25x);
-DiGraph fnx 195.83ms vs NetworkX 304.10ms (1.55x). Added the workload to
+Per-crate remote `rch` bench on worker `vmi1227854`:
+`AGENT_NAME=CopperCliff RCH_FORCE_REMOTE=1 rch exec -- cargo bench -p fnx-python --bench
+public_api_gauntlet -- fast_gnp_create_using --sample-size 10 --warm-up-time 0.2 --measurement-time
+0.5`. Criterion means: Graph fnx 96.377ms vs NetworkX 260.67ms (2.70x); DiGraph fnx 194.54ms vs
+NetworkX 276.25ms (1.42x). Added the workload to
 `public_api_gauntlet` with import-time node/edge-order parity assertions so future per-crate benches keep
 this path visible.
