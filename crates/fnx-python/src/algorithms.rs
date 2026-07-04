@@ -4508,6 +4508,39 @@ fn emit_paths_dict_discovery_parent_index(
     Ok(dict.unbind())
 }
 
+fn emit_paths_dict_uniform_parent_index(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    nodes: &[&str],
+    source_idx: usize,
+    source_obj: PyObject,
+    discovery: &[usize],
+    predecessor: &[usize],
+) -> PyResult<pyo3::Py<PyDict>> {
+    let mut py_nodes: Vec<PyObject> = nodes.iter().map(|node| gr.py_node_key(py, node)).collect();
+    py_nodes[source_idx] = source_obj;
+
+    let dict = PyDict::new(py);
+    let mut stack = Vec::new();
+    for &node_idx in discovery {
+        stack.clear();
+        let mut current = node_idx;
+        loop {
+            stack.push(current);
+            if current == source_idx {
+                break;
+            }
+            current = predecessor[current];
+        }
+        let py_path = PyList::new(
+            py,
+            stack.iter().rev().map(|&idx| py_nodes[idx].clone_ref(py)),
+        )?;
+        dict.set_item(py_nodes[node_idx].clone_ref(py), py_path)?;
+    }
+    Ok(dict.unbind())
+}
+
 fn emit_dijkstra_indexed_full(
     py: Python<'_>,
     gr: &GraphRef<'_>,
@@ -12738,15 +12771,27 @@ pub fn single_source_shortest_path(
         let Some(source_idx) = source_idx else {
             return Ok(PyDict::new(py).into_any().unbind());
         };
-        let dict = emit_paths_dict_discovery_parent_index(
-            py,
-            &gr,
-            &nodes,
-            source_idx,
-            source.clone().unbind(),
-            &discovery,
-            &predecessor,
-        )?;
+        let dict = if mdg.succ_py_keys.is_empty() {
+            emit_paths_dict_uniform_parent_index(
+                py,
+                &gr,
+                &nodes,
+                source_idx,
+                source.clone().unbind(),
+                &discovery,
+                &predecessor,
+            )
+        } else {
+            emit_paths_dict_discovery_parent_index(
+                py,
+                &gr,
+                &nodes,
+                source_idx,
+                source.clone().unbind(),
+                &discovery,
+                &predecessor,
+            )
+        }?;
         return Ok(dict.into_any());
     }
     if gr.is_directed() {

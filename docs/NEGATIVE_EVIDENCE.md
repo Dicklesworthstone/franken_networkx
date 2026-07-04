@@ -2,6 +2,52 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-04 CopperCliff SHIP: MultiDiGraph single_source_shortest_path 0.785x -> 0.830x — uniform row-object path emitter
+
+Fresh remaining shortest-path materialization gap after the MultiDiGraph CSR BFS work:
+`single_source_shortest_path(MultiDiGraph, source)` on the public API gauntlet's large sparse
+directed multigraph (n=1400, five successor targets per node, three keyed parallel arcs per
+target, twenty calls per Criterion iteration). The traversal was already in cached CSR index
+space, but emission still called `py_row_key(parent, node)` for every discovered node before
+rebuilding every Python path. On the common uniform-row case, MultiDiGraph successor rows yield the
+same display object as the canonical node object, so those row-key hash lookups only pay parity tax.
+
+The shipped lever adds a uniform parent-index emitter gated by `mdg.succ_py_keys.is_empty()`. It
+pre-materializes the canonical Python node objects once in node-order, preserves the source object
+exactly as passed, then reconstructs each discovered path from the parent index tree without
+per-discovery row-key lookup. Graphs with successor-row display overrides keep the existing
+`py_row_key` emitter, so mixed hash-equal key parity remains on the conservative path.
+
+Per-crate benchmark (`fnx-python`, `public_api_gauntlet`,
+`multidigraph_single_source_shortest_path`, twenty calls per Criterion iteration):
+
+| State | Worker | FNX median | NetworkX median | Ratio vs NetworkX | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| before, CSR BFS plus per-discovery row-key emission | `rch` worker `ovh-a` | `26.456 ms` | `20.782 ms` | `0.785x` | baseline |
+| after, uniform row-object emitter | `rch` worker `ovh-a` | `25.619 ms` | `21.258 ms` | `0.830x` | SHIP |
+
+Same-worker FNX self-speedup: `26.456 ms / 25.619 ms = 1.033x`. Ratio improvement:
+`0.830x / 0.785x = 1.057x`. Final measured ratio remains a gap:
+`21.258 ms / 25.619 ms = 0.830x` vs NetworkX, so the next lever must attack path-list
+materialization volume rather than traversal.
+
+Command notes: measured with `AGENT_NAME=CopperCliff` and
+`CARGO_TARGET_DIR=/data/projects/franken_networkx/.rch-targets/coppercliff-next` using
+`rch exec -- cargo bench -p fnx-python --bench public_api_gauntlet
+multidigraph_single_source_shortest_path -- --sample-size 10 --warm-up-time 0.2
+--measurement-time 0.5`. RCH selected `ovh-a`, matching the short routing baseline worker.
+
+Validation:
+- `cargo check -p fnx-python --all-targets`: passed via RCH.
+- `cargo clippy -p fnx-python --all-targets -- -D warnings`: passed via RCH.
+- `cargo fmt --check -p fnx-python`: passed.
+- `git diff --check -- crates/fnx-python/src/algorithms.rs docs/NEGATIVE_EVIDENCE.md`: passed.
+- `timeout 90 ubs crates/fnx-python/src/algorithms.rs docs/NEGATIVE_EVIDENCE.md`: exit 1 from
+  pre-existing broad `algorithms.rs` findings (including the existing `panic!` inventory at line
+  24806 and large unwrap/indexing inventories); no new-emitter-specific finding was reported.
+- The benchmark helper imports both FNX and NetworkX graphs and asserts
+  `_FNX_SS_MDG == _EXPECTED_SS_MDG` before timing the measured row.
+
 ## 2026-07-04 CopperCliff SHIP: MultiDiGraph target Dijkstra 0.565x -> 11.04x — cached packed target rows
 
 Fresh residual after the directed-multigraph target-path primitive: the public API gauntlet
