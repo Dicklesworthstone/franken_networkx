@@ -12968,13 +12968,16 @@ pub fn strongly_connected_components(
         // MultiDiGraph successor rows directly instead of first projecting to a
         // simple DiGraph.
         let inner = &mdg.inner;
-        let result =
-            py.allow_threads(|| multidigraph_strongly_connected_components_nx_ordered(inner));
+        let nodes = inner.nodes_ordered();
+        let result = py
+            .allow_threads(|| multidigraph_strongly_connected_component_indices_nx_ordered(inner));
         return result
             .iter()
             .map(|comp| {
-                let py_nodes: Vec<PyObject> =
-                    comp.iter().map(|node| gr.py_node_key(py, node)).collect();
+                let py_nodes: Vec<PyObject> = comp
+                    .iter()
+                    .map(|&node_idx| gr.py_node_key(py, nodes[node_idx]))
+                    .collect();
                 pyo3::types::PySet::new(py, py_nodes).map(|set| set.into_any().unbind())
             })
             .collect();
@@ -13092,6 +13095,119 @@ fn strongly_connected_components_nx_ordered(
     }
 
     result
+}
+
+fn multidigraph_strongly_connected_component_indices_nx_ordered(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+) -> Vec<Vec<usize>> {
+    let n = mdg.node_count();
+    if n == 0 {
+        return Vec::new();
+    }
+
+    let csr = mdg.csr();
+    if multidigraph_csr_reaches_every_node(&csr, 0, n, false)
+        && multidigraph_csr_reaches_every_node(&csr, 0, n, true)
+    {
+        return vec![(0..n).collect()];
+    }
+
+    let mut preorder = vec![0usize; n];
+    let mut lowlink = vec![0usize; n];
+    let mut scc_found = vec![false; n];
+    let mut scc_queue = Vec::<usize>::new();
+    let mut neighbor_pos = vec![0usize; n];
+    let mut preorder_counter = 0usize;
+    let mut result = Vec::new();
+
+    for source in 0..n {
+        if scc_found[source] {
+            continue;
+        }
+        let mut queue = vec![source];
+        while let Some(&v) = queue.last() {
+            if preorder[v] == 0 {
+                preorder_counter += 1;
+                preorder[v] = preorder_counter;
+            }
+
+            let neighbors = csr.successors(v);
+            let mut done = true;
+            while neighbor_pos[v] < neighbors.len() {
+                let w = neighbors[neighbor_pos[v]] as usize;
+                neighbor_pos[v] += 1;
+                if preorder[w] == 0 {
+                    queue.push(w);
+                    done = false;
+                    break;
+                }
+            }
+
+            if done {
+                lowlink[v] = preorder[v];
+                for &raw_w in csr.successors(v) {
+                    let w = raw_w as usize;
+                    if !scc_found[w] {
+                        if preorder[w] > preorder[v] {
+                            lowlink[v] = lowlink[v].min(lowlink[w]);
+                        } else {
+                            lowlink[v] = lowlink[v].min(preorder[w]);
+                        }
+                    }
+                }
+                queue.pop();
+                if lowlink[v] == preorder[v] {
+                    let mut component_indices = vec![v];
+                    while scc_queue
+                        .last()
+                        .is_some_and(|&queued| preorder[queued] > preorder[v])
+                    {
+                        if let Some(queued) = scc_queue.pop() {
+                            component_indices.push(queued);
+                        }
+                    }
+                    for &idx in &component_indices {
+                        scc_found[idx] = true;
+                    }
+                    result.push(component_indices);
+                } else {
+                    scc_queue.push(v);
+                }
+            }
+        }
+    }
+
+    result
+}
+
+fn multidigraph_csr_reaches_every_node(
+    csr: &fnx_classes::digraph::MultiDiCsr,
+    source: usize,
+    n: usize,
+    reverse: bool,
+) -> bool {
+    let mut visited = vec![false; n];
+    let mut stack = vec![source];
+    visited[source] = true;
+    let mut seen = 1usize;
+
+    while let Some(node) = stack.pop() {
+        let neighbors = if reverse {
+            csr.predecessors(node)
+        } else {
+            csr.successors(node)
+        };
+        for &raw_neighbor in neighbors {
+            let neighbor = raw_neighbor as usize;
+            if !visited[neighbor] {
+                visited[neighbor] = true;
+                seen += 1;
+                stack.push(neighbor);
+            }
+        }
+    }
+
+    seen == n
 }
 
 fn multidigraph_strongly_connected_components_nx_ordered(

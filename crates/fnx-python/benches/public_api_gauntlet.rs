@@ -172,6 +172,16 @@ if target_dir:
                 "networkx_multidigraph_bfs_edges",
             ),
             (
+                "multidigraph_strongly_connected_components",
+                "fnx",
+                "fnx_multidigraph_strongly_connected_components",
+            ),
+            (
+                "multidigraph_strongly_connected_components",
+                "networkx",
+                "networkx_multidigraph_strongly_connected_components",
+            ),
+            (
                 "multidigraph_dijkstra_path_length_target_early_exit",
                 "fnx",
                 "fnx_multidigraph_dijkstra_path_length_target_early_exit",

@@ -2,6 +2,45 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-04 CopperCliff SHIP: MultiDiGraph strongly_connected_components CSR index emitter — 7.856x vs NetworkX
+
+Land-or-dig scan found no unrepresented measured BFS/SSSP/PageRank/connected-components win to land
+from scratch/worktree heads. The new lever targeted the remaining large-graph connected-components
+surface: `strongly_connected_components(MultiDiGraph)` was already walking the cached CSR successor
+rows, but it still materialized every SCC member as a `String` inside the Rust kernel and then looked
+those strings back up at the Python boundary. The shipped path keeps Tarjan/Nuutila state entirely in
+node-index space and emits Python sets directly from the graph's ordered node table.
+
+Short per-crate bench (`fnx-python`, `public_api_gauntlet`,
+`multidigraph_strongly_connected_components`, twenty calls per Criterion iteration), with
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod`:
+
+| State | Worker | FNX median | NetworkX median | Ratio vs ORIG / NetworkX | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| before, CSR walk plus Rust `String` component materialization | `rch` worker `hz2` | `12.681 ms` | `48.972 ms` | `3.862x` | baseline |
+| after, CSR index-space component emitter | `rch` worker `ovh-a` | `5.5817 ms` | `43.849 ms` | `7.856x` | SHIP |
+
+The final acceptance ratio is same-run FNX vs NetworkX on `ovh-a`: `43.849 ms / 5.5817 ms =
+7.856x`. The pre-change row is directional context from the earlier short subset on `hz2`; it is not
+used as same-worker self-speedup evidence.
+
+Command:
+
+```text
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod
+timeout 900 rch exec -- cargo bench --profile release -p fnx-python
+--bench public_api_gauntlet multidigraph_strongly_connected_components
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+```
+
+Validation:
+- `cargo check -p fnx-python --all-targets`: passed via `rch exec` on worker `hz2`.
+- The benchmark helper asserts exact FNX-vs-NetworkX sorted component groups for the measured
+  `MultiDiGraph` SCC row before timing.
+- Remote bench hygiene: an initial `ovh-a` bench failed before timing because `release/lib_fnx.so`
+  was stale relative to the Python wrapper imports; a scoped `cargo build --profile release -p
+  fnx-python --lib` refreshed the worker target, after which the same short bench row completed.
+
 ## 2026-07-04 CopperCliff SURFACE: current priority graph slice is no longer the 0.04x-0.22x fleet laggard
 
 Land-or-dig scan found no unrepresented measured BFS/SSSP/PageRank/connected-components win to land

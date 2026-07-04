@@ -417,6 +417,74 @@ def networkx_multidigraph_bfs_edges() -> float:
     return total
 
 
+def _build_scc_mdg(module, component_count: int, component_size: int, parallels: int):
+    graph = module.MultiDiGraph()
+    node_count = component_count * component_size
+    graph.add_nodes_from(range(node_count))
+    for component in range(component_count):
+        start = component * component_size
+        for offset in range(component_size):
+            u = start + offset
+            v = start + ((offset + 1) % component_size)
+            w = start + ((offset + 5) % component_size)
+            for key in range(parallels):
+                graph.add_edge(u, v, key=("cycle", key))
+            graph.add_edge(u, w, key="chord")
+        if component + 1 < component_count:
+            graph.add_edge(start, start + component_size, key="forward")
+    return graph
+
+
+def _sorted_component_groups(components) -> tuple[tuple[int, ...], ...]:
+    return tuple(tuple(sorted(int(node) for node in component)) for component in components)
+
+
+def _component_checksum(components) -> float:
+    total = 0
+    for component_index, component in enumerate(components):
+        for node in component:
+            total += (component_index + 1) * 31 + int(node)
+    return float(total)
+
+
+_SCC_MDG_COMPONENTS = 90
+_SCC_MDG_COMPONENT_SIZE = 20
+_SCC_MDG_PARALLELS = 3
+_SCC_MDG_REPEAT = 20
+_FNX_SCC_MDG_GRAPH = _build_scc_mdg(
+    fnx, _SCC_MDG_COMPONENTS, _SCC_MDG_COMPONENT_SIZE, _SCC_MDG_PARALLELS
+)
+_NX_SCC_MDG_GRAPH = _build_scc_mdg(
+    nx, _SCC_MDG_COMPONENTS, _SCC_MDG_COMPONENT_SIZE, _SCC_MDG_PARALLELS
+)
+_EXPECTED_SCC_MDG = _sorted_component_groups(
+    nx.strongly_connected_components(_NX_SCC_MDG_GRAPH)
+)
+_FNX_SCC_MDG = _sorted_component_groups(
+    fnx.strongly_connected_components(_FNX_SCC_MDG_GRAPH)
+)
+if _FNX_SCC_MDG != _EXPECTED_SCC_MDG:
+    raise AssertionError("strongly_connected_components MultiDiGraph parity drift")
+
+
+def fnx_multidigraph_strongly_connected_components() -> float:
+    total = 0.0
+    for _ in range(_SCC_MDG_REPEAT):
+        total += _component_checksum(
+            fnx.strongly_connected_components(_FNX_SCC_MDG_GRAPH)
+        )
+    return total
+
+
+def networkx_multidigraph_strongly_connected_components() -> float:
+    total = 0.0
+    for _ in range(_SCC_MDG_REPEAT):
+        total += _component_checksum(
+            nx.strongly_connected_components(_NX_SCC_MDG_GRAPH)
+        )
+    return total
+
+
 def _build_weighted_target_mdg(module, node_count: int):
     graph = module.MultiDiGraph()
     graph.add_nodes_from(range(node_count))
