@@ -22,12 +22,19 @@ Per-crate benchmark (`fnx-python`, `public_api_gauntlet`,
 | before | local fallback, `/data/projects/.rch-targets/networkx-cod-a` | `41.992 ms` | `29.904 ms` | `0.712x` | baseline |
 | after | same local target dir | `36.361 ms` | `33.212 ms` | `0.914x` | SHIP |
 | after | `rch` worker `ovh-a` | `26.534 ms` | `21.252 ms` | `0.801x` | secondary, not same-worker A/B |
+| rejected incremental path-list emitter | `rch` worker `vmi1149989` | `47.293 ms` | `22.809 ms` | `0.482x` | DROP: slower than parent-chain emitter |
+| after cleanup | `rch` worker `vmi1293453` | `31.399 ms` | `25.352 ms` | `0.808x` | SHIP: parent-chain emitter restored |
 
 Same-local self-speedup: `41.992 / 36.361 = 1.155x`. The result is still below
 NetworkX on this path-materializing workload; residual cost is Python path-list and node-object
 materialization, not graph traversal. A parity fixture pins the key risk: node insertion order
 `s,a,b,c` with successor insertion order `s->b` before `s->a`; the CSR path must keep `c`'s
 parent as `b`, matching NetworkX.
+
+Follow-up cleanup: an incremental Python-list emitter variant copied the already emitted parent
+path and appended the discovered node. Strict remote proof showed it regressed to `0.482x`; the
+shipped code restores the existing parent-chain emitter, which measured `0.808x` on strict remote
+after cleanup.
 
 Command notes: the requested literal `rch exec -- cargo bench ... --release ...` was tried with
 `AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod-a`; RCH fell open

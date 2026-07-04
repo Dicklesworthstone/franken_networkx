@@ -4479,50 +4479,6 @@ fn emit_paths_dict_discovery_parent_index(
     Ok(dict.unbind())
 }
 
-fn emit_paths_dict_discovery_parent_index_incremental(
-    py: Python<'_>,
-    gr: &GraphRef<'_>,
-    nodes: &[&str],
-    source_idx: usize,
-    source_obj: PyObject,
-    discovery: &[usize],
-    predecessor: &[usize],
-) -> PyResult<pyo3::Py<PyDict>> {
-    let mut disp: Vec<Option<PyObject>> =
-        std::iter::repeat_with(|| None).take(nodes.len()).collect();
-    disp[source_idx] = Some(source_obj);
-    for &node_idx in discovery {
-        if node_idx != source_idx {
-            let parent_idx = predecessor[node_idx];
-            disp[node_idx] = Some(gr.py_row_key(py, nodes[parent_idx], nodes[node_idx]));
-        }
-    }
-
-    let dict = PyDict::new(py);
-    let mut paths: Vec<Option<pyo3::Py<PyList>>> =
-        std::iter::repeat_with(|| None).take(nodes.len()).collect();
-    for &node_idx in discovery {
-        let node_obj = disp[node_idx]
-            .as_ref()
-            .expect("display object populated for discovered node");
-        let py_path = if node_idx == source_idx {
-            PyList::new(py, [node_obj.clone_ref(py)])?
-        } else {
-            let parent_idx = predecessor[node_idx];
-            let parent_path = paths[parent_idx]
-                .as_ref()
-                .expect("BFS parent is emitted before child")
-                .bind(py);
-            let py_path = PyList::new(py, parent_path.iter())?;
-            py_path.append(node_obj.clone_ref(py))?;
-            py_path
-        };
-        dict.set_item(node_obj.clone_ref(py), &py_path)?;
-        paths[node_idx] = Some(py_path.unbind());
-    }
-    Ok(dict.unbind())
-}
-
 fn emit_dijkstra_indexed_full(
     py: Python<'_>,
     gr: &GraphRef<'_>,
@@ -12753,7 +12709,7 @@ pub fn single_source_shortest_path(
         let Some(source_idx) = source_idx else {
             return Ok(PyDict::new(py).into_any().unbind());
         };
-        let dict = emit_paths_dict_discovery_parent_index_incremental(
+        let dict = emit_paths_dict_discovery_parent_index(
             py,
             &gr,
             &nodes,
