@@ -152,6 +152,16 @@ if target_dir:
                 "networkx_multidigraph_single_target_shortest_path_length",
             ),
             (
+                "multidigraph_single_source_shortest_path",
+                "fnx",
+                "fnx_multidigraph_single_source_shortest_path",
+            ),
+            (
+                "multidigraph_single_source_shortest_path",
+                "networkx",
+                "networkx_multidigraph_single_source_shortest_path",
+            ),
+            (
                 "raw_adamic_adar_repeated_overlap",
                 "fnx",
                 "fnx_raw_adamic_adar_repeated_overlap",

@@ -81,6 +81,24 @@ def test_values_unchanged():
 
 
 @needs_nx
+def test_multidigraph_successor_insertion_order_over_index_order():
+    g = fnx.MultiDiGraph()
+    gx = nx.MultiDiGraph()
+    for graph in (g, gx):
+        graph.add_nodes_from(["s", "a", "b", "c"])
+        graph.add_edge("s", "b", key=0)
+        graph.add_edge("s", "b", key=1)
+        graph.add_edge("s", "a", key=0)
+        graph.add_edge("b", "c", key=0)
+        graph.add_edge("a", "c", key=0)
+
+    f = fnx.single_source_shortest_path(g, "s")
+    n = nx.single_source_shortest_path(gx, "s")
+    assert list(f.items()) == list(n.items())
+    assert f["c"] == ["s", "b", "c"]
+
+
+@needs_nx
 def test_missing_source_raises_node_not_found():
     """The fix must not regress the missing-source error path."""
     g = fnx.path_graph(3)

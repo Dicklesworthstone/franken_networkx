@@ -4379,6 +4379,59 @@ fn multigraph_sssp_predecessors_index<'a>(
     (nodes, Some(source_idx), discovery, predecessor)
 }
 
+/// MultiDiGraph sibling of `multigraph_sssp_predecessors_index`.
+///
+/// Unweighted shortest paths are multiplicity-invariant, but discovery order is
+/// not. `MultiDiGraph::csr()` is revision-cached and preserves each successor
+/// row's `G.succ[u]` insertion order while collapsing parallel edges, so the BFS
+/// can stay in index space without a per-node row lookup or per-neighbor hash
+/// lookup. That keeps NetworkX's parent/tie-break order and avoids the old
+/// simple-DiGraph projection/String path rebuild.
+fn multidigraph_sssp_predecessors_index<'a>(
+    mdg: &'a fnx_classes::digraph::MultiDiGraph,
+    source: &str,
+    cutoff: Option<usize>,
+) -> (Vec<&'a str>, Option<usize>, Vec<usize>, Vec<usize>) {
+    let nodes = mdg.nodes_ordered();
+    let Some(source_idx) = nodes.iter().position(|&node| node == source) else {
+        return (nodes, None, Vec::new(), Vec::new());
+    };
+
+    let n = nodes.len();
+    let csr = mdg.csr();
+    let mut seen = vec![false; n];
+    let mut predecessor = vec![usize::MAX; n];
+    let mut discovery = Vec::with_capacity(n);
+    let mut frontier = vec![source_idx];
+    let mut next = Vec::new();
+    let mut depth = 0usize;
+
+    seen[source_idx] = true;
+    discovery.push(source_idx);
+
+    while !frontier.is_empty() {
+        if cutoff.is_some_and(|limit| depth >= limit) {
+            break;
+        }
+        next.clear();
+        for &node_idx in &frontier {
+            for &successor in csr.successors(node_idx) {
+                let successor_idx = successor as usize;
+                if successor_idx < n && !seen[successor_idx] {
+                    seen[successor_idx] = true;
+                    predecessor[successor_idx] = node_idx;
+                    discovery.push(successor_idx);
+                    next.push(successor_idx);
+                }
+            }
+        }
+        std::mem::swap(&mut frontier, &mut next);
+        depth += 1;
+    }
+
+    (nodes, Some(source_idx), discovery, predecessor)
+}
+
 fn emit_paths_dict_discovery_parent_index(
     py: Python<'_>,
     gr: &GraphRef<'_>,
@@ -4422,6 +4475,50 @@ fn emit_paths_dict_discovery_parent_index(
             None => gr.py_node_key(py, nodes[node_idx]),
         };
         dict.set_item(key, py_path)?;
+    }
+    Ok(dict.unbind())
+}
+
+fn emit_paths_dict_discovery_parent_index_incremental(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    nodes: &[&str],
+    source_idx: usize,
+    source_obj: PyObject,
+    discovery: &[usize],
+    predecessor: &[usize],
+) -> PyResult<pyo3::Py<PyDict>> {
+    let mut disp: Vec<Option<PyObject>> =
+        std::iter::repeat_with(|| None).take(nodes.len()).collect();
+    disp[source_idx] = Some(source_obj);
+    for &node_idx in discovery {
+        if node_idx != source_idx {
+            let parent_idx = predecessor[node_idx];
+            disp[node_idx] = Some(gr.py_row_key(py, nodes[parent_idx], nodes[node_idx]));
+        }
+    }
+
+    let dict = PyDict::new(py);
+    let mut paths: Vec<Option<pyo3::Py<PyList>>> =
+        std::iter::repeat_with(|| None).take(nodes.len()).collect();
+    for &node_idx in discovery {
+        let node_obj = disp[node_idx]
+            .as_ref()
+            .expect("display object populated for discovered node");
+        let py_path = if node_idx == source_idx {
+            PyList::new(py, [node_obj.clone_ref(py)])?
+        } else {
+            let parent_idx = predecessor[node_idx];
+            let parent_path = paths[parent_idx]
+                .as_ref()
+                .expect("BFS parent is emitted before child")
+                .bind(py);
+            let py_path = PyList::new(py, parent_path.iter())?;
+            py_path.append(node_obj.clone_ref(py))?;
+            py_path
+        };
+        dict.set_item(node_obj.clone_ref(py), &py_path)?;
+        paths[node_idx] = Some(py_path.unbind());
     }
     Ok(dict.unbind())
 }
@@ -12649,6 +12746,24 @@ pub fn single_source_shortest_path(
     let gr = extract_graph(g)?;
     let source_key = node_key_to_string(py, source)?;
     // br-r37-c1-6hpa9: kernel (BFS) order + discovery objects.
+    if let GraphRef::MultiDirected { mdg, .. } = &gr {
+        let inner = &mdg.inner;
+        let (nodes, source_idx, discovery, predecessor) =
+            py.allow_threads(|| multidigraph_sssp_predecessors_index(inner, &source_key, cutoff));
+        let Some(source_idx) = source_idx else {
+            return Ok(PyDict::new(py).into_any().unbind());
+        };
+        let dict = emit_paths_dict_discovery_parent_index_incremental(
+            py,
+            &gr,
+            &nodes,
+            source_idx,
+            source.clone().unbind(),
+            &discovery,
+            &predecessor,
+        )?;
+        return Ok(dict.into_any());
+    }
     if gr.is_directed() {
         let inner = gr.digraph().expect("is_directed checked above");
         let result = py.allow_threads(|| {

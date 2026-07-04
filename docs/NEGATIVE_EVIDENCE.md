@@ -2,6 +2,50 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-04 CopperCliff SHIP: MultiDiGraph single_source_shortest_path 0.712x -> 0.914x — direct CSR successor BFS, no per-neighbor hash lookup
+
+Fresh realistic traversal target after the previous single-target fix:
+`single_source_shortest_path` on a large unweighted `MultiDiGraph` (n=1400, fanout=5,
+3 parallel edges per arc, source at the high end reaching the whole graph). Current main
+still rebuilt path parents through the direct multigraph helper with an `FxHashMap<&str, usize>`
+and a hash lookup for every distinct successor visited. The graph already maintains a
+revision-keyed `MultiDiGraph::csr()` with distinct successor rows in `G.succ[u]` insertion
+order. This patch uses that CSR for the source BFS, keeping paths in index space and
+preserving NetworkX's parent/tie-break order while eliminating the per-row lookup and
+per-neighbor string hash lookup.
+
+Per-crate benchmark (`fnx-python`, `public_api_gauntlet`,
+`multidigraph_single_source_shortest_path`, 20 calls per Criterion iteration):
+
+| State | Worker | FNX median | NetworkX median | Ratio vs NetworkX | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| before | local fallback, `/data/projects/.rch-targets/networkx-cod-a` | `41.992 ms` | `29.904 ms` | `0.712x` | baseline |
+| after | same local target dir | `36.361 ms` | `33.212 ms` | `0.914x` | SHIP |
+| after | `rch` worker `ovh-a` | `26.534 ms` | `21.252 ms` | `0.801x` | secondary, not same-worker A/B |
+
+Same-local self-speedup: `41.992 / 36.361 = 1.155x`. The result is still below
+NetworkX on this path-materializing workload; residual cost is Python path-list and node-object
+materialization, not graph traversal. A parity fixture pins the key risk: node insertion order
+`s,a,b,c` with successor insertion order `s->b` before `s->a`; the CSR path must keep `c`'s
+parent as `b`, matching NetworkX.
+
+Command notes: the requested literal `rch exec -- cargo bench ... --release ...` was tried with
+`AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod-a`; RCH fell open
+locally (`no admissible workers`) and Cargo rejected `--release` for `bench`
+(`unexpected argument '--release'`). Measured runs used `--profile release` with the same
+crate/bench/filter. `rch` later selected `ovh-a`; that result is recorded above only as secondary
+evidence because the baseline was local.
+
+Validation:
+- `.venv/bin/python -m pytest tests/python/test_single_source_shortest_bfs_order_parity.py -q`:
+  `16 passed`.
+- `cargo test -p fnx-conformance --profile release`: passed.
+- `cargo check -p fnx-python --all-targets --features pyo3/abi3-py310`: passed.
+- `cargo clippy -p fnx-python --all-targets --features pyo3/abi3-py310 -- -D warnings`: passed.
+- `rustfmt --edition 2024 --check crates/fnx-python/src/algorithms.rs crates/fnx-python/benches/public_api_gauntlet.rs`:
+  passed. Workspace `cargo fmt --check` is blocked by pre-existing `fnx-classes` formatting drift
+  outside this change's files.
+
 ## 2026-07-04 CopperCliff SHIP/CORRECTION: MultiDiGraph single_target_shortest_path_length 0.012x -> 1.05x — direct predecessor-row reverse BFS
 
 Fresh land-or-dig target from the current traversal ledger: `single_target_shortest_path_length`

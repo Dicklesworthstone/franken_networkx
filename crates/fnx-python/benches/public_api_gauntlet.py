@@ -364,6 +364,40 @@ def networkx_multidigraph_single_target_shortest_path_length() -> float:
     return total
 
 
+_SS_MDG_SOURCE = _ST_MDG_NODE_COUNT - 1
+_SS_MDG_REPEAT = 20
+
+_EXPECTED_SS_MDG = nx.single_source_shortest_path(_NX_ST_MDG_GRAPH, _SS_MDG_SOURCE)
+_FNX_SS_MDG = fnx.single_source_shortest_path(_FNX_ST_MDG_GRAPH, _SS_MDG_SOURCE)
+if _FNX_SS_MDG != _EXPECTED_SS_MDG:
+    raise AssertionError("single_source_shortest_path MultiDiGraph parity drift")
+
+
+def _path_checksum(paths: dict[int, list[int]]) -> float:
+    total = 0
+    for node, path in paths.items():
+        total += node * 31 + len(path)
+    return float(total + len(paths))
+
+
+def fnx_multidigraph_single_source_shortest_path() -> float:
+    total = 0.0
+    for _ in range(_SS_MDG_REPEAT):
+        total += _path_checksum(
+            fnx.single_source_shortest_path(_FNX_ST_MDG_GRAPH, _SS_MDG_SOURCE)
+        )
+    return total
+
+
+def networkx_multidigraph_single_source_shortest_path() -> float:
+    total = 0.0
+    for _ in range(_SS_MDG_REPEAT):
+        total += _path_checksum(
+            nx.single_source_shortest_path(_NX_ST_MDG_GRAPH, _SS_MDG_SOURCE)
+        )
+    return total
+
+
 def _build_link_prediction_overlap_graph(
     module, clusters: int, size: int, probability: float, seed: int
 ):
