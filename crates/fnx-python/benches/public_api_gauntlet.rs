@@ -182,6 +182,16 @@ if target_dir:
                 "networkx_multidigraph_strongly_connected_components",
             ),
             (
+                "directed_pagerank_large",
+                "fnx",
+                "fnx_directed_pagerank_large",
+            ),
+            (
+                "directed_pagerank_large",
+                "networkx",
+                "networkx_directed_pagerank_large",
+            ),
+            (
                 "multidigraph_dijkstra_path_length_target_early_exit",
                 "fnx",
                 "fnx_multidigraph_dijkstra_path_length_target_early_exit",

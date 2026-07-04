@@ -2,7 +2,7 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
-## 2026-07-04 CopperCliff SURFACE: `networkx-cod` priority graph slice still does not reproduce 0.04x-0.22x
+## 2026-07-04 CopperCliff SURFACE: `networkx-cod` priority graph slice still does not reproduce 0.04x-0.22x; PageRank is 2.024x
 
 Land-or-dig scan found no unrepresented measured BFS/SSSP/PageRank/connected-components win to land
 from scratch/worktree heads. The two relevant unmerged heads were stale/covered: `blackthrush-ship`
@@ -29,6 +29,13 @@ Short per-crate bench (`fnx-python`, `public_api_gauntlet`) on RCH worker `vmi11
 | `multidigraph_dijkstra_path_target_early_exit` | `502.59 us` | `6.2302 ms` | `12.396x` | no new lever |
 | `multidigraph_single_source_dijkstra_path_length` | `158.88 ms` | `165.16 ms` | `1.040x` | no new lever |
 
+Additional PageRank row added to `public_api_gauntlet` and measured with the same dedicated target
+dir. RCH fell back local because no workers were admissible (`critical_pressure`, `insufficient_slots`):
+
+| Row | FNX median | NetworkX median | Ratio vs ORIG / NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| `directed_pagerank_large` | `21.466 ms` | `43.456 ms` | `2.024x` | covered; no new PageRank lever |
+
 Command:
 
 ```text
@@ -40,10 +47,25 @@ timeout 900 rch exec -- cargo bench --profile release -p fnx-python
 ```
 
 Conformance subset: `public_api_gauntlet.py` asserts exact FNX-vs-NetworkX parity for the measured
-BFS/SSSP/SCC/Dijkstra rows before registering the timed callables. Existing `fnx-python` bench files
-do not currently expose a PageRank row, so this pass did not invent a new PageRank benchmark fixture
-just to chase the stale laggard band. The literal `cargo bench --release` form is rejected by this
-Cargo for bench targets, so the optimized per-crate run used the bench-compatible `--profile release`.
+BFS/SSSP/SCC/Dijkstra rows before registering the timed callables; the added PageRank row asserts
+matching node sets and max absolute score delta `<= 1.0e-9` before timing. The literal
+`cargo bench --release` form is rejected by this Cargo for bench targets, so the optimized per-crate
+runs used the bench-compatible `--profile release`.
+
+Attempted connected-components-family follow-up:
+
+```text
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+timeout 600 rch exec -- cargo bench --profile release -p fnx-python
+--bench networkx_head_to_head networkx_head_to_head_multigraph_biconnected
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+```
+
+This did not produce timing evidence. `networkx_head_to_head` panicked before the selected group
+because global workload preparation imported the stale installed
+`python/franken_networkx/_fnx.abi3.so`, which lacked
+`multidigraph_single_source_dijkstra_path_length`; `public_api_gauntlet` preloads the fresh target-dir
+extension and remains the reliable short-bench path for this lane.
 
 ## 2026-07-04 CopperCliff SHIP: MultiDiGraph strongly_connected_components CSR index emitter — 7.856x vs NetworkX
 

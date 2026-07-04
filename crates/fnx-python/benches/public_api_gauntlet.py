@@ -485,6 +485,61 @@ def networkx_multidigraph_strongly_connected_components() -> float:
     return total
 
 
+def _build_directed_pagerank_graph(module, node_count: int):
+    graph = module.DiGraph()
+    graph.add_nodes_from(range(node_count))
+    for node in range(node_count):
+        graph.add_edge(node, (node + 1) % node_count)
+        graph.add_edge(node, (node + 7) % node_count)
+        if node % 5 != 0:
+            graph.add_edge(node, (node * 17 + 11) % node_count)
+        if node % 11 == 0:
+            graph.add_edge(node, (node + 113) % node_count)
+    return graph
+
+
+def _pagerank_checksum(scores: dict[int, float]) -> float:
+    total = 0.0
+    for node, score in scores.items():
+        total += (int(node) + 1) * float(score)
+    return total
+
+
+def _pagerank_max_abs_diff(left: dict[int, float], right: dict[int, float]) -> float:
+    if left.keys() != right.keys():
+        return float("inf")
+    return max((abs(left[node] - right[node]) for node in left), default=0.0)
+
+
+_PAGERANK_NODE_COUNT = 1800
+_PAGERANK_REPEAT = 8
+_PAGERANK_TOL = 1.0e-8
+_FNX_PAGERANK_GRAPH = _build_directed_pagerank_graph(fnx, _PAGERANK_NODE_COUNT)
+_NX_PAGERANK_GRAPH = _build_directed_pagerank_graph(nx, _PAGERANK_NODE_COUNT)
+_EXPECTED_PAGERANK = nx.pagerank(_NX_PAGERANK_GRAPH, tol=_PAGERANK_TOL)
+_FNX_PAGERANK = fnx.pagerank(_FNX_PAGERANK_GRAPH, tol=_PAGERANK_TOL)
+if _pagerank_max_abs_diff(_FNX_PAGERANK, _EXPECTED_PAGERANK) > 1.0e-9:
+    raise AssertionError("pagerank DiGraph parity drift")
+
+
+def fnx_directed_pagerank_large() -> float:
+    total = 0.0
+    for _ in range(_PAGERANK_REPEAT):
+        total += _pagerank_checksum(
+            fnx.pagerank(_FNX_PAGERANK_GRAPH, tol=_PAGERANK_TOL)
+        )
+    return total
+
+
+def networkx_directed_pagerank_large() -> float:
+    total = 0.0
+    for _ in range(_PAGERANK_REPEAT):
+        total += _pagerank_checksum(
+            nx.pagerank(_NX_PAGERANK_GRAPH, tol=_PAGERANK_TOL)
+        )
+    return total
+
+
 def _build_weighted_target_mdg(module, node_count: int):
     graph = module.MultiDiGraph()
     graph.add_nodes_from(range(node_count))
