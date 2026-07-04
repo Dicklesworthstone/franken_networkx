@@ -420,6 +420,9 @@ def average_shortest_path_length(
 def dijkstra_path(
     g: Graph, source: Any, target: Any, weight: str = "weight"
 ) -> list[Any]: ...
+def multidigraph_dijkstra_path_target(
+    g: Graph, source: Any, target: Any, weight: str = "weight"
+) -> Optional[list[Any]]: ...
 def bellman_ford_path(
     g: Graph, source: Any, target: Any, weight: str = "weight"
 ) -> list[Any]: ...

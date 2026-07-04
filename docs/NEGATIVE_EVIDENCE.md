@@ -2,6 +2,57 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-04 CopperCliff SHIP: MultiDiGraph dijkstra_path 0.00105x -> 0.60x — borrowed target-path Dijkstra, no full min-weight projection
+
+Fresh shortest-path materialization target after the target-length fix: a large sparse weighted
+`MultiDiGraph` (n=5000, four outgoing targets per node, two keyed parallel arcs per target,
+positive integer weights) queried with `dijkstra_path(G, source, target, weight="weight")`.
+Main still handled the directed-multigraph path case by building a complete simple `DiGraph`
+through `_multigraph_collapse_min_weight`, then recursing into the existing target-path kernel.
+NetworkX's Dijkstra scans borrowed successor rows and exits when the target finalizes; FNX was
+paying an O(E) projection tax before it could do the same.
+
+The shipped lever adds a raw directed-multigraph target-path primitive alongside the existing
+target-length primitive. It syncs edge attrs, walks borrowed `MultiDiGraph` successor rows,
+selects the minimum parallel edge weight from the borrowed edge-attr rows during relaxation,
+records a predecessor index, and reconstructs only the target path. If a reached edge has a
+nonnumeric, negative, or nonfinite explicit weight, the raw helper returns `None` so the public
+wrapper keeps the previous NetworkX delegation path. Missing source/target error messages are
+still owned by the Python wrapper.
+
+Per-crate benchmark (`fnx-python`, `public_api_gauntlet`,
+`multidigraph_dijkstra_path_target_early_exit`, 64 calls per Criterion iteration):
+
+| State | Worker | FNX median | NetworkX median | Ratio vs NetworkX | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| before, full Python min-weight collapse | `rch` worker `ovh-a` | `3.6712 s` | `3.8549 ms` | `0.00105x` | baseline |
+| after, borrowed-row target path | `rch` worker `hz2` | `7.2206 ms` | `4.3234 ms` | `0.60x` | SHIP |
+| after, short rerun | `rch` worker `ovh-a` | `6.8689 ms` | `3.8655 ms` | `0.563x` | SHIP |
+
+The after ratio is same-run FNX-vs-NetworkX on `hz2`: `4.3234 ms / 7.2206 ms = 0.60x`.
+The self-speed estimate is cross-worker because RCH ignored the attempted worker pin for the
+after run: `3.6712 s / 7.2206 ms = 508.43x`. Treat the self number as scale evidence; the
+latest short rerun on `ovh-a` measured `3.8655 ms / 6.8689 ms = 0.563x` vs NetworkX.
+The shipped proof is the final same-run ratio vs NetworkX plus the import-time parity assertion
+in the benchmark helper.
+
+Command notes: measured with `AGENT_NAME=CopperCliff` and
+`CARGO_TARGET_DIR=/data/projects/franken_networkx/.rch-targets/coppercliff` using
+`rch exec -- cargo bench -p fnx-python --bench public_api_gauntlet
+multidigraph_dijkstra_path_target_early_exit -- --sample-size 10 --warm-up-time 0.2
+--measurement-time 1`. This Cargo version rejects `cargo bench --release` (`unexpected argument
+'--release'`); `cargo bench` used the optimized bench profile.
+
+Validation:
+- `cargo check -p fnx-python --all-targets`: passed via RCH.
+- `cargo fmt -p fnx-python --check`: passed.
+- `git diff --check`: passed.
+- `PYTHONPATH=python .venv/bin/python -m pytest tests/python/test_dijkstra_length_typed_cutoff.py tests/python/test_weighted_path_adversarial_parity.py -q`: `23 passed`.
+- `rustfmt --edition 2024 --check crates/fnx-python/src/algorithms.rs crates/fnx-python/benches/public_api_gauntlet.rs`: passed.
+- `cargo clippy -p fnx-python --all-targets -- -D warnings`: passed via RCH.
+- The new Criterion helper imports both FNX and NetworkX graphs and asserts
+  `fnx.dijkstra_path(...) == nx.dijkstra_path(...)` for the measured MDG row before timing.
+
 ## 2026-07-04 CopperCliff SHIP: MultiDiGraph dijkstra_path_length 0.00090x -> 0.61x — target-aware Dijkstra over borrowed parallel rows
 
 Fresh weighted shortest-path target from the remaining directed-multigraph gap: a large sparse

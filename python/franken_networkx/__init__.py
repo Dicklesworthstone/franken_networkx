@@ -8561,6 +8561,18 @@ def dijkstra_path(G, source, target, weight="weight"):
     # collapsed DiGraph's adjacency order == the multigraph's out-adjacency order ->
     # identical heap-push/tie-break -> byte-identical predecessor chain. Verified.
     if G.is_directed() and G.is_multigraph() and isinstance(weight, str):
+        if source not in G:
+            raise NodeNotFound(f"Node {source} not found in graph")
+        if target not in G:
+            raise NetworkXNoPath(f"No path to {target}.")
+        try:
+            _direct = _raw_multidigraph_dijkstra_path_target(
+                G, source, target, weight=weight
+            )
+        except NetworkXNoPath:
+            raise NetworkXNoPath(f"No path to {target}.") from None
+        if _direct is not None:
+            return _direct
         _simple, _delegate = _multigraph_collapse_min_weight(G, weight)
         if _delegate:
             return _call_networkx_for_parity(
@@ -20582,6 +20594,7 @@ def antichains(G, topo_order=None):
 # Algorithm functions — additional shortest path
 from franken_networkx._fnx import (
     dijkstra_path_length as _raw_dijkstra_path_length,
+    multidigraph_dijkstra_path_target as _raw_multidigraph_dijkstra_path_target,
     multidigraph_dijkstra_path_length_target as _raw_multidigraph_dijkstra_path_length_target,
     bellman_ford_path_length as _raw_bellman_ford_path_length,
     single_source_dijkstra as _raw_single_source_dijkstra,

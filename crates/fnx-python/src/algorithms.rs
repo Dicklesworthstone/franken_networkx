@@ -17862,6 +17862,12 @@ enum MultiDiDijkstraTargetLength {
     Delegate,
 }
 
+enum MultiDiDijkstraTargetPath {
+    Path(Vec<String>),
+    NoPath,
+    Delegate,
+}
+
 fn multidigraph_weight_value_for_dijkstra(
     raw: Option<&fnx_runtime::CgseValue>,
 ) -> Option<(f64, bool)> {
@@ -17892,6 +17898,96 @@ fn multidigraph_min_parallel_dijkstra_weight(
         }
     }
     best
+}
+
+fn multidigraph_dijkstra_target_path_borrowed(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> MultiDiDijkstraTargetPath {
+    let names = mdg.nodes_ordered();
+    let n = names.len();
+    let mut index = HashMap::<&str, usize>::with_capacity(n);
+    for (idx, node) in names.iter().copied().enumerate() {
+        index.insert(node, idx);
+    }
+    let (Some(&source_idx), Some(&target_idx)) = (index.get(source), index.get(target)) else {
+        return MultiDiDijkstraTargetPath::NoPath;
+    };
+    if source_idx == target_idx {
+        return MultiDiDijkstraTargetPath::Path(vec![names[source_idx].to_owned()]);
+    }
+
+    let mut distances = vec![f64::INFINITY; n];
+    let mut predecessors = vec![usize::MAX; n];
+    let mut finalized = vec![false; n];
+    let mut pq: BinaryHeap<PyDijkstraState> = BinaryHeap::new();
+    let mut seq_counter = 0_u64;
+
+    distances[source_idx] = 0.0;
+    seq_counter += 1;
+    pq.push(PyDijkstraState {
+        dist: 0.0,
+        seq: seq_counter,
+        node: source_idx,
+    });
+
+    while let Some(PyDijkstraState {
+        dist: distance,
+        node: node_idx,
+        ..
+    }) = pq.pop()
+    {
+        if distance > distances[node_idx] + PY_DISTANCE_COMPARISON_EPSILON {
+            continue;
+        }
+        if !finalized[node_idx] {
+            finalized[node_idx] = true;
+            if node_idx == target_idx {
+                let mut chain = vec![target_idx];
+                let mut current = target_idx;
+                while current != source_idx {
+                    current = predecessors[current];
+                    if current == usize::MAX {
+                        return MultiDiDijkstraTargetPath::NoPath;
+                    }
+                    chain.push(current);
+                }
+                chain.reverse();
+                return MultiDiDijkstraTargetPath::Path(
+                    chain.into_iter().map(|idx| names[idx].to_owned()).collect(),
+                );
+            }
+        }
+        let node = names[node_idx];
+        let Some(successors) = mdg.successors_iter(node) else {
+            continue;
+        };
+        for successor in successors {
+            let Some(&successor_idx) = index.get(successor) else {
+                continue;
+            };
+            let Some((edge_weight, _edge_int)) =
+                multidigraph_min_parallel_dijkstra_weight(mdg, node, successor, weight_attr)
+            else {
+                return MultiDiDijkstraTargetPath::Delegate;
+            };
+            let next_distance = distance + edge_weight;
+            if next_distance < distances[successor_idx] - PY_DISTANCE_COMPARISON_EPSILON {
+                distances[successor_idx] = next_distance;
+                predecessors[successor_idx] = node_idx;
+                seq_counter += 1;
+                pq.push(PyDijkstraState {
+                    dist: next_distance,
+                    seq: seq_counter,
+                    node: successor_idx,
+                });
+            }
+        }
+    }
+
+    MultiDiDijkstraTargetPath::NoPath
 }
 
 fn multidigraph_dijkstra_target_length_borrowed(
@@ -17977,6 +18073,38 @@ fn multidigraph_dijkstra_target_length_borrowed(
     }
 
     MultiDiDijkstraTargetLength::NoPath
+}
+
+#[pyfunction]
+#[pyo3(signature = (g, source, target, weight="weight"))]
+fn multidigraph_dijkstra_path_target(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    target: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<Option<PyObject>> {
+    sync_rust_edge_attrs_if_available(g)?;
+    let gr = extract_graph(g)?;
+    let s = node_key_to_string(py, source)?;
+    let t = node_key_to_string(py, target)?;
+    let GraphRef::MultiDirected { mdg, .. } = &gr else {
+        return Ok(None);
+    };
+    let inner = &mdg.inner;
+    let result =
+        py.allow_threads(|| multidigraph_dijkstra_target_path_borrowed(inner, &s, &t, weight));
+    match result {
+        MultiDiDijkstraTargetPath::Path(path) => {
+            let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
+            Ok(Some(py_path.into_pyobject(py)?.into_any().unbind()))
+        }
+        MultiDiDijkstraTargetPath::NoPath => Err(NetworkXNoPath::new_err(format!(
+            "No path between {} and {}.",
+            s, t
+        ))),
+        MultiDiDijkstraTargetPath::Delegate => Ok(None),
+    }
 }
 
 #[pyfunction]
@@ -23326,6 +23454,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(multi_source_nearest_source, m)?)?;
     m.add_function(wrap_pyfunction!(bidirectional_dijkstra, m)?)?;
     m.add_function(wrap_pyfunction!(dijkstra_path_to_target, m)?)?;
+    m.add_function(wrap_pyfunction!(multidigraph_dijkstra_path_target, m)?)?;
     m.add_function(wrap_pyfunction!(
         multidigraph_dijkstra_path_length_target,
         m
