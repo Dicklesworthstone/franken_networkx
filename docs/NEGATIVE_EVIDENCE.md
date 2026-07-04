@@ -2,6 +2,39 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-04 CopperCliff SURFACE: repeat `networkx-cod` priority graph slice remains above NetworkX after lock wait
+
+Session start had no tracked unstaged work to commit; only the local untracked `.rch-targets/`
+cache was present and left untouched. The requested short per-crate RCH bench again fell open to
+local execution because no worker was admissible (`critical_pressure=2`, `insufficient_slots=9`).
+Cargo initially waited on the same target-dir build lock held by a concurrent broader
+`fnx-python public_api_gauntlet` run, then completed the narrow priority slice with
+`AGENT_NAME=CopperCliff` and `CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod`.
+
+Short per-crate bench (`fnx-python`, `public_api_gauntlet`) on local fallback:
+
+| Row | FNX median | NetworkX median | Ratio vs ORIG / NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| `ubizp_multigraph_single_source_shortest_path` | `62.152 ms` | `83.131 ms` | `1.338x` | covered; no code lever kept |
+| `multidigraph_bfs_edges` | `8.3836 ms` | `16.002 ms` | `1.909x` | covered; no new BFS lever |
+| `multidigraph_strongly_connected_components` | `6.8853 ms` | `61.505 ms` | `8.933x` | covered; SCC win remains landed |
+| `directed_pagerank_large` | `11.679 ms` | `36.718 ms` | `3.144x` | covered; PageRank win remains landed |
+| `multidigraph_single_source_dijkstra_path_length` | `66.645 ms` | `95.592 ms` | `1.434x` | covered; no Dijkstra lever kept |
+
+Command:
+
+```text
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+timeout 700 rch exec -- cargo bench --profile release -p fnx-python
+--bench public_api_gauntlet
+'directed_pagerank_large|multidigraph_bfs_edges|multidigraph_strongly_connected_components|ubizp_multigraph_single_source_shortest_path|multidigraph_single_source_dijkstra_path_length'
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+```
+
+Conformance subset: `public_api_gauntlet.py` asserts FNX-vs-NetworkX parity for each measured row
+before registering the timed callables. No code variant was kept from this pass; this measured slice
+does not reproduce the reported `0.04x-0.22x` laggard band.
+
 ## 2026-07-04 CopperCliff SURFACE: `networkx-cod` 9-row priority graph slice remains above NetworkX
 
 Session start had no tracked unstaged work to commit; only the local untracked `.rch-targets/`
