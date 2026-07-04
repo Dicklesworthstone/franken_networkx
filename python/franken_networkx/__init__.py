@@ -20596,6 +20596,7 @@ from franken_networkx._fnx import (
     dijkstra_path_length as _raw_dijkstra_path_length,
     multidigraph_dijkstra_path_target as _raw_multidigraph_dijkstra_path_target,
     multidigraph_dijkstra_path_length_target as _raw_multidigraph_dijkstra_path_length_target,
+    multidigraph_single_source_dijkstra_path_length as _raw_mdg_ss_dijkstra_path_length,
     bellman_ford_path_length as _raw_bellman_ford_path_length,
     single_source_dijkstra as _raw_single_source_dijkstra,
     single_source_dijkstra_path as _raw_single_source_dijkstra_path,
@@ -21350,6 +21351,21 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
     # br-cc-mgdijkstra: collapse a multigraph to its simple min-weight graph and run
     # the fast simple kernel (see _multigraph_collapse_min_weight).
     if G.is_multigraph() and isinstance(weight, str):
+        if G.is_directed():
+            if source not in G:
+                raise NodeNotFound(f"Node {source} not found in graph")
+            _direct = _raw_mdg_ss_dijkstra_path_length(
+                G, source, weight=weight, cutoff=cutoff
+            )
+            if _direct is not None:
+                return _direct
+            return _call_networkx_for_parity(
+                "single_source_dijkstra_path_length",
+                G,
+                source,
+                cutoff=cutoff,
+                weight=weight,
+            )
         _simple, _delegate = _multigraph_collapse_min_weight(G, weight)
         if _delegate:
             return _call_networkx_for_parity(

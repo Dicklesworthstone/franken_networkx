@@ -435,6 +435,15 @@ _FNX_DP_MDG = fnx.dijkstra_path(
 if _FNX_DP_MDG != _EXPECTED_DP_MDG:
     raise AssertionError("dijkstra_path MultiDiGraph parity drift")
 
+_EXPECTED_SSDPL_MDG = nx.single_source_dijkstra_path_length(
+    _NX_DPL_MDG_GRAPH, _DPL_MDG_SOURCE, weight="weight"
+)
+_FNX_SSDPL_MDG = fnx.single_source_dijkstra_path_length(
+    _FNX_DPL_MDG_GRAPH, _DPL_MDG_SOURCE, weight="weight"
+)
+if list(_FNX_SSDPL_MDG.items()) != list(_EXPECTED_SSDPL_MDG.items()):
+    raise AssertionError("single_source_dijkstra_path_length MultiDiGraph parity drift")
+
 
 def fnx_multidigraph_dijkstra_path_length_target_early_exit() -> float:
     total = 0.0
@@ -478,6 +487,38 @@ def networkx_multidigraph_dijkstra_path_target_early_exit() -> float:
         total += _path_sequence_checksum(
             nx.dijkstra_path(
                 _NX_DPL_MDG_GRAPH, _DPL_MDG_SOURCE, _DPL_MDG_TARGET, weight="weight"
+            )
+        )
+    return total
+
+
+_SSDPL_MDG_REPEAT = 4
+
+
+def _weighted_distance_checksum(lengths: dict[int, int | float]) -> float:
+    total = 0.0
+    for idx, (node, distance) in enumerate(lengths.items()):
+        total += (idx + 1) * 0.25 + int(node) * 0.5 + float(distance)
+    return total + len(lengths)
+
+
+def fnx_multidigraph_single_source_dijkstra_path_length() -> float:
+    total = 0.0
+    for _ in range(_SSDPL_MDG_REPEAT):
+        total += _weighted_distance_checksum(
+            fnx.single_source_dijkstra_path_length(
+                _FNX_DPL_MDG_GRAPH, _DPL_MDG_SOURCE, weight="weight"
+            )
+        )
+    return total
+
+
+def networkx_multidigraph_single_source_dijkstra_path_length() -> float:
+    total = 0.0
+    for _ in range(_SSDPL_MDG_REPEAT):
+        total += _weighted_distance_checksum(
+            nx.single_source_dijkstra_path_length(
+                _NX_DPL_MDG_GRAPH, _DPL_MDG_SOURCE, weight="weight"
             )
         )
     return total

@@ -17868,6 +17868,11 @@ enum MultiDiDijkstraTargetPath {
     Delegate,
 }
 
+enum MultiDiDijkstraSourceLengths {
+    Entries(Vec<(usize, f64, bool, Option<usize>)>),
+    Delegate,
+}
+
 fn multidigraph_weight_value_for_dijkstra(
     raw: Option<&fnx_runtime::CgseValue>,
 ) -> Option<(f64, bool)> {
@@ -18075,6 +18080,99 @@ fn multidigraph_dijkstra_target_length_borrowed(
     MultiDiDijkstraTargetLength::NoPath
 }
 
+fn multidigraph_single_source_dijkstra_lengths_borrowed(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+    source: &str,
+    weight_attr: &str,
+    cutoff: Option<f64>,
+) -> MultiDiDijkstraSourceLengths {
+    let names = mdg.nodes_ordered();
+    let n = names.len();
+    let mut index = HashMap::<&str, usize>::with_capacity(n);
+    for (idx, node) in names.iter().copied().enumerate() {
+        index.insert(node, idx);
+    }
+    let Some(&source_idx) = index.get(source) else {
+        return MultiDiDijkstraSourceLengths::Entries(Vec::new());
+    };
+
+    let mut distances = vec![f64::INFINITY; n];
+    let mut all_int_paths = vec![false; n];
+    let mut predecessors = vec![usize::MAX; n];
+    let mut finalized = vec![false; n];
+    let mut entries = Vec::with_capacity(n);
+    let mut pq: BinaryHeap<PyDijkstraState> = BinaryHeap::new();
+    let mut seq_counter = 0_u64;
+
+    distances[source_idx] = 0.0;
+    all_int_paths[source_idx] = true;
+    seq_counter += 1;
+    pq.push(PyDijkstraState {
+        dist: 0.0,
+        seq: seq_counter,
+        node: source_idx,
+    });
+
+    while let Some(PyDijkstraState {
+        dist: distance,
+        node: node_idx,
+        ..
+    }) = pq.pop()
+    {
+        if distance > distances[node_idx] + PY_DISTANCE_COMPARISON_EPSILON {
+            continue;
+        }
+        if finalized[node_idx] {
+            continue;
+        }
+        finalized[node_idx] = true;
+        entries.push((
+            node_idx,
+            distance,
+            all_int_paths[node_idx],
+            (predecessors[node_idx] != usize::MAX).then_some(predecessors[node_idx]),
+        ));
+
+        let node = names[node_idx];
+        let Some(successors) = mdg.successors_iter(node) else {
+            continue;
+        };
+        for successor in successors {
+            let Some(&successor_idx) = index.get(successor) else {
+                continue;
+            };
+            let Some((edge_weight, edge_int)) =
+                multidigraph_min_parallel_dijkstra_weight(mdg, node, successor, weight_attr)
+            else {
+                return MultiDiDijkstraSourceLengths::Delegate;
+            };
+            let next_distance = distance + edge_weight;
+            if cutoff.is_some_and(|limit| next_distance > limit) {
+                continue;
+            }
+            if finalized[successor_idx] {
+                if next_distance < distances[successor_idx] - PY_DISTANCE_COMPARISON_EPSILON {
+                    return MultiDiDijkstraSourceLengths::Delegate;
+                }
+                continue;
+            }
+            if next_distance < distances[successor_idx] - PY_DISTANCE_COMPARISON_EPSILON {
+                distances[successor_idx] = next_distance;
+                all_int_paths[successor_idx] = all_int_paths[node_idx] && edge_int;
+                predecessors[successor_idx] = node_idx;
+                seq_counter += 1;
+                pq.push(PyDijkstraState {
+                    dist: next_distance,
+                    seq: seq_counter,
+                    node: successor_idx,
+                });
+            }
+        }
+    }
+
+    MultiDiDijkstraSourceLengths::Entries(entries)
+}
+
 #[pyfunction]
 #[pyo3(signature = (g, source, target, weight="weight"))]
 fn multidigraph_dijkstra_path_target(
@@ -18145,6 +18243,59 @@ fn multidigraph_dijkstra_path_length_target(
         ))),
         MultiDiDijkstraTargetLength::Delegate => Ok(None),
     }
+}
+
+#[pyfunction]
+#[pyo3(signature = (g, source, weight="weight", cutoff=None))]
+fn multidigraph_single_source_dijkstra_path_length(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    weight: &str,
+    cutoff: Option<f64>,
+) -> PyResult<Option<PyObject>> {
+    sync_rust_edge_attrs_if_available(g)?;
+    let gr = extract_graph(g)?;
+    let s = node_key_to_string(py, source)?;
+    validate_node_str(&gr, &s, "Source")?;
+    let GraphRef::MultiDirected { mdg, .. } = &gr else {
+        return Ok(None);
+    };
+    let inner = &mdg.inner;
+    let result = py.allow_threads(|| {
+        multidigraph_single_source_dijkstra_lengths_borrowed(inner, &s, weight, cutoff)
+    });
+    let MultiDiDijkstraSourceLengths::Entries(entries) = result else {
+        return Ok(None);
+    };
+
+    let nodes = inner.nodes_ordered();
+    let mut disp: HashMap<String, PyObject> = HashMap::with_capacity(entries.len() + 1);
+    disp.insert(s.clone(), source.clone().unbind());
+    for (node_idx, _, _, pred_idx) in &entries {
+        if let Some(parent_idx) = pred_idx {
+            disp.insert(
+                nodes[*node_idx].to_owned(),
+                gr.py_row_key(py, nodes[*parent_idx], nodes[*node_idx]),
+            );
+        }
+    }
+    let dict = PyDict::new(py);
+    for (node_idx, distance, all_int, _) in &entries {
+        let node = nodes[*node_idx];
+        let key = gr.disp_or_node_key(py, &disp, node);
+        if *all_int
+            && distance.is_finite()
+            && distance.fract() == 0.0
+            && *distance >= i128::MIN as f64
+            && *distance <= i128::MAX as f64
+        {
+            dict.set_item(key, PyInt::new(py, *distance as i128))?;
+        } else {
+            dict.set_item(key, distance)?;
+        }
+    }
+    Ok(Some(dict.into_any().unbind()))
 }
 
 /// Return the shortest path length from source to target using Bellman-Ford.
@@ -23459,6 +23610,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         multidigraph_dijkstra_path_length_target,
         m
     )?)?;
+    m.add_function(wrap_pyfunction!(
+        multidigraph_single_source_dijkstra_path_length,
+        m
+    )?)?;
     // Connectivity
     m.add_function(wrap_pyfunction!(is_connected, m)?)?;
     m.add_function(wrap_pyfunction!(connected_components, m)?)?;
@@ -24272,6 +24427,50 @@ mod tests {
         assert_eq!(simple.runtime_policy(), &expected_policy);
         assert_eq!(weighted.mode(), CompatibilityMode::Hardened);
         assert_eq!(weighted.runtime_policy(), &expected_policy);
+    }
+
+    #[test]
+    fn multidigraph_source_dijkstra_uses_min_parallel_weight_and_cutoff() {
+        let mut graph = MultiDiGraph::new(CompatibilityMode::Hardened);
+        let mut add_weighted = |source: &str, target: &str, weight: i64| {
+            let mut attrs = AttrMap::new();
+            attrs.insert("weight".to_owned(), fnx_runtime::CgseValue::Int(weight));
+            graph
+                .add_edge_with_attrs(source.to_owned(), target.to_owned(), attrs)
+                .expect("edge should add");
+        };
+        add_weighted("s", "a", 5);
+        add_weighted("s", "a", 2);
+        add_weighted("s", "b", 10);
+        add_weighted("a", "b", 1);
+        add_weighted("b", "c", 10);
+
+        let names = graph.nodes_ordered();
+        let result =
+            multidigraph_single_source_dijkstra_lengths_borrowed(&graph, "s", "weight", Some(4.0));
+        let MultiDiDijkstraSourceLengths::Entries(entries) = result else {
+            panic!("source dijkstra should not delegate");
+        };
+        let rendered: Vec<(&str, f64, bool, Option<&str>)> = entries
+            .iter()
+            .map(|(node_idx, distance, all_int, pred_idx)| {
+                (
+                    names[*node_idx],
+                    *distance,
+                    *all_int,
+                    pred_idx.map(|idx| names[idx]),
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            rendered,
+            vec![
+                ("s", 0.0, true, None),
+                ("a", 2.0, true, Some("s")),
+                ("b", 3.0, true, Some("a")),
+            ]
+        );
     }
 
     #[test]

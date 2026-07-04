@@ -423,6 +423,12 @@ def dijkstra_path(
 def multidigraph_dijkstra_path_target(
     g: Graph, source: Any, target: Any, weight: str = "weight"
 ) -> Optional[list[Any]]: ...
+def multidigraph_single_source_dijkstra_path_length(
+    g: Graph,
+    source: Any,
+    weight: str = "weight",
+    cutoff: Optional[float] = None,
+) -> Optional[dict[Any, float]]: ...
 def bellman_ford_path(
     g: Graph, source: Any, target: Any, weight: str = "weight"
 ) -> list[Any]: ...
