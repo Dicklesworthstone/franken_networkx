@@ -19,7 +19,10 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyIterator, PyList, PySet, PyString, PyTuple};
 use std::cell::OnceCell;
 use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{
+    Arc, Mutex, OnceLock,
+    atomic::{AtomicBool, Ordering},
+};
 
 type SpanningEdgeSamples = (Vec<(String, String)>, Vec<f64>);
 const PAGERANK_WEIGHT_ATTR: &str = "__fnx_pagerank_weight__";
@@ -41,6 +44,31 @@ impl PartialOrd for PyDijkstraState {
 }
 
 impl Ord for PyDijkstraState {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other
+            .dist
+            .partial_cmp(&self.dist)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| other.seq.cmp(&self.seq))
+    }
+}
+
+#[derive(Copy, Clone, PartialEq)]
+struct PyDijkstraBorrowedState<'a> {
+    dist: f64,
+    seq: u64,
+    node: &'a str,
+}
+
+impl Eq for PyDijkstraBorrowedState<'_> {}
+
+impl PartialOrd for PyDijkstraBorrowedState<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PyDijkstraBorrowedState<'_> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         other
             .dist
@@ -17873,6 +17901,36 @@ enum MultiDiDijkstraSourceLengths {
     Delegate,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct MultiDiDijkstraRowsCacheKey {
+    graph_addr: usize,
+    revision: u64,
+    nodes_seq: u64,
+    edges_seq: u64,
+    node_count: usize,
+    edge_count: usize,
+    weight_attr: String,
+}
+
+#[derive(Clone, Debug)]
+struct MultiDiDijkstraArc {
+    target: usize,
+    weight: f64,
+    all_int: bool,
+}
+
+#[derive(Debug)]
+struct MultiDiDijkstraRows {
+    names: Vec<String>,
+    index: HashMap<String, usize>,
+    rows: Vec<Vec<MultiDiDijkstraArc>>,
+}
+
+type MultiDiDijkstraRowsCache =
+    Mutex<Option<(MultiDiDijkstraRowsCacheKey, Arc<MultiDiDijkstraRows>)>>;
+
+static MULTIDIGRAPH_DIJKSTRA_ROWS_CACHE: OnceLock<MultiDiDijkstraRowsCache> = OnceLock::new();
+
 fn multidigraph_weight_value_for_dijkstra(
     raw: Option<&fnx_runtime::CgseValue>,
 ) -> Option<(f64, bool)> {
@@ -17905,25 +17963,101 @@ fn multidigraph_min_parallel_dijkstra_weight(
     best
 }
 
-fn multidigraph_dijkstra_target_path_borrowed(
+fn multidigraph_dijkstra_rows_cache() -> &'static MultiDiDijkstraRowsCache {
+    MULTIDIGRAPH_DIJKSTRA_ROWS_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+fn multidigraph_dijkstra_rows_cache_key(
+    mdg: &PyMultiDiGraph,
+    weight_attr: &str,
+) -> MultiDiDijkstraRowsCacheKey {
+    MultiDiDijkstraRowsCacheKey {
+        graph_addr: std::ptr::from_ref(mdg).addr(),
+        revision: mdg.inner.revision(),
+        nodes_seq: mdg.nodes_seq,
+        edges_seq: mdg.edges_seq,
+        node_count: mdg.inner.node_count(),
+        edge_count: mdg.inner.edge_count(),
+        weight_attr: weight_attr.to_owned(),
+    }
+}
+
+fn multidigraph_build_dijkstra_rows(
     mdg: &fnx_classes::digraph::MultiDiGraph,
+    weight_attr: &str,
+) -> Option<MultiDiDijkstraRows> {
+    let names: Vec<String> = mdg.nodes_ordered().into_iter().map(str::to_owned).collect();
+    let n = names.len();
+    let index: HashMap<String, usize> = names
+        .iter()
+        .enumerate()
+        .map(|(idx, node)| (node.clone(), idx))
+        .collect();
+    let csr = mdg.csr();
+    let mut rows = Vec::with_capacity(n);
+    for (source_idx, source) in names.iter().enumerate() {
+        let successors = csr.successors(source_idx);
+        let mut row = Vec::with_capacity(successors.len());
+        for &target in successors {
+            let target_idx = target as usize;
+            if target_idx >= n {
+                continue;
+            }
+            let (weight, all_int) = multidigraph_min_parallel_dijkstra_weight(
+                mdg,
+                source,
+                &names[target_idx],
+                weight_attr,
+            )?;
+            row.push(MultiDiDijkstraArc {
+                target: target_idx,
+                weight,
+                all_int,
+            });
+        }
+        rows.push(row);
+    }
+    Some(MultiDiDijkstraRows { names, index, rows })
+}
+
+fn multidigraph_dijkstra_rows_for_graph(
+    mdg: &PyMultiDiGraph,
+    weight_attr: &str,
+) -> Option<Arc<MultiDiDijkstraRows>> {
+    if mdg.edges_dirty.load(Ordering::Relaxed) {
+        return None;
+    }
+    let key = multidigraph_dijkstra_rows_cache_key(mdg, weight_attr);
+    let cache = multidigraph_dijkstra_rows_cache();
+    {
+        let guard = cache.lock().ok()?;
+        if let Some((cached_key, rows)) = guard.as_ref()
+            && *cached_key == key
+        {
+            return Some(rows.clone());
+        }
+    }
+    let rows = Arc::new(multidigraph_build_dijkstra_rows(&mdg.inner, weight_attr)?);
+    if let Ok(mut guard) = cache.lock() {
+        *guard = Some((key, rows.clone()));
+    }
+    Some(rows)
+}
+
+fn multidigraph_dijkstra_target_path_rows(
+    rows: &MultiDiDijkstraRows,
     source: &str,
     target: &str,
-    weight_attr: &str,
 ) -> MultiDiDijkstraTargetPath {
-    let names = mdg.nodes_ordered();
-    let n = names.len();
-    let mut index = HashMap::<&str, usize>::with_capacity(n);
-    for (idx, node) in names.iter().copied().enumerate() {
-        index.insert(node, idx);
-    }
-    let (Some(&source_idx), Some(&target_idx)) = (index.get(source), index.get(target)) else {
+    let (Some(&source_idx), Some(&target_idx)) = (rows.index.get(source), rows.index.get(target))
+    else {
         return MultiDiDijkstraTargetPath::NoPath;
     };
     if source_idx == target_idx {
-        return MultiDiDijkstraTargetPath::Path(vec![names[source_idx].to_owned()]);
+        return MultiDiDijkstraTargetPath::Path(vec![rows.names[source_idx].clone()]);
     }
 
+    let n = rows.names.len();
     let mut distances = vec![f64::INFINITY; n];
     let mut predecessors = vec![usize::MAX; n];
     let mut finalized = vec![false; n];
@@ -17947,46 +18081,211 @@ fn multidigraph_dijkstra_target_path_borrowed(
         if distance > distances[node_idx] + PY_DISTANCE_COMPARISON_EPSILON {
             continue;
         }
-        if !finalized[node_idx] {
-            finalized[node_idx] = true;
-            if node_idx == target_idx {
-                let mut chain = vec![target_idx];
-                let mut current = target_idx;
-                while current != source_idx {
-                    current = predecessors[current];
-                    if current == usize::MAX {
-                        return MultiDiDijkstraTargetPath::NoPath;
-                    }
-                    chain.push(current);
+        if finalized[node_idx] {
+            continue;
+        }
+        finalized[node_idx] = true;
+        if node_idx == target_idx {
+            let mut chain = vec![target_idx];
+            let mut current = target_idx;
+            while current != source_idx {
+                current = predecessors[current];
+                if current == usize::MAX {
+                    return MultiDiDijkstraTargetPath::NoPath;
                 }
-                chain.reverse();
-                return MultiDiDijkstraTargetPath::Path(
-                    chain.into_iter().map(|idx| names[idx].to_owned()).collect(),
-                );
+                chain.push(current);
+            }
+            chain.reverse();
+            return MultiDiDijkstraTargetPath::Path(
+                chain
+                    .into_iter()
+                    .map(|idx| rows.names[idx].clone())
+                    .collect(),
+            );
+        }
+        for arc in &rows.rows[node_idx] {
+            let next_distance = distance + arc.weight;
+            if finalized[arc.target] {
+                if next_distance < distances[arc.target] - PY_DISTANCE_COMPARISON_EPSILON {
+                    return MultiDiDijkstraTargetPath::Delegate;
+                }
+                continue;
+            }
+            if next_distance < distances[arc.target] - PY_DISTANCE_COMPARISON_EPSILON {
+                distances[arc.target] = next_distance;
+                predecessors[arc.target] = node_idx;
+                seq_counter += 1;
+                pq.push(PyDijkstraState {
+                    dist: next_distance,
+                    seq: seq_counter,
+                    node: arc.target,
+                });
             }
         }
-        let node = names[node_idx];
+    }
+
+    MultiDiDijkstraTargetPath::NoPath
+}
+
+fn multidigraph_dijkstra_target_length_rows(
+    rows: &MultiDiDijkstraRows,
+    source: &str,
+    target: &str,
+) -> MultiDiDijkstraTargetLength {
+    let (Some(&source_idx), Some(&target_idx)) = (rows.index.get(source), rows.index.get(target))
+    else {
+        return MultiDiDijkstraTargetLength::NoPath;
+    };
+    if source_idx == target_idx {
+        return MultiDiDijkstraTargetLength::Distance {
+            distance: 0.0,
+            all_int: true,
+        };
+    }
+
+    let n = rows.names.len();
+    let mut distances = vec![f64::INFINITY; n];
+    let mut all_int_paths = vec![false; n];
+    let mut finalized = vec![false; n];
+    let mut pq: BinaryHeap<PyDijkstraState> = BinaryHeap::new();
+    let mut seq_counter = 0_u64;
+
+    distances[source_idx] = 0.0;
+    all_int_paths[source_idx] = true;
+    seq_counter += 1;
+    pq.push(PyDijkstraState {
+        dist: 0.0,
+        seq: seq_counter,
+        node: source_idx,
+    });
+
+    while let Some(PyDijkstraState {
+        dist: distance,
+        node: node_idx,
+        ..
+    }) = pq.pop()
+    {
+        if distance > distances[node_idx] + PY_DISTANCE_COMPARISON_EPSILON {
+            continue;
+        }
+        if finalized[node_idx] {
+            continue;
+        }
+        finalized[node_idx] = true;
+        if node_idx == target_idx {
+            return MultiDiDijkstraTargetLength::Distance {
+                distance,
+                all_int: all_int_paths[node_idx],
+            };
+        }
+        for arc in &rows.rows[node_idx] {
+            let next_distance = distance + arc.weight;
+            if finalized[arc.target] {
+                if next_distance < distances[arc.target] - PY_DISTANCE_COMPARISON_EPSILON {
+                    return MultiDiDijkstraTargetLength::Delegate;
+                }
+                continue;
+            }
+            if next_distance < distances[arc.target] - PY_DISTANCE_COMPARISON_EPSILON {
+                distances[arc.target] = next_distance;
+                all_int_paths[arc.target] = all_int_paths[node_idx] && arc.all_int;
+                seq_counter += 1;
+                pq.push(PyDijkstraState {
+                    dist: next_distance,
+                    seq: seq_counter,
+                    node: arc.target,
+                });
+            }
+        }
+    }
+
+    MultiDiDijkstraTargetLength::NoPath
+}
+
+fn multidigraph_dijkstra_target_path_borrowed(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> MultiDiDijkstraTargetPath {
+    if !mdg.has_node(source) || !mdg.has_node(target) {
+        return MultiDiDijkstraTargetPath::NoPath;
+    }
+    if source == target {
+        return MultiDiDijkstraTargetPath::Path(vec![source.to_owned()]);
+    }
+
+    let mut distances = HashMap::<&str, f64>::with_capacity(64);
+    let mut predecessors = HashMap::<&str, &str>::with_capacity(64);
+    let mut finalized = HashSet::<&str>::with_capacity(64);
+    let mut pq: BinaryHeap<PyDijkstraBorrowedState<'_>> = BinaryHeap::new();
+    let mut seq_counter = 0_u64;
+
+    distances.insert(source, 0.0);
+    seq_counter += 1;
+    pq.push(PyDijkstraBorrowedState {
+        dist: 0.0,
+        seq: seq_counter,
+        node: source,
+    });
+
+    while let Some(PyDijkstraBorrowedState {
+        dist: distance,
+        node,
+        ..
+    }) = pq.pop()
+    {
+        if distance
+            > distances.get(node).copied().unwrap_or(f64::INFINITY) + PY_DISTANCE_COMPARISON_EPSILON
+        {
+            continue;
+        }
+        if !finalized.insert(node) {
+            continue;
+        }
+        if node == target {
+            let mut chain = vec![target];
+            let mut current = target;
+            while current != source {
+                let Some(&parent) = predecessors.get(current) else {
+                    return MultiDiDijkstraTargetPath::NoPath;
+                };
+                current = parent;
+                chain.push(current);
+            }
+            chain.reverse();
+            return MultiDiDijkstraTargetPath::Path(chain.into_iter().map(str::to_owned).collect());
+        }
         let Some(successors) = mdg.successors_iter(node) else {
             continue;
         };
         for successor in successors {
-            let Some(&successor_idx) = index.get(successor) else {
-                continue;
-            };
             let Some((edge_weight, _edge_int)) =
                 multidigraph_min_parallel_dijkstra_weight(mdg, node, successor, weight_attr)
             else {
                 return MultiDiDijkstraTargetPath::Delegate;
             };
             let next_distance = distance + edge_weight;
-            if next_distance < distances[successor_idx] - PY_DISTANCE_COMPARISON_EPSILON {
-                distances[successor_idx] = next_distance;
-                predecessors[successor_idx] = node_idx;
+            if finalized.contains(successor) {
+                if next_distance
+                    < distances.get(successor).copied().unwrap_or(f64::INFINITY)
+                        - PY_DISTANCE_COMPARISON_EPSILON
+                {
+                    return MultiDiDijkstraTargetPath::Delegate;
+                }
+                continue;
+            }
+            if next_distance
+                < distances.get(successor).copied().unwrap_or(f64::INFINITY)
+                    - PY_DISTANCE_COMPARISON_EPSILON
+            {
+                distances.insert(successor, next_distance);
+                predecessors.insert(successor, node);
                 seq_counter += 1;
-                pq.push(PyDijkstraState {
+                pq.push(PyDijkstraBorrowedState {
                     dist: next_distance,
                     seq: seq_counter,
-                    node: successor_idx,
+                    node: successor,
                 });
             }
         }
@@ -18190,8 +18489,13 @@ fn multidigraph_dijkstra_path_target(
         return Ok(None);
     };
     let inner = &mdg.inner;
-    let result =
-        py.allow_threads(|| multidigraph_dijkstra_target_path_borrowed(inner, &s, &t, weight));
+    let rows = multidigraph_dijkstra_rows_for_graph(mdg, weight);
+    let result = match rows {
+        Some(rows) => py.allow_threads(|| multidigraph_dijkstra_target_path_rows(&rows, &s, &t)),
+        None => {
+            py.allow_threads(|| multidigraph_dijkstra_target_path_borrowed(inner, &s, &t, weight))
+        }
+    };
     match result {
         MultiDiDijkstraTargetPath::Path(path) => {
             let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
@@ -18222,8 +18526,13 @@ fn multidigraph_dijkstra_path_length_target(
         return Ok(None);
     };
     let inner = &mdg.inner;
-    let result =
-        py.allow_threads(|| multidigraph_dijkstra_target_length_borrowed(inner, &s, &t, weight));
+    let rows = multidigraph_dijkstra_rows_for_graph(mdg, weight);
+    let result = match rows {
+        Some(rows) => py.allow_threads(|| multidigraph_dijkstra_target_length_rows(&rows, &s, &t)),
+        None => {
+            py.allow_threads(|| multidigraph_dijkstra_target_length_borrowed(inner, &s, &t, weight))
+        }
+    };
     match result {
         MultiDiDijkstraTargetLength::Distance { distance, all_int }
             if all_int
