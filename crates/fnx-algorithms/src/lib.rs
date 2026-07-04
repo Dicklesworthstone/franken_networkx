@@ -27079,6 +27079,42 @@ pub fn single_source_dijkstra_path_length_typed_with_pred_directed(
     )
 }
 
+/// Directed target-only Dijkstra, equivalent to NetworkX's
+/// `single_source_dijkstra_path_length(G.reverse(copy=False), target, weight)`.
+#[must_use]
+pub fn single_target_dijkstra_path_length_typed_with_pred_directed(
+    digraph: &DiGraph,
+    target: &str,
+    weight_attr: &str,
+    cutoff: Option<f64>,
+) -> OrderedTypedPredDistances {
+    let Some(target_idx) = digraph.get_node_index(target) else {
+        return Vec::new();
+    };
+    let csr = digraph.csr();
+    let names = digraph.nodes_ordered();
+    let mut weights: Vec<f64> = Vec::with_capacity(csr.pred_targets.len());
+    let mut weight_is_int: Vec<bool> = Vec::with_capacity(csr.pred_targets.len());
+    for v in 0..names.len() {
+        for &u in csr.predecessors(v) {
+            let (weight, is_int) =
+                digraph_edge_weight_or_default_idx_typed(digraph, u as usize, v, weight_attr);
+            weights.push(weight);
+            weight_is_int.push(is_int);
+        }
+    }
+
+    single_source_dijkstra_typed_csr(
+        target_idx,
+        &names,
+        &csr.pred_offsets,
+        &csr.pred_targets,
+        &weights,
+        &weight_is_int,
+        cutoff,
+    )
+}
+
 /// Directed twin of [`dijkstra_predecessor_and_distance`].
 #[must_use]
 pub fn dijkstra_predecessor_and_distance_directed(

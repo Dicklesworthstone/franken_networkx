@@ -2,6 +2,68 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-04 CopperCliff SHIP: directed weighted target shortest_path_length predecessor-CSR route — 0.026x -> 3.478x vs NetworkX
+
+The original directed weighted target query paid all-pairs Dijkstra and measured as a severe
+large-graph shortest-path laggard. The kept lever moves that query into a native predecessor-CSR
+Dijkstra primitive:
+`shortest_path_length(G, target=t, weight="weight")` on simple `DiGraph` now calls the raw
+`single_target_dijkstra_path_length` binding, which walks predecessor rows directly and preserves
+NetworkX distance type/order semantics through the same typed-distance emitter used by
+single-source Dijkstra.
+
+Short per-crate bench (`fnx-python`, `public_api_gauntlet`) with
+`AGENT_NAME=CopperCliff` and `CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod`:
+
+| Row | FNX median | NetworkX median | Ratio vs ORIG / NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| `digraph_weighted_target_shortest_path_length` all-pairs baseline | `28.339 ms` | `738.09 us` | `0.026x` | original gap |
+| `digraph_weighted_target_shortest_path_length` predecessor-CSR | `240.091 us` | `835.181 us` | `3.478x` | SHIP |
+
+Command:
+
+```text
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+timeout 900 cargo bench --profile release -p fnx-python
+--bench public_api_gauntlet digraph_weighted_target_shortest_path_length
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+```
+
+Conformance subset: `public_api_gauntlet.py` asserts FNX and NetworkX
+`shortest_path_length(..., target=0, weight="weight")` item-order equality before Criterion
+registers the timed callables. The same row had measured `0.101x` with the dropped reverse-view
+route, so this is the kept native primitive (`118.0x` faster than the original FNX all-pairs path).
+
+## 2026-07-04 CopperCliff NO-SHIP: weighted directed target shortest_path_length reverse-view route is 0.096x vs NetworkX
+
+Session start had tracked unstaged work in `python/franken_networkx/__init__.py` and the
+`public_api_gauntlet` bench files. The candidate changed directed weighted
+`shortest_path_length(G, target=t, weight=...)` from all-pairs Dijkstra to a single Dijkstra over
+`G.reverse(copy=False)`, and added a focused gauntlet row. Agent Mail registration/reservation was
+blocked by SQLite corruption (`database disk image is malformed`). Scratch/worktree scan found no
+measured head ahead of current `main`.
+
+Measured result from the short per-crate row under
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod`:
+
+| Row | FNX median | NetworkX median | Ratio vs ORIG / NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| `digraph_weighted_target_shortest_path_length` | `8.8357 ms` | `892.06 us` | `0.101x` | DROP; reverse-view route is much slower |
+
+Command:
+
+```text
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+timeout 900 rch exec -- cargo bench --profile release -p fnx-python
+--bench public_api_gauntlet digraph_weighted_target_shortest_path_length
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+```
+
+Conformance subset: the temporary gauntlet row asserted FNX and NetworkX
+`shortest_path_length(..., target=0, weight="weight")` item order equality before registering the
+timed callables. The reverse-view simple-`DiGraph` route was dropped after the loss; the row was
+then reused for the native predecessor-CSR route measured above.
+
 ## 2026-07-04 CopperCliff SURFACE: residual SSSP row now measures 2.124x vs NetworkX
 
 Session start had no tracked unstaged work to commit; only the local untracked `.rch-targets/`

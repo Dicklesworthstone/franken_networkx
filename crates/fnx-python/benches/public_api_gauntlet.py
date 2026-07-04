@@ -13,11 +13,13 @@ gc.disable()
 try:
     import scipy  # noqa: F401
 
+    _SCIPY_AVAILABLE = True
     _NETWORKX_PAGERANK = nx.pagerank
     _NETWORKX_PAGERANK_KIND = "scipy"
 except ImportError:
     from networkx.algorithms.link_analysis.pagerank_alg import _pagerank_python
 
+    _SCIPY_AVAILABLE = False
     _NETWORKX_PAGERANK = _pagerank_python
     _NETWORKX_PAGERANK_KIND = "python-fallback"
 
@@ -375,6 +377,59 @@ def networkx_multidigraph_single_target_shortest_path_length() -> float:
     return total
 
 
+def _build_weighted_target_digraph(module, node_count: int, fanout: int):
+    graph = module.DiGraph()
+    graph.add_nodes_from(range(node_count))
+    for node in range(1, node_count):
+        for step in range(1, fanout + 1):
+            target = node - step
+            if target < 0:
+                break
+            weight = float(((node * 17 + step * 7) % 23) + 1)
+            graph.add_edge(node, target, weight=weight)
+    return graph
+
+
+_WT_TARGET_NODE_COUNT = 360
+_WT_TARGET_FANOUT = 4
+_WT_TARGET = 0
+_FNX_WT_TARGET_GRAPH = _build_weighted_target_digraph(
+    fnx, _WT_TARGET_NODE_COUNT, _WT_TARGET_FANOUT
+)
+_NX_WT_TARGET_GRAPH = _build_weighted_target_digraph(
+    nx, _WT_TARGET_NODE_COUNT, _WT_TARGET_FANOUT
+)
+
+_EXPECTED_WT_TARGET = dict(
+    nx.shortest_path_length(_NX_WT_TARGET_GRAPH, target=_WT_TARGET, weight="weight")
+)
+_FNX_WT_TARGET = dict(
+    fnx.shortest_path_length(_FNX_WT_TARGET_GRAPH, target=_WT_TARGET, weight="weight")
+)
+if list(_FNX_WT_TARGET.items()) != list(_EXPECTED_WT_TARGET.items()):
+    raise AssertionError("weighted target shortest_path_length DiGraph parity drift")
+
+
+def fnx_digraph_weighted_target_shortest_path_length() -> float:
+    return _distance_checksum(
+        dict(
+            fnx.shortest_path_length(
+                _FNX_WT_TARGET_GRAPH, target=_WT_TARGET, weight="weight"
+            )
+        )
+    )
+
+
+def networkx_digraph_weighted_target_shortest_path_length() -> float:
+    return _distance_checksum(
+        dict(
+            nx.shortest_path_length(
+                _NX_WT_TARGET_GRAPH, target=_WT_TARGET, weight="weight"
+            )
+        )
+    )
+
+
 _SS_MDG_SOURCE = _ST_MDG_NODE_COUNT - 1
 _SS_MDG_REPEAT = 20
 
@@ -527,15 +582,18 @@ _PAGERANK_REPEAT = 8
 _PAGERANK_TOL = 1.0e-8
 _FNX_PAGERANK_GRAPH = _build_directed_pagerank_graph(fnx, _PAGERANK_NODE_COUNT)
 _NX_PAGERANK_GRAPH = _build_directed_pagerank_graph(nx, _PAGERANK_NODE_COUNT)
-_EXPECTED_PAGERANK = _NETWORKX_PAGERANK(_NX_PAGERANK_GRAPH, tol=_PAGERANK_TOL)
-_FNX_PAGERANK = fnx.pagerank(_FNX_PAGERANK_GRAPH, tol=_PAGERANK_TOL)
-if _pagerank_max_abs_diff(_FNX_PAGERANK, _EXPECTED_PAGERANK) > 1.0e-9:
-    raise AssertionError(
-        f"pagerank DiGraph parity drift via NetworkX {_NETWORKX_PAGERANK_KIND}"
-    )
+if _SCIPY_AVAILABLE:
+    _EXPECTED_PAGERANK = _NETWORKX_PAGERANK(_NX_PAGERANK_GRAPH, tol=_PAGERANK_TOL)
+    _FNX_PAGERANK = fnx.pagerank(_FNX_PAGERANK_GRAPH, tol=_PAGERANK_TOL)
+    if _pagerank_max_abs_diff(_FNX_PAGERANK, _EXPECTED_PAGERANK) > 1.0e-9:
+        raise AssertionError(
+            f"pagerank DiGraph parity drift via NetworkX {_NETWORKX_PAGERANK_KIND}"
+        )
 
 
 def fnx_directed_pagerank_large() -> float:
+    if not _SCIPY_AVAILABLE:
+        raise RuntimeError("fnx pagerank benchmark requires scipy")
     total = 0.0
     for _ in range(_PAGERANK_REPEAT):
         total += _pagerank_checksum(

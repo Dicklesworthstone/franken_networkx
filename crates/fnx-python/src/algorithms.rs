@@ -18937,6 +18937,54 @@ fn single_source_dijkstra_path_length(
     Ok(dict.into_any().unbind())
 }
 
+/// Return weighted distances to a target in a directed graph using reverse Dijkstra.
+#[pyfunction]
+#[pyo3(signature = (g, target, weight="weight", cutoff=None))]
+fn single_target_dijkstra_path_length(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    target: &Bound<'_, PyAny>,
+    weight: &str,
+    cutoff: Option<f64>,
+) -> PyResult<PyObject> {
+    sync_rust_attrs_if_available(g)?;
+    let gr = extract_graph(g)?;
+    let t = node_key_to_string(py, target)?;
+    validate_node_str(&gr, &t, "Target")?;
+    let Some(weighted_projection) = gr.weighted_digraph_projection(weight) else {
+        return single_source_dijkstra_path_length(py, g, target, weight, cutoff);
+    };
+    let __wp = weighted_projection.as_ref();
+    let entries = py.allow_threads(|| {
+        fnx_algorithms::single_target_dijkstra_path_length_typed_with_pred_directed(
+            __wp, &t, weight, cutoff,
+        )
+    });
+    let mut disp: std::collections::HashMap<String, PyObject> =
+        std::collections::HashMap::with_capacity(entries.len() + 1);
+    disp.insert(t.clone(), target.clone().unbind());
+    for (node, _, _, pred) in &entries {
+        if let Some(p) = pred {
+            disp.insert(node.clone(), gr.py_pred_row_key(py, p, node));
+        }
+    }
+    let dict = PyDict::new(py);
+    for (node, d, all_int, _) in &entries {
+        let key = gr.disp_or_node_key(py, &disp, node);
+        if *all_int
+            && d.is_finite()
+            && d.fract() == 0.0
+            && *d >= i128::MIN as f64
+            && *d <= i128::MAX as f64
+        {
+            dict.set_item(key, PyInt::new(py, *d as i128))?;
+        } else {
+            dict.set_item(key, d)?;
+        }
+    }
+    Ok(dict.into_any().unbind())
+}
+
 /// Return predecessor lists and distances from a single source using Dijkstra.
 #[pyfunction]
 #[pyo3(signature = (g, source, weight="weight", cutoff=None))]
@@ -24067,6 +24115,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(multi_source_nearest_source, m)?)?;
     m.add_function(wrap_pyfunction!(bidirectional_dijkstra, m)?)?;
     m.add_function(wrap_pyfunction!(dijkstra_path_to_target, m)?)?;
+    m.add_function(wrap_pyfunction!(single_target_dijkstra_path_length, m)?)?;
     m.add_function(wrap_pyfunction!(multidigraph_dijkstra_path_target, m)?)?;
     m.add_function(wrap_pyfunction!(
         multidigraph_dijkstra_path_length_target,

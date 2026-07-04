@@ -8866,16 +8866,20 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
     if target is not None:
         if weight is not None:
             if method == "bellman-ford":
-                if G.is_directed():
+                H = G.reverse(copy=False) if G.is_directed() else G
+                return dict(single_source_bellman_ford_path_length(H, target, weight=weight))
+            if G.is_directed():
+                if isinstance(weight, str) and not G.is_multigraph():
                     return dict(
-                        single_source_bellman_ford_path_length(
-                            G.reverse(), target, weight=weight
+                        _raw_single_target_dijkstra_path_length(
+                            G, target, weight=weight
                         )
                     )
-                return dict(single_source_bellman_ford_path_length(G, target, weight=weight))
-            if G.is_directed():
-                all_pairs = dict(all_pairs_dijkstra_path_length(G, weight=weight))
-                return {node: dists[target] for node, dists in all_pairs.items() if target in dists}
+                return dict(
+                    single_source_dijkstra_path_length(
+                        G.reverse(copy=False), target, weight=weight
+                    )
+                )
             return dict(single_source_dijkstra_path_length(G, target, weight=weight))
         return dict(single_target_shortest_path_length(G, target))
         
@@ -20601,6 +20605,7 @@ from franken_networkx._fnx import (
     single_source_dijkstra as _raw_single_source_dijkstra,
     single_source_dijkstra_path as _raw_single_source_dijkstra_path,
     single_source_dijkstra_path_length as _raw_single_source_dijkstra_path_length,
+    single_target_dijkstra_path_length as _raw_single_target_dijkstra_path_length,
     dijkstra_predecessor_and_distance as _raw_dijkstra_predecessor_and_distance,
     single_source_bellman_ford as _raw_single_source_bellman_ford,
     single_source_bellman_ford_path as _raw_single_source_bellman_ford_path,
