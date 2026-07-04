@@ -6,7 +6,10 @@ Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
 Session start had no tracked unstaged work to commit; only the local untracked `.rch-targets/`
 cache was present and left untouched. Agent Mail registration/reservation is still blocked by the
-storage SQLite corruption circuit breaker. The requested short per-crate `rch exec` run selected
+storage SQLite corruption circuit breaker. Scratch/worktree scan found no unrepresented measured win
+to land: the old `blackthrush-ship` edge-view audit is already described in this ledger, and
+`cc-adjouter-land-20260624` is already represented by the landed `DictOfDictsCache.shared_outer`
+implementation and adjacency-cache ledger rows. The requested short per-crate `rch exec` run selected
 worker `hz2`, but that worker failed before timing because the legacy NetworkX PageRank oracle
 requires `scipy` and the worker Python environment did not have it installed. I then ran the same
 5-row BFS/SSSP/PageRank/connected-components slice locally with `AGENT_NAME=CopperCliff` and
