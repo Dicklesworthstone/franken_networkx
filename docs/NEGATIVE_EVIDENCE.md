@@ -2,6 +2,43 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-04 CopperCliff SURFACE: post-commit short graph slice still above NetworkX
+
+Session start had no tracked unstaged work to commit; only the local untracked `.rch-targets/`
+cache was present and left untouched. Agent Mail registration/reservation is still blocked by
+SQLite corruption (`database disk image is malformed`). Scratch/worktree scan found no
+unrepresented measured win to land: the stale `blackthrush-ship` edge-view audit and
+`cc-adjouter-land-20260624` adjacency-cache win are already represented on `main` by prior ledger
+entries and the landed `DictOfDictsCache.shared_outer` path.
+
+The requested short per-crate `rch exec` bench was run with `AGENT_NAME=CopperCliff` and
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod`; `rch` fell back locally because no
+workers were admissible (`critical_pressure=2,insufficient_slots=9`). Same-run medians from the
+completed Criterion slice:
+
+| Row | FNX median | NetworkX median | Ratio vs ORIG / NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| `directed_pagerank_large` | `16.667 ms` | `55.971 ms` | `3.358x` | covered; PageRank remains above NetworkX |
+| `multidigraph_bfs_edges` | `12.984 ms` | `39.565 ms` | `3.047x` | covered; BFS remains above NetworkX |
+| `multidigraph_strongly_connected_components` | `12.927 ms` | `78.388 ms` | `6.064x` | covered; SCC remains above NetworkX |
+| `ubizp_multigraph_single_source_shortest_path` | `124.573 ms` | `207.407 ms` | `1.665x` | covered; no new SSSP lever kept |
+| `multidigraph_single_target_shortest_path_length` | `30.087 ms` | `46.918 ms` | `1.559x` | covered; no new shortest-path lever kept |
+
+Command:
+
+```text
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+timeout 900 rch exec -- cargo bench --profile release -p fnx-python
+--bench public_api_gauntlet
+'directed_pagerank_large|multidigraph_bfs_edges|multidigraph_strongly_connected_components|ubizp_multigraph_single_source_shortest_path|multidigraph_single_target_shortest_path_length'
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+```
+
+Conformance subset: `public_api_gauntlet.py` asserts FNX-vs-NetworkX parity before registering the
+timed callables, including the PageRank max-absolute-difference guard. No implementation variant was
+kept from this pass; the measured large-graph BFS/PageRank/SCC/shortest-path slice remains above
+NetworkX and does not reproduce the reported `0.04x-0.22x` laggard band.
+
 ## 2026-07-04 CopperCliff SURFACE: follow-up warmed graph slice still above NetworkX
 
 After the prior warmed graph-slice commit, tracked files contained the PageRank oracle fallback
