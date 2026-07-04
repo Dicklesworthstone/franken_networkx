@@ -4521,22 +4521,27 @@ fn emit_paths_dict_uniform_parent_index(
     py_nodes[source_idx] = source_obj;
 
     let dict = PyDict::new(py);
-    let mut stack = Vec::new();
+    let mut path_cache: Vec<Option<Py<PyList>>> =
+        std::iter::repeat_with(|| None).take(nodes.len()).collect();
     for &node_idx in discovery {
-        stack.clear();
-        let mut current = node_idx;
-        loop {
-            stack.push(current);
-            if current == source_idx {
-                break;
-            }
-            current = predecessor[current];
-        }
-        let py_path = PyList::new(
-            py,
-            stack.iter().rev().map(|&idx| py_nodes[idx].clone_ref(py)),
-        )?;
-        dict.set_item(py_nodes[node_idx].clone_ref(py), py_path)?;
+        let py_path = if node_idx == source_idx {
+            PyList::new(py, [py_nodes[source_idx].clone_ref(py)])?
+        } else {
+            let parent_idx = predecessor[node_idx];
+            let Some(parent_path) = path_cache.get(parent_idx).and_then(Option::as_ref) else {
+                return Err(PyRuntimeError::new_err(
+                    "single_source_shortest_path parent path missing",
+                ));
+            };
+            let copied = parent_path
+                .bind(py)
+                .call_method0("copy")?
+                .downcast_into::<PyList>()?;
+            copied.append(py_nodes[node_idx].clone_ref(py))?;
+            copied
+        };
+        dict.set_item(py_nodes[node_idx].clone_ref(py), &py_path)?;
+        path_cache[node_idx] = Some(py_path.unbind());
     }
     Ok(dict.unbind())
 }

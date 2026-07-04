@@ -2,6 +2,49 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-04 CopperCliff SHIP: MultiDiGraph single_source_shortest_path 0.858x -> 1.471x — C-level prefix-copy path cache
+
+Land-or-dig scan found no unrepresented measured win to land from scratch/worktree heads. The
+`cc-adjouter-land-20260624` outer-cache worktree is already represented on `main` and in this
+ledger; the current `blackthrush-ship` edge-view audit is not a new BFS/SSSP/PageRank/CC win.
+
+Target: the remaining public SSSP loss on the large sparse `MultiDiGraph` row from
+`public_api_gauntlet`. Traversal is already in cached CSR/index space, so the remaining cost is
+materializing Python path lists. The previous dense back-fill attempt regressed because it called
+Python list item assignment once per path element. This lever instead caches each already-emitted
+parent path and builds each child path with C-level `list.copy()` plus one `append(child)`, still
+returning fresh mutable Python lists and still gated to the uniform-row case
+(`mdg.succ_py_keys.is_empty()`).
+
+Baseline short subset, before the lever (`fnx-python`, `public_api_gauntlet`,
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod`; `rch exec` fell back local
+because no workers were admissible):
+
+| Row | FNX median | NetworkX median | Ratio vs ORIG / NetworkX |
+| --- | ---: | ---: | ---: |
+| `multidigraph_single_source_shortest_path` | `31.568 ms` | `27.070 ms` | `0.858x` |
+
+Measured after the lever with the same short per-crate subset and target dir (`rch exec` local
+fallback for the same fleet-pressure reason):
+
+| Row | FNX median | NetworkX median | Ratio vs ORIG / NetworkX | FNX self-speedup |
+| --- | ---: | ---: | ---: | ---: |
+| `multidigraph_single_source_shortest_path` | `18.551 ms` | `27.296 ms` | `1.471x` | `1.702x` |
+
+Command:
+
+```text
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod
+timeout 900 rch exec -- cargo bench -p fnx-python --bench public_api_gauntlet
+multidigraph_single_source_shortest_path -- --sample-size 10 --warm-up-time 0.2
+--measurement-time 0.5
+```
+
+Conformance subset: `public_api_gauntlet.py` asserts FNX and NetworkX
+`single_source_shortest_path` equality for this MultiDiGraph row before timing. The change preserves
+dict insertion order, source object identity, node display objects, and fresh-list mutability: it
+only changes how each path list is copied from its already-emitted parent path.
+
 ## 2026-07-04 CopperCliff SURFACE: short SSSP audit does not reproduce the 0.04x-0.22x laggard band
 
 Land-or-dig pass after `de35e675d` found no relevant measured win sitting ahead of `origin/main`
