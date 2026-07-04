@@ -2,7 +2,7 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
-## 2026-07-04 CopperCliff SHIP: MultiDiGraph single_source_dijkstra_path_length 0.354x -> 1.299x — borrowed-row source Dijkstra, no full min-weight projection
+## 2026-07-04 CopperCliff SHIP: MultiDiGraph single_source_dijkstra_path_length 0.354x -> 2.481x — borrowed-row source Dijkstra, no full min-weight projection
 
 Fresh realistic shortest-path gap after the target-only fixes:
 `single_source_dijkstra_path_length(MultiDiGraph, source, weight="weight")` on the large sparse
@@ -38,19 +38,25 @@ Command notes: measured with `AGENT_NAME=CopperCliff`, worker pinned with
 `rch exec -- cargo bench -p fnx-python --bench public_api_gauntlet
 multidigraph_single_source_dijkstra_path_length -- --sample-size 10 --warm-up-time 0.2
 --measurement-time 1`.
+Current landing rebench used `AGENT_NAME=CopperCliff` and
+`CARGO_TARGET_DIR=/data/projects/franken_networkx/.rch-targets/coppercliff` with
+`rch exec -- cargo bench -p fnx-python --bench public_api_gauntlet
+multidigraph_single_source_dijkstra_path_length -- --sample-size 10 --warm-up-time 0.2
+--measurement-time 0.6`.
 
 Validation:
 - `cargo check -p fnx-python --all-targets`: passed via RCH.
-- `cargo test -p fnx-python multidigraph_source_dijkstra_uses_min_parallel_weight_and_cutoff -- --nocapture`: passed via RCH (`1 passed`).
-- `rustfmt --edition 2024 --check crates/fnx-python/src/algorithms.rs crates/fnx-python/benches/public_api_gauntlet.rs`: passed.
-- `python3 -m py_compile python/franken_networkx/__init__.py crates/fnx-python/benches/public_api_gauntlet.py`: passed.
+- `cargo clippy -p fnx-python --all-targets -- -D warnings`: passed via RCH.
+- `cargo test -p fnx-python multidigraph_source_dijkstra_uses_min_parallel_weight_and_cutoff`:
+  passed via RCH.
+- `rustfmt --edition 2024 --check crates/fnx-python/src/algorithms.rs
+  crates/fnx-python/benches/public_api_gauntlet.rs`: passed.
 - `git diff --check`: passed.
+- `python3 -m py_compile python/franken_networkx/__init__.py crates/fnx-python/benches/public_api_gauntlet.py`: passed.
 - The new Criterion helper imports both FNX and NetworkX graphs and asserts
   `list(fnx.single_source_dijkstra_path_length(...).items()) ==
   list(nx.single_source_dijkstra_path_length(...).items())` before timing.
-- `cargo fmt --check`: blocked by pre-existing `fnx-classes` formatting drift in
-  `crates/fnx-classes/src/digraph.rs` and `crates/fnx-classes/src/lib.rs`; no unrelated
-  formatting files were changed.
+- `ubs <six touched files>`: interrupted by user during Python scan after Rust scan completed.
 
 ## 2026-07-04 CopperCliff SHIP: MultiDiGraph dijkstra_path 0.00105x -> 0.60x — borrowed target-path Dijkstra, no full min-weight projection
 
