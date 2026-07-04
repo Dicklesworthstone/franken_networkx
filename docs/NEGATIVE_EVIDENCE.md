@@ -2,6 +2,46 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-04 CopperCliff SURFACE: `networkx-cod` 9-row priority graph slice remains above NetworkX
+
+Session start had no tracked unstaged work to commit; only the local untracked `.rch-targets/`
+cache was present and left untouched. Agent Mail health was degraded read-only and
+`macro_start_session` still failed on the storage SQLite corruption (`database disk image is
+malformed`), so reservation refresh is blocked outside git. The requested short per-crate RCH bench
+fell open to local execution because no worker was admissible (`critical_pressure=2`,
+`insufficient_slots=9`), but it used `AGENT_NAME=CopperCliff` and the requested dedicated target dir
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod`.
+
+Short per-crate bench (`fnx-python`, `public_api_gauntlet`) via `rch exec` local fallback:
+medians below were verified from Criterion `new/estimates.json` artifacts in that target dir.
+
+| Row | FNX median | NetworkX median | Ratio vs ORIG / NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| `ubizp_multigraph_single_source_shortest_path` | `60.752 ms` | `79.873 ms` | `1.315x` | covered; no code lever kept |
+| `multidigraph_single_target_shortest_path_length` | `15.396 ms` | `21.307 ms` | `1.384x` | covered; no code lever kept |
+| `multidigraph_single_source_shortest_path` | `17.278 ms` | `27.770 ms` | `1.607x` | covered; no code lever kept |
+| `multidigraph_bfs_edges` | `9.0543 ms` | `16.319 ms` | `1.802x` | covered; no new BFS lever |
+| `multidigraph_strongly_connected_components` | `6.6995 ms` | `55.883 ms` | `8.341x` | covered; SCC win remains landed |
+| `directed_pagerank_large` | `11.552 ms` | `37.386 ms` | `3.236x` | covered; PageRank win remains landed |
+| `multidigraph_dijkstra_path_length_target_early_exit` | `353.09 us` | `4.8529 ms` | `13.744x` | covered; no code lever kept |
+| `multidigraph_dijkstra_path_target_early_exit` | `451.67 us` | `5.5660 ms` | `12.323x` | covered; no code lever kept |
+| `multidigraph_single_source_dijkstra_path_length` | `74.987 ms` | `97.774 ms` | `1.304x` | covered; no Dijkstra lever kept |
+
+Command:
+
+```text
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+timeout 900 rch exec -- cargo bench --profile release -p fnx-python
+--bench public_api_gauntlet
+'ubizp_multigraph_single_source_shortest_path|multidigraph_single_target_shortest_path_length|multidigraph_single_source_shortest_path|multidigraph_bfs_edges|multidigraph_strongly_connected_components|directed_pagerank_large|multidigraph_dijkstra_path_length_target_early_exit|multidigraph_dijkstra_path_target_early_exit|multidigraph_single_source_dijkstra_path_length'
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+```
+
+Conformance subset: `public_api_gauntlet.py` asserts FNX-vs-NetworkX parity for each measured row
+before registering the timed callables, including the PageRank max-absolute-difference guard. No code
+variant was kept from this pass; the measured large-graph BFS/SSSP/PageRank/connected-components
+slice does not reproduce the reported `0.04x-0.22x` laggard band.
+
 ## 2026-07-04 CopperCliff SURFACE: `networkx-cod` local-fallback priority graph slice remains above NetworkX
 
 Session start had no tracked unstaged work to commit; only the local untracked `.rch-targets/`
