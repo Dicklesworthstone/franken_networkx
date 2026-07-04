@@ -2,6 +2,49 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-04 CopperCliff SURFACE: `networkx-cod` priority graph slice still does not reproduce 0.04x-0.22x
+
+Land-or-dig scan found no unrepresented measured BFS/SSSP/PageRank/connected-components win to land
+from scratch/worktree heads. The two relevant unmerged heads were stale/covered: `blackthrush-ship`
+is the old edge-view audit already described in this ledger, and
+`cc-adjouter-land-20260624` is already represented on `main` by the landed
+`DictOfDictsCache.shared_outer` implementation and existing adjacency-cache ledger entries.
+
+I then reran the priority large-graph public slice with the requested dedicated target dir
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod`. The current mainline graph rows do not
+show the reported `0.04x-0.22x` laggard band: seven measured rows beat NetworkX, and the lone loss is
+`multidigraph_single_target_shortest_path_length` at `0.905x`, which is near parity rather than a
+radical-lever gap. No code variant was kept.
+
+Short per-crate bench (`fnx-python`, `public_api_gauntlet`) on RCH worker `vmi1152480`:
+
+| Row | FNX median | NetworkX median | Ratio vs ORIG / NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| `ubizp_multigraph_single_source_shortest_path` | `93.886 ms` | `95.735 ms` | `1.020x` | no new lever |
+| `multidigraph_single_target_shortest_path_length` | `25.867 ms` | `23.418 ms` | `0.905x` | residual near-parity loss |
+| `multidigraph_single_source_shortest_path` | `24.579 ms` | `43.533 ms` | `1.771x` | no new lever |
+| `multidigraph_bfs_edges` | `9.7897 ms` | `23.282 ms` | `2.378x` | no new lever |
+| `multidigraph_strongly_connected_components` | `8.8619 ms` | `72.724 ms` | `8.206x` | no new lever |
+| `multidigraph_dijkstra_path_length_target_early_exit` | `378.49 us` | `5.4567 ms` | `14.417x` | no new lever |
+| `multidigraph_dijkstra_path_target_early_exit` | `502.59 us` | `6.2302 ms` | `12.396x` | no new lever |
+| `multidigraph_single_source_dijkstra_path_length` | `158.88 ms` | `165.16 ms` | `1.040x` | no new lever |
+
+Command:
+
+```text
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+timeout 900 rch exec -- cargo bench --profile release -p fnx-python
+--bench public_api_gauntlet
+'ubizp_multigraph_single_source_shortest_path|multidigraph_single_target_shortest_path_length|multidigraph_single_source_shortest_path|multidigraph_bfs_edges|multidigraph_strongly_connected_components|multidigraph_dijkstra_path_length_target_early_exit|multidigraph_dijkstra_path_target_early_exit|multidigraph_single_source_dijkstra_path_length'
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+```
+
+Conformance subset: `public_api_gauntlet.py` asserts exact FNX-vs-NetworkX parity for the measured
+BFS/SSSP/SCC/Dijkstra rows before registering the timed callables. Existing `fnx-python` bench files
+do not currently expose a PageRank row, so this pass did not invent a new PageRank benchmark fixture
+just to chase the stale laggard band. The literal `cargo bench --release` form is rejected by this
+Cargo for bench targets, so the optimized per-crate run used the bench-compatible `--profile release`.
+
 ## 2026-07-04 CopperCliff SHIP: MultiDiGraph strongly_connected_components CSR index emitter — 7.856x vs NetworkX
 
 Land-or-dig scan found no unrepresented measured BFS/SSSP/PageRank/connected-components win to land
