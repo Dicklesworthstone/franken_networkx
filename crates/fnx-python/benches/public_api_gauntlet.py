@@ -398,6 +398,53 @@ def networkx_multidigraph_single_source_shortest_path() -> float:
     return total
 
 
+def _build_weighted_target_mdg(module, node_count: int):
+    graph = module.MultiDiGraph()
+    graph.add_nodes_from(range(node_count))
+    steps = (1, 7, 37, 113)
+    for u in range(node_count):
+        for step_index, step in enumerate(steps):
+            v = (u + step) % node_count
+            for key in range(2):
+                weight = ((u * 17 + step_index * 5 + key * 3) % 31) + 1
+                graph.add_edge(u, v, key=key, weight=weight)
+    return graph
+
+
+_DPL_MDG_NODE_COUNT = 5000
+_DPL_MDG_SOURCE = 0
+_DPL_MDG_TARGET = 113
+_DPL_MDG_REPEAT = 64
+_FNX_DPL_MDG_GRAPH = _build_weighted_target_mdg(fnx, _DPL_MDG_NODE_COUNT)
+_NX_DPL_MDG_GRAPH = _build_weighted_target_mdg(nx, _DPL_MDG_NODE_COUNT)
+_EXPECTED_DPL_MDG = nx.dijkstra_path_length(
+    _NX_DPL_MDG_GRAPH, _DPL_MDG_SOURCE, _DPL_MDG_TARGET, weight="weight"
+)
+_FNX_DPL_MDG = fnx.dijkstra_path_length(
+    _FNX_DPL_MDG_GRAPH, _DPL_MDG_SOURCE, _DPL_MDG_TARGET, weight="weight"
+)
+if _FNX_DPL_MDG != _EXPECTED_DPL_MDG:
+    raise AssertionError("dijkstra_path_length MultiDiGraph parity drift")
+
+
+def fnx_multidigraph_dijkstra_path_length_target_early_exit() -> float:
+    total = 0.0
+    for _ in range(_DPL_MDG_REPEAT):
+        total += fnx.dijkstra_path_length(
+            _FNX_DPL_MDG_GRAPH, _DPL_MDG_SOURCE, _DPL_MDG_TARGET, weight="weight"
+        )
+    return total
+
+
+def networkx_multidigraph_dijkstra_path_length_target_early_exit() -> float:
+    total = 0.0
+    for _ in range(_DPL_MDG_REPEAT):
+        total += nx.dijkstra_path_length(
+            _NX_DPL_MDG_GRAPH, _DPL_MDG_SOURCE, _DPL_MDG_TARGET, weight="weight"
+        )
+    return total
+
+
 def _build_link_prediction_overlap_graph(
     module, clusters: int, size: int, probability: float, seed: int
 ):

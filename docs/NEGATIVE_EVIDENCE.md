@@ -2,6 +2,51 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-04 CopperCliff SHIP: MultiDiGraph dijkstra_path_length 0.0010x -> 3.58x — target-aware CSR Dijkstra over borrowed parallel rows
+
+Fresh weighted shortest-path target from the remaining directed-multigraph gap: a large sparse
+`MultiDiGraph` (n=5000, four outgoing targets per node, two keyed parallel arcs per target, positive
+integer weights) queried for one source/target pair. Main still routed public
+`dijkstra_path_length(MultiDiGraph, source, target, weight="weight")` through
+`_multigraph_collapse_min_weight`, building a complete simple `DiGraph` projection before the native
+target-only Dijkstra could early-exit. NetworkX only explores the reached frontier and exits as soon
+as the target is finalized.
+
+The shipped path adds a direct public directed-multigraph length primitive: sync edge attrs, validate
+source/target to keep NetworkX error messages, then run Dijkstra over the existing revision-keyed
+`MultiDiGraph::csr()` successor rows. Each relaxation computes the min selected parallel-edge weight
+from borrowed edge-attr maps, preserves int-vs-float length typing, and returns `None` to delegate to
+NetworkX if a reached edge has a nonnumeric, negative, or nonfinite explicit weight. This is the
+GraphBLAS/CSR frontier lever from `/alien-graveyard`: use the graph's sparse row store directly
+instead of materializing an intermediate graph.
+
+Per-crate benchmark (`fnx-python`, `public_api_gauntlet`,
+`multidigraph_dijkstra_path_length_target_early_exit`, 64 calls per Criterion iteration):
+
+| State | Worker | FNX median | NetworkX median | Ratio vs NetworkX | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| before, full Python min-weight collapse | `rch` worker `hz2` | `3.8514 s` | `3.9980 ms` | `0.00104x` | baseline |
+| rejected strict per-call node-index hash map | `rch` worker `ovh-a` | `6.8754 ms` | `3.5013 ms` | `0.509x` | DROP: still below NetworkX |
+| after, cached CSR successor rows | `rch` worker `ovh-a` | `964.30 us` | `3.4556 ms` | `3.58x` | SHIP |
+
+Final same-run ratio: `3.4556 ms / 0.96430 ms = 3.58x` vs NetworkX. The intermediate
+hash-map variant proved the primitive but left O(V) hash-building in every call; replacing that with
+the cached CSR row store gave another `~7.13x` self-speedup on the same worker. The original baseline
+worker differed (`hz2`), so the durable ship evidence is the final same-run FNX/NetworkX ratio.
+
+Command notes: the requested literal `rch exec -- cargo bench -p fnx-python --release ...` was tried
+with `AGENT_NAME=CopperCliff` and `CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod-a`;
+Cargo rejected `--release` for `bench` (`unexpected argument '--release'`). Measured per-crate runs
+used `--profile release` with the same crate, bench, filter, sample size, warmup, and measurement
+window.
+
+Validation:
+- `PYTHONPATH=python pytest tests/python/test_dijkstra_length_typed_cutoff.py -q`: `18 passed`.
+- `cargo test -p fnx-conformance`: passed via RCH.
+- `cargo check -p fnx-python --features pyo3/abi3-py310`: passed via RCH.
+- `cargo clippy -p fnx-python --all-targets --features pyo3/abi3-py310 -- -D warnings`: passed via RCH.
+- `rustfmt --edition 2024 --check crates/fnx-python/src/algorithms.rs crates/fnx-python/benches/public_api_gauntlet.rs`: passed. Workspace `cargo fmt --check` still reports pre-existing formatting drift in `fnx-classes` outside this change.
+
 ## 2026-07-04 CopperCliff SHIP: MultiDiGraph single_source_shortest_path 0.712x -> 0.914x — direct CSR successor BFS, no per-neighbor hash lookup
 
 Fresh realistic traversal target after the previous single-target fix:

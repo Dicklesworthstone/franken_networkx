@@ -23,6 +23,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 type SpanningEdgeSamples = (Vec<(String, String)>, Vec<f64>);
 const PAGERANK_WEIGHT_ATTR: &str = "__fnx_pagerank_weight__";
+const PY_DISTANCE_COMPARISON_EPSILON: f64 = 1.0e-12;
 
 #[derive(Copy, Clone, PartialEq)]
 struct PyDijkstraState {
@@ -17855,6 +17856,166 @@ fn dijkstra_path_length(
     }
 }
 
+enum MultiDiDijkstraTargetLength {
+    Distance { distance: f64, all_int: bool },
+    NoPath,
+    Delegate,
+}
+
+fn multidigraph_weight_value_for_dijkstra(
+    raw: Option<&fnx_runtime::CgseValue>,
+) -> Option<(f64, bool)> {
+    match raw {
+        None => Some((1.0, true)),
+        Some(fnx_runtime::CgseValue::Int(value)) if *value >= 0 => Some((*value as f64, true)),
+        Some(fnx_runtime::CgseValue::Bool(value)) => Some((if *value { 1.0 } else { 0.0 }, true)),
+        Some(fnx_runtime::CgseValue::Float(value)) if value.is_finite() && *value >= 0.0 => {
+            Some((*value, false))
+        }
+        _ => None,
+    }
+}
+
+fn multidigraph_min_parallel_dijkstra_weight(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> Option<(f64, bool)> {
+    let mut best: Option<(f64, bool)> = None;
+    let values = mdg.edge_attr_values(source, target)?;
+    for attrs in values {
+        let (candidate_weight, candidate_int) =
+            multidigraph_weight_value_for_dijkstra(attrs.get(weight_attr))?;
+        if best.is_none_or(|(best_weight, _)| candidate_weight < best_weight) {
+            best = Some((candidate_weight, candidate_int));
+        }
+    }
+    best
+}
+
+fn multidigraph_dijkstra_target_length_borrowed(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> MultiDiDijkstraTargetLength {
+    let names = mdg.nodes_ordered();
+    let Some(source_idx) = names.iter().position(|node| *node == source) else {
+        return MultiDiDijkstraTargetLength::NoPath;
+    };
+    let Some(target_idx) = names.iter().position(|node| *node == target) else {
+        return MultiDiDijkstraTargetLength::NoPath;
+    };
+    if source_idx == target_idx {
+        return MultiDiDijkstraTargetLength::Distance {
+            distance: 0.0,
+            all_int: true,
+        };
+    }
+
+    let csr = mdg.csr();
+    let node_count = names.len();
+    let mut distances = vec![f64::INFINITY; node_count];
+    let mut all_int_paths = vec![false; node_count];
+    let mut finalized = vec![false; node_count];
+    let mut pq: BinaryHeap<PyDijkstraState> = BinaryHeap::new();
+    let mut seq_counter = 0_u64;
+
+    distances[source_idx] = 0.0;
+    all_int_paths[source_idx] = true;
+    seq_counter += 1;
+    pq.push(PyDijkstraState {
+        dist: 0.0,
+        seq: seq_counter,
+        node: source_idx,
+    });
+
+    while let Some(PyDijkstraState {
+        dist: distance,
+        node: node_idx,
+        ..
+    }) = pq.pop()
+    {
+        if distance > distances[node_idx] + PY_DISTANCE_COMPARISON_EPSILON {
+            continue;
+        }
+        if !finalized[node_idx] {
+            finalized[node_idx] = true;
+            if node_idx == target_idx {
+                return MultiDiDijkstraTargetLength::Distance {
+                    distance,
+                    all_int: all_int_paths[node_idx],
+                };
+            }
+        }
+        for &successor_idx in csr.successors(node_idx) {
+            let successor_idx = successor_idx as usize;
+            let Some((edge_weight, edge_int)) = multidigraph_min_parallel_dijkstra_weight(
+                mdg,
+                names[node_idx],
+                names[successor_idx],
+                weight_attr,
+            ) else {
+                return MultiDiDijkstraTargetLength::Delegate;
+            };
+            let next_distance = distance + edge_weight;
+            if next_distance < distances[successor_idx] - PY_DISTANCE_COMPARISON_EPSILON {
+                distances[successor_idx] = next_distance;
+                all_int_paths[successor_idx] = all_int_paths[node_idx] && edge_int;
+                seq_counter += 1;
+                pq.push(PyDijkstraState {
+                    dist: next_distance,
+                    seq: seq_counter,
+                    node: successor_idx,
+                });
+            }
+        }
+    }
+
+    MultiDiDijkstraTargetLength::NoPath
+}
+
+#[pyfunction]
+#[pyo3(signature = (g, source, target, weight="weight"))]
+fn multidigraph_dijkstra_path_length_target(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    target: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<Option<PyObject>> {
+    sync_rust_edge_attrs_if_available(g)?;
+    let gr = extract_graph(g)?;
+    let s = node_key_to_string(py, source)?;
+    let t = node_key_to_string(py, target)?;
+    let GraphRef::MultiDirected { mdg, .. } = &gr else {
+        return Ok(None);
+    };
+    let inner = &mdg.inner;
+    let result =
+        py.allow_threads(|| multidigraph_dijkstra_target_length_borrowed(inner, &s, &t, weight));
+    match result {
+        MultiDiDijkstraTargetLength::Distance { distance, all_int }
+            if all_int
+                && distance.is_finite()
+                && distance.fract() == 0.0
+                && distance >= i128::MIN as f64
+                && distance <= i128::MAX as f64 =>
+        {
+            Ok(Some(PyInt::new(py, distance as i128).into_any().unbind()))
+        }
+        MultiDiDijkstraTargetLength::Distance { distance, .. } => {
+            Ok(Some(distance.into_pyobject(py)?.into_any().unbind()))
+        }
+        MultiDiDijkstraTargetLength::NoPath => Err(NetworkXNoPath::new_err(format!(
+            "No path between {} and {}.",
+            s, t
+        ))),
+        MultiDiDijkstraTargetLength::Delegate => Ok(None),
+    }
+}
+
 /// Return the shortest path length from source to target using Bellman-Ford.
 #[pyfunction]
 #[pyo3(signature = (g, source, target, weight="weight"))]
@@ -23162,6 +23323,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(multi_source_nearest_source, m)?)?;
     m.add_function(wrap_pyfunction!(bidirectional_dijkstra, m)?)?;
     m.add_function(wrap_pyfunction!(dijkstra_path_to_target, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        multidigraph_dijkstra_path_length_target,
+        m
+    )?)?;
     // Connectivity
     m.add_function(wrap_pyfunction!(is_connected, m)?)?;
     m.add_function(wrap_pyfunction!(connected_components, m)?)?;

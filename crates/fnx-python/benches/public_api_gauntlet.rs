@@ -162,6 +162,16 @@ if target_dir:
                 "networkx_multidigraph_single_source_shortest_path",
             ),
             (
+                "multidigraph_dijkstra_path_length_target_early_exit",
+                "fnx",
+                "fnx_multidigraph_dijkstra_path_length_target_early_exit",
+            ),
+            (
+                "multidigraph_dijkstra_path_length_target_early_exit",
+                "networkx",
+                "networkx_multidigraph_dijkstra_path_length_target_early_exit",
+            ),
+            (
                 "raw_adamic_adar_repeated_overlap",
                 "fnx",
                 "fnx_raw_adamic_adar_repeated_overlap",

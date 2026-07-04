@@ -20582,6 +20582,7 @@ def antichains(G, topo_order=None):
 # Algorithm functions — additional shortest path
 from franken_networkx._fnx import (
     dijkstra_path_length as _raw_dijkstra_path_length,
+    multidigraph_dijkstra_path_length_target as _raw_multidigraph_dijkstra_path_length_target,
     bellman_ford_path_length as _raw_bellman_ford_path_length,
     single_source_dijkstra as _raw_single_source_dijkstra,
     single_source_dijkstra_path as _raw_single_source_dijkstra_path,
@@ -20774,6 +20775,20 @@ def dijkstra_path_length(G, source, target, weight="weight"):
     G = _coerce_arg_to_fnx_graph(G)
     # br-cc-mgdijkstra: multigraph -> simple min-weight graph + fast simple kernel.
     if G.is_multigraph() and isinstance(weight, str):
+        if G.is_directed():
+            if source not in G:
+                raise NodeNotFound(f"Node {source} not found in graph")
+            hash(target)
+            if target not in G:
+                raise NetworkXNoPath(f"Node {target} not reachable from {source}")
+            _direct = _raw_multidigraph_dijkstra_path_length_target(
+                G, source, target, weight=weight
+            )
+            if _direct is not None:
+                return _direct
+            return _call_networkx_for_parity(
+                "dijkstra_path_length", G, source, target, weight=weight
+            )
         _simple, _delegate = _multigraph_collapse_min_weight(G, weight)
         if _delegate:
             return _call_networkx_for_parity(
