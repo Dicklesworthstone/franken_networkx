@@ -2,6 +2,37 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-04 CopperCliff SHIP: MultiDiGraph `bfs_edges` via cached CSR row walk — 2.010x vs NetworkX
+
+Land-or-dig scan had no unrepresented scratch/worktree win to land. The remaining graph-family
+lever was the `MultiDiGraph` BFS path: public `bfs_edges` / `bfs_tree` rebuilt a fresh indexed
+adjacency from string successor/predecessor rows on every call even though `fnx-classes` already
+maintains a revision-keyed `MultiDiCsr`. The new path walks that cached CSR directly with a
+`Vec<bool>` visited bitmap and only materializes Python-facing endpoint strings at the boundary.
+
+Short per-crate bench (`fnx-python`, `public_api_gauntlet`) on RCH worker `vmi1293453`, with
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod`. The literal
+`cargo bench --release` form is invalid for Cargo bench targets, so the measured optimized run used
+Cargo's bench-compatible `--profile release`:
+
+| Row | FNX median | NetworkX median | Ratio vs ORIG / NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| `multidigraph_bfs_edges` | `8.2510 ms` | `16.584 ms` | `2.010x` | ship |
+
+Command:
+
+```text
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod
+timeout 900 rch exec -- cargo bench --profile release -p fnx-python
+--bench public_api_gauntlet multidigraph_bfs_edges -- --sample-size 10
+--warm-up-time 0.2 --measurement-time 0.5
+```
+
+Conformance subset: `public_api_gauntlet.py` asserts exact
+`list(fnx.bfs_edges(_FNX_ST_MDG_GRAPH, source)) == list(nx.bfs_edges(_NX_ST_MDG_GRAPH, source))`
+before the timed callables are registered. `cargo check -p fnx-python --all-targets` passed via
+`rch exec` on worker `hz1`.
+
 ## 2026-07-04 CopperCliff SHIP: MultiDiGraph single_source_shortest_path 0.858x -> 1.471x — C-level prefix-copy path cache
 
 Land-or-dig scan found no unrepresented measured win to land from scratch/worktree heads. The

@@ -4968,27 +4968,48 @@ fn multidigraph_bfs_edges<'a>(
     mdg: &'a fnx_classes::digraph::MultiDiGraph,
     source: &str,
 ) -> Vec<(&'a str, &'a str)> {
-    use std::collections::{HashSet, VecDeque};
-    let mut edges: Vec<(&'a str, &'a str)> = Vec::new();
+    multidigraph_bfs_edges_csr(mdg, source, false, None)
+}
+
+fn multidigraph_bfs_edges_csr<'a>(
+    mdg: &'a fnx_classes::digraph::MultiDiGraph,
+    source: &str,
+    reverse: bool,
+    depth_limit: Option<usize>,
+) -> Vec<(&'a str, &'a str)> {
+    let max_depth = depth_limit.unwrap_or(usize::MAX);
     let nodes = mdg.nodes_ordered();
-    let source_ref = match nodes.iter().copied().find(|&n| n == source) {
-        Some(s) => s,
-        None => return edges,
+    let Some(source_idx) = nodes.iter().position(|&n| n == source) else {
+        return Vec::new();
     };
-    let mut visited: HashSet<&str> = HashSet::new();
-    visited.insert(source_ref);
-    let mut queue: VecDeque<&str> = VecDeque::new();
-    queue.push_back(source_ref);
-    while let Some(node) = queue.pop_front() {
-        if let Some(succs) = mdg.successors(node) {
-            for v in succs {
-                if visited.insert(v) {
-                    edges.push((node, v));
-                    queue.push_back(v);
-                }
+
+    let n = nodes.len();
+    let csr = mdg.csr();
+    let mut edges: Vec<(&'a str, &'a str)> = Vec::with_capacity(n.saturating_sub(1));
+    let mut visited = vec![false; n];
+    visited[source_idx] = true;
+    let mut queue: VecDeque<(usize, usize)> = VecDeque::new();
+    queue.push_back((source_idx, 0));
+
+    while let Some((node_idx, depth)) = queue.pop_front() {
+        if depth >= max_depth {
+            continue;
+        }
+        let neighbors = if reverse {
+            csr.predecessors(node_idx)
+        } else {
+            csr.successors(node_idx)
+        };
+        for &raw_neighbor in neighbors {
+            let neighbor_idx = raw_neighbor as usize;
+            if neighbor_idx < n && !visited[neighbor_idx] {
+                visited[neighbor_idx] = true;
+                edges.push((nodes[node_idx], nodes[neighbor_idx]));
+                queue.push_back((neighbor_idx, depth + 1));
             }
         }
     }
+
     edges
 }
 
@@ -5035,28 +5056,10 @@ fn multidigraph_bfs_edges_reverse(
     mdg: &fnx_classes::digraph::MultiDiGraph,
     source: &str,
 ) -> Vec<(String, String)> {
-    use std::collections::{HashSet, VecDeque};
-    let mut edges: Vec<(String, String)> = Vec::new();
-    let nodes = mdg.nodes_ordered();
-    let source_ref = match nodes.iter().copied().find(|&n| n == source) {
-        Some(s) => s,
-        None => return edges,
-    };
-    let mut visited: HashSet<&str> = HashSet::new();
-    visited.insert(source_ref);
-    let mut queue: VecDeque<&str> = VecDeque::new();
-    queue.push_back(source_ref);
-    while let Some(node) = queue.pop_front() {
-        if let Some(preds) = mdg.predecessors(node) {
-            for v in preds {
-                if visited.insert(v) {
-                    edges.push((node.to_owned(), v.to_owned()));
-                    queue.push_back(v);
-                }
-            }
-        }
-    }
-    edges
+    multidigraph_bfs_edges_csr(mdg, source, true, None)
+        .into_iter()
+        .map(|(parent, child)| (parent.to_owned(), child.to_owned()))
+        .collect()
 }
 
 /// br-r37-c1-zid1b2 (cc): is a MultiDiGraph a DAG? Kahn's algorithm over an integer CSR
@@ -9697,22 +9700,14 @@ pub fn bfs_edges(
         }
         _ => {
             if let GraphRef::MultiDirected { mdg, .. } = &gr {
-                // br-r37-c1-86c7r: walk the MultiDiGraph successor (or predecessor,
-                // for reverse) adjacency DIRECTLY — no conversion.
+                // br-r37-c1-csrcsr: reuse the revision-keyed MultiDiGraph CSR
+                // instead of rebuilding indexed adjacency for every BFS call.
                 let inner = &mdg.inner;
                 py.allow_threads(|| {
-                    let nodes = inner.nodes_ordered();
-                    let Some(src) = nodes.iter().position(|&n| n == source_key) else {
-                        return Vec::new();
-                    };
-                    let adj = build_index_adjacency(&nodes, |u| {
-                        if reverse {
-                            inner.predecessors(u).unwrap_or_default()
-                        } else {
-                            inner.successors(u).unwrap_or_default()
-                        }
-                    });
-                    bfs_edges_indexed(&adj, &nodes, src, depth_limit)
+                    multidigraph_bfs_edges_csr(inner, &source_key, reverse, depth_limit)
+                        .into_iter()
+                        .map(|(parent, child)| (parent.to_owned(), child.to_owned()))
+                        .collect()
                 })
             } else if gr.is_directed() {
                 let inner = gr.digraph().expect("is_directed checked above");
@@ -9807,22 +9802,14 @@ pub fn bfs_tree(
         }
         _ => {
             if let GraphRef::MultiDirected { mdg, .. } = &gr {
-                // br-r37-c1-86c7r: walk the MultiDiGraph successor (or predecessor,
-                // for reverse) adjacency DIRECTLY — no conversion.
+                // br-r37-c1-csrcsr: reuse the revision-keyed MultiDiGraph CSR
+                // instead of rebuilding indexed adjacency for every BFS call.
                 let inner = &mdg.inner;
                 py.allow_threads(|| {
-                    let nodes = inner.nodes_ordered();
-                    let Some(src) = nodes.iter().position(|&n| n == source_key) else {
-                        return Vec::new();
-                    };
-                    let adj = build_index_adjacency(&nodes, |u| {
-                        if reverse {
-                            inner.predecessors(u).unwrap_or_default()
-                        } else {
-                            inner.successors(u).unwrap_or_default()
-                        }
-                    });
-                    bfs_edges_indexed(&adj, &nodes, src, depth_limit)
+                    multidigraph_bfs_edges_csr(inner, &source_key, reverse, depth_limit)
+                        .into_iter()
+                        .map(|(parent, child)| (parent.to_owned(), child.to_owned()))
+                        .collect()
                 })
             } else if gr.is_directed() {
                 let inner = gr.digraph().expect("is_directed checked above");
@@ -24807,9 +24794,11 @@ mod tests {
         let names = graph.nodes_ordered();
         let result =
             multidigraph_single_source_dijkstra_lengths_borrowed(&graph, "s", "weight", Some(4.0));
-        let MultiDiDijkstraSourceLengths::Entries(entries) = result else {
-            panic!("source dijkstra should not delegate");
+        let entries = match result {
+            MultiDiDijkstraSourceLengths::Entries(entries) => entries,
+            MultiDiDijkstraSourceLengths::Delegate => Vec::new(),
         };
+        assert!(!entries.is_empty(), "source dijkstra should not delegate");
         let rendered: Vec<(&str, f64, bool, Option<&str>)> = entries
             .iter()
             .map(|(node_idx, distance, all_int, pred_idx)| {

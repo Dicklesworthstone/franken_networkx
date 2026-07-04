@@ -372,6 +372,11 @@ _FNX_SS_MDG = fnx.single_source_shortest_path(_FNX_ST_MDG_GRAPH, _SS_MDG_SOURCE)
 if _FNX_SS_MDG != _EXPECTED_SS_MDG:
     raise AssertionError("single_source_shortest_path MultiDiGraph parity drift")
 
+_EXPECTED_BFS_MDG = list(nx.bfs_edges(_NX_ST_MDG_GRAPH, _SS_MDG_SOURCE))
+_FNX_BFS_MDG = list(fnx.bfs_edges(_FNX_ST_MDG_GRAPH, _SS_MDG_SOURCE))
+if _FNX_BFS_MDG != _EXPECTED_BFS_MDG:
+    raise AssertionError("bfs_edges MultiDiGraph parity drift")
+
 
 def _path_checksum(paths: dict[int, list[int]]) -> float:
     total = 0
@@ -395,6 +400,20 @@ def networkx_multidigraph_single_source_shortest_path() -> float:
         total += _path_checksum(
             nx.single_source_shortest_path(_NX_ST_MDG_GRAPH, _SS_MDG_SOURCE)
         )
+    return total
+
+
+def fnx_multidigraph_bfs_edges() -> float:
+    total = 0.0
+    for _ in range(_SS_MDG_REPEAT):
+        total += len(list(fnx.bfs_edges(_FNX_ST_MDG_GRAPH, _SS_MDG_SOURCE)))
+    return total
+
+
+def networkx_multidigraph_bfs_edges() -> float:
+    total = 0.0
+    for _ in range(_SS_MDG_REPEAT):
+        total += len(list(nx.bfs_edges(_NX_ST_MDG_GRAPH, _SS_MDG_SOURCE)))
     return total
 
 

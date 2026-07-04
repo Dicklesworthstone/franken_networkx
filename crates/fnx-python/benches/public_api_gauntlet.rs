@@ -162,6 +162,16 @@ if target_dir:
                 "networkx_multidigraph_single_source_shortest_path",
             ),
             (
+                "multidigraph_bfs_edges",
+                "fnx",
+                "fnx_multidigraph_bfs_edges",
+            ),
+            (
+                "multidigraph_bfs_edges",
+                "networkx",
+                "networkx_multidigraph_bfs_edges",
+            ),
+            (
                 "multidigraph_dijkstra_path_length_target_early_exit",
                 "fnx",
                 "fnx_multidigraph_dijkstra_path_length_target_early_exit",
