@@ -2,6 +2,63 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-04 CopperCliff NO-SHIP: MultiDiGraph single_source_shortest_path depth-filled emitter regressed 0.867x -> 0.531x
+
+Land-or-dig pass after commit `0f6a25e9d` found no unlanded measured win in the non-ancestor
+scratch/worktree heads: the stale edge-view audit, already-represented adjacency outer-cache branch,
+and parity-only A* missing-node test were not landable perf commits. A fresh short public API
+gauntlet routing pass over large traversal rows left only
+`multidigraph_single_source_shortest_path` below NetworkX.
+
+Current short routing bench (`fnx-python`, `public_api_gauntlet`, RCH worker `ovh-a`,
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod`):
+
+| Row | FNX median | NetworkX median | Ratio vs NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| `ubizp_multigraph_single_source_shortest_path` | `48.028 ms` | `68.159 ms` | `1.419x` | already wins |
+| `multidigraph_single_target_shortest_path_length` | `12.309 ms` | `17.554 ms` | `1.426x` | already wins |
+| `multidigraph_single_source_shortest_path` | `25.880 ms` | `22.441 ms` | `0.867x` | target gap |
+| `multidigraph_single_source_dijkstra_path_length` | `26.423 ms` | `71.339 ms` | `2.700x` | already wins |
+
+Tried lever: carry BFS depths out of the cached-CSR MultiDiGraph traversal and emit uniform-row paths
+by pre-sizing each Python list with `None` and filling it backward from the parent chain. This was a
+GraphBLAS/frontier-style materialization attempt: keep the CSR traversal, but turn path emission into
+an exact-size dense fill rather than stack+reverse. It preserves discovery order and source object
+identity in principle, and remains gated to the uniform-row case.
+
+Measured result (`fnx-python`, `public_api_gauntlet`, target row only, RCH worker `hz2`,
+`CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod`):
+
+| State | FNX median | NetworkX median | Ratio vs NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| current main routing baseline | `25.880 ms` | `22.441 ms` | `0.867x` | baseline |
+| depth-filled list emitter variant | `44.172 ms` | `23.453 ms` | `0.531x` | REVERTED |
+
+Criterion reported the variant as a clear FNX regression:
+`[+37.774%, +49.137%, +70.629%]`, `p = 0.00`. The code change was reverted; only this ledger entry
+is kept. The next viable lever should avoid per-item Python `list.__setitem__`/placeholder fill and
+instead attack the remaining path-list materialization volume with a lower-overhead prefix-copy or
+result-cache strategy that still returns fresh mutable lists.
+
+Command notes:
+- Routing:
+  `AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod
+  rch exec -- cargo bench -p fnx-python --bench public_api_gauntlet
+  'ubizp_multigraph_single_source_shortest_path|multidigraph_single_target_shortest_path_length|multidigraph_single_source_shortest_path|multidigraph_single_source_dijkstra_path_length'
+  -- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5`.
+- Variant:
+  `AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cod
+  rch exec -- cargo bench -p fnx-python --bench public_api_gauntlet
+  multidigraph_single_source_shortest_path -- --sample-size 10 --warm-up-time 0.2
+  --measurement-time 0.5`.
+
+Validation:
+- `cargo check -p fnx-python --all-targets`: passed via RCH for the tested variant before revert.
+- The benchmark helper imports both FNX and NetworkX graphs and asserts
+  `_FNX_SS_MDG == _EXPECTED_SS_MDG` before timing the measured row.
+- `crates/fnx-python/src/algorithms.rs` was restored to `HEAD`; no code from the regressing variant
+  remains staged or committed.
+
 ## 2026-07-04 CopperCliff SHIP: MultiDiGraph single_source_shortest_path 0.785x -> 0.830x — uniform row-object path emitter
 
 Fresh remaining shortest-path materialization gap after the MultiDiGraph CSR BFS work:
