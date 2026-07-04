@@ -10,6 +10,17 @@ import networkx as nx
 
 gc.disable()
 
+try:
+    import scipy  # noqa: F401
+
+    _NETWORKX_PAGERANK = nx.pagerank
+    _NETWORKX_PAGERANK_KIND = "scipy"
+except ImportError:
+    from networkx.algorithms.link_analysis.pagerank_alg import _pagerank_python
+
+    _NETWORKX_PAGERANK = _pagerank_python
+    _NETWORKX_PAGERANK_KIND = "python-fallback"
+
 
 def _weighted_flow_edges(node_count: int) -> list[tuple[int, int, float]]:
     edges: list[tuple[int, int, float]] = []
@@ -516,10 +527,12 @@ _PAGERANK_REPEAT = 8
 _PAGERANK_TOL = 1.0e-8
 _FNX_PAGERANK_GRAPH = _build_directed_pagerank_graph(fnx, _PAGERANK_NODE_COUNT)
 _NX_PAGERANK_GRAPH = _build_directed_pagerank_graph(nx, _PAGERANK_NODE_COUNT)
-_EXPECTED_PAGERANK = nx.pagerank(_NX_PAGERANK_GRAPH, tol=_PAGERANK_TOL)
+_EXPECTED_PAGERANK = _NETWORKX_PAGERANK(_NX_PAGERANK_GRAPH, tol=_PAGERANK_TOL)
 _FNX_PAGERANK = fnx.pagerank(_FNX_PAGERANK_GRAPH, tol=_PAGERANK_TOL)
 if _pagerank_max_abs_diff(_FNX_PAGERANK, _EXPECTED_PAGERANK) > 1.0e-9:
-    raise AssertionError("pagerank DiGraph parity drift")
+    raise AssertionError(
+        f"pagerank DiGraph parity drift via NetworkX {_NETWORKX_PAGERANK_KIND}"
+    )
 
 
 def fnx_directed_pagerank_large() -> float:
@@ -535,7 +548,7 @@ def networkx_directed_pagerank_large() -> float:
     total = 0.0
     for _ in range(_PAGERANK_REPEAT):
         total += _pagerank_checksum(
-            nx.pagerank(_NX_PAGERANK_GRAPH, tol=_PAGERANK_TOL)
+            _NETWORKX_PAGERANK(_NX_PAGERANK_GRAPH, tol=_PAGERANK_TOL)
         )
     return total
 

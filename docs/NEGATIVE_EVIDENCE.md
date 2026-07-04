@@ -2,6 +2,45 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-04 CopperCliff SURFACE: follow-up warmed graph slice still above NetworkX
+
+After the prior warmed graph-slice commit, tracked files contained the PageRank oracle fallback
+bench edit below plus the local untracked `.rch-targets/` cache, which remains untracked. Scratch
+worktree scan still found no unrepresented measured win to land: the stale `blackthrush-ship`
+edge-view audit is already represented in this ledger, and the stale `cc-adjouter-land-20260624`
+adjacency-cache win is already represented by the landed `DictOfDictsCache.shared_outer` path and
+adjacency rows.
+
+I kept the bench-harness fallback that selects NetworkX's pure-Python PageRank implementation when
+`scipy` is unavailable, because recent remote workers failed the PageRank row before timing. The
+measured run below was the requested short per-crate local fallback, using `AGENT_NAME=CopperCliff`
+and `CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod`.
+
+Short per-crate bench (`fnx-python`, `public_api_gauntlet`) on local fallback:
+
+| Row | FNX median | NetworkX median | Ratio vs ORIG / NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| `ubizp_multigraph_single_source_shortest_path` | `68.477 ms` | `83.675 ms` | `1.222x` | covered; no code lever kept |
+| `multidigraph_bfs_edges` | `8.6520 ms` | `17.681 ms` | `2.044x` | covered; BFS remains above NetworkX |
+| `multidigraph_strongly_connected_components` | `7.0536 ms` | `63.486 ms` | `9.000x` | covered; SCC win remains landed |
+| `directed_pagerank_large` | `13.763 ms` | `47.943 ms` | `3.483x` | covered; PageRank win remains landed |
+| `multidigraph_single_source_dijkstra_path_length` | `88.962 ms` | `126.37 ms` | `1.421x` | covered; no Dijkstra lever kept |
+
+Command:
+
+```text
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+timeout 700 cargo bench --profile release -p fnx-python
+--bench public_api_gauntlet
+'directed_pagerank_large|multidigraph_bfs_edges|multidigraph_strongly_connected_components|ubizp_multigraph_single_source_shortest_path|multidigraph_single_source_dijkstra_path_length'
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+```
+
+Conformance subset: `public_api_gauntlet.py` asserts FNX-vs-NetworkX parity before registering the
+timed callables, including the PageRank max-absolute-difference guard. No implementation variant was
+kept from this pass; the measured slice remains above NetworkX and does not reproduce the reported
+`0.04x-0.22x` laggard band.
+
 ## 2026-07-04 CopperCliff SURFACE: warmed 5-row graph rerun remains above NetworkX
 
 After the scratch/worktree scan commit, tracked files were clean except the local untracked
