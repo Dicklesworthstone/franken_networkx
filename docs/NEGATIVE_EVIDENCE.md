@@ -2,6 +2,36 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-05 BlackThrush FRESH-PROFILE (round 4, ~40 new fns): flow/community/isomorphism/dominance/approx/bipartite all WON; frontier is structural
+
+Widest cast yet across previously-unprofiled veins, all measured fnx-vs-nx (n=100-150). WINS (don't re-dig):
+maximum_flow 2.87x, minimum_cut 12x, greedy_modularity 79x, louvain 30x, label_propagation 4.5x,
+is_isomorphic 84x, immediate_dominators 3.7x, dominance_frontiers 2.3x, max_clique(approx) 1.70x,
+large_clique_size 2.0x, ramsey_R2 1.78x, approx.average_clustering 24.6x, treewidth_min_degree 1.80x,
+approx.node_connectivity 1.92x, bipartite.clustering 2.0x, spectral_bipartivity 1741x,
+robins_alexander_clustering 35x, adjacency_matrix 1.99x, to_scipy_sparse 2.10x, incidence 4.76x,
+check_planarity 2.80x, global/local_efficiency 16-18x. NOT-crackable: gomory_hu_tree 1.10x/401ms
+(flow+tree-parity), could_be_isomorphic 1.14x, non_randomness/spectral/kamada/spring layout = numpy/scipy-eig
+bound. REJECTED-again: steiner_tree 0.79x (already NO-SHIP 2x, parity-blocked+not-faster — DON'T retry).
+DIVERGENT-approx (NOT byte-exact vs nx, non-unique answers, no conformance test found): clique_removal 0.85x/
+2.2s + ramsey_R2 (fnx has its own valid native answer, 30/30 & 20/20 differ from nx) — not a safe/important ship.
+
+SINGLE-ELEMENT ACCESS FLOOR (fresh measure): get_edge_data(u,v)/G[u][v] in a loop is 0.15-0.37x ALL 4 types
+(MG get_edge_data 0.15x, Graph 0.26x, MDG 0.17x, DiG 0.20x). ROOT = per-call `node_key_to_string` (int->String
+alloc+hash) + `materialize_edge_py_attrs` (build a FRESH PyDict from the columnar CgseValue store) — nx returns
+its LIVE stored dict by reference (O(1)); fnx's dual-store must materialize. `mark_edges_dirty` is a cheap
+atomic bool (NOT the cost). The Python wrapper (hash checks + _has_networkx_private_storage) is thin. This is
+the documented dual-String-store + PyO3-dispatch floor [[reference_node_removal_storage_wall]].
+
+STRUCTURAL ROADMAP (the actionable next lever, multi-session): an **integer-node-key dual store** (an
+`int_index: HashMap<i64,usize>` + index-keyed edge_py_attrs mirrors, maintained across add/remove) is the ONE
+lever that cracks BOTH biggest remaining gaps — single-element access floors (0.15-0.37x, skip the String
+round-trip + serve index-keyed live dicts) AND node removal (0.003x, the O(N+E) contiguous-index renumber, 149
+coupling sites). Too large to land byte-exact-verified in one round. NOT attempted (an incomplete-revert = churn,
+not a clean measured 0-gain). Flat-map/interned AttrMap (multi-attr construction 0.71-0.90x) is a SEPARATE
+systemic lever, also multi-session (236 `.entry()` + ~625 refs; sorted-Vec is behaviorally byte-identical =
+same sorted iteration, but the Entry API port is the work). rch: force `RCH_WORKER=vmi1227854` (hz2 ftui broken).
+
 ## 2026-07-05 BlackThrush FRONTIER-MAP (dig-deeper, different primitives): delegated-fn de-delegation blocked by parity contracts; parity fns numpy-bound
 
 Round pivoted OFF construction (rejected-lever streak) to a genuinely different vein: DELEGATED functions
