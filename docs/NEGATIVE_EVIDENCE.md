@@ -42,6 +42,46 @@ per-crate row. The gauntlet asserts exact `single_source_dijkstra_path_length` i
 against NetworkX before registering the timed callable. `cargo check -p fnx-python --all-targets`
 was green under the same target dir.
 
+## 2026-07-05 BlackThrush REVERT + BLOCKER: multi-attr (>=2 key) unique construction — dict.copy mirror modest + sub-parity; rch worker down
+
+Dig-deeper round after the duplicate-attr merge collector landed (c781eea39). Objective re-profiling
+CONFIRMED the algorithm domain is fully dominated (betweenness 16x [my earlier 0.97x was a SEED-TRAP:
+`betweenness_centrality(G, seed=1)` disables the native path via the `k is None and seed is None` gate —
+pass no seed], edge_betweenness 16x, load 29x, current_flow_betweenness 62x, subgraph_centrality 76x,
+second_order 159x, percolation 9x, laplacian 16x — all wins on n=150 m=700). The only residual vs-nx gap
+is **multi-attr (>=2 key) UNIQUE `add_edges_from` construction, ~0.71-0.90x** (single-`{weight}` already
+wins 1.3-1.5x). ROOT (traced): each multi-attr edge builds BOTH a store `AttrMap`
+(`BTreeMap<String,CgseValue>`, sorted) AND an ordered mirror `PyDict` (BTreeMap sorts keys, so
+edges(data)/get_edge_data need the insertion-ordered mirror; the mirror can't alias the caller's dict), vs
+nx's single dict. Two representations + a per-key `String` key allocation repeated across every edge.
+
+Levers evaluated:
+- LAZY STORE (store attrs mirror-only + `edges_dirty`, defer the store like the per-edge add_edge path):
+  REJECTED — the `edges_dirty` flag is GLOBAL, so a batch mixing single-attr (store-authoritative, the
+  shipped `size(weight)`/degree(weight) store fast path) and multi-attr (mirror-authoritative) edges is
+  inconsistent; making the WHOLE batch mirror-only regresses the single-`{weight}` store fast path. Genuine
+  negative evidence: lazy-store conflicts with the shipped store reductions.
+- FLAT-MAP / INTERNED-KEY `AttrMap` (`BTreeMap` -> sorted `Vec`/`smallvec`, or `String` -> interned key):
+  the real systemic lever, but `AttrMap` is THE core attr type used across every crate — wide blast radius,
+  too risky to land byte-exact-verified across the whole algo suite under active concurrent editing.
+- br-bt-mircopy (BOUNDED, byte-exact): build the streaming collector's multi-attr mirror via one
+  `PyDict_Copy` (C-level, order- and key-object-preserving) instead of `py_dict_to_attr_map_with_mirror`'s
+  per-key `set_item` loop (Graph lib.rs + DiGraph digraph.rs). Built LOCALLY (rch worker down, see below);
+  local A/B: 2-attr UNIQUE Graph 0.76x->0.85x, DiGraph ~0.76x->0.90x, byte-exact (edge-data key order +
+  values); 3-attr ~0.76-0.78x (more of the cost is the store `AttrMap`, not the mirror). REVERTED: the gain
+  is modest and stays sub-parity (<nx), the workload is in the concurrently-edited construction collectors,
+  and it could NOT be validated via the mandated per-crate `rch cargo bench` (worker blocker below). Clean
+  revert; source == origin/main. Future: re-attempt only bundled with the flat-map/interned-key AttrMap.
+
+BLOCKER (environmental, not code): `rch exec -- cargo {check,bench}` fails at dependency resolution —
+`error: failed to select a version for the requirement ftui = "^0.4.1"`. `crates/fnx-runtime/Cargo.toml`
+has an OPTIONAL path dep `ftui = { path = "/dp/frankentui/crates/ftui", version = "0.4.1", optional }`;
+locally that path IS at 0.4.1 (resolves fine — local `cargo check`/`maturin develop` both succeed), so the
+failure is WORKER-SPECIFIC: the worker I was routed to has `/dp/frankentui` absent or version-mismatched,
+while CopperCliff's same-day Dijkstra bench (above) succeeded on `vmi1149989`/`vmi1264463`. Earlier rch
+builds this session also succeeded, so some workers are healthy. Workaround: retry (rch reroutes to another
+worker) or fall back to local `cargo {check,bench}` / `maturin develop` (all green locally).
+
 ## 2026-07-05 CopperCliff SHIP: duplicate attributed add_edges_from merge collector — 1.119x/1.312x vs NetworkX
 
 Agent Mail registration/reservation remained blocked by SQLite corruption
