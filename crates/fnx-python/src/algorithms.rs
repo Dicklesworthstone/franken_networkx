@@ -17,7 +17,7 @@ use pyo3::exceptions::{
 };
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyIterator, PyList, PySet, PyString, PyTuple};
-use std::cell::OnceCell;
+use std::cell::{OnceCell, RefCell};
 use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque};
 use std::sync::{
     Arc, Mutex, OnceLock,
@@ -18079,10 +18079,73 @@ struct MultiDiDijkstraRows {
     rows: Vec<Vec<MultiDiDijkstraArc>>,
 }
 
+#[derive(Default)]
+struct MultiDiDijkstraTargetScratch {
+    distances: Vec<f64>,
+    predecessors: Vec<usize>,
+    all_int_paths: Vec<bool>,
+    seen_epoch: Vec<u32>,
+    finalized_epoch: Vec<u32>,
+    pq: BinaryHeap<PyDijkstraState>,
+    chain: Vec<usize>,
+    epoch: u32,
+}
+
+impl MultiDiDijkstraTargetScratch {
+    fn prepare(&mut self, n: usize) -> u32 {
+        if self.distances.len() < n {
+            self.distances.resize(n, f64::INFINITY);
+            self.predecessors.resize(n, usize::MAX);
+            self.all_int_paths.resize(n, false);
+            self.seen_epoch.resize(n, 0);
+            self.finalized_epoch.resize(n, 0);
+        }
+        if self.epoch == u32::MAX {
+            self.seen_epoch.fill(0);
+            self.finalized_epoch.fill(0);
+            self.epoch = 0;
+        }
+        self.epoch += 1;
+        self.pq.clear();
+        self.chain.clear();
+        self.epoch
+    }
+
+    fn distance(&self, node: usize, epoch: u32) -> f64 {
+        if self.seen_epoch[node] == epoch {
+            self.distances[node]
+        } else {
+            f64::INFINITY
+        }
+    }
+
+    fn set_distance(&mut self, node: usize, distance: f64, epoch: u32) {
+        self.seen_epoch[node] = epoch;
+        self.distances[node] = distance;
+    }
+
+    fn is_finalized(&self, node: usize, epoch: u32) -> bool {
+        self.finalized_epoch[node] == epoch
+    }
+
+    fn mark_finalized(&mut self, node: usize, epoch: u32) {
+        self.finalized_epoch[node] = epoch;
+    }
+
+    fn path_all_int(&self, node: usize, epoch: u32) -> bool {
+        self.seen_epoch[node] == epoch && self.all_int_paths[node]
+    }
+}
+
 type MultiDiDijkstraRowsCache =
     Mutex<Option<(MultiDiDijkstraRowsCacheKey, Arc<MultiDiDijkstraRows>)>>;
 
 static MULTIDIGRAPH_DIJKSTRA_ROWS_CACHE: OnceLock<MultiDiDijkstraRowsCache> = OnceLock::new();
+
+thread_local! {
+    static MULTIDIGRAPH_DIJKSTRA_TARGET_SCRATCH: RefCell<MultiDiDijkstraTargetScratch> =
+        RefCell::new(MultiDiDijkstraTargetScratch::default());
+}
 
 fn multidigraph_weight_value_for_dijkstra(
     raw: Option<&fnx_runtime::CgseValue>,
@@ -18210,74 +18273,75 @@ fn multidigraph_dijkstra_target_path_rows(
         return MultiDiDijkstraTargetPath::Path(vec![rows.names[source_idx].clone()]);
     }
 
-    let n = rows.names.len();
-    let mut distances = vec![f64::INFINITY; n];
-    let mut predecessors = vec![usize::MAX; n];
-    let mut finalized = vec![false; n];
-    let mut pq: BinaryHeap<PyDijkstraState> = BinaryHeap::new();
-    let mut seq_counter = 0_u64;
+    MULTIDIGRAPH_DIJKSTRA_TARGET_SCRATCH.with(|scratch_cell| {
+        let mut scratch = scratch_cell.borrow_mut();
+        let epoch = scratch.prepare(rows.names.len());
+        let mut seq_counter = 0_u64;
 
-    distances[source_idx] = 0.0;
-    seq_counter += 1;
-    pq.push(PyDijkstraState {
-        dist: 0.0,
-        seq: seq_counter,
-        node: source_idx,
-    });
+        scratch.set_distance(source_idx, 0.0, epoch);
+        seq_counter += 1;
+        scratch.pq.push(PyDijkstraState {
+            dist: 0.0,
+            seq: seq_counter,
+            node: source_idx,
+        });
 
-    while let Some(PyDijkstraState {
-        dist: distance,
-        node: node_idx,
-        ..
-    }) = pq.pop()
-    {
-        if distance > distances[node_idx] + PY_DISTANCE_COMPARISON_EPSILON {
-            continue;
-        }
-        if finalized[node_idx] {
-            continue;
-        }
-        finalized[node_idx] = true;
-        if node_idx == target_idx {
-            let mut chain = vec![target_idx];
-            let mut current = target_idx;
-            while current != source_idx {
-                current = predecessors[current];
-                if current == usize::MAX {
-                    return MultiDiDijkstraTargetPath::NoPath;
-                }
-                chain.push(current);
-            }
-            chain.reverse();
-            return MultiDiDijkstraTargetPath::Path(
-                chain
-                    .into_iter()
-                    .map(|idx| rows.names[idx].clone())
-                    .collect(),
-            );
-        }
-        for arc in &rows.rows[node_idx] {
-            let next_distance = distance + arc.weight;
-            if finalized[arc.target] {
-                if next_distance < distances[arc.target] - PY_DISTANCE_COMPARISON_EPSILON {
-                    return MultiDiDijkstraTargetPath::Delegate;
-                }
+        while let Some(PyDijkstraState {
+            dist: distance,
+            node: node_idx,
+            ..
+        }) = scratch.pq.pop()
+        {
+            if distance > scratch.distance(node_idx, epoch) + PY_DISTANCE_COMPARISON_EPSILON {
                 continue;
             }
-            if next_distance < distances[arc.target] - PY_DISTANCE_COMPARISON_EPSILON {
-                distances[arc.target] = next_distance;
-                predecessors[arc.target] = node_idx;
-                seq_counter += 1;
-                pq.push(PyDijkstraState {
-                    dist: next_distance,
-                    seq: seq_counter,
-                    node: arc.target,
-                });
+            if scratch.is_finalized(node_idx, epoch) {
+                continue;
+            }
+            scratch.mark_finalized(node_idx, epoch);
+            if node_idx == target_idx {
+                scratch.chain.push(target_idx);
+                let mut current = target_idx;
+                while current != source_idx {
+                    current = scratch.predecessors[current];
+                    if current == usize::MAX {
+                        return MultiDiDijkstraTargetPath::NoPath;
+                    }
+                    scratch.chain.push(current);
+                }
+                scratch.chain.reverse();
+                return MultiDiDijkstraTargetPath::Path(
+                    scratch
+                        .chain
+                        .iter()
+                        .map(|&idx| rows.names[idx].clone())
+                        .collect(),
+                );
+            }
+            for arc in &rows.rows[node_idx] {
+                let next_distance = distance + arc.weight;
+                let target_distance = scratch.distance(arc.target, epoch);
+                if scratch.is_finalized(arc.target, epoch) {
+                    if next_distance < target_distance - PY_DISTANCE_COMPARISON_EPSILON {
+                        return MultiDiDijkstraTargetPath::Delegate;
+                    }
+                    continue;
+                }
+                if next_distance < target_distance - PY_DISTANCE_COMPARISON_EPSILON {
+                    scratch.set_distance(arc.target, next_distance, epoch);
+                    scratch.predecessors[arc.target] = node_idx;
+                    seq_counter += 1;
+                    scratch.pq.push(PyDijkstraState {
+                        dist: next_distance,
+                        seq: seq_counter,
+                        node: arc.target,
+                    });
+                }
             }
         }
-    }
 
-    MultiDiDijkstraTargetPath::NoPath
+        MultiDiDijkstraTargetPath::NoPath
+    })
 }
 
 fn multidigraph_dijkstra_target_length_rows(
@@ -18296,63 +18360,64 @@ fn multidigraph_dijkstra_target_length_rows(
         };
     }
 
-    let n = rows.names.len();
-    let mut distances = vec![f64::INFINITY; n];
-    let mut all_int_paths = vec![false; n];
-    let mut finalized = vec![false; n];
-    let mut pq: BinaryHeap<PyDijkstraState> = BinaryHeap::new();
-    let mut seq_counter = 0_u64;
+    MULTIDIGRAPH_DIJKSTRA_TARGET_SCRATCH.with(|scratch_cell| {
+        let mut scratch = scratch_cell.borrow_mut();
+        let epoch = scratch.prepare(rows.names.len());
+        let mut seq_counter = 0_u64;
 
-    distances[source_idx] = 0.0;
-    all_int_paths[source_idx] = true;
-    seq_counter += 1;
-    pq.push(PyDijkstraState {
-        dist: 0.0,
-        seq: seq_counter,
-        node: source_idx,
-    });
+        scratch.set_distance(source_idx, 0.0, epoch);
+        scratch.all_int_paths[source_idx] = true;
+        seq_counter += 1;
+        scratch.pq.push(PyDijkstraState {
+            dist: 0.0,
+            seq: seq_counter,
+            node: source_idx,
+        });
 
-    while let Some(PyDijkstraState {
-        dist: distance,
-        node: node_idx,
-        ..
-    }) = pq.pop()
-    {
-        if distance > distances[node_idx] + PY_DISTANCE_COMPARISON_EPSILON {
-            continue;
-        }
-        if finalized[node_idx] {
-            continue;
-        }
-        finalized[node_idx] = true;
-        if node_idx == target_idx {
-            return MultiDiDijkstraTargetLength::Distance {
-                distance,
-                all_int: all_int_paths[node_idx],
-            };
-        }
-        for arc in &rows.rows[node_idx] {
-            let next_distance = distance + arc.weight;
-            if finalized[arc.target] {
-                if next_distance < distances[arc.target] - PY_DISTANCE_COMPARISON_EPSILON {
-                    return MultiDiDijkstraTargetLength::Delegate;
-                }
+        while let Some(PyDijkstraState {
+            dist: distance,
+            node: node_idx,
+            ..
+        }) = scratch.pq.pop()
+        {
+            if distance > scratch.distance(node_idx, epoch) + PY_DISTANCE_COMPARISON_EPSILON {
                 continue;
             }
-            if next_distance < distances[arc.target] - PY_DISTANCE_COMPARISON_EPSILON {
-                distances[arc.target] = next_distance;
-                all_int_paths[arc.target] = all_int_paths[node_idx] && arc.all_int;
-                seq_counter += 1;
-                pq.push(PyDijkstraState {
-                    dist: next_distance,
-                    seq: seq_counter,
-                    node: arc.target,
-                });
+            if scratch.is_finalized(node_idx, epoch) {
+                continue;
+            }
+            scratch.mark_finalized(node_idx, epoch);
+            if node_idx == target_idx {
+                return MultiDiDijkstraTargetLength::Distance {
+                    distance,
+                    all_int: scratch.path_all_int(node_idx, epoch),
+                };
+            }
+            let node_all_int = scratch.path_all_int(node_idx, epoch);
+            for arc in &rows.rows[node_idx] {
+                let next_distance = distance + arc.weight;
+                let target_distance = scratch.distance(arc.target, epoch);
+                if scratch.is_finalized(arc.target, epoch) {
+                    if next_distance < target_distance - PY_DISTANCE_COMPARISON_EPSILON {
+                        return MultiDiDijkstraTargetLength::Delegate;
+                    }
+                    continue;
+                }
+                if next_distance < target_distance - PY_DISTANCE_COMPARISON_EPSILON {
+                    scratch.set_distance(arc.target, next_distance, epoch);
+                    scratch.all_int_paths[arc.target] = node_all_int && arc.all_int;
+                    seq_counter += 1;
+                    scratch.pq.push(PyDijkstraState {
+                        dist: next_distance,
+                        seq: seq_counter,
+                        node: arc.target,
+                    });
+                }
             }
         }
-    }
 
-    MultiDiDijkstraTargetLength::NoPath
+        MultiDiDijkstraTargetLength::NoPath
+    })
 }
 
 fn multidigraph_dijkstra_target_path_borrowed(

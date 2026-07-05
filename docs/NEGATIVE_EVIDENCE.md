@@ -2,6 +2,48 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-05 CopperCliff SHIP: MultiDiGraph target Dijkstra scratch arena — 17.069x/20.783x vs NetworkX
+
+No tracked unstaged work existed at session start; only the local untracked `.rch-targets/`
+cache was present and left untouched. Agent Mail registration/reservation was still blocked by
+SQLite corruption (`database disk image is malformed`). Scratch/worktree scan found no unlanded
+measured win: the only ahead perf branch, `cc-adjouter-land-20260624`, is already represented by
+the landed `DictOfDictsCache.shared_outer` implementation and existing ledger entries.
+
+The remaining target was the residual MultiDiGraph target-Dijkstra path family. The previous
+native rows cache already beat NetworkX, but still allocated and initialized fresh
+`distances`/`finalized`/`predecessors`/heap storage on every repeated target query. The kept lever
+adds a thread-local, generation-stamped Dijkstra scratch arena for the cached rows path. This
+preserves row order, heap ordering, tie-breaks, and returned Python objects; it only changes the
+temporary storage backing the same relax/finalize loop.
+
+Short per-crate local fallback bench (`fnx-python`, `public_api_gauntlet`) with
+`AGENT_NAME=CopperCliff` and `CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod`:
+
+| Row | FNX median | NetworkX median | Ratio vs ORIG / NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| `multidigraph_dijkstra_path_length_target_early_exit` | `264.483 us` | `4.5145 ms` | `17.069x` | SHIP |
+| `multidigraph_dijkstra_path_target_early_exit` | `278.341 us` | `5.7849 ms` | `20.783x` | SHIP |
+
+Command:
+
+```text
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+timeout 900 cargo bench --profile release -p fnx-python
+--bench public_api_gauntlet 'multidigraph_dijkstra_path(_length)?_target_early_exit'
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+```
+
+Conformance subset: `public_api_gauntlet.py` asserts `dijkstra_path_length`,
+`dijkstra_path`, and `single_source_dijkstra_path_length` parity against NetworkX on the same
+weighted MultiDiGraph before Criterion registers the timed callables. Criterion's candidate
+change report showed FNX improvement on the same local target dir: path-length mean `-28.941%`,
+path mean `-22.038%`. The earlier `rch exec -- cargo bench --release` form failed because this
+Cargo invocation does not accept `--release` for `cargo bench`; the corrected remote run on `hz2`
+confirmed current main was already above NetworkX, and a later remote candidate run was interrupted
+after it stayed silent in `fnx-python` compilation, so the final keep/drop proof used the requested
+local fallback.
+
 ## 2026-07-04 CopperCliff SHIP: directed weighted target shortest_path_length predecessor-CSR route — 0.026x -> 3.478x vs NetworkX
 
 The original directed weighted target query paid all-pairs Dijkstra and measured as a severe
