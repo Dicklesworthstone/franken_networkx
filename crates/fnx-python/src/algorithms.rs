@@ -18088,6 +18088,7 @@ struct MultiDiDijkstraTargetScratch {
     finalized_epoch: Vec<u32>,
     pq: BinaryHeap<PyDijkstraState>,
     chain: Vec<usize>,
+    entries: Vec<(usize, f64, bool, Option<usize>)>,
     epoch: u32,
 }
 
@@ -18108,6 +18109,7 @@ impl MultiDiDijkstraTargetScratch {
         self.epoch += 1;
         self.pq.clear();
         self.chain.clear();
+        self.entries.clear();
         self.epoch
     }
 
@@ -18417,6 +18419,79 @@ fn multidigraph_dijkstra_target_length_rows(
         }
 
         MultiDiDijkstraTargetLength::NoPath
+    })
+}
+
+fn multidigraph_single_source_dijkstra_lengths_rows(
+    rows: &MultiDiDijkstraRows,
+    source: &str,
+    cutoff: Option<f64>,
+) -> MultiDiDijkstraSourceLengths {
+    let Some(&source_idx) = rows.index.get(source) else {
+        return MultiDiDijkstraSourceLengths::Entries(Vec::new());
+    };
+
+    MULTIDIGRAPH_DIJKSTRA_TARGET_SCRATCH.with(|scratch_cell| {
+        let mut scratch = scratch_cell.borrow_mut();
+        let epoch = scratch.prepare(rows.names.len());
+        let mut seq_counter = 0_u64;
+
+        scratch.set_distance(source_idx, 0.0, epoch);
+        scratch.all_int_paths[source_idx] = true;
+        seq_counter += 1;
+        scratch.pq.push(PyDijkstraState {
+            dist: 0.0,
+            seq: seq_counter,
+            node: source_idx,
+        });
+
+        while let Some(PyDijkstraState {
+            dist: distance,
+            node: node_idx,
+            ..
+        }) = scratch.pq.pop()
+        {
+            if distance > scratch.distance(node_idx, epoch) + PY_DISTANCE_COMPARISON_EPSILON {
+                continue;
+            }
+            if scratch.is_finalized(node_idx, epoch) {
+                continue;
+            }
+            scratch.mark_finalized(node_idx, epoch);
+            let node_all_int = scratch.path_all_int(node_idx, epoch);
+            let predecessor = (scratch.predecessors[node_idx] != usize::MAX)
+                .then_some(scratch.predecessors[node_idx]);
+            scratch
+                .entries
+                .push((node_idx, distance, node_all_int, predecessor));
+
+            for arc in &rows.rows[node_idx] {
+                let next_distance = distance + arc.weight;
+                if cutoff.is_some_and(|limit| next_distance > limit) {
+                    continue;
+                }
+                let target_distance = scratch.distance(arc.target, epoch);
+                if scratch.is_finalized(arc.target, epoch) {
+                    if next_distance < target_distance - PY_DISTANCE_COMPARISON_EPSILON {
+                        return MultiDiDijkstraSourceLengths::Delegate;
+                    }
+                    continue;
+                }
+                if next_distance < target_distance - PY_DISTANCE_COMPARISON_EPSILON {
+                    scratch.set_distance(arc.target, next_distance, epoch);
+                    scratch.all_int_paths[arc.target] = node_all_int && arc.all_int;
+                    scratch.predecessors[arc.target] = node_idx;
+                    seq_counter += 1;
+                    scratch.pq.push(PyDijkstraState {
+                        dist: next_distance,
+                        seq: seq_counter,
+                        node: arc.target,
+                    });
+                }
+            }
+        }
+
+        MultiDiDijkstraSourceLengths::Entries(scratch.entries.clone())
     })
 }
 
@@ -18789,9 +18864,15 @@ fn multidigraph_single_source_dijkstra_path_length(
         return Ok(None);
     };
     let inner = &mdg.inner;
-    let result = py.allow_threads(|| {
-        multidigraph_single_source_dijkstra_lengths_borrowed(inner, &s, weight, cutoff)
-    });
+    let rows = multidigraph_dijkstra_rows_for_graph(mdg, weight);
+    let result = match rows {
+        Some(rows) => {
+            py.allow_threads(|| multidigraph_single_source_dijkstra_lengths_rows(&rows, &s, cutoff))
+        }
+        None => py.allow_threads(|| {
+            multidigraph_single_source_dijkstra_lengths_borrowed(inner, &s, weight, cutoff)
+        }),
+    };
     let MultiDiDijkstraSourceLengths::Entries(entries) = result else {
         return Ok(None);
     };

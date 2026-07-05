@@ -2,6 +2,46 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-05 CopperCliff SHIP: MultiDiGraph single-source Dijkstra cached rows — 1.018x -> 8.355x vs NetworkX
+
+The previous kept target-Dijkstra scratch arena and the rejected reverse-view route were not
+retried. This dig-deeper lever moves a different realistic-workload gap: full
+`MultiDiGraph.single_source_dijkstra_path_length` now uses the clean-graph weighted-row cache plus
+the generation-stamped Dijkstra arena instead of rewalking Python-facing edge maps and allocating
+fresh distance/finalized/predecessor vectors for every source query. Dirty graphs, unsupported
+weight callables, non-numeric weights, and negative weights still fall back to the existing
+NetworkX-compatible path.
+
+Short per-crate bench (`fnx-python`, `public_api_gauntlet`) with
+`AGENT_NAME=CopperCliff` and `CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod`:
+
+| Row | Worker | FNX median | NetworkX median | Ratio vs ORIG / NetworkX | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `multidigraph_single_source_dijkstra_path_length` current-main baseline | `vmi1149989` | `112.51 ms` | `114.49 ms` | `1.018x` | original gap |
+| `multidigraph_single_source_dijkstra_path_length` cached rows + arena | `vmi1264463` | `30.871 ms` | `257.93 ms` | `8.355x` | SHIP |
+
+Commands:
+
+```text
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+timeout 900 rch exec -- cargo bench --profile release -p fnx-python
+--bench public_api_gauntlet multidigraph_single_source_dijkstra_path_length
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+
+AGENT_NAME=CopperCliff RCH_WORKER=vmi1149989
+CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+timeout 900 rch exec -- cargo bench --profile release -p fnx-python
+--bench public_api_gauntlet multidigraph_single_source_dijkstra_path_length
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+```
+
+`rch` selected `vmi1264463` for the candidate despite the worker hint, so the direct
+main-to-candidate self-speedup is directional rather than same-worker. The acceptance ratio is the
+same-run candidate FNX median against same-run NetworkX (`8.355x`) on the requested short
+per-crate row. The gauntlet asserts exact `single_source_dijkstra_path_length` item-order equality
+against NetworkX before registering the timed callable. `cargo check -p fnx-python --all-targets`
+was green under the same target dir.
+
 ## 2026-07-05 CopperCliff SHIP: duplicate attributed add_edges_from merge collector — 1.119x/1.312x vs NetworkX
 
 Agent Mail registration/reservation remained blocked by SQLite corruption
