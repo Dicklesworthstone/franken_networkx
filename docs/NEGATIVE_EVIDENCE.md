@@ -2,6 +2,42 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-05 CopperCliff SHIP: duplicate attributed add_edges_from merge collector — 1.119x/1.312x vs NetworkX
+
+Agent Mail registration/reservation remained blocked by SQLite corruption
+(`database disk image is malformed`), so the run proceeded without a lease. This round avoided the
+rejected string-interning/small-string/arena/perfect-hash family documented below. The kept lever is
+an algebraic merge primitive for fresh integer-node attributed `add_edges_from` batches: when a
+simple `Graph`/`DiGraph` batch contains repeated edge keys, keep one per-edge-key dictionary and
+apply NetworkX's exact `datadict.update(...)` last-write-wins semigroup before committing the native
+batch. The normal duplicate-free streaming collector still owns the common path; the merge collector
+only runs after that collector declines on a duplicate pair, avoiding the former all-edge fallback to
+the per-edge Python loop.
+
+Short per-crate `rch` bench on `hz2` (`fnx-python`, `public_api_gauntlet`) with
+`AGENT_NAME=CopperCliff` and `CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod`:
+
+| Row | FNX estimate | NetworkX estimate | Ratio vs ORIG / NetworkX | Decision |
+| --- | ---: | ---: | ---: | --- |
+| `graph_duplicate_attr_add_edges_from` | `121.17 ms` | `135.61 ms` | `1.119x` | SHIP |
+| `digraph_duplicate_attr_add_edges_from` | `119.93 ms` | `157.32 ms` | `1.312x` | SHIP |
+
+Command:
+
+```text
+AGENT_NAME=CopperCliff CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+timeout 900 rch exec -- cargo bench --profile release -p fnx-python
+--bench public_api_gauntlet duplicate_attr_add_edges_from
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+```
+
+Conformance subset: the new gauntlet rows construct matching FNX/NetworkX duplicate-attributed
+`Graph` and `DiGraph` batches at module import, then assert edge-data item-order parity before
+Criterion registers the timed callables. Focused checks also passed:
+`python3 -m py_compile crates/fnx-python/benches/public_api_gauntlet.py`,
+`cargo fmt --check -p fnx-python`, `git diff --check`, and
+`cargo check -p fnx-python --lib`.
+
 ## 2026-07-05 CopperCliff SHIP: MultiDiGraph target Dijkstra scratch arena — 17.069x/20.783x vs NetworkX
 
 No tracked unstaged work existed at session start; only the local untracked `.rch-targets/`

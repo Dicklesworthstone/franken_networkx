@@ -943,6 +943,115 @@ def networkx_ra_index_soundarajan_hopcroft_repeated_overlap() -> float:
     return total
 
 
+def _duplicate_attr_edges(node_count: int, unique_count: int, *, directed: bool):
+    edges = []
+    for idx in range(unique_count):
+        u = idx % node_count
+        v = (idx * 17 + 23) % node_count
+        if u == v:
+            v = (v + 1) % node_count
+        weight = float((idx % 29) + 1)
+        edges.append((u, v, {"weight": weight, "left": idx % 97}))
+        if idx % 4 == 0:
+            du, dv = (u, v) if directed else (v, u)
+            edges.append((du, dv, {"weight": weight + 0.5, "right": idx % 89}))
+        if idx % 16 == 0:
+            edges.append((u, v, {"tail": idx % 193}))
+    return edges
+
+
+def _build_duplicate_attr_graph(module, *, directed: bool):
+    graph = module.DiGraph() if directed else module.Graph()
+    graph.add_edges_from(_DUP_DG_ATTR_EDGES if directed else _DUP_G_ATTR_EDGES)
+    return graph
+
+
+def _directed_attr_record(graph) -> tuple:
+    return tuple(
+        (u, v, tuple(data.items()))
+        for u, v, data in graph.edges(data=True)
+    )
+
+
+def _undirected_attr_record(graph) -> tuple:
+    return tuple(
+        sorted(
+            (min(u, v), max(u, v), tuple(data.items()))
+            for u, v, data in graph.edges(data=True)
+        )
+    )
+
+
+def _consume_duplicate_attr_graph(graph, *, directed: bool) -> float:
+    total = graph.number_of_nodes() * 131 + graph.number_of_edges() * 17
+    for u, v, data in graph.edges(data=True):
+        total += int(u) * 31 + int(v) * 37 + len(data)
+        total += int(data.get("left", 0))
+        total += int(data.get("right", 0))
+        total += int(data.get("tail", 0))
+        total += int(float(data.get("weight", 0.0)) * 2.0)
+        if not directed and u > v:
+            total += 1
+    return float(total)
+
+
+_DUP_ATTR_NODE_COUNT = 4096
+_DUP_ATTR_UNIQUE_COUNT = 8192
+_DUP_ATTR_REPEAT = 12
+_DUP_G_ATTR_EDGES = _duplicate_attr_edges(
+    _DUP_ATTR_NODE_COUNT, _DUP_ATTR_UNIQUE_COUNT, directed=False
+)
+_DUP_DG_ATTR_EDGES = _duplicate_attr_edges(
+    _DUP_ATTR_NODE_COUNT, _DUP_ATTR_UNIQUE_COUNT, directed=True
+)
+
+_FNX_DUP_G_ATTR_GRAPH = _build_duplicate_attr_graph(fnx, directed=False)
+_NX_DUP_G_ATTR_GRAPH = _build_duplicate_attr_graph(nx, directed=False)
+if _undirected_attr_record(_FNX_DUP_G_ATTR_GRAPH) != _undirected_attr_record(_NX_DUP_G_ATTR_GRAPH):
+    raise AssertionError("Graph duplicate attributed add_edges_from parity drift")
+
+_FNX_DUP_DG_ATTR_GRAPH = _build_duplicate_attr_graph(fnx, directed=True)
+_NX_DUP_DG_ATTR_GRAPH = _build_duplicate_attr_graph(nx, directed=True)
+if _directed_attr_record(_FNX_DUP_DG_ATTR_GRAPH) != _directed_attr_record(_NX_DUP_DG_ATTR_GRAPH):
+    raise AssertionError("DiGraph duplicate attributed add_edges_from parity drift")
+
+
+def fnx_graph_duplicate_attr_add_edges_from() -> float:
+    total = 0.0
+    for _ in range(_DUP_ATTR_REPEAT):
+        total += _consume_duplicate_attr_graph(
+            _build_duplicate_attr_graph(fnx, directed=False), directed=False
+        )
+    return total
+
+
+def networkx_graph_duplicate_attr_add_edges_from() -> float:
+    total = 0.0
+    for _ in range(_DUP_ATTR_REPEAT):
+        total += _consume_duplicate_attr_graph(
+            _build_duplicate_attr_graph(nx, directed=False), directed=False
+        )
+    return total
+
+
+def fnx_digraph_duplicate_attr_add_edges_from() -> float:
+    total = 0.0
+    for _ in range(_DUP_ATTR_REPEAT):
+        total += _consume_duplicate_attr_graph(
+            _build_duplicate_attr_graph(fnx, directed=True), directed=True
+        )
+    return total
+
+
+def networkx_digraph_duplicate_attr_add_edges_from() -> float:
+    total = 0.0
+    for _ in range(_DUP_ATTR_REPEAT):
+        total += _consume_duplicate_attr_graph(
+            _build_duplicate_attr_graph(nx, directed=True), directed=True
+        )
+    return total
+
+
 def _attr_digraph_edges(node_count: int, edge_count: int):
     idx = 0
     for step in range(1, node_count):

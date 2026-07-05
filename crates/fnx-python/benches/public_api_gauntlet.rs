@@ -282,6 +282,26 @@ if target_dir:
                 "networkx_ra_index_soundarajan_hopcroft_repeated_overlap",
             ),
             (
+                "graph_duplicate_attr_add_edges_from",
+                "fnx",
+                "fnx_graph_duplicate_attr_add_edges_from",
+            ),
+            (
+                "graph_duplicate_attr_add_edges_from",
+                "networkx",
+                "networkx_graph_duplicate_attr_add_edges_from",
+            ),
+            (
+                "digraph_duplicate_attr_add_edges_from",
+                "fnx",
+                "fnx_digraph_duplicate_attr_add_edges_from",
+            ),
+            (
+                "digraph_duplicate_attr_add_edges_from",
+                "networkx",
+                "networkx_digraph_duplicate_attr_add_edges_from",
+            ),
+            (
                 "digraph_to_undirected_attr_heavy",
                 "fnx",
                 "fnx_digraph_to_undirected_attr_heavy",

@@ -2176,6 +2176,166 @@ impl PyGraph {
         Ok(Some((node_labels, node_objects, edges, node_bumps)))
     }
 
+    /// br-bt-dupmerge: duplicate-tolerant sibling of
+    /// `collect_fresh_exact_int_attr_edge_batch`. When an int-node attributed
+    /// batch contains a repeated canonical pair, the streaming collector bails
+    /// (its ordered mirror can't merge attrs across occurrences in-stream) and
+    /// the whole `add_edges_from` used to fall to the ~2x-slower per-edge Python
+    /// loop — even a single repeated pair in an otherwise-fresh batch tanked
+    /// construction (0.6x vs nx). nx's semantics for a duplicate edge are exactly
+    /// `datadict = factory(); datadict.update(dd1); datadict.update(dd2); …`, so
+    /// this collector keeps ONE fresh merged dict per canonical pair (first-seen
+    /// orientation) and replays `update` per occurrence. The final merged dict is
+    /// byte-identical to nx's stored edge datadict (same keys, insertion order,
+    /// last-write-wins values); the store `AttrMap` derives from it and the
+    /// ordered mirror is retained iff the merged dict has >=2 keys — the same
+    /// rule the streaming collector uses. It is a strict superset of the
+    /// streaming path: on a duplicate-FREE batch it yields identical output from
+    /// the sole occurrence (copying only a required multi-key ordered mirror),
+    /// and it declines (`Ok(None)`) on every non-conforming shape the streaming
+    /// path declines on, so the per-edge Python loop still owns those. Only
+    /// invoked as a fallback after the streaming collector returns None, so
+    /// duplicate-free batches on the common fast path never pay this merge pass.
+    fn collect_fresh_exact_int_attr_edge_batch_merged<'py, I>(
+        &self,
+        _py: Python<'py>,
+        items: I,
+        len: usize,
+    ) -> PyResult<Option<IndexedAttrEdgeBatch>>
+    where
+        I: IntoIterator<Item = Bound<'py, PyAny>>,
+    {
+        let mut node_indices: HashMap<i64, usize> = HashMap::new();
+        let mut node_labels: Vec<String> = Vec::new();
+        let mut node_objects: Vec<PyObject> = Vec::new();
+        // canonical (min, max) int pair -> index into `merged`
+        let mut pair_to_idx: HashMap<(i64, i64), usize> = HashMap::with_capacity(len);
+        // Per canonical pair (first-seen orientation): (u_idx, v_idx, dict, owned).
+        // COPY-ON-WRITE: the first occurrence BORROWS the caller's dict (refcount
+        // bump only — no copy); it is copied into an fnx-owned dict lazily, the
+        // first time a duplicate for that pair actually needs to mutate it. On a
+        // duplicate-free batch (the overwhelming majority even when this fallback
+        // fires — a single repeated pair drags the whole batch here) this pays
+        // ZERO dict copies for single-attr edges, matching the streaming path.
+        let mut merged: Vec<(usize, usize, Bound<'py, PyDict>, bool)> = Vec::with_capacity(len);
+        let mut node_bumps = 0_u64;
+
+        for item in items {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(None);
+            };
+            if tuple.len() != 3 {
+                return Ok(None);
+            }
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            if !u.is_exact_instance_of::<PyInt>()
+                || !v.is_exact_instance_of::<PyInt>()
+                || u.is_exact_instance_of::<PyBool>()
+                || v.is_exact_instance_of::<PyBool>()
+            {
+                return Ok(None);
+            }
+            let Ok(u_value) = u.extract::<i64>() else {
+                return Ok(None);
+            };
+            let Ok(v_value) = v.extract::<i64>() else {
+                return Ok(None);
+            };
+            let third = tuple.get_item(2)?;
+            let Ok(dict) = third.downcast::<PyDict>() else {
+                return Ok(None);
+            };
+
+            // Undirected: (u,v) and (v,u) are the same edge.
+            let canon = if u_value <= v_value {
+                (u_value, v_value)
+            } else {
+                (v_value, u_value)
+            };
+            if let Some(idx) = pair_to_idx.get(&canon).copied() {
+                // Duplicate pair -> nx merges via datadict.update(dd): later keys
+                // override earlier, new keys append in first-seen order. Copy the
+                // borrowed caller dict into an fnx-owned one before the first
+                // in-place mutation (never alias the caller's input).
+                let slot = &mut merged[idx];
+                if !slot.3 {
+                    slot.2 = slot.2.copy()?;
+                    slot.3 = true;
+                }
+                for (k, val) in dict.iter() {
+                    slot.2.set_item(&k, &val)?;
+                }
+                continue;
+            }
+
+            // First occurrence: add nodes in first-seen order (u then v).
+            let mut edge_added_node = false;
+            let u_index = match node_indices.get(&u_value).copied() {
+                Some(index) => index,
+                None => {
+                    let index = node_labels.len();
+                    node_indices.insert(u_value, index);
+                    node_labels.push(u_value.to_string());
+                    node_objects.push(u.clone().unbind());
+                    edge_added_node = true;
+                    index
+                }
+            };
+            let v_index = match node_indices.get(&v_value).copied() {
+                Some(index) => index,
+                None => {
+                    let index = node_labels.len();
+                    node_indices.insert(v_value, index);
+                    node_labels.push(v_value.to_string());
+                    node_objects.push(v.clone().unbind());
+                    edge_added_node = true;
+                    index
+                }
+            };
+            if edge_added_node {
+                node_bumps = node_bumps.wrapping_add(1);
+            }
+            // Borrow the caller's dict (refcount bump) — no copy unless a later
+            // duplicate for this pair forces one.
+            let idx = merged.len();
+            pair_to_idx.insert(canon, idx);
+            merged.push((u_index, v_index, dict.clone(), false));
+        }
+
+        let mut edges: Vec<(usize, usize, AttrMap, Option<Py<PyDict>>)> =
+            Vec::with_capacity(merged.len());
+        for (u_index, v_index, mdict, owned) in merged {
+            let Ok(attrs) = py_dict_to_attr_map(&mdict) else {
+                return Ok(None);
+            };
+            if attrs
+                .keys()
+                .any(|key| key.starts_with("__fnx_incompatible"))
+            {
+                return Ok(None);
+            }
+            // Same mirror rule as the streaming collector: >=2 keys -> keep the
+            // ordered mirror (BTreeMap store sorts keys); <2 keys have no order.
+            // The mirror must be fnx-owned: an owned dict (had a duplicate) is
+            // used directly; a still-borrowed multi-attr dict is copied here,
+            // exactly as the streaming path's `py_dict_to_attr_map_with_mirror`
+            // builds a fresh mirror.
+            let mirror = if mdict.len() >= 2 {
+                Some(if owned {
+                    mdict.unbind()
+                } else {
+                    mdict.copy()?.unbind()
+                })
+            } else {
+                None
+            };
+            edges.push((u_index, v_index, attrs, mirror));
+        }
+
+        Ok(Some((node_labels, node_objects, edges, node_bumps)))
+    }
+
     fn add_fresh_exact_int_attr_edge_batch(
         &mut self,
         py: Python<'_>,
@@ -2230,16 +2390,39 @@ impl PyGraph {
             return Ok(false);
         }
 
+        // br-bt-dupmerge: the streaming `collect` returns None on the FIRST duplicate
+        // canonical pair (its ordered mirror can't merge multi-occurrence attrs
+        // in-stream). Rather than concede the whole batch to the ~2x-slower per-edge
+        // Python loop, retry with the merge collector, which replays nx's exact
+        // `datadict.update(dd)` semantics natively. The merge collector is a strict
+        // superset of the streaming one (byte-identical output on duplicate-free
+        // input), so it also correctly handles the non-duplicate reasons `collect`
+        // may return None (non-int nodes, non-dict thirds, ...) by returning None
+        // itself → the per-edge path still owns those.
         let collected = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
             if list.len() < ATTR_EDGE_BATCH_MIN {
                 return Ok(false);
             }
-            self.collect_fresh_exact_int_attr_edge_batch(py, list.iter(), list.len())?
+            match self.collect_fresh_exact_int_attr_edge_batch(py, list.iter(), list.len())? {
+                Some(batch) => Some(batch),
+                None => self.collect_fresh_exact_int_attr_edge_batch_merged(
+                    py,
+                    list.iter(),
+                    list.len(),
+                )?,
+            }
         } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
             if tuple.len() < ATTR_EDGE_BATCH_MIN {
                 return Ok(false);
             }
-            self.collect_fresh_exact_int_attr_edge_batch(py, tuple.iter(), tuple.len())?
+            match self.collect_fresh_exact_int_attr_edge_batch(py, tuple.iter(), tuple.len())? {
+                Some(batch) => Some(batch),
+                None => self.collect_fresh_exact_int_attr_edge_batch_merged(
+                    py,
+                    tuple.iter(),
+                    tuple.len(),
+                )?,
+            }
         } else {
             return Ok(false);
         };
