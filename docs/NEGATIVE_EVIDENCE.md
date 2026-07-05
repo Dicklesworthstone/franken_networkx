@@ -2,6 +2,48 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-05 BlackThrush FRONTIER-MAP (dig-deeper, different primitives): delegated-fn de-delegation blocked by parity contracts; parity fns numpy-bound
+
+Round pivoted OFF construction (rejected-lever streak) to a genuinely different vein: DELEGATED functions
+(fnx at ~1.0x parity = running nx's Python). Hunted via `_call_networkx_for_parity` grep (46 delegated names)
++ ratio profiling. Findings + why each is BLOCKED (rch built via `RCH_WORKER=vmi1227854`; the hz2 ftui
+blocker is worker-specific — force a vmi worker):
+
+- **k_components** — biggest delegated gap: 1634ms on n=60 m=180 (0.98x). ROOT of slowness: nx's Moody-White
+  algo calls `node_connectivity(B, flow_func=edmonds_karp)` many times; **`fnx.node_connectivity(B, flow_func=X)`
+  is 18ms (delegates) but `fnx.node_connectivity(B)` is 0.467ms NATIVE (39x)** — the delegation runs nx's slow
+  Python connectivity. De-delegation prototype (nx's exact algo on the fnx graph with fnx primitives): 14x
+  (all-fnx) / 7.77x (hybrid fnx.node_connectivity + nx.all_node_cuts). fnx primitives are CONTENT-exact:
+  node_connectivity VALUE 0/12 mismatch, all_node_cuts SET 0/12 mismatch. BUT **BLOCKED by ORDER-exact
+  conformance**: k_components returns {k:[list of sets]} and delegated graphs are tested with direct `==`
+  (test_tree_kcomponents..: `circular_ladder(6) missing-rung ... == nx.k_components`); running the algo on the
+  FNX graph diverges the LIST order (subgraph induced-adjacency reorder != nx) — hybrid is SET-exact but
+  17/20 order-fails. Order-exact needs the fnx graph to iterate identically to nx (subgraph reorder =
+  [[reference_mg_subgraph_copy_induced_reorder_noship]] wall). all-fnx also breaks SET-exactness in the
+  recursion (fnx.all_node_cuts diverges on recursive subgraphs). NO clean byte-exact de-delegation.
+- **node_connectivity(flow_func=X)** — 18ms vs 0.467ms native (39x); the connectivity VALUE is
+  flow-func-INVARIANT (graph invariant; 0/12 mismatch), so native would be byte-exact-VALUE. BUT BLOCKED by
+  the deliberate **"honor callable flow_func -> FORWARD to nx" contract**
+  (test_all_pairs_node_connectivity_honors_callable_flow_func asserts a sentinel flow_func is forwarded with
+  backend="networkx"; + flow_func=1 validation-error parity). Routing flow_func to native violates the
+  honor/validate contract. Even a "standard-flow-func-only -> native" gate risks monkeypatch tests. NO-GO.
+- **min_weight_matching** 0.78x (small, 2ms, blossom order-risky); **simple_cycles** 1.01x (exponential
+  output, Johnson enumeration ORDER-parity risk); **goldberg_radzik** 1.10x but 0.22ms (not worth).
+
+META-LESSON: delegated functions are delegated FOR CORRECTNESS (order/flow-func-contract/self-loop/multigraph
+divergence), documented in `br-r37-c1-*` tags in the wrappers — NOT perf laziness. De-delegation re-treads the
+exact divergences they were delegated to avoid. The delegated vein is largely mined.
+
+Other new primitives profiled, all BOUND not crackable: layout (spring 1.11x, kamada_kawai 1.15x, spectral
+1.20x, non_randomness 1.02x/96ms) = numpy/scipy-eig bound (fnx already uses numpy; can't beat BLAS). Matrix
+interop all WIN (adjacency_matrix 1.99x, to_scipy_sparse 2.10x, incidence 4.76x, laplacian 1.83x). check_planarity
+2.80x, global/local_efficiency 16-18x, degree_pearson 1.98x — WINS. **weisfeiler_lehman_graph_hash** 0.88-0.96x
+(n=3000 17ms, near-parity; fnx already runs nx's exact Python loop on a native adjacency snapshot, br-r37-c1-
+wlnative): a fully-native Rust WL kernel could give ~5x BUT needs (a) a NEW `blake2` crate dep (only `blake3`
+present; nx uses blake2b — different hash, can't reuse) AND (b) byte-exact replication of Python's
+`str(tuple(subgraph_hash_counts))` repr (single-quote/trailing-comma landmines) — deferred as too risky/low-ROI
+for a near-parity fn. No source changed this round; tree clean at origin/main.
+
 ## 2026-07-05 CopperCliff SHIP: MultiDiGraph single-source Dijkstra cached rows — 1.018x -> 8.355x vs NetworkX
 
 The previous kept target-Dijkstra scratch arena and the rejected reverse-view route were not
