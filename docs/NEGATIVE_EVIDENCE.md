@@ -15333,3 +15333,23 @@ LEVER (re-confirmed): a random-graph generator whose `create_using` fallback run
 `add_edge` accept loop that never reads the graph mid-iteration -> accumulate accepted edges +
 one `add_edges_from`. Byte-identical (RNG/order preserved), O(m) PyO3 crossings -> 1. Next
 siblings to check: gnm_random_graph, dense_gnm_random_graph (same add_edge accept-loop shape).
+
+
+## 2026-07-06 Ironbark SHIP: dense_gnm_random_graph batch commit — per-edge add_edge loop -> add_edges_from
+
+Second application of the same lever (gnp/fast_gnp create_using batch) in the same session.
+`dense_gnm_random_graph` runs a Knuth rejection sampler with a per-edge PyO3 `graph.add_edge(u, v)`
+for every accepted edge; this loop is the path for ALL seeds (no native fast path, only the
+`m >= mmax -> complete_graph` shortcut avoids it). The sampler never reads the graph, so accepted
+edges accumulate in generated order and commit through a single `add_edges_from` at the sole exit
+point (`k == m`). rng.randrange draw sequence and edge order unchanged => byte-identical.
+
+Byte-EXACT: order-exact (list(nodes())/list(edges()) identical to the per-edge control) 0 mismatches
+over 5 shapes {n=100 m=500, n=200 m=1500, n=60 m=300, n=150 m=2000, n=30 m=50}; also structurally
+matches vendored NetworkX (sorted edges identical). A/B (self, gc.disabled, best-of-50): n=300
+m=10000 27.78ms->12.93ms (2.15x), n=400 m=20000 54.29ms->23.29ms (2.33x), n=200 m=8000
+18.29ms->6.26ms (2.92x). vs NetworkX now 1.28-1.41x (previously slower). Conformance: 61
+dense_gnm/gnm tests pass.
+
+Note: gnm_random_graph's create_using path is deliberately DELEGATED to nx (_call_networkx_for_parity)
+so it is NOT a batch candidate; its non-create_using path already uses the native rejection sampler.

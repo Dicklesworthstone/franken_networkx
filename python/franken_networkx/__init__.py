@@ -30413,15 +30413,23 @@ def dense_gnm_random_graph(n, m, seed=None, *, create_using=None):
     if n == 1:
         return graph
 
+    # br-dense-gnm-batch: the rejection sampler never reads the graph, so
+    # accepted edges accumulate in generated order and commit through a
+    # single add_edges_from at the sole exit point (same lever as the
+    # gnp/fast_gnp create_using paths). The rng.randrange draw sequence and
+    # edge order are unchanged, so the result is byte-identical to the
+    # per-edge add_edge loop while paying one PyO3 crossing instead of O(m).
     u = 0
     v = 1
     t = 0
     k = 0
+    edges = []
     while True:
         if rng.randrange(mmax - t) < m - k:
-            graph.add_edge(u, v)
+            edges.append((u, v))
             k += 1
             if k == m:
+                graph.add_edges_from(edges)
                 return graph
         t += 1
         v += 1
