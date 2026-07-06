@@ -15306,3 +15306,30 @@ public_api_gauntlet -- fast_gnp_create_using --sample-size 10 --warm-up-time 0.2
 NetworkX 276.25ms (1.42x). Added the workload to
 `public_api_gauntlet` with import-time node/edge-order parity assertions so future per-crate benches keep
 this path visible.
+
+
+## 2026-07-06 Ironbark SHIP: gnp_random_graph(create_using=...) batch commit — per-edge add_edge loop -> add_edges_from
+
+Direct sibling of the 2026-07-04 fast_gnp_random_graph create_using win. `gnp_random_graph`'s
+fallback path (taken when `create_using` is provided, or the seed is a RandomState/Generator, or
+the directed-native fast path is skipped) ran the Erdős-Rényi accept loop with a per-edge PyO3
+`graph.add_edge(u, v)` for every accepted pair. The loop never reads the graph after
+`empty_graph(n, ...)` pre-populates the nodes, so accepted edges are accumulated in the exact
+generated order and committed through a single `add_edges_from`. RNG draw sequence, edge order,
+and node order are unchanged, so the result is byte-identical to the per-edge loop.
+
+Byte-EXACT vs the prior per-edge behaviour: order-exact (list(nodes()) and list(edges()) identical)
+0 mismatches over 4 shapes {n=200 p=0.05 undirected, n=120 p=0.08 directed, n=50 p=0.5 undirected,
+n=300 p=0.02 directed}; sorted structural digest 0 mismatches over 6 shapes. Also structurally
+matches vendored NetworkX (`sorted(edges())` identical) for the same seed.
+
+A/B (self-speedup, gc.disabled, best-of-40, `.venv/bin/python`): n=500 p=0.02 undirected
+11.10ms -> 7.20ms (1.54x); n=400 p=0.03 directed 18.18ms -> 10.96ms (1.66x); n=800 p=0.01
+undirected 22.81ms -> 17.83ms (1.28x). vs NetworkX the path now BEATS nx where the per-edge loop
+was slower: n=500 undirected fnx 7.17ms vs nx 9.13ms (1.27x), n=400 directed fnx 10.98ms vs nx
+12.70ms (1.16x). Conformance: 1398 passed (gnp/erdos/random_graph/fast_gnp), 0 failures.
+
+LEVER (re-confirmed): a random-graph generator whose `create_using` fallback runs a per-edge
+`add_edge` accept loop that never reads the graph mid-iteration -> accumulate accepted edges +
+one `add_edges_from`. Byte-identical (RNG/order preserved), O(m) PyO3 crossings -> 1. Next
+siblings to check: gnm_random_graph, dense_gnm_random_graph (same add_edge accept-loop shape).

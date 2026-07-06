@@ -28571,10 +28571,19 @@ def gnp_random_graph(n, p, seed=None, directed=False, *, create_using=None, back
     if p <= 0:
         return graph
 
+    # br-gnp-batch: the accept loop never reads the graph after
+    # empty_graph pre-populates the nodes, so accepted edges can be
+    # accumulated in the exact generated order and committed through a
+    # single add_edges_from (same lever as fast_gnp_random_graph's
+    # create_using path). RNG draw sequence, edge order and node order
+    # are unchanged, so the result is byte-identical to the per-edge
+    # add_edge loop while paying one PyO3 crossing instead of O(m).
     edge_pairs = _itertools.permutations(range(n), 2) if directed else _combinations(range(n), 2)
+    edges = []
     for u, v in edge_pairs:
         if rng.random() < p:
-            graph.add_edge(u, v)
+            edges.append((u, v))
+    graph.add_edges_from(edges)
     return graph
 
 
