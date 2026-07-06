@@ -52742,12 +52742,19 @@ def interval_graph(intervals):
     G = Graph()
     G.add_nodes_from(tuples)
     n = len(tuples)
+    # br-interval-batch: the overlap scan never reads the graph, so the
+    # overlapping pairs accumulate in the exact (i<j) order and commit through
+    # a single add_edges_from instead of an O(m) per-edge PyO3 add_edge loop.
+    # Node order (add_nodes_from) and edge order are unchanged => byte-identical.
+    edges = []
     for i in range(n):
         a1, b1 = tuples[i]
+        ti = tuples[i]
         for j in range(i + 1, n):
             a2, b2 = tuples[j]
             if a1 <= b2 and a2 <= b1:
-                G.add_edge(tuples[i], tuples[j])
+                edges.append((ti, tuples[j]))
+    G.add_edges_from(edges)
     return G
 
 

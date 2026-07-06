@@ -15353,3 +15353,23 @@ dense_gnm/gnm tests pass.
 
 Note: gnm_random_graph's create_using path is deliberately DELEGATED to nx (_call_networkx_for_parity)
 so it is NOT a batch candidate; its non-create_using path already uses the native rejection sampler.
+
+
+## 2026-07-06 Ironbark SHIP: interval_graph batch commit — per-edge add_edge loop -> add_edges_from (0.19x->0.46x, 2.4x self)
+
+Same lever again. `interval_graph` runs an O(n^2) all-pairs overlap scan with a per-edge PyO3
+`G.add_edge(tuples[i], tuples[j])` for every overlapping pair. nx uses the same per-edge loop but
+its add_edge is a pure-Python dict insert, so fnx's PyO3 add_edge made this 0.19x (fnx 92.6ms vs
+nx 18.0ms on 600 intervals / 22857 edges). The scan never reads the graph, so overlapping pairs
+accumulate in the exact (i<j) order and commit through a single add_edges_from.
+
+Byte-EXACT to the prior per-edge fnx behaviour: order-exact (list(nodes())/list(edges()) identical)
+on the 600-interval input + small/degenerate cases {[(0,1),(2,3),(1,2)], [(0,10)], [], [(5,5),(5,5)]}.
+The residual edge-ORDER delta vs nx (same edge SET, different order) is PRE-EXISTING — it only
+appears with DUPLICATE interval tuples (588 unique of 600) and the old per-edge fnx already diverged
+identically, so this change does not regress it. Timing: 92.6ms -> 39.5ms (2.4x self); ratio vs nx
+0.19x -> 0.46x. Conformance: 57 interval tests pass.
+
+Note: visibility_graph already WINS 2.05x (its O(n^3) visibility test dominates and fnx's arithmetic
+is faster than nx's), and soft_random_geometric_graph's common path is already batched (only its
+rare native-helper-miss fallback loops) — neither is a candidate.
