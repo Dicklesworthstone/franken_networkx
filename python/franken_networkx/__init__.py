@@ -32364,13 +32364,17 @@ def full_join(G, H, rename=(None, None)):
     G = add_prefix(G, rename[0])
     H = add_prefix(H, rename[1])
 
-    for gn in G:
-        for hn in H:
-            R.add_edge(gn, hn)
+    # br-bt-fjbatch: the join loops read only G and H (never R), and the G/H
+    # node sets are disjoint after ``union_all`` so every (gn, hn) pair is a new,
+    # unique edge — no self-loops, no dedup, no parallel edges. Accumulate the
+    # cross pairs in the same nested-iteration order and commit through one
+    # ``add_edges_from`` per direction, replacing the O(|G|*|H|) per-edge PyO3
+    # ``add_edge`` calls. nx runs the identical nested loop with a pure-Python
+    # add_edge, so the edge insertion order (and multigraph key 0 for each
+    # distinct pair) is byte-identical.
+    R.add_edges_from([(gn, hn) for gn in G for hn in H])
     if R.is_directed():
-        for hn in H:
-            for gn in G:
-                R.add_edge(hn, gn)
+        R.add_edges_from([(hn, gn) for hn in H for gn in G])
 
     return R
 

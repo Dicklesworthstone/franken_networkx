@@ -15395,3 +15395,32 @@ random-graph generators to ALGORITHM result-builders: grep result-graph construc
 add_edge reads only the INPUT graph, never the result. Scan of other constructors: relaxed_caveman
 0.66x is an in-place edge-rewire (reads G.has_edge mid-loop, NOT clean); connected_caveman 4.07x,
 caveman 4.87x, windmill 4.88x, turan 2.42x, complete_multipartite 2.14x all already win.
+
+
+## 2026-07-06 BlackThrush SHIP: full_join batch commit — per-edge add_edge cross-product loop -> add_edges_from (0.26-0.34x->0.68-0.91x, 2.3-2.85x self)
+
+`full_join(G, H, rename)` = `union_all([G, H], rename)` plus a COMPLETE cross product of edges between
+every G-node and every H-node. The nested join loop `for gn in G: for hn in H: R.add_edge(gn, hn)`
+reads ONLY G and H (never the result R), and G/H node sets are DISJOINT after union_all, so every
+(gn, hn) pair is a NEW, UNIQUE edge — no self-loops, no dedup, no parallel edges (multigraph key is
+always 0 for each distinct pair). nx runs the identical nested loop with a pure-Python add_edge, so
+fnx's O(|G|*|H|) per-edge PyO3 add_edge made this 0.26-0.34x (fnx 13.4/48.2ms undirected, 27.2/112.8ms
+directed vs nx 4.6/15.3/8.9/29.8ms on n=80/150 per side, 7015-49505 cross edges).
+
+FIX: accumulate the cross pairs as a materialised LIST comprehension in the same nested-iteration order
+and commit through one add_edges_from per direction (the directed case adds hn->gn in a second batch,
+matching nx's second loop). List (not genexpr) is used because the native batch pre-sizes on len() —
+~5-8% faster than the generator at n=150 (16.6->15.3ms undirected).
+
+Byte-EXACT vs vendored nx: 0 mismatches across ALL 4 graph types (Graph/DiGraph/MultiGraph/
+MultiDiGraph), both rename modes ((None,None) and ("g","h")), sizes 5x7/12x9/1x4/6x0 (incl. empty-H
+edge case) — order-exact nodes(data) AND edges(keys,data); weight+color edge attrs preserved.
+Timing (best-of, gc off): undirected 13.4->5.0ms / 48.2->16.9ms (2.68x/2.85x self, ratio vs nx
+0.34x->0.89x / 0.32x->0.91x); directed 27.2->11.6ms / 112.8->43.6ms (2.34x/2.59x self, ratio
+0.33x->0.70x / 0.26x->0.68x). Directed stays further from parity (two O(V^2) batches) but still a
+2.3-2.6x self-win. Conformance: 622 join/union/binary + 3 full_join-specific + 10 operator-namespace-
+routing tests pass.
+
+Extends the construction batch lever ([[reference_generator_accept_loop_batch]]) to OPERATOR
+result-builders (sibling of Ironbark's projected_graph above): grep result-graph construction loops
+whose add_edge reads only the INPUT graphs, never the result — full_join, projected_graph both fit.
