@@ -15373,3 +15373,25 @@ identically, so this change does not regress it. Timing: 92.6ms -> 39.5ms (2.4x 
 Note: visibility_graph already WINS 2.05x (its O(n^3) visibility test dominates and fnx's arithmetic
 is faster than nx's), and soft_random_geometric_graph's common path is already batched (only its
 rare native-helper-miss fallback loops) — neither is a candidate.
+
+
+## 2026-07-06 Ironbark SHIP: projected_graph batch commit — per-edge add_edge loop -> add_edges_from (0.37x->1.08x, 2.2x self)
+
+Bipartite projection (non-multigraph path, the default). The shared-neighbor edge loop
+`G.add_edge(u, v)` reads ONLY the input bipartite graph B (never the result G), and the projected
+nodes are pre-added via the add_node loop above, so the shared-neighbor pairs accumulate in the exact
+(u outer, then nbrs2-set iteration) order and commit through a single add_edges_from. nx uses the same
+per-edge loop but with a pure-Python add_edge, so fnx's PyO3 add_edge made this 0.37x (fnx 18.8ms vs
+nx 7.0ms on 300+300 bipartite / 6184 projected edges).
+
+Byte-EXACT to the prior per-edge fnx: order-exact (list(nodes())/list(edges()) identical) for BOTH
+undirected and directed B; edge SET matches vendored nx; node attributes preserved. Timing 18.8ms ->
+8.4ms (2.2x self); ratio vs nx 0.37x -> 1.08x (now BEATS nx). Conformance: 1126 project/bipartite
+tests pass (78 skipped). The multigraph=True path is left as-is (it reads G.has_edge(u,v,link) for
+per-shared-neighbor dedup — not a clean batch).
+
+Extends the generator/construction batch lever ([[reference_generator_accept_loop_batch]]) beyond
+random-graph generators to ALGORITHM result-builders: grep result-graph construction loops whose
+add_edge reads only the INPUT graph, never the result. Scan of other constructors: relaxed_caveman
+0.66x is an in-place edge-rewire (reads G.has_edge mid-loop, NOT clean); connected_caveman 4.07x,
+caveman 4.87x, windmill 4.88x, turan 2.42x, complete_multipartite 2.14x all already win.

@@ -22909,10 +22909,17 @@ def projected_graph(B, nodes, multigraph=False):
         G.graph.update(B.graph)
         for node in nodes:
             G.add_node(node, **dict(B.nodes[node]))
+        # br-projected-batch: the projection edge loop reads only the input B
+        # (never the result G), and the projected nodes are pre-added above, so
+        # the shared-neighbor pairs accumulate in the exact (u, then nbrs2-set
+        # iteration) order and commit through a single add_edges_from instead of
+        # an O(m) per-edge PyO3 add_edge loop. Edge + node order are unchanged
+        # => byte-identical to the per-edge build.
+        edges = []
         for u in nodes:
             nbrs2 = {v for nbr in B[u] for v in B[nbr] if v != u}
-            for v in nbrs2:
-                G.add_edge(u, v)
+            edges.extend((u, v) for v in nbrs2)
+        G.add_edges_from(edges)
 
     return G
 
