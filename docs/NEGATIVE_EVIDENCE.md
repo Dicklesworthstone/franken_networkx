@@ -2,6 +2,33 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-05 BlackThrush REVERT (br-bt-sortmirror): skip eager mirror for ascending-key multi-attr edges — construction win is NOT real (defers work to read)
+
+Multi-attr (>=2 key) `add_edges_from` on simple Graph/DiGraph builds BOTH the store AttrMap AND an eager
+ordered mirror PyDict (the mirror preserves nx insertion order because the BTreeMap store iterates keys
+lexicographically). LEVER TRIED: skip the eager mirror when the caller's dict keys are ALREADY ascending (the
+store's sorted iteration then reproduces insertion order; lazy materialisation reads back byte-identically,
+exactly as the single-key path). Implemented `py_dict_to_attr_map_lazy_sorted_mirror` (ascending check
+piggybacked on the AttrMap build; mirror via one PyDict_Copy only when out-of-order), wired into both
+streaming collectors. BYTE-EXACT: 6000/6000 fuzz + mutation-reflection (sorted-key get_edge_data returns a
+LIVE dict, mutations persist via lazy cache) + degree/size(weight)/edges(data) + 4127 pytest all green.
+
+WHY REVERTED: the eager mirror is NOT wasted work — it PRE-BUILDS exactly what edges(data=True)/get_edge_data
+materialise on read. Skipping it only DEFERS the mirror-build to first read, trading construction time for read
+time (net ~equal total). CONSTRUCTION-ISOLATION shows a win (2-attr ascending {a,b} Graph 0.85x->1.25x, DiGraph
+0.80x->1.11x; 3-attr ~parity) BUT that is unrepresentative — ANY realistic follow-up read makes fnx <nx:
+per-crate CRITERION `{graph,digraph}_sorted_attr_add_edges_from` (build + edges(data=True) consume) = 0.62-0.68x;
+build + store-read (size(weight)+degree(weight)) = 0.41-0.77x; build + unweighted-degree = 0.58-0.67x. sorted+
+lazy build+read (0.42x) ≈ unsorted+eager build+read (0.43x) so it is ~neutral-to-marginally-worse on build+read,
+not Pareto. This is the SAME "defer work to a per-element read" trade as the reverted mircopy (round 2): a
+construction micro-win that any downstream read erases. The build+full-dict-read multi-attr path is a separate
+materialisation floor (~0.4x, fnx builds fresh PyDicts vs nx's live dict) that dominates and is unchanged.
+Clean revert (src + the added gauntlet workload); source == origin/main. DON'T re-try mirror-skip framings that
+only speed construction — measure the build+READ workload, which is where the mirror cost actually lands.
+LEVER META: a dual representation kept "only for order" is NOT redundant if the second representation is what
+reads consume — dropping it relocates the cost, it doesn't remove it. rch: `RCH_WORKER` not always honored
+(routed to broken hz2/ftui); local `cargo bench`/`maturin` reliable.
+
 ## 2026-07-05 BlackThrush FRESH-PROFILE (round 4, ~40 new fns): flow/community/isomorphism/dominance/approx/bipartite all WON; frontier is structural
 
 Widest cast yet across previously-unprofiled veins, all measured fnx-vs-nx (n=100-150). WINS (don't re-dig):
