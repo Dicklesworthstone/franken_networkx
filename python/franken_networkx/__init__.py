@@ -21461,6 +21461,26 @@ def single_source_bellman_ford(G, source, target=None, weight="weight"):
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     hash(source)
+    # br-cc-mgbfpath: a DIRECTED multigraph collapses to the simple min-weight
+    # DiGraph byte-EXACTLY for the all-targets (dist, path) dicts — the collapsed
+    # out-adjacency order == the multigraph's, so SPFA relaxes in the same order
+    # and emits the two dicts in nx's exact first-discovery key order (verified
+    # 210/210 incl. NEGATIVE weights, order-sensitive). Replaces the slow native
+    # nested-bucket kernel (0.26x -> ~0.5x, matching the length twin's collapse).
+    # target!=None keeps delegating (unverified here); UNDIRECTED MG stays native
+    # (collapse reorders per-node adjacency -> dict-order + path divergence).
+    if (
+        target is None
+        and G.is_directed()
+        and G.is_multigraph()
+        and isinstance(weight, str)
+    ):
+        _simple, _delegate = _multigraph_collapse_min_weight_bellman(G, weight)
+        if _delegate:
+            return _call_networkx_for_parity(
+                "single_source_bellman_ford", G, source, target=target, weight=weight
+            )
+        return single_source_bellman_ford(_simple, source, weight=weight)
     # br-bfignoreweight: same weight-ignoring bug as dijkstra — the
     # Rust Bellman-Ford returns hop-_count distances on weighted input.
     # Delegate any weighted graph to nx.
@@ -21503,6 +21523,18 @@ def single_source_bellman_ford_path(G, source, weight="weight"):
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     hash(source)
+    # br-cc-mgbfpath: DIRECTED multigraph -> collapse to the simple min-weight
+    # DiGraph + fast simple kernel (byte-exact all-targets path dict incl. nx's
+    # SPFA first-discovery key order, verified 210/210 incl. negatives). Replaces
+    # the slow native nested-bucket kernel (0.43x -> ~0.5x). UNDIRECTED MG stays
+    # native (collapse reorders per-node adjacency -> dict-order/path divergence).
+    if G.is_directed() and G.is_multigraph() and isinstance(weight, str):
+        _simple, _delegate = _multigraph_collapse_min_weight_bellman(G, weight)
+        if _delegate:
+            return _call_networkx_for_parity(
+                "single_source_bellman_ford_path", G, source, weight=weight
+            )
+        return single_source_bellman_ford_path(_simple, source, weight=weight)
     # br-bfignoreweight: delegate weighted inputs.
     if _should_delegate_bellman_ford_to_networkx(weight) or _binding_self_syncs_gate(G, weight):
         return _call_networkx_for_parity(

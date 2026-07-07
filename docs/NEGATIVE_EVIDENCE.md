@@ -2,6 +2,33 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-07 BlackThrush SHIP (br-cc-mgbfpath ext): MultiDiGraph single_source_bellman_ford 0.26x->0.85x + single_source_bellman_ford_path 0.43x->0.90x — extend the directed collapse to the ALL-TARGETS Bellman-Ford funcs
+
+Same collapse-sibling lever as the single-pair `bellman_ford_path` ship, extended to the two
+all-targets Bellman-Ford functions. Both ran `_raw_single_source_bellman_ford` /
+`_raw_single_source_bellman_ford_path` DIRECTLY on the multigraph (slow nested per-pair buckets)
+while the LENGTH twin `single_source_bellman_ford_path_length` already collapses (MG 0.88x). FIX:
+DIRECTED multigraph collapses to the simple min-weight DiGraph
+(`_multigraph_collapse_min_weight_bellman`) + fast simple kernel, recursing.
+
+The extra hazard vs the single-pair case: these return ORDER-SENSITIVE dicts (nx's SPFA
+first-discovery key order) — but the directed collapse preserves it, because the collapsed DiGraph's
+out-adjacency order == the multigraph's, so SPFA relaxes/discovers in the identical order. Verified
+byte-exact **1444/1444** ORDER-SENSITIVE (repr) fnx-vs-nx: MDG-fixed + MG-unchanged x int/float x
+NEGATIVE/non-negative x 60 graphs x 3 sources + negative-cycle (`NetworkXUnbounded`) + missing-source
+(`NodeNotFound`) parity. Collapse reads weights via the public `edges(keys,data)` view, so it also
+sidesteps the native kernel's `_binding_self_syncs_gate` sync concern (authoritative Python-visible
+weights). `single_source_bellman_ford` keeps `target!=None` on the delegation path (unverified for the
+collapse). UNDIRECTED MultiGraph stays native — the pure-nx collapse test diverges 150/210 for
+non-negative weights (dict-order AND path tie-break both reorder).
+
+RESULT: MDG `single_source_bellman_ford` **0.255x -> 0.847x**, MDG `single_source_bellman_ford_path`
+**0.431x -> 0.900x**. Conformance GREEN (2017 passed / 23 skipped on bellman/single_source/
+shortest_path). MG both UNCHANGED (native kernel, gated on `is_directed()`). The directed-multigraph
+Bellman-Ford family (path / path_length / single_source / single_source_path) is now UNIFORMLY on the
+collapse; only the delegation-bound `single_source_bellman_ford(target)` and undirected-MG paths
+remain (both ledgered NO-GO above).
+
 ## 2026-07-07 BlackThrush SHIP (br-cc-mgbfpath): MultiDiGraph bellman_ford_path 0.16x -> 0.77x — directed collapse to the simple min-weight kernel (mirror the length twin)
 
 Fresh MG/MDG single-pair shortest-path sweep (n=800/m=4000, gc.disable, warm) after the
