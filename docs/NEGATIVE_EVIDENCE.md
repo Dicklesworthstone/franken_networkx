@@ -2,6 +2,46 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-07 BlackThrush SHIP (br-cc-mgbfpath): MultiDiGraph bellman_ford_path 0.16x -> 0.77x — directed collapse to the simple min-weight kernel (mirror the length twin)
+
+Fresh MG/MDG single-pair shortest-path sweep (n=800/m=4000, gc.disable, warm) after the
+`br-cc-mgssd-target` ship exposed an ASYMMETRY inside the Bellman-Ford family: MG
+`bellman_ford_path_length(s,t)` **WINS 1.07x** but MG `bellman_ford_path(s,t)` was **0.43x**,
+and MDG `bellman_ford_path(s,t)` **0.16x** (fnx 20.2ms vs nx 3.2ms). ROOT: `bellman_ford_path`
+ran `_raw_bellman_ford_path` DIRECTLY on the multigraph — the native kernel walks nested per-pair
+buckets — while its LENGTH twin `bellman_ford_path_length` already collapses parallels to the simple
+min-weight graph (`_multigraph_collapse_min_weight_bellman`) and runs the fast simple kernel. Bellman
+is O(V·E) (NOT early-exit like bidirectional-dijkstra), so the O(|E|) collapse is fully amortised —
+which is exactly why the length twin wins.
+
+FIX: `bellman_ford_path` collapses the DIRECTED multigraph to the simple min-weight DiGraph and
+recurses (returning the path, no sum), mirroring the length twin. Byte-EXACT for the PATH because a
+directed multigraph's `edges(keys,data)` is node-major over OUT-edges, so the collapsed DiGraph's
+out-adjacency order == the multigraph's -> identical relaxation/tie-break -> identical predecessor
+chain. Gated `G.is_directed() and G.is_multigraph() and isinstance(weight, str)`; UNDIRECTED
+MultiGraph stays on the native kernel (collapse is path-tie-break-UNSAFE — pure-nx-semantics test:
+0/720 distance mismatch but 1/720 PATH mismatch, seed=80, the undirected `edges()` canonical
+direction reorders per-node adjacency). Negatives preserved by the min-collapse, so negative-cycle
+`NetworkXUnbounded` detection stays exact.
+
+RESULT: MDG `bellman_ford_path` **0.158x -> 0.766x** (fnx 20.2ms -> 5.83ms, ~3.5x self). Byte-exact
+**1125/1125** (MDG-fixed + MG-unchanged x int/float x NEGATIVE/non-negative x 70 random graphs x 4
+targets, PLUS source==target/missing-source/unreachable-target/negative-cycle error-type+message
+parity — all match nx incl. `NetworkXNoPath "Target T cannot be reached from given sources"`,
+`NodeNotFound "Source s not in G"`, `NetworkXUnbounded "Negative cycle detected."`). Conformance GREEN
+(2073 passed / 23 skipped on bellman/dijkstra/shortest_path). MG `bellman_ford_path` UNCHANGED (0.289x,
+native kernel).
+
+LEVER (same family as br-cc-mgssd-target): a multigraph function running the slow nested-bucket native
+kernel where its already-shipped sibling collapses to the fast simple kernel -> apply the identical
+collapse when byte-exact (directed = safe for paths, undirected = length-only). NO-GO carried forward:
+undirected-MG path collapse (tie-break), MG/MDG bidirectional_dijkstra + shortest_path(weighted
+single-pair) — delegation-bound (0.03-0.10x) but the O(|E|) collapse CANNOT win there because nx's
+bidirectional meets-in-the-middle in ~0.3ms (early-exit); MDG collapse+bidir is byte-exact (320/320)
+yet still ~0.05x — needs a native MG bidirectional single-pair kernel (Rust, deferred). MDG/MG
+single_source_bellman_ford(target) delegation composes from path+length but has 3 divergent NoPath
+messages — deferred as too error-contract-fragile for a single-turn lever.
+
 ## 2026-07-07 BlackThrush SHIP (br-cc-mgssd-target): MultiDiGraph single_source_dijkstra(source, target) 0.25x -> 15.3x — skip the redundant Python min-weight collapse, route to the native MDG target kernels
 
 Fresh isolated head-to-head sweep of the whole SSSP/Dijkstra/PageRank public surface (gc.disable, warm,

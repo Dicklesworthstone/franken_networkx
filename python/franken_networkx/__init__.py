@@ -8648,6 +8648,26 @@ def bellman_ford_path(G, source, target, weight="weight"):
     # nx's contract before the ``source in G`` membership test below.
     hash(source)
     hash(target)
+    # br-cc-mgbfpath: a DIRECTED multigraph collapses to the simple min-weight
+    # DiGraph byte-EXACTLY for the PATH (like dijkstra_path — directed
+    # edges(keys,data) is node-major over OUT-edges, so the collapsed DiGraph's
+    # adjacency order == the multigraph's out-adjacency order, giving identical
+    # relaxation/tie-break -> identical predecessor chain; verified 720/720 incl.
+    # negative weights). The native multigraph Bellman-Ford kernel walks nested
+    # per-pair buckets and is ~3.3x slower than the collapse + fast simple kernel
+    # (0.16x -> ~0.52x, matching the already-shipped bellman_ford_path_length
+    # collapse). Bellman-Ford keeps negatives, so the collapse validates+delegates
+    # only NaN/inf/non-numeric (via _multigraph_collapse_min_weight_bellman). The
+    # UNDIRECTED MultiGraph path is NOT collapse-safe (edges()' canonical
+    # direction reorders per-node adjacency -> 1/720 tie-break path divergence),
+    # so it stays on the byte-exact native kernel below.
+    if G.is_directed() and G.is_multigraph() and isinstance(weight, str):
+        _simple, _delegate = _multigraph_collapse_min_weight_bellman(G, weight)
+        if _delegate:
+            return _call_networkx_for_parity(
+                "bellman_ford_path", G, source, target, weight=weight
+            )
+        return bellman_ford_path(_simple, source, target, weight=weight)
     # Delegate to nx for: callable / non-str weight (the kernel needs a str attr
     # key), and NaN/inf or non-numeric edge values (nx's relaxation treats NaN/inf
     # as unreachable / negative-cycle and raises TypeError on non-numeric `+`).
