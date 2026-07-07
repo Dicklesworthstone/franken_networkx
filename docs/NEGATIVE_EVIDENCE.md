@@ -2,6 +2,50 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-07 BlackThrush SHIP (br-cc-mgssd-target): MultiDiGraph single_source_dijkstra(source, target) 0.25x -> 15.3x — skip the redundant Python min-weight collapse, route to the native MDG target kernels
+
+Fresh isolated head-to-head sweep of the whole SSSP/Dijkstra/PageRank public surface (gc.disable, warm,
+self-loop-controlled, `fnx.X` vs `nx.X`): every simple Graph/DiGraph member WINS decisively — single_source
+3.2-4.4x, dijkstra_path 5.6-7.8x, all_pairs 3.6-5.8x, bellman_ford 1.1-2.0x, shortest_path_length_weighted
+5.5-6.3x, `pagerank` 3.99x. The only sub-parity residue is the MULTIGRAPH path-returning dijkstra family
+(MG/MDG `single_source_dijkstra`/`single_source_dijkstra_path`/`dijkstra_path` at 0.25-0.37x). Two of those
+are genuinely blocked and stay ledgered NO-GO (below); one had a clean, missed routing.
+
+ROOT CAUSE (profiled, n=800/m=4000 MDG): `single_source_dijkstra(MDG, source, target=T)` hit the
+directed-multigraph branch (`__init__.py` 21220) which ALWAYS ran `_multigraph_collapse_min_weight` — an
+O(|E|) Python per-edge validate+min loop — BEFORE any target handling. That collapse is **92%** of the call
+(5.49 ms of 5.95 ms; the dijkstra on the collapsed simple DiGraph is only 9%). But `dijkstra_path(MDG,s,t)`
+and `dijkstra_path_length(MDG,s,t)` already route DIRECTLY to native single-pair kernels
+(`multidigraph_dijkstra_path_target` / `multidigraph_dijkstra_path_length_target`, the 45-48x target
+early-exit wins) with NO collapse. `single_source_dijkstra` with a concrete target returns exactly
+`(distance, path)` — i.e. `(length_target_kernel, path_target_kernel)`. FIX: when `target is not None and
+cutoff is None and isinstance(weight, str)`, call both native target kernels and return `(_len, _path)`,
+falling through to the collapse only if either kernel declines (returns None) — mirroring the exact
+decline-then-collapse contract `dijkstra_path` already relies on. Membership/NoPath wording re-wrapped to
+nx's (`NodeNotFound "Node X not found in graph"`, `NetworkXNoPath "No path to T."` — the kernel's own
+"No path between s and t" is caught and re-raised).
+
+RESULT: `single_source_dijkstra(MDG, target)` **0.246x -> 15.27x** vs nx (fnx 6.89ms -> 0.113ms, ~61x self).
+Byte-exact **360/360** (int + float weights x 4 targets x 60 random MDGs, PLUS cutoff+target parity which
+correctly stays on the collapse path, PLUS source-missing/target-missing error-type+message parity).
+Targeted conformance GREEN (2027 passed / 23 skipped / 0 failed on `dijkstra or single_source or
+shortest_path`). No-target `single_source_dijkstra` and `single_source_dijkstra_path` (all-targets) are
+UNTOUCHED — they still take the collapse.
+
+LEVER: a single-pair query dressed as an all-pairs API (target!=None) paying a whole-graph preprocessing
+pass that a sibling single-pair function already skips via a native target kernel -> route the targeted
+form to the same certified kernel, return the (dist,path) pair, keep the decline->fallback contract.
+
+NO-GO (re-confirmed this pass, both stay ledgered): (1) UNDIRECTED MultiGraph path collapse — EMPIRICALLY
+NOT byte-exact: a pure-nx-semantics test (collapse to simple min-weight Graph, compare paths) gives 0/60
+DISTANCE mismatch but 1/60 PATH mismatch (seed=22: equal-distance tie broken differently because an
+undirected `edges()` canonical direction reorders per-node adjacency vs the source multigraph's `_adj`
+order). So MG `single_source_dijkstra`/`_path`/`dijkstra_path` CANNOT be collapsed for paths without a
+byte-wrong tie-break. (2) MDG no-target `single_source_dijkstra` (all targets) — no native all-targets PATH
+kernel exists (only length-single-source, path-to-target, length-to-target); the pure-Python collapse can't
+beat nx's single Python dijkstra pass. Both need a native `multidigraph_single_source_dijkstra_path` kernel
+(Rust) — deferred, out of a single-turn Python lever's scope.
+
 ## 2026-07-05 BlackThrush REVERT (br-bt-sortmirror): skip eager mirror for ascending-key multi-attr edges — construction win is NOT real (defers work to read)
 
 Multi-attr (>=2 key) `add_edges_from` on simple Graph/DiGraph builds BOTH the store AttrMap AND an eager

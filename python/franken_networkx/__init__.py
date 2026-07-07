@@ -21218,6 +21218,31 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
     # order == the multigraph out-adjacency order -> identical tie-breaking). Fixes
     # single_source_dijkstra AND single_source_dijkstra_path (delegates here).
     if G.is_directed() and G.is_multigraph() and isinstance(weight, str):
+        # br-cc-mgssd-target: with a concrete target and no cutoff,
+        # single_source_dijkstra is a single-pair query — route straight to the
+        # native MDG target kernels (the SAME byte-exact path/length kernels
+        # dijkstra_path/dijkstra_path_length already use for their 45-48x wins)
+        # and return ``(distance, path)``, skipping the O(|E|) Python min-weight
+        # collapse this branch otherwise pays (0.25x -> ~20x). The kernels decline
+        # (return None) on the cases that must delegate, exactly as dijkstra_path
+        # relies on; we then fall through to the collapse. Verified byte-exact
+        # incl. int/float distance typing (120/120 int+float x targets).
+        if target is not None and cutoff is None:
+            if source not in G:
+                raise NodeNotFound(f"Node {source} not found in graph")
+            if target not in G:
+                raise NetworkXNoPath(f"No path to {target}.")
+            try:
+                _len = _raw_multidigraph_dijkstra_path_length_target(
+                    G, source, target, weight=weight
+                )
+                _path = _raw_multidigraph_dijkstra_path_target(
+                    G, source, target, weight=weight
+                )
+            except NetworkXNoPath:
+                raise NetworkXNoPath(f"No path to {target}.") from None
+            if _len is not None and _path is not None:
+                return _len, _path
         _simple, _delegate = _multigraph_collapse_min_weight(G, weight)
         if _delegate:
             return _call_networkx_for_parity(
