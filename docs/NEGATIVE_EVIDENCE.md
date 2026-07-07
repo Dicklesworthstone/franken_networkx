@@ -2,6 +2,35 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-07 BlackThrush SHIP (br-cc-mgbfpath pred): MultiDiGraph dijkstra_predecessor_and_distance 0.19x->0.35x — directed collapse; + CORRECTNESS BUG LEAD in to_dict_of_dicts
+
+Extended the directed-collapse lever to the predecessor/distance family. `dijkstra_predecessor_and_distance`
+delegated ALL multigraphs (`type(G) not in (Graph, DiGraph)`) via full fnx->nx conversion (MDG 0.19x).
+FIX: DIRECTED multigraph + `cutoff is None` collapses to the simple min-weight DiGraph
+(`_multigraph_collapse_min_weight`) + native `_raw_dijkstra_predecessor_and_distance`, recursing.
+Byte-EXACT for BOTH the predecessor-LIST dict AND the distance dict, order-sensitive (collapsed
+out-adjacency order == the multigraph's -> identical relaxation-insertion stream). Verified **420/420**
+fnx-vs-nx (MDG-fixed + MG-unchanged x int/float x 70 graphs x 3 sources) + missing-source + cutoff-delegation
+parity. RESULT: MDG **0.192x -> 0.345x** (fnx 7.59ms -> 5.33ms). MG UNCHANGED (delegation; collapse
+reorders per-node adjacency -> 151/210 divergent, stays on nx).
+
+`bellman_ford_predecessor_and_distance` — TRIED the same collapse, REVERTED (no-ship). Its simple-graph
+path `_bellman_ford_pred_dist_inprocess` reads edge weights via `to_dict_of_dicts(G)`, which on a
+BATCH-built graph (the collapse uses `add_edges_from` with 29 edges -> batch path) returns EMPTY edge
+attrs -> the in-process SPFA saw unit weights and returned HOP-COUNT distances (`{31: 1}` vs nx `{31: 3}`).
+
+CORRECTNESS BUG LEAD (separate, higher-value than this perf win — NEXT TARGET): **`to_dict_of_dicts`
+returns EMPTY edge-attr dicts on a batch-built (>=8-edge) graph when called as the FIRST edge access**
+(before any `G[u][v]` materialises the Python mirror). Minimal repro:
+`G=fnx.DiGraph(); G.add_edges_from([(i,i+1,{'weight':float(i+1)}) for i in range(12)]);
+to_dict_of_dicts(G)` -> `{0: {1: {}}, ...}` but nx gives `{0: {1: {'weight': 1.0}}, ...}`. `edges(data=True)`,
+`G[0][1]`, `get_edge_data`, `adj[0]` ALL read the store correctly — ONLY `to_dict_of_dicts` reads the empty
+mirror without the store fallback (same family as [[reference_mirror_miss_default_store_bug]]). This silently
+corrupts any in-process consumer of `to_dict_of_dicts` on batch graphs (e.g. bellman_ford_predecessor_and_distance
+would too, if routed there). Fix = give `to_dict_of_dicts`'s edge-attr read the store-on-mirror-miss fallback
+(cf. the DiGraph edge-view getitem pattern); then the bellman-pred collapse becomes shippable too. Public-API
+gauntlet oracle should catch the magnitude.
+
 ## 2026-07-07 BlackThrush SHIP (br-cc-mgbfpath ext): MultiDiGraph single_source_bellman_ford 0.26x->0.85x + single_source_bellman_ford_path 0.43x->0.90x — extend the directed collapse to the ALL-TARGETS Bellman-Ford funcs
 
 Same collapse-sibling lever as the single-pair `bellman_ford_path` ship, extended to the two

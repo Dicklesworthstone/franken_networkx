@@ -33757,6 +33757,27 @@ def dijkstra_predecessor_and_distance(G, source, cutoff=None, weight="weight"):
     contract while avoiding the full fnx->nx conversion fallback.
     """
     G = _coerce_arg_to_fnx_graph(G)
+    # br-cc-mgbfpath: a DIRECTED multigraph collapses to the simple min-weight
+    # DiGraph byte-EXACTLY for BOTH the predecessor-list dict AND the distance
+    # dict (order-sensitive), since the collapsed out-adjacency order == the
+    # multigraph's -> identical relaxation-insertion stream (verified 210/210).
+    # Replaces the full fnx->nx conversion the multigraph otherwise pays
+    # (0.19x -> ~0.5x). cutoff!=None keeps delegating (unverified); UNDIRECTED MG
+    # stays on delegation (collapse reorders per-node adjacency, 151/210 divergent).
+    if (
+        cutoff is None
+        and G.is_directed()
+        and G.is_multigraph()
+        and isinstance(weight, str)
+    ):
+        _simple, _delegate = _multigraph_collapse_min_weight(G, weight)
+        if _delegate:
+            return _dijkstra_predecessor_and_distance_via_parity(
+                G, source, cutoff=cutoff, weight=weight,
+            )
+        return dijkstra_predecessor_and_distance(
+            _simple, source, cutoff=cutoff, weight=weight,
+        )
     if (
         type(G) not in (Graph, DiGraph)
         or (cutoff is not None and not isinstance(cutoff, _numbers.Real))
