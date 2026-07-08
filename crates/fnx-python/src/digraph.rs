@@ -8965,6 +8965,45 @@ impl PyDiGraph {
         Ok(Some((node_labels, node_objects, edges, node_bumps)))
     }
 
+    fn exact_int_attr_edge_batch_prefix_has_duplicate<'py, I>(
+        &self,
+        items: I,
+        limit: usize,
+    ) -> PyResult<Option<bool>>
+    where
+        I: IntoIterator<Item = Bound<'py, PyAny>>,
+    {
+        let mut seen_edges: HashSet<(i64, i64)> = HashSet::with_capacity(limit);
+        for item in items.into_iter().take(limit) {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(None);
+            };
+            if tuple.len() != 3 {
+                return Ok(None);
+            }
+
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            if !u.is_exact_instance_of::<PyInt>()
+                || !v.is_exact_instance_of::<PyInt>()
+                || u.is_exact_instance_of::<PyBool>()
+                || v.is_exact_instance_of::<PyBool>()
+            {
+                return Ok(None);
+            }
+            let Ok(u_value) = u.extract::<i64>() else {
+                return Ok(None);
+            };
+            let Ok(v_value) = v.extract::<i64>() else {
+                return Ok(None);
+            };
+            if !seen_edges.insert((u_value, v_value)) {
+                return Ok(Some(true));
+            }
+        }
+        Ok(Some(false))
+    }
+
     /// br-bt-dupmerge: duplicate-tolerant sibling of the DiGraph
     /// `collect_fresh_exact_int_attr_edge_batch`. On a repeated directed pair the
     /// streaming collector bails (its ordered mirror can't merge attrs in-stream)
@@ -9178,29 +9217,50 @@ impl PyDiGraph {
         // before conceding to the ~2x-slower per-edge Python path. The merge
         // collector is a strict superset (byte-identical output on a duplicate-free
         // batch) so it also correctly declines the non-duplicate None reasons.
+        const DUPLICATE_PREFIX_SCAN_LIMIT: usize = 32;
         let collected = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
             if list.len() < ATTR_EDGE_BATCH_MIN {
                 return Ok(false);
             }
-            match self.collect_fresh_exact_int_attr_edge_batch(py, list.iter(), list.len())? {
-                Some(batch) => Some(batch),
-                None => self.collect_fresh_exact_int_attr_edge_batch_merged(
-                    py,
+            if matches!(
+                self.exact_int_attr_edge_batch_prefix_has_duplicate(
                     list.iter(),
-                    list.len(),
+                    DUPLICATE_PREFIX_SCAN_LIMIT.min(list.len()),
                 )?,
+                Some(true)
+            ) {
+                self.collect_fresh_exact_int_attr_edge_batch_merged(py, list.iter(), list.len())?
+            } else {
+                match self.collect_fresh_exact_int_attr_edge_batch(py, list.iter(), list.len())? {
+                    Some(batch) => Some(batch),
+                    None => self.collect_fresh_exact_int_attr_edge_batch_merged(
+                        py,
+                        list.iter(),
+                        list.len(),
+                    )?,
+                }
             }
         } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
             if tuple.len() < ATTR_EDGE_BATCH_MIN {
                 return Ok(false);
             }
-            match self.collect_fresh_exact_int_attr_edge_batch(py, tuple.iter(), tuple.len())? {
-                Some(batch) => Some(batch),
-                None => self.collect_fresh_exact_int_attr_edge_batch_merged(
-                    py,
+            if matches!(
+                self.exact_int_attr_edge_batch_prefix_has_duplicate(
                     tuple.iter(),
-                    tuple.len(),
+                    DUPLICATE_PREFIX_SCAN_LIMIT.min(tuple.len()),
                 )?,
+                Some(true)
+            ) {
+                self.collect_fresh_exact_int_attr_edge_batch_merged(py, tuple.iter(), tuple.len())?
+            } else {
+                match self.collect_fresh_exact_int_attr_edge_batch(py, tuple.iter(), tuple.len())? {
+                    Some(batch) => Some(batch),
+                    None => self.collect_fresh_exact_int_attr_edge_batch_merged(
+                        py,
+                        tuple.iter(),
+                        tuple.len(),
+                    )?,
+                }
             }
         } else {
             return Ok(false);

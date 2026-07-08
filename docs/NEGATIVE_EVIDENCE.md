@@ -2,6 +2,102 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-08 CyanGrove SHIP: duplicate-attr add_edges_from prefix duplicate scout - Graph 1.30x / DiGraph 1.25x vs ORIG
+
+Land-or-dig pass started by consulting this ledger first. Rejected levers were not retried: no
+mirror-skip, no lazy-store, and no standalone `PyDict_Copy` mirror-copy framing. The hot current
+weak rows were `graph_duplicate_attr_add_edges_from` and `digraph_duplicate_attr_add_edges_from`.
+They already use the 2026-07-05 duplicate merge collector, but obvious duplicate batches still ran
+the duplicate-free streaming collector first, bailed on the first repeated pair, then reran the
+merge collector that actually implements NetworkX `datadict.update(...)` semantics.
+
+Kept lever: add a bounded 32-edge prefix duplicate scout for fresh exact-int attributed
+Graph/DiGraph batches. If the scout sees a duplicate canonical pair (Graph) or directed pair
+(DiGraph), route directly to the existing merge collector; otherwise keep the old
+streaming-then-merge fallback. Non-conforming input returns to the old path, duplicate-free batches
+still use the streaming collector, and the merge collector's existing byte-exact proof remains the
+semantic boundary. Graph's fresh exact-int attr collectors also now pre-size their node-index map
+and node/object vectors like the DiGraph twin.
+
+Evidence:
+
+| Row | FNX estimate | ORIG/NetworkX estimate | Ratio vs ORIG | Decision |
+| --- | ---: | ---: | ---: | --- |
+| `graph_duplicate_attr_add_edges_from` | `189.55 ms` | `246.33 ms` | `1.30x` | SHIP |
+| `digraph_duplicate_attr_add_edges_from` | `186.19 ms` | `233.48 ms` | `1.25x` | SHIP |
+
+Command:
+
+```text
+AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+timeout 900 rch exec -- cargo bench --manifest-path crates/fnx-python/Cargo.toml
+--profile release --bench public_api_gauntlet duplicate_attr_add_edges_from
+-- --sample-size 10 --warm-up-time 0.2 --measurement-time 0.5
+```
+
+Note: the requested spelling `cargo bench --release` was tried first and Cargo rejected it
+(`unexpected argument '--release'`); Criterion benches require `--profile release` here.
+
+Initial current-head context from the same session before this change (local fallback after early
+RCH failures): Graph FNX `159.80 ms` vs ORIG `178.68 ms` = `1.12x`; DiGraph FNX `151.97 ms` vs
+ORIG `182.00 ms` = `1.20x`. Host/worker variance was visible, so keep/reject proof is based on the
+post-change RCH ratio-vs-ORIG and semantic proof rather than cross-worker self-ratio.
+
+Conformance / quality gates:
+- `cargo fmt --package fnx-python --check`: PASS. Full-workspace `cargo fmt --check` is still
+  blocked by pre-existing formatting drift in `fnx-classes`, unrelated to this change.
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod timeout 900
+  rch exec -- cargo check --manifest-path crates/fnx-python/Cargo.toml --all-targets`: PASS on
+  `hz2`.
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod timeout 900
+  rch exec -- cargo clippy --manifest-path crates/fnx-python/Cargo.toml --all-targets --
+  -D warnings`: PASS on `hz2`.
+- `timeout 120 ubs crates/fnx-python/src/lib.rs crates/fnx-python/src/digraph.rs
+  docs/NEGATIVE_EVIDENCE.md`: no criticals; embedded fmt/clippy/check/test-build clean for touched
+  Rust files (existing large-file warning inventory remains).
+- `maturin develop --release --features pyo3/abi3-py310` into `.venv`: PASS.
+- Direct duplicate attributed Graph/DiGraph parity probe against NetworkX: PASS.
+- `pytest tests/python/test_add_edges_attr_batch_parity.py
+  tests/python/test_conformance_freshness_gate.py
+  tests/python/test_constructor_absorb_conformance_guard.py -q`: `133 passed`.
+
+Coordination note: Agent Mail registration already existed as `CyanGrove`, but file reservation
+failed with the known Agent Mail SQLite corruption (`database disk image is malformed`). Proceeded
+with narrow files only: `crates/fnx-python/src/lib.rs`, `crates/fnx-python/src/digraph.rs`, and this
+ledger.
+
+## 2026-07-08 SilverPine SHIP: `non_edges_sparse_undirected` warm row-cache replay trims mutation bookkeeping - ORIG local 0.329s -> 0.268s, RCH 1.02x vs NetworkX
+
+Land-or-dig pass started by consulting this ledger first. Rejected levers were
+not retried: no native-row public dispatch, no set-deletion mutation, no full
+pair-vector materialization, and no per-pair PyO3 lazy iterator. The kept
+primitive tunes the already-accepted token-keyed row cache: warm replay no
+longer builds and mutates the `remaining` set for every cached row when
+`(nodes_seq, edges_seq)` is unchanged. The `remaining` set is now constructed
+only if mutation is detected and the generator has to resume with live
+NetworkX-style row arithmetic.
+
+Proof/behavior: ordering and mutation fallback are unchanged. Focused no-mock
+conformance passed `53 passed`:
+`tests/python/test_non_edges_order_conformance_guard.py` plus the two targeted
+`test_graph_utilities.py` non-edges guards. `py_compile` passed for the touched
+Python file and non-edges guard.
+
+Timing:
+
+| Row | Worker / mode | FNX median/mean | NetworkX median/mean | Ratio vs ORIG / NetworkX | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `non_edges_sparse_undirected` ORIG warm-cache replay | local direct, 4 calls x 9 | `0.328753 s` median | `0.345411 s` median | baseline / `1.051x` | original |
+| `non_edges_sparse_undirected` lazy mutation-set replay | local direct, 4 calls x 11 | `0.267756 s` median | `0.282150 s` median | `1.228x` self vs ORIG / `1.054x` | keep |
+| `non_edges_sparse_undirected` lazy mutation-set replay | RCH `vmi1227854` Criterion | `567.38 ms` mean | `560.91 ms` mean | no same-worker ORIG / `0.989x` | near parity |
+| `non_edges_sparse_undirected` lazy mutation-set replay | RCH `vmi1152480` Criterion | `854.85 ms` mean | `874.13 ms` mean | no same-worker ORIG / `1.023x` | keep |
+
+The broad initial RCH gauntlet on `ovh-a` before this patch showed the live
+residual again (`864.65 ms` FNX vs `770.19 ms` NetworkX, `0.891x`) before
+the row sequence later hit the known missing-`scipy` pagerank panic. That row
+is routing evidence only because the accepted proof above used different
+workers and local direct ORIG comparison.
+
 ## 2026-07-07 BlackThrush SHIP (br-cc-mgbfpath pred): MultiDiGraph dijkstra_predecessor_and_distance 0.19x->0.35x — directed collapse; + CORRECTNESS BUG LEAD in to_dict_of_dicts
 
 Extended the directed-collapse lever to the predecessor/distance family. `dijkstra_predecessor_and_distance`

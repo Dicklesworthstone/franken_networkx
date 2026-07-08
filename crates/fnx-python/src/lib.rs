@@ -2075,9 +2075,10 @@ impl PyGraph {
     where
         I: IntoIterator<Item = Bound<'py, PyAny>>,
     {
-        let mut node_indices: HashMap<i64, usize> = HashMap::new();
-        let mut node_labels: Vec<String> = Vec::new();
-        let mut node_objects: Vec<PyObject> = Vec::new();
+        let node_capacity = len.saturating_mul(2);
+        let mut node_indices: HashMap<i64, usize> = HashMap::with_capacity(node_capacity);
+        let mut node_labels: Vec<String> = Vec::with_capacity(node_capacity);
+        let mut node_objects: Vec<PyObject> = Vec::with_capacity(node_capacity);
         let mut edges: Vec<(usize, usize, AttrMap, Option<Py<PyDict>>)> = Vec::with_capacity(len);
         // br-r37-c1-batchattrorder (cc): a duplicate edge => nx merges attrs
         // (dict.update); the ordered mirror would need the same multi-occurrence
@@ -2176,6 +2177,50 @@ impl PyGraph {
         Ok(Some((node_labels, node_objects, edges, node_bumps)))
     }
 
+    fn exact_int_attr_edge_batch_prefix_has_duplicate<'py, I>(
+        &self,
+        items: I,
+        limit: usize,
+    ) -> PyResult<Option<bool>>
+    where
+        I: IntoIterator<Item = Bound<'py, PyAny>>,
+    {
+        let mut seen_edges: HashSet<(i64, i64)> = HashSet::with_capacity(limit);
+        for item in items.into_iter().take(limit) {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(None);
+            };
+            if tuple.len() != 3 {
+                return Ok(None);
+            }
+
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            if !u.is_exact_instance_of::<PyInt>()
+                || !v.is_exact_instance_of::<PyInt>()
+                || u.is_exact_instance_of::<PyBool>()
+                || v.is_exact_instance_of::<PyBool>()
+            {
+                return Ok(None);
+            }
+            let Ok(u_value) = u.extract::<i64>() else {
+                return Ok(None);
+            };
+            let Ok(v_value) = v.extract::<i64>() else {
+                return Ok(None);
+            };
+            let canon = if u_value <= v_value {
+                (u_value, v_value)
+            } else {
+                (v_value, u_value)
+            };
+            if !seen_edges.insert(canon) {
+                return Ok(Some(true));
+            }
+        }
+        Ok(Some(false))
+    }
+
     /// br-bt-dupmerge: duplicate-tolerant sibling of
     /// `collect_fresh_exact_int_attr_edge_batch`. When an int-node attributed
     /// batch contains a repeated canonical pair, the streaming collector bails
@@ -2205,9 +2250,10 @@ impl PyGraph {
     where
         I: IntoIterator<Item = Bound<'py, PyAny>>,
     {
-        let mut node_indices: HashMap<i64, usize> = HashMap::new();
-        let mut node_labels: Vec<String> = Vec::new();
-        let mut node_objects: Vec<PyObject> = Vec::new();
+        let node_capacity = len.saturating_mul(2);
+        let mut node_indices: HashMap<i64, usize> = HashMap::with_capacity(node_capacity);
+        let mut node_labels: Vec<String> = Vec::with_capacity(node_capacity);
+        let mut node_objects: Vec<PyObject> = Vec::with_capacity(node_capacity);
         // canonical (min, max) int pair -> index into `merged`
         let mut pair_to_idx: HashMap<(i64, i64), usize> = HashMap::with_capacity(len);
         // Per canonical pair (first-seen orientation): (u_idx, v_idx, dict, owned).
@@ -2399,29 +2445,50 @@ impl PyGraph {
         // input), so it also correctly handles the non-duplicate reasons `collect`
         // may return None (non-int nodes, non-dict thirds, ...) by returning None
         // itself → the per-edge path still owns those.
+        const DUPLICATE_PREFIX_SCAN_LIMIT: usize = 32;
         let collected = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
             if list.len() < ATTR_EDGE_BATCH_MIN {
                 return Ok(false);
             }
-            match self.collect_fresh_exact_int_attr_edge_batch(py, list.iter(), list.len())? {
-                Some(batch) => Some(batch),
-                None => self.collect_fresh_exact_int_attr_edge_batch_merged(
-                    py,
+            if matches!(
+                self.exact_int_attr_edge_batch_prefix_has_duplicate(
                     list.iter(),
-                    list.len(),
+                    DUPLICATE_PREFIX_SCAN_LIMIT.min(list.len()),
                 )?,
+                Some(true)
+            ) {
+                self.collect_fresh_exact_int_attr_edge_batch_merged(py, list.iter(), list.len())?
+            } else {
+                match self.collect_fresh_exact_int_attr_edge_batch(py, list.iter(), list.len())? {
+                    Some(batch) => Some(batch),
+                    None => self.collect_fresh_exact_int_attr_edge_batch_merged(
+                        py,
+                        list.iter(),
+                        list.len(),
+                    )?,
+                }
             }
         } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
             if tuple.len() < ATTR_EDGE_BATCH_MIN {
                 return Ok(false);
             }
-            match self.collect_fresh_exact_int_attr_edge_batch(py, tuple.iter(), tuple.len())? {
-                Some(batch) => Some(batch),
-                None => self.collect_fresh_exact_int_attr_edge_batch_merged(
-                    py,
+            if matches!(
+                self.exact_int_attr_edge_batch_prefix_has_duplicate(
                     tuple.iter(),
-                    tuple.len(),
+                    DUPLICATE_PREFIX_SCAN_LIMIT.min(tuple.len()),
                 )?,
+                Some(true)
+            ) {
+                self.collect_fresh_exact_int_attr_edge_batch_merged(py, tuple.iter(), tuple.len())?
+            } else {
+                match self.collect_fresh_exact_int_attr_edge_batch(py, tuple.iter(), tuple.len())? {
+                    Some(batch) => Some(batch),
+                    None => self.collect_fresh_exact_int_attr_edge_batch_merged(
+                        py,
+                        tuple.iter(),
+                        tuple.len(),
+                    )?,
+                }
             }
         } else {
             return Ok(false);
