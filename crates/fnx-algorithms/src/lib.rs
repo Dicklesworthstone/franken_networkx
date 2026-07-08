@@ -16,6 +16,16 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque};
 use std::fmt;
 
+/// Exact-integer primal network-simplex kernel, exposed as a first-class Rust
+/// API so sibling crates can use the exact-integer min-cost-flow path without
+/// depending on the PyO3 binding crate. The PyO3 `network_simplex_int` binding
+/// in `fnx-python` delegates here, keeping a single source of truth.
+pub mod network_simplex_int;
+pub use network_simplex_int::{
+    CAP_INF as NETWORK_SIMPLEX_INT_CAP_INF, NetworkSimplexIntSolution, NetworkSimplexStatus,
+    network_simplex_int,
+};
+
 pub const CGSE_WITNESS_ARTIFACT_SCHEMA_VERSION_V1: &str = "1.0.0";
 pub const CGSE_WITNESS_POLICY_SPEC_PATH: &str =
     "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json";
