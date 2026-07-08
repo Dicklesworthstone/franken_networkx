@@ -576,6 +576,10 @@ pub fn network_simplex_int(
 mod tests {
     use super::*;
 
+    /// Flat `(node_demands, src, tgt, cap, wt)` arrays describing a fixed-size
+    /// test problem, in the argument order [`network_simplex_int`] expects.
+    type ProblemArrays = ([i64; 4], [usize; 4], [usize; 4], [i64; 4], [i64; 4]);
+
     /// Small transportation problem with a known exact-integer optimum.
     ///
     /// Node 0 supplies 4 units (demand -4); node 3 consumes 4 (demand +4);
@@ -584,7 +588,7 @@ mod tests {
     /// Cheapest route 0->1->3 (per-unit 2) is bottlenecked at 1->3 cap 2, so
     /// 2 units flow there and the remaining 2 take 0->2->3 (per-unit 3):
     ///   cost = 2*(1+1) + 2*(2+1) = 4 + 6 = 10.
-    fn small_problem() -> ([i64; 4], [usize; 4], [usize; 4], [i64; 4], [i64; 4]) {
+    fn small_problem() -> ProblemArrays {
         let demands = [-4i64, 0, 0, 4];
         let src = [0usize, 0, 1, 2];
         let tgt = [1usize, 2, 3, 3];

@@ -1089,6 +1089,7 @@ The native algorithm implementations in `fnx-algorithms` favor textbook complexi
 - **Stoer-Wagner.** Native O(V·E + V²·log V) global min-cut.
 - **Gomory-Hu tree.** Native; rejects MultiGraph input with a typed `NetworkXError` matching nx.
 - **Min-cost flow.** Successive-shortest-path + Bellman-Ford for negative-edge support; delegates to nx for undirected input (`NetworkXNotImplemented`).
+- **Exact-integer network simplex (`fnx_algorithms::network_simplex_int`).** The exact-integer primal network-simplex kernel is a first-class Rust API, re-exported from the `fnx-algorithms` crate root, so sibling Rust consumers can reach the exact min-cost-flow path directly without taking a PyO3 dependency. It is specialised to `i64` demands/capacities/weights — the only byte-exact-integer case — with no `f64` anywhere on the path, so results are exact and reproducible. Originally this pivot logic lived inside the `fnx-python` binding; it was hoisted into `fnx-algorithms` in commit [`6de8937d`](https://github.com/Dicklesworthstone/franken_networkx/commit/6de8937d), and the Python `network_simplex` binding now delegates to this shared kernel, so the Rust API and the Python binding run identical pivot code and produce byte-identical numeric results. The block/Dantzig+Bland entering-edge search and the first-minimiser leaving-edge tie-break (matching Python's `min`) are deterministic and covered by unit tests (`determinism_across_repeated_runs`, `known_integer_optimum`).
 
 ### Trees and arborescences
 

@@ -12,6 +12,30 @@ Repository: <https://github.com/Dicklesworthstone/franken_networkx>
 
 ---
 
+## Unreleased
+
+### Added
+
+- **`fnx_algorithms::network_simplex_int` — first-class Rust API for the exact-integer network simplex.**
+  The exact-integer primal network-simplex (min-cost-flow) pivot kernel, previously reachable only
+  through the `fnx-python` PyO3 binding, was hoisted into `fnx-algorithms` and re-exported from the
+  crate root (commit [`6de8937d`](https://github.com/Dicklesworthstone/franken_networkx/commit/6de8937d)).
+  Sibling Rust consumers can now use the exact-integer min-cost-flow path directly without depending on
+  `fnx-python`/PyO3. The kernel is specialised to `i64` demands/capacities/weights — the only
+  byte-exact-integer case, with no `f64` anywhere on the path — so results are exact and reproducible.
+  Public surface: `network_simplex_int`, `NetworkSimplexIntSolution`, `NetworkSimplexStatus`, and the
+  `NETWORK_SIMPLEX_INT_CAP_INF` infinite-capacity sentinel.
+
+### Changed
+
+- **`fnx-python`'s `network_simplex_int` binding now delegates to the shared `fnx-algorithms` kernel**
+  (its own implementation shrank ~475 lines), giving a single source of truth for the pivot logic:
+  the Rust API and the Python binding run identical code and produce byte-identical numeric results.
+  Determinism (block/Dantzig+Bland entering-edge search, first-minimiser leaving-edge tie-break matching
+  Python's `min`) is preserved and covered by `fnx-algorithms` unit tests.
+
+---
+
 ## 0.2.0 - 2026-06-21
 
 Workspace version: **0.2.0** (`Cargo.toml`).
