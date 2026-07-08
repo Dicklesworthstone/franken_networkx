@@ -51064,14 +51064,13 @@ def _non_edges_undirected_row_cached(graph):
     cached = graph_vars.get("_fnx_non_edges_row_cache")
     if cached is not None and cached[0] == token:
         pop_order, row_values = cached[1], cached[2]
-        remaining = set(pop_order)
         for index, u in enumerate(pop_order):
-            remaining.remove(u)
             if (graph.nodes_seq, graph.edges_seq) == token:
                 for v in row_values[index]:
                     yield (u, v)
                 continue
 
+            remaining = set(pop_order[index + 1 :])
             for v in remaining - set(graph[u]):
                 yield (u, v)
             for u in pop_order[index + 1 :]:
