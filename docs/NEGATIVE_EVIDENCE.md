@@ -2,6 +2,67 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-09 CyanGrove SHIP: `from_graph6_bytes` direct 6-bit edge-pair decoder - 0.971x before, 2.17x vs LEGACY ORIGINAL after
+
+Land-or-dig pass started by consulting this ledger first. I did not retry the
+recent edge-attribute projection, `is_path`, construction/add_edges_from,
+non_edges, Dijkstra/Bellman, degree-scan, topological-sort, link-prediction,
+multigraph scan, TSP/Voronoi, XML/JSON readwrite, or sparse-matrix lanes.
+Fresh profiling moved to graph6 decode, a readwrite bitstream path that was not
+part of those recent seams. `from_graph6_bytes` on a 700-node sparse payload was
+still slightly behind legacy because it expanded every possible upper-triangle
+edge into a Python bit stream, zipped that stream with a pair generator, and
+then filtered true bits before native batch insertion.
+
+Primitive class: succinct-structure / data-layout bitstream decoding. The kept
+lever decodes each graph6 6-bit unit directly into `(u, v)` upper-triangle edge
+pairs, stopping at the real `n(n-1)/2` bit boundary and feeding the existing
+native `add_edges_from` batch. It preserves the existing header stripping,
+high-byte validation, low-byte NetworkX-compatible error behavior, node order,
+edge order, and Graph construction path. This is a single local readwrite
+change; graph6 encoding and sparse6 remain untouched.
+
+Evidence:
+
+| Row | Mode | FNX estimate | LEGACY ORIGINAL estimate | Ratio vs ORIG | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `from_graph6_bytes_sparse_700` before direct decoder | local warm timing, 20 parses | `0.477430 s` | `0.463688 s` | `0.971x` | original |
+| `from_graph6_bytes_sparse_700` after direct decoder | RCH `ovh-a` Criterion, 5 parses/call | `73.655 ms` | `160.09 ms` | `2.17x` | SHIP |
+| `from_graph6_bytes_sparse_700` after direct decoder | local warm timing, 20 parses | `0.318234 s` | `0.499357 s` | `1.569x` | corroborating |
+
+Command:
+
+```text
+AGENT_NAME=codex-cyan-grove CARGO_TARGET_DIR=/data/projects/franken_networkx/.rch-targets/networkx-cod
+PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec --
+cargo bench -p fnx-python --profile release --features pyo3/abi3-py310
+--bench public_api_gauntlet from_graph6_bytes_sparse_700 -- --sample-size 10
+--warm-up-time 0.2 --measurement-time 0.5 --noplot
+```
+
+Conformance / quality gates:
+- `.venv/bin/python -m py_compile crates/fnx-python/benches/public_api_gauntlet.py
+  python/franken_networkx/readwrite/__init__.py`: PASS.
+- `.venv/bin/python -m pytest tests/python/test_graph6_sparse6_weighted.py
+  tests/python/test_codec_roundtrip_invariants.py
+  tests/python/test_review_mode_regression_lock.py::test_graph6_sparse6_low_byte_input_match_nx -q`:
+  `199 passed`.
+- `AGENT_NAME=codex-cyan-grove CARGO_TARGET_DIR=/data/projects/franken_networkx/.rch-targets/networkx-cod
+  cargo fmt --check`: PASS.
+- `AGENT_NAME=codex-cyan-grove CARGO_TARGET_DIR=/data/projects/franken_networkx/.rch-targets/networkx-cod
+  rch exec -- cargo check --workspace --all-targets`: worker `ovh-b`
+  dependency drift before compile (`/dp/frankentui/crates/ftui` reported
+  `0.4.1` while this workspace requires `0.5.0`).
+- `AGENT_NAME=codex-cyan-grove CARGO_TARGET_DIR=/data/projects/franken_networkx/.rch-targets/networkx-cod
+  cargo check --workspace --all-targets`: PASS.
+- `AGENT_NAME=codex-cyan-grove CARGO_TARGET_DIR=/data/projects/franken_networkx/.rch-targets/networkx-cod
+  cargo clippy --workspace --all-targets -- -D warnings`: PASS.
+- `AGENT_NAME=codex-cyan-grove timeout 180 ubs docs/NEGATIVE_EVIDENCE.md
+  python/franken_networkx/readwrite/__init__.py
+  crates/fnx-python/benches/public_api_gauntlet.py
+  crates/fnx-python/benches/public_api_gauntlet.rs`: exit 0; 0 criticals,
+  34 warning inventory items in existing readwrite/bench harness patterns.
+
 ## 2026-07-08 CyanGrove NO-SHIP: `get_edge_attributes(Graph)` cache-local projection lost vs LEGACY ORIGINAL; `DiGraph` row already wins
 
 Land-or-dig pass started by consulting this ledger first. I did not retry the

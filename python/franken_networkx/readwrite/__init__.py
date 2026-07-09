@@ -741,6 +741,25 @@ def _graph6_bits(values):
             yield (value >> shift) & 1
 
 
+def _graph6_edge_pairs(n, values):
+    """Decode graph6 payload values directly into upper-triangle edge pairs."""
+    edges = []
+    append = edges.append
+    i = 0
+    j = 1
+    for value in values:
+        for mask in (32, 16, 8, 4, 2, 1):
+            if j >= n:
+                return edges
+            if value & mask:
+                append((i, j))
+            i += 1
+            if i == j:
+                j += 1
+                i = 0
+    return edges
+
+
 def _bits_to_graph6_bytes(bits):
     """Pack a bit list into graph6 6-bit ASCII payload bytes."""
     if len(bits) % 6:
@@ -1299,10 +1318,7 @@ def from_graph6_bytes(bytes_in, *, backend=None, **backend_kwargs):
     # same node/edge order, so the result is byte-identical.
     graph = fnx.Graph()
     graph.add_nodes_from(range(n))
-    pair_gen = ((i, j) for j in range(1, n) for i in range(j))
-    graph.add_edges_from(
-        pair for pair, bit in zip(pair_gen, _graph6_bits(values)) if bit
-    )
+    graph.add_edges_from(_graph6_edge_pairs(n, values))
     return graph
 
 

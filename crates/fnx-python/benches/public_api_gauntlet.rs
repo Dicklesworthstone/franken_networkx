@@ -82,6 +82,16 @@ if target_dir:
             .expect("set PYTHONPATH=crates/fnx-python/benches:python:legacy_networkx_code");
         for (workload, engine, callable_name) in [
             (
+                "from_graph6_bytes_sparse_700",
+                "fnx",
+                "fnx_from_graph6_bytes_sparse_700",
+            ),
+            (
+                "from_graph6_bytes_sparse_700",
+                "networkx",
+                "networkx_from_graph6_bytes_sparse_700",
+            ),
+            (
                 "flow_hierarchy_weighted_cyclic_dag",
                 "fnx",
                 "fnx_flow_hierarchy_weighted_cyclic_dag",

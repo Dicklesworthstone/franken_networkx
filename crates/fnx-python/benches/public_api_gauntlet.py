@@ -24,6 +24,65 @@ except ImportError:
     _NETWORKX_PAGERANK_KIND = "python-fallback"
 
 
+def _build_graph6_source(module, node_count: int, edge_count: int):
+    graph = module.Graph()
+    graph.add_nodes_from(range(node_count))
+    edges = []
+    seen = set()
+    step = 1
+    u = 0
+    while len(edges) < edge_count and step < node_count:
+        v = (u * 29 + step * 11 + 5) % node_count
+        left, right = (u, v) if u < v else (v, u)
+        if left != right and (left, right) not in seen:
+            seen.add((left, right))
+            edges.append((left, right))
+        u += 1
+        if u == node_count:
+            u = 0
+            step += 1
+    if len(edges) != edge_count:
+        raise AssertionError("unable to build requested graph6 source graph")
+    graph.add_edges_from(edges)
+    return graph
+
+
+def _consume_graph6_parse(graph) -> float:
+    return float(
+        graph.number_of_nodes()
+        + graph.number_of_edges()
+        + sum((u * 131 + v * 17) % 1_000_003 for u, v in graph.edges())
+    )
+
+
+_GRAPH6_NODE_COUNT = 700
+_GRAPH6_EDGE_COUNT = 2862
+_GRAPH6_REPEAT = 5
+_NX_GRAPH6_SOURCE = _build_graph6_source(nx, _GRAPH6_NODE_COUNT, _GRAPH6_EDGE_COUNT)
+_GRAPH6_PAYLOAD = nx.to_graph6_bytes(_NX_GRAPH6_SOURCE, header=False).strip()
+_FNX_GRAPH6_PARSED = fnx.from_graph6_bytes(_GRAPH6_PAYLOAD)
+_NX_GRAPH6_PARSED = nx.from_graph6_bytes(_GRAPH6_PAYLOAD)
+if (
+    _FNX_GRAPH6_PARSED.number_of_nodes() != _NX_GRAPH6_PARSED.number_of_nodes()
+    or set(_FNX_GRAPH6_PARSED.edges()) != set(_NX_GRAPH6_PARSED.edges())
+):
+    raise AssertionError("from_graph6_bytes parity drift")
+
+
+def fnx_from_graph6_bytes_sparse_700() -> float:
+    total = 0.0
+    for _ in range(_GRAPH6_REPEAT):
+        total += _consume_graph6_parse(fnx.from_graph6_bytes(_GRAPH6_PAYLOAD))
+    return total
+
+
+def networkx_from_graph6_bytes_sparse_700() -> float:
+    total = 0.0
+    for _ in range(_GRAPH6_REPEAT):
+        total += _consume_graph6_parse(nx.from_graph6_bytes(_GRAPH6_PAYLOAD))
+    return total
+
+
 def _weighted_flow_edges(node_count: int) -> list[tuple[int, int, float]]:
     edges: list[tuple[int, int, float]] = []
     for i in range(node_count - 1):
