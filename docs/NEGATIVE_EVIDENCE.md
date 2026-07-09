@@ -2,7 +2,7 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
-## 2026-07-09 CyanGrove SHIP: `tournament.is_reachable` integer-bitset separator - 0.733x before, 2.94x vs LEGACY ORIGINAL after
+## 2026-07-09 CyanGrove SHIP: `tournament.is_reachable` integer-bitset separator - 0.859x before, 2.34x vs LEGACY ORIGINAL after
 
 Land-or-dig pass started by reading this ledger first. I did not retry the
 recent readwrite, graph6, edge-attribute projection, `is_path`,
@@ -31,8 +31,8 @@ Evidence:
 
 | Row | Mode | FNX estimate | LEGACY ORIGINAL estimate | Ratio vs ORIG | Decision |
 | --- | --- | ---: | ---: | ---: | --- |
-| `tournament_is_reachable_bitset_220` before bitset | local scratch, 1 call | `15.951 ms` | `11.695 ms` | `0.733x` | original |
-| `tournament_is_reachable_bitset_220` after bitset | local fallback Criterion, 3 calls/callable | `20.437 ms` | `60.126 ms` | `2.94x` | SHIP |
+| `tournament_is_reachable_bitset_220` before bitset | RCH `vmi1227854` Criterion, 3 calls/callable | `54.017 ms` | `46.395 ms` | `0.859x` | original |
+| `tournament_is_reachable_bitset_220` after bitset | RCH `vmi1227854` Criterion, 3 calls/callable | `18.965 ms` | `44.465 ms` | `2.34x` | SHIP |
 
 Command:
 
