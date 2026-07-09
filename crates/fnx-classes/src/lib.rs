@@ -3309,7 +3309,8 @@ impl MultiGraph {
                     // Prune `rn` from a surviving neighbour's row (removed
                     // neighbours' rows are dropped wholesale below). Self-loop
                     // (nb == rn) also skips — the row is being removed.
-                    if nb.as_str() != rn && !remove_set.contains(nb.as_str())
+                    if nb.as_str() != rn
+                        && !remove_set.contains(nb.as_str())
                         && let Some(remote) = self.adjacency.get_mut(nb)
                     {
                         remote.shift_remove(rn);
@@ -3341,8 +3342,8 @@ impl MultiGraph {
         // externally (every consumer walks `edges_ordered`, i.e. adjacency
         // order), so `retain` is order-safe — same rationale as `remove_node`.
         self.edges.retain(|key, bucket| {
-            let keep = !remove_set.contains(key.left.as_str())
-                && !remove_set.contains(key.right.as_str());
+            let keep =
+                !remove_set.contains(key.left.as_str()) && !remove_set.contains(key.right.as_str());
             if !keep {
                 removed_instances += bucket.len();
             }

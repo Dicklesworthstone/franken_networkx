@@ -2859,7 +2859,8 @@ impl MultiDiGraph {
                     None => Vec::new(),
                 };
                 for t in &targets {
-                    if t.as_str() != rn && !remove_set.contains(t.as_str())
+                    if t.as_str() != rn
+                        && !remove_set.contains(t.as_str())
                         && let Some(preds) = self.predecessors.get_mut(t)
                     {
                         preds.shift_remove(rn);
@@ -2874,7 +2875,8 @@ impl MultiDiGraph {
                     None => Vec::new(),
                 };
                 for s in &sources {
-                    if s.as_str() != rn && !remove_set.contains(s.as_str())
+                    if s.as_str() != rn
+                        && !remove_set.contains(s.as_str())
                         && let Some(succs) = self.successors.get_mut(s)
                     {
                         succs.shift_remove(rn);

@@ -281,6 +281,8 @@ if target_dir:
                 "networkx",
                 "networkx_ra_index_soundarajan_hopcroft_repeated_overlap",
             ),
+            ("is_path_len50", "fnx", "fnx_is_path_len50"),
+            ("is_path_len50", "networkx", "networkx_is_path_len50"),
             (
                 "graph_duplicate_attr_add_edges_from",
                 "fnx",

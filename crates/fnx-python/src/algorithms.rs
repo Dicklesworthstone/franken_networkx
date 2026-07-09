@@ -13,7 +13,7 @@ use crate::{
 use fnx_classes::AttrMap;
 use pyo3::class::basic::CompareOp;
 use pyo3::exceptions::{
-    PyIndexError, PyKeyError, PyRuntimeError, PyValueError, PyZeroDivisionError,
+    PyIndexError, PyKeyError, PyRuntimeError, PyTypeError, PyValueError, PyZeroDivisionError,
 };
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyIterator, PyList, PySet, PyString, PyTuple};
@@ -247,6 +247,80 @@ impl<'py> GraphRef<'py> {
             GraphRef::Directed { dg, .. } => dg.inner.has_node(canonical),
             GraphRef::MultiUndirected { mg, .. } => mg.inner.has_node(canonical),
             GraphRef::MultiDirected { mdg, .. } => mdg.inner.has_node(canonical),
+        }
+    }
+
+    fn has_oriented_edge(&self, left: &str, right: &str) -> bool {
+        match self {
+            GraphRef::Undirected(pg) => pg.inner.has_edge(left, right),
+            GraphRef::Directed { dg, .. } => dg.inner.has_edge(left, right),
+            GraphRef::MultiUndirected { mg, .. } => mg.inner.has_edge(left, right),
+            GraphRef::MultiDirected { mdg, .. } => mdg.inner.has_edge(left, right),
+        }
+    }
+
+    fn has_oriented_edge_by_exact_int_indices(&self, left: usize, right: usize) -> Option<bool> {
+        match self {
+            GraphRef::Undirected(pg)
+                if pg.inner.node_index_matches_int(left)
+                    && pg.inner.node_index_matches_int(right) =>
+            {
+                Some(pg.inner.has_edge_by_indices(left, right))
+            }
+            GraphRef::Directed { dg, .. }
+                if dg.inner.node_index_matches_int(left)
+                    && dg.inner.node_index_matches_int(right) =>
+            {
+                Some(
+                    dg.inner
+                        .successors_indices(left)
+                        .is_some_and(|row| row.contains(&right)),
+                )
+            }
+            _ => None,
+        }
+    }
+
+    fn has_oriented_int_path(&self, path: &[usize]) -> Option<bool> {
+        if path.len() < 2 {
+            return Some(true);
+        }
+        match self {
+            GraphRef::Undirected(pg) => {
+                for pair in path.windows(2) {
+                    let left = pair[0];
+                    let right = pair[1];
+                    if !pg.inner.node_index_matches_int(left)
+                        || !pg.inner.node_index_matches_int(right)
+                    {
+                        return None;
+                    }
+                    if !pg.inner.has_edge_by_indices(left, right) {
+                        return Some(false);
+                    }
+                }
+                Some(true)
+            }
+            GraphRef::Directed { dg, .. } => {
+                for pair in path.windows(2) {
+                    let left = pair[0];
+                    let right = pair[1];
+                    if !dg.inner.node_index_matches_int(left)
+                        || !dg.inner.node_index_matches_int(right)
+                    {
+                        return None;
+                    }
+                    let exists = dg
+                        .inner
+                        .successors_indices(left)
+                        .is_some_and(|row| row.contains(&right));
+                    if !exists {
+                        return Some(false);
+                    }
+                }
+                Some(true)
+            }
+            _ => None,
         }
     }
 
@@ -21090,6 +21164,118 @@ pub fn is_negatively_weighted(
     Ok(py.allow_threads(|| fnx_algorithms::is_negatively_weighted(inner, &w)))
 }
 
+fn path_scan_false_or_error(py: Python<'_>, err: PyErr) -> PyResult<bool> {
+    if err.is_instance_of::<PyKeyError>(py) || err.is_instance_of::<PyTypeError>(py) {
+        Ok(false)
+    } else {
+        Err(err)
+    }
+}
+
+fn path_node_key_for_scan(py: Python<'_>, node: &Bound<'_, PyAny>) -> PyResult<String> {
+    node.hash()?;
+    node_key_to_string(py, node)
+}
+
+fn exact_usize_path_node(node: &Bound<'_, PyAny>) -> Option<usize> {
+    if node.is_exact_instance_of::<PyInt>() {
+        node.extract::<usize>().ok()
+    } else {
+        None
+    }
+}
+
+fn exact_usize_path_sequence(path: &Bound<'_, PyAny>) -> Option<Vec<usize>> {
+    if let Ok(list) = path.cast::<PyList>() {
+        let mut indices = Vec::with_capacity(list.len());
+        for item in list.iter() {
+            indices.push(exact_usize_path_node(&item)?);
+        }
+        return Some(indices);
+    }
+    if let Ok(tuple) = path.cast::<PyTuple>() {
+        let mut indices = Vec::with_capacity(tuple.len());
+        for item in tuple.iter() {
+            indices.push(exact_usize_path_node(&item)?);
+        }
+        return Some(indices);
+    }
+    None
+}
+
+/// Native equivalent of ``all(nbr in G[node] for node, nbr in pairwise(path))``.
+///
+/// The public Python wrapper maps ``KeyError``/``TypeError`` to ``False`` just
+/// like NetworkX. This kernel keeps the pairwise iterator lazy so singleton
+/// paths do not hash or canonicalize their only node.
+#[pyfunction]
+#[pyo3(signature = (g, path))]
+pub fn path_exists_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    path: &Bound<'_, PyAny>,
+) -> PyResult<bool> {
+    let gr = extract_graph(g)?;
+    if let Some(indices) = exact_usize_path_sequence(path)
+        && let Some(exists) = gr.has_oriented_int_path(&indices)
+    {
+        return Ok(exists);
+    }
+
+    let mut iter = match PyIterator::from_object(path) {
+        Ok(iter) => iter,
+        Err(err) => return path_scan_false_or_error(py, err),
+    };
+
+    let mut previous = match iter.next() {
+        Some(Ok(item)) => item,
+        Some(Err(err)) => return path_scan_false_or_error(py, err),
+        None => return Ok(true),
+    };
+    let mut previous_key: Option<String> = None;
+
+    for next_result in iter {
+        let next = match next_result {
+            Ok(item) => item,
+            Err(err) => return path_scan_false_or_error(py, err),
+        };
+
+        if let (Some(left), Some(right)) = (
+            exact_usize_path_node(&previous),
+            exact_usize_path_node(&next),
+        ) && let Some(exists) = gr.has_oriented_edge_by_exact_int_indices(left, right)
+        {
+            if !exists {
+                return Ok(false);
+            }
+            previous = next;
+            previous_key = None;
+            continue;
+        }
+
+        let left = match previous_key.take() {
+            Some(key) => key,
+            None => match path_node_key_for_scan(py, &previous) {
+                Ok(key) => key,
+                Err(err) => return path_scan_false_or_error(py, err),
+            },
+        };
+        let right = match path_node_key_for_scan(py, &next) {
+            Ok(key) => key,
+            Err(err) => return path_scan_false_or_error(py, err),
+        };
+
+        if !gr.has_oriented_edge(&left, &right) {
+            return Ok(false);
+        }
+
+        previous = next;
+        previous_key = Some(right);
+    }
+
+    Ok(true)
+}
+
 #[pyfunction]
 #[pyo3(signature = (g,))]
 pub fn is_path(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
@@ -24596,6 +24782,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(cut_size, m)?)?;
     m.add_function(wrap_pyfunction!(normalized_cut_size, m)?)?;
     // Path validation
+    m.add_function(wrap_pyfunction!(path_exists_rust, m)?)?;
     m.add_function(wrap_pyfunction!(is_simple_path, m)?)?;
     // Matching validators
     m.add_function(wrap_pyfunction!(is_matching, m)?)?;

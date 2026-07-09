@@ -23520,6 +23520,11 @@ def all_neighbors(graph, node):
 
 def is_path(G, path):
     """Return whether or not the specified path exists in *G*."""
+    if type(G) in (Graph, DiGraph, MultiGraph, MultiDiGraph):
+        try:
+            return _fnx.path_exists_rust(G, path)
+        except (KeyError, TypeError):
+            return False
     try:
         return all(nbr in G[node] for node, nbr in _itertools.pairwise(path))
     except (KeyError, TypeError):

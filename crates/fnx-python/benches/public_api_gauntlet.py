@@ -943,6 +943,41 @@ def networkx_ra_index_soundarajan_hopcroft_repeated_overlap() -> float:
     return total
 
 
+def _build_is_path_graph(module, node_count: int):
+    graph = module.Graph()
+    graph.add_edges_from((i, i + 1) for i in range(node_count - 1))
+    return graph
+
+
+_IS_PATH_NODE_COUNT = 128
+_IS_PATH_REPEAT = 8000
+_IS_PATH_LEN50 = list(range(50))
+_FNX_IS_PATH_GRAPH = _build_is_path_graph(fnx, _IS_PATH_NODE_COUNT)
+_NX_IS_PATH_GRAPH = _build_is_path_graph(nx, _IS_PATH_NODE_COUNT)
+
+_EXPECTED_IS_PATH_LEN50 = nx.is_path(_NX_IS_PATH_GRAPH, _IS_PATH_LEN50)
+_FNX_IS_PATH_LEN50 = fnx.is_path(_FNX_IS_PATH_GRAPH, _IS_PATH_LEN50)
+if _FNX_IS_PATH_LEN50 is not _EXPECTED_IS_PATH_LEN50:
+    raise AssertionError(
+        f"is_path len-50 parity drift: fnx={_FNX_IS_PATH_LEN50!r}, "
+        f"nx={_EXPECTED_IS_PATH_LEN50!r}"
+    )
+
+
+def fnx_is_path_len50() -> float:
+    total = 0.0
+    for _ in range(_IS_PATH_REPEAT):
+        total += float(fnx.is_path(_FNX_IS_PATH_GRAPH, _IS_PATH_LEN50))
+    return total
+
+
+def networkx_is_path_len50() -> float:
+    total = 0.0
+    for _ in range(_IS_PATH_REPEAT):
+        total += float(nx.is_path(_NX_IS_PATH_GRAPH, _IS_PATH_LEN50))
+    return total
+
+
 def _duplicate_attr_edges(node_count: int, unique_count: int, *, directed: bool):
     edges = []
     for idx in range(unique_count):
