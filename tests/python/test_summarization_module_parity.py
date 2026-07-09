@@ -92,6 +92,28 @@ def test_algorithms_summarization_copy_false_preserves_fnx_input_identity():
     )
 
 
+def test_dedensify_copy_true_fnx_input_uses_native_path(monkeypatch):
+    graph = _dedensify_fixture(fnx)
+    expected_graph = _dedensify_fixture(nx)
+    expected, expected_compressors = nx_summarization.dedensify(
+        expected_graph, threshold=2, prefix="aux", copy=True
+    )
+
+    def fail_networkx_dedensify(*args, **kwargs):
+        raise AssertionError("NetworkX dedensify fallback should not be used")
+
+    monkeypatch.setattr(nx_summarization, "dedensify", fail_networkx_dedensify)
+
+    result, compressors = fnx_summarization.dedensify(
+        graph, threshold=2, prefix="aux", copy=True
+    )
+
+    assert result is not graph
+    assert compressors == expected_compressors
+    assert _shape(result) == _shape(expected)
+    assert _shape(graph) == _shape(_dedensify_fixture(fnx))
+
+
 def test_dedensify_copy_false_preserves_in_place_identity_for_nx_input():
     graph = _dedensify_fixture(nx)
     expected_graph = _dedensify_fixture(nx)

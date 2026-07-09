@@ -122,6 +122,16 @@ if target_dir:
                 "networkx_tournament_is_reachable_bitset_220",
             ),
             (
+                "summarization_dedensify_copy_dense_hubs",
+                "fnx",
+                "fnx_summarization_dedensify_copy_dense_hubs",
+            ),
+            (
+                "summarization_dedensify_copy_dense_hubs",
+                "networkx",
+                "networkx_summarization_dedensify_copy_dense_hubs",
+            ),
+            (
                 "flow_hierarchy_weighted_cyclic_dag",
                 "fnx",
                 "fnx_flow_hierarchy_weighted_cyclic_dag",

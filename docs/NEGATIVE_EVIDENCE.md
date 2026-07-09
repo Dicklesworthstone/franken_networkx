@@ -2,6 +2,80 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-09 CyanGrove SHIP: `summarization.dedensify(copy=True)` build-once simple graph rewrite - 0.45x scratch before, 2.08x vs LEGACY ORIGINAL after
+
+Land-or-dig pass started by reading this ledger first. I did not retry the
+recent readwrite, graph6, edge-attribute projection, `is_path`,
+construction/add_edges_from, non_edges, shortest-path, topological sort,
+link-prediction, multigraph degree/edge scan, sparse-matrix, selfloop,
+adjacency, product/generator, tree, lattice, GML, tournament reachability, or
+`bipartite.projected_graph` duplicate-frontier lanes. Fresh profiling moved to
+`summarization.dedensify(copy=True)` on simple directed dense-hub inputs, a path
+not found in the rejection ledger.
+
+Primitive class: data-layout / algebraic-fusion. The kept lever routes FNX
+simple `Graph` and `DiGraph` inputs through native adjacency rows, groups
+compressible high-degree neighbor sets once, then constructs the copied result
+from `kept_original_edges + compressor_edges`. This avoids the old copy,
+per-edge removal, and per-edge insertion sequence for `copy=True` while
+preserving NetworkX-observable compressor names, node/edge order, graph attrs,
+shallow node/edge attr copying, and the existing in-place `copy=False` behavior.
+
+Evidence:
+
+| Row | Mode | FNX estimate | LEGACY ORIGINAL estimate | Ratio vs ORIG | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `summarization_dedensify_copy_dense_hubs` before native copy route | local scratch single-call profiler | `22.111 ms` | `9.846 ms` | `0.45x` | original |
+| `summarization_dedensify_copy_dense_hubs` after build-once rewrite | RCH `ovh-a` Criterion, 5 calls/callable | `26.368 ms` | `54.741 ms` | `2.08x` | SHIP |
+
+Command:
+
+```text
+AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 timeout 1200
+rch exec -- cargo bench -p fnx-python --profile release
+--features pyo3/abi3-py310 --bench public_api_gauntlet
+summarization_dedensify_copy_dense_hubs -- --sample-size 10 --warm-up-time 0.2
+--measurement-time 0.5 --noplot
+```
+
+Conformance / quality gates:
+- `AGENT_NAME=CyanGrove PYTHONHASHSEED=0 python3 -m py_compile
+  python/franken_networkx/__init__.py python/franken_networkx/summarization.py
+  tests/python/test_summarization_module_parity.py
+  crates/fnx-python/benches/public_api_gauntlet.py`: PASS.
+- `AGENT_NAME=CyanGrove PYTHONHASHSEED=0
+  PYTHONPATH=python:legacy_networkx_code/networkx:legacy_networkx_code
+  python3 -m pytest tests/python/test_summarization_module_parity.py
+  tests/python/test_dedensify_parity.py
+  tests/python/test_graph_utilities.py::test_dedensify_and_quotient_graph_do_not_fallback
+  -q`: `87 passed`.
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  cargo fmt --check`: PASS.
+- `git diff --check`: PASS.
+- Requested forbidden-word scan over touched files: no matches.
+- `AGENT_NAME=CyanGrove timeout 300 ubs --only=python
+  python/franken_networkx/summarization.py
+  tests/python/test_summarization_module_parity.py
+  crates/fnx-python/benches/public_api_gauntlet.py`: exit 0; 0 criticals,
+  existing test-assert and benchmark-random warning inventory only.
+- `AGENT_NAME=CyanGrove timeout 300 ubs --only=rust
+  crates/fnx-python/benches/public_api_gauntlet.rs`: exit 0; 0 criticals,
+  existing benchmark unwrap/expect warning inventory only.
+- `AGENT_NAME=CyanGrove timeout 300 ubs --only=python
+  python/franken_networkx/__init__.py`: timed out after 300s; isolated rerun
+  with `--skip-python=20` also timed out after 300s before findings.
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  PYTHONHASHSEED=0 timeout 900 rch exec -- cargo test -p fnx-conformance
+  --profile release`: local fallback because no admissible worker slots; PASS,
+  conformance crate tests/doc-tests green.
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  timeout 900 rch exec -- cargo check --workspace --all-targets`: PASS on
+  RCH worker `hz1`.
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  timeout 900 rch exec -- cargo clippy --workspace --all-targets --
+  -D warnings`: PASS on RCH worker `hz1`.
+
 ## 2026-07-09 CyanGrove SHIP: `tournament.is_reachable` integer-bitset separator - 0.859x before, 2.34x vs LEGACY ORIGINAL after
 
 Land-or-dig pass started by reading this ledger first. I did not retry the

@@ -7,8 +7,10 @@ import io
 import random
 
 import franken_networkx as fnx
+from franken_networkx import summarization as fnx_summarization
 import franken_networkx.tournament as fnx_tournament
 import networkx as nx
+from networkx.algorithms import summarization as nx_summarization
 from networkx.algorithms import tournament as nx_tournament
 
 gc.disable()
@@ -266,6 +268,96 @@ def networkx_tournament_is_reachable_bitset_220() -> float:
                 _NX_TOURNAMENT_REACH_GRAPH,
                 _TOURNAMENT_REACH_SOURCE,
                 _TOURNAMENT_REACH_TARGET,
+            )
+        )
+    return total
+
+
+def _build_dedensify_graph(module, low_count: int, hub_count: int):
+    graph = module.DiGraph()
+    graph.add_nodes_from(range(low_count + hub_count))
+    for low_node in range(low_count):
+        for hub_offset in range(hub_count):
+            if (low_node * 13 + hub_offset * 7) % 5:
+                graph.add_edge(low_node, low_count + hub_offset)
+    return graph
+
+
+def _dedensify_signature(
+    result,
+) -> tuple[tuple[str, ...], tuple[tuple[str, str], ...], tuple[str, ...]]:
+    graph, compressors = result
+    return (
+        tuple(sorted(map(str, graph.nodes()))),
+        tuple(sorted((str(u), str(v)) for u, v in graph.edges())),
+        tuple(sorted(map(str, compressors))),
+    )
+
+
+def _consume_dedensify(result) -> float:
+    graph, compressors = result
+    return float(
+        graph.number_of_nodes()
+        + graph.number_of_edges()
+        + len(compressors)
+        + sum(len(str(node)) for node in compressors)
+    )
+
+
+_DEDENSIFY_LOW_COUNT = 900
+_DEDENSIFY_HUB_COUNT = 12
+_DEDENSIFY_THRESHOLD = 5
+_DEDENSIFY_REPEAT = 5
+_FNX_DEDENSIFY_GRAPH = _build_dedensify_graph(
+    fnx, _DEDENSIFY_LOW_COUNT, _DEDENSIFY_HUB_COUNT
+)
+_NX_DEDENSIFY_GRAPH = _build_dedensify_graph(
+    nx, _DEDENSIFY_LOW_COUNT, _DEDENSIFY_HUB_COUNT
+)
+_FNX_DEDENSIFY_SIGNATURE = _dedensify_signature(
+    fnx_summarization.dedensify(
+        _FNX_DEDENSIFY_GRAPH,
+        threshold=_DEDENSIFY_THRESHOLD,
+        prefix="aux",
+        copy=True,
+    )
+)
+_NX_DEDENSIFY_SIGNATURE = _dedensify_signature(
+    nx_summarization.dedensify(
+        _NX_DEDENSIFY_GRAPH,
+        threshold=_DEDENSIFY_THRESHOLD,
+        prefix="aux",
+        copy=True,
+    )
+)
+# ubs:ignore - benchmark graph signatures are public parity data, not secrets.
+if _FNX_DEDENSIFY_SIGNATURE != _NX_DEDENSIFY_SIGNATURE:
+    raise AssertionError("summarization.dedensify copy=True parity drift")
+
+
+def fnx_summarization_dedensify_copy_dense_hubs() -> float:
+    total = 0.0
+    for _ in range(_DEDENSIFY_REPEAT):
+        total += _consume_dedensify(
+            fnx_summarization.dedensify(
+                _FNX_DEDENSIFY_GRAPH,
+                threshold=_DEDENSIFY_THRESHOLD,
+                prefix="aux",
+                copy=True,
+            )
+        )
+    return total
+
+
+def networkx_summarization_dedensify_copy_dense_hubs() -> float:
+    total = 0.0
+    for _ in range(_DEDENSIFY_REPEAT):
+        total += _consume_dedensify(
+            nx_summarization.dedensify(
+                _NX_DEDENSIFY_GRAPH,
+                threshold=_DEDENSIFY_THRESHOLD,
+                prefix="aux",
+                copy=True,
             )
         )
     return total

@@ -32010,6 +32010,9 @@ def dedensify(G, threshold, prefix=None, copy=True):
     if threshold < 2:
         raise NetworkXError("The degree threshold must be >= 2")
 
+    if type(G) in (Graph, DiGraph):
+        return _dedensify_simple_native_rows(G, threshold, prefix, copy)
+
     # Determine high-degree nodes
     if G.is_directed():
         degrees = list(G.in_degree)
@@ -32054,6 +32057,83 @@ def dedensify(G, threshold, prefix=None, copy=True):
             H.add_edge(compression_node, node)
         compressor_nodes.add(compression_node)
 
+    return H, compressor_nodes
+
+
+def _dedensify_simple_native_rows(G, threshold, prefix, copy):
+    """Dedensify exact simple fnx graphs from native row dictionaries."""
+    directed = type(G) is DiGraph
+    nodes = list(G)
+    adjacency_row = G._native_adjacency_row_dict
+    degree_row = G._native_predecessor_row_dict if directed else adjacency_row
+
+    high_degree_nodes = {
+        node for node in nodes if len(degree_row(node)) > threshold
+    }
+
+    auxiliary = {}
+    for node in nodes:
+        high_degree_nbrs = frozenset(
+            high_degree_nodes.intersection(adjacency_row(node))
+        )
+        if high_degree_nbrs:
+            auxiliary.setdefault(high_degree_nbrs, set()).add(node)
+
+    remove_edges = set() if copy else []
+    add_edges = []
+    compressor_nodes = set()
+    prefix_text = None if prefix is None else str(prefix)
+
+    for high_deg_group, low_deg_group in auxiliary.items():
+        low_count = len(low_deg_group)
+        high_count = len(high_deg_group)
+        old_edges = high_count * low_count
+        new_edges = high_count + low_count
+        if old_edges <= new_edges:
+            continue
+
+        compression_node = "".join(str(node) for node in high_deg_group)
+        if prefix_text:
+            compression_node = prefix_text + compression_node
+
+        for node in low_deg_group:
+            row = adjacency_row(node)
+            for high_node in high_deg_group:
+                if high_node in row:
+                    if copy:
+                        edge_key = (
+                            (node, high_node)
+                            if directed
+                            else frozenset((node, high_node))
+                        )
+                        remove_edges.add(edge_key)
+                    else:
+                        remove_edges.append((node, high_node))
+            add_edges.append((node, compression_node))
+        for node in high_deg_group:
+            add_edges.append((compression_node, node))
+        compressor_nodes.add(compression_node)
+
+    if copy:
+        if not add_edges:
+            return G.copy(), compressor_nodes
+        H = DiGraph() if directed else Graph()
+        H.graph.update(G.graph)
+        H.add_nodes_from((node, dict(attrs)) for node, attrs in G.nodes(data=True))
+        kept_edges = []
+        for u, v, attrs in G.edges(data=True):
+            edge_key = (u, v) if directed else frozenset((u, v))
+            if edge_key not in remove_edges:
+                kept_edges.append((u, v, dict(attrs)))
+        H.add_edges_from(kept_edges)
+        H.add_edges_from(add_edges)
+        return H, compressor_nodes
+
+    H = G
+    if remove_edges:
+        H.remove_edges_from(remove_edges)
+    if add_edges:
+        H.add_edges_from(add_edges)
     return H, compressor_nodes
 
 

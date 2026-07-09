@@ -42,10 +42,10 @@ def dedensify(G, threshold, prefix=None, copy=True, *, backend=None, **backend_k
         Set of nodes that were compressed.
     """
     _fnx._validate_backend_dispatch_keywords("dedensify", backend, backend_kwargs)
-    if not copy and isinstance(
+    if isinstance(
         G, (_fnx.Graph, _fnx.DiGraph, _fnx.MultiGraph, _fnx.MultiDiGraph)
     ):
-        return _fnx.dedensify(G, threshold, prefix=prefix, copy=False)
+        return _fnx.dedensify(G, threshold, prefix=prefix, copy=copy)
 
     nx_graph, contractions = _nx_summarization.dedensify(
         G, threshold, prefix=prefix, copy=copy
