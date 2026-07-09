@@ -9085,6 +9085,251 @@ fn aspl_run_sources(adjacency: &[&[usize]], n: usize) -> Vec<(usize, usize, usiz
     }
 }
 
+// ---------------------------------------------------------------------------
+// Bit-parallel multi-source BFS (SIMD-within-register) for the all-pairs
+// unweighted distance SUM (`average_shortest_path_length`).
+//
+// Instead of running one BFS per source (n sweeps of the whole graph), we
+// process `W*64` sources at once: each node carries a `[u64; W]` bitset column
+// where bit `j` means "source #j has reached me". A frontier expansion becomes a
+// word-parallel `frontier[v] & !seen[w]` over the column — one machine op serves
+// up to `W*64` sources. This collapses the number of full graph traversals from
+// `n` to `ceil(n / (W*64))` and lets a single contiguous edge scan advance every
+// source in the word simultaneously.
+//
+// The distance SUM is an integer accumulated as `level * popcount(newly_reached)`
+// summed over every (source, node) first-reach event, so the result is
+// bit-for-bit identical to the per-source BFS regardless of batch width or how
+// batches are reduced (integer addition is associative/commutative). Connectivity
+// is exact: `reached_pairs == n*n` iff every source reaches every node, matching
+// the old "any source reached < n -> INFINITY" contract.
+// ---------------------------------------------------------------------------
+
+/// Bit-parallel BFS is a *single-threaded* algorithmic win: it collapses `n`
+/// graph traversals into `ceil(n / (W*64))`. For `n >= 500` the per-source path
+/// fans out over every core (rayon), and on a many-core host that embarrassing
+/// parallelism beats one wide sequential sweep — so we only take the bit-parallel
+/// path below this threshold and defer to the per-source rayon path above it.
+const ASPL_BITPAR_MAX_N: usize = 500;
+
+/// Reusable per-worker scratch: one `W`-word bitset column per node for
+/// `seen`/`frontier`/`next`, plus the explicit level work-lists. Allocated once
+/// per rayon worker and reset per batch.
+struct BitParBfsScratch<const W: usize> {
+    seen: Vec<[u64; W]>,
+    frontier: Vec<[u64; W]>,
+    next: Vec<[u64; W]>,
+    cur_nodes: Vec<u32>,
+    next_nodes: Vec<u32>,
+}
+
+impl<const W: usize> BitParBfsScratch<W> {
+    fn new(n: usize) -> Self {
+        Self {
+            seen: vec![[0u64; W]; n],
+            frontier: vec![[0u64; W]; n],
+            next: vec![[0u64; W]; n],
+            cur_nodes: Vec::with_capacity(n),
+            next_nodes: Vec::with_capacity(n),
+        }
+    }
+}
+
+/// Per-batch / reduced aggregate.
+#[derive(Clone, Copy)]
+struct AsplAgg {
+    sum: u64,
+    reached_pairs: usize,
+    edges_scanned: usize,
+    queue_peak: usize,
+}
+
+impl AsplAgg {
+    const ZERO: Self = Self {
+        sum: 0,
+        reached_pairs: 0,
+        edges_scanned: 0,
+        queue_peak: 0,
+    };
+    fn merge(self, other: Self) -> Self {
+        Self {
+            sum: self.sum + other.sum,
+            reached_pairs: self.reached_pairs + other.reached_pairs,
+            edges_scanned: self.edges_scanned + other.edges_scanned,
+            queue_peak: self.queue_peak.max(other.queue_peak),
+        }
+    }
+}
+
+/// Run one batch of up to `W*64` sources `[s0, s0+k)` over the `u32` CSR. Bit `j`
+/// of each column tracks source `s0 + j`.
+fn bitpar_bfs_batch<const W: usize>(
+    scratch: &mut BitParBfsScratch<W>,
+    offsets: &[u32],
+    targets: &[u32],
+    s0: usize,
+    k: usize,
+) -> AsplAgg {
+    let zero = [0u64; W];
+    scratch.seen.fill(zero);
+    scratch.frontier.fill(zero);
+    scratch.cur_nodes.clear();
+
+    for j in 0..k {
+        let s = s0 + j;
+        let bit = 1u64 << (j % 64);
+        scratch.seen[s][j / 64] = bit; // column was just zeroed
+        scratch.frontier[s][j / 64] = bit;
+        scratch.cur_nodes.push(s as u32);
+    }
+
+    let mut sum = 0u64;
+    let mut reached_pairs = k; // each source reaches itself at distance 0
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = k;
+    let mut level = 1u64;
+
+    while !scratch.cur_nodes.is_empty() {
+        scratch.next_nodes.clear();
+        for idx in 0..scratch.cur_nodes.len() {
+            let v = scratch.cur_nodes[idx] as usize;
+            let fv = scratch.frontier[v];
+            scratch.frontier[v] = zero;
+            if fv == zero {
+                continue;
+            }
+            let start = offsets[v] as usize;
+            let end = offsets[v + 1] as usize;
+            edges_scanned += end - start;
+            for &wu in &targets[start..end] {
+                let w = wu as usize;
+                // Hot path: most scans reach an already-seen neighbour. Compute
+                // the newly-reached source bits reading `seen[w]` by reference
+                // (no [u64;W] copy) and bail before any write when none are new.
+                let seen_w = &scratch.seen[w];
+                let mut newly = [0u64; W];
+                let mut any = 0u64;
+                for lane in 0..W {
+                    let bits = fv[lane] & !seen_w[lane];
+                    newly[lane] = bits;
+                    any |= bits;
+                }
+                if any != 0 {
+                    let next_w = &mut scratch.next[w];
+                    let mut was_empty = 0u64;
+                    for lane in 0..W {
+                        was_empty |= next_w[lane];
+                        next_w[lane] |= newly[lane];
+                    }
+                    if was_empty == 0 {
+                        scratch.next_nodes.push(wu);
+                    }
+                    let seen_w = &mut scratch.seen[w];
+                    for lane in 0..W {
+                        seen_w[lane] |= newly[lane];
+                    }
+                }
+            }
+        }
+        // Deferred accounting: popcount each node's newly-acquired column ONCE
+        // per level (== per first-reach event) rather than once per edge scan,
+        // then promote it to the next frontier. This keeps `count_ones` off the
+        // O(|E|) inner loop (critical when the target CPU lacks a hardware
+        // popcnt) while the integer distance sum stays byte-identical.
+        for &wu in &scratch.next_nodes {
+            let w = wu as usize;
+            let nx = scratch.next[w];
+            let mut cnt = 0u32;
+            for lane in 0..W {
+                cnt += nx[lane].count_ones();
+            }
+            sum += level * cnt as u64;
+            reached_pairs += cnt as usize;
+            scratch.frontier[w] = nx;
+            scratch.next[w] = zero;
+        }
+        queue_peak = queue_peak.max(scratch.next_nodes.len());
+        std::mem::swap(&mut scratch.cur_nodes, &mut scratch.next_nodes);
+        level += 1;
+    }
+
+    AsplAgg {
+        sum,
+        reached_pairs,
+        edges_scanned,
+        queue_peak,
+    }
+}
+
+fn aspl_bitpar_run<const W: usize>(offsets: &[u32], targets: &[u32], n: usize) -> AsplAgg {
+    let width = W * 64;
+    let mut sc = BitParBfsScratch::<W>::new(n);
+    let mut agg = AsplAgg::ZERO;
+    let mut s0 = 0;
+    while s0 < n {
+        let k = (n - s0).min(width);
+        agg = agg.merge(bitpar_bfs_batch::<W>(&mut sc, offsets, targets, s0, k));
+        s0 += width;
+    }
+    agg
+}
+
+/// Bit-parallel all-pairs BFS distance sum over a `u32` CSR (single-threaded).
+/// The lane width `W` (1..=8, 64..=512 sources per batch) is the widest that
+/// still covers all `n` sources — fewer, wider batches mean fewer full graph
+/// traversals, which is what the win comes from.
+fn aspl_distance_sum(offsets: &[u32], targets: &[u32], n: usize) -> AsplAgg {
+    match n.div_ceil(64).clamp(1, 8) {
+        1 => aspl_bitpar_run::<1>(offsets, targets, n),
+        2 => aspl_bitpar_run::<2>(offsets, targets, n),
+        3 => aspl_bitpar_run::<3>(offsets, targets, n),
+        4 => aspl_bitpar_run::<4>(offsets, targets, n),
+        5 => aspl_bitpar_run::<5>(offsets, targets, n),
+        6 => aspl_bitpar_run::<6>(offsets, targets, n),
+        7 => aspl_bitpar_run::<7>(offsets, targets, n),
+        _ => aspl_bitpar_run::<8>(offsets, targets, n),
+    }
+}
+
+/// Build a compact `u32` CSR from a graph's integer adjacency in one pass. Node
+/// indices are `< n <= u32::MAX` (guarded by the caller), so the cast is lossless
+/// and the contiguous `u32` targets halve the hot-loop memory traffic vs `usize`.
+fn build_u32_csr<'a>(
+    n: usize,
+    mut neighbors: impl FnMut(usize) -> &'a [usize],
+) -> (Vec<u32>, Vec<u32>) {
+    let mut offsets = Vec::with_capacity(n + 1);
+    let mut targets: Vec<u32> = Vec::new();
+    offsets.push(0u32);
+    for u in 0..n {
+        for &w in neighbors(u) {
+            targets.push(w as u32);
+        }
+        offsets.push(targets.len() as u32);
+    }
+    (offsets, targets)
+}
+
+/// Assemble the final result from a bit-parallel distance-sum aggregate.
+fn aspl_finalize_bitpar(agg: AsplAgg, n: usize, algorithm: &str) -> AverageShortestPathLengthResult {
+    let connected = agg.reached_pairs as u128 == (n as u128) * (n as u128);
+    let average = if connected {
+        agg.sum as f64 / (n * (n - 1)) as f64
+    } else {
+        f64::INFINITY
+    };
+    AverageShortestPathLengthResult {
+        average_shortest_path_length: average,
+        witness: ComplexityWitness {
+            algorithm: algorithm.to_owned(),
+            complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
+            nodes_touched: agg.reached_pairs,
+            edges_scanned: agg.edges_scanned,
+            queue_peak: agg.queue_peak,
+        },
+    }
+}
+
 /// Computes the average shortest path length of an undirected graph.
 ///
 /// Returns `sum(d(u,v)) / (n*(n-1))` for all pairs `u != v` where `d(u,v)` is
@@ -9106,11 +9351,17 @@ pub fn average_shortest_path_length(graph: &Graph) -> AverageShortestPathLengthR
         };
     }
 
-    // Each source's BFS is independent; fan them out over rayon workers (the
-    // distance SUM is an integer, so order of reduction is irrelevant — the
-    // result is byte-identical to the sequential accumulation). Disconnected
-    // graphs (any source not reaching all n nodes) yield INFINITY exactly as
-    // before.
+    // Bit-parallel multi-source BFS: process W*64 sources per graph traversal
+    // (see `aspl_distance_sum`). The distance SUM is an integer, so the result is
+    // byte-identical to the per-source BFS, and disconnected graphs (any source
+    // not reaching all n nodes) yield INFINITY exactly as before. Used only for
+    // n < ASPL_BITPAR_MAX_N; larger graphs take the per-source rayon path, which
+    // parallelises across every core and wins on many-core hosts.
+    if n < ASPL_BITPAR_MAX_N && n <= u32::MAX as usize {
+        let (offsets, targets) = build_u32_csr(n, |u| graph.neighbors_indices(u).unwrap_or(&[]));
+        let agg = aspl_distance_sum(&offsets, &targets, n);
+        return aspl_finalize_bitpar(agg, n, "bfs_average_shortest_path_length");
+    }
     let adjacency: Vec<&[usize]> = (0..n)
         .map(|u| graph.neighbors_indices(u).unwrap_or(&[]))
         .collect();
@@ -9137,11 +9388,16 @@ pub fn average_shortest_path_length_directed(digraph: &DiGraph) -> AverageShorte
         };
     }
 
-    // br-r37-c1-wiener-csr (sibling): integer-CSR BFS over `successors_indices`.
-    // Each source's BFS is independent and the distance SUM is an integer, so
-    // fanning sources out over rayon and reducing the per-source sums is
-    // byte-identical to the sequential accumulation. Not-strongly-connected
-    // graphs (any source not reaching all n nodes) yield INFINITY as before.
+    // Bit-parallel multi-source BFS over `successors_indices` (see
+    // `aspl_distance_sum`). The distance SUM is an integer so the result is
+    // byte-identical to the per-source BFS; not-strongly-connected graphs (any
+    // source not reaching all n nodes) yield INFINITY as before. Used only for
+    // n < ASPL_BITPAR_MAX_N; larger graphs take the per-source rayon path.
+    if n < ASPL_BITPAR_MAX_N && n <= u32::MAX as usize {
+        let (offsets, targets) = build_u32_csr(n, |u| digraph.successors_indices(u).unwrap_or(&[]));
+        let agg = aspl_distance_sum(&offsets, &targets, n);
+        return aspl_finalize_bitpar(agg, n, "bfs_average_shortest_path_length_directed");
+    }
     let adjacency: Vec<&[usize]> = (0..n)
         .map(|u| digraph.successors_indices(u).unwrap_or(&[]))
         .collect();
@@ -43188,6 +43444,173 @@ pub fn remove_node_attributes(graph: &Graph, name: &str) -> Graph {
 // regression test and wired in here so it executes.
 #[cfg(test)]
 mod test_dijkstra;
+
+#[cfg(test)]
+mod bitpar_aspl_tests {
+    //! Differential + property tests for the bit-parallel multi-source BFS that
+    //! backs `average_shortest_path_length`. The reference is the independent
+    //! HashMap-per-source BFS (`_average_shortest_path_length_undirected`); the
+    //! result must be BIT-for-bit identical for connected graphs and INFINITY for
+    //! disconnected graphs. Covers every lane-dispatch width and the parallel
+    //! (n >= 500) path.
+    use super::{
+        _average_shortest_path_length_undirected, average_shortest_path_length,
+        average_shortest_path_length_directed,
+    };
+    use fnx_classes::{Graph, digraph::DiGraph};
+
+    fn path(n: usize) -> Graph {
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n.saturating_sub(1) {
+            let _ = g.add_edge(i.to_string(), (i + 1).to_string());
+        }
+        g
+    }
+
+    fn cycle(n: usize) -> Graph {
+        let mut g = path(n);
+        if n > 2 {
+            let _ = g.add_edge((n - 1).to_string(), 0.to_string());
+        }
+        g
+    }
+
+    fn grid(rows: usize, cols: usize) -> Graph {
+        let mut g = Graph::strict();
+        for r in 0..rows {
+            for c in 0..cols {
+                let _ = g.add_node(format!("{r}_{c}"));
+            }
+        }
+        for r in 0..rows {
+            for c in 0..cols {
+                if c + 1 < cols {
+                    let _ = g.add_edge(format!("{r}_{c}"), format!("{r}_{}", c + 1));
+                }
+                if r + 1 < rows {
+                    let _ = g.add_edge(format!("{r}_{c}"), format!("{}_{c}", r + 1));
+                }
+            }
+        }
+        g
+    }
+
+    fn complete(n: usize) -> Graph {
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let _ = g.add_edge(i.to_string(), j.to_string());
+            }
+        }
+        g
+    }
+
+    #[test]
+    fn bitpar_matches_reference_connected() {
+        // Exercises lane widths W=1 (n<=64) through W=8 (up to the n<500 gate)
+        // and diverse diameters (path/cycle/grid/complete).
+        let graphs = [
+            path(2),
+            path(7),
+            path(64),
+            path(65),
+            path(200),
+            cycle(9),
+            cycle(128),
+            grid(5, 7),
+            grid(12, 12),
+            grid(22, 22), // 484 nodes -> widest bit-parallel lane (W=8)
+            complete(8),
+            complete(50),
+        ];
+        for g in graphs {
+            let n = g.node_count();
+            let got = average_shortest_path_length(&g).average_shortest_path_length;
+            let want = _average_shortest_path_length_undirected(&g).average_shortest_path_length;
+            assert_eq!(
+                got.to_bits(),
+                want.to_bits(),
+                "aspl mismatch at n={n}: got {got} want {want}"
+            );
+        }
+    }
+
+    #[test]
+    fn fallback_path_matches_reference() {
+        // n >= 500 takes the per-source rayon fallback; still must equal the
+        // independent reference (byte-for-byte).
+        let g = grid(30, 30); // 900 nodes
+        let got = average_shortest_path_length(&g).average_shortest_path_length;
+        let want = _average_shortest_path_length_undirected(&g).average_shortest_path_length;
+        assert_eq!(got.to_bits(), want.to_bits());
+    }
+
+    #[test]
+    fn directed_cycle_closed_form() {
+        // A directed cycle C_n is strongly connected; the average over ordered
+        // pairs of (j - i) mod n equals n/2 exactly.
+        for n in [5usize, 7, 64, 65, 200] {
+            let mut dg = DiGraph::strict();
+            for i in 0..n {
+                let _ = dg.add_node(i.to_string());
+            }
+            for i in 0..n {
+                let _ = dg.add_edge(i.to_string(), ((i + 1) % n).to_string());
+            }
+            let got = average_shortest_path_length_directed(&dg).average_shortest_path_length;
+            assert_eq!(got, n as f64 / 2.0, "directed cycle C_{n}");
+        }
+    }
+
+    #[test]
+    fn directed_non_strongly_connected_is_infinite() {
+        // Directed path 0->1->2 is not strongly connected.
+        let mut dg = DiGraph::strict();
+        for i in 0..3 {
+            let _ = dg.add_node(i.to_string());
+        }
+        let _ = dg.add_edge("0", "1");
+        let _ = dg.add_edge("1", "2");
+        assert!(
+            average_shortest_path_length_directed(&dg)
+                .average_shortest_path_length
+                .is_infinite()
+        );
+    }
+
+    #[test]
+    fn disconnected_graph_is_infinite() {
+        let mut g = Graph::strict();
+        for name in ["a", "b", "c", "d"] {
+            let _ = g.add_node(name);
+        }
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("c", "d");
+        assert!(
+            average_shortest_path_length(&g)
+                .average_shortest_path_length
+                .is_infinite()
+        );
+    }
+
+    #[test]
+    fn trivial_graphs_are_zero() {
+        assert_eq!(
+            average_shortest_path_length(&Graph::strict()).average_shortest_path_length,
+            0.0
+        );
+        assert_eq!(
+            average_shortest_path_length(&path(1)).average_shortest_path_length,
+            0.0
+        );
+    }
+}
 
 #[cfg(test)]
 mod tests {
