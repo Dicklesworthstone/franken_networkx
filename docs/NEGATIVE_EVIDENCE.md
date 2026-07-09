@@ -28,6 +28,7 @@ Evidence:
 | --- | --- | ---: | ---: | ---: | --- |
 | `from_graph6_bytes_sparse_700` before direct decoder | local warm timing, 20 parses | `0.477430 s` | `0.463688 s` | `0.971x` | original |
 | `from_graph6_bytes_sparse_700` after direct decoder | RCH `ovh-a` Criterion, 5 parses/call | `73.655 ms` | `160.09 ms` | `2.17x` | SHIP |
+| `from_graph6_bytes_sparse_700` after direct decoder | RCH `vmi1152480` Criterion, 5 parses/call | `114.14 ms` | `226.44 ms` | `1.98x` | SHIP; latest target-dir proof |
 | `from_graph6_bytes_sparse_700` after direct decoder | local warm timing, 20 parses | `0.318234 s` | `0.499357 s` | `1.569x` | corroborating |
 
 Command:
@@ -40,6 +41,16 @@ cargo bench -p fnx-python --profile release --features pyo3/abi3-py310
 --warm-up-time 0.2 --measurement-time 0.5 --noplot
 ```
 
+Latest target-dir proof command:
+
+```text
+AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/franken_networkx/.rch-targets/networkx-cod
+PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 timeout 900 rch exec --
+cargo bench -p fnx-python --profile release --features pyo3/abi3-py310
+--bench public_api_gauntlet from_graph6_bytes_sparse_700 -- --sample-size 10
+--warm-up-time 0.2 --measurement-time 0.5 --noplot
+```
+
 Conformance / quality gates:
 - `.venv/bin/python -m py_compile crates/fnx-python/benches/public_api_gauntlet.py
   python/franken_networkx/readwrite/__init__.py`: PASS.
@@ -47,6 +58,12 @@ Conformance / quality gates:
   tests/python/test_codec_roundtrip_invariants.py
   tests/python/test_review_mode_regression_lock.py::test_graph6_sparse6_low_byte_input_match_nx -q`:
   `199 passed`.
+- `.venv/bin/python -m pytest tests/python/test_graph6_sparse6_weighted.py
+  tests/python/test_codec_roundtrip_invariants.py
+  tests/python/test_readwrite_audit_regressions.py -q`: `230 passed`.
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/franken_networkx/.rch-targets/networkx-cod
+  rch exec -- cargo test -p fnx-conformance --profile release`: PASS via local fallback
+  (`no admissible workers`), all conformance crate tests/doc-tests passed.
 - `AGENT_NAME=codex-cyan-grove CARGO_TARGET_DIR=/data/projects/franken_networkx/.rch-targets/networkx-cod
   cargo fmt --check`: PASS.
 - `AGENT_NAME=codex-cyan-grove CARGO_TARGET_DIR=/data/projects/franken_networkx/.rch-targets/networkx-cod
@@ -62,6 +79,13 @@ Conformance / quality gates:
   crates/fnx-python/benches/public_api_gauntlet.py
   crates/fnx-python/benches/public_api_gauntlet.rs`: exit 0; 0 criticals,
   34 warning inventory items in existing readwrite/bench harness patterns.
+- `AGENT_NAME=CyanGrove timeout 180 ubs --only=python
+  python/franken_networkx/readwrite/__init__.py
+  crates/fnx-python/benches/public_api_gauntlet.py`: 0 criticals; existing
+  readwrite/bench warning inventory only.
+- `AGENT_NAME=CyanGrove timeout 180 ubs --only=rust
+  crates/fnx-python/benches/public_api_gauntlet.rs`: 0 criticals; existing
+  benchmark harness warning inventory only.
 
 ## 2026-07-08 CyanGrove NO-SHIP: `get_edge_attributes(Graph)` cache-local projection lost vs LEGACY ORIGINAL; `DiGraph` row already wins
 
