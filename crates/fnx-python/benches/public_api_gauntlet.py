@@ -978,6 +978,101 @@ def networkx_is_path_len50() -> float:
     return total
 
 
+def _weighted_attr_edges(node_count: int, edge_count: int, *, directed: bool):
+    edges = []
+    seen = set()
+    step = 1
+    u = 0
+    while len(edges) < edge_count and step < node_count:
+        left = u
+        right = (u + step) % node_count
+        emit_u, emit_v = left, right
+        if not directed and emit_u > emit_v:
+            emit_u, emit_v = emit_v, emit_u
+        key = (emit_u, emit_v) if directed else (min(emit_u, emit_v), max(emit_u, emit_v))
+        if key not in seen:
+            idx = len(edges)
+            seen.add(key)
+            edges.append((emit_u, emit_v, {"weight": idx % 1009, "tag": f"e{idx % 17}"}))
+        u += 1
+        if u == node_count:
+            u = 0
+            step += 1
+    if len(edges) != edge_count:
+        raise AssertionError("unable to build requested unique weighted edge set")
+    return edges
+
+
+def _build_weighted_attr_graph(module, *, directed: bool):
+    graph = module.DiGraph() if directed else module.Graph()
+    graph.add_edges_from(_GET_EDGE_ATTR_DIGRAPH_EDGES if directed else _GET_EDGE_ATTR_GRAPH_EDGES)
+    return graph
+
+
+_GET_EDGE_ATTR_NODE_COUNT = 1024
+_GET_EDGE_ATTR_EDGE_COUNT = 4096
+_GET_EDGE_ATTR_REPEAT = 30
+_GET_EDGE_ATTR_GRAPH_EDGES = _weighted_attr_edges(
+    _GET_EDGE_ATTR_NODE_COUNT, _GET_EDGE_ATTR_EDGE_COUNT, directed=False
+)
+_GET_EDGE_ATTR_DIGRAPH_EDGES = _weighted_attr_edges(
+    _GET_EDGE_ATTR_NODE_COUNT, _GET_EDGE_ATTR_EDGE_COUNT, directed=True
+)
+_FNX_GET_EDGE_ATTR_GRAPH = _build_weighted_attr_graph(fnx, directed=False)
+_NX_GET_EDGE_ATTR_GRAPH = _build_weighted_attr_graph(nx, directed=False)
+_FNX_GET_EDGE_ATTR_DIGRAPH = _build_weighted_attr_graph(fnx, directed=True)
+_NX_GET_EDGE_ATTR_DIGRAPH = _build_weighted_attr_graph(nx, directed=True)
+
+if fnx.get_edge_attributes(
+    _FNX_GET_EDGE_ATTR_GRAPH, "weight"
+) != nx.get_edge_attributes(_NX_GET_EDGE_ATTR_GRAPH, "weight"):
+    raise AssertionError("Graph get_edge_attributes parity drift")
+if fnx.get_edge_attributes(
+    _FNX_GET_EDGE_ATTR_DIGRAPH, "weight"
+) != nx.get_edge_attributes(_NX_GET_EDGE_ATTR_DIGRAPH, "weight"):
+    raise AssertionError("DiGraph get_edge_attributes parity drift")
+
+
+def _sum_weight_attrs(attrs) -> float:
+    return float(sum(attrs.values()))
+
+
+def fnx_graph_get_edge_attributes_weight_4k() -> float:
+    total = 0.0
+    for _ in range(_GET_EDGE_ATTR_REPEAT):
+        total += _sum_weight_attrs(
+            fnx.get_edge_attributes(_FNX_GET_EDGE_ATTR_GRAPH, "weight")
+        )
+    return total
+
+
+def networkx_graph_get_edge_attributes_weight_4k() -> float:
+    total = 0.0
+    for _ in range(_GET_EDGE_ATTR_REPEAT):
+        total += _sum_weight_attrs(
+            nx.get_edge_attributes(_NX_GET_EDGE_ATTR_GRAPH, "weight")
+        )
+    return total
+
+
+def fnx_digraph_get_edge_attributes_weight_4k() -> float:
+    total = 0.0
+    for _ in range(_GET_EDGE_ATTR_REPEAT):
+        total += _sum_weight_attrs(
+            fnx.get_edge_attributes(_FNX_GET_EDGE_ATTR_DIGRAPH, "weight")
+        )
+    return total
+
+
+def networkx_digraph_get_edge_attributes_weight_4k() -> float:
+    total = 0.0
+    for _ in range(_GET_EDGE_ATTR_REPEAT):
+        total += _sum_weight_attrs(
+            nx.get_edge_attributes(_NX_GET_EDGE_ATTR_DIGRAPH, "weight")
+        )
+    return total
+
+
 def _duplicate_attr_edges(node_count: int, unique_count: int, *, directed: bool):
     edges = []
     for idx in range(unique_count):

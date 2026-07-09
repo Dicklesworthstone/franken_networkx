@@ -284,6 +284,26 @@ if target_dir:
             ("is_path_len50", "fnx", "fnx_is_path_len50"),
             ("is_path_len50", "networkx", "networkx_is_path_len50"),
             (
+                "graph_get_edge_attributes_weight_4k",
+                "fnx",
+                "fnx_graph_get_edge_attributes_weight_4k",
+            ),
+            (
+                "graph_get_edge_attributes_weight_4k",
+                "networkx",
+                "networkx_graph_get_edge_attributes_weight_4k",
+            ),
+            (
+                "digraph_get_edge_attributes_weight_4k",
+                "fnx",
+                "fnx_digraph_get_edge_attributes_weight_4k",
+            ),
+            (
+                "digraph_get_edge_attributes_weight_4k",
+                "networkx",
+                "networkx_digraph_get_edge_attributes_weight_4k",
+            ),
+            (
                 "graph_duplicate_attr_add_edges_from",
                 "fnx",
                 "fnx_graph_duplicate_attr_add_edges_from",

@@ -2,6 +2,69 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-08 CyanGrove NO-SHIP: `get_edge_attributes(Graph)` cache-local projection lost vs LEGACY ORIGINAL; `DiGraph` row already wins
+
+Land-or-dig pass started by consulting this ledger first. I did not retry the
+recent `is_path`, construction/add_edges_from, non_edges, Dijkstra/Bellman,
+degree-scan, topological-sort, link-prediction, multigraph in-edge, WL-format,
+or matching-order lanes. Fresh profiling moved to the public edge-attribute
+projection path, which is a separate hot path from graph construction and path
+predicates: `get_edge_attributes(G, "weight")` materializes a Python mapping
+from stored edge attribute dictionaries.
+
+Primitive class tested: data-layout / cache-oblivious streaming projection.
+The rejected implementation moved exact native Graph/DiGraph classes through a
+single PyO3 method that scanned index-ordered edge storage and emitted the
+attribute dictionary directly, avoiding Python-level adjacency iteration. I
+tested both a direct edge-order scan and an indexed variant, then reverted all
+runtime code because the Graph row still lost to LEGACY ORIGINAL and the
+DiGraph row already wins on current source without a new runtime lever. The
+only shipped artifact here is a bounded public gauntlet row with parity guards,
+so this path remains visible in future profiles.
+
+Evidence:
+
+| Row | Mode | FNX estimate | LEGACY ORIGINAL estimate | Ratio vs ORIG | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `graph_get_edge_attributes_weight_4k` current source | RCH `vmi1293453` Criterion | `53.759 ms` | `47.841 ms` | `0.890x` | REJECT |
+| `digraph_get_edge_attributes_weight_4k` current source | RCH `vmi1293453` Criterion | `26.285 ms` | `39.846 ms` | `1.516x` | already wins; no code |
+| `graph_get_edge_attributes_weight_4k` native indexed candidate | local release timing | `1.692 ms` | `1.356 ms` | `0.802x` | reverted |
+| `graph_get_edge_attributes_missing_default` native indexed candidate | local release timing | `1.638 ms` | `1.248 ms` | `0.762x` | reverted |
+| `graph_get_edge_attributes_missing_none` native indexed candidate | local release timing | `0.996 ms` | `0.852 ms` | `0.855x` | reverted |
+
+Command:
+
+```text
+AGENT_NAME=codex-cyan-grove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 rch exec --
+cargo bench -p fnx-python --profile release --features pyo3/abi3-py310
+--bench public_api_gauntlet get_edge_attributes -- --sample-size 10
+--warm-up-time 0.2 --measurement-time 0.5 --noplot
+```
+
+Conformance / quality gates:
+- `.venv/bin/python -m py_compile crates/fnx-python/benches/public_api_gauntlet.py`: PASS.
+- Bench helper parity for Graph/DiGraph weighted attributes: PASS
+  (`61077420.0` FNX == `61077420.0` NetworkX for both graph types).
+- `AGENT_NAME=codex-cyan-grove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  rch exec -- maturin develop --release --features pyo3/abi3-py310`: PASS.
+- `.venv/bin/python -m pytest tests/python/test_ordering_value_certification.py
+  tests/python/test_edge_attr_dirty_sync.py -q`: `60 passed`.
+- `AGENT_NAME=codex-cyan-grove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  rch exec -- cargo check --workspace --all-targets`: worker `ovh-b` dependency
+  drift before compile (`/dp/frankentui/crates/ftui` reported `0.4.1` while
+  this workspace requires `0.5.0`); local `/dp/frankentui` is `0.5.0`.
+- `AGENT_NAME=codex-cyan-grove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  cargo check --workspace --all-targets`: PASS.
+- `AGENT_NAME=codex-cyan-grove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  cargo clippy --workspace --all-targets -- -D warnings`: PASS.
+- `AGENT_NAME=codex-cyan-grove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  cargo fmt --check`: PASS.
+- `AGENT_NAME=codex-cyan-grove timeout 180 ubs docs/NEGATIVE_EVIDENCE.md
+  crates/fnx-python/benches/public_api_gauntlet.py
+  crates/fnx-python/benches/public_api_gauntlet.rs`: exit 0; 0 criticals,
+  25 warning inventory items in the benchmark harness.
+
 ## 2026-07-08 SilverPine/CyanGrove SHIP: `is_path_len50` fused native path-existence scan - 0.215x before, 2.94x vs LEGACY ORIGINAL after
 
 Land-or-dig pass started by consulting this ledger first. I did not retry the
