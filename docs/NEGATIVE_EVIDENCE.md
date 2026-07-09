@@ -2,6 +2,52 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-08 BlackThrush SEAM-STOP + RE-PROFILE HANDOFF: abandon the MG-SSSP-collapse seam; fresh ranked hotspot table REFUTES the "string-node-key floor" theory; CONSTRUCTION is the untapped-headroom target
+
+STOPPING the multigraph-SSSP-collapse seam (my 5 recent ships: mgssd-target, mgbfpath x3, mgbfpath-pred).
+Each was a real byte-exact win but the seam has no headroom left — the residual is the O(|E|) Python
+collapse itself, and every remaining member needs a native Rust kernel. Re-profiled a STRUCTURALLY
+DIFFERENT surface (fresh binary, gc.disable, warm, n=2000/m=10000, `fnx.X` vs `nx.X`) — ranked hotspot table:
+
+| op (x2000 unless noted)        | fnx      | nx      | ratio   |
+|--------------------------------|----------|---------|---------|
+| get_edge_data                  | 6.95ms   | 0.28ms  | 0.040x  |
+| has_node                       | 2.61ms   | 0.11ms  | 0.042x  |
+| n in G                         | 2.06ms   | 0.12ms  | 0.059x  |
+| has_edge                       | 3.10ms   | 0.23ms  | 0.074x  |
+| degree(u)                      | 5.79ms   | 0.45ms  | 0.077x  |
+| G[u][v] getitem                | 6.35ms   | 0.52ms  | 0.082x  |
+| ctor(edgelist 10k)             | 42.8ms   | 6.2ms   | 0.145x  |
+| add_edges_from(10k, attr)      | 29.4ms   | 7.4ms   | 0.252x  |
+| add_nodes_from(2000)           | 1.28ms   | 0.46ms  | 0.360x  |
+| add_edges_from(10k, plain)     | 10.3ms   | 5.7ms   | 0.557x  |
+
+REFUTED THEORY (my own memory — the "string-node-key materialisation floor" of `integer_adjacency_epoch` /
+node-removal-storage-wall): the single-element access floor is NOT int->String canonicalisation. ATTRIBUTION
+(per-call, isolated on the RAW native `_fnx.Graph`, no Python wrapper): `has_node` = 1311 ns and is IDENTICAL
+for small-int / string / big-int keys (1311 / 1295 / 1298 ns) — if String materialisation were the cost,
+big-ints would diverge; they don't. Decomposition: ~500 ns fixed PyO3/abi3 per-call floor (a no-arg
+`is_directed()` costs 497 ns) + ~800 ns arg-extract/lookup, UNIFORM across key type; nx does the same in
+~55 ns. So the top-6 access ops are the **abi3 per-call boundary floor**, NOT string hashing. A bold fix
+there means killing the crossing itself (batched native predicates like `has_edges_from(pairs)`), which
+cannot help a user-level `[G.has_edge(u,v) for ...]` loop without an API change. The Python wrapper layer
+(`_private_aware_has_node`, `_make_class_safe_predicate`) adds ~0 ns — raw-native == wrapped, measured.
+
+NEXT TARGET = CONSTRUCTION (batch path = ONE PyO3 call -> NO per-call floor; foundational; real headroom;
+CyanGrove/SilverPine already mining add_edges_from/non_edges — the two UNTOUCHED sub-targets here are):
+(1) `ctor(edgelist)` 0.145x is 4x slower than `empty ctor + add_edges_from` (0.53x): the Rust `__new__`
+edge-absorb does NOT reuse the optimised `add_edges_from` batch, AND the Python `__init__` re-walks the list
+a 2nd time via native `validate_ctor_edge_list` (double O(|E|) native pass, `__init__.py:4481`). Fix: route
+`__new__(edgelist)` through the batch inserter + drop the redundant validate walk.
+(2) `add_edges_from(attr)` 0.252x is 3x slower than plain (0.557x): the delta is per-edge Python-dict->AttrMap
+(BTreeMap) alloc + the dual int/str weight store. BOLD PRIMITIVE (data-layout / algebraic-fusion per
+/extreme-software-optimization + /alien-graveyard): a COLUMNAR single-`weight` edge fast lane — when every
+edge dict is `{weight: <number>}` (overwhelmingly common), skip the per-edge AttrMap and append to one
+contiguous `Vec<f64>`/`Vec<i64>` column keyed by edge index (SoA, cache-friendly, no per-edge BTreeMap);
+fall back to AttrMap on any non-weight key. Both per-crate benchable vs ORIG (fnx-python/fnx-classes).
+NO code landed this turn — profiling handoff only; the maturin-rebuild + cargo-bench cycle did not fit the
+turn budget. This is UNTAPPED HEADROOM with a concrete lever, NOT a ceiling.
+
 ## 2026-07-08 CyanGrove SHIP: duplicate-attr add_edges_from prefix duplicate scout - Graph 1.30x / DiGraph 1.25x vs ORIG
 
 Land-or-dig pass started by consulting this ledger first. Rejected levers were not retried: no
