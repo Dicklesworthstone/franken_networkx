@@ -66,9 +66,8 @@ Conformance / quality gates:
   python/franken_networkx/__init__.py`: timed out after 300s; isolated rerun
   with `--skip-python=20` also timed out after 300s before findings.
 - `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
-  PYTHONHASHSEED=0 timeout 900 rch exec -- cargo test -p fnx-conformance
-  --profile release`: local fallback because no admissible worker slots; PASS,
-  conformance crate tests/doc-tests green.
+  timeout 900 rch exec -- cargo test -p fnx-conformance --profile release`:
+  PASS on RCH worker `ovh-a`; conformance crate tests/doc-tests green.
 - `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
   timeout 900 rch exec -- cargo check --workspace --all-targets`: PASS on
   RCH worker `hz1`.
