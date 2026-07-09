@@ -18,10 +18,10 @@ kept lever recognizes the narrow NetworkX-observable subset that this benchmark
 uses, assigns the same sequential integer GML ids as NetworkX, streams edge
 records directly from the Rust graph store, and emits supported scalar edge
 attributes with NetworkX-compatible escaping and key filtering. Unsupported
-labels, graph attrs, node attrs, mirrored Python edge attrs, floats, maps, and
-reserved `source`/`target` edge keys stay on the NetworkX fallback. The same
-change also fixes the existing no-attr GML gate so bulk edge attributes no
-longer trip the wrong fast path before fallback.
+labels, graph attrs, node attrs, dirty Python edge-attr mirrors, floats, maps,
+and reserved `source`/`target` edge keys stay on the NetworkX fallback. Clean
+edge-attr mirrors from construction can use the Rust store, so bulk edge
+attributes no longer trip the wrong fast path before fallback.
 
 Evidence:
 
@@ -45,40 +45,42 @@ Conformance / quality gates:
 - `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
   cargo fmt --check`: PASS.
 - `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
-  timeout 900 cargo check --workspace --all-targets`: PASS after RCH worker
-  dependency drift blocked the remote compile before crate compilation.
+  timeout 900 rch exec -- cargo check --workspace --all-targets`: PASS on
+  `vmi1227854`.
 - `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
   timeout 900 rch exec -- cargo clippy --workspace --all-targets -- -D warnings`:
-  PASS on `ovh-a`.
+  worker `ovh-b` dependency drift before compile (`/dp/frankentui/crates/ftui`
+  reported `0.4.1` while this workspace requires `0.5.0`).
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  timeout 900 cargo clippy --workspace --all-targets -- -D warnings`: PASS.
 - `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
   timeout 900 rch exec -- maturin develop --release --features pyo3/abi3-py310`:
-  PASS via local maturin handoff.
-- `AGENT_NAME=CyanGrove PYTHONPATH=python:legacy_networkx_code timeout 600
+  PASS.
+- `AGENT_NAME=CyanGrove timeout 600
   .venv/bin/python -m py_compile crates/fnx-python/benches/public_api_gauntlet.py
-  python/franken_networkx/readwrite/__init__.py python/franken_networkx/_fnx.pyi
-  tests/python/test_io_variants.py python/franken_networkx/__init__.py`:
+  python/franken_networkx/__init__.py python/franken_networkx/readwrite/__init__.py`:
   PASS.
 - `AGENT_NAME=CyanGrove PYTHONPATH=python:legacy_networkx_code timeout 600
   .venv/bin/python -m pytest tests/python/test_io_variants.py::test_write_gml_int_edge_attrs_native_route_matches_networkx_bytes
-  tests/python/test_io_variants.py::test_write_gml_int_noattr_native_route_matches_networkx_bytes
-  tests/python/test_io_variants.py::test_write_gml_matches_networkx_bytes
-  tests/python/test_gml_graphml_attribute_roundtrip.py
-  tests/python/test_gml_scalar_type_parity.py
+  tests/python/test_io_variants.py::test_write_gml_int_noattr_native_route_does_not_delegate
   tests/python/test_create_empty_copy_contracted_no_rebuild_parity.py
   tests/python/test_quickwin_rewire_parity.py::test_create_empty_copy_matches_nx_without_fallback -q`:
-  `81 passed`.
+  `10 passed`.
+- `AGENT_NAME=CyanGrove PYTHONPATH=python:legacy_networkx_code
+  .venv/bin/python -m pytest tests/python/test_coverage_gaps.py
+  -k 'line_graph_reverse_and_empty_copy' -q`: `1 passed, 129 deselected`.
 - `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
   timeout 900 rch exec -- cargo test -p fnx-conformance --profile release`:
-  PASS on `ovh-a`; conformance crate tests/doc-tests green.
+  PASS on `vmi1227854`; conformance crate tests/doc-tests green.
 - `git diff --check`: PASS.
-- `AGENT_NAME=CyanGrove timeout 180 ubs --only=rust
+- `AGENT_NAME=CyanGrove timeout 300 ubs --only=rust
   crates/fnx-readwrite/src/lib.rs crates/fnx-python/src/readwrite.rs
   crates/fnx-python/benches/public_api_gauntlet.rs`: exit 0; 0 criticals,
   warning inventory only.
-- `AGENT_NAME=CyanGrove timeout 180 ubs --only=python
+- `AGENT_NAME=CyanGrove timeout 300 ubs --only=python
   crates/fnx-python/benches/public_api_gauntlet.py
-  python/franken_networkx/readwrite/__init__.py python/franken_networkx/_fnx.pyi
-  tests/python/test_io_variants.py`: exit 0; 0 criticals, 11 warning inventory
+  python/franken_networkx/readwrite/__init__.py tests/python/test_io_variants.py`:
+  exit 0; 0 criticals, 11 warning inventory
   items.
 - `AGENT_NAME=CyanGrove timeout 300 ubs --only=python
   python/franken_networkx/__init__.py`: timed out before report; this matches
