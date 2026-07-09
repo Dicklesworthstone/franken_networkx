@@ -2,7 +2,7 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
-## 2026-07-08 SilverPine SHIP: `is_path_len50` fused native path-existence scan - 0.215x before, 2.63x vs LEGACY ORIGINAL after
+## 2026-07-08 SilverPine/CyanGrove SHIP: `is_path_len50` fused native path-existence scan - 0.215x before, 2.94x vs LEGACY ORIGINAL after
 
 Land-or-dig pass started by consulting this ledger first. I did not retry the
 recent construction/add_edges_from, non_edges, Dijkstra/Bellman, degree-scan,
@@ -11,7 +11,8 @@ different hot path from `br-r37-c1-ykqs0`: public `is_path(G, path)` paid a
 Python `G[node]` + membership lookup for every adjacent pair, making the
 len-50 path predicate ~4.7x slower than legacy NetworkX before this change.
 
-Primitive class: algebraic-fusion / succinct existence automaton. The public
+Primitive class: data-layout / algebraic-fusion / succinct existence
+automaton. The public
 Python API now routes exact native graph classes through one PyO3 call,
 `_fnx.path_exists_rust(G, path)`, which lazily consumes `pairwise(path)` and
 scans the graph's native edge store directly. It preserves NetworkX's
@@ -19,40 +20,45 @@ scans the graph's native edge store directly. It preserves NetworkX's
 hash/canonicalization of the only node), and uses an exact-int index probe for
 simple Graph/DiGraph pairs before falling back to canonical string edge
 lookup. Unsupported graph-like objects still run the original Python
-expression.
+expression. The final pass added the structurally different exact list/tuple
+lane: exact Python ints are packed once into a contiguous `Vec<usize>`, then
+the whole pair stream is checked over native integer adjacency rows without a
+per-pair PyO3/key-canonicalization round trip.
 
 Evidence:
 
 | Row | Mode | FNX estimate | LEGACY ORIGINAL estimate | Ratio vs ORIG | Decision |
 | --- | --- | ---: | ---: | ---: | --- |
 | `is_path_len50` before native scan | local fallback Criterion | `261.49 ms` | `56.150 ms` | `0.215x` | original |
-| `is_path_len50` after native scan | RCH `vmi1167313` Criterion | `37.105 ms` | `97.450 ms` | `2.63x` | SHIP |
+| `is_path_len50` after exact-int sequence fusion | RCH `ovh-a` Criterion | `10.484 ms` | `30.808 ms` | `2.94x` | SHIP |
 
 Command:
 
 ```text
-AGENT_NAME=SilverPine CARGO_TARGET_DIR=/data/projects/franken_networkx/.rch-targets/networkx-cod
-rch exec -- cargo bench --profile release -p fnx-python --bench public_api_gauntlet --
-is_path_len50 --sample-size 10 --warm-up-time 1 --measurement-time 2
+AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 timeout 600
+rch exec -- cargo bench -p fnx-python --profile release --features pyo3/abi3-py310
+--bench public_api_gauntlet is_path_len50 -- --sample-size 10 --warm-up-time 0.2
+--measurement-time 0.5 --noplot
 ```
 
 Conformance / quality gates:
-- `maturin develop --release --features pyo3/abi3-py310`: PASS.
-- `pytest tests/python/test_graph_predicates.py::TestIsPath
-  tests/python/test_shortest_path_algorithms.py::TestPathWeight -q`: `50 passed`.
-- `pytest tests/python/test_simple_paths_conformance.py
-  tests/python/test_simple_paths_module_parity.py -q`: `169 passed`.
-- `pytest tests/python/test_parity_conformance.py -q`: `195 passed`.
-- `cargo fmt --check`: PASS after workspace rustfmt normalized two pre-existing
-  `fnx-classes` line wraps.
-- `AGENT_NAME=SilverPine CARGO_TARGET_DIR=/data/projects/franken_networkx/.rch-targets/networkx-cod
+- `.venv/bin/python -m pytest tests/python/test_graph_predicates.py -q`: `249 passed`.
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  cargo fmt --check`: PASS.
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
   rch exec -- cargo check --workspace --all-targets`: PASS on `hz1`.
-- `AGENT_NAME=SilverPine CARGO_TARGET_DIR=/data/projects/franken_networkx/.rch-targets/networkx-cod
-  rch exec -- cargo clippy --workspace --all-targets -- -D warnings`: PASS on `hz1`.
-- `ubs --only=rust ...`: PASS, 0 criticals; existing warning inventory only.
-- `UBS_MODULE_TIMEOUT=900 ubs --only=python ...`: scanner timed out in the
-  Python module on the large API file; no file findings emitted. Compensating
-  check: `python -m py_compile` on the changed Python files passed.
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  rch exec -- cargo clippy --workspace --all-targets -- -D warnings`: PASS on `hz2`.
+- `AGENT_NAME=CyanGrove timeout 180 ubs --only=rust
+  crates/fnx-python/src/algorithms.rs crates/fnx-python/benches/public_api_gauntlet.rs
+  crates/fnx-classes/src/digraph.rs crates/fnx-classes/src/lib.rs`: 0 criticals;
+  existing broad warning inventory only.
+- `AGENT_NAME=CyanGrove timeout 120 ubs --only=python
+  crates/fnx-python/benches/public_api_gauntlet.py`: 0 criticals / 0 warnings.
+- `AGENT_NAME=CyanGrove timeout 180 ubs --only=python
+  crates/fnx-python/benches/public_api_gauntlet.py python/franken_networkx/__init__.py`:
+  timed out in the monolithic wrapper before producing a report.
 
 Coordination note: Agent Mail session start/reservation failed with the known
 SQLite corruption (`database disk image is malformed`). Proceeded narrowly on
