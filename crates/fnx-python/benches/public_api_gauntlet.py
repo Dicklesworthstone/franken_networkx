@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gc
+import io
 import random
 
 import franken_networkx as fnx
@@ -80,6 +81,125 @@ def networkx_from_graph6_bytes_sparse_700() -> float:
     total = 0.0
     for _ in range(_GRAPH6_REPEAT):
         total += _consume_graph6_parse(nx.from_graph6_bytes(_GRAPH6_PAYLOAD))
+    return total
+
+
+def _build_gml_edge_attr_graph(module, node_count: int, edge_count: int):
+    graph = module.Graph()
+    graph.add_nodes_from(range(node_count))
+    edges = []
+    seen = set()
+    step = 1
+    u = 0
+    while len(edges) < edge_count and step < node_count:
+        v = (u * 37 + step * 17 + 3) % node_count
+        left, right = (u, v) if u < v else (v, u)
+        if left != right and (left, right) not in seen:
+            seen.add((left, right))
+            edges.append((left, right, {"weight": (left * 13 + right * 7) % 997}))
+        u += 1
+        if u == node_count:
+            u = 0
+            step += 1
+    if len(edges) != edge_count:
+        raise AssertionError("unable to build requested GML writer graph")
+    graph.add_edges_from(edges)
+    return graph
+
+
+def _write_gml_signature(module, graph) -> float:
+    buf = io.BytesIO()
+    module.write_gml(graph, buf)
+    payload = buf.getvalue()
+    return float(len(payload) + sum(payload) % 1_000_003)
+
+
+_GML_EDGE_ATTR_NODE_COUNT = 900
+_GML_EDGE_ATTR_EDGE_COUNT = 3600
+_GML_EDGE_ATTR_REPEAT = 20
+_FNX_GML_EDGE_ATTR_GRAPH = _build_gml_edge_attr_graph(
+    fnx, _GML_EDGE_ATTR_NODE_COUNT, _GML_EDGE_ATTR_EDGE_COUNT
+)
+_NX_GML_EDGE_ATTR_GRAPH = _build_gml_edge_attr_graph(
+    nx, _GML_EDGE_ATTR_NODE_COUNT, _GML_EDGE_ATTR_EDGE_COUNT
+)
+_FNX_GML_EDGE_ATTR_BYTES = io.BytesIO()
+_NX_GML_EDGE_ATTR_BYTES = io.BytesIO()
+fnx.write_gml(_FNX_GML_EDGE_ATTR_GRAPH, _FNX_GML_EDGE_ATTR_BYTES)
+nx.write_gml(_NX_GML_EDGE_ATTR_GRAPH, _NX_GML_EDGE_ATTR_BYTES)
+if _FNX_GML_EDGE_ATTR_BYTES.getvalue() != _NX_GML_EDGE_ATTR_BYTES.getvalue():
+    raise AssertionError("write_gml int edge-attr byte parity drift")
+
+
+def fnx_write_gml_int_edge_attrs() -> float:
+    total = 0.0
+    for _ in range(_GML_EDGE_ATTR_REPEAT):
+        total += _write_gml_signature(fnx, _FNX_GML_EDGE_ATTR_GRAPH)
+    return total
+
+
+def networkx_write_gml_int_edge_attrs() -> float:
+    total = 0.0
+    for _ in range(_GML_EDGE_ATTR_REPEAT):
+        total += _write_gml_signature(nx, _NX_GML_EDGE_ATTR_GRAPH)
+    return total
+
+
+def _build_empty_copy_source(module, node_count: int):
+    graph = module.Graph()
+    graph.graph["name"] = "empty-copy-node-attrs"
+    graph.add_nodes_from(
+        (node, {"color": node % 7, "payload": (node, node + 1)})
+        for node in range(node_count)
+    )
+    graph.add_edges_from((node, node + 1) for node in range(0, node_count - 1, 7))
+    return graph
+
+
+def _consume_empty_copy(graph) -> float:
+    last_node = _EMPTY_COPY_NODE_COUNT - 1
+    return float(
+        graph.number_of_nodes()
+        + graph.number_of_edges()
+        + graph.nodes[0]["color"]
+        + graph.nodes[last_node]["payload"][1]
+        + len(graph.graph["name"])
+    )
+
+
+_EMPTY_COPY_NODE_COUNT = 10_000
+_EMPTY_COPY_REPEAT = 20
+_FNX_EMPTY_COPY_SOURCE = _build_empty_copy_source(fnx, _EMPTY_COPY_NODE_COUNT)
+_NX_EMPTY_COPY_SOURCE = _build_empty_copy_source(nx, _EMPTY_COPY_NODE_COUNT)
+_FNX_EMPTY_COPY_PARSED = fnx.create_empty_copy(_FNX_EMPTY_COPY_SOURCE, with_data=True)
+_NX_EMPTY_COPY_PARSED = nx.create_empty_copy(_NX_EMPTY_COPY_SOURCE, with_data=True)
+if (
+    list(_FNX_EMPTY_COPY_PARSED.nodes()) != list(_NX_EMPTY_COPY_PARSED.nodes())
+    or _FNX_EMPTY_COPY_PARSED.number_of_edges() != 0
+    or _NX_EMPTY_COPY_PARSED.number_of_edges() != 0
+    or _FNX_EMPTY_COPY_PARSED.graph != _NX_EMPTY_COPY_PARSED.graph
+    or _FNX_EMPTY_COPY_PARSED.nodes[1234] != _NX_EMPTY_COPY_PARSED.nodes[1234]
+    or _consume_empty_copy(_FNX_EMPTY_COPY_PARSED)
+    != _consume_empty_copy(_NX_EMPTY_COPY_PARSED)
+):
+    raise AssertionError("create_empty_copy node-attr parity drift")
+
+
+def fnx_create_empty_copy_node_attrs_10k() -> float:
+    total = 0.0
+    for _ in range(_EMPTY_COPY_REPEAT):
+        total += _consume_empty_copy(
+            fnx.create_empty_copy(_FNX_EMPTY_COPY_SOURCE, with_data=True)
+        )
+    return total
+
+
+def networkx_create_empty_copy_node_attrs_10k() -> float:
+    total = 0.0
+    for _ in range(_EMPTY_COPY_REPEAT):
+        total += _consume_empty_copy(
+            nx.create_empty_copy(_NX_EMPTY_COPY_SOURCE, with_data=True)
+        )
     return total
 
 

@@ -356,7 +356,8 @@ def test_rust_write_gml_preserves_graph_attrs(tmp_path: Path):
 
     content = path.read_text(encoding="utf-8")
     assert 'label "demo"' in content
-    assert 'owner "qa"' in content
+    if 'owner "qa"' not in content:
+        raise AssertionError(content)
 
 
 def test_write_gml_matches_networkx_bytes(tmp_path: Path):
@@ -418,6 +419,26 @@ def test_write_gml_int_noattr_native_route_does_not_delegate(monkeypatch, tmp_pa
         "  ]\n"
         "]\n"
     )
+
+
+def test_write_gml_int_edge_attrs_native_route_matches_networkx_bytes(monkeypatch, tmp_path: Path):
+    graph = fnx.Graph()
+    nx_graph = nx.Graph()
+    edges = [(node, node + 1, {"weight": node % 7}) for node in range(12)]
+    graph.add_edges_from(edges)
+    nx_graph.add_edges_from(edges)
+    path = tmp_path / "graph.gml"
+    nx_path = tmp_path / "graph_nx.gml"
+
+    def fail(*args, **kwargs):
+        raise AssertionError("native int edge-attr GML route should not call NetworkX")
+
+    monkeypatch.setattr(nx, "write_gml", fail)
+    fnx.write_gml(graph, path)
+    monkeypatch.undo()
+    nx.write_gml(nx_graph, nx_path)
+
+    assert path.read_bytes() == nx_path.read_bytes()
 
 
 def test_write_gml_stringizer_stays_delegated(monkeypatch, tmp_path: Path):

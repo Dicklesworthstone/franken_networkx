@@ -2,6 +2,162 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-09 CyanGrove SHIP: `write_gml` int edge-attr streaming serializer - 0.947x before, 6.34x vs LEGACY ORIGINAL after
+
+Land-or-dig pass started by reading this ledger first. I did not retry the
+recent graph6, edge-attribute projection, `is_path`, construction/add_edges_from,
+non_edges, Dijkstra/Bellman, degree/toposort, link-prediction, multigraph scan,
+sparse-matrix, WL hashing, simple-cycles, or XML/GraphML/GEXF writer lanes.
+Fresh profiling moved to a readwrite serialization path: `write_gml` for integer
+graphs with integer edge attributes. The fallback path crossed into NetworkX and
+serialized every edge attribute through Python's generic GML generator, so FNX
+was behind legacy before this lever.
+
+Primitive class: streaming data-layout serializer with algebraic fusion. The
+kept lever recognizes the narrow NetworkX-observable subset that this benchmark
+uses, assigns the same sequential integer GML ids as NetworkX, streams edge
+records directly from the Rust graph store, and emits supported scalar edge
+attributes with NetworkX-compatible escaping and key filtering. Unsupported
+labels, graph attrs, node attrs, mirrored Python edge attrs, floats, maps, and
+reserved `source`/`target` edge keys stay on the NetworkX fallback. The same
+change also fixes the existing no-attr GML gate so bulk edge attributes no
+longer trip the wrong fast path before fallback.
+
+Evidence:
+
+| Row | Mode | FNX estimate | LEGACY ORIGINAL estimate | Ratio vs ORIG | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `write_gml_int_edge_attrs` before native edge-attr writer | RCH `vmi1167313` Criterion, 20 writes/call | `691.21 ms` | `654.39 ms` | `0.947x` | original |
+| `write_gml_int_edge_attrs` after native edge-attr writer | RCH `vmi1167313` Criterion, 20 writes/call | `97.449 ms` | `617.74 ms` | `6.34x` | SHIP |
+
+Command:
+
+```text
+AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 timeout 600
+rch exec -- cargo bench -p fnx-python --profile release
+--features pyo3/abi3-py310 --bench public_api_gauntlet
+write_gml_int_edge_attrs -- --sample-size 10 --warm-up-time 0.2
+--measurement-time 0.5 --noplot
+```
+
+Conformance / quality gates:
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  cargo fmt --check`: PASS.
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  timeout 900 cargo check --workspace --all-targets`: PASS after RCH worker
+  dependency drift blocked the remote compile before crate compilation.
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  timeout 900 rch exec -- cargo clippy --workspace --all-targets -- -D warnings`:
+  PASS on `ovh-a`.
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  timeout 900 rch exec -- maturin develop --release --features pyo3/abi3-py310`:
+  PASS via local maturin handoff.
+- `AGENT_NAME=CyanGrove PYTHONPATH=python:legacy_networkx_code timeout 600
+  .venv/bin/python -m py_compile crates/fnx-python/benches/public_api_gauntlet.py
+  python/franken_networkx/readwrite/__init__.py python/franken_networkx/_fnx.pyi
+  tests/python/test_io_variants.py python/franken_networkx/__init__.py`:
+  PASS.
+- `AGENT_NAME=CyanGrove PYTHONPATH=python:legacy_networkx_code timeout 600
+  .venv/bin/python -m pytest tests/python/test_io_variants.py::test_write_gml_int_edge_attrs_native_route_matches_networkx_bytes
+  tests/python/test_io_variants.py::test_write_gml_int_noattr_native_route_matches_networkx_bytes
+  tests/python/test_io_variants.py::test_write_gml_matches_networkx_bytes
+  tests/python/test_gml_graphml_attribute_roundtrip.py
+  tests/python/test_gml_scalar_type_parity.py
+  tests/python/test_create_empty_copy_contracted_no_rebuild_parity.py
+  tests/python/test_quickwin_rewire_parity.py::test_create_empty_copy_matches_nx_without_fallback -q`:
+  `81 passed`.
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  timeout 900 rch exec -- cargo test -p fnx-conformance --profile release`:
+  PASS on `ovh-a`; conformance crate tests/doc-tests green.
+- `git diff --check`: PASS.
+- `AGENT_NAME=CyanGrove timeout 180 ubs --only=rust
+  crates/fnx-readwrite/src/lib.rs crates/fnx-python/src/readwrite.rs
+  crates/fnx-python/benches/public_api_gauntlet.rs`: exit 0; 0 criticals,
+  warning inventory only.
+- `AGENT_NAME=CyanGrove timeout 180 ubs --only=python
+  crates/fnx-python/benches/public_api_gauntlet.py
+  python/franken_networkx/readwrite/__init__.py python/franken_networkx/_fnx.pyi
+  tests/python/test_io_variants.py`: exit 0; 0 criticals, 11 warning inventory
+  items.
+- `AGENT_NAME=CyanGrove timeout 300 ubs --only=python
+  python/franken_networkx/__init__.py`: timed out before report; this matches
+  the wrapper-only scan behavior seen before this GML lever.
+
+## 2026-07-09 CyanGrove SHIP: `create_empty_copy(with_data=True)` node-attr overlay split - 0.221x before, 1.54x vs LEGACY ORIGINAL after
+
+Land-or-dig pass started by reading this ledger first. I did not retry the
+recent graph6 decoder, edge-attribute projection, `is_path`,
+construction/add_edges_from, non_edges, Dijkstra/Bellman, degree-scan,
+topological-sort, link-prediction, multigraph scan, TSP/Voronoi, product,
+generator, matrix-conversion, or XML/GraphML/GEXF lanes. Fresh profiling moved
+to a utility-copy path: `create_empty_copy(G, with_data=True)` on a graph with
+node attributes. The hotspot was not source node-attribute materialization; it
+was re-inserting `(node, attrdict)` pairs one node at a time when tuple-valued
+attrs could not use the existing AttrMap batch path.
+
+Primitive class: algebraic-fusion skeleton/overlay copy. The kept lever factors
+empty-copy into two semantics-preserving operations: copy the node-key skeleton
+with the native bulk key path, then merge the shallow node-attribute overlay via
+the existing native dict-of-dicts setter. This preserves graph attributes, node
+order, no-edge output, shallow node-attribute copy semantics, and the
+`with_data=False` branch while avoiding the per-node `add_node` fallback.
+
+Evidence:
+
+| Row | Mode | FNX estimate | LEGACY ORIGINAL estimate | Ratio vs ORIG | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `create_empty_copy_node_attrs_10k` before skeleton/overlay split | local warm timing, 100 copies | `3.720953 s` | `0.824334 s` | `0.221x` | original |
+| `create_empty_copy_node_attrs_10k` after skeleton/overlay split | RCH `hz1` Criterion, 20 copies/call | `375.43 ms` | `579.88 ms` | `1.54x` | SHIP |
+| `create_empty_copy_node_attrs_10k` after skeleton/overlay split | local warm timing, 100 copies | `0.669238 s` | `0.783004 s` | `1.170x` | corroborating |
+
+Command:
+
+```text
+AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 timeout 900
+rch exec -- cargo bench -p fnx-python --profile release
+--features pyo3/abi3-py310 --bench public_api_gauntlet
+create_empty_copy_node_attrs_10k -- --sample-size 10 --warm-up-time 0.2
+--measurement-time 0.5 --noplot
+```
+
+Conformance / quality gates:
+- `AGENT_NAME=CyanGrove PYTHONPATH=python:legacy_networkx_code
+  .venv/bin/python -m py_compile crates/fnx-python/benches/public_api_gauntlet.py
+  python/franken_networkx/__init__.py`: PASS.
+- `AGENT_NAME=CyanGrove PYTHONPATH=python:legacy_networkx_code
+  .venv/bin/python -m pytest tests/python/test_create_empty_copy_contracted_no_rebuild_parity.py
+  tests/python/test_quickwin_rewire_parity.py::test_create_empty_copy_matches_nx_without_fallback -q`:
+  `8 passed`.
+- `AGENT_NAME=CyanGrove PYTHONPATH=python:legacy_networkx_code
+  .venv/bin/python -m pytest tests/python/test_coverage_gaps.py
+  -k 'line_graph_reverse_and_empty_copy' -q`: `1 passed, 129 deselected`.
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  cargo fmt --check`: PASS.
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  timeout 900 rch exec -- cargo test -p fnx-conformance --profile release`: PASS
+  via local fallback (`no admissible workers`), all conformance crate tests/doc-tests passed.
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  timeout 900 rch exec -- cargo check --workspace --all-targets`: PASS on
+  `vmi1293453`.
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  timeout 900 rch exec -- cargo clippy --workspace --all-targets -- -D warnings`:
+  worker `vmi1264463` dependency drift before compile (`/dp/frankentui/crates/ftui`
+  reported `0.4.1` while this workspace requires `0.5.0`).
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  cargo clippy --workspace --all-targets -- -D warnings`: PASS.
+- `AGENT_NAME=CyanGrove timeout 180 ubs --only=rust
+  crates/fnx-python/benches/public_api_gauntlet.rs`: exit 0; 0 criticals,
+  25 warning inventory items in the existing benchmark harness.
+- `AGENT_NAME=CyanGrove timeout 180 ubs --only=python
+  crates/fnx-python/benches/public_api_gauntlet.py`: exit 0; 0 criticals,
+  0 warnings.
+- `AGENT_NAME=CyanGrove timeout 300 ubs --only=python
+  python/franken_networkx/__init__.py`: timed out before report; the prior
+  all-file UBS attempt also timed out while scanning the same monolithic wrapper
+  after Rust completed.
+
 ## 2026-07-09 CyanGrove SHIP: `from_graph6_bytes` direct 6-bit edge-pair decoder - 0.971x before, 2.17x vs LEGACY ORIGINAL after
 
 Land-or-dig pass started by consulting this ledger first. I did not retry the

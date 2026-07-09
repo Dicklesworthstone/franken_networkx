@@ -92,6 +92,26 @@ if target_dir:
                 "networkx_from_graph6_bytes_sparse_700",
             ),
             (
+                "write_gml_int_edge_attrs",
+                "fnx",
+                "fnx_write_gml_int_edge_attrs",
+            ),
+            (
+                "write_gml_int_edge_attrs",
+                "networkx",
+                "networkx_write_gml_int_edge_attrs",
+            ),
+            (
+                "create_empty_copy_node_attrs_10k",
+                "fnx",
+                "fnx_create_empty_copy_node_attrs_10k",
+            ),
+            (
+                "create_empty_copy_node_attrs_10k",
+                "networkx",
+                "networkx_create_empty_copy_node_attrs_10k",
+            ),
+            (
                 "flow_hierarchy_weighted_cyclic_dag",
                 "fnx",
                 "fnx_flow_hierarchy_weighted_cyclic_dag",

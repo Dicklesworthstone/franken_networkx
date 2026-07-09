@@ -23304,16 +23304,28 @@ def create_empty_copy(G, with_data=True):
     # (node, attrs) pairs (add_nodes_from snapshots each dict's contents).
     if with_data:
         H.graph.update(dict(G.graph))
-        # Materializing ``G.nodes(data=True)`` is ~0.5ms@n=1500 (per-node attr
-        # dict reconstruction from Rust) — it dwarfs everything else. Skip it
-        # whenever the native ``graph_has_any_attrs`` check proves no node/edge
-        # carries a Python-visible attr (the overwhelmingly common case for
-        # algorithm-built graphs): then an empty copy is just the node KEYS,
-        # which ``_native_node_keys`` returns essentially for free and feeds the
-        # bulk int-node fast path. graph-level attrs were already copied above.
-        if type(G) is Graph and not _fnx.graph_has_any_attrs(G):
-            keys = G._native_node_keys()
-            H.add_nodes_from(keys if keys is not None else list(G.nodes()))
+        # Bulk-copy keys first, then merge node attrs in one native dict pass.
+        # The previous ``add_nodes_from(list(G.nodes(data=True)))`` path fell
+        # back to per-node add_node whenever attrs were not losslessly storable
+        # in the Rust AttrMap, even though create_empty_copy only needs a shallow
+        # Python-visible attr copy.
+        native_keys = getattr(G, "_native_node_keys", None)
+        if type(G) in (Graph, DiGraph, MultiGraph, MultiDiGraph) and native_keys is not None:
+            keys = native_keys()
+            if keys is not None:
+                has_any_attrs = None
+                if type(G) in (Graph, DiGraph):
+                    try:
+                        has_any_attrs = _fnx.graph_has_any_attrs(G)
+                    except Exception:
+                        has_any_attrs = None
+                H.add_nodes_from(keys)
+                if has_any_attrs is not False:
+                    node_attrs = dict(G.nodes(data=True))
+                    if any(node_attrs.values()):
+                        set_node_attributes(H, node_attrs)
+            else:
+                H.add_nodes_from(list(G.nodes(data=True)))
         else:
             H.add_nodes_from(list(G.nodes(data=True)))
     else:

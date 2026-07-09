@@ -547,6 +547,38 @@ fn can_write_gml_nx_int_noattr(py: Python<'_>, graph: &PyGraph) -> PyResult<bool
     if !graph.graph_attrs.bind(py).is_empty() {
         return Ok(false);
     }
+    if !graph.node_py_attrs.is_empty() || graph.edges_dirty.load(Ordering::Relaxed) {
+        return Ok(false);
+    }
+    if graph
+        .inner
+        .edges_ordered_borrowed()
+        .iter()
+        .any(|(_, _, attrs)| !attrs.is_empty())
+    {
+        return Ok(false);
+    }
+    for node in graph.inner.nodes_ordered() {
+        let Ok(expected) = node.parse::<i64>() else {
+            return Ok(false);
+        };
+        let py_key = graph.py_node_key(py, node);
+        let bound = py_key.bind(py);
+        if !bound.is_exact_instance_of::<PyInt>() {
+            return Ok(false);
+        }
+        let actual = bound.extract::<i64>()?;
+        if actual != expected {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn can_write_gml_nx_int_edge_attrs(py: Python<'_>, graph: &PyGraph) -> PyResult<bool> {
+    if !graph.graph_attrs.bind(py).is_empty() {
+        return Ok(false);
+    }
     if !graph.node_py_attrs.is_empty() || !graph.edge_py_attrs.is_empty() {
         return Ok(false);
     }
@@ -1333,6 +1365,28 @@ fn write_gml_nx_int_noattr(
     let content = engine
         .write_networkx_int_noattr_gml(&pg.inner)
         .map_err(rw_error_to_py)?;
+    write_output_bytes(py, path, &content)?;
+    Ok(true)
+}
+
+#[pyfunction]
+fn write_gml_nx_int_edge_attrs(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    path: &Bound<'_, PyAny>,
+) -> PyResult<bool> {
+    let gr = extract_graph(g)?;
+    let GraphRef::Undirected(pg) = gr else {
+        return Ok(false);
+    };
+    if !can_write_gml_nx_int_edge_attrs(py, &pg)? {
+        return Ok(false);
+    }
+    let mut engine = EdgeListEngine::hardened();
+    let content = match engine.write_networkx_int_edge_attrs_gml(&pg.inner) {
+        Ok(content) => content,
+        Err(_) => return Ok(false),
+    };
     write_output_bytes(py, path, &content)?;
     Ok(true)
 }
@@ -3135,5 +3189,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(read_gml, m)?)?;
     m.add_function(wrap_pyfunction!(write_gml, m)?)?;
     m.add_function(wrap_pyfunction!(write_gml_nx_int_noattr, m)?)?;
+    m.add_function(wrap_pyfunction!(write_gml_nx_int_edge_attrs, m)?)?;
     Ok(())
 }

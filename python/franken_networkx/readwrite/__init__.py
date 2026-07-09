@@ -357,7 +357,10 @@ def _write_gml_via_nx(G, path, *, stringizer=None):
         stringizer is None
         and G.__class__ is fnx.Graph
         and _write_gml_native_plain_path_ok(path)
-        and fnx._fnx.write_gml_nx_int_noattr(G, path)
+        and (
+            fnx._fnx.write_gml_nx_int_noattr(G, path)
+            or fnx._fnx.write_gml_nx_int_edge_attrs(G, path)
+        )
     ):
         return None
 

@@ -3431,6 +3431,84 @@ impl EdgeListEngine {
         Ok(out)
     }
 
+    pub fn write_networkx_int_edge_attrs_gml(
+        &mut self,
+        graph: &Graph,
+    ) -> Result<String, ReadWriteError> {
+        let nodes = graph.nodes_ordered();
+        let edges = graph.edges_ordered_borrowed();
+        let mut out = String::with_capacity(16 + nodes.len() * 48 + edges.len() * 72);
+        out.push_str("graph [\n");
+
+        let mut node_ids: HashMap<&str, usize> = HashMap::with_capacity(nodes.len());
+        for (node_id, &node_name) in nodes.iter().enumerate() {
+            if node_name.parse::<i64>().is_err() {
+                return Err(ReadWriteError::FailClosed {
+                    operation: "write_gml",
+                    reason: format!("node '{node_name}' is not an integer label"),
+                });
+            }
+            if graph
+                .node_attrs(node_name)
+                .is_some_and(|attrs| !attrs.is_empty())
+            {
+                return Err(ReadWriteError::FailClosed {
+                    operation: "write_gml",
+                    reason: "node attributes are not supported by int edge-attr fast path"
+                        .to_owned(),
+                });
+            }
+            node_ids.insert(node_name, node_id);
+            out.push_str("  node [\n");
+            out.push_str("    id ");
+            out.push_str(&node_id.to_string());
+            out.push('\n');
+            out.push_str("    label \"");
+            out.push_str(&gml_escape(node_name));
+            out.push_str("\"\n");
+            out.push_str("  ]\n");
+        }
+
+        for (left, right, attrs) in edges {
+            out.push_str("  edge [\n");
+            let source = node_ids
+                .get(left)
+                .copied()
+                .ok_or_else(|| ReadWriteError::FailClosed {
+                    operation: "write_gml",
+                    reason: format!("edge source node '{left}' missing from node mapping"),
+                })?;
+            let target =
+                node_ids
+                    .get(right)
+                    .copied()
+                    .ok_or_else(|| ReadWriteError::FailClosed {
+                        operation: "write_gml",
+                        reason: format!("edge target node '{right}' missing from node mapping"),
+                    })?;
+            out.push_str("    source ");
+            out.push_str(&source.to_string());
+            out.push('\n');
+            out.push_str("    target ");
+            out.push_str(&target.to_string());
+            out.push('\n');
+            for (key, value) in attrs {
+                push_networkx_gml_edge_attr(&mut out, key, value)?;
+            }
+            out.push_str("  ]\n");
+        }
+
+        out.push_str("]\n");
+
+        self.record(
+            "write_gml",
+            DecisionAction::Allow,
+            "networkx-compatible int edge-attr gml write completed",
+            0.04,
+        );
+        Ok(out)
+    }
+
     /// Write a directed graph to GML format.
     pub fn write_digraph_gml(&mut self, graph: &DiGraph) -> Result<String, ReadWriteError> {
         self.write_digraph_gml_with_graph_attrs(graph, &AttrMap::new())
@@ -4419,6 +4497,72 @@ fn push_gml_indent(out: &mut String, indent: usize) {
     for _ in 0..indent {
         out.push(' ');
     }
+}
+
+fn push_networkx_gml_edge_attr(
+    out: &mut String,
+    key: &str,
+    value: &CgseValue,
+) -> Result<(), ReadWriteError> {
+    if !is_networkx_gml_key(key) {
+        return Err(ReadWriteError::FailClosed {
+            operation: "write_gml",
+            reason: format!("'{key}' is not a valid key"),
+        });
+    }
+    if key == "source" || key == "target" {
+        return Ok(());
+    }
+    if key == "label" {
+        return Err(ReadWriteError::FailClosed {
+            operation: "write_gml",
+            reason: "label edge attributes are not supported by int edge-attr fast path".to_owned(),
+        });
+    }
+
+    push_gml_indent(out, 4);
+    out.push_str(key);
+    out.push(' ');
+    match value {
+        CgseValue::Bool(value) => {
+            if *value {
+                out.push('1');
+            } else {
+                out.push('0');
+            }
+        }
+        CgseValue::Int(value) => {
+            if (i64::from(i32::MIN)..(i64::from(i32::MAX) + 1)).contains(value) {
+                out.push_str(&value.to_string());
+            } else {
+                out.push('"');
+                out.push_str(&value.to_string());
+                out.push('"');
+            }
+        }
+        CgseValue::String(value) => {
+            out.push('"');
+            out.push_str(&gml_escape(value));
+            out.push('"');
+        }
+        CgseValue::Float(_) | CgseValue::Map(_) => {
+            return Err(ReadWriteError::FailClosed {
+                operation: "write_gml",
+                reason: "edge attribute value is not supported by int edge-attr fast path"
+                    .to_owned(),
+            });
+        }
+    }
+    out.push('\n');
+    Ok(())
+}
+
+fn is_networkx_gml_key(key: &str) -> bool {
+    let mut chars = key.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    first.is_ascii_alphabetic() && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
 }
 
 /// Escape a string for GML output (wrap in quotes).
