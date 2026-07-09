@@ -112,6 +112,16 @@ if target_dir:
                 "networkx_create_empty_copy_node_attrs_10k",
             ),
             (
+                "tournament_is_reachable_bitset_220",
+                "fnx",
+                "fnx_tournament_is_reachable_bitset_220",
+            ),
+            (
+                "tournament_is_reachable_bitset_220",
+                "networkx",
+                "networkx_tournament_is_reachable_bitset_220",
+            ),
+            (
                 "flow_hierarchy_weighted_cyclic_dag",
                 "fnx",
                 "fnx_flow_hierarchy_weighted_cyclic_dag",

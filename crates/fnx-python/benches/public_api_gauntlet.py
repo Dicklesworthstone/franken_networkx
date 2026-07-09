@@ -7,7 +7,9 @@ import io
 import random
 
 import franken_networkx as fnx
+import franken_networkx.tournament as fnx_tournament
 import networkx as nx
+from networkx.algorithms import tournament as nx_tournament
 
 gc.disable()
 
@@ -199,6 +201,72 @@ def networkx_create_empty_copy_node_attrs_10k() -> float:
     for _ in range(_EMPTY_COPY_REPEAT):
         total += _consume_empty_copy(
             nx.create_empty_copy(_NX_EMPTY_COPY_SOURCE, with_data=True)
+        )
+    return total
+
+
+def _build_tournament_graph(module, node_count: int):
+    graph = module.DiGraph()
+    graph.add_nodes_from(range(node_count))
+    edges = []
+    for left in range(node_count):
+        for right in range(left + 1, node_count):
+            bit = (
+                left * 6_364_136_223_846_793_005
+                + right * 1_442_695_040_888_963_407
+            ) & 7
+            if bit in (0, 1, 4, 6):
+                edges.append((left, right))
+            else:
+                edges.append((right, left))
+    graph.add_edges_from(edges)
+    return graph
+
+
+_TOURNAMENT_REACH_NODE_COUNT = 220
+_TOURNAMENT_REACH_SOURCE = 146
+_TOURNAMENT_REACH_TARGET = 73
+_TOURNAMENT_REACH_REPEAT = 3
+_FNX_TOURNAMENT_REACH_GRAPH = _build_tournament_graph(
+    fnx, _TOURNAMENT_REACH_NODE_COUNT
+)
+_NX_TOURNAMENT_REACH_GRAPH = _build_tournament_graph(nx, _TOURNAMENT_REACH_NODE_COUNT)
+_FNX_TOURNAMENT_REACHABLE = fnx_tournament.is_reachable(
+    _FNX_TOURNAMENT_REACH_GRAPH,
+    _TOURNAMENT_REACH_SOURCE,
+    _TOURNAMENT_REACH_TARGET,
+)
+_NX_TOURNAMENT_REACHABLE = nx_tournament.is_reachable(
+    _NX_TOURNAMENT_REACH_GRAPH,
+    _TOURNAMENT_REACH_SOURCE,
+    _TOURNAMENT_REACH_TARGET,
+)
+if _FNX_TOURNAMENT_REACHABLE != _NX_TOURNAMENT_REACHABLE:
+    raise AssertionError("tournament.is_reachable parity drift")
+
+
+def fnx_tournament_is_reachable_bitset_220() -> float:
+    total = 0.0
+    for _ in range(_TOURNAMENT_REACH_REPEAT):
+        total += float(
+            fnx_tournament.is_reachable(
+                _FNX_TOURNAMENT_REACH_GRAPH,
+                _TOURNAMENT_REACH_SOURCE,
+                _TOURNAMENT_REACH_TARGET,
+            )
+        )
+    return total
+
+
+def networkx_tournament_is_reachable_bitset_220() -> float:
+    total = 0.0
+    for _ in range(_TOURNAMENT_REACH_REPEAT):
+        total += float(
+            nx_tournament.is_reachable(
+                _NX_TOURNAMENT_REACH_GRAPH,
+                _TOURNAMENT_REACH_SOURCE,
+                _TOURNAMENT_REACH_TARGET,
+            )
         )
     return total
 

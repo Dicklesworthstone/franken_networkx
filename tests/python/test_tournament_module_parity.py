@@ -117,6 +117,35 @@ def test_is_reachable_matches_networkx(seed):
             ), f"seed={seed} reach({s},{t})"
 
 
+def test_is_reachable_bitset_endpoint_parity():
+    labels = [("node", i) for i in range(5)]
+    edges = [
+        (labels[0], labels[1]),
+        (labels[0], labels[2]),
+        (labels[3], labels[0]),
+        (labels[1], labels[2]),
+        (labels[1], labels[3]),
+        (labels[4], labels[1]),
+        (labels[2], labels[3]),
+        (labels[2], labels[4]),
+        (labels[3], labels[4]),
+        (labels[0], labels[4]),
+    ]
+    fg = fnx.DiGraph(edges)
+    ng = nx.DiGraph(edges)
+    probes = [
+        (labels[0], labels[3]),
+        (labels[3], labels[0]),
+        (labels[2], ("missing", "target")),
+        (("missing", "source"), labels[2]),
+        (("same-missing",), ("same-missing",)),
+    ]
+    for source, target in probes:
+        assert fnx_tournament.is_reachable(fg, source, target) == (
+            nx_tournament.is_reachable(ng, source, target)
+        )
+
+
 # ---------------------------------------------------------------------------
 # Seeded random_tournament generator parity.
 # ---------------------------------------------------------------------------

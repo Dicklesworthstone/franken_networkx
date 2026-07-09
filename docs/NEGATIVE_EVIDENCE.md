@@ -2,6 +2,82 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-09 CyanGrove SHIP: `tournament.is_reachable` integer-bitset separator - 0.733x before, 2.94x vs LEGACY ORIGINAL after
+
+Land-or-dig pass started by reading this ledger first. I did not retry the
+recent readwrite, graph6, edge-attribute projection, `is_path`,
+construction/add_edges_from, non_edges, shortest-path, topological sort,
+link-prediction, multigraph degree/edge scan, sparse-matrix, selfloop,
+adjacency, product/generator, tree, lattice, or GML lanes. Fresh profiling moved
+to tournament reachability: the existing implementation still ran NetworkX's
+Tantau separator test with Python `set` rows and subset/intersection loops.
+
+Primitive class: SIMD-within-register / succinct-structure bitset. The kept
+lever preserves the original separator algorithm but maps each successor row to
+a Python integer bitset. Two-neighborhood union, separator membership, and
+closed-set subset checks become word operations. The implementation keeps
+NetworkX's observable missing-endpoint behavior (`s not in any separator`
+returns true, missing `t` behaves like `t not in S`) and still rejects
+undirected/multigraph inputs in NetworkX's decorator order.
+
+Rejected scratch route in this pass: a duplicate-frontier rewrite for
+`bipartite.projected_graph` was not landed. On the bottom simple projection it
+matched legacy but moved FNX current `143.162 ms` to candidate `149.127 ms`
+while LEGACY ORIGINAL was `180.559 ms`; on the duplicate-heavy multigraph row the
+bulk-add variant remained dominated by FNX `MultiGraph` insertion after the
+current baseline measured `10.119 s`.
+
+Evidence:
+
+| Row | Mode | FNX estimate | LEGACY ORIGINAL estimate | Ratio vs ORIG | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `tournament_is_reachable_bitset_220` before bitset | local scratch, 1 call | `15.951 ms` | `11.695 ms` | `0.733x` | original |
+| `tournament_is_reachable_bitset_220` after bitset | local fallback Criterion, 3 calls/callable | `20.437 ms` | `60.126 ms` | `2.94x` | SHIP |
+
+Command:
+
+```text
+AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 timeout 1200
+rch exec -- cargo bench -p fnx-python --profile release
+--features pyo3/abi3-py310 --bench public_api_gauntlet
+tournament_is_reachable_bitset_220 -- --sample-size 10 --warm-up-time 0.2
+--measurement-time 0.5 --noplot
+```
+
+Conformance / quality gates:
+- `AGENT_NAME=CyanGrove PYTHONHASHSEED=0
+  PYTHONPATH=python:legacy_networkx_code/networkx:legacy_networkx_code
+  python3 -m py_compile python/franken_networkx/tournament.py
+  tests/python/test_tournament_module_parity.py
+  crates/fnx-python/benches/public_api_gauntlet.py`: PASS.
+- `AGENT_NAME=CyanGrove PYTHONHASHSEED=0
+  PYTHONPATH=python:legacy_networkx_code/networkx:legacy_networkx_code
+  python3 -m pytest tests/python/test_tournament_module_parity.py -q`:
+  `186 passed`.
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  cargo fmt --check`: PASS.
+- `git diff --check`: PASS.
+- `AGENT_NAME=CyanGrove timeout 300 ubs --only=python
+  python/franken_networkx/tournament.py tests/python/test_tournament_module_parity.py
+  crates/fnx-python/benches/public_api_gauntlet.py`: exit 0; 0 criticals,
+  existing bench/test warning inventory only.
+- `AGENT_NAME=CyanGrove timeout 300 ubs --only=rust
+  crates/fnx-python/benches/public_api_gauntlet.rs`: exit 0; 0 criticals,
+  existing benchmark unwrap/expect inventory only.
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  timeout 900 rch exec -- cargo test -p fnx-conformance --profile release`:
+  local fallback; PASS, conformance crate tests/doc-tests green.
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  timeout 900 rch exec -- cargo check --workspace --all-targets`: remote worker
+  `vmi1149989` dependency drift before compile (`/dp/frankentui/crates/ftui`
+  reported `0.4.1` while this workspace requires `0.5.0`).
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  timeout 900 cargo check --workspace --all-targets`: PASS locally.
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  timeout 900 rch exec -- cargo clippy --workspace --all-targets -- -D warnings`:
+  PASS on `hz2`.
+
 ## 2026-07-09 CyanGrove SHIP: `write_gml` int edge-attr streaming serializer - 0.947x before, 6.34x vs LEGACY ORIGINAL after
 
 Land-or-dig pass started by reading this ledger first. I did not retry the
