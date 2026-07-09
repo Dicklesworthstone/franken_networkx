@@ -40,6 +40,14 @@ that file (or run the script) for the current classification counts
 This document describes family-level status and caveats. The exact public
 surface counts live in the generated coverage matrix, not in prose here.
 
+Status refresh (2026-07-09): the module-level tournament and graph-summarization
+families now route through the native `_fnx` surface with canonical
+`tests/python/` parity coverage (new rows in the matrix below), and many other
+public exports have moved off direct NetworkX delegation since this document's
+prior revision. Consult [`docs/coverage.md`](docs/coverage.md) for the
+machine-checked runtime-route split (`PY_WRAPPER` / `NETWORKX_HELPER` /
+`RUST_NATIVE`) at HEAD rather than any counts implied by this prose.
+
 ## Mode Decision
 
 Strict/hardened mode is retained, not retracted.
@@ -61,6 +69,8 @@ fixture evidence.
 | Graph generator families | in_progress | `fnx-generators` ships a broad native generator set including classic, stochastic, scale-free, and degree-sequence families. The Python surface no longer delegates the focused degree-sequence generators covered by `franken_networkx-vh7p`; `dorogovtsev_goltsev_mendes_graph(create_using=...)`, `extended_barabasi_albert_graph`, `grid_graph`, `hexagonal_lattice_graph`, `triangular_lattice_graph`, `margulis_gabber_galil_graph`, `nonisomorphic_trees`, `graph_atlas`, `graph_atlas_g`, `lattice_reference`, and `LFR_benchmark_graph` now stay on the native path. See [`docs/coverage.md`](docs/coverage.md) for the machine-checked public export inventory. Remaining gaps are tracked as family-specific work, not estimated here with hand-maintained percentages. |
 | Bipartite algorithms | in_progress | Core recognition (`is_bipartite`, `bipartite_sets`) is native. Higher-level helpers such as projections and matching-adjacent helpers still rely on Python-layer wrappers and need more explicit parity accounting. |
 | Community detection | in_progress | Rust covers `louvain_communities`, `label_propagation_communities`, `greedy_modularity_communities`, and `modularity`. Other community APIs still rely on Python-layer implementations or remain outside the current native surface. |
+| Tournament algorithms | in_progress | `python/franken_networkx/tournament.py` routes `score_sequence`, `hamiltonian_path`, `is_tournament`, `tournament_matrix`, `random_tournament`, `is_reachable`, and `is_strongly_connected` through the native `_fnx` surface with backend-dispatch keyword validation and NetworkX-compatible multigraph/undirected rejection. Canonical parity: `tests/python/test_tournament_module_parity.py` (predicate/matrix/hamiltonian/reachability parity, bitset-endpoint `is_reachable` parity, byte-exact `random_tournament`, and golden transitive/three-cycle/non-tournament cases). |
+| Graph summarization | in_progress | `python/franken_networkx/summarization.py` routes `dedensify` through the native path while preserving NetworkX `copy=True`/`copy=False` identity semantics (in-place mutation for `copy=False`, fresh copied result for `copy=True`). Canonical parity: `tests/python/test_summarization_module_parity.py` covers fnx- and nx-input in-place identity preservation and native-path use under `copy=True`. |
 | Graph utilities | in_progress | Public-surface accounting now comes from the generated coverage matrix rather than prose counts. Simple drawing layout helpers (`circular_layout`, `random_layout`, `shell_layout`, `rescale_layout_dict`), drawing layout convenience wrappers (`draw_*`), LaTeX figure wrappers (`to_latex`, `write_latex`), planar embedding positioning (`combinatorial_embedding_to_pos`), `apply_matplotlib_colors`, `tree_data`, and the generic assortativity helper `mixing_dict` now avoid direct NetworkX delegation. Remaining drawing text/raw-rendering helpers preserve graph edges/attributes through conversion before NetworkX delegation. Use [`docs/coverage.md`](docs/coverage.md) for exact `RUST_NATIVE` / `PY_WRAPPER` / `NX_DELEGATED` counts at HEAD. |
 | MultiGraph/MultiDiGraph | parity_green | Full method parity with Graph/DiGraph (34 methods + 6 view types). Algorithm dispatch supports all 4 graph types via automatic simple-graph projection. Backend conversion round-trips work. |
 | Conversion baseline behavior | in_progress | `fnx-convert` ships edge-list/adjacency conversions with strict/hardened malformed-input handling and normalization output. |
