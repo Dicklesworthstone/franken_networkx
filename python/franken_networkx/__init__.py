@@ -18418,6 +18418,11 @@ def edge_boundary(G, nbunch1, nbunch2=None, data=False, keys=False, default=None
                 (u, v) for u in nset1 for v in G.neighbors(u) if v not in nset1
             ]
             return
+        if data is False and nbunch2 is not None:
+            # NetworkX first turns nbunch1 into a set, so list(nset1) preserves
+            # that observable row order while avoiding the Python EdgeView pass.
+            yield from _raw_edge_boundary(G, list(nset1), _coerce_nbunch(nbunch2))
+            return
         edges = G.edges(nset1, data=data, default=default)
         if nbunch2 is None:
             for edge in edges:

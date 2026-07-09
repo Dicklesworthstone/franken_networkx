@@ -363,6 +363,82 @@ def networkx_summarization_dedensify_copy_dense_hubs() -> float:
     return total
 
 
+def _build_edge_boundary_graph(module, node_count: int, probability: float):
+    graph = module.Graph()
+    graph.add_nodes_from(range(node_count))
+    threshold = int(probability * 65_536)
+    for u in range(node_count):
+        for v in range(u + 1, node_count):
+            if ((u * 1_103_515_245 + v * 12_345 + 99_991) & 0xFFFF) < threshold:
+                graph.add_edge(u, v)
+    return graph
+
+
+def _edge_boundary_checksum(edges) -> float:
+    total = 0
+    for u, v in edges:
+        total += (u * 31 + v * 17) % 1_000_003
+    return float(total)
+
+
+_EDGE_BOUNDARY_NODE_COUNT = 900
+_EDGE_BOUNDARY_PROBABILITY = 0.01
+_EDGE_BOUNDARY_REPEAT = 80
+_EDGE_BOUNDARY_SOURCE = list(range(_EDGE_BOUNDARY_NODE_COUNT // 5))
+_EDGE_BOUNDARY_TARGET = list(
+    range(
+        _EDGE_BOUNDARY_NODE_COUNT // 2,
+        _EDGE_BOUNDARY_NODE_COUNT // 2 + _EDGE_BOUNDARY_NODE_COUNT // 5,
+    )
+)
+_FNX_EDGE_BOUNDARY_GRAPH = _build_edge_boundary_graph(
+    fnx, _EDGE_BOUNDARY_NODE_COUNT, _EDGE_BOUNDARY_PROBABILITY
+)
+_NX_EDGE_BOUNDARY_GRAPH = _build_edge_boundary_graph(
+    nx, _EDGE_BOUNDARY_NODE_COUNT, _EDGE_BOUNDARY_PROBABILITY
+)
+if list(
+    fnx.edge_boundary(
+        _FNX_EDGE_BOUNDARY_GRAPH,
+        _EDGE_BOUNDARY_SOURCE,
+        _EDGE_BOUNDARY_TARGET,
+    )
+) != list(
+    nx.edge_boundary(
+        _NX_EDGE_BOUNDARY_GRAPH,
+        _EDGE_BOUNDARY_SOURCE,
+        _EDGE_BOUNDARY_TARGET,
+    )
+):
+    raise AssertionError("edge_boundary target-set parity drift")
+
+
+def fnx_edge_boundary_target_sparse() -> float:
+    total = 0.0
+    for _ in range(_EDGE_BOUNDARY_REPEAT):
+        total += _edge_boundary_checksum(
+            fnx.edge_boundary(
+                _FNX_EDGE_BOUNDARY_GRAPH,
+                _EDGE_BOUNDARY_SOURCE,
+                _EDGE_BOUNDARY_TARGET,
+            )
+        )
+    return total
+
+
+def networkx_edge_boundary_target_sparse() -> float:
+    total = 0.0
+    for _ in range(_EDGE_BOUNDARY_REPEAT):
+        total += _edge_boundary_checksum(
+            nx.edge_boundary(
+                _NX_EDGE_BOUNDARY_GRAPH,
+                _EDGE_BOUNDARY_SOURCE,
+                _EDGE_BOUNDARY_TARGET,
+            )
+        )
+    return total
+
+
 def _weighted_flow_edges(node_count: int) -> list[tuple[int, int, float]]:
     edges: list[tuple[int, int, float]] = []
     for i in range(node_count - 1):

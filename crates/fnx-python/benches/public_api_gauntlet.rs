@@ -132,6 +132,16 @@ if target_dir:
                 "networkx_summarization_dedensify_copy_dense_hubs",
             ),
             (
+                "edge_boundary_target_sparse",
+                "fnx",
+                "fnx_edge_boundary_target_sparse",
+            ),
+            (
+                "edge_boundary_target_sparse",
+                "networkx",
+                "networkx_edge_boundary_target_sparse",
+            ),
+            (
                 "flow_hierarchy_weighted_cyclic_dag",
                 "fnx",
                 "fnx_flow_hierarchy_weighted_cyclic_dag",

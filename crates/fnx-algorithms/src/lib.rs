@@ -9311,7 +9311,11 @@ fn build_u32_csr<'a>(
 }
 
 /// Assemble the final result from a bit-parallel distance-sum aggregate.
-fn aspl_finalize_bitpar(agg: AsplAgg, n: usize, algorithm: &str) -> AverageShortestPathLengthResult {
+fn aspl_finalize_bitpar(
+    agg: AsplAgg,
+    n: usize,
+    algorithm: &str,
+) -> AverageShortestPathLengthResult {
     let connected = agg.reached_pairs as u128 == (n as u128) * (n as u128);
     let average = if connected {
         agg.sum as f64 / (n * (n - 1)) as f64

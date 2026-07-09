@@ -2,6 +2,87 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-09 CyanGrove SHIP: `edge_boundary(G, S, T)` native target-row scan - 0.77x scratch before, 1.64x vs LEGACY ORIGINAL after
+
+Land-or-dig pass started by reading this ledger first. I did not retry the
+recent readwrite, graph6, edge-attribute projection, `is_path`,
+construction/add_edges_from, non_edges, shortest-path,
+`average_shortest_path_length`, topological/DAG, link-prediction, multigraph
+degree/edge scan, sparse-matrix, selfloop, adjacency, product/generator, tree,
+lattice, GML, tournament reachability, `cuts.volume`, or
+`bipartite.projected_graph` duplicate-frontier lanes. Fresh profiling found a
+large weighted `volume` loss, but the ledger already had volume work and a
+native-binding volume rejection, so I moved to the separate boundary target-set
+path: `edge_boundary(G, S, T)` on simple sparse graphs with `data=False`.
+
+Primitive class: cache-local data-layout / algebraic-fusion. The kept lever
+routes simple `Graph` and `DiGraph` explicit-target boundary queries directly
+through the native adjacency-row kernel. The old path built Python `EdgeView`
+tuples from `G.edges(nset1)` and then filtered them in Python; the new path
+keeps NetworkX's set-derived `nbunch1` row order (`list(nset1)`) and fuses the
+target filter inside the native row scan. Multigraphs and attributed
+`data=True` / `data=<key>` paths keep their existing semantics.
+
+Evidence:
+
+| Row | Mode | FNX estimate | LEGACY ORIGINAL estimate | Ratio vs ORIG | Decision |
+| --- | --- | ---: | ---: | ---: | --- |
+| `edge_boundary_setT_900` before native target route | local scratch single-call profiler, Python `EdgeView` filter path | `0.384 ms` | `0.296 ms` | `0.77x` | original |
+| `edge_boundary_target_sparse` after native target route | RCH `ovh-a` Criterion, 80 calls/callable | `16.532 ms` | `27.113 ms` | `1.64x` | SHIP |
+
+Command:
+
+```text
+AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 timeout 1200
+rch exec -- cargo bench -p fnx-python --profile release
+--features pyo3/abi3-py310 --bench public_api_gauntlet
+edge_boundary_target_sparse -- --sample-size 10 --warm-up-time 0.2
+--measurement-time 0.5 --noplot
+```
+
+Conformance / quality gates:
+- `AGENT_NAME=CyanGrove python3 -m py_compile
+  python/franken_networkx/__init__.py
+  crates/fnx-python/benches/public_api_gauntlet.py
+  tests/python/test_boundary_value_parity.py`: PASS.
+- `AGENT_NAME=CyanGrove PYTHONPATH=python:legacy_networkx_code pytest
+  tests/python/test_boundary_value_parity.py
+  tests/python/test_graph_metrics_conformance.py::test_boundary_overlap_metrics_match_networkx_without_fallback
+  tests/python/test_graph_metrics_conformance.py::test_edge_boundary_weighted_data_matches_networkx
+  -q`: `288 passed`.
+- `AGENT_NAME=CyanGrove PYTHONPATH=python:crates/fnx-python/benches:legacy_networkx_code
+  python3 - <<'PY' ...`: gauntlet checksum parity PASS
+  (`309684160.0` FNX and legacy).
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  PYTHONHASHSEED=0 timeout 900 rch exec -- cargo test -p fnx-conformance
+  --profile release`: PASS on RCH worker `vmi1227854`; conformance crate
+  tests/doc-tests green.
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  timeout 900 rch exec -- cargo check --workspace --all-targets`: PASS on
+  RCH worker `hz1`.
+- `AGENT_NAME=CyanGrove CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cod
+  timeout 900 rch exec -- cargo clippy --workspace --all-targets --
+  -D warnings`: PASS on RCH worker `hz1`.
+- `AGENT_NAME=CyanGrove cargo fmt --check`: PASS after applying
+  rustfmt-equivalent formatting to the upstream ASPL helper signature and the
+  touched bench import order.
+- `git diff --check`: PASS.
+- Requested forbidden-framing scan over touched files: no matches.
+- `AGENT_NAME=CyanGrove ubs --only=python
+  tests/python/test_boundary_value_parity.py
+  crates/fnx-python/benches/public_api_gauntlet.py`: exit 0; 0 criticals,
+  0 warnings.
+- `AGENT_NAME=CyanGrove ubs --only=rust
+  crates/fnx-python/benches/public_api_gauntlet.rs`: exit 0; 0 criticals,
+  existing benchmark unwrap/expect warning inventory only.
+- `AGENT_NAME=CyanGrove ubs --only=python
+  python/franken_networkx/__init__.py
+  tests/python/test_boundary_value_parity.py
+  crates/fnx-python/benches/public_api_gauntlet.py`: interrupted after the
+  large module scan produced no new output for several intervals; focused
+  Python tests and py_compile covered the changed wrapper branch.
+
 ## 2026-07-09 CyanGrove SHIP: `summarization.dedensify(copy=True)` build-once simple graph rewrite - 0.45x scratch before, 2.08x vs LEGACY ORIGINAL after
 
 Land-or-dig pass started by reading this ledger first. I did not retry the

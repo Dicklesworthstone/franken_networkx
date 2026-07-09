@@ -110,6 +110,29 @@ def test_edge_boundary_overlap_golden():
     assert (0, 1) in got and (1, 2) in got
 
 
+@pytest.mark.parametrize("directed", [False, True])
+def test_edge_boundary_target_native_route_preserves_networkx_order(
+    directed, monkeypatch
+):
+    fg, ng, _ = _pair(313, directed=directed, p=0.65)
+    source = [0, 2, 4, 6, 8]
+    target = [1, 3, 5, 7, 9, 11]
+    calls = 0
+    raw_edge_boundary = fnx._raw_edge_boundary
+
+    def spy(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return raw_edge_boundary(*args, **kwargs)
+
+    monkeypatch.setattr(fnx, "_raw_edge_boundary", spy)
+
+    assert list(fnx.edge_boundary(fg, source, target)) == list(
+        nx.edge_boundary(ng, source, target)
+    )
+    assert calls == 1
+
+
 def test_boundary_goldens():
     g = fnx.path_graph(4)  # 0-1-2-3
     assert set(fnx.node_boundary(g, {0, 1})) == {2}
