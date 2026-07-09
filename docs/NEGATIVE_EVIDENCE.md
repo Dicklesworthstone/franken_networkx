@@ -16225,3 +16225,64 @@ routing tests pass.
 Extends the construction batch lever ([[reference_generator_accept_loop_batch]]) to OPERATOR
 result-builders (sibling of Ironbark's projected_graph above): grep result-graph construction loops
 whose add_edge reads only the INPUT graphs, never the result — full_join, projected_graph both fit.
+
+
+## 2026-07-09 CopperCliff SHIP (RUST, bit-parallel BFS / SIMD-within-register): average_shortest_path_length sequential path — grid/400 3.65x vs ORIG
+
+STOP-THE-SEAM re-profile: the Python per-edge `add_edge` -> one `add_edges_from` batch-commit seam is
+mined out (every generator/operator converted). Picked a STRUCTURALLY DIFFERENT primitive class per the
+alien-graveyard / extreme-optimization brief: a SIMD-within-register **bit-parallel multi-source BFS** on
+the all-pairs unweighted distance-sum kernel behind `average_shortest_path_length` (+ `_directed`), benched
+in `crates/fnx-algorithms/benches/algorithm_benchmarks.rs` (`average_shortest_path_length/grid/{400,900,1600}`).
+
+LEVER: instead of one BFS per source (n sweeps of the graph), process W*64 sources at once — each node
+carries a `[u64; W]` bitset column (bit j = "source #j reached me"); a frontier expansion is a word-parallel
+`frontier[v] & !seen[w]` over the column, so ONE contiguous edge scan advances up to W*64 sources. Collapses
+the number of full graph traversals from n to ceil(n/(W*64)). Compact `u32` CSR built once (halves hot-loop
+memory traffic vs usize); const-generic lane width W (1..=8, i.e. 64..512 sources/batch) = the widest single
+batch covering all n sources (fewer, wider batches => fewer traversals = the win). The distance SUM is an
+integer accumulated as `level * popcount(newly_reached)`, so the result is BIT-for-bit identical to the
+per-source BFS; connectivity is exact (reached_pairs == n*n <=> every source reaches every node, matching
+the old "any source reached < n -> INFINITY").
+
+CRITICAL PERF LEVER (diag): the first cut popcounted per EDGE scan (W count_ones per neighbour). On the
+generic release target (no hardware popcnt) that DOMINATED — grid/400 was only 0.93ms (1.28x). DEFERRING the
+popcount to ONCE PER reached-node PER LEVEL (iterate `next_nodes`, not |E|) leaves the O(|E|) inner loop as
+pure word AND/OR and dropped grid/400 to 0.327ms. Deferred popcount off the |E| loop is the whole game.
+
+RESTRICTED TO THE SEQUENTIAL PATH (n < 500). Bit-parallel is a single-threaded ALGORITHMIC win; for n >= 500
+the pre-existing per-source path fans out over rayon and on a many-core rch worker that embarrassing
+parallelism (900-1600-way) BEATS one wide sequential sweep (measured: batch-parallel bit-parallel grid/1600
+6.16ms >> ORIG rayon 1.63ms). So n >= 500 keeps the rayon per-source path unchanged (NO regression); only
+n < 500 takes bit-parallel. NOTE: for n < 500, div_ceil(n,64) <= 8 so it is always exactly ONE batch.
+
+MEASURED vs ORIG (per-crate cargo bench, --profile release, rch worker, back-to-back same-session A/B
+[stash ORIG -> measure -> pop -> measure NEW], --sample-size 50 --measurement-time 2.5,
+CARGO_TARGET_DIR=/data/projects/.rch-targets/networkx-cc):
+  average_shortest_path_length/grid/400 (n=400, SEQUENTIAL): ORIG 1.1946 ms [1.189, 1.201] ->
+    NEW 327.38 us [326.3, 328.7] = 3.65x. Both CIs < 1% spread.
+  grid/900 (n=900, fallback): NEW 546 us ~ ORIG 603 us (unchanged, within noise).
+  grid/1600 (n=1600, fallback): NEW 1.593 ms ~ ORIG 1.634 ms (unchanged, within noise).
+Standalone prototype (single-threaded, target-cpu=native) shows the win scales with LOWER diameter:
+complete-100 ~12x, random n=1000 avgdeg8 ~13x, random n=2000 avgdeg6 ~13x (grids are the high-diameter
+worst case yet still 1.8-2.9x per width; u128/[u64;W] wider words help grids more, narrow helps complete).
+
+CORRECTNESS: 6 new differential/property tests (`bitpar_aspl_tests`) — bitpar vs an independent
+HashMap-per-source reference BYTE-for-byte via to_bits across lane widths W=1..8, directed-cycle closed form
+C_n -> n/2, disconnected/not-strongly-connected -> INFINITY, trivial -> 0.0; 895 fnx-algorithms tests green;
+Python aspl == networkx exactly (grid 20x20 -> 13.333333333333334); 96 distance/shortest-path Python
+conformance tests green. (3 unrelated Python failures — write_gexf/find_induced/read_edgelist export
+classification + coverage-matrix-doc currency — are pre-existing / a concurrent agent's uncommitted
+__init__.py edits, NOT this change; my diff is crates/fnx-algorithms/src/lib.rs only.) Proof:
+tests/artifacts/perf/20260709T-aspl-bitparallel-bfs-cc/report.md. Commit 710cfc9db.
+
+GENERAL LEVER (bit-parallel BFS, new class): all-pairs unweighted BFS reductions (aspl, closeness, harmonic)
+whose per-source result is an integer / order-independent function of (distance, reached) can be
+bit-parallelised: W*64 sources per traversal via `[u64; W]` seen/frontier/next columns, byte-identical,
+single-threaded. Wins where the graph is small enough that the per-source rayon path underutilises
+(n < ~500) OR the diameter is low (complete/social). Keep popcount OFF the |E| loop (defer to per-reached-
+node-per-level); pick lane width = widest single batch; build u32 CSR once. NEXT SIBLING:
+closeness_centrality (benched on complete(20/50/100), all n<500 SEQUENTIAL, diameter-1 = bit-parallel's
+BEST case; prototype ~11-17x) — needs per-source (reached_j, sum_dist_j) attribution (iterate set bits of
+next[w] per level, cheap on low-diameter). The many-core parallel sizes need a chunked-parallel design
+(parallelise source-chunks, bit-parallel within each chunk) to beat the per-source rayon path — deferred.
