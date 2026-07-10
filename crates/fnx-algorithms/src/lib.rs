@@ -156,6 +156,13 @@ pub trait GraphView {
     fn neighbors_indices(&self, _node_idx: usize) -> Option<&[usize]> {
         None
     }
+    /// Integer in-adjacency (predecessor) row for `node_idx`, yielding exactly
+    /// what `in_neighbors_iter` yields, in the same order. `None` means the
+    /// implementor keeps no integer row store and callers must go through the
+    /// string iterator.
+    fn in_neighbors_indices(&self, _node_idx: usize) -> Option<&[usize]> {
+        None
+    }
     fn neighbors_iter(&self, node: &str) -> Option<Box<dyn Iterator<Item = &str> + '_>>;
     fn in_neighbors_iter(&self, node: &str) -> Option<Box<dyn Iterator<Item = &str> + '_>>;
     fn neighbor_count(&self, node: &str) -> usize;
@@ -192,6 +199,11 @@ impl GraphView for Graph {
         self.get_node_name(index)
     }
     fn neighbors_indices(&self, node_idx: usize) -> Option<&[usize]> {
+        Graph::neighbors_indices(self, node_idx)
+    }
+    fn in_neighbors_indices(&self, node_idx: usize) -> Option<&[usize]> {
+        // Undirected: in-neighbors are neighbors (`in_neighbors_iter` below is
+        // `neighbors_iter`), and both read the same `adj_indices` row.
         Graph::neighbors_indices(self, node_idx)
     }
     fn neighbors_iter(&self, node: &str) -> Option<Box<dyn Iterator<Item = &str> + '_>> {
@@ -259,6 +271,10 @@ impl GraphView for DiGraph {
     }
     fn neighbors_indices(&self, node_idx: usize) -> Option<&[usize]> {
         self.successors_indices(node_idx)
+    }
+    fn in_neighbors_indices(&self, node_idx: usize) -> Option<&[usize]> {
+        // `predecessors_iter` below maps this same `pred_indices` row to names.
+        self.predecessors_indices(node_idx)
     }
     fn neighbors_iter(&self, node: &str) -> Option<Box<dyn Iterator<Item = &str> + '_>> {
         self.neighbors_iter(node)
@@ -2842,6 +2858,30 @@ impl CentralityBfsScratch {
     }
 }
 
+/// NX's closeness score for one source: `(reached-1)/sum_dist`, rescaled by
+/// `(reached-1)/(n-1)` when `n > 1`.
+///
+/// `reached` (nodes seen by this source's reverse BFS, including itself) and
+/// `sum_dist` (their total distance) are exact integers, so every kernel that
+/// arrives at the same `(reached, sum_dist)` produces a bit-identical `f64` from
+/// this one expression. That is what lets the bit-parallel kernel below stand in
+/// for the per-source BFS without touching the observable result.
+fn closeness_score(reached: usize, sum_dist: usize, n: usize) -> f64 {
+    if reached <= 1 || sum_dist == 0 {
+        return 0.0;
+    }
+    let reachable_minus_one = (reached - 1) as f64;
+    let mut closeness = reachable_minus_one / (sum_dist as f64);
+    if n > 1 {
+        closeness *= reachable_minus_one / ((n - 1) as f64);
+    }
+    closeness
+}
+
+/// `n >= this` fans the per-source reverse BFS out over rayon; below it the
+/// traversal is sequential (and therefore the bit-parallel kernel's domain).
+const CENTRALITY_PARALLEL_THRESHOLD: usize = 500;
+
 /// Closeness contribution of a single source `s` (NX reverse-BFS convention).
 /// The score is a pure function of this source's own BFS — no cross-source
 /// state — so sources may run in any order and the result is byte-identical to
@@ -2880,16 +2920,7 @@ fn closeness_source(
         }
     }
 
-    let score = if reached <= 1 || sum_dist == 0 {
-        0.0
-    } else {
-        let reachable_minus_one = (reached - 1) as f64;
-        let mut closeness = reachable_minus_one / (sum_dist as f64);
-        if n > 1 {
-            closeness *= reachable_minus_one / ((n - 1) as f64);
-        }
-        closeness
-    };
+    let score = closeness_score(reached, sum_dist, n);
 
     (score, reached, edges_scanned, queue_peak)
 }
@@ -2951,6 +2982,47 @@ fn closeness_centrality_generic<G: GraphView>(graph: &G) -> ClosenessCentralityR
         };
     }
 
+    // Bit-parallel multi-source reverse BFS (see `closeness_all_sources`). Below
+    // the parallel threshold the per-source loop runs sequentially, so a single
+    // traversal that advances W*64 sources at once strictly beats n separate
+    // sweeps. It yields the same exact integer `(reached, sum_dist)` per source
+    // that the per-source BFS accumulates, and both paths hand those to
+    // `closeness_score`, so the scores are bit-identical. The integer rows are
+    // precisely what `in_neighbors_iter` walks, so the CSR needs no node-name
+    // lookups — the string-keyed `reverse_adjacency` below is skipped entirely.
+    if n < CENTRALITY_PARALLEL_THRESHOLD
+        && n <= u32::MAX as usize
+        && let Some(rows) = (0..n)
+            .map(|u| graph.in_neighbors_indices(u))
+            .collect::<Option<Vec<&[usize]>>>()
+    {
+        let (offsets, targets) = build_u32_csr(n, |u| rows[u]);
+        let mut reached = vec![0usize; n];
+        let mut sum_dist = vec![0usize; n];
+        let (edges_scanned, queue_peak) =
+            closeness_all_sources(&offsets, &targets, n, &mut reached, &mut sum_dist);
+        let scores = (0..n)
+            .map(|s| CentralityScore {
+                node: nodes[s].to_owned(),
+                score: closeness_score(reached[s], sum_dist[s], n),
+            })
+            .collect();
+        return ClosenessCentralityResult {
+            scores,
+            witness: ComplexityWitness {
+                algorithm: "closeness_centrality".to_owned(),
+                complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
+                // `nodes_touched` (total reach over all sources) is identical to
+                // the per-source path. `edges_scanned`/`queue_peak` report the
+                // work this kernel actually does: one scan serves up to W*64
+                // sources, so they are far below the per-source sum by design.
+                nodes_touched: reached.iter().sum(),
+                edges_scanned,
+                queue_peak,
+            },
+        };
+    }
+
     let mut scores = Vec::with_capacity(n);
     let mut total_nodes_touched = 0usize;
     let mut total_edges_scanned = 0usize;
@@ -2975,7 +3047,6 @@ fn closeness_centrality_generic<G: GraphView>(graph: &G) -> ClosenessCentralityR
     // Each source's score is independent (no cross-source accumulation), so the
     // per-source reverse-BFS fans out over rayon workers with no ordering or
     // float-summation-order concern; results collect in source order.
-    const CENTRALITY_PARALLEL_THRESHOLD: usize = 500;
     let per_source: Vec<(f64, usize, usize, usize)> = if n >= CENTRALITY_PARALLEL_THRESHOLD {
         use rayon::prelude::*;
         (0..n)
@@ -3061,7 +3132,6 @@ fn harmonic_centrality_generic<G: GraphView>(graph: &G) -> HarmonicCentralityRes
     // Each source's harmonic sum is independent; fan the per-source reverse-BFS
     // out over rayon workers (per-source 1/d additions stay in BFS pop order, so
     // byte-identical to sequential), results collect in source order.
-    const CENTRALITY_PARALLEL_THRESHOLD: usize = 500;
     let per_source: Vec<(f64, usize, usize, usize)> = if n >= CENTRALITY_PARALLEL_THRESHOLD {
         use rayon::prelude::*;
         (0..n)
@@ -9331,6 +9401,168 @@ fn aspl_finalize_bitpar(
             edges_scanned: agg.edges_scanned,
             queue_peak: agg.queue_peak,
         },
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Bit-parallel multi-source reverse BFS for `closeness_centrality`.
+//
+// Same machinery as the distance-sum kernel above, but closeness needs a result
+// *per source* — `(reached_s, sum_dist_s)` — rather than one global sum. Those
+// are recovered by walking the SET BITS of each newly-reached node's column once
+// per level: bit `j` set in `next[w]` at level `L` means source `s0 + j` first
+// reached `w` at distance `L`, so it credits `reached[s]+=1, sum_dist[s]+=L`.
+//
+// Both counters are exact integers, so `closeness_score` turns them into the
+// same `f64` the per-source BFS produces — bit for bit, whatever the lane width.
+// Total bit-iterations over a whole run equal the number of reachable ordered
+// pairs (<= n^2), and — crucially — they sit in the once-per-level pass, never
+// in the O(|E|) edge loop.
+// ---------------------------------------------------------------------------
+
+/// Run one batch of up to `W*64` sources `[s0, s0+k)` of the reverse BFS,
+/// crediting `reached`/`sum_dist` (indexed by source) as nodes are first
+/// reached. Returns `(edges_scanned, queue_peak)` for the witness.
+fn closeness_bitpar_batch<const W: usize>(
+    scratch: &mut BitParBfsScratch<W>,
+    offsets: &[u32],
+    targets: &[u32],
+    s0: usize,
+    k: usize,
+    reached: &mut [usize],
+    sum_dist: &mut [usize],
+) -> (usize, usize) {
+    let zero = [0u64; W];
+    scratch.seen.fill(zero);
+    scratch.frontier.fill(zero);
+    scratch.cur_nodes.clear();
+
+    for j in 0..k {
+        let s = s0 + j;
+        let bit = 1u64 << (j % 64);
+        scratch.seen[s][j / 64] = bit; // column was just zeroed
+        scratch.frontier[s][j / 64] = bit;
+        scratch.cur_nodes.push(s as u32);
+        // Level 0: every source reaches itself at distance 0.
+        reached[s] = 1;
+        sum_dist[s] = 0;
+    }
+
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = k;
+    let mut level = 1usize;
+
+    while !scratch.cur_nodes.is_empty() {
+        scratch.next_nodes.clear();
+        for idx in 0..scratch.cur_nodes.len() {
+            let v = scratch.cur_nodes[idx] as usize;
+            let fv = scratch.frontier[v];
+            scratch.frontier[v] = zero;
+            if fv == zero {
+                continue;
+            }
+            let start = offsets[v] as usize;
+            let end = offsets[v + 1] as usize;
+            edges_scanned += end - start;
+            for &wu in &targets[start..end] {
+                let w = wu as usize;
+                // Hot path: most scans reach an already-seen neighbour. Compute
+                // the newly-reached source bits reading `seen[w]` by reference
+                // (no [u64;W] copy) and bail before any write when none are new.
+                let seen_w = &scratch.seen[w];
+                let mut newly = [0u64; W];
+                let mut any = 0u64;
+                for lane in 0..W {
+                    let bits = fv[lane] & !seen_w[lane];
+                    newly[lane] = bits;
+                    any |= bits;
+                }
+                if any != 0 {
+                    let next_w = &mut scratch.next[w];
+                    let mut was_empty = 0u64;
+                    for lane in 0..W {
+                        was_empty |= next_w[lane];
+                        next_w[lane] |= newly[lane];
+                    }
+                    if was_empty == 0 {
+                        scratch.next_nodes.push(wu);
+                    }
+                    let seen_w = &mut scratch.seen[w];
+                    for lane in 0..W {
+                        seen_w[lane] |= newly[lane];
+                    }
+                }
+            }
+        }
+        // Deferred per-source attribution: exactly one iteration per (source,
+        // node) first-reach event, off the O(|E|) inner loop. Each set bit `j`
+        // of `next[w]` is a source that just reached `w` at distance `level`.
+        for &wu in &scratch.next_nodes {
+            let w = wu as usize;
+            let newly = scratch.next[w];
+            for (lane, &word) in newly.iter().enumerate() {
+                let mut bits = word;
+                while bits != 0 {
+                    let s = s0 + lane * 64 + bits.trailing_zeros() as usize;
+                    reached[s] += 1;
+                    sum_dist[s] += level;
+                    bits &= bits - 1; // clear lowest set bit
+                }
+            }
+            scratch.frontier[w] = newly;
+            scratch.next[w] = zero;
+        }
+        queue_peak = queue_peak.max(scratch.next_nodes.len());
+        std::mem::swap(&mut scratch.cur_nodes, &mut scratch.next_nodes);
+        level += 1;
+    }
+
+    (edges_scanned, queue_peak)
+}
+
+fn closeness_bitpar_run<const W: usize>(
+    offsets: &[u32],
+    targets: &[u32],
+    n: usize,
+    reached: &mut [usize],
+    sum_dist: &mut [usize],
+) -> (usize, usize) {
+    let width = W * 64;
+    let mut scratch = BitParBfsScratch::<W>::new(n);
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 0usize;
+    let mut s0 = 0;
+    while s0 < n {
+        let k = (n - s0).min(width);
+        let (edges, peak) =
+            closeness_bitpar_batch::<W>(&mut scratch, offsets, targets, s0, k, reached, sum_dist);
+        edges_scanned += edges;
+        queue_peak = queue_peak.max(peak);
+        s0 += width;
+    }
+    (edges_scanned, queue_peak)
+}
+
+/// Bit-parallel all-pairs reverse BFS over a `u32` CSR (single-threaded), filling
+/// `reached[s]` and `sum_dist[s]` for every source. The lane width `W` (1..=8,
+/// 64..=512 sources per batch) is the widest that still covers all `n` sources —
+/// fewer, wider batches mean fewer full graph traversals, which is the win.
+fn closeness_all_sources(
+    offsets: &[u32],
+    targets: &[u32],
+    n: usize,
+    reached: &mut [usize],
+    sum_dist: &mut [usize],
+) -> (usize, usize) {
+    match n.div_ceil(64).clamp(1, 8) {
+        1 => closeness_bitpar_run::<1>(offsets, targets, n, reached, sum_dist),
+        2 => closeness_bitpar_run::<2>(offsets, targets, n, reached, sum_dist),
+        3 => closeness_bitpar_run::<3>(offsets, targets, n, reached, sum_dist),
+        4 => closeness_bitpar_run::<4>(offsets, targets, n, reached, sum_dist),
+        5 => closeness_bitpar_run::<5>(offsets, targets, n, reached, sum_dist),
+        6 => closeness_bitpar_run::<6>(offsets, targets, n, reached, sum_dist),
+        7 => closeness_bitpar_run::<7>(offsets, targets, n, reached, sum_dist),
+        _ => closeness_bitpar_run::<8>(offsets, targets, n, reached, sum_dist),
     }
 }
 
@@ -43613,6 +43845,281 @@ mod bitpar_aspl_tests {
             average_shortest_path_length(&path(1)).average_shortest_path_length,
             0.0
         );
+    }
+}
+
+#[cfg(test)]
+mod bitpar_closeness_tests {
+    //! Differential + property tests for the bit-parallel multi-source reverse
+    //! BFS behind `closeness_centrality`.
+    //!
+    //! The reference below is an independent per-source BFS over the *string*
+    //! graph API (`in_neighbors_iter`), accumulating `(reached, sum_dist)` in a
+    //! `VecDeque`/`HashMap` and spelling out NetworkX's closeness formula
+    //! longhand — it shares no code with the kernel under test. Scores must match
+    //! BIT-for-bit (`f64::to_bits`), which they do because both sides feed the
+    //! same exact integers into the same arithmetic.
+    use super::{
+        CENTRALITY_PARALLEL_THRESHOLD, closeness_all_sources, closeness_centrality,
+        closeness_centrality_directed,
+    };
+    use fnx_classes::{Graph, digraph::DiGraph};
+    use std::collections::{HashMap, VecDeque};
+
+    /// Independent reference: per-source reverse BFS, NX formula written out.
+    /// Returns `(node, score)` in `nodes_ordered()` order.
+    fn reference_closeness<G: super::GraphView>(graph: &G) -> Vec<(String, f64)> {
+        let nodes = graph.nodes_ordered();
+        let n = nodes.len();
+        nodes
+            .iter()
+            .map(|&source| {
+                let mut dist: HashMap<&str, usize> = HashMap::new();
+                let mut queue = VecDeque::new();
+                dist.insert(source, 0);
+                queue.push_back(source);
+                let mut reached = 0usize;
+                let mut sum_dist = 0usize;
+                while let Some(v) = queue.pop_front() {
+                    reached += 1;
+                    let d = dist[v];
+                    sum_dist += d;
+                    if let Some(preds) = graph.in_neighbors_iter(v) {
+                        for w in preds {
+                            if !dist.contains_key(w) {
+                                dist.insert(w, d + 1);
+                                queue.push_back(w);
+                            }
+                        }
+                    }
+                }
+                let score = if reached <= 1 || sum_dist == 0 {
+                    0.0
+                } else {
+                    let rm1 = (reached - 1) as f64;
+                    let mut c = rm1 / (sum_dist as f64);
+                    if n > 1 {
+                        c *= rm1 / ((n - 1) as f64);
+                    }
+                    c
+                };
+                ((*source).to_owned(), score)
+            })
+            .collect()
+    }
+
+    fn assert_matches_reference(graph: &Graph, label: &str) {
+        let got = closeness_centrality(graph).scores;
+        let want = reference_closeness(graph);
+        assert_eq!(got.len(), want.len(), "{label}: score count");
+        for (g, (node, w)) in got.iter().zip(want.iter()) {
+            assert_eq!(&g.node, node, "{label}: node order");
+            assert_eq!(
+                g.score.to_bits(),
+                w.to_bits(),
+                "{label}: closeness mismatch at {node}: got {} want {w}",
+                g.score
+            );
+        }
+    }
+
+    fn assert_matches_reference_directed(graph: &DiGraph, label: &str) {
+        let got = closeness_centrality_directed(graph).scores;
+        let want = reference_closeness(graph);
+        assert_eq!(got.len(), want.len(), "{label}: score count");
+        for (g, (node, w)) in got.iter().zip(want.iter()) {
+            assert_eq!(&g.node, node, "{label}: node order");
+            assert_eq!(
+                g.score.to_bits(),
+                w.to_bits(),
+                "{label}: closeness mismatch at {node}: got {} want {w}",
+                g.score
+            );
+        }
+    }
+
+    fn path(n: usize) -> Graph {
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n.saturating_sub(1) {
+            let _ = g.add_edge(i.to_string(), (i + 1).to_string());
+        }
+        g
+    }
+
+    fn complete(n: usize) -> Graph {
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let _ = g.add_edge(i.to_string(), j.to_string());
+            }
+        }
+        g
+    }
+
+    fn grid(rows: usize, cols: usize) -> Graph {
+        let mut g = Graph::strict();
+        for r in 0..rows {
+            for c in 0..cols {
+                let _ = g.add_node(format!("{r}_{c}"));
+            }
+        }
+        for r in 0..rows {
+            for c in 0..cols {
+                if c + 1 < cols {
+                    let _ = g.add_edge(format!("{r}_{c}"), format!("{r}_{}", c + 1));
+                }
+                if r + 1 < rows {
+                    let _ = g.add_edge(format!("{r}_{c}"), format!("{}_{c}", r + 1));
+                }
+            }
+        }
+        g
+    }
+
+    #[test]
+    fn bitpar_matches_reference_undirected() {
+        // Spans lane widths W=1 (n<=64) through W=8 (n just under the gate) and
+        // diameters from 1 (complete) to n-1 (path).
+        let cases: [(Graph, &str); 10] = [
+            (path(1), "path(1)"),
+            (path(2), "path(2)"),
+            (path(64), "path(64)"),
+            (path(65), "path(65)"),
+            (path(200), "path(200)"),
+            (complete(8), "complete(8)"),
+            (complete(50), "complete(50)"),
+            (complete(100), "complete(100)"),
+            (grid(5, 7), "grid(5,7)"),
+            (grid(22, 22), "grid(22,22) n=484 W=8"),
+        ];
+        for (g, label) in &cases {
+            assert_matches_reference(g, label);
+        }
+    }
+
+    #[test]
+    fn bitpar_matches_reference_disconnected_and_isolated() {
+        // reached < n: the (reached-1)/(n-1) rescale is what NX does, and an
+        // isolated node (reached == 1) scores exactly 0.0.
+        let mut g = Graph::strict();
+        for i in 0..8 {
+            let _ = g.add_node(i.to_string());
+        }
+        let _ = g.add_edge("0".to_owned(), "1".to_owned());
+        let _ = g.add_edge("1".to_owned(), "2".to_owned());
+        let _ = g.add_edge("4".to_owned(), "5".to_owned());
+        // 6 and 7 stay isolated.
+        assert_matches_reference(&g, "disconnected");
+        let scores = closeness_centrality(&g).scores;
+        for s in &scores {
+            if s.node == "6" || s.node == "7" {
+                assert_eq!(s.score, 0.0, "isolated node must score 0.0");
+            }
+        }
+    }
+
+    #[test]
+    fn bitpar_handles_self_loops() {
+        // A self-loop is an extra edge scan that can never reach a new source.
+        let mut g = Graph::strict();
+        for i in 0..5 {
+            let _ = g.add_node(i.to_string());
+        }
+        let _ = g.add_edge("0".to_owned(), "0".to_owned());
+        let _ = g.add_edge("0".to_owned(), "1".to_owned());
+        let _ = g.add_edge("1".to_owned(), "2".to_owned());
+        let _ = g.add_edge("2".to_owned(), "3".to_owned());
+        let _ = g.add_edge("3".to_owned(), "4".to_owned());
+        assert_matches_reference(&g, "self-loop");
+    }
+
+    #[test]
+    fn bitpar_directed_uses_predecessor_convention() {
+        // Directed closeness sums distances *into* each node, so the kernel must
+        // traverse predecessors. An asymmetric digraph is what distinguishes a
+        // correct `pred_indices` CSR from an (incorrect) successor one: in the
+        // out-star below the centre is reachable from nobody and scores 0.0,
+        // while every leaf is reached only by the centre.
+        let mut dg = DiGraph::strict();
+        for i in 0..6 {
+            let _ = dg.add_node(i.to_string());
+        }
+        for i in 1..6 {
+            let _ = dg.add_edge("0".to_owned(), i.to_string());
+        }
+        assert_matches_reference_directed(&dg, "out-star");
+        let scores = closeness_centrality_directed(&dg).scores;
+        assert_eq!(scores[0].score, 0.0, "out-star centre has no predecessors");
+
+        // Directed cycle: every node is reached by all n-1 others at distances
+        // 1..n-1, so all scores are equal and non-zero.
+        let mut cyc = DiGraph::strict();
+        for i in 0..70 {
+            let _ = cyc.add_node(i.to_string());
+        }
+        for i in 0..70 {
+            let _ = cyc.add_edge(i.to_string(), ((i + 1) % 70).to_string());
+        }
+        assert_matches_reference_directed(&cyc, "directed cycle n=70 (W=2)");
+
+        // A DAG with mixed in-degrees, plus an unreachable sink component.
+        let mut dag = DiGraph::strict();
+        for i in 0..9 {
+            let _ = dag.add_node(i.to_string());
+        }
+        for (u, v) in [(0, 1), (0, 2), (1, 3), (2, 3), (3, 4), (5, 4), (6, 7)] {
+            let _ = dag.add_edge(u.to_string(), v.to_string());
+        }
+        assert_matches_reference_directed(&dag, "dag");
+    }
+
+    #[test]
+    fn fallback_path_matches_reference() {
+        // n >= 500 keeps the per-source rayon path; it must equal the same
+        // reference, byte-for-byte.
+        let g = grid(30, 30); // 900 nodes
+        assert!(g.node_count() >= CENTRALITY_PARALLEL_THRESHOLD);
+        assert_matches_reference(&g, "rayon fallback n=900");
+    }
+
+    #[test]
+    fn kernel_multi_batch_matches_single_batch() {
+        // The n < 500 gate means production always runs exactly ONE batch
+        // (div_ceil(n,64) <= 8). Drive the kernel directly at n > 512 so the
+        // `s0 > 0` batch loop — and the `s0 + lane*64 + trailing_zeros` source
+        // indexing it depends on — is actually exercised.
+        let g = grid(24, 25); // 600 nodes > W=8 lane width (512)
+        let n = g.node_count();
+        assert!(n > 8 * 64, "must exceed one full batch");
+        let rows: Vec<&[usize]> = (0..n)
+            .map(|u| super::GraphView::in_neighbors_indices(&g, u).expect("integer row"))
+            .collect();
+        let (offsets, targets) = super::build_u32_csr(n, |u| rows[u]);
+        let mut reached = vec![0usize; n];
+        let mut sum_dist = vec![0usize; n];
+        closeness_all_sources(&offsets, &targets, n, &mut reached, &mut sum_dist);
+
+        // Reference integers, computed per source independently.
+        let want = reference_closeness(&g);
+        for (s, (node, want_score)) in want.iter().enumerate() {
+            let got = super::closeness_score(reached[s], sum_dist[s], n);
+            assert_eq!(
+                got.to_bits(),
+                want_score.to_bits(),
+                "multi-batch mismatch at source {s} ({node})"
+            );
+        }
+    }
+
+    #[test]
+    fn empty_graph_is_empty() {
+        assert!(closeness_centrality(&Graph::strict()).scores.is_empty());
     }
 }
 
