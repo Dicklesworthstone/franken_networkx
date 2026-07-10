@@ -2,6 +2,29 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-10 cod_nx MEASUREMENT REJECT: unpinned `hz1` MultiGraph bidirectional A/B did not meet the `<5%` CV gate (`br-r37-c1-04z53.9170`)
+
+Ledger was grepped before the attempt. This is a rejection of the **measurement as keep evidence**, not a
+source verdict. Same-build `release-perf` Criterion put the exact checked-in ORIG delegation, candidate,
+and NetworkX in one process on actual RCH worker `hz1`, verified candidate extension SHA-256
+`efd9b15ed421d11816c478d92296656797a11ab9fcc2a6653888ca1ccff9449a`, 1400 string nodes / 5728
+parallel edges, 100 API calls per sample, 20 samples:
+
+| row | ORIG ms/call | candidate ms/call | NetworkX ms/call | self speedup | candidate/NX | raw CVs (cand/orig/NX) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| weighted `shortest_path(s,t)` | 24.8503 | 1.7222 | 0.9511 | 14.429x | 0.552x | 5.32% / 6.07% / 5.33% |
+| `bidirectional_dijkstra(s,t)` | 23.6770 | 1.1702 | 0.9842 | 20.234x | 0.841x | 2.03% / 5.17% / 1.67% |
+
+The effect is large, but three cells miss the non-negotiable CV gate. A 200-call follow-up on the same
+worker was worse evidence: completed `shortest_path` estimates drifted to candidate `1.7918 ms/call`,
+ORIG `30.9370 ms/call`, and NetworkX `1.2313 ms/call`; direct candidate drifted to `1.2614 ms/call`.
+Every engine slowed together by roughly 1.5-2x, Criterion intervals widened sharply, and the run was
+stopped before spending another 88 seconds on the final noisy ORIG row.
+
+RESULT: reject these unpinned runs as keep evidence. RETRY CONDITION: pin the benchmark process to one
+otherwise-available CPU, retain same-process ORIG/candidate/NetworkX and `release-perf`, and require every
+reported raw-sample CV below 5%. Do not change or discard the candidate on the basis of global host drift.
+
 ## 2026-07-10 CopperCliff: REFUTES the 2026-07-08 BlackThrush CONSTRUCTION handoff + SHIPS the real loss it missed — `Graph(<iterator>)` 0.71x -> 0.94x / 0.49x -> 0.72x / combinations 0.61x -> 3.10x (br-r37-c1-ctorgen)
 
 **READ THIS BEFORE TAKING THE CONSTRUCTION TARGET AT LINE ~700 OF THIS FILE.** BlackThrush's
