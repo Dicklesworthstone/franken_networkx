@@ -14719,80 +14719,89 @@ pub fn k_truss(graph: &Graph, k: usize) -> KTrussResult {
 
     let threshold = k.saturating_sub(2);
 
-    // Build mutable adjacency
-    let mut adj: HashMap<String, HashSet<String>> = HashMap::new();
-    for &node in &nodes {
-        adj.entry(node.to_owned()).or_default();
+    // br-r37-c1-ktrussmark (cc): peel over INTEGER adjacency with a reusable mark
+    // array instead of a String-keyed HashMap<String, HashSet<String>> that
+    // `.cloned()` an entire neighbour set PER EDGE per pass and String-hash-probed
+    // `contains`. Names map to indices once; the mutable adjacency is
+    // Vec<HashSet<usize>> (edges removed in place), the common-neighbour count uses
+    // a `vec![false; n]` mark (no hashing, no per-edge clone). Byte-identical: the
+    // common count is a SYMMETRIC intersection, each edge is still visited once per
+    // pass (from one endpoint), and the SET of edges removed per pass is
+    // state-determined (independent of visit order or which endpoint scans it);
+    // output nodes/edges are rebuilt with the SAME string conventions (sort by
+    // name; edge orientation by name comparison).
+    let idx_of: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+    let mut adj: Vec<HashSet<usize>> = vec![HashSet::new(); n];
+    for (i, &node) in nodes.iter().enumerate() {
         if let Some(nbrs) = graph.neighbors_iter(node) {
             for nb in nbrs {
-                if nb != node {
-                    adj.entry(node.to_owned())
-                        .or_default()
-                        .insert(nb.to_owned());
+                if nb != node
+                    && let Some(&j) = idx_of.get(nb)
+                {
+                    adj[i].insert(j);
                 }
             }
         }
     }
 
     let mut edges_scanned = 0_usize;
+    let mut mark = vec![false; n];
     let mut changed = true;
     while changed {
         changed = false;
-        // Collect edges to remove
-        let mut to_remove: Vec<(String, String)> = Vec::new();
-        let current_nodes: Vec<String> = adj.keys().cloned().collect();
-        for u in &current_nodes {
-            let u_nbrs: Vec<String> = adj
-                .get(u)
-                .map(|s| s.iter().cloned().collect())
-                .unwrap_or_default();
-            for v in &u_nbrs {
+        let mut to_remove: Vec<(usize, usize)> = Vec::new();
+        for u in 0..n {
+            if adj[u].is_empty() {
+                continue;
+            }
+            let u_nbrs: Vec<usize> = adj[u].iter().copied().collect();
+            for &x in &u_nbrs {
+                mark[x] = true;
+            }
+            for &v in &u_nbrs {
                 if u < v {
                     // Count common neighbors (triangles through this edge)
                     edges_scanned += 1;
-                    let v_nbrs = adj.get(v).cloned().unwrap_or_default();
-                    let common = adj
-                        .get(u)
-                        .map(|s| s.iter().filter(|w| v_nbrs.contains(*w)).count())
-                        .unwrap_or(0);
+                    let common = adj[v].iter().filter(|&&w| mark[w]).count();
                     if common < threshold {
-                        to_remove.push((u.clone(), v.clone()));
+                        to_remove.push((u, v));
                     }
                 }
+            }
+            for &x in &u_nbrs {
+                mark[x] = false;
             }
         }
 
         if !to_remove.is_empty() {
             changed = true;
-            for (u, v) in &to_remove {
-                if let Some(s) = adj.get_mut(u) {
-                    s.remove(v);
-                }
-                if let Some(s) = adj.get_mut(v) {
-                    s.remove(u);
-                }
+            for &(u, v) in &to_remove {
+                adj[u].remove(&v);
+                adj[v].remove(&u);
             }
         }
     }
 
-    // Remove isolated nodes
+    // Remove isolated nodes; rebuild with the original string-order conventions.
     let result_nodes: Vec<String> = {
-        let mut ns: Vec<String> = adj
-            .iter()
-            .filter(|(_, nbrs)| !nbrs.is_empty())
-            .map(|(n, _)| n.clone())
+        let mut ns: Vec<String> = (0..n)
+            .filter(|&i| !adj[i].is_empty())
+            .map(|i| nodes[i].to_owned())
             .collect();
         ns.sort();
         ns
     };
 
     let mut result_edges: Vec<(String, String)> = Vec::new();
-    for u in &result_nodes {
-        if let Some(nbrs) = adj.get(u) {
-            for v in nbrs {
-                if u.as_str() < v.as_str() {
-                    result_edges.push((u.clone(), v.clone()));
-                }
+    for i in 0..n {
+        if adj[i].is_empty() {
+            continue;
+        }
+        let ni = nodes[i];
+        for &j in &adj[i] {
+            let nj = nodes[j];
+            if ni < nj {
+                result_edges.push((ni.to_owned(), nj.to_owned()));
             }
         }
     }
@@ -14809,6 +14818,81 @@ pub fn k_truss(graph: &Graph, k: usize) -> KTrussResult {
             queue_peak: 0,
         },
     }
+}
+
+/// br-r37-c1-ktrussmark A/B baseline: the pre-lever k-truss that peeled over a
+/// String-keyed `HashMap<String, HashSet<String>>`, cloning a neighbour set per
+/// edge and hash-probing `contains`. Test-only; returns (result_nodes,
+/// result_edges), byte-identical to `k_truss` (for k >= 2 on a non-empty graph).
+#[cfg(test)]
+fn k_truss_result_orig_string(graph: &Graph, k: usize) -> (Vec<String>, Vec<(String, String)>) {
+    let nodes = graph.nodes_ordered();
+    let threshold = k.saturating_sub(2);
+    let mut adj: HashMap<String, HashSet<String>> = HashMap::new();
+    for &node in &nodes {
+        adj.entry(node.to_owned()).or_default();
+        if let Some(nbrs) = graph.neighbors_iter(node) {
+            for nb in nbrs {
+                if nb != node {
+                    adj.entry(node.to_owned()).or_default().insert(nb.to_owned());
+                }
+            }
+        }
+    }
+    let mut changed = true;
+    while changed {
+        changed = false;
+        let mut to_remove: Vec<(String, String)> = Vec::new();
+        let current_nodes: Vec<String> = adj.keys().cloned().collect();
+        for u in &current_nodes {
+            let u_nbrs: Vec<String> =
+                adj.get(u).map(|s| s.iter().cloned().collect()).unwrap_or_default();
+            for v in &u_nbrs {
+                if u < v {
+                    let v_nbrs = adj.get(v).cloned().unwrap_or_default();
+                    let common = adj
+                        .get(u)
+                        .map(|s| s.iter().filter(|w| v_nbrs.contains(*w)).count())
+                        .unwrap_or(0);
+                    if common < threshold {
+                        to_remove.push((u.clone(), v.clone()));
+                    }
+                }
+            }
+        }
+        if !to_remove.is_empty() {
+            changed = true;
+            for (u, v) in &to_remove {
+                if let Some(s) = adj.get_mut(u) {
+                    s.remove(v);
+                }
+                if let Some(s) = adj.get_mut(v) {
+                    s.remove(u);
+                }
+            }
+        }
+    }
+    let result_nodes: Vec<String> = {
+        let mut ns: Vec<String> = adj
+            .iter()
+            .filter(|(_, nbrs)| !nbrs.is_empty())
+            .map(|(n, _)| n.clone())
+            .collect();
+        ns.sort();
+        ns
+    };
+    let mut result_edges: Vec<(String, String)> = Vec::new();
+    for u in &result_nodes {
+        if let Some(nbrs) = adj.get(u) {
+            for v in nbrs {
+                if u.as_str() < v.as_str() {
+                    result_edges.push((u.clone(), v.clone()));
+                }
+            }
+        }
+    }
+    result_edges.sort();
+    (result_nodes, result_edges)
 }
 
 /// Reconstruct a labeled tree from a Prüfer sequence.
@@ -46932,6 +47016,99 @@ mod tests {
         };
         println!("SQUARE_CLUSTERING_MARK_AB n={n} deg={deg} rounds={rounds} (>1 = mark-array faster)");
         report("MARK_vs_hashset", &paired(true, false));
+        report("NULL_mark_vs_mark", &paired(true, true));
+    }
+
+    /// br-r37-c1-ktrussmark: paired-interleaved median A/B for the integer-adjacency
+    /// + mark-array k-truss peeling vs the old String-keyed HashMap/HashSet
+    /// per-edge-clone baseline, in ONE binary / ONE worker with a NULL control.
+    /// `#[ignore]` (measurement); run with
+    /// `cargo test --release -p fnx-algorithms --lib k_truss_mark_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn k_truss_mark_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Moderate pseudo-random graph (n=600, ~18-deg): k-truss peels over several
+        // passes, and the old path cloned a HashSet<String> per edge per pass +
+        // String-hash `contains` — exactly what the integer+mark rewrite drops.
+        let n = 600usize;
+        let deg = 18usize;
+        let k = 5usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for t in 1..=deg {
+                let j = ((i as u64)
+                    .wrapping_mul(1_500_450_271)
+                    .wrapping_add((t as u64).wrapping_mul(2_654_435_761))
+                    % n as u64) as usize;
+                if j != i {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+                }
+            }
+        }
+
+        // Byte-exact parity: integer-mark result == String baseline result.
+        let prod = super::k_truss(&g, k);
+        let (base_nodes, base_edges) = super::k_truss_result_orig_string(&g, k);
+        assert_eq!(prod.nodes, base_nodes, "k_truss nodes must match the string baseline");
+        assert_eq!(prod.edges, base_edges, "k_truss edges must match the string baseline");
+
+        let time = |lever: bool| -> f64 {
+            let t0 = Instant::now();
+            for _ in 0..3 {
+                if lever {
+                    black_box(super::k_truss(&g, k));
+                } else {
+                    black_box(super::k_truss_result_orig_string(&g, k));
+                }
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 121usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "K_TRUSS_MARK_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("K_TRUSS_MARK_AB n={n} deg={deg} k={k} rounds={rounds} (>1 = integer+mark faster)");
+        report("MARK_vs_string", &paired(true, false));
         report("NULL_mark_vs_mark", &paired(true, true));
     }
 
