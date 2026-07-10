@@ -1,5 +1,33 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-10, `8d54e89ce`): `triangles` mark-array (bitset) count **5.5420x** — drop the n-HashSet build + hash probes (br-r37-c1-trimark)
+
+PROFILE-FIRST across the directive's remaining named algos (pagerank/katz/betweenness/closeness/all-pairs/
+clustering). The STRING-resolve-once vein is MINED OUT: all of them already use the graph's integer adjacency
+— pagerank/katz/betweenness/simrank prebuild `Vec<Vec<usize>>`, all-pairs BFS uses `get_node_index` + integer
+`visited`/`frontier` (the graph's `adj_indices` IS the shared CSR), `clustering_coefficient` already uses a
+reusable mark array. But a DIFFERENT structural primitive (bitset set-membership) was still open in the
+sibling `triangles` (nx.triangles): it built n `HashSet<usize>` (one per node) and hash-probed
+`nbrs_v.contains(&w)` per candidate. Switched it to the SAME reusable mark array `clustering_coefficient`
+uses — a single `vec![false; n]` reset per node, O(1) lookups, cache-sequential neighbour scans.
+
+MEASURED — paired-interleaved in-crate A/B vs the exact HashSet baseline (`triangles_counts_orig_hashset`,
+`#[cfg(test)]`), ONE binary / ONE worker `vmi`, dense pseudo-random ~40-deg n=1200, 121 rounds:
+
+| paired A/B (>1 = mark-array faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **MARK_vs_hashset** | **5.5420x** | **121/121** | [2.9503, 7.2269] |
+| NULL_mark_vs_mark | 0.9969x | 57/121 | [0.8347, 1.2379] |
+
+DECIDABLE: 5.54x median, p5 2.95x (ALWAYS a win), vs a null centred at 0.9969x. BYTE-IDENTICAL: both
+enumerate exactly w ∈ N(u)∩N(v) with w>v per edge u<v and increment all three vertices; `edges_scanned`
+stays |E|. Asserted `mark == base` in-test. clippy `-D warnings` clean.
+
+NEXT SIBLING (not this turn — its own lever): `square_clustering` (lib.rs ~13265) still uses STRING-keyed
+`HashMap<&str, HashSet<&str>>` in its hot square-counting loop — both a string re-resolve AND HashSet
+membership; the biggest remaining bitset/index candidate in the clustering family. (Other `Vec<HashSet<usize>>`
+sites are one-shot adjacency builds, not hot per-pass loops — leave them.)
+
 ## SHIPPED WIN (cc, 2026-07-10, `0b2c1c910`): `hits_centrality` resolve-once neighbour indices **3.1072x** — the SECOND (and last) power-iteration straggler (br-r37-c1-eigcsr sibling)
 
 After eigenvector, dug the rest of the resolve-once family the directive named (pagerank/katz/betweenness/
