@@ -3150,6 +3150,21 @@ NOT re-attempt interning / small-string / arena / perfect-hash here — all four
 > br-r37-c1-gtty9). It stays closed for single-call `has_node`/`has_edge`. Candidate targets to
 > re-profile first (baseline self-times): `__memmove` 11.88%, `__memcmp` 8.19%, allocator ~15%,
 > `RuntimePolicy::clone` 4.70%, per-call `multigraph_to_weighted_simple_graph` projection 4.18%.
+>
+> **PROVENANCE AUDIT (2026-07-10, against the four-field rule: binary sha256 / self-time / worker id /
+> cv_pct).** This row records **ZERO of the four**: no binary sha256, no worker id, no cv_pct, and no
+> self-time — only raw end-to-end nanoseconds (245->253, 227->231, 416->430 ns; N=4000 lookups,
+> min-of-30 x4). It cannot be profile-verified even in principle: `StackCanon` was never committed (a
+> `stash@{0}` NOSHIP artifact) and no binary was preserved, so there is nothing left to attribute
+> self-time to. **A row with zero of four provenance fields, whose code no longer exists, was
+> load-bearing for a do-not-retry across the suite's biggest gap.** Its narrow conclusion still stands on
+> the independent key-length-invariance test; its broad citation never did.
+>
+> **PAYOFF — why this audit was worth running.** `cod_nx` took the reopened bead and shipped
+> **`5abbfd8a4` "perf(dijkstra): reuse persistent multigraph node ids" — 1.322x paired speedup, CV
+> ~1.0-1.2%, exact mutation/tie/error parity.** The allocation family the ledger had "empirically closed"
+> yielded a measured win on the string-key dijkstra floor within hours of being reopened. Same pattern as
+> frankenmermaid's packed barycenter and frankenredis's SORT.
 
 ## 2026-07-03 CopperCliff SCOPED BLOCKER (measured): the attributed-construction floor is PyO3-CONVERSION-bound, NOT allocation-bound — interning / small-string / arena / perfect-hash all RULED OUT empirically; the only lever is a lazy CgseValue store (deep, layering-breaking)
 
