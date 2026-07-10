@@ -8,6 +8,49 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## NOT-SHIPPED / PARKED (cc, 2026-07-10): chunked-parallel bit-parallel BFS for `average_shortest_path_length` — 7.6-17.1x on the target row, but the `auto` GUARD regresses ~3% in THREE runs and the gate's MEASURED overhead explains at most a quarter of it (br-r37-c1-bger9)
+
+aspl needed no kernel surgery: `bitpar_bfs_batch` already returns a self-contained `AsplAgg` per batch
+and writes no shared per-source array, so chunks were independent all along. `AsplAgg::merge` is `+` on
+three integers and `max` on the fourth — associative AND commutative — so rayon's non-deterministic
+reduction tree reproduces the sequential aggregate bit-for-bit. 10/10 aspl tests green, incl.
+chunked-vs-sequential aggregate equality at every lane width 1..8 (asserting `sum`, `reached_pairs`,
+`edges_scanned` AND `queue_peak`). Proof: `tests/artifacts/perf/20260710T-chunked-bitpar-aspl-cc/`.
+
+`paired_interleaved_ab`, 121 rounds, one `RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec` each:
+
+| run | worker | change under test | `lowdiam_2000` auto | `grid_1600` auto GUARD | `grid_1600` chunked |
+|---|---|---|---|---|---|
+| 1 | hz1 | CSR before the gate | **17.115x** cv 0.39% | **0.961x** [0.952,0.973] | 1.975x |
+| 2 | hz1 | + `gate_overhead_only` arm | 22.412x cv 5.93% | **0.974x** [0.946,0.984] | 1.926x |
+| 3 | hz2 | CSR only on accept | **7.605x** cv 0.70% | **0.970x** [0.949,0.983] | 1.078x |
+
+All target rows 121/121 paired wins. **The guard's ci95 EXCLUDES 1.0 in all three runs.**
+
+SELF-TIME, MEASURED (ledger-integrity rule): `aspl_gate_overhead_cost` is a bench arm running EXACTLY
+what `Auto` does before deciding — u32 CSR build + eccentricity probe — and nothing else.
+**grid_1600: 17.27 us = 0.28% of the 6.255 ms baseline (run 2); 13.81 us = 0.71% of 1.931 ms (run 3).**
+The guard regresses 2.6-3.9%. **At least three quarters of it is UNATTRIBUTED, so NO mechanism is
+claimed and nothing ships.**
+
+HYPOTHESIS PROPOSED AND REFUTED, with numbers: "the wasted CSR — built before the gate, discarded on
+decline — perturbs the per-source sweep that follows." Fix built (run 3): build the adjacency rows ONCE
+(the fallback needs them), probe THOSE rows via a new `bitpar_probe_eccentricity_rows`, construct the
+CSR only when the gate ACCEPTS, so a declined graph never builds one. Guard moved 0.961x/0.974x ->
+**0.970x. Unchanged. REFUTED.** The restructure also slowed the forced-chunked arm on grid (1.975x ->
+1.078x) because the accepted path now pays for adjacency rows AND the CSR.
+
+That is the SECOND mechanism I proposed for a guard regression on this lever and the second one that
+measurement killed. The first was "the CSR build costs ~2 ms", inferred by subtracting noisy arms —
+`csr_build_only` measured it at 10.0 us. Both would have been fiction in a REJECT rationale. DO NOT
+write the sequential-probe story either: the probe is sequential against a rayon-parallel baseline so
+its wall share scales as `threads/n`, which predicts ~0.5% here, not 3%. Contributor, not explanation.
+
+RETRY-CONDITION (br-r37-c1-wkpfc): `perf record` the `auto` arm on a DECLINED graph and diff self-time
+against `per_source`. ~60 us of a 1.93 ms wall is neither the CSR nor the probe. Name that frame, then
+ship or reject. Also: the gate declines `grid_1600` where forced chunked WINS (1.078-1.975x) — same
+finding as closeness (1.503x) and harmonic (1.456x), tracked in br-r37-c1-yy0rp.
+
 ## SHIPPED (cc, 2026-07-10): chunked-parallel bit-parallel BFS for `harmonic_centrality` n>=500 — **7.150x** on low-diameter (ci95 [7.018,7.264], median_cv 0.93%, **121/121** paired wins); guard grid_1600 **0.989x** [0.982,0.995] = a DISCLOSED ~1.1% regression (br-r37-c1-qdcdq)
 
 Follow-on to the closeness ship below. Harmonic already rode the shared `ReachSink` kernel, so this

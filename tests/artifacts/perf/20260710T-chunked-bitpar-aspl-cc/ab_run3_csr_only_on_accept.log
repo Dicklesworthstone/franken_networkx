@@ -1,0 +1,374 @@
+  [2m2026-07-10T14:29:06.766245Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSelected worker: hz2 at root@178.104.77.29 (0 slots remaining after reservation, speed 50.0)[0m
+    [2;3mat[0m rch/src/hook.rs:867 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:07.027258Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mStarting remote compilation pipeline for franken_networkx (hash: 5ed771bfef82b38f)[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:241 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:07.027308Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mPrepared dependency sync manifest for 13 roots[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:263 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:10.062813Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mSyncing project to worker hz2...[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:323 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:10.062917Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx -> /data/projects/franken_networkx on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:20.203717Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 10140ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:20.203840Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-algorithms -> /data/projects/franken_networkx/crates/fnx-algorithms on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:22.049574Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1845ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:22.049710Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-cgse -> /data/projects/franken_networkx/crates/fnx-cgse on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:23.926744Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1877ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:23.926868Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-classes -> /data/projects/franken_networkx/crates/fnx-classes on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:25.792392Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1865ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:25.792517Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-conformance -> /data/projects/franken_networkx/crates/fnx-conformance on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:28.085116Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 2292ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:28.085273Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-convert -> /data/projects/franken_networkx/crates/fnx-convert on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:30.028874Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1943ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:30.029050Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-dispatch -> /data/projects/franken_networkx/crates/fnx-dispatch on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:31.850031Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1820ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:31.850163Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-durability -> /data/projects/franken_networkx/crates/fnx-durability on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:33.699851Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1849ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:33.699993Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-generators -> /data/projects/franken_networkx/crates/fnx-generators on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:35.603562Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1903ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:35.603710Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-python -> /data/projects/franken_networkx/crates/fnx-python on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:37.442517Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1838ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:37.442659Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-readwrite -> /data/projects/franken_networkx/crates/fnx-readwrite on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:39.334164Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1891ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:39.334289Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-runtime -> /data/projects/franken_networkx/crates/fnx-runtime on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:41.172460Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1838ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:41.172595Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-views -> /data/projects/franken_networkx/crates/fnx-views on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:43.111425Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1938ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:43.111468Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mSync complete: 87378 files, 4313610 bytes in 33039ms[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:486 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:47.112903Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo bench -p fnx-algorithms --bench algorithm_benchmarks -- aspl_parallel --sample-size 10 --warm-up-time 0.5 --measurement-time 1.0[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:529 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:29:47.115344Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRewriting CARGO_TARGET_DIR for remote execution (worker-scoped path): /data/projects/franken_networkx/target -> /data/projects/franken_networkx/.rch-target-hz2-pool-4a7eb17ce3437e25aacd2701aa3351d7[0m
+    [2;3mat[0m rch/src/transfer.rs:856 [2;3mon[0m ThreadId(1)
+
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded bit-vec v0.8.0
+  Downloaded cfg-if v1.0.4
+  Downloaded crossbeam-deque v0.8.6
+  Downloaded alloca v0.4.0
+  Downloaded cpufeatures v0.3.0
+  Downloaded find-msvc-tools v0.1.9
+  Downloaded anes v0.1.6
+  Downloaded bit-set v0.8.0
+  Downloaded quick-error v1.2.3
+  Downloaded rustc-hash v2.1.2
+  Downloaded anstyle v1.0.14
+  Downloaded mwmatching v0.1.1
+  Downloaded oorandom v11.1.5
+  Downloaded rand_chacha v0.9.0
+  Downloaded shlex v1.3.0
+  Downloaded wait-timeout v0.2.1
+  Downloaded same-file v1.0.6
+  Downloaded arrayref v0.3.9
+  Downloaded serde_derive v1.0.228
+  Downloaded autocfg v1.5.0
+  Downloaded bitflags v2.13.0
+  Downloaded proc-macro2 v1.0.106
+  Downloaded arrayvec v0.7.6
+  Downloaded clap_builder v4.6.0
+  Downloaded aho-corasick v1.1.4
+  Downloaded hashbrown v0.17.0
+  Downloaded regex v1.12.3
+  Downloaded blake3 v1.8.4
+  Downloaded ciborium v0.2.2
+  Downloaded crossbeam-epoch v0.9.18
+  Downloaded half v2.7.1
+  Downloaded itoa v1.0.18
+  Downloaded rustix v1.1.4
+  Downloaded plotters-backend v0.3.7
+  Downloaded page_size v0.6.0
+  Downloaded rand_core v0.9.5
+  Downloaded ciborium-ll v0.2.2
+  Downloaded quote v1.0.45
+  Downloaded walkdir v2.5.0
+  Downloaded ppv-lite86 v0.2.21
+  Downloaded rayon-core v1.13.0
+  Downloaded rand_xorshift v0.4.0
+  Downloaded hex v0.4.3
+  Downloaded cast v0.3.0
+  Downloaded itertools v0.13.0
+  Downloaded plotters-svg v0.3.7
+  Downloaded tinytemplate v1.2.1
+  Downloaded fnv v1.0.7
+  Downloaded unarray v0.1.4
+  Downloaded ciborium-io v0.2.2
+  Downloaded either v1.15.0
+  Downloaded equivalent v1.0.2
+  Downloaded mt19937 v3.3.0
+  Downloaded clap_lex v1.1.0
+  Downloaded errno v0.3.14
+  Downloaded zmij v1.0.21
+  Downloaded criterion-plot v0.8.2
+  Downloaded rusty-fork v0.3.1
+  Downloaded serde v1.0.228
+  Downloaded once_cell v1.21.4
+  Downloaded rand_core v0.10.1
+  Downloaded serde_core v1.0.228
+  Downloaded crossbeam-utils v0.8.21
+  Downloaded fastrand v2.4.1
+  Downloaded num-traits v0.2.19
+  Downloaded tempfile v3.27.0
+  Downloaded getrandom v0.3.4
+  Downloaded getrandom v0.4.2
+  Downloaded unicode-ident v1.0.24
+  Downloaded constant_time_eq v0.4.2
+  Downloaded clap v4.6.1
+  Downloaded rand v0.9.4
+  Downloaded zerocopy-derive v0.8.48
+  Downloaded cc v1.2.61
+  Downloaded criterion v0.8.2
+  Downloaded memchr v2.8.2
+  Downloaded indexmap v2.14.0
+  Downloaded plotters v0.3.7
+  Downloaded serde_json v1.0.150
+  Downloaded rayon v1.12.0
+  Downloaded proptest v1.11.0
+  Downloaded syn v2.0.117
+  Downloaded zerocopy v0.8.48
+  Downloaded regex-syntax v0.8.10
+  Downloaded regex-automata v0.4.14
+  Downloaded libc v0.2.186
+  Downloaded linux-raw-sys v0.12.1
+   Compiling proc-macro2 v1.0.106
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.45
+   Compiling cfg-if v1.0.4
+   Compiling libc v0.2.186
+   Compiling serde_core v1.0.228
+   Compiling find-msvc-tools v0.1.9
+   Compiling shlex v1.3.0
+   Compiling serde v1.0.228
+   Compiling zmij v1.0.21
+   Compiling crossbeam-utils v0.8.21
+   Compiling serde_json v1.0.150
+   Compiling zerocopy v0.8.48
+   Compiling memchr v2.8.2
+   Compiling itoa v1.0.18
+   Compiling getrandom v0.3.4
+   Compiling either v1.15.0
+   Compiling rayon-core v1.13.0
+   Compiling cc v1.2.61
+   Compiling autocfg v1.5.0
+   Compiling arrayvec v0.7.6
+   Compiling hashbrown v0.17.0
+   Compiling getrandom v0.4.2
+   Compiling equivalent v1.0.2
+   Compiling arrayref v0.3.9
+   Compiling rustix v1.1.4
+   Compiling cpufeatures v0.3.0
+   Compiling constant_time_eq v0.4.2
+   Compiling hex v0.4.3
+   Compiling linux-raw-sys v0.12.1
+   Compiling rand_core v0.10.1
+   Compiling regex-syntax v0.8.10
+   Compiling rustc-hash v2.1.2
+   Compiling bitflags v2.13.0
+   Compiling num-traits v0.2.19
+   Compiling mwmatching v0.1.1
+   Compiling anstyle v1.0.14
+   Compiling mt19937 v3.3.0
+   Compiling once_cell v1.21.4
+   Compiling crossbeam-epoch v0.9.18
+   Compiling plotters-backend v0.3.7
+   Compiling fastrand v2.4.1
+   Compiling clap_lex v1.1.0
+   Compiling ciborium-io v0.2.2
+   Compiling syn v2.0.117
+   Compiling crossbeam-deque v0.8.6
+   Compiling indexmap v2.14.0
+   Compiling clap_builder v4.6.0
+   Compiling itertools v0.13.0
+   Compiling plotters-svg v0.3.7
+   Compiling same-file v1.0.6
+   Compiling bit-vec v0.8.0
+   Compiling cast v0.3.0
+   Compiling fnv v1.0.7
+   Compiling quick-error v1.2.3
+   Compiling wait-timeout v0.2.1
+   Compiling bit-set v0.8.0
+   Compiling page_size v0.6.0
+   Compiling walkdir v2.5.0
+   Compiling anes v0.1.6
+   Compiling blake3 v1.8.4
+   Compiling rand_core v0.9.5
+   Compiling alloca v0.4.0
+   Compiling oorandom v11.1.5
+   Compiling plotters v0.3.7
+   Compiling rand_xorshift v0.4.0
+   Compiling rand v0.9.4
+   Compiling unarray v0.1.4
+   Compiling rayon v1.12.0
+   Compiling regex-automata v0.4.14
+   Compiling tempfile v3.27.0
+   Compiling criterion-plot v0.8.2
+   Compiling rusty-fork v0.3.1
+   Compiling clap v4.6.1
+   Compiling serde_derive v1.0.228
+   Compiling zerocopy-derive v0.8.48
+   Compiling regex v1.12.3
+   Compiling fnx-runtime v0.2.0 (/data/projects/franken_networkx/crates/fnx-runtime)
+   Compiling fnx-cgse v0.2.0 (/data/projects/franken_networkx/crates/fnx-cgse)
+   Compiling tinytemplate v1.2.1
+   Compiling fnx-classes v0.2.0 (/data/projects/franken_networkx/crates/fnx-classes)
+   Compiling half v2.7.1
+   Compiling ppv-lite86 v0.2.21
+   Compiling ciborium-ll v0.2.2
+   Compiling rand_chacha v0.9.0
+   Compiling ciborium v0.2.2
+   Compiling proptest v1.11.0
+   Compiling fnx-algorithms v0.2.0 (/data/projects/franken_networkx/crates/fnx-algorithms)
+   Compiling criterion v0.8.2
+    Finished `bench` profile [optimized] target(s) in 58.10s
+     Running benches/algorithm_benchmarks.rs (.rch-target-hz2-pool-4a7eb17ce3437e25aacd2701aa3351d7/release/deps/algorithm_benchmarks-3c86ce26ed95d8d9)
+Gnuplot not found, using plotters backend
+PAIRED aspl/lowdiam_2000 per_source vs auto: orig_med=9.446ms cand_med=1.238ms ratio_med=7.605x ci95=[7.493,7.685] median_cv=0.70% win_rate=121/121 ratio_min=2.506x ratio_max=9.153x checksum=0x6b7bf314f9177723
+PAIRED aspl/lowdiam_2000 per_source vs chunked_bitpar: orig_med=9.427ms cand_med=1.183ms ratio_med=7.835x ci95=[7.700,7.913] median_cv=0.74% win_rate=121/121 ratio_min=2.546x ratio_max=10.588x checksum=0x6b7bf314f9177723
+PAIRED aspl/grid_1600 per_source vs auto: orig_med=1.931ms cand_med=1.974ms ratio_med=0.970x ci95=[0.949,0.983] median_cv=0.94% win_rate=41/121 ratio_min=0.561x ratio_max=1.215x checksum=0xe437d33dd518d407
+PAIRED aspl/grid_1600 per_source vs chunked_bitpar: orig_med=1.992ms cand_med=1.871ms ratio_med=1.078x ci95=[1.067,1.103] median_cv=1.01% win_rate=110/121 ratio_min=0.886x ratio_max=2.034x checksum=0xe437d33dd518d407
+Benchmarking aspl_parallel/per_source/aspl/lowdiam_2000
+Benchmarking aspl_parallel/per_source/aspl/lowdiam_2000: Warming up for 500.00 ms
+Benchmarking aspl_parallel/per_source/aspl/lowdiam_2000: Collecting 10 samples in estimated 1.4758 s (165 iterations)
+Benchmarking aspl_parallel/per_source/aspl/lowdiam_2000: Analyzing
+aspl_parallel/per_source/aspl/lowdiam_2000
+                        time:   [8.1219 ms 8.2341 ms 8.3507 ms]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high mild
+Benchmarking aspl_parallel/chunked_bitpar/aspl/lowdiam_2000
+Benchmarking aspl_parallel/chunked_bitpar/aspl/lowdiam_2000: Warming up for 500.00 ms
+Benchmarking aspl_parallel/chunked_bitpar/aspl/lowdiam_2000: Collecting 10 samples in estimated 1.0521 s (825 iterations)
+Benchmarking aspl_parallel/chunked_bitpar/aspl/lowdiam_2000: Analyzing
+aspl_parallel/chunked_bitpar/aspl/lowdiam_2000
+                        time:   [1.2491 ms 1.2999 ms 1.3334 ms]
+Benchmarking aspl_parallel/auto/aspl/lowdiam_2000
+Benchmarking aspl_parallel/auto/aspl/lowdiam_2000: Warming up for 500.00 ms
+Benchmarking aspl_parallel/auto/aspl/lowdiam_2000: Collecting 10 samples in estimated 1.0345 s (770 iterations)
+Benchmarking aspl_parallel/auto/aspl/lowdiam_2000: Analyzing
+aspl_parallel/auto/aspl/lowdiam_2000
+                        time:   [1.3316 ms 1.3779 ms 1.4425 ms]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high mild
+Benchmarking aspl_parallel/gate_overhead_only/aspl/lowdiam_2000
+Benchmarking aspl_parallel/gate_overhead_only/aspl/lowdiam_2000: Warming up for 500.00 ms
+Benchmarking aspl_parallel/gate_overhead_only/aspl/lowdiam_2000: Collecting 10 samples in estimated 1.0001 s (30k iterations)
+Benchmarking aspl_parallel/gate_overhead_only/aspl/lowdiam_2000: Analyzing
+aspl_parallel/gate_overhead_only/aspl/lowdiam_2000
+                        time:   [33.496 µs 33.892 µs 34.266 µs]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high mild
+Benchmarking aspl_parallel/per_source/aspl/grid_1600
+Benchmarking aspl_parallel/per_source/aspl/grid_1600: Warming up for 500.00 ms
+Benchmarking aspl_parallel/per_source/aspl/grid_1600: Collecting 10 samples in estimated 1.0433 s (495 iterations)
+Benchmarking aspl_parallel/per_source/aspl/grid_1600: Analyzing
+aspl_parallel/per_source/aspl/grid_1600
+                        time:   [2.1271 ms 2.2349 ms 2.3379 ms]
+Benchmarking aspl_parallel/chunked_bitpar/aspl/grid_1600
+Benchmarking aspl_parallel/chunked_bitpar/aspl/grid_1600: Warming up for 500.00 ms
+Benchmarking aspl_parallel/chunked_bitpar/aspl/grid_1600: Collecting 10 samples in estimated 1.0077 s (550 iterations)
+Benchmarking aspl_parallel/chunked_bitpar/aspl/grid_1600: Analyzing
+aspl_parallel/chunked_bitpar/aspl/grid_1600
+                        time:   [1.8313 ms 1.8830 ms 1.9457 ms]
+Benchmarking aspl_parallel/auto/aspl/grid_1600
+Benchmarking aspl_parallel/auto/aspl/grid_1600: Warming up for 500.00 ms
+Benchmarking aspl_parallel/auto/aspl/grid_1600: Collecting 10 samples in estimated 1.0049 s (440 iterations)
+Benchmarking aspl_parallel/auto/aspl/grid_1600: Analyzing
+aspl_parallel/auto/aspl/grid_1600
+                        time:   [2.1348 ms 2.2060 ms 2.2961 ms]
+Benchmarking aspl_parallel/gate_overhead_only/aspl/grid_1600
+Benchmarking aspl_parallel/gate_overhead_only/aspl/grid_1600: Warming up for 500.00 ms
+Benchmarking aspl_parallel/gate_overhead_only/aspl/grid_1600: Collecting 10 samples in estimated 1.0004 s (73k iterations)
+Benchmarking aspl_parallel/gate_overhead_only/aspl/grid_1600: Analyzing
+aspl_parallel/gate_overhead_only/aspl/grid_1600
+                        time:   [13.428 µs 13.814 µs 14.425 µs]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high severe
+
+PAIRED closeness/lowdiam_2000 per_source vs auto: orig_med=11.710ms cand_med=2.361ms ratio_med=5.037x ci95=[4.899,5.169] median_cv=1.47% win_rate=61/61 ratio_min=3.838x ratio_max=6.253x checksum=0x22c4297fa887b15e
+PAIRED closeness/lowdiam_2000 per_source vs chunked_bitpar: orig_med=10.784ms cand_med=2.134ms ratio_med=5.133x ci95=[5.017,5.269] median_cv=1.51% win_rate=61/61 ratio_min=3.784x ratio_max=6.152x checksum=0x22c4297fa887b15e
+PAIRED closeness/grid_1600 per_source vs auto: orig_med=2.628ms cand_med=2.685ms ratio_med=0.990x ci95=[0.971,1.005] median_cv=0.93% win_rate=27/61 ratio_min=0.789x ratio_max=1.768x checksum=0xe240c894303def1c
+PAIRED closeness/grid_1600 per_source vs chunked_bitpar: orig_med=2.712ms cand_med=2.142ms ratio_med=1.278x ci95=[1.260,1.310] median_cv=1.20% win_rate=61/61 ratio_min=1.072x ratio_max=1.704x checksum=0xe240c894303def1c
+PAIRED harmonic/lowdiam_2000 per_source vs auto: orig_med=11.158ms cand_med=2.175ms ratio_med=5.253x ci95=[5.085,5.351] median_cv=1.26% win_rate=121/121 ratio_min=3.198x ratio_max=6.508x checksum=0x8542b2bb7e3d7b85
+PAIRED harmonic/lowdiam_2000 per_source vs chunked_bitpar: orig_med=10.656ms cand_med=2.160ms ratio_med=4.975x ci95=[4.896,5.079] median_cv=0.79% win_rate=121/121 ratio_min=3.624x ratio_max=6.110x checksum=0x8542b2bb7e3d7b85
+PAIRED harmonic/grid_1600 per_source vs auto: orig_med=3.566ms cand_med=3.462ms ratio_med=1.012x ci95=[0.984,1.030] median_cv=1.18% win_rate=64/121 ratio_min=0.415x ratio_max=6.362x checksum=0x9bf2c0a2775f7350
+PAIRED harmonic/grid_1600 per_source vs chunked_bitpar: orig_med=2.933ms cand_med=2.391ms ratio_med=1.210x ci95=[1.190,1.234] median_cv=0.91% win_rate=119/121 ratio_min=0.827x ratio_max=1.580x checksum=0x9bf2c0a2775f7350
+  [2m2026-07-10T14:31:15.242541Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mRemote command finished: exit=0 in 88127ms[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:653 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:31:15.242776Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mRetrieving build artifacts...[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:702 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:31:15.242797Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /data/projects/franken_networkx on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:2328 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:31:17.182264Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 1939ms (1 files, 2917 bytes)[0m
+    [2;3mat[0m rch/src/transfer.rs:2383 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:31:17.182294Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mArtifacts retrieved: 1 files, 2917 bytes in 1939ms[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:735 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:31:17.182422Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /data/projects/franken_networkx/.rch-target-hz2-pool-4a7eb17ce3437e25aacd2701aa3351d7 on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:2328 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:31:19.743016Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 2560ms (519 files, 35068 bytes)[0m
+    [2;3mat[0m rch/src/transfer.rs:2383 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T14:31:19.743050Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mCustom CARGO_TARGET_DIR artifacts retrieved: 519 files, 35068 bytes in 2560ms[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:859 [2;3mon[0m ThreadId(1)
+
+[RCH] remote hz2 (133.0s)

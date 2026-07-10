@@ -1,0 +1,436 @@
+diff --git a/crates/fnx-algorithms/benches/algorithm_benchmarks.rs b/crates/fnx-algorithms/benches/algorithm_benchmarks.rs
+index f7f99842d..c21150b6c 100644
+--- a/crates/fnx-algorithms/benches/algorithm_benchmarks.rs
++++ b/crates/fnx-algorithms/benches/algorithm_benchmarks.rs
+@@ -9,14 +9,15 @@ use std::collections::BTreeMap;
+ 
+ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+ use fnx_algorithms::{
+-    BitparArm, adamic_adar_index, average_degree_connectivity, average_shortest_path_length,
+-    betweenness_centrality, closeness_centrality, closeness_centrality_arm,
+-    closeness_reverse_csr_build_cost, cn_soundarajan_hopcroft, common_neighbor_centrality,
+-    common_neighbors, connected_components, degree_centrality, degree_mixing_dict,
+-    eigenvector_centrality, harmonic_centrality, harmonic_centrality_arm, jaccard_coefficient,
+-    max_flow_edmonds_karp, minimum_cut_edmonds_karp, minimum_spanning_tree, node_degree_xy,
+-    pagerank, preferential_attachment, ra_index_soundarajan_hopcroft, resource_allocation_index,
+-    shortest_path_unweighted, shortest_path_weighted, single_source_dijkstra_path_length,
++    BitparArm, adamic_adar_index, aspl_gate_overhead_cost, average_degree_connectivity,
++    average_shortest_path_length, average_shortest_path_length_arm, betweenness_centrality,
++    closeness_centrality, closeness_centrality_arm, closeness_reverse_csr_build_cost,
++    cn_soundarajan_hopcroft, common_neighbor_centrality, common_neighbors, connected_components,
++    degree_centrality, degree_mixing_dict, eigenvector_centrality, harmonic_centrality,
++    harmonic_centrality_arm, jaccard_coefficient, max_flow_edmonds_karp, minimum_cut_edmonds_karp,
++    minimum_spanning_tree, node_degree_xy, pagerank, preferential_attachment,
++    ra_index_soundarajan_hopcroft, resource_allocation_index, shortest_path_unweighted,
++    shortest_path_weighted, single_source_dijkstra_path_length,
+ };
+ use fnx_classes::{Graph, digraph::DiGraph};
+ use fnx_runtime::CgseValue;
+@@ -586,6 +587,65 @@ fn bench_closeness_centrality_parallel(c: &mut Criterion) {
+     group.finish();
+ }
+ 
++/// br-r37-c1-bger9: aspl on the same chunked-parallel driver. aspl returns a single
++/// f64, so `score_bits` yields a one-element vector — the bit-exactness assert still
++/// runs, and it is meaningful because `AsplAgg::merge` must be order-free for rayon's
++/// reduction tree to reproduce the sequential aggregate exactly.
++fn bench_aspl_parallel(c: &mut Criterion) {
++    let run = |g: &Graph, arm: BitparArm| -> usize {
++        std::hint::black_box(
++            average_shortest_path_length_arm(g, arm)
++                .average_shortest_path_length
++                .to_bits() as usize,
++        )
++    };
++    let bits = |g: &Graph, arm: BitparArm| -> Vec<u64> {
++        vec![
++            average_shortest_path_length_arm(g, arm)
++                .average_shortest_path_length
++                .to_bits(),
++        ]
++    };
++    let workloads = [
++        ("aspl/lowdiam_2000", build_low_diameter(2000, 8000)),
++        ("aspl/grid_1600", build_grid(40, 40)), // GUARD: gate must decline
++    ];
++    for (label, g) in &workloads {
++        paired_interleaved_ab(label, g, "auto", BitparArm::Auto, 121, &run, &bits);
++        paired_interleaved_ab(
++            label,
++            g,
++            "chunked_bitpar",
++            BitparArm::ChunkedBitpar,
++            121,
++            &run,
++            &bits,
++        );
++    }
++
++    let mut group = c.benchmark_group("aspl_parallel");
++    for (label, g) in &workloads {
++        for (arm_name, arm) in [
++            ("per_source", BitparArm::PerSource),
++            ("chunked_bitpar", BitparArm::ChunkedBitpar),
++            ("auto", BitparArm::Auto),
++        ] {
++            group.bench_with_input(BenchmarkId::new(arm_name, label), &arm, |b, &arm| {
++                b.iter(|| average_shortest_path_length_arm(g, arm))
++            });
++        }
++        // The gate's ENTIRE added cost on a declined graph: CSR build + probe, and
++        // nothing else. Measured, so the guard regression is attributed rather than
++        // explained by subtracting noisy arms.
++        group.bench_with_input(
++            BenchmarkId::new("gate_overhead_only", label),
++            label,
++            |b, _| b.iter(|| aspl_gate_overhead_cost(g)),
++        );
++    }
++    group.finish();
++}
++
+ /// br-r37-c1-qdcdq: harmonic on the same chunked-parallel driver, measured with the
+ /// same interleaved paired sampler. Harmonic accumulates f64, so the bit-exactness
+ /// assertion inside the sampler is doing real work here — chunking must repartition
+@@ -896,6 +956,7 @@ criterion_group!(
+     bench_single_source_dijkstra,
+     bench_connected_components,
+     bench_average_shortest_path_length,
++    bench_aspl_parallel,
+     bench_degree_centrality,
+     bench_closeness_centrality,
+     bench_closeness_centrality_parallel,
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index 9e5b04c79..c0760db90 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -9503,6 +9503,73 @@ fn aspl_bitpar_run<const W: usize>(offsets: &[u32], targets: &[u32], n: usize) -
+     agg
+ }
+ 
++/// br-r37-c1-bger9: the SAME batches as `aspl_bitpar_run`, fanned out over rayon one
++/// source-CHUNK per task instead of one SOURCE per task.
++///
++/// Unlike the centralities, aspl needed no kernel surgery: `bitpar_bfs_batch` already
++/// returns a self-contained `AsplAgg` per batch and writes no shared per-source array,
++/// so the chunks were independent all along. `AsplAgg::merge` is `+` on three integers
++/// and `max` on the fourth — associative AND commutative — so rayon's non-deterministic
++/// reduction tree yields a bit-identical aggregate, and the `sum / (n*(n-1))` division
++/// that follows is bit-identical too.
++fn aspl_bitpar_run_parallel<const W: usize>(offsets: &[u32], targets: &[u32], n: usize) -> AsplAgg {
++    use rayon::prelude::*;
++    let width = W * 64;
++    (0..n.div_ceil(width))
++        .into_par_iter()
++        .map_init(
++            || BitParBfsScratch::<W>::new(n),
++            |sc, chunk| {
++                // `batch` refills seen/frontier and leaves `next` all-zero, so one
++                // scratch is safely reused across the chunks a worker runs.
++                let s0 = chunk * width;
++                let k = (n - s0).min(width);
++                bitpar_bfs_batch::<W>(sc, offsets, targets, s0, k)
++            },
++        )
++        .reduce(|| AsplAgg::ZERO, AsplAgg::merge)
++}
++
++/// Sequential `aspl_bitpar_run` at an EXPLICIT lane width, so the chunked twin can be
++/// compared against it width-for-width (production picks the width itself).
++#[cfg(test)]
++fn aspl_distance_sum_seq_at_width(
++    offsets: &[u32],
++    targets: &[u32],
++    n: usize,
++    lane_width: usize,
++) -> AsplAgg {
++    match lane_width {
++        1 => aspl_bitpar_run::<1>(offsets, targets, n),
++        2 => aspl_bitpar_run::<2>(offsets, targets, n),
++        3 => aspl_bitpar_run::<3>(offsets, targets, n),
++        4 => aspl_bitpar_run::<4>(offsets, targets, n),
++        5 => aspl_bitpar_run::<5>(offsets, targets, n),
++        6 => aspl_bitpar_run::<6>(offsets, targets, n),
++        7 => aspl_bitpar_run::<7>(offsets, targets, n),
++        _ => aspl_bitpar_run::<8>(offsets, targets, n),
++    }
++}
++
++/// Chunked-parallel twin of `aspl_distance_sum` at a chosen lane width.
++fn aspl_distance_sum_chunked(
++    offsets: &[u32],
++    targets: &[u32],
++    n: usize,
++    lane_width: usize,
++) -> AsplAgg {
++    match lane_width {
++        1 => aspl_bitpar_run_parallel::<1>(offsets, targets, n),
++        2 => aspl_bitpar_run_parallel::<2>(offsets, targets, n),
++        3 => aspl_bitpar_run_parallel::<3>(offsets, targets, n),
++        4 => aspl_bitpar_run_parallel::<4>(offsets, targets, n),
++        5 => aspl_bitpar_run_parallel::<5>(offsets, targets, n),
++        6 => aspl_bitpar_run_parallel::<6>(offsets, targets, n),
++        7 => aspl_bitpar_run_parallel::<7>(offsets, targets, n),
++        _ => aspl_bitpar_run_parallel::<8>(offsets, targets, n),
++    }
++}
++
+ /// Bit-parallel all-pairs BFS distance sum over a `u32` CSR (single-threaded).
+ /// The lane width `W` (1..=8, 64..=512 sources per batch) is the widest that
+ /// still covers all `n` sources — fewer, wider batches mean fewer full graph
+@@ -9880,6 +9947,64 @@ fn bitpar_probe_eccentricity(offsets: &[u32], targets: &[u32], n: usize) -> Opti
+ /// and only take the path when it clears a margin. `levels` is bounded above by
+ /// `2 * ecc(0) + 1` (diameter <= twice any eccentricity); using the UPPER bound
+ /// makes the estimate conservative — it can decline a win, never invite a loss.
++/// `bitpar_probe_eccentricity` over borrowed adjacency ROWS instead of a u32 CSR.
++///
++/// br-r37-c1-bger9: aspl's per-source fallback builds exactly this row vector, so
++/// probing it lets the gate decide BEFORE committing to a CSR. Building a CSR that a
++/// declined graph then throws away measured 17.27 us of direct cost on grid_1600 — but
++/// cost the guard 2.6-3.9%, an order of magnitude more, by perturbing the per-source
++/// sweep that runs immediately afterwards. Not building it is the fix.
++fn bitpar_probe_eccentricity_rows(rows: &[&[usize]], n: usize) -> Option<usize> {
++    let mut distance = vec![u32::MAX; n];
++    let mut frontier = vec![0u32];
++    distance[0] = 0;
++    let mut ecc = 0usize;
++    let mut seen = 1usize;
++    let mut next = Vec::new();
++    while !frontier.is_empty() {
++        next.clear();
++        for &v in &frontier {
++            for &w in rows[v as usize] {
++                if distance[w] == u32::MAX {
++                    distance[w] = ecc as u32 + 1;
++                    seen += 1;
++                    next.push(w as u32);
++                }
++            }
++        }
++        if next.is_empty() {
++            break;
++        }
++        ecc += 1;
++        std::mem::swap(&mut frontier, &mut next);
++    }
++    (seen == n).then_some(ecc)
++}
++
++/// The expected-loss arithmetic, shared by the CSR and rows gates.
++fn bitpar_gate_from_eccentricity(ecc: usize, n: usize, threads: usize) -> Option<usize> {
++    let levels_ub = 2 * ecc + 1;
++    let w = bitpar_chunk_lane_width(n, threads);
++    let lanes = 64 * w;
++    let chunks = n.div_ceil(lanes);
++    if levels_ub * 4 > lanes || chunks * 4 < threads {
++        return None;
++    }
++    let work_gain = lanes as f64 / levels_ub.min(lanes) as f64;
++    let utilisation = chunks.min(threads) as f64 / threads as f64;
++    (work_gain * utilisation >= 1.25).then_some(w)
++}
++
++/// Rows-based gate: decides without constructing a CSR.
++fn bitpar_chunked_lane_width_if_profitable_rows(
++    rows: &[&[usize]],
++    n: usize,
++    threads: usize,
++) -> Option<usize> {
++    let ecc = bitpar_probe_eccentricity_rows(rows, n)?;
++    bitpar_gate_from_eccentricity(ecc, n, threads)
++}
++
+ fn bitpar_chunked_lane_width_if_profitable(
+     offsets: &[u32],
+     targets: &[u32],
+@@ -10009,6 +10134,33 @@ fn harmonic_all_sources_chunked(
+ /// Returns `f64::INFINITY` if the graph is disconnected.
+ #[must_use]
+ pub fn average_shortest_path_length(graph: &Graph) -> AverageShortestPathLengthResult {
++    average_shortest_path_length_arm(graph, BitparArm::Auto)
++}
++
++/// Bench-only: EXACTLY the work `Auto` does before it decides — the u32 CSR build and
++/// the eccentricity probe — and nothing else. On a graph the gate declines this is the
++/// entire cost the lever adds, so a guard regression is never explained by a mechanism
++/// inferred from subtracting two noisy arms. Returns a checksum so it cannot be
++/// optimised away.
++#[doc(hidden)]
++#[must_use]
++pub fn aspl_gate_overhead_cost(graph: &Graph) -> usize {
++    let n = graph.node_count();
++    if n == 0 || n > u32::MAX as usize {
++        return 0;
++    }
++    let (offsets, targets) = build_u32_csr(n, |u| graph.neighbors_indices(u).unwrap_or(&[]));
++    let ecc = bitpar_probe_eccentricity(&offsets, &targets, n).unwrap_or(0);
++    offsets.len() + targets.len() + ecc
++}
++
++/// Bench/test-only entry point pinning one arm. Results are identical across arms.
++#[doc(hidden)]
++#[must_use]
++pub fn average_shortest_path_length_arm(
++    graph: &Graph,
++    arm: BitparArm,
++) -> AverageShortestPathLengthResult {
+     let n = graph.node_count();
+     if n <= 1 {
+         return AverageShortestPathLengthResult {
+@@ -10029,14 +10181,37 @@ pub fn average_shortest_path_length(graph: &Graph) -> AverageShortestPathLengthR
+     // not reaching all n nodes) yield INFINITY exactly as before. Used only for
+     // n < ASPL_BITPAR_MAX_N; larger graphs take the per-source rayon path, which
+     // parallelises across every core and wins on many-core hosts.
+-    if n < ASPL_BITPAR_MAX_N && n <= u32::MAX as usize {
+-        let (offsets, targets) = build_u32_csr(n, |u| graph.neighbors_indices(u).unwrap_or(&[]));
+-        let agg = aspl_distance_sum(&offsets, &targets, n);
+-        return aspl_finalize_bitpar(agg, n, "bfs_average_shortest_path_length");
+-    }
++    // br-r37-c1-bger9: build the adjacency rows ONCE. The per-source fallback needs
++    // them, and the gate can probe them, so a declined graph never constructs a u32
++    // CSR it would throw away. Building that CSR cost only 17.27 us directly
++    // (measured, `aspl_gate_overhead_cost`) but cost the guard 2.6-3.9% — an order of
++    // magnitude more — by disturbing the per-source sweep that follows it.
+     let adjacency: Vec<&[usize]> = (0..n)
+         .map(|u| graph.neighbors_indices(u).unwrap_or(&[]))
+         .collect();
++
++    if arm != BitparArm::PerSource && n <= u32::MAX as usize {
++        // Above the sequential ceiling the per-source path fans out over rayon, so
++        // bit-parallel only wins when the graph has far fewer BFS levels than lanes.
++        // Same expected-loss gate as the centralities.
++        let threads = rayon::current_num_threads();
++        let lane_width = if n < ASPL_BITPAR_MAX_N {
++            None
++        } else if arm == BitparArm::ChunkedBitpar {
++            Some(bitpar_chunk_lane_width(n, threads))
++        } else {
++            bitpar_chunked_lane_width_if_profitable_rows(&adjacency, n, threads)
++        };
++
++        if n < ASPL_BITPAR_MAX_N || lane_width.is_some() {
++            let (offsets, targets) = build_u32_csr(n, |u| adjacency[u]);
++            let agg = match lane_width {
++                Some(w) => aspl_distance_sum_chunked(&offsets, &targets, n, w),
++                None => aspl_distance_sum(&offsets, &targets, n),
++            };
++            return aspl_finalize_bitpar(agg, n, "bfs_average_shortest_path_length");
++        }
++    }
+     let per_source = aspl_run_sources(&adjacency, n);
+     aspl_finalize(per_source, n, "bfs_average_shortest_path_length")
+ }
+@@ -44282,6 +44457,113 @@ mod bitpar_aspl_tests {
+             0.0
+         );
+     }
++
++    /// Hub-and-spoke: eccentricity 1 from node 0, diameter 2 — the low-diameter
++    /// shape the chunked-parallel gate accepts.
++    fn hub(n: usize) -> Graph {
++        let mut g = Graph::strict();
++        for i in 0..n {
++            let _ = g.add_node(i.to_string());
++        }
++        for i in 1..n {
++            let _ = g.add_edge(0.to_string(), i.to_string());
++        }
++        g
++    }
++
++    fn csr_of(g: &Graph) -> (Vec<u32>, Vec<u32>) {
++        let n = g.node_count();
++        super::build_u32_csr(n, |u| {
++            super::GraphView::neighbors_indices(g, u).unwrap_or(&[])
++        })
++    }
++
++    #[test]
++    fn chunked_parallel_aggregate_matches_sequential_at_every_lane_width() {
++        // br-r37-c1-bger9. `AsplAgg::merge` is `+`/`max` over integers, so rayon's
++        // reduction ORDER cannot perturb the aggregate. Assert the whole struct, not
++        // just the sum: `edges_scanned` and `queue_peak` must agree too, and they
++        // only do when the chunk boundaries match the sequential batch boundaries.
++        let g = grid(24, 25); // n = 600 > one W=8 batch (512)
++        let n = g.node_count();
++        let (offsets, targets) = csr_of(&g);
++        for w in 1..=8 {
++            let seq = super::aspl_distance_sum_seq_at_width(&offsets, &targets, n, w);
++            let par = super::aspl_distance_sum_chunked(&offsets, &targets, n, w);
++            assert_eq!(par.sum, seq.sum, "distance sum differs at lane width {w}");
++            assert_eq!(
++                par.reached_pairs, seq.reached_pairs,
++                "reached_pairs differs at lane width {w}"
++            );
++            assert_eq!(
++                par.edges_scanned, seq.edges_scanned,
++                "edges_scanned differs at lane width {w}"
++            );
++            assert_eq!(
++                par.queue_peak, seq.queue_peak,
++                "queue_peak differs at lane width {w}"
++            );
++        }
++    }
++
++    #[test]
++    fn every_arm_agrees_bit_for_bit_above_the_sequential_ceiling() {
++        for (label, g) in [("grid n=600", grid(24, 25)), ("hub n=600", hub(600))] {
++            assert!(g.node_count() >= super::ASPL_BITPAR_MAX_N);
++            let want = super::average_shortest_path_length_arm(&g, super::BitparArm::PerSource)
++                .average_shortest_path_length;
++            for arm in [super::BitparArm::Auto, super::BitparArm::ChunkedBitpar] {
++                let got =
++                    super::average_shortest_path_length_arm(&g, arm).average_shortest_path_length;
++                assert_eq!(
++                    got.to_bits(),
++                    want.to_bits(),
++                    "{label} {arm:?}: got {got} want {want}"
++                );
++            }
++        }
++    }
++
++    #[test]
++    fn disconnected_stays_infinite_on_every_arm() {
++        // aspl returns INFINITY unless every source reaches every node. The gate
++        // ALSO declines when its probe cannot reach every node, so a disconnected
++        // graph must reach INFINITY down whichever path it takes.
++        let mut g = hub(300);
++        for i in 300..600 {
++            let _ = g.add_node(i.to_string());
++        }
++        for i in 301..600 {
++            let _ = g.add_edge(300.to_string(), i.to_string());
++        }
++        for arm in [
++            super::BitparArm::PerSource,
++            super::BitparArm::Auto,
++            super::BitparArm::ChunkedBitpar,
++        ] {
++            let got = super::average_shortest_path_length_arm(&g, arm).average_shortest_path_length;
++            assert!(got.is_infinite(), "{arm:?}: expected INFINITY, got {got}");
++        }
++    }
++
++    #[test]
++    fn bench_workloads_take_the_path_the_ledger_claims_at_any_thread_count() {
++        let grid_1600 = grid(40, 40);
++        let (go, gt) = csr_of(&grid_1600);
++        let hub_2000 = hub(2000);
++        let (ho, ht) = csr_of(&hub_2000);
++        for threads in 1..=128 {
++            assert_eq!(
++                super::bitpar_chunked_lane_width_if_profitable(&go, &gt, 1600, threads),
++                None,
++                "grid_1600 must DECLINE at {threads} threads"
++            );
++            assert!(
++                super::bitpar_chunked_lane_width_if_profitable(&ho, &ht, 2000, threads).is_some(),
++                "hub_2000 must ACCEPT at {threads} threads"
++            );
++        }
++    }
+ }
+ 
+ #[cfg(test)]
