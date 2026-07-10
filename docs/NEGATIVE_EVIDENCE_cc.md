@@ -1,5 +1,34 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## CONVERGED / SURFACE (cc, 2026-07-10): the MG string-key Dijkstra alloc floor is exhausted at the cc-lane level — remaining residual is STRUCTURAL (MultiGraph string-keyed storage), not a micro-lever
+
+Directed repeatedly at "the dijkstra alloc floor." Definitive convergence after three measured/analyzed levers
+this session, all remote-gated on the median:
+
+1. **interned-keys — SHIPPED + MEASURED WIN** (`17770d5a0`, gate `34c07c21d`): drop the per-call
+   `nodes_ordered()` Vec + name->index HashMap, use the graph's interned `get_node_index`/`get_node_name`.
+   **1.1027x median, 119/121, null floor [0.978,1.022]**, byte-identical. The HashMap *build* (n hash inserts)
+   was the real cost.
+2. **scratch-reuse — REJECT** (this session, entry below): thread-local reuse of the 4 O(n) buffers + heap.
+   Isolated median **1.0053x, inside NULL [0.836,1.071]** — below the floor. Malloc removal is ~0.5% (glibc
+   recycles same-size allocations; the O(n) resize-fill remains), swamped by O(E) traversal. Reverted.
+3. **different-primitive (string-key) — DRY at cc scope** (analysis, this entry): the residual per-explored-edge
+   cost is TWO string hashes — `get_node_index(neighbor)` (for the distances/predecessors array index) +
+   `edge_attr_values(node,neighbor)` (for the min-parallel weight). Both are INHERENT to MultiGraph's storage:
+   `adjacency: FxIndexMap<String, IndexMap<String, IndexSet<usize>>>` (neighbor NAMES -> edge-key sets) and
+   `edges: FxIndexMap<EdgeKey, IndexMap<usize, AttrMap>>` (attrs) are two separate STRING-keyed maps.
+   `neighbors_iter` yields names (no index), and MultiGraph has NO `neighbors_indices` (that is Graph-only) and
+   no combined (neighbor, edge-data) iterator. There is no cc-lane path that removes either hash without
+   restructuring MultiGraph.
+
+CONCLUSION: no ONE cc-lane micro-lever remains that beats the median floor. The single real next lever is
+STRUCTURAL and cross-crate: a MultiGraph integer-adjacency + integer-edge-key epoch in `fnx-classes`
+(**br-r37-c1-thp6w**) so the traversal indexes arrays and edge buckets directly — no per-edge string hashing.
+That is a multi-session storage-model change (same class as `integer_adjacency_epoch` / the node-removal
+storage wall), not this turn's micro-lever, and it touches fnx-classes (shared/cod-adjacent), so it is
+SURFACED for scoped ownership rather than churned here. Harmonic/closeness are a different crate, untouched
+throughout. The interned-keys win stands as the converged cc-lane result.
+
 ## REJECT (cc, 2026-07-10): scratch-reuse for the MG target Dijkstra is BELOW the null floor — measured 1.0053x median, inside NULL [0.836,1.071]. The allocation lever is EXHAUSTED here; next is a different primitive (br-r37-c1-mgdt4)
 
 The blocker below cleared (cod fixed their `VecDeque` swap), so I applied the parked scratch lever and ran
