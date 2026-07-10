@@ -38984,7 +38984,12 @@ pub fn bfs_beam_edges(graph: &Graph, source: &str, width: usize) -> Vec<(String,
             if let Some(nbrs) = graph.neighbors(node) {
                 for nb in nbrs {
                     if !visited.contains(nb) {
-                        let deg = graph.neighbors(nb).unwrap_or_default().len();
+                        // br-r37-c1-ra004 (cc): no-alloc degree for the beam sort key.
+                        // `neighbor_count(nb)` == `neighbors(nb).len()` (both
+                        // `adj_indices[idx].len()`), so the sort — and thus the beam
+                        // selection and output — is byte-identical, minus one
+                        // `Vec<&str>` allocation per candidate neighbor per level.
+                        let deg = graph.neighbor_count(nb);
                         next_level_candidates.push((node.clone(), nb.to_owned(), deg));
                     }
                 }
@@ -39007,6 +39012,49 @@ pub fn bfs_beam_edges(graph: &Graph, source: &str, width: usize) -> Vec<(String,
         current_level = next_level;
     }
 
+    result
+}
+
+/// br-r37-c1-ra004 A/B baseline: the pre-lever `bfs_beam_edges` with the
+/// per-candidate `neighbors(nb).len()` degree Vec allocation, kept test-only so
+/// the paired A/B can measure the no-alloc swap against its exact baseline in one
+/// binary. Byte-identical output to `bfs_beam_edges`.
+#[cfg(test)]
+fn bfs_beam_edges_orig_alloc(graph: &Graph, source: &str, width: usize) -> Vec<(String, String)> {
+    if !graph.has_node(source) || width == 0 {
+        return Vec::new();
+    }
+    let mut visited = std::collections::HashSet::new();
+    visited.insert(source.to_owned());
+    let mut result = Vec::new();
+    let mut current_level = vec![source.to_owned()];
+    while !current_level.is_empty() {
+        let mut next_level_candidates: Vec<(String, String, usize)> = Vec::new();
+        for node in &current_level {
+            if let Some(nbrs) = graph.neighbors(node) {
+                for nb in nbrs {
+                    if !visited.contains(nb) {
+                        let deg = graph.neighbors(nb).unwrap_or_default().len();
+                        next_level_candidates.push((node.clone(), nb.to_owned(), deg));
+                    }
+                }
+            }
+        }
+        next_level_candidates.sort_by_key(|b| std::cmp::Reverse(b.2));
+        let mut next_level = Vec::new();
+        let mut added = 0;
+        for (parent, child, _) in next_level_candidates {
+            if added >= width {
+                break;
+            }
+            if visited.insert(child.clone()) {
+                result.push((parent, child.clone()));
+                next_level.push(child);
+                added += 1;
+            }
+        }
+        current_level = next_level;
+    }
     result
 }
 
@@ -46080,6 +46128,104 @@ mod tests {
         };
         println!(
             "NODE_DEGREE_XY_AB hubs={hubs} spokes={spokes} rounds={rounds} (>1 = lever faster)"
+        );
+        report("NEIGHBOR_COUNT_vs_alloc", &paired(true, false));
+        report("NULL_lever_vs_lever", &paired(true, true));
+    }
+
+    /// br-r37-c1-ra004: paired-interleaved median A/B for the `neighbor_count`
+    /// no-alloc lever on `bfs_beam_edges` (one per-candidate-neighbor `Vec<&str>`
+    /// degree allocation removed from the BFS inner loop), against its exact
+    /// `neighbors().len()` baseline, in ONE binary / ONE worker with a NULL
+    /// control. `#[ignore]` (measurement); run with
+    /// `cargo test --release -p fnx-algorithms --lib bfs_beam_alloc_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn bfs_beam_alloc_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense hubs: the beam evaluates every neighbor of the current level and
+        // takes each candidate's degree for the sort key, so high-degree nodes
+        // make the baseline allocate a LARGE `Vec<&str>` per candidate. A wide
+        // beam keeps many hubs live across levels, exercising the inner-loop alloc.
+        let hubs = 40usize;
+        let spokes = 400usize;
+        let mut g = Graph::strict();
+        for h in 0..hubs {
+            let _ = g.add_node(format!("h{h}"));
+        }
+        for h in 0..hubs {
+            for k in (h + 1)..hubs {
+                let _ = g.add_edge(format!("h{h}"), format!("h{k}"));
+            }
+        }
+        for h in 0..hubs {
+            for sp in 0..spokes {
+                let _ = g.add_edge(format!("h{h}"), format!("h{h}_s{sp}"));
+            }
+        }
+        let source = "h0".to_string();
+        let width = 64usize;
+
+        assert_eq!(
+            super::bfs_beam_edges(&g, &source, width),
+            super::bfs_beam_edges_orig_alloc(&g, &source, width),
+            "neighbor_count lever must be byte-identical to the neighbors().len() baseline"
+        );
+
+        let time = |lever: bool| -> f64 {
+            let t0 = Instant::now();
+            for _ in 0..40 {
+                let r = if lever {
+                    super::bfs_beam_edges(&g, &source, width)
+                } else {
+                    super::bfs_beam_edges_orig_alloc(&g, &source, width)
+                };
+                black_box(&r);
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..5 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 121usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "BFS_BEAM_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "BFS_BEAM_AB hubs={hubs} spokes={spokes} width={width} rounds={rounds} (>1 = lever faster)"
         );
         report("NEIGHBOR_COUNT_vs_alloc", &paired(true, false));
         report("NULL_lever_vs_lever", &paired(true, true));
