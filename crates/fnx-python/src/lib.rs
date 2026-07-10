@@ -189,6 +189,83 @@ pub(crate) fn fnx_graph_instance_mode(data: &Bound<'_, PyAny>) -> Option<Compati
     None
 }
 
+/// br-r37-c1-ctorgen: every `__new__` edge-absorb batch gates on
+/// `downcast::<PyList>()` / `PyTuple`, so `Graph(<generator>)` declines the
+/// batch and falls to the per-edge absorb loop. Draining the iterator into a
+/// `PyList` once lets the batch fire: measured on n=2000/m=10000, the drain
+/// costs 0.044 ms while the batch saves 2.17 ms of per-edge loop (absorb
+/// 6.999 ms -> 4.827 ms).
+///
+/// Restricted to TRUE iterators (those carrying `__next__`). That is exactly
+/// the input set the Python `__init__` edge-list validator skips, so no second
+/// walk is introduced, and the iterator is drained exactly once here just as
+/// the per-edge loop drains it today — the caller's `data` is left an exhausted
+/// iterator either way, so `__init__` sees identical state. Sequences
+/// (list/tuple/range), sets, dicts, str/bytes, numpy/pandas arrays and graph
+/// instances all lack `__next__` and yield `None`, leaving their paths byte-
+/// identical.
+///
+/// The returned list is passed ONLY to the batch attempt and the per-edge
+/// fallback loop. Every other `__new__` arm keeps receiving the original
+/// `data`, so an arm that exact-downcasts to list/tuple still declines an
+/// iterator input exactly as it does today.
+///
+/// Peak transient memory grows by the drained item vector (~64 B/edge) for
+/// iterator inputs, which is small against fnx's per-edge steady-state
+/// (String keys + AttrMap + mirror dict).
+fn materialize_iterator_edge_list<'py>(
+    py: Python<'py>,
+    data: &Bound<'py, PyAny>,
+) -> PyResult<Option<Bound<'py, PyList>>> {
+    if !data.hasattr("__next__")? {
+        return Ok(None);
+    }
+    let iter = PyIterator::from_object(data)?;
+    let mut items: Vec<Bound<'py, PyAny>> = Vec::new();
+    for item in iter {
+        items.push(snapshot_iterator_edge_item(py, item?)?);
+    }
+    Ok(Some(PyList::new(py, items)?))
+}
+
+/// br-r37-c1-ctorgen: a generator may yield the SAME attr dict on every step,
+/// mutating it in between (`d["w"] = i; yield (i, i + 1, d)`). NetworkX reads
+/// that dict at yield time — `add_edges_from` does `datadict.update(dd)` before
+/// pulling the next item — so each edge captures the value the dict held at its
+/// own yield. Draining the iterator defers every read to after the generator has
+/// finished, which would give all edges the FINAL dict contents.
+///
+/// Snapshot the trailing dict as each item is drained, restoring exact
+/// yield-time semantics. `dict.copy()` is shallow, matching `datadict.update`.
+///
+/// Only a tuple whose LAST element is a dict is rebuilt: `(u, v, data)` for
+/// simple graphs and `(u, v, key, data)` for multigraphs. A multigraph
+/// `(u, v, key)` 3-tuple is untouched (a dict is unhashable and cannot be a
+/// key), and endpoints are immutable in every shape fnx accepts, so nothing
+/// else can drift between yields.
+fn snapshot_iterator_edge_item<'py>(
+    py: Python<'py>,
+    item: Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let Ok(tuple) = item.downcast::<PyTuple>().cloned() else {
+        return Ok(item);
+    };
+    let arity = tuple.len();
+    if arity < 3 {
+        return Ok(item);
+    }
+    let last = tuple.get_item(arity - 1)?;
+    let Ok(attrs) = last.downcast::<PyDict>() else {
+        return Ok(item);
+    };
+    let mut parts: Vec<Bound<'py, PyAny>> = Vec::with_capacity(arity);
+    for i in 0..arity - 1 {
+        parts.push(tuple.get_item(i)?);
+    }
+    parts.push(attrs.copy()?.into_any());
+    Ok(PyTuple::new(py, parts)?.into_any())
+}
+
 /// br-r37-c1-d58s8 ctor lever: one native pass over a ctor edge-list
 /// candidate replacing the Python per-item validation walk (the cProfile
 /// split showed 46% of Graph(edges) inside the wrapper loop — 10
@@ -10263,6 +10340,11 @@ impl PyGraph {
                 g.inner = Graph::new(mode);
                 return Ok(g);
             }
+            // br-r37-c1-ctorgen: drain a true iterator once so the edge batch
+            // below can fire on it (it only downcasts PyList/PyTuple). Every
+            // other arm below deliberately keeps receiving the original `data`.
+            let materialized = materialize_iterator_edge_list(py, data)?;
+            let edata: &Bound<'_, PyAny> = materialized.as_ref().map_or(data, |l| l.as_any());
             // If it's another PyGraph, copy it.
             if let Ok(other) = data.extract::<PyRef<'_, PyGraph>>() {
                 g.inner = other.inner.clone();
@@ -10285,7 +10367,7 @@ impl PyGraph {
                         .replace_edge_attrs(u, v, py_dict_to_attr_map(copied.bind(py))?);
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
-            } else if g._try_add_edges_from_batch(py, data)? {
+            } else if g._try_add_edges_from_batch(py, edata)? {
                 // br-r37-c1-ctorbatch (cc): route fresh edge-list construction
                 // through the add_edges_from fast batch — the constructor's own
                 // edge loop pays per-edge `has_node`/`has_edge`/`maybe_store_adj_key`
@@ -10294,7 +10376,7 @@ impl PyGraph {
                 // `Graph([(u,v,{..})])` 0.46x->1.8x. The batch is mutation-free on
                 // false (graph stays empty), so the iterator loop below still runs
                 // for any input it declines (small / non-plain-node / weird tuples).
-            } else if let Ok(iter) = PyIterator::from_object(data) {
+            } else if let Ok(iter) = PyIterator::from_object(edata) {
                 // br-r37-c1-d58s8 ctor lever 2: batch the edge-tuple stream
                 // through ONE extend_edges_with_attrs_unrecorded call (one
                 // ledger record for the batch vs two record_decision per

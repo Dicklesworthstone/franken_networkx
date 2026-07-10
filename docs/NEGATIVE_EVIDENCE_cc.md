@@ -8,6 +8,188 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## SHIPPED (cc, 2026-07-10): Graph(<iterator>) ctor 0.71x -> 0.94x, attr 0.49x -> 0.72x, combinations 0.61x -> 3.10x — drain a true iterator into a PyList so the ctor edge batch can fire (br-r37-c1-ctorgen)
+
+REFUTATION FIRST (see the separate entry below): BlackThrush's 2026-07-08 handoff table naming
+CONSTRUCTION as the ranked hotspot does NOT reproduce on fresh HEAD. `ctor(edgelist)` is 1.089x, not
+0.145x. Re-profiled instead of trusting it, and the real construction loss turned out to be a shape
+that table never probed: **iterator inputs**.
+
+MECHANISM (from measurement, not source-reading). Every `__new__` edge-absorb batch gates on
+`downcast::<PyList>()` / `PyTuple` (`try_add_plain_edge_batch` lib.rs:1960,
+`try_add_attr_edge_batch` :2739). A generator carries neither, so `Graph(<gen>)` declines the batch
+and falls to the per-edge `PyIterator` absorb loop. Attribution (n=2000/m=10000, solo min-of-25,
+gc off):
+
+| stage                              | ms    |
+|------------------------------------|-------|
+| `__new__` absorb, LIST (batch fires) | 4.827 |
+| `__new__` absorb, GENERATOR (per-edge loop) | 6.999 |
+| `list(iter(edges))` drain cost       | **0.044** |
+
+The drain costs 0.044 ms and buys back 2.17 ms of per-edge loop — a ~50x payoff. This is the
+*residue* of BlackThrush's lever (1) ("route `__new__(edgelist)` through the batch inserter"): the
+list shape was already routed by dd66fb9e2 (2026-06-28, cc); the iterator shape never was.
+
+FIX: `materialize_iterator_edge_list()` (lib.rs, next to `fnx_graph_instance_mode`) drains a TRUE
+iterator (`hasattr("__next__")`) into a `PyList` once, and `PyGraph::__new__` passes that list
+(`edata`) to the batch attempt and to the per-edge fallback loop. Restricted to `__next__` carriers,
+which is EXACTLY the input set the Python `__init__` edge-list validator skips
+(`__init__.py:4470` isinstance chain is `(list, tuple, set, frozenset, range, str, bytes)`), so no
+second walk is introduced. The iterator is drained exactly once — as the per-edge loop already
+drained it — so `__init__` still sees an exhausted iterator and state is identical. Sequences, sets,
+dicts, str/bytes, numpy/pandas and graph instances lack `__next__` -> `None` -> byte-identical path.
+
+CO-EXISTENCE (peer, uncommitted): `ctor_edge_list_absorb_is_discarded(data)` (br-r37-c1-ctorskip)
+deliberately keeps receiving the ORIGINAL `data`, not `edata`. Its `downcast_exact` therefore still
+declines iterators and its behavior is untouched; only the batch call and the `PyIterator::from_object`
+call were rebound. The two levers compose.
+
+NEAR-MISS — THE NAIVE DRAIN IS **WRONG**, AND 49k TESTS DID NOT CATCH IT. Draining defers every item
+read to after the generator finishes. A generator that yields the SAME attr dict each step, mutating
+it in between, is a real nx idiom:
+
+```python
+def g():
+    d = {}
+    for i in range(3):
+        d["w"] = i
+        yield (i, i + 1, d)          # nx: w=0,1,2   naive drain: w=2,2,2
+```
+
+nx's `add_edges_from` does `datadict.update(dd)` BEFORE pulling the next item, so each edge captures
+the dict as of its own yield. The first candidate gave every edge the FINAL contents. The full
+`tests/python` suite (**49488 passed**) did NOT flag it — no existing test yields a reused dict — and
+neither did the 40-shape probe, whose generators all yielded fresh objects. A targeted
+shared-mutable-object probe found it. FIX: `snapshot_iterator_edge_item()` shallow-copies a tuple's
+TRAILING dict as each item is drained (`(u,v,data)` and multigraph `(u,v,key,data)`; a `(u,v,key)`
+3-tuple is untouched since a dict is unhashable and cannot be a key). Endpoints are immutable in
+every shape fnx accepts, so nothing else can drift between yields.
+
+COST OF CORRECTNESS (honest): the per-edge dict copy pulled `Graph(iter(attr))` back from 0.841x
+(unsafe drain) to **0.721x** (correct drain). Still a large win over 0.487x, and the plain/no-dict
+shapes pay nothing. LESSON: any lever that converts a STREAMING consumer into a MATERIALIZING one
+must snapshot every mutable object it defers reading, or it silently rewrites yield-time semantics.
+
+RESULTS — median of 3 ALTERNATING rounds, **pristine HEAD (1a1112a28) vs HEAD+lever, both wheels
+built from the SAME isolated `git worktree`** so the peer's uncommitted ctorskip/algorithms.rs work
+is excluded from both sides. Interleaved nx-vs-fnx inside each round (machine drift cancels);
+min-of-41, gc off, `taskset -c 40-47`, n=2000 m=10000.
+
+| row                                   | HEAD   | +ctorgen | verdict |
+|---------------------------------------|--------|----------|---------|
+| `Graph(iter(edges))`          TARGET   | 0.709x | 0.944x   | WIN |
+| `Graph(iter(attr_edges))`     TARGET   | 0.487x | 0.721x   | WIN |
+| `Graph(combinations(150,2))`  TARGET   | 0.607x | 3.100x   | WIN |
+| `Graph(list)`                 guard    | 0.998x | 1.087x   | ok |
+| `Graph(list_attr)`            guard    | 0.759x | 0.920x   | ok |
+| `Graph(list_of_lists)`        guard    | 0.218x | 0.206x   | noise (ranges overlap) |
+| `add_edges_from(gen)`         guard    | 1.069x | 1.163x   | ok |
+| `add_edges_from(list)`        guard    | 1.039x | 1.170x   | ok |
+| `DiGraph(iter(edges))`     unchanged   | 0.757x | 0.851x   | noise (ranges overlap) |
+| `MultiGraph(iter(edges))`  unchanged   | 0.535x | 0.490x   | noise (ranges overlap) |
+
+Per-round target ratios are NON-OVERLAPPING: GEN plain 0.709/0.697/0.717 -> 0.944/0.943/0.950;
+GEN attr 0.487/0.500/0.468 -> 0.720/0.721/0.760; combinations 0.607/0.621/0.545 ->
+3.100/3.106/3.078. The three rows flagged by a naive 5% rule all have OVERLAPPING per-round ranges
+(list-of-lists HEAD [0.172,0.220] vs [0.190,0.236]; MultiGraph [0.511,0.549] vs [0.479,0.535];
+DiGraph [0.748,0.818] vs [0.769,1.086]) and `materialize_iterator_edge_list` has exactly ONE call
+site (`PyGraph::__new__`), so those paths are provably unreachable from this lever — noise, not
+regression.
+
+HONESTY NOTE: the cv_pct<5 gate was NOT met on every row — peer `rustc` builds ran throughout (load
+avg 16.7) and spiked nx-side samples. min-of-41 is robust to slow outliers, and three independent
+alternating rounds with non-overlapping ranges is the stronger claim; the guard rows bound the
+cross-run drift, which is why only the WITHIN-round interleaved ratio is quoted.
+
+SIDE OBSERVATION for the ctorskip owner: on **pristine HEAD** `Graph(list_of_lists)` is **0.218x**.
+With your uncommitted ctorskip patch in the tree it measured 0.867x. Your lever is worth ~4x on that
+row — land it.
+
+PARITY: differential probe over 40 ctor shapes x 4 graph classes + raising-generator + generator
+exhaustion + gen-vs-list self-consistency + shared-mutable-object probe (simple 3-tuple, multigraph
+4-tuple, caller-dict aliasing), run against BOTH the pristine-HEAD and lever `.so`. Output is
+**byte-identical** (36 pre-existing fnx-vs-nx divergences on exotic shapes, unchanged in both). Zero
+behavior introduced. Focused pytest 238 passed / 2 skipped; **full `tests/python`: 49488 passed, 7
+failed, 1065 skipped** — all 7 failures are the pre-existing coverage/audit family
+(`find_induced_nodes` parity, `write_gexf` classification, `unused_raw_exposures`,
+`test_coverage_gaps`), reproduced identically on the ORIG `.so` and unrelated to the ctor.
+`cargo fmt -p fnx-python --check` clean; `cargo clippy -p fnx-python -- -D warnings` clean;
+`ubs lib.rs` 0 critical.
+
+SCOPE: `PyGraph` only. `DiGraph(iter)` 0.78x, `MultiGraph(iter)` 0.50x and `MultiDiGraph(iter)` are
+the SAME lever in `digraph.rs` / `PyMultiGraph::__new__` and remain open headroom — deliberately not
+taken in this commit because (a) one lever per commit and (b) `digraph.rs` carries the peer's
+uncommitted ctorskip import hunk; the follow-up should reference
+`crate::materialize_iterator_edge_list` fully-qualified to avoid touching that import block.
+Filed **br-r37-c1-q86hv**.
+
+FOUND-NOT-FIXED (filed, out of this lever's scope): the differential probe surfaced **36 pre-existing
+fnx-vs-nx ctor divergences** on iterator/exotic shapes, identical on ORIG and CAND — e.g.
+`Graph(iter([[0,1]]))` raises `NetworkXError` where nx builds the graph; `Graph(iter([1,2,3]))` builds
+3 nodes where nx raises; `Graph(iter([(0,1,2,3)]))` stores the 4-tuple as a node; `Graph(iter([(None,1)]))`
+adds a `None` node where nx yields an empty graph. Filed **br-r37-c1-hxdyb**. Also
+`test_coverage_gaps::test_public_coverage_has_no_networkx_delegated_exports` FAILS ON MAIN
+(`find_induced_nodes`, `read_edgelist`), unrelated to this change and reproduced on the ORIG `.so` —
+filed **br-r37-c1-iqsl8**.
+
+MEMORY COST (honest): iterator inputs now hold the drained item vector (~64 B/edge) live during
+absorb instead of streaming. Small against fnx's per-edge steady state (String key + AttrMap +
+mirror PyDict); nx streams and does not pay it.
+
+LEVER (general, AUDIT): any native fast-path gated on `downcast::<PyList>()`/`PyTuple` silently
+declines *iterators*, which are the idiomatic Python producer (`zip`, `map`, `combinations`,
+genexprs). Grep for `downcast::<PyList>` gates and ask whether a one-shot drain is cheaper than the
+per-item fallback. Here it was 50x cheaper.
+
+## REFUTED (cc, 2026-07-10): the 2026-07-08 BlackThrush "CONSTRUCTION is the untapped-headroom target" ranked table does NOT reproduce on fresh HEAD — every construction row is at-or-above nx
+
+Grepped the ledger, took the named target, and re-measured BEFORE writing code. The handoff
+(`docs/NEGATIVE_EVIDENCE.md:605`) ranks construction as the post-SSSP hotspot. On a wheel built from
+HEAD (1a1112a28) it does not hold:
+
+| op (n=2000, m=10000)        | BlackThrush 2026-07-08 | fresh HEAD 2026-07-10 |
+|-----------------------------|------------------------|-----------------------|
+| `ctor(edgelist 10k)`        | 0.145x                 | **1.089x** |
+| `add_edges_from(10k, attr)` | 0.252x                 | **1.508x** |
+| `add_nodes_from(2000)`      | 0.360x                 | **1.141x** |
+| `add_edges_from(10k, plain)`| 0.557x                 | **1.075x** |
+
+His sub-lever (1) has two halves. Half A ("route `__new__(edgelist)` through the batch inserter")
+was ALREADY LANDED at the time he profiled — dd66fb9e2 is 2026-06-28, ten days before the handoff —
+so the `__new__` chain has carried `_try_add_edges_from_batch` all along. Half B ("drop the redundant
+`validate_ctor_edge_list` walk") is real but SMALL, not the mechanism: measured directly, the walk is
+0.342 ms of a 5.084 ms list ctor (**6.7%**), and 0.443 ms of the attr ctor. Removing it cannot move
+0.145x.
+
+ROOT CAUSE of the bad table (probable): the installed `.so` at this session's start was dated
+2026-07-01 while HEAD was 2026-07-10 — nine days stale. Anything benched through
+`import franken_networkx` without a rebuild measures an old binary. This is the
+`stale_install_benchmark_trap` / `session_so_goes_stale_midstream` failure mode, and it produced a
+handoff that would have sent the next agent to optimize an already-won surface.
+
+DO NOT retry: "drop the redundant validate walk" as a standalone perf lever (ceiling 6.7% of a path
+that is already 1.09x, and it needs a `__new__`->`__init__` signal flag). RETRY-CONDITION: only if
+`Graph(list)` is ever measured below ~0.95x on a *verified-fresh* binary.
+
+WHAT IS ACTUALLY LOSING in construction (measured, fresh): iterator-shaped inputs —
+`Graph(iter(...))` 0.70x, `DiGraph(iter(...))` 0.78x, `MultiGraph(iter(...))` 0.52x. See the
+br-r37-c1-ctorgen ship above.
+
+## TRAP (cc, 2026-07-10): `rch exec -- cargo clippy` reported PHANTOM unresolved-import errors from a stale remote worker
+
+`cargo clippy -p fnx-python -- -D warnings` failed with
+`error[E0432]: unresolved import fnx_algorithms::network_simplex_int` and
+`cannot find function single_target_dijkstra_path_length_typed_with_pred_directed`. Both symbols are
+COMMITTED (6de8937d7, f49af4b85) and present in `crates/fnx-algorithms/src/`; `cargo check` had
+passed minutes earlier on worker `hz2`. Re-running the identical clippy landed on worker `hz1` and
+passed clean. The first worker's `fnx-algorithms` sync was stale.
+
+RULE: rch picks workers non-deterministically ([[rch_bench_worker_noise]]). A compile error naming a
+symbol that `git grep` proves exists is a STALE-WORKER artifact, not a real break — re-run and check
+the trailing `[RCH] remote <worker>` line before believing it. Left un-diagnosed this would have
+looked like "my change broke the build" and triggered a false revert.
+
 ## SHIPPED (cc, 2026-06-30): size(weight) 0.62-0.87x -> 19.6x (cargo bench) / 31-39x (micro) — native store SCALAR, no per-node degree materialization
 
 The documented `mg size(weight) 0.625x` head2head gap (head2head_vein_map) was lumped with the

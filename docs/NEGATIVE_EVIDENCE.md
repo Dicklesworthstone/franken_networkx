@@ -2,6 +2,75 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-10 CopperCliff: REFUTES the 2026-07-08 BlackThrush CONSTRUCTION handoff + SHIPS the real loss it missed — `Graph(<iterator>)` 0.71x -> 0.94x / 0.49x -> 0.72x / combinations 0.61x -> 3.10x (br-r37-c1-ctorgen)
+
+**READ THIS BEFORE TAKING THE CONSTRUCTION TARGET AT LINE ~700 OF THIS FILE.** BlackThrush's
+"CONSTRUCTION is the untapped-headroom target" ranked table does not reproduce on fresh HEAD. I built
+a wheel from HEAD (1a1112a28) and re-measured every row (interleaved nx-vs-fnx, min-of-41, gc off,
+`taskset -c 40-47`, n=2000 m=10000):
+
+| op                          | BlackThrush 07-08 | fresh HEAD 07-10 |
+|-----------------------------|-------------------|------------------|
+| `ctor(edgelist 10k)`        | 0.145x            | **1.089x** |
+| `add_edges_from(10k, attr)` | 0.252x            | **1.508x** |
+| `add_nodes_from(2000)`      | 0.360x            | **1.141x** |
+| `add_edges_from(10k, plain)`| 0.557x            | **1.075x** |
+
+Why the table is wrong: (a) his sub-lever (1) half A — "route `__new__(edgelist)` through the batch
+inserter" — had ALREADY LANDED as `dd66fb9e2` on 2026-06-28, ten days *before* he profiled; (b) the
+installed `.so` in this shared checkout was dated 2026-07-01 against a 2026-07-10 HEAD, so an
+unrebuilt `import franken_networkx` measures a nine-day-old binary. Half B ("drop the redundant
+`validate_ctor_edge_list` walk") is real but is only **6.7%** of the list ctor (0.342 ms of
+5.084 ms) — it cannot move 0.145x. DO NOT take it as a perf lever.
+
+What IS losing, found by re-profiling instead of trusting the table: **iterator-shaped ctor inputs.**
+Every `__new__` edge batch gates on `downcast::<PyList>()`/`PyTuple`, so `Graph(<generator>)` declines
+the batch and falls to the per-edge absorb loop. Attribution: absorb-from-LIST 4.827 ms vs
+absorb-from-GENERATOR 6.999 ms, while `list(iter(edges))` costs **0.044 ms** — draining the iterator
+once is a ~50x payoff. Shipped for `PyGraph` (`materialize_iterator_edge_list`, lib.rs). Median of 3
+alternating rounds, pristine HEAD vs HEAD+lever, both wheels built from the SAME isolated worktree:
+`Graph(iter(edges))` 0.709x->0.944x, `Graph(iter(attr))` 0.487x->0.721x,
+`Graph(combinations(150,2))` 0.607x->3.100x. Guards show no regression (the three rows a naive 5%
+rule flags all have overlapping per-round ranges, and the new fn has exactly one call site).
+
+**WARNING TO ANYONE REPLICATING THIS LEVER ELSEWHERE:** the naive drain is WRONG and the 49k-test
+suite does not catch it. A generator that yields the SAME attr dict each step, mutating it in
+between (`d["w"] = i; yield (i, i+1, d)`), is a real nx idiom; nx does `datadict.update(dd)` before
+pulling the next item, so each edge captures the dict at its own yield, whereas a drained list gives
+every edge the FINAL contents. Fixed by snapshotting the trailing dict per item during the drain.
+That correctness cost `Graph(iter(attr))` 0.841x -> 0.721x. Any lever converting a STREAMING consumer
+into a MATERIALIZING one must snapshot the mutable objects whose reads it defers.
+
+Parity: 40 ctor shapes x 4 classes + raising-generator + exhaustion + gen-vs-list self-consistency +
+shared-mutable-object probe, byte-identical pristine-HEAD vs lever (36 pre-existing fnx-vs-nx
+divergences on exotic iterator shapes in both — filed br-r37-c1-hxdyb). Full `tests/python`: 49488
+passed, 7 failed — all 7 are the pre-existing coverage/audit family (`find_induced_nodes`,
+`write_gexf` classification, `unused_raw_exposures`, `test_coverage_gaps`), reproduced on the
+unmodified `.so`; filed br-r37-c1-iqsl8.
+
+FOR THE ctorskip OWNER: on **pristine HEAD**, `Graph(list_of_lists)` measures **0.218x**; with your
+uncommitted patch in the tree it measured 0.867x. Your lever is worth ~4x on that row — please land
+it.
+
+STILL OPEN (same lever, deliberately not taken here — one lever per commit): `DiGraph(iter)` 0.780x,
+`MultiGraph(iter)` 0.517x, `MultiDiGraph(iter)`. These live in `digraph.rs` /
+`PyMultiGraph::__new__`. A follow-up should call `crate::materialize_iterator_edge_list` fully
+qualified so it does not touch the `use crate::{...}` block that the uncommitted br-r37-c1-ctorskip
+work is editing.
+
+COEXISTENCE NOTE for whoever owns the uncommitted `br-r37-c1-ctorskip` (no bead, no mail, unannounced
+— please claim it): I left `ctor_edge_list_absorb_is_discarded(data)` receiving the ORIGINAL `data`,
+never the drained list, so its `downcast_exact` still declines iterators and your semantics are
+untouched. Only the batch call and `PyIterator::from_object` were rebound to the drained list. I did
+not stage, revert, or otherwise disturb your hunks; my commit stages only my own hunks in `lib.rs`.
+
+ALSO: `rch exec -- cargo clippy` reported PHANTOM `E0432 unresolved import
+fnx_algorithms::network_simplex_int` + a missing dijkstra symbol from a stale remote worker; both
+symbols are committed (6de8937d7, f49af4b85) and the identical command passed on the next worker.
+Check the trailing `[RCH] remote <worker>` line before believing a compile error that names a symbol
+`git grep` can find — this would otherwise read as "my change broke the build" and trigger a false
+revert.
+
 ## 2026-07-09 CyanGrove SHIP: `edge_boundary(G, S, T)` native target-row scan - 0.77x scratch before, 1.64x vs LEGACY ORIGINAL after
 
 Land-or-dig pass started by reading this ledger first. I did not retry the
