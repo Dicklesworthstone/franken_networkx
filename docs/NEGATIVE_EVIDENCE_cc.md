@@ -1,5 +1,31 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-10): `node_degree_xy` **2.4050x** — same lever family, drop two per-edge `Vec<&str>` allocs for no-alloc `neighbor_count` (br-r37-c1-ra004)
+
+Second member of the `neighbors().len()`-Vec-alloc lever family (after dedensify). PROFILE-FIRST: two
+non-pagerank gauntlet sweeps came back ALL WINS (12 rows 1.02-5.76x; earlier 5 rows incl. SCC 11.7x) — the
+public gauntlet is at zero measurable losses (pagerank/to_scipy unmeasurable: the worker has no scipy). So
+dug the family: `node_degree_xy` (a networkx function, benched, NOT a gauntlet row) did
+`graph.neighbors(&edge.left).unwrap_or_default().len()` for BOTH endpoints of EVERY edge — two per-edge
+`Vec<&str>` allocations. Its own DIRECTED twin `node_degree_xy_directed` already used the no-alloc
+`neighbor_count` (proving the choice byte-identical); the undirected version was just missed. Swapped both
+sites + pre-sized the result Vec.
+
+MEASURED — paired-interleaved in-crate A/B (candidate vs its exact `neighbors().len()` baseline), ONE binary
+/ ONE worker `ovh-a`, `RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release`, dense
+hubs (40 hubs clique + 400 spokes each), 121 rounds:
+
+| paired A/B (>1 = lever faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **NEIGHBOR_COUNT_vs_alloc** | **2.4050x** | **121/121** | [2.3065, 2.4959] |
+| NULL_lever_vs_lever | 0.9989x | 55/121 | [0.9724, 1.0273] |
+
+DECIDABLE by a wide margin: 2.4050x median vs a null floor [0.972, 1.027], 121/121 wins. Byte-identical
+(`neighbor_count` == `neighbors().len()`, asserted in-test; the directed twin already used it). algorithms.rs
+sha256 prefix `788be9c0b78e55d6`; clippy `-D warnings` clean, fmt clean, ubs 0 critical. The A/B stays as a
+permanent parity-guarding harness (`node_degree_xy_orig_alloc` is `#[cfg(test)]`, zero prod cost).
+harmonic/closeness untouched. ~9 more sites remain in the family (br-r37-c1-ra004).
+
 ## SHIPPED WIN (cc, 2026-07-10): `dedensify` 0.70x -> **1.53-2.22x** vs networkx — replace the per-degree-check `neighbors().len()` Vec alloc with no-alloc `neighbor_count` (br-r37-c1-dedn1)
 
 Pivoted off the (converged) dijkstra floor to a different hot path. PROFILE-FIRST: swept BFS/components/

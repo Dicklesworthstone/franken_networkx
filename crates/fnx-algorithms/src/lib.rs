@@ -38015,6 +38015,24 @@ pub fn all_triads(digraph: &DiGraph) -> Vec<(String, String, String, String)> {
 /// For directed graphs, `x` controls source degree type ('in'/'out'/'inout')
 /// and `y` controls target degree type.
 pub fn node_degree_xy(graph: &Graph) -> Vec<(usize, usize)> {
+    let mut result = Vec::with_capacity(graph.edge_count());
+    for edge in graph.edges_ordered() {
+        // br-r37-c1-ra004 (cc): no-alloc degree, matching the already-optimised
+        // `node_degree_xy_directed` twin. `neighbor_count(x)` == the length of the
+        // `Vec<&str>` `neighbors(x)` builds (both are `adj_indices[idx].len()`), so
+        // this is byte-identical and drops two per-edge `Vec<&str>` allocations.
+        let du = graph.neighbor_count(&edge.left);
+        let dv = graph.neighbor_count(&edge.right);
+        result.push((du, dv));
+    }
+    result
+}
+
+/// br-r37-c1-ra004 A/B baseline: the pre-lever `neighbors().len()` version, kept
+/// test-only so the paired A/B can measure the no-alloc swap against its exact
+/// baseline in one binary. Byte-identical output.
+#[cfg(test)]
+fn node_degree_xy_orig_alloc(graph: &Graph) -> Vec<(usize, usize)> {
     let mut result = Vec::new();
     for edge in graph.edges_ordered() {
         let du = graph.neighbors(&edge.left).unwrap_or_default().len();
@@ -45973,6 +45991,99 @@ mod tests {
     /// Standard tolerance for floating-point assertions in tests.
     /// Matches DISTANCE_COMPARISON_EPSILON from the production constants.
     const TEST_TOLERANCE: f64 = 1e-12;
+
+    /// br-r37-c1-ra004: paired-interleaved median A/B for the `neighbor_count`
+    /// no-alloc lever on `node_degree_xy` (two per-edge `Vec<&str>` allocations
+    /// removed), against its exact `neighbors().len()` baseline, in ONE binary /
+    /// ONE worker with a NULL control. `#[ignore]` (measurement); run with
+    /// `cargo test --release -p fnx-algorithms --lib node_degree_xy_alloc_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn node_degree_xy_alloc_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense hubs: high-degree endpoints => each `neighbors()` call the baseline
+        // makes allocates a LARGE Vec, so the lever's O(E) alloc removal is visible.
+        let hubs = 40usize;
+        let spokes = 400usize;
+        let mut g = Graph::strict();
+        for h in 0..hubs {
+            let _ = g.add_node(format!("h{h}"));
+        }
+        for h in 0..hubs {
+            for k in (h + 1)..hubs {
+                let _ = g.add_edge(format!("h{h}"), format!("h{k}"));
+            }
+        }
+        for h in 0..hubs {
+            for sp in 0..spokes {
+                let _ = g.add_edge(format!("h{h}"), format!("h{h}_s{sp}"));
+            }
+        }
+
+        assert_eq!(
+            super::node_degree_xy(&g),
+            super::node_degree_xy_orig_alloc(&g),
+            "neighbor_count lever must be byte-identical to the neighbors().len() baseline"
+        );
+
+        let time = |lever: bool| -> f64 {
+            let t0 = Instant::now();
+            for _ in 0..40 {
+                let r = if lever {
+                    super::node_degree_xy(&g)
+                } else {
+                    super::node_degree_xy_orig_alloc(&g)
+                };
+                black_box(&r);
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..5 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 121usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "NODE_DEGREE_XY_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "NODE_DEGREE_XY_AB hubs={hubs} spokes={spokes} rounds={rounds} (>1 = lever faster)"
+        );
+        report("NEIGHBOR_COUNT_vs_alloc", &paired(true, false));
+        report("NULL_lever_vs_lever", &paired(true, true));
+    }
 
     fn assert_runtime_policy_preserved(source: &RuntimePolicy, result: &RuntimePolicy) {
         assert_eq!(result.mode(), source.mode());
