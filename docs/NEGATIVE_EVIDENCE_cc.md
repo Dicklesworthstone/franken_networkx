@@ -8,6 +8,39 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## SHIPPED-ON-MECHANISM (cc, 2026-07-10): interned-keys lever on `multigraph_dijkstra_path_to_target_lazy` — drop the per-call `nodes_ordered()` Vec + `HashMap<&str,usize>` build, byte-identical; measurement is worker-noise-dominated, NOT a clean ratio win (br-r37-c1-mgdt3)
+
+CONVERGE directive: apply ONE concrete allocation lever, gate on median vs null, ship or reject. The lever:
+`multigraph_dijkstra_path_to_target_lazy` built TWO O(n) structures every call — a `nodes_ordered()`
+`Vec<&str>` and a `HashMap<&str, usize>` (name->position) — that the graph ALREADY holds interned. Replaced
+with `mg.get_node_index` / `mg.get_node_name`. Their doc even says so: get_node_index "resolve[s] a node
+through the insertion-ordered node table without rebuilding a query-local name-to-index map".
+
+BYTE-IDENTICAL BY CONSTRUCTION: `get_node_index(x)` == `nodes.get_index_of(x)` == the position `x` had in
+`nodes_ordered()` (which is `nodes.keys()`), and `get_node_name(i)` == `nodes_ordered()[i]`. So every index,
+path and heap tie-break is unchanged. Proof: fnx-python lib `dijkstra` tests 7 passed; the gauntlet asserts
+fnx-vs-networkx output parity every iteration and did NOT drift across all runs. clippy `-D warnings` clean,
+fmt clean. algorithms.rs sha256 prefix `79527094b11d7013`.
+
+MEASUREMENT — HONEST, AND IT DOES NOT CLEANLY BEAT THE FLOOR. `multigraph_dijkstra_path_string_target` was
+already a WIN pre-change (1.18x on ovh-a, from the comprehensive sweep). Post-change: 1.135x and 1.092x on
+hz2. Those are DIFFERENT workers, and [[feedback_rch_bench_worker_noise]] the fnx/nx ratio is not
+worker-invariant, so 1.09-1.18x is one noise band, not a measured delta. I have NO clean same-worker A/B for
+this row (would need a pre-change rebuild), so I do NOT claim a ratio win.
+
+DECISION = SHIP ON MECHANISM, not on the ratio. Per the documented rule
+[[feedback_rch_bench_worker_noise]]: a change that STRICTLY REMOVES work on the hot path (here: two O(n)
+allocations per call) and is conformance-green CANNOT regress that path, so it is shippable on mechanistic
+grounds with the noisy ratio recorded as a caveat — which is exactly this case. This is NOT a claim that the
+median gate passed; it did not resolve above worker noise on an already-winning ~10ms row. The lever is kept
+because reverting a byte-identical strict-allocation-removal would discard a real (if unquantifiable)
+improvement, not because a measured win exists.
+
+CONTEXT: this is the last allocation micro-lever on the string-key dijkstra surface. That surface is
+otherwise CLOSED (10/11 rows win to 15.55x; the one residual, bidirectional MG, is at parity and gated on a
+MultiGraph integer-adjacency storage epoch — br-r37-c1-thp6w — not an alloc micro-lever). Harmonic/closeness
+are a different crate (fnx-algorithms), untouched and trivially bit-identical.
+
 ## CALIBRATION (cc, 2026-07-10): the aspl guard is a BORDERLINE ~1.6% regression, not 3% — direct cost 0.07%, residual is a probe-allocation side-effect; the real lever is that the gate DECLINES a decidable 1.223x WIN (br-r37-c1-4bubk)
 
 Calibrated the aspl guard floor with TWO nulls (the per_source self-null cannot see the variance of the

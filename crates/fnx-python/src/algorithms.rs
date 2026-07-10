@@ -922,19 +922,22 @@ fn multigraph_dijkstra_path_to_target_lazy(
     target: &str,
     weight_attr: &str,
 ) -> Option<(f64, Vec<String>, bool)> {
-    let names = mg.nodes_ordered();
-    let mut index = HashMap::<&str, usize>::with_capacity(names.len());
-    for (idx, node) in names.iter().copied().enumerate() {
-        index.insert(node, idx);
-    }
-    let (Some(&source_idx), Some(&target_idx)) = (index.get(source), index.get(target)) else {
+    // br-r37-c1-mgdt3 (cc): use the graph's OWN insertion-ordered node table
+    // (`get_node_index` / `get_node_name`) instead of building a query-local
+    // `nodes_ordered()` Vec + a `HashMap<&str, usize>` on every call — two O(n)
+    // allocations the graph already holds interned. `get_node_index(x)` is exactly
+    // `nodes.get_index_of(x)`, i.e. the position `x` had in `nodes_ordered()`, so
+    // every index — and thus the path and its tie-breaks — is byte-identical.
+    let (Some(source_idx), Some(target_idx)) =
+        (mg.get_node_index(source), mg.get_node_index(target))
+    else {
         return None;
     };
     if source_idx == target_idx {
         return Some((0.0, vec![source.to_owned()], true));
     }
 
-    let n = names.len();
+    let n = mg.node_count();
     let mut distances = vec![f64::INFINITY; n];
     let mut predecessors = vec![usize::MAX; n];
     let mut all_int_paths = vec![false; n];
@@ -977,17 +980,23 @@ fn multigraph_dijkstra_path_to_target_lazy(
             chain.reverse();
             let path = chain
                 .into_iter()
-                .map(|idx| names[idx].to_owned())
+                .map(|idx| {
+                    mg.get_node_name(idx)
+                        .expect("path node index should resolve")
+                        .to_owned()
+                })
                 .collect::<Vec<_>>();
             return Some((distance, path, all_int_paths[target_idx]));
         }
 
-        let node = names[node_idx];
+        let node = mg
+            .get_node_name(node_idx)
+            .expect("fringe node index should resolve");
         let Some(neighbors) = mg.neighbors_iter(node) else {
             continue;
         };
         for neighbor in neighbors {
-            let Some(&neighbor_idx) = index.get(neighbor) else {
+            let Some(neighbor_idx) = mg.get_node_index(neighbor) else {
                 continue;
             };
             let Some((edge_weight, edge_all_int)) =
