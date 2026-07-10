@@ -1022,6 +1022,105 @@ fn multigraph_dijkstra_path_to_target_lazy(
     None
 }
 
+/// br-r37-c1-mgdt3 A/B reference: the PRE-interned-keys implementation of
+/// `multigraph_dijkstra_path_to_target_lazy` (builds a `nodes_ordered()` Vec + a
+/// `HashMap<&str,usize>` per call). Kept test-only so the paired A/B in
+/// `dijkstra_alloc_ab_median` can measure the allocation lever against its exact
+/// baseline inside ONE binary / ONE worker. Byte-identical output to the current
+/// version (asserted in the test).
+#[cfg(test)]
+fn multigraph_dijkstra_path_to_target_lazy_orig(
+    mg: &fnx_classes::MultiGraph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> Option<(f64, Vec<String>, bool)> {
+    let names = mg.nodes_ordered();
+    let mut index = HashMap::<&str, usize>::with_capacity(names.len());
+    for (idx, node) in names.iter().copied().enumerate() {
+        index.insert(node, idx);
+    }
+    let (Some(&source_idx), Some(&target_idx)) = (index.get(source), index.get(target)) else {
+        return None;
+    };
+    if source_idx == target_idx {
+        return Some((0.0, vec![source.to_owned()], true));
+    }
+    let n = names.len();
+    let mut distances = vec![f64::INFINITY; n];
+    let mut predecessors = vec![usize::MAX; n];
+    let mut all_int_paths = vec![false; n];
+    let mut finalized = vec![false; n];
+    let mut pq: BinaryHeap<PyDijkstraState> = BinaryHeap::new();
+    let mut seq_counter = 0_u64;
+    distances[source_idx] = 0.0;
+    all_int_paths[source_idx] = true;
+    seq_counter += 1;
+    pq.push(PyDijkstraState {
+        dist: 0.0,
+        seq: seq_counter,
+        node: source_idx,
+    });
+    while let Some(PyDijkstraState {
+        dist: distance,
+        node: node_idx,
+        ..
+    }) = pq.pop()
+    {
+        if distance > distances[node_idx] + PY_DISTANCE_COMPARISON_EPSILON {
+            continue;
+        }
+        if finalized[node_idx] {
+            continue;
+        }
+        finalized[node_idx] = true;
+        if node_idx == target_idx {
+            let mut chain = vec![target_idx];
+            let mut current = target_idx;
+            while current != source_idx {
+                current = predecessors[current];
+                if current == usize::MAX {
+                    return None;
+                }
+                chain.push(current);
+            }
+            chain.reverse();
+            let path = chain
+                .into_iter()
+                .map(|idx| names[idx].to_owned())
+                .collect::<Vec<_>>();
+            return Some((distance, path, all_int_paths[target_idx]));
+        }
+        let node = names[node_idx];
+        let Some(neighbors) = mg.neighbors_iter(node) else {
+            continue;
+        };
+        for neighbor in neighbors {
+            let Some(&neighbor_idx) = index.get(neighbor) else {
+                continue;
+            };
+            let Some((edge_weight, edge_all_int)) =
+                multigraph_min_parallel_dijkstra_weight(mg, node, neighbor, weight_attr)
+            else {
+                continue;
+            };
+            let next_distance = distance + edge_weight;
+            if next_distance < distances[neighbor_idx] - PY_DISTANCE_COMPARISON_EPSILON {
+                distances[neighbor_idx] = next_distance;
+                predecessors[neighbor_idx] = node_idx;
+                all_int_paths[neighbor_idx] = all_int_paths[node_idx] && edge_all_int;
+                seq_counter += 1;
+                pq.push(PyDijkstraState {
+                    dist: next_distance,
+                    seq: seq_counter,
+                    node: neighbor_idx,
+                });
+            }
+        }
+    }
+    None
+}
+
 /// NetworkX-faithful bidirectional Dijkstra over an undirected `MultiGraph`.
 ///
 /// This deliberately walks the existing adjacency rows and parallel-edge
@@ -25996,6 +26095,134 @@ mod tests {
 
     fn ensure_python() {
         Python::initialize();
+    }
+
+    /// br-r37-c1-mgdt3: paired-interleaved median A/B of the interned-keys allocation
+    /// lever against its exact pre-change baseline, inside ONE binary / ONE worker so
+    /// there is no cross-worker ratio noise. Also runs a NULL control (interned vs
+    /// interned) to establish the harness floor. Marked `#[ignore]` — it is a
+    /// measurement, run with:
+    /// `cargo test --release -p fnx-python --lib dijkstra_alloc_ab_median -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn dijkstra_alloc_ab_median() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Deterministic connected weighted string-keyed MultiGraph: a ring (for
+        // connectivity) plus random parallel chords (so the per-call node table +
+        // index HashMap the lever removes are non-trivial). n=800 exercises the O(n)
+        // allocations the lever targets.
+        let n = 800usize;
+        let mut g = MultiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(i.to_string());
+        }
+        let mut x = 0x2545_F491_4F6C_DD1Du64;
+        let mut next = || {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            x
+        };
+        let w_attr = |val: i64| -> AttrMap {
+            let mut a = AttrMap::new();
+            a.insert("weight".to_owned(), fnx_runtime::CgseValue::from(val));
+            a
+        };
+        for i in 0..n {
+            let _ = g.add_edge_with_attrs(
+                i.to_string(),
+                ((i + 1) % n).to_string(),
+                w_attr(((next() % 9) + 1) as i64),
+            );
+        }
+        for _ in 0..(n * 3) {
+            let (u, v) = ((next() as usize) % n, (next() as usize) % n);
+            if u != v {
+                let _ = g.add_edge_with_attrs(
+                    u.to_string(),
+                    v.to_string(),
+                    w_attr(((next() % 9) + 1) as i64),
+                );
+            }
+        }
+        let (s, t) = ("0".to_owned(), (n / 2).to_string());
+
+        // Parity: the lever must be byte-identical to its baseline.
+        let cand = super::multigraph_dijkstra_path_to_target_lazy(&g, &s, &t, "weight");
+        let orig = super::multigraph_dijkstra_path_to_target_lazy_orig(&g, &s, &t, "weight");
+        assert_eq!(
+            cand.as_ref().map(|(d, p, i)| (d.to_bits(), p.clone(), *i)),
+            orig.as_ref().map(|(d, p, i)| (d.to_bits(), p.clone(), *i)),
+            "interned lever must be byte-identical to its pre-change baseline"
+        );
+        assert!(cand.is_some(), "fixture must have a path");
+
+        const CALLS: usize = 300;
+        let time = |interned: bool| -> f64 {
+            let t0 = Instant::now();
+            for _ in 0..CALLS {
+                let r = if interned {
+                    super::multigraph_dijkstra_path_to_target_lazy(&g, &s, &t, "weight")
+                } else {
+                    super::multigraph_dijkstra_path_to_target_lazy_orig(&g, &s, &t, "weight")
+                };
+                black_box(&r);
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..5 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 121usize;
+        // A/B: interned (candidate) vs orig (baseline). ratio = orig/cand, >1 = faster.
+        let mut ab = Vec::with_capacity(rounds);
+        for r in 0..rounds {
+            let (to, tc) = if r % 2 == 0 {
+                let o = time(false);
+                let c = time(true);
+                (o, c)
+            } else {
+                let c = time(true);
+                let o = time(false);
+                (o, c)
+            };
+            ab.push(to / tc);
+        }
+        // NULL: interned vs interned. ratio ~1.0; its spread is the floor.
+        let mut null = Vec::with_capacity(rounds);
+        for r in 0..rounds {
+            let (a, b) = if r % 2 == 0 {
+                let a = time(true);
+                let b = time(true);
+                (a, b)
+            } else {
+                let b = time(true);
+                let a = time(true);
+                (a, b)
+            };
+            null.push(a / b);
+        }
+        let mut null_sorted = null.clone();
+        null_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let nlo = null_sorted[rounds * 5 / 100];
+        let nhi = null_sorted[rounds * 95 / 100];
+        let ab_wins = ab.iter().filter(|&&r| r > 1.0).count();
+        println!(
+            "DIJKSTRA_ALLOC_AB n={n} calls={CALLS} rounds={rounds}: \
+             AB_median(orig/cand)={:.4}x  AB_win_rate={ab_wins}/{rounds}  \
+             NULL_median={:.4}x  NULL_p5_p95=[{nlo:.4},{nhi:.4}]  (>1 = interned faster)",
+            median(&ab),
+            median(&null),
+        );
     }
 
     #[test]

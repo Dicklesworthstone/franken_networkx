@@ -8,7 +8,40 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
-## SHIPPED-ON-MECHANISM (cc, 2026-07-10): interned-keys lever on `multigraph_dijkstra_path_to_target_lazy` — drop the per-call `nodes_ordered()` Vec + `HashMap<&str,usize>` build, byte-identical; measurement is worker-noise-dominated, NOT a clean ratio win (br-r37-c1-mgdt3)
+## MEASURED WIN (cc, 2026-07-10): interned-keys lever on `multigraph_dijkstra_path_to_target_lazy` — **1.1027x median (119/121), null floor [0.978,1.022]**, byte-identical; validated by a same-binary paired A/B after the gauntlet ratio proved worker-noise-dominated (br-r37-c1-mgdt3)
+
+UPDATE: the mechanism-ship below is now a CLEAN MEASURED WIN. The gauntlet fnx-vs-networkx ratio couldn't
+resolve it (PyO3 marshaling + graph build + networkx dilute the pure-function alloc delta). So I built the
+right tool: a `#[ignore]` in-crate paired A/B (`dijkstra_alloc_ab_median` in algorithms.rs tests) that times
+the interned candidate against its EXACT pre-change baseline (kept as `#[cfg(test)] ...lazy_orig`) on ONE
+MultiGraph fixture, interleaved inside ONE binary / ONE worker, with a NULL control (interned vs interned).
+
+Run: `cargo test --release -p fnx-python --lib dijkstra_alloc_ab_median -- --ignored --nocapture`, worker
+`ovh-a`, n=800, 300 calls/timing, 121 rounds. algorithms.rs sha256 prefix `d258bc20d201609c`:
+
+| stat | value |
+|---|---|
+| **AB_median (orig/cand)** | **1.1027x** (interned 10.3% faster than baseline) |
+| **AB_win_rate** | **119/121** (98%) |
+| NULL_median (interned vs interned) | 1.0013x |
+| NULL p5-p95 (the floor) | [0.9784, 1.0219] |
+| parity | **byte-identical** (asserted in-test via `to_bits`, passed) |
+
+DECIDABLE by the median gate: AB median 1.1027x lies far OUTSIDE the null's p95 (1.0219), and win_rate
+119/121 vs a ~50/50 null. This is a real ~10% on the isolated dijkstra function, cleanly above the ~2%
+harness floor — not worker noise. The A/B test stays in the tree as a permanent, parity-guarding measurement
+harness (the orig baseline is `#[cfg(test)]`, zero prod cost).
+
+Original mechanism-ship reasoning (still true, now backed by the number):
+
+The lever: `multigraph_dijkstra_path_to_target_lazy` built TWO O(n) structures every call — a
+`nodes_ordered()` `Vec<&str>` and a `HashMap<&str, usize>` (name->position) — that the graph ALREADY holds
+interned. Replaced with `mg.get_node_index` / `mg.get_node_name`. Byte-identical by construction:
+`get_node_index(x)` == `nodes.get_index_of(x)` == x's position in `nodes_ordered()` (== `nodes.keys()`), and
+`get_node_name(i)` == `nodes_ordered()[i]`. Shipped in `17770d5a0`; harmonic/closeness are a different crate
+(fnx-algorithms), untouched and trivially bit-identical. This is the last alloc micro-lever on the
+string-key dijkstra surface, which is otherwise CLOSED (10/11 rows win to 15.55x; the residual bidirectional
+MG is at parity, gated on a MultiGraph integer-adjacency epoch br-r37-c1-thp6w).
 
 CONVERGE directive: apply ONE concrete allocation lever, gate on median vs null, ship or reject. The lever:
 `multigraph_dijkstra_path_to_target_lazy` built TWO O(n) structures every call — a `nodes_ordered()`
