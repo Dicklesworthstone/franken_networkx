@@ -1,5 +1,38 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## FRONTIER SWEEP (cc, 2026-07-10): full networkx_head_to_head profile — traversal/centrality/graph-build ALL WIN; every loss is the MultiGraph/MDG string-keyed weighted-edge floor
+
+PROFILE-FIRST across the whole `networkx_head_to_head` bench (46 workloads, two short-criterion sweeps,
+33 rows captured, ranked by nx/fnx). The directive's named categories are **exhausted (all wins)**:
+descendants 3.85x, articulation_points 6.33x, biconnected_components 3.75x, is_biconnected 8.41x,
+common_neighbor_centrality 4.51x, bfs_edges 1.34x, MST 1.60x, hexagonal/triangular lattice build 1.50-2.43x,
+node/edge_expansion 3-5.7x, cut/normalized_cut 5.7-21x, tsp 2.2-2.9x, degree_mixing 4.77x, node_degree_xy
+1.79x (my earlier land). **Every measured loss (4 of 33) is in ONE family** — MultiGraph/MDG weighted or
+keyed edge materialization:
+
+| ratio (fnx) | fnx | nx | workload |
+|---|---|---|---|
+| **0.262x** | 5131 µs | 1347 µs | `mg_selfloop_keys_weight` (MG selfloop_edges keys+data) |
+| **0.391x** | 1869 µs | 730 µs | `mdg_out_edges_nbunch_keys_weight` |
+| 0.785x | 523 ms | 411 ms | `graph_to_directed_scalar_attrs` |
+| 0.810x | 3288 µs | 2662 µs | `multigraph_clear_edges` (already native-delegated; bench-rebuild artifact) |
+
+DEEP-DIVE on the biggest (`mg_selfloop_keys_weight` 0.262x, 2502 self-loops / 2500 nodes): the clean-scalar
+fast path (`_native_selfloop_edges`, lib.rs ~6508) IS taken (edges_dirty defaults false, edge_py_keys empty
+— verified statically). Its removable micro-costs — the `Vec<String>` of ALL 2500 node names (only ~834 have
+loops) + the per-key `edge_attrs(n,n,key)` re-lookup — are only ~3% of the 3.8x gap. The bulk is eager Python
+4-tuple materialization (2502× PyTuple + 2 PyLong each) over a String-keyed store (per-edge `EdgeKeyRef`
+hashing), which nx does lazily in C. The aggressive bucket-once rewrite (`edge_attr_values` exists) is BLOCKED
+byte-identically: the Map/None-with-non-empty-mirror fallback (`edge_data_value_or_default_with_key`) is
+`&mut self`, so the fast path must pre-own node names and can't hold the bucket borrow across the loop. No
+clean ONE-lever micro-fix with demonstrable headroom — **SURFACE, not ship** (won't repeat last turn's
+below-noise mistake by shipping a ~3%-of-gap change).
+
+ROOT: same String-keyed-MultiGraph floor as the `degree(nbunch,weight)` residual (below) and the
+bidirectional-dijkstra residual ([[string_key_dijkstra_floor_closed]], br-r37-c1-thp6w). The one high-value
+lever for this whole loss cluster is the **integer-adjacency epoch** (large, cross-crate, multi-session) —
+needs an explicit go-ahead, not a silent start.
+
 ## REJECT (cc, 2026-07-10): MultiGraph `degree(nbunch, weight=)` per-edge `edge_key` alloc removal — byte-identical but **below the noise floor**; the loss is per-NODE / architectural, not per-edge
 
 PROFILE-FIRST re-audit of the networkx_head_to_head bench (46 rows) for a fresh vs-nx gap surfaced
