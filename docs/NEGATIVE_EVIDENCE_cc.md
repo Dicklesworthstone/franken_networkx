@@ -1,5 +1,31 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## BLOCKED / PARKED (cc, 2026-07-10): scratch-reuse lever for the MG target Dijkstra is written + parity-safe, but UNMEASURABLE — cod's uncommitted `fnx-algorithms/src/lib.rs` breaks the build (br-r37-c1-mgdt4)
+
+CONVERGENCE STATUS on the dijkstra alloc floor: one lever this session is SHIPPED AND MEASURED — the
+interned-keys lever (`17770d5a0` + gate `34c07c21d`): **1.1027x median, 119/121, null floor [0.978,1.022]**,
+byte-identical. The NEXT distinct lever — reusable thread-local scratch for the four O(n) buffers + heap +
+chain the lazy path still allocates per call — is fully written, mirrors the landed
+`MultiDiDijkstraTargetScratch`, compiles clean in `fnx-python`, and carries a byte-exactness assert plus a
+three-arm isolation A/B (`SCRATCH_vs_interned` / `COMBINED_vs_original` / `NULL`). Parked as
+`tests/artifacts/perf/20260710T-string-key-dijkstra-status-cc/PARKED_scratch_lever.patch`.
+
+**BLOCKER (surfaced, not worked around):** it cannot be MEASURED. `crates/fnx-algorithms/src/lib.rs` is
+**cod's uncommitted WIP** (cod is back on a different graph algorithm) and does not compile — a BFS whose
+`queue` was changed from `VecDeque` to `Vec::<usize>` but still calls `push_back`/`pop_front`
+(`lib.rs:1052,1054,1060`). `fnx-python` depends on `fnx-algorithms`, and `rch` syncs the WORKING TREE, so
+every remote build fails on cod's broken file. I did NOT touch cod's file (their lane), did NOT build
+locally (disk directive), and did NOT ship the lever unmeasured (the directive gates on the median). My
+`algorithms.rs` is restored to HEAD (via `git show HEAD:… > file`, not a dcg-blocked checkout); cod's file
+is untouched.
+
+RESUME CONDITION: once `fnx-algorithms/src/lib.rs` compiles again (cod commits/fixes their `VecDeque` swap),
+apply the parked patch and run
+`cargo test --release -p fnx-python --lib dijkstra_alloc_ab_median -- --ignored --nocapture`; ship if
+`SCRATCH_vs_interned` median clears the NULL p95, else log the reject. The interned-keys win already shipped
+stands regardless.
+
+
 Verify/gauntlet phase: every recent `code-first batch-test pending` optimization
 built into a fresh release wheel (`maturin build --release`, clean .so verified
 `nm -D | grep crossbeam == 0`, installed at HEAD) and measured **head-to-head vs

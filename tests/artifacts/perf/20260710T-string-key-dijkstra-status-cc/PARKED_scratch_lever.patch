@@ -1,0 +1,330 @@
+diff --git a/crates/fnx-python/src/algorithms.rs b/crates/fnx-python/src/algorithms.rs
+index 994026058..98c89327d 100644
+--- a/crates/fnx-python/src/algorithms.rs
++++ b/crates/fnx-python/src/algorithms.rs
+@@ -916,6 +916,39 @@ fn multigraph_min_parallel_dijkstra_weight(
+     best.map(|(_, weight, all_int)| (weight, all_int))
+ }
+ 
++/// br-r37-c1-mgdt4 (cc): reusable scratch for the single-target MultiGraph Dijkstra,
++/// mirroring the landed `MultiDiDijkstraTargetScratch`. Retains capacity across calls
++/// so the four O(n) buffers + heap + chain are not re-malloced per query; the per-call
++/// `reset(n)` restores the exact starting state, so output is byte-identical.
++#[derive(Default)]
++struct MgTargetScratch {
++    distances: Vec<f64>,
++    predecessors: Vec<usize>,
++    all_int_paths: Vec<bool>,
++    finalized: Vec<bool>,
++    pq: BinaryHeap<PyDijkstraState>,
++    chain: Vec<usize>,
++}
++
++impl MgTargetScratch {
++    fn reset(&mut self, n: usize) {
++        self.distances.clear();
++        self.distances.resize(n, f64::INFINITY);
++        self.predecessors.clear();
++        self.predecessors.resize(n, usize::MAX);
++        self.all_int_paths.clear();
++        self.all_int_paths.resize(n, false);
++        self.finalized.clear();
++        self.finalized.resize(n, false);
++        self.pq.clear();
++        self.chain.clear();
++    }
++}
++
++thread_local! {
++    static MG_TARGET_SCRATCH: RefCell<MgTargetScratch> = RefCell::new(MgTargetScratch::default());
++}
++
+ fn multigraph_dijkstra_path_to_target_lazy(
+     mg: &fnx_classes::MultiGraph,
+     source: &str,
+@@ -937,6 +970,116 @@ fn multigraph_dijkstra_path_to_target_lazy(
+         return Some((0.0, vec![source.to_owned()], true));
+     }
+ 
++    let n = mg.node_count();
++    MG_TARGET_SCRATCH.with(|scratch_cell| {
++        let mut s = scratch_cell.borrow_mut();
++        s.reset(n);
++        let MgTargetScratch {
++            distances,
++            predecessors,
++            all_int_paths,
++            finalized,
++            pq,
++            chain,
++        } = &mut *s;
++        let mut seq_counter = 0_u64;
++
++        distances[source_idx] = 0.0;
++        all_int_paths[source_idx] = true;
++        seq_counter += 1;
++        pq.push(PyDijkstraState {
++            dist: 0.0,
++            seq: seq_counter,
++            node: source_idx,
++        });
++
++        while let Some(PyDijkstraState {
++            dist: distance,
++            node: node_idx,
++            ..
++        }) = pq.pop()
++        {
++            if distance > distances[node_idx] + PY_DISTANCE_COMPARISON_EPSILON {
++                continue;
++            }
++            if finalized[node_idx] {
++                continue;
++            }
++            finalized[node_idx] = true;
++            if node_idx == target_idx {
++                chain.push(target_idx);
++                let mut current = target_idx;
++                while current != source_idx {
++                    current = predecessors[current];
++                    if current == usize::MAX {
++                        return None;
++                    }
++                    chain.push(current);
++                }
++                chain.reverse();
++                let path = chain
++                    .iter()
++                    .map(|&idx| {
++                        mg.get_node_name(idx)
++                            .expect("path node index should resolve")
++                            .to_owned()
++                    })
++                    .collect::<Vec<_>>();
++                return Some((distance, path, all_int_paths[target_idx]));
++            }
++
++            let node = mg
++                .get_node_name(node_idx)
++                .expect("fringe node index should resolve");
++            let Some(neighbors) = mg.neighbors_iter(node) else {
++                continue;
++            };
++            for neighbor in neighbors {
++                let Some(neighbor_idx) = mg.get_node_index(neighbor) else {
++                    continue;
++                };
++                let Some((edge_weight, edge_all_int)) =
++                    multigraph_min_parallel_dijkstra_weight(mg, node, neighbor, weight_attr)
++                else {
++                    continue;
++                };
++                let next_distance = distance + edge_weight;
++                if next_distance < distances[neighbor_idx] - PY_DISTANCE_COMPARISON_EPSILON {
++                    distances[neighbor_idx] = next_distance;
++                    predecessors[neighbor_idx] = node_idx;
++                    all_int_paths[neighbor_idx] = all_int_paths[node_idx] && edge_all_int;
++                    seq_counter += 1;
++                    pq.push(PyDijkstraState {
++                        dist: next_distance,
++                        seq: seq_counter,
++                        node: neighbor_idx,
++                    });
++                }
++            }
++        }
++
++        None
++    })
++}
++
++/// br-r37-c1-mgdt4 A/B reference: interned-keys but WITHOUT the reusable scratch
++/// (fresh O(n) buffers + heap per call). Isolates the scratch lever's increment over
++/// the already-shipped interned version. Byte-identical output.
++#[cfg(test)]
++fn multigraph_dijkstra_path_to_target_lazy_interned_noscratch(
++    mg: &fnx_classes::MultiGraph,
++    source: &str,
++    target: &str,
++    weight_attr: &str,
++) -> Option<(f64, Vec<String>, bool)> {
++    let (Some(source_idx), Some(target_idx)) =
++        (mg.get_node_index(source), mg.get_node_index(target))
++    else {
++        return None;
++    };
++    if source_idx == target_idx {
++        return Some((0.0, vec![source.to_owned()], true));
++    }
+     let n = mg.node_count();
+     let mut distances = vec![f64::INFINITY; n];
+     let mut predecessors = vec![usize::MAX; n];
+@@ -944,7 +1087,6 @@ fn multigraph_dijkstra_path_to_target_lazy(
+     let mut finalized = vec![false; n];
+     let mut pq: BinaryHeap<PyDijkstraState> = BinaryHeap::new();
+     let mut seq_counter = 0_u64;
+-
+     distances[source_idx] = 0.0;
+     all_int_paths[source_idx] = true;
+     seq_counter += 1;
+@@ -953,7 +1095,6 @@ fn multigraph_dijkstra_path_to_target_lazy(
+         seq: seq_counter,
+         node: source_idx,
+     });
+-
+     while let Some(PyDijkstraState {
+         dist: distance,
+         node: node_idx,
+@@ -988,7 +1129,6 @@ fn multigraph_dijkstra_path_to_target_lazy(
+                 .collect::<Vec<_>>();
+             return Some((distance, path, all_int_paths[target_idx]));
+         }
+-
+         let node = mg
+             .get_node_name(node_idx)
+             .expect("fringe node index should resolve");
+@@ -1018,7 +1158,6 @@ fn multigraph_dijkstra_path_to_target_lazy(
+             }
+         }
+     }
+-
+     None
+ }
+ 
+@@ -26149,32 +26288,38 @@ mod tests {
+         }
+         let (s, t) = ("0".to_owned(), (n / 2).to_string());
+ 
+-        // Parity: the lever must be byte-identical to its baseline.
+-        let cand = super::multigraph_dijkstra_path_to_target_lazy(&g, &s, &t, "weight");
+-        let orig = super::multigraph_dijkstra_path_to_target_lazy_orig(&g, &s, &t, "weight");
++        // Arms: 0 = scratch (current production: interned + reusable scratch),
++        //       1 = interned-only, no scratch (isolates the scratch lever),
++        //       2 = original (pre-interned: nodes_ordered Vec + HashMap + fresh Vecs).
++        let call = |arm: u8| match arm {
++            0 => super::multigraph_dijkstra_path_to_target_lazy(&g, &s, &t, "weight"),
++            1 => super::multigraph_dijkstra_path_to_target_lazy_interned_noscratch(
++                &g, &s, &t, "weight",
++            ),
++            _ => super::multigraph_dijkstra_path_to_target_lazy_orig(&g, &s, &t, "weight"),
++        };
++        // Parity: every arm must be byte-identical.
++        let bits = |arm: u8| call(arm).map(|(d, p, i)| (d.to_bits(), p, i));
++        assert_eq!(bits(0), bits(1), "scratch must match interned-noscratch");
+         assert_eq!(
+-            cand.as_ref().map(|(d, p, i)| (d.to_bits(), p.clone(), *i)),
+-            orig.as_ref().map(|(d, p, i)| (d.to_bits(), p.clone(), *i)),
+-            "interned lever must be byte-identical to its pre-change baseline"
++            bits(0),
++            bits(2),
++            "scratch must match the pre-interned original"
+         );
+-        assert!(cand.is_some(), "fixture must have a path");
++        assert!(call(0).is_some(), "fixture must have a path");
+ 
+         const CALLS: usize = 300;
+-        let time = |interned: bool| -> f64 {
++        let time = |arm: u8| -> f64 {
+             let t0 = Instant::now();
+             for _ in 0..CALLS {
+-                let r = if interned {
+-                    super::multigraph_dijkstra_path_to_target_lazy(&g, &s, &t, "weight")
+-                } else {
+-                    super::multigraph_dijkstra_path_to_target_lazy_orig(&g, &s, &t, "weight")
+-                };
+-                black_box(&r);
++                black_box(&call(arm));
+             }
+             t0.elapsed().as_secs_f64()
+         };
+         for _ in 0..5 {
+-            black_box(time(true));
+-            black_box(time(false));
++            black_box(time(0));
++            black_box(time(1));
++            black_box(time(2));
+         }
+ 
+         let median = |v: &[f64]| {
+@@ -26183,46 +26328,41 @@ mod tests {
+             s[s.len() / 2]
+         };
+         let rounds = 121usize;
+-        // A/B: interned (candidate) vs orig (baseline). ratio = orig/cand, >1 = faster.
+-        let mut ab = Vec::with_capacity(rounds);
+-        for r in 0..rounds {
+-            let (to, tc) = if r % 2 == 0 {
+-                let o = time(false);
+-                let c = time(true);
+-                (o, c)
+-            } else {
+-                let c = time(true);
+-                let o = time(false);
+-                (o, c)
+-            };
+-            ab.push(to / tc);
+-        }
+-        // NULL: interned vs interned. ratio ~1.0; its spread is the floor.
+-        let mut null = Vec::with_capacity(rounds);
+-        for r in 0..rounds {
+-            let (a, b) = if r % 2 == 0 {
+-                let a = time(true);
+-                let b = time(true);
+-                (a, b)
+-            } else {
+-                let b = time(true);
+-                let a = time(true);
+-                (a, b)
+-            };
+-            null.push(a / b);
+-        }
+-        let mut null_sorted = null.clone();
+-        null_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+-        let nlo = null_sorted[rounds * 5 / 100];
+-        let nhi = null_sorted[rounds * 95 / 100];
+-        let ab_wins = ab.iter().filter(|&&r| r > 1.0).count();
+-        println!(
+-            "DIJKSTRA_ALLOC_AB n={n} calls={CALLS} rounds={rounds}: \
+-             AB_median(orig/cand)={:.4}x  AB_win_rate={ab_wins}/{rounds}  \
+-             NULL_median={:.4}x  NULL_p5_p95=[{nlo:.4},{nhi:.4}]  (>1 = interned faster)",
+-            median(&ab),
+-            median(&null),
+-        );
++        // Interleaved ratio cand/base per round, alternating order; >1 = cand faster.
++        let paired = |cand: u8, base: u8| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for r in 0..rounds {
++                let (tb, tc) = if r % 2 == 0 {
++                    let b = time(base);
++                    let c = time(cand);
++                    (b, c)
++                } else {
++                    let c = time(cand);
++                    let b = time(base);
++                    (b, c)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            let (lo, hi) = (sorted[rounds * 5 / 100], sorted[rounds * 95 / 100]);
++            println!(
++                "DIJKSTRA_ALLOC_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{lo:.4},{hi:.4}]",
++                median(ratios),
++            );
++        };
++        println!("DIJKSTRA_ALLOC_AB n={n} calls={CALLS} rounds={rounds} (>1 = cand faster)");
++        // THE LEVER TO GATE: scratch vs interned-noscratch (isolated increment).
++        report("SCRATCH_vs_interned", &paired(0, 1));
++        // Context: full combined vs the pre-interned original.
++        report("COMBINED_vs_original", &paired(0, 2));
++        // NULL floor: scratch vs scratch.
++        report("NULL_scratch_vs_scratch", &paired(0, 0));
+     }
+ 
+     #[test]
