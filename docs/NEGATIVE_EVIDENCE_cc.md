@@ -1,5 +1,34 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-10, `7c8d711d5`): `square_clustering` integer-adjacency + mark-array **29.7267x** — biggest lever of the session (br-r37-c1-sqcmark)
+
+The `square_clustering` next-sibling flagged last turn, delivered. It built a String-keyed
+`HashMap<&str, HashSet<&str>>` (n allocated sets) and hash-probed `nbrs_w.contains(x)` per candidate in its
+O(|V|*deg^3) TRIPLE loop — String hashing at the innermost level of the deepest loop in the clustering family.
+Switched to the graph's integer adjacency slices (`neighbors_indices`, zero build) + a reusable mark array:
+mark N(u) once per u (reused across all partners w), count q by scanning N(w) against the marks.
+
+MEASURED — paired-interleaved in-crate A/B vs the exact String HashSet baseline
+(`square_clustering_scores_orig_hashset`, `#[cfg(test)]`), ONE binary / ONE worker `hz2`, pseudo-random
+~24-deg n=700, 121 rounds:
+
+| paired A/B (>1 = mark-array faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **MARK_vs_hashset** | **29.7267x** | **121/121** | [24.5507, 31.0487] |
+| NULL_mark_vs_mark | 0.9976x | 56/121 | [0.9413, 1.0957] |
+
+DECIDABLE BY A MILE: 29.73x median, p5 24.55x, vs null centred at 0.9976x. BYTE-IDENTICAL: q (intersection
+count), theta and a are all SYMMETRIC in (u,w) and numerator/denominator are integer sums, so neither pair
+order nor the u/w assignment changes the score; asserted bit-exact (`to_bits`) per node vs baseline. clippy
+`-D warnings` clean. (Test wall-clock 257s — the OLD baseline is that slow.)
+
+NEXT CANDIDATE (own lever): `k_truss` (lib.rs ~14723) builds a String-keyed `HashMap<String, HashSet<String>>`
+adjacency for iterative edge peeling — the biggest remaining String-set-in-a-loop site. Lower priority:
+`k_core`/`is_d_separator` use String sets but in a single O(V+E) pass, not a hot repeated loop.
+
+STRUCTURAL-PRIMITIVE VEIN TALLY (this session): eigenvector 14.64x (CSR), HITS 3.11x (resolve-once),
+triangles 5.54x (mark-array), square_clustering 29.73x (int-adj+mark) — all byte-identical, median-gated.
+
 ## SHIPPED WIN (cc, 2026-07-10, `8d54e89ce`): `triangles` mark-array (bitset) count **5.5420x** — drop the n-HashSet build + hash probes (br-r37-c1-trimark)
 
 PROFILE-FIRST across the directive's remaining named algos (pagerank/katz/betweenness/closeness/all-pairs/
