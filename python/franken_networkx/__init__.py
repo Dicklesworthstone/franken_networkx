@@ -8759,16 +8759,33 @@ def shortest_path(
             method=method,
         )
     if weight is not None:
-        if method == "dijkstra" and _should_delegate_dijkstra_to_networkx(
-            G,
-            weight,
-            _require_exact_string_nodes=(
-                type(G) is MultiGraph
-                and source is not None
-                and target is not None
-                and type(source) is str
-                and type(target) is str
-            ),
+        # br-r37-c1-04z53.9171: exact-string MultiGraph point queries route
+        # directly to ``bidirectional_dijkstra`` below. That function owns the
+        # identical exact-domain/weight validation, so scanning the whole graph
+        # here as well made ``shortest_path`` pay the classifier twice. Keep the
+        # pre-check for every other shape; only the branch with a second
+        # authoritative check skips it.
+        _bidirectional_owns_dijkstra_validation = (
+            method == "dijkstra"
+            and type(G) is MultiGraph
+            and isinstance(weight, str)
+            and type(source) is str
+            and type(target) is str
+        )
+        if (
+            method == "dijkstra"
+            and not _bidirectional_owns_dijkstra_validation
+            and _should_delegate_dijkstra_to_networkx(
+                G,
+                weight,
+                _require_exact_string_nodes=(
+                    type(G) is MultiGraph
+                    and source is not None
+                    and target is not None
+                    and type(source) is str
+                    and type(target) is str
+                ),
+            )
         ):
             return _call_networkx_for_parity(
                 "shortest_path",

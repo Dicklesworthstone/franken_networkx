@@ -12,6 +12,36 @@ struct BidirectionalOutput {
     path: Vec<String>,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+struct ShortestPathOutput(Vec<String>);
+
+fn timed_python_call_with_path_inputs<'py>(
+    callable: &Bound<'py, PyAny>,
+    graph: &Bound<'py, PyAny>,
+    source: &Bound<'py, PyAny>,
+    target: &Bound<'py, PyAny>,
+    weight: &Bound<'py, PyAny>,
+) -> (Duration, Bound<'py, PyAny>) {
+    let callable = std::hint::black_box(callable);
+    let graph = std::hint::black_box(graph);
+    let source = std::hint::black_box(source);
+    let target = std::hint::black_box(target);
+    let weight = std::hint::black_box(weight);
+    let start = Instant::now();
+    let result = callable.call1((graph, source, target, weight));
+    let elapsed = start.elapsed();
+    let result = result.expect("paired shortest-path callable failed");
+    (elapsed, std::hint::black_box(result))
+}
+
+fn extract_shortest_path_output(result: &Bound<'_, PyAny>) -> ShortestPathOutput {
+    ShortestPathOutput(
+        result
+            .extract::<Vec<String>>()
+            .expect("paired shortest-path result must be list[str]"),
+    )
+}
+
 fn timed_python_call<'py>(callable: &Bound<'py, PyAny>) -> (Duration, Bound<'py, PyAny>) {
     let start = Instant::now();
     let result = callable.call0();
@@ -127,6 +157,137 @@ fn bench_paired_multigraph_bidirectional(c: &mut Criterion, candidate: Py<PyAny>
     );
 }
 
+#[allow(clippy::too_many_arguments)]
+fn bench_paired_multigraph_shortest_path(
+    c: &mut Criterion,
+    group_name: &str,
+    comparison_label: &str,
+    candidate: Py<PyAny>,
+    comparison: Py<PyAny>,
+    candidate_graph: Py<PyAny>,
+    comparison_graph: Py<PyAny>,
+    source: Py<PyAny>,
+    target: Py<PyAny>,
+    weight: Py<PyAny>,
+) {
+    let mut samples = Vec::<(f64, f64)>::new();
+    let mut candidate_first = true;
+    let mut group = c.benchmark_group(group_name);
+    group.sampling_mode(SamplingMode::Flat);
+    group.sample_size(20);
+    group.bench_function(format!("candidate_vs_{comparison_label}"), |b| {
+        b.iter_custom(|iters| {
+            Python::attach(|py| {
+                let candidate = candidate.bind(py);
+                let comparison = comparison.bind(py);
+                let candidate_graph = candidate_graph.bind(py);
+                let comparison_graph = comparison_graph.bind(py);
+                let source = source.bind(py);
+                let target = target.bind(py);
+                let weight = weight.bind(py);
+                let mut candidate_elapsed = Duration::ZERO;
+                let mut comparison_elapsed = Duration::ZERO;
+                for _ in 0..iters {
+                    let (
+                        candidate_duration,
+                        candidate_result,
+                        comparison_duration,
+                        comparison_result,
+                    ) = if candidate_first {
+                        let (candidate_duration, candidate_result) =
+                            timed_python_call_with_path_inputs(
+                                candidate,
+                                candidate_graph,
+                                source,
+                                target,
+                                weight,
+                            );
+                        let (comparison_duration, comparison_result) =
+                            timed_python_call_with_path_inputs(
+                                comparison,
+                                comparison_graph,
+                                source,
+                                target,
+                                weight,
+                            );
+                        (
+                            candidate_duration,
+                            candidate_result,
+                            comparison_duration,
+                            comparison_result,
+                        )
+                    } else {
+                        let (comparison_duration, comparison_result) =
+                            timed_python_call_with_path_inputs(
+                                comparison,
+                                comparison_graph,
+                                source,
+                                target,
+                                weight,
+                            );
+                        let (candidate_duration, candidate_result) =
+                            timed_python_call_with_path_inputs(
+                                candidate,
+                                candidate_graph,
+                                source,
+                                target,
+                                weight,
+                            );
+                        (
+                            candidate_duration,
+                            candidate_result,
+                            comparison_duration,
+                            comparison_result,
+                        )
+                    };
+                    candidate_first = !candidate_first;
+                    candidate_elapsed += candidate_duration;
+                    comparison_elapsed += comparison_duration;
+                    assert_eq!(
+                        extract_shortest_path_output(&candidate_result),
+                        extract_shortest_path_output(&comparison_result),
+                        "paired shortest-path comparison parity drift"
+                    );
+                }
+                samples.push((
+                    candidate_elapsed.as_secs_f64() * 1.0e9 / iters as f64,
+                    comparison_elapsed.as_secs_f64() * 1.0e9 / iters as f64,
+                ));
+                std::hint::black_box(candidate_elapsed)
+            })
+        });
+    });
+    group.finish();
+
+    if samples.len() < 2 {
+        return;
+    }
+    let sample_count = 20_usize.min(samples.len());
+    let decision_samples = &samples[samples.len() - sample_count..];
+    let candidate_values = decision_samples
+        .iter()
+        .map(|(candidate_ns, _)| *candidate_ns)
+        .collect::<Vec<_>>();
+    let comparison_values = decision_samples
+        .iter()
+        .map(|(_, comparison_ns)| *comparison_ns)
+        .collect::<Vec<_>>();
+    let (candidate_mean_ns, candidate_cv_pct) = mean_and_cv_pct(&candidate_values);
+    let (comparison_mean_ns, comparison_cv_pct) = mean_and_cv_pct(&comparison_values);
+    eprintln!(
+        "PAIRED_SHORTEST_AB comparison={comparison_label} samples={sample_count} \
+         candidate_mean_ns={candidate_mean_ns:.3} candidate_cv_pct={candidate_cv_pct:.6} \
+         comparison_mean_ns={comparison_mean_ns:.3} \
+         comparison_cv_pct={comparison_cv_pct:.6} \
+         speedup_comparison_over_candidate={:.6}",
+        comparison_mean_ns / candidate_mean_ns
+    );
+    eprintln!(
+        "PAIRED_SHORTEST_AB_RAW comparison={comparison_label} candidate_ns={candidate_values:?} \
+         comparison_ns={comparison_values:?}"
+    );
+}
+
 fn init_python() {
     static START: std::sync::Once = std::sync::Once::new();
     START.call_once(Python::initialize);
@@ -236,6 +397,66 @@ if target_dir:
             helper.getattr("orig_multigraph_bidirectional_native_once"),
         ) {
             bench_paired_multigraph_bidirectional(c, candidate.unbind(), orig.unbind());
+        }
+        if let (
+            Ok(candidate),
+            Ok(orig),
+            Ok(candidate_graph),
+            Ok(orig_graph),
+            Ok(source),
+            Ok(target),
+            Ok(weight),
+        ) = (
+            helper.getattr("candidate_multigraph_shortest_path_dispatch_once"),
+            helper.getattr("orig_multigraph_shortest_path_dispatch_once"),
+            helper.getattr("_FNX_MG_DP_GRAPH"),
+            helper.getattr("_FNX_MG_DP_GRAPH"),
+            helper.getattr("_MG_DP_SOURCE"),
+            helper.getattr("_MG_DP_TARGET"),
+            helper.getattr("_MG_DP_WEIGHT"),
+        ) {
+            bench_paired_multigraph_shortest_path(
+                c,
+                "multigraph_shortest_path_string_target_ab",
+                "frozen_5abbfd8a4",
+                candidate.unbind(),
+                orig.unbind(),
+                candidate_graph.unbind(),
+                orig_graph.unbind(),
+                source.unbind(),
+                target.unbind(),
+                weight.unbind(),
+            );
+        }
+        if let (
+            Ok(candidate),
+            Ok(networkx),
+            Ok(candidate_graph),
+            Ok(networkx_graph),
+            Ok(source),
+            Ok(target),
+            Ok(weight),
+        ) = (
+            helper.getattr("candidate_multigraph_shortest_path_dispatch_once"),
+            helper.getattr("networkx_multigraph_shortest_path_dispatch_once"),
+            helper.getattr("_FNX_MG_DP_GRAPH"),
+            helper.getattr("_NX_MG_DP_GRAPH"),
+            helper.getattr("_MG_DP_SOURCE"),
+            helper.getattr("_MG_DP_TARGET"),
+            helper.getattr("_MG_DP_WEIGHT"),
+        ) {
+            bench_paired_multigraph_shortest_path(
+                c,
+                "multigraph_shortest_path_string_target_vs_networkx",
+                "networkx",
+                candidate.unbind(),
+                networkx.unbind(),
+                candidate_graph.unbind(),
+                networkx_graph.unbind(),
+                source.unbind(),
+                target.unbind(),
+                weight.unbind(),
+            );
         }
         for (workload, engine, callable_name) in [
             (

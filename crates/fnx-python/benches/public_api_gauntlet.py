@@ -7,6 +7,8 @@ import gc
 import io
 import os
 import random
+import types
+from fractions import Fraction
 
 import franken_networkx as fnx
 from franken_networkx import summarization as fnx_summarization
@@ -1222,6 +1224,7 @@ def _build_highway_weighted_multigraph(module, node_count: int):
 _MG_DP_NODE_COUNT = 1400
 _MG_DP_SOURCE = "n0"
 _MG_DP_TARGET = "n1399"
+_MG_DP_WEIGHT = "weight"
 _MG_DP_REPEAT = 20
 _MG_BIDI_REPEAT = 400
 _FNX_MG_DP_GRAPH = _build_highway_weighted_multigraph(fnx, _MG_DP_NODE_COUNT)
@@ -1317,7 +1320,12 @@ def _profile_code_label(code) -> str:
 
 
 def _profile_integrity_run(
-    label: str, call, expected_calls: int, target_code: str
+    label: str,
+    call,
+    expected_calls: int,
+    target_code: str,
+    *,
+    expected_target_calls: int | None = None,
 ) -> None:
     profiler = cProfile.Profile()
     checksum = 0.0
@@ -1344,7 +1352,9 @@ def _profile_integrity_run(
     ]
     target_calls = sum(entry.callcount for entry in target_stats)
     target_self = sum(entry.inlinetime for entry in target_stats)
-    if target_calls != expected_calls or target_self <= 0.0:
+    if expected_target_calls is None:
+        expected_target_calls = expected_calls
+    if target_calls != expected_target_calls or target_self <= 0.0:
         raise AssertionError(
             f"profile-integrity failure for {label}: "
             f"calls={target_calls}, self_s={target_self:.9f}"
@@ -1388,6 +1398,236 @@ _profile_integrity_run(
     ),
     64,
     "<built-in method franken_networkx._fnx.bidirectional_dijkstra>",
+)
+
+
+def candidate_multigraph_shortest_path_dispatch_once(graph, source, target, weight):
+    """Current public route after duplicate-validator fusion."""
+    return fnx.shortest_path(graph, source, target, weight=weight)
+
+
+# Keep the frozen body on the same global-lookup substrate as the public
+# function. The aliases make this template lintable in the harness module;
+# FunctionType below rebinds its globals to fnx.__dict__ before it can run.
+_validate_backend_dispatch_keywords = fnx._validate_backend_dispatch_keywords
+_coerce_arg_to_fnx_graph = fnx._coerce_arg_to_fnx_graph
+_path_query_has_missing_nodes = fnx._path_query_has_missing_nodes
+_call_networkx_for_parity = fnx._call_networkx_for_parity
+_should_delegate_dijkstra_to_networkx = fnx._should_delegate_dijkstra_to_networkx
+_should_delegate_bellman_ford_to_networkx = (
+    fnx._should_delegate_bellman_ford_to_networkx
+)
+_sync_rust_edge_attrs = fnx._sync_rust_edge_attrs
+_raw_shortest_path = fnx._raw_shortest_path
+MultiGraph = fnx.MultiGraph
+bidirectional_shortest_path = fnx.bidirectional_shortest_path
+single_source_shortest_path = fnx.single_source_shortest_path
+all_pairs_shortest_path = fnx.all_pairs_shortest_path
+bellman_ford_path = fnx.bellman_ford_path
+bidirectional_dijkstra = fnx.bidirectional_dijkstra
+
+
+def _orig_shortest_path_5abbfd8a4_template(
+    G,
+    source=None,
+    target=None,
+    weight=None,
+    method="dijkstra",
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    """Exact 5abbfd8a4 body, rebound to the fnx module globals below."""
+    _validate_backend_dispatch_keywords("shortest_path", backend, backend_kwargs)
+    G = _coerce_arg_to_fnx_graph(G)
+    if method not in ("dijkstra", "bellman-ford"):
+        raise ValueError(f"method not supported: {method}")
+    if _path_query_has_missing_nodes(G, source=source, target=target):
+        return _call_networkx_for_parity(
+            "shortest_path",
+            G,
+            source=source,
+            target=target,
+            weight=weight,
+            method=method,
+        )
+    if weight is not None:
+        if method == "dijkstra" and _should_delegate_dijkstra_to_networkx(
+            G,
+            weight,
+            _require_exact_string_nodes=(
+                type(G) is MultiGraph
+                and source is not None
+                and target is not None
+                and type(source) is str
+                and type(target) is str
+            ),
+        ):
+            return _call_networkx_for_parity(
+                "shortest_path",
+                G,
+                source=source,
+                target=target,
+                weight=weight,
+                method=method,
+            )
+        if method == "bellman-ford" and _should_delegate_bellman_ford_to_networkx(weight, G):
+            return _call_networkx_for_parity(
+                "shortest_path",
+                G,
+                source=source,
+                target=target,
+                weight=weight,
+                method=method,
+            )
+    if weight is None and source is not None and target is not None:
+        return bidirectional_shortest_path(G, source, target)
+    if weight is None and source is not None and target is None:
+        return single_source_shortest_path(G, source)
+    if weight is None and source is None and target is None:
+        return all_pairs_shortest_path(G)
+    if isinstance(weight, str) and source is not None and target is not None:
+        if method == "bellman-ford":
+            return bellman_ford_path(G, source, target, weight=weight)
+        return bidirectional_dijkstra(G, source, target, weight=weight)[1]
+    if isinstance(weight, str):
+        _sync_rust_edge_attrs(G, edge_only=True)
+    result = _raw_shortest_path(G, source=source, target=target, weight=weight, method=method)
+    if source is None and target is None and isinstance(result, dict):
+        return ((src, paths) for src, paths in result.items())
+    return result
+
+
+_orig_shortest_path_5abbfd8a4 = types.FunctionType(
+    _orig_shortest_path_5abbfd8a4_template.__code__,
+    fnx.__dict__,
+    "_bench_shortest_path_orig_5abbfd8a4",
+    _orig_shortest_path_5abbfd8a4_template.__defaults__,
+)
+_orig_shortest_path_5abbfd8a4.__kwdefaults__ = (
+    _orig_shortest_path_5abbfd8a4_template.__kwdefaults__.copy()
+)
+fnx._bench_shortest_path_orig_5abbfd8a4 = _orig_shortest_path_5abbfd8a4
+
+
+def orig_multigraph_shortest_path_dispatch_once(graph, source, target, weight):
+    """Source-equivalent frozen 5abbfd8a4 public route for dispatch A/B."""
+    return fnx._bench_shortest_path_orig_5abbfd8a4(
+        graph, source, target, weight=weight
+    )
+
+
+def networkx_multigraph_shortest_path_dispatch_once(graph, source, target, weight):
+    return nx.shortest_path(graph, source, target, weight=weight)
+
+
+def _shortest_dispatch_outcome(call, graph, source, target, weight):
+    try:
+        path = call(graph, source, target, weight)
+    except Exception as exc:  # noqa: BLE001 - exact exception parity is intentional
+        return ("EXC", type(exc).__name__, str(exc))
+    return ("OK", [(type(node).__name__, node) for node in path])
+
+
+def _verify_shortest_dispatch_fusion_parity():
+    fixtures = []
+
+    baseline = fnx.MultiGraph()
+    baseline.add_edge("s", "a", weight=1)
+    baseline.add_edge("a", "t", weight=1)
+    baseline.add_edge("s", "b", weight=1)
+    baseline.add_edge("b", "t", weight=1)
+    fixtures.extend(
+        [
+            (baseline, "s", "t"),
+            (baseline, "t", "s"),
+            (baseline, "missing", "t"),
+        ]
+    )
+
+    disconnected = fnx.MultiGraph()
+    disconnected.add_nodes_from(("s", "t"))
+    fixtures.append((disconnected, "s", "t"))
+
+    for value in (-1, float("nan"), 2**53, Fraction(3, 2), "nonnumeric"):
+        graph = fnx.MultiGraph()
+        graph.add_edge("s", "t", weight=value)
+        fixtures.append((graph, "s", "t"))
+
+    non_string_attr = fnx.MultiGraph()
+    non_string_attr.add_edge("s", "t", weight=1)
+    non_string_attr.edges["s", "t", 0][7] = "foreign-key"
+    fixtures.append((non_string_attr, "s", "t"))
+
+    mixed_nodes = fnx.MultiGraph()
+    mixed_nodes.add_edge("s", 1, weight=1)
+    mixed_nodes.add_edge(1, "t", weight=1)
+    fixtures.append((mixed_nodes, "s", "t"))
+
+    dirty = fnx.MultiGraph()
+    dirty.add_edge("s", "direct", weight=1)
+    dirty.add_edge("direct", "t", weight=10)
+    dirty.add_edge("s", "detour", weight=2)
+    dirty.add_edge("detour", "t", weight=2)
+    dirty.edges["direct", "t", 0]["weight"] = 1
+    fixtures.append((dirty, "s", "t"))
+
+    class StringNode(str):
+        pass
+
+    fixtures.append((baseline, StringNode("s"), "t"))
+
+    for graph, source, target in fixtures:
+        candidate = _shortest_dispatch_outcome(
+            candidate_multigraph_shortest_path_dispatch_once,
+            graph,
+            source,
+            target,
+            "weight",
+        )
+        orig = _shortest_dispatch_outcome(
+            orig_multigraph_shortest_path_dispatch_once,
+            graph,
+            source,
+            target,
+            "weight",
+        )
+        if candidate != orig:
+            raise AssertionError(
+                "shortest-path dispatch fusion parity drift: "
+                f"source={source!r} target={target!r} "
+                f"candidate={candidate!r} orig={orig!r}"
+            )
+
+
+_verify_shortest_dispatch_fusion_parity()
+
+
+_CANDIDATE_SHORTEST_DISPATCH = candidate_multigraph_shortest_path_dispatch_once(
+    _FNX_MG_DP_GRAPH, _MG_DP_SOURCE, _MG_DP_TARGET, "weight"
+)
+_ORIG_SHORTEST_DISPATCH = orig_multigraph_shortest_path_dispatch_once(
+    _FNX_MG_DP_GRAPH, _MG_DP_SOURCE, _MG_DP_TARGET, "weight"
+)
+if _CANDIDATE_SHORTEST_DISPATCH != _ORIG_SHORTEST_DISPATCH:
+    raise AssertionError("paired shortest-path dispatch ORIG/candidate parity drift")
+
+_profile_integrity_run(
+    "multigraph_shortest_path_dispatch_candidate",
+    lambda: candidate_multigraph_shortest_path_dispatch_once(
+        _FNX_MG_DP_GRAPH, _MG_DP_SOURCE, _MG_DP_TARGET, "weight"
+    ),
+    64,
+    "<built-in method franken_networkx._fnx.check_dijkstra_edge_weights_fast>",
+)
+_profile_integrity_run(
+    "multigraph_shortest_path_dispatch_orig",
+    lambda: orig_multigraph_shortest_path_dispatch_once(
+        _FNX_MG_DP_GRAPH, _MG_DP_SOURCE, _MG_DP_TARGET, "weight"
+    ),
+    64,
+    "<built-in method franken_networkx._fnx.check_dijkstra_edge_weights_fast>",
+    expected_target_calls=128,
 )
 
 

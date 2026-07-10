@@ -2,6 +2,94 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-10 cod_nx WIN: exact `MultiGraph.shortest_path` performs one authoritative weight scan (`br-r37-c1-04z53.9171`)
+
+**MECHANISM FROM A LIVE PROFILE.** The invalid StackCanon row reopened this lane, but the fresh exact-path
+profile selected a different redundant pass: each string-key weighted `MultiGraph.shortest_path(source,
+target)` call scanned every edge in `_should_delegate_dijkstra_to_networkx`, then the selected
+`bidirectional_dijkstra` branch immediately ran the identical exact-domain scan again. The final frozen ORIG
+profile recorded `128` classifier calls / `0.074923476 s` self (`88.154273%`) for `64` queries, while its
+native bidirectional kernel was only `0.007778590 s` (`9.152217%`). The kept dispatch change skips only the
+first scan for exact built-in-string source/target, string weight, concrete `MultiGraph`, and Dijkstra method;
+`bidirectional_dijkstra` remains the sole authoritative validator. Every other API/domain retains the
+original pre-check.
+
+**HONEST ONE-BINARY A/B.** Candidate and a source-equivalent frozen `5abbfd8a4` public body alternated inside
+one `SamplingMode::Flat` Criterion callback. The frozen function has the original signature, method checks,
+missing-node path, every post-gate branch, and the fnx module's global-lookup substrate; the only arm difference
+is retaining the first classifier scan. The callback `black_box`es callable/input objects and results, and
+asserts exact result equality after every timed pair. Harness SHA-256 is
+`e444e70df6e051c3786ae5eb8e67341fdde852928f94327c36bd7421d1852424` (Python) /
+`182d37aad709109d6e9efff13d20a0e33b8c39c4946b42d5a3e3d3b10b3d2a4b` (Rust). One strict-remote RCH
+invocation ran on worker `hz2` (`hetzner2`), CPU15, extension SHA-256
+`21e04b48faa95e2d4351f31f86e3d60b3474a2437ec152fb605d5868cfcc9372`. Profile integrity was non-zero:
+candidate classifier `64` calls / `0.036474120 s` self (`80.655196%`) and frozen ORIG classifier `128` calls /
+`0.074923476 s` (`88.154273%`); candidate/ORIG native kernel was `0.006858387/0.007778590 s`. Twenty
+equal-size interleaved samples measured candidate `689665.960 ns`, ORIG `1261488.469 ns`, CV
+`2.318348%/2.176286%`, and `1.829130x` ORIG/candidate.
+
+**PARITY AND VERDICT: KEEP.** Import-time candidate/frozen-ORIG/NetworkX parity covered baseline and equal-cost
+tie graphs in both directions, missing nodes, no path, negative/NaN/huge-integer/`Fraction`/non-numeric
+weights, non-string attribute keys, mixed node types, dirty attribute mirrors, and a string subclass. The
+focused exact-MultiGraph Dijkstra Rust tests passed `4/4`; workspace check and fnx-python all-targets clippy
+passed strict-remote. A regression guard proves public `shortest_path` now invokes exactly one authoritative
+classifier. The surviving classifier remains `80.655196%` of candidate profile self-time, so this is not a
+ceiling: next route is a mutation-token-backed weight-validity certificate or an index-addressed edge-weight
+bucket, not another unproven family-wide allocation closure.
+
+## 2026-07-10 cod_nx INVALID MEASUREMENT: provisional low-CV ORIG omitted public-wrapper work (`br-r37-c1-04z53.9171`)
+
+The provisional harness produced candidate `587681.839 ns`, synthetic ORIG `1076188.362 ns`, nominal
+`1.831243x`, and CV `0.289404%/0.288565%` on worker `ovh-a` (`fixmydocuments`), CPU15, extension SHA-256
+`da95465d91252280ac94b6a03902a52559a1d6f34cf5f76803e8aac012fb82c1`. Target execution was live and
+provenanced: candidate classifier `0.031144057 s/64` self (`80.792846%`), ORIG classifier
+`0.062031950 s/128` (`89.274468%`).
+
+**INVALID, NOT KEEP EVIDENCE.** Independent diff review found that the synthetic ORIG jumped from its first
+classifier straight to `bidirectional_dijkstra`, omitting the frozen public body's method validation and
+common post-gate dispatch checks. That made it a shortened comparator rather than source-equivalent
+`5abbfd8a4`. The bias was conservative (the comparator omitted work), but low CV cannot repair an invalid
+ORIG. The corrected frozen body and hashes are recorded in the keep above; never cite this provisional ratio.
+
+## 2026-07-10 cod_nx REJECTED MEASUREMENT: corrected ORIG reproduced 1.788x but cold-worker drift failed CV (`br-r37-c1-04z53.9171`)
+
+The corrected source-equivalent harness ran on worker `vmi1227854`, CPU9, extension SHA-256
+`b87f9ca9212286accd82e85aaf26cfa05491c87ebc932486f90fef47aae80b71`. Candidate classifier self-time was
+`0.043424912 s/64` (`80.507186%`); frozen ORIG was `0.084038034 s/128` (`84.034585%`). Twenty flat
+interleaved samples measured candidate `922580.107 ns`, ORIG `1649897.429 ns`, nominal `1.788351x`, but CV
+was `13.621859%/12.153454%` with monotonic warm-worker drift.
+
+**VERDICT: REJECT THIS MEASUREMENT; NO SOURCE VERDICT.** Both CVs exceed 5%. Outputs matched in every pair and
+the import oracle passed, so only the timing sample is rejected. Retry condition: unchanged corrected harness,
+longer in-invocation warm-up, and both raw arm CVs below 5%.
+
+## 2026-07-10 cod_nx REJECTED MEASUREMENT: corrected long-warm retry hit a contended worker (`br-r37-c1-04z53.9171`)
+
+The unchanged corrected harness ran with a 10-second warm-up and 30-second measurement on worker
+`vmi1152480`, CPU9, extension SHA-256
+`6d99741e35b0b531be1070237bb4c876f01b3a2668f3c6c63f4437823069d566`. Candidate classifier self-time was
+`0.051851066 s/64` (`76.339774%`); frozen ORIG was `0.143771737 s/128` (`73.056474%`). Twenty flat
+interleaved samples measured candidate `1553143.056 ns`, ORIG `2668457.742 ns`, nominal `1.718102x`, but CV
+was `19.723838%/17.867867%` under concurrent shared-worker load.
+
+**VERDICT: REJECT THIS MEASUREMENT; NO SOURCE VERDICT.** Both CVs exceed 5%. The next retry hard-pinned `hz2`
+inside RCH and produced the valid low-CV keep above; do not average or combine results across invocations.
+
+## 2026-07-10 cod_nx REJECTED MEASUREMENT: external NetworkX control was outlier-dominated (`br-r37-c1-04z53.9171`)
+
+The same final-source paired callback also interleaved candidate against NetworkX on worker `ovh-a`
+(`fixmydocuments`), CPU15, extension SHA-256
+`dd9cd562c560b4c20651d538cbdcfb26698f8f2c8591dbdc6caab3c9e3cdaa21`. The exercised candidate classifier
+had non-zero profile self-time (`0.032105253 s/64`, `79.408131%`). Twenty flat paired samples reported
+candidate `631862.282 ns`, NetworkX `625286.182 ns`, nominal NetworkX/candidate `0.989593x`, but CV was
+`21.400652%/7.895434%`: one shared-host severe outlier nearly doubled the final candidate sample and also
+inflated the paired control.
+
+**VERDICT: REJECT THIS MEASUREMENT; NO SOURCE VERDICT.** Both CVs exceed the 5% gate. A requested 30-second
+strict-remote retry was refused with `no admissible workers: critical_pressure=1,insufficient_slots=10`, and
+correctly did not fall back locally. Retry only the unchanged one-binary interleaved control when an RCH
+worker is available; the low-CV frozen-ORIG keep above remains the source decision.
+
 ## 2026-07-10 cod_nx WIN: persistent insertion-order node IDs remove the per-query node vector/hash rebuild (`br-r37-c1-gtty9`)
 
 **MECHANISM FROM PROFILE.** Fresh release-perf cProfile ranked the exact-domain classifier first

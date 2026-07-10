@@ -432,3 +432,21 @@ def test_multigraph_exact_string_domain_gate_is_bidirectional_only(monkeypatch):
         )
         is True
     )
+
+
+def test_shortest_path_exact_multigraph_runs_one_authoritative_weight_scan(monkeypatch):
+    graph = fnx.MultiGraph()
+    graph.add_edge("s", "m", weight=1)
+    graph.add_edge("m", "t", weight=2)
+    original = fnx._should_delegate_dijkstra_to_networkx
+    calls = []
+
+    def counted(*args, **kwargs):
+        calls.append((args, kwargs))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(fnx, "_should_delegate_dijkstra_to_networkx", counted)
+
+    assert fnx.shortest_path(graph, "s", "t", weight="weight") == ["s", "m", "t"]
+    assert len(calls) == 1
+    assert calls[0][1] == {"_require_exact_string_nodes": True}
