@@ -16539,3 +16539,88 @@ MultiGraph adjacency/edge-bucket substrate, a target-lazy projection that touche
 or another store/marshal primitive measured against `multigraph_dijkstra_path_string_target`. Do not retry the
 already-rejected native MG Dijkstra/projection rewrite or a repeated-query classification cache as a standalone
 single-query fix.
+
+## 2026-07-09 cc_nx SHIP (RUST, bit-parallel BFS sibling #2): harmonic_centrality sequential path — complete/100 17.6x, complete/50 10.4x, grid/400 2.4x vs ORIG
+
+Second sibling of the bit-parallel BFS lever (aspl 710cfc9db 3.65x; closeness d82aba24e 14.29x).
+LEDGER-GREPPED FIRST: no prior rejection of bit-parallel harmonic (existing harmonic entries are the
+*weighted* harmonic(distance) delegation path, 0.95-0.96x neutral — a different function).
+
+PROFILE FIRST (perf record, ORIG harmonic/complete/100): harmonic_source 70.51% | IndexMap::get_index_of::<str>
+7.70% (the string reverse_adjacency build) | malloc/free ~6% | harmonic_centrality 2.03%. The lever attacks
+ranked #1 (traversal) and ranked #2 + malloc churn (integer CSR replaces the string-keyed per-node-Vec
+reverse adjacency).
+
+LEVER: generalise the closeness kernel over a `ReachSink` trait so both centralities share ONE traversal.
+The kernel guarantees `reach` fires EXACTLY once per (source,node) first-reach event, in ASCENDING level
+order, with a value derived ONCE per level. ClosenessSink: LevelValue=usize -> sum_dist[s]+=L.
+HarmonicSink: LevelValue=f64 -> harmonic[s] += 1.0/(L as f64). Hoisting 1/L to once-per-level keeps a
+division off the O(n^2) attribution path; the O(|E|) edge loop stays pure word AND/OR.
+
+FLOAT-ORDER PROOF (this is the whole game for harmonic, unlike closeness's integers): harmonic_source adds
+`1.0/(d as f64)` once per node it POPS at distance d, and BFS pops in NON-DECREASING d. So its addition
+sequence is 1/1 repeated c(1) times, then 1/2 repeated c(2) times, ... The kernel replays exactly that: the
+events are ascending in L, and EVERY ADDEND WITHIN A LEVEL IS THE IDENTICAL VALUE 1/L, so permuting events
+inside a level cannot change the f64. => byte-identical to the ORIG kernel.
+IT MUST BE REPEATED ADDITION, NOT `h += count*(1/L)`: the reassociated shortcut differs in BITS on 88/100
+sources of grid(10,10) and 476/484 of grid(22,22) — but is INDISTINGUISHABLE on complete(n) (every node at
+distance 1). A complete-only test suite would have silently accepted the wrong kernel. GENERAL LESSON: when
+byte-exactness rests on float ADDITION ORDER, your fixtures must include a graph with >1 BFS level and
+varying per-level counts; diameter-1 fixtures cannot discriminate. (The ReachSink API also makes the
+shortcut inexpressible: `reach` gets one per-level constant and can only accumulate it.)
+
+PRE-EXISTING DIVERGENCE FOUND (NOT caused by this change; filed as its own bead): fnx harmonic differs from
+networkx in the LAST ULP. nx does `for v in sources: for u, d_uv in dist.items(): centrality[u] += 1/d_uv`
+— accumulating in SOURCE/DICT order with MIXED distances, not grouped by level. fnx (ORIG and new) groups by
+level. Same multiset of 1/d, different summation order, one ULP apart. PROOF that it predates this work:
+path-600 takes the UNTOUCHED n>=500 rayon fallback and still mismatches nx 490/600, while matching the
+pop-order reference 0/600; path-64 (bit-parallel) mismatches nx 51/64 and matches pop-order 0/64. Matching nx
+bit-for-bit would require reproducing nx's source-order accumulation, which is incompatible with ANY
+level-grouped (hence any bit-parallel) traversal. Closeness is immune: its score derives from exact integers.
+
+MEASURED vs ORIG (criterion --profile release; two locally built binaries w/ distinct md5, reproducible;
+ORIG from a detached `git worktree` at HEAD 8e03ddd1d WITH this commit's bench file copied in so both sides
+have the harmonic bench and only the KERNEL differs; taskset -c 25, SMT sibling checked; 14 ALTERNATING
+ORIG/NEW trials; ratios computed PAIRED per trial so contention cancels in expectation; bootstrap CI over
+4000 resamples of the paired median):
+  harmonic_centrality/complete/20   4.84x  [4.52, 5.30]   min/min 5.22x
+  harmonic_centrality/complete/50  10.41x  [9.48, 11.18]  min/min 9.92x
+  harmonic_centrality/complete/100 17.60x  [15.92, 21.67] min/min 18.26x
+  harmonic_centrality/grid/100      3.27x  [3.01, 3.44]   min/min 3.03x
+  harmonic_centrality/grid/400      2.41x  [2.11, 2.80]   min/min 2.05x
+Clean-subset cv (5 fastest trials/side, symmetric) 2.2-5.3% except grid/400 ORIG 7.88%. RAW all-trial cv was
+12-30% because a PEER AGENT ran pipeline_bench/fp-bench + a rustc storm the whole time (load 24-68 on 64
+cores) — the paired bootstrap CI is the trustworthy statistic, and every bench wins on its LOWER bound.
+Grids (high diameter = many levels, few sources retired per traversal) are the honest WORST case ~2.1-3.0x;
+complete (diameter 1) is the best case. NOTE: harmonic's win at complete/100 (17.6x) EXCEEDS closeness's
+(14.3x) because ORIG harmonic pays an f64 division per popped node that the kernel hoists to once per level.
+NEW BENCH: harmonic_centrality had NO criterion bench; added complete{20,50,100} + grid{100,400} (the grids
+deliberately, so the lever's worst case is measured and the float-order claim is discriminable).
+
+TWO MEASUREMENT INCIDENTS (record these):
+1. `sbh` (disk-pressure daemon, enforce mode, `/` at 90% "orange", freed 2.94GB/118 deletions in one hour,
+   category tmp) REAPED BOTH BENCH BINARIES *MID-A/B*. ORIG silently lost 4 of 11 trials (N=7 vs N=11) and the
+   interleaving broke. A VANISHING BINARY LOOKS EXACTLY LIKE A SLOW TRIAL in aggregate stats — ALWAYS assert
+   equal trial counts per side. Fix: `.sbh-protect` marker files (the mechanism protecting /data/tmp/cargo-target)
+   + copy both binaries into a protected dir before benching.
+2. `maturin develop` FAILED (its /data/tmp temp dir was reaped too) but the wrapper reported exit 0 because
+   the failure was masked by a pipe to `tail`. The .so was then 40 MINUTES STALE — every Python parity number
+   would have described the OLD kernel. Re-run with TMPDIR=<protected>; ALWAYS check `_fnx.__file__` mtime.
+   Sibling of the maturin-stale-so trap.
+3. criterion switches units (us <-> ms) WITHIN THE SAME BENCH ID between runs; a parser reading only the
+   number silently mixes 1000x values. Capture the unit field.
+
+CORRECTNESS: 7 new differential/property tests (`bitpar_harmonic_tests`) vs an INDEPENDENT per-source BFS over
+the string API adding 1.0/(d as f64) in pop order, compared with f64::to_bits — lane widths W=1..8, path(300)
+(long harmonic tail = strongest float-order probe), grids, complete, disconnected/isolated, self-loops, the
+DIRECTED predecessor convention (out-star/cycle-70/DAG), the n>=500 rayon fallback, and the multi-batch (s0>0)
+kernel loop at n=600. MUTATION-VERIFIED: dropping the lane offset fails exactly the 3 W>1 tests and no others.
+909 fnx-algorithms tests green (902+7); pytest -k harmonic 277 passed; -k "closeness or centrality or harmonic"
+2620 passed / 0 failed (the lone XPASS/XFAIL flip is test_hits_structural_invariants[star-5], documented scipy
+svds non-determinism, unrelated); clippy -D warnings exit 0; fmt clean; ubs exit 0 / 0 critical.
+Proof: tests/artifacts/perf/20260709T-harmonic-bitparallel-bfs-cc/report.md.
+
+NEXT: the n>=500 parallel sizes still need the CHUNKED-PARALLEL design (rayon over source-CHUNKS, bit-parallel
+within each chunk) to beat the per-source rayon path — still deferred, still untried. betweenness (Brandes)
+shares the forward-BFS shape but needs sigma/predecessor DAGs, which do NOT reduce to an order-independent
+per-event accumulate — bit-parallelising it is a genuinely different problem.
