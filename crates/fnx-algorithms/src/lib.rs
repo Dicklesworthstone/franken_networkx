@@ -13159,27 +13159,29 @@ pub fn triangles(graph: &Graph) -> TrianglesResult {
         };
     }
 
-    // Build neighbor sets using integer indices for faster comparison
-    let neighbor_sets: Vec<HashSet<usize>> = (0..n)
-        .map(|idx| {
-            graph
-                .neighbors_indices(idx)
-                .map(|indices| indices.iter().copied().collect::<HashSet<usize>>())
-                .unwrap_or_default()
-        })
-        .collect();
-
+    // br-r37-c1-trimark (cc): count each triangle EXACTLY ONCE via a single
+    // reusable mark array (bitset) + u<v<w ordering, the SAME kernel
+    // `clustering_coefficient` uses. The old path built n `HashSet<usize>` (one
+    // per node, O(|V|+|E|) allocation) and hash-probed `nbrs_v.contains(&w)` per
+    // candidate; the mark array is a single `vec![false; n]` reused across nodes
+    // with O(1) array lookups and cache-sequential neighbour scans. Byte-identical:
+    // both enumerate exactly the w in N(u)∩N(v) with w>v for each edge u<v, and
+    // increment all three vertices; `edges_scanned` stays |E| (each u<v edge once).
     let mut tri_count: Vec<usize> = vec![0; n];
+    let mut in_neighborhood = vec![false; n];
     let mut edges_scanned = 0usize;
 
     for u in 0..n {
-        if let Some(neighbors) = graph.neighbors_indices(u) {
-            for &v in neighbors {
-                if u < v {
-                    edges_scanned += 1;
-                    let nbrs_v = &neighbor_sets[v];
-                    for &w in &neighbor_sets[u] {
-                        if v < w && nbrs_v.contains(&w) {
+        let nbrs_u = graph.neighbors_indices(u).unwrap_or(&[]);
+        for &x in nbrs_u {
+            in_neighborhood[x] = true;
+        }
+        for &v in nbrs_u {
+            if v > u {
+                edges_scanned += 1;
+                if let Some(nbrs_v) = graph.neighbors_indices(v) {
+                    for &w in nbrs_v {
+                        if w > v && in_neighborhood[w] {
                             tri_count[u] += 1;
                             tri_count[v] += 1;
                             tri_count[w] += 1;
@@ -13187,6 +13189,9 @@ pub fn triangles(graph: &Graph) -> TrianglesResult {
                     }
                 }
             }
+        }
+        for &x in nbrs_u {
+            in_neighborhood[x] = false;
         }
     }
 
@@ -13210,6 +13215,43 @@ pub fn triangles(graph: &Graph) -> TrianglesResult {
             queue_peak: 0,
         },
     }
+}
+
+/// br-r37-c1-trimark A/B baseline: the pre-lever triangle count that built n
+/// `HashSet<usize>` and hash-probed `contains`. Test-only; returns per-node counts
+/// in `nodes_ordered()` order, byte-identical to `triangles`.
+#[cfg(test)]
+fn triangles_counts_orig_hashset(graph: &Graph) -> Vec<usize> {
+    let n = graph.nodes_ordered().len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let neighbor_sets: Vec<HashSet<usize>> = (0..n)
+        .map(|idx| {
+            graph
+                .neighbors_indices(idx)
+                .map(|indices| indices.iter().copied().collect::<HashSet<usize>>())
+                .unwrap_or_default()
+        })
+        .collect();
+    let mut tri_count: Vec<usize> = vec![0; n];
+    for u in 0..n {
+        if let Some(neighbors) = graph.neighbors_indices(u) {
+            for &v in neighbors {
+                if u < v {
+                    let nbrs_v = &neighbor_sets[v];
+                    for &w in &neighbor_sets[u] {
+                        if v < w && nbrs_v.contains(&w) {
+                            tri_count[u] += 1;
+                            tri_count[v] += 1;
+                            tri_count[w] += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    tri_count
 }
 
 /// Computes the square clustering coefficient for each node.
@@ -46634,6 +46676,100 @@ mod tests {
         println!("HITS_RESOLVE_ONCE_AB n={n} deg={deg} rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_names", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-trimark: paired-interleaved median A/B for the mark-array (bitset)
+    /// triangle count vs the old n-HashSet + hash-probe baseline, in ONE binary /
+    /// ONE worker with a NULL control. `#[ignore]` (measurement); run with
+    /// `cargo test --release -p fnx-algorithms --lib triangles_mark_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn triangles_mark_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense-ish pseudo-random ~40-degree graph on 1200 nodes: many candidate
+        // triangles per edge, so the per-candidate hash probe (baseline) vs O(1)
+        // mark lookup (lever) — and the n-HashSet build the lever drops — dominate.
+        let n = 1200usize;
+        let deg = 40usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                let j = ((i as u64)
+                    .wrapping_mul(1_000_003)
+                    .wrapping_add((k as u64).wrapping_mul(97))
+                    % n as u64) as usize;
+                if j != i {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+                }
+            }
+        }
+
+        // Byte-exact parity: mark-array counts == HashSet baseline counts.
+        let mark: Vec<usize> = super::triangles(&g)
+            .triangles
+            .iter()
+            .map(|t| t.count)
+            .collect();
+        let base = super::triangles_counts_orig_hashset(&g);
+        assert_eq!(mark, base, "mark-array triangle counts must equal the HashSet baseline");
+
+        let time = |lever: bool| -> f64 {
+            let t0 = Instant::now();
+            for _ in 0..3 {
+                if lever {
+                    black_box(super::triangles(&g));
+                } else {
+                    black_box(super::triangles_counts_orig_hashset(&g));
+                }
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 121usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "TRIANGLES_MARK_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("TRIANGLES_MARK_AB n={n} deg={deg} rounds={rounds} (>1 = mark-array faster)");
+        report("MARK_vs_hashset", &paired(true, false));
+        report("NULL_mark_vs_mark", &paired(true, true));
     }
 
     fn assert_runtime_policy_preserved(source: &RuntimePolicy, result: &RuntimePolicy) {
