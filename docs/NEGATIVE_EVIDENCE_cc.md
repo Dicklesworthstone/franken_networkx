@@ -1,5 +1,39 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## REJECT (cc, 2026-07-10): MultiGraph `degree(nbunch, weight=)` per-edge `edge_key` alloc removal — byte-identical but **below the noise floor**; the loss is per-NODE / architectural, not per-edge
+
+PROFILE-FIRST re-audit of the networkx_head_to_head bench (46 rows) for a fresh vs-nx gap surfaced
+`degree_nbunch_weight` (MultiGraph `nx.degree(G, nbunch, weight="weight")`, mg400_e3224, nbunch=285). My
+ledger flagged it 0.04-0.14x "catastrophic" (stale — a native int path `weighted_degree_subset_py_int_impl`
+was since added). FRESH: fnx 1.199 ms vs nx 0.918 ms = **0.766x** (fnx ~1.3x slower) — a REAL current loss.
+
+HYPOTHESIS (alloc family): all fixture weights are ints, so the fast `i128` path runs, but per edge
+`multigraph_py_int_weight` builds a `(String, String, usize)` `Self::edge_key(u,v,key)` (2 heap Strings) to
+probe `edge_py_attrs` — which is **empty** for batch-built graphs (add_edge stores weights in the native
+`inner` AttrMap) — then discards it and reads the native store. ~9k wasted String allocs. Added a byte-
+identical guard: `if !edge_py_attrs.is_empty()` before building the key (empty map's get() is always None =>
+same native branch).
+
+MEASURED (head-to-head, nx as same-process worker-normaliser):
+| run | fnx | nx | fnx/nx (fnx slower >1) |
+|---|---|---|---|
+| BEFORE (hz1/hz2) | 1.199 ms | 0.918 ms | **1.306** |
+| AFTER guard (hz2) | 0.904 ms | 0.668 ms | **1.353** |
+
+**NOT DECIDABLE.** The absolute fnx drop (1199->904) is confounded — nx dropped proportionally (918->668),
+the worker just ran faster. The worker-invariant fnx/nx ratio did NOT improve (1.306 -> 1.353), and the
+BEFORE ratio (1.306) sits INSIDE the AFTER run's own criterion CI band [1.284, 1.432]. A byte-identical alloc
+removal cannot make fnx slower, so 1.306->1.353 is pure noise => any real effect is BELOW that noise. Reverted
+(don't ship an unmeasurable change; gate on median). No commit.
+
+ROOT (surfaced): the per-edge alloc is NOT the bottleneck. The residual is **per-NODE**: `weighted_degree_
+subset_py_int_impl` calls `node_key_to_string(py, node_obj)` for each of the 285 nbunch nodes (Python int ->
+Rust String), plus boxes each result — work nx skips entirely (its adjacency IS an int-keyed dict; no
+stringify). This is the SAME String-keyed-storage floor as the bidirectional-dijkstra residual
+([[string_key_dijkstra_floor_closed]], br-r37-c1-thp6w) — architectural (MultiGraph has no integer
+adjacency), NOT a micro-lever. Do not re-attack the per-edge layer; the lever here is the integer-adjacency
+epoch or a native-side int-key node lookup, both large.
+
 ## SHIPPED WIN (cc, 2026-07-10, `51aa67fb8`): `bfs_beam_edges` **1.0889x** — third `neighbors().len()`-family member, drop the per-candidate degree `Vec<&str>` from the BFS beam inner loop (br-r37-c1-ra004)
 
 PROFILE-FIRST for the traversal categories the directive named (BFS/DFS/components/build/centrality): the
