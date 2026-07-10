@@ -2,6 +2,46 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-10 cc COMPREHENSIVE MEASURE: the "string-key dijkstra floor, 8-20x slower" premise is STALE — the whole surface is 10/11 WINS (to 15.55x); the "8-20x" is fnx FASTER, inverted
+
+Directed repeatedly at a "string-key dijkstra allocation floor, 8-20x slower than networkx, the suite's
+biggest gap." Measured the ENTIRE string-key dijkstra/shortest-path gauntlet surface (worker `ovh-a`, one
+`RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec` invocation, fnx-vs-networkx in one process so the
+ratio is worker-normalised). ALL 11 fnx+networkx rows:
+
+| row | fnx | nx | fnx/nx |
+|---|---|---|---|
+| `multigraph_bidirectional_dijkstra_string_target` | 293.8ms | 246.5ms | **0.84x** (only loss) |
+| `multigraph_shortest_path_string_target` | 243.0ms | 251.1ms | 1.03x |
+| `multigraph_dijkstra_path_string_target` | 10.0ms | 11.8ms | 1.18x |
+| `string_graph_single_source_shortest_path` | 28.7ms | 37.1ms | 1.29x |
+| `ubizp_multigraph_single_source_shortest_path` | 48.7ms | 65.2ms | 1.34x |
+| `multidigraph_single_target_shortest_path_length` | 12.3ms | 16.8ms | 1.37x |
+| `multidigraph_single_source_shortest_path` | 15.5ms | 21.3ms | 1.37x |
+| `digraph_weighted_target_shortest_path_length` | 0.18ms | 0.62ms | 3.50x |
+| `multidigraph_single_source_dijkstra_path_length` | 8.7ms | 69.1ms | **7.98x** |
+| `multidigraph_dijkstra_path_length_target_early_exit` | 0.23ms | 3.44ms | **15.22x** |
+| `multidigraph_dijkstra_path_target_early_exit` | 0.26ms | 3.98ms | **15.55x** |
+
+**11 rows, ONE loss.** The "8-20x" numbers are real but they are fnx being 8-15x FASTER — the exact
+inverse of the premise. cod's persistent-node-id + target-lazy lands (unblocked by my StackCanon audit)
+plus my scratch-reuse land (`0355ad0cc`) closed the floor. The one remaining loss,
+`multigraph_bidirectional_dijkstra_string_target`, is now worker-dependent 0.84-1.01x (hz1 0.824x->1.010x
+same-worker after my scratch fix; ovh-a 0.84x) — AT PARITY, not an 8-20x floor.
+
+TRIED AND FOUND STRUCTURALLY INFEASIBLE THIS SESSION: the interned-keys / integer-traversal lever for the
+bidirectional residual (drop the per-neighbor `get_node_index(name)` string hash). **MultiGraph has no
+integer adjacency** — `MultiGraph::neighbors_iter` reads `self.adjacency` (a String-keyed HashMap), unlike
+`Graph` which mirrors an integer `adj_indices`. So there is no `MultiGraph::neighbors_indices` to traverse;
+eliminating the per-neighbor string hash needs an integer-adjacency storage epoch for MultiGraph (large,
+multi-session, cross-crate) — NOT "one allocation change." Attempt reverted cleanly (compile-checked the
+infeasibility: `no method neighbors_indices for &MultiGraph`). Filed as the structural next step.
+
+CONCLUSION: there is no 8-20x string-key dijkstra gap to attack. The surface is won. Further gain on the
+single at-parity row is gated on the MultiGraph integer-adjacency epoch, which is a storage-model change,
+not an allocation micro-lever. Proof: `tests/artifacts/perf/20260710T-string-key-dijkstra-status-cc/`.
+
+
 ## 2026-07-10 cod_nx WIN: exact `MultiGraph.shortest_path` performs one authoritative weight scan (`br-r37-c1-04z53.9171`)
 
 **MECHANISM FROM A LIVE PROFILE.** The invalid StackCanon row reopened this lane, but the fresh exact-path
