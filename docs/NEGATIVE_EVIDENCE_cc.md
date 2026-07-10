@@ -1,5 +1,32 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-10, `67cea50ed`): `all_simple_paths` integer-index + mark-array DFS **16.6665x** (br-r37-c1-aspmark)
+
+The `nbr_cache` candidate flagged last turn — and it proved the vein is BROADER than set-membership: it's any
+String-keyed STATE in a hot traversal loop. `all_simple_paths`'s DFS kept a String-keyed
+`HashMap<&str, Vec<&str>>` neighbour cache + `HashSet<&str>` visited, String-hashing `nbr_cache[node]` +
+visited membership on EVERY step of an exponential enumeration. Switched to integer node indices (neighbours
+from the graph's integer adjacency, `visited: vec![false; n]`, path/stack `Vec<usize>`), materialising node
+names only when a path is emitted.
+
+MEASURED — paired-interleaved in-crate A/B vs the exact String baseline (`all_simple_paths_orig_string`,
+`#[cfg(test)]`), ONE binary / ONE worker `ovh-a`, sparse n=60 deg=5 cutoff=5, 121 rounds:
+
+| paired A/B (>1 = integer+mark faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **MARK_vs_string** | **16.6665x** | **121/121** | [15.6038, 17.9475] |
+| NULL_mark_vs_mark | 0.9973x | 48/121 | [0.9836, 1.0143] |
+
+DECIDABLE: 16.67x median, p5 15.60x, null tight at 0.9973x. BYTE-IDENTICAL: the SET of simple paths and ALL
+THREE witness counters (nodes_touched/edges_scanned/queue_peak) are independent of neighbour visit order —
+each frame examines all its neighbours before pop, `paths.sort()` normalises output. Asserted paths + all
+three witness counters equal to baseline in-test. clippy `-D warnings` clean.
+
+VEIN NOT AS THIN AS THOUGHT: last turn I underestimated `nbr_cache` — string-keyed TRAVERSAL state (not just
+set membership) is a live sub-pattern. NEXT (near-certain sibling): `all_simple_paths_directed` (lib.rs ~17976)
+uses the IDENTICAL String `HashSet<&str>` DFS. `shortest_simple_paths` uses heap-based Yen's (different
+structure — not a candidate).
+
 ## SHIPPED WIN (cc, 2026-07-10, `c02f65075`): `k_truss` integer-adjacency + mark-array peeling **10.1499x** (br-r37-c1-ktrussmark)
 
 The `k_truss` next-candidate flagged last turn, delivered. It peeled over a String-keyed
