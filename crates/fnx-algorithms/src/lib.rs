@@ -3111,6 +3111,50 @@ fn harmonic_centrality_generic<G: GraphView>(graph: &G) -> HarmonicCentralityRes
         };
     }
 
+    // Bit-parallel multi-source reverse BFS (see `harmonic_all_sources`), the
+    // sibling of the closeness path above and gated identically: below the
+    // parallel threshold the per-source loop is sequential, so one traversal that
+    // advances W*64 sources at once beats n separate sweeps, and the integer rows
+    // let the CSR skip the string-keyed `reverse_adjacency` build below.
+    //
+    // Byte-identical: `harmonic_source` adds `1.0/(d as f64)` once per node it
+    // pops at distance d, and BFS pops in non-decreasing d, so its addition
+    // sequence is `1/1` repeated c(1) times, then `1/2` repeated c(2) times, ...
+    // The kernel reports first-reach events in ascending level order and every
+    // addend within a level is the identical value `1/L`, so `HarmonicSink`
+    // replays exactly that sequence of f64 additions.
+    if n < CENTRALITY_PARALLEL_THRESHOLD
+        && n <= u32::MAX as usize
+        && let Some(rows) = (0..n)
+            .map(|u| graph.in_neighbors_indices(u))
+            .collect::<Option<Vec<&[usize]>>>()
+    {
+        let (offsets, targets) = build_u32_csr(n, |u| rows[u]);
+        let mut reached = vec![0usize; n];
+        let mut harmonic = vec![0.0f64; n];
+        let (edges_scanned, queue_peak) =
+            harmonic_all_sources(&offsets, &targets, n, &mut reached, &mut harmonic);
+        let scores = (0..n)
+            .map(|s| CentralityScore {
+                node: nodes[s].to_owned(),
+                score: harmonic[s],
+            })
+            .collect();
+        return HarmonicCentralityResult {
+            scores,
+            witness: ComplexityWitness {
+                algorithm: "harmonic_centrality".to_owned(),
+                complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
+                // `nodes_touched` (total reach) is identical to the per-source
+                // path; `edges_scanned`/`queue_peak` report the work this kernel
+                // actually does, since one scan serves up to W*64 sources.
+                nodes_touched: reached.iter().sum(),
+                edges_scanned,
+                queue_peak,
+            },
+        };
+    }
+
     let mut scores = Vec::with_capacity(n);
     let mut nodes_touched = 0usize;
     let mut edges_scanned = 0usize;
@@ -9405,32 +9449,89 @@ fn aspl_finalize_bitpar(
 }
 
 // ---------------------------------------------------------------------------
-// Bit-parallel multi-source reverse BFS for `closeness_centrality`.
+// Bit-parallel multi-source reverse BFS for the per-source centralities
+// (`closeness_centrality`, `harmonic_centrality`).
 //
-// Same machinery as the distance-sum kernel above, but closeness needs a result
-// *per source* — `(reached_s, sum_dist_s)` — rather than one global sum. Those
-// are recovered by walking the SET BITS of each newly-reached node's column once
-// per level: bit `j` set in `next[w]` at level `L` means source `s0 + j` first
-// reached `w` at distance `L`, so it credits `reached[s]+=1, sum_dist[s]+=L`.
+// Same machinery as the distance-sum kernel above, but these need a result *per
+// source* rather than one global sum. It is recovered by walking the SET BITS of
+// each newly-reached node's column once per level: bit `j` set in `next[w]` at
+// level `L` means source `s0 + j` first reached `w` at distance `L`. The kernel
+// reports each such first-reach event to a `ReachSink`, in ASCENDING level order.
 //
-// Both counters are exact integers, so `closeness_score` turns them into the
-// same `f64` the per-source BFS produces — bit for bit, whatever the lane width.
 // Total bit-iterations over a whole run equal the number of reachable ordered
 // pairs (<= n^2), and — crucially — they sit in the once-per-level pass, never
-// in the O(|E|) edge loop.
+// in the O(|E|) edge loop, which stays pure word AND/OR.
 // ---------------------------------------------------------------------------
 
+/// Accumulates one bit-parallel reverse BFS into a per-source result.
+///
+/// The kernel guarantees `reach` is called EXACTLY once per (source, node)
+/// first-reach event and that levels are delivered in ASCENDING order. Both
+/// properties are what make the sinks below byte-identical to the per-source BFS
+/// they replace: `closeness` sums exact integers (order-free), and `harmonic`
+/// replays the very same sequence of `+= 1/L` additions that BFS pop order
+/// produces (a BFS pops in non-decreasing distance, and every addend within one
+/// level is the identical value `1/L`).
+trait ReachSink {
+    /// Value derived ONCE per BFS level, keeping per-event work to one accumulate
+    /// (harmonic's reciprocal must not be recomputed per first-reach event).
+    type LevelValue: Copy;
+    fn level_value(level: usize) -> Self::LevelValue;
+    /// `source` first reached some node at the level `value` was derived from.
+    fn reach(&mut self, source: usize, value: Self::LevelValue);
+    /// Level 0: `source` reaches itself at distance 0.
+    fn init_source(&mut self, source: usize);
+}
+
+/// `sum_dist[s]` = total distance from `s` to every node it reaches.
+struct ClosenessSink<'a> {
+    sum_dist: &'a mut [usize],
+}
+
+impl ReachSink for ClosenessSink<'_> {
+    type LevelValue = usize;
+    fn level_value(level: usize) -> usize {
+        level
+    }
+    fn reach(&mut self, source: usize, level: usize) {
+        self.sum_dist[source] += level;
+    }
+    fn init_source(&mut self, source: usize) {
+        self.sum_dist[source] = 0;
+    }
+}
+
+/// `harmonic[s]` = sum of `1/d` over every node `s` reaches at distance `d > 0`.
+struct HarmonicSink<'a> {
+    harmonic: &'a mut [f64],
+}
+
+impl ReachSink for HarmonicSink<'_> {
+    type LevelValue = f64;
+    /// Exactly the value the per-source BFS adds for each node popped at this
+    /// distance (`1.0 / (d as f64)`), computed once instead of per event.
+    fn level_value(level: usize) -> f64 {
+        1.0 / (level as f64)
+    }
+    fn reach(&mut self, source: usize, inv_level: f64) {
+        self.harmonic[source] += inv_level;
+    }
+    fn init_source(&mut self, source: usize) {
+        self.harmonic[source] = 0.0;
+    }
+}
+
 /// Run one batch of up to `W*64` sources `[s0, s0+k)` of the reverse BFS,
-/// crediting `reached`/`sum_dist` (indexed by source) as nodes are first
-/// reached. Returns `(edges_scanned, queue_peak)` for the witness.
-fn closeness_bitpar_batch<const W: usize>(
+/// reporting each first-reach event to `sink` and counting `reached` per source.
+/// Returns `(edges_scanned, queue_peak)` for the witness.
+fn bitpar_reverse_bfs_batch<const W: usize, S: ReachSink>(
     scratch: &mut BitParBfsScratch<W>,
     offsets: &[u32],
     targets: &[u32],
     s0: usize,
     k: usize,
     reached: &mut [usize],
-    sum_dist: &mut [usize],
+    sink: &mut S,
 ) -> (usize, usize) {
     let zero = [0u64; W];
     scratch.seen.fill(zero);
@@ -9445,7 +9546,7 @@ fn closeness_bitpar_batch<const W: usize>(
         scratch.cur_nodes.push(s as u32);
         // Level 0: every source reaches itself at distance 0.
         reached[s] = 1;
-        sum_dist[s] = 0;
+        sink.init_source(s);
     }
 
     let mut edges_scanned = 0usize;
@@ -9497,6 +9598,8 @@ fn closeness_bitpar_batch<const W: usize>(
         // Deferred per-source attribution: exactly one iteration per (source,
         // node) first-reach event, off the O(|E|) inner loop. Each set bit `j`
         // of `next[w]` is a source that just reached `w` at distance `level`.
+        // `level_value` is derived once here, not once per event.
+        let level_value = S::level_value(level);
         for &wu in &scratch.next_nodes {
             let w = wu as usize;
             let newly = scratch.next[w];
@@ -9505,7 +9608,7 @@ fn closeness_bitpar_batch<const W: usize>(
                 while bits != 0 {
                     let s = s0 + lane * 64 + bits.trailing_zeros() as usize;
                     reached[s] += 1;
-                    sum_dist[s] += level;
+                    sink.reach(s, level_value);
                     bits &= bits - 1; // clear lowest set bit
                 }
             }
@@ -9520,12 +9623,12 @@ fn closeness_bitpar_batch<const W: usize>(
     (edges_scanned, queue_peak)
 }
 
-fn closeness_bitpar_run<const W: usize>(
+fn bitpar_reverse_bfs_run<const W: usize, S: ReachSink>(
     offsets: &[u32],
     targets: &[u32],
     n: usize,
     reached: &mut [usize],
-    sum_dist: &mut [usize],
+    sink: &mut S,
 ) -> (usize, usize) {
     let width = W * 64;
     let mut scratch = BitParBfsScratch::<W>::new(n);
@@ -9535,7 +9638,7 @@ fn closeness_bitpar_run<const W: usize>(
     while s0 < n {
         let k = (n - s0).min(width);
         let (edges, peak) =
-            closeness_bitpar_batch::<W>(&mut scratch, offsets, targets, s0, k, reached, sum_dist);
+            bitpar_reverse_bfs_batch::<W, S>(&mut scratch, offsets, targets, s0, k, reached, sink);
         edges_scanned += edges;
         queue_peak = queue_peak.max(peak);
         s0 += width;
@@ -9544,9 +9647,29 @@ fn closeness_bitpar_run<const W: usize>(
 }
 
 /// Bit-parallel all-pairs reverse BFS over a `u32` CSR (single-threaded), filling
-/// `reached[s]` and `sum_dist[s]` for every source. The lane width `W` (1..=8,
+/// `reached[s]` and driving `sink` for every source. The lane width `W` (1..=8,
 /// 64..=512 sources per batch) is the widest that still covers all `n` sources —
 /// fewer, wider batches mean fewer full graph traversals, which is the win.
+fn bitpar_reverse_bfs_all_sources<S: ReachSink>(
+    offsets: &[u32],
+    targets: &[u32],
+    n: usize,
+    reached: &mut [usize],
+    sink: &mut S,
+) -> (usize, usize) {
+    match n.div_ceil(64).clamp(1, 8) {
+        1 => bitpar_reverse_bfs_run::<1, S>(offsets, targets, n, reached, sink),
+        2 => bitpar_reverse_bfs_run::<2, S>(offsets, targets, n, reached, sink),
+        3 => bitpar_reverse_bfs_run::<3, S>(offsets, targets, n, reached, sink),
+        4 => bitpar_reverse_bfs_run::<4, S>(offsets, targets, n, reached, sink),
+        5 => bitpar_reverse_bfs_run::<5, S>(offsets, targets, n, reached, sink),
+        6 => bitpar_reverse_bfs_run::<6, S>(offsets, targets, n, reached, sink),
+        7 => bitpar_reverse_bfs_run::<7, S>(offsets, targets, n, reached, sink),
+        _ => bitpar_reverse_bfs_run::<8, S>(offsets, targets, n, reached, sink),
+    }
+}
+
+/// Fill `reached[s]` and `sum_dist[s]` for every source (closeness).
 fn closeness_all_sources(
     offsets: &[u32],
     targets: &[u32],
@@ -9554,16 +9677,20 @@ fn closeness_all_sources(
     reached: &mut [usize],
     sum_dist: &mut [usize],
 ) -> (usize, usize) {
-    match n.div_ceil(64).clamp(1, 8) {
-        1 => closeness_bitpar_run::<1>(offsets, targets, n, reached, sum_dist),
-        2 => closeness_bitpar_run::<2>(offsets, targets, n, reached, sum_dist),
-        3 => closeness_bitpar_run::<3>(offsets, targets, n, reached, sum_dist),
-        4 => closeness_bitpar_run::<4>(offsets, targets, n, reached, sum_dist),
-        5 => closeness_bitpar_run::<5>(offsets, targets, n, reached, sum_dist),
-        6 => closeness_bitpar_run::<6>(offsets, targets, n, reached, sum_dist),
-        7 => closeness_bitpar_run::<7>(offsets, targets, n, reached, sum_dist),
-        _ => closeness_bitpar_run::<8>(offsets, targets, n, reached, sum_dist),
-    }
+    let mut sink = ClosenessSink { sum_dist };
+    bitpar_reverse_bfs_all_sources(offsets, targets, n, reached, &mut sink)
+}
+
+/// Fill `reached[s]` and `harmonic[s]` for every source (harmonic centrality).
+fn harmonic_all_sources(
+    offsets: &[u32],
+    targets: &[u32],
+    n: usize,
+    reached: &mut [usize],
+    harmonic: &mut [f64],
+) -> (usize, usize) {
+    let mut sink = HarmonicSink { harmonic };
+    bitpar_reverse_bfs_all_sources(offsets, targets, n, reached, &mut sink)
 }
 
 /// Computes the average shortest path length of an undirected graph.
@@ -44120,6 +44247,255 @@ mod bitpar_closeness_tests {
     #[test]
     fn empty_graph_is_empty() {
         assert!(closeness_centrality(&Graph::strict()).scores.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod bitpar_harmonic_tests {
+    //! Differential + property tests for the bit-parallel reverse BFS behind
+    //! `harmonic_centrality`.
+    //!
+    //! Harmonic accumulates a FLOAT (`+= 1/d`), so byte-identity is a claim about
+    //! addition ORDER, not just about integers. The reference below is an
+    //! independent per-source BFS over the string API that adds `1.0/(d as f64)`
+    //! in BFS pop order — exactly what the original kernel did. Scores must match
+    //! with `f64::to_bits`; a kernel that summed per-level counts as
+    //! `h += count/L` (rather than repeating the addition) would fail these.
+    use super::{
+        CENTRALITY_PARALLEL_THRESHOLD, harmonic_all_sources, harmonic_centrality,
+        harmonic_centrality_directed,
+    };
+    use fnx_classes::{Graph, digraph::DiGraph};
+    use std::collections::{HashMap, VecDeque};
+
+    /// Independent reference: per-source reverse BFS, `+= 1/d` in pop order.
+    fn reference_harmonic<G: super::GraphView>(graph: &G) -> Vec<(String, f64)> {
+        let nodes = graph.nodes_ordered();
+        nodes
+            .iter()
+            .map(|&source| {
+                let mut dist: HashMap<&str, usize> = HashMap::new();
+                let mut queue = VecDeque::new();
+                dist.insert(source, 0);
+                queue.push_back(source);
+                let mut harmonic = 0.0_f64;
+                while let Some(u) = queue.pop_front() {
+                    let d = dist[u];
+                    if d > 0 {
+                        harmonic += 1.0 / (d as f64);
+                    }
+                    if let Some(preds) = graph.in_neighbors_iter(u) {
+                        for v in preds {
+                            if !dist.contains_key(v) {
+                                dist.insert(v, d + 1);
+                                queue.push_back(v);
+                            }
+                        }
+                    }
+                }
+                ((*source).to_owned(), harmonic)
+            })
+            .collect()
+    }
+
+    fn assert_matches_reference(graph: &Graph, label: &str) {
+        let got = harmonic_centrality(graph).scores;
+        let want = reference_harmonic(graph);
+        assert_eq!(got.len(), want.len(), "{label}: score count");
+        for (g, (node, w)) in got.iter().zip(want.iter()) {
+            assert_eq!(&g.node, node, "{label}: node order");
+            assert_eq!(
+                g.score.to_bits(),
+                w.to_bits(),
+                "{label}: harmonic mismatch at {node}: got {} want {w}",
+                g.score
+            );
+        }
+    }
+
+    fn assert_matches_reference_directed(graph: &DiGraph, label: &str) {
+        let got = harmonic_centrality_directed(graph).scores;
+        let want = reference_harmonic(graph);
+        assert_eq!(got.len(), want.len(), "{label}: score count");
+        for (g, (node, w)) in got.iter().zip(want.iter()) {
+            assert_eq!(&g.node, node, "{label}: node order");
+            assert_eq!(
+                g.score.to_bits(),
+                w.to_bits(),
+                "{label}: harmonic mismatch at {node}: got {} want {w}",
+                g.score
+            );
+        }
+    }
+
+    fn path(n: usize) -> Graph {
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n.saturating_sub(1) {
+            let _ = g.add_edge(i.to_string(), (i + 1).to_string());
+        }
+        g
+    }
+
+    fn complete(n: usize) -> Graph {
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let _ = g.add_edge(i.to_string(), j.to_string());
+            }
+        }
+        g
+    }
+
+    fn grid(rows: usize, cols: usize) -> Graph {
+        let mut g = Graph::strict();
+        for r in 0..rows {
+            for c in 0..cols {
+                let _ = g.add_node(format!("{r}_{c}"));
+            }
+        }
+        for r in 0..rows {
+            for c in 0..cols {
+                if c + 1 < cols {
+                    let _ = g.add_edge(format!("{r}_{c}"), format!("{r}_{}", c + 1));
+                }
+                if r + 1 < rows {
+                    let _ = g.add_edge(format!("{r}_{c}"), format!("{}_{c}", r + 1));
+                }
+            }
+        }
+        g
+    }
+
+    #[test]
+    fn bitpar_matches_reference_undirected() {
+        // Long paths are the strongest float-order probe: a source at one end
+        // accumulates 1/1 + 1/2 + ... + 1/(n-1), where reassociating the sum (or
+        // scaling a per-level count) would perturb the low bits.
+        let cases: [(Graph, &str); 10] = [
+            (path(1), "path(1)"),
+            (path(2), "path(2)"),
+            (path(64), "path(64)"),
+            (path(65), "path(65)"),
+            (path(300), "path(300) long harmonic tail"),
+            (complete(8), "complete(8)"),
+            (complete(50), "complete(50)"),
+            (complete(100), "complete(100)"),
+            (grid(10, 10), "grid(10,10)"),
+            (grid(22, 22), "grid(22,22) n=484 W=8"),
+        ];
+        for (g, label) in &cases {
+            assert_matches_reference(g, label);
+        }
+    }
+
+    #[test]
+    fn bitpar_matches_reference_disconnected_and_isolated() {
+        let mut g = Graph::strict();
+        for i in 0..8 {
+            let _ = g.add_node(i.to_string());
+        }
+        let _ = g.add_edge("0".to_owned(), "1".to_owned());
+        let _ = g.add_edge("1".to_owned(), "2".to_owned());
+        let _ = g.add_edge("4".to_owned(), "5".to_owned());
+        assert_matches_reference(&g, "disconnected");
+        let scores = harmonic_centrality(&g).scores;
+        for s in &scores {
+            if s.node == "6" || s.node == "7" {
+                assert_eq!(s.score, 0.0, "isolated node must score 0.0");
+            }
+        }
+    }
+
+    #[test]
+    fn bitpar_handles_self_loops() {
+        let mut g = Graph::strict();
+        for i in 0..5 {
+            let _ = g.add_node(i.to_string());
+        }
+        let _ = g.add_edge("0".to_owned(), "0".to_owned());
+        let _ = g.add_edge("0".to_owned(), "1".to_owned());
+        let _ = g.add_edge("1".to_owned(), "2".to_owned());
+        let _ = g.add_edge("2".to_owned(), "3".to_owned());
+        let _ = g.add_edge("3".to_owned(), "4".to_owned());
+        assert_matches_reference(&g, "self-loop");
+    }
+
+    #[test]
+    fn bitpar_directed_uses_predecessor_convention() {
+        // Out-star: the centre is reached by nobody (0.0); each leaf is reached
+        // only by the centre at distance 1 (1.0).
+        let mut dg = DiGraph::strict();
+        for i in 0..6 {
+            let _ = dg.add_node(i.to_string());
+        }
+        for i in 1..6 {
+            let _ = dg.add_edge("0".to_owned(), i.to_string());
+        }
+        assert_matches_reference_directed(&dg, "out-star");
+        let scores = harmonic_centrality_directed(&dg).scores;
+        assert_eq!(scores[0].score, 0.0, "out-star centre has no predecessors");
+        assert_eq!(scores[1].score, 1.0, "leaf reached once at distance 1");
+
+        // Directed cycle spanning >1 lane: every node is reached by all others at
+        // distances 1..n-1, so each score is the (n-1)th harmonic number.
+        let mut cyc = DiGraph::strict();
+        for i in 0..70 {
+            let _ = cyc.add_node(i.to_string());
+        }
+        for i in 0..70 {
+            let _ = cyc.add_edge(i.to_string(), ((i + 1) % 70).to_string());
+        }
+        assert_matches_reference_directed(&cyc, "directed cycle n=70 (W=2)");
+
+        let mut dag = DiGraph::strict();
+        for i in 0..9 {
+            let _ = dag.add_node(i.to_string());
+        }
+        for (u, v) in [(0, 1), (0, 2), (1, 3), (2, 3), (3, 4), (5, 4), (6, 7)] {
+            let _ = dag.add_edge(u.to_string(), v.to_string());
+        }
+        assert_matches_reference_directed(&dag, "dag");
+    }
+
+    #[test]
+    fn fallback_path_matches_reference() {
+        let g = grid(30, 30); // 900 nodes >= threshold -> per-source rayon path
+        assert!(g.node_count() >= CENTRALITY_PARALLEL_THRESHOLD);
+        assert_matches_reference(&g, "rayon fallback n=900");
+    }
+
+    #[test]
+    fn kernel_multi_batch_matches_reference() {
+        // n < 500 means production always runs exactly one batch; drive the kernel
+        // directly past the W=8 lane width so `s0 > 0` is exercised.
+        let g = grid(24, 25); // 600 nodes > 512
+        let n = g.node_count();
+        assert!(n > 8 * 64);
+        let rows: Vec<&[usize]> = (0..n)
+            .map(|u| super::GraphView::in_neighbors_indices(&g, u).expect("integer row"))
+            .collect();
+        let (offsets, targets) = super::build_u32_csr(n, |u| rows[u]);
+        let mut reached = vec![0usize; n];
+        let mut harmonic = vec![0.0f64; n];
+        harmonic_all_sources(&offsets, &targets, n, &mut reached, &mut harmonic);
+        for (s, (node, want)) in reference_harmonic(&g).iter().enumerate() {
+            assert_eq!(
+                harmonic[s].to_bits(),
+                want.to_bits(),
+                "multi-batch mismatch at source {s} ({node})"
+            );
+        }
+    }
+
+    #[test]
+    fn empty_graph_is_empty() {
+        assert!(harmonic_centrality(&Graph::strict()).scores.is_empty());
     }
 }
 

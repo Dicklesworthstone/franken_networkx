@@ -12,9 +12,9 @@ use fnx_algorithms::{
     adamic_adar_index, average_degree_connectivity, average_shortest_path_length,
     betweenness_centrality, closeness_centrality, cn_soundarajan_hopcroft,
     common_neighbor_centrality, common_neighbors, connected_components, degree_centrality,
-    degree_mixing_dict, eigenvector_centrality, jaccard_coefficient, max_flow_edmonds_karp,
-    minimum_cut_edmonds_karp, minimum_spanning_tree, node_degree_xy, pagerank,
-    preferential_attachment, ra_index_soundarajan_hopcroft, resource_allocation_index,
+    degree_mixing_dict, eigenvector_centrality, harmonic_centrality, jaccard_coefficient,
+    max_flow_edmonds_karp, minimum_cut_edmonds_karp, minimum_spanning_tree, node_degree_xy,
+    pagerank, preferential_attachment, ra_index_soundarajan_hopcroft, resource_allocation_index,
     shortest_path_unweighted, shortest_path_weighted, single_source_dijkstra_path_length,
 };
 use fnx_classes::{Graph, digraph::DiGraph};
@@ -367,6 +367,27 @@ fn bench_closeness_centrality(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_harmonic_centrality(c: &mut Criterion) {
+    let mut group = c.benchmark_group("harmonic_centrality");
+    // `complete` mirrors the closeness sizes (diameter 1). The grids are the
+    // high-diameter counterpoint, where an all-pairs BFS reduction has many more
+    // levels and far less to gain per traversal.
+    for &n in &[20, 50, 100] {
+        let g = build_complete(n);
+        group.bench_with_input(BenchmarkId::new("complete", n), &n, |b, _| {
+            b.iter(|| harmonic_centrality(&g));
+        });
+    }
+    for &(r, co) in &[(10, 10), (20, 20)] {
+        let g = build_grid(r, co);
+        let label = r * co;
+        group.bench_with_input(BenchmarkId::new("grid", label), &label, |b, _| {
+            b.iter(|| harmonic_centrality(&g));
+        });
+    }
+    group.finish();
+}
+
 fn bench_betweenness_centrality(c: &mut Criterion) {
     let mut group = c.benchmark_group("betweenness_centrality");
     for &n in &[20, 50, 100] {
@@ -607,6 +628,7 @@ criterion_group!(
     bench_average_shortest_path_length,
     bench_degree_centrality,
     bench_closeness_centrality,
+    bench_harmonic_centrality,
     bench_betweenness_centrality,
     bench_eigenvector_centrality,
     bench_pagerank,
