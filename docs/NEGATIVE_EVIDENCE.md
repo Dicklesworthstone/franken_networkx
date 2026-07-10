@@ -2,6 +2,55 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-10 cc LEDGER-INTEGRITY AUDIT #2: the StackCanon row does NOT close allocation for the dijkstra lane — 14 do-not-retry citations are INVALID, and an allocation-family lever already SHIPPED there at 17-20x (br-r37-c1-gtty9)
+
+Audited the highest-value do-not-retry rows in the shortest-path/dijkstra area — the repo's biggest open
+gap (string-key floor still 8-20x slower than networkx) — under the frankenmermaid `5feb977` rule: a
+REJECT measured on an input that never reaches the code is INVALID, and every REJECT must carry a
+self-time figure.
+
+**The row (`docs/NEGATIVE_EVIDENCE.md`, 2026-07-03 CopperCliff, "allocation line now empirically
+CLOSED") is VALID — but only for what it measured.** Its domain is `has_node` / `__contains__` /
+`has_edge` single-call lookups on `PyGraph`, N=4000, min-of-30 x4. Its own text says "do NOT re-attempt
+interning / small-string / arena / perfect-hash **here**".
+
+**The citations are INVALID.** Ten sites in this file and four in `docs/progress/perf-negative-results.md`
+drop the "here" and forbid the whole allocation family on the shortest-path/dijkstra lane. Three
+independent checks:
+
+1. **The rejected code never executed on a dijkstra path.** `StackCanon` / `with_node_canonical` is
+   absent from HEAD (stash-only NOSHIP artifact), and `has_node` is a bare store lookup. Self-time
+   attributable to it on any dijkstra row: **zero**. This is precisely the frankenmermaid failure mode.
+2. **The dijkstra lane's own profile showed allocation hot — with a caveat I must state, or I commit the
+   very error I am flagging.** For `_fnx.dijkstra_path_to_target` (~92.5% Python-visible self-time), the
+   recorded `perf report` ranks **allocator frames ~15% self**, `__memmove` **11.88%**, `__memcmp`
+   **8.19%**, `multigraph_to_weighted_simple_graph` 4.18%, `RuntimePolicy::clone` 4.70% — ~35% of
+   self-time in the allocation/memory-movement family. **These are the ORIG/BASELINE numbers from
+   `perf-negative-results.md` row 18, measured BEFORE that row's own target-lazy lever landed** (which
+   moved the row 0.0408x -> 1.10x and bypasses the full projection). They prove allocation WAS a large
+   share of self-time on that path at the time the do-not-retry was written. They are **not** a claim
+   about HEAD. A fresh profile of the current hot path is required before choosing an allocation target;
+   that profiling is part of the reopened bead, not a conclusion of this audit.
+3. **An allocation-family lever already SHIPPED on that lane, after the closure — this is the airtight
+   part.** `MULTIDIGRAPH_DIJKSTRA_TARGET_SCRATCH`, a thread-local scratch **arena**, landed in commit
+   `cf6fcb449` and is ledgered 2026-07-05 at **17.069x / 20.783x vs NetworkX**. That is two days AFTER
+   the 2026-07-03 row declared arenas "measured dead ends".
+
+Points 1 and 3 hold at HEAD independently of any profile, and either one alone invalidates the citation.
+The ledger has been contradicting itself since, and the do-not-retry has been steering agents away from a
+family that demonstrably wins on this lane.
+
+**ACTION.** Allocation is **REOPENED for the shortest-path/dijkstra lane** (br-r37-c1-gtty9); it stays
+CLOSED for single-call `has_node`/`has_edge`. The StackCanon row is annotated in place with a scope box
+rather than rewritten. Candidate targets to re-profile first (baseline self-times, pre-target-lazy):
+`__memmove` 11.88%, `__memcmp` 8.19%, allocator ~15%, `RuntimePolicy::clone` 4.70%, per-call
+`multigraph_to_weighted_simple_graph` projection 4.18%. The `cod` pane owns those files — this is an
+audit and a handoff, no code touched.
+
+**Method note for every future REJECT:** name the ORACLE and name the DOMAIN. "Allocation is closed" is
+not a finding; "allocation is closed *for single-call string-node lookup, where it is 0% of self-time*"
+is. A row that measures function A must never be cited to forbid a lever on function B.
+
 ## 2026-07-10 cc LEDGER-INTEGRITY AUDIT: the "batch-parallel bit-parallel grid/1600 0.27x" reject is NOT evidence against chunked-parallel bit-parallel, and carries no self-time figure
 
 Per the frankenmermaid `5feb977` integrity rule (a REJECT measured on an input that never reaches the
@@ -2973,6 +3022,35 @@ re-deriving. The gap is PyO3 dispatch + canonicalisation + a fresh hash, none of
 The only true levers are architectural: (a) key the store by the Python object + its cached hash, which
 requires PyO3 inside the PyO3-free `fnx-classes` (layering break), or (b) integer-index node storage. Do
 NOT re-attempt interning / small-string / arena / perfect-hash here — all four are now measured dead ends.
+
+> **SCOPE AUDIT 2026-07-10 (cc, ledger-integrity rule / frankenmermaid 5feb977).** This row is **VALID
+> IN ITS MEASURED DOMAIN ONLY**: `has_node` / `__contains__` / `has_edge` single-call lookups on
+> `PyGraph` (N=4000 lookups, min-of-30 x4). Note the row's own wording — "do NOT re-attempt ...
+> **here**". Downstream entries dropped the "here" and cite it as
+> "the StackCanon/allocation family remains closed" for the **shortest-path/dijkstra** lane
+> (10 sites in this file, 4 in `docs/progress/perf-negative-results.md`). **That citation is INVALID.**
+> * The rejected code was NEVER on a dijkstra path: `StackCanon`/`with_node_canonical` is absent from
+>   HEAD (a stash-only NOSHIP artifact) and `has_node` is a bare store lookup. The dijkstra lane has
+>   zero self-time attributable to it — the classic "A/B'd on an input the code never executes on".
+> * Execution proof for the row's OWN claim is adequate: routing is explicit and it produced a
+>   reproducible +3..+14 ns delta (245->253 / 227->231 / 416->430 ns); a no-op yields 0. But it records
+>   **no self-time figure**, only end-to-end nanoseconds. In-domain it is corroborated independently by
+>   the key-length-invariance test (short key 0.44x == long key 0.49x).
+> * On the dijkstra lane the ledger's OWN profile of `_fnx.dijkstra_path_to_target` (~92.5%
+>   Python-visible self-time) ranks **allocator frames ~15% self**, `__memmove` **11.88%**, `__memcmp`
+>   **8.19%**, `multigraph_to_weighted_simple_graph` 4.18%, `RuntimePolicy::clone` 4.70%. CAVEAT, stated
+>   so this audit does not repeat the error it is flagging: those are the ORIG/BASELINE numbers from
+>   `perf-negative-results.md` row 18, taken BEFORE that row's target-lazy lever landed. They describe the
+>   path when the do-not-retry was written, NOT HEAD. Re-profile before picking a target.
+> * Decisive counter-example, and it holds at HEAD with no profile at all:
+>   `MULTIDIGRAPH_DIJKSTRA_TARGET_SCRATCH`, a **thread-local scratch arena** (allocation family) on the
+>   dijkstra lane — commit `cf6fcb449`, ledgered 2026-07-05 at **17.069x / 20.783x vs NetworkX**, i.e.
+>   TWO DAYS AFTER this row "empirically closed" allocation and called arenas "measured dead ends".
+>
+> ACTION: the allocation lever is **REOPENED for the shortest-path/dijkstra lane** (bead
+> br-r37-c1-gtty9). It stays closed for single-call `has_node`/`has_edge`. Candidate targets to
+> re-profile first (baseline self-times): `__memmove` 11.88%, `__memcmp` 8.19%, allocator ~15%,
+> `RuntimePolicy::clone` 4.70%, per-call `multigraph_to_weighted_simple_graph` projection 4.18%.
 
 ## 2026-07-03 CopperCliff SCOPED BLOCKER (measured): the attributed-construction floor is PyO3-CONVERSION-bound, NOT allocation-bound — interning / small-string / arena / perfect-hash all RULED OUT empirically; the only lever is a lazy CgseValue store (deep, layering-breaking)
 
