@@ -76,6 +76,23 @@ CORRECTS my memory `rch_builds_remote_disk_stable` ("rch maturin builds run on R
 disk stays ~flat"): true only when a worker is free. RETRY-CONDITION for trusting a maturin offload:
 check the target dir grows ONLY `maturin/` + `wheels/` and never `release/`.
 
+COROLLARY — THE PURE-RUST A/B SUBSTRATE IS ALSO CONSTRAINED. `cargo bench` DOES offload
+(`rch diagnose -- cargo bench --bench algorithm_benchmarks` -> `Decision: WOULD INTERCEPT`,
+`Effective worker: vmi1293453`), so bit-parallel kernel work in `fnx-algorithms` remains measurable
+with no wheel. But `rch exec` exposes **no `--worker` flag** (`rch diagnose` prints
+`Requested worker: (none)` / `Requested-worker outcome: not_requested`, and neither `rch exec --help`
+nor `rch --help-json` surfaces one). Combined with `rch_bench_worker_noise` — rch picks workers
+non-deterministically and the ratio is NOT worker-invariant — an ORIG-vs-CAND A/B split across TWO
+rch invocations is **invalid**, and the old recipe recorded in `bitparallel_multisource_bfs`
+("`git stash push -- <file>`, bench ORIG, pop, bench NEW, back-to-back") is doubly unusable here:
+it assumes one machine, and this repo forbids `git stash` outright.
+
+REMEDY for the next attempt (design, untried): bench BOTH kernels inside ONE binary and ONE rch
+invocation, so they provably land on the same worker — keep the ORIG traversal as a bench-only
+reference fn beside the candidate and register both in the same criterion group, alternating. Drift
+and worker identity then cancel inside the run, which is the same interleaving discipline that made
+the iterator-ctor baseline above trustworthy.
+
 ## BUG **FIXED** (cc, 2026-07-10): every `maturin build` wheel was broken at import — `.gitignore`'s `core.*` silently dropped `python/franken_networkx/core.py` (br-r37-c1-f2kln)
 
 FIX: `.gitignore`'s `core` / `core.*` pair narrowed to `/core` + `core.[0-9]*` — anchored and
