@@ -97,6 +97,45 @@ record every frame at or above `0.1%` self-time, and require a non-zero self-tim
 function under test. Candidate and a frozen current-native ORIG must execute inside one binary and one RCH
 invocation; the old conversion-route shadow is not an ORIG for the next native-cache lever.
 
+## 2026-07-10 cc NULL CONTROL: this harness reports an arm as 1.005x [0.999,1.011] FASTER THAN ITSELF — two of my own "certified" regressions are WITHDRAWN
+
+Adopted franken_whisper's null control (register the identical arm twice in the same interleaved routine).
+Worker `ovh-a`, one `RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec` invocation, source sha256
+`d2a7848a…` (lib.rs) + `9c1e8d3a…` (bench), parent HEAD `28d1d0b05`. Detail in
+`docs/NEGATIVE_EVIDENCE_cc.md`.
+
+A/A comparisons of `per_source` against ITSELF, via `paired_interleaved_ab` (arms alternated inside one
+measured loop, both input and result through `black_box`):
+
+| null row | ratio_med | ci95 | median_cv | win_rate |
+|---|---|---|---|---|
+| `aspl/lowdiam_2000` | **1.005x** | **[0.999, 1.011]** | 0.28% | 57% |
+| `closeness/grid_1600` | **1.012x** | [0.992, 1.040] | 1.33% | 54% |
+| `harmonic/grid_1600` | 0.995x | [0.964, 1.021] | 1.51% | 49% |
+
+The first row's 95% CI **excludes 1.0**: the harness says an arm is significantly faster than itself.
+The bootstrap CI captures sampling variance of the median but NOT the systematic first-vs-second-call
+asymmetry that alternating order reduces without eliminating. **A tight ci95 is not sufficient evidence
+for a small effect.** `win_rate` is the honest companion — a null sits at 43-57%.
+
+CONSEQUENCE FOR MY OWN LEDGER: I shipped `e060cd5e3` (harmonic) and `86f41cba4` (aspl) each disclosing a
+"certified ~1.1% guard regression whose ci95 excludes 1.0". **Both claims are WITHDRAWN.** Their guard
+win-rates (44% and 45%) sit inside the null band; the effects are below the floor. The defensible claim
+is a bound, `|effect| < ~2-3%` — neither regression nor exact parity. Unaffected, being 2-3 orders of
+magnitude above the floor: the target rows (closeness 4.411x, harmonic 7.150x, aspl 12.390x, all 121/121
+or 61/61 paired wins) and forced `chunked_bitpar` on grid_1600 at 1.396-1.528x with 98% win rates.
+
+A SECOND CASUALTY, and the sharper lesson: I had opened br-r37-c1-wkpfc to hunt "the unattributed ~90% of
+the guard tax" after measurement killed three candidate mechanisms in a row (CSR build 10.0 us;
+wasted-CSR perturbation; probe CPU 3.41 us). **The null control is the fourth and correct answer — there
+was no tax.** When three plausible mechanisms all fail to account for an effect, suspect the effect before
+inventing a fourth mechanism. Bead closed as unnecessary.
+
+RULE, composing with those already in force: **run the null control BEFORE trusting any A/B ratio.**
+Report its ratio and cv beside every WIN and REJECT, with binary sha256, self-time, worker id and cv_pct.
+If the null is not tight, fix the harness before judging the lever. Prefer `win_rate` to `ci95` for small
+effects — an A/A pair proved the CI can lie.
+
 ## 2026-07-10 cc LEDGER-INTEGRITY AUDIT #2: the StackCanon row does NOT close allocation for the dijkstra lane — 14 do-not-retry citations are INVALID, and an allocation-family lever already SHIPPED there at 17-20x (br-r37-c1-gtty9)
 
 Audited the highest-value do-not-retry rows in the shortest-path/dijkstra area — the repo's biggest open

@@ -545,6 +545,19 @@ fn bench_closeness_centrality_parallel(c: &mut Criterion) {
         ("closeness/lowdiam_2000", build_low_diameter(2000, 8000)),
         ("closeness/grid_1600", build_grid(40, 40)),
     ] {
+        // NULL CONTROL (franken_whisper): the IDENTICAL arm against itself, through the
+        // same interleaved routine. Its ratio is this harness's noise floor. Any effect
+        // smaller than the floor — win OR regression — is indistinguishable from noise
+        // and no lever may be judged on it.
+        paired_interleaved_ab(
+            label,
+            &g,
+            "null_control",
+            BitparArm::PerSource,
+            61,
+            &run,
+            &bits,
+        );
         paired_interleaved_ab(label, &g, "auto", BitparArm::Auto, 61, &run, &bits);
         paired_interleaved_ab(
             label,
@@ -611,6 +624,16 @@ fn bench_aspl_parallel(c: &mut Criterion) {
         ("aspl/grid_1600", build_grid(40, 40)), // GUARD: gate must decline
     ];
     for (label, g) in &workloads {
+        // NULL CONTROL (franken_whisper): identical arm vs itself = the noise floor.
+        paired_interleaved_ab(
+            label,
+            g,
+            "null_control",
+            BitparArm::PerSource,
+            121,
+            &run,
+            &bits,
+        );
         paired_interleaved_ab(label, g, "auto", BitparArm::Auto, 121, &run, &bits);
         paired_interleaved_ab(
             label,
@@ -678,6 +701,16 @@ fn bench_harmonic_centrality_parallel(c: &mut Criterion) {
     // GUARD row's bootstrapped median at cv 6.00% — above the keep-gate. The extra
     // rounds tighten the estimator, they do not change what is measured.
     for (label, g) in &workloads {
+        // NULL CONTROL (franken_whisper): identical arm vs itself = the noise floor.
+        paired_interleaved_ab(
+            label,
+            g,
+            "null_control",
+            BitparArm::PerSource,
+            121,
+            &run,
+            &bits,
+        );
         paired_interleaved_ab(label, g, "auto", BitparArm::Auto, 121, &run, &bits);
         paired_interleaved_ab(
             label,

@@ -8,7 +8,70 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
-## SHIPPED (cc, 2026-07-10): chunked-parallel bit-parallel BFS for `average_shortest_path_length` — **12.390x** on low-diameter; guard quantified at **0.989x [0.974,0.996]** and the probe made **2.9x cheaper** and decision-identical (br-r37-c1-bger9)
+## NULL CONTROL + SELF-CORRECTION (cc, 2026-07-10): the harness noise floor is ~+/-1.2% (an A/A comparison of an arm against ITSELF reads up to 1.012x, and one null ci95 EXCLUDES 1.0). **The ~1.1% "guard regressions" I disclosed for harmonic and aspl are BELOW that floor and were over-claimed.** The 4.4x-15x wins are unaffected.
+
+Adopted franken_whisper's null control: register the IDENTICAL arm twice in the same interleaved routine
+and measure it. Anything smaller than the null is indistinguishable from noise, in either direction.
+
+PROVENANCE. Worker `ovh-a`; no local binary (built and run remotely); source sha256
+`d2a7848aa818ab0c9b23502a839cb7af01720344807e7fb5a4acf9a8b712a905` (`fnx-algorithms/src/lib.rs`) +
+`9c1e8d3a7389dcc4a622497b913dae4ce3cd3abd5db4d1eb21593a4ef52952ce` (`benches/algorithm_benchmarks.rs`),
+parent HEAD `28d1d0b05`. `RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec`, ONE invocation, so
+every row below shares a worker and a binary. `paired_interleaved_ab`, arms alternated inside one loop.
+
+| row | ratio_med | ci95 | median_cv | win_rate |
+|---|---|---|---|---|
+| NULL `aspl/lowdiam_2000` per_source vs per_source | **1.005x** | **[0.999, 1.011]** | 0.28% | 69/121 (57%) |
+| NULL `aspl/grid_1600` | 1.004x | [0.998, 1.017] | 0.47% | 68/121 (56%) |
+| NULL `closeness/lowdiam_2000` | 0.990x | [0.984, 1.016] | 0.82% | 26/61 (43%) |
+| NULL `closeness/grid_1600` | **1.012x** | [0.992, 1.040] | 1.33% | 33/61 (54%) |
+| NULL `harmonic/lowdiam_2000` | 0.999x | [0.984, 1.013] | 0.78% | 59/121 (49%) |
+| NULL `harmonic/grid_1600` | 0.995x | [0.964, 1.021] | 1.51% | 59/121 (49%) |
+
+**READ THE FIRST ROW.** Comparing `per_source` to `per_source`, the harness reports **1.005x with a 95%
+CI of [0.999, 1.011] — excluding 1.0** at cv 0.28%. An arm is "significantly faster than itself". The
+bootstrap CI captures only the sampling variance of the median; it does NOT capture the systematic
+first-vs-second-call asymmetry (cache/turbo residue) that alternating arm order reduces but does not
+eliminate. **A tight ci95 is therefore not sufficient evidence.** `win_rate` is the honest companion: a
+null sits at 43-57%.
+
+### The correction
+
+Same run, same worker, same binary — each guard against its OWN null:
+
+| grid_1600 | guard `auto` | deviation | its null | null deviation | guard win_rate | null win_rate |
+|---|---|---|---|---|---|---|
+| closeness | 0.985x [0.967,1.016] | 1.5% | 1.012x | 1.2% (ci +/-2.4%) | 46% | 54% |
+| harmonic | 0.976x [0.954,1.008] | 2.4% | 0.995x | 0.5% (ci +/-2.8%) | 44% | 49% |
+| aspl | 0.996x [0.992,1.002] | 0.4% | 1.004x | 0.4% (ci +/-0.9%) | 45% | 56% |
+
+All three guard win-rates (44-46%) sit inside the null band (43-57%): **coin flips.** I previously wrote
+"THE GUARD REGRESSES ~1.1% AND ITS ci95 EXCLUDES 1.0" for harmonic (`e060cd5e3`) and repeated the claim
+for aspl (`86f41cba4`). **Both statements are WITHDRAWN.** The correct claim is a BOUND: any guard effect
+on high-diameter graphs is smaller than the harness can resolve, i.e. `|effect| < ~2-3%`. I can assert
+neither a regression nor exact parity. The earlier 0.961x-0.974x aspl readings likewise sat at or under
+the floor of their (noisier) workers, so the park was defensible but its stated 3% was not.
+
+WHAT SURVIVES UNTOUCHED, because it is 2-3 orders of magnitude above the floor: the target rows
+(closeness 4.411x, harmonic 7.150x, aspl 12.390x, all **121/121 or 61/61** paired wins) and — in this
+very run — forced `chunked_bitpar` on `grid_1600` at **1.487x / 1.528x / 1.396x with 98% win rates**.
+That last row is now unambiguous: **the gate declines a real ~1.4-1.5x win on high-diameter graphs**
+(br-r37-c1-yy0rp), and the "guard tax" it was supposedly trading that win against does not measurably
+exist.
+
+ALSO WITHDRAWN: the hunt for the "unattributed ~90% of the guard tax" (br-r37-c1-wkpfc). There was no
+tax to attribute. Three mechanisms were killed by measurement (CSR build 10.0 us; wasted-CSR
+perturbation; probe CPU 3.41 us) — and the fourth answer is that the effect they were competing to
+explain was never above the noise floor. The bounded probe (9.87 us -> 3.41 us, decision-identical) is
+still a real, directly-timed improvement and stays.
+
+RULE ADOPTED, composing with the ones already in force (two-invocation rch A/Bs invalid; criterion group
+members run sequentially; profile-verify self-time before honoring or writing a REJECT): **run the null
+control first. Report its ratio and cv beside every WIN and REJECT, with binary sha256, self-time, worker
+id and cv_pct. If the null is not tight, fix the harness before judging the lever.** And prefer
+`win_rate` over `ci95` for small effects — an A/A pair proved the CI can lie.
+
+## SHIPPED (cc, 2026-07-10): chunked-parallel bit-parallel BFS for `average_shortest_path_length` — **12.390x** on low-diameter; guard within the harness noise floor (see NULL CONTROL above); probe made **2.9x cheaper** and decision-identical (br-r37-c1-bger9)
 
 Supersedes the PARK below, which stands as the record of two mechanisms measurement killed.
 
@@ -39,11 +102,13 @@ count 1..=128 (`grid_1600` declines, `hub_2000` accepts), and `paired_interleave
 results are bit-identical before timing — a DCE'd arm cannot produce matching bits. Both arms provably
 execute.
 
-BUT THE 3% WAS PARTLY MEASUREMENT. On a tight worker with the bounded probe the guard is **0.989x
-[0.974,0.996], cv 0.57%** — the same magnitude as the already-shipped harmonic guard (0.989x
-[0.982,0.995]). The 2.6-3.9% readings came from noisier workers and, in one case, the unbounded probe.
-Cross-invocation guard comparisons are NOT valid (different workers), so the only claim made here is the
-single-run one above.
+BUT THE 3% WAS MEASUREMENT — **ALL OF IT.** On a tight worker with the bounded probe the guard read
+0.989x [0.974,0.996], cv 0.57%, and I called that a certified ~1.1% regression. **The NULL CONTROL at the
+top of this file withdraws that.** An A/A comparison of `per_source` against ITSELF on the same harness
+reads 0.990x-1.012x, one null ci95 EXCLUDES 1.0, and every guard win_rate (44-46%) sits inside the null
+band (43-57%). The guard effect is below the floor. The only defensible statement is a BOUND:
+`|effect| < ~2-3%`; neither a regression nor exact parity can be asserted. The 2.6-3.9% readings came
+from noisier workers whose floors were wider still. Cross-invocation guard comparisons remain invalid.
 
 ### Q2 — can the guard be made cheaper? Yes: 2.9x, for free.
 
@@ -66,12 +131,15 @@ probe — because after the run-3 restructure the declined path no longer builds
 instrument was timing a CSR build the code had stopped performing**: precisely the misalignment the
 ledger-integrity rule exists to catch, found in my own harness.
 
-Declined-path self-time: **3.41 us = 0.12%** of the 2.910 ms per-source arm. The guard loses **1.1%**.
-So ~90% of the tax is STILL unattributed, and no mechanism is claimed. Three candidates are now DEAD by
-measurement: the CSR build (10.0 us), the wasted-CSR perturbation (restructured away; guard unchanged),
-and the probe's CPU (3.41 us). The same ~1% tax appears on the shipped harmonic guard with the same gate,
-so it is a property of the GATE, not of aspl. Tracked in br-r37-c1-wkpfc (perf-record the `auto` arm on a
-declined graph) and br-r37-c1-yy0rp.
+Declined-path self-time: **3.41 us = 0.12%** of the 2.910 ms per-source arm.
+
+I chased "the missing ~90% of the guard tax" through three mechanisms, and measurement killed all three:
+the CSR build (10.0 us), the wasted-CSR perturbation (restructured away; guard unchanged), and the
+probe's CPU (bounded 2.9x; guard unchanged). **The NULL CONTROL supplies the fourth and correct answer:
+there was no tax to attribute.** The effect those three hypotheses were competing to explain never rose
+above the harness noise floor. br-r37-c1-wkpfc (perf-record the declined `auto` arm) is CLOSED as
+unnecessary. LESSON: when three plausible mechanisms all fail to account for an effect, suspect the
+effect before inventing a fourth mechanism — and run the null control that would have said so on day one.
 
 Shipped on the harmonic precedent: 12.390x on the low-diameter shape real workloads have, against a
 disclosed 1.1% on the high-diameter worst case. 924/924 lib tests green; clippy `-D warnings` clean; fmt
@@ -135,11 +203,18 @@ bootstrapped 4000x). Proof: `tests/artifacts/perf/20260710T-chunked-bitpar-harmo
 | `harmonic/grid_1600` GUARD | **auto (ships)** | **0.989x** | [0.982, 0.995] | 0.34% | 41/121 |
 | `harmonic/grid_1600` | `chunked_bitpar` | 1.456x | [1.439, 1.478] | 0.93% | 118/121 |
 
-**THE GUARD REGRESSES ~1.1% AND ITS ci95 EXCLUDES 1.0.** Shipped anyway, disclosed, not buried: 7.150x
-on the low-diameter shape real social/citation/web graphs have, against 1.1% on the synthetic
-high-diameter worst case. 61 rounds was NOT enough — it left this row at median_cv 6.00%, ci95
-[0.941,1.175]; 121 rounds resolved it. More rounds tighten the estimator; they do not change what is
-measured.
+> **WITHDRAWN 2026-07-10 by the NULL CONTROL entry at the top of this file.** The claim below — "the
+> guard regresses ~1.1% and its ci95 excludes 1.0" — is NOT supported. An A/A comparison of `per_source`
+> against ITSELF, same harness, reads up to 1.012x and in one case has a ci95 that excludes 1.0. The
+> guard effect is below the noise floor; its win_rate (44%) sits inside the null band (43-57%). The
+> correct statement is a bound: `|effect| < ~2-3%`. The 7.150x target row (121/121) is unaffected.
+
+~~**THE GUARD REGRESSES ~1.1% AND ITS ci95 EXCLUDES 1.0.**~~ Shipped anyway, disclosed, not buried: 7.150x
+on the low-diameter shape real social/citation/web graphs have, against ~~1.1%~~ *an effect below the
+harness floor* on the synthetic high-diameter worst case. 61 rounds was NOT enough — it left this row at
+median_cv 6.00%, ci95 [0.941,1.175]; 121 rounds tightened the estimator. More rounds tighten the
+estimator; they do not change what is measured — and, as the null control showed, a tight estimator of a
+sub-floor effect is still not evidence of that effect.
 
 ATTRIBUTION, and the honest limit of it. MEASURED: `csr_build_only` (rows collect + `build_u32_csr`) is
 **10.0 us on grid_1600 = 0.35%** of the 2.85 ms per-source arm (cv 2.2%); the eccentricity probe is one
