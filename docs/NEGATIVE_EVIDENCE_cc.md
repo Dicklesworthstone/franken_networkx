@@ -76,7 +76,36 @@ CORRECTS my memory `rch_builds_remote_disk_stable` ("rch maturin builds run on R
 disk stays ~flat"): true only when a worker is free. RETRY-CONDITION for trusting a maturin offload:
 check the target dir grows ONLY `maturin/` + `wheels/` and never `release/`.
 
-## BUG (cc, 2026-07-10): every `maturin build` wheel is broken at import — `.gitignore`'s `core.*` silently drops `python/franken_networkx/core.py` (br-r37-c1-f2kln)
+## BUG **FIXED** (cc, 2026-07-10): every `maturin build` wheel was broken at import — `.gitignore`'s `core.*` silently dropped `python/franken_networkx/core.py` (br-r37-c1-f2kln)
+
+FIX: `.gitignore`'s `core` / `core.*` pair narrowed to `/core` + `core.[0-9]*` — anchored and
+digit-suffixed, so it still catches real core dumps (`core`, `core.1234`, `crates/*/core.98765`) and
+can never again swallow a source file (`core.py`, `core.rs`, `core.rst`). Regression guard added to
+the existing `tests/python/test_backend_info_packaging.py` (no new file): asserts that NO tracked path
+under `python/` is ignored, and that core dumps still are.
+
+VERIFIED WITHOUT REBUILDING (no wheel, no cargo — disk directive):
+* `git check-ignore --no-index -v python/franken_networkx/core.py` -> rc=1 (was
+  `.gitignore:148:core.*`). **`--no-index` is mandatory**: plain `git check-ignore` SKIPS tracked
+  files, which is why the bug read as "not ignored" on first inspection and hid for so long.
+* `rg --files python/franken_networkx` now lists `core.py`. ripgrep and maturin use the SAME `ignore`
+  crate, so this is a faithful simulation of what the packager sees.
+* Blast-radius audit `git ls-files | git check-ignore --no-index --stdin -v`: `core.py` was the ONLY
+  shipping-surface casualty (the other two `core.*` hits are `legacy_networkx_code` oracle files, also
+  now un-ignored). 24 tracked-but-ignored paths remain, all agent scratch (`.beads/.br_recovery/`,
+  `*ubs*.txt`, `.skill-loop-progress.md`).
+* MUTATION-VERIFIED the guard is not vacuous: replaying the old pattern through
+  `git -c core.excludesFile=<tmp with core.*> check-ignore --no-index --stdin` re-flags
+  `python/franken_networkx/core.py`; the committed `.gitignore` yields empty.
+
+NOTE: `pytest tests/python/` cannot run in this checkout at all right now — `conftest.py`'s
+`_ensure_checkout_native_extension_fresh` raises because `python/franken_networkx/_fnx.abi3.so`
+(built 04:14) is older than the newest `crates/**/*.rs` (HEAD 06:53). There is no env override. The
+two new tests only shell out to `git` and were executed directly; do NOT `touch` the `.so` to clear
+the gate ([[session_so_goes_stale_midstream]]) — that is how a stale binary gets silently benched.
+`ubs` exit 0; its 2 criticals are the file's PRE-EXISTING `exec(... import *)` calls at HEAD, untouched.
+
+## ORIGINAL REPORT (br-r37-c1-f2kln)
 
 `.gitignore:147-148` are `core` and `core.*`, intended for core dumps. maturin's ignore-aware source
 packager applies them to the Python tree and omits **`python/franken_networkx/core.py`** from the

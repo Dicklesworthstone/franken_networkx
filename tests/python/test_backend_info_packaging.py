@@ -69,6 +69,57 @@ def _backend_info_entry_point() -> str:
     )
 
 
+def _git_tracked(pathspec: str) -> str:
+    return subprocess.run(
+        ["git", "ls-files", "--", pathspec],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+        timeout=30,
+    ).stdout
+
+
+def _git_ignored(paths: str) -> list[str]:
+    # --no-index is mandatory: without it `git check-ignore` skips tracked
+    # files, which is exactly the population we need to inspect here.
+    return subprocess.run(
+        ["git", "check-ignore", "--no-index", "--stdin"],
+        cwd=ROOT,
+        input=paths,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    ).stdout.split()
+
+
+@pytest.mark.skipif(not (ROOT / ".git").exists(), reason="not a git checkout")
+def test_no_tracked_python_source_is_ignored_out_of_the_wheel():
+    # br-r37-c1-f2kln: maturin's packager uses the same ignore crate as
+    # ripgrep, so it drops every .gitignore'd path from the wheel and sdist
+    # even when git tracks the file. `.gitignore` once carried a bare `core.*`
+    # (meant for core dumps); it also matched python/franken_networkx/core.py,
+    # which vanished from every wheel and made `import franken_networkx` die
+    # with a misleading "cannot import name 'core' ... circular import".
+    # Nothing under python/ may be ignored, or the wheel ships broken.
+    ignored = _git_ignored(_git_tracked("python/"))
+    assert ignored == [], (
+        "tracked python sources are .gitignore'd and will be dropped from the "
+        f"wheel/sdist: {ignored}"
+    )
+
+
+@pytest.mark.skipif(not (ROOT / ".git").exists(), reason="not a git checkout")
+def test_core_dump_patterns_still_ignore_core_dumps():
+    # The fix for the above must not be "delete the patterns": real core dumps
+    # still have to stay out of the tree. Source files named core.* must not.
+    dumps = ["core", "core.1234", "crates/fnx-python/core.98765"]
+    sources = ["python/franken_networkx/core.py", "crates/fnx-classes/src/core.rs"]
+    assert sorted(_git_ignored("\n".join(dumps))) == sorted(dumps)
+    assert _git_ignored("\n".join(sources)) == []
+
+
 def test_backend_info_entry_point_targets_package_module():
     # bd-devh2: NetworkX loads backend_info entry points while
     # networkx.__init__ is still partially initialized. A package-local

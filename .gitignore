@@ -144,8 +144,14 @@ crates/*/target/
 
 # ACFS ephemeral patterns (auto-generated agent artifacts)
 .ntm/
-core
-core.*
+# Core dumps only. These are anchored and digit-suffixed on purpose: the old
+# `core` / `core.*` pair also matched the tracked source file
+# python/franken_networkx/core.py, and maturin's ignore-aware packager drops any
+# ignored path from the wheel and sdist even when git tracks it. That shipped a
+# wheel whose `import franken_networkx` died on a missing `core` submodule.
+# Never widen these back to `core.*` (br-r37-c1-f2kln).
+/core
+core.[0-9]*
 cline.mcp.json
 codex.mcp.json
 cursor.mcp.json
