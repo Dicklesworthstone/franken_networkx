@@ -8,6 +8,70 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## NO-VERDICT / PARKED (cc, 2026-07-10): chunked-parallel bit-parallel BFS for closeness n>=500 — 4.06x-12.1x on the target row, but the rch worker drifted 2.02x on IDENTICAL code between invocations, so cv_pct<5 is unreachable and neither ship nor reject is honest (br-r37-c1-x0jz8)
+
+Executed the last untried sub-lever of the ReachSink primitive. Ledger-grepped first: the chunked
+design is named 3x in `NEGATIVE_EVIDENCE.md` as "deferred, still untried" — never rejected. Both arms
+in ONE criterion group, ONE binary, ONE `rch exec -- cargo bench` (no `--worker` flag exists;
+br-r37-c1-839yx). Proof: `tests/artifacts/perf/20260710T-chunked-bitpar-closeness-cc/`.
+
+| workload | arm | run 1 | cv | run 2 | cv |
+|---|---|---|---|---|---|
+| `lowdiam_2000` | `per_source` (ORIG) | 12.598 ms | 1.3% | 25.508 ms | 13.1% |
+| `lowdiam_2000` | `chunked_bitpar` | **3.102 ms** | 1.7% | 3.333 ms | 28.8% |
+| `lowdiam_2000` | `auto` | 3.051 ms | 20.1% | **2.114 ms** | 2.4% |
+| `grid_1600` GUARD | `per_source` (ORIG) | 3.002 ms | 1.7% | 2.809 ms | 2.2% |
+| `grid_1600` | `chunked_bitpar` | 2.229 ms | 2.1% | 2.821 ms | 46.1% |
+| `grid_1600` | `auto` | 5.028 ms | 7.3% | 3.331 ms | 5.5% |
+| **stage cost** `csr_build_only` | lowdiam / grid | — | — | **0.023 / 0.010 ms** | 4.7 / 2.2% |
+
+WHY NO VERDICT: `per_source/lowdiam_2000` — unchanged code, unchanged input — went **12.598 ms ->
+25.508 ms (2.02x) between two rch invocations**, and within-run cv reaches 46%. The decisive rows fail
+the cv_pct<5 keep-gate. `auto/grid_1600` read 0.60x then 0.84x vs per-source: the two "regressions"
+disagree by more than the effect they claim. NOT LANDED. Patch parked (`lever.patch`, 588+/77-).
+
+### LEDGER-INTEGRITY (frankenmermaid 5feb977) — applied, and it CAUGHT ME
+
+RULE 1, did the code under test execute? The gate reads `rayon::current_num_threads()`, a property of
+a remote worker we do not control, so "which path did `auto` take" was unknowable by assumption. Pinned
+it instead: test `bench_workloads_take_the_path_the_ledger_claims_at_any_thread_count` asserts that for
+EVERY thread count 1..=128, `grid_1600` DECLINES and `lowdiam_2000` ACCEPTS. So `auto/grid_1600`
+provably ran the per-source fallback and `auto/lowdiam_2000` provably ran the chunked kernel, on any
+worker. Without this the whole `auto` column would have been uninterpretable.
+
+RULE 2, self-time on every REJECT. **I was one edit away from writing a REJECT with a fabricated
+mechanism.** From run 1 I had INFERRED, by subtracting arm timings, that the reverse-CSR build costs
+~2.0 ms and dominates every bit-parallel arm — a tidy story explaining `auto`'s grid regression. So I
+added a `csr_build_only` bench arm and measured it: **10.0 us on grid_1600 = 0.36% of `per_source`
+(cv 2.2%)**, 22.5 us on lowdiam_2000. Plus the probe BFS (one O(V+E) sweep, same order), `auto`'s total
+overhead on a DECLINED graph is bounded well under 1%. The 0.60x/0.84x grid "regressions" therefore
+CANNOT be real — they are worker noise. The inferred mechanism is REFUTED by measurement.
+LESSON: a difference of two noisy numbers is not a measurement of the thing that differs.
+
+### CAVEAT AGAINST AN EXISTING ROW — do not cite the 0.27x batch-parallel reject against this lever
+
+`NEGATIVE_EVIDENCE.md` records for aspl: "batch-parallel bit-parallel grid/1600 6.16 ms >> ORIG rayon
+1.63 ms" (0.27x), since cited as "bit-parallel loses at n>=500". Today on closeness the CHUNKED design
+measures 2.23-2.82 ms on grid_1600 against a 2.81-3.00 ms per-source path — parity or better, nowhere
+near 0.27x. That row measured a DIFFERENT algorithm and a DIFFERENT design (one wide sweep, not
+rayon-over-source-chunks); it carries no self-time figure and predates the integrity rule. It is NOT
+evidence against this lever. CONSEQUENCE: my gate was built on that row's `levels >= lanes` premise, so
+it declines `grid_1600` — yet the forced `chunked_bitpar` arm was never actually slower there. The gate
+is probably TOO CONSERVATIVE and may be leaving a win on the table. Tuning, not correctness.
+
+### Correctness (13/13 green on `ovh-a`; byte-exact)
+
+chunked == sequential kernel at every lane width 1..8; all three arms agree BIT-FOR-BIT (`to_bits`) on
+grid and hub graphs above the threshold; the gate declines when the probe cannot reach every node (one
+root's eccentricity says nothing about a disconnected graph); `kernel_multi_batch_matches_single_batch`
+still passes. The sinks became stateless markers with an associated `Acc` type — a sink borrowing one
+`&mut [T]` for the whole run cannot be split across rayon tasks — and `bitpar_reverse_bfs_batch` now
+indexes results CHUNK-RELATIVE while still resolving source NODES absolutely via `s0`; conflate the two
+and `chunked_parallel_matches_sequential_kernel_at_every_lane_width` fails.
+
+NEXT: re-measure on a quiet worker (or sample-size >> 20) until the guard rows clear cv<5, THEN ship or
+reject; consider relaxing the gate; harmonic + aspl ride the same refactored kernel afterwards.
+
 ## CONFIRMED-NOT-LANDED (cc, 2026-07-10): DiGraph/MultiGraph/MultiDiGraph iterator ctors are 0.31-0.79x on a VERIFIED-FRESH HEAD binary; lever prepared; blocked on a remote build (br-r37-c1-q86hv)
 
 Follow-up to the ctorgen ship below, which deliberately left the three non-`PyGraph` ctors open.

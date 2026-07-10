@@ -2,6 +2,27 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-10 cc LEDGER-INTEGRITY AUDIT: the "batch-parallel bit-parallel grid/1600 0.27x" reject is NOT evidence against chunked-parallel bit-parallel, and carries no self-time figure
+
+Per the frankenmermaid `5feb977` integrity rule (a REJECT measured on an input that never reaches the
+code is INVALID; every REJECT must carry a self-time figure), the aspl bit-parallel entry's row —
+*"batch-parallel bit-parallel grid/1600 6.16 ms >> ORIG rayon 1.63 ms"* — was re-examined. It is cited
+as "bit-parallel loses at n >= 500". Today, measured on `closeness_centrality`, the CHUNKED design
+(rayon over source-CHUNKS, bit-parallel within each) runs grid/1600 in **2.23-2.82 ms against a
+2.81-3.00 ms per-source path** — parity or better, nowhere near 0.27x.
+
+The old row is not wrong, it is NARROW: it measured a different algorithm (aspl) and a different design
+(one wide sweep, parallelism collapsed), and it records no self-time attribution. DO NOT cite it against
+`br-r37-c1-x0jz8` or any chunked design. It should be re-measured with a self-time figure before anyone
+leans on it again. Detail + the measured stage costs that refuted my own replacement hypothesis:
+`docs/NEGATIVE_EVIDENCE_cc.md`, proof in
+`tests/artifacts/perf/20260710T-chunked-bitpar-closeness-cc/`.
+
+Also recorded there: `rch` worker drift measured at **2.02x on IDENTICAL code between two
+invocations** (`per_source/lowdiam_2000`: 12.598 ms -> 25.508 ms). This is direct evidence for the
+one-binary/one-invocation A/B rule, and it means cv_pct<5 is currently unreachable for ~3 ms workloads
+on a shared worker.
+
 ## 2026-07-10 cc TWO CROSS-AGENT TRAPS: `rch exec -- maturin` silently runs LOCALLY (br-r37-c1-839yx), and every maturin wheel is broken at import (br-r37-c1-f2kln)
 
 Both found while building an isolated ORIG wheel for an A/B. Detail + evidence in
