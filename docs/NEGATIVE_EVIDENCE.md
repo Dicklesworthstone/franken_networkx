@@ -2,6 +2,28 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-10 cod_nx REJECTED MEASUREMENT: persistent MultiGraph dense node IDs were 1.3011x faster, but both paired CVs missed 5% (`br-r37-c1-gtty9`)
+
+**PROFILE FIRST.** On exact string-key weighted `MultiGraph` source-target queries, release-perf cProfile
+verified `_fnx.bidirectional_dijkstra` was live for `64` calls: weighted `shortest_path` self-time was
+`0.008096456 s` (`11.099141%`) and direct bidi self-time was `0.008034264 s` (`19.912984%`). The higher
+frame was `_fnx.check_dijkstra_edge_weights_fast` (`86.864036%` / `77.815130%`), but standalone
+classification caching is already ledger-rejected, so the next eligible native-kernel frame selected the
+mechanism: reuse the graph's insertion-ordered `FxIndexMap` IDs instead of allocating `nodes_ordered()` and
+rebuilding `HashMap<&str, usize>` on every query.
+
+**ONE-BINARY PAIRED RESULT.** A feature-gated frozen current-native ORIG and candidate ran alternating in one
+Criterion callback and one fail-closed RCH invocation on `vmi1227854`, CPU9, extension SHA-256
+`cdcee76e6547220a4c16f1f6962bf885a4f8758490f52f5561b273991233fee8`. Profile integrity was non-zero for both
+exact arms: candidate `64` calls / `0.007600047 s` self (`97.896526%`), ORIG `64` calls / `0.009344969 s`
+(`98.774192%`). Twenty paired samples reported candidate `110040.151 ns`, ORIG `143175.148 ns`, and
+`1.301117x` ORIG/candidate, but raw CV was `6.823877%` / `6.086356%`.
+
+**VERDICT: REJECT THIS MEASUREMENT AS KEEP EVIDENCE; NO SOURCE VERDICT.** Both live arms were faster in the
+expected direction and byte-exact import-time parity passed through remove, index compaction, re-add, tie-order,
+reverse-query, and no-path stages, but the mandatory CV gate failed. Retry only the same paired binary with a
+longer measurement window; do not change the lever or compare separate RCH invocations.
+
 ## 2026-07-10 cod_nx LEDGER-INTEGRITY CORRECTION: the StackCanon REJECT itself is INVALID — its timed `Graph` path never called the `MultiGraph`-only candidate (`br-r37-c1-gtty9`)
 
 This supersedes the immediately following `cc LEDGER-INTEGRITY AUDIT #2` only where that audit calls the
