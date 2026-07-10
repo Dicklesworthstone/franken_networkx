@@ -185,6 +185,41 @@ record every frame at or above `0.1%` self-time, and require a non-zero self-tim
 function under test. Candidate and a frozen current-native ORIG must execute inside one binary and one RCH
 invocation; the old conversion-route shadow is not an ORIG for the next native-cache lever.
 
+## 2026-07-10 cc ISA-BASELINE CHECK (frankenscipy/frankenredis fleet sweep): franken_networkx ALSO ships x86-64 baseline (no popcnt/avx2). The fix forwards remotely, but the leverage is dense-linalg, NOT the centrality kernels — those already work around it
+
+ANSWER TO THE PRIMARY QUESTION: this repo emits the **bare x86-64 baseline**. There is NO `.cargo/config.toml`,
+and no `target-cpu` / `target-feature` / `RUSTFLAGS` in `Cargo.toml`, `pyproject.toml`, `rust-toolchain.toml`,
+or `scripts/`. `rustc --print cfg` default features are `fxsr, sse, sse2, x87` only — **no `popcnt`, no
+`sse4.2`, no `avx2`.** So `count_ones()` compiles to software popcount and no loop auto-vectorises to
+256-bit. The fleet defect is present here.
+
+THE FIX FORWARDS: `RUSTFLAGS="-C target-cpu=native" ... rch exec -- cargo build` reaches the remote worker
+and compiles clean (verified: `fnx-algorithms` built + benched under it).
+
+TWO HONEST CAVEATS keep it from being a one-flag win here:
+
+1. **My centrality kernels already mitigate the popcnt absence.** The bit-parallel BFS deliberately keeps
+   `count_ones` OFF the O(|E|) hot loop (deferred to once-per-reached-node-per-level; the hot loop is pure
+   word AND/OR — `lib.rs:9473`, `:9655`) — a choice made BECAUSE the target had no hardware popcnt. So
+   hardware popcnt has limited direct upside for these kernels. Consistent with a cross-worker A/B that came
+   back **inconclusive**: baseline `closeness/complete/100` 39.7 us on `vmi1227854` vs native 48.4 us on
+   `hz1` — different workers, so per the two-invocation rule NO magnitude claim is valid, and internal
+   scaling (100/20 = 13.97x vs 15.14x) is unchanged. rch has no `--worker` flag; a clean within-worker ISA
+   A/B is not achievable this session.
+
+2. **A fixed `target-cpu` is UNSAFE for the shipped wheel.** The maturin wheel is built on a worker and
+   installed on csd/user machines; baking the worker's ISA (`target-cpu=native`) risks SIGILL on any
+   install target with fewer features. This is the "crate policy forbids a fixed target" case -> confirm the
+   install target is uniformly AVX2 and set `+avx2,+popcnt`, or use runtime feature dispatch with a scalar
+   fallback. NOT a change I can make unilaterally or validate (maturin is forbidden this session), so it is
+   SURFACED, not committed.
+
+WHERE THE REAL LEVERAGE IS (frankenscipy-class, and NOT my lane): `fnx-algorithms` has ~14 matrix / spectrum
+/ laplacian functions plus adjacency-matrix and pagerank matrix-vector paths — dense-float loops an AVX2
+build would auto-vectorise. Filed **br-r37-c1-2zn1u** to A/B the dense/linalg surface under a within-worker
+harness and to make the wheel-policy call. A build-flag change moves a whole class of hot loops THERE, not
+in the already-popcount-deferred centrality kernels.
+
 ## 2026-07-10 cc MEASUREMENT GATE CORRECTED: decide on the MEDIAN vs the PER-FUNCTION null spread, not on cv_pct. The null floor moves 1.4% between functions on the SAME graph
 
 Supersedes the `cv_pct < 5` gate used in my earlier entries (frankenmermaid: cv<5 is unattainable on this
