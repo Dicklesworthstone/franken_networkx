@@ -2,6 +2,32 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-10 cod_nx WIN: persistent insertion-order node IDs remove the per-query node vector/hash rebuild (`br-r37-c1-gtty9`)
+
+**MECHANISM FROM PROFILE.** Fresh release-perf cProfile ranked the exact-domain classifier first
+(`86.864036%` weighted-shortest / `77.815130%` direct-bidi self-time), but standalone classification caching
+is already ledger-rejected. The next live frame was `_fnx.bidirectional_dijkstra`: `0.008096456 s/64`
+(`11.099141%`) for weighted `shortest_path` and `0.008034264 s/64` (`19.912984%`) for direct bidi. Source
+mapping found that native `MultiGraph` queries allocated `nodes_ordered()` and rebuilt a full
+`HashMap<&str, usize>` even though the graph's insertion-ordered `FxIndexMap` already owns current dense node
+IDs. The kept lever exposes those existing indices/names and resolves them afresh per call, so remove/re-add
+compaction cannot leave stale handles.
+
+**HONEST ONE-BINARY A/B.** A feature-gated frozen current-native ORIG retains the old node-vector/hash build
+and shares endpoint canonicalisation, GIL release, traversal semantics, and PyO3 result marshalling with the
+candidate. Both arms alternated inside every Criterion callback in a single fail-closed RCH invocation on
+`hz1`, CPU7, extension SHA-256 `74e31d08778e4b284a01b673e4f4cf0604d986cf78f8f97774ec4ed970f88170`.
+Profile integrity was non-zero: candidate `64` calls / `0.007981342 s` self (`98.550416%`), ORIG `64` calls /
+`0.011160039 s` (`99.116903%`). Twenty equal-size flat samples measured candidate `152005.353 ns`, ORIG
+`200952.987 ns`, CV `1.152122%` / `0.955255%`, and `1.322013x` ORIG/candidate.
+
+**PARITY AND VERDICT: KEEP.** Exact import-time FNX/NetworkX parity covered both query directions and both
+`bidirectional_dijkstra`/weighted-`shortest_path` APIs across baseline, isolated-prefix removal (global index
+shift), path-node removal, re-add at a new insertion position, equal-cost tie-order changes, and exact no-path
+exception class/message. Candidate and frozen ORIG native triples were exactly equal before profiling and in
+every timed pair. The higher classifier frame remains a closed standalone-cache family; the next distinct
+route is an edge-bucket/index or marshal-avoiding primitive, not a parity ceiling.
+
 ## 2026-07-10 cod_nx REJECTED MEASUREMENT: longer linear sampling replicated 1.3043x but amplified shared-host CV (`br-r37-c1-gtty9`)
 
 The unchanged one-binary paired candidate/current-native ORIG ran on `vmi1227854` CPU9 with a 20-second

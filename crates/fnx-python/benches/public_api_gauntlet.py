@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import cProfile
 import gc
 import io
+import os
 import random
 
 import franken_networkx as fnx
@@ -1248,6 +1250,180 @@ _FNX_MG_BIDI = fnx.bidirectional_dijkstra(
 )
 if _FNX_MG_BIDI != _EXPECTED_MG_BIDI:
     raise AssertionError("bidirectional_dijkstra MultiGraph string-key parity drift")
+
+
+def _exact_weighted_path_outcome(module, name, graph, source, target):
+    try:
+        result = getattr(module, name)(graph, source, target, weight="weight")
+    except Exception as exc:  # noqa: BLE001 - exact exception parity is intentional
+        return ("EXC", type(exc).__name__, str(exc))
+    if isinstance(result, tuple):
+        length, path = result
+        return ("OK", type(length).__name__, length, path)
+    return ("OK", result)
+
+
+def _verify_multigraph_node_index_mutation_parity():
+    fnx_graph = fnx.MultiGraph()
+    nx_graph = nx.MultiGraph()
+    for graph in (fnx_graph, nx_graph):
+        graph.add_nodes_from(("prefix", "s", "a", "b", "t"))
+        graph.add_edge("s", "a", weight=1)
+        graph.add_edge("a", "t", weight=1)
+        graph.add_edge("s", "b", weight=1)
+        graph.add_edge("b", "t", weight=1)
+
+    def verify_stage():
+        for source, target in (("s", "t"), ("t", "s")):
+            for name in ("bidirectional_dijkstra", "shortest_path"):
+                fnx_outcome = _exact_weighted_path_outcome(
+                    fnx, name, fnx_graph, source, target
+                )
+                nx_outcome = _exact_weighted_path_outcome(
+                    nx, name, nx_graph, source, target
+                )
+                if fnx_outcome != nx_outcome:
+                    raise AssertionError(
+                        f"node-index mutation parity drift: {name} {source}->{target} "
+                        f"fnx={fnx_outcome!r} nx={nx_outcome!r}"
+                    )
+
+    verify_stage()
+    for graph in (fnx_graph, nx_graph):
+        graph.remove_node("prefix")
+    verify_stage()
+    for graph in (fnx_graph, nx_graph):
+        graph.remove_node("a")
+    verify_stage()
+    for graph in (fnx_graph, nx_graph):
+        graph.add_edge("s", "a", weight=1)
+        graph.add_edge("a", "t", weight=1)
+    verify_stage()
+    for graph in (fnx_graph, nx_graph):
+        graph.remove_node("b")
+    verify_stage()
+    for graph in (fnx_graph, nx_graph):
+        graph.remove_node("a")
+    verify_stage()
+
+
+_verify_multigraph_node_index_mutation_parity()
+
+
+def _profile_code_label(code) -> str:
+    if isinstance(code, str):
+        return code
+    return f"{code.co_filename}:{code.co_firstlineno}:{code.co_name}"
+
+
+def _profile_integrity_run(
+    label: str, call, expected_calls: int, target_code: str
+) -> None:
+    profiler = cProfile.Profile()
+    checksum = 0.0
+    profiler.enable()
+    for _ in range(expected_calls):
+        result = call()
+        if isinstance(result, tuple) and len(result) == 3:
+            length, all_int, path = result
+            checksum += float(length) + float(all_int) + len(path)
+        elif isinstance(result, tuple):
+            length, path = result
+            checksum += float(length) + len(path)
+        else:
+            checksum += len(result)
+    profiler.disable()
+
+    stats = profiler.getstats()
+    total_self = sum(entry.inlinetime for entry in stats)
+    target_stats = [
+        entry
+        for entry in stats
+        if isinstance(entry.code, str)
+        and entry.code == target_code
+    ]
+    target_calls = sum(entry.callcount for entry in target_stats)
+    target_self = sum(entry.inlinetime for entry in target_stats)
+    if target_calls != expected_calls or target_self <= 0.0:
+        raise AssertionError(
+            f"profile-integrity failure for {label}: "
+            f"calls={target_calls}, self_s={target_self:.9f}"
+        )
+
+    cpu_set = ",".join(str(cpu) for cpu in sorted(os.sched_getaffinity(0)))
+    print(
+        "PROFILE_INTEGRITY "
+        f"scenario={label} host={os.uname().nodename} cpu={cpu_set} "
+        f"calls={target_calls} self_s={target_self:.9f} "
+        f"self_pct={100.0 * target_self / total_self:.6f} checksum={checksum:.1f}",
+        file=os.sys.stderr,
+        flush=True,
+    )
+    for entry in sorted(stats, key=lambda item: item.inlinetime, reverse=True):
+        self_pct = 100.0 * entry.inlinetime / total_self
+        if self_pct < 0.1:
+            break
+        print(
+            "PROFILE_FRAME "
+            f"scenario={label} self_s={entry.inlinetime:.9f} "
+            f"self_pct={self_pct:.6f} calls={entry.callcount} "
+            f"code={_profile_code_label(entry.code)!r}",
+            file=os.sys.stderr,
+            flush=True,
+        )
+
+
+_profile_integrity_run(
+    "multigraph_shortest_path_string_target_current",
+    lambda: fnx.shortest_path(
+        _FNX_MG_DP_GRAPH, _MG_DP_SOURCE, _MG_DP_TARGET, weight="weight"
+    ),
+    64,
+    "<built-in method franken_networkx._fnx.bidirectional_dijkstra>",
+)
+_profile_integrity_run(
+    "multigraph_bidirectional_dijkstra_string_target_current",
+    lambda: fnx.bidirectional_dijkstra(
+        _FNX_MG_DP_GRAPH, _MG_DP_SOURCE, _MG_DP_TARGET, weight="weight"
+    ),
+    64,
+    "<built-in method franken_networkx._fnx.bidirectional_dijkstra>",
+)
+
+
+_BENCH_ORIG_BIDIRECTIONAL_DIJKSTRA = getattr(
+    fnx._fnx, "_bench_bidirectional_dijkstra_orig", None
+)
+if _BENCH_ORIG_BIDIRECTIONAL_DIJKSTRA is not None:
+    _FNX_MG_DP_GRAPH_ORIG = _build_highway_weighted_multigraph(fnx, _MG_DP_NODE_COUNT)
+
+    def candidate_multigraph_bidirectional_native_once():
+        return fnx._fnx.bidirectional_dijkstra(
+            _FNX_MG_DP_GRAPH, _MG_DP_SOURCE, _MG_DP_TARGET, "weight"
+        )
+
+    def orig_multigraph_bidirectional_native_once():
+        return _BENCH_ORIG_BIDIRECTIONAL_DIJKSTRA(
+            _FNX_MG_DP_GRAPH_ORIG, _MG_DP_SOURCE, _MG_DP_TARGET, "weight"
+        )
+
+    _CANDIDATE_NATIVE_BIDI = candidate_multigraph_bidirectional_native_once()
+    _ORIG_NATIVE_BIDI = orig_multigraph_bidirectional_native_once()
+    if _CANDIDATE_NATIVE_BIDI != _ORIG_NATIVE_BIDI:
+        raise AssertionError("paired native ORIG/candidate parity drift")
+
+    _profile_integrity_run(
+        "multigraph_bidirectional_native_candidate",
+        candidate_multigraph_bidirectional_native_once,
+        64,
+        "<built-in method franken_networkx._fnx.bidirectional_dijkstra>",
+    )
+    _profile_integrity_run(
+        "multigraph_bidirectional_native_orig",
+        orig_multigraph_bidirectional_native_once,
+        64,
+        "<built-in method franken_networkx._fnx._bench_bidirectional_dijkstra_orig>",
+    )
 
 
 def _string_path_sequence_checksum(path: list[str]) -> float:

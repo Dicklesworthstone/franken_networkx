@@ -1022,7 +1022,8 @@ fn multigraph_dijkstra_path_to_target_lazy(
 /// Both fringes share one FIFO sequence counter, relax only on strict
 /// improvement, and retain the first equal-total meeting candidate, exactly as
 /// `networkx.bidirectional_dijkstra` does.
-fn multigraph_bidirectional_dijkstra(
+#[cfg(feature = "bench-internals")]
+fn multigraph_bidirectional_dijkstra_orig(
     mg: &fnx_classes::MultiGraph,
     source: &str,
     target: &str,
@@ -1121,6 +1122,149 @@ fn multigraph_bidirectional_dijkstra(
         };
         for neighbor_name in neighbors {
             let Some(&neighbor) = index.get(neighbor_name) else {
+                continue;
+            };
+            let Some((edge_weight, _)) =
+                multigraph_min_parallel_dijkstra_weight(mg, node_name, neighbor_name, weight_attr)
+            else {
+                continue;
+            };
+            let candidate = distance + edge_weight;
+            if let Some(finalized) = dists[direction][neighbor] {
+                if candidate < finalized {
+                    return BidirectionalDijkstraOutcome::Contradiction;
+                }
+            } else if seen[direction][neighbor].is_none_or(|known| candidate < known) {
+                seen[direction][neighbor] = Some(candidate);
+                predecessors[direction][neighbor] = Some(node);
+                fringe[direction].push(PyDijkstraState {
+                    dist: candidate,
+                    seq: counter,
+                    node: neighbor,
+                });
+                counter += 1;
+                if let Some(other) = seen[1 - direction][neighbor] {
+                    let total = candidate + other;
+                    if final_distance.is_none_or(|best| total < best) {
+                        final_distance = Some(total);
+                        meet_node = Some(neighbor);
+                    }
+                }
+            }
+        }
+    }
+
+    BidirectionalDijkstraOutcome::NoPath
+}
+
+/// The current MultiGraph kernel, using the graph's insertion-ordered node
+/// table as the persistent dense-ID dispatch table. Node indices are resolved
+/// afresh for each call, so structural remove/re-add compaction cannot leave a
+/// stale handle, while the query no longer allocates a second node vector and
+/// hash map.
+fn multigraph_bidirectional_dijkstra(
+    mg: &fnx_classes::MultiGraph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> fnx_algorithms::BidirectionalDijkstraOutcome {
+    use fnx_algorithms::BidirectionalDijkstraOutcome;
+
+    let (Some(source_idx), Some(target_idx)) =
+        (mg.get_node_index(source), mg.get_node_index(target))
+    else {
+        return BidirectionalDijkstraOutcome::NodeMissing;
+    };
+    if source_idx == target_idx {
+        return BidirectionalDijkstraOutcome::Found(0.0, true, vec![source.to_owned()]);
+    }
+
+    let n = mg.node_count();
+    let mut dists: [Vec<Option<f64>>; 2] = [vec![None; n], vec![None; n]];
+    let mut predecessors: [Vec<Option<usize>>; 2] = [vec![None; n], vec![None; n]];
+    let mut seen: [Vec<Option<f64>>; 2] = [vec![None; n], vec![None; n]];
+    seen[0][source_idx] = Some(0.0);
+    seen[1][target_idx] = Some(0.0);
+
+    let mut fringe: [BinaryHeap<PyDijkstraState>; 2] = [BinaryHeap::new(), BinaryHeap::new()];
+    let mut counter = 0_u64;
+    fringe[0].push(PyDijkstraState {
+        dist: 0.0,
+        seq: counter,
+        node: source_idx,
+    });
+    counter += 1;
+    fringe[1].push(PyDijkstraState {
+        dist: 0.0,
+        seq: counter,
+        node: target_idx,
+    });
+    counter += 1;
+
+    let mut final_distance: Option<f64> = None;
+    let mut meet_node: Option<usize> = None;
+    let mut direction = 1_usize;
+
+    while !fringe[0].is_empty() && !fringe[1].is_empty() {
+        direction = 1 - direction;
+        let PyDijkstraState {
+            dist: distance,
+            node,
+            ..
+        } = fringe[direction].pop().expect("fringe checked non-empty");
+        if dists[direction][node].is_some() {
+            continue;
+        }
+        dists[direction][node] = Some(distance);
+
+        if dists[1 - direction][node].is_some() {
+            let meet = meet_node.expect("meet node set before fringes overlap");
+            let mut path_indices = Vec::new();
+            let mut current = Some(meet);
+            while let Some(idx) = current {
+                path_indices.push(idx);
+                current = predecessors[0][idx];
+            }
+            path_indices.reverse();
+            let mut current = predecessors[1][meet];
+            while let Some(idx) = current {
+                path_indices.push(idx);
+                current = predecessors[1][idx];
+            }
+
+            let all_int = path_indices.windows(2).all(|pair| {
+                let left = mg
+                    .get_node_name(pair[0])
+                    .expect("path node index should resolve");
+                let right = mg
+                    .get_node_name(pair[1])
+                    .expect("path node index should resolve");
+                multigraph_min_parallel_dijkstra_weight(mg, left, right, weight_attr)
+                    .is_some_and(|(_, edge_all_int)| edge_all_int)
+            });
+            let path = path_indices
+                .into_iter()
+                .map(|idx| {
+                    mg.get_node_name(idx)
+                        .expect("path node index should resolve")
+                        .to_owned()
+                })
+                .collect();
+            return BidirectionalDijkstraOutcome::Found(
+                final_distance.expect("final distance set with meet node"),
+                all_int,
+                path,
+            );
+        }
+
+        let node_name = mg
+            .get_node_name(node)
+            .expect("fringe node index should resolve");
+        let Some(neighbors) = mg.neighbors_iter(node_name) else {
+            continue;
+        };
+        for neighbor_name in neighbors {
+            let Some(neighbor) = mg.get_node_index(neighbor_name) else {
                 continue;
             };
             let Some((edge_weight, _)) =
@@ -4633,14 +4777,18 @@ pub fn multi_source_dijkstra_path_length(
 /// and non-negative finite numeric weights here (everything else is delegated);
 /// it also performs the nx `NodeNotFound` checks before calling, so this kernel
 /// assumes both nodes are present.
-#[pyfunction]
-#[pyo3(signature = (g, source, target, weight="weight"))]
-pub fn bidirectional_dijkstra(
+fn bidirectional_dijkstra_with_multigraph_kernel(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     source: &Bound<'_, PyAny>,
     target: &Bound<'_, PyAny>,
     weight: &str,
+    multigraph_kernel: fn(
+        &fnx_classes::MultiGraph,
+        &str,
+        &str,
+        &str,
+    ) -> fnx_algorithms::BidirectionalDijkstraOutcome,
 ) -> PyResult<(f64, bool, PyObject)> {
     // The Python wrapper has already run the edge-only, dirty-gated
     // `_fnx_sync_edge_attrs_to_inner` (a no-op for unmutated graphs), so the
@@ -4660,9 +4808,7 @@ pub fn bidirectional_dijkstra(
     let outcome = match &gr {
         GraphRef::MultiUndirected { mg, .. } => {
             let inner = &mg.inner;
-            py.allow_threads(|| {
-                multigraph_bidirectional_dijkstra(inner, &source_str, &target_str, weight)
-            })
+            py.allow_threads(|| multigraph_kernel(inner, &source_str, &target_str, weight))
         }
         _ => {
             // br-r37-c1-p60i1 (cc): directed graphs route to the directed kernel
@@ -4716,6 +4862,49 @@ pub fn bidirectional_dijkstra(
             )))
         }
     }
+}
+
+#[pyfunction]
+#[pyo3(signature = (g, source, target, weight="weight"))]
+pub fn bidirectional_dijkstra(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    target: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<(f64, bool, PyObject)> {
+    bidirectional_dijkstra_with_multigraph_kernel(
+        py,
+        g,
+        source,
+        target,
+        weight,
+        multigraph_bidirectional_dijkstra,
+    )
+}
+
+/// Frozen current-native reference for the paired performance harness. It
+/// shares endpoint canonicalisation, validation, GIL release, and result
+/// marshalling with the candidate; only the MultiGraph node-ID substrate
+/// differs.
+#[cfg(feature = "bench-internals")]
+#[pyfunction(name = "_bench_bidirectional_dijkstra_orig")]
+#[pyo3(signature = (g, source, target, weight="weight"))]
+fn bench_bidirectional_dijkstra_orig(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    target: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<(f64, bool, PyObject)> {
+    bidirectional_dijkstra_with_multigraph_kernel(
+        py,
+        g,
+        source,
+        target,
+        weight,
+        multigraph_bidirectional_dijkstra_orig,
+    )
 }
 
 /// br-r37-c1-lc2qy (cc): single-pair weighted Dijkstra PATH with target early-exit.
@@ -24967,6 +25156,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(multi_source_dijkstra_path_length, m)?)?;
     m.add_function(wrap_pyfunction!(multi_source_nearest_source, m)?)?;
     m.add_function(wrap_pyfunction!(bidirectional_dijkstra, m)?)?;
+    #[cfg(feature = "bench-internals")]
+    m.add_function(wrap_pyfunction!(bench_bidirectional_dijkstra_orig, m)?)?;
     m.add_function(wrap_pyfunction!(dijkstra_path_to_target, m)?)?;
     m.add_function(wrap_pyfunction!(single_target_dijkstra_path_length, m)?)?;
     m.add_function(wrap_pyfunction!(multidigraph_dijkstra_path_target, m)?)?;

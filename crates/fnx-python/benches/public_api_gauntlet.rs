@@ -1,8 +1,131 @@
 #![forbid(unsafe_code)]
 
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, SamplingMode, criterion_group, criterion_main};
 use pyo3::types::PyAnyMethods;
-use pyo3::{Py, PyAny, Python};
+use pyo3::{Bound, Py, PyAny, Python};
+use std::time::{Duration, Instant};
+
+#[derive(Debug, Eq, PartialEq)]
+struct BidirectionalOutput {
+    length_bits: u64,
+    all_int: bool,
+    path: Vec<String>,
+}
+
+fn timed_python_call<'py>(callable: &Bound<'py, PyAny>) -> (Duration, Bound<'py, PyAny>) {
+    let start = Instant::now();
+    let result = callable.call0();
+    let elapsed = start.elapsed();
+    (
+        elapsed,
+        result.expect("paired bidirectional-Dijkstra callable failed"),
+    )
+}
+
+fn extract_bidirectional_output(result: &Bound<'_, PyAny>) -> BidirectionalOutput {
+    let (length, all_int, path) = result
+        .extract::<(f64, bool, Vec<String>)>()
+        .expect("paired bidirectional-Dijkstra result must be (float, bool, list[str])");
+    BidirectionalOutput {
+        length_bits: length.to_bits(),
+        all_int,
+        path,
+    }
+}
+
+fn mean_and_cv_pct(values: &[f64]) -> (f64, f64) {
+    assert!(
+        values.len() >= 2,
+        "paired A/B requires at least two samples"
+    );
+    let mean = values.iter().sum::<f64>() / values.len() as f64;
+    let variance = values
+        .iter()
+        .map(|value| {
+            let delta = value - mean;
+            delta * delta
+        })
+        .sum::<f64>()
+        / (values.len() - 1) as f64;
+    (mean, 100.0 * variance.sqrt() / mean)
+}
+
+fn bench_paired_multigraph_bidirectional(c: &mut Criterion, candidate: Py<PyAny>, orig: Py<PyAny>) {
+    let mut samples = Vec::<(f64, f64)>::new();
+    let mut candidate_first = true;
+    let mut group = c.benchmark_group("multigraph_bidirectional_dijkstra_string_target_ab");
+    group.sampling_mode(SamplingMode::Flat);
+    group.bench_function("candidate_vs_current_native_orig", |b| {
+        b.iter_custom(|iters| {
+            Python::attach(|py| {
+                let candidate = candidate.bind(py);
+                let orig = orig.bind(py);
+                let mut candidate_elapsed = Duration::ZERO;
+                let mut orig_elapsed = Duration::ZERO;
+                for _ in 0..iters {
+                    let (candidate_duration, candidate_result, orig_duration, orig_result) =
+                        if candidate_first {
+                            let (candidate_duration, candidate_result) =
+                                timed_python_call(candidate);
+                            let (orig_duration, orig_result) = timed_python_call(orig);
+                            (
+                                candidate_duration,
+                                candidate_result,
+                                orig_duration,
+                                orig_result,
+                            )
+                        } else {
+                            let (orig_duration, orig_result) = timed_python_call(orig);
+                            let (candidate_duration, candidate_result) =
+                                timed_python_call(candidate);
+                            (
+                                candidate_duration,
+                                candidate_result,
+                                orig_duration,
+                                orig_result,
+                            )
+                        };
+                    candidate_first = !candidate_first;
+                    candidate_elapsed += candidate_duration;
+                    orig_elapsed += orig_duration;
+                    assert_eq!(
+                        extract_bidirectional_output(&candidate_result),
+                        extract_bidirectional_output(&orig_result),
+                        "paired native ORIG/candidate parity drift"
+                    );
+                }
+                samples.push((
+                    candidate_elapsed.as_secs_f64() * 1.0e9 / iters as f64,
+                    orig_elapsed.as_secs_f64() * 1.0e9 / iters as f64,
+                ));
+                candidate_elapsed
+            })
+        });
+    });
+    group.finish();
+
+    if samples.len() < 2 {
+        return;
+    }
+    let sample_count = 20_usize.min(samples.len());
+    let decision_samples = &samples[samples.len() - sample_count..];
+    let candidate_values = decision_samples
+        .iter()
+        .map(|(candidate_ns, _)| *candidate_ns)
+        .collect::<Vec<_>>();
+    let orig_values = decision_samples
+        .iter()
+        .map(|(_, orig_ns)| *orig_ns)
+        .collect::<Vec<_>>();
+    let (candidate_mean_ns, candidate_cv_pct) = mean_and_cv_pct(&candidate_values);
+    let (orig_mean_ns, orig_cv_pct) = mean_and_cv_pct(&orig_values);
+    eprintln!(
+        "PAIRED_AB samples={sample_count} candidate_mean_ns={candidate_mean_ns:.3} \
+         candidate_cv_pct={candidate_cv_pct:.6} orig_mean_ns={orig_mean_ns:.3} \
+         orig_cv_pct={orig_cv_pct:.6} speedup_orig_over_candidate={:.6}",
+        orig_mean_ns / candidate_mean_ns
+    );
+}
 
 fn init_python() {
     static START: std::sync::Once = std::sync::Once::new();
@@ -60,7 +183,7 @@ if available_cpus:
     bench_cpu = available_cpus[-1]
     os.sched_setaffinity(0, set((bench_cpu,)))
     print(f'fnx bench cpu: {{bench_cpu}}', file=sys.stderr)
-target_dir = os.environ.get('CARGO_TARGET_DIR')
+target_dir = os.environ.get('CARGO_TARGET_DIR') or os.path.join(cwd, 'target')
 if target_dir:
     perf_candidates = sorted(
         [path for path in [
@@ -108,6 +231,12 @@ if target_dir:
         let helper = py
             .import("public_api_gauntlet")
             .expect("set PYTHONPATH=crates/fnx-python/benches:python:legacy_networkx_code");
+        if let (Ok(candidate), Ok(orig)) = (
+            helper.getattr("candidate_multigraph_bidirectional_native_once"),
+            helper.getattr("orig_multigraph_bidirectional_native_once"),
+        ) {
+            bench_paired_multigraph_bidirectional(c, candidate.unbind(), orig.unbind());
+        }
         for (workload, engine, callable_name) in [
             (
                 "from_graph6_bytes_sparse_700",

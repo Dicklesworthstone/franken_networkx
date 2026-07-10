@@ -28,6 +28,7 @@ rustc-hash = "2.1.2"
 
 [features]
 extension-module = ["pyo3/extension-module"]
+bench-internals = []
 
 [dev-dependencies]
 criterion = { version = "0.8.2", features = ["html_reports"] }

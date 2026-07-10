@@ -2456,6 +2456,21 @@ impl MultiGraph {
         self.nodes.keys().map(String::as_str).collect()
     }
 
+    /// Resolve a node through the insertion-ordered node table without
+    /// rebuilding a query-local name-to-index map.
+    #[must_use]
+    #[inline]
+    pub fn get_node_index(&self, node: &str) -> Option<usize> {
+        self.nodes.get_index_of(node)
+    }
+
+    /// Resolve the current node name for an insertion-order index.
+    #[must_use]
+    #[inline]
+    pub fn get_node_name(&self, index: usize) -> Option<&str> {
+        self.nodes.get_index(index).map(|(name, _)| name.as_str())
+    }
+
     /// br-cc-nbunchbulk: int membership fast path for `_nbunch_present` — see the
     /// simple-Graph accessor.
     #[must_use]
@@ -4198,6 +4213,30 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(from_indices, from_borrowed);
+    }
+
+    #[test]
+    fn multigraph_node_index_accessors_follow_remove_readd() {
+        let mut graph = MultiGraph::strict();
+        for node in ["prefix", "s", "a", "b", "t"] {
+            let _ = graph.add_node(node.to_owned());
+        }
+
+        for (expected_index, node) in ["prefix", "s", "a", "b", "t"].into_iter().enumerate() {
+            assert_eq!(graph.get_node_index(node), Some(expected_index));
+            assert_eq!(graph.get_node_name(expected_index), Some(node));
+        }
+
+        assert!(graph.remove_node("prefix"));
+        assert!(graph.remove_node("a"));
+        let _ = graph.add_node("a".to_owned());
+
+        for (expected_index, node) in ["s", "b", "t", "a"].into_iter().enumerate() {
+            assert_eq!(graph.get_node_index(node), Some(expected_index));
+            assert_eq!(graph.get_node_name(expected_index), Some(node));
+        }
+        assert_eq!(graph.get_node_index("prefix"), None);
+        assert_eq!(graph.get_node_name(graph.node_count()), None);
     }
 
     #[test]

@@ -198,6 +198,52 @@ def test_multigraph_bidirectional_backward_row_tie_parity():
     assert fnx.dijkstra_path(fnx_graph, "s", "t", weight="weight") == ["s", "a", "t"]
 
 
+def test_multigraph_bidirectional_node_indices_follow_remove_readd():
+    fnx_graph = fnx.MultiGraph()
+    nx_graph = nx.MultiGraph()
+    for graph in (fnx_graph, nx_graph):
+        graph.add_nodes_from(("prefix", "s", "a", "b", "t"))
+        graph.add_edge("s", "a", weight=1)
+        graph.add_edge("a", "t", weight=1)
+        graph.add_edge("s", "b", weight=1)
+        graph.add_edge("b", "t", weight=1)
+
+    def assert_exact_parity():
+        for source, target in (("s", "t"), ("t", "s")):
+            for name in ("bidirectional_dijkstra", "shortest_path"):
+                assert _exact_outcome(
+                    lambda name=name, source=source, target=target: getattr(fnx, name)(
+                        fnx_graph, source, target, weight="weight"
+                    )
+                ) == _exact_outcome(
+                    lambda name=name, source=source, target=target: getattr(nx, name)(
+                        nx_graph, source, target, weight="weight"
+                    )
+                )
+
+    assert_exact_parity()
+    for graph in (fnx_graph, nx_graph):
+        graph.remove_node("prefix")
+    assert_exact_parity()
+
+    for graph in (fnx_graph, nx_graph):
+        graph.remove_node("a")
+    assert_exact_parity()
+
+    for graph in (fnx_graph, nx_graph):
+        graph.add_edge("s", "a", weight=1)
+        graph.add_edge("a", "t", weight=1)
+    assert_exact_parity()
+
+    for graph in (fnx_graph, nx_graph):
+        graph.remove_node("b")
+    assert_exact_parity()
+
+    for graph in (fnx_graph, nx_graph):
+        graph.remove_node("a")
+    assert_exact_parity()
+
+
 @pytest.mark.parametrize(
     ("parallel_attrs", "expected_length", "expected_type"),
     (
