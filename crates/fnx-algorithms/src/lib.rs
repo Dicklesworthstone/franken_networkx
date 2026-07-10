@@ -4151,6 +4151,33 @@ fn eigenvector_centrality_generic<G: GraphView>(
     let mut iterations = 0usize;
     let mut edges_scanned = 0usize;
 
+    // br-r37-c1-eigcsr (cc): materialize the canonical-index adjacency in CSR form
+    // ONCE. The power iteration below is (I+A)*x; the old inner loop re-collected a
+    // fresh `Vec<&str>` of every source's neighbours and re-hashed each neighbour
+    // name through `index_by_node` on EVERY one of up to `max_iter` passes -- i.e.
+    // it re-resolved the entire string-keyed adjacency k times. The CSR is built
+    // from the same `neighbors_iter` order and the same `index_by_node` resolution
+    // (unresolved neighbours skipped identically), so each pass's scatter-add runs
+    // in the identical order (canonical source order, then neighbour order) and the
+    // f64 accumulation is byte-identical -- only the repeated allocation and string
+    // hashing are removed. `neighbors_per_pass` reproduces the old
+    // `edges_scanned += neighbors.len()` (counts ALL neighbours, resolved or not).
+    let mut csr_offsets: Vec<usize> = Vec::with_capacity(n + 1);
+    csr_offsets.push(0);
+    let mut csr_targets: Vec<usize> = Vec::new();
+    let mut neighbors_per_pass = 0usize;
+    for source in &canonical_nodes {
+        if let Some(iter) = graph.neighbors_iter(source) {
+            for neighbor in iter {
+                neighbors_per_pass += 1;
+                if let Some(&target_idx) = index_by_node.get(neighbor) {
+                    csr_targets.push(target_idx);
+                }
+            }
+        }
+        csr_offsets.push(csr_targets.len());
+    }
+
     let mut converged = false;
     for _ in 0..max_iter {
         iterations += 1;
@@ -4160,20 +4187,13 @@ fn eigenvector_centrality_generic<G: GraphView>(
         // graphs (where pure A*x alternates between two states).
         next_scores.copy_from_slice(&scores);
 
-        for (source_idx, source) in canonical_nodes.iter().enumerate() {
+        for source_idx in 0..n {
             let source_score = scores[source_idx];
-            let neighbors: Vec<&str> = graph
-                .neighbors_iter(source)
-                .map(|iter| iter.collect())
-                .unwrap_or_default();
-            edges_scanned += neighbors.len();
-            for neighbor in neighbors {
-                let Some(&target_idx) = index_by_node.get(neighbor) else {
-                    continue;
-                };
+            for &target_idx in &csr_targets[csr_offsets[source_idx]..csr_offsets[source_idx + 1]] {
                 next_scores[target_idx] += source_score;
             }
         }
+        edges_scanned += neighbors_per_pass;
 
         let norm = next_scores
             .iter()
@@ -4220,6 +4240,75 @@ fn eigenvector_centrality_generic<G: GraphView>(
         },
         converged,
     )
+}
+
+/// br-r37-c1-eigcsr A/B baseline: the pre-lever power iteration that re-collected
+/// a `Vec<&str>` of every source's neighbours and re-hashed each name through
+/// `index_by_node` on EVERY pass. Test-only so the paired A/B can measure the CSR
+/// reformulation against its exact string-hash baseline in one binary. Returns raw
+/// scores in `nodes_ordered()` order; byte-identical to `eigenvector_centrality`.
+#[cfg(test)]
+fn eigenvector_scores_orig_stringhash(graph: &Graph, max_iter: usize, tol: f64) -> Vec<f64> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    if n == 1 {
+        return vec![1.0];
+    }
+    let mut canonical_nodes = nodes.clone();
+    canonical_nodes.sort_unstable();
+    let index_by_node = canonical_nodes
+        .iter()
+        .enumerate()
+        .map(|(idx, node)| (*node, idx))
+        .collect::<HashMap<&str, usize>>();
+
+    let mut scores = vec![1.0_f64 / n as f64; n];
+    let mut next_scores = vec![0.0_f64; n];
+    for _ in 0..max_iter {
+        next_scores.copy_from_slice(&scores);
+        for (source_idx, source) in canonical_nodes.iter().enumerate() {
+            let source_score = scores[source_idx];
+            let neighbors: Vec<&str> = graph
+                .neighbors_iter(source)
+                .map(std::iter::Iterator::collect)
+                .unwrap_or_default();
+            for neighbor in neighbors {
+                let Some(&target_idx) = index_by_node.get(neighbor) else {
+                    continue;
+                };
+                next_scores[target_idx] += source_score;
+            }
+        }
+        let norm = next_scores
+            .iter()
+            .map(|value| value * value)
+            .sum::<f64>()
+            .sqrt();
+        let normalizer = if norm > 0.0 { norm } else { 1.0 };
+        for value in &mut next_scores {
+            *value /= normalizer;
+        }
+        let delta = next_scores
+            .iter()
+            .zip(scores.iter())
+            .map(|(left, right)| (left - right).abs())
+            .sum::<f64>();
+        scores.copy_from_slice(&next_scores);
+        if delta < n as f64 * tol {
+            break;
+        }
+    }
+    nodes
+        .iter()
+        .map(|node| {
+            scores[*index_by_node
+                .get(*node)
+                .expect("output node must exist in canonical index")]
+        })
+        .collect()
 }
 
 #[must_use]
@@ -46229,6 +46318,104 @@ mod tests {
         );
         report("NEIGHBOR_COUNT_vs_alloc", &paired(true, false));
         report("NULL_lever_vs_lever", &paired(true, true));
+    }
+
+    /// br-r37-c1-eigcsr: paired-interleaved median A/B for the CSR reformulation
+    /// of `eigenvector_centrality`'s power iteration (build the canonical-index
+    /// adjacency once vs re-collect `Vec<&str>` + re-hash names every pass),
+    /// against its exact string-hash baseline, in ONE binary / ONE worker with a
+    /// NULL control. `#[ignore]` (measurement); run with
+    /// `cargo test --release -p fnx-algorithms --lib eigenvector_csr_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn eigenvector_csr_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // 30-regular circulant on 1500 nodes: dense enough that each pass's
+        // per-source `Vec<&str>` alloc + per-neighbour `index_by_node` hash is real
+        // work, and tol=0.0 forces all `iters` passes (no early converge) so both
+        // arms do identical work and the ratio is pure per-pass overhead.
+        let n = 1500usize;
+        let half_deg = 15usize;
+        let iters = 60usize;
+        let tol = 0.0_f64;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=half_deg {
+                let j = (i + k) % n;
+                let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+            }
+        }
+
+        // Byte-exact parity: CSR production scores == string-hash baseline scores.
+        let csr = super::eigenvector_centrality_with_params(&g, iters, tol).0;
+        let csr_scores: Vec<f64> = csr.scores.iter().map(|s| s.score).collect();
+        let base_scores = super::eigenvector_scores_orig_stringhash(&g, iters, tol);
+        assert_eq!(csr_scores.len(), base_scores.len());
+        for (i, (a, b)) in csr_scores.iter().zip(base_scores.iter()).enumerate() {
+            assert_eq!(
+                a.to_bits(),
+                b.to_bits(),
+                "CSR eigenvector score for node {i} must be bit-identical to the string-hash baseline"
+            );
+        }
+
+        let time = |lever: bool| -> f64 {
+            let t0 = Instant::now();
+            for _ in 0..3 {
+                if lever {
+                    black_box(super::eigenvector_centrality_with_params(&g, iters, tol).0);
+                } else {
+                    black_box(super::eigenvector_scores_orig_stringhash(&g, iters, tol));
+                }
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 121usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "EIGENVECTOR_CSR_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("EIGENVECTOR_CSR_AB n={n} half_deg={half_deg} iters={iters} rounds={rounds} (>1 = CSR faster)");
+        report("CSR_vs_stringhash", &paired(true, false));
+        report("NULL_csr_vs_csr", &paired(true, true));
     }
 
     fn assert_runtime_policy_preserved(source: &RuntimePolicy, result: &RuntimePolicy) {
