@@ -2,6 +2,20 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-10 cod_nx REJECTED MEASUREMENT: longer linear sampling replicated 1.3043x but amplified shared-host CV (`br-r37-c1-gtty9`)
+
+The unchanged one-binary paired candidate/current-native ORIG ran on `vmi1227854` CPU9 with a 20-second
+Criterion window, extension SHA-256 `2a1d56ea0d9ca770a3e6ee9ff0f334135cafe7d4a456da7669272ba503051e13`.
+Both exact functions again had non-zero profile self-time: candidate `0.006091707 s/64` (`97.886769%`) and
+ORIG `0.008851399 s/64` (`98.667497%`). Twenty alternating samples measured candidate `119841.614 ns`, ORIG
+`156303.886 ns`, and `1.304254x`, closely replicating the first attempt's `1.301117x`; however raw CV worsened
+to `11.694667%` / `10.867936%`.
+
+**VERDICT: REJECT THIS MEASUREMENT AS KEEP EVIDENCE; NO SOURCE VERDICT.** Criterion's default linear mode
+assigns unequal iteration counts across samples, so early short samples remain sensitive to shared-host
+scheduling while later samples capture drift. Retry condition: identical source and paired callback, but
+equal-sized `SamplingMode::Flat` samples; both raw CVs must be below 5%.
+
 ## 2026-07-10 cod_nx REJECTED MEASUREMENT: persistent MultiGraph dense node IDs were 1.3011x faster, but both paired CVs missed 5% (`br-r37-c1-gtty9`)
 
 **PROFILE FIRST.** On exact string-key weighted `MultiGraph` source-target queries, release-perf cProfile
