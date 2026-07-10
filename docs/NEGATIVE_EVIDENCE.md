@@ -2,6 +2,40 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-10 codex REJECT: `connected_components` Vec FIFO is bit-identical but slower on both median self-time gates
+
+**PROFILE FIRST.** The untouched pure-Rust Criterion group was built and run only through
+`RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo bench` on worker `hz2`. Its largest rows
+were `path/1000` `32.159 us` and `grid/900` `31.852 us` (Criterion point estimates; 30 samples, 1-second
+warm-up, 3-second measurement). An env-gated in-process pprof pass, also through `cargo bench`, ran on
+`vmi1152480`: `connected_components_borrowed` accounted for `1289/1687` inclusive samples (`76.4%`), while
+final owned-String emission accounted for `309/1687` (`18.3%`) and `nodes_ordered` collection for
+`114/1687` (`6.8%`). That selected the still-untried traversal lever: replace the reusable
+`VecDeque<usize>` with a preallocated `Vec<usize>` plus a monotonically increasing head cursor.
+
+**ONE-BINARY PARITY AND MEDIAN GATE.** A temporary frozen VecDeque reference retained the exact production
+walk: integer adjacency, CGSE decision calls, early termination, borrowed component buffers, final owned
+String conversion, component order, and every `ComplexityWitness` field. Candidate and reference were
+exactly equal on empty, disconnected/branching, and connected stride graphs. The optimized lib-test binary
+then alternated arm order across 61 equal-work samples on the same RCH worker (`vmi1293453`), 100 calls per
+sample:
+
+| row | VecDeque median | Vec FIFO median | old/new ratio | verdict |
+|---|---:|---:|---:|---|
+| `connected_components/path/1000` | `36,612 ns` | `36,944 ns` | `0.991013x` | candidate slower |
+| `connected_components/grid/900` | `39,480 ns` | `39,745 ns` | `0.993332x` | candidate slower |
+
+The exact-output proof passed (`1 passed`, `0 failed`), but both median self-time rows lost. The candidate,
+temporary reference, and profiling hook were reverted completely; `crates/fnx-algorithms/src/lib.rs` and
+the Criterion source returned byte-for-byte to `HEAD`. A separate candidate Criterion attempt on
+`vmi1149989` is invalid evidence because that worker failed before compilation: its `/dp/frankentui` exposed
+`ftui 0.4.1` while `fnx-runtime` required `^0.5.0`; RCH correctly did not fall back locally.
+
+**VERDICT: REJECT / NO SOURCE SHIP.** Do not retry the VecDeque-to-Vec-head substitution for
+`connected_components`; the same-crate Brandes win does not transfer to this shorter BFS surface. Preserve
+the current reusable VecDeque. Any future connected-components pass needs a fresh profile and a different
+primitive class, not another FIFO representation change.
+
 ## 2026-07-10 cc COMPREHENSIVE MEASURE: the "string-key dijkstra floor, 8-20x slower" premise is STALE — the whole surface is 10/11 WINS (to 15.55x); the "8-20x" is fnx FASTER, inverted
 
 Directed repeatedly at a "string-key dijkstra allocation floor, 8-20x slower than networkx, the suite's
