@@ -16367,3 +16367,76 @@ closeness_centrality (benched on complete(20/50/100), all n<500 SEQUENTIAL, diam
 BEST case; prototype ~11-17x) — needs per-source (reached_j, sum_dist_j) attribution (iterate set bits of
 next[w] per level, cheap on low-diameter). The many-core parallel sizes need a chunked-parallel design
 (parallelise source-chunks, bit-parallel within each chunk) to beat the per-source rayon path — deferred.
+
+## 2026-07-09 cc_nx SHIP (RUST, bit-parallel BFS sibling #1): closeness_centrality sequential path — complete/100 14.3x, complete/50 9.2x, complete/20 5.2x vs ORIG
+
+Executed the NEXT SIBLING named by the aspl bit-parallel entry above (710cfc9db). LEDGER-GREPPED FIRST
+(NEGATIVE_EVIDENCE.md, NEGATIVE_EVIDENCE_cc.md, progress/perf-negative-results.md): no prior rejection of
+bit-parallel closeness; the existing closeness entries are all Python-vs-nx wins, a DIFFERENT game from
+per-crate cargo-bench vs the ORIG Rust kernel.
+
+LEVER: same [u64; W] bitset-column machinery (BitParBfsScratch<W> + build_u32_csr reused verbatim), but
+closeness needs a PER-SOURCE result (reached_s, sum_dist_s), not one global sum. Recover it by walking the
+SET BITS of each newly-reached node's column once per level: bit j set in next[w] at level L => source s0+j
+first reached w at distance L => reached[s]+=1, sum_dist[s]+=L. The bit-walk lives in the once-per-level
+DEFERRED pass, never on the O(|E|) edge loop (the decisive sub-lever carried over from aspl); the inner loop
+stays pure word AND/OR + `any != 0` bail. Total bit-iterations over a run = reachable ordered pairs (<= n^2).
+
+SECOND, INDEPENDENT WIN (do not miss this): the ORIG closeness built its `reverse_adjacency` via the STRING
+API — `in_neighbors_iter(node)` + `get_node_index(neighbor)` per neighbour, i.e. O(n*deg) hash lookups +
+n Vec allocations BEFORE any traversal. Added `GraphView::in_neighbors_indices` (Graph -> neighbors_indices,
+DiGraph -> predecessors_indices). Those are the SAME adj_indices/pred_indices integer rows that
+neighbors_iter/predecessors_iter merely map to names, so the u32 CSR is the IDENTICAL reverse adjacency
+(same order, same multiset) and the fast path skips the string build entirely. GENERAL LEVER: grep for
+`get_node_index(` inside a per-neighbour loop building an adjacency snapshot — the integer row twin usually
+already exists (`*_indices`) and the string round-trip is pure tax.
+
+BYTE-IDENTICAL BY CONSTRUCTION: reached/sum_dist are exact integers and BOTH paths now feed them into one
+shared `closeness_score(reached, sum_dist, n)` — literally the same expression, so the f64 is bit-identical
+whatever the lane width. Gated on the PRE-EXISTING CENTRALITY_PARALLEL_THRESHOLD (500) = exactly the branch
+that was already sequential; n >= 500 keeps the rayon per-source path UNCHANGED (no regression).
+
+MEASURED vs ORIG (criterion --profile release, TWO locally built binaries w/ distinct md5: ORIG from a
+detached `git worktree` at HEAD 2fbc34d84 — working tree never mutated, a concurrent agent is live in this
+checkout — NEW from the working tree; taskset -c 28, --sample-size 100 --measurement-time 3.0, 5 ALTERNATING
+ORIG/NEW trials back-to-back same machine/core):
+  closeness_centrality/complete/20  12.994 us -> 2.515 us  = 5.17x (min/min 5.16x, worst-case 4.74x)
+  closeness_centrality/complete/50  117.90 us -> 12.831 us = 9.19x (min/min 9.13x, worst-case 8.65x)
+  closeness_centrality/complete/100 811.95 us -> 56.807 us = 14.29x (min/min 14.04x, worst-case 13.34x)
+cv% <= 2.72 (ORIG) / 1.97 (NEW) at n=50,100; ORIG n=20 cv 6.65% (one outlier, medians agree). Win scales
+with n at fixed diameter-1 density, exactly as the lever predicts (more sources per traversal). Matches the
+aspl entry's ~11-17x prototype prediction for complete graphs.
+NO REGRESSION on untouched benches (same protocol): aspl/grid/400 437.54->407.66us, degree_centrality
+path/{50,100,500} 3.28/5.89/29.11 -> 2.85/6.38/30.56us, betweenness/complete/50 159.57->154.93us (all noise).
+
+MEASUREMENT TRAP (NEW, record it): the first A/B pinned core 62 whose SMT SIBLING (core 30) was busy with a
+concurrent agent's rustc. NEW complete/100 swung 70.8us -> 54.3us across trials (30%) while ORIG stayed
+within 0.9% — a fast kernel is short enough that sibling contention dominates it, and it corrupts ONLY the
+fast side, which INFLATES a loss / DEFLATES a win. Repinned to core 28 (sibling 60 idle) => every cv < 4%.
+ALWAYS check /sys/devices/system/cpu/cpuN/topology/thread_siblings_list of the pinned core, not just idle%.
+
+CORRECTNESS: 7 new differential/property tests (`bitpar_closeness_tests`) vs an INDEPENDENT per-source
+reverse BFS over the string API (VecDeque/HashMap) that spells NX's formula out longhand, compared with
+f64::to_bits — lane widths W=1..8, diameters 1..n-1, disconnected/isolated, self-loops, the DIRECTED
+predecessor convention (out-star / cycle-70 / DAG), the n>=500 rayon fallback, and the multi-batch (s0>0)
+kernel loop driven directly at n=600 (production never reaches it: n<500 => exactly one batch).
+MUTATION-VERIFIED the tests can fail: dropping the lane offset (s0 + lane*64 + tz -> s0 + tz) fails exactly
+the 3 W>1 tests and no others; pointing DiGraph::in_neighbors_indices at successors_indices fails exactly
+the directed test and no others (undirected graphs cannot distinguish in- from out-adjacency).
+902 fnx-algorithms tests green (895+7); centrality_perf_isomorphism 2 green; Python closeness_centrality
+BYTE-EXACT vs real networkx (float hex) over 27 case families / 1521 values, 0 mismatches; pytest
+-k "closeness or centrality or harmonic" 2620 passed / 0 failed; clippy -D warnings exit 0; fmt clean; ubs
+exit 0 / 0 critical. Proof: tests/artifacts/perf/20260709T-closeness-bitparallel-bfs-cc/report.md.
+
+WITNESS SEMANTICS (deliberate): nodes_touched (total reach) is IDENTICAL; edges_scanned/queue_peak now report
+the work the kernel actually does (one scan serves W*64 sources), far below the per-source sum. Safe and
+precedented by the aspl ship: fnx-conformance only RECORDS the witness (never compares it) and the Python
+binding drops it (centrality_to_dict(..., &result.scores)).
+
+NEXT SIBLING: harmonic_centrality, same reverse-BFS core. Its `harmonic += 1/d` is a FLOAT sum, but BFS pops
+in non-decreasing d and ALL ADDENDS WITHIN A LEVEL ARE THE SAME VALUE 1/L, so replaying `h[s] += 1.0/(L as
+f64)` once per first-reach event in ascending L reproduces the original addition sequence EXACTLY =>
+byte-identical. It MUST be repeated addition, NOT `h += count/L` (different rounding). BLOCKER TO SURFACE:
+harmonic_centrality has NO criterion bench in algorithm_benchmarks.rs, so an honest A/B needs one added
+first. The many-core parallel sizes still need the chunked-parallel design (rayon over source-CHUNKS,
+bit-parallel within each chunk) — still deferred, still untried.
