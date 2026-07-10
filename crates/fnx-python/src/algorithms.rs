@@ -1022,6 +1022,115 @@ fn multigraph_dijkstra_path_to_target_lazy(
     None
 }
 
+/// br-r37-c1-mgsoa (cc): DIFFERENT PRIMITIVE — cache-friendly integer-adjacency (SoA).
+/// The lazy path pays TWO string hashes per EXPLORED edge (`get_node_index(neighbor)` +
+/// `edge_attr_values(node,neighbor)` inside the min-parallel scan), inherent to
+/// MultiGraph's String-keyed `adjacency`/`edges`. Here the string hashing is paid ONCE
+/// in a build pass into a contiguous `Vec<Vec<(neighbor_idx, min_weight, all_int)>>`,
+/// after which Dijkstra is pure integer/float with sequential memory access. Byte-
+/// identical: `adj[i]` is built in `neighbors_iter` order with the same
+/// skip-on-missing rules, so relaxations — and thus the `seq` tie-break sequence — are
+/// unchanged. The build is O(V+E) upfront, so this is a throughput-vs-early-exit trade
+/// the median gate decides.
+#[cfg(test)]
+fn multigraph_dijkstra_path_to_target_intadj(
+    mg: &fnx_classes::MultiGraph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> Option<(f64, Vec<String>, bool)> {
+    let (Some(source_idx), Some(target_idx)) =
+        (mg.get_node_index(source), mg.get_node_index(target))
+    else {
+        return None;
+    };
+    if source_idx == target_idx {
+        return Some((0.0, vec![source.to_owned()], true));
+    }
+    let n = mg.node_count();
+    let mut adj: Vec<Vec<(usize, f64, bool)>> = vec![Vec::new(); n];
+    for (i, row) in adj.iter_mut().enumerate() {
+        let name = mg.get_node_name(i).expect("node index should resolve");
+        if let Some(neighbors) = mg.neighbors_iter(name) {
+            for neighbor in neighbors {
+                let Some(j) = mg.get_node_index(neighbor) else {
+                    continue;
+                };
+                let Some((w, all_int)) =
+                    multigraph_min_parallel_dijkstra_weight(mg, name, neighbor, weight_attr)
+                else {
+                    continue;
+                };
+                row.push((j, w, all_int));
+            }
+        }
+    }
+    let mut distances = vec![f64::INFINITY; n];
+    let mut predecessors = vec![usize::MAX; n];
+    let mut all_int_paths = vec![false; n];
+    let mut finalized = vec![false; n];
+    let mut pq: BinaryHeap<PyDijkstraState> = BinaryHeap::new();
+    let mut seq_counter = 0_u64;
+    distances[source_idx] = 0.0;
+    all_int_paths[source_idx] = true;
+    seq_counter += 1;
+    pq.push(PyDijkstraState {
+        dist: 0.0,
+        seq: seq_counter,
+        node: source_idx,
+    });
+    while let Some(PyDijkstraState {
+        dist: distance,
+        node: node_idx,
+        ..
+    }) = pq.pop()
+    {
+        if distance > distances[node_idx] + PY_DISTANCE_COMPARISON_EPSILON {
+            continue;
+        }
+        if finalized[node_idx] {
+            continue;
+        }
+        finalized[node_idx] = true;
+        if node_idx == target_idx {
+            let mut chain = vec![target_idx];
+            let mut current = target_idx;
+            while current != source_idx {
+                current = predecessors[current];
+                if current == usize::MAX {
+                    return None;
+                }
+                chain.push(current);
+            }
+            chain.reverse();
+            let path = chain
+                .into_iter()
+                .map(|idx| {
+                    mg.get_node_name(idx)
+                        .expect("path node index should resolve")
+                        .to_owned()
+                })
+                .collect::<Vec<_>>();
+            return Some((distance, path, all_int_paths[target_idx]));
+        }
+        for &(neighbor_idx, edge_weight, edge_all_int) in &adj[node_idx] {
+            let next_distance = distance + edge_weight;
+            if next_distance < distances[neighbor_idx] - PY_DISTANCE_COMPARISON_EPSILON {
+                distances[neighbor_idx] = next_distance;
+                predecessors[neighbor_idx] = node_idx;
+                all_int_paths[neighbor_idx] = all_int_paths[node_idx] && edge_all_int;
+                seq_counter += 1;
+                pq.push(PyDijkstraState {
+                    dist: next_distance,
+                    seq: seq_counter,
+                    node: neighbor_idx,
+                });
+            }
+        }
+    }
+    None
+}
+
 /// br-r37-c1-mgdt3 A/B reference: the PRE-interned-keys implementation of
 /// `multigraph_dijkstra_path_to_target_lazy` (builds a `nodes_ordered()` Vec + a
 /// `HashMap<&str,usize>` per call). Kept test-only so the paired A/B in
@@ -26149,32 +26258,39 @@ mod tests {
         }
         let (s, t) = ("0".to_owned(), (n / 2).to_string());
 
-        // Parity: the lever must be byte-identical to its baseline.
-        let cand = super::multigraph_dijkstra_path_to_target_lazy(&g, &s, &t, "weight");
-        let orig = super::multigraph_dijkstra_path_to_target_lazy_orig(&g, &s, &t, "weight");
+        // Arms: 0 = lazy (current production, interned string traversal),
+        //       1 = intadj (cache-friendly integer adjacency, build-once SoA).
+        let call = |arm: u8| {
+            if arm == 0 {
+                super::multigraph_dijkstra_path_to_target_lazy(&g, &s, &t, "weight")
+            } else {
+                super::multigraph_dijkstra_path_to_target_intadj(&g, &s, &t, "weight")
+            }
+        };
+        // Parity: intadj must be byte-identical to the lazy production AND to the
+        // pre-interned original (transitively pins the whole lineage).
+        let bits = |arm: u8| call(arm).map(|(d, p, i)| (d.to_bits(), p, i));
+        let orig_bits = super::multigraph_dijkstra_path_to_target_lazy_orig(&g, &s, &t, "weight")
+            .map(|(d, p, i)| (d.to_bits(), p, i));
+        assert_eq!(bits(0), bits(1), "intadj must match the lazy production");
         assert_eq!(
-            cand.as_ref().map(|(d, p, i)| (d.to_bits(), p.clone(), *i)),
-            orig.as_ref().map(|(d, p, i)| (d.to_bits(), p.clone(), *i)),
-            "interned lever must be byte-identical to its pre-change baseline"
+            bits(0),
+            orig_bits,
+            "lazy must match the pre-interned original"
         );
-        assert!(cand.is_some(), "fixture must have a path");
+        assert!(call(0).is_some(), "fixture must have a path");
 
         const CALLS: usize = 300;
-        let time = |interned: bool| -> f64 {
+        let time = |arm: u8| -> f64 {
             let t0 = Instant::now();
             for _ in 0..CALLS {
-                let r = if interned {
-                    super::multigraph_dijkstra_path_to_target_lazy(&g, &s, &t, "weight")
-                } else {
-                    super::multigraph_dijkstra_path_to_target_lazy_orig(&g, &s, &t, "weight")
-                };
-                black_box(&r);
+                black_box(&call(arm));
             }
             t0.elapsed().as_secs_f64()
         };
         for _ in 0..5 {
-            black_box(time(true));
-            black_box(time(false));
+            black_box(time(0));
+            black_box(time(1));
         }
 
         let median = |v: &[f64]| {
@@ -26183,46 +26299,38 @@ mod tests {
             s[s.len() / 2]
         };
         let rounds = 121usize;
-        // A/B: interned (candidate) vs orig (baseline). ratio = orig/cand, >1 = faster.
-        let mut ab = Vec::with_capacity(rounds);
-        for r in 0..rounds {
-            let (to, tc) = if r % 2 == 0 {
-                let o = time(false);
-                let c = time(true);
-                (o, c)
-            } else {
-                let c = time(true);
-                let o = time(false);
-                (o, c)
-            };
-            ab.push(to / tc);
-        }
-        // NULL: interned vs interned. ratio ~1.0; its spread is the floor.
-        let mut null = Vec::with_capacity(rounds);
-        for r in 0..rounds {
-            let (a, b) = if r % 2 == 0 {
-                let a = time(true);
-                let b = time(true);
-                (a, b)
-            } else {
-                let b = time(true);
-                let a = time(true);
-                (a, b)
-            };
-            null.push(a / b);
-        }
-        let mut null_sorted = null.clone();
-        null_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let nlo = null_sorted[rounds * 5 / 100];
-        let nhi = null_sorted[rounds * 95 / 100];
-        let ab_wins = ab.iter().filter(|&&r| r > 1.0).count();
-        println!(
-            "DIJKSTRA_ALLOC_AB n={n} calls={CALLS} rounds={rounds}: \
-             AB_median(orig/cand)={:.4}x  AB_win_rate={ab_wins}/{rounds}  \
-             NULL_median={:.4}x  NULL_p5_p95=[{nlo:.4},{nhi:.4}]  (>1 = interned faster)",
-            median(&ab),
-            median(&null),
-        );
+        let paired = |cand: u8, base: u8| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let (lo, hi) = (sorted[rounds * 5 / 100], sorted[rounds * 95 / 100]);
+            println!(
+                "DIJKSTRA_ALLOC_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{lo:.4},{hi:.4}]",
+                median(ratios),
+            );
+        };
+        println!("DIJKSTRA_ALLOC_AB n={n} calls={CALLS} rounds={rounds} (>1 = cand faster)");
+        // THE LEVER TO GATE: intadj (cache-friendly SoA) vs lazy (current production).
+        report("INTADJ_vs_lazy", &paired(1, 0));
+        // NULL floor: lazy vs lazy.
+        report("NULL_lazy_vs_lazy", &paired(0, 0));
     }
 
     #[test]

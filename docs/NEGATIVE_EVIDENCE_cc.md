@@ -1,5 +1,39 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## REJECT (cc, 2026-07-10): the different-primitive SoA / cache-friendly integer-adjacency for MG target Dijkstra is **0.7152x** (0/121 wins) — the upfront O(V+E) build loses to the lazy explored-only traversal (br-r37-c1-mgsoa)
+
+Now owning the whole repo, dug the different primitive the directive named (SoA / cache-friendly key layout):
+build a query-local contiguous `Vec<Vec<(neighbor_idx, min_weight, all_int)>>` ONCE (string hashing paid in
+the build pass), then run Dijkstra as pure integer/float with sequential memory access. Measured on the
+median gate, same binary / ONE worker, byte-identical (parity asserted vs both the lazy production and the
+pre-interned original).
+
+PROVENANCE. Worker `ovh-a`, `RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release`,
+n=800 (~800 ring + ~2400 chord edges), 300 calls/timing, 121 interleaved rounds:
+
+| paired A/B (>1 = cand faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **INTADJ_vs_lazy** (SoA candidate) | **0.7152x** | **0/121** | [0.7004, 0.7342] |
+| NULL_lazy_vs_lazy | 0.9987x | 57/121 | [0.9734, 1.0183] |
+
+DECISION = REJECT, decisive (0.7152x, 0/121, ~40% SLOWER; nowhere near the null floor). MECHANISM, and it is
+the useful finding: the SoA build hashes ALL ~3200 edges upfront, while the lazy target path early-exits
+after exploring only the fraction on the way to `target=n/2`. For a single-target query, "explore only what
+is reached" strictly beats "materialise the whole adjacency." So the per-explored-edge string hashing is NOT
+the dijkstra bottleneck — the upfront full build is worse. This is the pure-Rust confirmation of the ledger's
+long-standing caution against full-projection for single-target MG queries (the target-lazy path was the win
+precisely because it avoids materialisation).
+
+CONSEQUENCE: cache-friendly SoA / integer-CSR is the wrong primitive for the TARGET-query shape. The only
+structural lever that would reduce per-explored-edge hashing WITHOUT paying a per-query full build is a
+PERMANENT integer-adjacency mirror maintained on the MultiGraph itself (`neighbors_indices` O(1), no build) —
+`br-r37-c1-thp6w`. That is a storage-model change (maintain the mirror byte-exactly on every mutation), not a
+per-query micro-lever, and even it only removes the `get_node_index` hash, not the `edge_attr_values` weight
+hash (which needs integer edge keys too). The SoA reject harness (`intadj` cfg-test + `INTADJ_vs_lazy` arm)
+stays as the permanent record; production `multigraph_dijkstra_path_to_target_lazy` is byte-unchanged.
+
+Reject log: `tests/artifacts/perf/20260710T-string-key-dijkstra-status-cc/intadj_SoA_REJECT_median_gate_ovh-a.log`.
+
 ## CONVERGED / SURFACE (cc, 2026-07-10): the MG string-key Dijkstra alloc floor is exhausted at the cc-lane level — remaining residual is STRUCTURAL (MultiGraph string-keyed storage), not a micro-lever
 
 Directed repeatedly at "the dijkstra alloc floor." Definitive convergence after three measured/analyzed levers
