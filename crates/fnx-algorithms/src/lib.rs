@@ -3582,7 +3582,12 @@ fn hits_centrality_generic<G: GraphView>(graph: &G) -> HitsCentralityResult {
         .map(|(idx, node)| (*node, idx))
         .collect::<HashMap<&str, usize>>();
 
-    // Pre-calculate canonical neighbors for deterministic summation
+    // Pre-calculate canonical neighbors for deterministic summation.
+    // br-r37-c1-eigcsr sibling (cc): resolve neighbour names to canonical INDICES
+    // once here (name-sorted, so identical order to the old Vec<&str> since
+    // index order == name order), instead of storing names and re-hashing each
+    // through `index_by_node` on BOTH per-pass loops of every iteration. Same
+    // resolve-once idea already used by katz/pagerank; HITS still stored names.
     let canonical_neighbors = canonical_nodes
         .iter()
         .map(|&v| {
@@ -3591,9 +3596,11 @@ fn hits_centrality_generic<G: GraphView>(graph: &G) -> HitsCentralityResult {
                 .map(|iter| iter.collect())
                 .unwrap_or_default();
             nbrs.sort_unstable();
-            nbrs
+            nbrs.iter()
+                .filter_map(|nbr| index_by_node.get(nbr).copied())
+                .collect()
         })
-        .collect::<Vec<Vec<&str>>>();
+        .collect::<Vec<Vec<usize>>>();
 
     let n_f64 = n as f64;
     let mut hubs = vec![1.0 / n_f64; n];
@@ -3607,14 +3614,10 @@ fn hits_centrality_generic<G: GraphView>(graph: &G) -> HitsCentralityResult {
         authorities.fill(0.0);
         next_hubs.fill(0.0);
 
-        for (source_idx, _source) in canonical_nodes.iter().enumerate() {
+        for (source_idx, neighbors) in canonical_neighbors.iter().enumerate() {
             let source_hub = hubs[source_idx];
-            let neighbors = &canonical_neighbors[source_idx];
             edges_scanned += neighbors.len();
-            for &neighbor in neighbors {
-                let Some(&target_idx) = index_by_node.get(neighbor) else {
-                    continue;
-                };
+            for &target_idx in neighbors {
                 authorities[target_idx] += source_hub;
             }
         }
@@ -3631,13 +3634,9 @@ fn hits_centrality_generic<G: GraphView>(graph: &G) -> HitsCentralityResult {
             }
         }
 
-        for (source_idx, _source) in canonical_nodes.iter().enumerate() {
-            let neighbors = &canonical_neighbors[source_idx];
+        for (source_idx, neighbors) in canonical_neighbors.iter().enumerate() {
             edges_scanned += neighbors.len();
-            let score = neighbors.iter().fold(0.0_f64, |acc, &neighbor| {
-                let Some(&target_idx) = index_by_node.get(neighbor) else {
-                    return acc;
-                };
+            let score = neighbors.iter().fold(0.0_f64, |acc, &target_idx| {
                 acc + authorities[target_idx]
             });
             next_hubs[source_idx] = if score.is_finite() { score } else { 0.0 };
@@ -3712,6 +3711,124 @@ fn hits_centrality_generic<G: GraphView>(graph: &G) -> HitsCentralityResult {
             queue_peak: 0,
         },
     }
+}
+
+/// br-r37-c1-eigcsr sibling A/B baseline: the pre-lever HITS that stored neighbour
+/// NAMES (`Vec<Vec<&str>>`) and re-hashed each through `index_by_node` on both
+/// per-pass loops of every iteration. Test-only; returns raw (hubs, authorities)
+/// in `nodes_ordered()` order, byte-identical to `hits_centrality`.
+#[cfg(test)]
+fn hits_scores_orig_names(graph: &Graph) -> (Vec<f64>, Vec<f64>) {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return (Vec::new(), Vec::new());
+    }
+    if n == 1 {
+        return (vec![1.0], vec![1.0]);
+    }
+    let mut canonical_nodes = nodes.clone();
+    canonical_nodes.sort_unstable();
+    let index_by_node = canonical_nodes
+        .iter()
+        .enumerate()
+        .map(|(idx, node)| (*node, idx))
+        .collect::<HashMap<&str, usize>>();
+    let canonical_neighbors = canonical_nodes
+        .iter()
+        .map(|&v| {
+            let mut nbrs: Vec<&str> = graph
+                .neighbors_iter(v)
+                .map(std::iter::Iterator::collect)
+                .unwrap_or_default();
+            nbrs.sort_unstable();
+            nbrs
+        })
+        .collect::<Vec<Vec<&str>>>();
+
+    let n_f64 = n as f64;
+    let mut hubs = vec![1.0 / n_f64; n];
+    let mut authorities = vec![0.0_f64; n];
+    let mut next_hubs = vec![0.0_f64; n];
+    for _ in 0..HITS_DEFAULT_MAX_ITERATIONS {
+        authorities.fill(0.0);
+        next_hubs.fill(0.0);
+        for (source_idx, _source) in canonical_nodes.iter().enumerate() {
+            let source_hub = hubs[source_idx];
+            for &neighbor in &canonical_neighbors[source_idx] {
+                let Some(&target_idx) = index_by_node.get(neighbor) else {
+                    continue;
+                };
+                authorities[target_idx] += source_hub;
+            }
+        }
+        for value in &mut authorities {
+            if value.is_nan() || !value.is_finite() {
+                *value = 0.0;
+            }
+        }
+        let authority_sum_iter = authorities.iter().copied().sum::<f64>();
+        if authority_sum_iter > 0.0 {
+            for value in &mut authorities {
+                *value /= authority_sum_iter;
+            }
+        }
+        for (source_idx, _source) in canonical_nodes.iter().enumerate() {
+            let score = canonical_neighbors[source_idx]
+                .iter()
+                .fold(0.0_f64, |acc, &neighbor| {
+                    let Some(&target_idx) = index_by_node.get(neighbor) else {
+                        return acc;
+                    };
+                    acc + authorities[target_idx]
+                });
+            next_hubs[source_idx] = if score.is_finite() { score } else { 0.0 };
+        }
+        let hub_sum_iter = next_hubs.iter().copied().sum::<f64>();
+        if hub_sum_iter > 0.0 {
+            for value in &mut next_hubs {
+                *value /= hub_sum_iter;
+            }
+        }
+        let delta = next_hubs
+            .iter()
+            .zip(hubs.iter())
+            .map(|(left, right)| (left - right).abs())
+            .sum::<f64>();
+        hubs.copy_from_slice(&next_hubs);
+        if delta < HITS_DEFAULT_TOLERANCE {
+            break;
+        }
+    }
+    let hub_sum = hubs.iter().sum::<f64>();
+    if hub_sum > 0.0 {
+        for value in &mut hubs {
+            *value /= hub_sum;
+        }
+    } else {
+        for value in &mut hubs {
+            *value = 1.0 / n_f64;
+        }
+    }
+    let authority_sum = authorities.iter().sum::<f64>();
+    if authority_sum > 0.0 {
+        for value in &mut authorities {
+            *value /= authority_sum;
+        }
+    } else {
+        for value in &mut authorities {
+            *value = 1.0 / n_f64;
+        }
+    }
+    let ordered_hubs = nodes
+        .iter()
+        .map(|node| hubs[*index_by_node.get(*node).expect("hub index")])
+        .collect();
+    let ordered_authorities = nodes
+        .iter()
+        .map(|node| authorities[*index_by_node.get(*node).expect("authority index")])
+        .collect();
+    (ordered_hubs, ordered_authorities)
 }
 
 #[must_use]
@@ -46416,6 +46533,107 @@ mod tests {
         println!("EIGENVECTOR_CSR_AB n={n} half_deg={half_deg} iters={iters} rounds={rounds} (>1 = CSR faster)");
         report("CSR_vs_stringhash", &paired(true, false));
         report("NULL_csr_vs_csr", &paired(true, true));
+    }
+
+    /// br-r37-c1-eigcsr sibling: paired-interleaved median A/B for HITS storing
+    /// neighbour INDICES (resolve-once) vs the old neighbour-NAMES + per-pass
+    /// `index_by_node` re-hash baseline, in ONE binary / ONE worker with a NULL
+    /// control. `#[ignore]` (measurement); run with
+    /// `cargo test --release -p fnx-algorithms --lib hits_resolve_once_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn hits_resolve_once_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Pseudo-random ~15-out graph on 1500 nodes (deterministic hash scatter):
+        // an asymmetric, small-spectral-gap adjacency makes HITS iterate many more
+        // passes than a symmetric circulant, so the per-pass string-hash the lever
+        // removes (TWICE per pass: authority + hub loops) actually compounds.
+        let n = 1500usize;
+        let deg = 15usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 0..deg {
+                let j = ((i as u64)
+                    .wrapping_mul(2_654_435_761)
+                    .wrapping_add((k as u64).wrapping_mul(40_503))
+                    .wrapping_add(12_345)
+                    % n as u64) as usize;
+                if j != i {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+                }
+            }
+        }
+
+        // Byte-exact parity: index-based production == name-based baseline.
+        let prod = super::hits_centrality(&g);
+        let prod_hubs: Vec<f64> = prod.hubs.iter().map(|s| s.score).collect();
+        let prod_auth: Vec<f64> = prod.authorities.iter().map(|s| s.score).collect();
+        let (base_hubs, base_auth) = super::hits_scores_orig_names(&g);
+        assert_eq!(prod_hubs.len(), base_hubs.len());
+        for (i, (a, b)) in prod_hubs.iter().zip(base_hubs.iter()).enumerate() {
+            assert_eq!(a.to_bits(), b.to_bits(), "HITS hub {i} must be bit-identical");
+        }
+        for (i, (a, b)) in prod_auth.iter().zip(base_auth.iter()).enumerate() {
+            assert_eq!(a.to_bits(), b.to_bits(), "HITS authority {i} must be bit-identical");
+        }
+
+        let time = |lever: bool| -> f64 {
+            let t0 = Instant::now();
+            for _ in 0..3 {
+                if lever {
+                    black_box(super::hits_centrality(&g));
+                } else {
+                    black_box(super::hits_scores_orig_names(&g));
+                }
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 121usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "HITS_RESOLVE_ONCE_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("HITS_RESOLVE_ONCE_AB n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_names", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
     }
 
     fn assert_runtime_policy_preserved(source: &RuntimePolicy, result: &RuntimePolicy) {
