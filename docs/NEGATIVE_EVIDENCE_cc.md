@@ -1,5 +1,41 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-10, `51aa67fb8`): `bfs_beam_edges` **1.0889x** — third `neighbors().len()`-family member, drop the per-candidate degree `Vec<&str>` from the BFS beam inner loop (br-r37-c1-ra004)
+
+PROFILE-FIRST for the traversal categories the directive named (BFS/DFS/components/build/centrality): the
+public gauntlet is CONVERGED — every measurable vs-networkx row wins (build/traversal/component/attr/
+conversion/link-pred/IO all 1.02-11.7x; dijkstra family 10/11 win, one at-parity; pagerank/to_scipy
+unmeasurable — no scipy on the worker). No vs-nx LOSS remains to attack, so continued the family sweep into a
+user-named category: `bfs_beam_edges` (a networkx BFS fn, not a gauntlet row) took each candidate neighbor's
+degree via `graph.neighbors(nb).unwrap_or_default().len()` **inside the BFS inner loop** — one `Vec<&str>`
+alloc per candidate per level, purely for the beam sort key. Swapped to `graph.neighbor_count(nb)`.
+
+MEASURED — paired-interleaved in-crate A/B vs its exact `neighbors().len()` baseline, ONE binary / ONE worker
+`hz1`, dense hubs (40 clique + 400 spokes/hub), beam width 64, 121 rounds:
+
+| paired A/B (>1 = lever faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **NEIGHBOR_COUNT_vs_alloc** | **1.0889x** | **112/121** | [0.9755, 1.1842] |
+| NULL_lever_vs_lever | 0.9969x | 53/121 | [0.8874, 1.0325] |
+
+DECIDABLE but MODEST: median 1.0889x clears the null floor (null median 0.9969x ≈ 1.0 confirms the harness is
+unbiased on this — noisier — worker; null p95 1.0325 < candidate median). Smaller than node_degree_xy (2.4x)
+because beam BFS allocates far less densely: candidates are gated by the visited-set and the beam width, so
+far fewer per-edge allocs. Byte-identical: `neighbor_count` == `neighbors().len()` (same `adj_indices` len) =>
+identical sort key => identical beam selection => identical edge output (asserted in-test). clippy `-D
+warnings` clean; fmt not runnable (rch refuses to forward `cargo fmt`; code mirrors the committed fmt-clean
+`node_degree_xy_alloc_ab` token-for-token, and remote clippy compiled it). `bfs_beam_edges_orig_alloc` +
+`bfs_beam_alloc_ab` are `#[cfg(test)]` (zero prod cost, permanent parity guard). ~8 family sites remain
+(schultz_index, gutman_index, is_strongly_regular, local_constraint_inner, connected_dominating_set — all
+low-traffic/exotic; the two clearly-hot ones, dedensify + node_degree_xy, are already shipped).
+
+**FRONTIER (2026-07-10): the measurable vs-networkx surface is converged.** No gauntlet row loses. The three
+remaining work items are all NOT micro-levers: (1) scipy-gated pagerank/to_scipy — a BENCH-INFRA blocker (get
+scipy onto rch workers), not a code lever; (2) MultiGraph integer-adjacency epoch (br-r37-c1-thp6w) — the
+structural fix for the at-parity bidirectional-dijkstra residual, multi-session; (3) new gauntlet rows for
+currently-unbenched networkx fns — speculative, needs authoring bench coverage first. The `neighbors().len()`
+family's hot members are exhausted; remaining sites are exotic/cold.
+
 ## SHIPPED WIN (cc, 2026-07-10): `node_degree_xy` **2.4050x** — same lever family, drop two per-edge `Vec<&str>` allocs for no-alloc `neighbor_count` (br-r37-c1-ra004)
 
 Second member of the `neighbors().len()`-Vec-alloc lever family (after dedensify). PROFILE-FIRST: two
