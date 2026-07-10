@@ -1,5 +1,34 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-10, `0b2c1c910`): `hits_centrality` resolve-once neighbour indices **3.1072x** — the SECOND (and last) power-iteration straggler (br-r37-c1-eigcsr sibling)
+
+After eigenvector, dug the rest of the resolve-once family the directive named (pagerank/katz/betweenness/
+all-pairs). Verified: katz (`Vec<Vec<usize>>`), pagerank (`canonical_out_edges Vec<Vec<(usize,f64)>>`),
+betweenness (prebuilt `Vec<Vec<usize>>` + parallel Brandes), simrank (`nbrs: Vec<Vec<usize>>`) are ALL already
+resolve-once. **HITS was a straggler:** it prebuilt neighbour NAMES (`Vec<Vec<&str>>`) but still re-hashed
+each name through `index_by_node` on BOTH per-pass loops (authority + hub) of every one of up to
+HITS_DEFAULT_MAX_ITERATIONS passes. Prebuild the canonical INDICES once (name-sorted, so index order == name
+order => identical deterministic summation order); each pass now indexes directly.
+
+MEASURED — paired-interleaved in-crate A/B vs the exact names+rehash baseline (`hits_scores_orig_names`,
+`#[cfg(test)]`), ONE binary / ONE worker `hz1`, pseudo-random ~15-out n=1500, 121 rounds:
+
+| paired A/B (>1 = index faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **INDEX_vs_names** | **3.1072x** | **121/121** | [3.0541, 3.1666] |
+| NULL_index_vs_index | 1.0003x | 63/121 | [0.9802, 1.0281] |
+
+DECIDABLE: 3.11x median vs null floor [0.980, 1.028], 121/121. FIXTURE-DEPENDENT (honest): the win scales with
+HITS iteration count — only ~1.09x on a pathologically-symmetric circulant that converges in ~2 passes, 3.11x
+on a realistic pseudo-random graph that iterates many passes, because the lever removes PER-PASS string
+hashing. BYTE-IDENTICAL: same sorted neighbour order + same accumulation => bit-exact hubs AND authorities
+(asserted `to_bits` vs baseline). Graph + DiGraph (shared generic). `edges_scanned` preserved. clippy `-D
+warnings` clean.
+
+**FAMILY NOW GENUINELY COMPLETE** (was premature after eigenvector — HITS was a 2nd straggler). Full scan of
+every iteration loop + `Vec<Vec<&str>>` prebuild in fnx-algorithms: no remaining per-pass string re-resolve.
+eigenvector + HITS were the only two.
+
 ## SHIPPED WIN (cc, 2026-07-10, `1cc173ff4`): `eigenvector_centrality` CSR power iteration **14.6379x** — build the canonical-index adjacency ONCE instead of re-resolving the string-keyed adjacency every pass (br-r37-c1-eigcsr)
 
 NEW-PRIMITIVE (CSR) attempt per the directive, PROFILE-FIRST after the micro-lever frontier dried. Found the
