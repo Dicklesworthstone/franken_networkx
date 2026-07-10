@@ -1,5 +1,33 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-10, `c02f65075`): `k_truss` integer-adjacency + mark-array peeling **10.1499x** (br-r37-c1-ktrussmark)
+
+The `k_truss` next-candidate flagged last turn, delivered. It peeled over a String-keyed
+`HashMap<String, HashSet<String>>` inside a `while changed` loop, **cloning an entire `HashSet<String>`
+PER EDGE per pass** (`adj.get(v).cloned()`) plus String-hash `contains`. Map names to indices once, peel over
+`Vec<HashSet<usize>>` (edges removed in place), count common neighbours with a reusable `vec![false; n]` mark
+(no hashing, no per-edge clone).
+
+MEASURED — paired-interleaved in-crate A/B vs the exact String baseline (`k_truss_result_orig_string`,
+`#[cfg(test)]`), ONE binary / ONE worker `vmi`, pseudo-random ~18-deg n=600, k=5, 121 rounds:
+
+| paired A/B (>1 = integer+mark faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **MARK_vs_string** | **10.1499x** | **121/121** | [7.3481, 14.3779] |
+| NULL_mark_vs_mark | 1.0005x | 63/121 | [0.8798, 1.1594] |
+
+DECIDABLE: 10.15x median, p5 7.35x, null centred at 1.0005x. BYTE-IDENTICAL: common count is a SYMMETRIC
+intersection, each edge visited once per pass (integer u<v vs string u<v both visit each edge once), and the
+per-pass removed-edge set is state-determined (visit-order independent); output rebuilt with the same string
+conventions. Asserted `nodes` AND `edges` equal to the baseline in-test. clippy `-D warnings` clean.
+
+VEIN STATE: the clear jackpots (String-HashSet/HashMap membership in a hot O(deg²+)/iterative loop) are DONE —
+triangles 5.54x, square_clustering 29.73x, k_truss 10.15x, plus eigenvector 14.64x + HITS 3.11x (resolve-once).
+Remaining candidates are THINNER: community algos (`label_propagation`/`greedy_modularity`/`louvain`) use label
+arrays / modularity deltas, not set-membership loops (low pattern density); `is_d_separator` is one-pass BFS.
+One left to profile: `nbr_cache: HashMap<&str, Vec<&str>>` (lib.rs ~17845) — a neighbour cache that may be in a
+hot loop. Diminishing returns beyond that.
+
 ## SHIPPED WIN (cc, 2026-07-10, `7c8d711d5`): `square_clustering` integer-adjacency + mark-array **29.7267x** — biggest lever of the session (br-r37-c1-sqcmark)
 
 The `square_clustering` next-sibling flagged last turn, delivered. It built a String-keyed
