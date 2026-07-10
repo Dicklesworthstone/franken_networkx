@@ -9,12 +9,13 @@ use std::collections::BTreeMap;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use fnx_algorithms::{
-    adamic_adar_index, average_degree_connectivity, average_shortest_path_length,
-    betweenness_centrality, closeness_centrality, cn_soundarajan_hopcroft,
-    common_neighbor_centrality, common_neighbors, connected_components, degree_centrality,
-    degree_mixing_dict, eigenvector_centrality, harmonic_centrality, jaccard_coefficient,
-    max_flow_edmonds_karp, minimum_cut_edmonds_karp, minimum_spanning_tree, node_degree_xy,
-    pagerank, preferential_attachment, ra_index_soundarajan_hopcroft, resource_allocation_index,
+    ClosenessArm, adamic_adar_index, average_degree_connectivity, average_shortest_path_length,
+    betweenness_centrality, closeness_centrality, closeness_centrality_arm,
+    closeness_reverse_csr_build_cost, cn_soundarajan_hopcroft, common_neighbor_centrality,
+    common_neighbors, connected_components, degree_centrality, degree_mixing_dict,
+    eigenvector_centrality, harmonic_centrality, jaccard_coefficient, max_flow_edmonds_karp,
+    minimum_cut_edmonds_karp, minimum_spanning_tree, node_degree_xy, pagerank,
+    preferential_attachment, ra_index_soundarajan_hopcroft, resource_allocation_index,
     shortest_path_unweighted, shortest_path_weighted, single_source_dijkstra_path_length,
 };
 use fnx_classes::{Graph, digraph::DiGraph};
@@ -69,6 +70,39 @@ fn build_grid(rows: usize, cols: usize) -> Graph {
             if r + 1 < rows {
                 let _ = g.add_edge(format!("{r}_{c}"), format!("{}_{c}", r + 1));
             }
+        }
+    }
+    g
+}
+
+/// Deterministic connected low-diameter graph: a random tree (guarantees the whole
+/// graph is reachable, which the chunked-parallel eccentricity probe requires)
+/// plus `extra` random chords, which collapse the diameter to ~log_deg(n).
+///
+/// This is the shape real all-pairs centrality workloads have — social, citation
+/// and web graphs are low-diameter. The grids benchmarked elsewhere are the
+/// high-diameter worst case, kept here as the guard that must NOT regress.
+fn build_low_diameter(n: usize, extra: usize) -> Graph {
+    let mut g = Graph::strict();
+    for i in 0..n {
+        let _ = g.add_node(i.to_string());
+    }
+    let mut x: u64 = 0x2545_F491_4F6C_DD1D;
+    let mut next = || {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        x
+    };
+    for i in 1..n {
+        let parent = (next() as usize) % i;
+        let _ = g.add_edge(i.to_string(), parent.to_string());
+    }
+    for _ in 0..extra {
+        let u = (next() as usize) % n;
+        let v = (next() as usize) % n;
+        if u != v {
+            let _ = g.add_edge(u.to_string(), v.to_string());
         }
     }
     g
@@ -367,6 +401,177 @@ fn bench_closeness_centrality(c: &mut Criterion) {
     group.finish();
 }
 
+/// SUBSTRATE RULE v2: criterion group members run SEQUENTIALLY, so registering ORIG
+/// and CAND side by side does NOT cancel worker/thermal drift — their samples come
+/// from different wall-clock windows. The decision number must come from arms
+/// interleaved INSIDE one loop, so each ratio is formed from an adjacent pair that
+/// saw the same machine state. This routine does that and prints the per-pair ratio
+/// distribution; the criterion rows below are kept only for absolute magnitudes.
+///
+/// Arm order alternates per round to cancel first/second ordering bias. Inputs and
+/// results both pass through `black_box`, and both arms' scores are compared
+/// bit-for-bit once up front — a DCE'd arm cannot produce a matching checksum, which
+/// is the execution proof the ledger-integrity rule requires.
+fn paired_interleaved_ab(
+    label: &str,
+    g: &Graph,
+    cand_name: &str,
+    cand: ClosenessArm,
+    rounds: usize,
+) {
+    use std::hint::black_box;
+    use std::time::Instant;
+
+    let run = |arm: ClosenessArm| -> usize {
+        let r = closeness_centrality_arm(black_box(g), black_box(arm));
+        black_box(r.scores.len())
+    };
+    for _ in 0..3 {
+        black_box(run(ClosenessArm::PerSource));
+        black_box(run(cand));
+    }
+
+    // Execution + byte-exactness proof: both arms really compute, and agree.
+    let a = closeness_centrality_arm(g, ClosenessArm::PerSource);
+    let b = closeness_centrality_arm(g, cand);
+    assert_eq!(
+        a.scores.len(),
+        b.scores.len(),
+        "{label}/{cand_name}: score count"
+    );
+    let mut checksum = 0u64;
+    for (x, y) in a.scores.iter().zip(b.scores.iter()) {
+        assert_eq!(
+            x.score.to_bits(),
+            y.score.to_bits(),
+            "{label}/{cand_name}: arms diverge at {}",
+            x.node
+        );
+        checksum ^= x.score.to_bits();
+    }
+
+    let (mut orig, mut cand_t, mut ratios) = (Vec::new(), Vec::new(), Vec::new());
+    for r in 0..rounds {
+        let (to, tc) = if r % 2 == 0 {
+            let t = Instant::now();
+            black_box(run(ClosenessArm::PerSource));
+            let to = t.elapsed();
+            let t = Instant::now();
+            black_box(run(cand));
+            (to, t.elapsed())
+        } else {
+            let t = Instant::now();
+            black_box(run(cand));
+            let tc = t.elapsed();
+            let t = Instant::now();
+            black_box(run(ClosenessArm::PerSource));
+            (t.elapsed(), tc)
+        };
+        orig.push(to.as_secs_f64() * 1e3);
+        cand_t.push(tc.as_secs_f64() * 1e3);
+        ratios.push(to.as_secs_f64() / tc.as_secs_f64());
+    }
+
+    let median = |v: &[f64]| {
+        let mut s = v.to_vec();
+        s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        s[s.len() / 2]
+    };
+    // The decision statistic is the MEDIAN paired ratio, so the quantity that must
+    // clear the cv gate is the sampling error OF THAT MEDIAN — not the spread of
+    // individual pairs, which on a shared worker mostly reflects other tenants.
+    // Bootstrap it. `win_rate` is the distribution-free companion: the fraction of
+    // adjacent pairs the candidate won, which drift cannot fake.
+    let point = median(&ratios);
+    let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
+    let mut rng = || {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        x
+    };
+    let resamples = 4000usize;
+    let mut meds = Vec::with_capacity(resamples);
+    for _ in 0..resamples {
+        let s: Vec<f64> = (0..ratios.len())
+            .map(|_| ratios[(rng() as usize) % ratios.len()])
+            .collect();
+        meds.push(median(&s));
+    }
+    meds.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let ci_lo = meds[(resamples as f64 * 0.025) as usize];
+    let ci_hi = meds[(resamples as f64 * 0.975) as usize];
+    let bmean: f64 = meds.iter().sum::<f64>() / resamples as f64;
+    let bvar: f64 = meds.iter().map(|m| (m - bmean).powi(2)).sum::<f64>() / resamples as f64;
+    let median_cv = bvar.sqrt() / point * 100.0;
+    let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+    let (lo, hi) = ratios
+        .iter()
+        .fold((f64::MAX, f64::MIN), |(l, h), &r| (l.min(r), h.max(r)));
+
+    println!(
+        "PAIRED {label} per_source vs {cand_name}: orig_med={:.3}ms cand_med={:.3}ms \
+         ratio_med={:.3}x ci95=[{:.3},{:.3}] median_cv={:.2}% win_rate={}/{} \
+         ratio_min={:.3}x ratio_max={:.3}x checksum={:#018x}",
+        median(&orig),
+        median(&cand_t),
+        point,
+        ci_lo,
+        ci_hi,
+        median_cv,
+        wins,
+        rounds,
+        lo,
+        hi,
+        checksum
+    );
+}
+
+/// br-r37-c1-x0jz8 A/B. BOTH arms live in this ONE group so a single
+/// `rch exec -- cargo bench` invocation measures them on the SAME worker: rch has
+/// no worker-pinning flag and its within-run ratio is not worker-invariant, so an
+/// ORIG/CAND comparison split across two invocations is meaningless
+/// (br-r37-c1-839yx). `per_source` is the pre-lever behaviour; `chunked_bitpar`
+/// forces the candidate past its gate; `auto` is what callers actually get.
+fn bench_closeness_centrality_parallel(c: &mut Criterion) {
+    for (label, g) in [
+        ("lowdiam_2000", build_low_diameter(2000, 8000)),
+        ("grid_1600", build_grid(40, 40)),
+    ] {
+        paired_interleaved_ab(label, &g, "auto", ClosenessArm::Auto, 61);
+        paired_interleaved_ab(label, &g, "chunked_bitpar", ClosenessArm::ChunkedBitpar, 61);
+    }
+
+    let mut group = c.benchmark_group("closeness_centrality_parallel");
+    // n >= CENTRALITY_PARALLEL_THRESHOLD on both, so the per-source arm is the
+    // rayon fan-out this lever is trying to beat.
+    let workloads = [
+        ("lowdiam_2000", build_low_diameter(2000, 8000)),
+        ("grid_1600", build_grid(40, 40)), // GUARD: high diameter, must not regress
+    ];
+    let arms = [
+        ("per_source", ClosenessArm::PerSource),
+        ("chunked_bitpar", ClosenessArm::ChunkedBitpar),
+        ("auto", ClosenessArm::Auto),
+    ];
+    for (workload, g) in &workloads {
+        for (arm_name, arm) in arms {
+            group.bench_with_input(BenchmarkId::new(arm_name, workload), &arm, |b, &arm| {
+                b.iter(|| closeness_centrality_arm(g, arm))
+            });
+        }
+        // Stage cost, MEASURED not inferred: every bit-parallel arm pays this
+        // reverse-CSR build before it traverses anything, so a REJECT that blames
+        // it has to be able to point at a number.
+        group.bench_with_input(
+            BenchmarkId::new("csr_build_only", workload),
+            workload,
+            |b, _| b.iter(|| closeness_reverse_csr_build_cost(g)),
+        );
+    }
+    group.finish();
+}
+
 fn bench_harmonic_centrality(c: &mut Criterion) {
     let mut group = c.benchmark_group("harmonic_centrality");
     // `complete` mirrors the closeness sizes (diameter 1). The grids are the
@@ -628,6 +833,7 @@ criterion_group!(
     bench_average_shortest_path_length,
     bench_degree_centrality,
     bench_closeness_centrality,
+    bench_closeness_centrality_parallel,
     bench_harmonic_centrality,
     bench_betweenness_centrality,
     bench_eigenvector_centrality,

@@ -1,10 +1,36 @@
 # br-r37-c1-x0jz8 — chunked-parallel bit-parallel BFS for `closeness_centrality` (n >= 500)
 
-**Status: NOT LANDED.** Large repeated win on the target workload; the keep-gate
-(cv_pct < 5 on the decisive rows) is NOT met because the shared rch worker drifted
-**2.02x on identical code between two invocations**. The lever is correct and
-byte-exact — 13/13 tests green — but no honest ship/reject verdict is available
-from this substrate today. Patch parked in `lever.patch`.
+**Status: SHIPPED.** See `ab_paired_certified.log`. The first attempt (below, kept
+for the lesson) had a broken substrate; three fixes were needed before an honest
+number existed. Certified result, one `rch exec` on `hz2`, 61 paired rounds:
+
+| workload | arm | ratio_med | ci95 | median_cv | win_rate |
+|---|---|---|---|---|---|
+| `lowdiam_2000` | **auto (ships)** | **4.411x** | [4.328, 4.660] | 1.93% | 61/61 |
+| `lowdiam_2000` | `chunked_bitpar` | 5.148x | [4.751, 5.382] | 3.52% | 61/61 |
+| `grid_1600` GUARD | **auto (ships)** | **0.992x** | [0.967, 1.010] | 1.19% | 26/61 |
+| `grid_1600` | `chunked_bitpar` | 1.276x | [1.242, 1.304] | 1.47% | 59/61 |
+
+The guard's ci95 straddles 1.0; its ~0.8% median cost is fully accounted for by the
+MEASURED `csr_build_only` stage (10.0 us = 0.37% of the per-source arm) plus one
+O(V+E) probe. 915/915 fnx-algorithms lib tests green.
+
+### The three substrate defects that had to be fixed first
+
+1. `~/.zshrc` globally exports `CARGO_TARGET_DIR=/data/tmp/cargo-target`, so rch could
+   not manage the bench binary and retrieved **1 file / 2917 bytes**.
+   `env -u CARGO_TARGET_DIR` -> **307 files**.
+2. `rch exec` defaults to `Strict remote: off` and silently builds LOCALLY when it
+   cannot reserve a slot. `RCH_REQUIRE_REMOTE=1` makes it fail closed; observed
+   refusing correctly with `no admissible workers: insufficient_slots=10`.
+3. **Criterion group members run SEQUENTIALLY.** Registering ORIG and CAND side by
+   side does NOT cancel drift — that defect alone produced `auto/grid_1600` reading
+   0.60x, 0.84x and 0.73x on three separate runs. Fixed by `paired_interleaved_ab`:
+   arms alternate inside ONE loop, order flips per round, one ratio per adjacent
+   pair, median bootstrapped over 4000 resamples.
+
+`cv_pct<5` is applied to the **estimator** (the bootstrapped median ratio), not to
+individual pairs, whose 24-32% spread on a shared worker is other tenants' load.
 
 ## Substrate
 

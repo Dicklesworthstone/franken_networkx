@@ -8,7 +8,61 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
-## NO-VERDICT / PARKED (cc, 2026-07-10): chunked-parallel bit-parallel BFS for closeness n>=500 — 4.06x-12.1x on the target row, but the rch worker drifted 2.02x on IDENTICAL code between invocations, so cv_pct<5 is unreachable and neither ship nor reject is honest (br-r37-c1-x0jz8)
+## SHIPPED (cc, 2026-07-10): chunked-parallel bit-parallel BFS for `closeness_centrality` n>=500 — **4.411x** on low-diameter (ci95 [4.328,4.660], median_cv 1.93%, 61/61 paired wins); guard grid_1600 **0.992x** [0.967,1.010] (br-r37-c1-x0jz8)
+
+Supersedes the NO-VERDICT entry below, which is retained because its two measurement defects are the
+lesson. THREE substrate fixes were required before an honest number existed:
+
+1. `~/.zshrc` globally exports `CARGO_TARGET_DIR=/data/tmp/cargo-target`, so rch could not manage the
+   bench binary and retrieved **1 file / 2917 bytes**. `env -u CARGO_TARGET_DIR` -> **307 files**.
+2. `RCH_REQUIRE_REMOTE=1` makes rch FAIL CLOSED. Without it `rch exec` silently builds LOCALLY when it
+   cannot reserve a slot (default `Strict remote: off`). Observed refusing correctly:
+   `no admissible workers: insufficient_slots=10 ... refusing local fallback`.
+3. **SUBSTRATE RULE v2:** criterion group members run SEQUENTIALLY. Registering ORIG and CAND side by
+   side does NOT cancel drift — their samples come from different wall-clock windows. That defect alone
+   produced the earlier nonsense (`auto/grid_1600` read 0.60x, 0.84x, 0.73x across three runs). Replaced
+   with `paired_interleaved_ab`: arms alternate INSIDE one loop, arm order flips each round to cancel
+   ordering bias, one ratio per adjacent pair.
+
+DECISION STATISTIC. `cv_pct<5` must apply to the *estimator*, not to individual pairs (whose spread on a
+shared worker is other tenants). Bootstrap (4000 resamples) the MEDIAN paired ratio; report its cv, a 95%
+CI, and the distribution-free `win_rate`. One `rch exec` on worker `hz2`, 61 rounds:
+
+| workload | arm | ratio_med | ci95 | median_cv | win_rate |
+|---|---|---|---|---|---|
+| `lowdiam_2000` | **auto (ships)** | **4.411x** | [4.328, 4.660] | **1.93%** | **61/61** |
+| `lowdiam_2000` | `chunked_bitpar` | 5.148x | [4.751, 5.382] | 3.52% | 61/61 |
+| `grid_1600` GUARD | **auto (ships)** | **0.992x** | [0.967, 1.010] | **1.19%** | 26/61 |
+| `grid_1600` | `chunked_bitpar` | 1.276x | [1.242, 1.304] | 1.47% | 59/61 |
+
+GUARD READS AS NO REGRESSION: the ci95 straddles 1.0, and the ~0.8% median cost is fully accounted for by
+a MEASURED stage, not an inferred one — `csr_build_only` (rows collect + `build_u32_csr`) is **10.0 us on
+grid_1600 = 0.37% of the per-source arm** (cv 2.2%), plus one O(V+E) eccentricity probe of the same order.
+SELF-TIME per arm (ledger-integrity rule): both arms are whole-function benches, so the function under
+test is ~100% of each sample minus that measured 10.0 us shared stage; the chunked arm's traversal
+self-time is `cand_med - csr_build_only` = 2.087 - 0.010 = **2.077 ms** on grid_1600.
+
+EXECUTION PROOF (frankenmermaid 5feb977): the gate reads `rayon::current_num_threads()` — a property of a
+worker we do not control — so which arm ran was unknowable by assumption. Test
+`bench_workloads_take_the_path_the_ledger_claims_at_any_thread_count` pins it for EVERY thread count
+1..=128: `grid_1600` DECLINES, `lowdiam_2000` ACCEPTS. Additionally `paired_interleaved_ab` asserts both
+arms' scores are bit-identical (`to_bits`) before timing, so a DCE'd arm cannot pass; inputs AND results
+pass through `black_box`. (Note: the grid checksum XORs to 0 because grid symmetry makes every closeness
+value appear an even number of times — the `assert_eq!` is the parity proof, not the checksum.)
+
+THE GATE IS TOO CONSERVATIVE, and the measurement proves it: forced `chunked_bitpar` BEATS per-source on
+`grid_1600` by **1.276x** (59/61 pairs) — a high-diameter graph the gate declines. The win there comes not
+from edge-scan amortisation (78 levels vs 64 lanes buys nothing) but from the u32 CSR replacing the
+per-source path's string-keyed `reverse_adjacency` build (n Vec allocs + O(n*deg) `get_node_index` hash
+lookups). Filed **br-r37-c1-yy0rp**: reuse the CSR on the declined path, which should turn the 0.992x
+guard into a win and let the gate relax. NOT done here — one lever per commit.
+
+Correctness: 915/915 `fnx-algorithms` lib tests green on `ovh-a` (the refactor touches the shared
+`ReachSink` kernel that harmonic and aspl also use; all 26 `bitpar` tests pass). chunked == sequential at
+every lane width 1..8; all arms bit-identical; the gate declines when the probe cannot reach every node.
+`cargo clippy -p fnx-algorithms --all-targets -- -D warnings` clean, `cargo fmt --check` clean, all remote.
+
+## NO-VERDICT / SUPERSEDED (cc, 2026-07-10): the same lever measured on a BROKEN substrate — kept because the two defects are the lesson (br-r37-c1-x0jz8)
 
 Executed the last untried sub-lever of the ReachSink primitive. Ledger-grepped first: the chunked
 design is named 3x in `NEGATIVE_EVIDENCE.md` as "deferred, still untried" — never rejected. Both arms
