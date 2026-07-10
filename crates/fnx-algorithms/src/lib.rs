@@ -3048,22 +3048,28 @@ fn closeness_centrality_generic_arm<G: GraphView>(
             .map(|u| graph.in_neighbors_indices(u))
             .collect::<Option<Vec<&[usize]>>>()
     {
-        let (offsets, targets) = build_u32_csr(n, |u| rows[u]);
         // Below the parallel threshold the per-source loop is sequential anyway,
         // so one traversal advancing W*64 sources strictly beats n sweeps and no
         // gate is needed. At or above it the per-source path fans out over rayon,
         // and bit-parallel only wins when the graph has far fewer BFS levels than
-        // lanes — see `bitpar_chunked_lane_width_if_profitable`.
+        // lanes — see `bitpar_chunked_lane_width_if_profitable_rows`.
+        //
+        // br-r37-c1-k4we4: gate on the borrowed adjacency ROWS, and build the CSR
+        // only once the gate has ACCEPTED. The parallelism test needs no traversal at
+        // all, and the eccentricity probe stops at the largest value the gate could
+        // accept, so a declined graph pays neither a CSR build nor a full sweep.
+        // Backported from aspl, where it cut the probe 9.87us -> 3.41us.
         let threads = rayon::current_num_threads();
         let lane_width = if n < CENTRALITY_PARALLEL_THRESHOLD {
             None
         } else if arm == BitparArm::ChunkedBitpar {
             Some(bitpar_chunk_lane_width(n, threads))
         } else {
-            bitpar_chunked_lane_width_if_profitable(&offsets, &targets, n, threads)
+            bitpar_chunked_lane_width_if_profitable_rows(&rows, n, threads)
         };
 
         if n < CENTRALITY_PARALLEL_THRESHOLD || lane_width.is_some() {
+            let (offsets, targets) = build_u32_csr(n, |u| rows[u]);
             let mut reached = vec![0usize; n];
             let mut sum_dist = vec![0usize; n];
             let (edges_scanned, queue_peak) = match lane_width {
@@ -3220,21 +3226,25 @@ fn harmonic_centrality_generic_arm<G: GraphView>(
             .map(|u| graph.in_neighbors_indices(u))
             .collect::<Option<Vec<&[usize]>>>()
     {
-        let (offsets, targets) = build_u32_csr(n, |u| rows[u]);
         // br-r37-c1-qdcdq: at or above the threshold the per-source path fans out
         // over rayon, so bit-parallel only wins when the graph has far fewer BFS
         // levels than lanes. Identical gate to closeness — the traversal is the
         // same reverse BFS, only the sink differs.
+        //
+        // br-r37-c1-k4we4: gate on the borrowed adjacency ROWS, and build the CSR
+        // only once the gate has ACCEPTED, so a declined graph pays neither a CSR
+        // build nor a full eccentricity sweep.
         let threads = rayon::current_num_threads();
         let lane_width = if n < CENTRALITY_PARALLEL_THRESHOLD {
             None
         } else if arm == BitparArm::ChunkedBitpar {
             Some(bitpar_chunk_lane_width(n, threads))
         } else {
-            bitpar_chunked_lane_width_if_profitable(&offsets, &targets, n, threads)
+            bitpar_chunked_lane_width_if_profitable_rows(&rows, n, threads)
         };
 
         if n < CENTRALITY_PARALLEL_THRESHOLD || lane_width.is_some() {
+            let (offsets, targets) = build_u32_csr(n, |u| rows[u]);
             let mut reached = vec![0usize; n];
             let mut harmonic = vec![0.0f64; n];
             let (edges_scanned, queue_peak) = match lane_width {
@@ -9900,6 +9910,7 @@ fn bitpar_chunk_lane_width(n: usize, threads: usize) -> usize {
 /// Single BFS from node 0 over the CSR. Returns `Some(eccentricity)` only when the
 /// sweep reaches every node, so a disconnected graph (where one root's eccentricity
 /// says nothing about the rest) declines the estimate instead of guessing.
+#[cfg(test)]
 fn bitpar_probe_eccentricity(offsets: &[u32], targets: &[u32], n: usize) -> Option<usize> {
     let mut distance = vec![u32::MAX; n];
     let mut frontier = vec![0u32];
@@ -10067,6 +10078,7 @@ fn bitpar_chunked_lane_width_if_profitable_rows(
     bitpar_gate_from_eccentricity(ecc, n, threads)
 }
 
+#[cfg(test)]
 fn bitpar_chunked_lane_width_if_profitable(
     offsets: &[u32],
     targets: &[u32],

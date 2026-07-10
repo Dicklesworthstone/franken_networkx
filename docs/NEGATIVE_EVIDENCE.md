@@ -97,6 +97,36 @@ record every frame at or above `0.1%` self-time, and require a non-zero self-tim
 function under test. Candidate and a frozen current-native ORIG must execute inside one binary and one RCH
 invocation; the old conversion-route shadow is not an ORIG for the next native-cache lever.
 
+## 2026-07-10 cc MEASUREMENT GATE CORRECTED: decide on the MEDIAN vs the PER-FUNCTION null spread, not on cv_pct. The null floor moves 1.4% between functions on the SAME graph
+
+Supersedes the `cv_pct < 5` gate used in my earlier entries (frankenmermaid: cv<5 is unattainable on this
+hardware; frankenlibc: the floor is per-function). cv is still recorded, but nothing is gated on it.
+
+Measured here, worker `hz2`, ONE `RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec` invocation,
+`paired_interleaved_ab`. A/A null control (`per_source` vs `per_source`) on the **same graph**
+(`grid_1600`), three different functions:
+
+| function | null median | null ci95 | null cv | null win_rate |
+|---|---|---|---|---|
+| `closeness` | 1.007x | [0.994, 1.016] | 0.53% | 57% |
+| `harmonic` | 0.997x | [0.986, 1.009] | 0.61% | 48% |
+| `aspl` | 0.993x | [0.980, 1.006] | 0.64% | 44% |
+
+**The floor moves ~1.4% between functions on identical input.** A single global floor would have
+mis-decided at least one of them. Calibrate the null for the function you are actually measuring.
+
+Applied to the same run's guard rows — a claim is decidable only when the candidate median lies outside
+its OWN null's range: `harmonic/grid_1600` 1.017x -> DECIDABLE WIN (win_rate 64% vs 48% null);
+`closeness/grid_1600` 0.998x -> INSIDE the null, not decidable; `aspl/grid_1600` 0.980x -> exactly on the
+null's lower bound, not decidable. Target rows (4.698x / 4.899x / 6.993x, 100% win-rates) are decidable by
+orders of magnitude.
+
+RULE NOW IN FORCE, composing with the rest: bench both arms in ONE binary / ONE rch invocation,
+interleaved inside a single measured routine, `black_box` on input and result; run the **per-function**
+A/A null control first; decide on the median against the null's observed spread; profile-verify non-zero
+self-time before honoring or writing any REJECT; record binary sha256, self-time, worker id, cv_pct AND
+the null-control median with every WIN and REJECT.
+
 ## 2026-07-10 cc NULL CONTROL: this harness reports an arm as 1.005x [0.999,1.011] FASTER THAN ITSELF — two of my own "certified" regressions are WITHDRAWN
 
 Adopted franken_whisper's null control (register the identical arm twice in the same interleaved routine).

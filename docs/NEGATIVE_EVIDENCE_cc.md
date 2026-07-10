@@ -8,6 +8,78 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## SHIPPED (cc, 2026-07-10): bounded eccentricity probe backported to the closeness + harmonic gates — declined-path probe **10.31us -> 1.22us (8.4x)**; harmonic's guard becomes a DECIDABLE **1.017x WIN** (br-r37-c1-k4we4)
+
+First entry decided under the CORRECTED gate: **the median against the per-function null's spread**, not
+cv_pct. cv is reported as information only.
+
+PROVENANCE. Worker `hz2`; no local binary (built and run remotely); source sha256
+`d052b431dc9450b3b35681a953ce1756c4c6b32de172e28a0d924ae2c2a71570` (`fnx-algorithms/src/lib.rs`) +
+`9c1e8d3a7389dcc4a622497b913dae4ce3cd3abd5db4d1eb21593a4ef52952ce` (`benches/algorithm_benchmarks.rs`),
+parent HEAD `8f2ab9e73`. ONE `RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec` invocation, so every
+row below shares a worker and a binary. `paired_interleaved_ab`, arms alternated inside one loop,
+`black_box` on input and result. 121 rounds (61 for closeness).
+
+### The null floor is PER-FUNCTION (frankenlibc was right)
+
+A/A `per_source` vs `per_source`, **same graph (`grid_1600`), three different functions**:
+
+| function | null median | null ci95 | null cv | null win_rate |
+|---|---|---|---|---|
+| `closeness/grid_1600` | **1.007x** | [0.994, 1.016] | 0.53% | 57% |
+| `harmonic/grid_1600` | **0.997x** | [0.986, 1.009] | 0.61% | 48% |
+| `aspl/grid_1600` | **0.993x** | [0.980, 1.006] | 0.64% | 44% |
+
+The floor moves by ~1.4% between functions on identical input. A global floor would have mis-decided at
+least one of them. Calibrate per function.
+
+### Decidability: candidate median vs its OWN null's range
+
+| row | cand median | its null's ci95 | verdict | cand win / null win |
+|---|---|---|---|---|
+| `closeness/grid_1600` GUARD | 0.998x | [0.994, 1.016] | **INSIDE null — not decidable** | 48% / 57% |
+| `harmonic/grid_1600` GUARD | **1.017x** | [0.986, 1.009] | **DECIDABLE WIN** | 64% / 48% |
+| `aspl/grid_1600` GUARD | 0.980x | [0.980, 1.006] | **on the boundary — not decidable** | 32% / 44% |
+| `closeness/lowdiam_2000` TARGET | **4.698x** | [0.973, 1.021] | DECIDABLE WIN | 100% / 49% |
+| `harmonic/lowdiam_2000` TARGET | **4.899x** | [0.985, 1.017] | DECIDABLE WIN | 100% / 50% |
+| `aspl/lowdiam_2000` TARGET | **6.993x** | [0.997, 1.020] | DECIDABLE WIN | 100% / 55% |
+
+Harmonic's guard is now measurably FASTER than the per-source arm it guards (median 1.017x, above its
+null's upper bound 1.009, win_rate 64% vs a 48% null). I do NOT claim a mechanism: `auto` on a declined
+graph does strictly more work than `per_source` (it collects the borrowed rows and probes them), so a
++1.7% reading is most likely the row collection warming caches for the string-keyed `reverse_adjacency`
+build that follows. **Stated as a measurement, not an explanation.**
+
+`aspl/grid_1600`'s 0.980x sits exactly on its null's lower bound — **not decidable**, no claim, and aspl's
+gate was not touched by this commit. Its win_rate (32% vs a 44% null) is suggestive of a small real cost
+and is recorded for whoever calibrates that function next.
+
+### SELF-TIME, measured in the same run
+
+| stage | `grid_1600` (DECLINED) | `lowdiam_2000` (ACCEPTED) |
+|---|---|---|
+| `gate_probe_unbounded` | 10.306 us | 19.443 us |
+| `gate_probe_bounded` | **1.2205 us** | 19.590 us |
+
+**8.4x cheaper on the declined path, and identical on the accepted path** — exactly the designed
+behaviour, since a low-diameter graph finishes inside the bound anyway. The bounded probe costs
+**1.22 us = 0.04-0.07%** of the 1.7-2.9 ms per-source baselines. It is a directly-timed stage, not a
+ratio, so the null floor does not apply to it.
+
+### The lever
+
+The gate accepts only when `(2*ecc + 1) * 4 <= lanes`, so any eccentricity above `(lanes - 4) / 8` is a
+guaranteed decline: stop walking there. Closeness and harmonic now (a) run the parallelism test
+(`chunks * 4 < threads`) BEFORE any traversal, (b) probe the borrowed adjacency ROWS with that bound, and
+(c) build the u32 CSR **only once the gate has accepted**. A declined graph pays neither a CSR build nor a
+full sweep. Decisions are unchanged: `bounded_probe_gate_agrees_with_unbounded_on_every_shape_and_thread_count`
+compares both gates over {grid1600, grid600, hub2000, hub600, path600, two-disjoint-hubs} x threads
+1..=128. The CSR probe and CSR gate are now `#[cfg(test)]`, retained as the unbounded reference.
+
+TRAP FOUND IN MY OWN GATES: `cargo check -p fnx-algorithms --all-targets` PASSED while
+`cargo check --lib` FAILED — the test-cfg lib compiled a function the production lib could not see. Check
+`--lib` explicitly. 924/924 lib tests green; clippy `-D warnings` clean; fmt clean.
+
 ## NULL CONTROL + SELF-CORRECTION (cc, 2026-07-10): the harness noise floor is ~+/-1.2% (an A/A comparison of an arm against ITSELF reads up to 1.012x, and one null ci95 EXCLUDES 1.0). **The ~1.1% "guard regressions" I disclosed for harmonic and aspl are BELOW that floor and were over-claimed.** The 4.4x-15x wins are unaffected.
 
 Adopted franken_whisper's null control: register the IDENTICAL arm twice in the same interleaved routine
