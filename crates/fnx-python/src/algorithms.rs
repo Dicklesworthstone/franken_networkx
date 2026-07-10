@@ -883,6 +883,136 @@ fn projected_weight(attrs: &AttrMap, weight_attr: &str) -> f64 {
         .unwrap_or(1.0)
 }
 
+fn dijkstra_weight_value_or_default_typed(raw: Option<&fnx_runtime::CgseValue>) -> (f64, bool) {
+    match raw {
+        None => (1.0, true),
+        Some(fnx_runtime::CgseValue::Int(value)) if *value >= 0 => (*value as f64, true),
+        Some(fnx_runtime::CgseValue::Bool(value)) => (if *value { 1.0 } else { 0.0 }, true),
+        Some(fnx_runtime::CgseValue::Float(value)) if value.is_finite() && *value >= 0.0 => {
+            (*value, false)
+        }
+        Some(value) => value
+            .as_f64()
+            .filter(|weight| weight.is_finite() && *weight >= 0.0)
+            .map_or((1.0, false), |weight| (weight, false)),
+    }
+}
+
+fn multigraph_min_parallel_dijkstra_weight(
+    mg: &fnx_classes::MultiGraph,
+    left: &str,
+    right: &str,
+    weight_attr: &str,
+) -> Option<(f64, bool)> {
+    let mut best: Option<(f64, f64, bool)> = None;
+    for attrs in mg.edge_attr_values(left, right)? {
+        let selector_weight = projected_weight(attrs, weight_attr);
+        let (dijkstra_weight, all_int) =
+            dijkstra_weight_value_or_default_typed(attrs.get(weight_attr));
+        if best.is_none_or(|(best_selector, _, _)| selector_weight < best_selector) {
+            best = Some((selector_weight, dijkstra_weight, all_int));
+        }
+    }
+    best.map(|(_, weight, all_int)| (weight, all_int))
+}
+
+fn multigraph_dijkstra_path_to_target_lazy(
+    mg: &fnx_classes::MultiGraph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> Option<(f64, Vec<String>, bool)> {
+    let names = mg.nodes_ordered();
+    let mut index = HashMap::<&str, usize>::with_capacity(names.len());
+    for (idx, node) in names.iter().copied().enumerate() {
+        index.insert(node, idx);
+    }
+    let (Some(&source_idx), Some(&target_idx)) = (index.get(source), index.get(target)) else {
+        return None;
+    };
+    if source_idx == target_idx {
+        return Some((0.0, vec![source.to_owned()], true));
+    }
+
+    let n = names.len();
+    let mut distances = vec![f64::INFINITY; n];
+    let mut predecessors = vec![usize::MAX; n];
+    let mut all_int_paths = vec![false; n];
+    let mut finalized = vec![false; n];
+    let mut pq: BinaryHeap<PyDijkstraState> = BinaryHeap::new();
+    let mut seq_counter = 0_u64;
+
+    distances[source_idx] = 0.0;
+    all_int_paths[source_idx] = true;
+    seq_counter += 1;
+    pq.push(PyDijkstraState {
+        dist: 0.0,
+        seq: seq_counter,
+        node: source_idx,
+    });
+
+    while let Some(PyDijkstraState {
+        dist: distance,
+        node: node_idx,
+        ..
+    }) = pq.pop()
+    {
+        if distance > distances[node_idx] + PY_DISTANCE_COMPARISON_EPSILON {
+            continue;
+        }
+        if finalized[node_idx] {
+            continue;
+        }
+        finalized[node_idx] = true;
+        if node_idx == target_idx {
+            let mut chain = vec![target_idx];
+            let mut current = target_idx;
+            while current != source_idx {
+                current = predecessors[current];
+                if current == usize::MAX {
+                    return None;
+                }
+                chain.push(current);
+            }
+            chain.reverse();
+            let path = chain
+                .into_iter()
+                .map(|idx| names[idx].to_owned())
+                .collect::<Vec<_>>();
+            return Some((distance, path, all_int_paths[target_idx]));
+        }
+
+        let node = names[node_idx];
+        let Some(neighbors) = mg.neighbors_iter(node) else {
+            continue;
+        };
+        for neighbor in neighbors {
+            let Some(&neighbor_idx) = index.get(neighbor) else {
+                continue;
+            };
+            let Some((edge_weight, edge_all_int)) =
+                multigraph_min_parallel_dijkstra_weight(mg, node, neighbor, weight_attr)
+            else {
+                continue;
+            };
+            let next_distance = distance + edge_weight;
+            if next_distance < distances[neighbor_idx] - PY_DISTANCE_COMPARISON_EPSILON {
+                distances[neighbor_idx] = next_distance;
+                predecessors[neighbor_idx] = node_idx;
+                all_int_paths[neighbor_idx] = all_int_paths[node_idx] && edge_all_int;
+                seq_counter += 1;
+                pq.push(PyDijkstraState {
+                    dist: next_distance,
+                    seq: seq_counter,
+                    node: neighbor_idx,
+                });
+            }
+        }
+    }
+
+    None
+}
+
 /// Weight reader for the native greedy-TSP kernel. Mirrors NetworkX's
 /// `nbrdict[v].get(weight, 1)`: a present edge with no `weight` attribute is
 /// `1.0`. Returns `None` only when the `weight` attribute IS present but is
@@ -4335,6 +4465,11 @@ pub fn dijkstra_path_to_target(
                 &target_str,
                 weight,
             )
+        })
+    } else if let GraphRef::MultiUndirected { mg, .. } = &gr {
+        let inner = &mg.inner;
+        py.allow_threads(|| {
+            multigraph_dijkstra_path_to_target_lazy(inner, &source_str, &target_str, weight)
         })
     } else {
         let projection = gr.weighted_undirected_projection(weight);

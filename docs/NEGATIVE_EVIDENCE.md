@@ -16540,6 +16540,146 @@ or another store/marshal primitive measured against `multigraph_dijkstra_path_st
 already-rejected native MG Dijkstra/projection rewrite or a repeated-query classification cache as a standalone
 single-query fix.
 
+## 2026-07-10 cod_nx SHIP (PY BINDING, string-key weighted MultiGraph Dijkstra): target-lazy source-target traversal removes the projection floor and flips the public row
+
+LEDGER-GREPPED FIRST (`docs/NEGATIVE_EVIDENCE.md`, `docs/NEGATIVE_EVIDENCE_cc.md`,
+`docs/progress/perf-negative-results.md`): the StackCanon/allocation family remains closed; display-key/cache
+routes remain rejected for single-query work; and the old full native MG Dijkstra/projection attempt remains
+rejected because String-keyed `MultiGraph` store/projection construction dominated. This lever is different: it
+does not build a projected simple graph, a CSR cache, or a repeated-query cache. It runs target-early-exit
+Dijkstra directly over the existing `MultiGraph` adjacency rows and only inspects parallel-edge attr buckets
+for settled frontier edges.
+
+PROFILE BEFORE LEVER:
+- cProfile on the exact public highway fixture (`multigraph_dijkstra_path_string_target`, 1400 string nodes,
+  20 Dijkstra calls per public helper, 80 helper calls): `_fnx.dijkstra_path_to_target` was `54.508s/1600`
+  calls (`~92.5%` Python-visible self time), after the prior weight gate had reduced
+  `_fnx.check_dijkstra_edge_weights_fast` to `4.141s/1600` (`~7.0%`).
+- Flamegraph: `/tmp/fnx-codnx-mg-dijkstra2/current.svg`.
+- User-space `perf record -g -F 997 -e cycles:u` report:
+
+```text
+self %   frame
+11.88    __memmove_avx_unaligned_erms
+ 8.19    __memcmp_avx2_movbe
+ 6.93    _PyEval_EvalFrameDefault
+ 6.03    malloc_consolidate
+ 5.79    _int_malloc
+ 4.70    <fnx_runtime::RuntimePolicy as Clone>::clone
+ 4.18    _fnx::algorithms::multigraph_to_weighted_simple_graph
+ 3.85    cfree
+ 3.00    unlink_chunk.isra.0
+ 1.98    python3.13 0x13e3df
+ 1.77    PyDict_GetItemWithError
+ 1.65    Sip Hasher::write
+ 1.65    _int_free_chunk
+ 1.39    indexmap::map::IndexMap<DirectedEdgeKey,...>::get_index_of<DirectedEdgeKeyRef>
+ 1.26    fnx_classes::MultiGraph::edges_ordered_borrowed
+ 0.96    malloc
+ 0.93    fnx_classes::Graph::apply_row_orders
+ 0.85    indexmap::map::IndexMap<String, AttrMap>::get_index_of<str>
+ 0.84    indexmap::map::IndexMap<String, AttrMap>::get_index_of<String>
+ 0.71    __libc_malloc2
+ 0.68    PyObject_SelfIter
+ 0.65    Sip Hasher::write
+ 0.55    alloc::collections::btree::map::clone_subtree
+ 0.53    alloc::vec::Vec<&str>::from_iter
+ 0.50    hashbrown::HashMap<(EdgeKeyRef, usize), ()>::insert
+ 0.49    _PyObject_GenericGetAttrWithDict
+ 0.47    hash_one<&(&str,&str)>
+ 0.47    _int_free_merge_chunk
+ 0.47    drop_glue<fnx_runtime::DecisionRecord>
+ 0.44    malloc@plt
+ 0.44    python3.13 0x184fc2
+ 0.39    PyObject_GC_Del
+ 0.38    hash_one<&(EdgeKeyRef, usize)>
+ 0.34    python3.13 0x184f06
+ 0.33    indexmap::map::IndexMap<String, IndexMap<String, IndexSet<usize>>>::get_index_of<String>
+ 0.31    _PyEval_FrameClearAndPop
+ 0.31    PyObject_Free
+ 0.30    _fnx::algorithms::__pyfunction_check_dijkstra_edge_weights_fast
+ 0.30    [kernel unknown]
+ 0.29    fnx_classes::Graph::extend_edges_with_attrs_unrecorded
+ 0.29    drop_glue<BTreeMap<String, CgseValue>>
+ 0.28    drop_glue<Vec<DecisionRecord>>
+ 0.26    _Py_DecRef
+ 0.26    free@plt
+ 0.26    python3.13 0x13e86e
+ 0.24    python3.13 0x13e42d
+ 0.23    PyObject_RichCompare
+ 0.22    [kernel unknown]
+ 0.21    fnx_runtime::RuntimePolicy::record
+ 0.19    _PyObject_GetMethod
+ 0.19    python3.13 0x181263
+ 0.19    hashbrown::raw::RawTable<usize>::reserve_rehash
+ 0.18    fnx_algorithms::graph_edge_weight_or_default_idx_typed
+ 0.18    python3.13 0x15333b
+ 0.18    python3.13 0x181223
+ 0.18    python3.13 0x1811e5
+ 0.17    python3.13 0x154950
+ 0.16    MultiGraph adjacency IndexMap::get_index_of<str>
+ 0.16    BTreeMap IntoIter::dying_next
+ 0.16    python3.13 0x13dd7b
+ 0.15    PyMultiDiGraph::add_edge (fixture import/build noise)
+ 0.15    python3.13 0x1899f8
+ 0.14    PyFloat_AsDouble
+ 0.14    PyObject_GetAttr
+ 0.13    IndexMap<(usize, usize), AttrMap>::get_index_of
+ 0.13    hashbrown::raw::RawTable<(usize, ())>::reserve_rehash
+ 0.13    IndexMap<(usize, usize), AttrMap>::insert_full
+ 0.12    _Py_IncRef
+ 0.12    hash_one<&String>
+ 0.11    alloc_perturb
+ 0.11    MultiGraph adjacency IndexMap::entry
+ 0.11    HashMap<(String, String), PyAny>::get
+ 0.11    python3.13 0x1532da
+ 0.10    python3.13 0x13ea2f
+ 0.10    python3.13 0x1ae1d7
+ 0.10    FxBuildHasher::hash_one<EdgeKeyRef>
+ 0.10    MultiDiGraph::add_edge_impl (fixture import/build noise)
+ 0.10    _PyLong_Multiply
+```
+
+RANKED MECHANISM: full weighted-simple projection and its support allocation/hash work were the dominant native
+cluster (`multigraph_to_weighted_simple_graph`, `edges_ordered_borrowed`, `RuntimePolicy` clones/records,
+IndexMap/hash lookups, BTreeMap/DecisionRecord drops, allocator frames). The next lever therefore targeted
+projection construction, not StackCanon/allocation micro-caches or another Python dispatch gate.
+
+LEVER: `_fnx.dijkstra_path_to_target` now has a `GraphRef::MultiUndirected` fast path. It builds a borrowed
+`&str -> node index` map once for the call, runs the same FIFO-tiebreak `PyDijkstraState` target-early-exit
+kernel over `mg.neighbors_iter(node)`, and chooses the minimum projected-weight parallel edge from
+`mg.edge_attr_values(left, right)` during relaxation. It reconstructs only the target path, preserving string
+node iteration order and the existing integer/float return policy. `Graph`, `DiGraph`, and `MultiDiGraph`
+routes are unchanged.
+
+MEASURED RESULT:
+- ORIG RCH Criterion before the lever, worker `hz2`, `release-perf`, exact row
+  `multigraph_dijkstra_path_string_target`, sample-size 10: FNX `302.63..311.68..321.08 ms`; NetworkX
+  `12.356..12.716..13.387 ms`. FNX was `0.0408x` NetworkX by medians.
+- Candidate RCH Criterion after the lever, same worker `hz2`, `release-perf`, same row, sample-size 20,
+  warm-up 1s, measurement 5s: FNX `11.205..11.377..11.547 ms`; NetworkX `12.395..12.526..12.670 ms`.
+  Same-worker self-speedup is `311.68 / 11.377 = 27.4x`. The row flips from `~24.4x` slower than NetworkX
+  to `1.10x` faster than NetworkX by medians. Criterion half-widths are under 5% for ORIG FNX, candidate FNX,
+  and candidate NetworkX.
+- Supplemental candidate row on `hz1` also won vs NetworkX (`28.135..31.270..33.608 ms` vs
+  `35.655..36.556..37.967 ms`) but is cross-worker and not the keep gate.
+- `perf stat -r 3/5` on the shared host reported roughly 99% variance and is retained only as proof the tool
+  was attempted; it is not decision evidence.
+
+PARITY/GATES: import-time benchmark parity checks exact path/checksum against vendored NetworkX. Focused
+shortest-path/dirty/cache parity passed `178 passed, 5 skipped`. A direct randomized string-key `MultiGraph`
+parallel-edge check passed `80/80` against NetworkX with exact path equality. `cargo fmt --check` passed.
+`ubs crates/fnx-python/src/algorithms.rs` exited 0; it reported only the existing large-file warning inventory
+and embedded fmt/clippy/check/test-build probes were clean. RCH `cargo check --workspace --all-targets` passed
+on `hz2`. RCH `cargo clippy --workspace --all-targets -- -D warnings` passed on `hz2`.
+
+RESULT: Keep. Do not reintroduce full weighted-simple projection for undirected `MultiGraph`
+source-target `dijkstra_path` when the target-lazy path applies. Do not retry StackCanon/allocation,
+display-key caches, repeated-query caches, or the rejected full MG projection/CSR rewrite as standalone fixes
+for this single-query row. Next route in this lane should attack the remaining source-target string-key floor
+with a real node-id/edge-bucket substrate or marshal-avoiding public wrapper, measured against this same public
+row and fresh parity.
+
 ## 2026-07-09 cc_nx SHIP (RUST, bit-parallel BFS sibling #2): harmonic_centrality sequential path — complete/100 17.6x, complete/50 10.4x, grid/400 2.4x vs ORIG
 
 Second sibling of the bit-parallel BFS lever (aspl 710cfc9db 3.65x; closeness d82aba24e 14.29x).
