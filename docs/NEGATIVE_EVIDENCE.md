@@ -16680,6 +16680,174 @@ for this single-query row. Next route in this lane should attack the remaining s
 with a real node-id/edge-bucket substrate or marshal-avoiding public wrapper, measured against this same public
 row and fresh parity.
 
+## 2026-07-10 cod_nx REJECT (PY WRAPPER, string-key weighted MultiGraph `shortest_path(source,target,weight)`): in-process multigraph bidirectional-Dijkstra avoids conversion but is slower than the old parity delegation
+
+LEDGER-GREPPED FIRST (`docs/NEGATIVE_EVIDENCE.md`, `docs/NEGATIVE_EVIDENCE_cc.md`,
+`docs/progress/perf-negative-results.md`): StackCanon/allocation, display-key caches, repeated-query caches,
+prefix-path caches, and full MG projection/CSR rewrites remain rejected for this lane. After the target-lazy
+`dijkstra_path` keep above, the live public-gauntlet `dijkstra|shortest_path` subset was rebaselined on RCH
+worker `ovh-a`: every checked-in shortest/Dijkstra row was already a win, including
+`multigraph_dijkstra_path_string_target` (`9.457 ms` FNX vs `11.725 ms` NetworkX). The remaining source-target
+loss found outside that filter is weighted `shortest_path` / `bidirectional_dijkstra` on undirected
+string-key `MultiGraph`, because `shortest_path(..., weight="weight")` must match NetworkX's
+bidirectional-Dijkstra tie-break and therefore routes through `bidirectional_dijkstra`, whose multigraph branch
+still delegates through `_call_networkx_for_parity`.
+
+PROFILE BEFORE LEVER (1400-node string-key weighted `MultiGraph`, same highway fixture shape as the Dijkstra
+target row, 40 calls): cProfile ranked the old path as `_call_networkx_for_parity` `2.133s/40`, with
+`backend.py:_fnx_to_nx` `1.398s/40`, NetworkX `MultiGraph.add_edges_from` `1.075s/40`, NetworkX
+`bidirectional_dijkstra` `0.691s/40`, and the native weight gate `0.057s/40`. The frame mechanism is graph
+conversion/materialization first, not Dijkstra arithmetic.
+
+Perf/flame artifacts:
+- Flamegraph: `/tmp/fnx-codnx-spw-mg/shortest-path-weighted-mg.svg`
+- Perf report: `/tmp/fnx-codnx-spw-mg/perf-blas1-report.txt`
+- `perf stat -r 5 -d` was attempted but the shared host reported about `97%` elapsed-time variance, so it is
+  diagnostic only.
+
+Ranked perf self-time frames at or above 0.1% after pinning BLAS threads to 1:
+
+```text
+self %   frame
+26.39    _PyEval_EvalFrameDefault
+ 4.00    python3.13 0x13e3df
+ 2.08    PyDict_GetItemWithError
+ 1.99    _PyObject_GenericGetAttrWithDict
+ 1.88    python3.13 0x140ecd
+ 1.68    PyObject_GC_Del
+ 1.58    python3.13 0x184f06
+ 1.36    python3.13 0x22da37
+ 1.13    python3.13 0x13e42d
+ 1.11    python3.13 0x1899f8
+ 1.07    python3.13 0x13e67e
+ 1.04    python3.13 0x22d9e8
+ 1.03    python3.13 0x13e66e
+ 1.02    __memcmp_avx2_movbe
+ 1.00    python3.13 0x1821d3
+ 0.99    python3.13 0x154950
+ 0.96    PyObject_RichCompare
+ 0.93    _PyEval_FrameClearAndPop
+ 0.92    python3.13 0x1538dd
+ 0.80    python3.13 0x180daf
+ 0.77    python3.13 0x1ae1d7
+ 0.72    python3.13 0x1549ad
+ 0.63    PyFunction_NewWithQualName
+ 0.62    IndexMap<String, AttrMap>::get_index_of<str>
+ 0.62    python3.13 0x1539c1
+ 0.61    python3.13 0x1865c3
+ 0.61    _Py_IncRef
+ 0.56    python3.13 0x13e687
+ 0.55    __memmove_avx_unaligned_erms
+ 0.55    python3.13 0x1539f8
+ 0.54    PyTraceBack_Here
+ 0.53    python3.13 0x1356c3
+ 0.52    python3.13 0x15497b
+ 0.52    HashMap<String, PyDict>::rustc_entry
+ 0.51    PyObject_GetAttr
+ 0.51    _fnx::algorithms::__pyfunction_check_dijkstra_edge_weights_fast
+ 0.48    _PyObject_GetMethod
+ 0.47    python3.13 0x153849
+ 0.46    _Py_MakeCoro
+ 0.45    _PyObject_MakeTpCall
+ 0.44    python3.13 0x154bed
+ 0.44    python3.13 0x22dab2
+ 0.39    _PyTuple_FromArraySteal
+ 0.38    _PyObject_GC_New
+ 0.38    python3.13 0x1ae168
+ 0.38    python3.13 0x225653
+ 0.38    python3.13 0x181b2f
+ 0.37    python3.13 0x18665a
+ 0.37    python3.13 0x1548de
+ 0.36    python3.13 0x184f0a
+ 0.34    python3.13 0x225687
+ 0.33    __memset_avx2_unaligned_erms
+ 0.30    _PyObject_GenericSetAttrWithDict
+ 0.29    PyObject_Vectorcall
+ 0.28    python3.13 0x18671d
+ 0.28    python3.13 0x1eca88
+ 0.28    python3.13 0x184fc2
+ 0.26    python3.13 0x186651
+ 0.26    PyArg_UnpackTuple
+ 0.25    python3.13 0x189a20
+ 0.21    python3.13 0x140188
+ 0.21    python3.13 0x1da61f
+ 0.20    python3.13 0x14350c
+ 0.20    python3.13 0x186714
+ 0.19    python3.13 0x180dba
+ 0.19    python3.13 0x1401ff
+ 0.19    PyObject_IsTrue
+ 0.18    PyUnicode_FromFormatV
+ 0.18    python3.13 0x13e4e2
+ 0.18    python3.13 0x1ae1c8
+ 0.17    python3.13 0x13e441
+ 0.17    python3.13 0x13e44e
+ 0.17    _PyLong_New
+ 0.17    python3.13 0x1ae196
+ 0.17    PyMem_Free
+ 0.16    python3.13 0x1899ff
+ 0.16    python3.13 0x1533e1
+ 0.16    python3.13 0x187a78
+ 0.15    PyLong_FromUnsignedLongLong
+ 0.14    python3.13 0x186634
+ 0.14    python3.13 0x1548f7
+ 0.14    python3.13 0x1ae16c
+ 0.14    python3.13 0x1865c7
+ 0.14    python3.13 0x13e482
+ 0.14    python3.13 0x140eb9
+ 0.14    python3.13 0x228efa
+ 0.13    PyTuple_New
+ 0.13    python3.13 0x140118
+ 0.13    python3.13 0x181b51
+ 0.13    PyObject_SetAttr
+ 0.12    PyObject_GetIter
+ 0.12    python3.13 0x13dd7b
+ 0.12    python3.13 0x184f44
+ 0.12    python3.13 0x1a7c0d
+ 0.12    python3.13 0x14032e
+ 0.12    python3.13 0x13dd73
+ 0.11    _PyUnicodeWriter_PrepareInternal
+ 0.11    python3.13 0x154be5
+ 0.11    PyObject_Free
+ 0.11    _PyEvalFramePushAndInit
+ 0.11    python3.13 0x1850cd
+ 0.11    PyList_Append
+ 0.11    python3.13 0x181b3a
+ 0.11    python3.13 0x13f439
+ 0.11    python3.13 0x22d9ec
+ 0.11    python3.13 0x13f446
+ 0.11    python3.13 0x1c0a98
+ 0.11    PyMultiGraph::__pymethod_get_nodes_seq__
+ 0.10    python3.13 0x142da4
+ 0.10    PyDict_New
+ 0.10    python3.13 0x186680
+ 0.10    python3.13 0x13e48f
+ 0.10    python3.13 0x1549db
+ 0.10    python3.13 0x1539ae
+```
+
+ATTEMPTED LEVER: route multigraph `bidirectional_dijkstra` to the existing in-process NetworkX-faithful local
+bidirectional-Dijkstra loop instead of `_call_networkx_for_parity`, adding the exact multigraph string-weight
+reader `min(attrs.get(weight, 1) for attrs in edge_data.values())`. This explicitly did NOT use
+`dijkstra_path_to_target`, because randomized parity found a real tie-break divergence:
+`fnx.dijkstra_path` returned `['n9','n8','n7','n6','n5']` while `nx.shortest_path` returned
+`['n9','n8','n7','n4','n5']` on an equal-weight randomized `MultiGraph`.
+
+CORRECTNESS OF ATTEMPT: the attempted in-process loop matched NetworkX on `600` randomized weighted multigraph
+cases x `2` APIs (`bidirectional_dijkstra`, `shortest_path`), covering both `MultiGraph` and `MultiDiGraph`.
+
+MEASURED RESULT: reject. On the same local process/fixture, old conversion delegation median was `15.511 ms`;
+candidate in-process multigraph loop median was `38.613 ms`; NetworkX median was `4.747 ms`. Candidate vs old
+ratio was `0.402x` (about `2.49x` slower), and candidate vs NetworkX was `0.123x`. Direct CV was high for old
+and NetworkX (`20.22%` / `14.84%`) and near-gate for candidate (`5.46%`), but the loss is far outside the noise
+band. Source was reverted before commit.
+
+RESULT: Rejected/no-ship. Do not retry Python in-process multigraph bidirectional-Dijkstra over fnx adjacency
+views as a marshal-avoid path; the per-relaxation view/PyO3 tax is worse than whole-graph conversion plus
+NetworkX's pure-dict bidirectional loop. The credible next route is a native Rust `MultiGraph`/`MultiDiGraph`
+bidirectional-Dijkstra kernel over internal adjacency/edge buckets that reproduces NetworkX's bidirectional
+meeting-node tie-break, or a public `shortest_path(weight=...)` fast path that proves the specific workload has
+no bidirectional-vs-Dijkstra tie-break ambiguity before using the target-lazy `dijkstra_path` kernel.
+
 ## 2026-07-09 cc_nx SHIP (RUST, bit-parallel BFS sibling #2): harmonic_centrality sequential path — complete/100 17.6x, complete/50 10.4x, grid/400 2.4x vs ORIG
 
 Second sibling of the bit-parallel BFS lever (aspl 710cfc9db 3.65x; closeness d82aba24e 14.29x).
