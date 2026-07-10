@@ -17831,48 +17831,56 @@ pub fn all_simple_paths(
     }
 
     let max_depth = cutoff.unwrap_or(n.saturating_sub(1));
+    let source_idx = graph
+        .get_node_index(source)
+        .expect("source verified present above");
+    let target_idx = graph
+        .get_node_index(target)
+        .expect("target verified present above");
+
     let mut paths: Vec<Vec<String>> = Vec::new();
     let mut nodes_touched = 0usize;
     let mut edges_scanned = 0usize;
     let mut stack_peak = 0usize;
 
-    // DFS with explicit stack: (node, visited_set, current_path, neighbor_index)
-    // Using iterative DFS for stack safety
-    let mut visited: HashSet<&str> = HashSet::new();
-    visited.insert(source);
+    // br-r37-c1-aspmark (cc): iterative DFS over INTEGER node indices with a
+    // `vec![false; n]` visited mark and the graph's integer adjacency, instead of a
+    // String-keyed `HashMap<&str, Vec<&str>>` neighbour cache + `HashSet<&str>`
+    // visited that String-hashed on EVERY DFS step of an exponential enumeration.
+    // Byte-identical: the SET of simple paths and all three witness counters
+    // (nodes_touched / edges_scanned / queue_peak) are independent of neighbour
+    // visit order — each frame examines ALL its neighbours before it is popped, and
+    // `paths.sort()` normalises the output — so adjacency order is fine; node names
+    // are materialised only when a path is emitted.
+    let nbr_cache: Vec<&[usize]> = (0..n)
+        .map(|i| graph.neighbors_indices(i).unwrap_or(&[]))
+        .collect();
 
-    // Stack element: (node, neighbor_index)
-    let mut nbr_cache: HashMap<&str, Vec<&str>> = HashMap::new();
-    for &node in &nodes {
-        let mut nbrs: Vec<&str> = graph
-            .neighbors_iter(node)
-            .map(|iter| iter.collect())
-            .unwrap_or_default();
-        nbrs.sort_unstable();
-        nbr_cache.insert(node, nbrs);
-    }
+    let mut visited = vec![false; n];
+    visited[source_idx] = true;
 
-    let mut stack: Vec<(&str, usize)> = vec![(source, 0)];
-    let mut path: Vec<&str> = vec![source];
+    let mut stack: Vec<(usize, usize)> = vec![(source_idx, 0)];
+    let mut path: Vec<usize> = vec![source_idx];
 
     while !stack.is_empty() {
         stack_peak = stack_peak.max(stack.len());
         let (node, idx) = *stack.last().unwrap();
-        let nbrs = &nbr_cache[node];
+        let nbrs = nbr_cache[node];
 
         if idx < nbrs.len() {
             let next = nbrs[idx];
             stack.last_mut().unwrap().1 += 1;
             edges_scanned += 1;
 
-            if next == target {
+            if next == target_idx {
                 nodes_touched += 1;
-                let mut found_path: Vec<String> = path.iter().map(|s| (*s).to_owned()).collect();
+                let mut found_path: Vec<String> =
+                    path.iter().map(|&i| nodes[i].to_owned()).collect();
                 found_path.push(target.to_owned());
                 paths.push(found_path);
-            } else if !visited.contains(next) && path.len() < max_depth {
+            } else if !visited[next] && path.len() < max_depth {
                 nodes_touched += 1;
-                visited.insert(next);
+                visited[next] = true;
                 path.push(next);
                 stack.push((next, 0));
             }
@@ -17880,7 +17888,7 @@ pub fn all_simple_paths(
             // Backtrack
             stack.pop();
             if let Some(removed) = path.pop() {
-                visited.remove(removed);
+                visited[removed] = false;
             }
         }
     }
@@ -17898,6 +17906,67 @@ pub fn all_simple_paths(
             queue_peak: stack_peak,
         },
     }
+}
+
+/// br-r37-c1-aspmark A/B baseline: the pre-lever all-simple-paths DFS keyed on a
+/// String `HashMap<&str, Vec<&str>>` neighbour cache + `HashSet<&str>` visited.
+/// Test-only; returns (paths, nodes_touched, edges_scanned, stack_peak),
+/// byte-identical to `all_simple_paths` (for source != target, both present).
+#[cfg(test)]
+fn all_simple_paths_orig_string(
+    graph: &Graph,
+    source: &str,
+    target: &str,
+    cutoff: Option<usize>,
+) -> (Vec<Vec<String>>, usize, usize, usize) {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let max_depth = cutoff.unwrap_or(n.saturating_sub(1));
+    let mut paths: Vec<Vec<String>> = Vec::new();
+    let mut nodes_touched = 0usize;
+    let mut edges_scanned = 0usize;
+    let mut stack_peak = 0usize;
+    let mut visited: HashSet<&str> = HashSet::new();
+    visited.insert(source);
+    let mut nbr_cache: HashMap<&str, Vec<&str>> = HashMap::new();
+    for &node in &nodes {
+        let mut nbrs: Vec<&str> = graph
+            .neighbors_iter(node)
+            .map(std::iter::Iterator::collect)
+            .unwrap_or_default();
+        nbrs.sort_unstable();
+        nbr_cache.insert(node, nbrs);
+    }
+    let mut stack: Vec<(&str, usize)> = vec![(source, 0)];
+    let mut path: Vec<&str> = vec![source];
+    while !stack.is_empty() {
+        stack_peak = stack_peak.max(stack.len());
+        let (node, idx) = *stack.last().unwrap();
+        let nbrs = &nbr_cache[node];
+        if idx < nbrs.len() {
+            let next = nbrs[idx];
+            stack.last_mut().unwrap().1 += 1;
+            edges_scanned += 1;
+            if next == target {
+                nodes_touched += 1;
+                let mut found_path: Vec<String> = path.iter().map(|s| (*s).to_owned()).collect();
+                found_path.push(target.to_owned());
+                paths.push(found_path);
+            } else if !visited.contains(next) && path.len() < max_depth {
+                nodes_touched += 1;
+                visited.insert(next);
+                path.push(next);
+                stack.push((next, 0));
+            }
+        } else {
+            stack.pop();
+            if let Some(removed) = path.pop() {
+                visited.remove(removed);
+            }
+        }
+    }
+    paths.sort();
+    (paths, nodes_touched, edges_scanned, stack_peak)
 }
 
 /// Find all simple paths between source and target in a directed graph.
@@ -47108,6 +47177,105 @@ mod tests {
             );
         };
         println!("K_TRUSS_MARK_AB n={n} deg={deg} k={k} rounds={rounds} (>1 = integer+mark faster)");
+        report("MARK_vs_string", &paired(true, false));
+        report("NULL_mark_vs_mark", &paired(true, true));
+    }
+
+    /// br-r37-c1-aspmark: paired-interleaved median A/B for the integer-index +
+    /// mark-array all-simple-paths DFS vs the old String neighbour-cache + HashSet
+    /// baseline, in ONE binary / ONE worker with a NULL control. `#[ignore]`
+    /// (measurement); run with
+    /// `cargo test --release -p fnx-algorithms --lib all_simple_paths_mark_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn all_simple_paths_mark_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Small sparse graph (n=60, ~5-deg) with a short cutoff: all_simple_paths is
+        // exponential, so even this takes MANY DFS steps (the per-step String-hash of
+        // nbr_cache[node] + visited membership is what the lever drops) while keeping
+        // the found-path count bounded so the A/B itself completes quickly.
+        let n = 60usize;
+        let deg = 5usize;
+        let cutoff = Some(5usize);
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for t in 1..=deg {
+                let j = ((i as u64)
+                    .wrapping_mul(2_246_822_519)
+                    .wrapping_add((t as u64).wrapping_mul(374_761_393))
+                    % n as u64) as usize;
+                if j != i {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+                }
+            }
+        }
+        let source = "n0".to_string();
+        let target = "n1".to_string();
+
+        // Byte-exact parity: integer result == string baseline (paths + witness).
+        let prod = super::all_simple_paths(&g, &source, &target, cutoff);
+        let (base_paths, base_nt, base_es, base_sp) =
+            super::all_simple_paths_orig_string(&g, &source, &target, cutoff);
+        assert_eq!(prod.paths, base_paths, "all_simple_paths output must match baseline");
+        assert_eq!(prod.witness.nodes_touched, base_nt, "nodes_touched must match");
+        assert_eq!(prod.witness.edges_scanned, base_es, "edges_scanned must match");
+        assert_eq!(prod.witness.queue_peak, base_sp, "queue_peak must match");
+
+        let time = |lever: bool| -> f64 {
+            let t0 = Instant::now();
+            for _ in 0..3 {
+                if lever {
+                    black_box(super::all_simple_paths(&g, &source, &target, cutoff));
+                } else {
+                    black_box(super::all_simple_paths_orig_string(&g, &source, &target, cutoff));
+                }
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 121usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "ALL_SIMPLE_PATHS_MARK_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("ALL_SIMPLE_PATHS_MARK_AB n={n} deg={deg} cutoff={cutoff:?} rounds={rounds} (>1 = integer+mark faster)");
         report("MARK_vs_string", &paired(true, false));
         report("NULL_mark_vs_mark", &paired(true, true));
     }
