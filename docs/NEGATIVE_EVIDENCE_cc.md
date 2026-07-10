@@ -1,5 +1,36 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-10, `1cc173ff4`): `eigenvector_centrality` CSR power iteration **14.6379x** — build the canonical-index adjacency ONCE instead of re-resolving the string-keyed adjacency every pass (br-r37-c1-eigcsr)
+
+NEW-PRIMITIVE (CSR) attempt per the directive, PROFILE-FIRST after the micro-lever frontier dried. Found the
+last power-iteration algorithm still re-resolving its adjacency per pass: `eigenvector_centrality_generic`'s
+(I+A)*x loop re-collected a fresh `Vec<&str>` of every source's neighbours AND re-hashed each name through
+`index_by_node` on EVERY one of up to `max_iter` passes — i.e. it walked the whole String-keyed adjacency k
+times. Built the canonical-index adjacency ONCE in CSR form (`csr_offsets` + `csr_targets`); each pass is now
+a pure integer scatter-add over contiguous arrays.
+
+MEASURED — paired-interleaved in-crate A/B vs the exact string-hash baseline (`eigenvector_scores_orig_
+stringhash`, `#[cfg(test)]`), ONE binary / ONE worker `hz1`, 30-regular circulant n=1500, iters=60, tol=0 (both
+arms run all 60 passes), 121 rounds:
+
+| paired A/B (>1 = CSR faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **CSR_vs_stringhash** | **14.6379x** | **121/121** | [14.1953, 15.1246] |
+| NULL_csr_vs_csr | 0.9997x | 59/121 | [0.9853, 1.0182] |
+
+DECIDABLE by a mile: 14.64x median vs a null floor [0.985, 1.018], 121/121. BYTE-IDENTICAL: CSR built from the
+same `neighbors_iter` order + same `index_by_node` resolution (unresolved skipped identically), so every pass's
+f64 scatter-add order is unchanged — asserted bit-exact (`to_bits`) against the baseline in-test. Applies to
+Graph AND DiGraph (shared generic). `edges_scanned` witness preserved via `neighbors_per_pass`. clippy `-D
+warnings` clean; fmt not runnable remotely (rch refuses `cargo fmt`; code mirrors committed style + remote
+clippy compiled it).
+
+FAMILY IS NOW COMPLETE, not open: `katz_centrality` (br-r37-c1-91ioe: prebuilt `Vec<Vec<usize>>`) and
+`pagerank` (prebuilt `canonical_out_edges: Vec<Vec<(usize,f64)>>`) were ALREADY fixed with the same
+resolve-once idea — eigenvector was the overlooked straggler. No sibling power-iteration re-resolve remains.
+(CSR-flat is marginally more cache-friendly than their nested `Vec<Vec>`, but the win is the string-hash
+elimination either way.)
+
 ## FRONTIER SWEEP (cc, 2026-07-10): full networkx_head_to_head profile — traversal/centrality/graph-build ALL WIN; every loss is the MultiGraph/MDG string-keyed weighted-edge floor
 
 PROFILE-FIRST across the whole `networkx_head_to_head` bench (46 workloads, two short-criterion sweeps,
