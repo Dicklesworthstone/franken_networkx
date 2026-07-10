@@ -9,13 +9,13 @@ use std::collections::BTreeMap;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use fnx_algorithms::{
-    ClosenessArm, adamic_adar_index, average_degree_connectivity, average_shortest_path_length,
+    BitparArm, adamic_adar_index, average_degree_connectivity, average_shortest_path_length,
     betweenness_centrality, closeness_centrality, closeness_centrality_arm,
     closeness_reverse_csr_build_cost, cn_soundarajan_hopcroft, common_neighbor_centrality,
     common_neighbors, connected_components, degree_centrality, degree_mixing_dict,
-    eigenvector_centrality, harmonic_centrality, jaccard_coefficient, max_flow_edmonds_karp,
-    minimum_cut_edmonds_karp, minimum_spanning_tree, node_degree_xy, pagerank,
-    preferential_attachment, ra_index_soundarajan_hopcroft, resource_allocation_index,
+    eigenvector_centrality, harmonic_centrality, harmonic_centrality_arm, jaccard_coefficient,
+    max_flow_edmonds_karp, minimum_cut_edmonds_karp, minimum_spanning_tree, node_degree_xy,
+    pagerank, preferential_attachment, ra_index_soundarajan_hopcroft, resource_allocation_index,
     shortest_path_unweighted, shortest_path_weighted, single_source_dijkstra_path_length,
 };
 use fnx_classes::{Graph, digraph::DiGraph};
@@ -416,45 +416,41 @@ fn paired_interleaved_ab(
     label: &str,
     g: &Graph,
     cand_name: &str,
-    cand: ClosenessArm,
+    cand: BitparArm,
     rounds: usize,
+    // `run` must consume its result through black_box; `score_bits` supplies the
+    // one-time bit-exactness proof. Passing them in lets closeness and harmonic
+    // share this sampler without duplicating the statistics.
+    run_arm: &dyn Fn(&Graph, BitparArm) -> usize,
+    score_bits: &dyn Fn(&Graph, BitparArm) -> Vec<u64>,
 ) {
     use std::hint::black_box;
     use std::time::Instant;
 
-    let run = |arm: ClosenessArm| -> usize {
-        let r = closeness_centrality_arm(black_box(g), black_box(arm));
-        black_box(r.scores.len())
-    };
+    let run = |arm: BitparArm| -> usize { run_arm(black_box(g), black_box(arm)) };
     for _ in 0..3 {
-        black_box(run(ClosenessArm::PerSource));
+        black_box(run(BitparArm::PerSource));
         black_box(run(cand));
     }
 
-    // Execution + byte-exactness proof: both arms really compute, and agree.
-    let a = closeness_centrality_arm(g, ClosenessArm::PerSource);
-    let b = closeness_centrality_arm(g, cand);
-    assert_eq!(
-        a.scores.len(),
-        b.scores.len(),
-        "{label}/{cand_name}: score count"
-    );
+    // Execution + byte-exactness proof: both arms really compute, and agree. A
+    // dead-code-eliminated arm cannot produce matching bits.
+    let a = score_bits(g, BitparArm::PerSource);
+    let b = score_bits(g, cand);
+    assert_eq!(a.len(), b.len(), "{label}/{cand_name}: score count");
     let mut checksum = 0u64;
-    for (x, y) in a.scores.iter().zip(b.scores.iter()) {
-        assert_eq!(
-            x.score.to_bits(),
-            y.score.to_bits(),
-            "{label}/{cand_name}: arms diverge at {}",
-            x.node
-        );
-        checksum ^= x.score.to_bits();
+    for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
+        assert_eq!(x, y, "{label}/{cand_name}: arms diverge at score {i}");
+        // Order-sensitive fold: a plain XOR cancels on symmetric graphs (a grid's
+        // closeness values each occur an even number of times) and would print 0.
+        checksum = checksum.rotate_left(7) ^ x.wrapping_mul(0x9E37_79B9_7F4A_7C15);
     }
 
     let (mut orig, mut cand_t, mut ratios) = (Vec::new(), Vec::new(), Vec::new());
     for r in 0..rounds {
         let (to, tc) = if r % 2 == 0 {
             let t = Instant::now();
-            black_box(run(ClosenessArm::PerSource));
+            black_box(run(BitparArm::PerSource));
             let to = t.elapsed();
             let t = Instant::now();
             black_box(run(cand));
@@ -464,7 +460,7 @@ fn paired_interleaved_ab(
             black_box(run(cand));
             let tc = t.elapsed();
             let t = Instant::now();
-            black_box(run(ClosenessArm::PerSource));
+            black_box(run(BitparArm::PerSource));
             (t.elapsed(), tc)
         };
         orig.push(to.as_secs_f64() * 1e3);
@@ -534,12 +530,30 @@ fn paired_interleaved_ab(
 /// (br-r37-c1-839yx). `per_source` is the pre-lever behaviour; `chunked_bitpar`
 /// forces the candidate past its gate; `auto` is what callers actually get.
 fn bench_closeness_centrality_parallel(c: &mut Criterion) {
+    let run = |g: &Graph, arm: BitparArm| -> usize {
+        std::hint::black_box(closeness_centrality_arm(g, arm).scores.len())
+    };
+    let bits = |g: &Graph, arm: BitparArm| -> Vec<u64> {
+        closeness_centrality_arm(g, arm)
+            .scores
+            .iter()
+            .map(|s| s.score.to_bits())
+            .collect()
+    };
     for (label, g) in [
-        ("lowdiam_2000", build_low_diameter(2000, 8000)),
-        ("grid_1600", build_grid(40, 40)),
+        ("closeness/lowdiam_2000", build_low_diameter(2000, 8000)),
+        ("closeness/grid_1600", build_grid(40, 40)),
     ] {
-        paired_interleaved_ab(label, &g, "auto", ClosenessArm::Auto, 61);
-        paired_interleaved_ab(label, &g, "chunked_bitpar", ClosenessArm::ChunkedBitpar, 61);
+        paired_interleaved_ab(label, &g, "auto", BitparArm::Auto, 61, &run, &bits);
+        paired_interleaved_ab(
+            label,
+            &g,
+            "chunked_bitpar",
+            BitparArm::ChunkedBitpar,
+            61,
+            &run,
+            &bits,
+        );
     }
 
     let mut group = c.benchmark_group("closeness_centrality_parallel");
@@ -550,9 +564,9 @@ fn bench_closeness_centrality_parallel(c: &mut Criterion) {
         ("grid_1600", build_grid(40, 40)), // GUARD: high diameter, must not regress
     ];
     let arms = [
-        ("per_source", ClosenessArm::PerSource),
-        ("chunked_bitpar", ClosenessArm::ChunkedBitpar),
-        ("auto", ClosenessArm::Auto),
+        ("per_source", BitparArm::PerSource),
+        ("chunked_bitpar", BitparArm::ChunkedBitpar),
+        ("auto", BitparArm::Auto),
     ];
     for (workload, g) in &workloads {
         for (arm_name, arm) in arms {
@@ -568,6 +582,57 @@ fn bench_closeness_centrality_parallel(c: &mut Criterion) {
             workload,
             |b, _| b.iter(|| closeness_reverse_csr_build_cost(g)),
         );
+    }
+    group.finish();
+}
+
+/// br-r37-c1-qdcdq: harmonic on the same chunked-parallel driver, measured with the
+/// same interleaved paired sampler. Harmonic accumulates f64, so the bit-exactness
+/// assertion inside the sampler is doing real work here — chunking must repartition
+/// SOURCES only, never the addition order within a source.
+fn bench_harmonic_centrality_parallel(c: &mut Criterion) {
+    let run = |g: &Graph, arm: BitparArm| -> usize {
+        std::hint::black_box(harmonic_centrality_arm(g, arm).scores.len())
+    };
+    let bits = |g: &Graph, arm: BitparArm| -> Vec<u64> {
+        harmonic_centrality_arm(g, arm)
+            .scores
+            .iter()
+            .map(|s| s.score.to_bits())
+            .collect()
+    };
+    let workloads = [
+        ("harmonic/lowdiam_2000", build_low_diameter(2000, 8000)),
+        ("harmonic/grid_1600", build_grid(40, 40)), // GUARD: gate must decline
+    ];
+    // 121 rounds, not 61: harmonic's per-source arm pays an f64 division per popped
+    // node, so its grid rows are noisier than closeness's and 61 rounds left the
+    // GUARD row's bootstrapped median at cv 6.00% — above the keep-gate. The extra
+    // rounds tighten the estimator, they do not change what is measured.
+    for (label, g) in &workloads {
+        paired_interleaved_ab(label, g, "auto", BitparArm::Auto, 121, &run, &bits);
+        paired_interleaved_ab(
+            label,
+            g,
+            "chunked_bitpar",
+            BitparArm::ChunkedBitpar,
+            121,
+            &run,
+            &bits,
+        );
+    }
+
+    let mut group = c.benchmark_group("harmonic_centrality_parallel");
+    for (label, g) in &workloads {
+        for (arm_name, arm) in [
+            ("per_source", BitparArm::PerSource),
+            ("chunked_bitpar", BitparArm::ChunkedBitpar),
+            ("auto", BitparArm::Auto),
+        ] {
+            group.bench_with_input(BenchmarkId::new(arm_name, label), &arm, |b, &arm| {
+                b.iter(|| harmonic_centrality_arm(g, arm))
+            });
+        }
     }
     group.finish();
 }
@@ -835,6 +900,7 @@ criterion_group!(
     bench_closeness_centrality,
     bench_closeness_centrality_parallel,
     bench_harmonic_centrality,
+    bench_harmonic_centrality_parallel,
     bench_betweenness_centrality,
     bench_eigenvector_centrality,
     bench_pagerank,

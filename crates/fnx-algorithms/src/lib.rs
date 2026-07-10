@@ -2966,15 +2966,18 @@ fn harmonic_source(
     (harmonic, reached, edges_scanned, queue_peak)
 }
 
-/// Selects which `n >= CENTRALITY_PARALLEL_THRESHOLD` strategy `closeness_centrality`
-/// runs. `Auto` is the only behaviour any caller sees; the two forcing variants exist
-/// so an A/B can measure BOTH arms inside ONE benchmark binary, which is the only
-/// honest substrate available here — rch has no worker-pinning flag, so a comparison
-/// split across two `cargo bench` invocations lands on different workers and its
-/// ratio is meaningless (br-r37-c1-839yx).
+/// Selects which `n >= CENTRALITY_PARALLEL_THRESHOLD` strategy the bit-parallel
+/// centralities (`closeness_centrality`, `harmonic_centrality`) run. `Auto` is the
+/// only behaviour any caller sees; the two forcing variants exist so an A/B can
+/// measure BOTH arms inside ONE benchmark binary, which is the only honest substrate
+/// available here — rch has no worker-pinning flag, so a comparison split across two
+/// `cargo bench` invocations lands on different workers and its ratio is meaningless
+/// (br-r37-c1-839yx). Registering the arms side by side is ALSO not enough: criterion
+/// group members run sequentially, so the arms must be interleaved inside one measured
+/// loop (see `paired_interleaved_ab` in the bench).
 #[doc(hidden)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ClosenessArm {
+pub enum BitparArm {
     /// Gate decides: chunked-parallel bit-parallel when it predicts a win.
     Auto,
     /// Always the per-source rayon sweep (the pre-x0jz8 behaviour).
@@ -2986,7 +2989,7 @@ pub enum ClosenessArm {
 /// Bench/test-only entry point pinning one arm. Results are identical across arms.
 #[doc(hidden)]
 #[must_use]
-pub fn closeness_centrality_arm(graph: &Graph, arm: ClosenessArm) -> ClosenessCentralityResult {
+pub fn closeness_centrality_arm(graph: &Graph, arm: BitparArm) -> ClosenessCentralityResult {
     closeness_centrality_generic_arm(graph, arm)
 }
 
@@ -3009,12 +3012,12 @@ pub fn closeness_reverse_csr_build_cost(graph: &Graph) -> usize {
 }
 
 fn closeness_centrality_generic<G: GraphView>(graph: &G) -> ClosenessCentralityResult {
-    closeness_centrality_generic_arm(graph, ClosenessArm::Auto)
+    closeness_centrality_generic_arm(graph, BitparArm::Auto)
 }
 
 fn closeness_centrality_generic_arm<G: GraphView>(
     graph: &G,
-    arm: ClosenessArm,
+    arm: BitparArm,
 ) -> ClosenessCentralityResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
@@ -3039,7 +3042,7 @@ fn closeness_centrality_generic_arm<G: GraphView>(
     // `closeness_score`, so the scores are bit-identical. The integer rows are
     // precisely what `in_neighbors_iter` walks, so the CSR needs no node-name
     // lookups — the string-keyed `reverse_adjacency` below is skipped entirely.
-    if arm != ClosenessArm::PerSource
+    if arm != BitparArm::PerSource
         && n <= u32::MAX as usize
         && let Some(rows) = (0..n)
             .map(|u| graph.in_neighbors_indices(u))
@@ -3054,7 +3057,7 @@ fn closeness_centrality_generic_arm<G: GraphView>(
         let threads = rayon::current_num_threads();
         let lane_width = if n < CENTRALITY_PARALLEL_THRESHOLD {
             None
-        } else if arm == ClosenessArm::ChunkedBitpar {
+        } else if arm == BitparArm::ChunkedBitpar {
             Some(bitpar_chunk_lane_width(n, threads))
         } else {
             bitpar_chunked_lane_width_if_profitable(&offsets, &targets, n, threads)
@@ -3169,7 +3172,21 @@ pub fn harmonic_centrality_directed(graph: &DiGraph) -> HarmonicCentralityResult
     harmonic_centrality_generic(graph)
 }
 
+/// Bench/test-only entry point pinning one arm. Results are identical across arms.
+#[doc(hidden)]
+#[must_use]
+pub fn harmonic_centrality_arm(graph: &Graph, arm: BitparArm) -> HarmonicCentralityResult {
+    harmonic_centrality_generic_arm(graph, arm)
+}
+
 fn harmonic_centrality_generic<G: GraphView>(graph: &G) -> HarmonicCentralityResult {
+    harmonic_centrality_generic_arm(graph, BitparArm::Auto)
+}
+
+fn harmonic_centrality_generic_arm<G: GraphView>(
+    graph: &G,
+    arm: BitparArm,
+) -> HarmonicCentralityResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     if n == 0 {
@@ -3197,36 +3214,60 @@ fn harmonic_centrality_generic<G: GraphView>(graph: &G) -> HarmonicCentralityRes
     // The kernel reports first-reach events in ascending level order and every
     // addend within a level is the identical value `1/L`, so `HarmonicSink`
     // replays exactly that sequence of f64 additions.
-    if n < CENTRALITY_PARALLEL_THRESHOLD
+    if arm != BitparArm::PerSource
         && n <= u32::MAX as usize
         && let Some(rows) = (0..n)
             .map(|u| graph.in_neighbors_indices(u))
             .collect::<Option<Vec<&[usize]>>>()
     {
         let (offsets, targets) = build_u32_csr(n, |u| rows[u]);
-        let mut reached = vec![0usize; n];
-        let mut harmonic = vec![0.0f64; n];
-        let (edges_scanned, queue_peak) =
-            harmonic_all_sources(&offsets, &targets, n, &mut reached, &mut harmonic);
-        let scores = (0..n)
-            .map(|s| CentralityScore {
-                node: nodes[s].to_owned(),
-                score: harmonic[s],
-            })
-            .collect();
-        return HarmonicCentralityResult {
-            scores,
-            witness: ComplexityWitness {
-                algorithm: "harmonic_centrality".to_owned(),
-                complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
-                // `nodes_touched` (total reach) is identical to the per-source
-                // path; `edges_scanned`/`queue_peak` report the work this kernel
-                // actually does, since one scan serves up to W*64 sources.
-                nodes_touched: reached.iter().sum(),
-                edges_scanned,
-                queue_peak,
-            },
+        // br-r37-c1-qdcdq: at or above the threshold the per-source path fans out
+        // over rayon, so bit-parallel only wins when the graph has far fewer BFS
+        // levels than lanes. Identical gate to closeness — the traversal is the
+        // same reverse BFS, only the sink differs.
+        let threads = rayon::current_num_threads();
+        let lane_width = if n < CENTRALITY_PARALLEL_THRESHOLD {
+            None
+        } else if arm == BitparArm::ChunkedBitpar {
+            Some(bitpar_chunk_lane_width(n, threads))
+        } else {
+            bitpar_chunked_lane_width_if_profitable(&offsets, &targets, n, threads)
         };
+
+        if n < CENTRALITY_PARALLEL_THRESHOLD || lane_width.is_some() {
+            let mut reached = vec![0usize; n];
+            let mut harmonic = vec![0.0f64; n];
+            let (edges_scanned, queue_peak) = match lane_width {
+                Some(w) => harmonic_all_sources_chunked(
+                    &offsets,
+                    &targets,
+                    n,
+                    w,
+                    &mut reached,
+                    &mut harmonic,
+                ),
+                None => harmonic_all_sources(&offsets, &targets, n, &mut reached, &mut harmonic),
+            };
+            let scores = (0..n)
+                .map(|s| CentralityScore {
+                    node: nodes[s].to_owned(),
+                    score: harmonic[s],
+                })
+                .collect();
+            return HarmonicCentralityResult {
+                scores,
+                witness: ComplexityWitness {
+                    algorithm: "harmonic_centrality".to_owned(),
+                    complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
+                    // `nodes_touched` (total reach) is identical to the per-source
+                    // path; `edges_scanned`/`queue_peak` report the work this kernel
+                    // actually does, since one scan serves up to W*64 sources.
+                    nodes_touched: reached.iter().sum(),
+                    edges_scanned,
+                    queue_peak,
+                },
+            };
+        }
     }
 
     let mut scores = Vec::with_capacity(n);
@@ -9938,6 +9979,27 @@ fn harmonic_all_sources(
     harmonic: &mut [f64],
 ) -> (usize, usize) {
     bitpar_reverse_bfs_all_sources::<HarmonicSink>(offsets, targets, n, reached, harmonic)
+}
+
+/// Chunked-parallel harmonic sweep (br-r37-c1-qdcdq), the sibling of
+/// `closeness_all_sources_chunked`.
+///
+/// Bit-exact in f64 for the same reason the sequential kernel is: a chunk owns a
+/// disjoint `harmonic[s0..s0+k]` sub-slice, so each source still receives its own
+/// first-reach events in ascending level order with every intra-level addend equal
+/// to the identical `1/L`. Chunking repartitions SOURCES, never the addition order
+/// within a source, so no f64 sum is reassociated.
+fn harmonic_all_sources_chunked(
+    offsets: &[u32],
+    targets: &[u32],
+    n: usize,
+    lane_width: usize,
+    reached: &mut [usize],
+    harmonic: &mut [f64],
+) -> (usize, usize) {
+    bitpar_reverse_bfs_all_sources_chunked::<HarmonicSink>(
+        offsets, targets, n, lane_width, reached, harmonic,
+    )
 }
 
 /// Computes the average shortest path length of an undirected graph.
@@ -44558,11 +44620,8 @@ mod bitpar_closeness_tests {
     fn every_arm_agrees_bit_for_bit_above_the_parallel_threshold() {
         for (label, g) in [("grid n=600", grid(24, 25)), ("hub n=600", hub(600))] {
             assert!(g.node_count() >= CENTRALITY_PARALLEL_THRESHOLD);
-            let per_source = super::closeness_centrality_arm(&g, super::ClosenessArm::PerSource);
-            for arm in [
-                super::ClosenessArm::Auto,
-                super::ClosenessArm::ChunkedBitpar,
-            ] {
+            let per_source = super::closeness_centrality_arm(&g, super::BitparArm::PerSource);
+            for arm in [super::BitparArm::Auto, super::BitparArm::ChunkedBitpar] {
                 let got = super::closeness_centrality_arm(&g, arm);
                 assert_eq!(got.scores.len(), per_source.scores.len(), "{label} {arm:?}");
                 for (a, b) in got.scores.iter().zip(per_source.scores.iter()) {
@@ -44928,6 +44987,112 @@ mod bitpar_harmonic_tests {
                 harmonic[s].to_bits(),
                 want.to_bits(),
                 "multi-batch mismatch at source {s} ({node})"
+            );
+        }
+    }
+
+    /// Hub-and-spoke: eccentricity 1 from node 0, diameter 2 — low-diameter, the
+    /// shape the chunked-parallel gate accepts.
+    fn hub(n: usize) -> Graph {
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 1..n {
+            let _ = g.add_edge(0.to_string(), i.to_string());
+        }
+        g
+    }
+
+    fn csr_of(g: &Graph) -> (Vec<u32>, Vec<u32>) {
+        let n = g.node_count();
+        let rows: Vec<&[usize]> = (0..n)
+            .map(|u| super::GraphView::in_neighbors_indices(g, u).expect("integer row"))
+            .collect();
+        super::build_u32_csr(n, |u| rows[u])
+    }
+
+    #[test]
+    fn chunked_parallel_matches_sequential_kernel_at_every_lane_width() {
+        // br-r37-c1-qdcdq. Harmonic's f64 sums make this stricter than the closeness
+        // twin: chunking must repartition SOURCES only, never the addition order
+        // within a source. A grid gives many levels with varying per-level counts,
+        // which is precisely where a reassociated sum would diverge in the low bits
+        // (a complete graph cannot detect it — every node sits at distance 1).
+        let g = grid(24, 25); // n = 600 > one W=8 batch (512)
+        let n = g.node_count();
+        let (offsets, targets) = csr_of(&g);
+
+        let mut want_reached = vec![0usize; n];
+        let mut want_h = vec![0.0f64; n];
+        harmonic_all_sources(&offsets, &targets, n, &mut want_reached, &mut want_h);
+
+        for w in 1..=8 {
+            let mut got_reached = vec![0usize; n];
+            let mut got_h = vec![0.0f64; n];
+            super::harmonic_all_sources_chunked(
+                &offsets,
+                &targets,
+                n,
+                w,
+                &mut got_reached,
+                &mut got_h,
+            );
+            assert_eq!(
+                got_reached, want_reached,
+                "reached mismatch at lane width {w}"
+            );
+            for s in 0..n {
+                assert_eq!(
+                    got_h[s].to_bits(),
+                    want_h[s].to_bits(),
+                    "harmonic f64 bits diverge at source {s}, lane width {w}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_arm_agrees_bit_for_bit_above_the_parallel_threshold() {
+        for (label, g) in [("grid n=600", grid(24, 25)), ("hub n=600", hub(600))] {
+            assert!(g.node_count() >= CENTRALITY_PARALLEL_THRESHOLD);
+            let per_source = super::harmonic_centrality_arm(&g, super::BitparArm::PerSource);
+            for arm in [super::BitparArm::Auto, super::BitparArm::ChunkedBitpar] {
+                let got = super::harmonic_centrality_arm(&g, arm);
+                assert_eq!(got.scores.len(), per_source.scores.len(), "{label} {arm:?}");
+                for (a, b) in got.scores.iter().zip(per_source.scores.iter()) {
+                    assert_eq!(a.node, b.node, "{label} {arm:?}: node order");
+                    assert_eq!(
+                        a.score.to_bits(),
+                        b.score.to_bits(),
+                        "{label} {arm:?}: score at {} — got {} want {}",
+                        a.node,
+                        a.score,
+                        b.score
+                    );
+                }
+            }
+        }
+    }
+
+    /// The bench workloads must provably take the path the ledger claims, on any
+    /// worker (frankenmermaid 5feb977). Harmonic shares closeness's gate, so the same
+    /// decision holds — pin it here too rather than assume it transfers.
+    #[test]
+    fn bench_workloads_take_the_path_the_ledger_claims_at_any_thread_count() {
+        let grid_1600 = grid(40, 40);
+        let (go, gt) = csr_of(&grid_1600);
+        let hub_2000 = hub(2000);
+        let (ho, ht) = csr_of(&hub_2000);
+        for threads in 1..=128 {
+            assert_eq!(
+                super::bitpar_chunked_lane_width_if_profitable(&go, &gt, 1600, threads),
+                None,
+                "grid_1600 must DECLINE at {threads} threads"
+            );
+            assert!(
+                super::bitpar_chunked_lane_width_if_profitable(&ho, &ht, 2000, threads).is_some(),
+                "hub_2000 must ACCEPT at {threads} threads"
             );
         }
     }

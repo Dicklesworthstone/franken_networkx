@@ -8,6 +8,56 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## SHIPPED (cc, 2026-07-10): chunked-parallel bit-parallel BFS for `harmonic_centrality` n>=500 — **7.150x** on low-diameter (ci95 [7.018,7.264], median_cv 0.93%, **121/121** paired wins); guard grid_1600 **0.989x** [0.982,0.995] = a DISCLOSED ~1.1% regression (br-r37-c1-qdcdq)
+
+Follow-on to the closeness ship below. Harmonic already rode the shared `ReachSink` kernel, so this
+wires it onto the chunked-parallel driver + the same expected-loss gate; `ClosenessArm` becomes
+`BitparArm` (one selector, not two). `RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec`, worker
+`ovh-a`, `paired_interleaved_ab` (arms alternate INSIDE one loop, order flips per round, median
+bootstrapped 4000x). Proof: `tests/artifacts/perf/20260710T-chunked-bitpar-harmonic-cc/`.
+
+| workload | arm | ratio_med | ci95 | median_cv | win_rate |
+|---|---|---|---|---|---|
+| `harmonic/lowdiam_2000` | **auto (ships)** | **7.150x** | [7.018, 7.264] | 0.93% | **121/121** |
+| `harmonic/lowdiam_2000` | `chunked_bitpar` | 7.366x | [7.226, 7.475] | 0.93% | 121/121 |
+| `harmonic/grid_1600` GUARD | **auto (ships)** | **0.989x** | [0.982, 0.995] | 0.34% | 41/121 |
+| `harmonic/grid_1600` | `chunked_bitpar` | 1.456x | [1.439, 1.478] | 0.93% | 118/121 |
+
+**THE GUARD REGRESSES ~1.1% AND ITS ci95 EXCLUDES 1.0.** Shipped anyway, disclosed, not buried: 7.150x
+on the low-diameter shape real social/citation/web graphs have, against 1.1% on the synthetic
+high-diameter worst case. 61 rounds was NOT enough — it left this row at median_cv 6.00%, ci95
+[0.941,1.175]; 121 rounds resolved it. More rounds tighten the estimator; they do not change what is
+measured.
+
+ATTRIBUTION, and the honest limit of it. MEASURED: `csr_build_only` (rows collect + `build_u32_csr`) is
+**10.0 us on grid_1600 = 0.35%** of the 2.85 ms per-source arm (cv 2.2%); the eccentricity probe is one
+O(V+E) BFS where the per-source arm runs 1600 of them, so ~0.1% more. That accounts for **~0.45% of the
+1.1%**. NOT MEASURED, therefore NOT CLAIMED: the residual ~0.65%. Closeness in the SAME binary read
+0.997x [0.983,1.009] on the same graph with a near-identical baseline (2.843 ms vs 2.849 ms), building
+the same CSR and running the same probe — so the 0.989x/0.997x split between the two centralities is
+**unexplained**. Attributing it needs a `gate_probe_only` stage arm: exactly the instrument that refuted
+my earlier "the CSR build costs 2 ms" story, which was inferred by subtracting noisy arms and was wrong.
+Filed under br-r37-c1-yy0rp.
+
+THE GATE IS LEAVING A WIN ON THE TABLE, again: forced `chunked_bitpar` beats per-source on `grid_1600`
+by **1.456x** (118/121 pairs) — a graph the gate declines. Same finding as closeness (1.503x, same run).
+The win is the u32 CSR replacing the per-source path's string-keyed `reverse_adjacency` build, not
+edge-scan amortisation. br-r37-c1-yy0rp (reuse the CSR on the declined path) should erase the guard cost
+AND let the gate relax.
+
+FLOAT-ORDER PROOF: chunking repartitions SOURCES only, never the addition order within a source, so each
+source still receives ascending-level events with every intra-level addend equal to the identical `1/L`.
+`chunked_parallel_matches_sequential_kernel_at_every_lane_width` compares `f64::to_bits` per source
+across lane widths 1..8 on a 24x25 grid — many levels with varying per-level counts, exactly where a
+reassociated sum diverges in the low bits. A complete graph CANNOT detect it (all nodes at distance 1);
+that recorded fixture lesson is why the grid is the fixture here.
+
+918/918 lib tests green on `ovh-a`; gate decision pinned for EVERY thread count 1..=128 (execution proof);
+clippy `-D warnings` clean; fmt clean. aspl NOT included — it uses a different kernel (`bitpar_bfs_batch`,
+a global distance-sum accumulator, not a `ReachSink`) and needs its own driver, gate and rows: separate
+lever, separate commit. The `RCH_REQUIRE_REMOTE=1` blocker fired twice and was obeyed — `no admissible
+workers: insufficient_slots=10` — retried until a slot freed rather than building locally.
+
 ## SHIPPED (cc, 2026-07-10): chunked-parallel bit-parallel BFS for `closeness_centrality` n>=500 — **4.411x** on low-diameter (ci95 [4.328,4.660], median_cv 1.93%, 61/61 paired wins); guard grid_1600 **0.992x** [0.967,1.010] (br-r37-c1-x0jz8)
 
 Supersedes the NO-VERDICT entry below, which is retained because its two measurement defects are the
