@@ -8,7 +8,76 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
-## NOT-SHIPPED / PARKED (cc, 2026-07-10): chunked-parallel bit-parallel BFS for `average_shortest_path_length` — 7.6-17.1x on the target row, but the `auto` GUARD regresses ~3% in THREE runs and the gate's MEASURED overhead explains at most a quarter of it (br-r37-c1-bger9)
+## SHIPPED (cc, 2026-07-10): chunked-parallel bit-parallel BFS for `average_shortest_path_length` — **12.390x** on low-diameter; guard quantified at **0.989x [0.974,0.996]** and the probe made **2.9x cheaper** and decision-identical (br-r37-c1-bger9)
+
+Supersedes the PARK below, which stands as the record of two mechanisms measurement killed.
+
+PROVENANCE (new ledger rule). Worker `vmi1293453`. No local binary exists — the bench is built and run
+remotely; source sha256 `d2a7848aa818ab0c9b23502a839cb7af01720344807e7fb5a4acf9a8b712a905`
+(`fnx-algorithms/src/lib.rs`) + `56f73a57aa73206bbe33da9baa89af4249bb4f5f6e53da0a10705024fb549743`
+(`benches/algorithm_benchmarks.rs`), parent HEAD `fd48fc824`. `RCH_REQUIRE_REMOTE=1 env -u
+CARGO_TARGET_DIR rch exec`, `paired_interleaved_ab`, 121 rounds, one invocation.
+
+| workload | arm | ratio_med | ci95 | median_cv | win_rate |
+|---|---|---|---|---|---|
+| `aspl/lowdiam_2000` | **auto (ships)** | **12.390x** | [11.292, 13.527] | 4.05% | **121/121** |
+| `aspl/lowdiam_2000` | `chunked_bitpar` | 15.099x | [14.264, 15.985] | 3.03% | 121/121 |
+| `aspl/grid_1600` GUARD | **auto (ships)** | **0.989x** | [0.974, 0.996] | 0.57% | 47/121 |
+| `aspl/grid_1600` | `chunked_bitpar` | 1.752x | [1.665, 1.808] | 1.87% | 118/121 |
+
+### Q1 — what does the guard protect, and is the 3% real or a bench artifact?
+
+WHAT IT PROTECTS: high-diameter graphs with n >= 500. A bit-parallel traversal re-scans a node's edges
+once per LEVEL at which some lane newly reaches it, so a chunk costs ~`min(lanes, levels) * |E|` against
+the `lanes` per-source sweeps it replaces. Once `levels >= lanes` it buys NOTHING while cutting
+parallelism from `n` rayon tasks to `n/lanes`. `grid_1600` has ~78 levels against 64 lanes. Road
+networks, meshes and long paths are real user shapes and they reach `average_shortest_path_length(G)`
+through `Auto`, so the declined path is user-facing, not synthetic.
+
+NOT A DEAD-CODE ARTIFACT: the execution proof is a test pinning the gate's decision for EVERY thread
+count 1..=128 (`grid_1600` declines, `hub_2000` accepts), and `paired_interleaved_ab` asserts both arms'
+results are bit-identical before timing — a DCE'd arm cannot produce matching bits. Both arms provably
+execute.
+
+BUT THE 3% WAS PARTLY MEASUREMENT. On a tight worker with the bounded probe the guard is **0.989x
+[0.974,0.996], cv 0.57%** — the same magnitude as the already-shipped harmonic guard (0.989x
+[0.982,0.995]). The 2.6-3.9% readings came from noisier workers and, in one case, the unbounded probe.
+Cross-invocation guard comparisons are NOT valid (different workers), so the only claim made here is the
+single-run one above.
+
+### Q2 — can the guard be made cheaper? Yes: 2.9x, for free.
+
+The gate can only accept when `(2*ecc + 1) * 4 <= lanes`, so ANY eccentricity above `(lanes - 4) / 8` is
+a guaranteed decline. `bitpar_probe_eccentricity_rows_bounded` abandons the sweep there, and the
+parallelism test (`chunks * 4 < threads`) now runs BEFORE any traversal at all. On a 40x40 grid the probe
+now touches the ball of radius 7 around node 0 (~45 nodes) instead of all 1600.
+
+MEASURED, same run / same worker: `gate_probe_unbounded` **9.87 us** -> `gate_probe_bounded` **3.41 us**
+on `grid_1600` (**2.9x**). Decisions are IDENTICAL by construction and by test:
+`bounded_probe_gate_agrees_with_unbounded_on_every_shape_and_thread_count` compares both gates over
+{grid1600, grid600, hub2000, hub600, path600, two-disjoint-hubs} x threads 1..=128, and
+`probe_bound_is_the_largest_eccentricity_the_gate_could_accept` pins the bound to the gate's own
+inequality.
+
+### SELF-TIME, and the residual I still will not explain
+
+`aspl_gate_overhead_cost(graph, bounded)` now measures EXACTLY the declined path's added work — the rows
+probe — because after the run-3 restructure the declined path no longer builds a CSR. **The old
+instrument was timing a CSR build the code had stopped performing**: precisely the misalignment the
+ledger-integrity rule exists to catch, found in my own harness.
+
+Declined-path self-time: **3.41 us = 0.12%** of the 2.910 ms per-source arm. The guard loses **1.1%**.
+So ~90% of the tax is STILL unattributed, and no mechanism is claimed. Three candidates are now DEAD by
+measurement: the CSR build (10.0 us), the wasted-CSR perturbation (restructured away; guard unchanged),
+and the probe's CPU (3.41 us). The same ~1% tax appears on the shipped harmonic guard with the same gate,
+so it is a property of the GATE, not of aspl. Tracked in br-r37-c1-wkpfc (perf-record the `auto` arm on a
+declined graph) and br-r37-c1-yy0rp.
+
+Shipped on the harmonic precedent: 12.390x on the low-diameter shape real workloads have, against a
+disclosed 1.1% on the high-diameter worst case. 924/924 lib tests green; clippy `-D warnings` clean; fmt
+clean. The gate still declines `grid_1600` where forced chunked wins **1.752x** — br-r37-c1-yy0rp.
+
+## SUPERSEDED PARK (cc, 2026-07-10): the same aspl lever before the probe was bounded — kept because two mechanisms died here (br-r37-c1-bger9)
 
 aspl needed no kernel surgery: `bitpar_bfs_batch` already returns a self-contained `AsplAgg` per batch
 and writes no shared per-source array, so chunks were independent all along. `AsplAgg::merge` is `+` on

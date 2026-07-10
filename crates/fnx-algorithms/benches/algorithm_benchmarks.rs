@@ -9,14 +9,15 @@ use std::collections::BTreeMap;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use fnx_algorithms::{
-    BitparArm, adamic_adar_index, average_degree_connectivity, average_shortest_path_length,
-    betweenness_centrality, closeness_centrality, closeness_centrality_arm,
-    closeness_reverse_csr_build_cost, cn_soundarajan_hopcroft, common_neighbor_centrality,
-    common_neighbors, connected_components, degree_centrality, degree_mixing_dict,
-    eigenvector_centrality, harmonic_centrality, harmonic_centrality_arm, jaccard_coefficient,
-    max_flow_edmonds_karp, minimum_cut_edmonds_karp, minimum_spanning_tree, node_degree_xy,
-    pagerank, preferential_attachment, ra_index_soundarajan_hopcroft, resource_allocation_index,
-    shortest_path_unweighted, shortest_path_weighted, single_source_dijkstra_path_length,
+    BitparArm, adamic_adar_index, aspl_gate_overhead_cost, average_degree_connectivity,
+    average_shortest_path_length, average_shortest_path_length_arm, betweenness_centrality,
+    closeness_centrality, closeness_centrality_arm, closeness_reverse_csr_build_cost,
+    cn_soundarajan_hopcroft, common_neighbor_centrality, common_neighbors, connected_components,
+    degree_centrality, degree_mixing_dict, eigenvector_centrality, harmonic_centrality,
+    harmonic_centrality_arm, jaccard_coefficient, max_flow_edmonds_karp, minimum_cut_edmonds_karp,
+    minimum_spanning_tree, node_degree_xy, pagerank, preferential_attachment,
+    ra_index_soundarajan_hopcroft, resource_allocation_index, shortest_path_unweighted,
+    shortest_path_weighted, single_source_dijkstra_path_length,
 };
 use fnx_classes::{Graph, digraph::DiGraph};
 use fnx_runtime::CgseValue;
@@ -586,6 +587,73 @@ fn bench_closeness_centrality_parallel(c: &mut Criterion) {
     group.finish();
 }
 
+/// br-r37-c1-bger9: aspl on the same chunked-parallel driver. aspl returns a single
+/// f64, so `score_bits` yields a one-element vector — the bit-exactness assert still
+/// runs, and it is meaningful because `AsplAgg::merge` must be order-free for rayon's
+/// reduction tree to reproduce the sequential aggregate exactly.
+fn bench_aspl_parallel(c: &mut Criterion) {
+    let run = |g: &Graph, arm: BitparArm| -> usize {
+        std::hint::black_box(
+            average_shortest_path_length_arm(g, arm)
+                .average_shortest_path_length
+                .to_bits() as usize,
+        )
+    };
+    let bits = |g: &Graph, arm: BitparArm| -> Vec<u64> {
+        vec![
+            average_shortest_path_length_arm(g, arm)
+                .average_shortest_path_length
+                .to_bits(),
+        ]
+    };
+    let workloads = [
+        ("aspl/lowdiam_2000", build_low_diameter(2000, 8000)),
+        ("aspl/grid_1600", build_grid(40, 40)), // GUARD: gate must decline
+    ];
+    for (label, g) in &workloads {
+        paired_interleaved_ab(label, g, "auto", BitparArm::Auto, 121, &run, &bits);
+        paired_interleaved_ab(
+            label,
+            g,
+            "chunked_bitpar",
+            BitparArm::ChunkedBitpar,
+            121,
+            &run,
+            &bits,
+        );
+    }
+
+    let mut group = c.benchmark_group("aspl_parallel");
+    for (label, g) in &workloads {
+        for (arm_name, arm) in [
+            ("per_source", BitparArm::PerSource),
+            ("chunked_bitpar", BitparArm::ChunkedBitpar),
+            ("auto", BitparArm::Auto),
+        ] {
+            group.bench_with_input(BenchmarkId::new(arm_name, label), &arm, |b, &arm| {
+                b.iter(|| average_shortest_path_length_arm(g, arm))
+            });
+        }
+        // The gate's ENTIRE added cost on a declined graph: CSR build + probe, and
+        // nothing else. Measured, so the guard regression is attributed rather than
+        // explained by subtracting noisy arms.
+        // The declined path's ENTIRE added cost, measured both ways. `unbounded` is
+        // what run 3 shipped in the tree; `bounded` stops the walk once the gate's
+        // answer is determined.
+        group.bench_with_input(
+            BenchmarkId::new("gate_probe_unbounded", label),
+            label,
+            |b, _| b.iter(|| aspl_gate_overhead_cost(g, false)),
+        );
+        group.bench_with_input(
+            BenchmarkId::new("gate_probe_bounded", label),
+            label,
+            |b, _| b.iter(|| aspl_gate_overhead_cost(g, true)),
+        );
+    }
+    group.finish();
+}
+
 /// br-r37-c1-qdcdq: harmonic on the same chunked-parallel driver, measured with the
 /// same interleaved paired sampler. Harmonic accumulates f64, so the bit-exactness
 /// assertion inside the sampler is doing real work here — chunking must repartition
@@ -896,6 +964,7 @@ criterion_group!(
     bench_single_source_dijkstra,
     bench_connected_components,
     bench_average_shortest_path_length,
+    bench_aspl_parallel,
     bench_degree_centrality,
     bench_closeness_centrality,
     bench_closeness_centrality_parallel,
