@@ -2,6 +2,30 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-10 cod_nx MEASUREMENT REJECT: final-source pinned 200-call MultiGraph bidirectional A/B missed the `<5%` CV gate in one NetworkX control row (`br-r37-c1-04z53.9170`)
+
+LEDGER-GREPPED FIRST: the earlier unpinned-measurement rejection below permits a retry only with CPU affinity,
+same-process route-shadow ORIG/candidate/NetworkX, an identified `release-perf` artifact, and every raw CV below
+5%. This run satisfied the first three conditions on actual RCH worker `hz2`, CPU `15`, with 200 calls per
+function per sample, 20 samples, `PYTHONHASHSEED=0`, BLAS/OpenMP threads `1`, and exact final-source extension
+SHA-256 `f24bcf8561a3c7a216748c3b852164bf94d9082824f1173acd2006127da1056f`.
+
+The measured effect stayed large: weighted `shortest_path` route-shadow ORIG/candidate/NetworkX means were
+`17.100373 / 1.308773 / 0.662635 ms/call` (`13.066x` self-speedup) with raw CVs
+`3.42485 / 2.04607 / 2.69651%`; direct `bidirectional_dijkstra` means were
+`16.794913 / 0.908524 / 0.676595 ms/call` (`18.4859x` self-speedup) with raw CVs
+`3.92662 / 2.33593 / 5.35817%`. Criterion mean intervals per 200-call function were candidate
+`259.63..261.75..264.19 ms`, route-shadow ORIG `3.3709..3.4201..3.4705 s`, and NetworkX
+`131.27..132.53..134.25 ms` for `shortest_path`; candidate `180.13..181.70..183.71 ms`, route-shadow ORIG
+`3.3024..3.3590..3.4152 s`, and NetworkX `132.65..135.32..138.77 ms` for direct bidi.
+
+RESULT: reject this run as keep evidence solely because the direct NetworkX control CV was `5.35817%`; no
+source verdict. RETRY CONDITION: raise the deterministic work per sample to 400 calls while preserving the
+same affinity, one-process engine interleaving, exact artifact printout, and `<5%` raw-CV requirement for all
+six rows. Do not interpret the control-only miss as a candidate regression. The `orig` rows are explicitly the
+checked-in public conversion-route shadow, not a separately loaded ORIG binary; the changed conservative
+validity gate is outside the dominant whole-graph conversion/traversal body.
+
 ## 2026-07-10 cod_nx MEASUREMENT REJECT: unpinned `hz1` MultiGraph bidirectional A/B did not meet the `<5%` CV gate (`br-r37-c1-04z53.9170`)
 
 Ledger was grepped before the attempt. This is a rejection of the **measurement as keep evidence**, not a
