@@ -2,6 +2,28 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-10 cod_nx MEASUREMENT REJECT: 400-call pinned MultiGraph bidirectional A/B moved the noise to the candidate shortest-path row (`br-r37-c1-04z53.9170`)
+
+This retry satisfied the immediately preceding row's 400-call condition: one `release-perf` Criterion process
+on actual RCH worker `hz1`, CPU `7`, 400 calls per function per sample, 20 samples, one BLAS/OpenMP thread,
+`PYTHONHASHSEED=0`, and candidate SHA-256
+`b6a4d43a4500aa8730b14a605ad97a5e8b41ac208832850e414ba5ad303f76da`.
+
+Weighted `shortest_path` route-shadow ORIG/candidate/NetworkX means were
+`21.483691 / 1.689215 / 0.890340 ms/call` (`12.7182x` self-speedup), with raw CVs
+`3.07301 / 6.99278 / 3.46671%`. Direct `bidirectional_dijkstra` means were
+`20.580709 / 1.193204 / 0.876545 ms/call` (`17.2483x` self-speedup), with raw CVs
+`1.62426 / 3.07391 / 1.59538%`. Criterion mean intervals per 400-call function were candidate
+`658.79..675.69..698.58 ms`, route-shadow ORIG `8.4958..8.5935..8.7180 s`, and NetworkX
+`351.41..356.14..361.81 ms` for `shortest_path`; candidate `470.69..477.28..483.19 ms`, route-shadow ORIG
+`8.1768..8.2323..8.2907 s`, and NetworkX `348.62..350.62..353.32 ms` for direct bidi.
+
+RESULT: reject as keep evidence because the candidate `shortest_path` raw CV was `6.99278%`; no source
+verdict. The other five rows were below 3.5%, and the effect remains far outside noise. RETRY CONDITION: use
+the already-stable `hz2` worker/CPU15 environment (or an equivalently isolated worker selected through the RCH
+proof lane) with the exact final artifact, rather than increasing deterministic work again on noisy `hz1`.
+Keep the route-shadow disclosure and require all six raw CVs below 5%.
+
 ## 2026-07-10 cod_nx MEASUREMENT REJECT: final-source pinned 200-call MultiGraph bidirectional A/B missed the `<5%` CV gate in one NetworkX control row (`br-r37-c1-04z53.9170`)
 
 LEDGER-GREPPED FIRST: the earlier unpinned-measurement rejection below permits a retry only with CPU affinity,
