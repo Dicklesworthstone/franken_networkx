@@ -220,6 +220,79 @@ build would auto-vectorise. Filed **br-r37-c1-2zn1u** to A/B the dense/linalg su
 harness and to make the wheel-policy call. A build-flag change moves a whole class of hot loops THERE, not
 in the already-popcount-deferred centrality kernels.
 
+## 2026-07-10 cod_nx MEDIAN/NULL RE-DECISION: StackCanon is VOID, not a REJECT (`br-r37-c1-04z53.9173`)
+
+Applying the new per-function median/null gate makes the historical defect stronger, not weaker. The
+preserved harness selected per-run minima (`min`, default 25 repetitions), retained no raw samples, and ran
+no `base/base` null control. No historical candidate median or null median can be reconstructed. More
+decisively, the timed `fnx.Graph` path never reached the `PyMultiGraph`-only candidate: StackCanon call count
+`0`, self-time `0.000000 s`. The row therefore has **zero of five** mandatory REJECT provenance fields:
+no binary SHA-256, no non-zero target self-time, no worker identity, no CV, and no per-function null median.
+Its patch/harness hashes identify source artifacts, not a measured binary.
+
+**VERDICT: VOID / INVALID IN ITS ENTIRETY, NOT REJECT.** Allocation remains open even for the claimed
+`PyGraph.has_node` / `has_edge` membership domain, and remains open for shortest-path/Dijkstra. The separate
+attributed-construction key-length experiment measured a different function and cannot validate this row.
+No new measurement is required to reopen a candidate that provably executed zero times; any future closure
+must be a new, correctly reached one-binary experiment under the current null-median substrate.
+
+## 2026-07-10 cod_nx ANALYSIS-ONLY SURFACE: first MultiGraph weight certificate is unsafe; corrected A/B also blocked by RCH (`br-r37-c1-04z53.9173`)
+
+Fresh current-path attribution again selected the remaining exact-domain classifier, previously measured at
+`80.655196%` of public weighted `MultiGraph.shortest_path(source,target)` self-time. Source tracing found a
+specific missed dispatch table: `_should_delegate_dijkstra_to_networkx` already caches clean classification
+by `(weight, nodes_seq, edges_seq, exact_domain)`, but `_fnx.dijkstra_weight_cache_token` returned `None` for
+every multigraph. A naive two-line extension is unsound because Python may retain a live edge-attribute dict,
+the next native call may clear `edges_dirty`, and the retained dict may then mutate without re-entering Rust.
+
+The first unshipped candidate is preserved at detached commit `756b38e0c` (production source SHA-256
+`f31068d4009f4061399e0f34ac8ccf5c6a1d3667ed72f949d2c075a00c8c3599` /
+`9f3e7e58afe495fc313f38681eea464fea995382a51dda2bdb28fcc7707a7158` for `algorithms.rs` / `lib.rs`). It
+attempts a sticky `edge_attrs_ever_exposed` certificate: pristine exact `MultiGraph`s expose the existing
+mutation token, while ordinary live-dict handout disables classification caching for that graph forever.
+Structural mutations still invalidate through `nodes_seq` / `edges_seq`; a direct retained-dict mutation was
+covered. The corrected harness SHA-256 is
+`0c1e5d49bfbe793af55ae90a99b061e0d574bd04036b4945554b4d709b9ce35c` (Rust) /
+`f94905feae392ee6698975cf6cad49a482311e1b9dd77e7a16262e6c5f589c63` (Python). It runs 241 interleaved
+`base/base` pairs first, then 241 candidate/base pairs, black-boxing callables, inputs, and results, with the
+base differing only in a feature-gated token that preserves the old `MultiGraph -> None` result.
+
+One strict-remote build/check succeeded on `hz2`. An initial bench invocation also ran remotely on `hz2`
+CPU15 with extension SHA-256 `8d4df89b32a04758e6631cf2f2d62a551ff635d29d759d43aafa31f503959630`.
+It yielded a valid **profile fragment** for the candidate token (`64` calls, `0.000019991 s` self,
+`0.290666%`) and native bidirectional kernel (`0.005439451 s`, `79.088733%`), but its first frozen comparator
+cloned a decorated wrapper whose closure still reached the production gate: expected classifier calls were
+`0`, self-time `0.000000 s`. The process aborted before null sampling. This is an INVALID harness run, not a
+WIN or REJECT, and supplies no timing verdict.
+
+The comparator was corrected to make both arms call the identical decorated public function while swapping
+only the token under the GIL with equal assignment/restore overhead. The required strict-remote retry then
+requested `hz2`, but RCH reported `requested_worker=hz2`, selected effective worker `vmi1264463`, and refused
+before compilation because that worker's `/dp/frankentui` offered `ftui 0.4.1` while this workspace requires
+`0.5.0`. No local fallback or post-refusal Cargo command ran.
+
+Final diff review then found two correctness holes that independently forbid landing or measuring this WIP
+unchanged. `PyMultiGraph.__getstate__` returns live edge dictionaries without marking them exposed, so a
+retained state dictionary can mutate after classification while the certificate stays cacheable.
+`_native_copy`, `copy`, and `__copy__` also reset the certificate while potentially cloning stale native
+attributes after a retained dictionary mutation. The direct retained-dict test did not exercise either
+serialization or copy. **SOURCE VERDICT: INVALID DESIGN ATTEMPT / NO PERFORMANCE VERDICT; production source
+was not landed.** Follow-up `br-r37-c1-04z53.9174` owns repair of every exposure/copy path plus focused parity
+tests before the null-first retry. Do not cite the profile fragment as a speedup and do not write a REJECT
+without the missing null median/CV.
+
+## 2026-07-10 cod_nx ISA AUDIT: ordinary FNX is SSE2-baseline, but this exact path is not an ISA build fix
+
+The repo has no target-feature Cargo config, `hz2` injects no `RUSTFLAGS`, and its Rust target cfg enables
+only `fxsr,sse,sse2,x87`. A materialized release extension (SHA-256
+`c34eac1ec58af63df2608617710013f5de57abf0b925d05c25e2fbcd91f8dbef`) records empty rustflags; exact
+disassembly of endpoint canonicalisation, weight classification, and target Dijkstra contains no VEX/EVEX
+instructions. This does **not** make AVX2 the selected lever: the live classifier is pointer-heavy PyO3/PyDict
+inspection, endpoint canonicalisation handles two short strings, and libc already selects
+`__memcmp_avx2_movbe` / AVX `memmove` at runtime. Rust hash/canonicalisation frames are roughly 2%, not an
+8-20x mechanism. A global `target-cpu=native` / x86-64-v3 build is also fleet-unsafe because `ovh-b` lacks
+AVX2/BMI2. Any future ISA probe must use explicit runtime multiversioning and a hard-pinned compatible worker;
+the next structural kernel target remains index-addressed MultiGraph adjacency/edge buckets.
 ## 2026-07-10 cc MEASUREMENT GATE CORRECTED: decide on the MEDIAN vs the PER-FUNCTION null spread, not on cv_pct. The null floor moves 1.4% between functions on the SAME graph
 
 Supersedes the `cv_pct < 5` gate used in my earlier entries (frankenmermaid: cv<5 is unattainable on this
@@ -3314,7 +3387,13 @@ NOT re-attempt interning / small-string / arena / perfect-hash here — all four
 > INVALID even in its claimed `PyGraph` domain: the candidate changed only `PyMultiGraph`, while every timed
 > call used `fnx.Graph`; `StackCanon` call count and self-time were exactly zero. See the top correction.
 >
-> **SCOPE AUDIT 2026-07-10 (cc, ledger-integrity rule / frankenmermaid 5feb977).** This row is **VALID
+> **MEDIAN/NULL RE-DECISION 2026-07-10 (cod_nx):** the following scope-audit text is retained as
+> historical audit trail only. Its claims that the row was valid in a narrow domain, had adequate execution
+> proof, or kept membership allocation closed are all superseded: the preserved harness never reached the
+> candidate and supplies no median/null evidence. Do not cite those claims.
+>
+> **HISTORICAL, SUPERSEDED SCOPE AUDIT 2026-07-10 (cc, ledger-integrity rule / frankenmermaid
+> 5feb977).** This row was described as **VALID
 > IN ITS MEASURED DOMAIN ONLY**: `has_node` / `__contains__` / `has_edge` single-call lookups on
 > `PyGraph` (N=4000 lookups, min-of-30 x4). Note the row's own wording — "do NOT re-attempt ...
 > **here**". Downstream entries dropped the "here" and cite it as
@@ -3339,18 +3418,21 @@ NOT re-attempt interning / small-string / arena / perfect-hash here — all four
 >   TWO DAYS AFTER this row "empirically closed" allocation and called arenas "measured dead ends".
 >
 > ACTION: the allocation lever is **REOPENED for the shortest-path/dijkstra lane** (bead
-> br-r37-c1-gtty9). It stays closed for single-call `has_node`/`has_edge`. Candidate targets to
+> br-r37-c1-gtty9). The historical claim that it stayed closed for single-call `has_node`/`has_edge`
+> is void too; the preserved candidate never executed there. Candidate targets to
 > re-profile first (baseline self-times): `__memmove` 11.88%, `__memcmp` 8.19%, allocator ~15%,
 > `RuntimePolicy::clone` 4.70%, per-call `multigraph_to_weighted_simple_graph` projection 4.18%.
 >
-> **PROVENANCE AUDIT (2026-07-10, against the four-field rule: binary sha256 / self-time / worker id /
-> cv_pct).** This row records **ZERO of the four**: no binary sha256, no worker id, no cv_pct, and no
+> **PROVENANCE AUDIT (2026-07-10, updated to the five-field rule: binary sha256 / non-zero self-time /
+> worker id / cv_pct / per-function null median).** This row records **ZERO of the five**: no binary
+> sha256, no worker id, no cv_pct, no null median, and no
 > self-time — only raw end-to-end nanoseconds (245->253, 227->231, 416->430 ns; N=4000 lookups,
 > min-of-30 x4). It cannot be profile-verified even in principle: `StackCanon` was never committed (a
 > `stash@{0}` NOSHIP artifact) and no binary was preserved, so there is nothing left to attribute
-> self-time to. **A row with zero of four provenance fields, whose code no longer exists, was
-> load-bearing for a do-not-retry across the suite's biggest gap.** Its narrow conclusion still stands on
-> the independent key-length-invariance test; its broad citation never did.
+> self-time to. **A row with zero of five provenance fields, whose code no longer exists, was
+> load-bearing for a do-not-retry across the suite's biggest gap.** Its narrow conclusion does not stand;
+> the independent key-length-invariance test measured attributed construction, a different function, and
+> cannot validate this dead-code lookup experiment.
 >
 > **PAYOFF — why this audit was worth running.** `cod_nx` took the reopened bead and shipped
 > **`5abbfd8a4` "perf(dijkstra): reuse persistent multigraph node ids" — 1.322x paired speedup, CV
