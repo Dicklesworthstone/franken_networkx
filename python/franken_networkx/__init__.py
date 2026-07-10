@@ -7995,10 +7995,9 @@ def _should_delegate_dijkstra_to_networkx(G, weight):
     # that returns (has_negative, has_nonfinite, has_nonnumeric) WITHOUT needing
     # the expensive _sync_rust_edge_attrs. The old approach synced (~10ms at 2K
     # nodes) then ran three separate native helpers. The new helper reads directly
-    # from edge_py_attrs (the Python dicts), skipping sync entirely. For
-    # multigraphs, fall back to the slow path (no native multigraph variant).
+    # from edge_py_attrs (the Python dicts), skipping sync entirely.
     cache_key = None
-    if _native_check_dijkstra_weights_fast is not None and not G.is_multigraph():
+    if _native_check_dijkstra_weights_fast is not None:
         if _native_dijkstra_weight_cache_token is not None:
             try:
                 token = _native_dijkstra_weight_cache_token(G)

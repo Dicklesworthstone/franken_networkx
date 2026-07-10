@@ -16493,3 +16493,49 @@ RESULT: Keep for the controlled public string-key simple Graph single-source row
 full-path-Vec index emitter for this row. Do not generalise this keep to larger/deeper all-target path dumps:
 next route there needs a marshal-avoiding/lazy path surface, depth-thresholded emitter policy, or a cached path
 prefix representation measured against a dedicated large-depth row before changing dispatch.
+
+## 2026-07-10 cod_nx PARTIAL SHIP (PY BINDING, string-key weighted MultiGraph Dijkstra): native multigraph weight gate removes the Python edge-view scan, but the row is still projection/String-store bound
+
+LEDGER-GREPPED FIRST (`docs/NEGATIVE_EVIDENCE.md`, `docs/NEGATIVE_EVIDENCE_cc.md`,
+`docs/progress/perf-negative-results.md`): prior entries ruled out StackCanon/allocation retries, cache-only
+classification for single-query work, and the rejected native MG Dijkstra/projection rewrite. This lever does
+not retry that rejected kernel: it only replaces the ranked Python dispatch gate with a native classifier over
+the existing `edge_py_attrs` dict handles.
+
+PROFILE BEFORE LEVER (local release `_fnx`, parity-clean 1400-node string-key `MultiGraph` highway fixture,
+`dijkstra_path("n0","n1399", weight="weight")`, exact path parity vs vendored NetworkX): cProfile over 80
+calls ranked `_should_delegate_dijkstra_to_networkx` first at `2.071s/80` (`builtins.isinstance` storm through
+`G.edges(keys=True, data=True)`), then `_fnx.dijkstra_path_to_target` at `1.685s/80`, then edge sync at
+`0.482s/80`. Flamegraph was captured to `/tmp/fnx-codnx-mg-dijkstra/baseline-mg-dijkstra-path.svg`; perf lost
+samples on the shared host, so cProfile is the quantitative hotspot table.
+
+LEVER: extend `_fnx.check_dijkstra_edge_weights_fast` to `MultiGraph`/`MultiDiGraph`, scanning stored edge attr
+dicts directly and preserving the current multigraph predicate exactly: delegate on negative weights, positive
+infinity, or nonnumeric values; keep NaN and bool behavior as the Python fused scan did. Route
+`_should_delegate_dijkstra_to_networkx` through the helper for multigraphs. Added public Criterion row
+`multigraph_dijkstra_path_string_target` with import-time exact path parity against vendored NetworkX.
+
+MEASURED RESULT:
+- Candidate cProfile over the same 80-call workload: `_should_delegate_dijkstra_to_networkx` dropped to
+  `0.181s/80`, total dropped `4.243s/80 -> 2.487s/80` (`1.71x` profiled self-speedup). The remaining top block
+  is now `_fnx.dijkstra_path_to_target` at `2.300s/80`.
+- Same-build old-disabled toggle (`fnx._native_check_dijkstra_weights_fast = None`) on the shared host was
+  noisy but positive: old fused Python gate median `44.053 ms`, candidate median `31.159 ms`, `1.414x`.
+  Isolated gate median `8.0675 ms -> 0.4478 ms`, `18.0x`.
+- Current RCH Criterion row on worker `vmi1227854` (release-perf, sample-size 10): FNX
+  `537.97..574.86 ms` per 20-call bench function; NetworkX `14.628..15.253 ms`, so the row remains about
+  `0.027x` vs NetworkX. This is NOT lane closure.
+- Direct local wall-clock CV for FNX rows stayed above 5% because of shared-machine contention; do not use
+  those noisy direct rows as a sole keep/reject gate.
+
+CORRECTNESS/GATES SO FAR: benchmark row asserts exact path parity at import; direct parity probe passed for the
+highway fixture; native classifier edge cases matched the old multigraph predicate for positive, negative,
+`+inf`, `-inf`, NaN, string, and bool weights. Full compile/test gates are recorded in the commit closeout.
+
+RESULT: Partial keep. Do not restore the Python multigraph edge-view weight scan. Do not claim the
+source-target weighted `MultiGraph.dijkstra_path` row is fixed: it is still dominated by the
+`dijkstra_path_to_target` multigraph projection/String-keyed store floor. Next credible route is an index-based
+MultiGraph adjacency/edge-bucket substrate, a target-lazy projection that touches only settled frontier edges,
+or another store/marshal primitive measured against `multigraph_dijkstra_path_string_target`. Do not retry the
+already-rejected native MG Dijkstra/projection rewrite or a repeated-query classification cache as a standalone
+single-query fix.

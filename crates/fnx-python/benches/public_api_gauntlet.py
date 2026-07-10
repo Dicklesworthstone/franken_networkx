@@ -1173,6 +1173,95 @@ def networkx_multidigraph_dijkstra_path_target_early_exit() -> float:
     return total
 
 
+def _build_highway_weighted_multigraph(module, node_count: int):
+    graph = module.MultiGraph()
+    graph.add_nodes_from(f"n{idx}" for idx in range(node_count))
+    highway: set[tuple[int, int]] = set()
+    current = 0
+    while current + 17 < node_count:
+        highway.add((current, current + 17))
+        current += 17
+    if current != node_count - 1:
+        highway.add((current, node_count - 1))
+    for u, v in sorted(highway):
+        graph.add_edge(f"n{u}", f"n{v}", key="fast", weight=1.0 + u * 1e-9)
+        graph.add_edge(f"n{u}", f"n{v}", key="fast_alt", weight=100.0 + u * 1e-9)
+    for idx in range(node_count - 1):
+        if (idx, idx + 1) not in highway:
+            graph.add_edge(
+                f"n{idx}",
+                f"n{idx + 1}",
+                key="chain",
+                weight=10000.0 + idx,
+            )
+            graph.add_edge(
+                f"n{idx}",
+                f"n{idx + 1}",
+                key="chain_alt",
+                weight=10001.0 + idx,
+            )
+        if idx + 7 < node_count and (idx, idx + 7) not in highway:
+            graph.add_edge(
+                f"n{idx}",
+                f"n{idx + 7}",
+                key="chord7",
+                weight=10000.0 + idx,
+            )
+        if idx + 29 < node_count and (idx, idx + 29) not in highway:
+            graph.add_edge(
+                f"n{idx}",
+                f"n{idx + 29}",
+                key="chord29",
+                weight=10000.0 + idx,
+            )
+    return graph
+
+
+_MG_DP_NODE_COUNT = 1400
+_MG_DP_SOURCE = "n0"
+_MG_DP_TARGET = "n1399"
+_MG_DP_REPEAT = 20
+_FNX_MG_DP_GRAPH = _build_highway_weighted_multigraph(fnx, _MG_DP_NODE_COUNT)
+_NX_MG_DP_GRAPH = _build_highway_weighted_multigraph(nx, _MG_DP_NODE_COUNT)
+_EXPECTED_MG_DP = nx.dijkstra_path(
+    _NX_MG_DP_GRAPH, _MG_DP_SOURCE, _MG_DP_TARGET, weight="weight"
+)
+_FNX_MG_DP = fnx.dijkstra_path(
+    _FNX_MG_DP_GRAPH, _MG_DP_SOURCE, _MG_DP_TARGET, weight="weight"
+)
+if _FNX_MG_DP != _EXPECTED_MG_DP:
+    raise AssertionError("dijkstra_path MultiGraph string-key parity drift")
+
+
+def _string_path_sequence_checksum(path: list[str]) -> float:
+    total = 0
+    for idx, node in enumerate(path):
+        total += (idx + 1) * 31 + int(node[1:])
+    return float(total + len(path))
+
+
+def fnx_multigraph_dijkstra_path_string_target() -> float:
+    total = 0.0
+    for _ in range(_MG_DP_REPEAT):
+        total += _string_path_sequence_checksum(
+            fnx.dijkstra_path(
+                _FNX_MG_DP_GRAPH, _MG_DP_SOURCE, _MG_DP_TARGET, weight="weight"
+            )
+        )
+    return total
+
+
+def networkx_multigraph_dijkstra_path_string_target() -> float:
+    total = 0.0
+    for _ in range(_MG_DP_REPEAT):
+        total += _string_path_sequence_checksum(
+            nx.dijkstra_path(
+                _NX_MG_DP_GRAPH, _MG_DP_SOURCE, _MG_DP_TARGET, weight="weight"
+            )
+        )
+    return total
+
+
 _SSDPL_MDG_REPEAT = 4
 
 

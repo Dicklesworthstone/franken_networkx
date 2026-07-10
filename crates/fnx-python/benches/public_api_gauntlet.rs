@@ -292,6 +292,16 @@ if target_dir:
                 "networkx_multidigraph_dijkstra_path_target_early_exit",
             ),
             (
+                "multigraph_dijkstra_path_string_target",
+                "fnx",
+                "fnx_multigraph_dijkstra_path_string_target",
+            ),
+            (
+                "multigraph_dijkstra_path_string_target",
+                "networkx",
+                "networkx_multigraph_dijkstra_path_string_target",
+            ),
+            (
                 "multidigraph_single_source_dijkstra_path_length",
                 "fnx",
                 "fnx_multidigraph_single_source_dijkstra_path_length",

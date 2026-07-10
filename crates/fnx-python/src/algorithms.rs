@@ -3843,7 +3843,62 @@ pub fn check_dijkstra_edge_weights_fast(
             }
             Ok(Some((has_negative, has_nonfinite, has_nonnumeric)))
         }
-        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => Ok(None),
+        GraphRef::MultiUndirected { mg, .. } => {
+            let mut has_negative = false;
+            let mut has_positive_infinity = false;
+            let mut has_nonnumeric = false;
+            for dict in mg.edge_py_attrs.values() {
+                let bound = dict.bind(py);
+                if let Some(val) = bound.get_item(weight_attr)? {
+                    if let Ok(f) = val.extract::<f64>() {
+                        if f < 0.0 {
+                            has_negative = true;
+                        }
+                        if f.is_infinite() && f.is_sign_positive() {
+                            has_positive_infinity = true;
+                        }
+                    } else if let Ok(i) = val.extract::<i64>() {
+                        if i < 0 {
+                            has_negative = true;
+                        }
+                    } else if val.extract::<bool>().is_err() {
+                        has_nonnumeric = true;
+                    }
+                }
+                if has_negative && has_positive_infinity && has_nonnumeric {
+                    break;
+                }
+            }
+            Ok(Some((has_negative, has_positive_infinity, has_nonnumeric)))
+        }
+        GraphRef::MultiDirected { mdg, .. } => {
+            let mut has_negative = false;
+            let mut has_positive_infinity = false;
+            let mut has_nonnumeric = false;
+            for dict in mdg.edge_py_attrs.values() {
+                let bound = dict.bind(py);
+                if let Some(val) = bound.get_item(weight_attr)? {
+                    if let Ok(f) = val.extract::<f64>() {
+                        if f < 0.0 {
+                            has_negative = true;
+                        }
+                        if f.is_infinite() && f.is_sign_positive() {
+                            has_positive_infinity = true;
+                        }
+                    } else if let Ok(i) = val.extract::<i64>() {
+                        if i < 0 {
+                            has_negative = true;
+                        }
+                    } else if val.extract::<bool>().is_err() {
+                        has_nonnumeric = true;
+                    }
+                }
+                if has_negative && has_positive_infinity && has_nonnumeric {
+                    break;
+                }
+            }
+            Ok(Some((has_negative, has_positive_infinity, has_nonnumeric)))
+        }
     }
 }
 
