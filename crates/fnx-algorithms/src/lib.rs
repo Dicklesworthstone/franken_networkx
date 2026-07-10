@@ -13278,57 +13278,56 @@ pub fn square_clustering(graph: &Graph) -> SquareClusteringResult {
         };
     }
 
-    let neighbor_sets: HashMap<&str, HashSet<&str>> = nodes
-        .iter()
-        .map(|&node| {
-            let set = graph
-                .neighbors_iter(node)
-                .map(|iter| iter.collect::<HashSet<&str>>())
-                .unwrap_or_default();
-            (node, set)
-        })
-        .collect();
-
+    // br-r37-c1-sqcmark (cc): the graph's integer adjacency slices +
+    // a reusable mark array, instead of a String-keyed HashMap<&str, HashSet<&str>>
+    // (n allocated sets) with per-x String-hash `contains` in the O(|V|*deg^3) loop.
+    // For each ordered neighbour u of v we mark N(u) ONCE (reused across all
+    // partners w), then count q = |N(u) ∩ N(w) \ {v}| by scanning N(w) against the
+    // marks. Byte-identical: q, theta and a are all SYMMETRIC in (u,w) and
+    // numerator/denominator are integer sums, so neither pair order nor the u/w
+    // assignment (name-sorted before, adjacency order now) changes the score; the
+    // intersection count is symmetric so scanning N(w) vs N(u) is equal. No per-node
+    // set is built at all.
+    let mut in_u = vec![false; n];
     let mut edges_scanned = 0usize;
     let mut scores = Vec::with_capacity(n);
 
-    for &v in &nodes {
-        let nbrs_v = &neighbor_sets[v];
+    for v_idx in 0..n {
+        let nbrs_v = graph.neighbors_indices(v_idx).unwrap_or(&[]);
         let deg = nbrs_v.len();
         if deg < 2 {
             scores.push(CentralityScore {
-                node: v.to_owned(),
+                node: nodes[v_idx].to_owned(),
                 score: 0.0,
             });
             continue;
         }
 
-        let nbrs_sorted: Vec<&str> = {
-            let mut ns: Vec<&str> = nbrs_v.iter().copied().collect();
-            ns.sort_unstable();
-            ns
-        };
-
         let mut numerator = 0usize;
         let mut denominator = 0usize;
 
-        for (i, &u) in nbrs_sorted.iter().enumerate() {
-            let nbrs_u = &neighbor_sets[u];
-            for &w in &nbrs_sorted[i + 1..] {
+        for (i, &u) in nbrs_v.iter().enumerate() {
+            let nbrs_u = graph.neighbors_indices(u).unwrap_or(&[]);
+            for &x in nbrs_u {
+                in_u[x] = true;
+            }
+            let deg_u = nbrs_u.len();
+            for &w in &nbrs_v[i + 1..] {
                 edges_scanned += 1;
-                let nbrs_w = &neighbor_sets[w];
+                let nbrs_w = graph.neighbors_indices(w).unwrap_or(&[]);
+                let deg_w = nbrs_w.len();
                 // q_v(u,w): common neighbors of u and w, excluding v
-                let q: usize = nbrs_u
-                    .iter()
-                    .filter(|&&x| x != v && nbrs_w.contains(x))
-                    .count();
+                let q: usize = nbrs_w.iter().filter(|&&x| x != v_idx && in_u[x]).count();
                 // theta_uw: 1 if u and w are connected
-                let theta_uw: usize = if nbrs_u.contains(w) { 1 } else { 0 };
+                let theta_uw: usize = usize::from(in_u[w]);
                 // a_v(u,w) = (deg(u) - 1 - q - theta_uw) + (deg(w) - 1 - q - theta_uw)
-                let a = (nbrs_u.len().saturating_sub(1 + q + theta_uw))
-                    + (nbrs_w.len().saturating_sub(1 + q + theta_uw));
+                let a = (deg_u.saturating_sub(1 + q + theta_uw))
+                    + (deg_w.saturating_sub(1 + q + theta_uw));
                 numerator += q;
                 denominator += a + q;
+            }
+            for &x in nbrs_u {
+                in_u[x] = false;
             }
         }
 
@@ -13339,7 +13338,7 @@ pub fn square_clustering(graph: &Graph) -> SquareClusteringResult {
         };
 
         scores.push(CentralityScore {
-            node: v.to_owned(),
+            node: nodes[v_idx].to_owned(),
             score,
         });
     }
@@ -13356,6 +13355,68 @@ pub fn square_clustering(graph: &Graph) -> SquareClusteringResult {
             queue_peak: 0,
         },
     }
+}
+
+/// br-r37-c1-sqcmark A/B baseline: the pre-lever square clustering that built a
+/// String-keyed `HashMap<&str, HashSet<&str>>` and hash-probed `contains`.
+/// Test-only; returns scores sorted by node name, byte-identical to
+/// `square_clustering`.
+#[cfg(test)]
+fn square_clustering_scores_orig_hashset(graph: &Graph) -> Vec<(String, f64)> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let neighbor_sets: HashMap<&str, HashSet<&str>> = nodes
+        .iter()
+        .map(|&node| {
+            let set = graph
+                .neighbors_iter(node)
+                .map(std::iter::Iterator::collect::<HashSet<&str>>)
+                .unwrap_or_default();
+            (node, set)
+        })
+        .collect();
+    let mut scores: Vec<(String, f64)> = Vec::with_capacity(n);
+    for &v in &nodes {
+        let nbrs_v = &neighbor_sets[v];
+        let deg = nbrs_v.len();
+        if deg < 2 {
+            scores.push((v.to_owned(), 0.0));
+            continue;
+        }
+        let nbrs_sorted: Vec<&str> = {
+            let mut ns: Vec<&str> = nbrs_v.iter().copied().collect();
+            ns.sort_unstable();
+            ns
+        };
+        let mut numerator = 0usize;
+        let mut denominator = 0usize;
+        for (i, &u) in nbrs_sorted.iter().enumerate() {
+            let nbrs_u = &neighbor_sets[u];
+            for &w in &nbrs_sorted[i + 1..] {
+                let nbrs_w = &neighbor_sets[w];
+                let q: usize = nbrs_u
+                    .iter()
+                    .filter(|&&x| x != v && nbrs_w.contains(x))
+                    .count();
+                let theta_uw: usize = usize::from(nbrs_u.contains(w));
+                let a = (nbrs_u.len().saturating_sub(1 + q + theta_uw))
+                    + (nbrs_w.len().saturating_sub(1 + q + theta_uw));
+                numerator += q;
+                denominator += a + q;
+            }
+        }
+        let score = if denominator == 0 {
+            0.0
+        } else {
+            numerator as f64 / denominator as f64
+        };
+        scores.push((v.to_owned(), score));
+    }
+    scores.sort_by(|a, b| a.0.cmp(&b.0));
+    scores
 }
 
 /// Checks whether the graph is a tree (connected acyclic graph).
@@ -46768,6 +46829,108 @@ mod tests {
             );
         };
         println!("TRIANGLES_MARK_AB n={n} deg={deg} rounds={rounds} (>1 = mark-array faster)");
+        report("MARK_vs_hashset", &paired(true, false));
+        report("NULL_mark_vs_mark", &paired(true, true));
+    }
+
+    /// br-r37-c1-sqcmark: paired-interleaved median A/B for the integer-adjacency +
+    /// mark-array square clustering vs the old String-keyed HashMap/HashSet
+    /// baseline, in ONE binary / ONE worker with a NULL control. `#[ignore]`
+    /// (measurement); run with
+    /// `cargo test --release -p fnx-algorithms --lib square_clustering_mark_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn square_clustering_mark_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Moderate-degree pseudo-random graph (n=700, ~24-deg): square clustering is
+        // O(|V|*deg^3), so the per-x String-hash `contains` (baseline) vs O(1) mark
+        // lookup (lever) plus the dropped n-HashSet build dominate.
+        let n = 700usize;
+        let deg = 24usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                let j = ((i as u64)
+                    .wrapping_mul(2_246_822_519)
+                    .wrapping_add((k as u64).wrapping_mul(3_266_489_917))
+                    % n as u64) as usize;
+                if j != i {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+                }
+            }
+        }
+
+        // Byte-exact parity: mark-array scores == HashSet baseline scores (by node).
+        let prod = super::square_clustering(&g);
+        let mut prod_sorted: Vec<(String, f64)> =
+            prod.scores.iter().map(|s| (s.node.clone(), s.score)).collect();
+        prod_sorted.sort_by(|a, b| a.0.cmp(&b.0));
+        let base = super::square_clustering_scores_orig_hashset(&g);
+        assert_eq!(prod_sorted.len(), base.len());
+        for ((an, av), (bn, bv)) in prod_sorted.iter().zip(base.iter()) {
+            assert_eq!(an, bn, "node order must match");
+            assert_eq!(
+                av.to_bits(),
+                bv.to_bits(),
+                "square clustering score for {an} must be bit-identical"
+            );
+        }
+
+        let time = |lever: bool| -> f64 {
+            let t0 = Instant::now();
+            for _ in 0..3 {
+                if lever {
+                    black_box(super::square_clustering(&g));
+                } else {
+                    black_box(super::square_clustering_scores_orig_hashset(&g));
+                }
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 121usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "SQUARE_CLUSTERING_MARK_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("SQUARE_CLUSTERING_MARK_AB n={n} deg={deg} rounds={rounds} (>1 = mark-array faster)");
         report("MARK_vs_hashset", &paired(true, false));
         report("NULL_mark_vs_mark", &paired(true, true));
     }
