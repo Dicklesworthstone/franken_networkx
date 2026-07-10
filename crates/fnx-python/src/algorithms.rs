@@ -4422,6 +4422,55 @@ fn multigraph_sssp_length_with_parents<'a>(
     out
 }
 
+/// br-r37-c1-kk2xh: simple Graph single-source shortest paths stay in
+/// node-index space and emit from a predecessor table, matching the MultiGraph
+/// path emitter without allocating one full path Vec per discovered target.
+fn graph_sssp_predecessors_index<'a>(
+    graph: &'a fnx_classes::Graph,
+    source: &str,
+    cutoff: Option<usize>,
+) -> (Vec<&'a str>, Option<usize>, Vec<usize>, Vec<usize>) {
+    let nodes = graph.nodes_ordered();
+    let Some(source_idx) = graph.get_node_index(source) else {
+        return (nodes, None, Vec::new(), Vec::new());
+    };
+
+    let n = nodes.len();
+    let mut seen = vec![false; n];
+    let mut predecessor = vec![usize::MAX; n];
+    let mut discovery = Vec::with_capacity(n);
+    let mut frontier = vec![source_idx];
+    let mut next = Vec::new();
+    let mut depth = 0usize;
+
+    seen[source_idx] = true;
+    discovery.push(source_idx);
+
+    while !frontier.is_empty() {
+        if cutoff.is_some_and(|limit| depth >= limit) {
+            break;
+        }
+        next.clear();
+        for &node_idx in &frontier {
+            let Some(neighbors) = graph.neighbors_indices(node_idx) else {
+                continue;
+            };
+            for &neighbor_idx in neighbors {
+                if neighbor_idx < n && !seen[neighbor_idx] {
+                    seen[neighbor_idx] = true;
+                    predecessor[neighbor_idx] = node_idx;
+                    discovery.push(neighbor_idx);
+                    next.push(neighbor_idx);
+                }
+            }
+        }
+        std::mem::swap(&mut frontier, &mut next);
+        depth += 1;
+    }
+
+    (nodes, Some(source_idx), discovery, predecessor)
+}
+
 /// br-r37-c1-ubizp (cod-a): single-source shortest PATHS over a MultiGraph's
 /// adjacency directly (no simple-Graph build). Keep the BFS in node-index space:
 /// store one predecessor per discovered node and let the Python emitter stream
@@ -12889,21 +12938,22 @@ pub fn single_source_shortest_path(
         )?;
         return Ok(dict.into_any());
     }
-    // br-r37-c1-ssspidx: undirected path returns node INDICES from the kernel and
-    // resolves them once here, skipping the per-path-node String materialization.
+    // br-r37-c1-kk2xh: simple Graph mirrors the MultiGraph parent-table emitter
+    // so the kernel does not allocate a full index path Vec for every target.
     let inner = gr.undirected();
-    let idx_paths = py.allow_threads(|| {
-        fnx_algorithms::single_source_shortest_path_index(inner, &source_key, cutoff)
-    });
-    let nodes = inner.nodes_ordered();
-    let source_idx = inner.get_node_index(&source_key).unwrap_or(usize::MAX);
-    let dict = emit_paths_dict_discovery_index(
+    let (nodes, source_idx, discovery, predecessor) =
+        py.allow_threads(|| graph_sssp_predecessors_index(inner, &source_key, cutoff));
+    let Some(source_idx) = source_idx else {
+        return Ok(PyDict::new(py).into_any().unbind());
+    };
+    let dict = emit_paths_dict_discovery_parent_index(
         py,
         &gr,
-        &idx_paths,
         &nodes,
         source_idx,
         source.clone().unbind(),
+        &discovery,
+        &predecessor,
     )?;
     Ok(dict.into_any())
 }

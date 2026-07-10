@@ -222,6 +222,16 @@ if target_dir:
                 "networkx_digraph_weighted_target_shortest_path_length",
             ),
             (
+                "string_graph_single_source_shortest_path",
+                "fnx",
+                "fnx_string_graph_single_source_shortest_path",
+            ),
+            (
+                "string_graph_single_source_shortest_path",
+                "networkx",
+                "networkx_string_graph_single_source_shortest_path",
+            ),
+            (
                 "multidigraph_single_source_shortest_path",
                 "fnx",
                 "fnx_multidigraph_single_source_shortest_path",

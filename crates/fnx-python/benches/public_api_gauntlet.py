@@ -845,6 +845,59 @@ def networkx_digraph_weighted_target_shortest_path_length() -> float:
     )
 
 
+def _build_string_sssp_graph(module, node_count: int):
+    graph = module.Graph()
+    nodes = [f"node_{idx:04d}" for idx in range(node_count)]
+    graph.add_nodes_from(nodes)
+    for idx in range(node_count - 1):
+        graph.add_edge(nodes[idx], nodes[idx + 1])
+    for step in (17, 31):
+        for idx in range(node_count - step):
+            if idx % 3 == 0:
+                graph.add_edge(nodes[idx], nodes[idx + step])
+    return graph
+
+
+def _string_path_checksum(paths: dict[str, list[str]]) -> float:
+    total = 0
+    for node, path in paths.items():
+        total += len(node) * 31 + len(path)
+    return float(total + len(paths))
+
+
+_STRING_SSSP_NODE_COUNT = 1400
+_STRING_SSSP_REPEAT = 40
+_STRING_SSSP_SOURCE = "node_0000"
+_FNX_STRING_SSSP_GRAPH = _build_string_sssp_graph(fnx, _STRING_SSSP_NODE_COUNT)
+_NX_STRING_SSSP_GRAPH = _build_string_sssp_graph(nx, _STRING_SSSP_NODE_COUNT)
+_EXPECTED_STRING_SSSP = nx.single_source_shortest_path(
+    _NX_STRING_SSSP_GRAPH, _STRING_SSSP_SOURCE
+)
+_FNX_STRING_SSSP = fnx.single_source_shortest_path(
+    _FNX_STRING_SSSP_GRAPH, _STRING_SSSP_SOURCE
+)
+if _FNX_STRING_SSSP != _EXPECTED_STRING_SSSP:
+    raise AssertionError("string Graph single_source_shortest_path parity drift")
+
+
+def fnx_string_graph_single_source_shortest_path() -> float:
+    total = 0.0
+    for _ in range(_STRING_SSSP_REPEAT):
+        total += _string_path_checksum(
+            fnx.single_source_shortest_path(_FNX_STRING_SSSP_GRAPH, _STRING_SSSP_SOURCE)
+        )
+    return total
+
+
+def networkx_string_graph_single_source_shortest_path() -> float:
+    total = 0.0
+    for _ in range(_STRING_SSSP_REPEAT):
+        total += _string_path_checksum(
+            nx.single_source_shortest_path(_NX_STRING_SSSP_GRAPH, _STRING_SSSP_SOURCE)
+        )
+    return total
+
+
 _SS_MDG_SOURCE = _ST_MDG_NODE_COUNT - 1
 _SS_MDG_REPEAT = 20
 

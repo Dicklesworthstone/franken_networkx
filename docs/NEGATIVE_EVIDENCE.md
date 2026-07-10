@@ -16440,3 +16440,56 @@ byte-identical. It MUST be repeated addition, NOT `h += count/L` (different roun
 harmonic_centrality has NO criterion bench in algorithm_benchmarks.rs, so an honest A/B needs one added
 first. The many-core parallel sizes still need the chunked-parallel design (rayon over source-CHUNKS,
 bit-parallel within each chunk) — still deferred, still untried.
+
+## 2026-07-10 cod_nx SHIP (PY BINDING, string-key simple Graph SSSP): parent-table emitter crosses public `single_source_shortest_path` row from 0.50x to 1.14x vs ORIG
+
+LEDGER-GREPPED FIRST (`docs/NEGATIVE_EVIDENCE.md`, `docs/NEGATIVE_EVIDENCE_cc.md`,
+`docs/progress/perf-negative-results.md`): prior shortest-path rejections ruled out StackCanon/allocation
+canonicalisation, display-key caches, prefix-path caches, Python predecessor-table streaming, and standalone
+`PyList::new` emitter retries. This lever is different: keep the existing NetworkX-order BFS but, only for
+simple undirected `Graph.single_source_shortest_path`, emit from a node-index predecessor table already used by
+the shipped MultiGraph/MultiDiGraph path rather than asking `fnx-algorithms` for one full `Vec<usize>` path per
+target first. The old full-path index kernel remains available to other call sites; dirty
+`crates/fnx-algorithms/src/lib.rs` was deliberately not edited.
+
+PROFILE BEFORE LEVER (local release `_fnx`, string simple Graph n=5000, 160 calls, flamegraph
+`/data/tmp/fnx_string_sssp_baseline.svg`): largest ranked user-space blocks were
+`_fnx::algorithms::emit_paths_dict_discovery_index` 25.36% self / 36.36% children,
+`fnx_algorithms::single_source_shortest_path_index` 6.38% self, `PyList_SetItem` 3.72%, allocator
+`_int_malloc` 3.27%, and PyO3 owned-sequence conversion 2.71%. That points at the path-emission/full-path
+materialisation boundary, not Dijkstra arithmetic. Baseline `perf stat -r 5` process row for graph build + 80
+calls at n=5000: `1.7668 +/- 0.0591 s`, `11.195B` instructions, `7.277B` cycles, IPC `1.54`.
+
+LEVER: added `graph_sssp_predecessors_index` inside `crates/fnx-python/src/algorithms.rs` and routed only the
+simple undirected branch of `_fnx.single_source_shortest_path` through the existing
+`emit_paths_dict_discovery_parent_index` emitter. Added a dedicated public Criterion row
+`string_graph_single_source_shortest_path` over a 1400-node string-key simple Graph with import-time exact
+parity assertion and checksum consumption.
+
+MEASURED KEEP GATE:
+- Pre-lever public Criterion row (remote `hz2`, release bench, 12 samples, measurement 4s): FNX
+  `66.524 ms` (`63.934..68.875`) vs NetworkX `33.554 ms` (`33.241..33.963`) = `0.504x`.
+- Post-lever same-worker ORIG-vs-candidate Criterion row (remote `vmi1227854`, same command shape): FNX
+  `33.414 ms` (`32.331..34.518`) vs NetworkX `38.232 ms` (`36.032..39.568`) = `1.144x`.
+  Confidence half-widths are under 5% of the mean for both sides; candidate is about `1.99x` faster than the
+  old FNX row by cross-worker Criterion comparison and above NetworkX on the same worker.
+- Direct parity/latency probe after release reinstall: n=1400 exact dict equality, FNX median `0.7107 ms` vs
+  NetworkX `0.5992 ms` in a noisy short loop; n=2600 exact equality, FNX `2.3635 ms` vs NetworkX `1.7353 ms`;
+  n=5000 exact equality, FNX `9.6989 ms` vs NetworkX `4.8182 ms`. Those short-loop rows had high CV and are
+  NOT the keep gate; they show the deeper large path materialisation floor remains active.
+- Post-lever process-wide `perf stat -r 5` n=5000 graph build + 80 calls: `2.2677 +/- 0.0509 s`,
+  `10.846B` instructions, `8.940B` cycles, IPC `1.21`; warmed after-only API timing was `10.8..11.5 ms/call`.
+  Treat this as a scale caveat, not a rejection of the controlled n=1400 public row: the parent-table emitter
+  removes full-path vectors but still reconstructs every returned Python path, so very deep/all-target output
+  remains dominated by unavoidable Python list/object emission.
+
+CORRECTNESS/GATES: benchmark import parity checksum matched (`18421760.0` both engines); focused Python path
+parity `tests/python/test_single_source_shortest_bfs_order_parity.py tests/python/test_exact_path_tiebreak_parity.py`
+passed `111 passed, 5 skipped`; `cargo check --workspace --all-targets` passed via RCH; `cargo clippy
+--workspace --all-targets -- -D warnings` passed via RCH; `cargo fmt --check` clean. UBS and final Beads sync
+recorded in the commit closeout.
+
+RESULT: Keep for the controlled public string-key simple Graph single-source row. Do not retry the old
+full-path-Vec index emitter for this row. Do not generalise this keep to larger/deeper all-target path dumps:
+next route there needs a marshal-avoiding/lazy path surface, depth-thresholded emitter policy, or a cached path
+prefix representation measured against a dedicated large-depth row before changing dispatch.
