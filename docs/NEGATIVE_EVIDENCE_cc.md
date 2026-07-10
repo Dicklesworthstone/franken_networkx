@@ -8,6 +8,90 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## CONFIRMED-NOT-LANDED (cc, 2026-07-10): DiGraph/MultiGraph/MultiDiGraph iterator ctors are 0.31-0.79x on a VERIFIED-FRESH HEAD binary; lever prepared; blocked on a remote build (br-r37-c1-q86hv)
+
+Follow-up to the ctorgen ship below, which deliberately left the three non-`PyGraph` ctors open.
+Measured BEFORE writing code, on a wheel built from **pristine HEAD `7208ffd57`** in an isolated
+worktree (`_fnx.abi3.so` sha256[:16] `d8abf9c02ca7021d`), n=2000/m=10000, min-of-41, gc off,
+`taskset -c 40-47`, fnx/nx interleaved in-process, 3 rounds, **every row cv < 3.2%**. Ratio = nx/fnx.
+
+| row | median | cv% |
+|-----|--------|-----|
+| `DiGraph(iter(edges))` | 0.789 | 0.3 |
+| `DiGraph(iter(attr_edges))` | 0.349 | 0.8 |
+| `MultiGraph(iter(edges))` | 0.475 | 1.4 |
+| `MultiGraph(iter(attr_edges))` | 0.416 | 0.9 |
+| `MultiGraph(iter(keyed))` | 0.312 | 2.5 |
+| `MultiDiGraph(iter(edges))` | 0.472 | 1.7 |
+| `MultiDiGraph(iter(attr_edges))` | 0.431 | 1.5 |
+| `MultiDiGraph(iter(keyed))` | 0.319 | 0.8 |
+| `DiGraph(combinations(150,2))` | 0.745 | 0.7 |
+| `MultiGraph(combinations(150,2))` | 0.500 | 0.4 |
+| GUARD `Graph(iter(edges))` (lever ALREADY landed) | **0.982** | 2.2 |
+| GUARD `DiGraph(list)` / `MultiGraph(list)` / `MultiDiGraph(list)` | 1.126 / 1.159 / 1.170 | <=3.1 |
+
+MECHANISM IS IN THE TABLE, NOT IN A GUESS: the same input shape reads 0.982x on `Graph` (which has
+the drain) and 0.789/0.475/0.472x on the three classes that lack it, while every LIST-shaped guard on
+those same classes is at-or-above parity. The loss is the iterator shape alone. Cause is the one
+already documented below: every `__new__` edge batch gates on `downcast::<PyList>()`/`PyTuple`; a
+generator carries neither, so the batch declines and the ctor drops to the per-edge `PyIterator`
+absorb loop. The multigraph `(u,v,key,dict)` rows are worst (0.312/0.319x) because their per-edge
+fallback also pays key allocation + mirror bookkeeping per edge.
+
+LEVER PREPARED, NOT COMMITTED: `tests/artifacts/perf/20260710T-ctorgen-multi-cc/lever.patch`
+(+ `report.md`, `baseline_orig_head.json`). Makes `materialize_iterator_edge_list` `pub(crate)` and
+adds the one-shot drain to `PyMultiGraph::__new__` (lib.rs) + `PyDiGraph::__new__` /
+`PyMultiDiGraph::__new__` (digraph.rs): 25 insertions, 10 deletions, three call sites. `digraph.rs`
+calls it fully-qualified as `crate::materialize_iterator_edge_list`, touching NO import block,
+because the peer holds an uncommitted `ctorskip` hunk there. The peer's
+`ctor_edge_list_absorb_is_discarded(data)` arm and the graph-copy arms keep receiving the ORIGINAL
+`data`, so the levers compose. `snapshot_iterator_edge_item` already covers the multigraph
+`(u,v,key,dict)` 4-tuple, so the yield-time-semantics fix carries over.
+
+NOT PROVEN, hence NOT LANDED: no ORIG-vs-CAND A/B, no differential parity probe, patch never
+compiled. The keep-gate is not met and no Rust code was committed. DO NOT land this patch on the
+strength of the baseline alone — the Graph twin's near-miss (a naive drain silently rewrote
+yield-time semantics of a generator that re-yields one mutated dict, and **49488 tests passed**) means
+the shared-mutable-object probe is mandatory for BOTH `(u,v,d)` and `(u,v,key,d)` before keeping.
+
+## BLOCKER / TRAP (cc, 2026-07-10): `rch exec -- maturin build` is NOT intercepted by rch and FAILS OPEN to a local build — AGENTS.md prescribes this exact command (br-r37-c1-839yx)
+
+`rch diagnose -- maturin build ...` reports **"Skipped: Command would not be intercepted"**, while
+`rch diagnose -- cargo build --release -p fnx-python` reports `Effective worker: vmi1264463`. Only
+`cargo` is intercepted. `rch exec -- maturin build` therefore offloads only maturin's INNER `cargo`
+call, and when that inner call cannot obtain a worker it silently **falls open to a local build**.
+
+Observed directly, same session, same command, minutes apart:
+* ORIG build offloaded — its `CARGO_TARGET_DIR` holds only `maturin/lib_fnx.so` + `wheels/` (18 MB),
+  **no `release/` tree**.
+* CAND build fell open — wrote a **179 MB local `release/` tree** before being killed.
+
+`rch exec` exposes no strict-remote / no-local-fallback flag (`rch diagnose` prints
+`Strict remote: off` but no CLI or env knob surfaces it; the env list has no `RCH_STRICT_*`). A build
+therefore cannot be made to fail CLOSED. Consequence for the swarm: AGENTS.md's
+`rch exec -- maturin develop ...` recipe is NOT a reliable offload, and under disk pressure it is the
+mechanism by which many agents' "offloaded" builds are actually local.
+
+CORRECTS my memory `rch_builds_remote_disk_stable` ("rch maturin builds run on REMOTE workers — local
+disk stays ~flat"): true only when a worker is free. RETRY-CONDITION for trusting a maturin offload:
+check the target dir grows ONLY `maturin/` + `wheels/` and never `release/`.
+
+## BUG (cc, 2026-07-10): every `maturin build` wheel is broken at import — `.gitignore`'s `core.*` silently drops `python/franken_networkx/core.py` (br-r37-c1-f2kln)
+
+`.gitignore:147-148` are `core` and `core.*`, intended for core dumps. maturin's ignore-aware source
+packager applies them to the Python tree and omits **`python/franken_networkx/core.py`** from the
+wheel even though git tracks the file. Installing that wheel and importing:
+
+```
+ImportError: cannot import name 'core' from partially initialized module 'franken_networkx'
+(most likely due to a circular import)
+```
+
+File-list diff, pristine-HEAD package vs wheel package: 86 vs 85 files; `./core.py` is the ONLY
+omission. Invisible to `maturin develop` (drops the `.so` beside the already-complete repo package)
+and to any bench that extracts only the `.so` — which is why it has survived undetected. Found while
+building an isolated ORIG wheel for the A/B above; worked around by copying `core.py` into the venv.
+
 ## SHIPPED (cc, 2026-07-10): Graph(<iterator>) ctor 0.71x -> 0.94x, attr 0.49x -> 0.72x, combinations 0.61x -> 3.10x — drain a true iterator into a PyList so the ctor edge batch can fire (br-r37-c1-ctorgen)
 
 REFUTATION FIRST (see the separate entry below): BlackThrush's 2026-07-08 handoff table naming

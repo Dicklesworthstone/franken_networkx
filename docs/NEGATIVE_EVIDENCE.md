@@ -2,6 +2,29 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-10 cc TWO CROSS-AGENT TRAPS: `rch exec -- maturin` silently runs LOCALLY (br-r37-c1-839yx), and every maturin wheel is broken at import (br-r37-c1-f2kln)
+
+Both found while building an isolated ORIG wheel for an A/B. Detail + evidence in
+`docs/NEGATIVE_EVIDENCE_cc.md`.
+
+1. **rch does not intercept `maturin`.** `rch diagnose -- maturin build ...` prints
+   *"Skipped: Command would not be intercepted"*; `rch diagnose -- cargo build -p fnx-python` prints
+   an effective worker. `rch exec -- maturin build` only offloads maturin's INNER `cargo` call, and
+   when that call cannot get a worker it **fails open to a LOCAL build**. Observed same-session,
+   same command: one build offloaded (target dir grew only `maturin/` + `wheels/`, 18 MB, no
+   `release/`), the next fell open and wrote a **179 MB local `release/` tree**. `rch exec` exposes
+   no strict-remote flag, so builds cannot be made to fail closed. AGENTS.md's
+   `rch exec -- maturin develop` recipe is therefore NOT a reliable offload — under disk pressure it
+   is how "offloaded" builds end up local. VERIFY an offload by checking the target dir never grows
+   a `release/` tree.
+
+2. **`.gitignore`'s `core.*` breaks every wheel.** `.gitignore:147-148` (`core`, `core.*`, meant for
+   core dumps) make maturin's ignore-aware packager drop the git-TRACKED file
+   `python/franken_networkx/core.py` from the wheel. A wheel-installed `franken_networkx` then dies
+   with `ImportError: cannot import name 'core' from partially initialized module`. Pristine-HEAD
+   package vs wheel package: 86 vs 85 files, `core.py` the only omission. Invisible to
+   `maturin develop` and to any bench that extracts only the `.so`, which is why it survived.
+
 ## 2026-07-10 cod_nx SHIP/WIN (PY BINDING, exact string-key weighted MultiGraph): isolated native two-fringe Dijkstra is 12.88-17.55x faster than the checked-in conversion route (`br-r37-c1-04z53.9170`)
 
 LEDGER-GREPPED FIRST: StackCanon/allocation, display-key and classification-only caches, prefix-path caches,
