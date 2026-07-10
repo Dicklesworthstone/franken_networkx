@@ -8,6 +8,51 @@ neutrals. Losses get reverted; conformance stays green.
 
 Build: `CARGO_TARGET_DIR=/data/projects/.rch-targets/franken_networkx-cc maturin build --release -m crates/fnx-python/Cargo.toml` → wheel installed. Measured 2026-06-18.
 
+## CALIBRATION (cc, 2026-07-10): the aspl guard is a BORDERLINE ~1.6% regression, not 3% — direct cost 0.07%, residual is a probe-allocation side-effect; the real lever is that the gate DECLINES a decidable 1.223x WIN (br-r37-c1-4bubk)
+
+Calibrated the aspl guard floor with TWO nulls (the per_source self-null cannot see the variance of the
+`auto` path it is judging) and 241 rounds. Generalised the sampler to `paired_interleaved_ab_base` so the
+base arm is settable; `null_auto` runs `auto`-vs-`auto`.
+
+PROVENANCE. Worker `hz2`; no local binary (remote build+run); bench sha256 prefix `e3fff78a28e4bd77…`
+(`benches/algorithm_benchmarks.rs`); `RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec`, ONE
+invocation, `paired_interleaved_ab_base`, 241 rounds. (The log labels the base arm "per_source" in a fixed
+string; for the `null_auto` row the base is actually `Auto` — documented by the `cand_name`.)
+
+| row | median | ci95 | cv | win_rate |
+|---|---|---|---|---|
+| `null_persrc` (per_source A/A) | 1.002x | [0.994, 1.013] | 0.44% | 127/241 (53%) |
+| `null_auto` (**auto A/A**) | 1.000x | [0.991, 1.008] | 0.42% | 121/241 (50%) |
+| GUARD `auto` | **0.984x** | [0.976, 0.995] | 0.56% | 96/241 (40%) |
+| forced `chunked_bitpar` | **1.223x** | [1.206, 1.244] | 0.82% | **217/241 (90%)** |
+| TARGET `auto` lowdiam | **7.018x** | [6.953, 7.142] | 0.83% | 241/241 |
+
+DECISION under the median gate. Both self-nulls are tight at ~1.00 (this ESTABLISHES the floor is ~+/-1%,
+and that the harness is fit to decide). The guard median 0.984x lies just BELOW both nulls' lower bounds
+(0.994, 0.991) with win_rate 40% vs 50-53% — so it is a **borderline-decidable ~1.6% regression, NOT the
+~3% I previously wrote.** That earlier 3% was noisier-worker inflation; the two-null 241-round calibration
+resolves it downward.
+
+BUT THE DIRECT COST IS 0.07%, so I do NOT engineer a dedicated fix. `auto`'s only extra work over
+`per_source` on the declined path is the probe; `gate_probe_bounded` measured **1.22 us = 0.07%** of the
+1.7 ms baseline. A 1.6% ratio cannot come from 0.07% of CPU. The residual is the probe's `distance` Vec
+(6.4 KB) allocation-and-free perturbing the allocator/cache state for the 1600-source sweep that follows —
+the same side-effect the code comment already records for the (now-removed) CSR build. Chasing an
+unproven ~1.5% allocation artifact on the worst-case path is the exact trap the null control just taught
+me; I decline it.
+
+THE REAL LEVER (elevated, br-r37-c1-yy0rp): forced `chunked_bitpar` BEATS per_source on `grid_1600` by
+**1.223x, win 217/241 = 90%** — a DECIDABLE win the gate DECLINES. The gate's `levels >= lanes` model
+predicts no edge-scan gain here (78 levels, 128 lanes) and is right about THAT, but it misses that
+coarser chunking (13 rayon tasks vs 1600) has far less scheduling overhead when each per-source BFS is
+cheap. Making the gate accept high-diameter graphs where chunked still wins would capture +22% AND
+dissolve the guard question entirely — there is no fallthrough sweep to perturb when the graph is
+accepted. That is worth a careful A/B; shaving 1.5% off the decline path is not.
+
+NO PRODUCTION CODE CHANGED — aspl already shipped at 12.390x (`86f41cba4`); this commit only adds the
+`null_auto` control + `paired_interleaved_ab_base` to the bench and records the calibration. 35 bitpar
+tests green.
+
 ## SHIPPED (cc, 2026-07-10): bounded eccentricity probe backported to the closeness + harmonic gates — declined-path probe **10.31us -> 1.22us (8.4x)**; harmonic's guard becomes a DECIDABLE **1.017x WIN** (br-r37-c1-k4we4)
 
 First entry decided under the CORRECTED gate: **the median against the per-function null's spread**, not

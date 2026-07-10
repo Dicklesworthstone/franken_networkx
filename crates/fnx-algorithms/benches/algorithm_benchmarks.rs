@@ -425,18 +425,46 @@ fn paired_interleaved_ab(
     run_arm: &dyn Fn(&Graph, BitparArm) -> usize,
     score_bits: &dyn Fn(&Graph, BitparArm) -> Vec<u64>,
 ) {
+    paired_interleaved_ab_base(
+        label,
+        g,
+        BitparArm::PerSource,
+        cand_name,
+        cand,
+        rounds,
+        run_arm,
+        score_bits,
+    );
+}
+
+/// As above but with an explicit BASE arm. The A/A null control needs `base == cand`
+/// on the SAME path being judged: to decide a guard (which compares `auto` against
+/// `per_source`) the honest floor is `auto`-vs-`auto`, not `per_source`-vs-`per_source`
+/// — the two arms differ in the gate probe + row collection, whose own variance the
+/// per_source null cannot see (br-r37-c1-4bubk).
+#[allow(clippy::too_many_arguments)]
+fn paired_interleaved_ab_base(
+    label: &str,
+    g: &Graph,
+    base: BitparArm,
+    cand_name: &str,
+    cand: BitparArm,
+    rounds: usize,
+    run_arm: &dyn Fn(&Graph, BitparArm) -> usize,
+    score_bits: &dyn Fn(&Graph, BitparArm) -> Vec<u64>,
+) {
     use std::hint::black_box;
     use std::time::Instant;
 
     let run = |arm: BitparArm| -> usize { run_arm(black_box(g), black_box(arm)) };
     for _ in 0..3 {
-        black_box(run(BitparArm::PerSource));
+        black_box(run(base));
         black_box(run(cand));
     }
 
     // Execution + byte-exactness proof: both arms really compute, and agree. A
     // dead-code-eliminated arm cannot produce matching bits.
-    let a = score_bits(g, BitparArm::PerSource);
+    let a = score_bits(g, base);
     let b = score_bits(g, cand);
     assert_eq!(a.len(), b.len(), "{label}/{cand_name}: score count");
     let mut checksum = 0u64;
@@ -451,7 +479,7 @@ fn paired_interleaved_ab(
     for r in 0..rounds {
         let (to, tc) = if r % 2 == 0 {
             let t = Instant::now();
-            black_box(run(BitparArm::PerSource));
+            black_box(run(base));
             let to = t.elapsed();
             let t = Instant::now();
             black_box(run(cand));
@@ -461,7 +489,7 @@ fn paired_interleaved_ab(
             black_box(run(cand));
             let tc = t.elapsed();
             let t = Instant::now();
-            black_box(run(BitparArm::PerSource));
+            black_box(run(base));
             (t.elapsed(), tc)
         };
         orig.push(to.as_secs_f64() * 1e3);
@@ -624,23 +652,37 @@ fn bench_aspl_parallel(c: &mut Criterion) {
         ("aspl/grid_1600", build_grid(40, 40)), // GUARD: gate must decline
     ];
     for (label, g) in &workloads {
-        // NULL CONTROL (franken_whisper): identical arm vs itself = the noise floor.
+        // br-r37-c1-4bubk: aspl's guard sat exactly on the per_source null's lower
+        // bound at 121 rounds — undecidable. 241 rounds tighten the median, and TWO
+        // nulls calibrate the floor: per_source-vs-per_source (the baseline path) AND
+        // auto-vs-auto (the path the guard actually runs, whose gate-probe + row-collect
+        // variance the per_source null cannot see). Decide the guard against the LATTER.
         paired_interleaved_ab(
             label,
             g,
-            "null_control",
+            "null_persrc",
             BitparArm::PerSource,
-            121,
+            241,
             &run,
             &bits,
         );
-        paired_interleaved_ab(label, g, "auto", BitparArm::Auto, 121, &run, &bits);
+        paired_interleaved_ab_base(
+            label,
+            g,
+            BitparArm::Auto,
+            "null_auto",
+            BitparArm::Auto,
+            241,
+            &run,
+            &bits,
+        );
+        paired_interleaved_ab(label, g, "auto", BitparArm::Auto, 241, &run, &bits);
         paired_interleaved_ab(
             label,
             g,
             "chunked_bitpar",
             BitparArm::ChunkedBitpar,
-            121,
+            241,
             &run,
             &bits,
         );
