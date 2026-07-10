@@ -391,6 +391,57 @@ fn bench_degree_centrality(c: &mut Criterion) {
     group.finish();
 }
 
+/// br-r37-c1-2zn1u: quantify the ISA-baseline gap in a WORKER-INVARIANT way. The build
+/// flag is whole-binary, so baseline vs `target-cpu=native` is unavoidably two rch
+/// invocations on (probably) different workers — and a raw time ratio across workers is
+/// meaningless. So measure a popcount-heavy loop AND a popcount-FREE reference loop over
+/// the SAME L1-resident buffer in the SAME binary. `reference` tracks the worker's clock;
+/// `popcount / reference` is a worker-invariant number. Compare that ratio between the
+/// baseline build and the native build: its DROP is the popcnt-instruction speedup,
+/// independent of which worker each build landed on. Zero unsafe — `count_ones()` is safe
+/// Rust; only its codegen (software popcount vs a single `popcnt`) changes with the flag.
+fn bench_isa_popcnt_probe(c: &mut Criterion) {
+    use std::hint::black_box;
+    // 1024 u64 = 8 KiB, resident in L1 on every fleet worker, so both loops are
+    // ALU-bound (the popcnt effect) rather than memory-bound (which would mask it).
+    let mut buf = vec![0u64; 1024];
+    let mut x = 0x9E37_79B9_7F4A_7C15u64;
+    for b in buf.iter_mut() {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        *b = x;
+    }
+    let mut group = c.benchmark_group("isa_popcnt_probe");
+    // black_box the SLICE once (opaque data, real loop) but NOT each element — a
+    // per-element black_box serialises the loop and hides the very ALU difference
+    // (software popcount vs hardware `popcnt`, and +avx2 vectorised popcount) this
+    // probe exists to expose.
+    group.bench_function("popcount_sum", |bch| {
+        bch.iter(|| {
+            let data = black_box(&buf[..]);
+            let mut s = 0u64;
+            for &v in data {
+                s += u64::from(v.count_ones());
+            }
+            black_box(s)
+        });
+    });
+    // Same read pattern, same loop, one cheap ALU op instead of a popcount — the
+    // worker-clock normaliser.
+    group.bench_function("reference_rotate", |bch| {
+        bch.iter(|| {
+            let data = black_box(&buf[..]);
+            let mut s = 0u64;
+            for &v in data {
+                s = s.wrapping_add(v.rotate_left(1));
+            }
+            black_box(s)
+        });
+    });
+    group.finish();
+}
+
 fn bench_closeness_centrality(c: &mut Criterion) {
     let mut group = c.benchmark_group("closeness_centrality");
     for &n in &[20, 50, 100] {
@@ -1034,6 +1085,7 @@ fn bench_minimum_spanning_tree(c: &mut Criterion) {
 
 criterion_group!(
     benches,
+    bench_isa_popcnt_probe,
     bench_shortest_path_unweighted,
     bench_shortest_path_weighted,
     bench_single_source_dijkstra,

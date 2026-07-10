@@ -185,6 +185,42 @@ record every frame at or above `0.1%` self-time, and require a non-zero self-tim
 function under test. Candidate and a frozen current-native ORIG must execute inside one binary and one RCH
 invocation; the old conversion-route shadow is not an ORIG for the next native-cache lever.
 
+## 2026-07-10 cc ISA QUANTIFIED (supersedes the "inconclusive" note below): +native gives **popcount 3.17x, rotate 2.08x** on ALU loops — but the closeness bit-parallel KERNEL is **0.98x (no change)**. AND a fleet-critical bug: rch does NOT forward RUSTFLAGS without `RCH_ENV_ALLOWLIST=RUSTFLAGS`
+
+FLEET-CRITICAL PROCESS BUG (invalidated my prior turn's ISA measurement, and will invalidate every agent's):
+**rch strips RUSTFLAGS from the remote build unless you set `RCH_ENV_ALLOWLIST=RUSTFLAGS`.** (`rch exec --help`
+ENVIRONMENT VARIABLES: "`RCH_ENV_ALLOWLIST` — Comma-separated env vars to forward, e.g.
+`RUSTFLAGS,CARGO_TARGET_DIR`".) Last turn `RUSTFLAGS="-C target-cpu=native" rch exec -- cargo bench` gave
+IDENTICAL baseline/native numbers — the flag never reached the worker's rustc; I benched baseline twice.
+Correct form:
+`RCH_REQUIRE_REMOTE=1 RCH_ENV_ALLOWLIST=RUSTFLAGS RUSTFLAGS="-C target-cpu=native" env -u CARGO_TARGET_DIR rch exec -- cargo bench ...`
+
+WITH FORWARDING FIXED — same-worker `ovh-a` A/B, zero unsafe (`count_ones()` stays safe Rust, only codegen
+changes). Bench sha256 prefix `c2d6bfb53c93130f`:
+
+| metric (both arms, worker ovh-a) | baseline | native | native speedup |
+|---|---|---|---|
+| `popcount_sum` (1024 popcounts, L1) | 410.10 ns | **129.43 ns** | **3.169x** |
+| `reference_rotate` (worker-clock normaliser) | 134.32 ns | 64.46 ns | 2.084x |
+| `closeness/complete/20` KERNEL | 2.09 us | 2.13 us | 0.982x |
+| `closeness/complete/50` KERNEL | 10.52 us | 10.68 us | 0.986x |
+| `closeness/complete/100` KERNEL | 32.66 us | 33.43 us | 0.977x |
+
+THE ANSWER to "popcnt could be large on your bit-parallel BFS popcounts": the popcount OPERATION is 3.17x
+faster (rotate 2.08x) — the ISA fix is real and large on ALU-bound loops, independently corroborating
+frankenscipy's 1.745x. **But the closeness KERNEL does not move (0.98x across all three sizes, same
+worker).** Two reasons, both by prior design: (1) the bit-parallel BFS DEFERS popcount off the O(|E|) hot
+loop, so a 3.17x popcount is 3.17x of a tiny fraction; (2) the hot loop (`frontier & !seen`, scattered
+across the graph) is MEMORY/traversal-bound, and AVX2 vectorises ALU-bound tight loops, not scattered
+pointer-chasing. The kernels already engineered AROUND the ISA gap.
+
+CONSEQUENCE: for the CENTRALITY lane a +native/+avx2 build is a MEASURED no-op — do not pursue it there.
+The frankenscipy-class win (their 1.745x was dense-linalg/FMA, ALU-bound) lives on the DENSE-LINALG surface
+(~14 matrix/spectrum/laplacian + adjacency-matrix + pagerank), where THIS microbench proves 2-3x ISA
+headroom. That is br-r37-c1-2zn1u — where a build-flag change pays, NOT the bit-parallel BFS. Wheel-policy
+caveat stands (fixed target-cpu unsafe for the install target; needs guaranteed-AVX2 target or runtime
+dispatch).
+
 ## 2026-07-10 cc ISA-BASELINE CHECK (frankenscipy/frankenredis fleet sweep): franken_networkx ALSO ships x86-64 baseline (no popcnt/avx2). The fix forwards remotely, but the leverage is dense-linalg, NOT the centrality kernels — those already work around it
 
 ANSWER TO THE PRIMARY QUESTION: this repo emits the **bare x86-64 baseline**. There is NO `.cargo/config.toml`,
