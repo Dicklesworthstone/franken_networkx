@@ -43,7 +43,7 @@ fn bench_public_api_gauntlet(c: &mut Criterion) {
             .to_str()
             .expect("repo path must be UTF-8");
         let preload_src = format!(
-            "import glob, importlib.util, os, sys
+            "import glob, hashlib, importlib.util, os, sys
 cwd = {repo_root:?}
 for rel_path in (
     'crates/fnx-python/benches',
@@ -55,19 +55,47 @@ for rel_path in (
     if path not in sys.path:
         sys.path.insert(0, path)
 import networkx.exception
+available_cpus = sorted(os.sched_getaffinity(0))
+if available_cpus:
+    bench_cpu = available_cpus[-1]
+    os.sched_setaffinity(0, set((bench_cpu,)))
+    print(f'fnx bench cpu: {{bench_cpu}}', file=sys.stderr)
 target_dir = os.environ.get('CARGO_TARGET_DIR')
 if target_dir:
+    perf_candidates = sorted(
+        [path for path in [
+            os.path.join(target_dir, 'release-perf', 'lib_fnx.so'),
+            *glob.glob(os.path.join(target_dir, 'release-perf', 'deps', 'lib_fnx*.so')),
+        ] if os.path.exists(path)],
+        key=os.path.getmtime,
+        reverse=True,
+    )
+    release_candidates = sorted(
+        [path for path in [
+            os.path.join(target_dir, 'release', 'lib_fnx.so'),
+            *glob.glob(os.path.join(target_dir, 'release', 'deps', 'lib_fnx*.so')),
+        ] if os.path.exists(path)],
+        key=os.path.getmtime,
+        reverse=True,
+    )
     candidates = [
-        os.path.join(target_dir, 'release', 'lib_fnx.so'),
-        *glob.glob(os.path.join(target_dir, 'release', 'deps', 'lib_fnx*.so')),
+        *perf_candidates,
+        *release_candidates,
     ]
+    loaded_path = None
     for path in candidates:
         if os.path.exists(path):
             spec = importlib.util.spec_from_file_location('franken_networkx._fnx', path)
             module = importlib.util.module_from_spec(spec)
             sys.modules['franken_networkx._fnx'] = module
             spec.loader.exec_module(module)
-            break"
+            loaded_path = path
+            break
+    if loaded_path is None:
+        raise RuntimeError(f'no freshly built fnx extension under {{target_dir}}')
+    with open(loaded_path, 'rb') as extension_file:
+        extension_sha = hashlib.sha256(extension_file.read()).hexdigest()
+    print(f'fnx bench extension: {{loaded_path}} sha256={{extension_sha}}', file=sys.stderr)"
         );
         py.run(
             std::ffi::CString::new(preload_src)
@@ -300,6 +328,36 @@ if target_dir:
                 "multigraph_dijkstra_path_string_target",
                 "networkx",
                 "networkx_multigraph_dijkstra_path_string_target",
+            ),
+            (
+                "multigraph_shortest_path_string_target",
+                "fnx",
+                "fnx_multigraph_shortest_path_string_target",
+            ),
+            (
+                "multigraph_shortest_path_string_target",
+                "orig",
+                "orig_multigraph_shortest_path_string_target",
+            ),
+            (
+                "multigraph_shortest_path_string_target",
+                "networkx",
+                "networkx_multigraph_shortest_path_string_target",
+            ),
+            (
+                "multigraph_bidirectional_dijkstra_string_target",
+                "fnx",
+                "fnx_multigraph_bidirectional_dijkstra_string_target",
+            ),
+            (
+                "multigraph_bidirectional_dijkstra_string_target",
+                "orig",
+                "orig_multigraph_bidirectional_dijkstra_string_target",
+            ),
+            (
+                "multigraph_bidirectional_dijkstra_string_target",
+                "networkx",
+                "networkx_multigraph_bidirectional_dijkstra_string_target",
             ),
             (
                 "multidigraph_single_source_dijkstra_path_length",

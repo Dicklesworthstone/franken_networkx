@@ -1221,6 +1221,7 @@ _MG_DP_NODE_COUNT = 1400
 _MG_DP_SOURCE = "n0"
 _MG_DP_TARGET = "n1399"
 _MG_DP_REPEAT = 20
+_MG_BIDI_REPEAT = 400
 _FNX_MG_DP_GRAPH = _build_highway_weighted_multigraph(fnx, _MG_DP_NODE_COUNT)
 _NX_MG_DP_GRAPH = _build_highway_weighted_multigraph(nx, _MG_DP_NODE_COUNT)
 _EXPECTED_MG_DP = nx.dijkstra_path(
@@ -1231,6 +1232,22 @@ _FNX_MG_DP = fnx.dijkstra_path(
 )
 if _FNX_MG_DP != _EXPECTED_MG_DP:
     raise AssertionError("dijkstra_path MultiGraph string-key parity drift")
+_EXPECTED_MG_SP = nx.shortest_path(
+    _NX_MG_DP_GRAPH, _MG_DP_SOURCE, _MG_DP_TARGET, weight="weight"
+)
+_FNX_MG_SP = fnx.shortest_path(
+    _FNX_MG_DP_GRAPH, _MG_DP_SOURCE, _MG_DP_TARGET, weight="weight"
+)
+if _FNX_MG_SP != _EXPECTED_MG_SP:
+    raise AssertionError("shortest_path MultiGraph string-key parity drift")
+_EXPECTED_MG_BIDI = nx.bidirectional_dijkstra(
+    _NX_MG_DP_GRAPH, _MG_DP_SOURCE, _MG_DP_TARGET, weight="weight"
+)
+_FNX_MG_BIDI = fnx.bidirectional_dijkstra(
+    _FNX_MG_DP_GRAPH, _MG_DP_SOURCE, _MG_DP_TARGET, weight="weight"
+)
+if _FNX_MG_BIDI != _EXPECTED_MG_BIDI:
+    raise AssertionError("bidirectional_dijkstra MultiGraph string-key parity drift")
 
 
 def _string_path_sequence_checksum(path: list[str]) -> float:
@@ -1259,6 +1276,107 @@ def networkx_multigraph_dijkstra_path_string_target() -> float:
                 _NX_MG_DP_GRAPH, _MG_DP_SOURCE, _MG_DP_TARGET, weight="weight"
             )
         )
+    return total
+
+
+def fnx_multigraph_shortest_path_string_target() -> float:
+    total = 0.0
+    for _ in range(_MG_BIDI_REPEAT):
+        total += _string_path_sequence_checksum(
+            fnx.shortest_path(
+                _FNX_MG_DP_GRAPH, _MG_DP_SOURCE, _MG_DP_TARGET, weight="weight"
+            )
+        )
+    return total
+
+
+def _orig_multigraph_bidirectional_dijkstra_once():
+    """Reproduce the checked-in pre-candidate MultiGraph delegation branch."""
+    if _FNX_MG_DP_GRAPH.is_multigraph() or fnx._should_delegate_dijkstra_to_networkx(
+        _FNX_MG_DP_GRAPH, "weight"
+    ):
+        return fnx._call_networkx_for_parity(
+            "bidirectional_dijkstra",
+            _FNX_MG_DP_GRAPH,
+            _MG_DP_SOURCE,
+            _MG_DP_TARGET,
+            weight="weight",
+        )
+    raise AssertionError("shadow ORIG unexpectedly left the delegation path")
+
+
+def _orig_multigraph_shortest_path_once():
+    """Reproduce the checked-in pre-candidate public shortest-path hot route."""
+    fnx._validate_backend_dispatch_keywords("shortest_path", None, {})
+    graph = fnx._coerce_arg_to_fnx_graph(_FNX_MG_DP_GRAPH)
+    if fnx._path_query_has_missing_nodes(
+        graph, source=_MG_DP_SOURCE, target=_MG_DP_TARGET
+    ):
+        return fnx._call_networkx_for_parity(
+            "shortest_path",
+            graph,
+            source=_MG_DP_SOURCE,
+            target=_MG_DP_TARGET,
+            weight="weight",
+            method="dijkstra",
+        )
+    if fnx._should_delegate_dijkstra_to_networkx(graph, "weight"):
+        return fnx._call_networkx_for_parity(
+            "shortest_path",
+            graph,
+            source=_MG_DP_SOURCE,
+            target=_MG_DP_TARGET,
+            weight="weight",
+            method="dijkstra",
+        )
+    return _orig_multigraph_bidirectional_dijkstra_once()[1]
+
+
+def orig_multigraph_shortest_path_string_target() -> float:
+    """Exact checked-in pre-candidate public path."""
+    total = 0.0
+    for _ in range(_MG_BIDI_REPEAT):
+        total += _string_path_sequence_checksum(_orig_multigraph_shortest_path_once())
+    return total
+
+
+def networkx_multigraph_shortest_path_string_target() -> float:
+    total = 0.0
+    for _ in range(_MG_BIDI_REPEAT):
+        total += _string_path_sequence_checksum(
+            nx.shortest_path(
+                _NX_MG_DP_GRAPH, _MG_DP_SOURCE, _MG_DP_TARGET, weight="weight"
+            )
+        )
+    return total
+
+
+def fnx_multigraph_bidirectional_dijkstra_string_target() -> float:
+    total = 0.0
+    for _ in range(_MG_BIDI_REPEAT):
+        length, path = fnx.bidirectional_dijkstra(
+            _FNX_MG_DP_GRAPH, _MG_DP_SOURCE, _MG_DP_TARGET, weight="weight"
+        )
+        total += float(length) + _string_path_sequence_checksum(path)
+    return total
+
+
+def orig_multigraph_bidirectional_dijkstra_string_target() -> float:
+    """Exact checked-in pre-candidate public path."""
+    total = 0.0
+    for _ in range(_MG_BIDI_REPEAT):
+        length, path = _orig_multigraph_bidirectional_dijkstra_once()
+        total += float(length) + _string_path_sequence_checksum(path)
+    return total
+
+
+def networkx_multigraph_bidirectional_dijkstra_string_target() -> float:
+    total = 0.0
+    for _ in range(_MG_BIDI_REPEAT):
+        length, path = nx.bidirectional_dijkstra(
+            _NX_MG_DP_GRAPH, _MG_DP_SOURCE, _MG_DP_TARGET, weight="weight"
+        )
+        total += float(length) + _string_path_sequence_checksum(path)
     return total
 
 

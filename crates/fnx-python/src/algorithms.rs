@@ -1013,6 +1013,149 @@ fn multigraph_dijkstra_path_to_target_lazy(
     None
 }
 
+/// NetworkX-faithful bidirectional Dijkstra over an undirected `MultiGraph`.
+///
+/// This deliberately walks the existing adjacency rows and parallel-edge
+/// buckets in place. Building a projected simple graph changes undirected row
+/// order for some insertion histories (and was also the measured hot cost), so
+/// the bidirectional meeting-node tie-break must be reproduced directly here.
+/// Both fringes share one FIFO sequence counter, relax only on strict
+/// improvement, and retain the first equal-total meeting candidate, exactly as
+/// `networkx.bidirectional_dijkstra` does.
+fn multigraph_bidirectional_dijkstra(
+    mg: &fnx_classes::MultiGraph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> fnx_algorithms::BidirectionalDijkstraOutcome {
+    use fnx_algorithms::BidirectionalDijkstraOutcome;
+
+    let names = mg.nodes_ordered();
+    let mut index = HashMap::<&str, usize>::with_capacity(names.len());
+    for (idx, node) in names.iter().copied().enumerate() {
+        index.insert(node, idx);
+    }
+    let (Some(&source_idx), Some(&target_idx)) = (index.get(source), index.get(target)) else {
+        return BidirectionalDijkstraOutcome::NodeMissing;
+    };
+    if source_idx == target_idx {
+        return BidirectionalDijkstraOutcome::Found(0.0, true, vec![source.to_owned()]);
+    }
+
+    let n = names.len();
+    let mut dists: [Vec<Option<f64>>; 2] = [vec![None; n], vec![None; n]];
+    let mut predecessors: [Vec<Option<usize>>; 2] = [vec![None; n], vec![None; n]];
+    let mut seen: [Vec<Option<f64>>; 2] = [vec![None; n], vec![None; n]];
+    seen[0][source_idx] = Some(0.0);
+    seen[1][target_idx] = Some(0.0);
+
+    let mut fringe: [BinaryHeap<PyDijkstraState>; 2] = [BinaryHeap::new(), BinaryHeap::new()];
+    let mut counter = 0_u64;
+    fringe[0].push(PyDijkstraState {
+        dist: 0.0,
+        seq: counter,
+        node: source_idx,
+    });
+    counter += 1;
+    fringe[1].push(PyDijkstraState {
+        dist: 0.0,
+        seq: counter,
+        node: target_idx,
+    });
+    counter += 1;
+
+    let mut final_distance: Option<f64> = None;
+    let mut meet_node: Option<usize> = None;
+    let mut direction = 1_usize;
+
+    while !fringe[0].is_empty() && !fringe[1].is_empty() {
+        direction = 1 - direction;
+        let PyDijkstraState {
+            dist: distance,
+            node,
+            ..
+        } = fringe[direction].pop().expect("fringe checked non-empty");
+        if dists[direction][node].is_some() {
+            continue;
+        }
+        dists[direction][node] = Some(distance);
+
+        if dists[1 - direction][node].is_some() {
+            let meet = meet_node.expect("meet node set before fringes overlap");
+            let mut path_indices = Vec::new();
+            let mut current = Some(meet);
+            while let Some(idx) = current {
+                path_indices.push(idx);
+                current = predecessors[0][idx];
+            }
+            path_indices.reverse();
+            let mut current = predecessors[1][meet];
+            while let Some(idx) = current {
+                path_indices.push(idx);
+                current = predecessors[1][idx];
+            }
+
+            let all_int = path_indices.windows(2).all(|pair| {
+                multigraph_min_parallel_dijkstra_weight(
+                    mg,
+                    names[pair[0]],
+                    names[pair[1]],
+                    weight_attr,
+                )
+                .is_some_and(|(_, edge_all_int)| edge_all_int)
+            });
+            let path = path_indices
+                .into_iter()
+                .map(|idx| names[idx].to_owned())
+                .collect();
+            return BidirectionalDijkstraOutcome::Found(
+                final_distance.expect("final distance set with meet node"),
+                all_int,
+                path,
+            );
+        }
+
+        let node_name = names[node];
+        let Some(neighbors) = mg.neighbors_iter(node_name) else {
+            continue;
+        };
+        for neighbor_name in neighbors {
+            let Some(&neighbor) = index.get(neighbor_name) else {
+                continue;
+            };
+            let Some((edge_weight, _)) =
+                multigraph_min_parallel_dijkstra_weight(mg, node_name, neighbor_name, weight_attr)
+            else {
+                continue;
+            };
+            let candidate = distance + edge_weight;
+            if let Some(finalized) = dists[direction][neighbor] {
+                if candidate < finalized {
+                    return BidirectionalDijkstraOutcome::Contradiction;
+                }
+            } else if seen[direction][neighbor].is_none_or(|known| candidate < known) {
+                seen[direction][neighbor] = Some(candidate);
+                predecessors[direction][neighbor] = Some(node);
+                fringe[direction].push(PyDijkstraState {
+                    dist: candidate,
+                    seq: counter,
+                    node: neighbor,
+                });
+                counter += 1;
+                if let Some(other) = seen[1 - direction][neighbor] {
+                    let total = candidate + other;
+                    if final_distance.is_none_or(|best| total < best) {
+                        final_distance = Some(total);
+                        meet_node = Some(neighbor);
+                    }
+                }
+            }
+        }
+    }
+
+    BidirectionalDijkstraOutcome::NoPath
+}
+
 /// Weight reader for the native greedy-TSP kernel. Mirrors NetworkX's
 /// `nbrdict[v].get(weight, 1)`: a present edge with no `weight` attribute is
 /// `1.0`. Returns `None` only when the `weight` attribute IS present but is
@@ -3908,12 +4051,57 @@ pub fn graph_edge_weights_all_int(
     Ok(result)
 }
 
+const MAX_EXACT_F64_INT: u128 = 1_u128 << 53;
+
+fn py_dijkstra_weight_flags(raw: &Bound<'_, PyAny>, max_path_edges: u128) -> (bool, bool, bool) {
+    if raw.is_exact_instance_of::<PyBool>() {
+        return (false, false, false);
+    }
+    if raw.is_exact_instance_of::<PyInt>() {
+        return raw.extract::<i64>().map_or((false, true, false), |value| {
+            (
+                value < 0,
+                u128::from(value.unsigned_abs()) * max_path_edges > MAX_EXACT_F64_INT,
+                false,
+            )
+        });
+    }
+    if raw.is_exact_instance_of::<PyFloat>() {
+        return raw.extract::<f64>().map_or((false, false, true), |value| {
+            (value < 0.0, !value.is_finite(), false)
+        });
+    }
+    // NetworkX preserves arithmetic and return types for custom numeric
+    // objects (Fraction, Decimal, NumPy scalars). The native Cgse/f64 path
+    // cannot, so keep those on the exact delegation route.
+    (false, false, true)
+}
+
+fn stored_dijkstra_weight_flags(
+    raw: Option<&fnx_runtime::CgseValue>,
+    max_path_edges: u128,
+) -> (bool, bool, bool) {
+    match raw {
+        None | Some(fnx_runtime::CgseValue::Bool(_)) => (false, false, false),
+        Some(fnx_runtime::CgseValue::Int(value)) => (
+            *value < 0,
+            u128::from(value.unsigned_abs()) * max_path_edges > MAX_EXACT_F64_INT,
+            false,
+        ),
+        Some(fnx_runtime::CgseValue::Float(value)) => (*value < 0.0, !value.is_finite(), false),
+        Some(fnx_runtime::CgseValue::String(_)) | Some(fnx_runtime::CgseValue::Map(_)) => {
+            (false, false, true)
+        }
+    }
+}
+
 #[pyfunction]
-#[pyo3(signature = (g, weight_attr))]
+#[pyo3(signature = (g, weight_attr, require_exact_string_nodes=false))]
 pub fn check_dijkstra_edge_weights_fast(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     weight_attr: &str,
+    require_exact_string_nodes: bool,
 ) -> PyResult<Option<(bool, bool, bool)>> {
     let gr = extract_graph(g)?;
     match &gr {
@@ -3974,32 +4162,105 @@ pub fn check_dijkstra_edge_weights_fast(
             Ok(Some((has_negative, has_nonfinite, has_nonnumeric)))
         }
         GraphRef::MultiUndirected { mg, .. } => {
-            let mut has_negative = false;
-            let mut has_positive_infinity = false;
-            let mut has_nonnumeric = false;
-            for dict in mg.edge_py_attrs.values() {
-                let bound = dict.bind(py);
-                if let Some(val) = bound.get_item(weight_attr)? {
-                    if let Ok(f) = val.extract::<f64>() {
-                        if f < 0.0 {
-                            has_negative = true;
+            if !require_exact_string_nodes {
+                // Preserve the established shared classifier for unrelated
+                // MultiGraph Dijkstra APIs. The stricter exact-domain checks
+                // below belong only to the new string-key bidirectional path.
+                let mut has_negative = false;
+                let mut has_positive_infinity = false;
+                let mut has_nonnumeric = false;
+                for dict in mg.edge_py_attrs.values() {
+                    let bound = dict.bind(py);
+                    if let Some(val) = bound.get_item(weight_attr)? {
+                        if let Ok(f) = val.extract::<f64>() {
+                            if f < 0.0 {
+                                has_negative = true;
+                            }
+                            if f.is_infinite() && f.is_sign_positive() {
+                                has_positive_infinity = true;
+                            }
+                        } else if let Ok(i) = val.extract::<i64>() {
+                            if i < 0 {
+                                has_negative = true;
+                            }
+                        } else if val.extract::<bool>().is_err() {
+                            has_nonnumeric = true;
                         }
-                        if f.is_infinite() && f.is_sign_positive() {
-                            has_positive_infinity = true;
-                        }
-                    } else if let Ok(i) = val.extract::<i64>() {
-                        if i < 0 {
-                            has_negative = true;
-                        }
-                    } else if val.extract::<bool>().is_err() {
-                        has_nonnumeric = true;
+                    }
+                    if has_negative && has_positive_infinity && has_nonnumeric {
+                        break;
                     }
                 }
-                if has_negative && has_positive_infinity && has_nonnumeric {
+                return Ok(Some((has_negative, has_positive_infinity, has_nonnumeric)));
+            }
+
+            let mut has_negative = false;
+            let mut has_nonfinite_or_inexact_int = false;
+            // The native path emitter resolves graph-global display objects,
+            // while NetworkX records the object first seen in each adjacency
+            // row. Hash-equal mixed node objects (for example `1` / `1.0`) and
+            // string subclasses therefore need the exact Python traversal.
+            // The measured lane is exact built-in string nodes, for which this
+            // native O(V) mirror check is allocation-free.
+            let mut has_nonnumeric = require_exact_string_nodes
+                && (!mg.adj_py_keys.is_empty()
+                    || mg.node_key_map.len() != mg.inner.node_count()
+                    || mg
+                        .node_key_map
+                        .values()
+                        .any(|node| !node.bind(py).is_exact_instance_of::<PyString>()));
+            let max_path_edges = mg.inner.node_count().saturating_sub(1).max(1) as u128;
+            for dict in mg.edge_py_attrs.values() {
+                let bound = dict.bind(py);
+                if bound
+                    .iter()
+                    .any(|(key, _)| !key.is_exact_instance_of::<PyString>())
+                {
+                    // Rust canonicalizes attribute keys to strings. A Python
+                    // non-string key can collide with `weight_attr` after that
+                    // conversion, so the original dict must stay authoritative.
+                    has_nonnumeric = true;
+                }
+                if let Some(val) = bound.get_item(weight_attr)? {
+                    let flags = py_dijkstra_weight_flags(&val, max_path_edges);
+                    has_negative |= flags.0;
+                    has_nonfinite_or_inexact_int |= flags.1;
+                    has_nonnumeric |= flags.2;
+                }
+                if has_negative && has_nonfinite_or_inexact_int && has_nonnumeric {
                     break;
                 }
             }
-            Ok(Some((has_negative, has_positive_infinity, has_nonnumeric)))
+            // Graph conversions may keep authoritative attributes only in the
+            // Rust store. Fully mirrored graphs stay on the allocation-free
+            // loop above; empty/partial mirrors additionally inspect store-only
+            // edges so hostile weights cannot slip into the native kernel.
+            if mg.edge_py_attrs.len() < mg.inner.edge_count() {
+                for (left, right, key, attrs) in mg.inner.edges_ordered_borrowed() {
+                    let is_mirrored = if mg.edge_py_attrs.is_empty() {
+                        false
+                    } else {
+                        mg.edge_py_attrs
+                            .contains_key(&PyMultiGraph::edge_key(left, right, key))
+                    };
+                    if is_mirrored {
+                        continue;
+                    }
+                    let flags =
+                        stored_dijkstra_weight_flags(attrs.get(weight_attr), max_path_edges);
+                    has_negative |= flags.0;
+                    has_nonfinite_or_inexact_int |= flags.1;
+                    has_nonnumeric |= flags.2;
+                    if has_negative && has_nonfinite_or_inexact_int && has_nonnumeric {
+                        break;
+                    }
+                }
+            }
+            Ok(Some((
+                has_negative,
+                has_nonfinite_or_inexact_int,
+                has_nonnumeric,
+            )))
         }
         GraphRef::MultiDirected { mdg, .. } => {
             let mut has_negative = false;
@@ -4366,12 +4627,12 @@ pub fn multi_source_dijkstra_path_length(
 // bidirectional_dijkstra (undirected native kernel, br-r37-c1-k4p0b)
 // ---------------------------------------------------------------------------
 
-/// Native undirected bidirectional Dijkstra: returns `(length, path)`
+/// Native bidirectional Dijkstra: returns `(length, path)`
 /// byte-identical to `networkx.bidirectional_dijkstra`. The Python wrapper only
-/// routes simple undirected graphs with a string weight key and non-negative
-/// finite numeric weights here (everything else is delegated / kept on the
-/// in-process port); it also performs the nx `NodeNotFound` / `source == target`
-/// checks before calling, so this kernel assumes both nodes are present.
+/// routes simple graphs and undirected `MultiGraph`s with a string weight key
+/// and non-negative finite numeric weights here (everything else is delegated);
+/// it also performs the nx `NodeNotFound` checks before calling, so this kernel
+/// assumes both nodes are present.
 #[pyfunction]
 #[pyo3(signature = (g, source, target, weight="weight"))]
 pub fn bidirectional_dijkstra(
@@ -4393,24 +4654,43 @@ pub fn bidirectional_dijkstra(
     validate_node_str(&gr, &source_str, "Source")?;
     validate_node_str(&gr, &target_str, "Target")?;
 
-    // br-r37-c1-p60i1 (cc): directed graphs route to the directed kernel (forward
-    // successors / backward predecessors); undirected keep the original kernel.
-    let outcome = if let Some(projection) = gr.weighted_digraph_projection(weight) {
-        let inner = projection.as_ref();
-        py.allow_threads(|| {
-            fnx_algorithms::bidirectional_dijkstra_directed(inner, &source_str, &target_str, weight)
-        })
-    } else {
-        let projection = gr.weighted_undirected_projection(weight);
-        let inner = projection.as_ref();
-        py.allow_threads(|| {
-            fnx_algorithms::bidirectional_dijkstra_undirected(
-                inner,
-                &source_str,
-                &target_str,
-                weight,
-            )
-        })
+    // br-r37-c1-04z53.9170: an undirected MultiGraph must not take the projected
+    // simple-graph route. Projection both dominated this public row and can
+    // reorder per-node adjacency, changing NetworkX's meeting-node tie-break.
+    let outcome = match &gr {
+        GraphRef::MultiUndirected { mg, .. } => {
+            let inner = &mg.inner;
+            py.allow_threads(|| {
+                multigraph_bidirectional_dijkstra(inner, &source_str, &target_str, weight)
+            })
+        }
+        _ => {
+            // br-r37-c1-p60i1 (cc): directed graphs route to the directed kernel
+            // (forward successors / backward predecessors); simple undirected
+            // graphs keep the original integer-adjacency kernel.
+            if let Some(projection) = gr.weighted_digraph_projection(weight) {
+                let inner = projection.as_ref();
+                py.allow_threads(|| {
+                    fnx_algorithms::bidirectional_dijkstra_directed(
+                        inner,
+                        &source_str,
+                        &target_str,
+                        weight,
+                    )
+                })
+            } else {
+                let projection = gr.weighted_undirected_projection(weight);
+                let inner = projection.as_ref();
+                py.allow_threads(|| {
+                    fnx_algorithms::bidirectional_dijkstra_undirected(
+                        inner,
+                        &source_str,
+                        &target_str,
+                        weight,
+                    )
+                })
+            }
+        }
     };
 
     match outcome {
@@ -4423,7 +4703,7 @@ pub fn bidirectional_dijkstra(
             ))
         }
         fnx_algorithms::BidirectionalDijkstraOutcome::NoPath => Err(NetworkXNoPath::new_err(
-            format!("No path between {} and {}.", source_str, target_str),
+            format!("No path between {} and {}.", source.str()?, target.str()?),
         )),
         fnx_algorithms::BidirectionalDijkstraOutcome::Contradiction => Err(PyValueError::new_err(
             "Contradictory paths found: negative weights?",
@@ -4431,7 +4711,8 @@ pub fn bidirectional_dijkstra(
         fnx_algorithms::BidirectionalDijkstraOutcome::NodeMissing => {
             Err(NodeNotFound::new_err(format!(
                 "Either source {} or target {} is not in G",
-                source_str, target_str
+                source.str()?,
+                target.str()?
             )))
         }
     }
@@ -25557,6 +25838,89 @@ mod tests {
                 ("b", 3.0, true, Some("a")),
             ]
         );
+    }
+
+    fn add_multigraph_weighted_edge(
+        graph: &mut MultiGraph,
+        source: &str,
+        target: &str,
+        weight: fnx_runtime::CgseValue,
+    ) {
+        let mut attrs = AttrMap::new();
+        attrs.insert("weight".to_owned(), weight);
+        graph
+            .add_edge_with_attrs(source.to_owned(), target.to_owned(), attrs)
+            .expect("edge should add");
+    }
+
+    #[test]
+    fn multigraph_bidirectional_dijkstra_uses_min_parallel_int_weight() {
+        let mut graph = MultiGraph::new(CompatibilityMode::Strict);
+        add_multigraph_weighted_edge(&mut graph, "s", "a", 9_i64.into());
+        add_multigraph_weighted_edge(&mut graph, "s", "a", 2_i64.into());
+        add_multigraph_weighted_edge(&mut graph, "a", "t", 3_i64.into());
+        add_multigraph_weighted_edge(&mut graph, "s", "t", 8_i64.into());
+
+        match multigraph_bidirectional_dijkstra(&graph, "s", "t", "weight") {
+            fnx_algorithms::BidirectionalDijkstraOutcome::Found(length, all_int, path) => {
+                assert_eq!(length, 5.0);
+                assert!(all_int);
+                assert_eq!(path, vec!["s", "a", "t"]);
+            }
+            _ => panic!("expected a shortest path"),
+        }
+    }
+
+    #[test]
+    fn multigraph_bidirectional_dijkstra_preserves_first_equal_meeting_path() {
+        let mut graph = MultiGraph::new(CompatibilityMode::Strict);
+        add_multigraph_weighted_edge(&mut graph, "s", "a", 1_i64.into());
+        add_multigraph_weighted_edge(&mut graph, "t", "b", 1_i64.into());
+        add_multigraph_weighted_edge(&mut graph, "s", "b", 1_i64.into());
+        add_multigraph_weighted_edge(&mut graph, "t", "a", 1_i64.into());
+        add_multigraph_weighted_edge(&mut graph, "s", "a", 9_i64.into());
+        add_multigraph_weighted_edge(&mut graph, "t", "b", 9_i64.into());
+
+        match multigraph_bidirectional_dijkstra(&graph, "s", "t", "weight") {
+            fnx_algorithms::BidirectionalDijkstraOutcome::Found(length, all_int, path) => {
+                assert_eq!(length, 2.0);
+                assert!(all_int);
+                assert_eq!(path, vec!["s", "b", "t"]);
+            }
+            _ => panic!("expected a shortest path"),
+        }
+    }
+
+    #[test]
+    fn multigraph_bidirectional_dijkstra_preserves_float_length_type() {
+        let mut graph = MultiGraph::new(CompatibilityMode::Strict);
+        add_multigraph_weighted_edge(&mut graph, "s", "a", 2.5_f64.into());
+        add_multigraph_weighted_edge(&mut graph, "a", "t", 1_i64.into());
+
+        match multigraph_bidirectional_dijkstra(&graph, "s", "t", "weight") {
+            fnx_algorithms::BidirectionalDijkstraOutcome::Found(length, all_int, path) => {
+                assert_eq!(length, 3.5);
+                assert!(!all_int);
+                assert_eq!(path, vec!["s", "a", "t"]);
+            }
+            _ => panic!("expected a shortest path"),
+        }
+    }
+
+    #[test]
+    fn multigraph_bidirectional_dijkstra_reports_no_path_and_missing_node() {
+        let mut graph = MultiGraph::new(CompatibilityMode::Strict);
+        add_multigraph_weighted_edge(&mut graph, "s", "a", 1_i64.into());
+        add_multigraph_weighted_edge(&mut graph, "x", "t", 1_i64.into());
+
+        assert!(matches!(
+            multigraph_bidirectional_dijkstra(&graph, "s", "t", "weight"),
+            fnx_algorithms::BidirectionalDijkstraOutcome::NoPath
+        ));
+        assert!(matches!(
+            multigraph_bidirectional_dijkstra(&graph, "missing", "t", "weight"),
+            fnx_algorithms::BidirectionalDijkstraOutcome::NodeMissing
+        ));
     }
 
     #[test]

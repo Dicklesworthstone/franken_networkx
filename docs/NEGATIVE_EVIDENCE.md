@@ -2,6 +2,77 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-10 cod_nx SHIP/WIN (PY BINDING, exact string-key weighted MultiGraph): isolated native two-fringe Dijkstra is 12.88-17.55x faster than the checked-in conversion route (`br-r37-c1-04z53.9170`)
+
+LEDGER-GREPPED FIRST: StackCanon/allocation, display-key and classification-only caches, prefix-path caches,
+full weighted-simple projection/CSR, and the Python in-process multigraph bidirectional loop remain closed.
+The Python loop lost because every relaxation crossed fnx adjacency views/PyO3. This lever is the recorded
+distinct route: an exact native Rust bidirectional kernel over internal undirected `MultiGraph` adjacency and
+parallel-edge buckets, preserving NetworkX's meeting/tie semantics without whole-graph conversion.
+
+PROFILE BEFORE LEVER (1400 exact string nodes, 5728 parallel edges, `n0 -> n1399`, 40 weighted
+`shortest_path` calls): cProfile cumulative time ranked `shortest_path` `1.551s`,
+`bidirectional_dijkstra` / `_call_networkx_for_parity` `1.513s`, `_networkx_graph_for_parity` `1.412s`,
+`_fnx_to_nx` `1.411s`, NetworkX `MultiGraph.add_edges_from` `1.156s`, actual NetworkX traversal `0.068s`,
+and the native validity gate `0.036s`. The complete ranked table of all `109` frames at or above `0.1%`
+self-time is `/data/tmp/fnx-codnx-mg-bidir-baseline/steady-delayed.perf.flat.txt`, SHA-256
+`ce7be7d1c27b8d272d34b927b6de2d242eefd5b15cc872b37fee2002318c72e2`; raw perf-data SHA-256
+`34f549a536bb62877f3b1d4ebf84b31155791dcac11b9c0c9a64a7ed689218c5`; cProfile SHA-256
+`2d2e056b8ef5798d2c770007c90ddbbb41dcdfe17e3c931e7c59b03941fd3a00`. Leading perf frames were Python
+eval `32.97%`, generic getattr `4.30%`, unresolved Python `2.19/1.81/1.79%`, GC delete `1.50%`, memcmp
+`1.26%`, dict lookup `1.16%`, and malloc consolidation `1.15%`; the validity gate was `0.21%`. Mechanism:
+Python conversion/canonicalisation/marshalling, not Dijkstra arithmetic.
+
+ONE LEVER: an exact native undirected-`MultiGraph` certified rewrite. It alternates two fringes exactly as
+NetworkX does, shares one FIFO sequence, uses strict relaxation and retains the first equal-total meeting
+witness, preserves adjacency/key insertion order, stores state in dense node-index vectors, resolves strings
+through one call-local index, and materialises only the final typed path. The bidirectional-only safe-domain
+flag admits exact concrete fnx `MultiGraph` with exact built-in string nodes/endpoints and built-in
+bool/int/float weights inside the exact f64 accumulation envelope. Views/subclasses/foreign graphs, directed
+multigraphs, mixed/hash-equal/custom node displays, negative/nonfinite/NaN weights, custom numerics,
+non-string attr keys, and unsafe integer sums delegate. Lazy store-only attrs are checked. The node-display
+and stricter weight-domain predicates are explicitly NOT applied to other MultiGraph Dijkstra APIs; both the
+native-helper and pure-Python fallback preserve their previous shared classifier. That over-broad
+pre-isolation shape was rejected below. Public no-path messages use the original Python endpoints, not
+canonical Rust keys.
+
+MEASURED KEEP GATE: requested/effective RCH worker `hz2`, CPU15, `release-perf`, `PYTHONHASHSEED=0`, one
+BLAS/OpenMP thread, 20 samples. Same-process route-shadow ORIG/candidate used 400 calls per sample and exact
+post-isolation candidate SHA `11ed793c47344be05ccab299a5a91c3a715f84c0ffcc5f61210606571f19e192`.
+Those four A-B rows were already stable (`1.71..3.26%` raw CV). The one noisy NetworkX control was repeated with
+a temporary control-only override of 800 calls/sample on the same worker/CPU; only that measurement's loop
+count changed, and production extension code was identical between the two measured builds (latest build SHA
+`9ee8b6a2873b56ee6aae2a0a3875b8a410e5994ca9cee734a8648041fe07a273`). The checked-in Criterion harness keeps
+all engines at 400 calls so future relative reports compare equal work.
+
+| row | route-shadow ORIG ms/call (CV) | candidate ms/call (CV) | NetworkX ms/call (CV) | self speedup | candidate throughput / NX |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| weighted `shortest_path(s,t)` | 16.724189 (`3.26387%`) | 1.298423 (`1.73451%`) | 0.666493 (`2.09025%`) | 12.8804x | 0.5133x |
+| `bidirectional_dijkstra(s,t)` | 16.226779 (`2.14344%`) | 0.924745 (`1.70957%`) | 0.670119 (`3.40802%`) | 17.5473x | 0.7247x |
+
+Every decision row is below the mandatory `<5%` raw-CV gate. Criterion mean intervals per 400-call function
+were candidate `515.88..519.37..523.56 ms` and route-shadow ORIG `6.5989..6.6897..6.7852 s` for shortest;
+candidate `367.19..369.90..372.60 ms` and route-shadow ORIG `6.4308..6.4907..6.5492 s` for direct bidi.
+NetworkX 800-call controls were `528.66..533.19..538.16 ms` and `528.76..536.10..544.36 ms`. `orig` is an
+honest reproduction of the checked-in conversion route in the same process, not a separately loaded binary.
+The shortest-path shadow executes the established shared classifier before the unchanged conversion body;
+the direct-bidi shadow reproduces the old multigraph short-circuit and enters conversion immediately. The
+classifier was only `0.21%` of baseline samples and cannot explain the order-of-magnitude win.
+
+PARITY/GATES: benchmark import asserts exact distance/path parity. Exact latest-artifact pytest passed `44/44`
+focused cases, including 96 randomized seeds x 3 pairs x 2 APIs, parallel/default weights, opposite-row ties,
+typed lengths, dirty/store-only attrs, NaN/large-int/Fraction delegation, views/foreign graphs, non-string attr
+keys, mixed `int`/`float` row-display identity in both bidi and `shortest_path`, string-subclass endpoints, and
+exact errors, plus helper-present/helper-absent classifier isolation. Four native kernel tests passed. Workspace
+check/clippy/fmt and UBS are recorded in closeout.
+
+RESULT: Keep. Do not restore whole-graph conversion inside the certified exact-string undirected MultiGraph
+domain, and do not retry Python adjacency views, StackCanon/allocation, projection/CSR, or classification-only
+caching as standalone single-query fixes. This is not a ceiling: candidate time remains `1.9481x` NetworkX
+for weighted shortest and `1.3800x` for direct bidi. Profile the kept path next; distinct primitives are fused
+validity/canonicalisation or a mutation-token-backed interned node-index/edge-bucket substrate. Directed
+`MultiDiGraph` is separate.
+
 ## 2026-07-10 cod_nx MEASUREMENT REJECT: bidirectional-only guard isolation is stable, but one 400-call NetworkX control missed CV (`br-r37-c1-04z53.9170`)
 
 After the pre-isolation source rejection below, the exact-string node-domain predicate was moved behind an

@@ -7986,16 +7986,17 @@ def _has_nonnumeric_edge_weight(G, weight, *, _skip_sync=False):
     return False
 
 
-def _should_delegate_dijkstra_to_networkx(G, weight):
+def _should_delegate_dijkstra_to_networkx(
+    G, weight, *, _require_exact_string_nodes=False
+):
     if callable(weight):
         return True
     if not isinstance(weight, str):
         return True
-    # br-gauntlet-perf1-fast: use a single-pass native scan over edge_py_attrs
-    # that returns (has_negative, has_nonfinite, has_nonnumeric) WITHOUT needing
-    # the expensive _sync_rust_edge_attrs. The old approach synced (~10ms at 2K
-    # nodes) then ran three separate native helpers. The new helper reads directly
-    # from edge_py_attrs (the Python dicts), skipping sync entirely.
+    # br-gauntlet-perf1-fast: use a single-pass native scan that returns
+    # (has_negative, requires_exact_fallback, has_nonnumeric) WITHOUT the
+    # expensive _sync_rust_edge_attrs. Live Python edge dicts are authoritative;
+    # lazy store-only multigraph attrs are checked directly in the Rust store.
     cache_key = None
     if _native_check_dijkstra_weights_fast is not None:
         if _native_dijkstra_weight_cache_token is not None:
@@ -8006,12 +8007,19 @@ def _should_delegate_dijkstra_to_networkx(G, weight):
             if token is not None:
                 nodes_seq, edges_seq, edge_attrs_dirty = token
                 if not edge_attrs_dirty:
-                    cache_key = (weight, nodes_seq, edges_seq)
+                    cache_key = (
+                        weight,
+                        nodes_seq,
+                        edges_seq,
+                        _require_exact_string_nodes,
+                    )
                     cached = vars(G).get("_fnx_dijkstra_weight_check_cache")
                     if cached is not None and cached[0] == cache_key:
                         return cached[1]
         try:
-            fast_result = _native_check_dijkstra_weights_fast(G, weight)
+            fast_result = _native_check_dijkstra_weights_fast(
+                G, weight, _require_exact_string_nodes
+            )
         except Exception:
             fast_result = None
         if fast_result is not None:
@@ -8020,24 +8028,48 @@ def _should_delegate_dijkstra_to_networkx(G, weight):
             if cache_key is not None:
                 vars(G)["_fnx_dijkstra_weight_check_cache"] = (cache_key, should_delegate)
             return should_delegate
-    # br-cc-mgdijkstra: multigraphs have no native weight-validity scan, so the
-    # three gates below each iterate the parallel edges independently — 3 x O(|E|)
-    # that measured ~57% of MultiGraph/MultiDiGraph dijkstra wall time (0.09-0.19x
-    # vs nx). FUSE them into ONE pass over edges(keys=True, data=True) (itself a
-    # fnx win): delegate iff any weight is non-numeric / negative (incl -inf) /
-    # +inf — byte-identical to running the three gates in sequence (each just
-    # decides "delegate", and the fused check ORs the same predicates over the
-    # same edge set with the same attrs.get(weight, 1) default and bool handling).
+    # Native-helper fallback: retain the established shared MultiGraph scan
+    # unless the bidirectional-only exact-domain flag is set. In that domain,
+    # only exact built-in bool/int/float weights within the f64 exact-integer
+    # envelope may enter the native kernel; custom numerics, non-finite values,
+    # and non-string attr keys retain NetworkX as the authority.
     if G.is_multigraph():
+        if not _require_exact_string_nodes:
+            # Preserve the established shared fallback for unrelated
+            # MultiGraph Dijkstra APIs when the native helper is unavailable.
+            for _u, _v, _k, _attrs in G.edges(keys=True, data=True):
+                if isinstance(_attrs, dict) and weight in _attrs:
+                    _raw = _attrs[weight]
+                    if not isinstance(_raw, bool) and not isinstance(
+                        _raw, _numbers.Real
+                    ):
+                        return True
+                _value = _attrs.get(weight, 1)
+                if isinstance(_value, _numbers.Real) and not _math.isnan(_value):
+                    if _value < 0 or (_math.isinf(_value) and _value > 0):
+                        return True
+            return False
+        if _require_exact_string_nodes and any(type(_node) is not str for _node in G):
+            return True
+        _max_path_edges = max(1, len(G) - 1)
         for _u, _v, _k, _attrs in G.edges(keys=True, data=True):
-            if isinstance(_attrs, dict) and weight in _attrs:
+            if any(type(_key) is not str for _key in _attrs):
+                return True
+            if weight in _attrs:
                 _raw = _attrs[weight]
-                if not isinstance(_raw, bool) and not isinstance(_raw, _numbers.Real):
-                    return True
-            _value = _attrs.get(weight, 1)
-            if isinstance(_value, _numbers.Real) and not _math.isnan(_value):
-                if _value < 0 or (_math.isinf(_value) and _value > 0):
-                    return True
+                if type(_raw) is bool:
+                    continue
+                if type(_raw) is int:
+                    if _raw < 0 or abs(_raw) * _max_path_edges > 2**53:
+                        return True
+                    continue
+                if type(_raw) is float:
+                    if _raw < 0 or not _math.isfinite(_raw):
+                        return True
+                    continue
+                # NetworkX preserves arithmetic and result types for custom
+                # numeric objects; the native Cgse/f64 path cannot.
+                return True
         return False
     # Non-multigraph fallback: sync once, then run three gates with _skip_sync
     # (each has its own native fast path for simple graphs).
@@ -8727,7 +8759,17 @@ def shortest_path(
             method=method,
         )
     if weight is not None:
-        if method == "dijkstra" and _should_delegate_dijkstra_to_networkx(G, weight):
+        if method == "dijkstra" and _should_delegate_dijkstra_to_networkx(
+            G,
+            weight,
+            _require_exact_string_nodes=(
+                type(G) is MultiGraph
+                and source is not None
+                and target is not None
+                and type(source) is str
+                and type(target) is str
+            ),
+        ):
             return _call_networkx_for_parity(
                 "shortest_path",
                 G,
@@ -30282,9 +30324,10 @@ def bidirectional_dijkstra(G, source, target, weight="weight"):
     fnx's own dijkstra wrappers (which are weight-correct) for
     unit-weight cases.
     """
-    # br-r37-c1-bdjkstra: multigraph (per-key min weight), callable / non-string
-    # weight, and negative / non-finite / non-numeric weights still delegate to
-    # nx. Everything else runs nx's EXACT bidirectional-Dijkstra in-process on the
+    # br-r37-c1-bdjkstra: directed multigraphs, callable / non-string weight,
+    # and negative / non-finite / non-numeric weights still delegate to nx.
+    # Undirected MultiGraph now has the exact native per-key-min kernel below.
+    # Everything else runs nx's EXACT bidirectional-Dijkstra in-process on the
     # fnx graph instead of the old local fallback of ``dijkstra_path`` +
     # ``dijkstra_path_length``. That fallback (a) paid TWO full fnx->nx
     # conversions per call — ~107ms for a single-pair query on n=3000, ~100x
@@ -30292,7 +30335,19 @@ def bidirectional_dijkstra(G, source, target, weight="weight"):
     # from nx's *bidirectional* path on ~2% of pairs. The in-process search is
     # 14-23x faster than that delegation and byte-exact with
     # ``nx.bidirectional_dijkstra`` (450/450 incl. the bidirectional tie-break).
-    if G.is_multigraph() or _should_delegate_dijkstra_to_networkx(G, weight):
+    if (
+        G.is_multigraph()
+        and (
+            G.is_directed()
+            or type(G) is not MultiGraph
+            or type(source) is not str
+            or type(target) is not str
+        )
+    ) or _should_delegate_dijkstra_to_networkx(
+        G,
+        weight,
+        _require_exact_string_nodes=type(G) is MultiGraph,
+    ):
         return _call_networkx_for_parity(
             "bidirectional_dijkstra", G, source, target, weight=weight
         )
@@ -30302,7 +30357,8 @@ def bidirectional_dijkstra(G, source, target, weight="weight"):
         raise NodeNotFound(f"Source {source} is not in G")
     if target not in G:
         raise NodeNotFound(f"Target {target} is not in G")
-    # br-r37-c1-k4p0b / p60i1: simple graphs run the all-Rust CSR kernel, which
+    # br-r37-c1-k4p0b / p60i1 / 04z53.9170: simple graphs and undirected
+    # MultiGraph run an all-Rust kernel, which
     # eliminates the per-explored-node Python AdjacencyView/PyDict tax (~30µs/node)
     # that left the in-process port ~6-10x slower than nx. The native kernel
     # reproduces nx's bidirectional meeting-node tie-break, shared FIFO counter, and

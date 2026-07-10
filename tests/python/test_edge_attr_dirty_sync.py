@@ -34,6 +34,11 @@ def _set_ab_bc_to_short_path(graph, is_multi, edge_attrs):
 
 
 def _assert_weighted_kernel_sees_mutation(graph):
+    assert fnx.shortest_path(graph, "a", "c", weight="weight") == ["a", "b", "c"]
+    assert fnx.bidirectional_dijkstra(graph, "a", "c", weight="weight") == (
+        2,
+        ["a", "b", "c"],
+    )
     assert fnx.shortest_path_length(graph, "a", "c", weight="weight") == 2
     assert fnx.dijkstra_path_length(graph, "a", "c", weight="weight") == 2
 
