@@ -1,6 +1,36 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
-## BLOCKED / PARKED (cc, 2026-07-10): scratch-reuse lever for the MG target Dijkstra is written + parity-safe, but UNMEASURABLE — cod's uncommitted `fnx-algorithms/src/lib.rs` breaks the build (br-r37-c1-mgdt4)
+## REJECT (cc, 2026-07-10): scratch-reuse for the MG target Dijkstra is BELOW the null floor — measured 1.0053x median, inside NULL [0.836,1.071]. The allocation lever is EXHAUSTED here; next is a different primitive (br-r37-c1-mgdt4)
+
+The blocker below cleared (cod fixed their `VecDeque` swap), so I applied the parked scratch lever and ran
+the isolated median gate. It does NOT beat the floor — this is a REJECT, reverted.
+
+PROVENANCE. Worker `hz2`, one `RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release`
+invocation, n=800, 300 calls/timing, 121 interleaved rounds, three arms in ONE binary (0=interned+scratch,
+1=interned-only, 2=pre-interned original). Parity asserted byte-identical across all three arms (passed).
+
+| paired A/B (>1 = cand faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **SCRATCH_vs_interned** (the lever) | **1.0053x** | 69/121 | [0.9420, 1.1802] |
+| COMBINED_vs_original (scratch+interned vs orig) | 1.1719x | 118/121 | [1.0678, 1.2860] |
+| **NULL** (scratch vs scratch) | 0.9976x | 50/121 | **[0.8361, 1.0711]** |
+
+DECISION = REJECT. The scratch median (1.0053x) lies INSIDE the null's observed range [0.836, 1.071], so it
+is NOT decidable — indistinguishable from the harness floor. (The COMBINED 1.17x is just the already-shipped
+interned lever showing through; it is not new signal.) MECHANISM: the interned lever's 10% came from
+removing the O(n) HashMap *build* — n hash inserts, genuinely expensive. The scratch only removes the
+*malloc* of four same-size buffers + a heap, which glibc recycles nearly for free, while KEEPING the O(n)
+`resize(n, ..)` fill. So the increment is ~0.5%, swamped by the O(E) traversal (per-edge weight scan + node
+lookups) that dominates this path. Reverted to HEAD; the shipped interned-keys win (1.1027x, `34c07c21d`)
+stands. Reject log: `tests/artifacts/perf/20260710T-string-key-dijkstra-status-cc/scratch_lever_REJECT_median_gate_hz2.log`.
+
+ALLOCATION LEVER EXHAUSTED on the MG string-key target path: interned-keys shipped+measured (10%), scratch
+rejected (below floor). The remaining residual is NOT allocation — it is the O(E) string round-tripping
+(`get_node_index`/`get_node_name`/`min_parallel_weight` per edge) and the per-neighbor min-weight scan over
+parallel edges. The next primitive is STRUCTURAL, not an alloc micro-lever: a MultiGraph integer-adjacency
+epoch (br-r37-c1-thp6w) so the traversal never touches strings, or an SoA/CSR edge-weight layout so the
+per-edge min-parallel-weight scan is a contiguous slice read instead of a HashMap walk. Both are cross-crate
+storage changes (a lever for a fresh turn, one per commit), not this turn's micro-lever.
 
 CONVERGENCE STATUS on the dijkstra alloc floor: one lever this session is SHIPPED AND MEASURED — the
 interned-keys lever (`17770d5a0` + gate `34c07c21d`): **1.1027x median, 119/121, null floor [0.978,1.022]**,
