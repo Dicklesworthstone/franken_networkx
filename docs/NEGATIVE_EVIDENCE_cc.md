@@ -1,5 +1,33 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-10): `dedensify` 0.70x -> **1.53-2.22x** vs networkx — replace the per-degree-check `neighbors().len()` Vec alloc with no-alloc `neighbor_count` (br-r37-c1-dedn1)
+
+Pivoted off the (converged) dijkstra floor to a different hot path. PROFILE-FIRST: swept BFS/components/
+pagerank/build/conversion gauntlet rows fnx-vs-networkx — all wins (SCC 11.7x, BFS 1.44x, copy 1.47x,
+is_reachable 2.77x) EXCEPT one clear loss: `summarization_dedensify_copy_dense_hubs` at **0.70x** (fnx
+193ms vs nx 135ms). (pagerank couldn't run — the worker has no scipy.)
+
+ROOT (read, not guessed): `fnx_algorithms::dedensify` did its degree checks as
+`graph.neighbors(x).unwrap_or_default().len() >= threshold` — `neighbors()` builds and returns a fresh
+`Vec<&str>` just to take its length. On dense hubs the innermost check runs inside a
+per-neighbor-of-neighbor filter, so it is **O(E * deg)** Vec allocations. Graph already exposes
+`neighbor_count(node)` = `adj_indices[idx].len()`, and `neighbors(node)` builds from that same
+`adj_indices`, so the two lengths are IDENTICAL (and both 0 for a missing node) — a byte-exact drop-in with
+zero allocation. Three call sites swapped (3 ins / 5 del).
+
+MEASURED (fnx/nx is worker-normalised, both arms in one process; gauntlet asserts dedensify copy=True parity
+every setup and did NOT drift):
+| run | worker | fnx | nx | fnx/nx |
+|---|---|---|---|---|
+| pre-change | vmi1152480 | 193.1ms | 135.4ms | **0.70x** |
+| post run 1 | vmi1227854 | 49.5ms | 76.0ms | **1.53x** |
+| post run 2 | hz2 | 26.8ms | 59.5ms | **2.22x** |
+
+The fnx side dropped **193ms -> 27-50ms** (~4-7x faster) — a within-side confirmation the algorithm itself
+sped up, not a ratio artifact. Decisive, orders of magnitude above worker noise. Byte-identical by
+construction (`neighbor_count` == `neighbors().len()`); clippy `-D warnings` clean, fmt clean, ubs 0
+critical. algorithms.rs sha256 prefix `e01398fb323d0432`. harmonic/closeness untouched (different functions).
+
 ## REJECT (cc, 2026-07-10): the different-primitive SoA / cache-friendly integer-adjacency for MG target Dijkstra is **0.7152x** (0/121 wins) — the upfront O(V+E) build loses to the lazy explored-only traversal (br-r37-c1-mgsoa)
 
 Now owning the whole repo, dug the different primitive the directive named (SoA / cache-friendly key layout):

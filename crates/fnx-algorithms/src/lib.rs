@@ -38082,7 +38082,7 @@ pub fn dedensify(graph: &Graph, threshold: usize) -> (Graph, Vec<String>) {
     // Find high-degree nodes
     let high_degree: Vec<&str> = nodes
         .iter()
-        .filter(|&&n| graph.neighbors(n).unwrap_or_default().len() >= threshold)
+        .filter(|&&n| graph.neighbor_count(n) >= threshold)
         .copied()
         .collect();
 
@@ -38099,7 +38099,7 @@ pub fn dedensify(graph: &Graph, threshold: usize) -> (Graph, Vec<String>) {
             std::collections::HashMap::new();
 
         for &nbr in &hd_nbrs {
-            if graph.neighbors(nbr).unwrap_or_default().len() >= threshold {
+            if graph.neighbor_count(nbr) >= threshold {
                 continue; // Skip other high-degree nodes
             }
             let mut nbr_hd: Vec<String> = graph
@@ -38107,9 +38107,7 @@ pub fn dedensify(graph: &Graph, threshold: usize) -> (Graph, Vec<String>) {
                 .unwrap_or_default()
                 .iter()
                 .filter(|&&n| {
-                    n != hd_node
-                        && graph.neighbors(n).unwrap_or_default().len() >= threshold
-                        && hd_nbrs.contains(n)
+                    n != hd_node && graph.neighbor_count(n) >= threshold && hd_nbrs.contains(n)
                 })
                 .map(|&s| s.to_owned())
                 .collect();
