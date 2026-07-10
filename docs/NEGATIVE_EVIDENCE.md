@@ -2,6 +2,39 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-10 cod_nx LEDGER-INTEGRITY CORRECTION: the StackCanon REJECT itself is INVALID — its timed `Graph` path never called the `MultiGraph`-only candidate (`br-r37-c1-gtty9`)
+
+This supersedes the immediately following `cc LEDGER-INTEGRITY AUDIT #2` only where that audit calls the
+StackCanon row valid for `PyGraph` membership. Its operational conclusion — allocation is reopened for the
+shortest-path/Dijkstra lane — remains correct, but the preserved source and benchmark prove a stronger defect.
+
+**ORACLE AND DOMAIN.** The exact candidate survives as stash commit `4a466789e` (base `9af303fa7`) and
+`/data/tmp/claude-1000/-data-projects-franken-networkx/3d949b6b-a34c-4865-a300-94a649568d93/scratchpad/stackcanon.patch`
+(SHA-256 `7248094052057598950e8ee5a01fd00740d8a2a3a407ff7764d9fc94018a7750`). The exact harness survives beside
+it as `stackcanon_verify.py` (SHA-256 `26878e151e7c5502283ae295f14859d7ce2d2314885f80b68e215a087ff0125b`).
+The harness constructs only `fnx.Graph` in its parity block (lines 18-51) and timed block (lines 62-82), plus
+an explicitly unchanged `DiGraph` sanity check. It contains zero `fnx.MultiGraph`, Dijkstra, or shortest-path
+calls.
+
+**PROFILE-INTEGRITY RESULT: `StackCanon` calls `0`; self-time `0.000000 s` (`0.000%`).** This is exact
+reachability proof, not a sampling miss. In the preserved candidate, `StackCanon` / `with_node_canonical`
+exists at historical `lib.rs:168-238`, but its only call sites are `PyMultiGraph.has_node`, keyless
+`PyMultiGraph.has_edge`, and `PyMultiGraph.__contains__` at historical lines `7295-7356`. The actual
+`PyGraph` methods timed by the harness remain unchanged at historical lines `11146-11178` and `11738-11741`:
+they still call `node_key_to_string`. No profiler was run in the original attempt; the reported `245 -> 253 ns`
+and `416 -> 430 ns` figures came from `time.perf_counter()` around identical executed `PyGraph` code.
+
+The old comparison also fails the current A/B substrate rule independently: candidate and HEAD were built by
+two separate local `maturin develop --release` invocations, not alternating arms in one binary on one RCH
+worker. Therefore commit `acf0bf1ef` is **INVALID IN ITS ENTIRETY**; it does not close allocation even for
+`PyGraph` membership, much less native endpoint canonicalisation, per-call node-index hashing, Dijkstra scratch
+allocation, or PyO3 result marshalling.
+
+**ACTION.** Allocation is reopened. Before trusting any new WIN or REJECT, profile the current exact hot row,
+record every frame at or above `0.1%` self-time, and require a non-zero self-time/call-count sentinel for the
+function under test. Candidate and a frozen current-native ORIG must execute inside one binary and one RCH
+invocation; the old conversion-route shadow is not an ORIG for the next native-cache lever.
+
 ## 2026-07-10 cc LEDGER-INTEGRITY AUDIT #2: the StackCanon row does NOT close allocation for the dijkstra lane — 14 do-not-retry citations are INVALID, and an allocation-family lever already SHIPPED there at 17-20x (br-r37-c1-gtty9)
 
 Audited the highest-value do-not-retry rows in the shortest-path/dijkstra area — the repo's biggest open
@@ -3023,6 +3056,10 @@ The only true levers are architectural: (a) key the store by the Python object +
 requires PyO3 inside the PyO3-free `fnx-classes` (layering break), or (b) integer-index node storage. Do
 NOT re-attempt interning / small-string / arena / perfect-hash here — all four are now measured dead ends.
 
+> **SUPERSEDED 2026-07-10 (cod_nx):** preserved candidate source plus the exact harness prove this row is
+> INVALID even in its claimed `PyGraph` domain: the candidate changed only `PyMultiGraph`, while every timed
+> call used `fnx.Graph`; `StackCanon` call count and self-time were exactly zero. See the top correction.
+>
 > **SCOPE AUDIT 2026-07-10 (cc, ledger-integrity rule / frankenmermaid 5feb977).** This row is **VALID
 > IN ITS MEASURED DOMAIN ONLY**: `has_node` / `__contains__` / `has_edge` single-call lookups on
 > `PyGraph` (N=4000 lookups, min-of-30 x4). Note the row's own wording — "do NOT re-attempt ...
