@@ -1,5 +1,27 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `complete_multipartite_graph` batch-by-index **13.2407x** — SUPERSEDES the 2026-06-25 "dense generators floor-bound" surface (br-r37-c1-cmpbatch)
+
+Third engine-level generator batch win. complete_multipartite connects every cross-partition pair via
+per-edge `add_edge(node_labels[l].clone(), node_labels[r].clone())` (2 clones + 2 name hashes + policy),
+nodes pre-exist. DETERMINISTIC (no RNG) → 100% insertion-bound → prime batch candidate. Collected the
+cross-partition (l,r) index pairs + `extend_existing_index_edges_unrecorded`.
+
+MEASURED — K_{500,500} (1000 nodes, 250000 edges), 61 rounds: **BATCH_vs_string median 13.2407x**,
+win_rate 61/61, p5_p95 [9.3737, 27.2704] vs NULL 0.9926x [0.7986, 1.2191]. DECIDABLE: candidate p5 (9.37)
+~8x above the null p95 (1.22), 61/61 won. BYTE-IDENTICAL (`assert_eq!` edges_ordered + nodes_ordered;
+complete_multipartite vs-nx tests green; clippy clean).
+
+**SUPERSESSION (important):** the 2026-06-25 CopperCliff surface — "dense generators (random_partition
+0.70x, stochastic_block_model 0.75x, turan_graph 0.75x, complete_multipartite 0.76x, ring_of_cliques
+0.87x) are NOT improvable by batching (construction-floor-bound), fold into the add_edges_from floor" —
+was measured at the PYTHON add_edges_from level and is WRONG for the ENGINE per-edge path. The engine
+`add_edge` loop was never batched; batching it removes the dominant clones/hashes/policy (NOT the
+construction) → 13.24x. So `turan_graph`, `ring_of_cliques`, `stochastic_block_model`,
+`random_partition_graph` are LIKELY the same engine-level supersession (verify each is per-edge +
+insertion-bound). Vein: gnp 13.20x, gnm 8.55x, complete_multipartite 13.24x shipped; barabasi 1.04x
+surfaced (sampling-bound). See [[generator_accept_loop_batch]].
+
 ## SHIPPED WIN (cc, 2026-07-11): `gnm_random_graph` integer-seen dedup + batch-by-index **8.5547x** (br-r37-c1-gnmbatch)
 
 Second engine-level generator batch win. gnm is a rejection sampler that read the graph for its

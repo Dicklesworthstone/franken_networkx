@@ -1,0 +1,140 @@
+diff --git a/crates/fnx-generators/src/lib.rs b/crates/fnx-generators/src/lib.rs
+index 2b84b3b8d..d65693ba0 100644
+--- a/crates/fnx-generators/src/lib.rs
++++ b/crates/fnx-generators/src/lib.rs
+@@ -2146,20 +2146,25 @@ impl GraphGenerator {
+             start = end;
+         }
+ 
++        // br-r37-c1-cmpbatch (cc): all cross-partition edges connect pre-existing nodes by
++        // KNOWN INDEX — collect the (left, right) index pairs and batch-insert instead of the
++        // per-edge `add_edge(node_labels[l].clone(), node_labels[r].clone())` (2 String clones +
++        // 2 name→index hashes + 1 policy record each). Deterministic (no RNG), unique pairs, no
++        // self-loops (distinct partitions); `extend_existing_index_edges_unrecorded` canonicalizes
++        // endpoints by name-order + pushes adj_indices exactly as add_edge → byte-identical.
++        // (The 2026-06-25 "dense generators not batchable / construction-floor-bound" surface was
++        // the Python add_edges_from level; the engine per-edge path — like gnp/gnm — is not.)
++        let mut edges: Vec<(usize, usize)> = Vec::with_capacity(edge_count);
+         for (left_index, &(left_start, left_end)) in extents.iter().enumerate() {
+             for &(right_start, right_end) in extents.iter().skip(left_index + 1) {
+                 for left in left_start..left_end {
+                     for right in right_start..right_end {
+-                        graph
+-                            .add_edge(node_labels[left].clone(), node_labels[right].clone())
+-                            .map_err(|err| GenerationError::FailClosed {
+-                                operation,
+-                                reason: err.to_string(),
+-                            })?;
++                        edges.push((left, right));
+                     }
+                 }
+             }
+         }
++        let _ = graph.extend_existing_index_edges_unrecorded(edges);
+ 
+         self.record(
+             operation,
+@@ -7178,6 +7183,103 @@ mod tests {
+         report("NULL_batch_vs_batch", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-cmpbatch: paired-interleaved median A/B for the complete_multipartite cross-partition
++    /// edge insertion — batch-by-index vs the pre-lever per-edge `add_edge(labels[l].clone(), ..)`,
++    /// in ONE binary / ONE worker with a NULL control. Both arms build the same node graph then
++    /// insert the same deterministic bipartite edge set (no RNG). `#[ignore]`; run with
++    /// `cargo test --release -p fnx-generators --lib complete_multipartite_batch_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn complete_multipartite_batch_ab() {
++        use super::graph_with_n_nodes;
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // Two partitions of 500 (bipartite K_{500,500}): 1000 nodes, 250000 cross edges.
++        let a = 500usize;
++        let b = 500usize;
++        let n = a + b;
++        let mut pairs: Vec<(usize, usize)> = Vec::with_capacity(a * b);
++        for left in 0..a {
++            for right in a..n {
++                pairs.push((left, right));
++            }
++        }
++
++        let build_string = || {
++            let (mut g, node_labels) = graph_with_n_nodes(CompatibilityMode::Strict, n);
++            for &(l, r) in &pairs {
++                let _ = g.add_edge(node_labels[l].clone(), node_labels[r].clone());
++            }
++            g
++        };
++        let build_batch = || {
++            let (mut g, _node_labels) = graph_with_n_nodes(CompatibilityMode::Strict, n);
++            let _ = g.extend_existing_index_edges_unrecorded(pairs.iter().copied());
++            g
++        };
++
++        let gs = build_string();
++        let gb = build_batch();
++        assert_eq!(
++            gs.edges_ordered_borrowed(),
++            gb.edges_ordered_borrowed(),
++            "batch-by-index multipartite insertion must equal the per-edge add_edge baseline"
++        );
++        assert_eq!(gs.nodes_ordered(), gb.nodes_ordered());
++
++        let time = |batch: bool| -> f64 {
++            let t0 = Instant::now();
++            if batch {
++                black_box(build_batch());
++            } else {
++                black_box(build_string());
++            }
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for r in 0..rounds {
++                let (tb, tc) = if r % 2 == 0 {
++                    let bt = time(base);
++                    let ct = time(cand);
++                    (bt, ct)
++                } else {
++                    let ct = time(cand);
++                    let bt = time(base);
++                    (bt, ct)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "CMP_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("CMP_BATCH_AB n={n} edges={} rounds={rounds} (>1 = batch faster)", pairs.len());
++        report("BATCH_vs_string", &paired(true, false));
++        report("NULL_batch_vs_batch", &paired(true, true));
++    }
++
+     fn packet_007_forensics_bundle(
+         run_id: &str,
+         test_id: &str,
