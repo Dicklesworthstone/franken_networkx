@@ -1,5 +1,28 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SURFACE (cc, 2026-07-11): thp6w S3 (index-pair edges flip) is MISFRAMED — targets ~3% headroom / already-won ops → do NOT pursue; thp6w epoch effectively COMPLETE for cc
+
+Took thp6w S3 (the d58s8-style index-pair MultiGraph/MultiDiGraph edge-key flip, premised on closing
+mg_selfloop 0.262x / mdg_out_edges 0.391x). PROFILE-FIRST + NEGATIVE-LEDGER-FIRST both say: the premise is
+stale and the flip targets the wrong bottleneck. NOT started — no large core-storage change for ~3%.
+
+- **mdg_out_edges is already a cc WIN** (2.25x): `_native_mdg_out_edges_nbunch_data/_no_data`
+  (digraph.rs:5273/5330, `br-r37-c1-mdgoutedge`). The 0.391x figure is stale; nothing to close.
+- **mg_selfloop (0.57x now, was 0.262x)** — the fast path `_native_selfloop_edges` (lib.rs:6472) IS
+  taken; the prior DEEP-DIVE (this file) measured the String-keyed-store `EdgeKeyRef` hashing that an
+  index-pair flip removes at only **~3% of the gap**. The BULK is eager Python 4-tuple materialization
+  (2502× PyTuple + 2 PyLong) + per-edge edge-attr BTreeMap (AttrMap), which **nx does lazily in C** — an
+  architectural/views cost, NOT the edge-key representation. An index-pair edges flip is BELOW-NOISE for it.
+- The real-headroom path (lazy tuple materialization / the AttrMap storage model) is a fnx-python
+  view/degree change on **BlackThrush-reserved, actively-worked** paths (views.rs/lib.rs) — not takeable
+  (peer collision), and is architectural (matching nx's lazy-C tuples), not a ONE-lever flip.
+
+Therefore the index-pair edges flip has no demonstrable cc headroom. **thp6w epoch is effectively COMPLETE
+for cc**: S1 (memo infra) + S2 (MultiGraph BFS 11.69x) shipped; the directed twin (MultiDiGraph BFS 7.84x)
+shipped; S3 is misframed (its targets are won or architectural). No clean cc lever remains in the
+MultiGraph/MultiDiGraph integer-adjacency epoch. HOLD. See [[thp6w_multigraph_intadj_epoch]],
+[[h2h_loss_cluster_is_intadj_floor]].
+
 ## SURFACE (cc, 2026-07-11): `multigraph_target_bfs_distance` — integer-adjacency would REGRESS (early-exit); MG/MDG BFS vein EXHAUSTED → HOLD
 
 Profiled the last flagged straggler and did NOT ship it — the integer conversion is a regression trap:
