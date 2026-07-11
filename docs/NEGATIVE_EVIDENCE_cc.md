@@ -1,5 +1,35 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, `94a6aa81a`): `dominating_set` integer-adjacency + mark-array greedy **20.1345x** (br-r37-c1-domint)
+
+Greedy max-cover dominating set — O(V·E). While any node is undominated it rescans every undominated node,
+counts self + undominated neighbours, and picks the best. The old kernel kept the dominated set as a
+`HashSet<&str>` and on EVERY pass called `graph.neighbors(node)` (a fresh `Vec<&str>` alloc) per undominated
+node with `dominated.contains(nbr)` String hash-probes — O(V·E) String allocs + hashes overall.
+
+Switched to a `Vec<bool>` mark array indexed by node index (O(1) probe), a `dominated_count` mirroring the old
+`HashSet::len()` (incremented only on a false→true flip = distinct marked indices), and a zero-alloc
+`graph.neighbors_indices(node)` walk.
+
+MEASURED — paired-interleaved in-crate A/B vs the exact String baseline (`dominating_set_orig_string`,
+`#[cfg(test)]`), ONE binary / ONE worker, pseudo-random deg-10 n=1500 (many greedy passes), 121 rounds:
+
+| paired A/B (>1 = mark-array faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **MARK_vs_string** | **20.1345x** | **121/121** | [19.1448, 21.3703] |
+| NULL_mark_vs_mark | 1.0022x | 73/121 | [0.9842, 1.0390] |
+
+DECIDABLE: 20.13x median, candidate p5 (19.14) ~18x above the null p95 (1.04), tight CI, 121/121 won.
+BYTE-IDENTICAL: `cover` is the same integer, the greedy pick is the same first-max node in `nodes_ordered()`
+order (index iteration `0..n`), the dominated set grows identically so `dominated_count == HashSet::len()`
+throughout, and the sorted `Vec<String>` result is unchanged; no floats. Asserted `mark == base` in-test;
+6/6 existing `dominating_set` unit tests green; `cargo check --all-targets` + clippy `-D warnings` clean.
+
+SESSION TALLY (structural-primitive vein): ELEVEN byte-identical median-gated wins — eigenvector 14.64x, HITS
+3.11x, triangles 5.54x, square_clustering 29.73x, k_truss 10.15x, all_simple_paths 16.67x, generalized_degree
+10.18x, clustering_coefficient_directed 58.35x, label_propagation 2.26x, could_be_isomorphic 11.75x,
+dominating_set 20.13x.
+
 ## SHIPPED WIN (cc, 2026-07-11, `b30dfae19`): `could_be_isomorphic` integer-adjacency + mark-array triangle count **11.7483x** (br-r37-c1-isotri)
 
 Isomorphism precheck (my lane; distinct from the Jun-22 `faster_could_be_isomorphic` degree pre-reject —
