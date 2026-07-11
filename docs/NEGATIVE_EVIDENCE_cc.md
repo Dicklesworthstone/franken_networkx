@@ -1,5 +1,27 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, `632c75504`): `is_attracting_component` validity-guarded integer fast path **11.6819x** (br-r37-c1-attract)
+
+Reversed an earlier over-conservative exclusion. `is_attracting_component`'s String reachability sets store
+node NAMES (incl. a possibly-invalid `component[0]` start), which an integer array cannot represent — so I'd
+excluded it. A **validity-guarded fast path** resolves it cleanly: if every component name is present (the
+realistic SCC case), run the attracting check + forward/backward reachability on `Vec<bool>` mark arrays +
+`successors_indices`/`predecessors_indices`; else fall back to the exact String kernel
+(`is_attracting_component_string`). Byte-identical for ALL inputs (fast path proven equal for all-valid;
+fallback verbatim otherwise). Asserted across attracting-cycle(true)/non-attracting(false)/absent-name(fallback).
+
+MEASURED — attracting cycle n=50000 (whole graph one SCC), 61 rounds:
+
+| paired A/B (>1 = integer fast path faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **INT_vs_string** | **11.6819x** | **61/61** | [8.4123, 15.2752] |
+| NULL_int_vs_int | 1.0333x | 36/61 | [0.7791, 1.3434] |
+
+DECIDABLE: 11.68x median, candidate p5 (8.41) ~6x above the null p95 (1.34), 61/61 won. clippy clean. pyo3
+calls this directly. LESSON: a "bit-identity is impossible" exclusion driven by an EDGE CASE (invalid input) is
+often crackable with a validity-guarded fast-path + exact fallback — the clean win still lands for the
+realistic input class.
+
 ## SHIPPED WIN (cc, 2026-07-11, `b18ff90b8`): `is_arborescence` no-alloc degrees + integer weak-connectivity BFS **41.2724x** (br-r37-c1-arbor)
 
 Directed structural predicate. The old kernel took `predecessors(node).len()`/`successors(node).len()`
