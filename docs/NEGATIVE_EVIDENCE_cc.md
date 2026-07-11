@@ -37,8 +37,12 @@ each EXCLUDED for a concrete reason:
   possibly-invalid `component[0]` start) and compare against `comp_set.len()`; an integer mark array cannot
   reproduce that for names-not-in-graph inputs, so strict bit-identity fails on the invalid-name edge case
   (only "valid SCC" inputs would match — the tolerance-parity slope). SKIP.
-* `descendants` / `ancestors` — return `HashSet<String>` (OUTPUT-MATERIALIZATION-bound, O(reachable) Strings)
-  AND are not directly exposed (pyo3=0). Low ROI.
+* `descendants` / `ancestors` — pyo3-BYPASSED: the `crates/fnx-python` wrappers build the result from
+  `fnx_algorithms::bfs_edges` (+ discovery-map), NOT from `fnx_algorithms::descendants`/`ancestors`, so the
+  lib.rs kernels are off the Python hot path (the barycenter pattern). Optimizing them would not reach Python.
+* `triadic_census`, `distance_measures`, `dfs_connectivity_analysis`, `clustering_coefficient_directed`, the
+  power-iteration centralities, `constraint`/`effective_size`/`dispersion`/`core_number` — already integer
+  (their residual String-set uses are one-time adjacency snapshots or `#[cfg(test)]` baselines).
 * `is_branching` — depends on strongly_connected_components (cod's connectivity/flow lane).
 * `is_d_separator` — builds an ancestral+moralized subgraph then checks connectivity; a whole-algorithm
   rewrite, not a one-lever neighbour swap.
