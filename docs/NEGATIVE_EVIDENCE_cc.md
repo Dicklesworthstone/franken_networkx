@@ -1,5 +1,44 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `br-r37-c1-thp6w` SLICE 2 — MultiGraph single-source BFS on the integer-adjacency memo **11.6896x** (memo-reuse)
+
+First real consumer of the Slice 1 memo. `multigraph_sssp_length_with_parents` (tagged
+`br-r37-c1-fyxma3 cc`) — the native MultiGraph single-source BFS, and the ONLY native MultiGraph
+neighbor-traversal consumer (all other MultiGraph algos project to a simple Graph). It allocated a
+fresh `mg.neighbors(node)` `Vec<&str>` per pop + a `HashSet<&str>` visited (String hashing). Routed it
+through `with_int_adjacency(|adj| ...)` (Slice 1's revision-keyed memo) with a `Vec<bool>` mark array +
+integer queue; `adj[i]` preserves adjacency-row order so BFS discovery order (every (node, length,
+parent) tuple) is byte-identical.
+
+MEASURED — n=400 MultiGraph (ring+chords+parallels), ALL-PAIRS (BFS from every node, memo reused),
+61 rounds: **INTADJ_vs_string median 11.6896x**, win_rate 61/61, p5_p95 [9.1766, 13.8483] vs NULL
+0.9877x [0.9015, 1.0782]. DECIDABLE: candidate p5 (9.18) ~8.5x above the null p95 (1.08), 61/61 won.
+BYTE-IDENTICAL: `assert_eq!` integer-BFS == String-BFS for EVERY source (parity green); the
+shortest-path / multigraph fnx-python unit tests pass; clippy `-D warnings` clean.
+
+PRE-EXISTING/UNRELATED SUITE NOISE (NOT this change): the remote fnx-python suite also shows ONE
+failure, `graph_fresh_exact_int_attr_batch_keeps_attrs_with_lazy_mirrors` (a PyGraph attr-batch test in
+lib.rs, panic at lib.rs:13676). It is provably NOT in this lever's call path (it never calls
+`multigraph_sssp_length_with_parents`/`with_int_adjacency`; the 3 shortest-path/multigraph tests pass).
+Its source is either a peer's UNCOMMITTED lib.rs WIP that rch syncs into the remote build (the working
+tree carries peer edits to lib.rs/digraph.rs) or a pre-existing origin condition from the recent
+committed batch/ctor perf work (`5c1f0f252`, `a788fbc9d`); the clean-origin/main worktree check to
+disambiguate could not land a worker (fleet saturated). This commit is pathspec-scoped to
+`algorithms.rs` + docs + proof and does not touch lib.rs, so it neither introduces nor worsens that
+failure.
+
+HONEST SCOPE: the 11.69x is the memo-REUSE scenario (memo built once, reused across single-source calls
+on the unmutated graph). The production caller `single_source_shortest_path_length` is single-source, so
+the win lands when the SAME MultiGraph is queried from multiple sources (calls 2+ near-free). A COLD
+one-shot call is neutral by construction (memo build does the same O(E) hashing the old HashSet path did;
+integer BFS strictly cheaper) — no one-shot regression.
+
+**Order-mutator audit (Slice 1's gate) COMPLETED before this production reader:** every content mutation
+(add/remove/clear, 14 sites) bumps `revision`; the only order-only mutator `apply_row_orders` explicitly
+clears the memo; `remove_adjacency_key`'s only callers (remove_edge) bump revision. No un-invalidated
+path. Epoch progress: S1 (memo) + S2 (first consumer) shipped; S3 (d58s8-style index-pair edges for
+mg_selfloop/mdg_out_edges) remains. See [[thp6w_multigraph_intadj_epoch]].
+
 ## SHIPPED (cc, 2026-07-11): `br-r37-c1-thp6w` SLICE 1 — MultiGraph lazy integer-adjacency memo + `with_int_adjacency` (infrastructure, byte-identical, no perf claim)
 
 First slice of the MultiGraph integer-adjacency epoch, shipped as INFRASTRUCTURE (not a perf win — the
