@@ -31562,21 +31562,30 @@ pub fn is_semiconnected(digraph: &DiGraph) -> bool {
         return true;
     }
 
-    // Build condensation DAG
-    let mut node_to_scc: HashMap<&str, usize> = HashMap::new();
+    // br-r37-c1-semiconn (cc): build the condensation DAG on INTEGER adjacency — map
+    // node INDEX -> scc id in a `Vec` (not a `HashMap<&str,usize>`) and walk
+    // `successors_indices` (not `successors()`, a `Vec<&str>` alloc per node).
+    // Byte-identical: the `(u_scc, v_scc)` insert sequence into `adj` is identical
+    // (same node-index and successor order), so the `Vec<HashSet<usize>>` condensation
+    // — and the topological sort + Hamiltonian-path check below — are unchanged.
+    // `strongly_connected_components` is untouched.
+    let nnodes = digraph.node_count();
+    let mut node_scc = vec![0usize; nnodes];
     for (i, scc) in sccs.iter().enumerate() {
-        for node in scc {
-            node_to_scc.insert(node.as_str(), i);
+        for name in scc {
+            if let Some(ci) = digraph.get_node_index(name) {
+                node_scc[ci] = i;
+            }
         }
     }
 
     let n = sccs.len();
     let mut adj: Vec<HashSet<usize>> = vec![HashSet::new(); n];
-    for &node in digraph.nodes_ordered().iter() {
-        let u_scc = node_to_scc[node];
-        if let Some(succs) = digraph.successors(node) {
-            for s in succs {
-                let v_scc = node_to_scc[s];
+    for node_idx in 0..nnodes {
+        let u_scc = node_scc[node_idx];
+        if let Some(succs) = digraph.successors_indices(node_idx) {
+            for &s in succs {
+                let v_scc = node_scc[s];
                 if u_scc != v_scc {
                     adj[u_scc].insert(v_scc);
                 }
@@ -31611,6 +31620,67 @@ pub fn is_semiconnected(digraph: &DiGraph) -> bool {
 
     // Semiconnected iff there's a Hamiltonian path in the condensation DAG
     // (each consecutive pair in topological order is connected by an edge)
+    for window in topo_order.windows(2) {
+        if !adj[window[0]].contains(&window[1]) {
+            return false;
+        }
+    }
+    true
+}
+
+/// br-r37-c1-semiconn A/B baseline: the pre-lever `is_semiconnected` that built the
+/// condensation with a `HashMap<&str, usize>` `node_to_scc` + `successors()`
+/// (`Vec<&str>` alloc per node). Test-only; byte-identical to `is_semiconnected`.
+#[cfg(test)]
+fn is_semiconnected_orig_string(digraph: &DiGraph) -> bool {
+    if digraph.node_count() == 0 {
+        return true;
+    }
+    let sccs = strongly_connected_components(digraph);
+    if sccs.len() == 1 {
+        return true;
+    }
+    let mut node_to_scc: HashMap<&str, usize> = HashMap::new();
+    for (i, scc) in sccs.iter().enumerate() {
+        for node in scc {
+            node_to_scc.insert(node.as_str(), i);
+        }
+    }
+    let n = sccs.len();
+    let mut adj: Vec<HashSet<usize>> = vec![HashSet::new(); n];
+    for &node in digraph.nodes_ordered().iter() {
+        let u_scc = node_to_scc[node];
+        if let Some(succs) = digraph.successors(node) {
+            for s in succs {
+                let v_scc = node_to_scc[s];
+                if u_scc != v_scc {
+                    adj[u_scc].insert(v_scc);
+                }
+            }
+        }
+    }
+    let mut in_degree = vec![0usize; n];
+    for neighbors in &adj {
+        for &v in neighbors {
+            in_degree[v] += 1;
+        }
+    }
+    let mut queue = VecDeque::new();
+    for (i, &deg) in in_degree.iter().enumerate() {
+        if deg == 0 {
+            queue.push_back(i);
+        }
+    }
+    let mut topo_order = Vec::new();
+    while let Some(v) = queue.pop_front() {
+        topo_order.push(v);
+        for &w in &adj[v] {
+            in_degree[w] -= 1;
+            if in_degree[w] == 0 {
+                queue.push_back(w);
+            }
+        }
+    }
     for window in topo_order.windows(2) {
         if !adj[window[0]].contains(&window[1]) {
             return false;
@@ -50507,6 +50577,110 @@ mod tests {
             );
         };
         println!("APERIOD_AB n={n} deg={deg} (dense SCC) rounds={rounds} (>1 = integer faster)");
+        report("INT_vs_string", &paired(true, false));
+        report("NULL_int_vs_int", &paired(true, true));
+    }
+
+    /// br-r37-c1-semiconn: paired-interleaved median A/B for the integer condensation
+    /// `is_semiconnected` vs the old `HashMap<&str,usize>` + `successors()` (`Vec<&str>`)
+    /// baseline, in ONE binary / ONE worker with a NULL control. `#[ignore]`
+    /// (measurement); run with
+    /// `cargo test --release -p fnx-algorithms --lib is_semiconnected_semiconn_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn is_semiconnected_semiconn_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Transitive DAG (edge i->j for every i<j) on n=400: every node is its own SCC
+        // (400 SCCs), so the condensation-building loop iterates ~n^2/2 edges with a
+        // node_to_scc lookup + successors() alloc per node (baseline). It is
+        // semiconnected (every pair comparable), so the full topo + Hamiltonian check
+        // runs and returns true.
+        let n = 400usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+            }
+        }
+
+        // Parity: transitive DAG (true), two incomparable chains (not semiconnected ->
+        // false), and a single cycle (one SCC -> true early).
+        let mut branch = DiGraph::strict();
+        for i in 0..6usize {
+            let _ = branch.add_node(format!("b{i}"));
+        }
+        let _ = branch.add_edge("b0".to_string(), "b1".to_string());
+        let _ = branch.add_edge("b0".to_string(), "b2".to_string()); // b1, b2 incomparable
+        let mut cyc = DiGraph::strict();
+        for i in 0..4usize {
+            let _ = cyc.add_node(format!("c{i}"));
+        }
+        for i in 0..4usize {
+            let _ = cyc.add_edge(format!("c{i}"), format!("c{}", (i + 1) % 4));
+        }
+        for gr in [&g, &branch, &cyc] {
+            assert_eq!(
+                super::is_semiconnected(gr),
+                super::is_semiconnected_orig_string(gr),
+                "integer is_semiconnected must equal the String baseline"
+            );
+        }
+
+        let time = |lever: bool| -> f64 {
+            let t0 = Instant::now();
+            for _ in 0..3 {
+                if lever {
+                    black_box(super::is_semiconnected(&g));
+                } else {
+                    black_box(super::is_semiconnected_orig_string(&g));
+                }
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "SEMICONN_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("SEMICONN_AB n={n} (transitive DAG) rounds={rounds} (>1 = integer faster)");
         report("INT_vs_string", &paired(true, false));
         report("NULL_int_vs_int", &paired(true, true));
     }
