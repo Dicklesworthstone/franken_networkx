@@ -1,5 +1,23 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `ring_of_cliques` batch-by-index **19.9437x** — 3rd supersession of the 2026-06-25 "dense generators floor-bound" surface (br-r37-c1-rocbatch)
+
+Fifth engine-level generator batch win (highest yet). ring_of_cliques = num_cliques complete cliques +
+one cross-clique ring edge each, per-edge `add_edge(clone, clone)`, nodes pre-exist, DETERMINISTIC →
+insertion-bound. Collected all (l,r) index pairs (clique-then-ring order) + one
+`extend_existing_index_edges_unrecorded`.
+
+MEASURED — 100 cliques × 50 (5000 nodes, 122600 edges), 61 rounds: **BATCH_vs_string median 19.9437x**,
+win_rate 61/61, p5_p95 [15.6427, 29.3978] vs NULL 0.9969x [0.3570, 1.5722]. DECIDABLE: candidate p5
+(15.64) ~10x above the null p95 (1.57), 61/61 won. BYTE-IDENTICAL (clique + ring edges, no dup/self-loop;
+`assert_eq!` edges_ordered + nodes_ordered; ring_of_cliques vs-nx tests green; clippy clean).
+
+`ring_of_cliques 0.87x` was the 3rd (of 5) 2026-06-25 "dense generators floor-bound" cluster member —
+SUPERSEDED (after complete_multipartite + turan). Remaining cluster: `stochastic_block_model`,
+`random_partition_graph` (both RNG-per-edge — PROFILE the sampling-vs-insertion split first, like
+barabasi vs gnm). Vein: gnp 13.20x, gnm 8.55x, complete_multipartite 13.24x, turan 16.22x,
+ring_of_cliques 19.94x shipped; barabasi 1.04x surfaced. See [[generator_accept_loop_batch]].
+
 ## SHIPPED WIN (cc, 2026-07-11): `turan_graph` batch-by-index **16.2181x** — 2nd supersession of the 2026-06-25 "dense generators floor-bound" surface (br-r37-c1-turanbatch)
 
 Fourth engine-level generator batch win. turan = complete-multipartite with r near-equal partitions;
