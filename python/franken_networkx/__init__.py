@@ -48943,14 +48943,44 @@ def _equitable_procedure_P_local(
 
 def equitable_color(G, num_colors):
     """Equitable graph coloring: each color class differs by at most 1."""
-    nodes_to_int = {node: idx for idx, node in enumerate(G.nodes)}
-    int_to_nodes = {idx: node for node, idx in nodes_to_int.items()}
-    working_graph = relabel_nodes(G, nodes_to_int, copy=True)
-
-    if len(working_graph.nodes) > 0:
-        max_degree = max(working_graph.degree[node] for node in working_graph.nodes)
+    native_adjacency = (
+        Graph._native_adjacency_keys
+        if type(G) is Graph and type(num_colors) is int
+        else None
+    )
+    if callable(native_adjacency):
+        # br-r37-c1-l8m9v: the algorithm immediately relabels to dense ints,
+        # ignores attributes, and later sorts every node and neighbor. Capture
+        # that dense topology in one native crossing instead of constructing a
+        # second Graph and then crossing PyO3 once per adjacency row.
+        adjacency_rows = native_adjacency(G)
+        original_nodes = [node for node, _neighbors in adjacency_rows]
+        nodes_to_int = {node: idx for idx, node in enumerate(original_nodes)}
+        int_to_nodes = {idx: node for idx, node in enumerate(original_nodes)}
+        working_adjacency = [[] for _node in original_nodes]
+        for node, neighbors in adjacency_rows:
+            working_adjacency[nodes_to_int[node]] = sorted(
+                nodes_to_int[neighbor] for neighbor in neighbors
+            )
+        max_degree = max(
+            (
+                len(neighbors) + (node in neighbors)
+                for node, neighbors in enumerate(working_adjacency)
+            ),
+            default=0,
+        )
+        working_graph = None
     else:
-        max_degree = 0
+        nodes_to_int = {node: idx for idx, node in enumerate(G.nodes)}
+        int_to_nodes = {idx: node for node, idx in nodes_to_int.items()}
+        working_graph = relabel_nodes(G, nodes_to_int, copy=True)
+        working_adjacency = None
+        if len(working_graph.nodes) > 0:
+            max_degree = max(
+                working_graph.degree[node] for node in working_graph.nodes
+            )
+        else:
+            max_degree = 0
 
     if max_degree >= num_colors:
         raise NetworkXAlgorithmError(
@@ -48958,9 +48988,38 @@ def equitable_color(G, num_colors):
             f"{max_degree + 1} (> {num_colors}) colors for guaranteed coloring."
         )
 
-    _equitable_pad_graph_local(working_graph, num_colors)
-    neighborhoods = {node: [] for node in working_graph.nodes}
-    coloring = {node: idx % num_colors for idx, node in enumerate(working_graph.nodes)}
+    if working_adjacency is None:
+        _equitable_pad_graph_local(working_graph, num_colors)
+        working_nodes = working_graph.nodes
+        edge_rows = (
+            (node, sorted(working_graph.neighbors(node)))
+            for node in sorted(working_nodes)
+        )
+    else:
+        node_count = len(working_adjacency)
+        block_size = node_count // num_colors
+        if node_count != block_size * num_colors:
+            padding = num_colors - node_count % num_colors
+            # Preserve the current/NetworkX K1 quirk: add_edges_from(K1.edges())
+            # adds no node. Kp for p >= 2 contributes the complete clique.
+            if padding >= 2:
+                first_padding_node = node_count
+                padding_stop = node_count + padding
+                working_adjacency.extend(
+                    [
+                        [
+                            neighbor
+                            for neighbor in range(first_padding_node, padding_stop)
+                            if neighbor != node
+                        ]
+                        for node in range(first_padding_node, padding_stop)
+                    ]
+                )
+        working_nodes = range(len(working_adjacency))
+        edge_rows = enumerate(working_adjacency)
+
+    neighborhoods = {node: [] for node in working_nodes}
+    coloring = {node: idx % num_colors for idx, node in enumerate(working_nodes)}
     color_classes = _equitable_make_C_from_F_local(coloring)
     color_neighbor_counts = _equitable_make_N_from_L_C_local(
         neighborhoods, color_classes
@@ -48970,8 +49029,8 @@ def equitable_color(G, num_colors):
     )
 
     seen_edges = set()
-    for u in sorted(working_graph.nodes):
-        for v in sorted(working_graph.neighbors(u)):
+    for u, neighbors in edge_rows:
+        for v in neighbors:
             if (v, u) in seen_edges:
                 continue
 

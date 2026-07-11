@@ -17854,3 +17854,103 @@ NEXT: the n>=500 parallel sizes still need the CHUNKED-PARALLEL design (rayon ov
 within each chunk) to beat the per-source rayon path — still deferred, still untried. betweenness (Brandes)
 shares the forward-BFS shape but needs sigma/predecessor DAGs, which do NOT reduce to an order-independent
 per-event accumulate — bit-parallelising it is a genuinely different problem.
+
+## 2026-07-10 WhiteJaguar SHIP (PY WRAPPER, `equitable_color` exact `Graph`): one adjacency snapshot — 1.48x median self-speedup, 0.80x -> 1.15x vs NetworkX (`br-r37-c1-l8m9v`)
+
+OWNERSHIP: this is a coloring/Python-wrapper lane. It does not edit cc's CSR or
+algorithm files. The only production lever is in `equitable_color`; the remaining
+changes are its public benchmark row, parity tests, tracker state, and this ledger.
+
+PROFILE FIRST: a 32-call `cProfile` run on the deterministic 1,000-node 4-regular
+circulant attributed 12.80%-12.94% self time and 32,000 calls to
+`_native_adjacency_row_dict`, plus 6.52%-6.53% to the Python `neighbors` wrapper.
+The public function itself was 23.77%-23.84%, and
+`_equitable_make_N_from_L_C_local` was 13.27%-13.35%. The selected lever attacks
+the repeated native/Python row crossings and the temporary relabel/copy that feeds
+them. Candidate profiling reduced the native bridge to 32 total
+`_native_adjacency_keys` calls (one per coloring, 2.12% self time); neither the
+row-dict frame nor the `neighbors` wrapper remained in the profile.
+
+ONE LEVER: for exact `Graph` + exact `int` only, bind the class-owned
+`Graph._native_adjacency_keys` descriptor and take one insertion-ordered topology
+snapshot. Convert it to the same dense integer labels, sort every neighbor row,
+and run the existing equitable-color procedure over those rows. The old
+relabel/copy path remains unchanged for subclasses and all other graph-like inputs.
+
+ISOMORPHISM / BIT-IDENTICAL ARGUMENT:
+
+- The old path immediately relabelled nodes by insertion order, ignored attributes,
+  and sorted nodes and neighbors before processing. The snapshot path preserves that
+  exact dense mapping and sorted edge sequence.
+- Self-loops count twice in the maximum degree and in neighborhood updates, exactly
+  as the old undirected `Graph` path did.
+- Padding preserves the observable NetworkX/current quirk: `K1.edges()` contributes
+  no dummy node when padding is one; padding of two or more contributes the same
+  disconnected complete clique.
+- The class-owned descriptor prevents a writable instance attribute from shadowing
+  topology. Exact-type guards preserve the original fallback for graph subclasses
+  and non-exact integers.
+- Returned keys follow the original node insertion order. All values and tie-breaks
+  are integer/deterministic; there is no floating-point reassociation or RNG state.
+
+MEDIAN GATE: Criterion, `sample-size=31`, 1 s warm-up, 5 s measurement,
+`PYTHONHASHSEED=0`, one thread for OMP/OpenBLAS, worker `vmi1167313`, CPU 5.
+The same-source baseline/null/candidate triplet kept the relevant source hashes
+stable (`fnx-algorithms` `39523a12...`, `fnx-python/src/lib.rs` `408cab36...`,
+`digraph.rs` `eee7ea96...`) except for this intended lever:
+
+| run | FNX median ms (95% CI) | NetworkX median ms (95% CI) | FNX / NX |
+|---|---:|---:|---:|
+| baseline | 28.497 (28.052-29.053) | 22.925 (21.944-24.584) | 1.243 |
+| unchanged null | 30.051 (28.916-32.833) | 24.526 (23.576-25.139) | 1.225 |
+| candidate | 19.633 (19.000-19.874) | 22.958 (22.526-24.579) | 0.855 |
+
+The unchanged FNX drift was 1.554 ms. Candidate improvement from the faster
+baseline was 8.864 ms: 5.70x the drift, a 1.4515x self-speedup, and a flip from
+slower than NetworkX to 1.1693x faster. Therefore the median keep gate clears.
+
+FINAL SHIPPING-SOURCE CONFIRMATION: after binding the class descriptor, adding the
+shadowing/fallback regressions, strengthening the benchmark import check to ordered
+dictionary equality, and removing temporary equitable profiling, the exact final
+source reran on the same worker/CPU. FNX median was 19.230 ms
+(`18.275-19.889`), NetworkX was 22.194 ms (`21.697-24.438`): 1.4819x versus the
+faster baseline, 1.5628x versus the null, and 1.1542x faster than NetworkX. This
+confirmation included unrelated cc commits already landed on `main`; the
+same-source triplet above remains the causal A/B, while the final run proves the
+shipping tree retains the win. Final extension SHA-256: `f41d0fdd0c6dc910...`.
+
+CORRECTNESS / GATES:
+
+- Benchmark import compares the full ordered 1,000-node coloring against NetworkX
+  before any timed sample.
+- Ordered randomized differential: 1,441/1,441 exact matches over empty through
+  17-node mixed-label graphs, self-loops, isolates, and multiple padding regimes.
+- Focused coloring functions: 99/99 passed, including the K1 discriminator,
+  multi-node clique padding, loop degree/error text, mixed display order, skipped
+  relabel copy, instance-hook shadowing, and graph-subclass fallback.
+- Remote `cargo check --workspace --all-targets`: pass. Remote
+  `cargo clippy -p fnx-python --all-targets -- -D warnings`: pass. Direct
+  `rustfmt --edition 2024 --check`, Python byte-compilation, and `git diff --check`:
+  pass. UBS: zero critical findings in the Rust bench and both smaller Python
+  files; the 60k-line facade's full Python pack timed out in its quadratic taint
+  analyzer, then its core scan completed with security/extra analyzers skipped and
+  zero critical findings. Exact-type warnings are intentional compatibility gates.
+- Workspace-wide remote clippy is blocked by six committed cc-owned
+  `doc_lazy_continuation` findings in `fnx-algorithms` lines 47214-47501; that file
+  was explicitly out of scope. Remote `cargo test -p fnx-python` compiled and ran
+  32 pass / 1 ignored, then hit the peer-owned
+  `graph_fresh_exact_int_attr_batch_keeps_attrs_with_lazy_mirrors` assertion in
+  modified `fnx-python/src/lib.rs`; this lever does not touch that file. Normal
+  local pytest refused collection because the in-tree native extension predates
+  Rust sources; strict remote-only policy forbade a local rebuild.
+
+RCH INCIDENTS: one stale sibling-dependency worker failed before compilation and
+one concurrent attempt had no admissible slot; both failed closed under
+`RCH_REQUIRE_REMOTE=1`. No project Cargo command was allowed to fall back locally.
+RCH also refuses `cargo fmt` as a non-compilation command in remote-required mode,
+so the Rust bench file was checked directly with `rustfmt` rather than falling back
+to local Cargo.
+
+RESULT: SHIP. Do not reintroduce per-row adjacency crossings or a temporary
+relabelled `Graph` for exact `Graph` equitable coloring. Preserve the exact-type
+fallback and the K1 padding quirk unless the public compatibility contract changes.

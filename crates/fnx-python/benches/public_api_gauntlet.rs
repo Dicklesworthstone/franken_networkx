@@ -530,6 +530,16 @@ if target_dir:
                 "networkx_flow_hierarchy_weighted_cyclic_dag",
             ),
             (
+                "equitable_color_circulant_1000",
+                "fnx",
+                "fnx_equitable_color_circulant_1000",
+            ),
+            (
+                "equitable_color_circulant_1000",
+                "networkx",
+                "networkx_equitable_color_circulant_1000",
+            ),
+            (
                 "within_inter_cluster_explicit_community",
                 "fnx",
                 "fnx_within_inter_cluster_explicit_community",

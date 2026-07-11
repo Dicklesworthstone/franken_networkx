@@ -44,7 +44,7 @@ def test_equitable_color_matches_networkx(seed):
     num_colors = max_degree + 1
     fr = fnx.equitable_color(fg, num_colors)
     nr = nx.equitable_color(ng, num_colors)
-    assert fr == nr
+    assert list(fr.items()) == list(nr.items())
     # The coloring fnx returns is a valid equitable coloring per nx.
     assert nx_is_equitable(ng, fr)
 
@@ -69,3 +69,99 @@ def test_too_few_colors_raises_like_networkx():
         fnx.equitable_color(fnx.complete_graph(4), 2)
     with pytest.raises(nx.NetworkXAlgorithmError):
         nx.equitable_color(nx.complete_graph(4), 2)
+
+
+def test_exact_graph_snapshot_preserves_single_padding_quirk():
+    edges = [(0, 3), (0, 4), (1, 2), (1, 4)]
+    fg = fnx.Graph()
+    ng = nx.Graph()
+    fg.add_nodes_from(range(5))
+    ng.add_nodes_from(range(5))
+    fg.add_edges_from(edges)
+    ng.add_edges_from(edges)
+
+    fr = fnx.equitable_color(fg, 3)
+    nr = nx.equitable_color(ng, 3)
+    assert list(fr.items()) == list(nr.items())
+    assert fr == {0: 0, 1: 2, 2: 0, 3: 1, 4: 1}
+
+
+def test_exact_graph_snapshot_preserves_multi_node_padding_clique():
+    fg = fnx.cycle_graph(4)
+    ng = nx.cycle_graph(4)
+    fr = fnx.equitable_color(fg, 3)
+    nr = nx.equitable_color(ng, 3)
+    assert list(fr.items()) == list(nr.items())
+
+
+def test_exact_graph_snapshot_counts_self_loop_degree_twice():
+    fg = fnx.Graph()
+    ng = nx.Graph()
+    fg.add_edge("loop", "loop")
+    ng.add_edge("loop", "loop")
+
+    with pytest.raises(nx.NetworkXAlgorithmError) as fr_error:
+        fnx.equitable_color(fg, 2)
+    with pytest.raises(nx.NetworkXAlgorithmError) as nr_error:
+        nx.equitable_color(ng, 2)
+    assert str(fr_error.value) == str(nr_error.value)
+
+    fr = fnx.equitable_color(fg, 3)
+    nr = nx.equitable_color(ng, 3)
+    assert list(fr.items()) == list(nr.items())
+
+
+def test_exact_graph_snapshot_preserves_mixed_node_display_order():
+    nodes = [("tuple", 1), "alpha", 7, 2.5, "isolate"]
+    edges = [(nodes[0], nodes[2]), (nodes[2], nodes[1]), (nodes[1], nodes[3])]
+    fg = fnx.Graph()
+    ng = nx.Graph()
+    fg.add_nodes_from(nodes)
+    ng.add_nodes_from(nodes)
+    fg.add_edges_from(edges)
+    ng.add_edges_from(edges)
+
+    fr = fnx.equitable_color(fg, 3)
+    nr = nx.equitable_color(ng, 3)
+    assert list(fr.items()) == list(nr.items())
+
+
+def test_exact_graph_snapshot_avoids_relabel_copy(monkeypatch):
+    fg = fnx.path_graph(7)
+    ng = nx.path_graph(7)
+    expected = nx.equitable_color(ng, 3)
+
+    def fail_relabel(*_args, **_kwargs):
+        pytest.fail("exact Graph snapshot path called relabel_nodes")
+
+    monkeypatch.setattr(fnx, "relabel_nodes", fail_relabel)
+    result = fnx.equitable_color(fg, 3)
+    assert list(result.items()) == list(expected.items())
+
+
+def test_exact_graph_snapshot_ignores_shadowed_native_hook():
+    fg = fnx.path_graph(4)
+    ng = nx.path_graph(4)
+    fg._native_adjacency_keys = lambda: []
+
+    result = fnx.equitable_color(fg, 3)
+    expected = nx.equitable_color(ng, 3)
+    assert list(result.items()) == list(expected.items())
+
+
+def test_graph_subclass_preserves_fallback_ordered_parity():
+    class DerivedGraph(fnx.Graph):
+        pass
+
+    nodes = ["z", 3, ("x", 1), "isolate"]
+    edges = [(nodes[0], nodes[1]), (nodes[1], nodes[2])]
+    fg = DerivedGraph()
+    ng = nx.Graph()
+    fg.add_nodes_from(nodes)
+    ng.add_nodes_from(nodes)
+    fg.add_edges_from(edges)
+    ng.add_edges_from(edges)
+
+    result = fnx.equitable_color(fg, 3)
+    expected = nx.equitable_color(ng, 3)
+    assert list(result.items()) == list(expected.items())

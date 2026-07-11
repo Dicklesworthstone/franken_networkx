@@ -488,6 +488,47 @@ def networkx_flow_hierarchy_weighted_cyclic_dag() -> float:
     return total
 
 
+def _build_equitable_color_graph(module, node_count: int):
+    graph = module.Graph()
+    graph.add_nodes_from(range(node_count))
+    for node in range(node_count):
+        graph.add_edge(node, (node + 1) % node_count)
+        graph.add_edge(node, (node + 2) % node_count)
+    return graph
+
+
+_EQUITABLE_COLOR_NODE_COUNT = 1000
+_EQUITABLE_COLOR_NUM_COLORS = 5
+_FNX_EQUITABLE_COLOR_GRAPH = _build_equitable_color_graph(
+    fnx, _EQUITABLE_COLOR_NODE_COUNT
+)
+_NX_EQUITABLE_COLOR_GRAPH = _build_equitable_color_graph(
+    nx, _EQUITABLE_COLOR_NODE_COUNT
+)
+_EXPECTED_EQUITABLE_COLOR = nx.equitable_color(
+    _NX_EQUITABLE_COLOR_GRAPH, _EQUITABLE_COLOR_NUM_COLORS
+)
+_FNX_EQUITABLE_COLOR = fnx.equitable_color(
+    _FNX_EQUITABLE_COLOR_GRAPH, _EQUITABLE_COLOR_NUM_COLORS
+)
+if list(_FNX_EQUITABLE_COLOR.items()) != list(_EXPECTED_EQUITABLE_COLOR.items()):
+    raise AssertionError("equitable_color parity drift")
+
+
+def fnx_equitable_color_circulant_1000() -> float:
+    coloring = fnx.equitable_color(
+        _FNX_EQUITABLE_COLOR_GRAPH, _EQUITABLE_COLOR_NUM_COLORS
+    )
+    return float(sum(coloring.values()))
+
+
+def networkx_equitable_color_circulant_1000() -> float:
+    coloring = nx.equitable_color(
+        _NX_EQUITABLE_COLOR_GRAPH, _EQUITABLE_COLOR_NUM_COLORS
+    )
+    return float(sum(coloring.values()))
+
+
 def _build_wic_graph(module, node_count: int, communities: int, seed: int):
     rng = random.Random(seed)
     graph = module.Graph()
