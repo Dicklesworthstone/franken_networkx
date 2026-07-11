@@ -2220,21 +2220,24 @@ impl GraphGenerator {
             return Err(GenerationError::FailClosed { operation, reason });
         }
 
-        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, total_nodes);
+        // br-r37-c1-cavebatch (cc): l disjoint complete cliques of k nodes — deterministic,
+        // pre-existing nodes by KNOWN INDEX. Collect the (left, right) index pairs (SAME per-clique
+        // order) and batch-insert instead of per-edge add_edge (2 clones + 2 name hashes + policy
+        // each). Cliques are disjoint (step_by(k)) so all pairs unique, no self-loops;
+        // `extend_existing_index_edges_unrecorded` matches add_edge's endpoint canonicalization +
+        // adj_indices order → byte-identical.
+        let (mut graph, _node_labels) = graph_with_n_nodes(self.mode, total_nodes);
         if k > 1 {
+            let mut edges: Vec<(usize, usize)> = Vec::with_capacity(edge_count);
             for start in (0..total_nodes).step_by(k) {
                 let end = start + k;
                 for left in start..end {
                     for right in (left + 1)..end {
-                        graph
-                            .add_edge(node_labels[left].clone(), node_labels[right].clone())
-                            .map_err(|err| GenerationError::FailClosed {
-                                operation,
-                                reason: err.to_string(),
-                            })?;
+                        edges.push((left, right));
                     }
                 }
             }
+            let _ = graph.extend_existing_index_edges_unrecorded(edges);
         }
 
         self.record(
@@ -7616,6 +7619,110 @@ mod tests {
             );
         };
         println!("WIND_BATCH_AB n={n} k={k} rounds={rounds} (>1 = batch faster)");
+        report("BATCH_vs_string", &paired(true, false));
+        report("NULL_batch_vs_batch", &paired(true, true));
+    }
+
+    /// br-r37-c1-cavebatch: paired-interleaved median A/B for caveman_graph edge insertion —
+    /// batch-by-index vs the pre-lever per-edge `add_edge`, in ONE binary / ONE worker with a NULL
+    /// control. Both arms reproduce the full caveman (l disjoint cliques of k, no RNG). `#[ignore]`;
+    /// run with `cargo test --release -p fnx-generators --lib caveman_batch_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn caveman_batch_ab() {
+        use super::graph_with_n_nodes;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // caveman(100, 60): 6000 nodes, 100 * (60*59/2) = 177000 edges.
+        let l = 100usize;
+        let k = 60usize;
+        let total_nodes = l * k;
+
+        let build_string = || {
+            let (mut g, node_labels) = graph_with_n_nodes(CompatibilityMode::Strict, total_nodes);
+            for start in (0..total_nodes).step_by(k) {
+                let end = start + k;
+                for left in start..end {
+                    for right in (left + 1)..end {
+                        let _ = g.add_edge(node_labels[left].clone(), node_labels[right].clone());
+                    }
+                }
+            }
+            g
+        };
+        let build_batch = || {
+            let (mut g, _node_labels) = graph_with_n_nodes(CompatibilityMode::Strict, total_nodes);
+            let mut edges: Vec<(usize, usize)> = Vec::new();
+            for start in (0..total_nodes).step_by(k) {
+                let end = start + k;
+                for left in start..end {
+                    for right in (left + 1)..end {
+                        edges.push((left, right));
+                    }
+                }
+            }
+            let _ = g.extend_existing_index_edges_unrecorded(edges);
+            g
+        };
+
+        let gs = build_string();
+        let gb = build_batch();
+        assert_eq!(
+            gs.edges_ordered_borrowed(),
+            gb.edges_ordered_borrowed(),
+            "batch-by-index caveman must equal the per-edge add_edge baseline"
+        );
+        assert_eq!(gs.nodes_ordered(), gb.nodes_ordered());
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            if batch {
+                black_box(build_batch());
+            } else {
+                black_box(build_string());
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round % 2 == 0 {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "CAVE_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("CAVE_BATCH_AB l={l} k={k} rounds={rounds} (>1 = batch faster)");
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
     }

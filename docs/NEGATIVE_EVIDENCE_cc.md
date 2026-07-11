@@ -1,5 +1,20 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `caveman_graph` batch-by-index **3.8550x** (br-r37-c1-cavebatch)
+
+Seventh engine-level generator batch win. caveman = l disjoint complete cliques of k; per-edge
+`add_edge(clone, clone)`, nodes pre-exist, DETERMINISTIC → insertion-bound. Collected per-clique (l,r)
+index pairs + one `extend_existing_index_edges_unrecorded`.
+
+MEASURED — caveman(100, 60) (6000 nodes, 177000 edges), 61 rounds: **BATCH_vs_string median 3.8550x**,
+win_rate 61/61, p5_p95 [3.1643, 26.0222] vs NULL 1.0032x [0.8342, 1.2169]. DECIDABLE: candidate p5 (3.16)
+~2.6x above the null p95 (1.22), 61/61 won. Lower magnitude than the other clique generators but still a
+clean decidable win. BYTE-IDENTICAL (disjoint cliques, no dup/self-loop; `assert_eq!` edges_ordered +
+nodes_ordered; caveman vs-nx tests green; clippy clean).
+
+Vein: gnp 13.20x, gnm 8.55x, complete_multipartite 13.24x, turan 16.22x, ring_of_cliques 19.94x, windmill
+18.63x, caveman 3.86x shipped; barabasi 1.04x surfaced. See [[generator_accept_loop_batch]].
+
 ## SHIPPED WIN (cc, 2026-07-11): `windmill_graph` batch-by-index **18.6331x** (br-r37-c1-windbatch)
 
 Sixth engine-level generator batch win. windmill = n cliques of k nodes sharing center node 0; per-edge
