@@ -1,0 +1,207 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index 55155c32e..e3f8d9c2f 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -38600,29 +38600,85 @@ pub fn to_dict_of_dicts(
+ /// BFS with edge labeling: tree edges, non-tree edges, and reverse edges.
+ #[must_use]
+ pub fn bfs_labeled_edges(graph: &Graph, source: &str) -> Vec<(String, String, String)> {
++    let Some(s) = graph.get_node_index(source) else {
++        return Vec::new();
++    };
++    let nodes = graph.nodes_ordered();
++    let n = nodes.len();
++
++    // br-r37-c1-bfslbl (cc): BFS labeled-edge walk on integer adjacency. `visited` is
++    // already a mark array; the old kernel additionally called `graph.neighbors(nodes[v])`
++    // (a `Vec<&str>` alloc per pop) then re-hashed each neighbour name through `idx`.
++    // Walk `graph.neighbors_indices(v)` directly (zero-alloc `&[usize]`); `idx` dropped
++    // (`idx.get(nb)` never rejected a neighbour). Byte-identical: `neighbors_indices(v)`
++    // yields the same neighbour set in the same adjacency order (NO sort), so the
++    // forward/nontree/reverse edge sequence — and `visited` semantics — are unchanged.
++    let mut result = Vec::new();
++    let mut visited = vec![false; n];
++    visited[s] = true;
++    let mut queue = std::collections::VecDeque::new();
++    queue.push_back(s);
++
++    // Emit forward edge for source
++    result.push((
++        nodes[s].to_owned(),
++        nodes[s].to_owned(),
++        "forward".to_owned(),
++    ));
++
++    while let Some(v) = queue.pop_front() {
++        if let Some(nbrs) = graph.neighbors_indices(v) {
++            for &ni in nbrs {
++                if !visited[ni] {
++                    visited[ni] = true;
++                    queue.push_back(ni);
++                    result.push((
++                        nodes[v].to_owned(),
++                        nodes[ni].to_owned(),
++                        "forward".to_owned(),
++                    ));
++                } else {
++                    result.push((
++                        nodes[v].to_owned(),
++                        nodes[ni].to_owned(),
++                        "nontree".to_owned(),
++                    ));
++                }
++            }
++        }
++        result.push((
++            nodes[v].to_owned(),
++            nodes[v].to_owned(),
++            "reverse".to_owned(),
++        ));
++    }
++
++    result
++}
++
++/// br-r37-c1-bfslbl A/B baseline: the pre-lever BFS labeled-edge walk that called
++/// `graph.neighbors(nodes[v])` (`Vec<&str>` alloc per pop) + `idx.get`. Test-only;
++/// byte-identical to `bfs_labeled_edges`.
++#[cfg(test)]
++fn bfs_labeled_edges_orig_string(graph: &Graph, source: &str) -> Vec<(String, String, String)> {
+     let nodes = graph.nodes_ordered();
+     let n = nodes.len();
+     let idx: std::collections::HashMap<&str, usize> =
+         nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+-
+     let s = match idx.get(source) {
+         Some(&i) => i,
+         None => return Vec::new(),
+     };
+-
+     let mut result = Vec::new();
+     let mut visited = vec![false; n];
+     visited[s] = true;
+     let mut queue = std::collections::VecDeque::new();
+     queue.push_back(s);
+-
+-    // Emit forward edge for source
+     result.push((
+         nodes[s].to_owned(),
+         nodes[s].to_owned(),
+         "forward".to_owned(),
+     ));
+-
+     while let Some(v) = queue.pop_front() {
+         if let Some(nbrs) = graph.neighbors(nodes[v]) {
+             for nb in nbrs {
+@@ -38651,7 +38707,6 @@ pub fn bfs_labeled_edges(graph: &Graph, source: &str) -> Vec<(String, String, St
+             "reverse".to_owned(),
+         ));
+     }
+-
+     result
+ }
+ 
+@@ -49381,6 +49436,103 @@ mod tests {
+         report("NULL_int_vs_int", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-bfslbl: paired-interleaved median A/B for the integer-adjacency BFS
++    /// `bfs_labeled_edges` vs the old `graph.neighbors()` (`Vec<&str>`) + `idx.get`
++    /// baseline, in ONE binary / ONE worker with a NULL control. `#[ignore]`
++    /// (measurement); run with
++    /// `cargo test --release -p fnx-algorithms --lib bfs_labeled_edges_bfslbl_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn bfs_labeled_edges_bfslbl_ab() {
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // Connected pseudo-random ~10-degree graph on 3000 nodes: one full BFS pops
++        // ~V nodes and emits ~E labeled edges, so the per-pop `Vec<&str>` alloc +
++        // per-neighbour `idx.get` String hash (baseline) vs the zero-alloc integer
++        // walk (lever) dominate.
++        let n = 3000usize;
++        let deg = 10usize;
++        let mut g = Graph::strict();
++        for i in 0..n {
++            let _ = g.add_node(format!("n{i}"));
++        }
++        for i in 0..n.saturating_sub(1) {
++            let _ = g.add_edge(format!("n{i}"), format!("n{}", i + 1));
++        }
++        for i in 0..n {
++            for k in 1..=deg {
++                let j = ((i as u64)
++                    .wrapping_mul(1_000_003)
++                    .wrapping_add((k as u64).wrapping_mul(97))
++                    % n as u64) as usize;
++                if j != i {
++                    let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
++                }
++            }
++        }
++
++        // Byte-exact parity: integer BFS labeled edges == String baseline.
++        assert_eq!(
++            super::bfs_labeled_edges(&g, "n0"),
++            super::bfs_labeled_edges_orig_string(&g, "n0"),
++            "integer bfs_labeled_edges must equal the String baseline"
++        );
++
++        let time = |lever: bool| -> f64 {
++            let t0 = Instant::now();
++            for _ in 0..3 {
++                if lever {
++                    black_box(super::bfs_labeled_edges(&g, "n0"));
++                } else {
++                    black_box(super::bfs_labeled_edges_orig_string(&g, "n0"));
++                }
++            }
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 121usize;
++        let paired = |cand: bool, base: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for r in 0..rounds {
++                let (tb, tc) = if r % 2 == 0 {
++                    let b = time(base);
++                    let c = time(cand);
++                    (b, c)
++                } else {
++                    let c = time(cand);
++                    let b = time(base);
++                    (b, c)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "BFSLBL_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("BFSLBL_AB n={n} deg={deg} rounds={rounds} (>1 = integer faster)");
++        report("INT_vs_string", &paired(true, false));
++        report("NULL_int_vs_int", &paired(true, true));
++    }
++
+     /// br-r37-c1-sqcmark: paired-interleaved median A/B for the integer-adjacency +
+     /// mark-array square clustering vs the old String-keyed HashMap/HashSet
+     /// baseline, in ONE binary / ONE worker with a NULL control. `#[ignore]`
