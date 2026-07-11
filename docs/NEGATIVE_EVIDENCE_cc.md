@@ -1,5 +1,38 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, `b30dfae19`): `could_be_isomorphic` integer-adjacency + mark-array triangle count **11.7483x** (br-r37-c1-isotri)
+
+Isomorphism precheck (my lane; distinct from the Jun-22 `faster_could_be_isomorphic` degree pre-reject —
+that ledger explicitly said "NOT could_be_isomorphic"). `could_be_isomorphic` compares sorted degree
+sequences then sorted per-node **triangle-count** sequences. The triangle count was computed once per graph
+with the classic O(|V|·d²) string-keyed shape — a `HashSet<&str>` built per node, a `Vec<&str>` allocated per
+neighbour, and a string hash-probe + lexicographic string comparison per candidate — the SAME shape the
+`triangles` mark-array lever (br-r37-c1-trimark, 5.54x) fixed, here paid TWICE (once per graph).
+
+Extracted `could_be_isomorphic_triangle_counts()` on the proven integer-adjacency + reusable mark-array
+kernel: walk `graph.neighbors_indices(u)` (zero-alloc `&[usize]`), `O(1)` probe `in_nbrs[nn]` instead of
+`HashSet::contains`, integer `nn > nbr` instead of a string compare, one `vec![false; n]` reset per node.
+
+MEASURED — paired-interleaved in-crate A/B vs the exact String baseline
+(`could_be_isomorphic_triangle_counts_orig_string`, `#[cfg(test)]`), ONE binary / ONE worker, dense
+pseudo-random ~40-deg n=1200, 121 rounds:
+
+| paired A/B (>1 = mark-array faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **MARK_vs_string** | **11.7483x** | **121/121** | [10.0557, 15.6273] |
+| NULL_mark_vs_mark | 0.9943x | 57/121 | [0.8194, 1.1812] |
+
+DECIDABLE: 11.75x median, candidate p5 (10.06) ~8.5x above the null p95 (1.18), 121/121 rounds won.
+BYTE-IDENTICAL: the triangle count through a node is the number of edges within its neighbourhood; requiring
+`nn > nbr` selects each intra-ego edge EXACTLY ONCE under ANY total order on the endpoints, so switching the
+tie-break from lexicographic name order to integer-index order leaves every per-node count unchanged; the
+result is an integer count (no float reassociation). Asserted `mark == base` in-test; 4/4 existing
+`could_be_isomorphic` unit tests green; `cargo check --all-targets` + clippy `-D warnings` clean.
+
+SESSION TALLY (structural-primitive vein): TEN byte-identical median-gated wins — eigenvector 14.64x, HITS
+3.11x, triangles 5.54x, square_clustering 29.73x, k_truss 10.15x, all_simple_paths 16.67x, generalized_degree
+10.18x, clustering_coefficient_directed 58.35x, label_propagation 2.26x, could_be_isomorphic 11.75x.
+
 ## SHIPPED WIN (cc, 2026-07-11, `536362220`): `label_propagation_communities` integer-adjacency walk **2.2605x** (br-r37-c1-lpmark)
 
 Community-detection lever (user named `communities`). Label propagation already used integer `labels`, but
