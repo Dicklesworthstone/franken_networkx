@@ -1,0 +1,7 @@
+  [2m2026-07-11T08:10:50.166946Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib is_aperiodic_aperiod_ab -- --ignored --nocapture[0m
+APERIOD_AB n=3000 deg=10 (dense SCC) rounds=61 (>1 = integer faster)
+APERIOD_AB INT_vs_string: median=2.0534x win_rate=61/61 p5_p95=[1.7353,2.3293]
+APERIOD_AB NULL_int_vs_int: median=1.0066x win_rate=34/61 p5_p95=[0.8489,1.2379]
+test tests::is_aperiodic_aperiod_ab ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 955 filtered out; finished in 1.70s
+AB loop ended
