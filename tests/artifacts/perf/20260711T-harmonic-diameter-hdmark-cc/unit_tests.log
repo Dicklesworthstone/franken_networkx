@@ -1,0 +1,4 @@
+  [2m2026-07-11T04:21:58.250404Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib harmonic_diameter -- --include-ignored --nocapture[0m
+test tests::test_harmonic_diameter_path ... ok
+test tests::harmonic_diameter_hdmark_ab ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 940 filtered out; finished in 1.03s

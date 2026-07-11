@@ -1,0 +1,181 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index 5b1f04312..1560de6c7 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -39701,15 +39701,62 @@ pub fn schultz_index(graph: &Graph) -> Option<f64> {
+ /// Harmonic diameter: reciprocal of the harmonic mean of all pairwise distances.
+ #[must_use]
+ pub fn harmonic_diameter(graph: &Graph) -> f64 {
++    let n = graph.node_count();
++    if n < 2 {
++        return 0.0;
++    }
++
++    // br-r37-c1-hdmark (cc): all-pairs BFS. The old kernel walked
++    // `graph.neighbors(nodes[v])` (a fresh `Vec<&str>` alloc per pop) and re-hashed
++    // each neighbour name through `idx` to recover its integer index. Walk
++    // `graph.neighbors_indices(v)` directly (integer neighbours, no alloc, no hash);
++    // `idx` is dropped. Byte-identical: the BFS distances are order-independent
++    // shortest paths, and `reciprocal_sum` accumulates `1.0/dist[t]` in the SAME
++    // fixed (s, then t ascending) order over the SAME integer distances — no
++    // floating-point reassociation.
++    let mut reciprocal_sum = 0.0;
++    for s in 0..n {
++        let mut dist = vec![usize::MAX; n];
++        dist[s] = 0;
++        let mut queue = std::collections::VecDeque::new();
++        queue.push_back(s);
++        while let Some(v) = queue.pop_front() {
++            if let Some(nbrs) = graph.neighbors_indices(v) {
++                for &ni in nbrs {
++                    if dist[ni] == usize::MAX {
++                        dist[ni] = dist[v] + 1;
++                        queue.push_back(ni);
++                    }
++                }
++            }
++        }
++        for t in (s + 1)..n {
++            if dist[t] < usize::MAX && dist[t] > 0 {
++                reciprocal_sum += 1.0 / dist[t] as f64;
++            }
++        }
++    }
++
++    let n_pairs = (n * (n - 1)) as f64 / 2.0;
++    if reciprocal_sum > 0.0 {
++        n_pairs / reciprocal_sum
++    } else {
++        f64::INFINITY
++    }
++}
++
++/// br-r37-c1-hdmark A/B baseline: the pre-lever all-pairs harmonic-diameter BFS that
++/// called `graph.neighbors(nodes[v])` (`Vec<&str>` alloc per pop) and re-hashed each
++/// neighbour name through `idx`. Test-only; byte-identical to `harmonic_diameter`.
++#[cfg(test)]
++fn harmonic_diameter_orig_string(graph: &Graph) -> f64 {
+     let nodes = graph.nodes_ordered();
+     let n = nodes.len();
+     if n < 2 {
+         return 0.0;
+     }
+-
+     let idx: std::collections::HashMap<&str, usize> =
+         nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+-
+     let mut reciprocal_sum = 0.0;
+     for s in 0..n {
+         let mut dist = vec![usize::MAX; n];
+@@ -39734,7 +39781,6 @@ pub fn harmonic_diameter(graph: &Graph) -> f64 {
+             }
+         }
+     }
+-
+     let n_pairs = (n * (n - 1)) as f64 / 2.0;
+     if reciprocal_sum > 0.0 {
+         n_pairs / reciprocal_sum
+@@ -48179,6 +48225,103 @@ mod tests {
+         report("NULL_mark_vs_mark", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-hdmark: paired-interleaved median A/B for the integer-adjacency
++    /// all-pairs `harmonic_diameter` vs the old `graph.neighbors()` (`Vec<&str>`) +
++    /// `idx.get` String baseline, in ONE binary / ONE worker with a NULL control.
++    /// `#[ignore]` (measurement); run with
++    /// `cargo test --release -p fnx-algorithms --lib harmonic_diameter_hdmark_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn harmonic_diameter_hdmark_ab() {
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // harmonic_diameter is O(V·(V+E)): BFS from every source. Well-connected
++        // n=200 graph (spanning path + random edges) so every pair contributes and
++        // the per-pop `Vec<&str>` alloc + per-neighbour `idx.get` String hash
++        // (baseline) vs the zero-alloc integer walk (lever) dominate.
++        let n = 200usize;
++        let deg = 10usize;
++        let mut g = Graph::strict();
++        for i in 0..n {
++            let _ = g.add_node(format!("n{i}"));
++        }
++        for i in 0..n.saturating_sub(1) {
++            let _ = g.add_edge(format!("n{i}"), format!("n{}", i + 1));
++        }
++        for i in 0..n {
++            for k in 1..=deg {
++                let j = ((i as u64)
++                    .wrapping_mul(1_000_003)
++                    .wrapping_add((k as u64).wrapping_mul(97))
++                    % n as u64) as usize;
++                if j != i {
++                    let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
++                }
++            }
++        }
++
++        // Byte-exact parity: integer all-pairs harmonic diameter == String baseline.
++        let mark = super::harmonic_diameter(&g);
++        let base = super::harmonic_diameter_orig_string(&g);
++        assert_eq!(
++            mark.to_bits(),
++            base.to_bits(),
++            "integer harmonic_diameter must bit-match the String baseline"
++        );
++
++        let time = |lever: bool| -> f64 {
++            let t0 = Instant::now();
++            if lever {
++                black_box(super::harmonic_diameter(&g));
++            } else {
++                black_box(super::harmonic_diameter_orig_string(&g));
++            }
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..2 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for r in 0..rounds {
++                let (tb, tc) = if r % 2 == 0 {
++                    let b = time(base);
++                    let c = time(cand);
++                    (b, c)
++                } else {
++                    let c = time(cand);
++                    let b = time(base);
++                    (b, c)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "HDMARK_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("HDMARK_AB n={n} deg={deg} rounds={rounds} (>1 = integer-BFS faster)");
++        report("INT_vs_string", &paired(true, false));
++        report("NULL_int_vs_int", &paired(true, true));
++    }
++
+     /// br-r37-c1-sqcmark: paired-interleaved median A/B for the integer-adjacency +
+     /// mark-array square clustering vs the old String-keyed HashMap/HashSet
+     /// baseline, in ONE binary / ONE worker with a NULL control. `#[ignore]`
