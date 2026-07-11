@@ -18318,3 +18318,88 @@ RESULT: SHIP. Preserve the original graph edge order, capacity decoding,
 floating-point filter, and `materialize_flows = false` minimum-cut residual
 path; the direct indexed projection is valid only for public max-flow callers
 that consume flows and never expose the private residual.
+
+## 2026-07-11 WhiteJaguar SHIP (PATHFINDING, `shortest_path_unweighted`): degree-guarded direct-edge bypass — 7.419x same-worker median self-speedup (`br-r37-c1-ae6r3`)
+
+OWNERSHIP / FRONTIER: this is the Rust unweighted shortest-path implementation,
+outside cc's CSR and centrality structural work. Matching is FRONTIER+HOLD:
+maximal matching and Hopcroft-Karp are already index-optimized, while weighted
+matching and minimum edge cover remain blocked on exact NetworkX tie and edge-
+orientation semantics. Flow's next credible seam is a compact sorted residual
+row representation in place of `BTreeMap`, but that is broader than this
+single-branch pathfinding lever and remains held for a dedicated profile/proof
+cycle.
+
+PROFILE FIRST: a fresh strict-remote pprof run exercised the complete-100
+shortest-path row for 10,000,000 iterations (`5,773.4501 ms` total). The
+shortest-path implementation accounted for 2,657 of 2,734 samples (97.2%);
+queue growth/push accounted for 414 samples and node lookup/hash for 187, with
+the BFS allocations also visible. The temporary profile-only harness was
+restored before the production edit; its SHA-256 is exactly
+`50682b49688426ee6090f65094fe155d2efd2611fd5d1ede7bda1daf1c6c48a0`.
+
+ONE LEVER: after resolving valid node indices and preserving the source-equals-
+target case, sources with more than two neighbors probe the graph's indexed
+edge map. A direct edge returns `[source, target]` before allocating the BFS
+visited, predecessor, and queue structures. The degree guard deliberately
+avoids adding an independent edge-map probe to path/cycle-like sparse rows.
+
+BIT-IDENTICAL ARGUMENT: a direct edge makes the two-node result the unique
+one-hop shortest path; missing-node behavior, source identity, ordered BFS
+fallback, names, and the public complexity witness are unchanged. A test-only
+frozen copy of the original BFS is the exact oracle over 16 deterministic node
+and edge insertion orders and all 8-by-8 ordered pairs (1,024 pairs), plus
+missing nodes, self-loops, disconnected and isolated nodes, remove/re-add index
+remaps, removed edges, and clear/repopulate mutations. Positive remap fixtures
+force the fast branch; removed-edge and cleared-edge fixtures retain degree-
+greater-than-two sources and force guarded misses. Complete
+`ShortestPathResult` values, including the witness, compare exactly.
+
+MEDIAN GATE: Criterion `median.point_estimate`, 31 samples, 1 s warm-up, 5 s
+measurement, both decisive runs on remote worker `vmi1293453`:
+
+| run | median ns (95% CI) | delta from baseline |
+|---|---:|---:|
+| baseline | 534.3386 (525.9190-547.5905) | — |
+| candidate | 72.0272 (70.9178-72.5742) | -86.5203%, 7.4186x |
+
+The median confidence intervals do not overlap, so the keep gate clears
+decisively without relying on the mean. Candidate mean was 72.1706 ns
+(70.9372-73.5195), versus baseline 536.0183 ns (520.9743-551.3848).
+The sparse `path/500` row experienced 4.19% cross-run temporal drift; a fresh
+same-binary paired guard control instead measured candidate/base median
+`1.013541x` versus a null-control median `0.997766x`, with overlapping noise
+bands, so the lazy degree guard introduces no demonstrated sparse regression.
+
+STRICT REMOTE-ONLY: every authoritative Cargo profile, benchmark, check,
+clippy, and test command used this fail-closed prefix; no local Cargo command
+ran:
+
+```text
+RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo ...
+```
+
+RCH reported a degraded fleet (9 of 12 workers eligible: two facts-unknown and
+one temporarily bypassed). Failures were surfaced and never degraded to local
+execution. Agent Mail was degraded read-only and its reservation failed on a
+malformed database page, so ownership coordination continued from Git, Beads,
+and ledger truth without modifying Agent Mail state.
+
+CORRECTNESS / GATES: strict-remote full `fnx-algorithms` library tests passed
+927 with 37 ignored, including the strengthened exact differential test;
+strict-remote workspace all-targets check passed. A strict-remote scoped clippy
+run denied all warnings and passed after allowing only the two pre-existing
+file-wide lint classes; exact workspace clippy reports the same 11 pre-existing
+`collapsible_if` / `doc_lazy_continuation` findings outside this diff, already
+tracked by `br-r37-c1-q3j0s`. RCH does not admit non-compilation
+`cargo fmt --check` without local fallback, so direct `rustfmt --check`
+identified only four pre-existing file-wide formatting differences outside
+this lever; the owned hunks and `git diff --check` pass. UBS ran with
+`UBS_SKIP_RUST_BUILD=1`, reported zero critical findings, and skipped local
+Cargo build/style phases. This Criterion row measures the Rust API and is not a
+claim about a Python public routing surface.
+
+RESULT: SHIP. Preserve the degree guard, direct-edge uniqueness argument,
+ordered BFS fallback, node-index validation, and exact witness; do not widen
+this lever into CSR, centrality, wrapper dispatch, or matching/flow structural
+rewrites.

@@ -1043,6 +1043,16 @@ fn shortest_path_unweighted_fast(graph: &Graph, source: &str, target: &str) -> O
         return Some(vec![source.to_owned()]);
     }
 
+    // Avoid an independent edge-map probe on path/cycle-like rows, where the
+    // non-edge case remains dominated by the full BFS.
+    if graph
+        .neighbors_indices(source_idx)
+        .is_some_and(|neighbors| neighbors.len() > 2)
+        && graph.has_edge_by_indices(source_idx, target_idx)
+    {
+        return Some(vec![source.to_owned(), target.to_owned()]);
+    }
+
     let n = graph.node_count();
     let mut visited = vec![false; n];
     let mut predecessor: Vec<Option<usize>> = vec![None; n];
@@ -52181,6 +52191,157 @@ mod tests {
         assert_eq!(left.witness, left_replay.witness);
         assert_eq!(right.path, right_replay.path);
         assert_eq!(right.witness, right_replay.witness);
+    }
+
+    #[test]
+    fn direct_edge_shortest_path_matches_original_bfs_exactly() {
+        fn original_bfs(graph: &Graph, source: &str, target: &str) -> Option<Vec<String>> {
+            let source_idx = graph.get_node_index(source)?;
+            let target_idx = graph.get_node_index(target)?;
+
+            if source_idx == target_idx {
+                return Some(vec![source.to_owned()]);
+            }
+
+            let n = graph.node_count();
+            let mut visited = vec![false; n];
+            let mut predecessor: Vec<Option<usize>> = vec![None; n];
+            let mut queue = std::collections::VecDeque::new();
+
+            visited[source_idx] = true;
+            queue.push_back(source_idx);
+
+            while let Some(current) = queue.pop_front() {
+                if let Some(neighbors) = graph.neighbors_indices(current) {
+                    for &neighbor in neighbors {
+                        if !visited[neighbor] {
+                            visited[neighbor] = true;
+                            predecessor[neighbor] = Some(current);
+                            queue.push_back(neighbor);
+
+                            if neighbor == target_idx {
+                                let mut path = Vec::new();
+                                let mut cursor = neighbor;
+                                loop {
+                                    path.push(graph.get_node_name(cursor)?.to_owned());
+                                    if cursor == source_idx {
+                                        break;
+                                    }
+                                    cursor = predecessor[cursor]?;
+                                }
+                                path.reverse();
+                                return Some(path);
+                            }
+                        }
+                    }
+                }
+            }
+
+            None
+        }
+
+        fn assert_exact(graph: &Graph) {
+            let expected = |source: &str, target: &str| super::ShortestPathResult {
+                path: original_bfs(graph, source, target),
+                witness: super::ComplexityWitness {
+                    algorithm: "bfs_shortest_path".to_owned(),
+                    complexity_claim: "O(|V| + |E|)".to_owned(),
+                    nodes_touched: 0,
+                    edges_scanned: 0,
+                    queue_peak: 0,
+                },
+            };
+            let nodes: Vec<String> = graph
+                .nodes_ordered()
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
+            for source in &nodes {
+                for target in &nodes {
+                    assert_eq!(
+                        shortest_path_unweighted(graph, source, target),
+                        expected(source, target)
+                    );
+                }
+            }
+            for (source, target) in [
+                ("missing", "also-missing"),
+                (nodes[0].as_str(), "missing"),
+                ("missing", nodes[0].as_str()),
+                ("missing", "missing"),
+            ] {
+                assert_eq!(
+                    shortest_path_unweighted(graph, source, target),
+                    expected(source, target)
+                );
+            }
+        }
+
+        const NAMES: [&str; 8] = ["z", "a", "n10", "n2", "mid", "0", "iso", "tail"];
+        for seed in 0..16_usize {
+            let mut graph = Graph::strict();
+            for offset in 0..NAMES.len() {
+                let index = (offset * 5 + seed) % NAMES.len();
+                assert!(graph.add_node(NAMES[index]));
+            }
+            for step in 0..32_usize {
+                let left = (step * 5 + seed * 3) % 7;
+                let right = (step * 11 + seed + 1) % 7;
+                if left != right {
+                    graph
+                        .add_edge(NAMES[left], NAMES[right])
+                        .expect("edge add should succeed");
+                }
+            }
+            graph
+                .add_edge(NAMES[seed % 7], NAMES[seed % 7])
+                .expect("self-loop add should succeed");
+
+            if seed % 4 == 0 {
+                assert!(graph.remove_node("n10"));
+                assert!(graph.add_node("n10"));
+                for neighbor in ["tail", "z", "a", "n2"] {
+                    graph
+                        .add_edge("n10", neighbor)
+                        .expect("remapped edge add should succeed");
+                }
+                let remapped = graph
+                    .get_node_index("n10")
+                    .expect("re-added node should have an index");
+                let tail = graph
+                    .get_node_index("tail")
+                    .expect("tail node should have an index");
+                assert!(graph.neighbors_indices(remapped).unwrap().len() > 2);
+                assert!(graph.has_edge_by_indices(remapped, tail));
+            } else if seed % 4 == 1 {
+                for neighbor in ["a", "n10", "n2", "mid"] {
+                    graph
+                        .add_edge("z", neighbor)
+                        .expect("retained edge add should succeed");
+                }
+                graph
+                    .add_edge("z", "tail")
+                    .expect("temporary edge add should succeed");
+                assert!(graph.remove_edge("z", "tail"));
+                let source = graph.get_node_index("z").unwrap();
+                let removed_target = graph.get_node_index("tail").unwrap();
+                assert!(graph.neighbors_indices(source).unwrap().len() > 2);
+                assert!(!graph.has_edge_by_indices(source, removed_target));
+            } else if seed % 4 == 2 {
+                graph.clear_edges();
+                for neighbor in ["a", "n10", "n2", "mid"] {
+                    graph
+                        .add_edge("z", neighbor)
+                        .expect("post-clear edge add should succeed");
+                }
+                let source = graph.get_node_index("z").unwrap();
+                let cleared_target = graph.get_node_index("tail").unwrap();
+                assert!(graph.neighbors_indices(source).unwrap().len() > 2);
+                assert!(!graph.has_edge_by_indices(source, cleared_target));
+            }
+
+            assert_exact(&graph);
+        }
     }
 
     #[test]
