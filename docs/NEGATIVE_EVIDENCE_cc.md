@@ -1,5 +1,48 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## FRONTIER SUMMARY (cc, 2026-07-11): the heavy clean bit-identical String→integer-adjacency vein is MINED OUT for the centrality/clustering/distance-metric lane
+
+After 13 wins this session (could_be_isomorphic, dominating_set, closeness_vitality, voronoi_cells,
+closeness_vitality_single, is_strongly_regular, harmonic_diameter, group_closeness_centrality,
+maximum_independent_set, gutman_index, schultz_index, hyper_wiener_index, global_parameters), a systematic scan
+of every remaining `graph.neighbors(` String-keyed caller in `fnx-algorithms/src/lib.rs` shows the heavy,
+clean, in-lane targets are exhausted. Every residual falls into one of:
+
+1. **NONDETERMINISTIC — not bit-identical-able.** `local_efficiency` (sums `1.0/d` over a `HashMap<&str,usize>`
+   iterated in randomized order + an outer `HashSet<&str>` source loop) and `connected_dominating_set`
+   (greedy selection over `HashSet<String>` iteration order). Their CURRENT output already varies per process,
+   so there is no fixed value to reproduce; a String→int rewrite would change last-ULP / tie-break behaviour.
+   These need a *determinism* redesign (out of scope for a bit-identical perf lever), or acceptance of
+   tolerance-parity (which the pytest.approx suites already use for local_efficiency — a future SURFACE, not a
+   bit-identical SHIP).
+2. **PEER LANE.** `greedy_color_with_strategy` and the coloring family are WhiteJaguar's (br-r37-c1-l8m9v).
+   `bidirectional_shortest_path_meta`, `is_simple_path`, and the shortest-path/flow functions are cod's lane.
+3. **ALREADY INTEGER.** `constraint`/`effective_size` (br-constraint-intadj), the dispersion family
+   (`dispersion_full`/`dispersion_node` bitset), `core_number`/`onion_layers`, `is_at_free`, `flow_hierarchy`,
+   `wiener_index`, and every centrality in the power-iteration/bit-parallel families. Their residual
+   `graph.neighbors(` calls are one-time adjacency snapshots or `#[cfg(test)]` A/B baselines.
+4. **BYPASSED AT THE pyo3 LAYER.** `barycenter` (br-r37-c1-baryidx replays integer adjacency in
+   `crates/fnx-python`) — the lib.rs String kernel is off the Python hot path. ALWAYS check the pyo3 wrapper
+   for a `*_from_adjacency` bypass before converting a lib.rs kernel.
+5. **LIGHT / LOW-VALUE.** Single-pair queries (`dispersion_pair`, `local_constraint`), non-algorithm graph
+   transforms (`remove_node_attributes`), and modest single-traversal node-list functions
+   (`bfs_layers_multi`, `dfs_postorder_nodes`, `edge_dfs` — bit-identical since `neighbors_indices` preserves
+   traversal order, but each is one O(V+E) pass → only ~2-4x, and traversal borders cod's lane). These remain
+   as opt-in follow-ups if a future session wants small wins.
+
+METHOD (reusable): the whole session's lever is one shape — a hot loop calling `graph.neighbors(name)` (a
+`Vec<&str>` alloc) + a `HashMap<&str,usize>`/`HashSet<&str>` re-hash, replaced by `graph.neighbors_indices(i)`
+(zero-alloc `&[usize]`) + a `Vec<bool>` mark array or direct index math. Bit-identical whenever the
+selection/summation order is DETERMINISTIC (a `0..n` scan, a total-order `min_by`/`max_by`, a fixed nested
+`for s { for t }`, or an order-invariant integer count / HashSet-contents). Proven per-function with a
+`#[cfg(test)]` `_orig_string` baseline + a paired-interleaved median A/B (NULL control) + an
+`assert_eq!`/`to_bits()` parity check, all in ONE binary.
+
+HOLD: no further heavy bit-identical centrality/clustering levers remain to mine. Next productive directions
+(all larger than a one-turn lever): (a) the nondeterministic-function determinism redesign; (b) an
+architectural integer-node-index storage epoch (the recurring String-node-key floor); (c) the modest
+single-traversal follow-ups above if small wins are wanted.
+
 ## SHIPPED WIN (cc, 2026-07-11, `3645bc9eb`): `global_parameters` integer-adjacency all-pairs BFS + count pass **19.8644x** (br-r37-c1-gparm)
 
 Distance-regular intersection array `(b_k, c_k)` — all-pairs BFS + an O(V²·diameter) count pass. The old
@@ -20,9 +63,9 @@ integer counts; `b_vals`/`c_vals` HashSet contents unchanged so `.len()` distanc
 short-circuit + extracted value identical; integer output. Asserted equal to the baseline across K₁₁₀ + C₂₀
 (→Some) and a 20-node path (→None). pyo3 calls this kernel directly.
 
-CLIPPY PENDING (fleet contention): A/B compiled + ran clean; clippy blocked by peers monopolizing the
-`/dp/frankentui` workers (my jobs bounce to ftui-less workers). Identical neighbors→neighbors_indices pattern
-to clippy-clean gutidx/schidx/hwidx — re-verify next batch pass.
+CLIPPY CLEAN: a later `cargo clippy -p fnx-algorithms --lib -- -D warnings` batch pass landed CLEAN on the
+gparm HEAD — confirming this and every prior session commit is clippy-clean. (During the win the ftui fleet
+contention had briefly blocked it.)
 
 SESSION TALLY (structural-primitive vein): TWENTY-TWO byte-identical median-gated wins — eigenvector 14.64x,
 HITS 3.11x, triangles 5.54x, square_clustering 29.73x, k_truss 10.15x, all_simple_paths 16.67x,
