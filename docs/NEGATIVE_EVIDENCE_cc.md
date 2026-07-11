@@ -1,5 +1,41 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, `9c27f59b5`): `schultz_index` integer-adjacency all-pairs BFS **12.1541x** (br-r37-c1-schidx)
+
+Distance-metric index — `Σ_{s<t} (deg(s)+deg(t))·d(s,t)`, O(V·(V+E)), the additive twin of `gutman_index`.
+Identical conversion to br-r37-c1-gutidx: walk `graph.neighbors_indices(v)` (zero-alloc), take degrees with
+`neighbors_indices(s).map_or(0, <[usize]>::len)`; `idx`/`nodes` dropped. Only the accumulator differs
+(`(du+dv)*dist` vs gutman's `du*dv*dist`).
+
+MEASURED — paired-interleaved A/B vs the exact String baseline (`schultz_index_orig_string`, `#[cfg(test)]`),
+ONE binary / ONE worker, connected n=200 deg~10, 61 rounds:
+
+| paired A/B (>1 = integer-BFS faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **INT_vs_string** | **12.1541x** | **61/61** | [10.3260, 13.2613] |
+| NULL_int_vs_int | 0.9993x | 27/61 | [0.9780, 1.0532] |
+
+DECIDABLE: 12.15x median, candidate p5 (10.33) ~10x above the null p95 (1.05), 61/61 won. BIT-IDENTICAL: same
+fixed-order integer/degree distance sum as gutman; exact `to_bits()` parity asserted; `test_schultz_index_path`
+green. pyo3 calls this kernel directly.
+
+CLIPPY DEBT CLEARED: one `cargo clippy -p fnx-algorithms --lib -- -D warnings` batch pass landed CLEAN on a
+`/dp/frankentui`-equipped worker over the working tree — retroactively verifying gcmark, mismark, gutidx (the
+three ftui-blocked commits) AND schidx. The ~1hr ftui fleet degradation (and a bout of no-slot saturation) is
+the only reason clippy lagged those commits; all are now confirmed clippy-clean. NOTE: rch fleet reported
+`degraded` (10/12 healthy, ovh-a/vmi1153651 offline) with intermittent `active_project_exclusion` no-slot —
+retry cargo test/clippy until a healthy `/dp/frankentui` worker with a free slot picks it up.
+
+DISTANCE-METRIC FAMILY: gutman_index ✓, schultz_index ✓ done; `hyper_wiener_index` (same all-pairs-BFS shape,
+Σ over pairs of (d + d²)/2 or similar — verify the exact sum) remains as the last family member.
+
+SESSION TALLY (structural-primitive vein): TWENTY byte-identical median-gated wins — eigenvector 14.64x, HITS
+3.11x, triangles 5.54x, square_clustering 29.73x, k_truss 10.15x, all_simple_paths 16.67x, generalized_degree
+10.18x, clustering_coefficient_directed 58.35x, label_propagation 2.26x, could_be_isomorphic 11.75x,
+dominating_set 20.13x, closeness_vitality 10.70x, voronoi_cells 4.14x, closeness_vitality_single 5.85x,
+is_strongly_regular 75.30x, harmonic_diameter 10.95x, group_closeness_centrality 7.17x,
+maximum_independent_set 28.19x, gutman_index 13.21x, schultz_index 12.15x.
+
 ## SHIPPED WIN (cc, 2026-07-11, `26fd246e6`): `gutman_index` integer-adjacency all-pairs BFS **13.2074x** (br-r37-c1-gutidx)
 
 Distance-metric index — `Σ_{s<t} deg(s)·deg(t)·d(s,t)`, O(V·(V+E)). The old kernel walked
