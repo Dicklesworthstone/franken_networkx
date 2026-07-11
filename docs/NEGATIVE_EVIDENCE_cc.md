@@ -1,5 +1,36 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED (cc, 2026-07-11): `br-r37-c1-thp6w` SLICE 1 — MultiGraph lazy integer-adjacency memo + `with_int_adjacency` (infrastructure, byte-identical, no perf claim)
+
+First slice of the MultiGraph integer-adjacency epoch, shipped as INFRASTRUCTURE (not a perf win — the
+win lands in Slice 2 when hot ops are routed through it). Chose the SAFE design over the eager 13-site
+live mirror I originally sketched:
+
+- **Lazy revision-keyed memo**, the exact pattern `Graph::all_int_cache` uses: `IntAdjCache(RwLock<Option<
+  (u64, Vec<Vec<usize>>)>>)` field on MultiGraph. `with_int_adjacency(|adj| ...)` builds the integer rows
+  from the authoritative String `adjacency` on first read and reuses them until the graph mutates.
+- **Zero per-mutation maintenance** (unlike the eager mirror, which would be a construction REGRESSION):
+  the memo auto-invalidates via the 14 existing `revision` bumps on content changes, plus ONE explicit
+  clear in `apply_row_orders` (the sole order-only mutator — MultiGraph.copy walk / pickle — that does NOT
+  bump revision; caught during the audit).
+- **Fresh-per-clone**: `IntAdjCache::clone` returns an empty memo (never an Arc share), so a clone that
+  mutates independently can never serve another graph's rows.
+
+BYTE-IDENTICAL: `with_int_adjacency` has NO production caller yet (inert infrastructure), so it cannot
+change any observable behavior — and the full fnx-classes suite (**74 passed / 0 failed**) confirms zero
+regression. Two new invariant tests prove correctness: `thp6w_int_adjacency_invariant_across_mutations`
+(the memo == a fresh `[get_node_index(v) for v in neighbors_iter(node_i)]` derivation after add_node /
+add_edge / parallel / remove_edge / remove_node-with-renumber / reorder / clear_edges, via read-mutate-read
+that would catch any un-invalidated path) and `thp6w_int_adjacency_cache_is_fresh_per_clone`.
+
+**Slice 2 (the win, NOT shipped here):** route the bidirectional-dijkstra MultiGraph residual (cod) + mg
+edge/degree read paths through `with_int_adjacency`. Profiled Slice-1-enables win is 100x+ on
+neighbor-traversal-bound ops (~150 ns/String-hash lookup eliminated — see the profile below). NOTE for
+Slice 2: before adding the FIRST production reader, complete the order-mutator audit — the memo's order
+correctness currently relies on `apply_row_orders` being the only revision-skipping order change; that
+holds for all paths the invariant test exercises, but a new production reader makes any missed path a real
+bug. See [[thp6w_multigraph_intadj_epoch]].
+
 ## SURFACE (cc, 2026-07-11): `br-r37-c1-thp6w` MultiGraph integer-adjacency = a genuine multi-slice EPOCH, NOT a single safe lever — profiled, scoped, HOLD for a dedicated effort
 
 Took on the P1 MultiGraph integer-adjacency bead. PROFILE-first + scope analysis both say: high-value

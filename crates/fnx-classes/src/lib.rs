@@ -2265,6 +2265,21 @@ impl Graph {
     }
 }
 
+/// br-r37-c1-thp6w slice 1: revision-keyed integer-adjacency memo for MultiGraph. Holds the
+/// integer neighbor rows (`get_node_index` of each adjacency-row neighbor, in row order),
+/// lazily built from the authoritative String `adjacency` and reused until the graph mutates.
+/// Interior mutability (RwLock) so it can populate on a `&self` read while staying `Sync`,
+/// matching `Graph::all_int_cache`. Clone yields a FRESH (empty) memo — never shared — so a
+/// clone that mutates independently can never serve another graph's rows.
+#[derive(Debug, Default)]
+struct IntAdjCache(std::sync::RwLock<Option<(u64, Vec<Vec<usize>>)>>);
+
+impl Clone for IntAdjCache {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MultiGraph {
     mode: CompatibilityMode,
@@ -2274,6 +2289,8 @@ pub struct MultiGraph {
     edges: FxIndexMap<EdgeKey, IndexMap<usize, AttrMap>>,
     runtime_policy: RuntimePolicy,
     edge_count: usize,
+    /// br-r37-c1-thp6w slice 1: lazy revision-keyed integer adjacency (see `IntAdjCache`).
+    int_adj_cache: IntAdjCache,
 }
 
 impl MultiGraph {
@@ -2289,6 +2306,7 @@ impl MultiGraph {
             edges: self.edges.clone(),
             runtime_policy: RuntimePolicy::new(self.mode),
             edge_count: self.edge_count,
+            int_adj_cache: IntAdjCache::default(),
         }
     }
 
@@ -2357,6 +2375,11 @@ impl MultiGraph {
             }
             *row = new_row;
         }
+        // br-r37-c1-thp6w slice 1: a pure ROW-ORDER change (MultiGraph.copy walk order,
+        // pickle round-trip) does NOT bump `revision`, so the revision-keyed int-adjacency
+        // memo would otherwise serve stale row order. Drop it explicitly here — this is the
+        // only adjacency mutator that changes order without a content (revision) bump.
+        *self.int_adj_cache.0.get_mut().expect("int_adj_cache poisoned") = None;
     }
 
     #[must_use]
@@ -2369,6 +2392,7 @@ impl MultiGraph {
             edges: FxIndexMap::default(),
             runtime_policy: RuntimePolicy::new(mode),
             edge_count: 0,
+            int_adj_cache: IntAdjCache::default(),
         }
     }
 
@@ -2383,6 +2407,7 @@ impl MultiGraph {
             edges: FxIndexMap::default(),
             runtime_policy,
             edge_count: 0,
+            int_adj_cache: IntAdjCache::default(),
         }
     }
 
@@ -2491,6 +2516,50 @@ impl MultiGraph {
         self.adjacency
             .get(node)
             .map(|neighbors| neighbors.keys().map(String::as_str))
+    }
+
+    /// br-r37-c1-thp6w slice 1: build the integer adjacency from the authoritative String
+    /// `adjacency`. Row `i` (node at insertion-index `i`) lists the node indices of that
+    /// node's neighbors in adjacency-row order — i.e. exactly
+    /// `[get_node_index(v) for v in neighbors_iter(node_i)]`. Distinct neighbors only
+    /// (the parallel-edge multiplicity lives in `edges`), matching the String rows.
+    fn build_int_adjacency(&self) -> Vec<Vec<usize>> {
+        self.nodes
+            .keys()
+            .map(|name| {
+                self.adjacency.get(name.as_str()).map_or_else(Vec::new, |row| {
+                    row.keys()
+                        .map(|v| {
+                            self.nodes
+                                .get_index_of(v.as_str())
+                                .expect("adjacency neighbor must be a live node")
+                        })
+                        .collect()
+                })
+            })
+            .collect()
+    }
+
+    /// br-r37-c1-thp6w slice 1: run `f` with the integer adjacency (hash-free neighbor rows),
+    /// built lazily from the String `adjacency` and memoized until the next mutation. The
+    /// memo is keyed on `revision` (bumped by every content mutation) and cleared by
+    /// `apply_row_orders` (the one order-only mutator), so the rows always match the current
+    /// `adjacency` byte-for-byte. The closure form lets a whole traversal borrow the rows
+    /// under one read lock without a per-node allocation. Foundation for the epoch's
+    /// `neighbors_indices` traversal; no caller yet (infrastructure).
+    pub fn with_int_adjacency<R>(&self, f: impl FnOnce(&[Vec<usize>]) -> R) -> R {
+        {
+            let guard = self.int_adj_cache.0.read().expect("int_adj_cache poisoned");
+            if let Some((rev, adj)) = guard.as_ref()
+                && *rev == self.revision
+            {
+                return f(adj);
+            }
+        }
+        let adj = self.build_int_adjacency();
+        let result = f(&adj);
+        *self.int_adj_cache.0.write().expect("int_adj_cache poisoned") = Some((self.revision, adj));
+        result
     }
 
     #[must_use]
@@ -3564,6 +3633,104 @@ mod tests {
         } else {
             (right.to_owned(), left.to_owned())
         }
+    }
+
+    /// br-r37-c1-thp6w slice 1 INVARIANT: the cached integer adjacency
+    /// (`with_int_adjacency`) must equal, byte-for-byte, a fresh derivation from the
+    /// authoritative String `adjacency` — row `i` == `[get_node_index(v) for v in
+    /// neighbors_iter(node_i)]` — for the CURRENT graph state. Because the memo is keyed on
+    /// `revision` + explicitly cleared by `apply_row_orders`, calling this after a mutation
+    /// (with a prior populating read) catches any mutation path that fails to invalidate.
+    fn assert_int_adjacency_matches(g: &MultiGraph) {
+        let expected: Vec<Vec<usize>> = g
+            .nodes_ordered()
+            .iter()
+            .map(|name| {
+                g.neighbors_iter(name).map_or_else(Vec::new, |it| {
+                    it.map(|v| g.get_node_index(v).unwrap()).collect()
+                })
+            })
+            .collect();
+        g.with_int_adjacency(|adj| {
+            assert_eq!(
+                adj, expected.as_slice(),
+                "int adjacency must mirror the String adjacency exactly"
+            );
+        });
+    }
+
+    #[test]
+    fn thp6w_int_adjacency_invariant_across_mutations() {
+        let mut g = MultiGraph::strict();
+        for i in 0..8 {
+            g.add_node(format!("n{i}"));
+        }
+        // Edges incl. parallels and a self-loop.
+        let _ = g.add_edge("n0", "n1");
+        let _ = g.add_edge("n0", "n1"); // parallel
+        let _ = g.add_edge("n1", "n2");
+        let _ = g.add_edge("n2", "n3");
+        let _ = g.add_edge("n3", "n0");
+        let _ = g.add_edge("n4", "n4"); // self-loop
+        let _ = g.add_edge("n5", "n6");
+        // Populate the memo, then verify.
+        assert_int_adjacency_matches(&g);
+
+        // read-mutate-read for EACH mutation kind: a stale memo would fail the re-check.
+        // add_node
+        assert_int_adjacency_matches(&g);
+        g.add_node("n9");
+        assert_int_adjacency_matches(&g);
+        // add_edge (new neighbor -> row grows)
+        assert_int_adjacency_matches(&g);
+        let _ = g.add_edge("n9", "n0");
+        assert_int_adjacency_matches(&g);
+        // parallel add_edge (row unchanged, content bumps revision)
+        assert_int_adjacency_matches(&g);
+        let _ = g.add_edge("n9", "n0");
+        assert_int_adjacency_matches(&g);
+        // remove one parallel edge (row must stay; neighbor still present)
+        assert_int_adjacency_matches(&g);
+        assert!(g.remove_edge("n0", "n1", None));
+        assert_int_adjacency_matches(&g);
+        // remove last edge of a pair (neighbor drops from both rows)
+        assert_int_adjacency_matches(&g);
+        assert!(g.remove_edge("n5", "n6", None));
+        assert_int_adjacency_matches(&g);
+        // remove_node (renumber: indices shift down)
+        assert_int_adjacency_matches(&g);
+        assert!(g.remove_node("n2"));
+        assert_int_adjacency_matches(&g);
+        // ORDER-ONLY change via the copy walk reorder (does NOT bump revision — the
+        // apply_row_orders cache-clear is what keeps this correct).
+        assert_int_adjacency_matches(&g);
+        g.reorder_rows_for_nx_copy_walk();
+        assert_int_adjacency_matches(&g);
+        // clear_edges
+        assert_int_adjacency_matches(&g);
+        g.clear_edges();
+        assert_int_adjacency_matches(&g);
+    }
+
+    #[test]
+    fn thp6w_int_adjacency_cache_is_fresh_per_clone() {
+        let mut g = MultiGraph::strict();
+        for i in 0..4 {
+            g.add_node(format!("n{i}"));
+        }
+        let _ = g.add_edge("n0", "n1");
+        // Populate g's memo.
+        assert_int_adjacency_matches(&g);
+        // Clone, then mutate the CLONE differently. The clone must NOT serve g's rows
+        // (fresh-per-clone memo), and g must keep its own.
+        let mut clone = g.clone();
+        let _ = clone.add_edge("n2", "n3");
+        assert_int_adjacency_matches(&clone);
+        assert_int_adjacency_matches(&g);
+        // And mutate g after the clone; both stay self-consistent.
+        let _ = g.add_edge("n0", "n2");
+        assert_int_adjacency_matches(&g);
+        assert_int_adjacency_matches(&clone);
     }
 
     fn single_attr(key: &str, value: &str) -> AttrMap {
