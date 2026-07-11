@@ -1,5 +1,38 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, `6bc326a57`): `hyper_wiener_index` integer-adjacency all-pairs BFS **12.4613x** (br-r37-c1-hwidx)
+
+Distance-metric index — `Σ_{s<t} (d(s,t) + d(s,t)²)`, O(V·(V+E)), the last distance-metric family member.
+Walk `graph.neighbors_indices(v)` (zero-alloc) instead of `graph.neighbors(nodes[v])` (`Vec<&str>` alloc per
+pop) + `idx.get`; `idx`/`nodes` dropped. No degree computation — just distances, so `total += d + d*d`
+(`d = dist[t] as f64`) is unchanged.
+
+MEASURED — paired-interleaved A/B vs the exact String baseline (`hyper_wiener_index_orig_string`,
+`#[cfg(test)]`), ONE binary / ONE worker, connected n=200 deg~10, 61 rounds:
+
+| paired A/B (>1 = integer-BFS faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **INT_vs_string** | **12.4613x** | **61/61** | [10.6301, 17.0721] |
+| NULL_int_vs_int | 1.0111x | 34/61 | [0.8485, 1.2431] |
+
+DECIDABLE: 12.46x median, candidate p5 (10.63) ~8.5x above the null p95 (1.24), 61/61 won. BIT-IDENTICAL: same
+fixed-order integer distance sum; exact `to_bits()` parity asserted;
+`test_hyper_wiener_index_{path,path_four_nodes}` green. clippy `-D warnings` clean (attempt 1 — fleet recovered
+somewhat). pyo3 calls this kernel directly.
+
+DISTANCE-METRIC FAMILY COMPLETE: gutman_index 13.21x, schultz_index 12.15x, hyper_wiener_index 12.46x — all
+converted to integer-adjacency all-pairs BFS.
+
+SESSION TALLY (structural-primitive vein): TWENTY-ONE byte-identical median-gated wins — eigenvector 14.64x,
+HITS 3.11x, triangles 5.54x, square_clustering 29.73x, k_truss 10.15x, all_simple_paths 16.67x,
+generalized_degree 10.18x, clustering_coefficient_directed 58.35x, label_propagation 2.26x,
+could_be_isomorphic 11.75x, dominating_set 20.13x, closeness_vitality 10.70x, voronoi_cells 4.14x,
+closeness_vitality_single 5.85x, is_strongly_regular 75.30x, harmonic_diameter 10.95x,
+group_closeness_centrality 7.17x, maximum_independent_set 28.19x, gutman_index 13.21x, schultz_index 12.15x,
+hyper_wiener_index 12.46x. THIS-SESSION cc wins (12): could_be_isomorphic, dominating_set, closeness_vitality,
+voronoi_cells, closeness_vitality_single, is_strongly_regular, harmonic_diameter, group_closeness_centrality,
+maximum_independent_set, gutman_index, schultz_index, hyper_wiener_index.
+
 ## SHIPPED WIN (cc, 2026-07-11, `9c27f59b5`): `schultz_index` integer-adjacency all-pairs BFS **12.1541x** (br-r37-c1-schidx)
 
 Distance-metric index — `Σ_{s<t} (deg(s)+deg(t))·d(s,t)`, O(V·(V+E)), the additive twin of `gutman_index`.
