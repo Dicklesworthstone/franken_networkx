@@ -18235,3 +18235,86 @@ critical findings, and explicitly skipped local Cargo build/style phases.
 RESULT: SHIP. Preserve canonical node-index identity and the stored adjacency
 row order; do not sort neighbors, change epsilon or sequence semantics, or
 conflate this Rust relaxation-state lever with Python target-helper work.
+
+## 2026-07-11 WhiteJaguar SHIP (FLOW, `max_flow`): project flows directly from the indexed residual — 1.666x same-worker median self-speedup (`br-r37-c1-um1pg`)
+
+OWNERSHIP / FRONTIER: this is the public Edmonds-Karp max-flow projection seam,
+not cc's CSR or centrality structural work. Matching was inspected first and is
+FRONTIER+HOLD: maximal matching is already index-optimized, weighted matching
+is blocked on exact NetworkX tie/orientation semantics, and the remaining
+predicate has no public benchmark row. Coloring and pathfinding offered only
+smaller follow-ups, so the measured flow projection was selected.
+
+PROFILE FIRST: a strict-remote `release-perf` pprof run exercised the existing
+10-by-5 parallel-path max-flow graph for 100,000 iterations (`0.0546 ms/iter`).
+Of 2,740 samples in `compute_max_flow_residual`, 663 (24.2%) were in
+`flow_edges_from_residual`; B-tree search/get frames accounted for 1,284,
+capacity lookup/default for 784, `edge_attrs` for 540, string edge-pair/hash
+work for 401, and attribute parsing for 244. The temporary profile-only harness
+was restored before the production edit; its SHA-256 is exactly
+`50682b49688426ee6090f65094fe155d2efd2611fd5d1ede7bda1daf1c6c48a0`.
+
+ONE LEVER: while building the existing indexed residual, retain each original
+edge's ordered `(source_index, target_index, decoded_capacity)` tuple. After
+the unchanged augmentation loop, public max-flow projects `FlowEdgeValue`
+directly from `residual_i`, avoiding the private string-keyed residual,
+duplicate capacity traversal, edge lookup, and parse. Minimum-cut still skips
+the flow vector and materializes the same full string residual it consumes, so
+the prior minimum-cut optimization and public output remain isolated.
+
+BIT-IDENTICAL ARGUMENT: augmentation, floating-point arithmetic, epsilon,
+ordered node and neighbor traversal, edge ordering, source/target names,
+witness construction, and minimum-cut residual construction are unchanged.
+The direct projection uses the already-decoded capacity and performs the same
+`(capacity - residual_capacity).max(0.0)` and epsilon filter as the legacy
+projection. A test-only copy of that legacy projection is the exact oracle:
+Graph and DiGraph results match max-flow value and every emitted flow with
+`to_bits()`, plus exact source, target, ordering, and witness. Fixtures include
+self-loops, zero capacities, invalid capacities, and missing capacities.
+
+MEDIAN GATE: Criterion `median.point_estimate`, 31 samples, 1 s warm-up, 5 s
+measurement, both decisive runs on remote worker `vmi1293453`:
+
+| run | median us (95% CI) | delta from baseline |
+|---|---:|---:|
+| baseline | 49.5852 (48.9166-50.4520) | — |
+| candidate | 29.7705 (28.6981-30.9382) | -39.9609%, 1.6656x |
+
+The median confidence intervals do not overlap, so the keep gate clears
+decisively without relying on the mean. The candidate mean was 30.7157 us
+(29.5501-32.0381), versus the 50.1137 us baseline
+(49.1924-51.1963).
+
+STRICT REMOTE-ONLY: every authoritative Cargo profile, benchmark, check,
+clippy, and test command used this fail-closed prefix; no local Cargo command
+ran:
+
+```text
+RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo ...
+```
+
+RCH reported a degraded fleet (9 of 12 workers eligible). The requested
+baseline worker was rerouted, so both decisive benchmark arms were explicitly
+run on the worker RCH actually selected, `vmi1293453`. One workspace-check
+attempt on `vmi1264463` was invalidated by a stale sibling `ftui` checkout; the
+identical strict-remote command passed on `vmi1227854`. No failure degraded to
+local execution. Agent Mail was also degraded read-only and its file
+reservation failed on a malformed database page, so ownership coordination
+continued from Git, Beads, and ledger truth without modifying its state.
+
+CORRECTNESS / GATES: the strengthened strict-remote exact parity test passed
+1/1; strict-remote full `fnx-algorithms` library tests passed 926 with 37
+ignored; strict-remote workspace all-targets check passed. A strict-remote
+scoped clippy run denied all warnings and passed. Exact workspace clippy
+reports only 11 pre-existing `collapsible_if` / `doc_lazy_continuation`
+findings outside this diff, already tracked by `br-r37-c1-q3j0s`. RCH does not
+admit non-compilation `cargo fmt --check` without local fallback, so direct
+`rustfmt --check` identified only four pre-existing file-wide formatting diffs
+outside this lever; the owned hunks and `git diff --check` pass. UBS ran with
+`UBS_SKIP_RUST_BUILD=1`, reported zero critical findings, and skipped local
+Cargo build/style phases; its file-wide heuristic backlog predates this lever.
+
+RESULT: SHIP. Preserve the original graph edge order, capacity decoding,
+floating-point filter, and `materialize_flows = false` minimum-cut residual
+path; the direct indexed projection is valid only for public max-flow callers
+that consume flows and never expose the private residual.

@@ -8142,6 +8142,7 @@ impl FlowGraphView for DiGraph {
     }
 }
 
+#[cfg(test)]
 fn flow_edges_from_residual<G: FlowGraphView>(
     graph: &G,
     residual: &HashMap<String, HashMap<String, f64>>,
@@ -8326,17 +8327,30 @@ fn compute_max_flow_residual<G: FlowGraphView>(
     for (i, k) in sorted_keys.iter().enumerate() {
         idx_of.insert(*k, i);
     }
-    let key_of: Vec<String> = sorted_keys.iter().map(|s| (*s).to_owned()).collect();
-
+    let key_of = (!materialize_flows).then(|| {
+        sorted_keys
+            .iter()
+            .map(|node| (*node).to_owned())
+            .collect::<Vec<_>>()
+    });
     // residual_i[u]: ordered map (neighbor index -> residual capacity).
     let mut residual_i: Vec<std::collections::BTreeMap<usize, f64>> =
         vec![std::collections::BTreeMap::new(); n];
+    // Max-flow returns an ordered edge-flow projection but never exposes the
+    // private residual. Retain the original edge order and the already-decoded
+    // capacity so that projection can read `residual_i` directly after the
+    // augmentation loop. Minimum-cut instead needs the string-keyed residual
+    // and does not pay for this inventory.
+    let mut original_edges = materialize_flows.then(Vec::<(usize, usize, f64)>::new);
     for node in &ordered_nodes {
         let u = idx_of[node.as_str()];
         for neighbor in graph.flow_outgoing_neighbors(node) {
             let capacity = graph.flow_edge_capacity(node, &neighbor, capacity_attr);
             let v = idx_of[neighbor.as_str()];
             residual_i[u].entry(v).or_insert(capacity);
+            if let Some(edges) = original_edges.as_mut() {
+                edges.push((u, v, capacity));
+            }
         }
     }
 
@@ -8430,22 +8444,38 @@ fn compute_max_flow_residual<G: FlowGraphView>(
         total_flow += bottleneck;
     }
 
-    // Re-materialize the string-keyed residual the result type and the
-    // downstream min-cut / flow-extraction code expect. Values are identical
-    // to the legacy implementation because the augmentation is identical.
-    let mut residual: HashMap<String, HashMap<String, f64>> = HashMap::with_capacity(n);
-    for (u, caps) in residual_i.iter().enumerate() {
-        let mut m: HashMap<String, f64> = HashMap::with_capacity(caps.len());
-        for (&v, &cap) in caps {
-            m.insert(key_of[v].clone(), cap);
-        }
-        residual.insert(key_of[u].clone(), m);
-    }
+    let flows = original_edges
+        .map(|edges| {
+            edges
+                .into_iter()
+                .filter_map(|(u, v, capacity)| {
+                    let residual_capacity = residual_i[u].get(&v).copied().unwrap_or(0.0);
+                    let flow = (capacity - residual_capacity).max(0.0);
+                    (flow > DISTANCE_COMPARISON_EPSILON).then(|| FlowEdgeValue {
+                        source: sorted_keys[u].to_owned(),
+                        target: sorted_keys[v].to_owned(),
+                        flow,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
 
-    let flows = if materialize_flows {
-        flow_edges_from_residual(graph, &residual, capacity_attr)
+    let residual = if materialize_flows {
+        HashMap::new()
     } else {
-        Vec::new()
+        // Minimum-cut still consumes the full residual. Values are identical
+        // because the augmentation above is unchanged.
+        let key_of = key_of.expect("minimum-cut residual requires the key table");
+        let mut residual = HashMap::with_capacity(n);
+        for (u, caps) in residual_i.iter().enumerate() {
+            let mut row = HashMap::with_capacity(caps.len());
+            for (&v, &capacity) in caps {
+                row.insert(key_of[v].clone(), capacity);
+            }
+            residual.insert(key_of[u].clone(), row);
+        }
+        residual
     };
 
     Ok(FlowComputation {
@@ -47830,7 +47860,6 @@ mod tests {
         CgseValue,
         ChordalGraphTreewidthError,
         ComplexityWitness,
-        FlowComputation,
         FlowEdgeValue,
         FlowError,
         GraphMLWriterConfig,
@@ -52556,7 +52585,28 @@ mod tests {
     }
 
     #[test]
-    fn omitting_flow_projection_preserves_residual_bits_and_witness() {
+    fn indexed_flow_projection_matches_string_residual_bits_and_witness() {
+        fn assert_projection<G: super::FlowGraphView>(graph: &G) {
+            let direct = compute_max_flow_residual(graph, "s", "t", "capacity", true)
+                .expect("flow algorithm should succeed");
+            let residual = compute_max_flow_residual(graph, "s", "t", "capacity", false)
+                .expect("flow algorithm should succeed");
+            let expected = super::flow_edges_from_residual(graph, &residual.residual, "capacity");
+
+            assert_eq!(direct.value.to_bits(), residual.value.to_bits());
+            assert_eq!(direct.witness, residual.witness);
+            assert_eq!(direct.flows.len(), expected.len());
+            for (actual, expected) in direct.flows.iter().zip(&expected) {
+                assert_eq!(actual.source, expected.source);
+                assert_eq!(actual.target, expected.target);
+                assert_eq!(actual.flow.to_bits(), expected.flow.to_bits());
+            }
+            assert!(!direct.flows.is_empty());
+            assert!(direct.residual.is_empty());
+            assert!(residual.flows.is_empty());
+            assert!(!residual.residual.is_empty());
+        }
+
         let mut graph = Graph::strict();
         graph
             .add_edge_with_attrs("s", "a", attrs([("capacity", "4")]))
@@ -52573,30 +52623,56 @@ mod tests {
         graph
             .add_edge_with_attrs("b", "t", attrs([("capacity", "3")]))
             .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "a", attrs([("capacity", "7")]))
+            .expect("self-loop add should succeed");
+        graph
+            .add_edge_with_attrs("s", "zero", attrs([("capacity", "0")]))
+            .expect("zero-capacity edge add should succeed");
+        graph
+            .add_edge_with_attrs("zero", "t", attrs([("capacity", "0")]))
+            .expect("zero-capacity edge add should succeed");
+        graph
+            .add_edge_with_attrs("s", "fallback", attrs([("capacity", "bogus")]))
+            .expect("invalid-capacity edge add should succeed");
+        graph
+            .add_edge_with_attrs("fallback", "t", AttrMap::new())
+            .expect("missing-capacity edge add should succeed");
 
-        let with_flows = compute_max_flow_residual(&graph, "s", "t", "capacity", true)
-            .expect("flow algorithm should succeed");
-        let without_flows = compute_max_flow_residual(&graph, "s", "t", "capacity", false)
-            .expect("flow algorithm should succeed");
-        let residual_bits = |computation: &FlowComputation| {
-            computation
-                .residual
-                .iter()
-                .map(|(source, row)| {
-                    let row_bits = row
-                        .iter()
-                        .map(|(target, capacity)| (target.clone(), capacity.to_bits()))
-                        .collect::<BTreeMap<String, u64>>();
-                    (source.clone(), row_bits)
-                })
-                .collect::<BTreeMap<String, BTreeMap<String, u64>>>()
-        };
+        assert_projection(&graph);
 
-        assert_eq!(with_flows.value.to_bits(), without_flows.value.to_bits());
-        assert_eq!(residual_bits(&with_flows), residual_bits(&without_flows));
-        assert_eq!(with_flows.witness, without_flows.witness);
-        assert!(!with_flows.flows.is_empty());
-        assert!(without_flows.flows.is_empty());
+        let mut digraph = DiGraph::strict();
+        digraph
+            .add_edge_with_attrs("s", "a", attrs([("capacity", "4")]))
+            .expect("edge add should succeed");
+        digraph
+            .add_edge_with_attrs("s", "b", attrs([("capacity", "2")]))
+            .expect("edge add should succeed");
+        digraph
+            .add_edge_with_attrs("a", "b", attrs([("capacity", "1")]))
+            .expect("edge add should succeed");
+        digraph
+            .add_edge_with_attrs("a", "t", attrs([("capacity", "2")]))
+            .expect("edge add should succeed");
+        digraph
+            .add_edge_with_attrs("b", "t", attrs([("capacity", "3")]))
+            .expect("edge add should succeed");
+        digraph
+            .add_edge_with_attrs("a", "a", attrs([("capacity", "7")]))
+            .expect("self-loop add should succeed");
+        digraph
+            .add_edge_with_attrs("s", "zero", attrs([("capacity", "0")]))
+            .expect("zero-capacity edge add should succeed");
+        digraph
+            .add_edge_with_attrs("zero", "t", attrs([("capacity", "0")]))
+            .expect("zero-capacity edge add should succeed");
+        digraph
+            .add_edge_with_attrs("s", "fallback", attrs([("capacity", "bogus")]))
+            .expect("invalid-capacity edge add should succeed");
+        digraph
+            .add_edge_with_attrs("fallback", "t", AttrMap::new())
+            .expect("missing-capacity edge add should succeed");
+        assert_projection(&digraph);
     }
 
     #[test]
