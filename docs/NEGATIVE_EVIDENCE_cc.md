@@ -1,5 +1,33 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, `536362220`): `label_propagation_communities` integer-adjacency walk **2.2605x** (br-r37-c1-lpmark)
+
+Community-detection lever (user named `communities`). Label propagation already used integer `labels`, but
+BOTH its coloring pass and the up-to-100x semi-synchronous propagation loop called `graph.neighbors(node)` — a
+fresh `Vec<&str>` alloc per node per iteration — then re-hashed each neighbour name through `node_to_idx`.
+Walk `graph.neighbors_indices(i)` directly (integer neighbours, no alloc, no hash); dropped `node_to_idx`.
+
+MEASURED — paired-interleaved in-crate A/B vs the exact String baseline
+(`label_propagation_communities_orig_string`, `#[cfg(test)]`), ONE binary / ONE worker `hz2`, pseudo-random
+~10-deg n=1500, 121 rounds:
+
+| paired A/B (>1 = integer faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **INT_vs_string** | **2.2605x** | **121/121** | [2.1667, 2.3865] |
+| NULL_int_vs_int | 1.0015x | 70/121 | [0.9278, 1.1499] |
+
+DECIDABLE: 2.26x median, p5 2.17x, null ≈1.0. Modest vs the clustering jackpots because label propagation
+converges in few passes and the freq-map/best-label work is a real per-node cost. BYTE-IDENTICAL: coloring uses
+a `used_colors` SET, label update a `freq` COUNT map — both order-independent; `neighbors_indices(i)` yields the
+same neighbour index set. Asserted `prod == base` in-test. clippy `-D warnings` clean.
+
+COMMUNITY LANE ~DONE: `greedy_modularity_communities` uses `node_to_idx` only for ONE-SHOT edge setup (then
+heap-based integer CNM merges) — not a hot loop, skip. `louvain_communities` already integer.
+
+SESSION TALLY (structural-primitive vein): NINE byte-identical median-gated wins — eigenvector 14.64x, HITS
+3.11x, triangles 5.54x, square_clustering 29.73x, k_truss 10.15x, all_simple_paths 16.67x, generalized_degree
+10.18x, clustering_coefficient_directed 58.35x, label_propagation 2.26x.
+
 ## SHIPPED WIN (cc, 2026-07-11, `6cdd74b11`): `clustering_coefficient_directed` integer-adjacency + mark-arrays **58.3465x** — BIGGEST of the session (br-r37-c1-dirclustmark)
 
 Directed clustering (my lane; skipped the flow candidates `global_node_connectivity`/`global_minimum_node_cut`
