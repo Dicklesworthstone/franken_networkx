@@ -1,5 +1,40 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, `a6a22ab4e`): `group_closeness_centrality` integer-adjacency multi-source BFS **7.1686x** (br-r37-c1-gcmark)
+
+Closeness-family group metric — `non_group_count / Σ dist(group→v)` via one multi-source BFS from the group.
+The old kernel walked `graph.neighbors(nodes[v])` (a fresh `Vec<&str>` alloc per pop) and re-hashed each
+neighbour name through `idx`. Walk `graph.neighbors_indices(v)` directly (zero-alloc `&[usize]`); `idx.get`
+never rejected a neighbour, so every neighbour index is visited as before. `idx` is retained to seed the group
+and `group_set`/`nodes` for the final non-group filter (off the hot path).
+
+MEASURED — paired-interleaved A/B vs the exact String baseline (`group_closeness_centrality_orig_string`,
+`#[cfg(test)]`), ONE binary / ONE worker, pseudo-random deg-10 n=1500, 3-node group, 121 rounds:
+
+| paired A/B (>1 = integer-BFS faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **INT_vs_string** | **7.1686x** | **121/121** | [5.4649, 9.7570] |
+| NULL_int_vs_int | 0.9976x | 59/121 | [0.7218, 1.4180] |
+
+DECIDABLE: 7.17x median, candidate p5 (5.46) ~4x above the null p95 (1.42), 121/121 won. BIT-IDENTICAL: same
+neighbour set/order, same exact-integer `total_dist`, one division. Exact `to_bits()` parity asserted;
+`test_group_closeness_centrality_hub` green. pyo3 calls this kernel directly — the win reaches Python.
+
+CLIPPY BLOCKED BY FLEET FLAKE (surfaced, not skipped): the A/B `cargo test --release` build compiled the full
+lib+test target with ZERO warnings and ran clean, but `cargo clippy` could not be run — the rch fleet degraded
+mid-session (~04:23) for the optional `ftui` PATH dep (`/dp/frankentui`, behind fnx-runtime's `ftui-integration`).
+~35 clippy attempts all failed resolution in ~1.3s ("failed to select a version for `ftui = ^0.5.0`") on workers
+lacking that path. This is the identical neighbors→neighbors_indices swap as the clippy-clean voronoi/hdmark and
+drops NO bindings → nil lint surface. RE-VERIFY clippy when the fleet recovers. See the ftui INFRA NOTE in the
+hdmark entry.
+
+SESSION TALLY (structural-primitive vein): SEVENTEEN byte-identical median-gated wins — eigenvector 14.64x,
+HITS 3.11x, triangles 5.54x, square_clustering 29.73x, k_truss 10.15x, all_simple_paths 16.67x,
+generalized_degree 10.18x, clustering_coefficient_directed 58.35x, label_propagation 2.26x,
+could_be_isomorphic 11.75x, dominating_set 20.13x, closeness_vitality 10.70x, voronoi_cells 4.14x,
+closeness_vitality_single 5.85x, is_strongly_regular 75.30x, harmonic_diameter 10.95x,
+group_closeness_centrality 7.17x.
+
 ## SHIPPED WIN (cc, 2026-07-11, `03d6940fc`): `harmonic_diameter` integer-adjacency all-pairs BFS **10.9465x** (br-r37-c1-hdmark)
 
 Shortest-paths-family all-pairs metric — `n_pairs / Σ_{s<t} 1/d(s,t)`, O(V·(V+E)). The old kernel walked
