@@ -1,5 +1,29 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SURFACE (cc, 2026-07-11): `multigraph_target_bfs_distance` — integer-adjacency would REGRESS (early-exit); MG/MDG BFS vein EXHAUSTED → HOLD
+
+Profiled the last flagged straggler and did NOT ship it — the integer conversion is a regression trap:
+
+`multigraph_target_bfs_distance` (algorithms.rs:5722) is an EARLY-EXIT source→target BFS (returns as soon
+as `target` is found), called ONE-SHOT by `shortest_path_length(s,t)` (3227) and `has_path` (3305). Its
+string version visits only the frontier up to `target` (O(deg) for a close target). Routing it through
+`with_int_adjacency` would build the FULL O(E) memo upfront — from the thp6w profile that is ~0.064s at
+n=20k, vs a close-target string BFS of ~µs, i.e. **~1000x REGRESSION** on the common cold-memo
+close-target one-shot query. The memo only pays off on full traversals (sssp) or warm-memo/repeated
+queries; there is NO cheap integer path for a PARTIAL traversal (per-neighbor `get_index_of` is the same
+hashing the String `HashSet` already does). Unlike the sssp BFS (full traversal amortizes the memo), the
+target-BFS must stay String. NOT shipped, NOT a bug — a correct do-not-convert.
+
+**MG/MDG BFS integer-adjacency vein EXHAUSTED.** The two FULL-TRAVERSAL single-source BFS primitives are
+shipped (MultiGraph 11.69x thp6w-S2, MultiDiGraph 7.84x zid1b-straggler). Every remaining native
+MG/MDG String-adjacency site is a non-lever: `multigraph_target_bfs_distance` (early-exit, above);
+`multidigraph_is_strongly_connected` (SCC = cod's lane / zid1b "deep remainder");
+`multigraph_to_simple_graph_structure_only(_ordered)` + `multidigraph_to_simple_digraph_structure_only`
+(build a new simple Graph — need NAMES, no hash-free traversal win); `mg_row_orders` (row ordering, needs
+names). HOLD: no clean full-traversal cc-lane BFS straggler remains. Remaining epoch leverage is S3
+(d58s8-style index-pair edges for mg_selfloop/mdg_out_edges — large core-storage). See
+[[thp6w_multigraph_intadj_epoch]].
+
 ## SHIPPED WIN (cc, 2026-07-11): `br-r37-c1-zid1b` straggler — MultiDiGraph single-source BFS on the CSR **7.8407x**
 
 Directed twin of the thp6w Slice-2 MultiGraph BFS win. `multidigraph_sssp_length_with_parents` was the
