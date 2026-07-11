@@ -1,5 +1,38 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, `344d39ee5`): `is_tournament` snapshot integer successor sets **17.3681x** — O(V³)→O(V²) (br-r37-c1-tourn)
+
+DIRECTED vein reopened. `is_tournament` called `digraph.successors(nodes[i])` (a `Vec<&str>` alloc) INSIDE the
+O(V²) pair loop — freshly for the i-side and j-side of EVERY pair — then linear-searched with
+`s.contains(&nodes[j])` (String cmp): O(V³) time, O(V²) allocs. Snapshot `Vec<HashSet<usize>>` of successor
+indices ONCE and probe in O(1) — allocation elimination AND O(V³)→O(V²).
+
+MEASURED — paired-interleaved A/B vs the exact String baseline (`is_tournament_orig_string`, `#[cfg(test)]`),
+ONE binary / ONE worker, transitive tournament n=300 (full pair scan), 61 rounds:
+
+| paired A/B (>1 = snapshot faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **SNAP_vs_string** | **17.3681x** | **61/61** | [13.5239, 21.6971] |
+| NULL_snap_vs_snap | 1.0177x | 38/61 | [0.8260, 1.2045] |
+
+DECIDABLE: 17.37x median, candidate p5 (13.52) ~11x above the null p95 (1.20), 61/61 won. BYTE-IDENTICAL: same
+out-degree sum, `expected_edges`, and `has_ij`/`has_ji` set-membership booleans → same bool result. Asserted
+equal across tournament (true) / missing-edge (false) / 2-cycle (false); 3 unit tests green. clippy clean.
+pyo3 calls this kernel directly.
+
+KEY LESSON: the DIRECTED `successors()`/`predecessors()` string API is a SECOND vein (71 successors + 33
+predecessors calls, mostly unconverted). Clean heavy wins exist where the output is SMALL (bool/predicate,
+`usize`) — is_tournament 17x. The MARGINAL ones are MATERIALIZATION-BOUND: bfs_labeled_edges (O(E) String
+triples, 1.15x) and node_degree_xy_directed (edges_ordered() clone floor, 1.55x noisy). Remaining directed
+structural predicates to probe: `is_arborescence`, `is_branching`, `is_attracting_component`, `is_d_separator`
+(bool, likely clean); AVOID SCC/dijkstra/dominators (cod's pathfinding/flow lane).
+
+SESSION TALLY: 22 heavy structural wins + this-session cc: could_be_isomorphic, dominating_set,
+closeness_vitality, voronoi_cells, closeness_vitality_single, is_strongly_regular, harmonic_diameter,
+group_closeness_centrality, maximum_independent_set, gutman_index, schultz_index, hyper_wiener_index,
+global_parameters, dfs_postorder_nodes, is_tournament (15 clean) + bfs_labeled_edges, node_degree_xy_directed
+(2 marginal/materialization-bound).
+
 ## SHIPPED WIN (cc, 2026-07-11, `67bef3410`): `dfs_postorder_nodes` integer-adjacency iterative DFS **6.4271x** (br-r37-c1-dfspost)
 
 First of the "modest single-traversal" follow-up tier (see FRONTIER SUMMARY below). One iterative DFS
