@@ -1,5 +1,34 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, `6cdd74b11`): `clustering_coefficient_directed` integer-adjacency + mark-arrays **58.3465x** — BIGGEST of the session (br-r37-c1-dirclustmark)
+
+Directed clustering (my lane; skipped the flow candidates `global_node_connectivity`/`global_minimum_node_cut`
+= cod's; `second_order_centrality` is dense-linalg one-shot, skipped). The kernel built `HashSet<&str>`
+preds+succs PER NODE and — the killer — `jpreds`+`jsuccs` PER NEIGHBOUR (O(|V|*d) set allocations), then
+String-hash `intersection().count()` FOUR times per neighbour. Mark N-(node)/N+(node) once in two
+`vec![false; n]` arrays; for each neighbour j, every x in N-(j)/N+(j) adds `mark_preds[x] + mark_succs[x]` =
+exactly the four intersection totals.
+
+MEASURED — paired-interleaved in-crate A/B vs the exact String baseline
+(`clustering_coefficient_directed_scores_orig_string`, `#[cfg(test)]`), ONE binary / ONE worker `vmi`,
+pseudo-random ~24-out n=500, 121 rounds:
+
+| paired A/B (>1 = mark-array faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **MARK_vs_string** | **58.3465x** | **121/121** | [47.4467, 78.7416] |
+| NULL_mark_vs_mark | 1.0094x | 66/121 | [0.8474, 1.2873] |
+
+DECIDABLE BY A MILE: 58.35x median, p5 47.45x, null ≈1.0. BYTE-IDENTICAL: same integer intersection counts
+(sets dup-free on a simple DiGraph), bidirectional double-count preserved by iterating preds-list then
+succs-list, `directed_triangles` integer so the f64 coeff is exact. Asserted bit-exact (`to_bits`) per node.
+clippy `-D warnings` clean. The 58x (vs the undirected 5.5x) is because the OLD path rebuilt a HashSet PER
+NEIGHBOUR, not just per node.
+
+SESSION TALLY (structural-primitive vein): EIGHT byte-identical median-gated wins — eigenvector 14.64x, HITS
+3.11x, triangles 5.54x, square_clustering 29.73x, k_truss 10.15x, all_simple_paths 16.67x, generalized_degree
+10.18x, clustering_coefficient_directed 58.35x. Centrality/clustering hot-loop string-state is now heavily
+mined; community algos (label arrays) still need a genuine profile.
+
 ## SHIPPED WIN (cc, 2026-07-11, `6e83c4dec`): `generalized_degree` integer-adjacency + mark-array **10.1775x** (br-r37-c1-gdmark)
 
 Clustering-family lever (cod owns pathfinding/flow, so I stayed on centrality/clustering). `generalized_degree`
