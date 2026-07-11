@@ -1,5 +1,41 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, `c04351f5a`): `maximum_independent_set` integer-adjacency + mark-array **28.1929x** (br-r37-c1-mismark)
+
+Greedy min-effective-degree independent set — O(V²·deg). The old kernel kept `remaining` as a
+`HashSet<String>` and, on EVERY while iteration, recomputed each remaining node's effective degree via
+`graph.neighbors(a)` (a `Vec<&str>` alloc) + `remaining.contains` String probes, inside a `min_by` over the
+HashSet. Mark `remaining` in a `bool` array indexed by node index, scan `0..n`, and compute each node's
+effective degree once via `graph.neighbors_indices(a)` with O(1) probes.
+
+MEASURED — paired-interleaved A/B vs the exact String baseline (`maximum_independent_set_orig_string`,
+`#[cfg(test)]`), ONE binary / ONE worker, pseudo-random deg-6 n=500, 61 rounds:
+
+| paired A/B (>1 = mark-array faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **MARK_vs_string** | **28.1929x** | **61/61** | [20.7313, 59.4518] |
+| NULL_mark_vs_mark | 1.0038x | 32/61 | [0.9207, 1.0846] |
+
+DECIDABLE: 28.19x median (2nd-biggest of the session), candidate p5 (20.73) ~19x above the null p95 (1.08),
+61/61 won. BYTE-IDENTICAL: the selection key (effective_degree, node name) is a TOTAL order (unique names), so
+the old `min_by` returned THE unique minimum regardless of HashSet iteration order → scanning `0..n` picks the
+same unique winner; effective_degree is the same integer count, the name tie-break the same names, and the
+removed set + `sort()`ed output unchanged. Asserted equal to the baseline in-test;
+`test_maximum_independent_set_{triangle,path,empty}` green. pyo3 calls this kernel directly — the win reaches
+Python.
+
+CLIPPY BLOCKED BY FLEET FLAKE (surfaced): the A/B `cargo test --release` build compiled the full lib+test
+target with ZERO warnings and ran clean (4 tests incl. parity assert), but 20 `cargo clippy` attempts all hit
+the `ftui` path-dep resolution flake (see hdmark/gcmark notes). Same mark-array pattern as the clippy-clean
+srmark/trimark. RE-VERIFY clippy when the fleet recovers (two commits now pending: gcmark, mismark).
+
+SESSION TALLY (structural-primitive vein): EIGHTEEN byte-identical median-gated wins — eigenvector 14.64x,
+HITS 3.11x, triangles 5.54x, square_clustering 29.73x, k_truss 10.15x, all_simple_paths 16.67x,
+generalized_degree 10.18x, clustering_coefficient_directed 58.35x, label_propagation 2.26x,
+could_be_isomorphic 11.75x, dominating_set 20.13x, closeness_vitality 10.70x, voronoi_cells 4.14x,
+closeness_vitality_single 5.85x, is_strongly_regular 75.30x, harmonic_diameter 10.95x,
+group_closeness_centrality 7.17x, maximum_independent_set 28.19x.
+
 ## SHIPPED WIN (cc, 2026-07-11, `a6a22ab4e`): `group_closeness_centrality` integer-adjacency multi-source BFS **7.1686x** (br-r37-c1-gcmark)
 
 Closeness-family group metric — `non_group_count / Σ dist(group→v)` via one multi-source BFS from the group.
