@@ -9224,58 +9224,89 @@ pub fn clustering_coefficient_directed(digraph: &DiGraph) -> ClusteringCoefficie
     let mut scores = Vec::with_capacity(n);
     let mut edges_scanned = 0_usize;
 
-    for &node in &nodes {
-        let preds: HashSet<&str> = digraph
-            .predecessors(node)
-            .map(|p| p.into_iter().filter(|&x| x != node).collect())
-            .unwrap_or_default();
-        let succs: HashSet<&str> = digraph
-            .successors(node)
-            .map(|s| s.into_iter().filter(|&x| x != node).collect())
-            .unwrap_or_default();
+    // br-r37-c1-dirclustmark (cc): count directed triangles over the digraph's
+    // INTEGER pred/succ adjacency slices + two reusable mark arrays, instead of
+    // building a `HashSet<&str>` for preds AND succs PER NODE and again (jpreds,
+    // jsuccs) PER NEIGHBOUR, then String-hash `intersection().count()` four times.
+    // mark N-(node) and N+(node) once; for each neighbour j, every x in N-(j) or
+    // N+(j) contributes `mark_preds[x] + mark_succs[x]` — which is exactly
+    // (preds∩jpreds)+(succs∩jpreds) for the x in jpreds and
+    // (preds∩jsuccs)+(succs∩jsuccs) for the x in jsuccs. Byte-identical: same
+    // integer intersection totals (sets are dup-free on a simple DiGraph), the
+    // bidirectional double-count is preserved by iterating preds-list then
+    // succs-list, and directed_triangles is an integer so the f64 coeff is exact.
+    let mut mark_preds = vec![false; n];
+    let mut mark_succs = vec![false; n];
+
+    for node_idx in 0..n {
+        let preds: Vec<usize> = digraph
+            .predecessors_indices(node_idx)
+            .unwrap_or(&[])
+            .iter()
+            .copied()
+            .filter(|&x| x != node_idx)
+            .collect();
+        let succs: Vec<usize> = digraph
+            .successors_indices(node_idx)
+            .unwrap_or(&[])
+            .iter()
+            .copied()
+            .filter(|&x| x != node_idx)
+            .collect();
+        for &x in &preds {
+            mark_preds[x] = true;
+        }
+        for &x in &succs {
+            mark_succs[x] = true;
+        }
 
         let dtotal = preds.len() + succs.len();
-        let dbidirectional = preds.iter().filter(|&&p| succs.contains(p)).count();
+        let dbidirectional = preds.iter().filter(|&&p| mark_succs[p]).count();
 
         let denominator = dtotal * dtotal.saturating_sub(1) - 2 * dbidirectional;
         if denominator == 0 {
             scores.push(CentralityScore {
-                node: node.to_owned(),
+                node: nodes[node_idx].to_owned(),
                 score: 0.0,
             });
+            for &x in &preds {
+                mark_preds[x] = false;
+            }
+            for &x in &succs {
+                mark_succs[x] = false;
+            }
             continue;
         }
 
         // Count directed triangles through this node.
         // NX iterates chain(preds, succs), counting bidirectional neighbors
-        // twice. We replicate this by iterating preds then succs separately.
+        // twice; iterating the preds list then the succs list replicates that.
         let mut directed_triangles = 0_usize;
-
-        let all_neighbors_with_dups: Vec<&str> =
-            preds.iter().copied().chain(succs.iter().copied()).collect();
-
-        for &j in &all_neighbors_with_dups {
+        for &j in preds.iter().chain(succs.iter()) {
             edges_scanned += 1;
-            let jpreds: HashSet<&str> = digraph
-                .predecessors(j)
-                .map(|p| p.into_iter().filter(|&x| x != j).collect())
-                .unwrap_or_default();
-            let jsuccs: HashSet<&str> = digraph
-                .successors(j)
-                .map(|s| s.into_iter().filter(|&x| x != j).collect())
-                .unwrap_or_default();
-
-            directed_triangles += preds.intersection(&jpreds).count();
-            directed_triangles += preds.intersection(&jsuccs).count();
-            directed_triangles += succs.intersection(&jpreds).count();
-            directed_triangles += succs.intersection(&jsuccs).count();
+            for &x in digraph.predecessors_indices(j).unwrap_or(&[]) {
+                if x != j {
+                    directed_triangles += usize::from(mark_preds[x]) + usize::from(mark_succs[x]);
+                }
+            }
+            for &x in digraph.successors_indices(j).unwrap_or(&[]) {
+                if x != j {
+                    directed_triangles += usize::from(mark_preds[x]) + usize::from(mark_succs[x]);
+                }
+            }
         }
 
         let coeff = (directed_triangles as f64) / (2.0 * denominator as f64);
         scores.push(CentralityScore {
-            node: node.to_owned(),
+            node: nodes[node_idx].to_owned(),
             score: coeff,
         });
+        for &x in &preds {
+            mark_preds[x] = false;
+        }
+        for &x in &succs {
+            mark_succs[x] = false;
+        }
     }
 
     let average_clustering = if n == 0 {
@@ -9296,6 +9327,52 @@ pub fn clustering_coefficient_directed(digraph: &DiGraph) -> ClusteringCoefficie
             queue_peak: 0,
         },
     }
+}
+
+/// br-r37-c1-dirclustmark A/B baseline: the pre-lever directed clustering that
+/// built `HashSet<&str>` preds/succs per node AND jpreds/jsuccs per neighbour,
+/// with String-hash `intersection().count()`. Test-only; returns per-node scores
+/// in `nodes_ordered()` order, byte-identical to `clustering_coefficient_directed`.
+#[cfg(test)]
+fn clustering_coefficient_directed_scores_orig_string(digraph: &DiGraph) -> Vec<f64> {
+    let nodes = digraph.nodes_ordered();
+    let mut scores = Vec::with_capacity(nodes.len());
+    for &node in &nodes {
+        let preds: HashSet<&str> = digraph
+            .predecessors(node)
+            .map(|p| p.into_iter().filter(|&x| x != node).collect())
+            .unwrap_or_default();
+        let succs: HashSet<&str> = digraph
+            .successors(node)
+            .map(|s| s.into_iter().filter(|&x| x != node).collect())
+            .unwrap_or_default();
+        let dtotal = preds.len() + succs.len();
+        let dbidirectional = preds.iter().filter(|&&p| succs.contains(p)).count();
+        let denominator = dtotal * dtotal.saturating_sub(1) - 2 * dbidirectional;
+        if denominator == 0 {
+            scores.push(0.0);
+            continue;
+        }
+        let mut directed_triangles = 0_usize;
+        let all_neighbors_with_dups: Vec<&str> =
+            preds.iter().copied().chain(succs.iter().copied()).collect();
+        for &j in &all_neighbors_with_dups {
+            let jpreds: HashSet<&str> = digraph
+                .predecessors(j)
+                .map(|p| p.into_iter().filter(|&x| x != j).collect())
+                .unwrap_or_default();
+            let jsuccs: HashSet<&str> = digraph
+                .successors(j)
+                .map(|s| s.into_iter().filter(|&x| x != j).collect())
+                .unwrap_or_default();
+            directed_triangles += preds.intersection(&jpreds).count();
+            directed_triangles += preds.intersection(&jsuccs).count();
+            directed_triangles += succs.intersection(&jpreds).count();
+            directed_triangles += succs.intersection(&jsuccs).count();
+        }
+        scores.push((directed_triangles as f64) / (2.0 * denominator as f64));
+    }
+    scores
 }
 
 #[must_use]
@@ -47413,6 +47490,101 @@ mod tests {
             );
         };
         println!("GENERALIZED_DEGREE_MARK_AB n={n} deg={deg} rounds={rounds} (>1 = mark-array faster)");
+        report("MARK_vs_string", &paired(true, false));
+        report("NULL_mark_vs_mark", &paired(true, true));
+    }
+
+    /// br-r37-c1-dirclustmark: paired-interleaved median A/B for the integer-adjacency
+    /// + mark-array directed clustering vs the old HashSet<&str> preds/succs +
+    /// per-neighbour jpreds/jsuccs baseline, in ONE binary / ONE worker with a NULL
+    /// control. `#[ignore]` (measurement); run with
+    /// `cargo test --release -p fnx-algorithms --lib dir_clustering_mark_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn dir_clustering_mark_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Pseudo-random directed ~24-out graph on 500 nodes: directed clustering is
+        // O(|V|*d²) and the old path rebuilt HashSet<&str> jpreds/jsuccs PER
+        // neighbour + String-hash intersections — exactly what the lever drops.
+        let n = 500usize;
+        let deg = 24usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                let j = ((i as u64)
+                    .wrapping_mul(2_654_435_761)
+                    .wrapping_add((k as u64).wrapping_mul(40_503))
+                    % n as u64) as usize;
+                if j != i {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+                }
+            }
+        }
+
+        // Byte-exact parity: mark-array scores == HashSet baseline scores.
+        let prod = super::clustering_coefficient_directed(&g);
+        let prod_scores: Vec<f64> = prod.scores.iter().map(|s| s.score).collect();
+        let base_scores = super::clustering_coefficient_directed_scores_orig_string(&g);
+        assert_eq!(prod_scores.len(), base_scores.len());
+        for (i, (a, b)) in prod_scores.iter().zip(base_scores.iter()).enumerate() {
+            assert_eq!(a.to_bits(), b.to_bits(), "directed clustering score {i} must be bit-identical");
+        }
+
+        let time = |lever: bool| -> f64 {
+            let t0 = Instant::now();
+            for _ in 0..3 {
+                if lever {
+                    black_box(super::clustering_coefficient_directed(&g));
+                } else {
+                    black_box(super::clustering_coefficient_directed_scores_orig_string(&g));
+                }
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 121usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "DIR_CLUSTERING_MARK_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("DIR_CLUSTERING_MARK_AB n={n} deg={deg} rounds={rounds} (>1 = mark-array faster)");
         report("MARK_vs_string", &paired(true, false));
         report("NULL_mark_vs_mark", &paired(true, true));
     }
