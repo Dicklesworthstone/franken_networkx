@@ -1,0 +1,7 @@
+  [2m2026-07-11T06:45:23.759793Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib node_degree_xy_directed -- --include-ignored --nocapture[0m
+NDXYDIR_AB n=4000 deg=12 rounds=121 (>1 = no-alloc faster)
+NDXYDIR_AB NOALLOC_vs_alloc: median=1.5514x win_rate=115/121 p5_p95=[1.0032,2.6401]
+NDXYDIR_AB NULL_noalloc_vs_noalloc: median=0.9953x win_rate=60/121 p5_p95=[0.7208,1.6633]
+test tests::node_degree_xy_directed_ndxydir_ab ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 950 filtered out; finished in 18.73s
+AB loop ended

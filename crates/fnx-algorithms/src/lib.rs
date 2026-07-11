@@ -39343,6 +39343,40 @@ pub fn node_degree_xy_directed(
     x_type: &str,
     y_type: &str,
 ) -> Vec<(usize, usize)> {
+    // br-r37-c1-ndxydir (cc): the "in"/"both" degree arms called
+    // `digraph.predecessors(x)` (a `Vec<&str>` allocation) just to take `.len()`;
+    // use the no-alloc `digraph.in_degree(x)` instead. The "out" arm already used
+    // no-alloc `neighbor_count`. Byte-identical: `in_degree(x) == pred_indices[i].len()
+    // == predecessors(x).len()` (simple DiGraph), and `neighbor_count(x) ==
+    // succ_indices[i].len()`, so every `(du, dv)` pair is the same integer. (The
+    // undirected `node_degree_xy` twin's comment claimed this was already done — it
+    // was only done for the "out" arm.)
+    let mut result = Vec::with_capacity(digraph.edge_count());
+    for edge in digraph.edges_ordered() {
+        let du = match x_type {
+            "in" => digraph.in_degree(&edge.left),
+            "out" => digraph.neighbor_count(&edge.left),
+            _ => digraph.neighbor_count(&edge.left) + digraph.in_degree(&edge.left),
+        };
+        let dv = match y_type {
+            "in" => digraph.in_degree(&edge.right),
+            "out" => digraph.neighbor_count(&edge.right),
+            _ => digraph.neighbor_count(&edge.right) + digraph.in_degree(&edge.right),
+        };
+        result.push((du, dv));
+    }
+    result
+}
+
+/// br-r37-c1-ndxydir A/B baseline: the pre-lever `node_degree_xy_directed` that took
+/// `digraph.predecessors(x).len()` (a `Vec<&str>` alloc) for the "in"/"both" arms.
+/// Test-only; byte-identical to `node_degree_xy_directed`.
+#[cfg(test)]
+fn node_degree_xy_directed_orig_alloc(
+    digraph: &DiGraph,
+    x_type: &str,
+    y_type: &str,
+) -> Vec<(usize, usize)> {
     let mut result = Vec::new();
     for edge in digraph.edges_ordered() {
         let du = match x_type {
@@ -49531,6 +49565,102 @@ mod tests {
         println!("BFSLBL_AB n={n} deg={deg} rounds={rounds} (>1 = integer faster)");
         report("INT_vs_string", &paired(true, false));
         report("NULL_int_vs_int", &paired(true, true));
+    }
+
+    /// br-r37-c1-ndxydir: paired-interleaved median A/B for the no-alloc `in_degree`
+    /// `node_degree_xy_directed` vs the old `predecessors().len()` (`Vec<&str>` alloc)
+    /// baseline, in ONE binary / ONE worker with a NULL control. `#[ignore]`
+    /// (measurement); run with
+    /// `cargo test --release -p fnx-algorithms --lib node_degree_xy_directed_ndxydir_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn node_degree_xy_directed_ndxydir_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense directed pseudo-random graph, ~m=n*deg edges: node_degree_xy_directed
+        // scans all edges and, in the "both" arms, took a `predecessors(x)` Vec<&str>
+        // alloc per endpoint just to count in-degree — the lever swaps that for the
+        // no-alloc `in_degree`.
+        let n = 4000usize;
+        let deg = 12usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                let j = ((i as u64)
+                    .wrapping_mul(1_000_003)
+                    .wrapping_add((k as u64).wrapping_mul(97))
+                    % n as u64) as usize;
+                if j != i {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+                }
+            }
+        }
+
+        // Byte-exact parity across all degree-type combinations.
+        for (x, y) in [("in", "in"), ("both", "both"), ("out", "in"), ("in", "out")] {
+            assert_eq!(
+                super::node_degree_xy_directed(&g, x, y),
+                super::node_degree_xy_directed_orig_alloc(&g, x, y),
+                "integer node_degree_xy_directed must equal the alloc baseline"
+            );
+        }
+
+        let time = |lever: bool| -> f64 {
+            let t0 = Instant::now();
+            for _ in 0..3 {
+                if lever {
+                    black_box(super::node_degree_xy_directed(&g, "both", "both"));
+                } else {
+                    black_box(super::node_degree_xy_directed_orig_alloc(&g, "both", "both"));
+                }
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 121usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "NDXYDIR_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("NDXYDIR_AB n={n} deg={deg} rounds={rounds} (>1 = no-alloc faster)");
+        report("NOALLOC_vs_alloc", &paired(true, false));
+        report("NULL_noalloc_vs_noalloc", &paired(true, true));
     }
 
     /// br-r37-c1-sqcmark: paired-interleaved median A/B for the integer-adjacency +
