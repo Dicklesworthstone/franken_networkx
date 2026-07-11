@@ -18403,3 +18403,78 @@ RESULT: SHIP. Preserve the degree guard, direct-edge uniqueness argument,
 ordered BFS fallback, node-index validation, and exact witness; do not widen
 this lever into CSR, centrality, wrapper dispatch, or matching/flow structural
 rewrites.
+
+## 2026-07-11 WhiteJaguar REJECT (FLOW, `max_flow`): compact sorted residual rows — 5.10% worse same-worker median (`br-r37-c1-fz193`)
+
+NEGATIVE-LEDGER / TRIAGE FIRST: `docs/NEGATIVE_EVIDENCE.md` and
+`bv --robot-triage` were read before selection. The robot snapshot contained
+3,051 issues, 226 open issues, and no dependency cycles; no unclaimed
+high-centrality item displaced this owned runtime lane. Matching remains
+FRONTIER+HOLD because maximal and Hopcroft-Karp matching are already
+index-native while weighted matching remains constrained by exact NetworkX
+tie and edge-orientation semantics. The prior pathfinding ship row explicitly
+held compact sorted flow residual rows for their own profile/proof cycle, so
+that recorded seam was selected without entering cc-owned CSR or centrality
+storage.
+
+PROFILE FIRST: a strict-remote `release-perf` pprof run exercised the existing
+10-by-5 parallel-path max-flow workload for 100,000 iterations
+(`2,892.1475 ms`, `0.0289 ms/iter`). Of 1,620 samples in
+`compute_max_flow_residual`, 786 (48.5%) were in B-tree iterator machinery;
+capacity lookup/default, `edge_attrs`, indexed lookup, and edge-pair key work
+were the next visible costs. The temporary profile-only harness was restored
+before the production trial; its SHA-256 is exactly
+`50682b49688426ee6090f65094fe155d2efd2611fd5d1ede7bda1daf1c6c48a0`.
+
+ONE LEVER: only `compute_max_flow_residual` replaced each private
+`BTreeMap<usize, f64>` residual row with a sorted `Vec<(usize, f64)>` row.
+Binary search preserved first-capacity insertion, lookup, mutation, and
+on-demand reverse-edge insertion; flat iteration preserved ascending canonical
+node-index order. The value-only max-flow twin, graph storage, public result
+types, arithmetic, epsilon, and minimum-cut consumer were untouched.
+
+BIT-IDENTICAL / RESTORE PROOF: a test-only frozen B-tree oracle compared exact
+flow-value bits, ordered edge names and flow bits, every materialized residual
+entry and capacity bit pattern, minimum-cut partitions, witness counters, and
+errors over Graph and DiGraph edge cases plus a deterministic corpus. The
+focused exact test passed 1/1 before an independent review added a stronger
+on-demand reverse-traversal fixture. The median gate rejected the lever before
+that strengthened test needed another remote compile, so both candidate and
+proof-only code were restored. The landed implementation and benchmark harness
+are byte-for-byte the pre-trial source.
+
+MEDIAN GATE: Criterion `median.point_estimate`, 31 samples, 1 s warm-up, 5 s
+measurement, identical `-j 2` build shape, and both decisive runs on remote
+worker `vmi1293453`:
+
+| run | median us (95% CI) | delta from baseline |
+|---|---:|---:|
+| B-tree baseline | 26.0813 (25.2454-27.1069) | — |
+| compact-row candidate | 27.4111 (26.0107-27.9485) | +5.0985% |
+
+The confidence intervals overlap, so this is not a claim of a statistically
+resolved regression. It is a decisive keep-gate failure: the candidate median
+point estimate is worse, with no demonstrated speedup. An earlier candidate
+run selected a different worker and was excluded from causal evidence.
+
+STRICT REMOTE-ONLY: every Cargo profile and benchmark command used the
+fail-closed remote shape; no local Cargo command ran:
+
+```text
+RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo ...
+```
+
+RCH reported a degraded fleet (9 of 12 workers eligible). Two requested
+workers failed hard preflight because their aliases resolved to a wrong target;
+attempts on `vmi1264463` failed remotely on a stale sibling `ftui` dependency,
+and several no-slot attempts were refused. Every failure was surfaced rather
+than falling back locally. Agent Mail was also degraded read-only and its file
+reservation failed on a malformed database page, so coordination continued
+from Git, Beads, and ledger truth without modifying Agent Mail state.
+
+RESULT: REJECT. Do not retry this exact compact sorted residual-row
+representation on `max_flow/parallel_paths/10x5`; iterator samples did not
+translate into a median win once binary-search updates and row insertion were
+included. Source was restored. The next flow frontier is an indexed
+minimum-cut partition consumer only after a fresh profile; otherwise rotate to
+a separately profiled pathfinding seam while matching remains on hold.
