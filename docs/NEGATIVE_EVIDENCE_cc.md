@@ -1,5 +1,24 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `out_degree_centrality` no-alloc out-degree **11.3845x** (br-r37-c1-odc)
+
+`out_degree_centrality` mapped every node to `(name, out_deg/(n-1))`, taking the out-degree with
+`successors(node).map(|it| it.len())` — a `Vec<&str>` alloc per node discarded after reading `.len()` (V allocs).
+Swapped to the no-alloc `out_degree_by_index(i)` over `nodes_ordered().enumerate()`. `neighbors_len_vec_alloc`
+family, directed-centrality twin of isolates_directed.
+
+MEASURED — n=100000, out-deg 8, 61 rounds: **NOALLOC_vs_string median 11.3845x**, win_rate 61/61,
+p5_p95 [7.4774, 13.7554] vs NULL 0.9962x [0.8847, 1.0693]. DECIDABLE: candidate p5 (7.48) ~7x above the null p95
+(1.07), 61/61 won. BYTE-IDENTICAL: `out_degree_by_index(i) == successors(nodes[i]).len()`; `node.to_owned()` +
+`out_deg/denom` unchanged; empty/n==1 branches preserved. Asserted equal to the baseline. clippy clean. pyo3
+calls this directly.
+
+**Corrects the KEY note below**: degree-centrality was predicted output-floored (~marginal) — WRONG. The per-node
+`Vec<&str>` alloc *dominates* the per-node `node` String clone, so the swap is a CLEAN 11.38x, not marginal. The
+output floor only bites when the per-item output work is comparable to the alloc (node_degree_xy_directed's
+edges_ordered clone) — a String clone alone is not. Twins `in_degree_centrality` (`predecessors().len()`) and
+undirected `degree_centrality` (`neighbors().len()`) share this profile and are now WORTH measuring.
+
 ## SHIPPED WIN (cc, 2026-07-11, `8cb4bd796`): `isolates` (undirected) no-alloc degree test **7.3274x** (br-r37-c1-iso)
 
 Undirected twin of isolates_directed. `isolates` allocated a `Vec<&str>` via `neighbors(node)` per node just to
