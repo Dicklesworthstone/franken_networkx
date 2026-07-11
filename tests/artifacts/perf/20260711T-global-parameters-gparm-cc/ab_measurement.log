@@ -1,0 +1,8 @@
+attempt 1: fleet transient
+  [2m2026-07-11T05:53:05.567528Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib global_parameters -- --include-ignored --nocapture[0m
+GPARM_AB n=110 (K_n complete) rounds=61 (>1 = integer faster)
+GPARM_AB INT_vs_string: median=19.8644x win_rate=61/61 p5_p95=[15.7362,33.0569]
+GPARM_AB NULL_int_vs_int: median=0.9965x win_rate=28/61 p5_p95=[0.8750,1.1275]
+test tests::global_parameters_gparm_ab ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 947 filtered out; finished in 3.39s
+AB loop ended
