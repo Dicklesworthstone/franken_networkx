@@ -1,5 +1,32 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, `72cf72b26`): `is_branching` no-alloc degrees + integer per-component edge count **2.2840x** (br-r37-c1-branch)
+
+Another mis-excluded target reopened: `is_branching` calls `weakly_connected_components` — which is
+CONNECTIVITY, not SCC/flow (cod's lane), so it is fair game. No-alloc `in_degree_by_index`/`out_degree_by_index`
+for the degree check + a reusable `Vec<bool>` component mark array + `successors_indices` for the
+per-component edge count (replacing per-node `predecessors()/successors().len()` Vec allocs and a per-component
+`HashSet<&str>` + `successors_iter` walk). WCC (already integer) unchanged.
+
+MEASURED — rooted binary tree n=60000, 61 rounds:
+
+| paired A/B (>1 = integer faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **INT_vs_string** | **2.2840x** | **61/61** | [2.0187, 2.7357] |
+| NULL_int_vs_int | 0.9826x | 26/61 | [0.8543, 1.2248] |
+
+DECIDABLE: 2.28x median, candidate p5 (2.02) CLEANLY above the null p95 (1.22), 61/61 won — a clean (if
+smaller) win, NOT the overlapping marginal. Smaller than the other predicates because `weakly_connected_components`
+(integer compute + `Vec<Vec<String>>` component materialization) is an unconverted floor. BYTE-IDENTICAL:
+same integer degree checks + intra-component edge counts. Asserted across tree(true)/in-degree-2(false)/
+3-cycle(false). clippy pending fleet contention (identical no-alloc-degree pattern to clippy-clean
+is_arborescence). pyo3 calls this directly.
+
+SESSION TALLY: 18 clean wins (added is_attracting_component 11.68x, is_branching 2.28x) + 2 marginal. The
+directed structural-predicate sub-vein is now essentially complete: is_tournament 17x, is_arborescence 41x,
+is_attracting_component 11.68x, is_branching 2.28x. Remaining directed candidates (is_d_separator, dijkstra/
+dominators/SCC = cod, descendants/ancestors = pyo3-bypassed) stay excluded.
+
 ## SHIPPED WIN (cc, 2026-07-11, `632c75504`): `is_attracting_component` validity-guarded integer fast path **11.6819x** (br-r37-c1-attract)
 
 Reversed an earlier over-conservative exclusion. `is_attracting_component`'s String reachability sets store
