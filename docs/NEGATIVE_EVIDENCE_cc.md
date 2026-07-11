@@ -1,5 +1,34 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## FRONTIER UPDATE (cc, 2026-07-11): `neighbors_len_vec_alloc` family MINED OUT — HOLD
+
+After ODC (11.38x) + IDC (11.36x) this session, the per-node `.len()`-on-an-allocated-adjacency-Vec
+family has no clean, exposed, in-lane candidate left. Full sweep of every
+`(successors|predecessors|neighbors)(...).map_or/.map(...).len()` site in `fnx-algorithms/src/lib.rs`:
+
+- **SHIPPED converted** (production is no-alloc; residual `.len()` hits are `#[cfg(test)]` baselines only):
+  `isolates`, `isolates_directed`, `out_degree_centrality`, `in_degree_centrality`, `gutman_index`
+  (`neighbors_indices`), `schultz_index` (`neighbors_indices`), `bfs_beam_edges` (`neighbor_count`),
+  `is_arborescence` / `is_branching` / `is_tournament` (`in/out_degree_by_index` + `*_indices` BFS).
+- **degree_centrality corner COMPLETE**: undirected `degree_centrality` already `neighbor_count`;
+  `degree_centrality_directed` already name-keyed `out_degree`/`in_degree` (both no Vec alloc).
+- **Shipped MARGINAL** (output/clone floor, not re-attackable): `node_degree_xy` / `node_degree_xy_directed`
+  (a `usize` per edge via `edges_ordered()` clone floor → ~1.55x).
+- **DEAD (unexposed)**: Rust `trophic_differences` (lib.rs:46393) is orphaned — the Python
+  `trophic_differences` computes via `_trophic_levels_compute` and never calls this kernel (which uses a
+  crude in-degree proxy). Optimizing it reaches no benchmark.
+- **Single-node, sub-median (SURFACE, not shipped)**: `is_isolate_directed(graph, node)` could swap its 2
+  per-call `successors/predecessors().len()` Vec allocs for no-alloc `out_degree`/`in_degree` — but it is
+  O(1) over ONE node (3 hash lookups either way; only 2 small allocs saved), dwarfed by the pyo3/Python
+  call boundary. Cannot clear a MEDIAN gate; deliberately NOT shipped.
+
+Combined with the previously-exhausted **string→int adjacency vein** ([[cc_string_to_int_vein_mined_out]],
+13 wins) and the **COMPLETE power-iteration resolve-once family** ([[power_iteration_resolve_once_family]]),
+cc's centrality/clustering/structural lane has no clean structural lever remaining. HOLD pending a new
+algorithm surface or an architectural epoch (integer-keyed MultiGraph, dense-linalg ISA). Fleet note: the
+`ftui` path-dep flake made `--all-targets` clippy nearly unlandable this session (real workers rare); A/Bs
+still landed and gated cleanly.
+
 ## SHIPPED WIN (cc, 2026-07-11): `in_degree_centrality` no-alloc in-degree **11.3636x** (br-r37-c1-idc)
 
 Directed twin of ODC. `in_degree_centrality` took each node's in-degree with
