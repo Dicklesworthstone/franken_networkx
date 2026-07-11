@@ -1,5 +1,44 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SURFACE (cc, 2026-07-11): degree/centrality hot-path profile — kernels CONVERGED; only lever left is pyo3-layer & unmeasurable → HOLD
+
+Profile-first sweep of `in_degree_centrality` + adjacent degree/centrality hot paths (per the
+"keep mining" directive, negative-ledger + `bv --robot-triage` consulted first — no unclaimed
+degree/centrality perf bead; open perf items are cod-b's or architectural `br-r37-c1-2zn1u`
+ISA-dense-linalg / `br-r37-c1-thp6w` MultiGraph epoch).
+
+**Kernels are converged** (nothing clean left at the fnx-algorithms level):
+- degree-centrality: `in/out_degree_centrality` alloc-dropped this session (ODC 11.38x, IDC 11.36x);
+  undirected `degree_centrality` already `neighbor_count`; `degree_centrality_directed` name-keyed
+  `out_degree`/`in_degree` (no Vec alloc).
+- `average_neighbor_degree` (br-r37-c1-anbrdeg) + `degree_assortativity_coefficient`
+  (br-r37-c1-degassort-intcsr): already integer-CSR (`degree_by_index` + `neighbors_indices`).
+  Only micro-residual: the O(n) `degrees` prelude in degree_assortativity still calls name-keyed
+  `graph.degree(node)` (a `get_index_of` hash/node) instead of `degree_by_index(i)` — but it is a
+  one-time prelude before the O(E) edge loop, below the median floor. Same for the `degree(node)`
+  min-preludes in `global_edge_connectivity_edmonds_karp_directed` / `node_connectivity_directed`
+  (both cod's connectivity lane anyway).
+
+**The one real lever found is pyo3-layer, floor-dominated, and unmeasurable — SURFACED not shipped:**
+The directed `in/out_degree_centrality` pyo3 bindings call the kernel → `Vec<CentralityScore{String}>`
+(n `node.to_owned()` clones) → `centrality_to_dict` → `py_node_key(&s.node)`. Those n String clones
+are throwaway intermediates: `py_node_key` only needs a `&str` and could take `get_node_name(idx)`
+directly, exactly as the undirected `graph_degree_centrality_to_dict` already does inline (no
+`CentralityScore` Vec). BUT the per-node floor is `py_node_key` (a `HashMap<String,PyObject>` lookup
++ refcount/alloc) + `PyDict::set_item`, which dominates the saved clone → estimated ~1.38x on the
+kernel's share, modest at the Python level. AND there is no `*degree_centrality` row in
+public_api_gauntlet, so it can't be median-gated cleanly (a pyo3-layer change can't be Rust-A/B'd;
+cross-run gauntlet ratios are worker-noise-prone per [[rch_bench_worker_noise]]). Per ship-or-surface
++ gate-on-median: not shipped.
+
+**Candidate for a future "centrality pyo3-inline epoch"** (only if a within-process pyo3 paired-A/B
+harness or `*degree_centrality` gauntlet rows are added): route directed degree-centralities through
+an inline index→`py_node_key(get_node_name(i))` dict build (mirror `graph_degree_centrality_to_dict`),
+skipping the kernel's `Vec<CentralityScore>` String clones. Bit-identical (same `in_deg/(n-1)` formula,
+same node-index order, same keys). Generalizes to every `centrality_to_dict` consumer.
+
+HOLD: degree/centrality kernels have no clean, in-lane, median-gateable lever remaining.
+
 ## FRONTIER UPDATE (cc, 2026-07-11): `neighbors_len_vec_alloc` family MINED OUT — HOLD
 
 After ODC (11.38x) + IDC (11.36x) this session, the per-node `.len()`-on-an-allocated-adjacency-Vec
