@@ -3696,21 +3696,26 @@ impl GraphGenerator {
             warnings.push(warning);
         }
 
-        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
+        let (mut graph, _node_labels) = graph_with_n_nodes(self.mode, n);
         let mut rng = PythonRandom::new(seed);
+        // br-r37-c1-gnpbatch (cc): collect the accepted (left, right) INDEX pairs during the
+        // RNG walk, then batch-insert by EXISTING node index. Drops the per-edge
+        // `node_labels[..].clone()` String clones + the two name→index hashes + the per-edge
+        // policy record that `add_edge` paid on every accepted edge (O(|E|) of each). The RNG
+        // draw is untouched (one `rng.random()` per pair in the same order → identical edge
+        // set), and `extend_existing_index_edges_unrecorded` canonicalizes `edge_index_endpoints`
+        // by name-order and pushes `adj_indices` exactly as `add_edge` — and the pairs are
+        // unique with pre-existing nodes — so the graph is byte-identical.
+        let mut accepted: Vec<(usize, usize)> = Vec::new();
         for left in 0..n {
             for right in (left + 1)..n {
                 let draw: f64 = rng.random();
                 if draw < p {
-                    graph
-                        .add_edge(node_labels[left].clone(), node_labels[right].clone())
-                        .map_err(|err| GenerationError::FailClosed {
-                            operation: "gnp_random_graph",
-                            reason: err.to_string(),
-                        })?;
+                    accepted.push((left, right));
                 }
             }
         }
+        let _ = graph.extend_existing_index_edges_unrecorded(accepted);
 
         self.record(
             "gnp_random_graph",
@@ -6881,6 +6886,172 @@ mod tests {
     };
     use proptest::prelude::*;
     use std::collections::BTreeMap;
+
+    /// br-r37-c1-gnpbatch: paired-interleaved median A/B for the gnp edge insertion —
+    /// batch-by-index (`extend_existing_index_edges_unrecorded`) vs the pre-lever per-edge
+    /// `add_edge(node_labels[l].clone(), node_labels[r].clone())`, in ONE binary / ONE worker
+    /// with a NULL control. Both arms build the SAME node graph (`graph_with_n_nodes`) then
+    /// insert the SAME deterministic ~10%-dense pair set (the RNG walk is shared/inherent and
+    /// NOT the lever). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-generators --lib gnp_batch_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn gnp_batch_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 800usize;
+        // deterministic ~10%-dense accepted (left, right) index pairs (mimics gnp p=0.1;
+        // the actual RNG draw is unchanged by the lever, so a fixed pair set isolates the
+        // insertion cost the lever targets).
+        let mut pairs: Vec<(usize, usize)> = Vec::new();
+        for left in 0..n {
+            for right in (left + 1)..n {
+                if left.wrapping_mul(1_000_003).wrapping_add(right) % 10 == 0 {
+                    pairs.push((left, right));
+                }
+            }
+        }
+
+        let build_string = || {
+            let (mut g, node_labels) = super::graph_with_n_nodes(CompatibilityMode::Strict, n);
+            for &(l, r) in &pairs {
+                let _ = g.add_edge(node_labels[l].clone(), node_labels[r].clone());
+            }
+            g
+        };
+        let build_batch = || {
+            let (mut g, _node_labels) = super::graph_with_n_nodes(CompatibilityMode::Strict, n);
+            let _ = g.extend_existing_index_edges_unrecorded(pairs.iter().copied());
+            g
+        };
+
+        // Byte-exact structural parity: batch == string (same edges, same adjacency order).
+        let gs = build_string();
+        let gb = build_batch();
+        assert_eq!(
+            gs.edges_ordered_borrowed(),
+            gb.edges_ordered_borrowed(),
+            "batch-by-index gnp insertion must equal the per-edge add_edge baseline"
+        );
+        assert_eq!(gs.nodes_ordered(), gb.nodes_ordered());
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            if batch {
+                black_box(build_batch());
+            } else {
+                black_box(build_string());
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "GNP_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "GNP_BATCH_AB n={n} edges={} rounds={rounds} (>1 = batch faster)",
+            pairs.len()
+        );
+        report("INSERT_batch_vs_string", &paired(true, false));
+        report("NULL_batch_vs_batch", &paired(true, true));
+
+        // END-TO-END: the full gnp build including the shared O(n^2) RNG walk (unchanged by
+        // the lever) — the realistic user-facing gnp speedup, which the RNG walk dilutes.
+        let p = 0.1_f64;
+        let seed = 12345u64;
+        let build_e2e = |batch: bool| {
+            let (mut g, node_labels) = super::graph_with_n_nodes(CompatibilityMode::Strict, n);
+            let mut rng = super::PythonRandom::new(seed);
+            if batch {
+                let mut acc: Vec<(usize, usize)> = Vec::new();
+                for left in 0..n {
+                    for right in (left + 1)..n {
+                        let draw: f64 = rng.random();
+                        if draw < p {
+                            acc.push((left, right));
+                        }
+                    }
+                }
+                let _ = g.extend_existing_index_edges_unrecorded(acc);
+            } else {
+                for left in 0..n {
+                    for right in (left + 1)..n {
+                        let draw: f64 = rng.random();
+                        if draw < p {
+                            let _ = g.add_edge(node_labels[left].clone(), node_labels[right].clone());
+                        }
+                    }
+                }
+            }
+            g
+        };
+        assert_eq!(
+            build_e2e(true).edges_ordered_borrowed(),
+            build_e2e(false).edges_ordered_borrowed(),
+            "end-to-end gnp batch must equal the per-edge baseline"
+        );
+        let time_e2e = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            black_box(build_e2e(batch));
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time_e2e(true));
+            black_box(time_e2e(false));
+        }
+        let paired_e2e = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time_e2e(base);
+                    let c = time_e2e(cand);
+                    (b, c)
+                } else {
+                    let c = time_e2e(cand);
+                    let b = time_e2e(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        report("E2E_batch_vs_string", &paired_e2e(true, false));
+    }
 
     fn packet_007_forensics_bundle(
         run_id: &str,

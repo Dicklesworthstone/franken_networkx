@@ -1,5 +1,33 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `gnp_random_graph` batch-by-index edge insertion **13.20x end-to-end** (br-r37-c1-gnpbatch)
+
+NEW SUBSYSTEM (fnx-generators, previously unmined by cc this session). `gnp_random_graph(n,p,seed)`
+drew one `rng.random()` per pair and on accept did `add_edge(node_labels[l].clone(),
+node_labels[r].clone())` — per accepted edge: 2 String clones + 2 name→index hashes + 1 policy record,
+even though l/r are indices and all nodes pre-exist. Collected the accepted (l,r) INDEX pairs and
+batch-inserted with the EXISTING `Graph::extend_existing_index_edges_unrecorded`.
+
+MEASURED — n=800, ~10%-dense (|E|=31920), 61 rounds:
+| paired A/B (>1 = batch faster) | median | win_rate | p5_p95 |
+|---|---|---|---|
+| INSERT (insertion only, the lever) | **31.10x** | 61/61 | [20.41, 47.84] |
+| **E2E** (full gnp incl. shared O(n²) RNG walk) | **13.20x** | 61/61 | [9.13, 16.95] |
+| NULL | 1.03x | 35/61 | [0.83, 1.23] |
+
+E2E DECIDABLE: p5 (9.13) ~7x above the null p95 (1.23), 61/61 won. BYTE-IDENTICAL: RNG draw is
+independent of add_edge (same accepted set); `extend_existing_index_edges_unrecorded` canonicalizes
+edge_index_endpoints by name-order + pushes adj_indices exactly as `add_edge_with_attrs`
+(lib.rs:1698-1708); unique pairs + pre-existing nodes → no dedup/auto-create divergence; batch skips
+only the per-edge policy ledger record (the established `unrecorded` pattern). `assert_eq!` on
+edges_ordered_borrowed + nodes_ordered green for BOTH insertion and end-to-end. clippy clean.
+
+**generator_accept_loop_batch vein REOPENED** — same per-edge `add_edge(labels[i].clone(),..)` accept
+loop (pre-existing nodes, index-in-hand) in `gnm_random_graph`, `watts_strogatz_graph`,
+`barabasi_albert_graph`, `newman_watts_strogatz_graph`, `powerlaw_cluster_graph`, and the directed
+`gnp_random_digraph` (needs a DiGraph index-batch inserter). Each a next lever. See
+[[generator_accept_loop_batch]].
+
 ## SURFACE (cc, 2026-07-11): thp6w S3 (index-pair edges flip) is MISFRAMED — targets ~3% headroom / already-won ops → do NOT pursue; thp6w epoch effectively COMPLETE for cc
 
 Took thp6w S3 (the d58s8-style index-pair MultiGraph/MultiDiGraph edge-key flip, premised on closing
