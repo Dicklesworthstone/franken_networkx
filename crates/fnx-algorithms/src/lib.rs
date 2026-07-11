@@ -39335,12 +39335,18 @@ pub fn group_closeness_centrality(graph: &Graph, group: &[&str]) -> f64 {
         }
     }
 
+    // br-r37-c1-gcmark (cc): walk `graph.neighbors_indices(v)` (zero-alloc `&[usize]`)
+    // instead of `graph.neighbors(nodes[v])` (a `Vec<&str>` alloc per pop) + an
+    // `idx.get(nb)` String hash per neighbour. `idx.get` never rejected a neighbour
+    // (every neighbour is a node), so every neighbour index is visited as before.
+    // Byte-identical: `neighbors_indices(v)` yields the same neighbour set in the
+    // same adjacency order, so the BFS distances are identical; the final
+    // `non_group_count / total_dist` is one division over the same exact integers.
+    // `idx` is still used to seed the group and `group_set`/`nodes` for the filter.
     while let Some(v) = queue.pop_front() {
-        if let Some(nbrs) = graph.neighbors(nodes[v]) {
-            for nb in nbrs {
-                if let Some(&ni) = idx.get(nb)
-                    && dist[ni] == usize::MAX
-                {
+        if let Some(nbrs) = graph.neighbors_indices(v) {
+            for &ni in nbrs {
+                if dist[ni] == usize::MAX {
                     dist[ni] = dist[v] + 1;
                     queue.push_back(ni);
                 }
@@ -39365,6 +39371,56 @@ pub fn group_closeness_centrality(graph: &Graph, group: &[&str]) -> f64 {
         return 0.0;
     }
 
+    (non_group_count as f64) / (total_dist as f64)
+}
+
+/// br-r37-c1-gcmark A/B baseline: the pre-lever multi-source BFS that called
+/// `graph.neighbors(nodes[v])` (`Vec<&str>` alloc per pop) and re-hashed each
+/// neighbour name through `idx`. Test-only; byte-identical to
+/// `group_closeness_centrality`.
+#[cfg(test)]
+fn group_closeness_centrality_orig_string(graph: &Graph, group: &[&str]) -> f64 {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 || group.is_empty() {
+        return 0.0;
+    }
+    let idx: std::collections::HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+    let mut dist = vec![usize::MAX; n];
+    let mut queue = std::collections::VecDeque::new();
+    let group_set: std::collections::HashSet<&str> = group.iter().copied().collect();
+    for &g in group {
+        if let Some(&gi) = idx.get(g) {
+            dist[gi] = 0;
+            queue.push_back(gi);
+        }
+    }
+    while let Some(v) = queue.pop_front() {
+        if let Some(nbrs) = graph.neighbors(nodes[v]) {
+            for nb in nbrs {
+                if let Some(&ni) = idx.get(nb)
+                    && dist[ni] == usize::MAX
+                {
+                    dist[ni] = dist[v] + 1;
+                    queue.push_back(ni);
+                }
+            }
+        }
+    }
+    let non_group_count = n - group_set.len();
+    if non_group_count == 0 {
+        return 1.0;
+    }
+    let total_dist: usize = dist
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !group_set.contains(nodes[*i]))
+        .map(|(_, &d)| if d == usize::MAX { 0 } else { d })
+        .sum();
+    if total_dist == 0 {
+        return 0.0;
+    }
     (non_group_count as f64) / (total_dist as f64)
 }
 
@@ -48318,6 +48374,106 @@ mod tests {
             );
         };
         println!("HDMARK_AB n={n} deg={deg} rounds={rounds} (>1 = integer-BFS faster)");
+        report("INT_vs_string", &paired(true, false));
+        report("NULL_int_vs_int", &paired(true, true));
+    }
+
+    /// br-r37-c1-gcmark: paired-interleaved median A/B for the integer-adjacency
+    /// multi-source BFS `group_closeness_centrality` vs the old `graph.neighbors()`
+    /// (`Vec<&str>`) + `idx.get` String baseline, in ONE binary / ONE worker with a
+    /// NULL control. `#[ignore]` (measurement); run with
+    /// `cargo test --release -p fnx-algorithms --lib group_closeness_gcmark_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn group_closeness_gcmark_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Moderate-degree pseudo-random graph on 1500 nodes with a small group: the
+        // single multi-source BFS pops ~V nodes and scans ~E edges, so the per-pop
+        // `Vec<&str>` alloc + per-neighbour `idx.get` String hash (baseline) vs the
+        // zero-alloc integer walk (lever) dominate.
+        let n = 1500usize;
+        let deg = 10usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n.saturating_sub(1) {
+            let _ = g.add_edge(format!("n{i}"), format!("n{}", i + 1));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                let j = ((i as u64)
+                    .wrapping_mul(1_000_003)
+                    .wrapping_add((k as u64).wrapping_mul(97))
+                    % n as u64) as usize;
+                if j != i {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+                }
+            }
+        }
+        let group: Vec<&str> = vec!["n0", "n500", "n1000"];
+
+        // Byte-exact parity: integer BFS group closeness == String baseline.
+        let mark = super::group_closeness_centrality(&g, &group);
+        let base = super::group_closeness_centrality_orig_string(&g, &group);
+        assert_eq!(
+            mark.to_bits(),
+            base.to_bits(),
+            "integer group_closeness_centrality must bit-match the String baseline"
+        );
+
+        let time = |lever: bool| -> f64 {
+            let t0 = Instant::now();
+            for _ in 0..3 {
+                if lever {
+                    black_box(super::group_closeness_centrality(&g, &group));
+                } else {
+                    black_box(super::group_closeness_centrality_orig_string(&g, &group));
+                }
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 121usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "GCMARK_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("GCMARK_AB n={n} deg={deg} rounds={rounds} (>1 = integer-BFS faster)");
         report("INT_vs_string", &paired(true, false));
         report("NULL_int_vs_int", &paired(true, true));
     }
