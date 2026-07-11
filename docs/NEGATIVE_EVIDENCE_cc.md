@@ -1,5 +1,32 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, `2621e20a2`): `closeness_vitality_single` full-index integer BFS **5.8503x** (br-r37-c1-clvit1)
+
+Completes the closeness-vitality family. `closeness_vitality_single(node)` is O(V·(V+E)) — BFS from every
+remaining node in the subgraph without `node` — and is on the LIVE Python path (the pyo3 `closeness_vitality`
+wrapper calls it for single-node queries). Same transform as `closeness_vitality` (br-r37-c1-clvit): snapshot
+integer adjacency once (`Vec<&[usize]>`), mark the excluded index `ex` (from `get_node_index`, which also
+replaces the `has_node` guard), and BFS over full node indices skipping `ex`; `node_to_idx` eliminated.
+
+MEASURED — paired-interleaved A/B vs the exact String baseline (`closeness_vitality_single_orig_string`,
+`#[cfg(test)]`), ONE binary / ONE worker, connected n=200 deg~10, excluding a middle node, 61 rounds:
+
+| paired A/B (>1 = integer-BFS faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **INT_vs_string** | **5.8503x** | **61/61** | [4.7105, 6.5809] |
+| NULL_int_vs_int | 1.0091x | 38/61 | [0.8508, 1.1845] |
+
+DECIDABLE: 5.85x median, candidate p5 (4.71) ~4x above the null p95 (1.18), 61/61 won. BYTE-IDENTICAL: same
+argument as clvit — full-index order agrees with subgraph order, exact-integer Wiener sums,
+disconnection → `NEG_INFINITY` preserved. Asserted `vitality == base` in-test; `..._single_node_api` unit test
+green; clippy `-D warnings` clean.
+
+SESSION TALLY (structural-primitive vein): FOURTEEN byte-identical median-gated wins — eigenvector 14.64x,
+HITS 3.11x, triangles 5.54x, square_clustering 29.73x, k_truss 10.15x, all_simple_paths 16.67x,
+generalized_degree 10.18x, clustering_coefficient_directed 58.35x, label_propagation 2.26x,
+could_be_isomorphic 11.75x, dominating_set 20.13x, closeness_vitality 10.70x, voronoi_cells 4.14x,
+closeness_vitality_single 5.85x.
+
 ## SHIPPED WIN (cc, 2026-07-11, `9f1566171`): `voronoi_cells` integer-adjacency multi-source BFS **4.1450x** (br-r37-c1-voronoi)
 
 Shortest-paths-family Voronoi partition — a single multi-source BFS. The old kernel walked
