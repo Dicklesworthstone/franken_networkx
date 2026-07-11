@@ -28,9 +28,23 @@ result. Always confirm the A/B test NAME appears in the run output before trusti
 SESSION TALLY: this-session cc wins = 16 clean (could_be_isomorphic, dominating_set, closeness_vitality,
 voronoi_cells, closeness_vitality_single, is_strongly_regular, harmonic_diameter, group_closeness_centrality,
 maximum_independent_set, gutman_index, schultz_index, hyper_wiener_index, global_parameters, dfs_postorder_nodes,
-is_tournament, is_arborescence) + 2 marginal (bfs_labeled_edges, node_degree_xy_directed). Directed
-structural-predicate sub-vein productive (is_tournament 17x, is_arborescence 41x); remaining probes:
-`is_attracting_component`, `is_d_separator` (avoid SCC/dijkstra/dominators = cod).
+is_tournament, is_arborescence) + 2 marginal (bfs_labeled_edges, node_degree_xy_directed).
+
+DIRECTED-VEIN FRONTIER (probed, 2026-07-11): the clean bit-identical directed structural predicates are now
+also done. `is_tournament` (17x) and `is_arborescence` (41x) shipped. The remaining directed candidates are
+each EXCLUDED for a concrete reason:
+* `is_attracting_component` (exposed, bool) — its reachability `HashSet<&str>` sets store node NAMES (incl. a
+  possibly-invalid `component[0]` start) and compare against `comp_set.len()`; an integer mark array cannot
+  reproduce that for names-not-in-graph inputs, so strict bit-identity fails on the invalid-name edge case
+  (only "valid SCC" inputs would match — the tolerance-parity slope). SKIP.
+* `descendants` / `ancestors` — return `HashSet<String>` (OUTPUT-MATERIALIZATION-bound, O(reachable) Strings)
+  AND are not directly exposed (pyo3=0). Low ROI.
+* `is_branching` — depends on strongly_connected_components (cod's connectivity/flow lane).
+* `is_d_separator` — builds an ancestral+moralized subgraph then checks connectivity; a whole-algorithm
+  rewrite, not a one-lever neighbour swap.
+* `single_source_dijkstra_*`, `immediate_dominators`, SCC/kosaraju — cod's pathfinding/flow lane.
+HOLD: no further clean one-lever bit-identical wins remain in the cc lane across BOTH the undirected
+`neighbors()` vein and the directed `successors()/predecessors()` vein.
 
 ## SHIPPED WIN (cc, 2026-07-11, `344d39ee5`): `is_tournament` snapshot integer successor sets **17.3681x** — O(V³)→O(V²) (br-r37-c1-tourn)
 
