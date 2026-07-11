@@ -1,5 +1,23 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `lollipop_graph` batch-by-index **13.2854x** (br-r37-c1-lollipopbatch)
+
+Ninth engine-level generator batch win. lollipop = complete clique of m + path of n attached by one
+connection edge (the barbell pattern with a SINGLE clique); per-edge `add_edge(clone, clone)` for
+clique + path + connection, nodes pre-exist, DETERMINISTIC → insertion-bound. Collected the (l,r) index
+pairs in the SAME order (clique, path, connection) + one `extend_existing_index_edges_unrecorded`.
+
+MEASURED — lollipop(800, 10) (810 nodes, 319610 edges), 61 rounds: **BATCH_vs_string median 13.2854x**,
+win_rate 61/61, p5_p95 [9.5126, 22.8564] vs NULL 0.9896x [0.8417, 1.2266]. DECIDABLE: candidate p5
+(9.51) ~7.8x above the null p95 (1.23), 61/61 won. BYTE-IDENTICAL (disjoint clique + path + connection →
+all pairs unique, no dup/self-loop; `assert_eq!` edges_ordered + nodes_ordered; both lollipop vs-nx tests
+green — `pure_clique_case` (n=0) + `clique_plus_path_case` (n>0); clippy `-D warnings` CLEAN on the whole
+fnx-generators crate — this pass also retroactively confirms the sibling barbell win's clippy gate).
+
+Vein: gnp 13.20x, gnm 8.55x, complete_multipartite 13.24x, turan 16.22x, ring_of_cliques 19.94x, windmill
+18.63x, caveman 3.86x, barbell 16.92x, lollipop 13.29x shipped; barabasi 1.04x surfaced. See
+[[generator_accept_loop_batch]].
+
 ## SHIPPED WIN (cc, 2026-07-11): `barbell_graph` batch-by-index **16.9189x** (br-r37-c1-barbellbatch)
 
 Eighth engine-level generator batch win. barbell = two disjoint complete cliques of m1 joined by a path

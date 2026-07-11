@@ -1,0 +1,15 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib lollipop -- --nocapture
+running 3 tests
+test tests::lollipop_graph_matches_networkx_clique_plus_path_case ... ok
+test tests::lollipop_graph_matches_networkx_pure_clique_case ... ok
+test tests::lollipop_graph_rejects_m_below_two_like_networkx ... ok
+test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 200 filtered out; finished in 0.00s
+
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo clippy -p fnx-generators --lib --tests -- -D warnings
+    Checking fnx-runtime v0.2.0
+    Checking fnx-classes v0.2.0
+    Checking fnx-generators v0.2.0
+CLIPPY CLEAN (no errors, no warnings). Landed on attempt 13 after 12 static.crates.io flakes during the
+tail of the fleet-registry outage. This clippy pass covers the whole fnx-generators crate, so it ALSO
+retroactively confirms the previously infra-blocked clippy gate for the sibling `barbell_graph` win
+(8329a30b8) is clean.
