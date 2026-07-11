@@ -1,5 +1,29 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, `92cb16c0c`): `isolates_directed` no-alloc degree test **8.1608x** (br-r37-c1-isodir)
+
+Reopened the `neighbors_len_vec_alloc` family. `isolates_directed`, for EVERY node, allocated a `Vec<&str>` via
+`successors(node)` AND `predecessors(node)` just to take `.len()` for a degree-zero test — 2·V allocs, while
+the isolate-list output is a tiny fraction of V. Swapped to no-alloc
+`out_degree_by_index`/`in_degree_by_index`.
+
+MEASURED — n=200000, 61 rounds:
+
+| paired A/B (>1 = no-alloc faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **NOALLOC_vs_string** | **8.1608x** | **61/61** | [6.7848, 9.3371] |
+| NULL_noalloc_vs_noalloc | 1.0028x | 32/61 | [0.8663, 1.2744] |
+
+DECIDABLE: 8.16x median, candidate p5 (6.78) ~5x above the null p95 (1.27), 61/61 won. CLEAN (not the
+output-bound marginal) because the 2·V `Vec<&str>` allocs dominate — the output is a fraction. BYTE-IDENTICAL:
+`out_degree_by_index == successors().len()`, `in_degree_by_index == predecessors().len()`. Asserted equal to the
+baseline. pyo3 calls this directly.
+
+KEY: whether a per-node `.len()`-alloc swap is CLEAN or MARGINAL depends on the OUTPUT size. isolates_directed
+returns a tiny isolate list → 8.16x CLEAN. node_degree_xy_directed returns a `usize` PER EDGE via edges_ordered
+(the clone floor) → 1.55x marginal. degree-centrality-style functions returning a `String`+`f64` per node would
+be output-floored (~marginal) — don't bother.
+
 ## MARGINAL / SURFACE (cc, 2026-07-11, `a04d71fb5`): `is_semiconnected` integer condensation build **1.37x** — SCC + dense-topo floored (br-r37-c1-semiconn)
 
 Same clean bit-identical conversion (SCC condensation `HashMap<&str,usize>` node_to_scc + `successors()` allocs
