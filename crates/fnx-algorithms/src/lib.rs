@@ -36428,16 +36428,61 @@ pub fn generalized_degree_for(
     graph: &Graph,
     targets: &[&str],
 ) -> std::collections::HashMap<String, std::collections::HashMap<usize, usize>> {
+    // br-r37-c1-gdmark (cc): count triangles through each neighbour over the graph's
+    // INTEGER adjacency slices + a reusable mark array, instead of allocating a
+    // `Vec<&str>` per node/neighbour, building a `HashSet<&str>` per node, and
+    // String-hash-probing `nbr_set.contains(x)` in the O(|S|*deg²) loop. Byte-
+    // identical: `shared` is an integer intersection count (`x != node && x ∈ N(node)`),
+    // the degree distribution is an integer histogram, and self-loops are still
+    // counted as neighbours (matching the no-selfloop caller gate). Missing targets
+    // still map to an empty distribution, exactly as `neighbors().unwrap_or_default()`.
+    let n = graph.node_count();
     let mut result = std::collections::HashMap::new();
+    let mut mark = vec![false; n];
 
+    for &node in targets {
+        let mut degree_dist: std::collections::HashMap<usize, usize> =
+            std::collections::HashMap::new();
+        if let Some(node_idx) = graph.get_node_index(node) {
+            let nbrs = graph.neighbors_indices(node_idx).unwrap_or(&[]);
+            for &x in nbrs {
+                mark[x] = true;
+            }
+            for &nb in nbrs {
+                // Count triangles through this neighbor
+                let nb_nbrs = graph.neighbors_indices(nb).unwrap_or(&[]);
+                let shared = nb_nbrs
+                    .iter()
+                    .filter(|&&x| x != node_idx && mark[x])
+                    .count();
+                *degree_dist.entry(shared).or_insert(0) += 1;
+            }
+            for &x in nbrs {
+                mark[x] = false;
+            }
+        }
+        result.insert(node.to_owned(), degree_dist);
+    }
+
+    result
+}
+
+/// br-r37-c1-gdmark A/B baseline: the pre-lever generalized-degree kernel that
+/// allocated `Vec<&str>` neighbours, built a `HashSet<&str>` per node, and
+/// String-hash-probed `contains`. Test-only; byte-identical to
+/// `generalized_degree_for`.
+#[cfg(test)]
+fn generalized_degree_for_orig_string(
+    graph: &Graph,
+    targets: &[&str],
+) -> std::collections::HashMap<String, std::collections::HashMap<usize, usize>> {
+    let mut result = std::collections::HashMap::new();
     for &node in targets {
         let nbrs: Vec<&str> = graph.neighbors(node).unwrap_or_default();
         let nbr_set: std::collections::HashSet<&str> = nbrs.iter().copied().collect();
-
         let mut degree_dist: std::collections::HashMap<usize, usize> =
             std::collections::HashMap::new();
         for &nb in &nbrs {
-            // Count triangles through this neighbor
             let nb_nbrs: Vec<&str> = graph.neighbors(nb).unwrap_or_default();
             let shared = nb_nbrs
                 .iter()
@@ -36447,7 +36492,6 @@ pub fn generalized_degree_for(
         }
         result.insert(node.to_owned(), degree_dist);
     }
-
     result
 }
 
@@ -47276,6 +47320,99 @@ mod tests {
             );
         };
         println!("ALL_SIMPLE_PATHS_MARK_AB n={n} deg={deg} cutoff={cutoff:?} rounds={rounds} (>1 = integer+mark faster)");
+        report("MARK_vs_string", &paired(true, false));
+        report("NULL_mark_vs_mark", &paired(true, true));
+    }
+
+    /// br-r37-c1-gdmark: paired-interleaved median A/B for the integer-adjacency +
+    /// mark-array generalized_degree vs the old Vec<&str>/HashSet<&str> baseline,
+    /// in ONE binary / ONE worker with a NULL control. `#[ignore]` (measurement);
+    /// run with
+    /// `cargo test --release -p fnx-algorithms --lib generalized_degree_mark_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn generalized_degree_mark_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Pseudo-random ~20-deg graph on 400 nodes: generalized_degree is O(|V|*deg²)
+        // with a per-x String-hash `contains` (baseline) vs O(1) mark lookup (lever),
+        // plus the per-node/neighbour Vec<&str>+HashSet allocs the lever drops. Kept
+        // modest so the (slow) baseline arm finishes inside the remote SSH timeout.
+        let n = 400usize;
+        let deg = 20usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                let j = ((i as u64)
+                    .wrapping_mul(1_000_003)
+                    .wrapping_add((k as u64).wrapping_mul(97))
+                    % n as u64) as usize;
+                if j != i {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+                }
+            }
+        }
+        let nodes: Vec<&str> = g.nodes_ordered();
+
+        // Byte-exact parity: mark-array result == HashSet baseline result.
+        let prod = super::generalized_degree_for(&g, &nodes);
+        let base = super::generalized_degree_for_orig_string(&g, &nodes);
+        assert_eq!(prod, base, "generalized_degree must equal the HashSet baseline");
+
+        let time = |lever: bool| -> f64 {
+            let t0 = Instant::now();
+            for _ in 0..3 {
+                if lever {
+                    black_box(super::generalized_degree_for(&g, &nodes));
+                } else {
+                    black_box(super::generalized_degree_for_orig_string(&g, &nodes));
+                }
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 121usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "GENERALIZED_DEGREE_MARK_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("GENERALIZED_DEGREE_MARK_AB n={n} deg={deg} rounds={rounds} (>1 = mark-array faster)");
         report("MARK_vs_string", &paired(true, false));
         report("NULL_mark_vs_mark", &paired(true, true));
     }
