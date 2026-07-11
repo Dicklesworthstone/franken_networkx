@@ -18154,3 +18154,84 @@ gate cleanup is tracked separately as `br-r37-c1-q3j0s`.
 RESULT: SHIP. Preserve `materialize_flows = true` for every public max-flow
 surface; the skip is valid only for callers that consume the residual and
 witness while discarding the projected edge-flow vector.
+
+## 2026-07-11 WhiteJaguar SHIP (PATHFINDING, `shortest_path_weighted`): integer-index relaxation state — 1.854x same-worker median self-speedup (`br-r37-c1-y8914`)
+
+OWNERSHIP / SEAM: this is the existing Rust weighted-shortest-path Criterion
+row, not the previously rejected weighted `MultiGraph` Python-wrapper seam.
+It does not touch cc's CSR or centrality structural work, graph storage, or the
+already-landed equitable-coloring seam.
+
+PROFILE FIRST: a strict-remote `release-perf` pprof run exercised the current
+100-node weighted path implementation for 5,000 iterations (`0.8685 ms/iter`).
+Of 3,204 samples in `shortest_path_weighted`, 2,775 were in
+`edge_weight_or_default`; the string-keyed distance lookup/hash frames
+accounted for another 395 samples. Attribute decoding remained the dominant
+cost (`CgseValue::as_f64` / `and_then`: 1,608 samples), while named-edge lookup
+and canonical string-pair construction were also visible (`edge_attrs`: 1,167;
+`edge_pair_key`: 651). The temporary profile-only harness wiring was removed
+before the production edit; its SHA-256 returned exactly to
+`50682b49688426ee6090f65094fe155d2efd2611fd5d1ede7bda1daf1c6c48a0`.
+
+ONE LEVER: resolve source and target to their canonical node indices once and
+keep Dijkstra relaxation state in `Vec<f64>` / `Vec<usize>` plus an
+index-valued heap. Traverse the same stored adjacency row through
+`neighbors_indices`, read the same canonical edge attribute through
+`edge_attrs_by_indices`, perform the same `CgseValue::as_f64`, finite,
+nonnegative, and default-1.0 handling, and map indices back to names only for
+CGSE decisions and the returned path.
+
+BIT-IDENTICAL ARGUMENT: neighbor insertion order, floating-point additions,
+epsilon comparisons, FIFO sequence increments, heap ordering, early exit,
+nodes/edges/queue witness counters, CGSE chosen/rejected names, and path order
+are unchanged. A test-only copy of the pre-change string implementation is the
+oracle for 16 deterministic insertion-order graphs and all 11 x 11
+source/target pairs per graph: 1,936 exact `ShortestPathResult` comparisons.
+The fixtures cover `0`, `0.5`, `1`, `2.25`, `nan`, `inf`, negative, and
+unparseable weight attributes. Independent final diff review also confirmed
+that named and indexed traversal/edge lookup share the same adjacency rows and
+canonical edge key, while heap comparison depends only on distance and FIFO
+sequence.
+
+MEDIAN GATE: Criterion `median.point_estimate`, 31 samples, 1 s warm-up, 5 s
+measurement, both runs on remote worker `vmi1227854`:
+
+| run | median us (95% CI) | delta from baseline |
+|---|---:|---:|
+| baseline | 809.5422 (796.4081-830.2321) | — |
+| candidate | 436.7035 (424.0135-448.0046) | -46.0555%, 1.8538x |
+
+Criterion's paired median change estimate was -46.0555% with a
+[-48.0883%, -43.8724%] confidence interval, so the median keep gate clears
+without relying on the mean.
+
+STRICT REMOTE-ONLY: every authoritative Cargo profile, benchmark, check,
+clippy, and test command used this fail-closed prefix; no local Cargo command
+ran:
+
+```text
+RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo ...
+```
+
+RCH reported a degraded fleet (9 of 12 workers eligible). The requested
+profile worker pin was rerouted and therefore used only to rank samples, not as
+A/B timing evidence. Two full-test allocation attempts failed closed instead
+of falling back locally. The first workspace check was invalidated by a stale
+remote sibling checkout whose `ftui` version could not satisfy the workspace;
+the same strict command passed on `vmi1227854`.
+
+CORRECTNESS / GATES: strict-remote exact differential test passed 1/1 (1,936
+cases internally); strict-remote full `fnx-algorithms` library tests passed 926
+with 37 ignored; strict-remote workspace all-targets check passed. A
+strict-remote scoped clippy run denied all warnings and passed. The exact
+workspace clippy command reports only the already tracked, pre-existing
+`collapsible_if` and `doc_lazy_continuation` classes outside this diff
+(`br-r37-c1-q3j0s`). RCH does not admit non-compilation `cargo fmt --check`
+without local fallback, so direct `rustfmt --check` identified only four
+pre-existing file-wide formatting differences outside this lever;
+`git diff --check` passed. UBS ran with `UBS_SKIP_RUST_BUILD=1`, reported zero
+critical findings, and explicitly skipped local Cargo build/style phases.
+
+RESULT: SHIP. Preserve canonical node-index identity and the stored adjacency
+row order; do not sort neighbors, change epsilon or sequence semantics, or
+conflate this Rust relaxation-state lever with Python target-helper work.

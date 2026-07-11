@@ -1186,17 +1186,23 @@ pub fn shortest_path_weighted(
         };
     }
 
-    let mut predecessors: HashMap<&str, &str> = HashMap::new();
-    let mut distances: HashMap<&str, f64> = HashMap::new();
+    let source_idx = graph
+        .get_node_index(source)
+        .expect("source was checked above");
+    let target_idx = graph
+        .get_node_index(target)
+        .expect("target was checked above");
+    let mut predecessors = vec![usize::MAX; graph.node_count()];
+    let mut distances = vec![f64::INFINITY; graph.node_count()];
     let mut pq = BinaryHeap::new();
     let mut seq_counter: u64 = 0;
 
-    distances.insert(source, 0.0);
+    distances[source_idx] = 0.0;
     seq_counter += 1;
     pq.push(DijkstraState {
         dist: 0.0,
         seq: seq_counter,
-        node: source,
+        node: source_idx,
     });
 
     let mut nodes_touched = 1usize;
@@ -1207,27 +1213,167 @@ pub fn shortest_path_weighted(
         dist: d, node: u, ..
     }) = pq.pop()
     {
-        if d > *distances.get(u).unwrap_or(&f64::INFINITY) + DISTANCE_COMPARISON_EPSILON {
+        if d > distances[u] + DISTANCE_COMPARISON_EPSILON {
             continue;
         }
 
-        if u == target {
+        if u == target_idx {
             break;
         }
 
+        if let Some(neighbors) = graph.neighbors_indices(u) {
+            let u_name = graph.get_node_name(u).expect("node index must be valid");
+            for &v in neighbors {
+                edges_scanned += 1;
+                let weight = graph
+                    .edge_attrs_by_indices(u, v)
+                    .and_then(|attrs| attrs.get(weight_attr))
+                    .and_then(CgseValue::as_f64)
+                    .filter(|value| value.is_finite() && *value >= 0.0)
+                    .unwrap_or(1.0);
+                let next_dist = d + weight;
+                let current_dist = distances[v];
+
+                if next_dist < current_dist - DISTANCE_COMPARISON_EPSILON {
+                    if current_dist == f64::INFINITY {
+                        nodes_touched += 1;
+                    }
+                    distances[v] = next_dist;
+                    predecessors[v] = u;
+                    let v_name = graph.get_node_name(v).expect("node index must be valid");
+                    cgse_record_decision(&mut cgse_sink, v_name, u_name);
+                    seq_counter += 1;
+                    pq.push(DijkstraState {
+                        dist: next_dist,
+                        seq: seq_counter,
+                        node: v,
+                    });
+                    queue_peak = queue_peak.max(pq.len());
+                }
+            }
+        }
+    }
+
+    let path = if distances[target_idx] != f64::INFINITY {
+        let mut path_indices = vec![target_idx];
+        let mut cursor = target_idx;
+        while cursor != source_idx {
+            let predecessor = predecessors[cursor];
+            if predecessor == usize::MAX {
+                break;
+            }
+            path_indices.push(predecessor);
+            cursor = predecessor;
+        }
+        path_indices.reverse();
+        let rebuilt_path = path_indices
+            .into_iter()
+            .map(|index| {
+                graph
+                    .get_node_name(index)
+                    .expect("node index must be valid")
+                    .to_owned()
+            })
+            .collect::<Vec<_>>();
+        if rebuilt_path.first().map(String::as_str) == Some(source)
+            && rebuilt_path.last().map(String::as_str) == Some(target)
+        {
+            Some(rebuilt_path)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    cgse_publish(
+        CgseReferenceAlgorithm::Dijkstra,
+        graph.node_count(),
+        graph.edge_count(),
+        cgse_sink,
+    );
+
+    ShortestPathResult {
+        path,
+        witness: ComplexityWitness {
+            algorithm: "dijkstra_shortest_path".to_owned(),
+            complexity_claim: "O(|E| log |V|)".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak,
+        },
+    }
+}
+
+#[cfg(test)]
+fn shortest_path_weighted_string_reference(
+    graph: &Graph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> ShortestPathResult {
+    if !graph.has_node(source) || !graph.has_node(target) {
+        return ShortestPathResult {
+            path: None,
+            witness: ComplexityWitness {
+                algorithm: "dijkstra_shortest_path".to_owned(),
+                complexity_claim: "O(|V|^2 + |E|)".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    if source == target {
+        return ShortestPathResult {
+            path: Some(vec![source.to_owned()]),
+            witness: ComplexityWitness {
+                algorithm: "dijkstra_shortest_path".to_owned(),
+                complexity_claim: "O(|V|^2 + |E|)".to_owned(),
+                nodes_touched: 1,
+                edges_scanned: 0,
+                queue_peak: 1,
+            },
+        };
+    }
+
+    let mut predecessors: HashMap<&str, &str> = HashMap::new();
+    let mut distances: HashMap<&str, f64> = HashMap::new();
+    let mut pq = BinaryHeap::new();
+    let mut seq_counter = 0_u64;
+    distances.insert(source, 0.0);
+    seq_counter += 1;
+    pq.push(DijkstraState {
+        dist: 0.0,
+        seq: seq_counter,
+        node: source,
+    });
+
+    let mut nodes_touched = 1_usize;
+    let mut edges_scanned = 0_usize;
+    let mut queue_peak = 1_usize;
+    while let Some(DijkstraState {
+        dist: d, node: u, ..
+    }) = pq.pop()
+    {
+        if d > *distances.get(u).unwrap_or(&f64::INFINITY) + DISTANCE_COMPARISON_EPSILON {
+            continue;
+        }
+        if u == target {
+            break;
+        }
         if let Some(neighbors) = graph.neighbors_iter(u) {
             for v in neighbors {
                 edges_scanned += 1;
                 let weight = edge_weight_or_default(graph, u, v, weight_attr);
                 let next_dist = d + weight;
                 let current_dist = *distances.get(v).unwrap_or(&f64::INFINITY);
-
                 if next_dist < current_dist - DISTANCE_COMPARISON_EPSILON {
                     if distances.insert(v, next_dist).is_none() {
                         nodes_touched += 1;
                     }
                     predecessors.insert(v, u);
-                    cgse_record_decision(&mut cgse_sink, v, u);
                     seq_counter += 1;
                     pq.push(DijkstraState {
                         dist: next_dist,
@@ -1252,13 +1398,6 @@ pub fn shortest_path_weighted(
     } else {
         None
     };
-
-    cgse_publish(
-        CgseReferenceAlgorithm::Dijkstra,
-        graph.node_count(),
-        graph.edge_count(),
-        cgse_sink,
-    );
 
     ShortestPathResult {
         path,
@@ -52093,6 +52232,58 @@ mod tests {
         assert_eq!(left.witness, left_replay.witness);
         assert_eq!(right.path, right_replay.path);
         assert_eq!(right.witness, right_replay.witness);
+    }
+
+    #[test]
+    fn weighted_shortest_path_index_state_matches_string_reference_exactly() {
+        const NODE_COUNT: usize = 11;
+        const WEIGHTS: [&str; 8] = ["0", "0.5", "1", "2.25", "nan", "inf", "-3", "bogus"];
+
+        for seed in 0..16_u64 {
+            let mut graph = Graph::strict();
+            for offset in 0..NODE_COUNT {
+                let node = (offset * 7 + seed as usize) % NODE_COUNT;
+                assert!(
+                    graph.add_node(format!("n{node}")),
+                    "node add should insert a fresh node"
+                );
+            }
+
+            let mut state = seed ^ 0x9E37_79B9_7F4A_7C15;
+            for left in 0..NODE_COUNT {
+                for right in (left + 1)..NODE_COUNT {
+                    state = state
+                        .wrapping_mul(6_364_136_223_846_793_005)
+                        .wrapping_add(1_442_695_040_888_963_407);
+                    if state % 3 == 0 {
+                        continue;
+                    }
+                    let weight = WEIGHTS[(state as usize >> 8) % WEIGHTS.len()];
+                    graph
+                        .add_edge_with_attrs(
+                            format!("n{left}"),
+                            format!("n{right}"),
+                            attrs([("weight", weight)]),
+                        )
+                        .expect("edge add should succeed");
+                }
+            }
+
+            for source in 0..NODE_COUNT {
+                for target in 0..NODE_COUNT {
+                    let source = format!("n{source}");
+                    let target = format!("n{target}");
+                    let expected = super::shortest_path_weighted_string_reference(
+                        &graph, &source, &target, "weight",
+                    );
+                    let actual = shortest_path_weighted(&graph, &source, &target, "weight");
+                    assert_eq!(
+                        actual, expected,
+                        "seed={seed}, source={source}, target={target}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
