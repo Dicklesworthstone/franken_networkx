@@ -1,5 +1,33 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, modest): `greedy_modularity_communities` materialize edges once **1.1538x** (br-r37-c1-gmodmat)
+
+CNM is already integer-indexed, but its setup called `graph.edges_ordered_borrowed()` THREE times (m,
+degree, dq-init) — each a full `Vec<(&str,&str,&AttrMap)>` rebuild with a per-edge `edges.get(&(u,t))`
+HashMap lookup. Refactored into `..._impl(single_materialize)`: production materializes ONCE and the three
+setup passes reuse it (via a `for_each_edge!` macro); the merge loop is unchanged.
+
+PROFILE-first (n=5000, |E|=20050): the 2 redundant rebuilds were ~7.2% of runtime by the conservative
+`2·mat1` estimate — worth an A/B. MEASURED — 61 rounds:
+
+| paired A/B (>1 = materialize-once faster) | median | win_rate | p5_p95 |
+|---|---|---|---|
+| **MAT1_vs_MAT3** | **1.1538x** | **56/61** | [0.9648, 1.4251] |
+| NULL_mat1_vs_mat1 | 0.9983x | 29/61 | [0.8779, 1.1906] |
+
+MODEST, not clean: greedy_modularity total runtime is variable (heap merge loop) so the NULL is wide
+([0.88,1.19]) — candidate p5 (0.965) overlaps the null, so it does NOT clear the strict
+median>null-p95 gate. BUT the paired SIGN test is decisive: 56/61 won vs the null's 29/61; under H0
+P(≥56/61) < 1e-9. Direction certain, magnitude ~1.15x (±~15% from the wide null). Same tier as the
+shipped bfs_beam_edges 1.089x. BYTE-IDENTICAL by construction (production and baseline share the same
+`_impl`; `assert_eq!(impl(..true), impl(..false))` green). pyo3 calls this directly.
+
+**NEW lever family reopened — redundant same-graph `edges_ordered_borrowed()`/`edges_ordered()` rebuilds.**
+Sweep: the other multi-call sites materialize DIFFERENT graphs (graph_union/compose/symmetric_difference/
+cartesian_product/tensor_product/is_isomorphic — g1 vs g2, NOT redundant). greedy_modularity was the only
+same-graph 3× site. Remaining same-graph candidates to profile next: `edge_current_flow_betweenness`
+(2×, cc-lane), `is_planar` (2×), `spanner` (2×).
+
 ## SURFACE (cc, 2026-07-11): degree/centrality hot-path profile — kernels CONVERGED; only lever left is pyo3-layer & unmeasurable → HOLD
 
 Profile-first sweep of `in_degree_centrality` + adjacent degree/centrality hot paths (per the

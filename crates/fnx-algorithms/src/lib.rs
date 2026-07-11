@@ -24180,6 +24180,23 @@ pub fn greedy_modularity_communities(
     resolution: f64,
     weight_attr: &str,
 ) -> Vec<Vec<String>> {
+    // br-r37-c1-gmodmat: `single_materialize = true` folds the three setup passes'
+    // `edges_ordered_borrowed()` rebuilds (each a full `Vec<(&str,&str,&AttrMap)>` with a
+    // per-edge `edges.get(&(u,t))` HashMap lookup) into ONE materialization.
+    greedy_modularity_communities_impl(graph, resolution, weight_attr, true)
+}
+
+/// Inner impl for `greedy_modularity_communities`. `single_materialize` controls ONLY the
+/// setup edge-list rebuild: `true` (production) materializes `edges_ordered_borrowed()` once
+/// and the m/degree/dq passes reuse it; `false` (the pre-lever baseline, used by the A/B)
+/// rebuilds it per pass. The merge loop and result are identical, so the two paths are
+/// byte-identical by construction.
+fn greedy_modularity_communities_impl(
+    graph: &Graph,
+    resolution: f64,
+    weight_attr: &str,
+    single_materialize: bool,
+) -> Vec<Vec<String>> {
     let n = graph.node_count();
     if n == 0 {
         return Vec::new();
@@ -24190,15 +24207,36 @@ pub fn greedy_modularity_communities(
         nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
     let unweighted = weight_attr.is_empty();
 
+    // Materialize the edge list ONCE when single_materialize; otherwise each setup pass
+    // rebuilds it (the old behaviour). `edges_pass!()` yields the cached slice or a fresh
+    // rebuild bound to a per-pass temporary.
+    let cached_edges = if single_materialize {
+        Some(graph.edges_ordered_borrowed())
+    } else {
+        None
+    };
+    macro_rules! for_each_edge {
+        (|$left:ident, $right:ident| $body:block) => {{
+            match cached_edges.as_deref() {
+                Some(__e) => {
+                    for &($left, $right, _) in __e $body
+                }
+                None => {
+                    for ($left, $right, _) in graph.edges_ordered_borrowed() $body
+                }
+            }
+        }};
+    }
+
     // Compute m (total edge weight)
     let mut m = 0.0;
-    for (left, right, _) in graph.edges_ordered_borrowed() {
+    for_each_edge!(|left, right| {
         m += if unweighted {
             1.0
         } else {
             edge_weight_or_default(graph, left, right, weight_attr)
         };
-    }
+    });
 
     if m == 0.0 {
         return nodes.iter().map(|&nd| vec![nd.to_owned()]).collect();
@@ -24206,7 +24244,7 @@ pub fn greedy_modularity_communities(
 
     // Weighted degree (a_i = k_i / (2m))
     let mut degree = vec![0.0; n];
-    for (left, right, _) in graph.edges_ordered_borrowed() {
+    for_each_edge!(|left, right| {
         let w = if unweighted {
             1.0
         } else {
@@ -24220,7 +24258,7 @@ pub fn greedy_modularity_communities(
             degree[left_idx] += w;
             degree[right_idx] += w;
         }
-    }
+    });
     let a: Vec<f64> = degree.into_iter().map(|deg| deg / (2.0 * m)).collect();
 
     // Each node starts in its own community (indexed by node index).
@@ -24237,7 +24275,7 @@ pub fn greedy_modularity_communities(
 
     // Initialize delta-Q for each non-self edge. NetworkX scales undirected
     // weights as w / m and subtracts both directed degree-product terms.
-    for (left, right, _) in graph.edges_ordered_borrowed() {
+    for_each_edge!(|left, right| {
         let u = node_to_idx[left];
         let v = node_to_idx[right];
         if u != v {
@@ -24250,7 +24288,7 @@ pub fn greedy_modularity_communities(
             *dq[u].entry(v).or_insert(0.0) += delta;
             *dq[v].entry(u).or_insert(0.0) += delta;
         }
-    }
+    });
 
     // Use a BinaryHeap: (deltaQ, -(min(ci,cj)), -(max(ci,cj))) for deterministic tie-break
     use std::collections::BinaryHeap;
@@ -51346,6 +51384,104 @@ mod tests {
         println!("IDC_AB n={n} deg={deg} rounds={rounds} (>1 = no-alloc faster)");
         report("NOALLOC_vs_string", &paired(true, false));
         report("NULL_noalloc_vs_noalloc", &paired(true, true));
+    }
+
+    /// br-r37-c1-gmodmat: paired-interleaved median A/B for `greedy_modularity_communities`
+    /// with the edge list materialized ONCE (`single_materialize=true`, production) vs the
+    /// pre-lever 3× `edges_ordered_borrowed()` rebuild (`false`), in ONE binary / ONE worker
+    /// with a NULL control. The two paths run the SAME impl (bit-identical merge loop), so
+    /// the parity assert is exact. `#[ignore]` (measurement); run with
+    /// `cargo test --release -p fnx-algorithms --lib greedy_modularity_gmodmat_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn greedy_modularity_gmodmat_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // 50 communities of 100 nodes: dense within (ring + chords), sparse between,
+        // deterministic (no rng). Enough merges to exercise the O(E log E) heap loop so the
+        // setup's edge-rebuild share is measured against a realistic total.
+        let comms = 50usize;
+        let per = 100usize;
+        let n = comms * per;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for c in 0..comms {
+            let base = c * per;
+            for k in 0..per {
+                for step in [1usize, 2, 3, 5] {
+                    let a = base + k;
+                    let b = base + (k + step) % per;
+                    if a != b {
+                        let _ = g.add_edge(format!("n{a}"), format!("n{b}"));
+                    }
+                }
+            }
+        }
+        for c in 0..comms {
+            let a = c * per;
+            let b = ((c + 1) % comms) * per + 7;
+            let _ = g.add_edge(format!("n{a}"), format!("n{b}"));
+        }
+
+        // Byte-exact parity: materialize-once == 3×-rebuild.
+        assert_eq!(
+            super::greedy_modularity_communities_impl(&g, 1.0, "", true),
+            super::greedy_modularity_communities_impl(&g, 1.0, "", false),
+            "materialize-once greedy_modularity must equal the 3×-rebuild baseline"
+        );
+
+        let time = |lever: bool| -> f64 {
+            let t0 = Instant::now();
+            black_box(super::greedy_modularity_communities_impl(&g, 1.0, "", lever));
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "GMODMAT_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "GMODMAT_AB n={n} edges={} rounds={rounds} (>1 = materialize-once faster)",
+            g.edge_count()
+        );
+        report("MAT1_vs_MAT3", &paired(true, false));
+        report("NULL_mat1_vs_mat1", &paired(true, true));
     }
 
     /// br-r37-c1-sqcmark: paired-interleaved median A/B for the integer-adjacency +

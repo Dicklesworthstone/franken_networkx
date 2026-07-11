@@ -1,0 +1,5 @@
+scoped: cargo clippy -p fnx-algorithms --lib --tests -- -D warnings
+11 findings, ALL pre-existing (collapsible_if @22063 + doc_lazy_continuation @49138-51909), NONE in my ranges:
+  my production greedy_modularity_communities + _impl: 24178-~24420
+  my A/B test greedy_modularity_gmodmat_ab: 51397-~51500
+diff clippy-clean (macro compiled; no new finding).
