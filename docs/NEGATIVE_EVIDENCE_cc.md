@@ -1,5 +1,34 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SURFACE (cc, 2026-07-11): redundant-edge-materialization family — cc-lane candidates RESOLVED as non-levers → HOLD
+
+Profiled the three candidates the gmodmat entry flagged "to profile next". All non-levers:
+- **`is_planar`** (Rust kernel, `edges_ordered().len()` @ line ~26695): DEAD. The Python `is_planar`
+  shadows the pyo3 binding and routes through `check_planarity` (LR test) + its own Python
+  short-circuits; the Rust Euler-only kernel is unreachable (KNOWN GAP br-isplanarbroken). Like
+  trophic_differences.
+- **`edge_current_flow_betweenness_centrality`** (plain kernel @ ~43574): has a juicy O(n²)
+  redundancy — `edges_ordered()` rebuilt + `idx[..]` re-hashed + key re-canonicalized INSIDE the
+  `for s / for t` double loop — but the plain `_rust` binding is NEVER called from Python. The
+  reached kernel is `_nx_ordered` (@ ~45772), which ALREADY hoists edges once
+  (`sorted_current_flow_edges_ordered`) and runs an O(E·n) loop. So the redundancy is dead code.
+- **`spanner`** (2× `edges_ordered_borrowed` @ ~25202/25216): the two calls are in mutually-exclusive
+  branches (`if k<=1` trivial-stretch vs the k>1 main path). Not redundant.
+
+A broader "materialize-in-loop" sweep (nodes_ordered/edges_ordered indented ≥12, inside a for/while)
+found only: graph-MUTATING loops where re-reading is REQUIRED (`double_edge_swap_seeded`,
+`directed_edge_swap_seeded`, `dorogovtsev_goltsev_mendes_graph` — edges change each iteration, NOT
+redundant, also off-lane generators), and `normalize_arborescence_partition` (a genuine O(V·E)
+`edges_ordered()`-in-for-node redundancy, but it is the Edmonds constrained-branching partition
+enumeration machinery — cod's spanning/flow-adjacent lane, and Amdahl-drowned by the exponential
+`ArborescenceIterator` parent). Flagged for cod, not claimed.
+
+Net: the redundant-edge-materialization family is exhausted for cc lane after greedy_modularity
+(1.15x, shipped). HOLD — no clean, live, in-lane lever remaining across the structural families
+([[neighbors_len_vec_alloc_lever]] MINED OUT, string→int + power-iteration exhausted, degree/centrality
+kernels converged). Remaining leverage is architectural (MultiGraph integer-adjacency `br-r37-c1-thp6w`,
+ISA dense-linalg `br-r37-c1-2zn1u`).
+
 ## SHIPPED WIN (cc, 2026-07-11, modest): `greedy_modularity_communities` materialize edges once **1.1538x** (br-r37-c1-gmodmat)
 
 CNM is already integer-indexed, but its setup called `graph.edges_ordered_borrowed()` THREE times (m,
