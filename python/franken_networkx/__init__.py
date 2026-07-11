@@ -49021,9 +49021,11 @@ def equitable_color(G, num_colors):
     neighborhoods = {node: [] for node in working_nodes}
     coloring = {node: idx % num_colors for idx, node in enumerate(working_nodes)}
     color_classes = _equitable_make_C_from_F_local(coloring)
-    color_neighbor_counts = _equitable_make_N_from_L_C_local(
-        neighborhoods, color_classes
-    )
+    color_neighbor_counts = {
+        (node, color): 0
+        for node in neighborhoods
+        for color in color_classes
+    }
     witness_graph = _equitable_make_H_from_C_N_local(
         color_classes, color_neighbor_counts
     )

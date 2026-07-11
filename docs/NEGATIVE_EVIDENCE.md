@@ -17996,3 +17996,82 @@ justify either a keep or a performance rejection. Resume `br-r37-c1-jxvu6`
 only when strict RCH can assign a worker, rerun the current-source profile and
 31-sample median baseline first, then test exactly the zero-table initialization
 as the sole lever.
+
+## 2026-07-11 Codex SHIP (PY WRAPPER, `equitable_color`): construct the known-empty neighbor-count table directly — 1.222x same-worker median self-speedup (`br-r37-c1-jxvu6`)
+
+OWNERSHIP / SEAM: this is a coloring/Python-wrapper lever. It edits only the
+`equitable_color` initialization in `python/franken_networkx/__init__.py`; it
+does not touch cc's CSR, centrality, clustering, or integer-adjacency work. This
+row supersedes the no-slot SURFACE immediately above after strict RCH recovered.
+
+PROFILE FIRST: a fresh 32-call `cProfile` run on the deterministic 1,000-node
+4-regular circulant attributed 36.045% self time to `equitable_color`, 16.097%
+to `_equitable_make_N_from_L_C_local`, 11.451% to `builtins.sum`, and 6.848%
+to the helper's generator expression. At this call site every neighborhood list
+is freshly created and empty, so the helper, sums, and generators only prove
+zero once for every node/color pair. The selected lever removes that measured
+work without changing the later coloring algorithm.
+
+ONE LEVER: replace the call that derives `color_neighbor_counts` from the known
+empty `neighborhoods` with the same node-major/color-minor dictionary
+comprehension initialized to literal integer zero. The generic helper remains
+unchanged for every other caller.
+
+BIT-IDENTICAL ARGUMENT:
+
+- For every key, the old expression is `sum(1 for v in [] if ...)`, whose exact
+  built-in-integer result is `0`; the replacement stores that same exact `int`.
+- The comprehension iterates `neighborhoods` outside `color_classes`, preserving
+  the old helper's insertion order and therefore the observable dictionary order.
+- It iterates the actual `color_classes` keys rather than `range(num_colors)`,
+  preserving the existing K1/padding quirk and any non-contiguous key behavior.
+- All subsequent edge-count updates, witness construction, tie iteration, and
+  returned coloring logic are untouched. No float operation or RNG state moves.
+
+MEDIAN GATE: Criterion `median.point_estimate` from `estimates.json`, 31 samples,
+1 s warm-up, 5 s measurement, `PYTHONHASHSEED=0`, one OMP/OpenBLAS thread.
+Baseline, unchanged null, and candidate all ran remotely on `vmi1152480`, CPU 9:
+
+| run | FNX median ms (95% CI) | NetworkX median ms | NX / FNX |
+|---|---:|---:|---:|
+| baseline | 11.0395 (10.6689-11.6630) | 13.5259 | 1.2252x |
+| unchanged null | 15.8139 (14.7327-17.8811) | 18.8044 | 1.1891x |
+| candidate | 9.0362 (8.1787-9.3483) | 11.9162 | 1.3187x |
+
+Both arms slowed together in the null, so absolute null drift is large. Against
+the faster baseline, however, the candidate's FNX median improves by 18.15%, or
+1.2217x, with non-overlapping median confidence intervals. Its NX/FNX ratio also
+improves 7.63% over the better control ratio, so the win is not explained by the
+host-wide drift. Against the null it is 1.7501x faster. The median keep gate clears.
+
+FINAL REMOTE CONFIRMATION: RCH did not honor the requested worker pin and assigned
+`vmi1227854`, CPU 9, so this run is deliberately not used as causal A/B evidence.
+It compiled the shipping source from a cold cache, passed the benchmark's full
+ordered 1,000-node NetworkX comparison and an injected 50-seed randomized ordered
+comparison, then reported JSON medians of 5.6603 ms FNX
+(`5.4678-6.0165`) and 10.2306 ms NetworkX (`9.8710-12.9766`), a 1.8074x
+within-run advantage. The temporary randomized import hook was then removed;
+the existing permanent parity tests remain, and the production lever was unchanged.
+
+STRICT REMOTE-ONLY COMMAND (all profile, baseline, null, candidate, and final
+Cargo invocations used this prefix; no local Cargo command ran):
+
+```text
+RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo bench
+-p fnx-python --bench public_api_gauntlet equitable_color_circulant_1000 --
+--sample-size 31 --warm-up-time 1 --measurement-time 5 --noplot
+```
+
+CORRECTNESS / GATES: the final strict-remote build and benchmark exited zero;
+ordered 1,000-node parity and all 50 randomized ordered comparisons passed.
+Python byte-compilation and `git diff --check` passed. UBS's full analyzer timed
+out on the 60k-line facade at its 180-second bound; the core scan with security
+and extra analyzer packs skipped completed with zero critical findings (its
+repository-wide heuristic warnings predate and do not identify this four-line
+change). Normal local pytest correctly refused the stale in-tree extension
+because Rust sources are newer; strict remote-only policy forbade rebuilding it
+locally, so no stale-binary result was accepted as proof.
+
+RESULT: SHIP. Preserve the actual `color_classes` iteration and node-major key
+order; do not replace it with `range(num_colors)` or move any later update/tie
+logic into this optimization.
