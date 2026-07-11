@@ -1,5 +1,51 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SURFACE (cc, 2026-07-11): `br-r37-c1-thp6w` MultiGraph integer-adjacency = a genuine multi-slice EPOCH, NOT a single safe lever — profiled, scoped, HOLD for a dedicated effort
+
+Took on the P1 MultiGraph integer-adjacency bead. PROFILE-first + scope analysis both say: high-value
+but it is an EPOCH (the MultiGraph equivalent of the Graph `br-r37-c1-d58s8` epoch, itself multi-slice),
+not a "ONE lever, byte-identical, one-session" change.
+
+**PROFILE (fnx-classes, n=20000, ~400k adjacency slots, 50 passes):** current MultiGraph has NO
+`adj_indices` mirror (unlike `Graph`, whose String rows are GONE post-d58s8), so a neighbor→index
+resolve costs a `get_node_index` String hash per neighbor. String neighbor-index traversal = **3.036s
+for 20M lookups (~150 ns/lookup)**. Building the integer mirror once = **0.064s ≈ ONE string traversal**.
+So a MAINTAINED (live) mirror makes every subsequent query near-free — a maintained-mirror win of 100x+
+on neighbor-index-traversal-bound MultiGraph ops (the raw 18000x print was inflated by the optimizer
+eliding the int arm; the solid numbers are the 150 ns/lookup string cost and the ~1-traversal build).
+
+**Why it is NOT a single safe session lever (SHIP path rejected):**
+1. It is the *live-mirror* model that delivers the win. An *on-demand per-op* mirror (the safe
+   "resolve-once" pattern) is only BREAK-EVEN for single-traversal ops (build ≈ 1 traversal) — it wins
+   only for ITERATIVE MultiGraph-native ops, which are rare (most cc algos project MultiGraph→Graph,
+   already integer). So the safe/cheap slice does NOT capture the win.
+2. The live mirror requires maintaining `adj_indices` across **13 `self.adjacency` mutation sites**
+   (add_node, add_edge ×several, remove_edge, remove_node, clear…) PLUS the node-removal **renumber**
+   (shift_remove renumbers indices; must drop refs to the removed idx + decrement shifted ones — the
+   Graph pattern at lib.rs:1881-1897 is the template, but on a MORE complex type with parallel
+   edges/keys).
+3. **Slice-1-alone (add the mirror) is a REGRESSION** — added per-mutation maintenance, zero read
+   benefit until hot ops are routed through `neighbors_indices`. A shippable WIN needs the mirror AND a
+   routed hot op BUNDLED, net-positive on a specific benchmark.
+4. It is SHARED core storage (49k tests, cod's bidirectional-dijkstra residual — the bead's own stated
+   target is cod-lane). A silent mirror-desync bug corrupts traversals across the whole codebase, and
+   that cannot be safely validated on the current flaky (ftui) remote fleet in one session.
+
+**Recommended slice plan (dedicated multi-commit epoch, mirror the d58s8 slicing):**
+- Slice 1: add `adj_indices: Vec<Vec<usize>>` + `neighbors_indices(idx)->&[usize]` to MultiGraph;
+  maintain across all 13 mutation sites + the remove renumber; gate with an invariant test extending
+  `assert_multigraph_core_invariants` (adj_indices row == [get_node_index(v) for v in adjacency[u].keys()]
+  after every op). Validate against the full MultiGraph suite. (No perf claim — infrastructure.)
+- Slice 2: route the bidirectional-dijkstra MultiGraph residual (cod) + the mg edge/degree read paths
+  through `neighbors_indices`; A/B each. This is where the win lands.
+- Slice 3+: consider the deeper d58s8-style flip (edges keyed by index-pairs) if the mirror alone
+  doesn't close mg_selfloop 0.262x / mdg_out_edges 0.391x ([[h2h_loss_cluster_is_intadj_floor]]).
+
+HOLD as cc: slice 2's payoff is cod-lane (dijkstra) and the change is shared core storage — best owned
+by whoever owns core storage / coordinated with cod, done slice-by-slice with full validation, not a
+single-session half-epoch. Profiling confirms it is WORTH doing (100x+ maintained-mirror win) — this is
+a prioritization + ownership call, not a "no win here" surface.
+
 ## SURFACE (cc, 2026-07-11): redundant-edge-materialization family — cc-lane candidates RESOLVED as non-levers → HOLD
 
 Profiled the three candidates the gmodmat entry flagged "to profile next". All non-levers:
