@@ -35632,7 +35632,16 @@ pub fn voronoi_cells(
     let idx: std::collections::HashMap<&str, usize> =
         nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
 
-    // Multi-source BFS
+    // br-r37-c1-voronoi (cc): the multi-source BFS walked `graph.neighbors(nodes[v])`
+    // (a fresh `Vec<&str>` alloc per pop) and re-hashed each neighbour name through
+    // `idx` to recover its index. Walk `graph.neighbors_indices(v)` directly (integer
+    // neighbours, no alloc, no hash) — `idx` never rejected a neighbour (every
+    // neighbour is a node), so every neighbour index is visited exactly as before.
+    // `idx` is still used to resolve the `center_nodes` names to indices.
+    // Byte-identical: `neighbors_indices(v)` yields the same neighbour set in the
+    // same adjacency order as `neighbors(nodes[v])`, so the FIFO BFS traversal order
+    // — and thus the nearest-center tie-break on equidistant nodes — is unchanged;
+    // `dist`/`nearest` are integer-indexed already.
     let mut nearest: Vec<Option<usize>> = vec![None; n];
     let mut dist = vec![usize::MAX; n];
     let mut queue = std::collections::VecDeque::new();
@@ -35647,11 +35656,9 @@ pub fn voronoi_cells(
 
     while let Some(v) = queue.pop_front() {
         let d = dist[v];
-        if let Some(nbrs) = graph.neighbors(nodes[v]) {
-            for nb in nbrs {
-                if let Some(&ni) = idx.get(nb)
-                    && dist[ni] > d + 1
-                {
+        if let Some(nbrs) = graph.neighbors_indices(v) {
+            for &ni in nbrs {
+                if dist[ni] > d + 1 {
                     dist[ni] = d + 1;
                     nearest[ni] = nearest[v];
                     queue.push_back(ni);
@@ -35685,6 +35692,71 @@ pub fn voronoi_cells(
         }
     }
 
+    cells
+}
+
+/// br-r37-c1-voronoi A/B baseline: the pre-lever multi-source BFS that called
+/// `graph.neighbors(nodes[v])` (`Vec<&str>` alloc per pop) and re-hashed each
+/// neighbour name through `idx`. Test-only; byte-identical to `voronoi_cells`.
+#[cfg(test)]
+fn voronoi_cells_orig_string(
+    graph: &Graph,
+    center_nodes: &[&str],
+) -> std::collections::HashMap<String, Vec<String>> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let idx: std::collections::HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+
+    let mut nearest: Vec<Option<usize>> = vec![None; n];
+    let mut dist = vec![usize::MAX; n];
+    let mut queue = std::collections::VecDeque::new();
+
+    for (ci, &center) in center_nodes.iter().enumerate() {
+        if let Some(&node_idx) = idx.get(center) {
+            nearest[node_idx] = Some(ci);
+            dist[node_idx] = 0;
+            queue.push_back(node_idx);
+        }
+    }
+
+    while let Some(v) = queue.pop_front() {
+        let d = dist[v];
+        if let Some(nbrs) = graph.neighbors(nodes[v]) {
+            for nb in nbrs {
+                if let Some(&ni) = idx.get(nb)
+                    && dist[ni] > d + 1
+                {
+                    dist[ni] = d + 1;
+                    nearest[ni] = nearest[v];
+                    queue.push_back(ni);
+                }
+            }
+        }
+    }
+
+    let mut cells: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for &center in center_nodes {
+        cells.insert(center.to_owned(), Vec::new());
+    }
+    let unreachable_key = "unreachable".to_owned();
+    for (i, &node) in nodes.iter().enumerate() {
+        match nearest[i] {
+            Some(ci) => {
+                cells
+                    .entry(center_nodes[ci].to_owned())
+                    .or_default()
+                    .push(node.to_owned());
+            }
+            None => {
+                cells
+                    .entry(unreachable_key.clone())
+                    .or_default()
+                    .push(node.to_owned());
+            }
+        }
+    }
     cells
 }
 
@@ -47666,6 +47738,105 @@ mod tests {
             );
         };
         println!("CLVIT_AB n={n} deg={deg} rounds={rounds} (>1 = integer-BFS faster)");
+        report("INT_vs_string", &paired(true, false));
+        report("NULL_int_vs_int", &paired(true, true));
+    }
+
+    /// br-r37-c1-voronoi: paired-interleaved median A/B for the integer-adjacency
+    /// multi-source BFS `voronoi_cells` vs the old `graph.neighbors()` (`Vec<&str>`)
+    /// + `idx.get` String baseline, in ONE binary / ONE worker with a NULL control.
+    /// `#[ignore]` (measurement); run with
+    /// `cargo test --release -p fnx-algorithms --lib voronoi_cells_voronoi_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn voronoi_cells_voronoi_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Moderate-degree pseudo-random graph on 1500 nodes with a handful of
+        // spread-out centers: the single multi-source BFS pops ~V nodes and scans
+        // ~E edges, so the per-pop `Vec<&str>` alloc + per-neighbour `idx.get` String
+        // hash (baseline) vs the zero-alloc integer walk (lever) dominate.
+        let n = 1500usize;
+        let deg = 10usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n.saturating_sub(1) {
+            let _ = g.add_edge(format!("n{i}"), format!("n{}", i + 1));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                let j = ((i as u64)
+                    .wrapping_mul(1_000_003)
+                    .wrapping_add((k as u64).wrapping_mul(97))
+                    % n as u64) as usize;
+                if j != i {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+                }
+            }
+        }
+        let centers: Vec<&str> = vec!["n0", "n300", "n600", "n900", "n1200"];
+
+        // Byte-exact parity: integer BFS cells == String baseline cells.
+        let mark = super::voronoi_cells(&g, &centers);
+        let base = super::voronoi_cells_orig_string(&g, &centers);
+        assert_eq!(
+            mark, base,
+            "integer voronoi_cells must equal the String baseline"
+        );
+
+        let time = |lever: bool| -> f64 {
+            let t0 = Instant::now();
+            for _ in 0..3 {
+                if lever {
+                    black_box(super::voronoi_cells(&g, &centers));
+                } else {
+                    black_box(super::voronoi_cells_orig_string(&g, &centers));
+                }
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 121usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "VORONOI_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("VORONOI_AB n={n} deg={deg} rounds={rounds} (>1 = integer-BFS faster)");
         report("INT_vs_string", &paired(true, false));
         report("NULL_int_vs_int", &paired(true, true));
     }

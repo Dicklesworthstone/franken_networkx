@@ -1,0 +1,4 @@
+VORONOI_AB n=1500 deg=10 rounds=121 (>1 = integer-BFS faster)
+VORONOI_AB INT_vs_string: median=4.1450x win_rate=121/121 p5_p95=[3.8364,4.5101]
+VORONOI_AB NULL_int_vs_int: median=1.0022x win_rate=63/121 p5_p95=[0.8660,1.1209]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 938 filtered out; finished in 0.60s
