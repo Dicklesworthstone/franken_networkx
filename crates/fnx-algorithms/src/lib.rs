@@ -7277,7 +7277,7 @@ pub fn max_flow_edmonds_karp(
     sink: &str,
     capacity_attr: &str,
 ) -> Result<MaxFlowResult, FlowError> {
-    let computation = compute_max_flow_residual(graph, source, sink, capacity_attr)?;
+    let computation = compute_max_flow_residual(graph, source, sink, capacity_attr, true)?;
     Ok(MaxFlowResult {
         value: computation.value,
         flows: computation.flows,
@@ -7291,7 +7291,7 @@ pub fn max_flow_edmonds_karp_directed(
     sink: &str,
     capacity_attr: &str,
 ) -> Result<MaxFlowResult, FlowError> {
-    let computation = compute_max_flow_residual(digraph, source, sink, capacity_attr)?;
+    let computation = compute_max_flow_residual(digraph, source, sink, capacity_attr, true)?;
     Ok(MaxFlowResult {
         value: computation.value,
         flows: computation.flows,
@@ -8069,7 +8069,7 @@ fn compute_minimum_cut_edmonds_karp<G: FlowGraphView>(
         });
     }
 
-    let computation = compute_max_flow_residual(graph, source, sink, capacity_attr)?;
+    let computation = compute_max_flow_residual(graph, source, sink, capacity_attr, false)?;
     let mut reverse_residual = HashMap::<String, Vec<String>>::new();
     for node in &ordered_nodes {
         reverse_residual.entry(node.clone()).or_default();
@@ -8148,6 +8148,7 @@ fn compute_max_flow_residual<G: FlowGraphView>(
     source: &str,
     sink: &str,
     capacity_attr: &str,
+    materialize_flows: bool,
 ) -> Result<FlowComputation, FlowError> {
     if !graph.has_flow_node(source) {
         return Err(FlowError::NodeNotFound(source.to_owned()));
@@ -8302,9 +8303,15 @@ fn compute_max_flow_residual<G: FlowGraphView>(
         residual.insert(key_of[u].clone(), m);
     }
 
+    let flows = if materialize_flows {
+        flow_edges_from_residual(graph, &residual, capacity_attr)
+    } else {
+        Vec::new()
+    };
+
     Ok(FlowComputation {
         value: total_flow,
-        flows: flow_edges_from_residual(graph, &residual, capacity_attr),
+        flows,
         residual,
         witness: ComplexityWitness {
             algorithm: "edmonds_karp_max_flow".to_owned(),
@@ -47684,6 +47691,7 @@ mod tests {
         CgseValue,
         ChordalGraphTreewidthError,
         ComplexityWitness,
+        FlowComputation,
         FlowEdgeValue,
         FlowError,
         GraphMLWriterConfig,
@@ -47731,6 +47739,7 @@ mod tests {
         bellman_ford_path_length,
         bellman_ford_shortest_paths,
         bellman_ford_shortest_paths_directed,
+        compute_max_flow_residual,
         betweenness_centrality,
         betweenness_centrality_directed_with_params,
         betweenness_centrality_with_params,
@@ -52353,6 +52362,50 @@ mod tests {
             .expect("flow algorithm should succeed");
         assert!((left.value - right.value).abs() <= TEST_TOLERANCE);
         assert_eq!(left.witness, right.witness);
+    }
+
+    #[test]
+    fn omitting_flow_projection_preserves_residual_bits_and_witness() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("s", "a", attrs([("capacity", "4")]))
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("s", "b", attrs([("capacity", "2")]))
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "b", attrs([("capacity", "1")]))
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "t", attrs([("capacity", "2")]))
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("b", "t", attrs([("capacity", "3")]))
+            .expect("edge add should succeed");
+
+        let with_flows = compute_max_flow_residual(&graph, "s", "t", "capacity", true)
+            .expect("flow algorithm should succeed");
+        let without_flows = compute_max_flow_residual(&graph, "s", "t", "capacity", false)
+            .expect("flow algorithm should succeed");
+        let residual_bits = |computation: &FlowComputation| {
+            computation
+                .residual
+                .iter()
+                .map(|(source, row)| {
+                    let row_bits = row
+                        .iter()
+                        .map(|(target, capacity)| (target.clone(), capacity.to_bits()))
+                        .collect::<BTreeMap<String, u64>>();
+                    (source.clone(), row_bits)
+                })
+                .collect::<BTreeMap<String, BTreeMap<String, u64>>>()
+        };
+
+        assert_eq!(with_flows.value.to_bits(), without_flows.value.to_bits());
+        assert_eq!(residual_bits(&with_flows), residual_bits(&without_flows));
+        assert_eq!(with_flows.witness, without_flows.witness);
+        assert!(!with_flows.flows.is_empty());
+        assert!(without_flows.flows.is_empty());
     }
 
     #[test]

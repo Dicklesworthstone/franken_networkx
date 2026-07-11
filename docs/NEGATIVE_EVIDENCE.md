@@ -18075,3 +18075,82 @@ locally, so no stale-binary result was accepted as proof.
 RESULT: SHIP. Preserve the actual `color_classes` iteration and node-major key
 order; do not replace it with `range(num_colors)` or move any later update/tie
 logic into this optimization.
+
+## 2026-07-11 WhiteJaguar SHIP (FLOW, `minimum_cut`): skip the unused flow-vector projection — 1.286x same-worker median self-speedup (`br-r37-c1-xyj0w`)
+
+OWNERSHIP / SEAM: this is an Edmonds-Karp minimum-cut lever in the flow lane.
+It does not alter cc's CSR or integer-adjacency structural work. Public max-flow
+still materializes its edge-flow result; only the private minimum-cut call,
+which consumes the residual graph and witness but never reads that projection,
+opts out.
+
+PROFILE FIRST: a strict-remote `release-perf` pprof run on the existing
+minimum-cut implementation used a deterministic 1,000-node, 4,000-edge graph
+for 1,000 iterations (`3.7450 ms/iter`). Of the 2,207 samples attributed to
+`compute_minimum_cut_edmonds_karp`, 2,051 were in
+`compute_max_flow_residual` and 618 were in `flow_edges_from_residual`.
+The dead projection therefore accounted for 28.0% of the measured minimum-cut
+samples and cleared the opportunity threshold before any production edit.
+
+ONE LEVER: add a private `materialize_flows` choice to
+`compute_max_flow_residual`. Both public max-flow entry points pass `true` and
+retain their existing result construction. The sole minimum-cut caller passes
+`false`, replacing only its unused edge-flow vector with an empty vector after
+the exact same augmentation loop and residual construction have completed.
+
+BIT-IDENTICAL ARGUMENT: the lever does not move or change any capacity lookup,
+floating-point operation, residual update, traversal order, partition search,
+or complexity-witness construction. A focused regression runs the same graph
+through both private modes and compares the max-flow value with `to_bits()`,
+every residual capacity with `to_bits()`, and the full witness for exact
+equality. It also proves that the materialized mode remains populated while the
+minimum-cut mode omits only the unused vector. The existing 21 Edmonds-Karp
+tests and the complete algorithm crate test suite remain unchanged in outcome.
+
+MEDIAN GATE: Criterion `median.point_estimate`, 31 samples, 1 s warm-up, 5 s
+measurement, with both minimum-cut arms on remote worker `vmi1227854`:
+
+| run | median us (95% CI) | delta from baseline |
+|---|---:|---:|
+| baseline | 70.1136 (67.0082-73.8506) | — |
+| candidate | 54.5017 (52.2148-55.8228) | -22.27%, 1.2865x |
+
+Criterion's paired median change estimate was -22.2665% with a
+[-27.1144%, -17.1283%] confidence interval, so the median keep gate clears
+without relying on the mean. As a guard, the public max-flow row still took the
+materializing path and Criterion detected no change: candidate median
+52.2153 us (50.2699-53.1362), median change +2.63% with a confidence interval
+from -3.30% to +7.92% (`p=0.21`).
+
+STRICT REMOTE-ONLY: every authoritative Cargo profile, benchmark, check,
+clippy, and test command used this fail-closed prefix; no local Cargo result is
+accepted as evidence:
+
+```text
+RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo ...
+```
+
+RCH reported a degraded fleet (9 of 12 workers eligible) and one full-test
+allocation attempt failed closed rather than falling back locally; the command
+was retried only after a remote worker became available. The temporary
+profile-only harness wiring and sentinel were removed before the production
+change and verified absent from the final diff. UBS later launched Cargo inside
+its own isolated local shadow workspace despite this policy; those shadow
+checks are explicitly excluded from the proof bundle.
+
+CORRECTNESS / GATES: strict-remote focused bit-parity test passed 1/1;
+strict-remote Edmonds-Karp tests passed 21/21; strict-remote full
+`fnx-algorithms` library tests passed 925 with 37 ignored; strict-remote
+workspace all-targets check passed. Strict clippy found only the already
+committed `collapsible_if` and `doc_lazy_continuation` findings outside this
+diff; a strict-remote rerun allowing exactly those two pre-existing lint classes
+passed with all other warnings denied. RCH refused the exact `cargo fmt --check`
+request as a non-compilation command rather than falling back locally; a direct
+`rustfmt --check` isolated two existing diffs outside this patch, and
+`git diff --check` passed. UBS reported zero critical findings; its file-wide
+heuristic backlog is not introduced by this change. The pre-existing workspace
+gate cleanup is tracked separately as `br-r37-c1-q3j0s`.
+
+RESULT: SHIP. Preserve `materialize_flows = true` for every public max-flow
+surface; the skip is valid only for callers that consume the residual and
+witness while discarding the projected edge-flow vector.
