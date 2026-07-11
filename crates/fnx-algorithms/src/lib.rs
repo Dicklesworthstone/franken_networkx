@@ -31802,6 +31802,51 @@ fn node_degree(graph: &Graph, node: &str) -> usize {
 /// Every pair of distinct vertices has exactly one directed edge.
 #[must_use]
 pub fn is_tournament(digraph: &DiGraph) -> bool {
+    let n = digraph.node_count();
+    if n <= 1 {
+        return digraph.edge_count() == 0;
+    }
+    let expected_edges = n * (n - 1) / 2;
+
+    // br-r37-c1-tourn (cc): snapshot integer successor sets ONCE. The old kernel
+    // called `digraph.successors(nodes[i])` (a `Vec<&str>` alloc) INSIDE the O(V²)
+    // pair loop — freshly for the i-side and the j-side of every pair — then
+    // linear-searched with `s.contains(&nodes[j])` (String comparison), making it
+    // O(V³) with O(V²) allocations. Snapshot `Vec<HashSet<usize>>` of successor
+    // indices and probe membership in O(1). Byte-identical: the out-degree sum,
+    // `expected_edges`, and the `has_ij`/`has_ji` booleans (`j ∈ succ(i)` /
+    // `i ∈ succ(j)`) are the same, so the pure structural true/false result is
+    // unchanged (a simple DiGraph → `HashSet::len` == `successors().len`).
+    let succ_sets: Vec<std::collections::HashSet<usize>> = (0..n)
+        .map(|i| {
+            digraph
+                .successors_indices(i)
+                .map(|s| s.iter().copied().collect())
+                .unwrap_or_default()
+        })
+        .collect();
+
+    let edge_count: usize = succ_sets.iter().map(std::collections::HashSet::len).sum();
+    if edge_count != expected_edges {
+        return false;
+    }
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let has_ij = succ_sets[i].contains(&j);
+            let has_ji = succ_sets[j].contains(&i);
+            if has_ij == has_ji {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// br-r37-c1-tourn A/B baseline: the pre-lever `is_tournament` that called
+/// `digraph.successors(nodes[..])` (`Vec<&str>` alloc) inside the O(V²) pair loop and
+/// linear-searched with `contains`. Test-only; byte-identical to `is_tournament`.
+#[cfg(test)]
+fn is_tournament_orig_string(digraph: &DiGraph) -> bool {
     let nodes = digraph.nodes_ordered();
     let n = nodes.len();
     if n <= 1 {
@@ -49661,6 +49706,117 @@ mod tests {
         println!("NDXYDIR_AB n={n} deg={deg} rounds={rounds} (>1 = no-alloc faster)");
         report("NOALLOC_vs_alloc", &paired(true, false));
         report("NULL_noalloc_vs_noalloc", &paired(true, true));
+    }
+
+    /// br-r37-c1-tourn: paired-interleaved median A/B for the snapshot-successor-set
+    /// `is_tournament` vs the old per-pair `successors()` (`Vec<&str>`) + linear
+    /// `contains` baseline, in ONE binary / ONE worker with a NULL control.
+    /// `#[ignore]` (measurement); run with
+    /// `cargo test --release -p fnx-algorithms --lib is_tournament_tourn_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn is_tournament_tourn_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Transitive tournament on n=300 (edge i->j for every i<j): is_tournament runs
+        // the FULL O(V²) pair loop and returns true. The baseline allocs a Vec<&str>
+        // of successors and linear-searches it per pair-side (O(V³)); the lever probes
+        // pre-snapshotted integer successor sets in O(1).
+        let n = 300usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+            }
+        }
+
+        // Parity across the true path (tournament) and both false paths: a
+        // non-tournament (missing an edge) and a graph with a 2-cycle (has_ij==has_ji).
+        let mut missing = DiGraph::strict();
+        for i in 0..20usize {
+            let _ = missing.add_node(format!("m{i}"));
+        }
+        for i in 0..20usize {
+            for j in (i + 1)..20usize {
+                if !(i == 0 && j == 1) {
+                    let _ = missing.add_edge(format!("m{i}"), format!("m{j}"));
+                }
+            }
+        }
+        let mut bidir = DiGraph::strict();
+        for i in 0..20usize {
+            let _ = bidir.add_node(format!("b{i}"));
+        }
+        for i in 0..20usize {
+            for j in (i + 1)..20usize {
+                let _ = bidir.add_edge(format!("b{i}"), format!("b{j}"));
+            }
+        }
+        let _ = bidir.add_edge("b1".to_string(), "b0".to_string());
+        for gr in [&g, &missing, &bidir] {
+            assert_eq!(
+                super::is_tournament(gr),
+                super::is_tournament_orig_string(gr),
+                "integer is_tournament must equal the String baseline"
+            );
+        }
+
+        let time = |lever: bool| -> f64 {
+            let t0 = Instant::now();
+            for _ in 0..2 {
+                if lever {
+                    black_box(super::is_tournament(&g));
+                } else {
+                    black_box(super::is_tournament_orig_string(&g));
+                }
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..2 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "TOURN_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("TOURN_AB n={n} (transitive tournament) rounds={rounds} (>1 = snapshot faster)");
+        report("SNAP_vs_string", &paired(true, false));
+        report("NULL_snap_vs_snap", &paired(true, true));
     }
 
     /// br-r37-c1-sqcmark: paired-interleaved median A/B for the integer-adjacency +
