@@ -1,5 +1,28 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SURFACE (cc, 2026-07-11): `barabasi_albert_graph` batch-by-index = BELOW-NOISE (1.04x) — BA is SAMPLING-bound, not insertion-bound → not shipped
+
+Applied the gnp-style batch-by-index lever to `barabasi_albert_graph` (the preferential-attachment draw
+reads only the `repeated_nodes` degree-weighted Vec, NEVER the graph, so the edges ARE collectable +
+batchable — pre-add the would-be-auto-created nodes, collect (source,target) draws, one
+`extend_existing_index_edges_unrecorded`). BYTE-IDENTICAL (parity `assert_eq!` on edges_ordered +
+nodes_ordered GREEN). But MEASURED (n=5000, m=5, 61 rounds): **BATCH_vs_string median 1.0374x**,
+win_rate 54/61, p5_p95 [0.9933, 1.0848] vs NULL 0.9967x [0.9446, 1.0493] — candidate p5 (0.993)
+OVERLAPS the null p95 (1.049). BELOW the null floor.
+
+ROOT: unlike gnp (dense, insertion-heavy → 13.20x), BA is **sampling-bound** — `random_subset_python`
+(the O(n·m) preferential-attachment rejection sampling) dominates (the A/B took ~20 min at n=5000),
+so batching the sparse ~m·n edge insertion saves only ~3.7%. Per gate-on-median + the "don't ship a
+~3%-below-noise change" rule, SURFACED not shipped; production REVERTED (fnx-generators back to the
+gnp-committed state, no marginal churn).
+
+**REFINES the engine-level generator batch vein ([[generator_accept_loop_batch]]):** the batch-by-index
+lever wins only for **INSERTION-bound** generators (dense/simple: gnp 13.20x), NOT **sampling-bound**
+ones (preferential attachment). The RNG/sampling cost of BA/powerlaw_cluster is inherent + draw-sequence
+locked (can't optimize byte-identically). NEXT candidates should be filtered to insertion-heavy: `gnm`
+(dense variants), `complete_multipartite`, dense `watts_strogatz` — profile the sampling-vs-insertion
+split FIRST.
+
 ## SHIPPED WIN (cc, 2026-07-11): `gnp_random_graph` batch-by-index edge insertion **13.20x end-to-end** (br-r37-c1-gnpbatch)
 
 NEW SUBSYSTEM (fnx-generators, previously unmined by cc this session). `gnp_random_graph(n,p,seed)`
