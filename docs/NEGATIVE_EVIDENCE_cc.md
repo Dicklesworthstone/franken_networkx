@@ -1,5 +1,39 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, `03d6940fc`): `harmonic_diameter` integer-adjacency all-pairs BFS **10.9465x** (br-r37-c1-hdmark)
+
+Shortest-paths-family all-pairs metric — `n_pairs / Σ_{s<t} 1/d(s,t)`, O(V·(V+E)). The old kernel walked
+`graph.neighbors(nodes[v])` (a fresh `Vec<&str>` alloc per pop) and re-hashed each neighbour name through
+`idx`. Walk `graph.neighbors_indices(v)` directly (zero-alloc `&[usize]`); `idx.get` never rejected a
+neighbour, so every neighbour index is visited as before. The `idx` HashMap and the `nodes` vector are dropped.
+
+MEASURED — paired-interleaved A/B vs the exact String baseline (`harmonic_diameter_orig_string`,
+`#[cfg(test)]`), ONE binary / ONE worker, connected n=200 deg~10, 61 rounds:
+
+| paired A/B (>1 = integer-BFS faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **INT_vs_string** | **10.9465x** | **61/61** | [9.0053, 13.3057] |
+| NULL_int_vs_int | 1.0014x | 31/61 | [0.8839, 1.1215] |
+
+DECIDABLE: 10.95x median, candidate p5 (9.01) ~8x above the null p95 (1.12), 61/61 won. BIT-IDENTICAL: BFS
+distances are order-independent shortest paths, and `reciprocal_sum` accumulates `1.0/dist[t]` in the SAME
+fixed (s asc, then t asc — NOT HashMap) order over the SAME integer distances, so the float sequence and result
+are byte-identical. Verified with an exact `to_bits()` parity assert; `test_harmonic_diameter_path` green.
+clippy `-D warnings` clean (after retrying past a fleet-wide `ftui` path-dep resolution flake that degraded
+mid-session ~04:23 — the A/B test build itself compiled+ran clean at 04:21). pyo3 `harmonic_diameter` calls
+this kernel directly — the win reaches Python.
+
+INFRA NOTE — the optional `ftui` (`/dp/frankentui/crates/ftui`, behind `ftui-integration` in fnx-runtime) is a
+PATH dep only present on SOME rch workers; when the good workers are busy, `cargo check/clippy/test` all fail
+resolution in ~1.3s with "failed to select a version for `ftui = ^0.5.0`". Retry until a `/dp/frankentui`-equipped
+worker picks it up. Unrelated to any lever.
+
+SESSION TALLY (structural-primitive vein): SIXTEEN byte-identical median-gated wins — eigenvector 14.64x, HITS
+3.11x, triangles 5.54x, square_clustering 29.73x, k_truss 10.15x, all_simple_paths 16.67x, generalized_degree
+10.18x, clustering_coefficient_directed 58.35x, label_propagation 2.26x, could_be_isomorphic 11.75x,
+dominating_set 20.13x, closeness_vitality 10.70x, voronoi_cells 4.14x, closeness_vitality_single 5.85x,
+is_strongly_regular 75.30x, harmonic_diameter 10.95x.
+
 ## SHIPPED WIN (cc, 2026-07-11, `83f48aa76`): `is_strongly_regular` integer-adjacency + mark-array **75.2999x** — BIGGEST of the session (br-r37-c1-srmark)
 
 `is_strongly_regular`'s λ/μ scan rebuilt a `HashSet<&str>` for `j_nbrs` on EVERY (i,j) pair — O(V²) String-set
