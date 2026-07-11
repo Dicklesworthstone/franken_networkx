@@ -17954,3 +17954,45 @@ to local Cargo.
 RESULT: SHIP. Do not reintroduce per-row adjacency crossings or a temporary
 relabelled `Graph` for exact `Graph` equitable coloring. Preserve the exact-type
 fallback and the K1 padding quirk unless the public compatibility contract changes.
+
+## 2026-07-11 Codex SURFACE (PY WRAPPER, `equitable_color`): empty-neighborhood zero-table lever blocked before remote profile/median gate (`br-r37-c1-jxvu6`)
+
+OWNERSHIP / SEAM: this follow-up selected coloring specifically to avoid cc's
+CSR and integer-adjacency structural rewrites. The intended production surface
+was only `python/franken_networkx/__init__.py`; cc's active
+`crates/fnx-algorithms/src/lib.rs` work was not edited.
+
+PROFILE-LED OPPORTUNITY: the immediately preceding shipping profile on the
+current `equitable_color_circulant_1000` row ranked
+`_equitable_make_N_from_L_C_local` at `13.27%-13.35%` self time. The current
+call site first creates `neighborhoods = {node: [] ...}`, then asks that helper
+to run an empty generator sum for every node/color pair. The one proposed lever
+was strict work removal: initialize the same node-major/color-minor dictionary
+directly with exact integer zeroes, leaving the later edge updates and all
+color/tie ordering unchanged. `sum(1 for ... in [])` and literal `0` are
+bit-identical, and no floating-point or RNG state is involved.
+
+STRICT REMOTE-ONLY ATTEMPT: a temporary benchmark-only cProfile probe was added
+to the existing public gauntlet and the required current-source profile plus
+median baseline was requested with:
+
+```text
+RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo bench
+-p fnx-python --bench public_api_gauntlet equitable_color_circulant_1000 --
+--sample-size 31 --warm-up-time 1 --measurement-time 5 --noplot
+```
+
+RCH failed closed before sync/build/benchmark:
+
+```text
+[RCH] local (no admissible workers: insufficient_slots=8,hard_preflight=2)
+[RCH] remote required; refusing local fallback (no worker assigned)
+```
+
+DECISION: SURFACE, no source verdict. The temporary profiling probe was removed
+and the benchmark file returned byte-for-byte to `HEAD`; the production lever
+was never applied. No local Cargo command ran, and there is no median result to
+justify either a keep or a performance rejection. Resume `br-r37-c1-jxvu6`
+only when strict RCH can assign a worker, rerun the current-source profile and
+31-sample median baseline first, then test exactly the zero-table initialization
+as the sole lever.
