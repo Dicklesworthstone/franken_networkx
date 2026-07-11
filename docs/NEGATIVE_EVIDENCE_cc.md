@@ -1,5 +1,30 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, `6e83c4dec`): `generalized_degree` integer-adjacency + mark-array **10.1775x** (br-r37-c1-gdmark)
+
+Clustering-family lever (cod owns pathfinding/flow, so I stayed on centrality/clustering). `generalized_degree`
+counts triangle-multiplicity per node; the kernel allocated a `Vec<&str>` per node AND per neighbour, built a
+`HashSet<&str>` per node, and String-hash-probed `contains` in its O(|V|*deg²) loop (its own comment flags the
+subset path as a prior 0.76-0.81x-vs-nx slow spot). Switched to the graph's integer adjacency slices + a reusable
+mark array (mark N(node) once, scan each neighbour's N(nb) against the marks).
+
+MEASURED — paired-interleaved in-crate A/B vs the exact String baseline (`generalized_degree_for_orig_string`,
+`#[cfg(test)]`), ONE binary / ONE worker `vmi`, pseudo-random ~20-deg n=400, 121 rounds:
+
+| paired A/B (>1 = mark-array faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **MARK_vs_string** | **10.1775x** | **121/121** | [8.6557, 13.2879] |
+| NULL_mark_vs_mark | 1.0013x | 62/121 | [0.8199, 1.1500] |
+
+DECIDABLE: 10.18x median, p5 8.66x, null centred at 1.0013x. BYTE-IDENTICAL: `shared` is an integer
+intersection count, degree distribution an integer histogram, self-loops still counted (caller gate), missing
+target → empty dist. Asserted `prod == base` in-test. clippy `-D warnings` clean. (rch notes: hit the stale-worker
+`ftui ^0.5.0` phantom + an SSH timeout on the too-heavy first fixture; retried past both, shrank n=900→400.)
+
+NEXT CANDIDATE (own lever, centrality lane): `second_order_centrality` (lib.rs ~42139) shows the string-state
+pattern (String HashMap/HashSet, no integer indexing) — profile it next. Community algos still need a genuine
+profile (label arrays, may not have the pattern).
+
 ## SHIPPED WIN (cc, 2026-07-10, `67cea50ed`): `all_simple_paths` integer-index + mark-array DFS **16.6665x** (br-r37-c1-aspmark)
 
 The `nbr_cache` candidate flagged last turn — and it proved the vein is BROADER than set-membership: it's any
