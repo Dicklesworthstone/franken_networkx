@@ -2882,27 +2882,25 @@ impl GraphGenerator {
             return Err(GenerationError::FailClosed { operation, reason });
         }
 
-        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
+        // br-r37-c1-hknhararybatch (cc): Harary H(k,n) circulant + optional diameter matching, all
+        // with pre-existing nodes by KNOWN INDEX — collect the (left, right) index pairs in the SAME
+        // order (per-shift circulant, then matching) and batch-insert instead of per-edge add_edge
+        // (2 clones + 2 name hashes + policy each). Shifts 1..=k/2 are all < n/2 (n>=k+1) so no shift
+        // has 2*shift==n → every circulant shift yields n distinct undirected edges, no dup/self-loop;
+        // the odd-n matching shift n/2 exceeds every circulant shift → distinct → all pairs unique.
+        // `extend_existing_index_edges_unrecorded` matches add_edge's endpoint canonicalization +
+        // adj_indices order → byte-identical.
+        let (mut graph, _node_labels) = graph_with_n_nodes(self.mode, n);
+        let mut edges: Vec<(usize, usize)> = Vec::new();
         if k == 1 {
             for node in 0..n.saturating_sub(1) {
-                graph
-                    .add_edge(node_labels[node].clone(), node_labels[node + 1].clone())
-                    .map_err(|err| GenerationError::FailClosed {
-                        operation,
-                        reason: err.to_string(),
-                    })?;
+                edges.push((node, node + 1));
             }
         } else {
             let offset = k / 2;
             for shift in 1..=offset {
                 for node in 0..n {
-                    let target = (node + shift) % n;
-                    graph
-                        .add_edge(node_labels[node].clone(), node_labels[target].clone())
-                        .map_err(|err| GenerationError::FailClosed {
-                            operation,
-                            reason: err.to_string(),
-                        })?;
+                    edges.push((node, (node + shift) % n));
                 }
             }
 
@@ -2910,26 +2908,16 @@ impl GraphGenerator {
             if k % 2 == 1 {
                 if n.is_multiple_of(2) {
                     for node in 0..half {
-                        graph
-                            .add_edge(node_labels[node].clone(), node_labels[node + half].clone())
-                            .map_err(|err| GenerationError::FailClosed {
-                                operation,
-                                reason: err.to_string(),
-                            })?;
+                        edges.push((node, node + half));
                     }
                 } else {
                     for node in 0..=half {
-                        let target = (node + half) % n;
-                        graph
-                            .add_edge(node_labels[node].clone(), node_labels[target].clone())
-                            .map_err(|err| GenerationError::FailClosed {
-                                operation,
-                                reason: err.to_string(),
-                            })?;
+                        edges.push((node, (node + half) % n));
                     }
                 }
             }
         }
+        let _ = graph.extend_existing_index_edges_unrecorded(edges);
 
         self.record(
             operation,
@@ -8015,6 +8003,135 @@ mod tests {
             );
         };
         println!("TADPOLE_BATCH_AB m={m} n={n} rounds={rounds} (>1 = batch faster)");
+        report("BATCH_vs_string", &paired(true, false));
+        report("NULL_batch_vs_batch", &paired(true, true));
+    }
+
+    /// br-r37-c1-hknhararybatch: paired-interleaved median A/B for hkn_harary_graph edge insertion —
+    /// batch-by-index vs the per-edge `add_edge`, one binary / one worker with a NULL control. Harary
+    /// H(k,n) is a k-regular circulant (+ optional diameter matching for odd k) → DENSE (kn/2 edges),
+    /// deterministic. Byte-identity is checked across ALL construction branches (even-k, odd-k/even-n,
+    /// odd-k/odd-n, k=1) via parity asserts; timing uses one dense config. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-generators --lib hkn_harary_batch_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn hkn_harary_batch_ab() {
+        use super::graph_with_n_nodes;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let collect_pairs = |k: usize, n: usize| -> Vec<(usize, usize)> {
+            let mut edges: Vec<(usize, usize)> = Vec::new();
+            if k == 1 {
+                for node in 0..n.saturating_sub(1) {
+                    edges.push((node, node + 1));
+                }
+            } else {
+                let offset = k / 2;
+                for shift in 1..=offset {
+                    for node in 0..n {
+                        edges.push((node, (node + shift) % n));
+                    }
+                }
+                let half = n / 2;
+                if k % 2 == 1 {
+                    if n.is_multiple_of(2) {
+                        for node in 0..half {
+                            edges.push((node, node + half));
+                        }
+                    } else {
+                        for node in 0..=half {
+                            edges.push((node, (node + half) % n));
+                        }
+                    }
+                }
+            }
+            edges
+        };
+
+        let build_string = |k: usize, n: usize| {
+            let (mut g, node_labels) = graph_with_n_nodes(CompatibilityMode::Strict, n);
+            for &(l, r) in &collect_pairs(k, n) {
+                let _ = g.add_edge(node_labels[l].clone(), node_labels[r].clone());
+            }
+            g
+        };
+        let build_batch = |k: usize, n: usize| {
+            let (mut g, _node_labels) = graph_with_n_nodes(CompatibilityMode::Strict, n);
+            let _ = g.extend_existing_index_edges_unrecorded(collect_pairs(k, n));
+            g
+        };
+
+        // Byte-identity across every construction branch (construction only, no timing).
+        for &(k, n) in &[
+            (200usize, 2000usize), // even k, even n — pure circulant (timing config)
+            (5, 50),               // odd k, even n — circulant + even matching
+            (5, 51),               // odd k, odd n  — circulant + odd wrap matching
+            (4, 1001),             // even k, odd n — pure circulant
+            (1, 100),              // k == 1 path
+            (2, 3),                // tiny
+        ] {
+            let gs = build_string(k, n);
+            let gb = build_batch(k, n);
+            assert_eq!(
+                gs.edges_ordered_borrowed(),
+                gb.edges_ordered_borrowed(),
+                "batch-by-index H({k},{n}) must equal the per-edge add_edge baseline"
+            );
+            assert_eq!(gs.nodes_ordered(), gb.nodes_ordered(), "nodes H({k},{n})");
+        }
+
+        // H(200, 2000): 2000 nodes, 200*2000/2 = 200000 edges.
+        let k = 200usize;
+        let n = 2000usize;
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            if batch {
+                black_box(build_batch(k, n));
+            } else {
+                black_box(build_string(k, n));
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round % 2 == 0 {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "HKN_HARARY_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("HKN_HARARY_BATCH_AB k={k} n={n} rounds={rounds} (>1 = batch faster)");
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
     }

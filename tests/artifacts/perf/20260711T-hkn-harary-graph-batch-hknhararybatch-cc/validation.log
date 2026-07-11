@@ -1,0 +1,11 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib hkn_harary -- --nocapture
+running 2 tests
+test tests::hkn_harary_graph_connectivity_one_matches_path_graph ... ok
+test tests::hkn_harary_graph_odd_connectivity_odd_order_matches_networkx_edges ... ok
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 203 filtered out; finished in 0.00s
+
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo clippy -p fnx-generators --lib --tests -- -D warnings
+    Checking fnx-generators v0.2.0
+    Finished `dev` profile
+CLIPPY CLEAN (no errors, no warnings). First pass flagged a manual `.is_multiple_of()` in the
+test-only collect_pairs; fixed and re-run clean.

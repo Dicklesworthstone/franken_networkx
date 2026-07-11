@@ -1,5 +1,29 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `hkn_harary_graph` batch-by-index **19.8551x** (br-r37-c1-hknhararybatch)
+
+Eleventh engine-level generator batch win — HIGHEST-magnitude to date. Harary H(k,n) = k-regular
+circulant (`(node,(node+shift)%n)` for shift 1..=k/2) + odd-k diameter matching; DENSE (kn/2 edges),
+deterministic, per-edge `add_edge(clone,clone)`, nodes pre-exist → insertion-bound. Collected (l,r)
+index pairs in the SAME order (per-shift circulant, then matching) + one
+`extend_existing_index_edges_unrecorded`.
+
+NO-DEDUP byte-identity: every shift s satisfies 1<=s<=k/2 < n/2 (n>=k+1) so 2s≠n → each shift emits n
+DISTINCT undirected edges once, no self-loop; the odd-n matching shift n/2 exceeds every circulant shift
+→ distinct → all pairs unique (the simple-Graph dedup in per-edge add_edge is NEVER triggered, so the
+non-dedup batch matches it).
+
+MEASURED — H(200, 2000) (2000 nodes, 200000 edges), 61 rounds: **BATCH_vs_string median 19.8551x**,
+win_rate 61/61, p5_p95 [14.5986, 24.0025] vs NULL 1.0233x [0.8350, 1.2380]. DECIDABLE: candidate p5
+(14.60) ~11.8x above the null p95 (1.24), 61/61 won. BYTE-IDENTICAL across ALL branches — A/B parity
+asserts for 6 configs (even-k/even-n, odd-k/even-n, odd-k/odd-n, even-k/odd-n, k=1 path, tiny); both
+hkn_harary vs-nx tests green (path k=1 + odd-k/odd-n); clippy `-D warnings` CLEAN (first pass flagged a
+manual `.is_multiple_of()` in TEST-only collect_pairs — fixed, semantics-preserving, re-run clean).
+
+Vein: gnp 13.20x, gnm 8.55x, complete_multipartite 13.24x, turan 16.22x, ring_of_cliques 19.94x, windmill
+18.63x, caveman 3.86x, barbell 16.92x, lollipop 13.29x, tadpole 7.10x, hkn_harary 19.86x shipped;
+barabasi 1.04x surfaced. See [[generator_accept_loop_batch]].
+
 ## SHIPPED WIN (cc, 2026-07-11): `tadpole_graph` batch-by-index **7.0988x** (br-r37-c1-tadpolebatch)
 
 Tenth engine-level generator batch win — and the first SPARSE one (edges≈nodes). tadpole = cycle of m +
