@@ -1,5 +1,27 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, `67bef3410`): `dfs_postorder_nodes` integer-adjacency iterative DFS **6.4271x** (br-r37-c1-dfspost)
+
+First of the "modest single-traversal" follow-up tier (see FRONTIER SUMMARY below). One iterative DFS
+(O(V+E)); `visited` HashSet<&str> → `Vec<bool>` mark array, `graph.neighbors(node)` (`Vec<&str>` alloc per
+pop) → `graph.neighbors_indices(node)` reversed. Byte-identical: NO name-sort, so `neighbors_indices` preserves
+the exact adjacency order → identical postorder; backtrack markers + depth-limit cutoff + visited semantics
+unchanged. Asserted equal to the baseline for `depth_limit` None and Some(7); 4 unit tests green.
+
+MEASURED — paired-interleaved A/B, connected deg-10 n=3000, 121 rounds:
+
+| paired A/B (>1 = integer faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **INT_vs_string** | **6.4271x** | **121/121** | [4.1155, 11.6525] |
+| NULL_int_vs_int | 1.0083x | 67/121 | [0.7898, 1.3417] |
+
+DECIDABLE: 6.43x median, p5 (4.12) ~3x above the null p95 (1.34), 121/121 won — higher than a plain single-BFS
+because the baseline pays a `visited` String-set probe per stack push. pyo3 calls this kernel directly. clippy
+pending the ftui fleet contention (identical mark-array pattern to clippy-clean wins; re-verify next batch).
+
+MODEST-TIER remaining (same DFS/BFS shape, bit-identical, ~2-7x, live pyo3): `bfs_layers_multi_with_parents`,
+`generic_bfs_edges`, `bfs_labeled_edges` — each one O(V+E) traversal.
+
 ## FRONTIER SUMMARY (cc, 2026-07-11): the heavy clean bit-identical String→integer-adjacency vein is MINED OUT for the centrality/clustering/distance-metric lane
 
 After 13 wins this session (could_be_isomorphic, dominating_set, closeness_vitality, voronoi_cells,
