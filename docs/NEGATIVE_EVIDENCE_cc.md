@@ -1,5 +1,25 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `wheel_graph` batch-by-index **24.2788x** (br-r37-c1-wheelbatch)
+
+Thirteenth engine-level generator batch win — HIGHEST of the session. wheel = hub (node 0) → every rim
+node + rim cycle; deterministic, ~2n edges, per-edge `add_edge(clone,clone)`, nodes pre-exist →
+insertion-bound. Collected (l,r) index pairs in the SAME order (hub spokes, rim path, closing rim edge)
++ one `extend_existing_index_edges_unrecorded`.
+
+NO-DEDUP byte-identity: hub spokes (0,i) disjoint from rim edges (never touch 0); rim path + closing
+edge = simple cycle → all pairs unique, no self-loops. WHY 24x (highest, despite sparse): the STAR hub
+means the per-edge arm pays a String clone+hash on node 0 for EVERY spoke; the batch drops all of it.
+
+MEASURED — wheel(100000) (100000 nodes, 199998 edges), 61 rounds: **BATCH_vs_string median 24.2788x**,
+win_rate 61/61, p5_p95 [11.8570, 36.5300] vs NULL 1.0153x [0.8655, 1.2048]. DECIDABLE: candidate p5
+(11.86) ~9.8x above the null p95 (1.20), 61/61 won. BYTE-IDENTICAL (A/B parity across n=2,3,4,100,100000
+covering all branches; both wheel vs-nx tests green — n=6 + small-n; clippy `-D warnings` CLEAN).
+
+Vein: gnp 13.20x, gnm 8.55x, complete_multipartite 13.24x, turan 16.22x, ring_of_cliques 19.94x, windmill
+18.63x, caveman 3.86x, barbell 16.92x, lollipop 13.29x, tadpole 7.10x, hkn_harary 19.86x, hypercube 6.47x,
+wheel 24.28x shipped; barabasi 1.04x surfaced. See [[generator_accept_loop_batch]].
+
 ## SHIPPED WIN (cc, 2026-07-11): `hypercube_graph` batch-by-index **6.4665x** (br-r37-c1-hypercubebatch)
 
 Twelfth engine-level generator batch win — first on NON-SEQUENTIAL (binary-tuple) node labels. Q_n =
