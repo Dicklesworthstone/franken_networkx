@@ -24426,13 +24426,84 @@ pub fn min_weighted_vertex_cover(graph: &Graph, weight_attr: Option<&str>) -> Ha
 /// NetworkX equivalent: `networkx.algorithms.approximation.independent_set.maximum_independent_set`
 pub fn maximum_independent_set(graph: &Graph) -> Vec<String> {
     let nodes = graph.nodes_ordered();
-    if nodes.is_empty() {
+    let n = nodes.len();
+    if n == 0 {
         return Vec::new();
     }
 
+    // br-r37-c1-mismark (cc): greedy min-effective-degree MIS on integer adjacency.
+    // The old kernel kept `remaining` as a `HashSet<String>` and, on EVERY while
+    // iteration, recomputed each remaining node's effective degree via
+    // `graph.neighbors(a)` (a `Vec<&str>` alloc) + `remaining.contains` String probes,
+    // inside a `min_by` over the HashSet. Mark `remaining` in a `bool` array indexed
+    // by node index and walk `graph.neighbors_indices(a)` with O(1) probes.
+    //
+    // Byte-identical: the selection key (effective_degree, then node name) is a TOTAL
+    // order (names are unique), so the old `min_by` returned THE unique minimum
+    // regardless of HashSet iteration order; scanning remaining indices `0..n` picks
+    // the same unique winner. `effective_degree` is the same integer count, and the
+    // name tie-break compares the same node names. The removed-neighbour set and the
+    // sorted output are unchanged.
+    let mut in_remaining = vec![true; n];
+    let mut remaining_count = n;
+    let mut independent_set: Vec<usize> = Vec::new();
+
+    while remaining_count > 0 {
+        let mut best: Option<usize> = None;
+        let mut best_deg = 0usize;
+        for i in 0..n {
+            if !in_remaining[i] {
+                continue;
+            }
+            let deg = graph
+                .neighbors_indices(i)
+                .map(|nbrs| nbrs.iter().filter(|&&ni| in_remaining[ni]).count())
+                .unwrap_or(0);
+            let take = match best {
+                None => true,
+                // (deg, name) strictly less than the current best -> new unique min.
+                Some(b) => deg < best_deg || (deg == best_deg && nodes[i] < nodes[b]),
+            };
+            if take {
+                best = Some(i);
+                best_deg = deg;
+            }
+        }
+        let min_node = best.unwrap();
+        independent_set.push(min_node);
+
+        // Remove min_node and its still-remaining neighbours.
+        if in_remaining[min_node] {
+            in_remaining[min_node] = false;
+            remaining_count -= 1;
+        }
+        if let Some(nbrs) = graph.neighbors_indices(min_node) {
+            for &ni in nbrs {
+                if in_remaining[ni] {
+                    in_remaining[ni] = false;
+                    remaining_count -= 1;
+                }
+            }
+        }
+    }
+
+    let mut result: Vec<String> = independent_set.iter().map(|&i| nodes[i].to_owned()).collect();
+    result.sort();
+    result
+}
+
+/// br-r37-c1-mismark A/B baseline: the pre-lever greedy MIS that kept `remaining` as
+/// a `HashSet<String>` and recomputed each node's effective degree via
+/// `graph.neighbors(a)` (`Vec<&str>` alloc) + `remaining.contains` String probes
+/// inside a `min_by`. Test-only; byte-identical to `maximum_independent_set`.
+#[cfg(test)]
+fn maximum_independent_set_orig_string(graph: &Graph) -> Vec<String> {
+    let nodes = graph.nodes_ordered();
+    if nodes.is_empty() {
+        return Vec::new();
+    }
     let mut remaining: HashSet<String> = nodes.iter().map(|s| s.to_string()).collect();
     let mut independent_set: Vec<String> = Vec::new();
-
     while !remaining.is_empty() {
         let min_node = remaining
             .iter()
@@ -24449,9 +24520,7 @@ pub fn maximum_independent_set(graph: &Graph) -> Vec<String> {
             })
             .unwrap()
             .clone();
-
         independent_set.push(min_node.clone());
-
         let nbrs_to_remove: Vec<String> = graph
             .neighbors(&min_node)
             .map(|nbrs| {
@@ -24461,13 +24530,11 @@ pub fn maximum_independent_set(graph: &Graph) -> Vec<String> {
                     .collect()
             })
             .unwrap_or_default();
-
         remaining.remove(&min_node);
         for nbr in &nbrs_to_remove {
             remaining.remove(nbr);
         }
     }
-
     independent_set.sort();
     independent_set
 }
@@ -48476,6 +48543,99 @@ mod tests {
         println!("GCMARK_AB n={n} deg={deg} rounds={rounds} (>1 = integer-BFS faster)");
         report("INT_vs_string", &paired(true, false));
         report("NULL_int_vs_int", &paired(true, true));
+    }
+
+    /// br-r37-c1-mismark: paired-interleaved median A/B for the integer-adjacency +
+    /// mark-array greedy `maximum_independent_set` vs the old `HashSet<String>` +
+    /// `graph.neighbors()` (`Vec<&str>`) `min_by` baseline, in ONE binary / ONE worker
+    /// with a NULL control. `#[ignore]` (measurement); run with
+    /// `cargo test --release -p fnx-algorithms --lib maximum_independent_set_mismark_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn maximum_independent_set_mismark_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // maximum_independent_set is O(V^2·deg): each while iteration re-scans every
+        // remaining node's effective degree. n=500 deg~6 pseudo-random graph so the
+        // per-node `Vec<&str>` alloc + `remaining.contains` String probes (baseline)
+        // vs the zero-alloc integer walk + O(1) mark probe (lever) dominate.
+        let n = 500usize;
+        let deg = 6usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                let j = ((i as u64)
+                    .wrapping_mul(1_000_003)
+                    .wrapping_add((k as u64).wrapping_mul(97))
+                    % n as u64) as usize;
+                if j != i {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+                }
+            }
+        }
+
+        // Byte-exact parity: integer greedy MIS == String baseline (sorted node list).
+        let mark = super::maximum_independent_set(&g);
+        let base = super::maximum_independent_set_orig_string(&g);
+        assert_eq!(
+            mark, base,
+            "integer maximum_independent_set must equal the String baseline"
+        );
+
+        let time = |lever: bool| -> f64 {
+            let t0 = Instant::now();
+            if lever {
+                black_box(super::maximum_independent_set(&g));
+            } else {
+                black_box(super::maximum_independent_set_orig_string(&g));
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..2 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "MISMARK_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("MISMARK_AB n={n} deg={deg} rounds={rounds} (>1 = mark-array faster)");
+        report("MARK_vs_string", &paired(true, false));
+        report("NULL_mark_vs_mark", &paired(true, true));
     }
 
     /// br-r37-c1-sqcmark: paired-interleaved median A/B for the integer-adjacency +
