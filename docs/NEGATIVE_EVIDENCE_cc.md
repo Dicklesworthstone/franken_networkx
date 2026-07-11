@@ -1,5 +1,26 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `gnm_random_graph` integer-seen dedup + batch-by-index **8.5547x** (br-r37-c1-gnmbatch)
+
+Second engine-level generator batch win. gnm is a rejection sampler that read the graph for its
+DUPLICATE check (`graph.has_edge(node_labels[u], node_labels[v])` — per-candidate 2×name→index hash +
+tuple lookup) and did per-edge `add_edge(clone, clone)`. PROFILE-FIRST (the barabasi lesson): gnm's
+sampling is 2 CHEAP `choice_index` draws/candidate while the has_edge dedup + add_edge insertion are the
+EXPENSIVE String-keyed ops → insertion/dedup-bound (unlike sampling-bound barabasi). Replaced has_edge
+with an integer `seen: HashSet<(usize,usize)>` (canon (min,max) == `has_edge`'s canon_pair, so the
+rejection decision + RNG draw sequence + edge set are IDENTICAL) + batch
+`extend_existing_index_edges_unrecorded`.
+
+MEASURED — n=2000, m=50000, 61 rounds: **BATCH_vs_string median 8.5547x**, win_rate 61/61,
+p5_p95 [2.6116, 12.9688] vs NULL 0.9782x [0.7117, 1.1545]. DECIDABLE: candidate p5 (2.61) above the null
+p95 (1.15), 61/61 won. BYTE-IDENTICAL: `assert_eq!` edges_ordered_borrowed + nodes_ordered green;
+gnm_random_graph_matches_networkx_seeded_example (exact-vs-nx) green; clippy clean.
+
+CONFIRMS the refined vein rule: batch wins for INSERTION/DEDUP-bound generators (gnp 13.20x dense; gnm
+8.55x rejection-with-String-has_edge), NOT sampling-bound (barabasi 1.04x). Next filtered candidates:
+`complete_multipartite_graph`, dense `watts_strogatz`; `gnm_random_digraph` (needs DiGraph index-batch).
+See [[generator_accept_loop_batch]].
+
 ## SURFACE (cc, 2026-07-11): `barabasi_albert_graph` batch-by-index = BELOW-NOISE (1.04x) — BA is SAMPLING-bound, not insertion-bound → not shipped
 
 Applied the gnp-style batch-by-index lever to `barabasi_albert_graph` (the preferential-attachment draw

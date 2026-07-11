@@ -3809,23 +3809,32 @@ impl GraphGenerator {
             return Ok(self.finish_graph_report(graph, warnings));
         }
 
-        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
+        let (mut graph, _node_labels) = graph_with_n_nodes(self.mode, n);
         let mut rng = PythonRandom::new(seed);
-        let mut edge_count = 0usize;
-        while edge_count < m {
+        // br-r37-c1-gnmbatch (cc): the rejection sampler reads the graph only for the DUPLICATE
+        // check (`has_edge`, a per-candidate 2×name→index hash + tuple lookup). Track accepted
+        // edges in an integer `seen` set (canonicalized (min,max) exactly like `has_edge`'s
+        // canon_pair) instead — same rejection decision, so the RNG draw sequence and accepted
+        // edge set are IDENTICAL — then batch-insert by index. Drops the per-candidate String
+        // hashing + the per-edge `node_labels[..].clone()` + name hashing + policy record.
+        // `extend_existing_index_edges_unrecorded` canonicalizes endpoints by name-order + pushes
+        // adj_indices exactly as `add_edge(node_labels[u], node_labels[v])` (u_idx==u, all nodes
+        // pre-exist, no self-loop, unique) → byte-identical.
+        let mut seen: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+        let mut edges: Vec<(usize, usize)> = Vec::with_capacity(m);
+        while edges.len() < m {
             let u = rng.choice_index(n);
             let v = rng.choice_index(n);
-            if u == v || graph.has_edge(&node_labels[u], &node_labels[v]) {
+            if u == v {
                 continue;
             }
-            graph
-                .add_edge(node_labels[u].clone(), node_labels[v].clone())
-                .map_err(|err| GenerationError::FailClosed {
-                    operation: "gnm_random_graph",
-                    reason: err.to_string(),
-                })?;
-            edge_count += 1;
+            let key = if u < v { (u, v) } else { (v, u) };
+            if !seen.insert(key) {
+                continue;
+            }
+            edges.push((u, v));
         }
+        let _ = graph.extend_existing_index_edges_unrecorded(edges);
 
         self.record(
             "gnm_random_graph",
@@ -7051,6 +7060,122 @@ mod tests {
             v
         };
         report("E2E_batch_vs_string", &paired_e2e(true, false));
+    }
+
+    /// br-r37-c1-gnmbatch: paired-interleaved median A/B for gnm_random_graph — integer `seen`-set
+    /// dedup + batch-by-index vs the pre-lever `graph.has_edge` + per-edge `add_edge`, in ONE
+    /// binary / ONE worker with a NULL control. Both arms share the SAME `choice_index` draw
+    /// sequence (inherent). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-generators --lib gnm_batch_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn gnm_batch_ab() {
+        use super::{PythonRandom, graph_with_n_nodes};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 2000usize;
+        let m = 50000usize;
+        let seed = 7u64;
+
+        // OLD: graph.has_edge dedup + per-edge add_edge(node_labels[u].clone(), ..).
+        let build_old = || -> Graph {
+            let (mut graph, node_labels) = graph_with_n_nodes(CompatibilityMode::Strict, n);
+            let mut rng = PythonRandom::new(seed);
+            let mut edge_count = 0usize;
+            while edge_count < m {
+                let u = rng.choice_index(n);
+                let v = rng.choice_index(n);
+                if u == v || graph.has_edge(&node_labels[u], &node_labels[v]) {
+                    continue;
+                }
+                let _ = graph.add_edge(node_labels[u].clone(), node_labels[v].clone());
+                edge_count += 1;
+            }
+            graph
+        };
+        // NEW: integer `seen` set dedup + batch-by-index (mirrors production).
+        let build_new = || -> Graph {
+            let (mut graph, _node_labels) = graph_with_n_nodes(CompatibilityMode::Strict, n);
+            let mut rng = PythonRandom::new(seed);
+            let mut seen: std::collections::HashSet<(usize, usize)> =
+                std::collections::HashSet::new();
+            let mut edges: Vec<(usize, usize)> = Vec::with_capacity(m);
+            while edges.len() < m {
+                let u = rng.choice_index(n);
+                let v = rng.choice_index(n);
+                if u == v {
+                    continue;
+                }
+                let key = if u < v { (u, v) } else { (v, u) };
+                if !seen.insert(key) {
+                    continue;
+                }
+                edges.push((u, v));
+            }
+            let _ = graph.extend_existing_index_edges_unrecorded(edges);
+            graph
+        };
+
+        let go = build_old();
+        let gn = build_new();
+        assert_eq!(
+            go.edges_ordered_borrowed(),
+            gn.edges_ordered_borrowed(),
+            "seen-set + batch gnm must equal the has_edge + per-edge add_edge baseline"
+        );
+        assert_eq!(go.nodes_ordered(), gn.nodes_ordered());
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            if batch {
+                black_box(build_new());
+            } else {
+                black_box(build_old());
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "GNM_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("GNM_BATCH_AB n={n} m={m} rounds={rounds} (>1 = batch faster)");
+        report("BATCH_vs_string", &paired(true, false));
+        report("NULL_batch_vs_batch", &paired(true, true));
     }
 
     fn packet_007_forensics_bundle(
