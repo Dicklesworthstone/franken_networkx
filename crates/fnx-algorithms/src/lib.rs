@@ -3636,9 +3636,9 @@ fn hits_centrality_generic<G: GraphView>(graph: &G) -> HitsCentralityResult {
 
         for (source_idx, neighbors) in canonical_neighbors.iter().enumerate() {
             edges_scanned += neighbors.len();
-            let score = neighbors.iter().fold(0.0_f64, |acc, &target_idx| {
-                acc + authorities[target_idx]
-            });
+            let score = neighbors
+                .iter()
+                .fold(0.0_f64, |acc, &target_idx| acc + authorities[target_idx]);
             next_hubs[source_idx] = if score.is_finite() { score } else { 0.0 };
         }
 
@@ -14911,7 +14911,9 @@ fn k_truss_result_orig_string(graph: &Graph, k: usize) -> (Vec<String>, Vec<(Str
         if let Some(nbrs) = graph.neighbors_iter(node) {
             for nb in nbrs {
                 if nb != node {
-                    adj.entry(node.to_owned()).or_default().insert(nb.to_owned());
+                    adj.entry(node.to_owned())
+                        .or_default()
+                        .insert(nb.to_owned());
                 }
             }
         }
@@ -14922,8 +14924,10 @@ fn k_truss_result_orig_string(graph: &Graph, k: usize) -> (Vec<String>, Vec<(Str
         let mut to_remove: Vec<(String, String)> = Vec::new();
         let current_nodes: Vec<String> = adj.keys().cloned().collect();
         for u in &current_nodes {
-            let u_nbrs: Vec<String> =
-                adj.get(u).map(|s| s.iter().cloned().collect()).unwrap_or_default();
+            let u_nbrs: Vec<String> = adj
+                .get(u)
+                .map(|s| s.iter().cloned().collect())
+                .unwrap_or_default();
             for v in &u_nbrs {
                 if u < v {
                     let v_nbrs = adj.get(v).cloned().unwrap_or_default();
@@ -47308,7 +47312,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("EIGENVECTOR_CSR_AB n={n} half_deg={half_deg} iters={iters} rounds={rounds} (>1 = CSR faster)");
+        println!(
+            "EIGENVECTOR_CSR_AB n={n} half_deg={half_deg} iters={iters} rounds={rounds} (>1 = CSR faster)"
+        );
         report("CSR_vs_stringhash", &paired(true, false));
         report("NULL_csr_vs_csr", &paired(true, true));
     }
@@ -47354,10 +47360,18 @@ mod tests {
         let (base_hubs, base_auth) = super::hits_scores_orig_names(&g);
         assert_eq!(prod_hubs.len(), base_hubs.len());
         for (i, (a, b)) in prod_hubs.iter().zip(base_hubs.iter()).enumerate() {
-            assert_eq!(a.to_bits(), b.to_bits(), "HITS hub {i} must be bit-identical");
+            assert_eq!(
+                a.to_bits(),
+                b.to_bits(),
+                "HITS hub {i} must be bit-identical"
+            );
         }
         for (i, (a, b)) in prod_auth.iter().zip(base_auth.iter()).enumerate() {
-            assert_eq!(a.to_bits(), b.to_bits(), "HITS authority {i} must be bit-identical");
+            assert_eq!(
+                a.to_bits(),
+                b.to_bits(),
+                "HITS authority {i} must be bit-identical"
+            );
         }
 
         let time = |lever: bool| -> f64 {
@@ -47452,7 +47466,10 @@ mod tests {
             .map(|t| t.count)
             .collect();
         let base = super::triangles_counts_orig_hashset(&g);
-        assert_eq!(mark, base, "mark-array triangle counts must equal the HashSet baseline");
+        assert_eq!(
+            mark, base,
+            "mark-array triangle counts must equal the HashSet baseline"
+        );
 
         let time = |lever: bool| -> f64 {
             let t0 = Instant::now();
@@ -48028,8 +48045,11 @@ mod tests {
 
         // Byte-exact parity: mark-array scores == HashSet baseline scores (by node).
         let prod = super::square_clustering(&g);
-        let mut prod_sorted: Vec<(String, f64)> =
-            prod.scores.iter().map(|s| (s.node.clone(), s.score)).collect();
+        let mut prod_sorted: Vec<(String, f64)> = prod
+            .scores
+            .iter()
+            .map(|s| (s.node.clone(), s.score))
+            .collect();
         prod_sorted.sort_by(|a, b| a.0.cmp(&b.0));
         let base = super::square_clustering_scores_orig_hashset(&g);
         assert_eq!(prod_sorted.len(), base.len());
@@ -48091,7 +48111,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("SQUARE_CLUSTERING_MARK_AB n={n} deg={deg} rounds={rounds} (>1 = mark-array faster)");
+        println!(
+            "SQUARE_CLUSTERING_MARK_AB n={n} deg={deg} rounds={rounds} (>1 = mark-array faster)"
+        );
         report("MARK_vs_hashset", &paired(true, false));
         report("NULL_mark_vs_mark", &paired(true, true));
     }
@@ -48132,8 +48154,14 @@ mod tests {
         // Byte-exact parity: integer-mark result == String baseline result.
         let prod = super::k_truss(&g, k);
         let (base_nodes, base_edges) = super::k_truss_result_orig_string(&g, k);
-        assert_eq!(prod.nodes, base_nodes, "k_truss nodes must match the string baseline");
-        assert_eq!(prod.edges, base_edges, "k_truss edges must match the string baseline");
+        assert_eq!(
+            prod.nodes, base_nodes,
+            "k_truss nodes must match the string baseline"
+        );
+        assert_eq!(
+            prod.edges, base_edges,
+            "k_truss edges must match the string baseline"
+        );
 
         let time = |lever: bool| -> f64 {
             let t0 = Instant::now();
@@ -48184,7 +48212,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("K_TRUSS_MARK_AB n={n} deg={deg} k={k} rounds={rounds} (>1 = integer+mark faster)");
+        println!(
+            "K_TRUSS_MARK_AB n={n} deg={deg} k={k} rounds={rounds} (>1 = integer+mark faster)"
+        );
         report("MARK_vs_string", &paired(true, false));
         report("NULL_mark_vs_mark", &paired(true, true));
     }
@@ -48229,9 +48259,18 @@ mod tests {
         let prod = super::all_simple_paths(&g, &source, &target, cutoff);
         let (base_paths, base_nt, base_es, base_sp) =
             super::all_simple_paths_orig_string(&g, &source, &target, cutoff);
-        assert_eq!(prod.paths, base_paths, "all_simple_paths output must match baseline");
-        assert_eq!(prod.witness.nodes_touched, base_nt, "nodes_touched must match");
-        assert_eq!(prod.witness.edges_scanned, base_es, "edges_scanned must match");
+        assert_eq!(
+            prod.paths, base_paths,
+            "all_simple_paths output must match baseline"
+        );
+        assert_eq!(
+            prod.witness.nodes_touched, base_nt,
+            "nodes_touched must match"
+        );
+        assert_eq!(
+            prod.witness.edges_scanned, base_es,
+            "edges_scanned must match"
+        );
         assert_eq!(prod.witness.queue_peak, base_sp, "queue_peak must match");
 
         let time = |lever: bool| -> f64 {
@@ -48240,7 +48279,9 @@ mod tests {
                 if lever {
                     black_box(super::all_simple_paths(&g, &source, &target, cutoff));
                 } else {
-                    black_box(super::all_simple_paths_orig_string(&g, &source, &target, cutoff));
+                    black_box(super::all_simple_paths_orig_string(
+                        &g, &source, &target, cutoff,
+                    ));
                 }
             }
             t0.elapsed().as_secs_f64()
@@ -48283,7 +48324,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("ALL_SIMPLE_PATHS_MARK_AB n={n} deg={deg} cutoff={cutoff:?} rounds={rounds} (>1 = integer+mark faster)");
+        println!(
+            "ALL_SIMPLE_PATHS_MARK_AB n={n} deg={deg} cutoff={cutoff:?} rounds={rounds} (>1 = integer+mark faster)"
+        );
         report("MARK_vs_string", &paired(true, false));
         report("NULL_mark_vs_mark", &paired(true, true));
     }
@@ -48325,7 +48368,10 @@ mod tests {
         // Byte-exact parity: mark-array result == HashSet baseline result.
         let prod = super::generalized_degree_for(&g, &nodes);
         let base = super::generalized_degree_for_orig_string(&g, &nodes);
-        assert_eq!(prod, base, "generalized_degree must equal the HashSet baseline");
+        assert_eq!(
+            prod, base,
+            "generalized_degree must equal the HashSet baseline"
+        );
 
         let time = |lever: bool| -> f64 {
             let t0 = Instant::now();
@@ -48376,7 +48422,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("GENERALIZED_DEGREE_MARK_AB n={n} deg={deg} rounds={rounds} (>1 = mark-array faster)");
+        println!(
+            "GENERALIZED_DEGREE_MARK_AB n={n} deg={deg} rounds={rounds} (>1 = mark-array faster)"
+        );
         report("MARK_vs_string", &paired(true, false));
         report("NULL_mark_vs_mark", &paired(true, true));
     }
@@ -48419,7 +48467,11 @@ mod tests {
         let base_scores = super::clustering_coefficient_directed_scores_orig_string(&g);
         assert_eq!(prod_scores.len(), base_scores.len());
         for (i, (a, b)) in prod_scores.iter().zip(base_scores.iter()).enumerate() {
-            assert_eq!(a.to_bits(), b.to_bits(), "directed clustering score {i} must be bit-identical");
+            assert_eq!(
+                a.to_bits(),
+                b.to_bits(),
+                "directed clustering score {i} must be bit-identical"
+            );
         }
 
         let time = |lever: bool| -> f64 {
@@ -48428,7 +48480,9 @@ mod tests {
                 if lever {
                     black_box(super::clustering_coefficient_directed(&g));
                 } else {
-                    black_box(super::clustering_coefficient_directed_scores_orig_string(&g));
+                    black_box(super::clustering_coefficient_directed_scores_orig_string(
+                        &g,
+                    ));
                 }
             }
             t0.elapsed().as_secs_f64()
@@ -48511,7 +48565,10 @@ mod tests {
         // Byte-exact parity: integer result == string baseline result.
         let prod = super::label_propagation_communities(&g);
         let base = super::label_propagation_communities_orig_string(&g);
-        assert_eq!(prod, base, "label propagation communities must match the string baseline");
+        assert_eq!(
+            prod, base,
+            "label propagation communities must match the string baseline"
+        );
 
         let time = |lever: bool| -> f64 {
             let t0 = Instant::now();
