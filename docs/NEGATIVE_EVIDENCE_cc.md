@@ -1,5 +1,21 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `br-r37-c1-zid1b` straggler — MultiDiGraph single-source BFS on the CSR **7.8407x**
+
+Directed twin of the thp6w Slice-2 MultiGraph BFS win. `multidigraph_sssp_length_with_parents` was the
+lone zid1b straggler still allocating a fresh `mdg.successors(node)` `Vec<&str>` per pop + a
+`HashSet<&str>` visited, while its siblings (`multidigraph_weak_components_indexed`,
+`..._is_weakly_connected`; zid1b was "MOSTLY SHIPPED", 6 fns 24-114x) already traverse the revision-cached
+integer CSR (`mdg.csr()`). Routed it through `mdg.csr().successors(idx)` (`&[u32]`) + `Vec<bool>`.
+
+MEASURED — n=400 MultiDiGraph (ring+chords+parallels), ALL-PAIRS (CSR reused), 61 rounds:
+**CSR_vs_string median 7.8407x**, win_rate 61/61, p5_p95 [6.8028, 8.7176] vs NULL 1.0078x [0.8457, 1.1099].
+DECIDABLE: candidate p5 (6.80) ~6x above the null p95 (1.11), 61/61 won. BYTE-IDENTICAL: `build_csr` fills
+`succ_targets` from `successors[node].keys()` (distinct, adjacency-row order) mapped to indices — exactly
+what `mdg.successors` yields — so BFS discovery order (every (node,length,parent) tuple) is identical;
+`assert_eq!` CSR-BFS == String-BFS green for EVERY source; clippy clean. No new infra (MultiDiGraph's
+revision-cached `csr()` already existed — unlike MultiGraph which needed the thp6w Slice-1 memo).
+
 ## SHIPPED WIN (cc, 2026-07-11): `br-r37-c1-thp6w` SLICE 2 — MultiGraph single-source BFS on the integer-adjacency memo **11.6896x** (memo-reuse)
 
 First real consumer of the Slice 1 memo. `multigraph_sssp_length_with_parents` (tagged
