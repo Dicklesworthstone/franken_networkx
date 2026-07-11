@@ -1,0 +1,4 @@
+TURAN_BATCH_AB n=1000 r=3 rounds=61 (>1 = batch faster)
+TURAN_BATCH_AB BATCH_vs_string: median=16.2181x win_rate=61/61 p5_p95=[9.3470,27.4042]
+TURAN_BATCH_AB NULL_batch_vs_batch: median=0.9785x win_rate=28/61 p5_p95=[0.8518,1.1491]
+parity: edges_ordered_borrowed + nodes_ordered IDENTICAL (unequal partitions) -> byte-identical

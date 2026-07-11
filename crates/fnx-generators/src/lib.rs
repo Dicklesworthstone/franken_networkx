@@ -1158,21 +1158,24 @@ impl GraphGenerator {
             start = end;
         }
 
-        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
+        let (mut graph, _node_labels) = graph_with_n_nodes(self.mode, n);
+        // br-r37-c1-turanbatch (cc): identical cross-partition insertion to
+        // complete_multipartite (br-r37-c1-cmpbatch, 13.24x) — collect the (left, right) INDEX
+        // pairs and batch-insert instead of the per-edge add_edge (2 clones + 2 name hashes +
+        // policy each). Deterministic, unique pairs, no self-loops (distinct partitions), nodes
+        // pre-exist; `extend_existing_index_edges_unrecorded` matches add_edge's endpoint
+        // canonicalization + adj_indices order → byte-identical.
+        let mut edges: Vec<(usize, usize)> = Vec::new();
         for left_partition in 0..partitions.len() {
             for right_partition in (left_partition + 1)..partitions.len() {
                 for left in partitions[left_partition].clone() {
                     for right in partitions[right_partition].clone() {
-                        graph
-                            .add_edge(node_labels[left].clone(), node_labels[right].clone())
-                            .map_err(|err| GenerationError::FailClosed {
-                                operation: "turan_graph",
-                                reason: err.to_string(),
-                            })?;
+                        edges.push((left, right));
                     }
                 }
             }
         }
+        let _ = graph.extend_existing_index_edges_unrecorded(edges);
 
         self.record(
             "turan_graph",
@@ -7276,6 +7279,123 @@ mod tests {
             );
         };
         println!("CMP_BATCH_AB n={n} edges={} rounds={rounds} (>1 = batch faster)", pairs.len());
+        report("BATCH_vs_string", &paired(true, false));
+        report("NULL_batch_vs_batch", &paired(true, true));
+    }
+
+    /// br-r37-c1-turanbatch: paired-interleaved median A/B for turan_graph cross-partition edge
+    /// insertion — batch-by-index vs the pre-lever per-edge `add_edge`, in ONE binary / ONE worker
+    /// with a NULL control. Both arms reproduce the full turan (unequal partition sizing +
+    /// cross-partition edges, no RNG). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-generators --lib turan_batch_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn turan_batch_ab() {
+        use super::graph_with_n_nodes;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // turan(1000, 3): base=333, larger=1 -> partitions [0..333, 333..666, 666..1000]
+        // (sizes 333, 333, 334 — UNEQUAL, exercises the sizing). ~333k cross edges.
+        let n = 1000usize;
+        let r = 3usize;
+        let base = n / r;
+        let larger = n % r;
+        let smaller = r - larger;
+        let mut partitions: Vec<std::ops::Range<usize>> = Vec::with_capacity(r);
+        let mut start = 0usize;
+        for pi in 0..r {
+            let size = if pi < smaller { base } else { base + 1 };
+            partitions.push(start..start + size);
+            start += size;
+        }
+
+        let build_string = || {
+            let (mut g, node_labels) = graph_with_n_nodes(CompatibilityMode::Strict, n);
+            for lp in 0..partitions.len() {
+                for rp in (lp + 1)..partitions.len() {
+                    for left in partitions[lp].clone() {
+                        for right in partitions[rp].clone() {
+                            let _ = g.add_edge(node_labels[left].clone(), node_labels[right].clone());
+                        }
+                    }
+                }
+            }
+            g
+        };
+        let build_batch = || {
+            let (mut g, _node_labels) = graph_with_n_nodes(CompatibilityMode::Strict, n);
+            let mut edges: Vec<(usize, usize)> = Vec::new();
+            for lp in 0..partitions.len() {
+                for rp in (lp + 1)..partitions.len() {
+                    for left in partitions[lp].clone() {
+                        for right in partitions[rp].clone() {
+                            edges.push((left, right));
+                        }
+                    }
+                }
+            }
+            let _ = g.extend_existing_index_edges_unrecorded(edges);
+            g
+        };
+
+        let gs = build_string();
+        let gb = build_batch();
+        assert_eq!(
+            gs.edges_ordered_borrowed(),
+            gb.edges_ordered_borrowed(),
+            "batch-by-index turan insertion must equal the per-edge add_edge baseline"
+        );
+        assert_eq!(gs.nodes_ordered(), gb.nodes_ordered());
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            if batch {
+                black_box(build_batch());
+            } else {
+                black_box(build_string());
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round % 2 == 0 {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "TURAN_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("TURAN_BATCH_AB n={n} r={r} rounds={rounds} (>1 = batch faster)");
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
     }

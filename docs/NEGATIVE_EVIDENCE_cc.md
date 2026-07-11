@@ -1,5 +1,22 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `turan_graph` batch-by-index **16.2181x** — 2nd supersession of the 2026-06-25 "dense generators floor-bound" surface (br-r37-c1-turanbatch)
+
+Fourth engine-level generator batch win. turan = complete-multipartite with r near-equal partitions;
+same per-edge cross-partition `add_edge(clone, clone)`, nodes pre-exist. Identical lever to cmpbatch:
+collect (l,r) index pairs + `extend_existing_index_edges_unrecorded`.
+
+MEASURED — turan(1000, 3) (partitions 333/333/334, ~333k edges), 61 rounds: **BATCH_vs_string median
+16.2181x**, win_rate 61/61, p5_p95 [9.3470, 27.4042] vs NULL 0.9785x [0.8518, 1.1491]. DECIDABLE:
+candidate p5 (9.35) ~8x above the null p95 (1.15), 61/61 won. BYTE-IDENTICAL (unequal partitions;
+`assert_eq!` edges_ordered + nodes_ordered; turan vs-nx tests green; clippy clean).
+
+`turan_graph 0.75x` was another of the 2026-06-25 "dense generators NOT improvable / construction-floor-
+bound" cluster — SUPERSEDED (2nd, after complete_multipartite). Remaining cluster members
+`ring_of_cliques`, `stochastic_block_model`, `random_partition_graph` are the same likely supersession.
+Vein: gnp 13.20x, gnm 8.55x, complete_multipartite 13.24x, turan 16.22x shipped; barabasi 1.04x surfaced.
+See [[generator_accept_loop_batch]].
+
 ## SHIPPED WIN (cc, 2026-07-11): `complete_multipartite_graph` batch-by-index **13.2407x** — SUPERSEDES the 2026-06-25 "dense generators floor-bound" surface (br-r37-c1-cmpbatch)
 
 Third engine-level generator batch win. complete_multipartite connects every cross-partition pair via
