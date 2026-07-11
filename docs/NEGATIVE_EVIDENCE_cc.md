@@ -1,5 +1,23 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `binomial_tree` batch-by-index **6.9641x** (br-r37-c1-bintreebatch)
+
+Fourteenth engine-level generator batch win. binomial_tree = order-n tree on 2^n nodes, built by
+duplicating+shifting the current tree and linking with (0, tree_size); it ALREADY accumulates its edges
+as a Vec<(usize,usize)> index list in add_edge order but called per-edge add_edge interleaved. Dropped
+the interleaved add_edge, do ONE extend_existing_index_edges_unrecorded over the accumulated vec.
+
+Byte-identity: the add_edge order IS the vec-append order; a TREE → every pair unique, no self-loop;
+name-canonicalization is label-agnostic. MEASURED — binomial_tree(16) (65536 nodes, 65535 edges), 61
+rounds: **BATCH_vs_string median 6.9641x**, win_rate 61/61, p5_p95 [5.1021, 8.9643] vs NULL 0.9940x
+[0.7878, 1.1050]. DECIDABLE: candidate p5 (5.10) ~4.6x above the null p95 (1.11), 61/61 won.
+BYTE-IDENTICAL (A/B parity across orders 0,1,2,5,10,16; order-3 + order-0 vs-nx tests green; clippy
+`-D warnings` CLEAN).
+
+Vein: gnp 13.20x, gnm 8.55x, complete_multipartite 13.24x, turan 16.22x, ring_of_cliques 19.94x, windmill
+18.63x, caveman 3.86x, barbell 16.92x, lollipop 13.29x, tadpole 7.10x, hkn_harary 19.86x, hypercube 6.47x,
+wheel 24.28x, binomial_tree 6.96x shipped; barabasi 1.04x surfaced. See [[generator_accept_loop_batch]].
+
 ## SHIPPED WIN (cc, 2026-07-11): `wheel_graph` batch-by-index **24.2788x** (br-r37-c1-wheelbatch)
 
 Thirteenth engine-level generator batch win — HIGHEST of the session. wheel = hub (node 0) → every rim
