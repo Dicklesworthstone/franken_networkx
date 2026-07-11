@@ -22151,6 +22151,79 @@ pub fn number_of_cliques(graph: &Graph) -> HashMap<String, usize> {
 #[must_use]
 pub fn dominating_set(graph: &Graph) -> Vec<String> {
     let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return Vec::new();
+    }
+
+    // br-r37-c1-domint (cc): the greedy max-cover loop rescanned every undominated
+    // node each pass and called `graph.neighbors(node)` (a fresh `Vec<&str>` alloc)
+    // with `String`-keyed `dominated.contains(..)` probes — O(V·E) String allocs +
+    // hashes overall. Mark domination in a `bool` array indexed by node index and
+    // walk `graph.neighbors_indices(node)` (zero-alloc `&[usize]`) with O(1) array
+    // probes. `dominated_count` mirrors the old `HashSet::len()` (distinct marked
+    // indices). Byte-identical: `cover` (self + undominated neighbours) is the same
+    // integer, the greedy pick (FIRST node in `nodes_ordered()` order attaining the
+    // strict-max cover) is the same, and the dominated set grows identically, so the
+    // chosen node sequence — and the sorted result — is unchanged.
+    let mut dominated = vec![false; n];
+    let mut dominated_count = 0usize;
+    let mut dom_set: Vec<String> = Vec::new();
+
+    // Greedy: pick the node that covers the most uncovered nodes
+    while dominated_count < n {
+        let mut best: Option<usize> = None;
+        let mut best_cover = 0usize;
+
+        for node in 0..n {
+            if dominated[node] {
+                continue;
+            }
+            // Count uncovered neighbors + self
+            let mut cover = 1usize; // node itself
+            if let Some(nbrs) = graph.neighbors_indices(node) {
+                for &nbr in nbrs {
+                    if !dominated[nbr] {
+                        cover += 1;
+                    }
+                }
+            }
+            if cover > best_cover {
+                best_cover = cover;
+                best = Some(node);
+            }
+        }
+
+        if let Some(v) = best {
+            dom_set.push(nodes[v].to_owned());
+            if !dominated[v] {
+                dominated[v] = true;
+                dominated_count += 1;
+            }
+            if let Some(nbrs) = graph.neighbors_indices(v) {
+                for &nbr in nbrs {
+                    if !dominated[nbr] {
+                        dominated[nbr] = true;
+                        dominated_count += 1;
+                    }
+                }
+            }
+        } else {
+            break;
+        }
+    }
+
+    dom_set.sort_unstable();
+    dom_set
+}
+
+/// br-r37-c1-domint A/B baseline: the pre-lever greedy dominating set that kept a
+/// `HashSet<&str>` of dominated nodes and re-allocated `graph.neighbors(node)`
+/// (`Vec<&str>`) with String hash-probes each pass. Test-only; byte-identical to
+/// `dominating_set`.
+#[cfg(test)]
+fn dominating_set_orig_string(graph: &Graph) -> Vec<String> {
+    let nodes = graph.nodes_ordered();
     if nodes.is_empty() {
         return Vec::new();
     }
@@ -22158,7 +22231,6 @@ pub fn dominating_set(graph: &Graph) -> Vec<String> {
     let mut dominated: HashSet<&str> = HashSet::new();
     let mut dom_set: Vec<String> = Vec::new();
 
-    // Greedy: pick the node that covers the most uncovered nodes
     while dominated.len() < nodes.len() {
         let mut best: Option<&str> = None;
         let mut best_cover = 0usize;
@@ -22167,8 +22239,7 @@ pub fn dominating_set(graph: &Graph) -> Vec<String> {
             if dominated.contains(node) {
                 continue;
             }
-            // Count uncovered neighbors + self
-            let mut cover = 1; // node itself
+            let mut cover = 1;
             if let Some(nbrs) = graph.neighbors(node) {
                 for nbr in &nbrs {
                     if !dominated.contains(nbr) {
@@ -47323,6 +47394,102 @@ mod tests {
             );
         };
         println!("ISOTRI_AB n={n} deg={deg} rounds={rounds} (>1 = mark-array faster)");
+        report("MARK_vs_string", &paired(true, false));
+        report("NULL_mark_vs_mark", &paired(true, true));
+    }
+
+    /// br-r37-c1-domint: paired-interleaved median A/B for the integer-adjacency +
+    /// mark-array greedy `dominating_set` vs the old `HashSet<&str>` +
+    /// `graph.neighbors(node)` (`Vec<&str>`) String baseline, in ONE binary / ONE
+    /// worker with a NULL control. `#[ignore]` (measurement); run with
+    /// `cargo test --release -p fnx-algorithms --lib dominating_set_domint_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn dominating_set_domint_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Moderate-degree pseudo-random graph on 1500 nodes: the greedy runs many
+        // passes (each pick covers ~deg nodes), and every pass rescans the
+        // undominated nodes' neighbours — so the per-node `Vec<&str>` alloc + String
+        // hash-probe (baseline) vs the zero-alloc index walk + O(1) mark probe
+        // (lever) dominate the O(V·E) cost.
+        let n = 1500usize;
+        let deg = 10usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                let j = ((i as u64)
+                    .wrapping_mul(1_000_003)
+                    .wrapping_add((k as u64).wrapping_mul(97))
+                    % n as u64) as usize;
+                if j != i {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+                }
+            }
+        }
+
+        // Byte-exact parity: integer mark-array selection == String baseline.
+        let mark = super::dominating_set(&g);
+        let base = super::dominating_set_orig_string(&g);
+        assert_eq!(
+            mark, base,
+            "integer dominating_set must equal the String HashSet baseline"
+        );
+
+        let time = |lever: bool| -> f64 {
+            let t0 = Instant::now();
+            for _ in 0..3 {
+                if lever {
+                    black_box(super::dominating_set(&g));
+                } else {
+                    black_box(super::dominating_set_orig_string(&g));
+                }
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 121usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "DOMINT_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("DOMINT_AB n={n} deg={deg} rounds={rounds} (>1 = mark-array faster)");
         report("MARK_vs_string", &paired(true, false));
         report("NULL_mark_vs_mark", &paired(true, true));
     }

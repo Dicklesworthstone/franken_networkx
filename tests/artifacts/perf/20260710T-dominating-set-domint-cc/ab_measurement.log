@@ -1,0 +1,4 @@
+DOMINT_AB n=1500 deg=10 rounds=121 (>1 = mark-array faster)
+DOMINT_AB MARK_vs_string: median=20.1345x win_rate=121/121 p5_p95=[19.1448,21.3703]
+DOMINT_AB NULL_mark_vs_mark: median=1.0022x win_rate=73/121 p5_p95=[0.9842,1.0390]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 936 filtered out; finished in 10.63s
