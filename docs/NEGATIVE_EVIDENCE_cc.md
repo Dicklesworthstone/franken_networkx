@@ -1,5 +1,38 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, `9f1566171`): `voronoi_cells` integer-adjacency multi-source BFS **4.1450x** (br-r37-c1-voronoi)
+
+Shortest-paths-family Voronoi partition — a single multi-source BFS. The old kernel walked
+`graph.neighbors(nodes[v])` (a fresh `Vec<&str>` alloc per pop) and re-hashed each neighbour name through
+`idx` to recover its integer index; `dist`/`nearest` were already integer-indexed, so only the neighbour walk
+paid the String tax (V allocs + E hashes). Walk `graph.neighbors_indices(v)` directly — `idx.get` never
+rejected a neighbour (every neighbour is a node), so every neighbour index is visited as before; `idx` is
+retained only to resolve the `center_nodes` names.
+
+MEASURED — paired-interleaved in-crate A/B vs the exact String baseline (`voronoi_cells_orig_string`,
+`#[cfg(test)]`), ONE binary / ONE worker, pseudo-random deg-10 n=1500, 5 spread-out centers, 121 rounds:
+
+| paired A/B (>1 = integer-BFS faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **INT_vs_string** | **4.1450x** | **121/121** | [3.8364, 4.5101] |
+| NULL_int_vs_int | 1.0022x | 63/121 | [0.8660, 1.1209] |
+
+DECIDABLE: 4.14x median, candidate p5 (3.84) ~3.4x above the null p95 (1.12), 121/121 won. Modest vs the
+all-pairs / per-node targets because it is a single O(V+E) traversal, but the whole per-pop `Vec<&str>` alloc
++ per-edge String hash is removed. BYTE-IDENTICAL: `neighbors_indices` preserves the adjacency order so the
+FIFO traversal order — and thus the nearest-center tie-break on equidistant nodes — is unchanged; cells are a
+node partition (integer distances, no float). Asserted `cells == base` in-test; 2/2 unit tests green; clippy
+clean. (pyo3 `voronoi_cells_rust` calls this kernel directly — the win reaches Python.)
+
+NOTE — `barycenter` is NOT a target: its pyo3 wrapper already replays integer adjacency
+(`barycenter_from_adjacency`, br-r37-c1-baryidx), so the lib.rs String kernel is off the Python hot path.
+Always check the pyo3 wrapper for a bypass before converting a lib.rs kernel.
+
+SESSION TALLY (structural-primitive vein): THIRTEEN byte-identical median-gated wins — eigenvector 14.64x,
+HITS 3.11x, triangles 5.54x, square_clustering 29.73x, k_truss 10.15x, all_simple_paths 16.67x,
+generalized_degree 10.18x, clustering_coefficient_directed 58.35x, label_propagation 2.26x,
+could_be_isomorphic 11.75x, dominating_set 20.13x, closeness_vitality 10.70x, voronoi_cells 4.14x.
+
 ## SHIPPED WIN (cc, 2026-07-11, `5ccddaa61`): `closeness_vitality` full-index integer BFS **10.7008x** (br-r37-c1-clvit)
 
 Closeness-family vitality — O(V²·E). For each excluded node it BFSes from every remaining node in the induced
