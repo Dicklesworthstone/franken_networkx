@@ -1,5 +1,34 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, `83f48aa76`): `is_strongly_regular` integer-adjacency + mark-array **75.2999x** — BIGGEST of the session (br-r37-c1-srmark)
+
+`is_strongly_regular`'s λ/μ scan rebuilt a `HashSet<&str>` for `j_nbrs` on EVERY (i,j) pair — O(V²) String-set
+allocations — and String-hash-intersected it with `i_nbrs`. Snapshot integer adjacency once (`Vec<&[usize]>`),
+mark N(i) in a reusable `bool` array per `i`, and count `|N(i) ∩ N(j)|` by walking `adj[j]` with O(1) probes;
+the adjacency test `j ∈ N(i)` becomes `in_i[j]`. The per-pair `HashSet<&str>` build is eliminated.
+
+MEASURED — paired-interleaved A/B vs the exact String baseline (`is_strongly_regular_orig_string`,
+`#[cfg(test)]`), ONE binary / ONE worker, complete graph K₁₁₀ (exercises the full O(V²·deg) scan), 61 rounds:
+
+| paired A/B (>1 = mark-array faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **MARK_vs_string** | **75.2999x** | **61/61** | [55.4510, 109.0383] |
+| NULL_mark_vs_mark | 0.9880x | 24/61 | [0.5408, 1.8218] |
+
+DECIDABLE: 75.30x median, candidate p5 (55.45) ~30x above the null p95 (1.82), 61/61 won. (The NULL spread is
+wide — K₁₁₀'s dense per-call work has high timing variance — but the signal is orders of magnitude above it.)
+BYTE-IDENTICAL: `common` is the same integer intersection size (simple graph → distinct neighbours, HashSet
+dedupe was a no-op); the pair order (i then j>i) is unchanged so the first λ/μ set and any early false-return
+fire on the same pair; and the bool result is order-independent regardless. Asserted equal to the baseline
+across K₁₁₀ (true, full scan), a path (early false), and C₄₀ (false mid-scan). clippy `-D warnings` clean.
+pyo3 `is_strongly_regular` calls this kernel directly — the win reaches Python.
+
+SESSION TALLY (structural-primitive vein): FIFTEEN byte-identical median-gated wins — eigenvector 14.64x, HITS
+3.11x, triangles 5.54x, square_clustering 29.73x, k_truss 10.15x, all_simple_paths 16.67x, generalized_degree
+10.18x, clustering_coefficient_directed 58.35x, label_propagation 2.26x, could_be_isomorphic 11.75x,
+dominating_set 20.13x, closeness_vitality 10.70x, voronoi_cells 4.14x, closeness_vitality_single 5.85x,
+is_strongly_regular 75.30x.
+
 ## SHIPPED WIN (cc, 2026-07-11, `2621e20a2`): `closeness_vitality_single` full-index integer BFS **5.8503x** (br-r37-c1-clvit1)
 
 Completes the closeness-vitality family. `closeness_vitality_single(node)` is O(V·(V+E)) — BFS from every
