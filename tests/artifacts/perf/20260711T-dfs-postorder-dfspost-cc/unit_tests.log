@@ -1,0 +1,7 @@
+  [2m2026-07-11T06:16:29.150998Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib dfs_postorder -- --include-ignored --nocapture[0m
+test tests::dfs_postorder_nodes_depth_limit_omits_cutoff_node ... ok
+test tests::dfs_postorder_directed_depth_limit_omits_cutoff_node ... ok
+test tests::dfs_postorder_directed ... ok
+test tests::dfs_postorder_nodes_test ... ok
+test tests::dfs_postorder_dfspost_ab ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 944 filtered out; finished in 1.58s
