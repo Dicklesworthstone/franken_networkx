@@ -1,5 +1,37 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, `3645bc9eb`): `global_parameters` integer-adjacency all-pairs BFS + count pass **19.8644x** (br-r37-c1-gparm)
+
+Distance-regular intersection array `(b_k, c_k)` — all-pairs BFS + an O(V²·diameter) count pass. The old
+kernel walked `graph.neighbors(nodes[v])` (a `Vec<&str>` alloc per BFS pop) + `idx.get`, AND
+`graph.neighbors(nodes[j])` + `idx.get` once per (i,j) pair — O(V²) allocs + O(V²·deg) String hashes. Walk
+`graph.neighbors_indices` directly; `idx`/`nodes` dropped.
+
+MEASURED — paired-interleaved A/B vs the exact String baseline (`global_parameters_orig_string`,
+`#[cfg(test)]`), ONE binary / ONE worker, complete K₁₁₀ (distance-regular → full count pass), 61 rounds:
+
+| paired A/B (>1 = integer faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **INT_vs_string** | **19.8644x** | **61/61** | [15.7362, 33.0569] |
+| NULL_int_vs_int | 0.9965x | 28/61 | [0.8750, 1.1275] |
+
+DECIDABLE: 19.86x median, candidate p5 (15.74) ~14x above the null p95 (1.13), 61/61 won. BYTE-IDENTICAL: same
+integer counts; `b_vals`/`c_vals` HashSet contents unchanged so `.len()` distance-regularity `None`
+short-circuit + extracted value identical; integer output. Asserted equal to the baseline across K₁₁₀ + C₂₀
+(→Some) and a 20-node path (→None). pyo3 calls this kernel directly.
+
+CLIPPY PENDING (fleet contention): A/B compiled + ran clean; clippy blocked by peers monopolizing the
+`/dp/frankentui` workers (my jobs bounce to ftui-less workers). Identical neighbors→neighbors_indices pattern
+to clippy-clean gutidx/schidx/hwidx — re-verify next batch pass.
+
+SESSION TALLY (structural-primitive vein): TWENTY-TWO byte-identical median-gated wins — eigenvector 14.64x,
+HITS 3.11x, triangles 5.54x, square_clustering 29.73x, k_truss 10.15x, all_simple_paths 16.67x,
+generalized_degree 10.18x, clustering_coefficient_directed 58.35x, label_propagation 2.26x,
+could_be_isomorphic 11.75x, dominating_set 20.13x, closeness_vitality 10.70x, voronoi_cells 4.14x,
+closeness_vitality_single 5.85x, is_strongly_regular 75.30x, harmonic_diameter 10.95x,
+group_closeness_centrality 7.17x, maximum_independent_set 28.19x, gutman_index 13.21x, schultz_index 12.15x,
+hyper_wiener_index 12.46x, global_parameters 19.86x. THIS-SESSION cc wins (13).
+
 ## SHIPPED WIN (cc, 2026-07-11, `6bc326a57`): `hyper_wiener_index` integer-adjacency all-pairs BFS **12.4613x** (br-r37-c1-hwidx)
 
 Distance-metric index — `Σ_{s<t} (d(s,t) + d(s,t)²)`, O(V·(V+E)), the last distance-metric family member.
