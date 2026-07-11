@@ -1,5 +1,28 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `hypercube_graph` batch-by-index **6.4665x** (br-r37-c1-hypercubebatch)
+
+Twelfth engine-level generator batch win — first on NON-SEQUENTIAL (binary-tuple) node labels. Q_n =
+2^n nodes, each connected to n bit-flip neighbours; DENSE (n·2^(n-1) edges), deterministic, per-edge
+`add_edge(labels[node], labels[target])` under a `node < target` guard (each edge once, no dup/self-loop);
+nodes pre-exist via add_node (index i == label i). Collected (node, target) index pairs in the same
+(node,bit) order + one `extend_existing_index_edges_unrecorded`.
+
+KEY: the index-batch is LABEL-FORMAT-AGNOSTIC — extend_existing_index_edges_unrecorded canonicalizes
+endpoints by the SAME node NAMES as add_edge (looks up labels[node]/labels[target] internally), so tuple
+labels that don't sort like their indices are still byte-identical.
+
+MEASURED — Q_16 (65536 nodes, 524288 edges), 61 rounds: **BATCH_vs_string median 6.4665x**, win_rate
+61/61, p5_p95 [5.4167, 7.5610] vs NULL 1.0066x [0.8748, 1.1457]. DECIDABLE: candidate p5 (5.42) ~4.7x
+above the null p95 (1.15), 61/61 won. Lower magnitude than short-label generators (6.47x vs hkn_harary
+19.86x) — long tuple labels make the name-order canonicalization compare costlier in BOTH arms; the win
+is the dropped clones/hashes/policy. BYTE-IDENTICAL (`assert_eq!` edges_ordered + nodes_ordered on Q_16;
+Q_3/Q_1/Q_0 vs-nx tests green; clippy `-D warnings` CLEAN).
+
+Vein: gnp 13.20x, gnm 8.55x, complete_multipartite 13.24x, turan 16.22x, ring_of_cliques 19.94x, windmill
+18.63x, caveman 3.86x, barbell 16.92x, lollipop 13.29x, tadpole 7.10x, hkn_harary 19.86x, hypercube 6.47x
+shipped; barabasi 1.04x surfaced. See [[generator_accept_loop_batch]].
+
 ## SHIPPED WIN (cc, 2026-07-11): `hkn_harary_graph` batch-by-index **19.8551x** (br-r37-c1-hknhararybatch)
 
 Eleventh engine-level generator batch win — HIGHEST-magnitude to date. Harary H(k,n) = k-regular

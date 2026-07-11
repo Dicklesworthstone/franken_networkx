@@ -3156,20 +3156,23 @@ impl GraphGenerator {
             graph.add_node(label.clone());
         }
 
+        // br-r37-c1-hypercubebatch (cc): each edge is emitted exactly once (the `node < target`
+        // guard), nodes pre-exist by insertion index (labels[i] has index i), and node^mask != node
+        // → no dup/self-loop. Collect the (node, target) index pairs in the SAME (node, bit) order
+        // and batch-insert instead of per-edge add_edge (2 clones + 2 name hashes + policy each).
+        // extend_existing_index_edges_unrecorded canonicalizes endpoints by the SAME node names as
+        // add_edge → byte-identical.
+        let mut edges: Vec<(usize, usize)> = Vec::new();
         for node in 0..node_count {
             for bit_index in 0..n {
                 let mask = 1usize << (n - bit_index - 1);
                 let target = node ^ mask;
                 if node < target {
-                    graph
-                        .add_edge(labels[node].clone(), labels[target].clone())
-                        .map_err(|err| GenerationError::FailClosed {
-                            operation,
-                            reason: err.to_string(),
-                        })?;
+                    edges.push((node, target));
                 }
             }
         }
+        let _ = graph.extend_existing_index_edges_unrecorded(edges);
 
         self.record(
             operation,
@@ -8132,6 +8135,120 @@ mod tests {
             );
         };
         println!("HKN_HARARY_BATCH_AB k={k} n={n} rounds={rounds} (>1 = batch faster)");
+        report("BATCH_vs_string", &paired(true, false));
+        report("NULL_batch_vs_batch", &paired(true, true));
+    }
+
+    /// br-r37-c1-hypercubebatch: paired-interleaved median A/B for hypercube_graph edge insertion —
+    /// batch-by-index vs the per-edge `add_edge`, one binary / one worker with a NULL control. Q_d is
+    /// dense (d·2^(d-1) edges) and deterministic; nodes carry binary-tuple labels created via add_node
+    /// (index i == insertion order), the `node < target` guard emits each edge exactly once. Byte
+    /// identity is checked via parity asserts. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-generators --lib hypercube_batch_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn hypercube_batch_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Q_16: 65536 nodes, 16*65536/2 = 524288 edges.
+        let dim = 16usize;
+        let node_count = 1usize << dim;
+
+        let collect_pairs = || -> Vec<(usize, usize)> {
+            let mut edges: Vec<(usize, usize)> = Vec::new();
+            for node in 0..node_count {
+                for bit_index in 0..dim {
+                    let mask = 1usize << (dim - bit_index - 1);
+                    let target = node ^ mask;
+                    if node < target {
+                        edges.push((node, target));
+                    }
+                }
+            }
+            edges
+        };
+        let make_graph = || -> (Graph, Vec<String>) {
+            let mut g = Graph::new(CompatibilityMode::Strict);
+            let labels: Vec<String> = (0..node_count)
+                .map(|v| super::format_binary_tuple_label(v, dim))
+                .collect();
+            for label in &labels {
+                g.add_node(label.clone());
+            }
+            (g, labels)
+        };
+
+        let build_string = || {
+            let (mut g, labels) = make_graph();
+            for &(l, r) in &collect_pairs() {
+                let _ = g.add_edge(labels[l].clone(), labels[r].clone());
+            }
+            g
+        };
+        let build_batch = || {
+            let (mut g, _labels) = make_graph();
+            let _ = g.extend_existing_index_edges_unrecorded(collect_pairs());
+            g
+        };
+
+        let gs = build_string();
+        let gb = build_batch();
+        assert_eq!(
+            gs.edges_ordered_borrowed(),
+            gb.edges_ordered_borrowed(),
+            "batch-by-index hypercube must equal the per-edge add_edge baseline"
+        );
+        assert_eq!(gs.nodes_ordered(), gb.nodes_ordered());
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            if batch {
+                black_box(build_batch());
+            } else {
+                black_box(build_string());
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round % 2 == 0 {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "HYPERCUBE_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("HYPERCUBE_BATCH_AB dim={dim} node_count={node_count} rounds={rounds} (>1 = batch faster)");
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
     }
