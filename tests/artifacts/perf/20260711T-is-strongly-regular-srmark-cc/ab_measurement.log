@@ -1,0 +1,6 @@
+  [2m2026-07-11T04:11:13.201922Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib is_strongly_regular -- --include-ignored --nocapture[0m
+SRMARK_AB n=110 (K_n complete) rounds=61 (>1 = mark-array faster)
+SRMARK_AB MARK_vs_string: median=75.2999x win_rate=61/61 p5_p95=[55.4510,109.0383]
+SRMARK_AB NULL_mark_vs_mark: median=0.9880x win_rate=24/61 p5_p95=[0.5408,1.8218]
+test tests::is_strongly_regular_srmark_ab ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 940 filtered out; finished in 3.66s

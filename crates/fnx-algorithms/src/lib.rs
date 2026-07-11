@@ -36989,16 +36989,29 @@ fn generalized_degree_for_orig_string(
 /// - Every pair of non-adjacent vertices has μ common neighbors
 #[must_use]
 pub fn is_strongly_regular(graph: &Graph) -> bool {
-    let nodes = graph.nodes_ordered();
-    let n = nodes.len();
+    let n = graph.node_count();
     if n < 2 {
         return n <= 1;
     }
 
+    // br-r37-c1-srmark (cc): the λ/μ scan rebuilt a `HashSet<&str>` for `j_nbrs` on
+    // EVERY (i, j) pair — O(V^2) String-set allocations — and String-hash-intersected
+    // it with `i_nbrs`. Snapshot integer adjacency ONCE, mark N(i) in a reusable
+    // `bool` array per `i`, and count |N(i) ∩ N(j)| by walking `adj[j]` with O(1)
+    // probes; the adjacency test `j ∈ N(i)` becomes `in_i[j]`. Byte-identical:
+    // `common` is the same integer intersection size (simple graph → distinct
+    // neighbours, so the HashSet dedupe was a no-op), the pair-iteration order
+    // (i, then j > i) is unchanged so the first λ/μ assignment and any early
+    // false-return fire on the same pair, and the true/false result is
+    // order-independent regardless.
+    let adj: Vec<&[usize]> = (0..n)
+        .map(|i| graph.neighbors_indices(i).unwrap_or(&[]))
+        .collect();
+
     // Check regularity
-    let first_deg = graph.neighbors(nodes[0]).unwrap_or_default().len();
-    for &node in &nodes[1..] {
-        if graph.neighbors(node).unwrap_or_default().len() != first_deg {
+    let first_deg = adj[0].len();
+    for a in &adj[1..] {
+        if a.len() != first_deg {
             return false;
         }
     }
@@ -37006,22 +37019,21 @@ pub fn is_strongly_regular(graph: &Graph) -> bool {
     // Check λ and μ
     let mut lambda: Option<usize> = None;
     let mut mu: Option<usize> = None;
+    let mut in_i = vec![false; n];
 
     for i in 0..n {
-        let i_nbrs: std::collections::HashSet<&str> = graph
-            .neighbors(nodes[i])
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
+        for &x in adj[i] {
+            in_i[x] = true;
+        }
         for j in (i + 1)..n {
-            let j_nbrs: std::collections::HashSet<&str> = graph
-                .neighbors(nodes[j])
-                .unwrap_or_default()
-                .into_iter()
-                .collect();
-            let common = i_nbrs.intersection(&j_nbrs).count();
+            let mut common = 0usize;
+            for &x in adj[j] {
+                if in_i[x] {
+                    common += 1;
+                }
+            }
 
-            if i_nbrs.contains(nodes[j]) {
+            if in_i[j] {
                 // Adjacent pair
                 match lambda {
                     None => lambda = Some(common),
@@ -37037,8 +37049,60 @@ pub fn is_strongly_regular(graph: &Graph) -> bool {
                 }
             }
         }
+        for &x in adj[i] {
+            in_i[x] = false;
+        }
     }
 
+    true
+}
+
+/// br-r37-c1-srmark A/B baseline: the pre-lever `is_strongly_regular` that rebuilt a
+/// `HashSet<&str>` for `j_nbrs` on every (i, j) pair and String-hash-intersected it.
+/// Test-only; byte-identical to `is_strongly_regular`.
+#[cfg(test)]
+fn is_strongly_regular_orig_string(graph: &Graph) -> bool {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n < 2 {
+        return n <= 1;
+    }
+    let first_deg = graph.neighbors(nodes[0]).unwrap_or_default().len();
+    for &node in &nodes[1..] {
+        if graph.neighbors(node).unwrap_or_default().len() != first_deg {
+            return false;
+        }
+    }
+    let mut lambda: Option<usize> = None;
+    let mut mu: Option<usize> = None;
+    for i in 0..n {
+        let i_nbrs: std::collections::HashSet<&str> = graph
+            .neighbors(nodes[i])
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+        for j in (i + 1)..n {
+            let j_nbrs: std::collections::HashSet<&str> = graph
+                .neighbors(nodes[j])
+                .unwrap_or_default()
+                .into_iter()
+                .collect();
+            let common = i_nbrs.intersection(&j_nbrs).count();
+            if i_nbrs.contains(nodes[j]) {
+                match lambda {
+                    None => lambda = Some(common),
+                    Some(l) if l != common => return false,
+                    _ => {}
+                }
+            } else {
+                match mu {
+                    None => mu = Some(common),
+                    Some(m) if m != common => return false,
+                    _ => {}
+                }
+            }
+        }
+    }
     true
 }
 
@@ -48009,6 +48073,110 @@ mod tests {
         println!("CLVIT1_AB n={n} deg={deg} rounds={rounds} (>1 = integer-BFS faster)");
         report("INT_vs_string", &paired(true, false));
         report("NULL_int_vs_int", &paired(true, true));
+    }
+
+    /// br-r37-c1-srmark: paired-interleaved median A/B for the integer-adjacency +
+    /// mark-array `is_strongly_regular` vs the old per-(i,j)-pair `HashSet<&str>`
+    /// rebuild + String intersection baseline, in ONE binary / ONE worker with a
+    /// NULL control. `#[ignore]` (measurement); run with
+    /// `cargo test --release -p fnx-algorithms --lib is_strongly_regular_srmark_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn is_strongly_regular_srmark_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Complete graph K_n is strongly regular (n, n-1, n-2, 0), so the λ/μ scan
+        // runs the FULL O(V^2) pair loop and returns true — exercising exactly the
+        // path where the baseline rebuilds a HashSet<&str> per pair. n=110.
+        let n = 110usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+            }
+        }
+
+        // Parity across the true path (K_n) and both false paths: a path graph
+        // (non-regular → early false) and a cycle C_m (regular but not SR → false
+        // mid-scan).
+        let mut path = Graph::strict();
+        for i in 0..40usize {
+            let _ = path.add_node(format!("p{i}"));
+        }
+        for i in 0..39usize {
+            let _ = path.add_edge(format!("p{i}"), format!("p{}", i + 1));
+        }
+        let mut cycle = Graph::strict();
+        for i in 0..40usize {
+            let _ = cycle.add_node(format!("c{i}"));
+        }
+        for i in 0..40usize {
+            let _ = cycle.add_edge(format!("c{i}"), format!("c{}", (i + 1) % 40));
+        }
+        for gr in [&g, &path, &cycle] {
+            assert_eq!(
+                super::is_strongly_regular(gr),
+                super::is_strongly_regular_orig_string(gr),
+                "integer is_strongly_regular must equal the String baseline"
+            );
+        }
+
+        let time = |lever: bool| -> f64 {
+            let t0 = Instant::now();
+            for _ in 0..2 {
+                if lever {
+                    black_box(super::is_strongly_regular(&g));
+                } else {
+                    black_box(super::is_strongly_regular_orig_string(&g));
+                }
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..2 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "SRMARK_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("SRMARK_AB n={n} (K_n complete) rounds={rounds} (>1 = mark-array faster)");
+        report("MARK_vs_string", &paired(true, false));
+        report("NULL_mark_vs_mark", &paired(true, true));
     }
 
     /// br-r37-c1-sqcmark: paired-interleaved median A/B for the integer-adjacency +
