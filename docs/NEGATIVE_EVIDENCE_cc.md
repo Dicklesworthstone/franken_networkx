@@ -1,5 +1,39 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, `5ccddaa61`): `closeness_vitality` full-index integer BFS **10.7008x** (br-r37-c1-clvit)
+
+Closeness-family vitality — O(V²·E). For each excluded node it BFSes from every remaining node in the induced
+subgraph. The old kernel rebuilt a `HashMap<&str,usize>` (`node_to_idx`) PER EXCLUDED NODE and, per BFS pop,
+called `graph.neighbors(remaining_nodes[u])` (a fresh `Vec<&str>` alloc) then re-hashed every neighbour name
+through `node_to_idx` — O(V³·d) String allocs + hashes per call.
+
+Snapshot integer adjacency ONCE (`Vec<&[usize]>`, zero-copy borrows) and run every subgraph BFS in the FULL
+node-index space, marking the excluded index `ex` and skipping it; `node_to_idx` eliminated.
+
+MEASURED — paired-interleaved in-crate A/B vs the exact String baseline (`closeness_vitality_orig_string`,
+`#[cfg(test)]`), ONE binary / ONE worker, connected n=150 deg~10 (spanning path + random edges so removals
+stay connected), 61 rounds:
+
+| paired A/B (>1 = integer-BFS faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **INT_vs_string** | **10.7008x** | **61/61** | [9.1749, 13.5913] |
+| NULL_int_vs_int | 0.9981x | 25/61 | [0.8846, 1.1357] |
+
+DECIDABLE: 10.70x median, candidate p5 (9.17) ~8x above the null p95 (1.14), 61/61 won.
+BYTE-IDENTICAL: full-index order agrees with subgraph-index order (`remaining_nodes` preserves
+`nodes_ordered()`), so the `v>s` pairing holds; every non-`ex` neighbour is a remaining node so `if v==ex
+continue` reproduces the skip; BFS queue discipline + adjacency order are unchanged so traversal /
+`edges_scanned` / `nodes_touched` are identical; `subgraph_wiener` is a sum of integer distances (`< 2^53`,
+exact) → order-independent AND identical; `full_wiener - subgraph_wiener` exact; disconnection → `NEG_INFINITY`
+preserved. Asserted `vitality == base` in-test; 4/4 existing unit tests green; `cargo check --all-targets` +
+clippy `-D warnings` clean. `closeness_vitality_single` (same shape, single excluded node) left for a trivial
+follow-up.
+
+SESSION TALLY (structural-primitive vein): TWELVE byte-identical median-gated wins — eigenvector 14.64x, HITS
+3.11x, triangles 5.54x, square_clustering 29.73x, k_truss 10.15x, all_simple_paths 16.67x, generalized_degree
+10.18x, clustering_coefficient_directed 58.35x, label_propagation 2.26x, could_be_isomorphic 11.75x,
+dominating_set 20.13x, closeness_vitality 10.70x.
+
 ## SHIPPED WIN (cc, 2026-07-11, `94a6aa81a`): `dominating_set` integer-adjacency + mark-array greedy **20.1345x** (br-r37-c1-domint)
 
 Greedy max-cover dominating set — O(V·E). While any node is undominated it rescans every undominated node,
