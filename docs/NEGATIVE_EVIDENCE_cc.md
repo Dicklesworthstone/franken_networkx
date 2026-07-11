@@ -1,5 +1,32 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, `2f56f6bef`): `is_aperiodic` integer per-SCC GCD BFS **2.0534x** (br-r37-c1-aperiod)
+
+`is_aperiodic` uses `strongly_connected_components` (shared subroutine, left untouched — NOT editing cod's SCC)
+but has its OWN String-keyed per-SCC BFS: a `HashMap<&str,usize>` `dist`, a `HashSet<&str>` `scc_set`, and
+`successors(u)` (`Vec<&str>` alloc per pop) computing the gcd of cycle lengths. Converted to an `in_scc`
+mark array + index-keyed `dist`/`visited` + `successors_indices`.
+
+MEASURED — dense single-SCC graph (cycle + deg-10 chords) n=3000, 61 rounds:
+
+| paired A/B (>1 = integer faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **INT_vs_string** | **2.0534x** | **61/61** | [1.7353, 2.3293] |
+| NULL_int_vs_int | 1.0066x | 34/61 | [0.8489, 1.2379] |
+
+DECIDABLE: 2.05x median, candidate p5 (1.74) cleanly above the null p95 (1.24), 61/61 won. BYTE-IDENTICAL:
+`successors_indices` preserves successor order → identical BFS levels, tree/back-edge classification, and
+`cycle_len` sequence (incl. the pre-existing usize wraparound `cycle_len==0` with `gcd(x,0)==x`); gcd is
+commutative. Asserted across dense-SCC(true)/5-cycle(false)/DAG(true). clippy clean. pyo3 calls this directly.
+
+KEY PATTERN (reusable): a directed predicate that CALLS an already-integer/off-lane subroutine (SCC, WCC) can
+still be converted — optimize its OWN String loop and leave the subroutine alone. Wins are smaller (2-2.3x —
+the subroutine is an unconverted floor) but clean (clear the null spread). Applied to is_branching (WCC),
+is_aperiodic (SCC).
+
+SESSION TALLY: 19 clean wins (added is_aperiodic 2.05x) + 2 marginal. Directed structural predicates done:
+is_tournament 17x, is_arborescence 41x, is_attracting_component 11.68x, is_branching 2.28x, is_aperiodic 2.05x.
+
 ## SHIPPED WIN (cc, 2026-07-11, `72cf72b26`): `is_branching` no-alloc degrees + integer per-component edge count **2.2840x** (br-r37-c1-branch)
 
 Another mis-excluded target reopened: `is_branching` calls `weakly_connected_components` — which is
