@@ -19,8 +19,24 @@ DECIDABLE: 6.43x median, p5 (4.12) ~3x above the null p95 (1.34), 121/121 won �
 because the baseline pays a `visited` String-set probe per stack push. pyo3 calls this kernel directly. clippy
 pending the ftui fleet contention (identical mark-array pattern to clippy-clean wins; re-verify next batch).
 
-MODEST-TIER remaining (same DFS/BFS shape, bit-identical, ~2-7x, live pyo3): `bfs_layers_multi_with_parents`,
-`generic_bfs_edges`, `bfs_labeled_edges` — each one O(V+E) traversal.
+MODEST-TIER split (measured): NODE-returning traversals are worth converting (dfs_postorder returns V node
+Strings → 6.43x); EDGE-emitting traversals are OUTPUT-MATERIALIZATION-BOUND and NOT worth it — see the
+bfs_labeled_edges entry.
+
+## MARGINAL / SURFACE (cc, 2026-07-11, `7c77b57e1`): `bfs_labeled_edges` integer BFS **1.15x** — edge-emitting traversals are output-materialization-bound (br-r37-c1-bfslbl)
+
+Same clean bit-identical neighbors→neighbors_indices conversion (asserted equal to the String baseline;
+clippy clean), but the median A/B is only **1.1521x** (win_rate 116/121, p5_p95 [1.02,1.35] vs NULL 0.9952x
+[0.88,1.12] — the median just clears the null p95 and the distributions overlap). REASON: `bfs_labeled_edges`
+emits O(E) `(String,String,String)` triples — its cost is dominated by output-String allocation, which the
+neighbour-walk lever cannot touch. Shipped only because it is a correct, no-regression, bit-identical
+improvement with a clear directional signal (116/121 vs the ~50% null); it is NOT a headline win.
+
+FRONTIER (measured): the remaining modest-tier edge/parent EMITTERS — `generic_bfs_edges` (also does a per-node
+`nbrs.sort()` and is already half-integer), `bfs_layers_multi_with_parents`, `dfs_labeled_edges`,
+`bfs_beam_edges` — share this String-output floor → ~1.1-1.2x at best. LOW ROI; HOLDING on that sub-tier. The
+only remaining node-returning single-traversals (`bfs_layers`, `dfs_preorder`) are largely done or trivial.
+This completes the cc string→int mining: 14 clean wins + 1 marginal, vein exhausted.
 
 ## FRONTIER SUMMARY (cc, 2026-07-11): the heavy clean bit-identical String→integer-adjacency vein is MINED OUT for the centrality/clustering/distance-metric lane
 
