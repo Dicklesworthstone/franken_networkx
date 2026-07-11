@@ -1,5 +1,41 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, `26fd246e6`): `gutman_index` integer-adjacency all-pairs BFS **13.2074x** (br-r37-c1-gutidx)
+
+Distance-metric index — `Σ_{s<t} deg(s)·deg(t)·d(s,t)`, O(V·(V+E)). The old kernel walked
+`graph.neighbors(nodes[v])` (a `Vec<&str>` alloc per pop) + `idx.get(nb)` in the BFS, and
+`graph.neighbors(nodes[s]).len()` (a `Vec<&str>` alloc just to count) per degree. Walk
+`graph.neighbors_indices(v)` directly and take degrees with `neighbors_indices(s).map_or(0, <[usize]>::len)`;
+`idx` and `nodes` dropped.
+
+MEASURED — paired-interleaved A/B vs the exact String baseline (`gutman_index_orig_string`, `#[cfg(test)]`),
+ONE binary / ONE worker, connected n=200 deg~10, 61 rounds:
+
+| paired A/B (>1 = integer-BFS faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **INT_vs_string** | **13.2074x** | **61/61** | [11.2824, 14.1214] |
+| NULL_int_vs_int | 1.0044x | 35/61 | [0.8894, 1.1421] |
+
+DECIDABLE: 13.21x median, candidate p5 (11.28) ~10x above the null p95 (1.14), 61/61 won. BIT-IDENTICAL: BFS
+distances order-independent, degrees same counts, and `total` sums `(du·dv·dist[t]) as f64` in the SAME fixed
+(s,t asc) order over the same integers (large-product rounding reproduced identically). Exact `to_bits()`
+parity asserted; `test_gutman_index_{path,disconnected}` green. pyo3 calls this kernel directly.
+
+CLIPPY PENDING FLEET RECOVERY: `--no-run` release build Finished clean (compiles); A/B ran clean. clippy still
+blocked by the ftui flake (~50 min degraded). THREE commits now await one clean clippy pass: gcmark, mismark,
+gutidx — all trivial string→int refactors matching clippy-clean prior wins.
+
+DISTANCE-METRIC FAMILY: `gutman_index`, `schultz_index`, `hyper_wiener_index` share the identical
+all-pairs-BFS-with-String-neighbours shape (each a fixed-order integer/degree distance sum → bit-identical).
+schultz/hyper_wiener queued as follow-ups (one lever per commit). NOT pathfinding/flow (cod's lane).
+
+SESSION TALLY (structural-primitive vein): NINETEEN byte-identical median-gated wins — eigenvector 14.64x,
+HITS 3.11x, triangles 5.54x, square_clustering 29.73x, k_truss 10.15x, all_simple_paths 16.67x,
+generalized_degree 10.18x, clustering_coefficient_directed 58.35x, label_propagation 2.26x,
+could_be_isomorphic 11.75x, dominating_set 20.13x, closeness_vitality 10.70x, voronoi_cells 4.14x,
+closeness_vitality_single 5.85x, is_strongly_regular 75.30x, harmonic_diameter 10.95x,
+group_closeness_centrality 7.17x, maximum_independent_set 28.19x, gutman_index 13.21x.
+
 ## SHIPPED WIN (cc, 2026-07-11, `c04351f5a`): `maximum_independent_set` integer-adjacency + mark-array **28.1929x** (br-r37-c1-mismark)
 
 Greedy min-effective-degree independent set — O(V²·deg). The old kernel kept `remaining` as a
