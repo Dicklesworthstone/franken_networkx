@@ -27776,19 +27776,26 @@ pub fn is_simple_path_directed(graph: &DiGraph, path: &[&str]) -> bool {
 /// where every node except the root has in-degree 1, and the root has in-degree 0).
 #[must_use]
 pub fn is_arborescence(graph: &DiGraph) -> bool {
-    let nodes = graph.nodes_ordered();
-    let n = nodes.len();
+    let n = graph.node_count();
     if n == 0 {
         return false;
     }
 
-    // Count edges
+    // br-r37-c1-arbor (cc): no-alloc degrees + integer weak-connectivity BFS. The old
+    // kernel took `predecessors(node).len()`/`successors(node).len()` (`Vec<&str>`
+    // allocs) per node for the degree check, and ran the connectivity BFS over
+    // `successors()`/`predecessors()` (`Vec<&str>` allocs per pop) with a
+    // `HashSet<&str>` visited. Use the no-alloc `in_degree_by_index`/`out_degree_by_index`
+    // and walk `successors_indices`/`predecessors_indices` with a `Vec<bool>` visited.
+    // Byte-identical: `in_degree == predecessors().len()`, `out_degree ==
+    // successors().len()`, so `edge_count`/`root_count`/`in_deg` checks (and the point
+    // of any early `false` return, in node-index order) are the same; the BFS reaches
+    // the same node set ignoring direction, so `count == n` is the same bool.
     let mut edge_count = 0usize;
     let mut root_count = 0usize;
-
-    for &node in &nodes {
-        let in_deg = graph.predecessors(node).map_or(0, |v| v.len());
-        let out_deg = graph.successors(node).map_or(0, |v| v.len());
+    for i in 0..n {
+        let in_deg = graph.in_degree_by_index(i);
+        let out_deg = graph.out_degree_by_index(i);
         edge_count += out_deg;
 
         if in_deg == 0 {
@@ -27804,6 +27811,61 @@ pub fn is_arborescence(graph: &DiGraph) -> bool {
     }
 
     // Verify weakly connected: BFS ignoring direction
+    let mut visited = vec![false; n];
+    let mut count = 0usize;
+    let mut queue = VecDeque::new();
+    visited[0] = true;
+    count += 1;
+    queue.push_back(0usize);
+    while let Some(current) = queue.pop_front() {
+        if let Some(succs) = graph.successors_indices(current) {
+            for &s in succs {
+                if !visited[s] {
+                    visited[s] = true;
+                    count += 1;
+                    queue.push_back(s);
+                }
+            }
+        }
+        if let Some(preds) = graph.predecessors_indices(current) {
+            for &p in preds {
+                if !visited[p] {
+                    visited[p] = true;
+                    count += 1;
+                    queue.push_back(p);
+                }
+            }
+        }
+    }
+    count == n
+}
+
+/// br-r37-c1-arbor A/B baseline: the pre-lever `is_arborescence` that took
+/// `predecessors(node).len()`/`successors(node).len()` (`Vec<&str>` allocs) per node
+/// and ran the BFS over `successors()`/`predecessors()` with a `HashSet<&str>`.
+/// Test-only; byte-identical to `is_arborescence`.
+#[cfg(test)]
+fn is_arborescence_orig_string(graph: &DiGraph) -> bool {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return false;
+    }
+    let mut edge_count = 0usize;
+    let mut root_count = 0usize;
+    for &node in &nodes {
+        let in_deg = graph.predecessors(node).map_or(0, |v| v.len());
+        let out_deg = graph.successors(node).map_or(0, |v| v.len());
+        edge_count += out_deg;
+        if in_deg == 0 {
+            root_count += 1;
+        } else if in_deg != 1 {
+            return false;
+        }
+    }
+    if edge_count != n - 1 || root_count != 1 {
+        return false;
+    }
     let start = nodes[0];
     let mut visited: HashSet<&str> = HashSet::new();
     let mut queue = VecDeque::new();
@@ -49817,6 +49879,109 @@ mod tests {
         println!("TOURN_AB n={n} (transitive tournament) rounds={rounds} (>1 = snapshot faster)");
         report("SNAP_vs_string", &paired(true, false));
         report("NULL_snap_vs_snap", &paired(true, true));
+    }
+
+    /// br-r37-c1-arbor: paired-interleaved median A/B for the no-alloc-degree +
+    /// integer-BFS `is_arborescence` vs the old `predecessors()/successors().len()`
+    /// (`Vec<&str>`) + `HashSet<&str>` baseline, in ONE binary / ONE worker with a
+    /// NULL control. `#[ignore]` (measurement); run with
+    /// `cargo test --release -p fnx-algorithms --lib is_arborescence_arbor_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn is_arborescence_arbor_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Rooted binary tree on n=60000 (parent (i-1)/2 -> i): an arborescence, so
+        // is_arborescence runs the full per-node degree check + weak-connectivity BFS
+        // and returns true. The baseline allocs a Vec<&str> per node for degrees and
+        // per BFS pop; the lever uses no-alloc degrees + integer BFS.
+        let n = 60000usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 1..n {
+            let _ = g.add_edge(format!("n{}", (i - 1) / 2), format!("n{i}"));
+        }
+
+        // Parity across the true path (tree) and false paths: a 2-node cycle (in_deg
+        // != 0/1 pattern) and a disconnected pair of trees.
+        let mut cyc = DiGraph::strict();
+        for i in 0..4usize {
+            let _ = cyc.add_node(format!("c{i}"));
+        }
+        let _ = cyc.add_edge("c0".to_string(), "c1".to_string());
+        let _ = cyc.add_edge("c1".to_string(), "c2".to_string());
+        let _ = cyc.add_edge("c2".to_string(), "c1".to_string());
+        let mut disc = DiGraph::strict();
+        for i in 0..6usize {
+            let _ = disc.add_node(format!("d{i}"));
+        }
+        let _ = disc.add_edge("d0".to_string(), "d1".to_string());
+        let _ = disc.add_edge("d0".to_string(), "d2".to_string());
+        let _ = disc.add_edge("d3".to_string(), "d4".to_string());
+        let _ = disc.add_edge("d3".to_string(), "d5".to_string());
+        for gr in [&g, &cyc, &disc] {
+            assert_eq!(
+                super::is_arborescence(gr),
+                super::is_arborescence_orig_string(gr),
+                "integer is_arborescence must equal the String baseline"
+            );
+        }
+
+        let time = |lever: bool| -> f64 {
+            let t0 = Instant::now();
+            for _ in 0..3 {
+                if lever {
+                    black_box(super::is_arborescence(&g));
+                } else {
+                    black_box(super::is_arborescence_orig_string(&g));
+                }
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 121usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "ARBOR_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("ARBOR_AB n={n} (binary tree) rounds={rounds} (>1 = no-alloc faster)");
+        report("NOALLOC_vs_string", &paired(true, false));
+        report("NULL_noalloc_vs_noalloc", &paired(true, true));
     }
 
     /// br-r37-c1-sqcmark: paired-interleaved median A/B for the integer-adjacency +
