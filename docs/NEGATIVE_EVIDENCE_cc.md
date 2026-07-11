@@ -1,5 +1,23 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `in_degree_centrality` no-alloc in-degree **11.3636x** (br-r37-c1-idc)
+
+Directed twin of ODC. `in_degree_centrality` took each node's in-degree with
+`predecessors(node).map(|it| it.len())` — a `Vec<&str>` alloc per node discarded after `.len()`.
+Swapped to no-alloc `in_degree_by_index(i)` over `nodes_ordered().enumerate()`.
+
+MEASURED — n=100000, out-deg 8, 61 rounds: **NOALLOC_vs_string median 11.3636x**, win_rate 61/61,
+p5_p95 [5.0028, 15.8466] vs NULL 1.0009x [0.3940, 2.3839]. DECIDABLE: candidate p5 (5.00) above the
+null p95 (2.38), 61/61 won (the null was noisier on this worker but centred ~1.0; a 61/61 median-11.4x
+result cannot come from it). BYTE-IDENTICAL: `in_degree_by_index(i) == predecessors(nodes[i]).len()`;
+`node.to_owned()` + `in_deg/denom` unchanged; empty/n==1 (early return before denom) branches preserved.
+Asserted equal to the baseline. Diff clippy-clean (same 11 pre-existing findings as ODC, none in my
+ranges). pyo3 calls this directly.
+
+**degree-centrality corner COMPLETE**: ODC (out) + IDC (in) shipped; undirected `degree_centrality`
+already no-alloc (`neighbor_count`); `degree_centrality_directed` already name-keyed `out_degree`/
+`in_degree` (no Vec alloc). No degree-centrality residual left in the `neighbors_len_vec_alloc` family.
+
 ## SHIPPED WIN (cc, 2026-07-11): `out_degree_centrality` no-alloc out-degree **11.3845x** (br-r37-c1-odc)
 
 `out_degree_centrality` mapped every node to `(name, out_deg/(n-1))`, taking the out-degree with
