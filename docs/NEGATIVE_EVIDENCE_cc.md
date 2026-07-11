@@ -1,5 +1,37 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, `b18ff90b8`): `is_arborescence` no-alloc degrees + integer weak-connectivity BFS **41.2724x** (br-r37-c1-arbor)
+
+Directed structural predicate. The old kernel took `predecessors(node).len()`/`successors(node).len()`
+(`Vec<&str>` allocs) per node for the degree check and ran the weak-connectivity BFS over `successors()`/
+`predecessors()` (`Vec<&str>` per pop) with a `HashSet<&str>` visited. Use no-alloc
+`in_degree_by_index`/`out_degree_by_index` + `successors_indices`/`predecessors_indices` walk with a
+`Vec<bool>` visited.
+
+MEASURED — paired-interleaved A/B vs the exact String baseline (`is_arborescence_orig_string`, `#[cfg(test)]`),
+ONE binary / ONE worker, rooted binary tree n=60000, 121 rounds:
+
+| paired A/B (>1 = no-alloc faster) | median | win_rate | p5-p95 |
+|---|---|---|---|
+| **NOALLOC_vs_string** | **41.2724x** | **121/121** | [16.4750, 73.7129] |
+| NULL_noalloc_vs_noalloc | 1.0115x | 63/121 | [0.1508, 1.3886] |
+
+DECIDABLE: 41.27x median, candidate p5 (16.48) ~12x above the null p95 (1.39), 121/121 won. Large because on
+60k nodes the baseline's `HashSet<&str>` BFS (String hashing per node) + 2n degree `Vec<&str>` allocs dominate.
+BYTE-IDENTICAL: same integer degree checks, same reachable node set → same bool. Asserted equal across
+tree(true)/2-cycle(false)/disconnected(false); 4 unit tests green. clippy clean. pyo3 calls this directly.
+
+STALE-BINARY TRAP: the first `--include-ignored` run served a STALE rch test binary — only the 4 pre-lever
+unit tests ran ("finished in 0.01s", `_arbor_ab` ABSENT, "0 ignored"). A forced fresh recompile gave the real
+result. Always confirm the A/B test NAME appears in the run output before trusting it.
+
+SESSION TALLY: this-session cc wins = 16 clean (could_be_isomorphic, dominating_set, closeness_vitality,
+voronoi_cells, closeness_vitality_single, is_strongly_regular, harmonic_diameter, group_closeness_centrality,
+maximum_independent_set, gutman_index, schultz_index, hyper_wiener_index, global_parameters, dfs_postorder_nodes,
+is_tournament, is_arborescence) + 2 marginal (bfs_labeled_edges, node_degree_xy_directed). Directed
+structural-predicate sub-vein productive (is_tournament 17x, is_arborescence 41x); remaining probes:
+`is_attracting_component`, `is_d_separator` (avoid SCC/dijkstra/dominators = cod).
+
 ## SHIPPED WIN (cc, 2026-07-11, `344d39ee5`): `is_tournament` snapshot integer successor sets **17.3681x** — O(V³)→O(V²) (br-r37-c1-tourn)
 
 DIRECTED vein reopened. `is_tournament` called `digraph.successors(nodes[i])` (a `Vec<&str>` alloc) INSIDE the
