@@ -1,5 +1,16 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11, `8cb4bd796`): `isolates` (undirected) no-alloc degree test **7.3274x** (br-r37-c1-iso)
+
+Undirected twin of isolates_directed. `isolates` allocated a `Vec<&str>` via `neighbors(node)` per node just to
+check `is_empty()` (V allocs, tiny output). Swapped to the no-alloc `neighbors_indices(i)` slice length.
+`number_of_isolates` (calls `isolates`) benefits automatically.
+
+MEASURED — n=200000, 61 rounds: **NOALLOC_vs_string median 7.3274x**, win_rate 61/61, p5_p95 [5.9750, 9.3460]
+vs NULL 1.0063x [0.8357, 1.1279]. DECIDABLE: p5 (5.98) ~5x above the null p95 (1.13), 61/61 won. BYTE-IDENTICAL:
+`neighbors_indices(i).len() == neighbors(nodes[i]).len()` (existing nodes → `neighbors` always Some). Asserted
+equal to the baseline. clippy clean. pyo3 calls this directly.
+
 ## SHIPPED WIN (cc, 2026-07-11, `92cb16c0c`): `isolates_directed` no-alloc degree test **8.1608x** (br-r37-c1-isodir)
 
 Reopened the `neighbors_len_vec_alloc` family. `isolates_directed`, for EVERY node, allocated a `Vec<&str>` via
