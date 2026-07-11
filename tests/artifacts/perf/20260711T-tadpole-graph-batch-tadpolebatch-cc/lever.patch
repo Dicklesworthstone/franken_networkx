@@ -1,0 +1,184 @@
+diff --git a/crates/fnx-generators/src/lib.rs b/crates/fnx-generators/src/lib.rs
+index 197152134..1b85d8474 100644
+--- a/crates/fnx-generators/src/lib.rs
++++ b/crates/fnx-generators/src/lib.rs
+@@ -1031,46 +1031,32 @@ impl GraphGenerator {
+             });
+         }
+ 
+-        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, total_nodes);
++        // br-r37-c1-tadpolebatch (cc): cycle of m + connection + tail of n, all with pre-existing
++        // nodes by KNOWN INDEX — collect the (left, right) index pairs in the SAME order (cycle,
++        // connection, tail) and batch-insert instead of per-edge add_edge (2 clones + 2 name hashes
++        // + policy each). Cycle edges are unique (m>=2, no self-loops incl. the wrap edge (m-1, 0));
++        // connection (m-1, m) + tail (m..m+n) are disjoint → all pairs unique.
++        // `extend_existing_index_edges_unrecorded` matches add_edge's endpoint canonicalization +
++        // adj_indices order → byte-identical. Measured 7.10x even though tadpole is sparse
++        // (edges ≈ nodes) — the per-edge string overhead dominates node creation.
++        let (mut graph, _node_labels) = graph_with_n_nodes(self.mode, total_nodes);
++        let mut edges: Vec<(usize, usize)> = Vec::new();
+         if m == 2 {
+-            graph
+-                .add_edge(node_labels[0].clone(), node_labels[1].clone())
+-                .map_err(|err| GenerationError::FailClosed {
+-                    operation: "tadpole_graph",
+-                    reason: err.to_string(),
+-                })?;
++            edges.push((0, 1));
+         } else {
+             for node in 0..m {
+-                graph
+-                    .add_edge(
+-                        node_labels[node].clone(),
+-                        node_labels[(node + 1) % m].clone(),
+-                    )
+-                    .map_err(|err| GenerationError::FailClosed {
+-                        operation: "tadpole_graph",
+-                        reason: err.to_string(),
+-                    })?;
++                edges.push((node, (node + 1) % m));
+             }
+         }
+-
+         if n > 0 {
+-            graph
+-                .add_edge(node_labels[m - 1].clone(), node_labels[m].clone())
+-                .map_err(|err| GenerationError::FailClosed {
+-                    operation: "tadpole_graph",
+-                    reason: err.to_string(),
+-                })?;
++            edges.push((m - 1, m));
+         }
+         if n > 1 {
+             for node in m..(m + n - 1) {
+-                graph
+-                    .add_edge(node_labels[node].clone(), node_labels[node + 1].clone())
+-                    .map_err(|err| GenerationError::FailClosed {
+-                        operation: "tadpole_graph",
+-                        reason: err.to_string(),
+-                    })?;
++                edges.push((node, node + 1));
+             }
+         }
++        let _ = graph.extend_existing_index_edges_unrecorded(edges);
+ 
+         self.record(
+             "tadpole_graph",
+@@ -7922,6 +7908,117 @@ mod tests {
+         report("NULL_batch_vs_batch", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-tadpolebatch: PROFILE-FIRST A/B for tadpole_graph — tadpole is SPARSE (cycle m +
++    /// tail n = m+n edges over m+n nodes), so node-creation cost may dilute the per-edge batch win.
++    /// Measures batch-by-index vs the per-edge `add_edge` at the max size (m+n = 100k) BEFORE any
++    /// production edit; only ship if the median clears the NULL. `#[ignore]`; run with
++    /// `cargo test --release -p fnx-generators --lib tadpole_batch_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn tadpole_batch_ab() {
++        use super::graph_with_n_nodes;
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // tadpole(90000, 10000): 100000 nodes, 90000 cycle + 1 conn + 9999 tail = 100000 edges.
++        let m = 90000usize;
++        let n = 10000usize;
++        let total_nodes = m + n;
++
++        let collect_pairs = || -> Vec<(usize, usize)> {
++            let mut edges: Vec<(usize, usize)> = Vec::new();
++            if m == 2 {
++                edges.push((0, 1));
++            } else {
++                for node in 0..m {
++                    edges.push((node, (node + 1) % m));
++                }
++            }
++            if n > 0 {
++                edges.push((m - 1, m));
++            }
++            if n > 1 {
++                for node in m..(m + n - 1) {
++                    edges.push((node, node + 1));
++                }
++            }
++            edges
++        };
++
++        let build_string = || {
++            let (mut g, node_labels) = graph_with_n_nodes(CompatibilityMode::Strict, total_nodes);
++            for &(l, r) in &collect_pairs() {
++                let _ = g.add_edge(node_labels[l].clone(), node_labels[r].clone());
++            }
++            g
++        };
++        let build_batch = || {
++            let (mut g, _node_labels) = graph_with_n_nodes(CompatibilityMode::Strict, total_nodes);
++            let _ = g.extend_existing_index_edges_unrecorded(collect_pairs());
++            g
++        };
++
++        let gs = build_string();
++        let gb = build_batch();
++        assert_eq!(
++            gs.edges_ordered_borrowed(),
++            gb.edges_ordered_borrowed(),
++            "batch-by-index tadpole must equal the per-edge add_edge baseline"
++        );
++        assert_eq!(gs.nodes_ordered(), gb.nodes_ordered());
++
++        let time = |batch: bool| -> f64 {
++            let t0 = Instant::now();
++            if batch {
++                black_box(build_batch());
++            } else {
++                black_box(build_string());
++            }
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for round in 0..rounds {
++                let (tb, tc) = if round % 2 == 0 {
++                    let bt = time(base_arm);
++                    let ct = time(cand);
++                    (bt, ct)
++                } else {
++                    let ct = time(cand);
++                    let bt = time(base_arm);
++                    (bt, ct)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "TADPOLE_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("TADPOLE_BATCH_AB m={m} n={n} rounds={rounds} (>1 = batch faster)");
++        report("BATCH_vs_string", &paired(true, false));
++        report("NULL_batch_vs_batch", &paired(true, true));
++    }
++
+     fn packet_007_forensics_bundle(
+         run_id: &str,
+         test_id: &str,

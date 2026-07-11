@@ -1,5 +1,28 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `tadpole_graph` batch-by-index **7.0988x** (br-r37-c1-tadpolebatch)
+
+Tenth engine-level generator batch win — and the first SPARSE one (edges≈nodes). tadpole = cycle of m +
+tail of n via one connection edge; per-edge `add_edge(clone, clone)` for cycle + connection + tail,
+nodes pre-exist, DETERMINISTIC → insertion-bound. PROFILE-FIRST (tadpole is sparse so node-creation
+could dilute the win): the batch-vs-string A/B was run at max size (m+n=100k) BEFORE the production edit
+and cleared the null 7.10x, so the edit was applied. Collected the (l,r) index pairs in the SAME order
+(cycle, connection, tail) + one `extend_existing_index_edges_unrecorded`.
+
+MEASURED — tadpole(90000, 10000) (100000 nodes, 100000 edges), 61 rounds: **BATCH_vs_string median
+7.0988x**, win_rate 61/61, p5_p95 [5.2328, 8.4099] vs NULL 0.9943x [0.8373, 1.1833]. DECIDABLE:
+candidate p5 (5.23) ~4.4x above the null p95 (1.18), 61/61 won. BYTE-IDENTICAL (cycle edges unique incl.
+wrap (m-1,0) pushed in same arg order; connection + tail disjoint; `assert_eq!` edges_ordered +
+nodes_ordered; both tadpole vs-nx tests green — `cycle_case` n=0 + `cycle_plus_path_case` n>0; clippy
+`-D warnings` CLEAN).
+
+KEY FINDING: the batch win holds even for SPARSE generators — the per-edge String clone/hash/policy
+overhead dominates, NOT construction (my a-priori "node creation dilutes it" prediction was wrong; 7.10x
+measured). Vein: gnp 13.20x, gnm 8.55x, complete_multipartite 13.24x, turan 16.22x, ring_of_cliques
+19.94x, windmill 18.63x, caveman 3.86x, barbell 16.92x, lollipop 13.29x, tadpole 7.10x shipped; barabasi
+1.04x surfaced (sampling-bound, the ONLY loss — RNG dominates not insertion). See
+[[generator_accept_loop_batch]].
+
 ## SHIPPED WIN (cc, 2026-07-11): `lollipop_graph` batch-by-index **13.2854x** (br-r37-c1-lollipopbatch)
 
 Ninth engine-level generator batch win. lollipop = complete clique of m + path of n attached by one

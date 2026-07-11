@@ -1,0 +1,11 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib tadpole -- --nocapture
+running 3 tests
+test tests::tadpole_graph_matches_networkx_cycle_case ... ok
+test tests::tadpole_graph_rejects_m_below_two_like_networkx ... ok
+test tests::tadpole_graph_matches_networkx_cycle_plus_path_case ... ok
+test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 201 filtered out; finished in 0.00s
+
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo clippy -p fnx-generators --lib --tests -- -D warnings
+    Checking fnx-generators v0.2.0
+    Finished `dev` profile
+CLIPPY CLEAN (no errors, no warnings).
