@@ -1,0 +1,12 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib grid_2d_batch_ab -- --ignored --nocapture
+
+GRID2D_BATCH_AB m=300 n=300 rounds=61 (>1 = batch faster)
+GRID2D_BATCH_AB BATCH_vs_string: median=4.0803x win_rate=61/61 p5_p95=[3.2183,5.0429]
+GRID2D_BATCH_AB NULL_batch_vs_batch: median=0.9845x win_rate=27/61 p5_p95=[0.7943,1.1356]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 209 filtered out; finished in 43.63s
+
+Gate: candidate p5 (3.2183) >> NULL p95 (1.1356); 61/61 rounds. Byte-identity parity asserts across
+8 configs — non-periodic, both-periodic, each-single-periodic, and the m==2/n==2 guard cases
+(5,7,*), (2,7,TT), (7,2,TT), (2,2,TT), (300,300,FF) — passed before timing. Lower magnitude (4.08x)
+because the long "(row, col)" tuple labels make the name-order canonicalization compare costlier in
+both arms; the win is the dropped clones/hashes/policy.

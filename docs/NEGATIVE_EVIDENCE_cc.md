@@ -1,5 +1,30 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `grid_2d_graph` batch-by-index **4.0803x** (br-r37-c1-grid2dbatch)
+
+Fifteenth engine-level generator batch win. grid_2d = m×n grid on (row,col) tuple labels, vertical +
+horizontal interior edges + optional periodic wraps; deterministic, ~2mn edges, per-edge
+`add_edge(clone,clone)`, nodes pre-exist row-major (index = row*n+col) → insertion-bound. Collected (l,r)
+index pairs in the SAME order (verticals, horizontals, row-wrap, col-wrap) + one
+`extend_existing_index_edges_unrecorded`.
+
+NO-DEDUP byte-identity: interior edges distinct; the ONLY dedup risk (a periodic wrap over a 2-wide axis
+duplicating the single interior edge) is already prevented by the builder's m>2 / n>2 wrap guards → all
+pairs unique, no self-loop. Name-canonicalization is label-agnostic (tuple labels fine).
+
+MEASURED — grid_2d(300,300,non-periodic) (90000 nodes, 179400 edges), 61 rounds: **BATCH_vs_string
+median 4.0803x**, win_rate 61/61, p5_p95 [3.2183, 5.0429] vs NULL 0.9845x [0.7943, 1.1356]. DECIDABLE:
+candidate p5 (3.22) ~2.8x above the null p95 (1.14), 61/61 won. Lower magnitude — long "(row,col)" labels
+make the name-compare costlier in both arms. BYTE-IDENTICAL (A/B parity across 8 configs incl. the m=2/n=2
+guard cases; both grid_2d vs-nx tests green incl. the small-periodic-no-dup case; clippy `-D warnings`
+CLEAN).
+
+Vein: gnp 13.20x, gnm 8.55x, complete_multipartite 13.24x, turan 16.22x, ring_of_cliques 19.94x, windmill
+18.63x, caveman 3.86x, barbell 16.92x, lollipop 13.29x, tadpole 7.10x, hkn_harary 19.86x, hypercube 6.47x,
+wheel 24.28x, binomial_tree 6.96x, grid_2d 4.08x shipped; barabasi 1.04x surfaced. The clean (no-dedup)
+vein is nearing exhaustion — remaining members (generalized_petersen k=n/2, hnm_harary, sudoku, circulant)
+need a gnm-style seen-set. See [[generator_accept_loop_batch]].
+
 ## SHIPPED WIN (cc, 2026-07-11): `binomial_tree` batch-by-index **6.9641x** (br-r37-c1-bintreebatch)
 
 Fourteenth engine-level generator batch win. binomial_tree = order-n tree on 2^n nodes, built by
