@@ -18478,3 +18478,95 @@ translate into a median win once binary-search updates and row insertion were
 included. Source was restored. The next flow frontier is an indexed
 minimum-cut partition consumer only after a fresh profile; otherwise rotate to
 a separately profiled pathfinding seam while matching remains on hold.
+
+## 2026-07-11 WhiteJaguar SHIP (FLOW, `minimum_cut`): indexed residual partition consumer — 1.8468x paired same-worker median (`br-r37-c1-4y63e`)
+
+NEGATIVE-LEDGER / TRIAGE FIRST: `docs/NEGATIVE_EVIDENCE.md` and
+`bv --robot-triage` were read before selection. The robot snapshot contained
+227 open and 229 actionable issues. The immediately preceding compact sorted
+residual-row trial is an explicit no-retry boundary, while its handoff names an
+indexed minimum-cut partition consumer as the next flow frontier. The matching
+lane remains on hold for exact NetworkX tie and edge-orientation semantics, and
+this private flow tail is outside cc-owned CSR and centrality storage.
+
+PROFILE FIRST: a strict-remote `release-perf` pprof run on `vmi1149989`
+exercised the current parallel-path minimum-cut row. Of 2,274 total samples,
+2,271 were in `compute_minimum_cut_edmonds_karp` and 1,540 were in
+`compute_max_flow_residual`, putting the post-flow partition/materialization
+tail at about 32.1% of all samples. String `HashMap::entry` accounted for 554
+samples (24.4%), with string lookup and hashing also visible. The temporary
+profile probe was restored before the production edit; the restored
+`crates/fnx-algorithms/src/lib.rs` SHA-256 was exactly
+`26ba7e457aba42e4f09f9dcd96419c613bdd11285a3e16a8cbc5bfa1969cf6d2`.
+
+ONE LEVER: the non-materializing max-flow path now hands its existing indexed
+`Vec<BTreeMap<usize, f64>>` residual and sorted node-name table directly to the
+minimum-cut partition consumer. The consumer builds reverse rows and performs
+sink reachability with integer indices and a `Vec<bool>`, eliminating the
+nested String residual `HashMap`, String-keyed reverse map, String queue,
+clones, hashes, and per-pop sort. Augmentation, the B-tree residual rows,
+capacity parsing, arithmetic, epsilon, and public max-flow projection are
+unchanged.
+
+BIT-IDENTICAL ARGUMENT: ascending residual-row indices are the exact
+lexicographic node-name order previously recovered by `sort_unstable`, so BFS
+candidate order and witness counters are unchanged. Residual capacities are
+read from the same B-tree entries with identical `f64` bits. Final membership
+is mapped back through the graph's original insertion-ordered node list, so
+public partition order is unchanged. A test-only frozen copy of the former
+String tail compares cut-value bits, ordered source and sink partitions, and
+the complete witness exactly for Graph and DiGraph fixtures covering reverse
+queries, non-lexicographic insertion, self-loops, zero and invalid capacities,
+and disconnected structure. The focused strict-remote exact test passed 1/1,
+and the paired measurement harness repeats the same exact assertion before
+timing.
+
+MEDIAN GATE: a paired-interleaved single-binary A/B on remote worker
+`vmi1227854` used 61 samples with alternating arm order and a null control:
+
+| arm | median ns |
+|---|---:|
+| indexed candidate | 27,397.555 |
+| frozen String tail | 52,217.545 |
+
+The median of paired frozen/candidate ratios was `1.846776x`, with p5-p95
+`[1.554334, 2.219309]`; the candidate/candidate null-control median was
+`1.002566x`, with p5-p95 `[0.812733, 1.177254]`. A final-source Criterion run
+on the same worker measured a 26.3732 us median (95% CI
+25.8833-26.9888 us). Against that worker's stored untouched 54.5017 us
+baseline, Criterion reported a -51.6104% median change (95% CI
+-53.2193% to -49.2099%), or 2.0666x. The paired same-binary 1.8468x result is
+the causal keep gate; the stored-baseline comparison is confirmation.
+
+STRICT REMOTE-ONLY: every Cargo profile, benchmark, check, clippy, and test
+command used the fail-closed prefix below; no local Cargo command ran:
+
+```text
+RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo ...
+```
+
+One profile attempt on `vmi1264463` failed remotely on a stale sibling `ftui`
+dependency and was invalidated. An untouched baseline routed to a different,
+cold worker and was excluded from causal evidence. Three full-library test
+attempts were refused before execution because the degraded fleet had no
+admissible slot; this capacity limitation is surfaced, not replaced by a local
+run. Agent Mail was also degraded read-only and its file reservation failed on
+a malformed database page, so coordination continued from Git, Beads, and
+ledger truth without modifying Agent Mail state.
+
+CORRECTNESS / GATES: the strict-remote focused exact test and paired A/B test
+passed, and strict-remote workspace all-targets check passed. Exact remote
+clippy reports only the same 11 pre-existing `collapsible_if` /
+`doc_lazy_continuation` findings outside this lever; a scoped remote clippy run
+allowed only those two known classes, denied every other warning, and passed.
+Direct `rustfmt --check` reports only three pre-existing file-wide formatting
+diffs outside the owned hunks, while `git diff --check` passes. The full
+`fnx-algorithms` library suite remains surfaced as an RCH no-slot gate rather
+than falsely claimed as executed. UBS ran with `UBS_SKIP_RUST_BUILD=1`, found
+zero critical issues, and reported only its existing file-wide heuristic
+backlog.
+
+RESULT: SHIP. Preserve the B-tree augmentation representation, sorted index to
+name mapping, public insertion-order partition projection, and exact witness
+counts. Do not retry the rejected compact residual-row representation; any
+next flow lever needs a fresh profile on a different seam.

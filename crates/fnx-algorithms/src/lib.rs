@@ -1001,9 +1001,15 @@ impl fmt::Display for ModularityError {
 impl std::error::Error for ModularityError {}
 
 #[derive(Debug, Clone)]
+struct IndexedFlowResidual {
+    capacities: Vec<BTreeMap<usize, f64>>,
+    sorted_node_names: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
 struct FlowComputation {
     value: f64,
-    residual: HashMap<String, HashMap<String, f64>>,
+    indexed_residual: Option<IndexedFlowResidual>,
     flows: Vec<FlowEdgeValue>,
     witness: ComplexityWitness,
 }
@@ -8181,6 +8187,21 @@ fn flow_edges_from_residual<G: FlowGraphView>(
     flows
 }
 
+#[cfg(test)]
+fn string_residual_from_indexed(
+    residual: &IndexedFlowResidual,
+) -> HashMap<String, HashMap<String, f64>> {
+    let mut string_residual = HashMap::with_capacity(residual.capacities.len());
+    for (source, capacities) in residual.capacities.iter().enumerate() {
+        let mut row = HashMap::with_capacity(capacities.len());
+        for (&target, &capacity) in capacities {
+            row.insert(residual.sorted_node_names[target].clone(), capacity);
+        }
+        string_residual.insert(residual.sorted_node_names[source].clone(), row);
+    }
+    string_residual
+}
+
 fn compute_minimum_cut_edmonds_karp<G: FlowGraphView>(
     graph: &G,
     source: &str,
@@ -8220,49 +8241,48 @@ fn compute_minimum_cut_edmonds_karp<G: FlowGraphView>(
     }
 
     let computation = compute_max_flow_residual(graph, source, sink, capacity_attr, false)?;
-    let mut reverse_residual = HashMap::<String, Vec<String>>::new();
-    for node in &ordered_nodes {
-        reverse_residual.entry(node.clone()).or_default();
-    }
-    for (left, caps) in &computation.residual {
-        reverse_residual.entry(left.clone()).or_default();
-        for right in caps.keys() {
-            reverse_residual
-                .entry(right.clone())
-                .or_default()
-                .push(left.clone());
+    let indexed_residual = computation
+        .indexed_residual
+        .as_ref()
+        .expect("minimum-cut computation must retain its indexed residual");
+    let mut reverse_residual = vec![Vec::<usize>::new(); indexed_residual.capacities.len()];
+    for (left, capacities) in indexed_residual.capacities.iter().enumerate() {
+        for &right in capacities.keys() {
+            reverse_residual[right].push(left);
         }
     }
 
-    let mut sink_reachable = HashSet::<String>::new();
-    let mut queue = VecDeque::<String>::new();
-    queue.push_back(sink.to_owned());
-    sink_reachable.insert(sink.to_owned());
+    let sink_index = indexed_residual
+        .sorted_node_names
+        .binary_search_by(|node| node.as_str().cmp(sink))
+        .expect("validated sink must exist in the indexed residual");
+    let mut sink_reachable = vec![false; indexed_residual.capacities.len()];
+    let mut queue = VecDeque::<usize>::new();
+    queue.push_back(sink_index);
+    sink_reachable[sink_index] = true;
     let mut cut_nodes_touched = 1_usize;
     let mut cut_edges_scanned = 0_usize;
     let mut cut_queue_peak = 1_usize;
 
     // NetworkX derives the minimum-cut partition from nodes that can still
     // reach the sink in the residual network after saturated edges are removed.
+    // `left` indices above are visited in ascending lexicographic-name order,
+    // so every reverse row already has the exact ordering produced by the old
+    // per-pop String clone + `sort_unstable` path.
     while let Some(current) = queue.pop_front() {
-        let mut candidates = reverse_residual.get(&current).cloned().unwrap_or_default();
-        candidates.sort_unstable();
-
-        for candidate in candidates {
-            if sink_reachable.contains(&candidate) {
+        for candidate in reverse_residual[current].iter().copied() {
+            if sink_reachable[candidate] {
                 continue;
             }
             cut_edges_scanned += 1;
-            let residual_capacity = computation
-                .residual
-                .get(&candidate)
-                .and_then(|caps| caps.get(&current))
+            let residual_capacity = indexed_residual.capacities[candidate]
+                .get(&current)
                 .copied()
                 .unwrap_or(0.0);
             if residual_capacity <= 0.0 {
                 continue;
             }
-            sink_reachable.insert(candidate.clone());
+            sink_reachable[candidate] = true;
             queue.push_back(candidate);
             cut_nodes_touched += 1;
             cut_queue_peak = cut_queue_peak.max(queue.len());
@@ -8272,7 +8292,11 @@ fn compute_minimum_cut_edmonds_karp<G: FlowGraphView>(
     let mut source_partition = Vec::new();
     let mut sink_partition = Vec::new();
     for node in ordered_nodes {
-        if sink_reachable.contains(&node) {
+        let node_index = indexed_residual
+            .sorted_node_names
+            .binary_search(&node)
+            .expect("ordered graph node must exist in the indexed residual");
+        if sink_reachable[node_index] {
             sink_partition.push(node);
         } else {
             source_partition.push(node);
@@ -8310,7 +8334,7 @@ fn compute_max_flow_residual<G: FlowGraphView>(
     if source == sink {
         return Ok(FlowComputation {
             value: 0.0,
-            residual: HashMap::new(),
+            indexed_residual: None,
             flows: Vec::new(),
             witness: ComplexityWitness {
                 algorithm: "edmonds_karp_max_flow".to_owned(),
@@ -8337,20 +8361,14 @@ fn compute_max_flow_residual<G: FlowGraphView>(
     for (i, k) in sorted_keys.iter().enumerate() {
         idx_of.insert(*k, i);
     }
-    let key_of = (!materialize_flows).then(|| {
-        sorted_keys
-            .iter()
-            .map(|node| (*node).to_owned())
-            .collect::<Vec<_>>()
-    });
     // residual_i[u]: ordered map (neighbor index -> residual capacity).
     let mut residual_i: Vec<std::collections::BTreeMap<usize, f64>> =
         vec![std::collections::BTreeMap::new(); n];
     // Max-flow returns an ordered edge-flow projection but never exposes the
     // private residual. Retain the original edge order and the already-decoded
     // capacity so that projection can read `residual_i` directly after the
-    // augmentation loop. Minimum-cut instead needs the string-keyed residual
-    // and does not pay for this inventory.
+    // augmentation loop. Minimum-cut instead consumes the indexed residual
+    // directly and does not pay for this inventory.
     let mut original_edges = materialize_flows.then(Vec::<(usize, usize, f64)>::new);
     for node in &ordered_nodes {
         let u = idx_of[node.as_str()];
@@ -8471,27 +8489,15 @@ fn compute_max_flow_residual<G: FlowGraphView>(
         })
         .unwrap_or_default();
 
-    let residual = if materialize_flows {
-        HashMap::new()
-    } else {
-        // Minimum-cut still consumes the full residual. Values are identical
-        // because the augmentation above is unchanged.
-        let key_of = key_of.expect("minimum-cut residual requires the key table");
-        let mut residual = HashMap::with_capacity(n);
-        for (u, caps) in residual_i.iter().enumerate() {
-            let mut row = HashMap::with_capacity(caps.len());
-            for (&v, &capacity) in caps {
-                row.insert(key_of[v].clone(), capacity);
-            }
-            residual.insert(key_of[u].clone(), row);
-        }
-        residual
-    };
+    let indexed_residual = (!materialize_flows).then(|| IndexedFlowResidual {
+        capacities: residual_i,
+        sorted_node_names: sorted_keys.iter().map(|node| (*node).to_owned()).collect(),
+    });
 
     Ok(FlowComputation {
         value: total_flow,
         flows,
-        residual,
+        indexed_residual,
         witness: ComplexityWitness {
             algorithm: "edmonds_karp_max_flow".to_owned(),
             complexity_claim: "O(|V| * |E|^2)".to_owned(),
@@ -47955,7 +47961,6 @@ mod tests {
         bellman_ford_path_length,
         bellman_ford_shortest_paths,
         bellman_ford_shortest_paths_directed,
-        compute_max_flow_residual,
         betweenness_centrality,
         betweenness_centrality_directed_with_params,
         betweenness_centrality_with_params,
@@ -47998,6 +48003,7 @@ mod tests {
         complement_graph,
         complete_bipartite_graph,
         complete_multipartite_graph,
+        compute_max_flow_residual,
         condensation,
         conductance,
         connected_components,
@@ -48345,6 +48351,89 @@ mod tests {
     /// Standard tolerance for floating-point assertions in tests.
     /// Matches DISTANCE_COMPARISON_EPSILON from the production constants.
     const TEST_TOLERANCE: f64 = 1e-12;
+
+    fn minimum_cut_frozen_string_tail<G: super::FlowGraphView>(
+        graph: &G,
+        source: &str,
+        sink: &str,
+    ) -> super::MinimumCutResult {
+        let ordered_nodes = graph.flow_nodes_ordered();
+        let computation = compute_max_flow_residual(graph, source, sink, "capacity", false)
+            .expect("frozen minimum-cut flow should succeed");
+        let indexed_residual = computation
+            .indexed_residual
+            .as_ref()
+            .expect("frozen minimum-cut flow should retain its residual");
+        let residual = super::string_residual_from_indexed(indexed_residual);
+
+        let mut reverse_residual = HashMap::<String, Vec<String>>::new();
+        for node in &ordered_nodes {
+            reverse_residual.entry(node.clone()).or_default();
+        }
+        for (left, capacities) in &residual {
+            reverse_residual.entry(left.clone()).or_default();
+            for right in capacities.keys() {
+                reverse_residual
+                    .entry(right.clone())
+                    .or_default()
+                    .push(left.clone());
+            }
+        }
+
+        let mut sink_reachable = HashSet::<String>::new();
+        let mut queue = std::collections::VecDeque::<String>::new();
+        queue.push_back(sink.to_owned());
+        sink_reachable.insert(sink.to_owned());
+        let mut cut_nodes_touched = 1_usize;
+        let mut cut_edges_scanned = 0_usize;
+        let mut cut_queue_peak = 1_usize;
+
+        while let Some(current) = queue.pop_front() {
+            let mut candidates = reverse_residual.get(&current).cloned().unwrap_or_default();
+            candidates.sort_unstable();
+            for candidate in candidates {
+                if sink_reachable.contains(&candidate) {
+                    continue;
+                }
+                cut_edges_scanned += 1;
+                let residual_capacity = residual
+                    .get(&candidate)
+                    .and_then(|capacities| capacities.get(&current))
+                    .copied()
+                    .unwrap_or(0.0);
+                if residual_capacity <= 0.0 {
+                    continue;
+                }
+                sink_reachable.insert(candidate.clone());
+                queue.push_back(candidate);
+                cut_nodes_touched += 1;
+                cut_queue_peak = cut_queue_peak.max(queue.len());
+            }
+        }
+
+        let mut source_partition = Vec::new();
+        let mut sink_partition = Vec::new();
+        for node in ordered_nodes {
+            if sink_reachable.contains(&node) {
+                sink_partition.push(node);
+            } else {
+                source_partition.push(node);
+            }
+        }
+
+        super::MinimumCutResult {
+            value: computation.value,
+            source_partition,
+            sink_partition,
+            witness: ComplexityWitness {
+                algorithm: "edmonds_karp_minimum_cut".to_owned(),
+                complexity_claim: "O(|V| * |E|^2)".to_owned(),
+                nodes_touched: computation.witness.nodes_touched + cut_nodes_touched,
+                edges_scanned: computation.witness.edges_scanned + cut_edges_scanned,
+                queue_peak: computation.witness.queue_peak.max(cut_queue_peak),
+            },
+        }
+    }
 
     /// br-r37-c1-ra004: paired-interleaved median A/B for the `neighbor_count`
     /// no-alloc lever on `node_degree_xy` (two per-edge `Vec<&str>` allocations
@@ -52888,7 +52977,12 @@ mod tests {
                 .expect("flow algorithm should succeed");
             let residual = compute_max_flow_residual(graph, "s", "t", "capacity", false)
                 .expect("flow algorithm should succeed");
-            let expected = super::flow_edges_from_residual(graph, &residual.residual, "capacity");
+            let indexed_residual = residual
+                .indexed_residual
+                .as_ref()
+                .expect("minimum-cut mode should retain the indexed residual");
+            let string_residual = super::string_residual_from_indexed(indexed_residual);
+            let expected = super::flow_edges_from_residual(graph, &string_residual, "capacity");
 
             assert_eq!(direct.value.to_bits(), residual.value.to_bits());
             assert_eq!(direct.witness, residual.witness);
@@ -52899,9 +52993,9 @@ mod tests {
                 assert_eq!(actual.flow.to_bits(), expected.flow.to_bits());
             }
             assert!(!direct.flows.is_empty());
-            assert!(direct.residual.is_empty());
+            assert!(direct.indexed_residual.is_none());
             assert!(residual.flows.is_empty());
-            assert!(!residual.residual.is_empty());
+            assert!(residual.indexed_residual.is_some());
         }
 
         let mut graph = Graph::strict();
@@ -53079,6 +53173,177 @@ mod tests {
         );
         assert_eq!(result.sink_partition, vec!["t".to_owned()]);
         assert_eq!(result.witness.algorithm, "edmonds_karp_minimum_cut");
+    }
+
+    #[test]
+    fn indexed_minimum_cut_partition_matches_frozen_string_tail_exactly() {
+        fn assert_exact<G: super::FlowGraphView>(graph: &G, source: &str, sink: &str) {
+            let candidate =
+                super::compute_minimum_cut_edmonds_karp(graph, source, sink, "capacity")
+                    .expect("indexed minimum-cut should succeed");
+            let frozen = minimum_cut_frozen_string_tail(graph, source, sink);
+            assert_eq!(candidate.value.to_bits(), frozen.value.to_bits());
+            assert_eq!(candidate.source_partition, frozen.source_partition);
+            assert_eq!(candidate.sink_partition, frozen.sink_partition);
+            assert_eq!(candidate.witness, frozen.witness);
+        }
+
+        let mut graph = Graph::strict();
+        for node in ["s", "z", "a", "m", "t", "isolated", "lonely"] {
+            let _ = graph.add_node(node);
+        }
+        for (left, right, capacity) in [
+            ("s", "z", "4"),
+            ("s", "a", "2"),
+            ("z", "m", "1"),
+            ("a", "m", "3"),
+            ("m", "t", "4"),
+            ("z", "t", "0"),
+            ("a", "a", "7"),
+            ("s", "isolated", "bogus"),
+        ] {
+            graph
+                .add_edge_with_attrs(left, right, attrs([("capacity", capacity)]))
+                .expect("undirected parity edge should be added");
+        }
+        assert_exact(&graph, "s", "t");
+        assert_exact(&graph, "t", "s");
+
+        let mut digraph = DiGraph::strict();
+        for node in ["s", "z", "a", "m", "t", "isolated", "lonely"] {
+            let _ = digraph.add_node(node);
+        }
+        for (left, right, capacity) in [
+            ("s", "z", "4"),
+            ("s", "a", "2"),
+            ("z", "m", "1"),
+            ("a", "m", "3"),
+            ("m", "t", "4"),
+            ("t", "a", "2"),
+            ("z", "t", "0"),
+            ("a", "a", "7"),
+            ("s", "isolated", "bogus"),
+        ] {
+            digraph
+                .add_edge_with_attrs(left, right, attrs([("capacity", capacity)]))
+                .expect("directed parity edge should be added");
+        }
+        assert_exact(&digraph, "s", "t");
+        assert_exact(&digraph, "t", "s");
+    }
+
+    #[test]
+    #[ignore = "paired remote median measurement"]
+    fn minimum_cut_indexed_partition_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let mut graph = Graph::strict();
+        let _ = graph.add_node("s");
+        let _ = graph.add_node("t");
+        for path in 0..5 {
+            let capacity = ((path + 1) * 2).to_string();
+            let first = format!("p{path}_0");
+            let _ = graph.add_node(&first);
+            graph
+                .add_edge_with_attrs("s", first, attrs([("capacity", capacity.as_str())]))
+                .expect("source edge should be added");
+            for index in 1..10 {
+                let previous = format!("p{path}_{}", index - 1);
+                let current = format!("p{path}_{index}");
+                let _ = graph.add_node(&current);
+                graph
+                    .add_edge_with_attrs(
+                        previous,
+                        current,
+                        attrs([("capacity", capacity.as_str())]),
+                    )
+                    .expect("path edge should be added");
+            }
+            graph
+                .add_edge_with_attrs(
+                    format!("p{path}_9"),
+                    "t",
+                    attrs([("capacity", capacity.as_str())]),
+                )
+                .expect("sink edge should be added");
+        }
+
+        let candidate = super::compute_minimum_cut_edmonds_karp(&graph, "s", "t", "capacity")
+            .expect("indexed minimum-cut should succeed");
+        let frozen = minimum_cut_frozen_string_tail(&graph, "s", "t");
+        assert_eq!(candidate.value.to_bits(), frozen.value.to_bits());
+        assert_eq!(candidate.source_partition, frozen.source_partition);
+        assert_eq!(candidate.sink_partition, frozen.sink_partition);
+        assert_eq!(candidate.witness, frozen.witness);
+
+        const CALLS: usize = 200;
+        const SAMPLES: usize = 61;
+        let time_arm = |indexed: bool| {
+            let started = Instant::now();
+            for _ in 0..CALLS {
+                let result = if indexed {
+                    super::compute_minimum_cut_edmonds_karp(&graph, "s", "t", "capacity")
+                        .expect("indexed minimum-cut should succeed")
+                } else {
+                    minimum_cut_frozen_string_tail(&graph, "s", "t")
+                };
+                black_box(result);
+            }
+            started.elapsed().as_nanos() as f64 / CALLS as f64
+        };
+
+        for _ in 0..8 {
+            black_box(time_arm(true));
+            black_box(time_arm(false));
+        }
+
+        let mut candidate_samples = Vec::with_capacity(SAMPLES);
+        let mut frozen_samples = Vec::with_capacity(SAMPLES);
+        let mut ratios = Vec::with_capacity(SAMPLES);
+        let mut null_ratios = Vec::with_capacity(SAMPLES);
+        for sample in 0..SAMPLES {
+            let (frozen_ns, candidate_ns) = if sample % 2 == 0 {
+                (time_arm(false), time_arm(true))
+            } else {
+                let candidate_ns = time_arm(true);
+                (time_arm(false), candidate_ns)
+            };
+            let (null_left, null_right) = if sample % 2 == 0 {
+                (time_arm(true), time_arm(true))
+            } else {
+                let right = time_arm(true);
+                (time_arm(true), right)
+            };
+            frozen_samples.push(frozen_ns);
+            candidate_samples.push(candidate_ns);
+            ratios.push(frozen_ns / candidate_ns);
+            null_ratios.push(null_left / null_right);
+        }
+
+        let median = |values: &[f64]| {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            sorted[sorted.len() / 2]
+        };
+        let percentile = |values: &[f64], numerator: usize| {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            sorted[(sorted.len() - 1) * numerator / 100]
+        };
+        println!(
+            "MINCUT_AB candidate_med_ns={:.3} frozen_med_ns={:.3} ratio_med={:.6}x \
+             ratio_p5_p95=[{:.6},{:.6}] null_ratio_med={:.6}x \
+             null_p5_p95=[{:.6},{:.6}]",
+            median(&candidate_samples),
+            median(&frozen_samples),
+            median(&ratios),
+            percentile(&ratios, 5),
+            percentile(&ratios, 95),
+            median(&null_ratios),
+            percentile(&null_ratios, 5),
+            percentile(&null_ratios, 95),
+        );
     }
 
     #[test]
