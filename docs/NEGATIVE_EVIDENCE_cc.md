@@ -1,5 +1,27 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## MARGINAL / SURFACE (cc, 2026-07-11, `a04d71fb5`): `is_semiconnected` integer condensation build **1.37x** — SCC + dense-topo floored (br-r37-c1-semiconn)
+
+Same clean bit-identical conversion (SCC condensation `HashMap<&str,usize>` node_to_scc + `successors()` allocs
+→ `Vec<usize>` scc-map + `successors_indices`; SCC and topo sort untouched; asserted equal across
+transitive-DAG/incomparable/single-SCC), but only **1.3662x** median (win_rate 54/61, p5_p95 [0.87,1.88] vs
+NULL 0.9844x [0.76,1.16] — median clears the null p95 but the distributions overlap). The transitive-DAG
+benchmark is a WORST CASE: its condensation is maximally DENSE (`adj[i]={i+1..n-1}`), so the O(V²) topo sort +
+the SCC compute dominate and the condensation-build lever is a small fraction. Shipped as a correct,
+no-regression directional improvement (54/61 vs the 28/61 null); cleaner on sparser condensations. Marks the
+end of the directed structural-predicate sub-vein.
+
+## DIRECTED STRUCTURAL-PREDICATE SUB-VEIN COMPLETE (cc, 2026-07-11)
+
+Six directed `is_*` bool predicates mined via the "optimize the predicate's OWN String loop, leave shared
+integer/off-lane subroutines (SCC, WCC, topo) untouched" pattern:
+is_tournament 17.37x, is_arborescence 41.27x, is_attracting_component 11.68x (guard-fastpath), is_branching
+2.28x, is_aperiodic 2.05x, is_semiconnected 1.37x (marginal). The ones that call SCC/WCC and feed a dense
+downstream (semiconnected) are floored to ~1.4-2.3x; the ones whose whole body is the String loop (tournament,
+arborescence, attracting) are big (11-41x). Remaining directed: `is_d_separator` (whole-algorithm rewrite),
+dijkstra/dominators/SCC/kosaraju (cod's pathfinding/flow lane), `descendants`/`ancestors` (pyo3-bypassed via
+bfs_edges). HELD.
+
 ## SHIPPED WIN (cc, 2026-07-11, `2f56f6bef`): `is_aperiodic` integer per-SCC GCD BFS **2.0534x** (br-r37-c1-aperiod)
 
 `is_aperiodic` uses `strongly_connected_components` (shared subroutine, left untouched — NOT editing cod's SCC)
