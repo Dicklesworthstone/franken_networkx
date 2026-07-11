@@ -1,0 +1,7 @@
+SLICE validation (br-r37-c1-windbatch):
+A/B (real worker): WIND_BATCH_AB present; BATCH_vs_string 18.6331x (61/61, p5_p95 [12.53,23.23]); NULL 0.987x.
+  parity assert_eq! (edges_ordered_borrowed + nodes_ordered, center + clique edges) GREEN -> byte-identical.
+windmill tests: 4 passed, 0 failed, 1 ignored. INCLUDES exact-vs-nx gate:
+  windmill_graph_matches_networkx_shared_center_structure ... ok
+  windmill_graph_minimum_case_matches_networkx / _rejects_dense_edge_count / _rejects_invalid_parameters ... ok
+clippy --release -p fnx-generators --lib --tests -- -D warnings: CLEAN.

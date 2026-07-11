@@ -2481,29 +2481,28 @@ impl GraphGenerator {
             return Err(GenerationError::FailClosed { operation, reason });
         }
 
-        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, total_nodes);
+        // br-r37-c1-windbatch (cc): deterministic windmill (n cliques sharing center node 0) —
+        // center-to-leaf edges + leaf-clique edges, all with pre-existing nodes by KNOWN INDEX.
+        // Collect the (left, right) index pairs (SAME center-then-clique, per-blade order) and
+        // batch-insert instead of per-edge add_edge (2 clones + 2 name hashes + policy each).
+        // Center edges (0, leaf) touch node 0; clique edges are among leaves (>=1) in disjoint
+        // ranges → unique, no self-loops; `extend_existing_index_edges_unrecorded` matches
+        // add_edge's endpoint canonicalization + adj_indices order → byte-identical.
+        let (mut graph, _node_labels) = graph_with_n_nodes(self.mode, total_nodes);
+        let mut edges: Vec<(usize, usize)> = Vec::with_capacity(edge_count);
         for clique in 0..n {
             let first_leaf = 1 + clique * (k - 1);
             let end = first_leaf + (k - 1);
             for leaf in first_leaf..end {
-                graph
-                    .add_edge(node_labels[0].clone(), node_labels[leaf].clone())
-                    .map_err(|err| GenerationError::FailClosed {
-                        operation,
-                        reason: err.to_string(),
-                    })?;
+                edges.push((0, leaf));
             }
             for left in first_leaf..end {
                 for right in (left + 1)..end {
-                    graph
-                        .add_edge(node_labels[left].clone(), node_labels[right].clone())
-                        .map_err(|err| GenerationError::FailClosed {
-                            operation,
-                            reason: err.to_string(),
-                        })?;
+                    edges.push((left, right));
                 }
             }
         }
+        let _ = graph.extend_existing_index_edges_unrecorded(edges);
 
         self.record(
             operation,
@@ -7504,6 +7503,119 @@ mod tests {
             );
         };
         println!("ROC_BATCH_AB cliques={num_cliques} size={clique_size} rounds={rounds} (>1 = batch faster)");
+        report("BATCH_vs_string", &paired(true, false));
+        report("NULL_batch_vs_batch", &paired(true, true));
+    }
+
+    /// br-r37-c1-windbatch: paired-interleaved median A/B for windmill_graph edge insertion —
+    /// batch-by-index vs the pre-lever per-edge `add_edge`, in ONE binary / ONE worker with a NULL
+    /// control. Both arms reproduce the full windmill (center-to-leaf + leaf-clique edges, no RNG).
+    /// `#[ignore]`; run with
+    /// `cargo test --release -p fnx-generators --lib windmill_batch_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn windmill_batch_ab() {
+        use super::graph_with_n_nodes;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // windmill(200, 30): 1 + 200*29 = 5801 nodes, 200 * (30*29/2) = 87000 edges.
+        let n = 200usize;
+        let k = 30usize;
+        let total_nodes = 1 + n * (k - 1);
+
+        let build_string = || {
+            let (mut g, node_labels) = graph_with_n_nodes(CompatibilityMode::Strict, total_nodes);
+            for clique in 0..n {
+                let first_leaf = 1 + clique * (k - 1);
+                let end = first_leaf + (k - 1);
+                for leaf in first_leaf..end {
+                    let _ = g.add_edge(node_labels[0].clone(), node_labels[leaf].clone());
+                }
+                for left in first_leaf..end {
+                    for right in (left + 1)..end {
+                        let _ = g.add_edge(node_labels[left].clone(), node_labels[right].clone());
+                    }
+                }
+            }
+            g
+        };
+        let build_batch = || {
+            let (mut g, _node_labels) = graph_with_n_nodes(CompatibilityMode::Strict, total_nodes);
+            let mut edges: Vec<(usize, usize)> = Vec::new();
+            for clique in 0..n {
+                let first_leaf = 1 + clique * (k - 1);
+                let end = first_leaf + (k - 1);
+                for leaf in first_leaf..end {
+                    edges.push((0, leaf));
+                }
+                for left in first_leaf..end {
+                    for right in (left + 1)..end {
+                        edges.push((left, right));
+                    }
+                }
+            }
+            let _ = g.extend_existing_index_edges_unrecorded(edges);
+            g
+        };
+
+        let gs = build_string();
+        let gb = build_batch();
+        assert_eq!(
+            gs.edges_ordered_borrowed(),
+            gb.edges_ordered_borrowed(),
+            "batch-by-index windmill must equal the per-edge add_edge baseline"
+        );
+        assert_eq!(gs.nodes_ordered(), gb.nodes_ordered());
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            if batch {
+                black_box(build_batch());
+            } else {
+                black_box(build_string());
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round % 2 == 0 {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "WIND_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("WIND_BATCH_AB n={n} k={k} rounds={rounds} (>1 = batch faster)");
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
     }

@@ -1,0 +1,4 @@
+WIND_BATCH_AB n=200 k=30 rounds=61 (>1 = batch faster)
+WIND_BATCH_AB BATCH_vs_string: median=18.6331x win_rate=61/61 p5_p95=[12.5283,23.2285]
+WIND_BATCH_AB NULL_batch_vs_batch: median=0.9872x win_rate=28/61 p5_p95=[0.7222,1.5355]
+parity: edges_ordered_borrowed + nodes_ordered IDENTICAL (center + clique edges) -> byte-identical

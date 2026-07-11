@@ -1,5 +1,21 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `windmill_graph` batch-by-index **18.6331x** (br-r37-c1-windbatch)
+
+Sixth engine-level generator batch win. windmill = n cliques of k nodes sharing center node 0; per-edge
+`add_edge(clone, clone)` for center→leaf + leaf-clique edges, nodes pre-exist, DETERMINISTIC →
+insertion-bound. Collected all (l,r) index pairs (center-then-clique, per blade) + one
+`extend_existing_index_edges_unrecorded`.
+
+MEASURED — windmill(200, 30) (5801 nodes, 87000 edges), 61 rounds: **BATCH_vs_string median 18.6331x**,
+win_rate 61/61, p5_p95 [12.5283, 23.2285] vs NULL 0.9872x [0.7222, 1.5355]. DECIDABLE: candidate p5
+(12.53) ~8x above the null p95 (1.54), 61/61 won. BYTE-IDENTICAL (center + clique edges, no dup/self-loop;
+`assert_eq!` edges_ordered + nodes_ordered; windmill vs-nx tests green; clippy clean).
+
+Extends the deterministic-dense generator batch family BEYOND the 2026-06-25 cluster. Vein: gnp 13.20x,
+gnm 8.55x, complete_multipartite 13.24x, turan 16.22x, ring_of_cliques 19.94x, windmill 18.63x shipped;
+barabasi 1.04x surfaced. Next: `caveman_graph` (same pattern). See [[generator_accept_loop_batch]].
+
 ## SHIPPED WIN (cc, 2026-07-11): `ring_of_cliques` batch-by-index **19.9437x** — 3rd supersession of the 2026-06-25 "dense generators floor-bound" surface (br-r37-c1-rocbatch)
 
 Fifth engine-level generator batch win (highest yet). ring_of_cliques = num_cliques complete cliques +
