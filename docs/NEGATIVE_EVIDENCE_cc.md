@@ -1,5 +1,25 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `barbell_graph` batch-by-index **16.9189x** (br-r37-c1-barbellbatch)
+
+Eighth engine-level generator batch win. barbell = two disjoint complete cliques of m1 joined by a path
+of m2 + two connection edges; per-edge `add_edge(clone, clone)` for both cliques + path + connections,
+nodes pre-exist, DETERMINISTIC → insertion-bound. Collected the (l,r) index pairs in the SAME per-block
+order (left clique, path, right clique, then the two connection edges) + one
+`extend_existing_index_edges_unrecorded`.
+
+MEASURED — barbell(600, 10) (1210 nodes, 359411 edges), 61 rounds: **BATCH_vs_string median 16.9189x**,
+win_rate 61/61, p5_p95 [13.0812, 25.6003] vs NULL 1.0333x [0.9129, 1.2014]. DECIDABLE: candidate p5
+(13.08) ~10.9x above the null p95 (1.20), 61/61 won. BYTE-IDENTICAL (disjoint cliques + path + cross
+connections → all pairs unique, no dup/self-loop; `assert_eq!` edges_ordered + nodes_ordered; both
+barbell vs-nx tests green — `direct_join_case` (m2=0) + `path_connected_case` (m2>0)). Compiles +
+functional tests pass; clippy `-D warnings` NOT re-run — a ~90-min fleet-wide static.crates.io outage
+flaked every remote build; identical pattern to 7 clippy-passed sibling wins; shipped under "commit what
+compiles". Re-run clippy on fleet recovery.
+
+Vein: gnp 13.20x, gnm 8.55x, complete_multipartite 13.24x, turan 16.22x, ring_of_cliques 19.94x, windmill
+18.63x, caveman 3.86x, barbell 16.92x shipped; barabasi 1.04x surfaced. See [[generator_accept_loop_batch]].
+
 ## SHIPPED WIN (cc, 2026-07-11): `caveman_graph` batch-by-index **3.8550x** (br-r37-c1-cavebatch)
 
 Seventh engine-level generator batch win. caveman = l disjoint complete cliques of k; per-edge

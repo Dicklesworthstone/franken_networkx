@@ -1,0 +1,12 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib barbell -- --nocapture
+running 4 tests
+test tests::barbell_graph_rejects_m1_below_two_like_networkx ... ok
+test tests::barbell_graph_matches_networkx_direct_join_case ... ok
+test tests::barbell_graph_matches_networkx_path_connected_case ... ok
+test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 199 filtered out; finished in 0.00s
+
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo clippy -p fnx-generators --lib --tests -- -D warnings
+NOT RE-RUN — fleet-wide static.crates.io download outage (~90 min) flaked every remote build attempt
+(100+ retries: "failed to download from static.crates.io"). Per the remote-only directive there is no
+local fallback. The lib+tests DID compile remotely for the A/B and suite-test runs above (both ran
+green), so the code compiles; only the lint pass is outstanding. Re-run when the fleet recovers.
