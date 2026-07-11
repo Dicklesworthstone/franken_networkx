@@ -1,0 +1,224 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index c7ef79925..c97b095f3 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -31693,6 +31693,97 @@ pub fn number_attracting_components(digraph: &DiGraph) -> usize {
+ /// Matches `networkx.is_attracting_component(G, component)`.
+ #[must_use]
+ pub fn is_attracting_component(digraph: &DiGraph, component: &[&str]) -> bool {
++    if component.is_empty() {
++        return false;
++    }
++
++    // br-r37-c1-attract (cc): validity-guarded integer fast path. When every
++    // component name is a node of the graph (the realistic case — `component` is an
++    // SCC of `digraph`), resolve to indices ONCE and run the attracting check plus
++    // forward/backward reachability on `Vec<bool>` mark arrays + `successors_indices`/
++    // `predecessors_indices`, dropping the per-node `HashSet<&str>` and the
++    // `successors()`/`predecessors()` `Vec<&str>` allocs. Falls back to the exact
++    // String kernel when any name is absent (where the name-keyed reachability sets
++    // store the missing name, which an integer array cannot represent), so the result
++    // is byte-identical for ALL inputs. Distinct-count is preserved: `comp_set` dedups
++    // by name, the mark array dedups by index, and valid distinct names map to
++    // distinct indices (`get_node_index` is injective).
++    let n = digraph.node_count();
++    let Some(comp_indices) = component
++        .iter()
++        .map(|&nm| digraph.get_node_index(nm))
++        .collect::<Option<Vec<usize>>>()
++    else {
++        return is_attracting_component_string(digraph, component);
++    };
++
++    let mut in_comp = vec![false; n];
++    let mut comp_count = 0usize;
++    for &ci in &comp_indices {
++        if !in_comp[ci] {
++            in_comp[ci] = true;
++            comp_count += 1;
++        }
++    }
++
++    // Every out-edge of a component node must stay inside the component.
++    for &node in &comp_indices {
++        if let Some(succs) = digraph.successors_indices(node) {
++            for &s in succs {
++                if !in_comp[s] {
++                    return false;
++                }
++            }
++        }
++    }
++
++    let start = comp_indices[0];
++    // Forward reachability within the component.
++    let mut reachable = vec![false; n];
++    let mut reach_count = 0usize;
++    let mut stack = vec![start];
++    while let Some(v) = stack.pop() {
++        if reachable[v] {
++            continue;
++        }
++        reachable[v] = true;
++        reach_count += 1;
++        if let Some(succs) = digraph.successors_indices(v) {
++            for &s in succs {
++                if in_comp[s] && !reachable[s] {
++                    stack.push(s);
++                }
++            }
++        }
++    }
++    if reach_count != comp_count {
++        return false;
++    }
++    // Backward reachability within the component.
++    let mut reachable_back = vec![false; n];
++    let mut back_count = 0usize;
++    let mut stack = vec![start];
++    while let Some(v) = stack.pop() {
++        if reachable_back[v] {
++            continue;
++        }
++        reachable_back[v] = true;
++        back_count += 1;
++        if let Some(preds) = digraph.predecessors_indices(v) {
++            for &p in preds {
++                if in_comp[p] && !reachable_back[p] {
++                    stack.push(p);
++                }
++            }
++        }
++    }
++    back_count == comp_count
++}
++
++/// br-r37-c1-attract: the exact String kernel for `is_attracting_component`, used as
++/// the runtime fallback when a component name is absent from the graph, and as the
++/// A/B baseline. Byte-identical to the integer fast path for all-valid components.
++fn is_attracting_component_string(digraph: &DiGraph, component: &[&str]) -> bool {
+     let comp_set: HashSet<&str> = component.iter().copied().collect();
+     for &node in component {
+         if let Some(succs) = digraph.successors(node) {
+@@ -31703,12 +31794,10 @@ pub fn is_attracting_component(digraph: &DiGraph, component: &[&str]) -> bool {
+             }
+         }
+     }
+-    // Also verify it's strongly connected within itself
+     if component.is_empty() {
+         return false;
+     }
+     let start = component[0];
+-    // Forward reachability (successors)
+     let mut reachable = HashSet::new();
+     let mut stack = vec![start];
+     while let Some(v) = stack.pop() {
+@@ -31726,7 +31815,6 @@ pub fn is_attracting_component(digraph: &DiGraph, component: &[&str]) -> bool {
+     if reachable.len() != comp_set.len() {
+         return false;
+     }
+-    // Backward reachability (predecessors)
+     let mut reachable_back = HashSet::new();
+     let mut stack = vec![start];
+     while let Some(v) = stack.pop() {
+@@ -49984,6 +50072,100 @@ mod tests {
+         report("NULL_noalloc_vs_noalloc", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-attract: paired-interleaved median A/B for the validity-guarded
++    /// integer `is_attracting_component` fast path vs the exact `HashSet<&str>` +
++    /// `successors()/predecessors()` String kernel, in ONE binary / ONE worker with a
++    /// NULL control. `#[ignore]` (measurement); run with
++    /// `cargo test --release -p fnx-algorithms --lib is_attracting_component_attract_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn is_attracting_component_attract_ab() {
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // A single directed cycle on n=50000 (i -> (i+1)%n): the whole graph is one
++        // strongly connected attracting component (no edge leaves it). Passing all n
++        // nodes as the component exercises the full attracting check + forward/backward
++        // reachability and returns true.
++        let n = 50000usize;
++        let mut g = DiGraph::strict();
++        for i in 0..n {
++            let _ = g.add_node(format!("n{i}"));
++        }
++        for i in 0..n {
++            let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + 1) % n));
++        }
++        let names: Vec<String> = (0..n).map(|i| format!("n{i}")).collect();
++        let comp: Vec<&str> = names.iter().map(String::as_str).collect();
++
++        // Parity: attracting cycle (true, fast path), a non-attracting sub-path
++        // (out-edge leaves -> false, fast path), and a component with an absent name
++        // (-> String fallback, trivially equal).
++        let sub: Vec<&str> = comp[..10].to_vec(); // 0..9, edge 9->10 leaves it
++        let mut with_absent: Vec<&str> = comp[..5].to_vec();
++        with_absent.push("ghost");
++        for c in [&comp, &sub, &with_absent] {
++            assert_eq!(
++                super::is_attracting_component(&g, c),
++                super::is_attracting_component_string(&g, c),
++                "integer is_attracting_component must equal the String kernel"
++            );
++        }
++
++        let time = |lever: bool| -> f64 {
++            let t0 = Instant::now();
++            for _ in 0..2 {
++                if lever {
++                    black_box(super::is_attracting_component(&g, &comp));
++                } else {
++                    black_box(super::is_attracting_component_string(&g, &comp));
++                }
++            }
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..2 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for r in 0..rounds {
++                let (tb, tc) = if r % 2 == 0 {
++                    let b = time(base);
++                    let c = time(cand);
++                    (b, c)
++                } else {
++                    let c = time(cand);
++                    let b = time(base);
++                    (b, c)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "ATTRACT_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("ATTRACT_AB n={n} (attracting cycle) rounds={rounds} (>1 = integer faster)");
++        report("INT_vs_string", &paired(true, false));
++        report("NULL_int_vs_int", &paired(true, true));
++    }
++
+     /// br-r37-c1-sqcmark: paired-interleaved median A/B for the integer-adjacency +
+     /// mark-array square clustering vs the old String-keyed HashMap/HashSet
+     /// baseline, in ONE binary / ONE worker with a NULL control. `#[ignore]`
