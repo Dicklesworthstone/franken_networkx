@@ -39666,15 +39666,60 @@ pub fn moral_graph(digraph: &DiGraph) -> Graph {
 /// Gutman index: sum of deg(u)*deg(v)*d(u,v) for all pairs.
 #[must_use]
 pub fn gutman_index(graph: &Graph) -> Option<f64> {
+    let n = graph.node_count();
+    if n < 2 {
+        return Some(0.0);
+    }
+
+    // br-r37-c1-gutidx (cc): all-pairs BFS. The old kernel walked
+    // `graph.neighbors(nodes[v])` (a `Vec<&str>` alloc per pop) + `idx.get(nb)` String
+    // hash, and used `graph.neighbors(nodes[s]).len()` (a `Vec<&str>` alloc just to
+    // count) for each degree. Walk `graph.neighbors_indices` directly (zero-alloc
+    // `&[usize]`); `idx` and `nodes` are dropped. Byte-identical: the BFS distances
+    // are order-independent shortest paths, the degrees are the same neighbour counts,
+    // and `total` sums `(du * dv * dist[t]) as f64` in the SAME fixed (s asc, t asc)
+    // order over the same integers — no floating-point reassociation.
+    let mut total = 0.0;
+    for s in 0..n {
+        let mut dist = vec![usize::MAX; n];
+        dist[s] = 0;
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(s);
+        while let Some(v) = queue.pop_front() {
+            if let Some(nbrs) = graph.neighbors_indices(v) {
+                for &ni in nbrs {
+                    if dist[ni] == usize::MAX {
+                        dist[ni] = dist[v] + 1;
+                        queue.push_back(ni);
+                    }
+                }
+            }
+        }
+        if dist.contains(&usize::MAX) {
+            return None;
+        }
+        let du = graph.neighbors_indices(s).map_or(0, <[usize]>::len);
+        for t in (s + 1)..n {
+            let dv = graph.neighbors_indices(t).map_or(0, <[usize]>::len);
+            total += (du * dv * dist[t]) as f64;
+        }
+    }
+    Some(total)
+}
+
+/// br-r37-c1-gutidx A/B baseline: the pre-lever all-pairs Gutman-index BFS that
+/// called `graph.neighbors(nodes[v])` (`Vec<&str>` alloc per pop) + `idx.get`, and
+/// `graph.neighbors(nodes[s]).len()` per degree. Test-only; byte-identical to
+/// `gutman_index`.
+#[cfg(test)]
+fn gutman_index_orig_string(graph: &Graph) -> Option<f64> {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     if n < 2 {
         return Some(0.0);
     }
-
     let idx: std::collections::HashMap<&str, usize> =
         nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
-
     let mut total = 0.0;
     for s in 0..n {
         let mut dist = vec![usize::MAX; n];
@@ -48636,6 +48681,102 @@ mod tests {
         println!("MISMARK_AB n={n} deg={deg} rounds={rounds} (>1 = mark-array faster)");
         report("MARK_vs_string", &paired(true, false));
         report("NULL_mark_vs_mark", &paired(true, true));
+    }
+
+    /// br-r37-c1-gutidx: paired-interleaved median A/B for the integer-adjacency
+    /// all-pairs `gutman_index` vs the old `graph.neighbors()` (`Vec<&str>`) + `idx.get`
+    /// String baseline, in ONE binary / ONE worker with a NULL control. `#[ignore]`
+    /// (measurement); run with
+    /// `cargo test --release -p fnx-algorithms --lib gutman_index_gutidx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn gutman_index_gutidx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // gutman_index is O(V·(V+E)): BFS from every source + an O(V) degree-weighted
+        // pair sum. Connected n=200 deg~10 graph (spanning path + random edges) so the
+        // disconnection short-circuit never fires and every source does full work.
+        let n = 200usize;
+        let deg = 10usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n.saturating_sub(1) {
+            let _ = g.add_edge(format!("n{i}"), format!("n{}", i + 1));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                let j = ((i as u64)
+                    .wrapping_mul(1_000_003)
+                    .wrapping_add((k as u64).wrapping_mul(97))
+                    % n as u64) as usize;
+                if j != i {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+                }
+            }
+        }
+
+        // Byte-exact parity: integer all-pairs Gutman index == String baseline.
+        let mark = super::gutman_index(&g);
+        let base = super::gutman_index_orig_string(&g);
+        assert_eq!(
+            mark.map(f64::to_bits),
+            base.map(f64::to_bits),
+            "integer gutman_index must bit-match the String baseline"
+        );
+
+        let time = |lever: bool| -> f64 {
+            let t0 = Instant::now();
+            if lever {
+                black_box(super::gutman_index(&g));
+            } else {
+                black_box(super::gutman_index_orig_string(&g));
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..2 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "GUTIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("GUTIDX_AB n={n} deg={deg} rounds={rounds} (>1 = integer-BFS faster)");
+        report("INT_vs_string", &paired(true, false));
+        report("NULL_int_vs_int", &paired(true, true));
     }
 
     /// br-r37-c1-sqcmark: paired-interleaved median A/B for the integer-adjacency +
