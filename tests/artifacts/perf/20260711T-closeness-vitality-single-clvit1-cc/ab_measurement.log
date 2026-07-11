@@ -1,0 +1,7 @@
+  [2m2026-07-11T04:03:21.997842Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib closeness_vitality_single -- --include-ignored --nocapture[0m
+test tests::closeness_vitality_single_node_api ... ok
+CLVIT1_AB n=200 deg=10 rounds=61 (>1 = integer-BFS faster)
+CLVIT1_AB INT_vs_string: median=5.8503x win_rate=61/61 p5_p95=[4.7105,6.5809]
+CLVIT1_AB NULL_int_vs_int: median=1.0091x win_rate=38/61 p5_p95=[0.8508,1.1845]
+test tests::closeness_vitality_single_clvit1_ab ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 938 filtered out; finished in 2.70s

@@ -1,0 +1,236 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index 8d0401ecb..71156eed9 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -21858,42 +21858,99 @@ fn closeness_vitality_orig_string(graph: &Graph) -> HashMap<String, f64> {
+ /// More efficient than computing vitality for all nodes when you only need one.
+ #[must_use]
+ pub fn closeness_vitality_single(graph: &Graph, node: &str) -> Option<f64> {
++    let ex = graph.get_node_index(node)?;
++    let n = graph.node_count();
++
++    if n <= 1 {
++        return Some(0.0);
++    }
++
++    let full_wiener = wiener_index(graph);
++
++    // br-r37-c1-clvit1 (cc): full-index integer BFS — the same transform as
++    // `closeness_vitality`. The old kernel built a `HashMap<&str, usize>`
++    // (`node_to_idx`) over the remaining nodes and, per BFS pop, called
++    // `graph.neighbors(remaining_nodes[u])` (a `Vec<&str>` alloc) then re-hashed
++    // each neighbour name. Snapshot integer adjacency once, mark the excluded index
++    // `ex`, and BFS over full indices skipping `ex`. Byte-identical: full-index
++    // order agrees with subgraph-index order (`nodes_ordered()` minus `ex`), so the
++    // `(fs, fv)` pairing `fv > fs` is preserved; every non-`ex` neighbour is a
++    // remaining node (the old `node_to_idx.get` never rejected one); the BFS queue
++    // discipline + adjacency order are unchanged; `subgraph_wiener` is an exact
++    // integer distance sum; disconnection → `NEG_INFINITY` is preserved.
++    let adj: Vec<&[usize]> = (0..n)
++        .map(|i| graph.neighbors_indices(i).unwrap_or(&[]))
++        .collect();
++
++    let mut subgraph_wiener = 0.0_f64;
++
++    for fs in 0..n {
++        if fs == ex {
++            continue;
++        }
++        let mut dist = vec![None; n];
++        let mut queue = VecDeque::new();
++        dist[fs] = Some(0usize);
++        queue.push_back(fs);
++
++        while let Some(u) = queue.pop_front() {
++            let d = dist[u].unwrap();
++            for &v in adj[u] {
++                if v == ex {
++                    continue;
++                }
++                if dist[v].is_none() {
++                    dist[v] = Some(d + 1);
++                    queue.push_back(v);
++                }
++            }
++        }
++
++        for fv in (fs + 1)..n {
++            if fv == ex {
++                continue;
++            }
++            match dist[fv] {
++                Some(d) => subgraph_wiener += d as f64,
++                None => return Some(f64::NEG_INFINITY),
++            }
++        }
++    }
++
++    Some(full_wiener - subgraph_wiener)
++}
++
++/// br-r37-c1-clvit1 A/B baseline: the pre-lever `closeness_vitality_single` that
++/// built a `HashMap<&str, usize>` over the remaining nodes and, per BFS pop, called
++/// `graph.neighbors(remaining_nodes[u])` (`Vec<&str>` alloc) with String hash
++/// lookups. Test-only; byte-identical to `closeness_vitality_single`.
++#[cfg(test)]
++fn closeness_vitality_single_orig_string(graph: &Graph, node: &str) -> Option<f64> {
+     if !graph.has_node(node) {
+         return None;
+     }
+-
+     let nodes = graph.nodes_ordered();
+     let n = nodes.len();
+-
+     if n <= 1 {
+         return Some(0.0);
+     }
+-
+     let full_wiener = wiener_index(graph);
+-
+-    // Build the subgraph excluding this node
+     let remaining_nodes: Vec<&str> = nodes.iter().filter(|&&n| n != node).copied().collect();
+-
+     if remaining_nodes.is_empty() {
+         return Some(0.0);
+     }
+-
+-    // Compute Wiener index of subgraph
+     let subgraph_n = remaining_nodes.len();
+     let node_to_idx: HashMap<&str, usize> = remaining_nodes
+         .iter()
+         .enumerate()
+         .map(|(i, &n)| (n, i))
+         .collect();
+-
+     let mut subgraph_wiener = 0.0_f64;
+-
+     for s in 0..subgraph_n {
+         let mut dist = vec![None; subgraph_n];
+         let mut queue = VecDeque::new();
+         dist[s] = Some(0usize);
+         queue.push_back(s);
+-
+         while let Some(u) = queue.pop_front() {
+             let d = dist[u].unwrap();
+             if let Some(nbrs) = graph.neighbors(remaining_nodes[u]) {
+@@ -21910,7 +21967,6 @@ pub fn closeness_vitality_single(graph: &Graph, node: &str) -> Option<f64> {
+                 }
+             }
+         }
+-
+         for v in (s + 1)..subgraph_n {
+             match dist[v] {
+                 Some(d) => subgraph_wiener += d as f64,
+@@ -21918,7 +21974,6 @@ pub fn closeness_vitality_single(graph: &Graph, node: &str) -> Option<f64> {
+             }
+         }
+     }
+-
+     Some(full_wiener - subgraph_wiener)
+ }
+ 
+@@ -47841,6 +47896,104 @@ mod tests {
+         report("NULL_int_vs_int", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-clvit1: paired-interleaved median A/B for the full-index integer-BFS
++    /// `closeness_vitality_single` vs the old per-excluded `HashMap<&str,usize>` +
++    /// `graph.neighbors()` (`Vec<&str>`) String baseline, in ONE binary / ONE worker
++    /// with a NULL control. `#[ignore]` (measurement); run with
++    /// `cargo test --release -p fnx-algorithms --lib closeness_vitality_single_clvit1_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn closeness_vitality_single_clvit1_ab() {
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // closeness_vitality_single(node) BFSes from every remaining node in the
++        // subgraph without `node` — O(V·(V+E)). Well-connected n=200 graph (spanning
++        // path + random edges) so the removal stays connected and does full work.
++        let n = 200usize;
++        let deg = 10usize;
++        let mut g = Graph::strict();
++        for i in 0..n {
++            let _ = g.add_node(format!("n{i}"));
++        }
++        for i in 0..n.saturating_sub(1) {
++            let _ = g.add_edge(format!("n{i}"), format!("n{}", i + 1));
++        }
++        for i in 0..n {
++            for k in 1..=deg {
++                let j = ((i as u64)
++                    .wrapping_mul(1_000_003)
++                    .wrapping_add((k as u64).wrapping_mul(97))
++                    % n as u64) as usize;
++                if j != i {
++                    let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
++                }
++            }
++        }
++        let target = "n100";
++
++        // Byte-exact parity: full-index integer vitality == String baseline.
++        let mark = super::closeness_vitality_single(&g, target);
++        let base = super::closeness_vitality_single_orig_string(&g, target);
++        assert_eq!(
++            mark, base,
++            "integer closeness_vitality_single must equal the String baseline"
++        );
++
++        let time = |lever: bool| -> f64 {
++            let t0 = Instant::now();
++            for _ in 0..2 {
++                if lever {
++                    black_box(super::closeness_vitality_single(&g, target));
++                } else {
++                    black_box(super::closeness_vitality_single_orig_string(&g, target));
++                }
++            }
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..2 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for r in 0..rounds {
++                let (tb, tc) = if r % 2 == 0 {
++                    let b = time(base);
++                    let c = time(cand);
++                    (b, c)
++                } else {
++                    let c = time(cand);
++                    let b = time(base);
++                    (b, c)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "CLVIT1_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("CLVIT1_AB n={n} deg={deg} rounds={rounds} (>1 = integer-BFS faster)");
++        report("INT_vs_string", &paired(true, false));
++        report("NULL_int_vs_int", &paired(true, true));
++    }
++
+     /// br-r37-c1-sqcmark: paired-interleaved median A/B for the integer-adjacency +
+     /// mark-array square clustering vs the old String-keyed HashMap/HashSet
+     /// baseline, in ONE binary / ONE worker with a NULL control. `#[ignore]`
