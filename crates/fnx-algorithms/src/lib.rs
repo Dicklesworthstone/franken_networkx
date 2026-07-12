@@ -21568,11 +21568,27 @@ pub fn complement_edges(graph: &Graph) -> Vec<(String, String)> {
     if n < 2 {
         return Vec::new();
     }
+    // br-r37-c1-compedgeidx (cc): the O(V²) non-edge scan called graph.has_edge(u, v) — a String hash of
+    // both endpoints — for EVERY pair. Instead, for each source i mark its neighbours in a reusable
+    // `is_nbr` bool row (via neighbors_indices, zero-alloc) and test membership with an O(1) array read.
+    // Byte-identical: `!is_nbr[j]` ⟺ `!has_edge(nodes[i], nodes[j])` (j is a neighbour index of i iff the
+    // edge exists), and the (i, j>i) pairs are pushed in the identical row-major order with the same names.
     let mut edges: Vec<(String, String)> = Vec::new();
+    let mut is_nbr = vec![false; n];
     for (i, &u) in nodes.iter().enumerate() {
-        for &v in &nodes[i + 1..] {
-            if !graph.has_edge(u, v) {
+        if let Some(nbrs) = graph.neighbors_indices(i) {
+            for &nb in nbrs {
+                is_nbr[nb] = true;
+            }
+        }
+        for (j, &v) in nodes.iter().enumerate().skip(i + 1) {
+            if !is_nbr[j] {
                 edges.push((u.to_owned(), v.to_owned()));
+            }
+        }
+        if let Some(nbrs) = graph.neighbors_indices(i) {
+            for &nb in nbrs {
+                is_nbr[nb] = false;
             }
         }
     }
@@ -72045,6 +72061,128 @@ mod tests {
         println!("MODWMAP_AB circ2000_comm4x500 rounds={rounds} (>1 = wmap faster)");
         report("WMAP_vs_hasedge", &paired(true, false));
         report("NULL_wmap_vs_wmap", &paired(true, true));
+    }
+
+    /// br-r37-c1-compedgeidx: paired-interleaved median A/B for complement_edges — inline ORIGINAL O(V²)
+    /// has_edge(u,v) scan vs the shipped bool-row (mark neighbors_indices, O(1) array test). One binary /
+    /// one worker with a NULL control. Dense circulant (degree 1600) so the has_edge scan dominates the
+    /// non-edge pushes. Output parity asserted first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib complement_edges_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn complement_edges_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n_nodes = 2500usize;
+        let mut graph = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = graph.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for d in 1..=800usize {
+                let j = (i + d) % n_nodes;
+                if i != j {
+                    let _ = graph.add_edge(i.to_string(), j.to_string());
+                }
+            }
+        }
+
+        let old_fn = |graph: &Graph| -> Vec<(String, String)> {
+            let nodes: Vec<&str> = graph.nodes_ordered();
+            let n = nodes.len();
+            if n < 2 {
+                return Vec::new();
+            }
+            let mut edges: Vec<(String, String)> = Vec::new();
+            for (i, &u) in nodes.iter().enumerate() {
+                for &v in &nodes[i + 1..] {
+                    if !graph.has_edge(u, v) {
+                        edges.push((u.to_owned(), v.to_owned()));
+                    }
+                }
+            }
+            edges
+        };
+        let new_fn = |graph: &Graph| -> Vec<(String, String)> {
+            let nodes: Vec<&str> = graph.nodes_ordered();
+            let n = nodes.len();
+            if n < 2 {
+                return Vec::new();
+            }
+            let mut edges: Vec<(String, String)> = Vec::new();
+            let mut is_nbr = vec![false; n];
+            for (i, &u) in nodes.iter().enumerate() {
+                if let Some(nbrs) = graph.neighbors_indices(i) {
+                    for &nb in nbrs {
+                        is_nbr[nb] = true;
+                    }
+                }
+                for (j, &v) in nodes.iter().enumerate().skip(i + 1) {
+                    if !is_nbr[j] {
+                        edges.push((u.to_owned(), v.to_owned()));
+                    }
+                }
+                if let Some(nbrs) = graph.neighbors_indices(i) {
+                    for &nb in nbrs {
+                        is_nbr[nb] = false;
+                    }
+                }
+            }
+            edges
+        };
+
+        let old = old_fn(&graph);
+        let new = new_fn(&graph);
+        assert_eq!(old, new, "bool-row complement_edges must match the has_edge baseline");
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if batch { new_fn(&graph) } else { old_fn(&graph) };
+            black_box(r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "COMPEDGE_IDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("COMPEDGE_IDX_AB circ2500_d1600 rounds={rounds} (>1 = boolrow faster)");
+        report("BOOLROW_vs_hasedge", &paired(true, false));
+        report("NULL_boolrow_vs_boolrow", &paired(true, true));
     }
 
     #[test]

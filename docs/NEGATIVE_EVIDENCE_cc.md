@@ -1,5 +1,21 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `complement_edges` O(V²) has_edge → bool-row **3.6188x** (br-r37-c1-compedgeidx)
+
+Second has_edge-in-nested-loop win. complement_edges yields non-edges via for i, for j>i, if !has_edge(nodes
+[i],nodes[j]) push — String-hashes both endpoints for EVERY O(V²) pair. Fix: per source i, mark neighbors_
+indices(i) in a reusable is_nbr bool row, test !is_nbr[j] with an O(1) ARRAY read (reset after). SHARPENS the
+modularity lesson: has_edge→HashMap is marginal (both hash), but has_edge→BOOL-ARRAY-ROW (iterate one endpoint,
+mark the other's neighbours) is a real win (array vs hash). BYTE-IDENTICAL: nodes[i] at index i, is_nbr[j] ⟺
+has_edge(nodes[i],nodes[j]); same row-major (i,j>i) push order + names.
+
+MEASURED — dense circulant (2500 nodes deg1600, ~64% density → has_edge scan over 3.1M pairs dominates), 61
+rounds: **BOOLROW_vs_hasedge median 3.6188x**, 61/61, p5_p95 [3.1859,4.1786] vs NULL 0.9991x [0.8819,1.2272].
+DECISIVE: candidate p5 (3.19) ~2.6x above null p95. Output-list parity (exact Vec) asserted; 9 complement suite
+tests green. Reachable via complement_edges pyo3. NOTE: sibling complement (21538) same loop but BYPASSED (no
+pyo3 call — // comment 'legacy…materialized'), left untouched. CLIPPY: my lines clean (production ~21571-21595
+/ test ~72066-72185); crate's 12 pre-existing peer errors untouched. See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `modularity` community double-loop → indices + weight map **1.9794x** (br-r37-c1-modwmap)
 
 NEW SUB-FAMILY (has_edge/node_to_idx-in-nested-loop). modularity's O(Σ|comm|²) double-loop did per-pair
