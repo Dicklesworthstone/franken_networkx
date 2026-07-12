@@ -31592,20 +31592,32 @@ pub fn local_reaching_centrality(graph: &Graph, node: &str) -> f64 {
     if n <= 1 || !graph.has_node(node) {
         return 0.0;
     }
-    let mut visited = HashSet::<&str>::new();
+    // br-r37-c1-lrcidx (cc): integer-index BFS. The old kernel BFS'd over a `HashSet<&str>` (a String
+    // hash per visited node) via `neighbors_iter`. Walk `graph.neighbors_indices` (zero-alloc &[usize])
+    // over a `vec![false; n]` visited-mark instead, counting reached nodes directly. Byte-identical: the
+    // reachable SET is order-independent (BFS reachability), so `reachable` is the same count and the
+    // returned ratio is bit-identical. `global_reaching_centrality` calls this n times, so it drops the
+    // per-node String hashing across the whole O(n·(V+E)) sweep.
+    let start = graph
+        .get_node_index(node)
+        .expect("has_node checked above ensures the index exists");
+    let mut visited = vec![false; n];
     let mut queue = VecDeque::new();
-    visited.insert(node);
-    queue.push_back(node);
+    visited[start] = true;
+    let mut count = 1usize;
+    queue.push_back(start);
     while let Some(current) = queue.pop_front() {
-        if let Some(neighbors) = graph.neighbors_iter(current) {
-            for nbr in neighbors {
-                if visited.insert(nbr) {
+        if let Some(nbrs) = graph.neighbors_indices(current) {
+            for &nbr in nbrs {
+                if !visited[nbr] {
+                    visited[nbr] = true;
+                    count += 1;
                     queue.push_back(nbr);
                 }
             }
         }
     }
-    let reachable = visited.len() - 1;
+    let reachable = count - 1;
     reachable as f64 / (n - 1) as f64
 }
 
@@ -70359,6 +70371,149 @@ mod tests {
         println!("MODMAT_AB circ1000_comm4 rounds={rounds} (>1 = fold faster)");
         report("FOLD_vs_orig", &paired(true, false));
         report("NULL_fold_vs_fold", &paired(true, true));
+    }
+
+    /// br-r37-c1-lrcidx: paired-interleaved median A/B for local_reaching_centrality's BFS — inline
+    /// ORIGINAL HashSet<&str> BFS vs the shipped integer-index BFS, driven through the
+    /// global_reaching_centrality loop (n calls) so the per-node String-hash cost shows. One binary /
+    /// one worker with a NULL control. 1000-node connected circulant. ULP parity asserted first.
+    /// `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib local_reaching_centrality_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn local_reaching_centrality_idx_ab() {
+        use std::collections::{HashSet, VecDeque};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let mut graph = Graph::strict();
+        for i in 0..1000usize {
+            let _ = graph.add_node(i.to_string());
+        }
+        for i in 0..1000usize {
+            for d in 1..=10usize {
+                let j = (i + d) % 1000;
+                if i != j {
+                    let _ = graph.add_edge(i.to_string(), j.to_string());
+                }
+            }
+        }
+
+        let local_old = |graph: &Graph, node: &str, n: usize| -> f64 {
+            if n <= 1 || !graph.has_node(node) {
+                return 0.0;
+            }
+            let mut visited = HashSet::<&str>::new();
+            let mut queue = VecDeque::new();
+            visited.insert(node);
+            queue.push_back(node);
+            while let Some(current) = queue.pop_front() {
+                if let Some(neighbors) = graph.neighbors_iter(current) {
+                    for nbr in neighbors {
+                        if visited.insert(nbr) {
+                            queue.push_back(nbr);
+                        }
+                    }
+                }
+            }
+            (visited.len() - 1) as f64 / (n - 1) as f64
+        };
+        let local_new = |graph: &Graph, node: &str, n: usize| -> f64 {
+            if n <= 1 || !graph.has_node(node) {
+                return 0.0;
+            }
+            let start = graph.get_node_index(node).unwrap();
+            let mut visited = vec![false; n];
+            let mut queue = VecDeque::new();
+            visited[start] = true;
+            let mut count = 1usize;
+            queue.push_back(start);
+            while let Some(current) = queue.pop_front() {
+                if let Some(nbrs) = graph.neighbors_indices(current) {
+                    for &nbr in nbrs {
+                        if !visited[nbr] {
+                            visited[nbr] = true;
+                            count += 1;
+                            queue.push_back(nbr);
+                        }
+                    }
+                }
+            }
+            (count - 1) as f64 / (n - 1) as f64
+        };
+
+        let global = |batch: bool| -> f64 {
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            let local_vals: Vec<f64> = nodes
+                .iter()
+                .map(|&node| {
+                    if batch {
+                        local_new(&graph, node, n)
+                    } else {
+                        local_old(&graph, node, n)
+                    }
+                })
+                .collect();
+            let c_max = local_vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let sum_diff: f64 = local_vals.iter().map(|c| c_max - c).sum();
+            sum_diff / (n - 1) as f64
+        };
+
+        let old = global(false);
+        let new = global(true);
+        assert_eq!(
+            old.to_bits(),
+            new.to_bits(),
+            "integer-index BFS must be ULP-identical"
+        );
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            black_box(global(batch));
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "LRC_IDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("LRC_IDX_AB circ1000 rounds={rounds} (>1 = index faster)");
+        report("IDX_vs_string", &paired(true, false));
+        report("NULL_idx_vs_idx", &paired(true, true));
     }
 
     #[test]

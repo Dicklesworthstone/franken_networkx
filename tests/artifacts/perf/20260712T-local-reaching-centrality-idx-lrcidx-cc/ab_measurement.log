@@ -1,0 +1,22 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib local_reaching_centrality_idx_ab -- --ignored --nocapture
+
+LRC_IDX_AB circ1000 rounds=61 (>1 = index faster)
+LRC_IDX_AB IDX_vs_string: median=21.4735x win_rate=61/61 p5_p95=[17.5836,25.3173]
+LRC_IDX_AB NULL_idx_vs_idx: median=0.9961x win_rate=29/61 p5_p95=[0.8372,1.2092]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1000 filtered out; finished in 26.46s
+
+Marker LRC_IDX_AB + test name confirmed (fresh binary). ULP parity assert
+(old.to_bits() == new.to_bits()) passed before timing (driven through the
+global_reaching_centrality loop = n local calls).
+
+$ cargo test --release -p fnx-algorithms --lib reaching -- --nocapture
+test tests::test_global_reaching_centrality_connected ... ok
+test tests::test_local_reaching_centrality_directed_chain ... ok
+test tests::test_global_reaching_centrality_directed_chain ... ok
+test tests::test_local_reaching_centrality_connected ... ok
+test tests::test_local_reaching_centrality_disconnected ... ok      # partial reachability
+test result: ok. 5 passed; 0 failed; 1 ignored; ...
+
+$ cargo clippy --release -p fnx-algorithms --lib --tests -- -D warnings
+--> NONE of my lines flagged (production ~31595-31624 / test ~70376-70516)
+--> 12 pre-existing peer -D warnings errors (untouched, shared checkout)

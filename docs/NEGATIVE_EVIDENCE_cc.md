@@ -1,5 +1,22 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `local_reaching_centrality` integer-index BFS **21.4735x** (br-r37-c1-lrcidx)
+
+FRESH SUB-FAMILY: reached String-HashSet BFS that the String→index sweep SKIPPED because it already used
+neighbors_iter (no Vec alloc) — but still keyed `visited` by node NAME (HashSet<&str> = a String hash per
+visited node). local_reaching_centrality(graph,node) BFSes reachable-from-node, returns reachable/(n-1); it's
+reached directly AND called n times by global_reaching_centrality (O(n·(V+E))). Fix: get_node_index once, BFS
+over neighbors_indices (&[usize]) with vec![false; n] visited, count reached directly. BYTE-IDENTICAL: BFS
+reachability is order-independent so the reached count is identical; ratio is a single f64.
+
+MEASURED — global_reaching_centrality (n local calls) on 1000-node connected circulant (deg 20), 61 rounds:
+**IDX_vs_string median 21.4735x**, 61/61, p5_p95 [17.5836,25.3173] vs NULL 0.9961x [0.8372,1.2092]. DECISIVE:
+candidate p5 (17.58) ~14.5x above null p95. ULP parity assert (to_bits exact) passed; 5 reaching-centrality
+suite tests green incl. disconnected (partial reachability). Reachable via global/local_reaching_centrality
+pyo3. CLIPPY: my lines clean (production ~31595-31624 / test ~70376-70516); crate's 12 pre-existing peer
+errors untouched. NEW LEVER: sweep reached deterministic BFS/DFS fns using HashSet<&str>/HashMap<&str,_> over
+neighbors_iter — they LOOK done (no Vec alloc) but still hash names. See [[redundant_edge_materialization_family]].
+
 ## SURVEY / SURFACE (cc, 2026-07-12): algorithm redundant-materialization sweep — all dead-ends
 
 After modularity (br-r37-c1-modmat), swept the reachable algorithm surface for another redundant-
