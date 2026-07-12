@@ -1,0 +1,21 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib snap_aggregation_idx_ab -- --ignored --nocapture
+
+SNAP_IDX_AB circ50k_g100 rounds=61 (>1 = index faster)
+SNAP_IDX_AB INT_vs_string: median=3.2252x win_rate=61/61 p5_p95=[2.9294,3.8421]
+SNAP_IDX_AB NULL_int_vs_int: median=0.9985x win_rate=30/61 p5_p95=[0.8742,1.1201]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1007 filtered out; finished in 8.66s
+
+Marker SNAP_IDX_AB + test name confirmed (fresh binary). The A/B measures the exact
+refinement pass changed (one pass over 50000 nodes, 100-group seed); resulting-grouping
+parity (old vs new) asserted equal before timing. The full snap_aggregation runs this
+pass up to n times, so its speedup is proportional.
+
+$ cargo test --release -p fnx-algorithms --lib snap -- --nocapture
+test tests::test_snap_aggregation_all_same ... ok
+test tests::test_snap_aggregation_groups_by_attr ... ok      # checks the summary graph
+test tests::test_snap_aggregation_preserves_hardened_mode ... ok
+test result: ok. 3 passed; 0 failed; 1 ignored; ...
+
+$ cargo clippy --release -p fnx-algorithms --lib --tests -- -D warnings
+--> NONE of my lines flagged (production ~42670-42684 / test ~71479-71592)
+--> 12 pre-existing peer -D warnings errors (untouched, shared checkout)

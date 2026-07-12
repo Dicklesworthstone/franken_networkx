@@ -1,5 +1,21 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `snap_aggregation` refinement-loop integer swap **3.2252x** (br-r37-c1-snapidx)
+
+Eighth "name-keyed → integer" win — residual in a genuinely HOT loop (not setup). snap_aggregation's iterative
+refinement (for _ in 0..n, up to n passes) recomputes per-node neighbour-group signatures by iterating
+neighbours BY NAME: neighbors(nodes[i]) (Vec<&str> alloc) + idx.get(nb) (String re-hash) per edge. Walk
+neighbors_indices(i) + read group_of[ni] directly (idx kept — still used in the O(E) summary-edge loop).
+BYTE-IDENTICAL: nodes[i] at index i, every neighbour a graph node → same nbr_groups multiset → same sort+dedup
+signature → same group split in same id order.
+
+MEASURED — one refinement pass over 50000-node circulant (deg 20, 100-group seed; the exact hot loop run up to
+n times), 61 rounds: **INT_vs_string median 3.2252x**, 61/61, p5_p95 [2.9294,3.8421] vs NULL 0.9985x
+[0.8742,1.1201]. DECISIVE: candidate p5 (2.93) ~2.6x above null p95. Grouping parity asserted; 3
+snap_aggregation suite tests green incl. groups_by_attr (checks summary graph). Reachable via snap_aggregation
+pyo3. CLIPPY: my lines clean (production ~42670-42684 / test ~71479-71592); crate's 12 pre-existing peer
+errors untouched. See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `find_cycle_undirected` adjacency-build integer swap **2.3166x** (br-r37-c1-fcycundidx)
 
 Seventh "name-keyed → integer" win; undirected sibling of fcycidx. find_cycle_undirected builds Vec<Vec<usize>>

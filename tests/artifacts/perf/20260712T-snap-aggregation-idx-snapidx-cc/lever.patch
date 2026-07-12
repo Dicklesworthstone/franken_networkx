@@ -1,0 +1,147 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index 248fd3fe6..73940bab2 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -42667,11 +42667,16 @@ pub fn snap_aggregation(graph: &Graph, node_attributes: &[String]) -> Graph {
+         let mut new_group_of = group_of.clone();
+ 
+         for i in 0..n {
++            // br-r37-c1-snapidx (cc): the O(n)-pass refinement rescanned every node's neighbours by name —
++            // graph.neighbors(nodes[i]) (a Vec<&str> alloc) + idx.get(nb) (a String re-hash) per edge, in
++            // EACH pass. Walk neighbors_indices(i) (zero-alloc &[usize]) and read group_of[ni] directly.
++            // Byte-identical: every neighbour is a graph node (idx.get was always Some), so nbr_groups is
++            // the same multiset → same sort+dedup signature → the same group split in the same id order.
+             let mut nbr_groups: Vec<usize> = graph
+-                .neighbors(nodes[i])
+-                .unwrap_or_default()
++                .neighbors_indices(i)
++                .unwrap_or(&[])
+                 .iter()
+-                .filter_map(|nb| idx.get(nb).map(|&ni| group_of[ni]))
++                .map(|&ni| group_of[ni])
+                 .collect();
+             nbr_groups.sort();
+             nbr_groups.dedup();
+@@ -71471,6 +71476,122 @@ mod tests {
+         report("NULL_int_vs_int", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-snapidx: paired-interleaved median A/B for snap_aggregation's refinement pass (the exact
++    /// hot loop changed) — inline ORIGINAL neighbors(nodes[i]) + idx.get re-hash vs the shipped
++    /// neighbors_indices, one refinement pass over a 50000-node circulant with a 100-group seed. One
++    /// binary / one worker with a NULL control. Resulting-grouping parity asserted first. `#[ignore]`;
++    /// run with `cargo test --release -p fnx-algorithms --lib snap_aggregation_idx_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn snap_aggregation_idx_ab() {
++        use std::collections::HashMap;
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        let n_nodes = 50000usize;
++        let mut graph = Graph::strict();
++        for i in 0..n_nodes {
++            let _ = graph.add_node(i.to_string());
++        }
++        for i in 0..n_nodes {
++            for d in 1..=10usize {
++                let j = (i + d) % n_nodes;
++                if i != j {
++                    let _ = graph.add_edge(i.to_string(), j.to_string());
++                }
++            }
++        }
++        let nodes = graph.nodes_ordered();
++        let n = nodes.len();
++        let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nn)| (nn, i)).collect();
++        let group_of: Vec<usize> = (0..n).map(|i| i % 100).collect();
++        let next_group = 100usize;
++
++        let refine_pass = |batch: bool| -> Vec<usize> {
++            let mut new_group_key: HashMap<(usize, Vec<usize>), usize> = HashMap::new();
++            let mut new_next = next_group;
++            let mut new_group_of = group_of.clone();
++            for i in 0..n {
++                let mut nbr_groups: Vec<usize> = if batch {
++                    graph
++                        .neighbors_indices(i)
++                        .unwrap_or(&[])
++                        .iter()
++                        .map(|&ni| group_of[ni])
++                        .collect()
++                } else {
++                    graph
++                        .neighbors(nodes[i])
++                        .unwrap_or_default()
++                        .iter()
++                        .filter_map(|nb| idx.get(nb).map(|&ni| group_of[ni]))
++                        .collect()
++                };
++                nbr_groups.sort();
++                nbr_groups.dedup();
++                let sig = (group_of[i], nbr_groups);
++                let new_group_id = *new_group_key.entry(sig).or_insert_with(|| {
++                    let id = new_next;
++                    new_next += 1;
++                    id
++                });
++                new_group_of[i] = new_group_id;
++            }
++            new_group_of
++        };
++
++        let old = refine_pass(false);
++        let new = refine_pass(true);
++        assert_eq!(old, new, "neighbors_indices refinement must match the string baseline");
++
++        let time = |batch: bool| -> f64 {
++            let t0 = Instant::now();
++            black_box(refine_pass(batch));
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for round in 0..rounds {
++                let (tb, tc) = if round.is_multiple_of(2) {
++                    let bt = time(base_arm);
++                    let ct = time(cand);
++                    (bt, ct)
++                } else {
++                    let ct = time(cand);
++                    let bt = time(base_arm);
++                    (bt, ct)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "SNAP_IDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("SNAP_IDX_AB circ50k_g100 rounds={rounds} (>1 = index faster)");
++        report("INT_vs_string", &paired(true, false));
++        report("NULL_int_vs_int", &paired(true, true));
++    }
++
+     #[test]
+     fn test_cartesian_product_label_disambiguation() {
+         let mut g1 = Graph::strict();
