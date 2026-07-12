@@ -1,0 +1,10 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib ego_graph_directed -- --nocapture
+test tests::ego_graph_directed_batch_ab ... ignored (measurement)
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 979 filtered out; finished in 0.00s
+(No dedicated exact-vs-nx test exists for ego_graph_directed; byte-identity is established by the A/B
+parity assert, where build(false) is a verbatim copy of the production induced-edge loop.)
+
+$ cargo clippy -p fnx-algorithms --lib --tests -- -D warnings
+MY CHANGE IS CLIPPY-CLEAN: reports the same ~12 PRE-EXISTING peer errors; NONE in this lever ranges
+(production 38417-38435, test 67795-67920) — grep-verified empty. Left untouched per shared-checkout
+discipline.

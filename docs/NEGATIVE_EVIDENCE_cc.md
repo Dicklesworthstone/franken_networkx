@@ -1,5 +1,20 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `ego_graph_directed` induced-edge batch **2.1646x** (br-r37-c1-egographdirbatch)
+
+Thirteenth fnx-algorithms result-builder batch (DiGraph analog of ego_graph). BFS ego set → add every
+input edge with both endpoints in the set via per-edge add_edge_with_attrs. Collect (left,right,attrs) +
+one DiGraph::extend_edges_with_attrs_unrecorded. CLEAN (loop never reads result; induced directed edges
+unique/no self-loop). NOTE: no dedicated vs-nx test — byte-identity via A/B parity where per-edge arm is a
+VERBATIM production replica (gnp posture).
+
+MEASURED — ego of complete-digraph K50 (50 nodes, 2450 directed induced edges), 61 rounds: **BATCH_vs_string
+median 2.1646x**, win_rate 60/61, p5_p95 [1.8173, 3.0582] vs NULL 1.0023x [0.8538, 1.1362]. DECIDABLE:
+candidate p5 (1.82) ~1.6x above the null p95 (1.14), 60/61 won. STALE-BINARY TRAP hit again — first run 0
+tests matched; retry loop caught the missing marker + re-ran to a fresh binary
+([[ab_test_name_must_appear_in_output]]). CLIPPY: MY CODE CLEAN (0 in ranges 38417-38435 / 67795-67920,
+grep-verified); crate's ~12 pre-existing peer errors untouched. See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `ego_graph` induced-edge batch **1.7740x** (br-r37-c1-egographbatch)
 
 Twelfth fnx-algorithms result-builder batch. ego_graph BFS-computes the ego set, then adds every input
