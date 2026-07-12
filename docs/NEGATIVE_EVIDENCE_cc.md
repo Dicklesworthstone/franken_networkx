@@ -1,5 +1,18 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `complement_digraph` batch-insert **5.3869x** (br-r37-c1-complementdigraphbatch)
+
+Sixth fnx-algorithms result-builder batch (DiGraph analog of complement_graph). Iterates all u!=v pairs,
+has_edge on the INPUT, adds each non-edge via per-edge add_edge. Collect + one DiGraph::extend_edges_unrecorded.
+Byte-identical (directed non-edges unique, no self-loop; has_edge reads input; parity assert +
+complement_directed_test green).
+
+MEASURED — directed complement of 400-node directed cycle (400 nodes, ~158800 directed edges), 61 rounds:
+**BATCH_vs_string median 5.3869x**, win_rate 61/61, p5_p95 [3.6592, 8.1178] vs NULL 0.9869x [0.8715, 1.1763].
+DECIDABLE: candidate p5 (3.66) ~3.1x above the null p95 (1.18), 61/61 won. CLIPPY: MY CODE CLEAN (0 in
+ranges 37640-37665 / 66933-67043, grep-verified); crate's ~12 pre-existing peer errors untouched. See
+[[redundant_edge_materialization_family]]. Next: line_graph, line_graph_directed, power, reverse_digraph.
+
 ## SHIPPED WIN (cc, 2026-07-12): `complement_graph` batch-insert **6.1533x** (br-r37-c1-complementbatch)
 
 Fifth fnx-algorithms result-builder batch (beyond the 4 products). complement_graph iterates all i<j
