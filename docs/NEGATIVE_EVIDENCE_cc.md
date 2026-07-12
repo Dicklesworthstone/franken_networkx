@@ -1,5 +1,21 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `modularity` redundant-setup fold **1.7126x** (br-r37-c1-modmat)
+
+PIVOT off the generator batch family into REDUNDANT-MATERIALIZATION. modularity() called nodes_ordered() 3x
+AND computed the per-node weighted-degree neighbour-sum TWICE (once for m2, once for k) — a full extra
+O(2|E|) edge_weight_or_default pass. Materialize nodes once, compute k once, derive m2 = k.iter().sum().
+ULP-IDENTICAL: original m2 = nodes.map(neighbour_sum).sum::<f64>() is the same left-fold in nodes_ordered
+order as k.iter().sum() over the identical per-node values. Early return + community double-loop unchanged.
+
+MEASURED — dense circulant (1000 nodes, deg 30, ~15000 edges) partitioned into 250 communities of 4
+(setup-dominated), 61 rounds: **FOLD_vs_orig median 1.7126x**, 61/61, p5_p95 [1.3370,2.2199] vs NULL 1.0081x
+[0.8332,1.2660]. DECIDABLE: candidate p5 (1.34) clears null p95 (1.27), 61/61 won. MODEST (Amdahl-limited by
+the community double-loop; clears null only on small-community partitions). ULP parity assert (to_bits exact)
+passed; 5 modularity suite tests green incl. modularity_perfect_partition (asserts Q value). Reachable via
+modularity pyo3. CLIPPY: my lines clean (production ~23920-23942 / test ~70187-70362); crate's 12 pre-existing
+peer errors untouched. See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `grid_graph` (n-dim) UPGRADED to INDEX batch **12.6885x** (br-r37-c1-grididxbatch)
 
 Thirty-third result-builder batch win. Upgrades grid_graph's earlier String-pair batch (br-r37-c1-gridbatch,
