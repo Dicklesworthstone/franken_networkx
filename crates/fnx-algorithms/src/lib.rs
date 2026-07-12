@@ -38590,12 +38590,16 @@ pub fn ego_graph(graph: &Graph, center: &str, radius: usize) -> Graph {
     // input edges are distinct and this loop never reads `result`, so every collected edge is unique
     // with no self-loop → extend_edges_with_attrs_unrecorded is byte-identical to the per-edge add.
     let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
-    for edge in graph.edges_ordered() {
-        if let (Some(&ui), Some(&vi)) = (idx.get(edge.left.as_str()), idx.get(edge.right.as_str()))
+    // br-r37-c1-vngrp: borrow the input edge snapshot instead of cloning every endpoint and AttrMap
+    // into an intermediate `EdgeSnapshot`, only to clone the selected induced edges once more into
+    // the result batch. `edges_ordered_borrowed()` preserves the exact edge walk order and exposes the
+    // same endpoint names and attributes, so ego-node membership and result insertion are unchanged.
+    for (left, right, attrs) in graph.edges_ordered_borrowed() {
+        if let (Some(&ui), Some(&vi)) = (idx.get(left), idx.get(right))
             && ego_set.contains(&ui)
             && ego_set.contains(&vi)
         {
-            edges.push((edge.left.clone(), edge.right.clone(), edge.attrs.clone()));
+            edges.push((left.to_owned(), right.to_owned(), attrs.clone()));
         }
     }
     let _ = result.extend_edges_with_attrs_unrecorded(edges);
@@ -73066,6 +73070,109 @@ mod tests {
         println!("EORDLEN_AB faster_could_be_isomorphic 10k/100k rounds={rounds} (>1 = edge_count faster)");
         report("EDGECOUNT_vs_edgesordered", &paired(true, false));
         report("NULL_edgecount_vs_edgecount", &paired(true, true));
+    }
+
+    /// br-r37-c1-vngrp: isolated paired-interleaved median A/B for `ego_graph`'s induced-edge copy
+    /// loop. The original arm materializes `edges_ordered()` (two owned Strings plus an AttrMap clone
+    /// per input edge) before cloning retained edges into the result batch. The candidate walks the
+    /// order-identical borrowed snapshot and performs only the required result clones. Both arms use
+    /// the same all-node ego set and assert an exactly equal ordered batch before timing. `#[ignore]`;
+    /// run with `cargo test --release -p fnx-algorithms --lib ego_graph_edge_borrow_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn ego_graph_edge_borrow_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n_nodes = 8000usize;
+        let mut graph = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = graph.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for step in 1..=25usize {
+                let _ = graph.add_edge(i.to_string(), ((i + step) % n_nodes).to_string());
+            }
+        }
+        let nodes = graph.nodes_ordered();
+        let idx: HashMap<&str, usize> = nodes
+            .iter()
+            .enumerate()
+            .map(|(i, &node)| (node, i))
+            .collect();
+        let ego_set: HashSet<usize> = (0..n_nodes).collect();
+
+        let old_fn = || -> Vec<(String, String, AttrMap)> {
+            let mut edges = Vec::with_capacity(graph.edge_count());
+            for edge in graph.edges_ordered() {
+                if let (Some(&ui), Some(&vi)) =
+                    (idx.get(edge.left.as_str()), idx.get(edge.right.as_str()))
+                    && ego_set.contains(&ui)
+                    && ego_set.contains(&vi)
+                {
+                    edges.push((edge.left.clone(), edge.right.clone(), edge.attrs.clone()));
+                }
+            }
+            edges
+        };
+        let new_fn = || -> Vec<(String, String, AttrMap)> {
+            let mut edges = Vec::with_capacity(graph.edge_count());
+            for (left, right, attrs) in graph.edges_ordered_borrowed() {
+                if let (Some(&ui), Some(&vi)) = (idx.get(left), idx.get(right))
+                    && ego_set.contains(&ui)
+                    && ego_set.contains(&vi)
+                {
+                    edges.push((left.to_owned(), right.to_owned(), attrs.clone()));
+                }
+            }
+            edges
+        };
+
+        assert_eq!(old_fn(), new_fn(), "ego_graph induced-edge batch parity");
+
+        let time = |borrowed: bool| -> f64 {
+            let t0 = Instant::now();
+            let edges = if borrowed { new_fn() } else { old_fn() };
+            black_box(edges);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |values: &[f64]| {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            sorted[sorted.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |candidate: bool, baseline: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(baseline), time(candidate))
+                } else {
+                    let candidate_time = time(candidate);
+                    (time(baseline), candidate_time)
+                };
+                ratios.push(base_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "EGOBORROW_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("EGOBORROW_AB induced-edge-copy 8k/200k rounds={rounds} (>1 = borrowed faster)");
+        report("BORROWED_vs_owned", &paired(true, false));
+        report("NULL_borrowed_vs_borrowed", &paired(true, true));
     }
 
     /// br-r37-c1-modwborrow: isolated paired-interleaved median A/B for `modularity`'s w_map-build edge

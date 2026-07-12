@@ -1,5 +1,49 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `ego_graph` borrowed induced-edge copy **1.1820x** self-time (br-r37-c1-vngrp)
+
+NEGATIVE-LEDGER / PROFILE FIRST: the immediately preceding `ego_graph` BFS
+integer-walk trial was correctly rejected below its null floor. Its profile and
+paired A/B identified the unchanged post-BFS `edges_ordered()` materialization
+as the dominant tail: it cloned every input edge's two endpoint Strings and
+`AttrMap` before the induced-edge batch cloned retained values a second time.
+
+ONE LEVER: the undirected `ego_graph` induced-edge loop now walks
+`edges_ordered_borrowed()`. It retains the same `idx` and `ego_set` membership
+checks and clones each selected endpoint and attribute map exactly once into the
+existing batch. The directed twin, BFS traversal, node order, and batch inserter
+are unchanged.
+
+BIT-IDENTICAL: `edges_ordered_borrowed()` exposes the same edges in the same
+order with the same endpoint names and `AttrMap` values as `edges_ordered()`.
+The one-binary A/B asserted exact equality of the complete ordered
+`Vec<(String, String, AttrMap)>` before timing.
+
+MEDIAN GATE: strict-remote release A/B on worker `vmi1149989`, 61 paired
+interleaved rounds over an 8,000-node / 200,000-edge all-node ego fixture:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| borrowed / owned | **1.1820x** | 57/61 | 0.9349-1.8026 |
+| borrowed / borrowed null | 1.0106x | 33/61 | 0.9057-1.2270 |
+
+The candidate median clears the current per-function null-median floor. This is
+an isolated changed-loop self-time claim, not a whole-Python-surface ratio.
+Every authoritative Cargo command used `RCH_REQUIRE_REMOTE=1 env -u
+CARGO_TARGET_DIR rch exec -- cargo ...`; no local Cargo ran. A scoped test retry
+was fail-closed refused for no admissible eight-slot worker, and a remote
+all-targets check on `vmi1264463` was invalidated before compilation by that
+worker's stale sibling `ftui` 0.4.1 checkout failing the workspace's 0.5.0
+requirement. The release A/B itself compiled the final source and passed its
+exact parity assertion. A strict-remote retry on `vmi1149989` passed
+`cargo check -p fnx-algorithms --all-targets`; scoped clippy passed while
+allowing only the 11 pre-existing `collapsible_if` / `doc_lazy_continuation`
+findings that the exact `-D warnings` run surfaced outside this change.
+
+RESULT: SHIP. Preserve undirected-only scope, borrowed edge order, exact
+attribute cloning, and the existing batch insertion path. Do not fold the
+rejected BFS integer-walk trial or the directed twin into this commit.
+
 ## SHIPPED WIN (cc, 2026-07-12): `complement_edges_directed` O(V²) has_edge → bool-row **3.1313x** (br-r37-c1-compedgedirint)
 
 Directed sibling of compedgeidx (3rd has_edge-in-nested-loop win). complement_edges_directed: for u, for v, if
