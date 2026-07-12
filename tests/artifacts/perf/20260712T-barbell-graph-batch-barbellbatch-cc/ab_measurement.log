@@ -1,0 +1,17 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib barbell_graph_batch_ab -- --ignored --nocapture
+
+BARBELL_BATCH_AB B180_5 rounds=61 (>1 = batch faster)
+BARBELL_BATCH_AB BATCH_vs_string: median=23.0995x win_rate=61/61 p5_p95=[16.3864,33.3111]
+BARBELL_BATCH_AB NULL_batch_vs_batch: median=0.9985x win_rate=27/61 p5_p95=[0.9012,1.1384]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 994 filtered out; finished in 2.83s
+
+Marker BARBELL_BATCH_AB + test name confirmed (fresh binary). Parity assert
+(edges_ordered_borrowed + nodes_ordered) on B(180,5) passed before timing.
+
+$ cargo test --release -p fnx-algorithms --lib barbell -- --nocapture
+test tests::test_barbell_graph ... ok
+test result: ok. 1 passed; 0 failed; 1 ignored; ...
+
+$ cargo clippy --release -p fnx-algorithms --lib --tests -- -D warnings
+--> NONE of my lines flagged (production ~33109-33137 / test ~69618-69737)
+--> 12 pre-existing peer -D warnings errors (untouched, shared checkout)

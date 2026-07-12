@@ -1,5 +1,20 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `barbell_graph` INDEX-pair edge batch-insert **23.0995x** (br-r37-c1-barbellbatch)
+
+Twenty-ninth result-builder batch win; 9th in the gen_edge index-batch seam. barbell_graph(n1,n2) = two
+K_{n1} cliques + n2-node path bar, 2n1+n2 nodes named "0".."total-1" via gen_nodes. Four gen_edge phases
+(clique1, path, clique2, connectors with if n2>0/else). Collect all (i,j) INDEX pairs + one
+extend_existing_index_edges_unrecorded → drops both to_string allocs + name hashes + policy record. Two
+cliques dominate → dense-few-node.
+
+MEASURED — B(180,5) (365 nodes, ~32226 edges), 61 rounds: **BATCH_vs_string median 23.0995x**, 61/61, p5_p95
+[16.3864,33.3111] vs NULL 0.9985x [0.9012,1.1384]. DECISIVE: candidate p5 (16.39) ~14x above null p95.
+Byte-identical: every edge source<target so unique; connector if/else preserved; helper canonicalizes by node
+NAME + pushes adj in given order, nodes pre-added. test_barbell_graph green; parity assert passed. Reachable
+via barbell_graph pyo3. CLIPPY: my lines clean (production ~33109-33137 / test ~69618-69737); crate's 12
+pre-existing peer errors untouched. See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `lollipop_graph` INDEX-pair edge batch-insert **21.2793x** (br-r37-c1-lollipopbatch)
 
 Twenty-eighth result-builder batch win; 8th in the gen_edge index-batch seam. lollipop_graph(m,n) = K_m

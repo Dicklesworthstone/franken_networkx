@@ -33106,29 +33106,37 @@ pub fn barbell_graph(n1: usize, n2: usize) -> Result<Graph, String> {
     let mut g = Graph::strict();
     let total = 2 * n1 + n2;
     gen_nodes(&mut g, total);
+    // br-r37-c1-barbellbatch (cc): collect the two K_{n1} cliques, the path, and the connector edges
+    // as (i, j) INDEX pairs (same order) + one extend_existing_index_edges_unrecorded instead of
+    // per-edge gen_edge (i.to_string() + j.to_string() + a name→index hash + a policy record EACH).
+    // Nodes are gen_nodes'd as "0".."total-1" so index i names node i; every edge has source<target so
+    // all are unique with no self-loop, and the helper canonicalizes by node NAME + pushes adjacency
+    // exactly as add_edge in the identical order → byte-identical.
+    let mut edges: Vec<(usize, usize)> = Vec::new();
     // First complete graph (0..n1)
     for i in 0..n1 {
         for j in (i + 1)..n1 {
-            gen_edge(&mut g, i, j);
+            edges.push((i, j));
         }
     }
     // Path (n1..n1+n2)
     for i in 0..n2.saturating_sub(1) {
-        gen_edge(&mut g, n1 + i, n1 + i + 1);
+        edges.push((n1 + i, n1 + i + 1));
     }
     // Second complete graph (n1+n2..total)
     for i in (n1 + n2)..total {
         for j in (i + 1)..total {
-            gen_edge(&mut g, i, j);
+            edges.push((i, j));
         }
     }
     // Connect first clique to path, path to second clique
     if n2 > 0 {
-        gen_edge(&mut g, n1 - 1, n1);
-        gen_edge(&mut g, n1 + n2 - 1, n1 + n2);
+        edges.push((n1 - 1, n1));
+        edges.push((n1 + n2 - 1, n1 + n2));
     } else {
-        gen_edge(&mut g, n1 - 1, n1);
+        edges.push((n1 - 1, n1));
     }
+    let _ = g.extend_existing_index_edges_unrecorded(edges);
     Ok(g)
 }
 
@@ -69603,6 +69611,128 @@ mod tests {
             );
         };
         println!("LOLLIPOP_BATCH_AB L250_5 rounds={rounds} (>1 = batch faster)");
+        report("BATCH_vs_string", &paired(true, false));
+        report("NULL_batch_vs_batch", &paired(true, true));
+    }
+
+    /// br-r37-c1-barbellbatch: paired-interleaved median A/B for barbell_graph — inline per-edge
+    /// baseline (gen_edge) vs the shipped INDEX batch, one binary / one worker with a NULL control.
+    /// B(180,5) has 365 nodes and ~32226 edges (two K_180 cliques + path — dense); the index batch
+    /// removes the two per-edge to_string() allocs + name→index hashes + policy record. Parity asserted.
+    /// `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib barbell_graph_batch_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn barbell_graph_batch_ab() {
+        use crate::{gen_edge, gen_nodes};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let (n1, n2) = (180usize, 5usize);
+
+        let build = |n1: usize, n2: usize, batch: bool| -> Graph {
+            let mut g = Graph::strict();
+            let total = 2 * n1 + n2;
+            gen_nodes(&mut g, total);
+            if batch {
+                let mut edges: Vec<(usize, usize)> = Vec::new();
+                for i in 0..n1 {
+                    for j in (i + 1)..n1 {
+                        edges.push((i, j));
+                    }
+                }
+                for i in 0..n2.saturating_sub(1) {
+                    edges.push((n1 + i, n1 + i + 1));
+                }
+                for i in (n1 + n2)..total {
+                    for j in (i + 1)..total {
+                        edges.push((i, j));
+                    }
+                }
+                if n2 > 0 {
+                    edges.push((n1 - 1, n1));
+                    edges.push((n1 + n2 - 1, n1 + n2));
+                } else {
+                    edges.push((n1 - 1, n1));
+                }
+                let _ = g.extend_existing_index_edges_unrecorded(edges);
+            } else {
+                for i in 0..n1 {
+                    for j in (i + 1)..n1 {
+                        gen_edge(&mut g, i, j);
+                    }
+                }
+                for i in 0..n2.saturating_sub(1) {
+                    gen_edge(&mut g, n1 + i, n1 + i + 1);
+                }
+                for i in (n1 + n2)..total {
+                    for j in (i + 1)..total {
+                        gen_edge(&mut g, i, j);
+                    }
+                }
+                if n2 > 0 {
+                    gen_edge(&mut g, n1 - 1, n1);
+                    gen_edge(&mut g, n1 + n2 - 1, n1 + n2);
+                } else {
+                    gen_edge(&mut g, n1 - 1, n1);
+                }
+            }
+            g
+        };
+
+        let old = build(n1, n2, false);
+        let new = build(n1, n2, true);
+        assert_eq!(
+            old.edges_ordered_borrowed(),
+            new.edges_ordered_borrowed(),
+            "batch barbell_graph must equal the per-edge baseline"
+        );
+        assert_eq!(old.nodes_ordered(), new.nodes_ordered());
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            black_box(build(n1, n2, batch));
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "BARBELL_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("BARBELL_BATCH_AB B180_5 rounds={rounds} (>1 = batch faster)");
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
     }
