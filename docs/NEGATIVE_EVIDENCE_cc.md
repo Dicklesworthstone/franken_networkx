@@ -1,5 +1,21 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `windmill_graph` INDEX-pair edge batch-insert **17.9007x** (br-r37-c1-windmillbatch)
+
+Twenty-sixth result-builder batch win; 6th in the gen_edge index-batch seam. windmill_graph(k,n) = Wd(k,n):
+n copies of K_k sharing a universal center (node 0), 1+n(k-1) nodes named "0".."total-1" via gen_nodes. Two
+per-edge phases per copy: center→copy gen_edge(0,i) + within-copy clique gen_edge(i,j). Collect all edges as
+(i,j) INDEX pairs + one extend_existing_index_edges_unrecorded → drops both to_string allocs + name hashes +
+policy record.
+
+MEASURED — Wd(100,15) (1486 nodes, ~74250 edges), 61 rounds: **BATCH_vs_string median 17.9007x**, 61/61,
+p5_p95 [12.5003,22.3953] vs NULL 1.0141x [0.8555,1.1657]. DECISIVE: candidate p5 (12.50) ~10.7x above null
+p95. (Between hypercube 11.55x and bipartite 31.65x — the 1486-node gen_nodes build common to both arms is a
+larger share than bipartite's 300 nodes.) Byte-identical: center (0,i) i>0, clique (i,j) i<j, all unique;
+helper canonicalizes by node NAME + pushes adj in given order, nodes pre-added. test_windmill_graph green;
+parity assert passed. Reachable via windmill_graph pyo3. CLIPPY: my lines clean (production ~33883-33902 /
+test ~69279-69382); crate's 12 pre-existing peer errors untouched. See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `turan_graph` INDEX-pair edge batch-insert **25.4229x** (br-r37-c1-turanbatch)
 
 Twenty-fifth result-builder batch win. turan_graph(n,r) = T(n,r): n nodes named "0".."n-1" via gen_nodes,

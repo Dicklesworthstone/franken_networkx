@@ -33880,19 +33880,27 @@ pub fn windmill_graph(k: usize, n: usize) -> Result<Graph, String> {
     // Node 0 is the universal center
     let total = 1 + n * (k - 1);
     gen_nodes(&mut g, total);
+    // br-r37-c1-windmillbatch (cc): collect all edges (per copy: center→copy, then within-copy
+    // clique; same order) as (i, j) INDEX pairs + one extend_existing_index_edges_unrecorded instead
+    // of per-edge gen_edge (i.to_string() + j.to_string() + a name→index hash + a policy record EACH).
+    // Nodes are gen_nodes'd as "0".."total-1" so index i names node i; 0<i and i<j so every edge is
+    // unique with no self-loop, and the helper canonicalizes by node NAME + pushes adjacency exactly
+    // as add_edge in the identical order → byte-identical.
+    let mut edges: Vec<(usize, usize)> = Vec::new();
     for copy in 0..n {
         let start = 1 + copy * (k - 1);
         // Connect center to all nodes in this copy
         for i in start..(start + k - 1) {
-            gen_edge(&mut g, 0, i);
+            edges.push((0, i));
         }
         // Complete graph within this copy
         for i in start..(start + k - 1) {
             for j in (i + 1)..(start + k - 1) {
-                gen_edge(&mut g, i, j);
+                edges.push((i, j));
             }
         }
     }
+    let _ = g.extend_existing_index_edges_unrecorded(edges);
     Ok(g)
 }
 
@@ -69264,6 +69272,112 @@ mod tests {
             );
         };
         println!("TURAN_BATCH_AB T300_5 rounds={rounds} (>1 = batch faster)");
+        report("BATCH_vs_string", &paired(true, false));
+        report("NULL_batch_vs_batch", &paired(true, true));
+    }
+
+    /// br-r37-c1-windmillbatch: paired-interleaved median A/B for windmill_graph — inline per-edge
+    /// baseline (gen_edge) vs the shipped INDEX batch, one binary / one worker with a NULL control.
+    /// Wd(100,15) has 1486 nodes and ~74250 edges (n copies of K_100 sharing a center — dense); the
+    /// index batch removes the two per-edge to_string() allocs + name→index hashes + policy record.
+    /// Parity asserted first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib windmill_graph_batch_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn windmill_graph_batch_ab() {
+        use crate::{gen_edge, gen_nodes};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let (k, n) = (100usize, 15usize);
+
+        let build = |k: usize, n: usize, batch: bool| -> Graph {
+            let mut g = Graph::strict();
+            let total = 1 + n * (k - 1);
+            gen_nodes(&mut g, total);
+            if batch {
+                let mut edges: Vec<(usize, usize)> = Vec::new();
+                for copy in 0..n {
+                    let start = 1 + copy * (k - 1);
+                    for i in start..(start + k - 1) {
+                        edges.push((0, i));
+                    }
+                    for i in start..(start + k - 1) {
+                        for j in (i + 1)..(start + k - 1) {
+                            edges.push((i, j));
+                        }
+                    }
+                }
+                let _ = g.extend_existing_index_edges_unrecorded(edges);
+            } else {
+                for copy in 0..n {
+                    let start = 1 + copy * (k - 1);
+                    for i in start..(start + k - 1) {
+                        gen_edge(&mut g, 0, i);
+                    }
+                    for i in start..(start + k - 1) {
+                        for j in (i + 1)..(start + k - 1) {
+                            gen_edge(&mut g, i, j);
+                        }
+                    }
+                }
+            }
+            g
+        };
+
+        let old = build(k, n, false);
+        let new = build(k, n, true);
+        assert_eq!(
+            old.edges_ordered_borrowed(),
+            new.edges_ordered_borrowed(),
+            "batch windmill_graph must equal the per-edge baseline"
+        );
+        assert_eq!(old.nodes_ordered(), new.nodes_ordered());
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            black_box(build(k, n, batch));
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "WINDMILL_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("WINDMILL_BATCH_AB Wd100_15 rounds={rounds} (>1 = batch faster)");
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
     }
