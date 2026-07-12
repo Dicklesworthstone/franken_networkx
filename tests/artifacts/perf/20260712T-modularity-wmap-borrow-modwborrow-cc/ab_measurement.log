@@ -1,0 +1,13 @@
+test tests::greedy_modularity_disconnected ... ok
+test tests::greedy_modularity_two_cliques ... ok
+test tests::modularity_perfect_partition ... ok
+test tests::greedy_modularity_empty ... ok
+test tests::modularity_rejects_overlapping_partition ... ok
+test tests::modularity_mat_ab ... ok
+MODWBORROW_AB wmap-build 8k/200k rounds=61 (>1 = borrowed faster)
+test tests::modularity_wmap_ab ... ok
+test tests::greedy_modularity_gmodmat_ab ... ok
+MODWBORROW_AB BORROWED_vs_owned: median=1.3424x win_rate=61/61 p5_p95=[1.0924,1.6395]
+MODWBORROW_AB NULL_borrowed_vs_borrowed: median=1.0139x win_rate=32/61 p5_p95=[0.8640,1.2892]
+test tests::modularity_wmap_borrow_ab ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 1007 filtered out; finished in 31.00s
