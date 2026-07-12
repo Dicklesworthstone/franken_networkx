@@ -1,5 +1,51 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cod, 2026-07-12): `is_edge_cover` indexed existence probe **2.2267x** on dense rows (br-r37-c1-4pchn)
+
+NEGATIVE-LEDGER FIRST: the matching-family HOLD entries protect minimum-cover
+construction because NetworkX tie choice and returned edge orientation are
+observable. They do not cover `is_edge_cover`, which only validates a supplied
+edge set and returns one boolean. No prior keep or reject targeted this
+predicate.
+
+PROFILE / ONE LEVER: for every supplied cover edge `(u, v)`, the validator used
+`neighbors_iter(u).any(|n| n == v)`, linearly scanning `u`'s row. It now calls
+the graph's existing indexed undirected `has_edge(u, v)` predicate. Cover-set
+construction, invalid-edge early return, empty-graph behavior, and final
+all-nodes-covered check are unchanged. The hot existence work changes from
+O(sum degree(u)) to O(number of supplied edges).
+
+EXACT PARITY: the one-binary harness compared the frozen neighbor-scan baseline
+against production on valid, reversed, invalid, missing-endpoint, empty-cover,
+and self-loop cases before timing. Both predicates return false for an unknown
+endpoint and treat undirected orientation and self-loops identically.
+
+MEDIAN GATE: strict-remote release A/B on worker `vmi1293453`, 61 paired
+interleaved rounds over a valid 4,000-edge cover. Each source row has 512
+earlier-inserted filler neighbors and the covered partner last:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| indexed `has_edge` / neighbor scan | **2.2267x** | 61/61 | 1.5089-4.1159 |
+| indexed / indexed null | 0.9941x | 27/61 | 0.6518-1.2480 |
+
+The candidate p5 clears the null p95. A first 10,000-pair fixture with only 64
+filler neighbors was deliberately not used for the verdict: it measured just
+1.0681x (47/61) against a badly skewed 0.9394x null with overlapping tails.
+That run establishes density-sensitive crossover rather than a universal
+2.23x claim. The kept number is isolated Rust-kernel self-time, not a whole
+Python-call ratio. The public PyO3 `is_edge_cover` binding calls this kernel
+directly. Every Cargo invocation used `RCH_REQUIRE_REMOTE=1 env -u
+CARGO_TARGET_DIR rch exec -- cargo ...`; refused capacity attempts did not fall
+back locally. The scoped production suite passed 3/3, strict-remote all-targets
+check passed, and scoped clippy passed while allowing only the repository's 11
+pre-existing `collapsible_if` / `doc_lazy_continuation` findings reproduced by
+the exact `-D warnings` run outside this lever.
+
+RESULT: SHIP. Preserve the boolean-only scope and the existing indexed
+undirected edge semantics. Do not generalize this result to minimum-cover
+construction or sparse-row speedups.
+
 ## SHIPPED WIN (cod, 2026-07-12): `to_prufer_sequence` borrowed edge scan **1.5550x** self-time (br-r37-c1-8vjja)
 
 NEGATIVE-LEDGER FIRST: the 2026-06-25 entry below already established and

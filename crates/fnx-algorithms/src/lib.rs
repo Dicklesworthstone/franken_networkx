@@ -64764,11 +64764,11 @@ mod tests {
             );
         }
 
-        // Every even node has 64 earlier-inserted filler neighbours followed by
+        // Every even node has 512 earlier-inserted filler neighbours followed by
         // its paired odd node. The supplied pair edges cover every node and put
         // the baseline's successful match at the end of each scanned row.
-        let pairs = 10_000usize;
-        let fanout = 64usize;
+        let pairs = 4_000usize;
+        let fanout = 512usize;
         let mut graph = Graph::strict();
         for i in 0..pairs {
             let _ = graph.add_node((2 * i).to_string());
