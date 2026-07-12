@@ -39549,19 +39549,25 @@ pub fn line_graph(graph: &Graph) -> Graph {
         let _ = result.add_node(node_name);
     }
 
+    // br-r37-c1-linegraphbatch (cc): hoist node_i = pair_label(u1,v1) OUT of the inner loop (it was
+    // recomputed for every j) and batch-insert the L(G) edges instead of per-edge add_edge (a policy
+    // record each). Each i<j pair is considered once and the input edges are distinct, so every L(G)
+    // edge is unique with no self-loop → extend_edges_unrecorded (same order) is byte-identical to the
+    // per-edge add_edge.
     // Two edges are adjacent in L(G) if they share a vertex in G
+    let mut result_edges: Vec<(String, String)> = Vec::new();
     for i in 0..edges.len() {
         let (u1, v1) = &edges[i];
+        let node_i = pair_label(u1, v1);
         for j in (i + 1)..edges.len() {
             let (u2, v2) = &edges[j];
             // Check if edges share a vertex
             if u1 == u2 || u1 == v2 || v1 == u2 || v1 == v2 {
-                let node_i = pair_label(u1, v1);
-                let node_j = pair_label(u2, v2);
-                let _ = result.add_edge(node_i, node_j);
+                result_edges.push((node_i.clone(), pair_label(u2, v2)));
             }
         }
     }
+    let _ = result.extend_edges_unrecorded(result_edges);
 
     result
 }
@@ -67034,6 +67040,131 @@ mod tests {
             );
         };
         println!("COMPLEMENT_DIGRAPH_BATCH_AB dcycle400 rounds={rounds} (>1 = batch faster)");
+        report("BATCH_vs_string", &paired(true, false));
+        report("NULL_batch_vs_batch", &paired(true, true));
+    }
+
+    /// br-r37-c1-linegraphbatch: paired-interleaved median A/B for line_graph — inline per-edge baseline
+    /// (node_i recomputed inside the inner loop) vs the shipped hoist + batch, one binary / one worker
+    /// with a NULL control. Byte-identity asserted first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib line_graph_batch_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn line_graph_batch_ab() {
+        use super::pair_label;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Complete graph K40 (780 edges) → dense line graph.
+        let mut input = Graph::strict();
+        let m = 40usize;
+        for i in 0..m {
+            let _ = input.add_node(format!("{i}"));
+        }
+        for i in 0..m {
+            for j in (i + 1)..m {
+                let _ = input.add_edge(format!("{i}"), format!("{j}"));
+            }
+        }
+
+        let build = |g: &Graph, batch: bool| -> Graph {
+            let mut result = Graph::with_runtime_policy(g.runtime_policy().clone());
+            let edges: Vec<(String, String)> = g
+                .edges_ordered()
+                .into_iter()
+                .map(|e| {
+                    if e.left <= e.right {
+                        (e.left.clone(), e.right.clone())
+                    } else {
+                        (e.right.clone(), e.left.clone())
+                    }
+                })
+                .collect();
+            for (u, v) in &edges {
+                let _ = result.add_node(pair_label(u, v));
+            }
+            if batch {
+                let mut result_edges: Vec<(String, String)> = Vec::new();
+                for i in 0..edges.len() {
+                    let (u1, v1) = &edges[i];
+                    let node_i = pair_label(u1, v1);
+                    for j in (i + 1)..edges.len() {
+                        let (u2, v2) = &edges[j];
+                        if u1 == u2 || u1 == v2 || v1 == u2 || v1 == v2 {
+                            result_edges.push((node_i.clone(), pair_label(u2, v2)));
+                        }
+                    }
+                }
+                let _ = result.extend_edges_unrecorded(result_edges);
+            } else {
+                for i in 0..edges.len() {
+                    let (u1, v1) = &edges[i];
+                    for j in (i + 1)..edges.len() {
+                        let (u2, v2) = &edges[j];
+                        if u1 == u2 || u1 == v2 || v1 == u2 || v1 == v2 {
+                            let node_i = pair_label(u1, v1);
+                            let node_j = pair_label(u2, v2);
+                            let _ = result.add_edge(node_i, node_j);
+                        }
+                    }
+                }
+            }
+            result
+        };
+
+        let old = build(&input, false);
+        let new = build(&input, true);
+        assert_eq!(
+            old.edges_ordered_borrowed(),
+            new.edges_ordered_borrowed(),
+            "batch line_graph must equal the per-edge baseline"
+        );
+        assert_eq!(old.nodes_ordered(), new.nodes_ordered());
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            black_box(build(&input, batch));
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "LINEGRAPH_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("LINEGRAPH_BATCH_AB K40 rounds={rounds} (>1 = batch faster)");
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
     }

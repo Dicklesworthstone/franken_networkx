@@ -1,5 +1,19 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `line_graph` hoist + batch **4.2809x** (br-r37-c1-linegraphbatch)
+
+Seventh fnx-algorithms result-builder batch. line_graph builds L(G): node per input edge + an L(G) edge
+per pair of input edges sharing a vertex. TWO folds: (1) hoist node_i=pair_label(u1,v1) OUT of the inner
+j loop (was recomputed every j), (2) collect L(G) edges + one extend_edges_unrecorded. Byte-identical
+(each i<j pair once, input edges distinct → L(G) edges unique/no self-loop; parity assert on L(K40) + 10
+line_graph suite tests green).
+
+MEASURED — L(K40) (780 nodes), 61 rounds: **BATCH_vs_string median 4.2809x**, win_rate 61/61, p5_p95
+[3.3675, 5.7209] vs NULL 0.9751x [0.7615, 1.1813]. DECIDABLE: candidate p5 (3.37) ~2.9x above the null p95
+(1.18), 61/61 won. CLIPPY: MY CODE CLEAN (0 in ranges 39549-39574 / 67044-67175, grep-verified); crate's
+~12 pre-existing peer errors untouched. See [[redundant_edge_materialization_family]]. Next:
+line_graph_directed, power, reverse_digraph.
+
 ## SHIPPED WIN (cc, 2026-07-12): `complement_digraph` batch-insert **5.3869x** (br-r37-c1-complementdigraphbatch)
 
 Sixth fnx-algorithms result-builder batch (DiGraph analog of complement_graph). Iterates all u!=v pairs,
