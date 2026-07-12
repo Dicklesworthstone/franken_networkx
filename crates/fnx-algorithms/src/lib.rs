@@ -15196,14 +15196,27 @@ pub fn from_prufer_sequence(sequence: &[usize]) -> Result<PruferResult, String> 
         degree[i] += 1;
     }
     let mut edges: Vec<(usize, usize)> = Vec::with_capacity(n - 1);
+    // br-r37-c1-uxbg8: the smallest-leaf pointer only advances across nodes
+    // once. A parent that becomes a smaller leaf is consumed immediately;
+    // otherwise the next leaf lies strictly after the pointer. This is the
+    // same choice as rescanning 0..n on every code element, in O(n) total.
+    let mut leaf = degree
+        .iter()
+        .position(|&remaining_degree| remaining_degree == 1)
+        .expect("a Prüfer degree sequence always has a leaf");
+    let mut pointer = leaf;
     for &i in sequence {
-        for j in 0..n {
-            if degree[j] == 1 {
-                edges.push((i.min(j), i.max(j)));
-                degree[i] -= 1;
-                degree[j] -= 1;
-                break;
+        edges.push((i.min(leaf), i.max(leaf)));
+        degree[i] -= 1;
+        degree[leaf] -= 1;
+        if i < pointer && degree[i] == 1 {
+            leaf = i;
+        } else {
+            pointer += 1;
+            while degree[pointer] != 1 {
+                pointer += 1;
             }
+            leaf = pointer;
         }
     }
     let last: Vec<usize> = (0..n).filter(|&j| degree[j] == 1).collect();
@@ -74472,6 +74485,150 @@ mod tests {
             err,
             "Prüfer sequence undefined for trees with fewer than two nodes"
         );
+    }
+
+    #[test]
+    fn from_prufer_sequence_preserves_ordered_smallest_leaf_decode() {
+        assert_eq!(
+            super::from_prufer_sequence(&[]).unwrap().edges,
+            vec![(0, 1)]
+        );
+        assert_eq!(
+            super::from_prufer_sequence(&[3, 3, 3, 4]).unwrap().edges,
+            vec![(0, 3), (1, 3), (2, 3), (3, 4), (4, 5)]
+        );
+        assert_eq!(
+            super::from_prufer_sequence(&[2, 4, 0, 1, 3, 3])
+                .unwrap()
+                .edges,
+            vec![(2, 5), (2, 4), (0, 4), (0, 1), (1, 3), (3, 6), (3, 7)]
+        );
+        assert_eq!(
+            super::from_prufer_sequence(&[0, 5, 99]).unwrap_err(),
+            "Invalid Prufer sequence: Values must be between 0 and 4, got 5"
+        );
+    }
+
+    /// br-r37-c1-uxbg8: paired-interleaved A/B for the Rust Prüfer decoder's
+    /// smallest-leaf selection. The frozen baseline rescans 0..n for every
+    /// code element; production uses the monotonic pointer. Exact ordered edge
+    /// and error parity are asserted before timing. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib from_prufer_pointer_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn from_prufer_pointer_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn old_from_prufer(sequence: &[usize]) -> Result<super::PruferResult, String> {
+            let n = sequence.len() + 2;
+            for &i in sequence {
+                if i >= n {
+                    return Err(format!(
+                        "Invalid Prufer sequence: Values must be between 0 and {}, got {}",
+                        n - 1,
+                        i
+                    ));
+                }
+            }
+            let mut degree = vec![1_usize; n];
+            for &i in sequence {
+                degree[i] += 1;
+            }
+            let mut edges: Vec<(usize, usize)> = Vec::with_capacity(n - 1);
+            for &i in sequence {
+                for j in 0..n {
+                    if degree[j] == 1 {
+                        edges.push((i.min(j), i.max(j)));
+                        degree[i] -= 1;
+                        degree[j] -= 1;
+                        break;
+                    }
+                }
+            }
+            let last: Vec<usize> = (0..n).filter(|&j| degree[j] == 1).collect();
+            if last.len() == 2 {
+                edges.push((last[0].min(last[1]), last[0].max(last[1])));
+            }
+            Ok(super::PruferResult { edges })
+        }
+
+        for sequence in [
+            Vec::new(),
+            vec![0],
+            vec![2, 2, 2],
+            vec![1, 3, 3, 0, 4, 4],
+            vec![5, 0, 5, 1, 5, 2],
+        ] {
+            assert_eq!(
+                old_from_prufer(&sequence),
+                super::from_prufer_sequence(&sequence),
+                "ordered Prüfer decode parity for {sequence:?}"
+            );
+        }
+        assert_eq!(
+            old_from_prufer(&[3]),
+            super::from_prufer_sequence(&[3]),
+            "invalid-value error parity"
+        );
+
+        // Star centered at n-1: the old smallest-leaf scan walks across every
+        // previously removed leaf again, totaling roughly n²/2 probes.
+        let n = 10_000usize;
+        let sequence = vec![n - 1; n - 2];
+        assert_eq!(
+            old_from_prufer(&sequence),
+            super::from_prufer_sequence(&sequence),
+            "worst-case ordered edge parity"
+        );
+
+        let time = |candidate: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate {
+                super::from_prufer_sequence(black_box(&sequence))
+            } else {
+                old_from_prufer(black_box(&sequence))
+            };
+            black_box(result.unwrap());
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |values: &[f64]| {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            sorted[sorted.len() / 2]
+        };
+        let rounds = 31usize;
+        let paired = |candidate: bool, baseline: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(baseline), time(candidate))
+                } else {
+                    let candidate_time = time(candidate);
+                    (time(baseline), candidate_time)
+                };
+                ratios.push(base_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "FROMPRUFER_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("FROMPRUFER_AB star_n={n} rounds={rounds} (>1 = pointer faster)");
+        report("POINTER_vs_rescan", &paired(true, false));
+        report("NULL_pointer_vs_pointer", &paired(true, true));
     }
 }
 

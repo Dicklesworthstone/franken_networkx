@@ -1,5 +1,54 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cod, 2026-07-12): `from_prufer_sequence` monotone leaf pointer **502.3567x** worst-case self-time (br-r37-c1-uxbg8)
+
+NEGATIVE-LEDGER FIRST: no prior row targeted the Rust decoder's repeated
+smallest-leaf search. The separate Python `tree.from_prufer_sequence` path
+already used the standard pointer algorithm, and the Rust random-tree helper
+had independently adopted the same technique, but the top-level native
+`from_prufer_sequence` kernel still rescanned `0..n` for every code element.
+The earlier Prüfer rows cover encoding and native graph construction, not this
+decoder loop.
+
+PROFILE / ONE LEVER: retain the current smallest leaf in a monotone pointer.
+When removing a leaf, only its just-decremented parent can become a new leaf
+below the pointer; otherwise the next smallest leaf is the first degree-one
+node above it. This changes worst-case leaf selection from O(n²) to O(n) while
+leaving validation, normalized endpoint orientation, emission order, and final
+edge construction unchanged.
+
+EXACT PARITY: before timing, the frozen old decoder and production asserted
+exact `Result<PruferResult, String>` equality, including ordered edge vectors,
+for empty, singleton, repeated-parent, mixed-parent, and invalid sequences, plus
+the timed 10,000-node star. An exhaustive development oracle also compared all
+280,392 valid sequences for n=2..8 with no mismatch.
+
+MEDIAN GATE: strict-remote release A/B on worker `vmi1227854`, 31 paired
+interleaved rounds over a 10,000-node star centered at node 9,999:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| pointer / full rescan | **502.3567x** | 31/31 | 391.4818-769.4725 |
+| pointer / pointer null | 0.9865x | 12/31 | 0.7859-1.4328 |
+
+The candidate p5 is hundreds of times above the null p95. This is isolated
+Rust-kernel worst-case self-time, not a whole Python-call or typical-input
+ratio. The top-level Python binding calls this kernel directly; do not
+generalize the 502x figure to the already-linear `franken_networkx.tree`
+implementation. Two earlier strict-remote attempts on `ovh-b` are VOID/INVALID:
+that worker's stale sibling `ftui` checkout failed dependency resolution before
+this crate compiled, so neither produced timing and neither fell back locally.
+Removing the two-job cap made that three-slot worker inadmissible; the valid
+rerun compiled and executed one test remotely.
+
+The dedicated non-ignored ordered-decode regression passed remotely, as did
+the scoped all-targets check. Exact `-D warnings` clippy reproduced only the
+crate's 11 pre-existing `collapsible_if` / `doc_lazy_continuation` findings;
+the scoped rerun allowing exactly those two known lint classes passed.
+
+RESULT: SHIP. Preserve the monotone-pointer invariant, exact smallest-leaf tie
+choice, ordered normalized edges, and existing invalid-value error text.
+
 ## SHIPPED WIN (cod, 2026-07-12): `is_edge_cover` indexed existence probe **2.2267x** on dense rows (br-r37-c1-4pchn)
 
 NEGATIVE-LEDGER FIRST: the matching-family HOLD entries protect minimum-cover
