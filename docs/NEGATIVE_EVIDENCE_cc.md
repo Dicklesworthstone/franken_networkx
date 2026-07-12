@@ -1,5 +1,29 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `cartesian_product` materialize-once + batch **4.3177x** (br-r37-c1-cartprodbatch) — FIRST NON-GENERATOR LEVER
+
+First non-generator lever (redundant_edge_materialization family, fnx-algorithms). cartesian_product's two
+edge blocks each called `h.edges_ordered()` / `g.edges_ordered()` INSIDE the outer-node loop → rebuilt the
+full edge Vec once per outer node (O(|g|*|h_edges|+|h|*|g_edges|) throwaway allocations) + per-edge add_edge.
+Fix: materialize the edge lists ONCE + collect product edge name-pairs + one `Graph::extend_edges_unrecorded`.
+
+BYTE-IDENTITY: the two blocks (same-G/adjacent-H horizontal, same-H/adjacent-G vertical) are provably
+disjoint + g/h edges non-self-loop → all product edges unique, no self-loop → extend_edges_unrecorded (skips
+only per-edge policy) byte-identical. Parity assert on K60xK60 + 6 existing cartesian suite tests green.
+
+MEASURED — K60xK60 (3600 nodes, 212400 edges), 61 rounds: **BATCH_vs_string median 4.3177x**, win_rate
+61/61, p5_p95 [3.1950, 6.0091] vs NULL 1.0223x [0.8275, 1.2215]. DECIDABLE: candidate p5 (3.20) ~2.6x above
+the null p95 (1.22), 61/61 won.
+
+CLIPPY: MY CHANGE IS CLEAN (0 errors in production 39617-39646 / test 66287-66405 ranges, grep-verified).
+The crate has ~12 PRE-EXISTING clippy `-D warnings` errors in PEER/committed code (collapsible_if let-chain
+~22069; doc-list-indentation in other agents' A/B-test doc comments br-r37-c1-voronoi ~49230 /
+br-r37-c1-branch ~50813) surfaced by a newer/stricter clippy — NOT touched (shared-checkout discipline).
+
+OPENS the graph-product operator family: cartesian_product_directed, tensor_product,
+tensor_product_directed, strong/lexicographic products all iterate edges_ordered() inside an outer-node
+loop (same materialize-once + batch applies). See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-11): `random_uniform_k_out_multidigraph` keyed batch **1.6342x** (br-r37-c1-koutmdgbatch) — first MultiDiGraph keyed-batch
 
 Twenty-fourth engine-level generator batch win; FIRST MultiDiGraph keyed batch. k targets WITH replacement

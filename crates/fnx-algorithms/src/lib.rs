@@ -39617,23 +39617,29 @@ pub fn cartesian_product(g: &Graph, h: &Graph) -> Graph {
         }
     }
 
+    // br-r37-c1-cartprodbatch (cc): materialize the h/g edge lists ONCE (they were rebuilt inside the
+    // outer-node loops — O(|g|*|h_edges| + |h|*|g_edges|) throwaway edge-Vec allocations) and
+    // batch-insert the product edges instead of per-edge add_edge (policy record each). The two edge
+    // blocks (same-G/adjacent-H, then same-H/adjacent-G) are disjoint, and g/h edges are non-self-loop,
+    // so every product edge is unique with no self-loop → collecting in the same order and using
+    // extend_edges_unrecorded is byte-identical to the per-edge add_edge.
+    let h_edges = h.edges_ordered();
+    let g_edges = g.edges_ordered();
+    let mut edges: Vec<(String, String)> =
+        Vec::with_capacity(g_nodes.len() * h_edges.len() + h_nodes.len() * g_edges.len());
     // Add edges: same G-node, adjacent H-nodes
     for gn in &g_nodes {
-        for edge in h.edges_ordered() {
-            let from_node = pair_label(gn, &edge.left);
-            let to_node = pair_label(gn, &edge.right);
-            let _ = result.add_edge(from_node, to_node);
+        for edge in &h_edges {
+            edges.push((pair_label(gn, &edge.left), pair_label(gn, &edge.right)));
         }
     }
-
     // Add edges: same H-node, adjacent G-nodes
     for hn in &h_nodes {
-        for edge in g.edges_ordered() {
-            let from_node = pair_label(&edge.left, hn);
-            let to_node = pair_label(&edge.right, hn);
-            let _ = result.add_edge(from_node, to_node);
+        for edge in &g_edges {
+            edges.push((pair_label(&edge.left, hn), pair_label(&edge.right, hn)));
         }
     }
+    let _ = result.extend_edges_unrecorded(edges);
 
     result
 }
@@ -66279,6 +66285,118 @@ mod tests {
         assert_eq!(cp.node_count(), 6);
         // 1 edge in g1 * 3 nodes in g2 + 3 edges in g2 * 2 nodes in g1 = 3 + 6 = 9
         assert_eq!(cp.edge_count(), 9);
+    }
+
+    /// br-r37-c1-cartprodbatch: paired-interleaved median A/B for cartesian_product — the shipped
+    /// materialize-once + batch (`cartesian_product`) vs the pre-lever per-edge/rebuild-per-node
+    /// baseline, one binary / one worker with a NULL control. Byte-identity is asserted first.
+    /// `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib cartesian_product_batch_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn cartesian_product_batch_ab() {
+        use super::pair_label;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let complete = |n: usize, prefix: &str| -> Graph {
+            let mut g = Graph::strict();
+            for i in 0..n {
+                let _ = g.add_node(format!("{prefix}{i}"));
+            }
+            for i in 0..n {
+                for j in (i + 1)..n {
+                    let _ = g.add_edge(format!("{prefix}{i}"), format!("{prefix}{j}"));
+                }
+            }
+            g
+        };
+        // K_60 x K_60: 3600 nodes, 60*1770 + 60*1770 = 212400 edges.
+        let g = complete(60, "g");
+        let h = complete(60, "h");
+
+        // Pre-lever baseline: rebuild h/g edge lists per outer node + per-edge add_edge.
+        let build_old = |g: &Graph, h: &Graph| -> Graph {
+            let mut result = Graph::with_runtime_policy(g.runtime_policy().clone());
+            let g_nodes = g.nodes_ordered();
+            let h_nodes = h.nodes_ordered();
+            for gn in &g_nodes {
+                for hn in &h_nodes {
+                    let _ = result.add_node(pair_label(gn, hn));
+                }
+            }
+            for gn in &g_nodes {
+                for edge in h.edges_ordered() {
+                    let _ = result.add_edge(pair_label(gn, &edge.left), pair_label(gn, &edge.right));
+                }
+            }
+            for hn in &h_nodes {
+                for edge in g.edges_ordered() {
+                    let _ = result.add_edge(pair_label(&edge.left, hn), pair_label(&edge.right, hn));
+                }
+            }
+            result
+        };
+
+        let old = build_old(&g, &h);
+        let new = cartesian_product(&g, &h);
+        assert_eq!(
+            old.edges_ordered_borrowed(),
+            new.edges_ordered_borrowed(),
+            "batch cartesian_product must equal the per-edge baseline"
+        );
+        assert_eq!(old.nodes_ordered(), new.nodes_ordered());
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            if batch {
+                black_box(cartesian_product(&g, &h));
+            } else {
+                black_box(build_old(&g, &h));
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "CARTPROD_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("CARTPROD_BATCH_AB K60xK60 rounds={rounds} (>1 = batch faster)");
+        report("BATCH_vs_string", &paired(true, false));
+        report("NULL_batch_vs_batch", &paired(true, true));
     }
 
     #[test]

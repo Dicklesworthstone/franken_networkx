@@ -1,0 +1,18 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib cartesian_product -- --nocapture
+running 7 tests (1 ignored measurement)
+test tests::test_cartesian_product_empty ... ok
+test tests::test_cartesian_product_one_empty ... ok
+test tests::test_cartesian_product_path_path ... ok
+test tests::test_cartesian_product_k2_k3 ... ok
+test tests::test_cartesian_product_label_disambiguation ... ok
+test tests::test_cartesian_product_directed_path ... ok
+test result: ok. 6 passed; 0 failed; 1 ignored; 0 measured; 961 filtered out; finished in 0.01s
+
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo clippy -p fnx-algorithms --lib --tests -- -D warnings
+MY CHANGE IS CLIPPY-CLEAN: the clippy run reports ~12 `-D warnings` errors, but ALL are in PRE-EXISTING
+peer/committed code surfaced by a newer/stricter clippy (the `collapsible_if` let-chain expansion and the
+`doc list item without indentation` lint) — a BFS collapsible-if at ~line 22069 and the doc comments of
+OTHER agents' A/B tests (br-r37-c1-voronoi ~49230, br-r37-c1-branch ~50813, and similar). NONE fall in
+this lever's line ranges (production 39617-39646, test 66287-66405) — verified by grepping the clippy
+output for those ranges (empty). Under shared-checkout discipline I must not modify peer code, so those
+pre-existing lints are left untouched; this lever introduces no new clippy findings.
