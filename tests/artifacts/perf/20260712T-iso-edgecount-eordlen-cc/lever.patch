@@ -1,0 +1,209 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index a95cf5110..db220efe6 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -26301,8 +26301,13 @@ pub fn is_isomorphic(g1: &Graph, g2: &Graph) -> bool {
+         return true;
+     }
+ 
+-    let edge_count1 = g1.edges_ordered().len();
+-    let edge_count2 = g2.edges_ordered().len();
++    // br-r37-c1-eordlen: edge count via edge_count() (O(1), `self.edges.len()`) instead of
++    // edges_ordered().len(), which materialises a full `Vec<EdgeSnapshot>` — two owned-String
++    // clones plus an AttrMap clone PER EDGE — only to read its length. Bit-identical: for a simple
++    // graph edges_ordered() yields exactly one snapshot per unique edge (deduped on the canonical
++    // pair from the order-faithful adjacency mirror), so its length == edge_count().
++    let edge_count1 = g1.edge_count();
++    let edge_count2 = g2.edge_count();
+     if edge_count1 != edge_count2 {
+         return false;
+     }
+@@ -26457,8 +26462,9 @@ pub fn is_isomorphic_directed(g1: &DiGraph, g2: &DiGraph) -> bool {
+         return true;
+     }
+ 
+-    let edge_count1 = g1.edges_ordered().len();
+-    let edge_count2 = g2.edges_ordered().len();
++    // br-r37-c1-eordlen: O(1) edge_count() instead of materialising the full edge Vec to count.
++    let edge_count1 = g1.edge_count();
++    let edge_count2 = g2.edge_count();
+     if edge_count1 != edge_count2 {
+         return false;
+     }
+@@ -26608,8 +26614,9 @@ pub fn could_be_isomorphic(g1: &Graph, g2: &Graph) -> bool {
+         return false;
+     }
+ 
+-    let edges1 = g1.edges_ordered().len();
+-    let edges2 = g2.edges_ordered().len();
++    // br-r37-c1-eordlen: O(1) edge_count() instead of materialising the full edge Vec to count.
++    let edges1 = g1.edge_count();
++    let edges2 = g2.edge_count();
+     if edges1 != edges2 {
+         return false;
+     }
+@@ -26717,7 +26724,8 @@ pub fn faster_could_be_isomorphic(g1: &Graph, g2: &Graph) -> bool {
+     if nodes1.len() != nodes2.len() {
+         return false;
+     }
+-    if g1.edges_ordered().len() != g2.edges_ordered().len() {
++    // br-r37-c1-eordlen: O(1) edge_count() instead of materialising the full edge Vec to count.
++    if g1.edge_count() != g2.edge_count() {
+         return false;
+     }
+ 
+@@ -26738,7 +26746,8 @@ pub fn faster_could_be_isomorphic_directed(g1: &DiGraph, g2: &DiGraph) -> bool {
+     if nodes1.len() != nodes2.len() {
+         return false;
+     }
+-    if g1.edges_ordered().len() != g2.edges_ordered().len() {
++    // br-r37-c1-eordlen: O(1) edge_count() instead of materialising the full edge Vec to count.
++    if g1.edge_count() != g2.edge_count() {
+         return false;
+     }
+ 
+@@ -26759,7 +26768,8 @@ pub fn fast_could_be_isomorphic(g1: &Graph, g2: &Graph) -> bool {
+     if nodes1.len() != nodes2.len() {
+         return false;
+     }
+-    if g1.edges_ordered().len() != g2.edges_ordered().len() {
++    // br-r37-c1-eordlen: O(1) edge_count() instead of materialising the full edge Vec to count.
++    if g1.edge_count() != g2.edge_count() {
+         return false;
+     }
+ 
+@@ -26781,7 +26791,8 @@ pub fn fast_could_be_isomorphic(g1: &Graph, g2: &Graph) -> bool {
+ pub fn is_planar(graph: &Graph) -> bool {
+     let nodes = graph.nodes_ordered();
+     let n = nodes.len();
+-    let m = graph.edges_ordered().len();
++    // br-r37-c1-eordlen: O(1) edge_count() instead of materialising the full edge Vec to count.
++    let m = graph.edge_count();
+ 
+     if n <= 4 {
+         return true;
+@@ -72455,6 +72466,124 @@ mod tests {
+         report("NULL_boolrow_vs_boolrow", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-eordlen: full-function paired-interleaved median A/B for `faster_could_be_isomorphic`
++    /// — inline ORIGINAL `edges_ordered().len()` (materialises a full `Vec<EdgeSnapshot>`: two owned
++    /// Strings + an AttrMap clone PER EDGE, thrown away) vs the shipped `edge_count()` (O(1),
++    /// `self.edges.len()`). Two equal-order equal-size graphs so BOTH arms pass the node and edge
++    /// checks and run the whole function (edge count + degree sort), making the wasted edge Vec the
++    /// dominant self-time. Parity (identical bool) asserted first — the arms differ ONLY in how the
++    /// edge count is read, so they return the same value by construction. `#[ignore]`; run with
++    /// `cargo test --release -p fnx-algorithms --lib faster_could_be_iso_eordlen_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn faster_could_be_iso_eordlen_ab() {
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // Two large, dense-ish graphs with identical order AND size (so the function runs fully).
++        let n_nodes = 10000usize;
++        let build = || -> Graph {
++            let mut g = Graph::strict();
++            for i in 0..n_nodes {
++                let _ = g.add_node(i.to_string());
++            }
++            // ~20 edges/node ring-of-chords → ~100k edges; equal for both graphs.
++            for i in 0..n_nodes {
++                for step in 1..=10usize {
++                    let _ = g.add_edge(i.to_string(), ((i + step) % n_nodes).to_string());
++                }
++            }
++            g
++        };
++        let g1 = build();
++        let g2 = build();
++
++        let old_fn = |g1: &Graph, g2: &Graph| -> bool {
++            let nodes1 = g1.nodes_ordered();
++            let nodes2 = g2.nodes_ordered();
++            if nodes1.len() != nodes2.len() {
++                return false;
++            }
++            if g1.edges_ordered().len() != g2.edges_ordered().len() {
++                return false;
++            }
++            let mut deg1: Vec<usize> = nodes1.iter().map(|n| g1.degree(n)).collect();
++            let mut deg2: Vec<usize> = nodes2.iter().map(|n| g2.degree(n)).collect();
++            deg1.sort_unstable();
++            deg2.sort_unstable();
++            deg1 == deg2
++        };
++        let new_fn = |g1: &Graph, g2: &Graph| -> bool {
++            let nodes1 = g1.nodes_ordered();
++            let nodes2 = g2.nodes_ordered();
++            if nodes1.len() != nodes2.len() {
++                return false;
++            }
++            if g1.edge_count() != g2.edge_count() {
++                return false;
++            }
++            let mut deg1: Vec<usize> = nodes1.iter().map(|n| g1.degree(n)).collect();
++            let mut deg2: Vec<usize> = nodes2.iter().map(|n| g2.degree(n)).collect();
++            deg1.sort_unstable();
++            deg2.sort_unstable();
++            deg1 == deg2
++        };
++
++        assert_eq!(
++            old_fn(&g1, &g2),
++            new_fn(&g1, &g2),
++            "faster_could_be_isomorphic parity (edge_count vs edges_ordered().len())"
++        );
++
++        let time = |cand: bool| -> f64 {
++            let t0 = Instant::now();
++            let r = if cand { new_fn(&g1, &g2) } else { old_fn(&g1, &g2) };
++            black_box(r);
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for round in 0..rounds {
++                let (tb, tc) = if round.is_multiple_of(2) {
++                    let bt = time(base_arm);
++                    let ct = time(cand);
++                    (bt, ct)
++                } else {
++                    let ct = time(cand);
++                    let bt = time(base_arm);
++                    (bt, ct)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "EORDLEN_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("EORDLEN_AB faster_could_be_isomorphic 10k/100k rounds={rounds} (>1 = edge_count faster)");
++        report("EDGECOUNT_vs_edgesordered", &paired(true, false));
++        report("NULL_edgecount_vs_edgecount", &paired(true, true));
++    }
++
+     #[test]
+     fn test_cartesian_product_label_disambiguation() {
+         let mut g1 = Graph::strict();
