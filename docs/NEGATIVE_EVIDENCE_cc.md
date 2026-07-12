@@ -1,5 +1,46 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cod, 2026-07-12): `to_prufer_sequence` borrowed edge scan **1.5550x** self-time (br-r37-c1-8vjja)
+
+NEGATIVE-LEDGER FIRST: the 2026-06-25 entry below already established and
+shipped the large O(n²) -> O(n) Prüfer algorithmic correction. This pass did
+not retry that exhausted family. It profiled the residual O(E) adjacency-build
+seam and found `edges_ordered()` still cloned both endpoint `String`s and the
+entire `AttrMap` for every tree edge, even though Prüfer only parses endpoint
+labels.
+
+ONE LEVER: build the existing mutable adjacency from
+`edges_ordered_borrowed()` instead. The degree array, smallest-leaf tie break,
+monotonic pointer, validation, errors, and output construction are unchanged.
+The borrowed iterator has the same insertion order and endpoint values as the
+owned iterator; edge attributes remain intentionally unused.
+
+EXACT PARITY + MEDIAN GATE: strict-remote release A/B on worker `vmi1227854`,
+61 paired interleaved rounds over the ordered edge scan of a 100,000-node path:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| borrowed / owned | **1.5550x** | 61/61 | 1.2245-1.8531 |
+| borrowed / borrowed null | 1.0154x | 36/61 | 0.8542-1.2144 |
+
+The same binary first asserted exact equality of the complete ordered parsed
+edge vector, then ran both arms and the null control. The candidate clears the
+null-median floor decisively. This is an isolated adjacency-build self-time
+claim, not a whole Python-call ratio. The first remote invocation compiled but
+matched zero tests; it is VOID/INVALID and is not part of the result. The exact
+fully-qualified rerun executed one test and passed. Every Cargo command used
+`RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo ...`; no local
+Cargo ran. Strict-remote `cargo check -p fnx-algorithms --all-targets` passed.
+Scoped clippy passed with only the repository's 11 pre-existing
+`collapsible_if` / `doc_lazy_continuation` findings allowed after the exact
+`-D warnings` run reproduced them outside this lever. A separate non-release
+Prüfer-suite request was fail-closed before execution because no admissible
+eight-slot worker was available; it did not fall back locally.
+
+RESULT: SHIP. Preserve borrowed edge order, numeric-label parsing behavior, and
+the existing O(n) smallest-leaf algorithm. Reachable through the native
+`to_prufer_sequence` Python binding.
+
 ## SHIPPED WIN (cc, 2026-07-12): `ego_graph` borrowed induced-edge copy **1.1820x** self-time (br-r37-c1-vngrp)
 
 NEGATIVE-LEDGER / PROFILE FIRST: the immediately preceding `ego_graph` BFS

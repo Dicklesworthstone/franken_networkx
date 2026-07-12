@@ -73378,7 +73378,10 @@ mod tests {
                 .edges_ordered_borrowed()
                 .into_iter()
                 .map(|(left, right, _attrs)| {
-                    (left.parse::<usize>().unwrap(), right.parse::<usize>().unwrap())
+                    (
+                        left.parse::<usize>().unwrap(),
+                        right.parse::<usize>().unwrap(),
+                    )
                 })
                 .collect()
         };
@@ -73425,7 +73428,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("PRUFERBORROW_AB ordered-edge-scan path100k rounds={rounds} (>1 = borrowed faster)");
+        println!(
+            "PRUFERBORROW_AB ordered-edge-scan path100k rounds={rounds} (>1 = borrowed faster)"
+        );
         report("BORROWED_vs_owned", &paired(true, false));
         report("NULL_borrowed_vs_borrowed", &paired(true, true));
     }
