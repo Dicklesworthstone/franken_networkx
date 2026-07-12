@@ -25652,22 +25652,31 @@ pub fn max_clique_approx(graph: &Graph) -> Vec<String> {
         .collect();
 
     while !candidates.is_empty() {
-        // Greedy: pick candidate with most neighbors in the candidate set
-        let chosen = candidates
-            .iter()
-            .max_by(|&a, &b| {
-                let deg_a = graph
-                    .neighbors(a)
-                    .map(|nbrs| nbrs.iter().filter(|&&n| candidates.contains(n)).count())
-                    .unwrap_or(0);
-                let deg_b = graph
-                    .neighbors(b)
-                    .map(|nbrs| nbrs.iter().filter(|&&n| candidates.contains(n)).count())
-                    .unwrap_or(0);
-                deg_a.cmp(&deg_b).then_with(|| a.cmp(b))
-            })
-            .cloned()
-            .unwrap();
+        // Greedy: pick candidate with most neighbors in the candidate set.
+        // br-r37-c1-mcapproxdeg (cc): precompute each candidate's degree-within-candidates ONCE per
+        // round instead of recomputing BOTH sides inside the max_by comparator — where each call did a
+        // fresh `neighbors()` Vec<&str> allocation and the running max's degree was recomputed on every
+        // one of the ~|candidates| comparisons. Uses `neighbors_iter` (no Vec alloc) and reads the
+        // precomputed value in the comparator. Byte-identical: the max_by key is the same (degree, name)
+        // total order, so it selects the same node (max degree, ties by max name). `deg` is scoped so it
+        // (which borrows `candidates`) drops before the `candidates` mutation below.
+        let chosen = {
+            let deg: HashMap<&str, usize> = candidates
+                .iter()
+                .map(|c| {
+                    let d = graph
+                        .neighbors_iter(c)
+                        .map(|it| it.filter(|&n| candidates.contains(n)).count())
+                        .unwrap_or(0);
+                    (c.as_str(), d)
+                })
+                .collect();
+            candidates
+                .iter()
+                .max_by(|&a, &b| deg[a.as_str()].cmp(&deg[b.as_str()]).then_with(|| a.cmp(b)))
+                .cloned()
+                .unwrap()
+        };
 
         candidates.remove(&chosen);
         clique.push(chosen.clone());
@@ -49818,6 +49827,138 @@ mod tests {
         println!("MISBUCKET_AB maximum_independent_set 4000-node interval rounds={rounds} (>1 = bucket faster)");
         report("BUCKET_vs_scan", &paired(true, false));
         report("NULL_bucket_vs_bucket", &paired(true, true));
+    }
+
+    /// br-r37-c1-mcapproxdeg: full-function paired-interleaved median A/B for `max_clique_approx` —
+    /// inline ORIGINAL (degree recomputed inside the max_by comparator, a fresh neighbors() Vec alloc
+    /// per comparison) vs the shipped `super::max_clique_approx` (precompute each candidate's degree once
+    /// per round via neighbors_iter, no per-comparison alloc). Dense-ish graph so a large candidate set
+    /// makes the ~|candidates| redundant recomputations/allocs the dominant cost. Output parity asserted
+    /// first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib max_clique_approx_deg_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn max_clique_approx_deg_ab() {
+        use std::collections::HashSet;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense-ish graph: high-degree start → large candidate set → many redundant comparator recomputes.
+        let n_nodes = 1200usize;
+        let mut g = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for step in 1..=60usize {
+                let _ = g.add_edge(i.to_string(), ((i + step) % n_nodes).to_string());
+            }
+        }
+
+        // Inline ORIGINAL max_clique_approx (comparator recomputes degrees, neighbors() Vec alloc).
+        let old_fn = |graph: &Graph| -> Vec<String> {
+            let nodes = graph.nodes_ordered();
+            if nodes.is_empty() {
+                return Vec::new();
+            }
+            let start = nodes
+                .iter()
+                .max_by_key(|&&node| graph.neighbor_count(node))
+                .unwrap()
+                .to_string();
+            let mut clique: Vec<String> = vec![start.clone()];
+            let mut candidates: HashSet<String> = graph
+                .neighbors(&start)
+                .unwrap_or_default()
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
+            while !candidates.is_empty() {
+                let chosen = candidates
+                    .iter()
+                    .max_by(|&a, &b| {
+                        let deg_a = graph
+                            .neighbors(a)
+                            .map(|nbrs| nbrs.iter().filter(|&&n| candidates.contains(n)).count())
+                            .unwrap_or(0);
+                        let deg_b = graph
+                            .neighbors(b)
+                            .map(|nbrs| nbrs.iter().filter(|&&n| candidates.contains(n)).count())
+                            .unwrap_or(0);
+                        deg_a.cmp(&deg_b).then_with(|| a.cmp(b))
+                    })
+                    .cloned()
+                    .unwrap();
+                candidates.remove(&chosen);
+                clique.push(chosen.clone());
+                if let Some(nbrs) = graph.neighbors(&chosen) {
+                    let nbr_set: HashSet<&str> = nbrs.into_iter().collect();
+                    candidates.retain(|c| nbr_set.contains(c.as_str()));
+                } else {
+                    candidates.clear();
+                }
+            }
+            clique.sort();
+            clique
+        };
+
+        assert_eq!(
+            old_fn(&g),
+            super::max_clique_approx(&g),
+            "precompute-degree max_clique_approx must be byte-identical to the comparator-recompute version"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if cand {
+                super::max_clique_approx(&g)
+            } else {
+                old_fn(&g)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "MCAPPROXDEG_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("MCAPPROXDEG_AB max_clique_approx 1200-node deg120 rounds={rounds} (>1 = precompute faster)");
+        report("PRECOMPUTE_vs_recompute", &paired(true, false));
+        report("NULL_precompute_vs_precompute", &paired(true, true));
     }
 
     /// br-r37-c1-ra004: paired-interleaved median A/B for the `neighbor_count`
