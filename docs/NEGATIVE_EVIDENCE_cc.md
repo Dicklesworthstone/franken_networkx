@@ -1,5 +1,22 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## REJECT + SWEEP (cc, 2026-07-12): `ego_graph` BFS below-null; neighbour-walk sub-family exhausted
+
+REJECT (br-r37-c1-egobfsidx, reverted): ego_graph's ego-set BFS (neighbors(nodes[v]) + idx.get) → neighbors_
+indices is byte-identical but DILUTED below-null by the O(E) edge loop after it (edges_ordered() materialises
+the full edge Vec + idx.get x2 per edge, dominant, identical in both arms). Full-radius ego on 10000-node
+circulant deg40: median 1.0402x, 42/61, p5_p95 [0.8715,1.2180] vs NULL [0.8417,1.1250] — candidate p5 (0.87)
+BELOW null p95 (1.13). RULE: a partial neighbour-walk swap needs the walk to be the DOMINANT cost; an
+edges_ordered()-materialising post-loop drowns it.
+
+SWEEP CONCLUSION: reached + deterministic + dominant-neighbour-walk residuals are MINED OUT for cc after the
+10 sub-family wins. Remaining candidates all dead-ends: label_propagation_communities DONE (the String loops
+at ~24117/24142 are the #[cfg(test)] _orig_string BASELINE — a pub-fn awk scan mis-attributes them; verify the
+enclosing fn isn't a test baseline); all_pairs_lowest_common_ancestor NON-DETERMINISTIC (equal-depth LCA choice
+depends on HashSet iteration); all_topological_sorts / simple_cycles order-sensitive+exponential;
+global_parameters DONE; ego_graph_directed / dfs_labeled_edges / spectral_bisection / random_spanning_tree* no
+pyo3 call (bypassed). See tests/artifacts/perf/20260712T-ego-graph-bfs-NEGATIVE-cc/.
+
 ## SHIPPED WIN (cc, 2026-07-12): `group_betweenness_centrality` n-source BFS integer swap **5.6718x** (br-r37-c1-gbcidx)
 
 Tenth "name-keyed → integer" win — a FLOAT-returning centrality still BIT-IDENTICAL. group_betweenness runs a
