@@ -1,5 +1,42 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## REJECT (cod, 2026-07-12): declined `closeness_centrality` per-source CSR fallback does not clear its null (br-r37-c1-yy0rp)
+
+NEGATIVE-LEDGER FIRST: the earlier `x0jz8` row left one explicit residual:
+when the bit-parallel gate declines `grid_1600`, production discards the
+borrowed integer rows, rebuilds a String-indexed reverse adjacency, and runs
+the per-source rayon BFS. That row proposed retaining a compact `u32` CSR for
+the otherwise-identical fallback; no prior keep or reject measured that exact
+full-function lever.
+
+ONE LEVER / EXACT PARITY: the trial built the existing order-preserving reverse
+CSR and changed only the declined closeness arm's per-source neighbor walk from
+String rows to CSR slices. A frozen String arm and the candidate asserted exact
+node order, every `f64::to_bits()` score, and `nodes_touched`, `edges_scanned`,
+and `queue_peak` witness counts before timing. No harmonic, ASPL, gate decision,
+or bit-parallel kernel was changed.
+
+STRICT-REMOTE MEDIAN GATE: release A/B on worker `vmi1167313`, 31 paired
+interleaved rounds over the canonical 40x40 `grid_1600` decline fixture:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| CSR / String rows | 1.1534x | 23/31 | 0.8082-2.2140 |
+| CSR / CSR null | 1.0852x | 19/31 | 0.7009-3.1453 |
+
+The apparent candidate lift is only about 6% beyond the skewed null median,
+and the candidate's entire tail overlaps the much wider null (candidate p5
+0.8082 versus null p95 3.1453). It therefore does not clear the same-binary
+noise floor and cannot justify a production change. A first release invocation
+on `vmi1149989` compiled but matched zero tests; it is VOID/INVALID and provides
+no timing evidence. Both invocations were fail-closed `RCH_REQUIRE_REMOTE=1`
+runs with no local fallback.
+
+RESULT: REJECT / NO SHIP. The production code and measurement harness were
+removed. Do not retry this exact `grid_1600` per-source CSR fallback without a
+measurement substrate whose CSR/CSR null is materially tighter; route instead
+to a different algorithmic stage or fixture with an effect above that floor.
+
 ## SHIPPED WIN (cod, 2026-07-12): `from_prufer_sequence` monotone leaf pointer **502.3567x** worst-case self-time (br-r37-c1-uxbg8)
 
 NEGATIVE-LEDGER FIRST: no prior row targeted the Rust decoder's repeated
