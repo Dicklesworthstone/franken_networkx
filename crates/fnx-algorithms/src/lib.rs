@@ -20863,6 +20863,14 @@ pub fn transitive_closure(digraph: &DiGraph, reflexive: Option<bool>) -> DiGraph
     // Python wrapper to delegate every cyclic graph to networkx. Discovery order
     // is recorded in `order` so the edge emission is deterministic (the result
     // edge SET is the contract; nx's exact edge_bfs order is not pinned).
+    // br-r37-c1-tcbatch (cc): collect every reachability edge (source, w) discovered
+    // across the per-source BFS (same source-major, discovery order) + one batch insert
+    // instead of per-edge add_edge (a policy record EACH — the closure is O(reachable-pairs),
+    // which for a chain-like DAG is |V|^2/2 >> |E|). The BFS reads only the input digraph; each
+    // (source, w) is emitted once (visited-set dedup), and extend_edges_unrecorded resolves
+    // indices + dedups on (s_idx, t_idx) + handles self-loops exactly as add_edge, in the
+    // identical order (all nodes pre-added → endpoints resolve) → byte-identical.
+    let mut edges: Vec<(&str, &str)> = Vec::new();
     for &source in &nodes {
         let mut visited: HashSet<&str> = HashSet::new();
         let mut order: Vec<&str> = Vec::new();
@@ -20893,9 +20901,10 @@ pub fn transitive_closure(digraph: &DiGraph, reflexive: Option<bool>) -> DiGraph
         }
 
         for &w in &order {
-            let _ = result.add_edge(source, w);
+            edges.push((source, w));
         }
     }
+    let _ = result.extend_edges_unrecorded(edges);
 
     result
 }
@@ -68310,6 +68319,131 @@ mod tests {
             );
         };
         println!("FULLJOIN_BATCH_AB C100_C100 rounds={rounds} (>1 = batch faster)");
+        report("BATCH_vs_string", &paired(true, false));
+        report("NULL_batch_vs_batch", &paired(true, true));
+    }
+
+    /// br-r37-c1-tcbatch: paired-interleaved median A/B for transitive_closure — inline per-edge
+    /// baseline vs the shipped batch, one binary / one worker with a NULL control. A 200-node chain
+    /// DAG has a closure of 200*199/2 = 19900 edges (>> |E|=199), so the per-edge policy record on
+    /// every reachability edge is the cost the batch removes; the BFS is identical in both arms.
+    /// Byte-identity asserted first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib transitive_closure_batch_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn transitive_closure_batch_ab() {
+        use std::collections::{HashSet, VecDeque};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let mut input = DiGraph::strict();
+        for i in 0..200 {
+            let _ = input.add_node(format!("{i}"));
+        }
+        for i in 0..199 {
+            input
+                .add_edge(format!("{i}"), format!("{}", i + 1))
+                .unwrap();
+        }
+
+        let build = |digraph: &DiGraph, batch: bool| -> DiGraph {
+            let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
+            let nodes = digraph.nodes_ordered();
+            for &node in &nodes {
+                let _ = result.add_node(node);
+            }
+            let mut edges: Vec<(&str, &str)> = Vec::new();
+            for &source in &nodes {
+                let mut visited: HashSet<&str> = HashSet::new();
+                let mut order: Vec<&str> = Vec::new();
+                let mut queue: VecDeque<&str> = VecDeque::new();
+                if let Some(succs) = digraph.successors_iter(source) {
+                    for s in succs {
+                        if visited.insert(s) {
+                            queue.push_back(s);
+                            order.push(s);
+                        }
+                    }
+                }
+                while let Some(current) = queue.pop_front() {
+                    if let Some(succs) = digraph.successors_iter(current) {
+                        for s in succs {
+                            if visited.insert(s) {
+                                queue.push_back(s);
+                                order.push(s);
+                            }
+                        }
+                    }
+                }
+                if batch {
+                    for &w in &order {
+                        edges.push((source, w));
+                    }
+                } else {
+                    for &w in &order {
+                        let _ = result.add_edge(source, w);
+                    }
+                }
+            }
+            if batch {
+                let _ = result.extend_edges_unrecorded(edges);
+            }
+            result
+        };
+
+        let old = build(&input, false);
+        let new = build(&input, true);
+        assert_eq!(
+            old.edges_ordered_borrowed(),
+            new.edges_ordered_borrowed(),
+            "batch transitive_closure must equal the per-edge baseline"
+        );
+        assert_eq!(old.nodes_ordered(), new.nodes_ordered());
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            black_box(build(&input, batch));
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "TC_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("TC_BATCH_AB chain200 rounds={rounds} (>1 = batch faster)");
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
     }

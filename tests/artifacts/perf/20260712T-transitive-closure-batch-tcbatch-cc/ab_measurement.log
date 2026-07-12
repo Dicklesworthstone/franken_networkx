@@ -1,0 +1,19 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib transitive_closure_batch_ab -- --ignored --nocapture
+
+TC_BATCH_AB chain200 rounds=61 (>1 = batch faster)
+TC_BATCH_AB BATCH_vs_string: median=8.5110x win_rate=61/61 p5_p95=[7.1965,10.4999]
+TC_BATCH_AB NULL_batch_vs_batch: median=1.0028x win_rate=33/61 p5_p95=[0.9245,1.1561]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 983 filtered out; finished in 2.63s
+
+Marker TC_BATCH_AB + test name confirmed (fresh binary). Parity assert
+(edges_ordered_borrowed + nodes_ordered) passed before timing (test result: ok).
+
+$ cargo test --release -p fnx-algorithms --lib transitive_closure -- --nocapture
+test tests::transitive_closure_preserves_hardened_mode ... ok
+test tests::transitive_closure_empty ... ok
+test tests::transitive_closure_chain ... ok
+test result: ok. 3 passed; 0 failed; 1 ignored; ...
+
+$ cargo clippy --release -p fnx-algorithms --lib --tests -- -D warnings
+--> NONE of my lines flagged (production ~20866-20920 / test ~68326-68450)
+--> 12 pre-existing peer -D warnings errors (untouched, shared checkout)

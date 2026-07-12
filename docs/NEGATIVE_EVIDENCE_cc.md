@@ -1,5 +1,21 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `transitive_closure` reachability-edge batch-insert **8.5110x** (br-r37-c1-tcbatch)
+
+Eighteenth result-builder batch win. transitive_closure(digraph,reflexive) BFSes each source's reachable set
+(discovery order) and adds (source,w) per reachable w via per-edge add_edge; closure = O(reachable-pairs),
+|V|²/2 >> |E| for a chain-like DAG. Collect every (source,w) (source-major, same discovery order) into one
+Vec<(&str,&str)> + one DiGraph::extend_edges_unrecorded. Only the edge DESTINATION changed — BFS, `order`,
+cyclic self-loop rediscovery (br-r37-c1-tc-cyclic), reflexive self-loop push all UNCHANGED. Each (source,w)
+emitted once; extend resolves indices + dedups on (s_idx,t_idx) + self-loops exactly as add_edge, same order,
+nodes pre-added → byte-identical by construction (cyclic/reflexive share the preserved loop).
+
+MEASURED — chain DAG 0→…→199 (closure 19900 edges), 61 rounds: **BATCH_vs_string median 8.5110x**, 61/61,
+p5_p95 [7.1965,10.4999] vs NULL 1.0028x [0.9245,1.1561]. DECISIVE: candidate p5 (7.20) ~6.2x above null p95
+(1.16). Suite tests transitive_closure_{empty,chain,preserves_hardened_mode} green; parity assert passed.
+Reachable via transitive_closure pyo3 (allow_threads). CLIPPY: my lines clean (production ~20866-20920 / test
+~68326-68450); crate's 12 pre-existing peer errors untouched. See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `full_join` cross-edge batch-insert **8.6553x** (br-r37-c1-fulljoinbatch)
 
 Seventeenth result-builder batch win. full_join(g1,g2) = the graph join: copy both operands' nodes+edges,
