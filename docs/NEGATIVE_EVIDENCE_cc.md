@@ -1,5 +1,20 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `lollipop_graph` INDEX-pair edge batch-insert **21.2793x** (br-r37-c1-lollipopbatch)
+
+Twenty-eighth result-builder batch win; 8th in the gen_edge index-batch seam. lollipop_graph(m,n) = K_m
+clique + n-node path stick, m+n nodes named "0".."m+n-1" via gen_nodes. Three gen_edge phases (clique,
+connector, path), all source<target. Collect all (i,j) INDEX pairs + one
+extend_existing_index_edges_unrecorded → drops both to_string allocs + name hashes + policy record. Clique
+dominates → dense-few-node.
+
+MEASURED — L(250,5) (255 nodes, ~31130 edges), 61 rounds: **BATCH_vs_string median 21.2793x**, 61/61, p5_p95
+[15.7382,29.2944] vs NULL 1.0018x [0.8198,1.1989]. DECISIVE: candidate p5 (15.74) ~13x above null p95.
+Byte-identical: every edge source<target (clique i<j, connector m-1<m, path i<i+1) so unique; helper
+canonicalizes by node NAME + pushes adj in given order, nodes pre-added. test_lollipop_graph green; parity
+assert passed. Reachable via lollipop_graph pyo3. CLIPPY: my lines clean (production ~33806-33825 / test
+~69504-69607); crate's 12 pre-existing peer errors untouched. See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `paley_graph` INDEX-pair edge batch-insert **26.4733x** (br-r37-c1-paleybatch)
 
 Twenty-seventh result-builder batch win; 7th in the gen_edge index-batch seam. paley_graph(q) = Paley graph:
