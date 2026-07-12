@@ -1,5 +1,23 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `moral_graph` (DAG moralization) batch-insert **9.8030x** (br-r37-c1-moralbatch)
+
+Fifteenth fnx-algorithms result-builder batch — and the BIGGEST. moral_graph(digraph) builds the undirected
+moral graph: (1) every directed edge → undirected, then (2) for each node, connect every pair of its
+predecessors (co-parents). Phase 2 emits `sum(indeg choose 2)` add_edge calls, MOST of them DUPLICATES
+(different children share parent pairs) — each dup still paid a per-edge policy record. Collect all edges
+(same phase-1-then-phase-2 order) + one Graph::extend_edges_unrecorded (dedups keeping first, exactly as
+add_edge on a simple Graph; handles self-loops) → byte-identical. Loop reads only the input digraph.
+
+MEASURED — bipartite DAG (60 parents → 60 children; phase-2 emits ~106k co-parent add_edges deduping to
+1770), 61 rounds: **BATCH_vs_string median 9.8030x**, win_rate 61/61, p5_p95 [7.9960, 11.8068] vs NULL
+0.9878x [0.8043, 1.1220]. DECISIVE: candidate p5 (8.00) ~7x above the null p95 (1.12), 61/61 won. Parity
+assert (edges_ordered_borrowed + nodes_ordered) passed before timing; marker confirmed (fresh binary).
+CLIPPY: MY CODE CLEAN (0 findings in ranges 40681-40705 / 68060-68180, grep-verified); crate's 12
+pre-existing peer errors untouched. This is the far-end of the "output ≈ |E|" rule: not just output ≈ |E|
+but output << (add_edge call count) — the dup-heavy builder is exactly where per-edge policy records pile
+up. See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `power` (k-th graph power) batch-insert **1.9768x** (br-r37-c1-powerbatch)
 
 Fourteenth fnx-algorithms result-builder batch. power(graph,k) = BFS from each source up to distance k,
