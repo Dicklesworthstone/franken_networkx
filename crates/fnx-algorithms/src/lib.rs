@@ -22521,16 +22521,27 @@ pub fn is_empty_directed(digraph: &DiGraph) -> bool {
 /// Matches `networkx.non_neighbors(G, v)`.
 #[must_use]
 pub fn non_neighbors(graph: &Graph, node: &str) -> Vec<String> {
-    let nbrs: HashSet<&str> = graph
-        .neighbors(node)
-        .unwrap_or_default()
-        .into_iter()
-        .collect();
-    let mut result: Vec<String> = graph
-        .nodes_ordered()
-        .into_iter()
-        .filter(|&n| n != node && !nbrs.contains(n))
-        .map(str::to_owned)
+    // br-r37-c1-nonnbrint (cc): mark the node's neighbours in a bool row (via neighbors_indices,
+    // zero-alloc) and filter with an O(1) array read, instead of building a `HashSet<&str>` of neighbour
+    // names (a String hash per neighbour) and probing it (a String hash per node). Byte-identical: the
+    // kept set is the same non-neighbours (excluding self), and `result.sort_unstable()` canonicalises
+    // the order so the collection order is irrelevant. The absent-node case is preserved: `node_idx =
+    // None` means the self-exclusion `Some(i) != None` is always true and no neighbour is marked, so —
+    // like the old empty-`nbrs` path — every node is returned.
+    let node_idx = graph.get_node_index(node);
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let mut is_nbr = vec![false; n];
+    if let Some(ni) = node_idx
+        && let Some(nbrs) = graph.neighbors_indices(ni)
+    {
+        for &nb in nbrs {
+            is_nbr[nb] = true;
+        }
+    }
+    let mut result: Vec<String> = (0..n)
+        .filter(|&i| Some(i) != node_idx && !is_nbr[i])
+        .map(|i| nodes[i].to_owned())
         .collect();
     result.sort_unstable();
     result
@@ -72321,6 +72332,126 @@ mod tests {
         };
         println!("COMPEDGEDIR_IDX_AB dircirc2000_d1200 rounds={rounds} (>1 = boolrow faster)");
         report("BOOLROW_vs_hasedge", &paired(true, false));
+        report("NULL_boolrow_vs_boolrow", &paired(true, true));
+    }
+
+    /// br-r37-c1-nonnbrint: paired-interleaved median A/B for non_neighbors — inline ORIGINAL
+    /// HashSet<&str> build + probe vs the shipped bool-row (neighbors_indices, O(1) array). Timed on a
+    /// dense hub (node 0 with ~48000 neighbours → the HashSet build + O(V) probe dominate the small
+    /// sort). Parity asserted across dense/sparse/absent nodes first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib non_neighbors_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn non_neighbors_idx_ab() {
+        use std::collections::HashSet;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n_nodes = 50000usize;
+        let mut graph = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = graph.add_node(i.to_string());
+        }
+        for j in 1..48000usize {
+            let _ = graph.add_edge("0", j.to_string());
+        }
+        for i in 48000..n_nodes {
+            let _ = graph.add_edge(i.to_string(), ((i + 1) % n_nodes).to_string());
+        }
+
+        let old_fn = |graph: &Graph, node: &str| -> Vec<String> {
+            let nbrs: HashSet<&str> = graph
+                .neighbors(node)
+                .unwrap_or_default()
+                .into_iter()
+                .collect();
+            let mut result: Vec<String> = graph
+                .nodes_ordered()
+                .into_iter()
+                .filter(|&n| n != node && !nbrs.contains(n))
+                .map(str::to_owned)
+                .collect();
+            result.sort_unstable();
+            result
+        };
+        let new_fn = |graph: &Graph, node: &str| -> Vec<String> {
+            let node_idx = graph.get_node_index(node);
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            let mut is_nbr = vec![false; n];
+            if let Some(ni) = node_idx
+                && let Some(nbrs) = graph.neighbors_indices(ni)
+            {
+                for &nb in nbrs {
+                    is_nbr[nb] = true;
+                }
+            }
+            let mut result: Vec<String> = (0..n)
+                .filter(|&i| Some(i) != node_idx && !is_nbr[i])
+                .map(|i| nodes[i].to_owned())
+                .collect();
+            result.sort_unstable();
+            result
+        };
+
+        for node in ["0", "49000", "999999"] {
+            assert_eq!(
+                old_fn(&graph, node),
+                new_fn(&graph, node),
+                "non_neighbors parity for node {node}"
+            );
+        }
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if batch {
+                new_fn(&graph, "0")
+            } else {
+                old_fn(&graph, "0")
+            };
+            black_box(r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "NONNBR_IDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("NONNBR_IDX_AB hub50k rounds={rounds} (>1 = boolrow faster)");
+        report("BOOLROW_vs_hashset", &paired(true, false));
         report("NULL_boolrow_vs_boolrow", &paired(true, true));
     }
 
