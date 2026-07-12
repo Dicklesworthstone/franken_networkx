@@ -1,5 +1,25 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `grid_2d_graph` node + INDEX-pair edge batch-insert **12.7913x** (br-r37-c1-grid2dbatch)
+
+Thirty-second result-builder batch win. grid_2d_graph(m,n): m·n nodes labeled "r,c", each → right "r,c+1" +
+down "r+1,c". Builds STRING labels via format! (not gen_nodes/gen_edge), and the edge loop recomputes node +
+right/down labels PER EDGE (~2mn format! allocs). KEY INSIGHT: nodes are added r-major so node "r,c" lands at
+index r·n+c → the edges can use the INDEX batch DESPITE string labels: collect (i,j)=(r·n+c, +1 or +n) INDEX
+pairs + extend_existing_index_edges_unrecorded, which needs NO labels → eliminates the entire ~2mn per-edge
+format! storm + name hashes + policy. Node build → one extend_nodes_unrecorded over the format! labels. This
+is why grid_2d hits 12.79x vs grid_graph's label-batch 2.73x (drops the edge LABELS, not just policy).
+
+MEASURED — grid_2d(200,200) (40000 nodes, ~79600 edges), 61 rounds: **BATCH_vs_string median 12.7913x**,
+61/61, p5_p95 [10.1479,16.3163] vs NULL 0.9779x [0.7682,1.2189]. DECISIVE: candidate p5 (10.15) ~8.3x above
+null p95. Byte-identical: every edge source<target (right +1, down +n), extend_nodes preserves r·n+c index→
+name map, helper canonicalizes by node NAME + pushes adj right-then-down. test_grid_2d_graph green; parity
+assert passed. Reachable via grid_2d_graph pyo3. NEW LEVER: a string-labeled builder can still use the 12x
+index-batch when node indices are computable from loop vars. FOLLOW-UP: grid_graph (n-dim) labels are also
+index-computable → upgrade its 2.73x String-pair batch to index-batch. CLIPPY: my lines clean (production
+~34010-34035 / test ~69940-70050); crate's 12 pre-existing peer errors untouched. See
+[[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `gen_nodes` bulk node-insert (shared helper) **5.4874x** (br-r37-c1-gennodesbatch)
 
 Thirty-first result-builder batch win — FIRST on the NODE-build side, and speeds up the WHOLE classic-
