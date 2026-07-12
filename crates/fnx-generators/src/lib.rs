@@ -1686,11 +1686,7 @@ impl GraphGenerator {
         let mut edges: Vec<(usize, usize)> = Vec::with_capacity(3 * n);
         let mut seen: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
         for i in 0..n {
-            for &(u, v) in &[
-                (i, (i + 1) % n),
-                (i, n + i),
-                (n + i, n + ((i + k) % n)),
-            ] {
+            for &(u, v) in &[(i, (i + 1) % n), (i, n + i), (n + i, n + ((i + k) % n))] {
                 let key = if u <= v { (u, v) } else { (v, u) };
                 if seen.insert(key) {
                     edges.push((u, v));
@@ -2534,16 +2530,15 @@ impl GraphGenerator {
             let mut edges: Vec<(usize, usize)> = Vec::new();
             let mut seen: std::collections::HashSet<(usize, usize)> =
                 std::collections::HashSet::new();
-            let push =
-                |edges: &mut Vec<(usize, usize)>,
-                 seen: &mut std::collections::HashSet<(usize, usize)>,
-                 u: usize,
-                 v: usize| {
-                    let key = if u <= v { (u, v) } else { (v, u) };
-                    if seen.insert(key) {
-                        edges.push((u, v));
-                    }
-                };
+            let push = |edges: &mut Vec<(usize, usize)>,
+                        seen: &mut std::collections::HashSet<(usize, usize)>,
+                        u: usize,
+                        v: usize| {
+                let key = if u <= v { (u, v) } else { (v, u) };
+                if seen.insert(key) {
+                    edges.push((u, v));
+                }
+            };
             for row_no in 0..n2 {
                 let row_start = row_no * n2;
                 for j in 1..n2 {
@@ -5212,7 +5207,11 @@ impl GraphGenerator {
                 "random_uniform_k_out_digraph",
             )?;
             for sampled_index in sample {
-                edges.push((source, candidate_targets[sampled_index], fnx_classes::AttrMap::new()));
+                edges.push((
+                    source,
+                    candidate_targets[sampled_index],
+                    fnx_classes::AttrMap::new(),
+                ));
             }
         }
         let _ = graph.extend_existing_index_edges_with_attrs_unrecorded(edges);
@@ -6985,7 +6984,8 @@ mod tests {
                     for right in (left + 1)..n {
                         let draw: f64 = rng.random();
                         if draw < p {
-                            let _ = g.add_edge(node_labels[left].clone(), node_labels[right].clone());
+                            let _ =
+                                g.add_edge(node_labels[left].clone(), node_labels[right].clone());
                         }
                     }
                 }
@@ -7233,7 +7233,10 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("CMP_BATCH_AB n={n} edges={} rounds={rounds} (>1 = batch faster)", pairs.len());
+        println!(
+            "CMP_BATCH_AB n={n} edges={} rounds={rounds} (>1 = batch faster)",
+            pairs.len()
+        );
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
     }
@@ -7271,7 +7274,8 @@ mod tests {
                 for rp in (lp + 1)..partitions.len() {
                     for left in partitions[lp].clone() {
                         for right in partitions[rp].clone() {
-                            let _ = g.add_edge(node_labels[left].clone(), node_labels[right].clone());
+                            let _ =
+                                g.add_edge(node_labels[left].clone(), node_labels[right].clone());
                         }
                     }
                 }
@@ -7383,7 +7387,10 @@ mod tests {
                     }
                 }
                 let next_start = ((clique + 1) * clique_size) % total_nodes;
-                let _ = g.add_edge(node_labels[start + 1].clone(), node_labels[next_start].clone());
+                let _ = g.add_edge(
+                    node_labels[start + 1].clone(),
+                    node_labels[next_start].clone(),
+                );
             }
             g
         };
@@ -7461,7 +7468,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("ROC_BATCH_AB cliques={num_cliques} size={clique_size} rounds={rounds} (>1 = batch faster)");
+        println!(
+            "ROC_BATCH_AB cliques={num_cliques} size={clique_size} rounds={rounds} (>1 = batch faster)"
+        );
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
     }
@@ -8258,7 +8267,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("HYPERCUBE_BATCH_AB dim={dim} node_count={node_count} rounds={rounds} (>1 = batch faster)");
+        println!(
+            "HYPERCUBE_BATCH_AB dim={dim} node_count={node_count} rounds={rounds} (>1 = batch faster)"
+        );
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
     }
@@ -8425,7 +8436,11 @@ mod tests {
                 gb.edges_ordered_borrowed(),
                 "batch-by-index binomial_tree(order={order}) must equal the per-edge baseline"
             );
-            assert_eq!(gs.nodes_ordered(), gb.nodes_ordered(), "nodes order={order}");
+            assert_eq!(
+                gs.nodes_ordered(),
+                gb.nodes_ordered(),
+                "nodes order={order}"
+            );
         }
 
         // binomial_tree(16): 65536 nodes, 65535 edges.
@@ -8638,7 +8653,8 @@ mod tests {
 
         let collect_pairs = |n: usize, offsets: &[isize]| -> Vec<(usize, usize)> {
             let mut edges: Vec<(usize, usize)> = Vec::new();
-            let mut seen: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+            let mut seen: std::collections::HashSet<(usize, usize)> =
+                std::collections::HashSet::new();
             if n > 0 {
                 let n_i128 = n as i128;
                 for node in 0..n {
@@ -8678,7 +8694,8 @@ mod tests {
                     for &offset in offsets {
                         let offset_i128 = offset as i128;
                         let backward = (node_i128 - offset_i128).rem_euclid(n_i128) as usize;
-                        let _ = g.add_edge(node_labels[node].clone(), node_labels[backward].clone());
+                        let _ =
+                            g.add_edge(node_labels[node].clone(), node_labels[backward].clone());
                         let forward = (node_i128 + offset_i128).rem_euclid(n_i128) as usize;
                         let _ = g.add_edge(node_labels[node].clone(), node_labels[forward].clone());
                     }
@@ -8694,12 +8711,12 @@ mod tests {
 
         // Byte-identity across configs INCLUDING the risky ones (construction only, no timing).
         let configs: [(usize, &[isize]); 6] = [
-            (100, &[1, 2, 3]),          // normal — forward/backward duplicate
-            (100, &[50]),               // offset == n/2 → forward == backward
-            (7, &[0]),                  // offset 0 → self-loops
-            (7, &[0, 2]),               // self-loops + normal
-            (5, &[2]),                  // small
-            (10000, &[1, 2, 3, 4, 5]),  // timing config
+            (100, &[1, 2, 3]),         // normal — forward/backward duplicate
+            (100, &[50]),              // offset == n/2 → forward == backward
+            (7, &[0]),                 // offset 0 → self-loops
+            (7, &[0, 2]),              // self-loops + normal
+            (5, &[2]),                 // small
+            (10000, &[1, 2, 3, 4, 5]), // timing config
         ];
         for &(n, offsets) in &configs {
             let gs = build_string(n, offsets);
@@ -8766,7 +8783,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("CIRCULANT_BATCH_AB n={n} offsets={offsets:?} rounds={rounds} (>1 = batch faster)");
+        println!(
+            "CIRCULANT_BATCH_AB n={n} offsets={offsets:?} rounds={rounds} (>1 = batch faster)"
+        );
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
     }
@@ -8785,7 +8804,8 @@ mod tests {
 
         let collect_pairs = |n: usize, k: usize| -> Vec<(usize, usize)> {
             let mut edges: Vec<(usize, usize)> = Vec::with_capacity(3 * n);
-            let mut seen: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+            let mut seen: std::collections::HashSet<(usize, usize)> =
+                std::collections::HashSet::new();
             for i in 0..n {
                 for &(u, v) in &[(i, (i + 1) % n), (i, n + i), (n + i, n + ((i + k) % n))] {
                     let key = if u <= v { (u, v) } else { (v, u) };
@@ -8904,7 +8924,8 @@ mod tests {
             let offset = degree_floor / 2;
             let half = n / 2;
             let mut edges: Vec<(usize, usize)> = Vec::new();
-            let mut seen: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+            let mut seen: std::collections::HashSet<(usize, usize)> =
+                std::collections::HashSet::new();
             let push = |edges: &mut Vec<(usize, usize)>,
                         seen: &mut std::collections::HashSet<(usize, usize)>,
                         u: usize,
@@ -9094,8 +9115,8 @@ mod tests {
         let configs: [(&[usize], &[bool]); 6] = [
             (&[3, 4], &[false, false]),
             (&[3, 4], &[true, true]),
-            (&[2, 4], &[true, true]),        // size-2 axis → wrap guarded
-            (&[1, 4], &[true, false]),       // size-1 periodic axis → self-loops
+            (&[2, 4], &[true, true]),  // size-2 axis → wrap guarded
+            (&[1, 4], &[true, false]), // size-1 periodic axis → self-loops
             (&[3, 3, 3], &[true, true, true]),
             (&[100, 100, 10], &[false, false, false]), // timing config
         ];
@@ -9178,7 +9199,8 @@ mod tests {
             let n3 = n2 * n;
             let n4 = n3 * n;
             let mut edges: Vec<(usize, usize)> = Vec::new();
-            let mut seen: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+            let mut seen: std::collections::HashSet<(usize, usize)> =
+                std::collections::HashSet::new();
             let push = |edges: &mut Vec<(usize, usize)>,
                         seen: &mut std::collections::HashSet<(usize, usize)>,
                         u: usize,
@@ -9252,7 +9274,11 @@ mod tests {
                 gb.edges_ordered_borrowed(),
                 "seen-set batch sudoku(n={n}) must equal the per-edge baseline"
             );
-            assert_eq!(gs.nodes_ordered(), gb.nodes_ordered(), "nodes sudoku(n={n})");
+            assert_eq!(
+                gs.nodes_ordered(),
+                gb.nodes_ordered(),
+                "nodes sudoku(n={n})"
+            );
         }
 
         // sudoku(9): 6561 nodes, ~735k edges.
@@ -9340,7 +9366,8 @@ mod tests {
         let build_batch = |n: usize, m: usize, seed: u64| {
             let (mut g, _labels) = super::digraph_with_n_nodes(CompatibilityMode::Strict, n);
             let mut rng = super::PythonRandom::new(seed);
-            let mut seen: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+            let mut seen: std::collections::HashSet<(usize, usize)> =
+                std::collections::HashSet::new();
             let mut edges: Vec<(usize, usize, fnx_classes::AttrMap)> = Vec::with_capacity(m);
             let mut edge_count = 0usize;
             while edge_count < m {

@@ -24848,7 +24848,10 @@ pub fn maximum_independent_set(graph: &Graph) -> Vec<String> {
         }
     }
 
-    let mut result: Vec<String> = independent_set.iter().map(|&i| nodes[i].to_owned()).collect();
+    let mut result: Vec<String> = independent_set
+        .iter()
+        .map(|&i| nodes[i].to_owned())
+        .collect();
     result.sort();
     result
 }
@@ -50782,7 +50785,9 @@ mod tests {
                 if lever {
                     black_box(super::node_degree_xy_directed(&g, "both", "both"));
                 } else {
-                    black_box(super::node_degree_xy_directed_orig_alloc(&g, "both", "both"));
+                    black_box(super::node_degree_xy_directed_orig_alloc(
+                        &g, "both", "both",
+                    ));
                 }
             }
             t0.elapsed().as_secs_f64()
@@ -51858,7 +51863,9 @@ mod tests {
 
         let time = |lever: bool| -> f64 {
             let t0 = Instant::now();
-            black_box(super::greedy_modularity_communities_impl(&g, 1.0, "", lever));
+            black_box(super::greedy_modularity_communities_impl(
+                &g, 1.0, "", lever,
+            ));
             t0.elapsed().as_secs_f64()
         };
         for _ in 0..3 {
@@ -66655,12 +66662,14 @@ mod tests {
             }
             for gn in &g_nodes {
                 for edge in h.edges_ordered() {
-                    let _ = result.add_edge(pair_label(gn, &edge.left), pair_label(gn, &edge.right));
+                    let _ =
+                        result.add_edge(pair_label(gn, &edge.left), pair_label(gn, &edge.right));
                 }
             }
             for hn in &h_nodes {
                 for edge in g.edges_ordered() {
-                    let _ = result.add_edge(pair_label(&edge.left, hn), pair_label(&edge.right, hn));
+                    let _ =
+                        result.add_edge(pair_label(&edge.left, hn), pair_label(&edge.right, hn));
                 }
             }
             result
@@ -66767,12 +66776,14 @@ mod tests {
             }
             for gn in &g_nodes {
                 for edge in h.edges_ordered() {
-                    let _ = result.add_edge(pair_label(gn, &edge.left), pair_label(gn, &edge.right));
+                    let _ =
+                        result.add_edge(pair_label(gn, &edge.left), pair_label(gn, &edge.right));
                 }
             }
             for hn in &h_nodes {
                 for edge in g.edges_ordered() {
-                    let _ = result.add_edge(pair_label(&edge.left, hn), pair_label(&edge.right, hn));
+                    let _ =
+                        result.add_edge(pair_label(&edge.left, hn), pair_label(&edge.right, hn));
                 }
             }
             result
