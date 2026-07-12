@@ -1,0 +1,31 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib gen_nodes_batch_ab -- --ignored --nocapture
+
+GENNODES_BATCH_AB n100000 rounds=61 (>1 = batch faster)
+GENNODES_BATCH_AB BATCH_vs_string: median=5.4874x win_rate=61/61 p5_p95=[4.2614,6.5388]
+GENNODES_BATCH_AB NULL_batch_vs_batch: median=0.9944x win_rate=29/61 p5_p95=[0.8424,1.2106]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 996 filtered out; finished in 7.39s
+
+Marker GENNODES_BATCH_AB + test name confirmed (fresh binary). Parity assert
+(nodes_ordered + node_count) on 100000 nodes passed before timing.
+
+$ cargo test --release -p fnx-algorithms --lib -- <15 generator tests>
+test tests::test_circulant_graph ... ok
+test tests::test_barbell_graph ... ok
+test tests::test_complete_multipartite_graph ... ok
+test tests::test_hypercube_graph ... ok
+test tests::test_lollipop_graph ... ok
+test tests::test_turan_graph ... ok
+test tests::test_wheel_graph ... ok
+test tests::test_paley_graph_5 ... ok
+test tests::test_windmill_graph ... ok
+test tests::test_kneser_graph_petersen ... ok
+test tests::test_complete_bipartite_graph ... ok
+test tests::test_ladder_graph ... ok
+test tests::test_petersen_graph ... ok
+test tests::test_balanced_tree ... ok
+test tests::test_grid_2d_graph ... ok
+test result: ok. 15 passed; 0 failed; ...
+
+$ cargo clippy --release -p fnx-algorithms --lib --tests -- -D warnings
+--> NONE of my lines flagged (production ~33064-33072 / test ~69854-69934)
+--> 12 pre-existing peer -D warnings errors (untouched, shared checkout)

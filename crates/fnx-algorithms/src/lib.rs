@@ -33061,9 +33061,13 @@ pub fn ring_of_cliques(num_cliques: usize, clique_size: usize) -> Result<Graph, 
 // ===========================================================================
 
 fn gen_nodes(g: &mut Graph, n: usize) {
-    for i in 0..n {
-        g.add_node(i.to_string().as_str());
-    }
+    // br-r37-c1-gennodesbatch (cc): one bulk node insert instead of n per-node add_node (each pays a
+    // record_decision policy entry + a redundant contains_key). The nodes "0".."n-1" are distinct and
+    // fresh, so extend_nodes_unrecorded inserts them in the identical order with the same empty-AttrMap
+    // + adj_indices push as add_node → byte-identical graph structure (only the internal policy ledger
+    // differs, deliberately unrecorded — the same tradeoff as the shipped edge batches). This helper is
+    // shared by the whole classic-generator family, so every gen_nodes caller gets the faster build.
+    let _ = g.extend_nodes_unrecorded((0..n).map(|i| i.to_string()));
 }
 
 fn gen_edge(g: &mut Graph, u: usize, v: usize) {
@@ -69843,6 +69847,89 @@ mod tests {
             );
         };
         println!("CIRCULANT_BATCH_AB C1000_sym50 rounds={rounds} (>1 = batch faster)");
+        report("BATCH_vs_string", &paired(true, false));
+        report("NULL_batch_vs_batch", &paired(true, true));
+    }
+
+    /// br-r37-c1-gennodesbatch: paired-interleaved median A/B for gen_nodes — inline per-node add_node
+    /// baseline vs the shipped bulk extend_nodes_unrecorded, one binary / one worker with a NULL control.
+    /// 100000 nodes isolates the node-build: the per-node record_decision policy entry (n → 1) is the
+    /// cost the batch removes. gen_nodes is shared by the whole classic-generator family, so this speeds
+    /// every generator's node-build. Parity asserted first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib gen_nodes_batch_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn gen_nodes_batch_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 100_000usize;
+
+        let build = |n: usize, batch: bool| -> Graph {
+            let mut g = Graph::strict();
+            if batch {
+                let _ = g.extend_nodes_unrecorded((0..n).map(|i| i.to_string()));
+            } else {
+                for i in 0..n {
+                    g.add_node(i.to_string().as_str());
+                }
+            }
+            g
+        };
+
+        let old = build(n, false);
+        let new = build(n, true);
+        assert_eq!(
+            old.nodes_ordered(),
+            new.nodes_ordered(),
+            "batch gen_nodes must equal the per-node baseline"
+        );
+        assert_eq!(old.node_count(), new.node_count());
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            black_box(build(n, batch));
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "GENNODES_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("GENNODES_BATCH_AB n100000 rounds={rounds} (>1 = batch faster)");
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
     }

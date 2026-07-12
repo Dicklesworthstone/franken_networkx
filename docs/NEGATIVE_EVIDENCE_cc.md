@@ -1,5 +1,21 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `gen_nodes` bulk node-insert (shared helper) **5.4874x** (br-r37-c1-gennodesbatch)
+
+Thirty-first result-builder batch win — FIRST on the NODE-build side, and speeds up the WHOLE classic-
+generator family (one shared-helper change). gen_nodes(g,n) adds "0".."n-1" via per-node add_node (each pays a
+record_decision policy entry + redundant contains_key + name clone). Replaced with one
+Graph::extend_nodes_unrecorded((0..n).map(|i| i.to_string())). Byte-identical: distinct fresh nodes inserted
+in identical order with same empty-AttrMap + adj_indices push → same nodes IndexMap + adjacency + index→name
+mapping; only the internal policy ledger differs (deliberate unrecorded tradeoff, same as the 30 edge batches).
+
+MEASURED — node-build isolation, 100000 nodes, 61 rounds: **BATCH_vs_string median 5.4874x**, 61/61, p5_p95
+[4.2614,6.5388] vs NULL 0.9944x [0.8424,1.2106]. DECISIVE: candidate p5 (4.26) ~3.5x above null p95. 15
+generator suite tests pass unchanged (complete_bi/multipartite, turan, hypercube, paley, lollipop, barbell,
+circulant, windmill, wheel, ladder, balanced_tree, petersen, kneser, grid_2d); parity assert passed. CLIPPY:
+my lines clean (production ~33064-33072 / test ~69854-69934); crate's 12 pre-existing peer errors untouched.
+See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `circulant_graph` INDEX-pair edge batch-insert **19.1947x** (br-r37-c1-circulantbatch)
 
 Thirtieth result-builder batch win; 10th in the gen_edge index-batch seam — FIRST that exercises the DEDUP
