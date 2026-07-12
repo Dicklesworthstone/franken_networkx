@@ -1,5 +1,22 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `group_betweenness_centrality` n-source BFS integer swap **5.6718x** (br-r37-c1-gbcidx)
+
+Tenth "name-keyed → integer" win — a FLOAT-returning centrality still BIT-IDENTICAL. group_betweenness runs a
+BFS from every non-group source (O(n·(V+E))) counting sigma/sigma_no_c (shortest-path multiplicities), then
+gbc_sum. Each BFS iterated neighbours by name: neighbors(nodes[v]) (Vec<&str> alloc) + idx.get(nb) (re-hash).
+Walk neighbors_indices(v). ULP-IDENTICAL: dist/sigma/sigma_no_c are ORDER-INDEPENDENT INTEGER quantities
+(integer sums over predecessors), and gbc_sum sums integer ratios in the FIXED t=0..n order — neighbour order
+never touches the float accumulation.
+
+MEASURED — 1000-node circulant (deg 10), 3-node group (~997 source BFS, the dominant cost — no post-processing
+dilution), 61 rounds: **INT_vs_string median 5.6718x**, 61/61, p5_p95 [4.2481,6.9939] vs NULL 1.0112x
+[0.8471,1.1845]. DECISIVE: candidate p5 (4.25) ~3.6x above null p95. ULP parity (to_bits) asserted;
+test_group_betweenness_centrality_center (value check) green. Reachable via group_betweenness_centrality pyo3.
+LESSON: a float output doesn't block conversion when the order-sensitive intermediates are INTEGER counts/
+distances and the float reduction runs in a fixed index order. CLIPPY: my lines clean (production
+~42365-42383 / test ~71728-71872); crate's 12 pre-existing peer errors untouched. See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `generic_bfs_edges` neighbour-iteration integer swap **2.4201x** (br-r37-c1-gbfsidx)
 
 Ninth "name-keyed → integer" win — an ORDERED-OUTPUT traversal that's still safe to convert because it SORTS

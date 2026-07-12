@@ -1,0 +1,194 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index 09740dfbe..80aa3231d 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -42362,20 +42362,22 @@ pub fn group_betweenness_centrality(graph: &Graph, group: &[&str]) -> f64 {
+         let mut queue = std::collections::VecDeque::new();
+         queue.push_back(s);
+ 
++        // br-r37-c1-gbcidx (cc): walk neighbors_indices(v) (zero-alloc &[usize]) instead of
++        // neighbors(nodes[v]) (a Vec<&str> alloc) + idx.get (a String re-hash per edge), across the n
++        // source BFS (the dominant cost). Byte-identical: sigma/sigma_no_c/dist are order-independent
++        // integer shortest-path quantities (integer sums over predecessors), and gbc_sum sums the integer
++        // ratios in the fixed t=0..n order — none depend on neighbour-iteration order, so the f64 result
++        // is bit-identical.
+         while let Some(v) = queue.pop_front() {
+-            if let Some(nbrs) = graph.neighbors(nodes[v]) {
+-                for nb in nbrs {
+-                    if let Some(&ni) = idx.get(nb) {
+-                        if dist[ni] == usize::MAX {
+-                            dist[ni] = dist[v] + 1;
+-                            queue.push_back(ni);
+-                        }
+-                        if dist[ni] == dist[v] + 1 {
+-                            sigma[ni] += sigma[v];
+-                            if !group_set.contains(&v) {
+-                                sigma_no_c[ni] += sigma_no_c[v];
+-                            }
+-                        }
++            for &ni in graph.neighbors_indices(v).unwrap_or(&[]) {
++                if dist[ni] == usize::MAX {
++                    dist[ni] = dist[v] + 1;
++                    queue.push_back(ni);
++                }
++                if dist[ni] == dist[v] + 1 {
++                    sigma[ni] += sigma[v];
++                    if !group_set.contains(&v) {
++                        sigma_no_c[ni] += sigma_no_c[v];
+                     }
+                 }
+             }
+@@ -71723,6 +71725,153 @@ mod tests {
+         report("NULL_int_vs_int", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-gbcidx: paired-interleaved median A/B for group_betweenness_centrality's n-source BFS —
++    /// inline the full function with a flag branching only the BFS neighbour iteration (ORIGINAL
++    /// neighbors(nodes[v]) + idx.get re-hash vs the shipped neighbors_indices). ULP parity asserted first.
++    /// One binary / one worker with a NULL control. 1000-node circulant, 3-node group. `#[ignore]`; run
++    /// with `cargo test --release -p fnx-algorithms --lib group_betweenness_idx_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn group_betweenness_idx_ab() {
++        use std::collections::{HashMap, HashSet, VecDeque};
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        let n_nodes = 1000usize;
++        let mut graph = Graph::strict();
++        for i in 0..n_nodes {
++            let _ = graph.add_node(i.to_string());
++        }
++        for i in 0..n_nodes {
++            for d in 1..=5usize {
++                let j = (i + d) % n_nodes;
++                if i != j {
++                    let _ = graph.add_edge(i.to_string(), j.to_string());
++                }
++            }
++        }
++        let group: Vec<String> = vec!["0".to_owned(), "1".to_owned(), "2".to_owned()];
++
++        let build = |batch: bool| -> f64 {
++            let nodes = graph.nodes_ordered();
++            let n = nodes.len();
++            let idx: HashMap<&str, usize> =
++                nodes.iter().enumerate().map(|(i, &nn)| (nn, i)).collect();
++            let group_set: HashSet<usize> =
++                group.iter().filter_map(|g| idx.get(g.as_str()).copied()).collect();
++            let c = group_set.len();
++            if n <= c + 1 {
++                return 0.0;
++            }
++            let mut gbc_sum = 0.0;
++            for s in 0..n {
++                if group_set.contains(&s) {
++                    continue;
++                }
++                let mut dist = vec![usize::MAX; n];
++                let mut sigma = vec![0usize; n];
++                let mut sigma_no_c = vec![0usize; n];
++                dist[s] = 0;
++                sigma[s] = 1;
++                sigma_no_c[s] = 1;
++                let mut queue = VecDeque::new();
++                queue.push_back(s);
++                while let Some(v) = queue.pop_front() {
++                    if batch {
++                        for &ni in graph.neighbors_indices(v).unwrap_or(&[]) {
++                            if dist[ni] == usize::MAX {
++                                dist[ni] = dist[v] + 1;
++                                queue.push_back(ni);
++                            }
++                            if dist[ni] == dist[v] + 1 {
++                                sigma[ni] += sigma[v];
++                                if !group_set.contains(&v) {
++                                    sigma_no_c[ni] += sigma_no_c[v];
++                                }
++                            }
++                        }
++                    } else if let Some(nbrs) = graph.neighbors(nodes[v]) {
++                        for nb in nbrs {
++                            if let Some(&ni) = idx.get(nb) {
++                                if dist[ni] == usize::MAX {
++                                    dist[ni] = dist[v] + 1;
++                                    queue.push_back(ni);
++                                }
++                                if dist[ni] == dist[v] + 1 {
++                                    sigma[ni] += sigma[v];
++                                    if !group_set.contains(&v) {
++                                        sigma_no_c[ni] += sigma_no_c[v];
++                                    }
++                                }
++                            }
++                        }
++                    }
++                }
++                for t in 0..n {
++                    if t == s || dist[t] == usize::MAX || group_set.contains(&t) {
++                        continue;
++                    }
++                    let paths_through_c = sigma[t].saturating_sub(sigma_no_c[t]);
++                    gbc_sum += paths_through_c as f64 / sigma[t] as f64;
++                }
++            }
++            let non_group = n - c;
++            let scale = 1.0 / ((non_group * (non_group - 1)) as f64);
++            gbc_sum * scale
++        };
++
++        let old = build(false);
++        let new = build(true);
++        assert_eq!(old.to_bits(), new.to_bits(), "neighbors_indices GBC must be ULP-identical");
++
++        let time = |batch: bool| -> f64 {
++            let t0 = Instant::now();
++            black_box(build(batch));
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for round in 0..rounds {
++                let (tb, tc) = if round.is_multiple_of(2) {
++                    let bt = time(base_arm);
++                    let ct = time(cand);
++                    (bt, ct)
++                } else {
++                    let ct = time(cand);
++                    let bt = time(base_arm);
++                    (bt, ct)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "GBC_IDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("GBC_IDX_AB circ1000 rounds={rounds} (>1 = index faster)");
++        report("INT_vs_string", &paired(true, false));
++        report("NULL_int_vs_int", &paired(true, true));
++    }
++
+     #[test]
+     fn test_cartesian_product_label_disambiguation() {
+         let mut g1 = Graph::strict();
