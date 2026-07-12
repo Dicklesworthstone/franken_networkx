@@ -1,5 +1,23 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `kneser_graph` disjoint-subset edge batch-insert **12.3531x** (br-r37-c1-kneserbatch)
+
+Twentieth result-builder batch win — the LARGEST. kneser_graph(n,k) = KG(n,k): nodes = k-subsets of
+{0..n-1}, edges connect DISJOINT subsets. The i<j edge loop tests disjointness (reads only input `subsets`)
+and adds (names[i],names[j]) per-edge. Collect the disjoint-pair edges (same i<j order) into Vec<(&str,&str)>
+(&str borrow the local names → no cloning) + one Graph::extend_edges_unrecorded (resolves indices + dedups on
+(s_idx,t_idx) exactly as add_edge, all nodes pre-added, each i<j pair distinct → no dup/self-loop) →
+byte-identical.
+
+MEASURED — KG(22,2) (231 nodes, 21945 edges), 61 rounds: **BATCH_vs_string median 12.3531x**, 61/61, p5_p95
+[9.8242,17.7710] vs NULL 0.9918x [0.7891,1.1430]. DECISIVE: candidate p5 (9.82) ~8.6x above null p95 (1.14).
+KEY INSIGHT: the O(subsets²) disjoint-check loop is common to both arms, and each check is O(k)=O(2) — the
+per-edge POLICY RECORD dwarfs the tiny guard, so a cheap-guard/full-add_edge builder gets the MAXIMUM
+policy-drop benefit (bigger than dup-heavy moral_graph 9.80x). test_kneser_graph_petersen (KG(5,2)=Petersen)
+green; parity assert passed. Reachable via kneser_graph pyo3. CLIPPY: my lines clean (production
+~34171-34186 / test ~68593-68698); crate's 12 pre-existing peer errors untouched. See
+[[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `graph_compose` edge batch-insert **2.7416x** (br-r37-c1-composebatch)
 
 Nineteenth result-builder batch win. graph_compose(g1,g2) = nx.compose: all of g2 then g1 layered on top
