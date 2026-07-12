@@ -21605,11 +21605,28 @@ pub fn complement_edges_directed(digraph: &DiGraph) -> Vec<(String, String)> {
     if n < 2 {
         return Vec::new();
     }
+    // br-r37-c1-compedgedirint (cc): the O(V²) directed non-edge scan called digraph.has_edge(u, v) — a
+    // String hash of both endpoints — for every ordered pair. Instead, for each source i mark its
+    // SUCCESSORS in a reusable `is_succ` bool row (via successors_indices, zero-alloc) and test with an
+    // O(1) array read. Byte-identical: `!is_succ[j]` ⟺ `!has_edge(nodes[i], nodes[j])` (j is a successor
+    // index of i iff the directed edge exists), and the (i, j != i) ordered pairs are pushed in the
+    // identical row-major order with the same names.
     let mut edges: Vec<(String, String)> = Vec::new();
-    for &u in &nodes {
-        for &v in &nodes {
-            if u != v && !digraph.has_edge(u, v) {
+    let mut is_succ = vec![false; n];
+    for (i, &u) in nodes.iter().enumerate() {
+        if let Some(succs) = digraph.successors_indices(i) {
+            for &s in succs {
+                is_succ[s] = true;
+            }
+        }
+        for (j, &v) in nodes.iter().enumerate() {
+            if i != j && !is_succ[j] {
                 edges.push((u.to_owned(), v.to_owned()));
+            }
+        }
+        if let Some(succs) = digraph.successors_indices(i) {
+            for &s in succs {
+                is_succ[s] = false;
             }
         }
     }
@@ -72181,6 +72198,128 @@ mod tests {
             );
         };
         println!("COMPEDGE_IDX_AB circ2500_d1600 rounds={rounds} (>1 = boolrow faster)");
+        report("BOOLROW_vs_hasedge", &paired(true, false));
+        report("NULL_boolrow_vs_boolrow", &paired(true, true));
+    }
+
+    /// br-r37-c1-compedgedirint: paired-interleaved median A/B for complement_edges_directed — inline
+    /// ORIGINAL O(V²) has_edge scan vs the shipped bool-row (mark successors_indices, O(1) array test).
+    /// Dense directed circulant (out-degree 1200) so the has_edge scan dominates. Output parity asserted
+    /// first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib complement_edges_directed_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn complement_edges_directed_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n_nodes = 2000usize;
+        let mut digraph = DiGraph::strict();
+        for i in 0..n_nodes {
+            let _ = digraph.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for d in 1..=1200usize {
+                let j = (i + d) % n_nodes;
+                if i != j {
+                    let _ = digraph.add_edge(i.to_string(), j.to_string());
+                }
+            }
+        }
+
+        let old_fn = |digraph: &DiGraph| -> Vec<(String, String)> {
+            let nodes: Vec<&str> = digraph.nodes_ordered();
+            let n = nodes.len();
+            if n < 2 {
+                return Vec::new();
+            }
+            let mut edges: Vec<(String, String)> = Vec::new();
+            for &u in &nodes {
+                for &v in &nodes {
+                    if u != v && !digraph.has_edge(u, v) {
+                        edges.push((u.to_owned(), v.to_owned()));
+                    }
+                }
+            }
+            edges
+        };
+        let new_fn = |digraph: &DiGraph| -> Vec<(String, String)> {
+            let nodes: Vec<&str> = digraph.nodes_ordered();
+            let n = nodes.len();
+            if n < 2 {
+                return Vec::new();
+            }
+            let mut edges: Vec<(String, String)> = Vec::new();
+            let mut is_succ = vec![false; n];
+            for (i, &u) in nodes.iter().enumerate() {
+                if let Some(succs) = digraph.successors_indices(i) {
+                    for &s in succs {
+                        is_succ[s] = true;
+                    }
+                }
+                for (j, &v) in nodes.iter().enumerate() {
+                    if i != j && !is_succ[j] {
+                        edges.push((u.to_owned(), v.to_owned()));
+                    }
+                }
+                if let Some(succs) = digraph.successors_indices(i) {
+                    for &s in succs {
+                        is_succ[s] = false;
+                    }
+                }
+            }
+            edges
+        };
+
+        let old = old_fn(&digraph);
+        let new = new_fn(&digraph);
+        assert_eq!(old, new, "bool-row complement_edges_directed must match the has_edge baseline");
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if batch { new_fn(&digraph) } else { old_fn(&digraph) };
+            black_box(r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "COMPEDGEDIR_IDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("COMPEDGEDIR_IDX_AB dircirc2000_d1200 rounds={rounds} (>1 = boolrow faster)");
         report("BOOLROW_vs_hasedge", &paired(true, false));
         report("NULL_boolrow_vs_boolrow", &paired(true, true));
     }

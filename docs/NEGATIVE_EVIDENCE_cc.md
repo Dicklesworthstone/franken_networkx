@@ -1,5 +1,19 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `complement_edges_directed` O(V²) has_edge → bool-row **3.1313x** (br-r37-c1-compedgedirint)
+
+Directed sibling of compedgeidx (3rd has_edge-in-nested-loop win). complement_edges_directed: for u, for v, if
+u!=v && !has_edge(u,v) push — String hash of both endpoints per O(V²) ORDERED pair. Fix: per source i mark its
+SUCCESSORS via successors_indices(i) in a reusable is_succ bool row, test !is_succ[j] with an O(1) array read
+(reset after). BYTE-IDENTICAL: directed edge u→v ⟺ v in successors(u); nodes[i] at index i so is_succ[j] ⟺
+has_edge(nodes[i],nodes[j]); same row-major (i,j!=i) push order + names.
+
+MEASURED — dense directed circulant (2000 nodes out-deg1200, 60% density → 4M-pair scan dominates), 61 rounds:
+**BOOLROW_vs_hasedge median 3.1313x**, 61/61, p5_p95 [2.7116,3.5808] vs NULL 1.0012x [0.8952,1.1117]. DECISIVE:
+candidate p5 (2.71) ~2.4x above null p95. Output-list parity (exact Vec) asserted; complement_directed_test +
+8 tests green. Reachable via complement_edges_directed pyo3. CLIPPY: my lines clean (production ~21608-21630 /
+test ~72205-72324); crate's 12 pre-existing peer errors untouched. See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `complement_edges` O(V²) has_edge → bool-row **3.6188x** (br-r37-c1-compedgeidx)
 
 Second has_edge-in-nested-loop win. complement_edges yields non-edges via for i, for j>i, if !has_edge(nodes
