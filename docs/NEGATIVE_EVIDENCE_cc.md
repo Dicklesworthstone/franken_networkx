@@ -1,5 +1,19 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `find_cycle_undirected` adjacency-build integer swap **2.3166x** (br-r37-c1-fcycundidx)
+
+Seventh "name-keyed → integer" win; undirected sibling of fcycidx. find_cycle_undirected builds Vec<Vec<usize>>
+adj once (node_to_idx + neighbors(node) Vec<&str> alloc + node_to_idx.get re-hash + sort_unstable) then integer
+parent-tracking DFS. Swap setup to neighbors_indices(i). BYTE-IDENTICAL: every neighbour is a graph node (get
+always Some) → same index set; both sorted → same cycle.
+
+MEASURED — 50000-node circulant (degree 20; dense → cycle found fast so full-adj SETUP dominates), 61 rounds:
+**INT_vs_string median 2.3166x**, 61/61, p5_p95 [2.0649,2.6204] vs NULL 0.9952x [0.9068,1.0802]. DECISIVE:
+candidate p5 (2.06) ~1.9x above null p95. Differential parity asserted; 5 find_cycle suite tests green incl.
+undirected_exists (pins the cycle). Reachable via find_cycle_undirected pyo3. CLIPPY: my lines clean
+(production ~28626-28638 / test ~71326-71471); crate's 12 pre-existing peer errors untouched. See
+[[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `find_cycle_directed` adjacency-build integer swap **2.4619x** (br-r37-c1-fcycidx)
 
 Sixth "name-keyed → integer" win, 2nd "mostly-integer + name-residual" (after imdomint). find_cycle_directed
