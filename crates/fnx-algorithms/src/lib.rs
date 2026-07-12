@@ -34013,6 +34013,12 @@ pub fn grid_graph(dim: &[usize]) -> Graph {
     }
 
     // Add edges: connect nodes that differ by exactly 1 in exactly one dimension
+    // br-r37-c1-gridbatch (cc): collect the grid edges (same i-major, dimension order) + one batch
+    // insert instead of per-edge add_edge (a policy record EACH). Reads only the input coords/dim;
+    // each edge is emitted once from its lower endpoint (no dup, no self-loop), and
+    // extend_edges_unrecorded resolves indices + pushes adjacency exactly as add_edge in the
+    // identical order (all nodes pre-added) → byte-identical.
+    let mut edges: Vec<(String, String)> = Vec::new();
     for i in 0..total {
         let coords = index_to_coords(i, dim);
 
@@ -34021,10 +34027,11 @@ pub fn grid_graph(dim: &[usize]) -> Graph {
             if coords[d] + 1 < dim[d] {
                 let mut neighbor_coords = coords.clone();
                 neighbor_coords[d] += 1;
-                let _ = g.add_edge(coords_to_label(&coords), coords_to_label(&neighbor_coords));
+                edges.push((coords_to_label(&coords), coords_to_label(&neighbor_coords)));
             }
         }
     }
+    let _ = g.extend_edges_unrecorded(edges);
 
     g
 }
@@ -68693,6 +68700,134 @@ mod tests {
             );
         };
         println!("KNESER_BATCH_AB KG22_2 rounds={rounds} (>1 = batch faster)");
+        report("BATCH_vs_string", &paired(true, false));
+        report("NULL_batch_vs_batch", &paired(true, true));
+    }
+
+    /// br-r37-c1-gridbatch: paired-interleaved median A/B for grid_graph — inline per-edge baseline
+    /// vs the shipped batch, one binary / one worker with a NULL control. A 100x100 grid has 10000
+    /// nodes and 19800 edges; the per-edge policy record on each grid edge is the cost the batch
+    /// removes (the index_to_coords + coords_to_label String work is identical in both arms).
+    /// Parity asserted first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib grid_graph_batch_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn grid_graph_batch_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn index_to_coords(mut index: usize, dim: &[usize]) -> Vec<usize> {
+            let mut coords = vec![0; dim.len()];
+            for (i, &d) in dim.iter().enumerate().rev() {
+                coords[i] = index % d;
+                index /= d;
+            }
+            coords
+        }
+        fn coords_to_label(coords: &[usize]) -> String {
+            coords
+                .iter()
+                .map(|c| c.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        }
+
+        let dim: Vec<usize> = vec![100, 100];
+
+        let build = |dim: &[usize], batch: bool| -> Graph {
+            let mut g = Graph::strict();
+            let total: usize = dim.iter().product();
+            for i in 0..total {
+                let coords = index_to_coords(i, dim);
+                g.add_node(coords_to_label(&coords));
+            }
+            if batch {
+                let mut edges: Vec<(String, String)> = Vec::new();
+                for i in 0..total {
+                    let coords = index_to_coords(i, dim);
+                    for d in 0..dim.len() {
+                        if coords[d] + 1 < dim[d] {
+                            let mut neighbor_coords = coords.clone();
+                            neighbor_coords[d] += 1;
+                            edges.push((
+                                coords_to_label(&coords),
+                                coords_to_label(&neighbor_coords),
+                            ));
+                        }
+                    }
+                }
+                let _ = g.extend_edges_unrecorded(edges);
+            } else {
+                for i in 0..total {
+                    let coords = index_to_coords(i, dim);
+                    for d in 0..dim.len() {
+                        if coords[d] + 1 < dim[d] {
+                            let mut neighbor_coords = coords.clone();
+                            neighbor_coords[d] += 1;
+                            let _ = g.add_edge(
+                                coords_to_label(&coords),
+                                coords_to_label(&neighbor_coords),
+                            );
+                        }
+                    }
+                }
+            }
+            g
+        };
+
+        let old = build(&dim, false);
+        let new = build(&dim, true);
+        assert_eq!(
+            old.edges_ordered_borrowed(),
+            new.edges_ordered_borrowed(),
+            "batch grid_graph must equal the per-edge baseline"
+        );
+        assert_eq!(old.nodes_ordered(), new.nodes_ordered());
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            black_box(build(&dim, batch));
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "GRID_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("GRID_BATCH_AB grid100x100 rounds={rounds} (>1 = batch faster)");
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
     }

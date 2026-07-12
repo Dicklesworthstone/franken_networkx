@@ -1,5 +1,21 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `grid_graph` edge batch-insert **2.7268x** (br-r37-c1-gridbatch)
+
+Twenty-first result-builder batch win. grid_graph(dim) = n-dim grid: each node connects to its +1 neighbor
+per dimension via per-edge add_edge. Collect grid edges (i-major, dimension order) into Vec<(String,String)>
++ one Graph::extend_edges_unrecorded. Byte-identical: reads only input coords/dim; each edge emitted once
+from lower endpoint (no dup/self-loop); extend resolves indices + dedups exactly as add_edge, all nodes
+pre-added. coords_to_label String work kept identical in both arms.
+
+MEASURED — 100x100 grid (10000 nodes, 19800 edges), 61 rounds: **BATCH_vs_string median 2.7268x**, 61/61,
+p5_p95 [1.9440,3.5373] vs NULL 1.0143x [0.8334,1.1868]. DECISIVE: candidate p5 (1.94) ~1.6x above null p95
+(1.19). ~2.7x tier (not kneser's 12x) because the per-edge COMMON work here is 2 coords_to_label String
+allocs — heavier guard dilutes the policy-drop fraction. No dedicated Rust suite test → byte-identity rests
+on the A/B parity (verbatim per-edge base arm) + Python differential tests (test_lattice_generators.py). same
+standard as ego/power ships. Reachable via grid_graph pyo3. CLIPPY: my lines clean (production ~34016-34036 /
+test ~68707-68832); crate's 12 pre-existing peer errors untouched. See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `kneser_graph` disjoint-subset edge batch-insert **12.3531x** (br-r37-c1-kneserbatch)
 
 Twentieth result-builder batch win — the LARGEST. kneser_graph(n,k) = KG(n,k): nodes = k-subsets of
