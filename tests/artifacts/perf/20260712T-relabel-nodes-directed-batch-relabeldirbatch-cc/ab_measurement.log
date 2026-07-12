@@ -1,0 +1,12 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib relabel_nodes_directed_batch_ab -- --ignored --nocapture
+
+RELABELDIR_BATCH_AB dK50_bijection rounds=61 (>1 = batch faster)
+RELABELDIR_BATCH_AB BATCH_vs_string: median=2.1437x win_rate=61/61 p5_p95=[1.8972,2.3502]
+RELABELDIR_BATCH_AB NULL_batch_vs_batch: median=1.0035x win_rate=33/61 p5_p95=[0.9026,1.1937]
+test tests::relabel_nodes_directed_batch_ab ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 977 filtered out; finished in 0.66s
+
+Gate: candidate p5 (1.8972) >> NULL p95 (1.1937); 61/61 rounds. Byte-identity parity asserts passed for
+BOTH a bijection AND a node-merging mapping (duplicate directed edges + self-loops, exercising the DiGraph
+inserter's dedup + attr-merge). Marker RELABELDIR_BATCH_AB + test name confirmed (fresh binary). Smaller
+win (2.14x) because relabel is |E|-bounded — the win is the per-edge policy record folded to one bulk insert.

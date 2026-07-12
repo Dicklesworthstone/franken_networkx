@@ -1,5 +1,18 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `relabel_nodes_directed` batch-insert (with attrs) **2.1437x** (br-r37-c1-relabeldirbatch)
+
+Eleventh fnx-algorithms result-builder batch (DiGraph analog of relabel_nodes). Copies each edge with
+remapped endpoints+attrs via per-edge add_edge_with_attrs. Collect (new_left,new_right,attrs) + one
+DiGraph::extend_edges_with_attrs_unrecorded (dedups on directed (src,tgt) + merges attrs → node-merging
+mapping byte-identical). Parity asserted for bijection AND merging; test_relabel_nodes_directed_preserves_node_attrs green.
+
+MEASURED — complete-digraph K50 bijection rename (50 nodes, 2450 directed edges), 61 rounds: **BATCH_vs_string
+median 2.1437x**, win_rate 61/61, p5_p95 [1.8972, 2.3502] vs NULL 1.0035x [0.9026, 1.1937]. DECIDABLE:
+candidate p5 (1.90) ~1.6x above the null p95 (1.19), 61/61 won. Marker confirmed (fresh binary). CLIPPY:
+MY CODE CLEAN (0 in ranges 39895-39925 / 67541-67670, grep-verified); crate's ~12 pre-existing peer errors
+untouched. See [[redundant_edge_materialization_family]]. Next: convert_node_labels_to_integers, power.
+
 ## SHIPPED WIN (cc, 2026-07-12): `relabel_nodes` batch-insert (with attrs) **2.1256x** (br-r37-c1-relabelbatch)
 
 Tenth fnx-algorithms result-builder batch. relabel_nodes copies each edge with remapped endpoints + attrs
