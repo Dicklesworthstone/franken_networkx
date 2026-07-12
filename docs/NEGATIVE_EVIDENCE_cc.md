@@ -1,5 +1,20 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `tensor_product_directed` batch-insert **4.5399x** (br-r37-c1-tensorproddirbatch)
+
+Fourth product-operator lever (the four core graph products now batched). Directed tensor: edge Vecs
+already materialized; g_edges x h_edges double loop, one directed product edge (gu,hu)->(gv,hv) per pair.
+Collect + one DiGraph::extend_edges_unrecorded. Each pair yields a unique directed edge → no dup;
+extend_edges_unrecorded dedups on the directed key + handles self-loops → byte-identical.
+
+MEASURED — complete-digraph K25xK25 (625 nodes, 360000 directed edges), 61 rounds: **BATCH_vs_string
+median 4.5399x**, win_rate 61/61, p5_p95 [3.6748, 5.5426] vs NULL 1.0012x [0.8032, 1.2375]. DECIDABLE:
+candidate p5 (3.67) ~3.0x above the null p95 (1.24), 61/61 won. Byte-identical (parity assert +
+test_tensor_product_directed suite test green). CLIPPY: MY CODE CLEAN (0 in ranges 39772-39790 /
+66690-66818, grep-verified); crate's ~12 pre-existing peer errors untouched. See
+[[redundant_edge_materialization_family]]. Product-operator family: cartesian 4.32x, cartesian_directed
+4.19x, tensor 3.78x, tensor_directed 4.54x — core four DONE.
+
 ## SHIPPED WIN (cc, 2026-07-12): `tensor_product` batch-insert **3.7841x** (br-r37-c1-tensorprodbatch)
 
 Third product-operator lever. tensor_product ALREADY materializes its edge Vecs, so the only win is the

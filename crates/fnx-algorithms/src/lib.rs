@@ -39772,14 +39772,18 @@ pub fn tensor_product_directed(g: &DiGraph, h: &DiGraph) -> DiGraph {
         .map(|e| (e.left.clone(), e.right.clone()))
         .collect();
 
+    // br-r37-c1-tensorproddirbatch (cc): collect the directed product edges (same emission order) and
+    // batch-insert once instead of per-edge add_edge (a policy record each). Each (g-edge, h-edge) pair
+    // yields exactly one directed product edge, uniquely determined by that edge → no duplicates;
+    // extend_edges_unrecorded dedups on the directed key anyway and handles self-loops → byte-identical.
+    let mut edges: Vec<(String, String)> = Vec::with_capacity(g_edges.len() * h_edges.len());
     // For directed: only (gu, hu) -> (gv, hv)
     for (gu, gv) in &g_edges {
         for (hu, hv) in &h_edges {
-            let from_node = pair_label(gu, hu);
-            let to_node = pair_label(gv, hv);
-            let _ = result.add_edge(from_node, to_node);
+            edges.push((pair_label(gu, hu), pair_label(gv, hv)));
         }
     }
+    let _ = result.extend_edges_unrecorded(edges);
 
     result
 }
@@ -66682,6 +66686,129 @@ mod tests {
             );
         };
         println!("TENSORPROD_BATCH_AB K30xK30 rounds={rounds} (>1 = batch faster)");
+        report("BATCH_vs_string", &paired(true, false));
+        report("NULL_batch_vs_batch", &paired(true, true));
+    }
+
+    /// br-r37-c1-tensorproddirbatch: paired-interleaved median A/B for tensor_product_directed — inline
+    /// per-edge baseline vs the shipped batch, one binary / one worker with a NULL control. Byte-identity
+    /// asserted first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib tensor_product_directed_batch_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn tensor_product_directed_batch_ab() {
+        use super::pair_label;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let complete = |n: usize, prefix: &str| -> DiGraph {
+            let mut g = DiGraph::strict();
+            for i in 0..n {
+                let _ = g.add_node(format!("{prefix}{i}"));
+            }
+            for i in 0..n {
+                for j in 0..n {
+                    if i != j {
+                        let _ = g.add_edge(format!("{prefix}{i}"), format!("{prefix}{j}"));
+                    }
+                }
+            }
+            g
+        };
+        // complete digraph K25 x K25: 625 nodes; 600 * 600 = 360000 directed product edges.
+        let g = complete(25, "g");
+        let h = complete(25, "h");
+
+        let build = |g: &DiGraph, h: &DiGraph, batch: bool| -> DiGraph {
+            let mut result = DiGraph::with_runtime_policy(g.runtime_policy().clone());
+            let g_nodes = g.nodes_ordered();
+            let h_nodes = h.nodes_ordered();
+            for gn in &g_nodes {
+                for hn in &h_nodes {
+                    let _ = result.add_node(pair_label(gn, hn));
+                }
+            }
+            let g_edges: Vec<(String, String)> = g
+                .edges_ordered()
+                .into_iter()
+                .map(|e| (e.left.clone(), e.right.clone()))
+                .collect();
+            let h_edges: Vec<(String, String)> = h
+                .edges_ordered()
+                .into_iter()
+                .map(|e| (e.left.clone(), e.right.clone()))
+                .collect();
+            if batch {
+                let mut edges: Vec<(String, String)> = Vec::with_capacity(g_edges.len() * h_edges.len());
+                for (gu, gv) in &g_edges {
+                    for (hu, hv) in &h_edges {
+                        edges.push((pair_label(gu, hu), pair_label(gv, hv)));
+                    }
+                }
+                let _ = result.extend_edges_unrecorded(edges);
+            } else {
+                for (gu, gv) in &g_edges {
+                    for (hu, hv) in &h_edges {
+                        let _ = result.add_edge(pair_label(gu, hu), pair_label(gv, hv));
+                    }
+                }
+            }
+            result
+        };
+
+        let old = build(&g, &h, false);
+        let new = build(&g, &h, true);
+        assert_eq!(
+            old.edges_ordered_borrowed(),
+            new.edges_ordered_borrowed(),
+            "batch tensor_product_directed must equal the per-edge baseline"
+        );
+        assert_eq!(old.nodes_ordered(), new.nodes_ordered());
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            black_box(build(&g, &h, batch));
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "TENSORPRODDIR_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("TENSORPRODDIR_BATCH_AB K25xK25 rounds={rounds} (>1 = batch faster)");
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
     }
