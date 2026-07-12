@@ -1,0 +1,17 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib paley_graph_batch_ab -- --ignored --nocapture
+
+PALEY_BATCH_AB paley193 rounds=61 (>1 = batch faster)
+PALEY_BATCH_AB BATCH_vs_string: median=26.4733x win_rate=61/61 p5_p95=[21.1462,35.5866]
+PALEY_BATCH_AB NULL_batch_vs_batch: median=1.0139x win_rate=37/61 p5_p95=[0.8249,1.2179]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 992 filtered out; finished in 0.96s
+
+Marker PALEY_BATCH_AB + test name confirmed (fresh binary). Parity assert
+(edges_ordered_borrowed + nodes_ordered) on Paley(193) passed before timing.
+
+$ cargo test --release -p fnx-algorithms --lib paley -- --nocapture
+test tests::test_paley_graph_5 ... ok
+test result: ok. 1 passed; 0 failed; 1 ignored; ...
+
+$ cargo clippy --release -p fnx-algorithms --lib --tests -- -D warnings
+--> NONE of my lines flagged (production ~34273-34292 / test ~69393-69493)
+--> 12 pre-existing peer -D warnings errors (untouched, shared checkout)

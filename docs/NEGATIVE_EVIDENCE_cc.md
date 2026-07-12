@@ -1,5 +1,19 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `paley_graph` INDEX-pair edge batch-insert **26.4733x** (br-r37-c1-paleybatch)
+
+Twenty-seventh result-builder batch win; 7th in the gen_edge index-batch seam. paley_graph(q) = Paley graph:
+q nodes named "0".."q-1" via gen_nodes, edge between i<j when (j-i) is a quadratic residue mod q (is_qr
+lookup) via gen_edge(&mut g,i,j). Collect (i,j) INDEX pairs + one extend_existing_index_edges_unrecorded →
+drops both to_string allocs + name hashes + policy record. Cheap is_qr guard + dense-few-nodes.
+
+MEASURED — Paley(193) (193 prime ≡1 mod4, 193 nodes, ~9264 edges, avg deg 96), 61 rounds: **BATCH_vs_string
+median 26.4733x**, 61/61, p5_p95 [21.1462,35.5866] vs NULL 1.0139x [0.8249,1.2179]. DECISIVE: candidate p5
+(21.15) ~17x above null p95. Byte-identical: i<j always, guard reads only precomputed is_qr, helper
+canonicalizes by node NAME + pushes adj in given order, nodes pre-added. test_paley_graph_5 green; parity
+assert passed. Reachable via paley_graph pyo3. CLIPPY: my lines clean (production ~34273-34292 / test
+~69393-69493); crate's 12 pre-existing peer errors untouched. See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `windmill_graph` INDEX-pair edge batch-insert **17.9007x** (br-r37-c1-windmillbatch)
 
 Twenty-sixth result-builder batch win; 6th in the gen_edge index-batch seam. windmill_graph(k,n) = Wd(k,n):
