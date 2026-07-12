@@ -1,0 +1,26 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-classes --lib to_undirected_batch_ab -- --ignored --nocapture
+
+# First pass at K100 (complete digraph, 9900 directed edges) — real effect but the
+# sub-ms workload left the null tail wide (p95 1.55), so candidate p5 (1.26) did not
+# clear it:
+TOUNDIR_BATCH_AB K100_complete rounds=61 (>1 = batch faster)
+TOUNDIR_BATCH_AB BATCH_vs_string: median=2.0231x win_rate=59/61 p5_p95=[1.2591,2.7963]
+TOUNDIR_BATCH_AB NULL_batch_vs_batch: median=1.0089x win_rate=34/61 p5_p95=[0.8687,1.5460]
+
+# Bumped to K200 (39800 directed edges) to lift signal above the timer-noise floor —
+# tightened the null and lifted candidate p5 well above null p95. DECISIVE:
+TOUNDIR_BATCH_AB K200_complete rounds=61 (>1 = batch faster)
+TOUNDIR_BATCH_AB BATCH_vs_string: median=2.0083x win_rate=61/61 p5_p95=[1.8222,2.2859]
+TOUNDIR_BATCH_AB NULL_batch_vs_batch: median=1.0000x win_rate=31/61 p5_p95=[0.8605,1.1344]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 76 filtered out; finished in 11.81s
+
+Marker TOUNDIR_BATCH_AB + test name confirmed (fresh binary). Parity assert
+(edges_ordered_borrowed + nodes_ordered) passed before timing (test result: ok).
+
+$ cargo test --release -p fnx-classes --lib to_undirected -- --nocapture
+test digraph::tests::to_undirected_merges_edges ... ok            # reciprocal attr-merge
+test digraph::tests::to_undirected_preserves_runtime_policy ... ok
+test result: ok. 2 passed; 0 failed; 1 ignored; ...
+
+$ cargo clippy --release -p fnx-classes --lib --tests -- -D warnings
+--> 0 errors/warnings crate-wide; NONE of my digraph.rs lines flagged.

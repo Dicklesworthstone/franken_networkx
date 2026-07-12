@@ -1,5 +1,23 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `DiGraph::to_undirected` reciprocal-edge batch-insert **2.0083x** (br-r37-c1-toundirbatch)
+
+Sixteenth result-builder batch win — FIRST in the core fnx-classes crate (prior 15 in fnx-algorithms).
+DiGraph::to_undirected walks edges_ordered() adding each directed edge to the undirected result via per-edge
+add_edge_with_attrs; reciprocal a→b / b→a both canonicalize to {a,b} so ~HALF the calls are merge-dups (later
+direction's attrs win), each paying a per-edge policy record. Collect (left,right,attrs) + one
+extend_edges_with_attrs_unrecorded (dedups on canonical pair, merges via the same `extend` later-wins, all
+nodes pre-added → endpoints resolve to existing indices, no attr clobber) → byte-identical. Same dup-heavy
+lever as moral_graph, milder ~2× dup ratio.
+
+MEASURED — complete digraph K200 (39800 directed → 19900 undirected), 61 rounds: **BATCH_vs_string median
+2.0083x**, 61/61, p5_p95 [1.8222,2.2859] vs NULL 1.0000x [0.8605,1.1344]. DECISIVE: candidate p5 (1.82) ~1.6x
+above null p95 (1.13). SIZING NOTE: a first pass at K100 measured the same 2.02x median but the sub-ms
+workload left the null tail wide (p95 1.55) so candidate p5 (1.26) didn't clear it — a timer-noise floor, not
+a weak lever; K200 amortized fixed per-round overhead and separated the tails. Suite tests
+to_undirected_merges_edges + to_undirected_preserves_runtime_policy green; parity assert passed. CLIPPY:
+fnx-classes clean crate-wide (0), my lines unflagged. See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `moral_graph` (DAG moralization) batch-insert **9.8030x** (br-r37-c1-moralbatch)
 
 Fifteenth fnx-algorithms result-builder batch — and the BIGGEST. moral_graph(digraph) builds the undirected
