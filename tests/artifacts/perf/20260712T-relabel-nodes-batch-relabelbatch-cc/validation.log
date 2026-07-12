@@ -1,0 +1,11 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib relabel_nodes -- --nocapture
+test tests::relabel_nodes_batch_ab ... ignored (measurement)
+test tests::test_relabel_nodes_mapping ... ok
+test tests::test_relabel_nodes_directed_preserves_node_attrs ... ok
+test tests::test_relabel_nodes_preserves_node_attrs ... ok
+test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 973 filtered out; finished in 0.00s
+
+$ cargo clippy -p fnx-algorithms --lib --tests -- -D warnings
+MY CHANGE IS CLIPPY-CLEAN: reports the same ~12 PRE-EXISTING peer errors; NONE in this lever ranges
+(production 39845-39875, test 67408-67540) — grep-verified empty. Left untouched per shared-checkout
+discipline.

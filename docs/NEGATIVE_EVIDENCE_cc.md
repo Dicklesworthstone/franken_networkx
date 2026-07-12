@@ -1,5 +1,21 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `relabel_nodes` batch-insert (with attrs) **2.1256x** (br-r37-c1-relabelbatch)
+
+Tenth fnx-algorithms result-builder batch. relabel_nodes copies each edge with remapped endpoints + attrs
+via per-edge add_edge_with_attrs. Collect (new_left,new_right,attrs) + one
+Graph::extend_edges_with_attrs_unrecorded. KEY: that inserter DEDUPS on the canonical pair AND MERGES attrs
+(existing.extend, lib.rs:1487) exactly as add_edge_with_attrs → a node-MERGING mapping (two labels→one)
+that collapses edges to a duplicate OR self-loop is byte-identical. Parity asserted for BOTH bijection AND
+merging mappings; 3 relabel suite tests (mapping, preserves-attrs x2) green.
+
+MEASURED — K60 bijection rename (60 nodes, 1770 edges), 61 rounds: **BATCH_vs_string median 2.1256x**,
+win_rate 61/61, p5_p95 [1.6582, 2.8498] vs NULL 0.9976x [0.8605, 1.2106]. DECIDABLE: candidate p5 (1.66)
+above the null p95 (1.21), 61/61 won. Smaller (|E|-bounded). TRAP HIT: first A/B run got a STALE rch binary
+(0 tests matched) — re-ran + confirmed RELABEL_BATCH_AB marker ([[ab_test_name_must_appear_in_output]]).
+CLIPPY: MY CODE CLEAN (0 in ranges 39845-39875 / 67408-67540, grep-verified); crate's ~12 pre-existing peer
+errors untouched. See [[redundant_edge_materialization_family]]. Next: relabel_nodes_directed, power.
+
 ## SHIPPED WIN (cc, 2026-07-12): `reverse_digraph` batch-insert (with attrs) **2.3976x** (br-r37-c1-reversedigbatch)
 
 Ninth fnx-algorithms result-builder batch; FIRST to use the WITH-ATTRS inserter. reverse_digraph reverses
