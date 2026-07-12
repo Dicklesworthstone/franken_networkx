@@ -40379,13 +40379,17 @@ pub fn all_triads(digraph: &DiGraph) -> Vec<(String, String, String, String)> {
 /// and `y` controls target degree type.
 pub fn node_degree_xy(graph: &Graph) -> Vec<(usize, usize)> {
     let mut result = Vec::with_capacity(graph.edge_count());
-    for edge in graph.edges_ordered() {
+    // br-r37-c1-ndxyborrow (cc): edges_ordered_borrowed() yields (&str, &str, &AttrMap) — zero per-edge
+    // allocation — instead of edges_ordered() which clones two owned Strings + an AttrMap per edge into an
+    // EdgeSnapshot. This loop only reads the endpoint NAMES (neighbor_count) and never keeps the owned
+    // data, so the borrow is byte-identical (same edges, same walk order, same names → same (du, dv)).
+    for (left, right, _attrs) in graph.edges_ordered_borrowed() {
         // br-r37-c1-ra004 (cc): no-alloc degree, matching the already-optimised
         // `node_degree_xy_directed` twin. `neighbor_count(x)` == the length of the
         // `Vec<&str>` `neighbors(x)` builds (both are `adj_indices[idx].len()`), so
         // this is byte-identical and drops two per-edge `Vec<&str>` allocations.
-        let du = graph.neighbor_count(&edge.left);
-        let dv = graph.neighbor_count(&edge.right);
+        let du = graph.neighbor_count(left);
+        let dv = graph.neighbor_count(right);
         result.push((du, dv));
     }
     result
@@ -48863,6 +48867,105 @@ mod tests {
         );
         report("NEIGHBOR_COUNT_vs_alloc", &paired(true, false));
         report("NULL_lever_vs_lever", &paired(true, true));
+    }
+
+    /// br-r37-c1-ndxyborrow: paired-interleaved median A/B for `node_degree_xy`'s edges_ordered() →
+    /// edges_ordered_borrowed() swap, isolated from the ra004 neighbor_count lever (BOTH arms use
+    /// neighbor_count; they differ ONLY in owned vs borrowed edge iteration). Times the whole
+    /// (pure-O(E)) function on a dense graph so the per-edge EdgeSnapshot clone (2 owned Strings +
+    /// AttrMap) is the dominant cost beside the two O(1) neighbor_count probes. Output-Vec parity
+    /// asserted first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib node_degree_xy_borrow_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn node_degree_xy_borrow_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense circulant: 8000 nodes, degree 50 → ~200k edges; the edge scan is the whole function.
+        let n_nodes = 8000usize;
+        let mut g = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for step in 1..=25usize {
+                let _ = g.add_edge(i.to_string(), ((i + step) % n_nodes).to_string());
+            }
+        }
+
+        let old_fn = |g: &Graph| -> Vec<(usize, usize)> {
+            let mut result = Vec::with_capacity(g.edge_count());
+            for edge in g.edges_ordered() {
+                let du = g.neighbor_count(&edge.left);
+                let dv = g.neighbor_count(&edge.right);
+                result.push((du, dv));
+            }
+            result
+        };
+        let new_fn = |g: &Graph| -> Vec<(usize, usize)> {
+            let mut result = Vec::with_capacity(g.edge_count());
+            for (left, right, _attrs) in g.edges_ordered_borrowed() {
+                let du = g.neighbor_count(left);
+                let dv = g.neighbor_count(right);
+                result.push((du, dv));
+            }
+            result
+        };
+
+        assert_eq!(
+            old_fn(&g),
+            new_fn(&g),
+            "node_degree_xy owned vs borrowed must be byte-identical"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if cand { new_fn(&g) } else { old_fn(&g) };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "NDXYBORROW_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("NDXYBORROW_AB node_degree_xy 8k/200k rounds={rounds} (>1 = borrowed faster)");
+        report("BORROWED_vs_owned", &paired(true, false));
+        report("NULL_borrowed_vs_borrowed", &paired(true, true));
     }
 
     /// br-r37-c1-ra004: paired-interleaved median A/B for the `neighbor_count`
