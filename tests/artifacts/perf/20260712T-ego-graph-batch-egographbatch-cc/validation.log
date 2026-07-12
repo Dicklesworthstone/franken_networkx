@@ -1,0 +1,9 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib ego_graph -- --nocapture
+test tests::test_ego_graph_full_radius ... ok
+test tests::test_ego_graph_radius ... ok
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 976 filtered out; finished in 0.00s
+
+$ cargo clippy -p fnx-algorithms --lib --tests -- -D warnings
+MY CHANGE IS CLIPPY-CLEAN: reports the same ~12 PRE-EXISTING peer errors; NONE in this lever ranges
+(production 38348-38370, test 67670-67796) — grep-verified empty. Left untouched per shared-checkout
+discipline.

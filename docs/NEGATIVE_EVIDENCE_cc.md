@@ -1,5 +1,20 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `ego_graph` induced-edge batch **1.7740x** (br-r37-c1-egographbatch)
+
+Twelfth fnx-algorithms result-builder batch. ego_graph BFS-computes the ego set, then adds every input
+edge with both endpoints in the set via per-edge add_edge_with_attrs. Collect (left,right,attrs) + one
+Graph::extend_edges_with_attrs_unrecorded. CLEAN (loop never reads result; induced edges unique/no
+self-loop). Parity assert on ego of K60 (=whole graph) + 2 ego_graph suite tests green.
+
+MEASURED — ego of K60 (60 nodes, 1770 induced edges), 61 rounds: **BATCH_vs_string median 1.7740x**,
+win_rate 61/61, p5_p95 [1.5516, 1.9859] vs NULL 1.0309x [0.8794, 1.2021]. DECIDABLE: candidate p5 (1.55)
+above the null p95 (1.20), 61/61 won. Smaller (|E|-bounded, BFS common). Marker confirmed (fresh binary).
+CLIPPY: MY CODE CLEAN (0 in ranges 38348-38370 / 67670-67796, grep-verified); crate's ~12 pre-existing peer
+errors untouched. See [[redundant_edge_materialization_family]]. Next: ego_graph_directed, quotient_graph.
+NOTE: convert_node_labels_to_integers already DELEGATES to relabel_nodes (no lever); identified_nodes reads
+result.has_edge mid-loop → needs a SKIP-DUP seen-set (NOT the attr-merging inserter, which would diverge).
+
 ## SHIPPED WIN (cc, 2026-07-12): `relabel_nodes_directed` batch-insert (with attrs) **2.1437x** (br-r37-c1-relabeldirbatch)
 
 Eleventh fnx-algorithms result-builder batch (DiGraph analog of relabel_nodes). Copies each edge with
