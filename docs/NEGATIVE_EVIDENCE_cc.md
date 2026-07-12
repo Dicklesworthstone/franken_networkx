@@ -1,5 +1,24 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `grid_graph` (n-dim) UPGRADED to INDEX batch **12.6885x** (br-r37-c1-grididxbatch)
+
+Thirty-third result-builder batch win. Upgrades grid_graph's earlier String-pair batch (br-r37-c1-gridbatch,
+2.73x) to the INDEX batch — a 4.6x improvement on the identical 100x100 grid. Nodes added in flat-index order
+(node i at index i); the +1-in-dimension-d neighbour of flat index i is i+strides[d] where strides[d] =
+product(dim[d+1..]) (inverse of the row-major index_to_coords). Collect (i, i+strides[d]) INDEX pairs +
+extend_existing_index_edges_unrecorded (needs NO labels — only the boundary check decodes coords) + node
+build via extend_nodes_unrecorded. Applies the grid_2d "index-computable string label" lever to the n-dim
+case via stride arithmetic.
+
+MEASURED — grid_graph([100,100]) (10000 nodes, 19800 edges), 61 rounds: **BATCH_vs_string median 12.6885x**,
+61/61, p5_p95 [10.3408,15.3132] vs NULL 1.0159x [0.8168,1.2459]. DECISIVE: candidate p5 (10.34) ~8.3x above
+null p95. Byte-identical: coords[d]+1 guarded (no carry) so +1 in dim d = +strides[d] in flat index, and
+index_to_coords(i+strides[d]) = neighbor_coords → same endpoint as coords_to_label. Parity asserted on [100,
+100] PLUS n-dim probes [7](1D), [4,5,6](3D), [3,2,4,3](4D) — all byte-identical. No dedicated Rust suite test
+(A/B parity + Python differential). Reachable via grid_graph pyo3. CLIPPY: my lines clean (production
+~34073-34098 / test ~70053-70200); crate's 12 pre-existing peer errors untouched. See
+[[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `grid_2d_graph` node + INDEX-pair edge batch-insert **12.7913x** (br-r37-c1-grid2dbatch)
 
 Thirty-second result-builder batch win. grid_2d_graph(m,n): m·n nodes labeled "r,c", each → right "r,c+1" +
