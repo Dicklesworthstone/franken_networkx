@@ -15248,15 +15248,15 @@ pub fn to_prufer_sequence(graph: &Graph) -> Result<Vec<usize>, String> {
         return Ok(Vec::new());
     }
 
-    // Build mutable adjacency for integer-labeled tree
+    // Build mutable adjacency for integer-labeled tree. The borrowed edge view preserves the exact
+    // `edges_ordered()` walk and endpoint text while avoiding two owned String clones plus an unused
+    // AttrMap clone per tree edge (br-r37-c1-8vjja).
     let mut adj: Vec<HashSet<usize>> = vec![HashSet::new(); n];
-    for edge in graph.edges_ordered() {
-        let u = edge
-            .left
+    for (left, right, _attrs) in graph.edges_ordered_borrowed() {
+        let u = left
             .parse::<usize>()
             .map_err(|_| invalid_labels.to_owned())?;
-        let v = edge
-            .right
+        let v = right
             .parse::<usize>()
             .map_err(|_| invalid_labels.to_owned())?;
         if u >= n || v >= n {
@@ -27283,33 +27283,57 @@ pub fn is_chordal(graph: &Graph) -> bool {
         return true;
     }
 
-    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+    // br-r37-c1-chordalidx (cc): build the adjacency straight from the graph's index-native edge
+    // iterator instead of materialising edges_ordered() (a Vec<EdgeSnapshot>: two owned Strings + an
+    // AttrMap clone per edge) and re-hashing each endpoint NAME through an `idx` map. `adj` is a
+    // Vec<HashSet<usize>> so edge ORDER is irrelevant; nodes_ordered() position == internal node index
+    // (IndexMap get_index_of), so edges_storage_order_index_iter()'s (i, j) are exactly the indices the
+    // idx-map produced → byte-identical adjacency. Drops the idx-map build, the per-edge clone, and the
+    // per-edge rehash in one move.
     let mut adj: Vec<HashSet<usize>> = vec![HashSet::new(); n];
-    for edge in graph.edges_ordered() {
-        let i = idx[edge.left.as_str()];
-        let j = idx[edge.right.as_str()];
+    for (i, j, _) in graph.edges_storage_order_index_iter() {
         if i != j {
             adj[i].insert(j);
             adj[j].insert(i);
         }
     }
 
-    // Maximum Cardinality Search
+    // Maximum Cardinality Search.
+    //
+    // br-r37-c1-chordalmcs (cc): O((|V|+|E|)·log|V|) weight-bucket MCS instead of the previous
+    // O(|V|^2) `(0..n).filter(!numbered).max_by_key((weight, Reverse(i)))` full scan per round.
+    // `buckets[w]` holds the still-unnumbered nodes whose current weight is w; a BTreeSet yields the
+    // SMALLEST index at a given weight. Each round descends to the highest non-empty bucket (max weight)
+    // and pops its first element (min index) — the IDENTICAL "max weight, ties by min index" selection
+    // as the old `max_by_key((weight, Reverse(i)))` (max key ⇒ max weight; for equal weight, max
+    // Reverse(i) ⇒ min i). Weight updates are unchanged, so the elimination `order` is byte-identical.
+    // `max_w` is always ≥ every unnumbered node's weight (it only rises on an increment), so the descent
+    // never underflows while nodes remain.
     let mut weight = vec![0_usize; n];
     let mut order = Vec::with_capacity(n);
     let mut numbered = vec![false; n];
-
+    let mut buckets: Vec<std::collections::BTreeSet<usize>> = vec![std::collections::BTreeSet::new(); n];
+    for i in 0..n {
+        buckets[0].insert(i);
+    }
+    let mut max_w = 0usize;
     for _ in 0..n {
-        // Pick unnumbered node with max weight (break ties by index for determinism)
-        let v = (0..n)
-            .filter(|&i| !numbered[i])
-            .max_by_key(|&i| (weight[i], std::cmp::Reverse(i)))
-            .unwrap();
+        while buckets[max_w].is_empty() {
+            max_w -= 1;
+        }
+        let v = *buckets[max_w].iter().next().unwrap();
+        buckets[max_w].remove(&v);
         order.push(v);
         numbered[v] = true;
         for &w in &adj[v] {
             if !numbered[w] {
-                weight[w] += 1;
+                let wt = weight[w];
+                buckets[wt].remove(&w);
+                weight[w] = wt + 1;
+                buckets[wt + 1].insert(w);
+                if wt + 1 > max_w {
+                    max_w = wt + 1;
+                }
             }
         }
     }
@@ -49341,6 +49365,148 @@ mod tests {
         println!("NUMASSORTBORROW_AB numeric_assortativity 10k/400k rounds={rounds} (>1 = borrowed faster)");
         report("BORROWED_vs_owned", &paired(true, false));
         report("NULL_borrowed_vs_borrowed", &paired(true, true));
+    }
+
+    /// br-r37-c1-chordalmcs: full-function paired-interleaved median A/B for `is_chordal` — inline
+    /// ORIGINAL (O(V^2) `max_by_key` MCS + edges_ordered()/idx-map adj) vs the shipped
+    /// `super::is_chordal` (O((V+E)logV) bucket MCS + index-native adj). Timed on a large SPARSE chordal
+    /// graph (path-power / interval graph) so the O(V^2) MCS dominates and the algorithmic win is visible.
+    /// Bool parity asserted first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib is_chordal_mcs_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn is_chordal_mcs_ab() {
+        use std::collections::{HashMap, HashSet};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Interval graph (k-th power of a path): node i ~ i-1..=i-k. Chordal → is_chordal runs fully.
+        let n_nodes = 6000usize;
+        let k = 4usize;
+        let mut g = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for d in 1..=k {
+                if i >= d {
+                    let _ = g.add_edge(i.to_string(), (i - d).to_string());
+                }
+            }
+        }
+
+        // Inline ORIGINAL is_chordal (O(V^2) MCS + edges_ordered/idx-map adj).
+        let old_fn = |graph: &Graph| -> bool {
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            if n <= 3 {
+                return true;
+            }
+            let idx: HashMap<&str, usize> =
+                nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+            let mut adj: Vec<HashSet<usize>> = vec![HashSet::new(); n];
+            for edge in graph.edges_ordered() {
+                let i = idx[edge.left.as_str()];
+                let j = idx[edge.right.as_str()];
+                if i != j {
+                    adj[i].insert(j);
+                    adj[j].insert(i);
+                }
+            }
+            let mut weight = vec![0_usize; n];
+            let mut order = Vec::with_capacity(n);
+            let mut numbered = vec![false; n];
+            for _ in 0..n {
+                let v = (0..n)
+                    .filter(|&i| !numbered[i])
+                    .max_by_key(|&i| (weight[i], std::cmp::Reverse(i)))
+                    .unwrap();
+                order.push(v);
+                numbered[v] = true;
+                for &w in &adj[v] {
+                    if !numbered[w] {
+                        weight[w] += 1;
+                    }
+                }
+            }
+            order.reverse();
+            let position: Vec<usize> = {
+                let mut pos = vec![0; n];
+                for (i, &v) in order.iter().enumerate() {
+                    pos[v] = i;
+                }
+                pos
+            };
+            for (idx_in_order, &v) in order.iter().enumerate() {
+                let later_neighbors: Vec<usize> = adj[v]
+                    .iter()
+                    .filter(|&&w| position[w] > idx_in_order)
+                    .copied()
+                    .collect();
+                for i in 0..later_neighbors.len() {
+                    for j in (i + 1)..later_neighbors.len() {
+                        if !adj[later_neighbors[i]].contains(&later_neighbors[j]) {
+                            return false;
+                        }
+                    }
+                }
+            }
+            true
+        };
+
+        assert_eq!(
+            old_fn(&g),
+            super::is_chordal(&g),
+            "is_chordal bucket-MCS must be byte-identical to the O(V^2) scan"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if cand { super::is_chordal(&g) } else { old_fn(&g) };
+            black_box(r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "CHORDALMCS_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("CHORDALMCS_AB is_chordal 6000-node interval graph rounds={rounds} (>1 = bucket-MCS faster)");
+        report("BUCKET_vs_scan", &paired(true, false));
+        report("NULL_bucket_vs_bucket", &paired(true, true));
     }
 
     /// br-r37-c1-ra004: paired-interleaved median A/B for the `neighbor_count`
@@ -73171,6 +73337,95 @@ mod tests {
             );
         };
         println!("EGOBORROW_AB induced-edge-copy 8k/200k rounds={rounds} (>1 = borrowed faster)");
+        report("BORROWED_vs_owned", &paired(true, false));
+        report("NULL_borrowed_vs_borrowed", &paired(true, true));
+    }
+
+    /// br-r37-c1-8vjja: isolated paired-interleaved median A/B for the ordered edge scan that builds
+    /// `to_prufer_sequence`'s integer adjacency. The original arm materializes `edges_ordered()`
+    /// (cloning two Strings and an unused AttrMap per tree edge); the candidate parses the identical
+    /// borrowed endpoints. Exact ordered integer endpoint parity is asserted before timing. `#[ignore]`;
+    /// run with `cargo test --release -p fnx-algorithms --lib to_prufer_edge_borrow_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn to_prufer_edge_borrow_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n_nodes = 100_000usize;
+        let mut graph = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = graph.add_node(i.to_string());
+        }
+        for i in 1..n_nodes {
+            let _ = graph.add_edge((i - 1).to_string(), i.to_string());
+        }
+
+        let old_fn = || -> Vec<(usize, usize)> {
+            graph
+                .edges_ordered()
+                .into_iter()
+                .map(|edge| {
+                    (
+                        edge.left.parse::<usize>().unwrap(),
+                        edge.right.parse::<usize>().unwrap(),
+                    )
+                })
+                .collect()
+        };
+        let new_fn = || -> Vec<(usize, usize)> {
+            graph
+                .edges_ordered_borrowed()
+                .into_iter()
+                .map(|(left, right, _attrs)| {
+                    (left.parse::<usize>().unwrap(), right.parse::<usize>().unwrap())
+                })
+                .collect()
+        };
+
+        assert_eq!(old_fn(), new_fn(), "Prüfer ordered edge scan parity");
+
+        let time = |borrowed: bool| -> f64 {
+            let t0 = Instant::now();
+            let edges = if borrowed { new_fn() } else { old_fn() };
+            black_box(edges);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |values: &[f64]| {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            sorted[sorted.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |candidate: bool, baseline: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(baseline), time(candidate))
+                } else {
+                    let candidate_time = time(candidate);
+                    (time(baseline), candidate_time)
+                };
+                ratios.push(base_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "PRUFERBORROW_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("PRUFERBORROW_AB ordered-edge-scan path100k rounds={rounds} (>1 = borrowed faster)");
         report("BORROWED_vs_owned", &paired(true, false));
         report("NULL_borrowed_vs_borrowed", &paired(true, true));
     }
