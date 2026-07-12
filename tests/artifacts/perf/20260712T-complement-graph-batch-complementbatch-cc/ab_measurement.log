@@ -1,0 +1,11 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib complement_graph_batch_ab -- --ignored --nocapture
+
+COMPLEMENT_BATCH_AB cycle500 rounds=61 (>1 = batch faster)
+COMPLEMENT_BATCH_AB BATCH_vs_string: median=6.1533x win_rate=61/61 p5_p95=[4.7303,8.5782]
+COMPLEMENT_BATCH_AB NULL_batch_vs_batch: median=1.0056x win_rate=34/61 p5_p95=[0.7740,1.1353]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 971 filtered out; finished in 21.66s
+
+Gate: candidate p5 (4.7303) >> NULL p95 (1.1353); 61/61 rounds. Byte-identity parity assert
+(edges_ordered_borrowed + nodes_ordered on the complement of a 500-node cycle, ~124250 edges) passed
+before timing. Bigger win than the products (6.15x) because a sparse input yields a DENSE complement, so
+many per-edge policy records are dropped -> one bulk extend_edges_unrecorded.

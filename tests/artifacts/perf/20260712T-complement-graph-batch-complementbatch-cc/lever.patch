@@ -1,0 +1,139 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index ffdd1140b..c54aa810b 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -37617,13 +37617,21 @@ pub fn complement_graph(graph: &Graph) -> Graph {
+     for &node in &nodes {
+         let _ = result.add_node(node.to_owned());
+     }
++    // br-r37-c1-complementbatch (cc): the complement's edges are exactly the i<j pairs with NO edge in
++    // the INPUT (has_edge reads the input graph, never the result), so every collected pair is unique
++    // with no self-loop. Collect them + one extend_edges_unrecorded instead of per-edge add_edge (a
++    // policy record each) — for a sparse input the complement is dense, so this drops many policy
++    // records. extend_edges_unrecorded canonicalizes + pushes adjacency exactly as add_edge (and dedups,
++    // though there are no dups here) → byte-identical.
++    let mut edges: Vec<(String, String)> = Vec::new();
+     for i in 0..nodes.len() {
+         for j in (i + 1)..nodes.len() {
+             if !graph.has_edge(nodes[i], nodes[j]) {
+-                let _ = result.add_edge(nodes[i].to_owned(), nodes[j].to_owned());
++                edges.push((nodes[i].to_owned(), nodes[j].to_owned()));
+             }
+         }
+     }
++    let _ = result.extend_edges_unrecorded(edges);
+     result
+ }
+ 
+@@ -66813,6 +66821,111 @@ mod tests {
+         report("NULL_batch_vs_batch", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-complementbatch: paired-interleaved median A/B for complement_graph — inline per-edge
++    /// baseline vs the shipped batch, one binary / one worker with a NULL control. A sparse input →
++    /// dense complement, so the per-edge policy drop is large. Byte-identity asserted first. `#[ignore]`;
++    /// run with `cargo test --release -p fnx-algorithms --lib complement_graph_batch_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn complement_graph_batch_ab() {
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // Sparse input: cycle on 500 nodes (500 edges) → complement ~124250 edges.
++        let mut input = Graph::strict();
++        let n = 500usize;
++        for i in 0..n {
++            let _ = input.add_node(format!("{i}"));
++        }
++        for i in 0..n {
++            let _ = input.add_edge(format!("{i}"), format!("{}", (i + 1) % n));
++        }
++
++        let build = |g: &Graph, batch: bool| -> Graph {
++            let nodes = g.nodes_ordered();
++            let mut result = Graph::with_runtime_policy(g.runtime_policy().clone());
++            for &node in &nodes {
++                let _ = result.add_node(node.to_owned());
++            }
++            if batch {
++                let mut edges: Vec<(String, String)> = Vec::new();
++                for i in 0..nodes.len() {
++                    for j in (i + 1)..nodes.len() {
++                        if !g.has_edge(nodes[i], nodes[j]) {
++                            edges.push((nodes[i].to_owned(), nodes[j].to_owned()));
++                        }
++                    }
++                }
++                let _ = result.extend_edges_unrecorded(edges);
++            } else {
++                for i in 0..nodes.len() {
++                    for j in (i + 1)..nodes.len() {
++                        if !g.has_edge(nodes[i], nodes[j]) {
++                            let _ = result.add_edge(nodes[i].to_owned(), nodes[j].to_owned());
++                        }
++                    }
++                }
++            }
++            result
++        };
++
++        let old = build(&input, false);
++        let new = build(&input, true);
++        assert_eq!(
++            old.edges_ordered_borrowed(),
++            new.edges_ordered_borrowed(),
++            "batch complement_graph must equal the per-edge baseline"
++        );
++        assert_eq!(old.nodes_ordered(), new.nodes_ordered());
++
++        let time = |batch: bool| -> f64 {
++            let t0 = Instant::now();
++            black_box(build(&input, batch));
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for round in 0..rounds {
++                let (tb, tc) = if round.is_multiple_of(2) {
++                    let bt = time(base_arm);
++                    let ct = time(cand);
++                    (bt, ct)
++                } else {
++                    let ct = time(cand);
++                    let bt = time(base_arm);
++                    (bt, ct)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "COMPLEMENT_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("COMPLEMENT_BATCH_AB cycle500 rounds={rounds} (>1 = batch faster)");
++        report("BATCH_vs_string", &paired(true, false));
++        report("NULL_batch_vs_batch", &paired(true, true));
++    }
++
+     #[test]
+     fn test_cartesian_product_label_disambiguation() {
+         let mut g1 = Graph::strict();

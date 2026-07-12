@@ -1,5 +1,19 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `complement_graph` batch-insert **6.1533x** (br-r37-c1-complementbatch)
+
+Fifth fnx-algorithms result-builder batch (beyond the 4 products). complement_graph iterates all i<j
+pairs, checks has_edge on the INPUT (never the result), adds each non-edge via per-edge add_edge. Collect
+non-edges + one extend_edges_unrecorded. Byte-identical (non-edges unique, no self-loop; has_edge reads
+input; parity assert + 9 complement suite tests incl. involution green). SPARSE input → DENSE complement →
+many policy records dropped → bigger win than products.
+
+MEASURED — complement of 500-node cycle (500 nodes, ~124250 edges), 61 rounds: **BATCH_vs_string median
+6.1533x**, win_rate 61/61, p5_p95 [4.7303, 8.5782] vs NULL 1.0056x [0.7740, 1.1353]. DECIDABLE: candidate
+p5 (4.73) ~4.2x above the null p95 (1.14), 61/61 won. CLIPPY: MY CODE CLEAN (0 in ranges 37620-37642 /
+66815-66940, grep-verified); crate's ~12 pre-existing peer errors untouched. See
+[[redundant_edge_materialization_family]]. Next: complement_digraph (~37632, DiGraph non-edge loop).
+
 ## SHIPPED WIN (cc, 2026-07-12): `tensor_product_directed` batch-insert **4.5399x** (br-r37-c1-tensorproddirbatch)
 
 Fourth product-operator lever (the four core graph products now batched). Directed tensor: edge Vecs
