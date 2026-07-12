@@ -1,5 +1,22 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `random_uniform_k_out_multidigraph` keyed batch **1.6342x** (br-r37-c1-koutmdgbatch) — first MultiDiGraph keyed-batch
+
+Twenty-fourth engine-level generator batch win; FIRST MultiDiGraph keyed batch. k targets WITH replacement
+→ parallel edges with auto-keys. add_edge_impl's auto-key = edges.get((u,v)).map_or(0,|b| b.len()) then
+bump-while-occupied; with all-auto-keys/no-gaps that's a per-(u,v) SEQUENTIAL counter 0,1,2. Reproduced
+with HashMap<(usize,usize),usize> counter + batch via MultiDiGraph::extend_keyed_edges_with_attrs_unrecorded
+(drops the 2 per-edge policy records; String-keyed so name hashing stays → MODEST win).
+
+MEASURED — random_uniform_k_out_multidigraph(1000,500) (1000 nodes, 500000 multi-edges), 61 rounds:
+**BATCH_vs_string median 1.6342x**, win_rate 61/61, p5_p95 [1.4269, 1.9003] vs NULL 1.0129x [0.9019,
+1.1553]. DECIDABLE: candidate p5 (1.43) above the null p95 (1.16), 61/61 won. BYTE-IDENTICAL INCL. KEYS —
+parity across 4 configs incl. (50,20,self_loops=true) dense (parallel edges, keys>0); vs-nx
+`random_uniform_k_out_multidigraph_matches_networkx_seeded_example` + self_loop_filter green; clippy CLEAN.
+KEY FINDING: the per-(u,v) counter reproduces MultiDiGraph auto-keys byte-identically → enables future
+MultiDiGraph batch levers (though only a String-keyed inserter exists; an index-keyed one would push
+higher). See [[generator_accept_loop_batch]] and [[mg_parallel_add_autokey_oN2]].
+
 ## SHIPPED WIN (cc, 2026-07-11): `random_uniform_k_out_digraph` batch-by-index **4.7622x** (br-r37-c1-koutdigraphbatch)
 
 Twenty-third engine-level generator batch win (third directed). Each source samples k DISTINCT targets

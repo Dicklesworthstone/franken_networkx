@@ -5123,7 +5123,17 @@ impl GraphGenerator {
             return Ok(self.finish_multidigraph_report(graph, warnings));
         }
 
+        // br-r37-c1-koutmdgbatch (cc): k targets WITH replacement → parallel edges. MultiDiGraph's
+        // auto-key is per-(u,v) sequential (add_edge_impl uses bucket.len(), with no gaps here since
+        // every edge is auto-keyed), so reproduce it with a per-(source,target) counter and batch via
+        // the KEYED inserter — which drops the 2 per-edge policy records add_edge_impl pays. It is
+        // String-keyed (name hashing stays), so this is a MODEST win. Verified byte-identical INCLUDING
+        // the keys via the kout_mdg_batch_ab parity asserts.
         let mut rng = PythonRandom::new(seed);
+        let mut key_counter: std::collections::HashMap<(usize, usize), usize> =
+            std::collections::HashMap::new();
+        let mut edges: Vec<(String, String, usize, fnx_classes::AttrMap)> =
+            Vec::with_capacity(n.saturating_mul(k));
         for source in 0..n {
             let candidate_targets = uniform_k_out_candidates(n, source, self_loops);
             if candidate_targets.is_empty() {
@@ -5134,18 +5144,18 @@ impl GraphGenerator {
             }
             for _ in 0..k {
                 let target = candidate_targets[rng.choice_index(candidate_targets.len())];
-                graph
-                    .add_edge_with_attrs(
-                        node_labels[source].clone(),
-                        node_labels[target].clone(),
-                        fnx_classes::AttrMap::new(),
-                    )
-                    .map_err(|err| GenerationError::FailClosed {
-                        operation: "random_uniform_k_out_multidigraph",
-                        reason: err.to_string(),
-                    })?;
+                let counter = key_counter.entry((source, target)).or_insert(0);
+                let key = *counter;
+                *counter += 1;
+                edges.push((
+                    node_labels[source].clone(),
+                    node_labels[target].clone(),
+                    key,
+                    fnx_classes::AttrMap::new(),
+                ));
             }
         }
+        let _ = graph.extend_keyed_edges_with_attrs_unrecorded(edges);
 
         self.record(
             "random_uniform_k_out_multidigraph",
@@ -9640,6 +9650,143 @@ mod tests {
             );
         };
         println!("KOUT_DIGRAPH_BATCH_AB n={n} k={k} rounds={rounds} (>1 = batch faster)");
+        report("BATCH_vs_string", &paired(true, false));
+        report("NULL_batch_vs_batch", &paired(true, true));
+    }
+
+    /// br-r37-c1-koutmdgbatch: PROFILE-FIRST A/B for random_uniform_k_out_multidigraph. Samples k
+    /// targets WITH replacement → parallel edges with MultiDiGraph auto-keys (per-(u,v) sequential:
+    /// bucket.len(), no gaps). Reproduce the keys with a per-(source,target) counter and batch via the
+    /// KEYED inserter (String-based; drops the 2 per-edge policy records, keeps the name hashes). The
+    /// parity asserts validate the KEYS. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-generators --lib kout_mdg_batch_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn kout_mdg_batch_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let build_string = |n: usize, k: usize, sl: bool, seed: u64| {
+            let mut g = MultiDiGraph::new(CompatibilityMode::Strict);
+            let labels: Vec<String> = (0..n)
+                .map(|node| {
+                    let l = node.to_string();
+                    let _ = g.add_node(l.clone());
+                    l
+                })
+                .collect();
+            let mut rng = super::PythonRandom::new(seed);
+            for source in 0..n {
+                let candidates = super::uniform_k_out_candidates(n, source, sl);
+                for _ in 0..k {
+                    let target = candidates[rng.choice_index(candidates.len())];
+                    let _ = g.add_edge_with_attrs(
+                        labels[source].clone(),
+                        labels[target].clone(),
+                        fnx_classes::AttrMap::new(),
+                    );
+                }
+            }
+            g
+        };
+        let build_batch = |n: usize, k: usize, sl: bool, seed: u64| {
+            let mut g = MultiDiGraph::new(CompatibilityMode::Strict);
+            let labels: Vec<String> = (0..n)
+                .map(|node| {
+                    let l = node.to_string();
+                    let _ = g.add_node(l.clone());
+                    l
+                })
+                .collect();
+            let mut rng = super::PythonRandom::new(seed);
+            let mut key_counter: std::collections::HashMap<(usize, usize), usize> =
+                std::collections::HashMap::new();
+            let mut edges: Vec<(String, String, usize, fnx_classes::AttrMap)> = Vec::new();
+            for source in 0..n {
+                let candidates = super::uniform_k_out_candidates(n, source, sl);
+                for _ in 0..k {
+                    let target = candidates[rng.choice_index(candidates.len())];
+                    let counter = key_counter.entry((source, target)).or_insert(0);
+                    let key = *counter;
+                    *counter += 1;
+                    edges.push((
+                        labels[source].clone(),
+                        labels[target].clone(),
+                        key,
+                        fnx_classes::AttrMap::new(),
+                    ));
+                }
+            }
+            let _ = g.extend_keyed_edges_with_attrs_unrecorded(edges);
+            g
+        };
+
+        for &(n, k, sl, seed) in &[
+            (50usize, 5usize, false, 1u64),
+            (50, 20, true, 7), // self-loops + dense → parallel edges (keys > 0)
+            (200, 50, false, 42),
+            (1000, 500, false, 3),
+        ] {
+            let gs = build_string(n, k, sl, seed);
+            let gb = build_batch(n, k, sl, seed);
+            assert_eq!(
+                gs.edges_ordered_borrowed(),
+                gb.edges_ordered_borrowed(),
+                "keyed batch kout_mdg({n},{k},{sl},{seed}) must equal per-edge baseline (incl. keys)"
+            );
+            assert_eq!(gs.nodes_ordered(), gb.nodes_ordered(), "nodes kout_mdg");
+        }
+
+        // random_uniform_k_out_multidigraph(1000, 500): 1000 nodes, 500000 directed multi-edges.
+        let (n, k, sl, seed) = (1000usize, 500usize, false, 3u64);
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            if batch {
+                black_box(build_batch(n, k, sl, seed));
+            } else {
+                black_box(build_string(n, k, sl, seed));
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "KOUT_MDG_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("KOUT_MDG_BATCH_AB n={n} k={k} rounds={rounds} (>1 = batch faster)");
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
     }

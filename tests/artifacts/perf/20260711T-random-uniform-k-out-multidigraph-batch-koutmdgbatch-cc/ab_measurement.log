@@ -1,0 +1,13 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib kout_mdg_batch_ab -- --ignored --nocapture
+
+KOUT_MDG_BATCH_AB n=1000 k=500 rounds=61 (>1 = batch faster)
+KOUT_MDG_BATCH_AB BATCH_vs_string: median=1.6342x win_rate=61/61 p5_p95=[1.4269,1.9003]
+KOUT_MDG_BATCH_AB NULL_batch_vs_batch: median=1.0129x win_rate=34/61 p5_p95=[0.9019,1.1553]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 218 filtered out; finished in 374.40s
+
+PROFILE-FIRST: this A/B ran BEFORE the production edit. Its parity asserts across 4 configs — incl.
+(50,20,self_loops=true) dense (heavy parallel edges, keys > 0) — ALL passed, proving the per-(source,
+target) key counter EXACTLY reproduces MultiDiGraph's auto-key (bucket.len()), so the KEYED batch is
+byte-identical INCLUDING the keys. MODEST win (1.63x): the keyed inserter is String-based, so it only
+drops the 2 per-edge policy records (add_edge_impl pays two); the name hashing stays. Gate: candidate p5
+(1.4269) > NULL p95 (1.1553); 61/61 — clears the null, decidable.
