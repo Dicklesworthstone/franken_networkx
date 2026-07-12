@@ -1,5 +1,18 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## REJECT (cc, 2026-07-12): `quotient_graph` batch — BELOW NULL (br-r37-c1-quotientbatch)
+
+quotient_graph collapses nodes into partition blocks; it ALREADY has a seen_edges HashSet that dedups
+inter-block edges, then adds each unique block edge via per-edge add_edge. Tried: keep the seen-set, collect
+unique block edges + one extend_edges_unrecorded. BYTE-IDENTICAL (parity assert on K300/100-blocks passed)
+BUT BELOW NULL: BATCH_vs_string median 1.1103x, 45/61, p5_p95 [0.8564, 1.4787] vs NULL 1.0161x [0.9363,
+1.1757] — candidate p5 (0.86) < null p95 (1.18). AMDAHL: the batch only saves the policy record on the ~4950
+UNIQUE BLOCK edges, but the loop scans all |E|=44850 input edges + the seen_edges insert per input edge
+dominates (common to both arms). Production + A/B REVERTED (git diff empty); only this ledger entry committed.
+LESSON: result-builders whose OUTPUT edge count << their INPUT-edge scan are Amdahl-limited by the scan/dedup
+— the batch-insert lever needs output ≈ |E| to clear the null. Likely also applies to `condensation`
+(SCC-collapse) and other quotient/contraction builders. See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `ego_graph_directed` induced-edge batch **2.1646x** (br-r37-c1-egographdirbatch)
 
 Thirteenth fnx-algorithms result-builder batch (DiGraph analog of ego_graph). BFS ego set → add every

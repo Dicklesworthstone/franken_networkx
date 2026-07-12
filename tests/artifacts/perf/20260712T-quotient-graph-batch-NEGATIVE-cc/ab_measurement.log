@@ -1,0 +1,11 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib quotient_graph_batch_ab -- --ignored --nocapture
+
+QUOTIENT_BATCH_AB K300_100blocks rounds=61 (>1 = batch faster)
+QUOTIENT_BATCH_AB BATCH_vs_string: median=1.1103x win_rate=45/61 p5_p95=[0.8564,1.4787]
+QUOTIENT_BATCH_AB NULL_batch_vs_batch: median=1.0161x win_rate=39/61 p5_p95=[0.9363,1.1757]
+test tests::quotient_graph_batch_ab ... ok
+
+REJECT — BELOW NULL. Candidate p5 (0.8564) is BELOW the NULL p95 (1.1757); win_rate 45/61 (null is
+39/61). The candidate median (1.11x) overlaps the null band [0.94, 1.18]. The batch IS byte-identical
+(parity assert passed), but it does NOT clear the null, so it is NOT a shippable lever. Production edit +
+A/B test were REVERTED; only this negative-ledger entry is committed.
