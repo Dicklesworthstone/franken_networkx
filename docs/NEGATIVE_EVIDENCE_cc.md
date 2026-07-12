@@ -1,5 +1,19 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `find_cycle_directed` adjacency-build integer swap **2.4619x** (br-r37-c1-fcycidx)
+
+Sixth "name-keyed → integer" win, 2nd "mostly-integer + name-residual" (after imdomint). find_cycle_directed
+builds Vec<Vec<usize>> adjacency once then integer DFS — but the setup went node_to_idx + successors(node)
+(Vec<&str> alloc) + node_to_idx.get(s) (String re-hash per edge) + sort_unstable. Swap to
+successors_indices(i). BYTE-IDENTICAL: every successor is a graph node (get always Some) so adj[i] is the
+same index set; both sort_unstable'd → identical sorted adjacency → DFS finds the same cycle.
+
+MEASURED — 10000-node forward DAG (i→i+1..i+5, no cycle → full setup+DFS), 61 rounds: **INT_vs_string median
+2.4619x**, 61/61, p5_p95 [2.0907,3.5928] vs NULL 1.0089x [0.8718,1.1460]. DECISIVE: candidate p5 (2.09) ~1.8x
+above null p95. Differential parity asserted; 5 find_cycle suite tests green incl. directed_exists (pins the
+exact cycle). Reachable via find_cycle_directed pyo3. CLIPPY: my lines clean (production ~28562-28575 / test
+~71182-71325); crate's 12 pre-existing peer errors untouched. See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `immediate_dominators` successor-iteration integer swap **2.7890x** (br-r37-c1-imdomint)
 
 Fifth "name-keyed → integer" win — DISTINCT flavour: a fn already integer INTERNALLY (integer idom/preds/rpo)

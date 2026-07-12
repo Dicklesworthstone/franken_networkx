@@ -1,0 +1,22 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib find_cycle_directed_idx_ab -- --ignored --nocapture
+
+FCYC_IDX_AB dag10000 rounds=61 (>1 = index faster)
+FCYC_IDX_AB INT_vs_string: median=2.4619x win_rate=61/61 p5_p95=[2.0907,3.5928]
+FCYC_IDX_AB NULL_int_vs_int: median=1.0089x win_rate=37/61 p5_p95=[0.8718,1.1460]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1005 filtered out; finished in 1.02s
+
+Marker FCYC_IDX_AB + test name confirmed (fresh binary). Differential parity (old
+node_to_idx+successors setup vs new successors_indices setup, shared DFS) asserted
+equal before timing (both None on the DAG, after full setup + full traversal).
+
+$ cargo test --release -p fnx-algorithms --lib find_cycle -- --nocapture
+test tests::test_find_cycle_directed_dag ... ok
+test tests::test_find_cycle_directed_exists ... ok      # pins the exact cycle returned
+test tests::test_find_cycle_undirected_exists ... ok
+test tests::test_find_cycle_undirected_tree ... ok
+test tests::test_find_cycle_empty ... ok
+test result: ok. 5 passed; 0 failed; 1 ignored; ...
+
+$ cargo clippy --release -p fnx-algorithms --lib --tests -- -D warnings
+--> NONE of my lines flagged (production ~28562-28575 / test ~71182-71325)
+--> 12 pre-existing peer -D warnings errors (untouched, shared checkout)

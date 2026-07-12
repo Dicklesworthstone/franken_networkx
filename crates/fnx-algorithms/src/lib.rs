@@ -28559,19 +28559,17 @@ pub fn find_cycle_directed(graph: &DiGraph) -> Option<Vec<String>> {
         return None;
     }
 
-    let node_to_idx: HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+    // br-r37-c1-fcycidx (cc): build integer adjacency via successors_indices (zero-alloc &[usize])
+    // instead of node_to_idx + successors(node) (a Vec<&str> alloc + a String re-hash per edge). Every
+    // successor is a graph node (the old node_to_idx.get was always Some), so adj[i] is the identical
+    // index set; sorting it identically → byte-identical (the DFS over the sorted adjacency finds the
+    // same cycle in the same order).
     let mut adj: Vec<Vec<usize>> = vec![vec![]; n];
-    for &node in &nodes {
-        let i = node_to_idx[node];
-        if let Some(succs) = graph.successors(node) {
-            for &s in &succs {
-                if let Some(&j) = node_to_idx.get(s) {
-                    adj[i].push(j);
-                }
-            }
-            adj[i].sort_unstable();
+    for (i, row) in adj.iter_mut().enumerate() {
+        for &j in graph.successors_indices(i).unwrap_or(&[]) {
+            row.push(j);
         }
+        row.sort_unstable();
     }
 
     // DFS-based cycle detection
@@ -71177,6 +71175,152 @@ mod tests {
             );
         };
         println!("IMDOM_INT_AB dag8000_od5 rounds={rounds} (>1 = index faster)");
+        report("INT_vs_string", &paired(true, false));
+        report("NULL_int_vs_int", &paired(true, true));
+    }
+
+    /// br-r37-c1-fcycidx: paired-interleaved median A/B for find_cycle_directed's adjacency setup —
+    /// inline the full function with a flag branching only the adj build (ORIGINAL node_to_idx +
+    /// successors(node) + node_to_idx.get re-hash vs the shipped successors_indices), shared DFS.
+    /// Differential parity asserted first. One binary / one worker with a NULL control. 10000-node DAG
+    /// (no cycle → full setup + full DFS). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib find_cycle_directed_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn find_cycle_directed_idx_ab() {
+        use std::collections::HashMap;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n_nodes = 10000usize;
+        let mut graph = DiGraph::strict();
+        for i in 0..n_nodes {
+            let _ = graph.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for d in 1..=5usize {
+                if i + d < n_nodes {
+                    let _ = graph.add_edge(i.to_string(), (i + d).to_string());
+                }
+            }
+        }
+
+        let build = |batch: bool| -> Option<Vec<String>> {
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            if n == 0 {
+                return None;
+            }
+            let mut adj: Vec<Vec<usize>> = vec![vec![]; n];
+            if batch {
+                for (i, row) in adj.iter_mut().enumerate() {
+                    for &j in graph.successors_indices(i).unwrap_or(&[]) {
+                        row.push(j);
+                    }
+                    row.sort_unstable();
+                }
+            } else {
+                let node_to_idx: HashMap<&str, usize> =
+                    nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+                for &node in &nodes {
+                    let i = node_to_idx[node];
+                    if let Some(succs) = graph.successors(node) {
+                        for &s in &succs {
+                            if let Some(&j) = node_to_idx.get(s) {
+                                adj[i].push(j);
+                            }
+                        }
+                        adj[i].sort_unstable();
+                    }
+                }
+            }
+            let mut color = vec![0u8; n];
+            let mut parent = vec![usize::MAX; n];
+            for start in 0..n {
+                if color[start] != 0 {
+                    continue;
+                }
+                let mut stack: Vec<(usize, usize)> = vec![(start, 0)];
+                color[start] = 1;
+                while let Some((v, idx)) = stack.last_mut() {
+                    let v = *v;
+                    if *idx < adj[v].len() {
+                        let w = adj[v][*idx];
+                        *idx += 1;
+                        if color[w] == 1 {
+                            let mut cycle = vec![nodes[w].to_string(), nodes[v].to_string()];
+                            let mut cur = v;
+                            while cur != w {
+                                cur = parent[cur];
+                                if cur == usize::MAX {
+                                    break;
+                                }
+                                cycle.push(nodes[cur].to_string());
+                            }
+                            cycle.reverse();
+                            return Some(cycle);
+                        } else if color[w] == 0 {
+                            color[w] = 1;
+                            parent[w] = v;
+                            stack.push((w, 0));
+                        }
+                    } else {
+                        color[v] = 2;
+                        stack.pop();
+                    }
+                }
+            }
+            None
+        };
+
+        let old = build(false);
+        let new = build(true);
+        assert_eq!(old, new, "successors_indices find_cycle must match the string baseline");
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            black_box(build(batch));
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "FCYC_IDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("FCYC_IDX_AB dag10000 rounds={rounds} (>1 = index faster)");
         report("INT_vs_string", &paired(true, false));
         report("NULL_int_vs_int", &paired(true, true));
     }
