@@ -1,0 +1,11 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib cartesian_product_directed_batch_ab -- --ignored --nocapture
+
+CARTPRODDIR_BATCH_AB K50xK50 rounds=61 (>1 = batch faster)
+CARTPRODDIR_BATCH_AB BATCH_vs_string: median=4.1922x win_rate=61/61 p5_p95=[1.6279,6.2085]
+CARTPRODDIR_BATCH_AB NULL_batch_vs_batch: median=0.9968x win_rate=30/61 p5_p95=[0.7366,1.4205]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 968 filtered out; finished in 104.08s
+
+Gate: candidate p5 (1.6279) > NULL p95 (1.4205); 61/61 rounds. Byte-identity parity assert
+(edges_ordered_borrowed + nodes_ordered on complete-digraph K50xK50) passed before timing. Same
+materialize-once + batch as the undirected cartesian_product win; the directed-graph timing is noisier
+(wider null spread) but the candidate p5 still clears the null p95 and 61/61 won.

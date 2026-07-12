@@ -1,5 +1,18 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `cartesian_product_directed` materialize-once + batch **4.1922x** (br-r37-c1-cartproddirbatch)
+
+Second product-operator lever (DiGraph analog of cartesian_product). Same redundancy: h/g edges_ordered()
+rebuilt per outer node + per-edge add_edge. Materialize once + collect name-pairs + one
+DiGraph::extend_edges_unrecorded. Byte-identical (two directed edge blocks disjoint, non-self-loop → unique
+directed pairs; parity assert on complete-digraph K50xK50 + test_cartesian_product_directed_path green).
+
+MEASURED — complete-digraph K50xK50 (2500 nodes, 245000 directed edges), 61 rounds: **BATCH_vs_string
+median 4.1922x**, win_rate 61/61, p5_p95 [1.6279, 6.2085] vs NULL 0.9968x [0.7366, 1.4205]. DECIDABLE:
+candidate p5 (1.63) clears the null p95 (1.42), 61/61 won (directed timing noisier, wider spread). CLIPPY:
+MY CODE CLEAN (0 in ranges 39659-39685 / 66405-66523, grep-verified); crate's ~12 pre-existing peer errors
+untouched. See [[redundant_edge_materialization_family]]. Next: tensor_product, tensor_product_directed.
+
 ## SHIPPED WIN (cc, 2026-07-11): `cartesian_product` materialize-once + batch **4.3177x** (br-r37-c1-cartprodbatch) — FIRST NON-GENERATOR LEVER
 
 First non-generator lever (redundant_edge_materialization family, fnx-algorithms). cartesian_product's two
