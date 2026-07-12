@@ -1,0 +1,12 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib petersen -- --nocapture
+running 5 tests (+1 ignored measurement)
+test tests::generalized_petersen_graph_matches_networkx_petersen_case ... ok
+test tests::kneser_graph_generation_order_matches_networkx_petersen_case ... ok
+test tests::petersen_graph_matches_networkx_edges_and_degrees ... ok
+test tests::generalized_petersen_graph_matches_networkx_boundary_case ... ok
+test tests::generalized_petersen_graph_rejects_networkx_error_boundaries ... ok
+test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 206 filtered out; finished in 0.00s
+
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo clippy -p fnx-generators --lib --tests -- -D warnings
+    Checking fnx-generators v0.2.0
+CLIPPY CLEAN (no errors, no warnings).

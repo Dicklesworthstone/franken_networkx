@@ -1,5 +1,25 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `generalized_petersen_graph` batch-by-index **6.1290x** (br-r37-c1-gpetersenbatch)
+
+Seventeenth engine-level generator batch win (second seen-set member). GP(n,k) = outer n-cycle + n spokes
++ inner circulant shift k; validation n>=3, 1<=k<=n/2. Outer/spokes unique, but inner
+(n+i, n+((i+k)%n)) dups when 2k==n (k==n/2, e.g. GP(4,2)). Seen-set batch (canonical (min,max),
+first-occurrence order) over emission order (outer, spoke, inner per i) + one
+extend_existing_index_edges_unrecorded. No self-loops (n>=3, k>=1).
+
+MEASURED — GP(40000,3) (80000 nodes, 120000 edges), 61 rounds: **BATCH_vs_string median 6.1290x**,
+win_rate 61/61, p5_p95 [2.3962, 7.9258] vs NULL 1.0166x [0.6094, 1.2553]. DECIDABLE: candidate p5 (2.40)
+above the null p95 (1.26), 61/61 won (GP cubic/sparse → fast construction → noisier timing, wider spread,
+clean separation). BYTE-IDENTICAL profile-first — parity asserts across 6 configs incl. the k==n/2 dup
+cases GP(4,2)/GP(6,3)/GP(8,4); 4 vs-nx suite tests green (petersen, boundary, edges/degrees, kneser-order);
+clippy `-D warnings` CLEAN.
+
+Vein: gnp 13.20x, gnm 8.55x, complete_multipartite 13.24x, turan 16.22x, ring_of_cliques 19.94x, windmill
+18.63x, caveman 3.86x, barbell 16.92x, lollipop 13.29x, tadpole 7.10x, hkn_harary 19.86x, hypercube 6.47x,
+wheel 24.28x, binomial_tree 6.96x, grid_2d 4.08x, circulant 17.37x, generalized_petersen 6.13x shipped;
+barabasi 1.04x surfaced. See [[generator_accept_loop_batch]].
+
 ## SHIPPED WIN (cc, 2026-07-11): `circulant_graph` batch-by-index **17.3655x** (br-r37-c1-circulantbatch)
 
 Sixteenth engine-level generator batch win — FIRST of the SEEN-SET sub-vein. circulant emits
