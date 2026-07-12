@@ -1,5 +1,21 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `tensor_product` batch-insert **3.7841x** (br-r37-c1-tensorprodbatch)
+
+Third product-operator lever. tensor_product ALREADY materializes its edge Vecs, so the only win is the
+per-edge policy record → one bulk record (collect product edges + one Graph::extend_edges_unrecorded).
+KEY: `extend_edges_unrecorded` DEDUPS on the canonical endpoint pair (fnx-classes lib.rs:1300
+`edges.contains_key → continue`) EXACTLY like add_edge, so the self-loop `add_cross` duplicates (a G
+self-loop makes the cross edge == the main edge) are skipped identically → byte-identical, NO seen-set
+needed. (This also confirms the cartesian_product ships were safe even though those had no dups.)
+
+MEASURED — K30xK30 (900 nodes, 435x435 edge-pairs), 61 rounds: **BATCH_vs_string median 3.7841x**, win_rate
+61/61, p5_p95 [2.8352, 5.3608] vs NULL 1.0164x [0.8481, 1.2608]. DECIDABLE: candidate p5 (2.84) ~2.3x above
+the null p95 (1.26), 61/61 won (profile-first run gave 3.90x). Byte-identical (parity + 5 tensor suite
+tests green). CLIPPY: MY CODE CLEAN (0 in ranges 39717-39750 / 66523-66691, grep-verified); crate's ~12
+pre-existing peer errors untouched. See [[redundant_edge_materialization_family]]. Next:
+tensor_product_directed.
+
 ## SHIPPED WIN (cc, 2026-07-12): `cartesian_product_directed` materialize-once + batch **4.1922x** (br-r37-c1-cartproddirbatch)
 
 Second product-operator lever (DiGraph analog of cartesian_product). Same redundancy: h/g edges_ordered()

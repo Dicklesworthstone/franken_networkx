@@ -1,0 +1,15 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib tensor_product_batch_ab -- --ignored --nocapture
+
+TENSORPROD_BATCH_AB K30xK30 rounds=61 (>1 = batch faster)
+TENSORPROD_BATCH_AB BATCH_vs_string: median=3.7841x win_rate=61/61 p5_p95=[2.8352,5.3608]
+TENSORPROD_BATCH_AB NULL_batch_vs_batch: median=1.0164x win_rate=36/61 p5_p95=[0.8481,1.2608]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 969 filtered out; finished in 81.03s
+
+(An earlier profile-first run — before the production edit, OLD=production-per-edge — gave 3.8955x
+[2.9671,5.2780]; this re-run uses an inline per-edge build_old baseline and is consistent.)
+
+Gate: candidate p5 (2.8352) >> NULL p95 (1.2608); 61/61 rounds. Byte-identity parity assert
+(edges_ordered_borrowed + nodes_ordered on K30xK30) passed before timing. tensor_product already
+materialized its edge Vecs, so the win is the per-edge policy record dropped -> one bulk record;
+extend_edges_unrecorded DEDUPS (edges.contains_key) exactly as add_edge, so the self-loop add_cross
+duplicates are handled byte-identically.

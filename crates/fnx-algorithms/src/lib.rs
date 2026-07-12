@@ -39717,6 +39717,11 @@ pub fn tensor_product(g: &Graph, h: &Graph) -> Graph {
         .map(|e| (e.left.clone(), e.right.clone()))
         .collect();
 
+    // br-r37-c1-tensorprodbatch (cc): collect the product edges (same emission order) and batch-insert
+    // once instead of per-edge add_edge (a policy record each). extend_edges_unrecorded DEDUPS on the
+    // canonical endpoint pair (edges.contains_key) exactly as add_edge, so the self-loop `add_cross`
+    // duplicates are handled identically → byte-identical.
+    let mut edges: Vec<(String, String)> = Vec::new();
     // For each pair of edges (one from G, one from H), add edges
     for (gu, gv) in &g_edges {
         for (hu, hv) in &h_edges {
@@ -39730,12 +39735,13 @@ pub fn tensor_product(g: &Graph, h: &Graph) -> Graph {
             let node4 = pair_label(gv, hu);
             let add_cross = node3 != node1 || node4 != node2;
 
-            let _ = result.add_edge(node1, node2);
+            edges.push((node1, node2));
             if add_cross {
-                let _ = result.add_edge(node3, node4);
+                edges.push((node3, node4));
             }
         }
     }
+    let _ = result.extend_edges_unrecorded(edges);
 
     result
 }
@@ -66513,6 +66519,169 @@ mod tests {
             );
         };
         println!("CARTPRODDIR_BATCH_AB K50xK50 rounds={rounds} (>1 = batch faster)");
+        report("BATCH_vs_string", &paired(true, false));
+        report("NULL_batch_vs_batch", &paired(true, true));
+    }
+
+    /// br-r37-c1-tensorprodbatch: PROFILE-FIRST A/B for tensor_product. Its edge Vecs are already
+    /// materialized, so batching only drops the per-edge policy record (extend_edges_unrecorded also
+    /// DEDUPS — `edges.contains_key` — matching add_edge, so the self-loop `add_cross` duplicates are
+    /// handled). Profile whether the policy-drop alone clears the null before any production edit.
+    /// `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib tensor_product_batch_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn tensor_product_batch_ab() {
+        use super::pair_label;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let complete = |n: usize, prefix: &str| -> Graph {
+            let mut g = Graph::strict();
+            for i in 0..n {
+                let _ = g.add_node(format!("{prefix}{i}"));
+            }
+            for i in 0..n {
+                for j in (i + 1)..n {
+                    let _ = g.add_edge(format!("{prefix}{i}"), format!("{prefix}{j}"));
+                }
+            }
+            g
+        };
+        // K30 x K30: 900 nodes; 435 * 435 g/h edge-pairs * ~2 = ~378k edge-inserts (pre-dedup).
+        let g = complete(30, "g");
+        let h = complete(30, "h");
+
+        let build_new = |g: &Graph, h: &Graph| -> Graph {
+            let mut result = Graph::with_runtime_policy(g.runtime_policy().clone());
+            let g_nodes = g.nodes_ordered();
+            let h_nodes = h.nodes_ordered();
+            for gn in &g_nodes {
+                for hn in &h_nodes {
+                    let _ = result.add_node(pair_label(gn, hn));
+                }
+            }
+            let g_edges: Vec<(String, String)> = g
+                .edges_ordered()
+                .into_iter()
+                .map(|e| (e.left.clone(), e.right.clone()))
+                .collect();
+            let h_edges: Vec<(String, String)> = h
+                .edges_ordered()
+                .into_iter()
+                .map(|e| (e.left.clone(), e.right.clone()))
+                .collect();
+            let mut edges: Vec<(String, String)> = Vec::new();
+            for (gu, gv) in &g_edges {
+                for (hu, hv) in &h_edges {
+                    let node1 = pair_label(gu, hu);
+                    let node2 = pair_label(gv, hv);
+                    let node3 = pair_label(gu, hv);
+                    let node4 = pair_label(gv, hu);
+                    let add_cross = node3 != node1 || node4 != node2;
+                    edges.push((node1, node2));
+                    if add_cross {
+                        edges.push((node3, node4));
+                    }
+                }
+            }
+            let _ = result.extend_edges_unrecorded(edges);
+            result
+        };
+
+        // Pre-lever baseline (inline, since production tensor_product is now the batch): per-edge add_edge.
+        let build_old = |g: &Graph, h: &Graph| -> Graph {
+            let mut result = Graph::with_runtime_policy(g.runtime_policy().clone());
+            let g_nodes = g.nodes_ordered();
+            let h_nodes = h.nodes_ordered();
+            for gn in &g_nodes {
+                for hn in &h_nodes {
+                    let _ = result.add_node(pair_label(gn, hn));
+                }
+            }
+            let g_edges: Vec<(String, String)> = g
+                .edges_ordered()
+                .into_iter()
+                .map(|e| (e.left.clone(), e.right.clone()))
+                .collect();
+            let h_edges: Vec<(String, String)> = h
+                .edges_ordered()
+                .into_iter()
+                .map(|e| (e.left.clone(), e.right.clone()))
+                .collect();
+            for (gu, gv) in &g_edges {
+                for (hu, hv) in &h_edges {
+                    let node1 = pair_label(gu, hu);
+                    let node2 = pair_label(gv, hv);
+                    let node3 = pair_label(gu, hv);
+                    let node4 = pair_label(gv, hu);
+                    let add_cross = node3 != node1 || node4 != node2;
+                    let _ = result.add_edge(node1, node2);
+                    if add_cross {
+                        let _ = result.add_edge(node3, node4);
+                    }
+                }
+            }
+            result
+        };
+
+        let old = build_old(&g, &h);
+        let new = build_new(&g, &h);
+        assert_eq!(
+            old.edges_ordered_borrowed(),
+            new.edges_ordered_borrowed(),
+            "batch tensor_product must equal the per-edge baseline"
+        );
+        assert_eq!(old.nodes_ordered(), new.nodes_ordered());
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            if batch {
+                black_box(build_new(&g, &h));
+            } else {
+                black_box(build_old(&g, &h));
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "TENSORPROD_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("TENSORPROD_BATCH_AB K30xK30 rounds={rounds} (>1 = batch faster)");
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
     }

@@ -1,0 +1,13 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib tensor_product -- --nocapture
+running 5 tests (1 ignored measurement)
+test tests::test_tensor_product_directed ... ok
+test tests::test_tensor_product_empty ... ok
+test tests::test_tensor_product_one_empty ... ok
+test tests::test_tensor_product_path_path ... ok
+test tests::test_tensor_product_triangle_edge ... ok
+test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 964 filtered out; finished in 0.00s
+
+$ cargo clippy -p fnx-algorithms --lib --tests -- -D warnings
+MY CHANGE IS CLIPPY-CLEAN: reports the same ~12 PRE-EXISTING peer errors (collapsible_if +
+doc-list-indentation in other agents' A/B tests); NONE in this lever's ranges (production 39717-39750,
+test 66523-66691) — grep-verified empty. Left untouched per shared-checkout discipline.
