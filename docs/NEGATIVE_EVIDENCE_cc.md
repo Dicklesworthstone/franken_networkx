@@ -1,5 +1,23 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `modularity` community double-loop → indices + weight map **1.9794x** (br-r37-c1-modwmap)
+
+NEW SUB-FAMILY (has_edge/node_to_idx-in-nested-loop). modularity's O(Σ|comm|²) double-loop did per-pair
+node_to_idx.get(u)+get(v) (String) + has_edge(u,v) (String) + edge_weight_or_default (String). Fix: (1) w_map
+= index-keyed HashMap<(usize,usize),f64> of edge weights built once → a_uv is an O(1) lookup; (2) resolve each
+community to INDICES once (comm_idx) so the double-loop is pure integer. KEY FINDING: part 1 ALONE was MARGINAL
+(1.06x, p5 0.88 < null p95 1.17 — has_edge is already an internal hash, swapping for another hash saves little);
+the dominant cost was the per-pair node_to_idx.get, so part 2 lifted it to 1.98x.
+
+MEASURED — circulant (2000 nodes deg20), 4 communities of 500 (double-loop = 1M pairs), 61 rounds:
+**WMAP_vs_hasedge median 1.9794x**, 60/61, p5_p95 [1.4957,2.3381] vs NULL 0.9990x [0.7713,1.3048]. DECIDABLE:
+candidate p5 (1.50) clears null p95 (1.30). Byte-identical: comm_idx keeps in-graph nodes in same order → same
+(ui,vi) pairs + same q sum order; a_uv identical (w_map[canon] = edge_weight, non-edge→0). ULP parity
+(to_bits) asserted; modularity_perfect_partition (Q value) + 5 tests green. Reachable via modularity pyo3.
+LESSON: has_edge→map is marginal (both hash); the win is hoisting the per-pair node_to_idx.get out of the inner
+loop. CLIPPY: my lines clean (production ~23960-23995 / test ~71895-72047); crate's 12 pre-existing peer errors
+untouched. See [[redundant_edge_materialization_family]].
+
 ## REJECT + SWEEP (cc, 2026-07-12): `ego_graph` BFS below-null; neighbour-walk sub-family exhausted
 
 REJECT (br-r37-c1-egobfsidx, reverted): ego_graph's ego-set BFS (neighbors(nodes[v]) + idx.get) → neighbors_
