@@ -1,5 +1,21 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `complete_bipartite_graph` INDEX-pair edge batch-insert **31.6498x** (br-r37-c1-bipartitebatch)
+
+Twenty-fourth result-builder batch win — NEW SESSION RECORD. complete_bipartite_graph(n1,n2) = K_{n1,n2}:
+n1+n2 nodes named "0".."n1+n2-1" via gen_nodes; cross edge between every left i∈[0,n1) and right j∈[n1,n1+n2)
+via gen_edge(&mut g,i,j). Node index i == name i.to_string(), so collect (i,j) INDEX pairs + one
+extend_existing_index_edges_unrecorded → drops both to_string allocs + name hashes + policy record.
+Compounding rule at its extreme: index-batch (12x) × maximally-dense-few-nodes (300 nodes, 22500 edges, avg
+degree 150) → 31.65x (denser per-node than multipartite K_{60x4}'s 28.34x).
+
+MEASURED — K_{150,150} (300 nodes, 22500 edges), 61 rounds: **BATCH_vs_string median 31.6498x**, 61/61,
+p5_p95 [22.2190,43.0384] vs NULL 0.9919x [0.7781,1.2432]. DECISIVE: candidate p5 (22.22) ~18x above null p95.
+Byte-identical: i<n1<=j (unique cross pair, no self-loop), helper canonicalizes by node NAME + pushes adj in
+given order, nodes pre-added. test_complete_bipartite_graph green; parity assert passed. Reachable via
+complete_bipartite_graph pyo3. CLIPPY: my lines clean (production ~33919-33934 / test ~69073-69163); crate's
+12 pre-existing peer errors untouched. See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `complete_multipartite_graph` INDEX-pair edge batch-insert **28.3401x** (br-r37-c1-multipartitebatch)
 
 Twenty-third result-builder batch win — LARGEST of the session. complete_multipartite_graph(block_sizes) =
