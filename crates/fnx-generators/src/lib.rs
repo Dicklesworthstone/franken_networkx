@@ -664,31 +664,47 @@ impl GraphGenerator {
         offsets: &[isize],
     ) -> Result<GenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("circulant_graph", n, MAX_N_GENERIC)?;
-        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
+        // br-r37-c1-circulantbatch (cc): circulant emits forward+backward per (node, offset), which
+        // ALWAYS duplicates each edge (and offset 0 → self-loop, offset n/2 → forward==backward), so
+        // collect the (node, target) INDEX pairs with a gnm-style integer seen-set (canonical
+        // (min,max) key, skip-if-seen, first-occurrence order = exactly add_edge's dedup) in the SAME
+        // emission order (backward then forward), then batch-insert instead of per-edge add_edge
+        // (2 clones + 2 name hashes + policy each). Verified byte-identical INCLUDING the self-loop
+        // (offset 0) and offset n/2 cases via the circulant_batch_ab parity asserts —
+        // extend_existing_index_edges_unrecorded matches add_edge's endpoint canonicalization,
+        // adj_indices order, AND self-loop handling.
+        let (mut graph, _node_labels) = graph_with_n_nodes(self.mode, n);
 
         if n > 0 {
             let n_i128 = n as i128;
+            let mut edges: Vec<(usize, usize)> = Vec::new();
+            let mut seen: std::collections::HashSet<(usize, usize)> =
+                std::collections::HashSet::new();
             for node in 0..n {
                 let node_i128 = node as i128;
                 for &offset in offsets {
                     let offset_i128 = offset as i128;
                     let backward = (node_i128 - offset_i128).rem_euclid(n_i128) as usize;
-                    graph
-                        .add_edge(node_labels[node].clone(), node_labels[backward].clone())
-                        .map_err(|err| GenerationError::FailClosed {
-                            operation: "circulant_graph",
-                            reason: err.to_string(),
-                        })?;
-
+                    let key = if node <= backward {
+                        (node, backward)
+                    } else {
+                        (backward, node)
+                    };
+                    if seen.insert(key) {
+                        edges.push((node, backward));
+                    }
                     let forward = (node_i128 + offset_i128).rem_euclid(n_i128) as usize;
-                    graph
-                        .add_edge(node_labels[node].clone(), node_labels[forward].clone())
-                        .map_err(|err| GenerationError::FailClosed {
-                            operation: "circulant_graph",
-                            reason: err.to_string(),
-                        })?;
+                    let key = if node <= forward {
+                        (node, forward)
+                    } else {
+                        (forward, node)
+                    };
+                    if seen.insert(key) {
+                        edges.push((node, forward));
+                    }
                 }
             }
+            let _ = graph.extend_existing_index_edges_unrecorded(edges);
         }
 
         self.record(
@@ -8569,6 +8585,155 @@ mod tests {
             );
         };
         println!("GRID2D_BATCH_AB m={m} n={n} rounds={rounds} (>1 = batch faster)");
+        report("BATCH_vs_string", &paired(true, false));
+        report("NULL_batch_vs_batch", &paired(true, true));
+    }
+
+    /// br-r37-c1-circulantbatch: PROFILE-FIRST A/B for circulant_graph. Unlike the earlier clean
+    /// generators, circulant's forward/backward emission ALWAYS duplicates each edge (and offset 0 =
+    /// self-loop, offset n/2 = forward==backward), so the batch needs a gnm-style integer seen-set
+    /// (canonical (min,max), skip-if-seen, first-occurrence order = matches add_edge dedup). This test
+    /// checks byte-identity of the seen-set batch across the RISKY cases (offset 0 self-loops, offset
+    /// n/2) BEFORE any production edit — if a parity assert fails, do NOT ship. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-generators --lib circulant_batch_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn circulant_batch_ab() {
+        use super::graph_with_n_nodes;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let collect_pairs = |n: usize, offsets: &[isize]| -> Vec<(usize, usize)> {
+            let mut edges: Vec<(usize, usize)> = Vec::new();
+            let mut seen: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+            if n > 0 {
+                let n_i128 = n as i128;
+                for node in 0..n {
+                    let node_i128 = node as i128;
+                    for &offset in offsets {
+                        let offset_i128 = offset as i128;
+                        let backward = (node_i128 - offset_i128).rem_euclid(n_i128) as usize;
+                        let key = if node <= backward {
+                            (node, backward)
+                        } else {
+                            (backward, node)
+                        };
+                        if seen.insert(key) {
+                            edges.push((node, backward));
+                        }
+                        let forward = (node_i128 + offset_i128).rem_euclid(n_i128) as usize;
+                        let key = if node <= forward {
+                            (node, forward)
+                        } else {
+                            (forward, node)
+                        };
+                        if seen.insert(key) {
+                            edges.push((node, forward));
+                        }
+                    }
+                }
+            }
+            edges
+        };
+
+        let build_string = |n: usize, offsets: &[isize]| {
+            let (mut g, node_labels) = graph_with_n_nodes(CompatibilityMode::Strict, n);
+            if n > 0 {
+                let n_i128 = n as i128;
+                for node in 0..n {
+                    let node_i128 = node as i128;
+                    for &offset in offsets {
+                        let offset_i128 = offset as i128;
+                        let backward = (node_i128 - offset_i128).rem_euclid(n_i128) as usize;
+                        let _ = g.add_edge(node_labels[node].clone(), node_labels[backward].clone());
+                        let forward = (node_i128 + offset_i128).rem_euclid(n_i128) as usize;
+                        let _ = g.add_edge(node_labels[node].clone(), node_labels[forward].clone());
+                    }
+                }
+            }
+            g
+        };
+        let build_batch = |n: usize, offsets: &[isize]| {
+            let (mut g, _node_labels) = graph_with_n_nodes(CompatibilityMode::Strict, n);
+            let _ = g.extend_existing_index_edges_unrecorded(collect_pairs(n, offsets));
+            g
+        };
+
+        // Byte-identity across configs INCLUDING the risky ones (construction only, no timing).
+        let configs: [(usize, &[isize]); 6] = [
+            (100, &[1, 2, 3]),          // normal — forward/backward duplicate
+            (100, &[50]),               // offset == n/2 → forward == backward
+            (7, &[0]),                  // offset 0 → self-loops
+            (7, &[0, 2]),               // self-loops + normal
+            (5, &[2]),                  // small
+            (10000, &[1, 2, 3, 4, 5]),  // timing config
+        ];
+        for &(n, offsets) in &configs {
+            let gs = build_string(n, offsets);
+            let gb = build_batch(n, offsets);
+            assert_eq!(
+                gs.edges_ordered_borrowed(),
+                gb.edges_ordered_borrowed(),
+                "seen-set batch circulant(n={n}, offsets={offsets:?}) must equal per-edge baseline"
+            );
+            assert_eq!(
+                gs.nodes_ordered(),
+                gb.nodes_ordered(),
+                "nodes circulant(n={n}, offsets={offsets:?})"
+            );
+        }
+
+        // circulant(10000, [1,2,3,4,5]): 10000 nodes, 10-regular = 50000 edges.
+        let n = 10000usize;
+        let offsets: &[isize] = &[1, 2, 3, 4, 5];
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            if batch {
+                black_box(build_batch(n, offsets));
+            } else {
+                black_box(build_string(n, offsets));
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round % 2 == 0 {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "CIRCULANT_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("CIRCULANT_BATCH_AB n={n} offsets={offsets:?} rounds={rounds} (>1 = batch faster)");
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
     }

@@ -1,5 +1,29 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `circulant_graph` batch-by-index **17.3655x** (br-r37-c1-circulantbatch)
+
+Sixteenth engine-level generator batch win — FIRST of the SEEN-SET sub-vein. circulant emits
+forward+backward per (node,offset), which ALWAYS duplicates each edge (+ offset 0 → self-loop, offset
+n/2 → forward==backward). Collected (node,target) index pairs with a gnm-style integer seen-set (canonical
+(min,max) key, skip-if-seen, first-occurrence order = add_edge's dedup) in the SAME emission order, then
+one extend_existing_index_edges_unrecorded.
+
+KEY DE-RISK: PROFILE-FIRST parity asserts (before the production edit) across 6 configs INCLUDING (100,[50])
+offset==n/2, (7,[0]) self-loops, (7,[0,2]) self-loops+normal ALL passed → proves
+extend_existing_index_edges_unrecorded matches add_edge's dedup AND self-loop handling byte-identically.
+The suite's `circulant_graph_matches_networkx_self_loop_case` (self-loops vs NX) also passes. This de-risks
+the remaining seen-set members (generalized_petersen k=n/2, hnm_harary, sudoku, grid_graph size-1-periodic).
+
+MEASURED — circulant(10000,[1,2,3,4,5]) (10000 nodes, 50000 edges), 61 rounds: **BATCH_vs_string median
+17.3655x**, win_rate 61/61, p5_p95 [13.3293, 20.3729] vs NULL 1.0016x [0.7957, 1.1782]. DECIDABLE:
+candidate p5 (13.33) ~11.3x above the null p95 (1.18), 61/61 won. The HashSet overhead is dwarfed by the
+dropped clones/hashes/policy. clippy `-D warnings` CLEAN.
+
+Vein: gnp 13.20x, gnm 8.55x, complete_multipartite 13.24x, turan 16.22x, ring_of_cliques 19.94x, windmill
+18.63x, caveman 3.86x, barbell 16.92x, lollipop 13.29x, tadpole 7.10x, hkn_harary 19.86x, hypercube 6.47x,
+wheel 24.28x, binomial_tree 6.96x, grid_2d 4.08x, circulant 17.37x shipped; barabasi 1.04x surfaced. See
+[[generator_accept_loop_batch]].
+
 ## SHIPPED WIN (cc, 2026-07-11): `grid_2d_graph` batch-by-index **4.0803x** (br-r37-c1-grid2dbatch)
 
 Fifteenth engine-level generator batch win. grid_2d = m×n grid on (row,col) tuple labels, vertical +
