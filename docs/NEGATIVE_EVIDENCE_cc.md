@@ -1,5 +1,22 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `is_dominating_set` integer-index check **6.0885x** (br-r37-c1-isdomint)
+
+Third win in the "neighbors + HashSet<&str>" residual sub-family. is_dominating_set(graph,dom_nodes) built a
+HashSet<&str> of dom_nodes + per graph node called graph.neighbors() (Vec<&str> alloc) then probed the String
+set — single O(V+E) pass. Fix: mark dominators in vec![false; n] by get_node_index, walk neighbors_indices
+(&[usize]) with O(1) probes. BYTE-IDENTICAL (bool): universal check is order-independent, same first-violation
+in nodes_ordered order; non-graph dom_nodes were inert in the old set so skipping them (get_node_index→None)
+changes nothing.
+
+MEASURED — 50000-node circulant (deg 10) with valid dom set (every 11th node, scans all), 61 rounds:
+**IDX_vs_string median 6.0885x**, 61/61, p5_p95 [4.8616,8.3250] vs NULL 0.9774x [0.7903,1.1982]. DECISIVE:
+candidate p5 (4.86) ~4x above null p95. Smaller than reaching (21x/19x) — single pass not n-call sweep, but
+the per-node Vec alloc + String hash drop is a clean 6x. Parity assert (bool) passed; is_dominating_set_valid
++ _invalid suite tests green. Reachable via is_dominating_set pyo3. CLIPPY: my lines clean (production
+~22666-22690 / test ~70684-70807); crate's 12 pre-existing peer errors untouched. See
+[[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `local_reaching_centrality_directed` integer-index BFS **18.7543x** (br-r37-c1-lrcdiridx)
 
 DiGraph mirror of br-r37-c1-lrcidx. local_reaching_centrality_directed(digraph,node) BFSed forward

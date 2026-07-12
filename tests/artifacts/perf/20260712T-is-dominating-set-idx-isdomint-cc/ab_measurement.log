@@ -1,0 +1,22 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib is_dominating_set_idx_ab -- --ignored --nocapture
+
+ISDOM_IDX_AB circ50k rounds=61 (>1 = index faster)
+ISDOM_IDX_AB IDX_vs_string: median=6.0885x win_rate=61/61 p5_p95=[4.8616,8.3250]
+ISDOM_IDX_AB NULL_idx_vs_idx: median=0.9774x win_rate=21/61 p5_p95=[0.7903,1.1982]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1002 filtered out; finished in 3.17s
+
+Marker ISDOM_IDX_AB + test name confirmed (fresh binary). Parity assert
+(old_bool == new_bool, and old == true) passed before timing.
+
+$ cargo test --release -p fnx-algorithms --lib dominating -- --nocapture
+test tests::dominating_set_path ... ok
+test tests::is_dominating_set_invalid ... ok        # false path
+test tests::is_dominating_set_valid ... ok          # true path
+test tests::test_connected_dominating_set_covers ... ok
+test tests::dominating_set_empty ... ok
+test tests::dominating_set_star ... ok
+test result: ok. 6 passed; 0 failed; 2 ignored; ...
+
+$ cargo clippy --release -p fnx-algorithms --lib --tests -- -D warnings
+--> NONE of my lines flagged (production ~22666-22690 / test ~70684-70807)
+--> 12 pre-existing peer -D warnings errors (untouched, shared checkout)

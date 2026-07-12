@@ -22663,17 +22663,28 @@ fn dominating_set_orig_string(graph: &Graph) -> Vec<String> {
 /// is either in D or adjacent to a node in D.
 #[must_use]
 pub fn is_dominating_set(graph: &Graph, dom_nodes: &[&str]) -> bool {
-    let dom: HashSet<&str> = dom_nodes.iter().copied().collect();
-    for node in graph.nodes_ordered() {
-        if dom.contains(node) {
+    // br-r37-c1-isdomint (cc): integer-index domination check. The old kernel built a `HashSet<&str>`
+    // of the dom nodes and, per graph node, called `graph.neighbors(node)` (a fresh `Vec<&str>` alloc)
+    // then probed the String set. Mark dominators in a `vec![false; n]` by node index and walk
+    // `graph.neighbors_indices` (zero-alloc &[usize]) with O(1) array probes. Byte-identical: dom_nodes
+    // not in the graph never matched a real node/neighbour in the old set, so skipping them (get_node_
+    // index → None) changes nothing; the per-node "has a dominator neighbour" test is over the same
+    // neighbour set and the pass returns on the same first violation (nodes_ordered() == index order).
+    let n = graph.node_count();
+    let mut dom_mask = vec![false; n];
+    for &d in dom_nodes {
+        if let Some(idx) = graph.get_node_index(d) {
+            dom_mask[idx] = true;
+        }
+    }
+    for node in 0..n {
+        if dom_mask[node] {
             continue;
         }
         // Check if any neighbor is in the dominating set
         let has_dom_neighbor = graph
-            .neighbors(node)
-            .unwrap_or_default()
-            .iter()
-            .any(|nbr| dom.contains(nbr));
+            .neighbors_indices(node)
+            .is_some_and(|nbrs| nbrs.iter().any(|&nbr| dom_mask[nbr]));
         if !has_dom_neighbor {
             return false;
         }
@@ -70666,6 +70677,132 @@ mod tests {
             );
         };
         println!("LRCDIR_IDX_AB dircirc1000 rounds={rounds} (>1 = index faster)");
+        report("IDX_vs_string", &paired(true, false));
+        report("NULL_idx_vs_idx", &paired(true, true));
+    }
+
+    /// br-r37-c1-isdomint: paired-interleaved median A/B for is_dominating_set — inline ORIGINAL
+    /// HashSet<&str> + neighbors() check vs the shipped integer dom_mask + neighbors_indices check.
+    /// One binary / one worker with a NULL control. 50000-node circulant (degree 10) with a valid
+    /// dominating set (every 11th node) so the pass scans all nodes. Parity asserted first.
+    /// `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib is_dominating_set_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn is_dominating_set_idx_ab() {
+        use std::collections::HashSet;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n_nodes = 50000usize;
+        let mut graph = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = graph.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for d in 1..=5usize {
+                let j = (i + d) % n_nodes;
+                if i != j {
+                    let _ = graph.add_edge(i.to_string(), j.to_string());
+                }
+            }
+        }
+        let dom_names: Vec<String> = (0..n_nodes).step_by(11).map(|i| i.to_string()).collect();
+        let dom_refs: Vec<&str> = dom_names.iter().map(|s| s.as_str()).collect();
+
+        let old_fn = |graph: &Graph, dom_nodes: &[&str]| -> bool {
+            let dom: HashSet<&str> = dom_nodes.iter().copied().collect();
+            for node in graph.nodes_ordered() {
+                if dom.contains(node) {
+                    continue;
+                }
+                let has = graph
+                    .neighbors(node)
+                    .unwrap_or_default()
+                    .iter()
+                    .any(|nbr| dom.contains(nbr));
+                if !has {
+                    return false;
+                }
+            }
+            true
+        };
+        let new_fn = |graph: &Graph, dom_nodes: &[&str]| -> bool {
+            let n = graph.node_count();
+            let mut dom_mask = vec![false; n];
+            for &d in dom_nodes {
+                if let Some(idx) = graph.get_node_index(d) {
+                    dom_mask[idx] = true;
+                }
+            }
+            for node in 0..n {
+                if dom_mask[node] {
+                    continue;
+                }
+                let has = graph
+                    .neighbors_indices(node)
+                    .is_some_and(|nbrs| nbrs.iter().any(|&nbr| dom_mask[nbr]));
+                if !has {
+                    return false;
+                }
+            }
+            true
+        };
+
+        let old = old_fn(&graph, &dom_refs);
+        let new = new_fn(&graph, &dom_refs);
+        assert_eq!(old, new, "integer domination check must match the string baseline");
+        assert!(old, "the every-11th dom set should be valid (so the pass scans all nodes)");
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if batch {
+                new_fn(&graph, &dom_refs)
+            } else {
+                old_fn(&graph, &dom_refs)
+            };
+            black_box(r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "ISDOM_IDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("ISDOM_IDX_AB circ50k rounds={rounds} (>1 = index faster)");
         report("IDX_vs_string", &paired(true, false));
         report("NULL_idx_vs_idx", &paired(true, true));
     }
