@@ -1,5 +1,24 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `random_uniform_k_out_digraph` batch-by-index **4.7622x** (br-r37-c1-koutdigraphbatch)
+
+Twenty-third engine-level generator batch win (third directed). Each source samples k DISTINCT targets
+(python_sample_indices, no dup within source; distinct sources → distinct pairs → no dup overall;
+self_loops=true → self-loops, byte-identical). k-loop never reads graph. Collected accepted (source,target)
+index pairs + batch via DiGraph::extend_existing_index_edges_with_attrs_unrecorded (empty AttrMap).
+PROFILE-FIRST was essential: the per-source O(n) candidate build (O(n^2) total) + k-sampling are COMMON to
+both arms and could have swamped the win, but the ~2M-edge insertion overhead dominated → 4.76x.
+
+MEASURED — random_uniform_k_out_digraph(2000,1000) (2000 nodes, 2000000 directed edges), 61 rounds:
+**BATCH_vs_string median 4.7622x**, win_rate 61/61, p5_p95 [3.3452, 10.1702] vs NULL 0.9945x [0.9096,
+1.1090]. DECIDABLE: candidate p5 (3.35) ~3.0x above the null p95 (1.11), 61/61 won. BYTE-IDENTICAL —
+parity across 4 configs incl. (100,50,self_loops=true); vs-nx
+`random_uniform_k_out_digraph_matches_networkx_seeded_examples` green; clippy `-D warnings` CLEAN.
+
+Vein: 23 wins. random_k_out_graph reads/updates mutable prefweights mid-loop → NOT batchable. Remaining:
+random_uniform_k_out_MULTIdigraph (needs MultiDiGraph index inserter check), fast_gnp p>=1.0 (edge case).
+See [[generator_accept_loop_batch]].
+
 ## SHIPPED WIN (cc, 2026-07-11): `gnp_random_digraph` batch-by-index **9.5627x** (br-r37-c1-gnpdigraphbatch)
 
 Twenty-second engine-level generator batch win (second directed). gnp_random_digraph visits every ordered
