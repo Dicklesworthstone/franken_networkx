@@ -1,5 +1,27 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SURVEY / SURFACE (cc, 2026-07-12): algorithm redundant-materialization sweep — all dead-ends
+
+After modularity (br-r37-c1-modmat), swept the reachable algorithm surface for another redundant-
+materialization/double-reduction lever. All candidates OUT — recorded so they're not re-explored:
+- `barycenter` BYPASSED — pyo3 has its own integer-adjacency barycenter_from_adjacency; fnx_algorithms::
+  barycenter is dead. LESSON: "Mirrors" in a doc comment ≠ "calls"; grep the actual `fnx_algorithms::fn(`
+  call excluding `///`.
+- `closeness_vitality` + `_single` ALREADY DONE (br-r37-c1-clvit / clvit1); the neighbors()-HashMap code at
+  ~22037 is the #[cfg(test)] A/B baseline, not production.
+- `local_efficiency` ULP-RISKY — inner BFS accumulates `sub_eff += 1.0/dist` in visit order (sort_unstable
+  pins it); integer-order conversion shifts the f64 summation → not ULP-identical. DO NOT convert.
+- `stoer_wagner_nx` / `normalized_cut_size_directed` / `eulerian_path` / `common_graph_edit_distance_mappings`
+  — 2x nodes_ordered/node_idx but only O(n) setup, Amdahl-drowned by O(V^3)/O(V·E)/exponential cores.
+  normalized_cut already integer-structured.
+- `dedensify` NONDETERMINISTIC — initial copy is a clean batch target BUT compression iterates a
+  HashMap<Vec<String>,Vec<String>>.values() to assign _compressor_{id} names → per-instance-random order →
+  dedensify output is non-deterministic → clean parity A/B impossible. Implemented+reverted the copy batch.
+
+NET: redundant-materialization/double-reduction family effectively mined out for cc (reachable + deterministic
++ not-Amdahl-drowned). See tests/artifacts/perf/20260712T-algo-redundancy-survey-NEGATIVE-cc/. Next lane needs
+a different family (kernel-side integer adjacency on a still-String algo, or a fresh structural pattern).
+
 ## SHIPPED WIN (cc, 2026-07-12): `modularity` redundant-setup fold **1.7126x** (br-r37-c1-modmat)
 
 PIVOT off the generator batch family into REDUNDANT-MATERIALIZATION. modularity() called nodes_ordered() 3x
