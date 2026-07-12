@@ -1,5 +1,22 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `complete_multipartite_graph` INDEX-pair edge batch-insert **28.3401x** (br-r37-c1-multipartitebatch)
+
+Twenty-third result-builder batch win — LARGEST of the session. complete_multipartite_graph(block_sizes) =
+K_{n1,n2,...}: total nodes named "0".."total-1" via gen_nodes; cross edge between every pair of nodes in
+different blocks via gen_edge(&mut g,i,j). Node index i == name i.to_string(), so collect (i,j) INDEX pairs +
+one extend_existing_index_edges_unrecorded → drops both to_string allocs + name hashes + policy record. Two
+multipliers STACK: (1) index-batch removes to_string (12x-tier), (2) DENSE with FEW nodes (240 nodes but
+21600 edges) so the shared gen_nodes build is negligible → nearly undiluted edge-loop speedup = 28.34x.
+
+MEASURED — K_{60,60,60,60} (240 nodes, 21600 edges), 61 rounds: **BATCH_vs_string median 28.3401x**, 61/61,
+p5_p95 [17.4096,40.6464] vs NULL 1.0118x [0.8705,1.1544]. DECISIVE: candidate p5 (17.41) ~15x above null p95.
+Byte-identical: i<j (block bi precedes bj), helper canonicalizes by node NAME + pushes adj in given order,
+nodes pre-added. test_complete_multipartite_graph green; parity assert passed. Reachable via
+complete_multipartite_graph pyo3. RULE: index-batch × dense-few-nodes = maximum win. CLIPPY: my lines clean
+(production ~33939-33956 / test ~68951-69062); crate's 12 pre-existing peer errors untouched. See
+[[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `hypercube_graph` INDEX-pair edge batch-insert **11.5494x** (br-r37-c1-hypercubebatch)
 
 Twenty-second result-builder batch win. hypercube_graph(n) = Qn: 2^n nodes named "0".."2^n-1" via gen_nodes;
