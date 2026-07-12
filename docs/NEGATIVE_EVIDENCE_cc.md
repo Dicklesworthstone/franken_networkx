@@ -1,5 +1,21 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `immediate_dominators` successor-iteration integer swap **2.7890x** (br-r37-c1-imdomint)
+
+Fifth "name-keyed → integer" win — DISTINCT flavour: a fn already integer INTERNALLY (integer idom/preds/rpo)
+whose only residual was iterating successors by NAME in two loops (DFS + preds-building): successors(nodes
+[node]) (Vec<&str> alloc) + node_to_idx[s] (String re-hash per edge). Swap to successors_indices(node)
+(&[usize]). BYTE-IDENTICAL: same successors → same DFS/preds; idom is a UNIQUE FIXPOINT (rpo only affects
+convergence, intersect is commutative) so order-independent anyway.
+
+MEASURED — 8000-node forward DAG (i→i+1..i+5), 61 rounds: **INT_vs_string median 2.7890x**, 61/61, p5_p95
+[2.2122,3.3708] vs NULL 0.9964x [0.8540,1.1724]. DECISIVE: candidate p5 (2.21) ~1.9x above null p95. SIZING:
+first at n=5000/od2 gave 1.76x but wide null (p95 1.52, candidate p5 1.42 didn't clear) — ~1.8ms build too
+noisy; n=8000/od5 lengthened build + enlarged the re-hash fraction → 2.79x, p5 2.21 clear. Differential
+idom-map parity asserted; 11 dominator suite tests green incl. chain+diamond. Benefits dominance_frontiers
+(calls it). Reachable via immediate_dominators pyo3. CLIPPY: my lines clean (production ~35415-35438 / test
+~71003-71181); crate's 12 pre-existing peer errors untouched. See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `is_d_separator` integer-index moralized graph **10.3488x** (br-r37-c1-dsepint)
 
 Fourth "name-keyed → integer" sub-family win, and the biggest rewrite. is_d_separator(digraph,x,y,z) built the

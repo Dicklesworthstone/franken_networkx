@@ -35412,12 +35412,11 @@ pub fn immediate_dominators(digraph: &DiGraph, start: &str) -> HashMap<String, S
         }
         visited[node] = true;
         stack.push((node, true));
-        if let Some(succs) = digraph.successors(nodes[node]) {
-            for s in succs {
-                let s_idx = node_to_idx[s];
-                if !visited[s_idx] {
-                    stack.push((s_idx, false));
-                }
+        // br-r37-c1-imdomint (cc): walk successors_indices (zero-alloc &[usize]) instead of
+        // successors(nodes[node]) (a Vec<&str> alloc) + node_to_idx[s] (a String re-hash) per edge.
+        for &s_idx in digraph.successors_indices(node).unwrap_or(&[]) {
+            if !visited[s_idx] {
+                stack.push((s_idx, false));
             }
         }
     }
@@ -35431,12 +35430,10 @@ pub fn immediate_dominators(digraph: &DiGraph, start: &str) -> HashMap<String, S
     // Build predecessor map (only for reachable nodes)
     let mut preds = vec![vec![]; n];
     for &node in &rpo {
-        if let Some(succs) = digraph.successors(nodes[node]) {
-            for s in succs {
-                let s_idx = node_to_idx[s];
-                if visited[s_idx] {
-                    preds[s_idx].push(node);
-                }
+        // br-r37-c1-imdomint (cc): same successors_indices swap in the predecessor-building pass.
+        for &s_idx in digraph.successors_indices(node).unwrap_or(&[]) {
+            if visited[s_idx] {
+                preds[s_idx].push(node);
             }
         }
     }
@@ -70999,6 +70996,187 @@ mod tests {
             );
         };
         println!("DSEP_INT_AB ladder3000 rounds={rounds} (>1 = index faster)");
+        report("INT_vs_string", &paired(true, false));
+        report("NULL_int_vs_int", &paired(true, true));
+    }
+
+    /// br-r37-c1-imdomint: paired-interleaved median A/B for immediate_dominators' successor iteration —
+    /// inline the full function with a flag branching only the two successor loops (ORIGINAL
+    /// successors(nodes[node]) + node_to_idx re-hash vs the shipped successors_indices). Differential
+    /// idom-map parity asserted first. One binary / one worker with a NULL control. 5000-node forward
+    /// DAG. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib immediate_dominators_int_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn immediate_dominators_int_ab() {
+        use std::collections::HashMap;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n_nodes = 8000usize;
+        let mut digraph = DiGraph::strict();
+        for i in 0..n_nodes {
+            let _ = digraph.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for d in 1..=5usize {
+                if i + d < n_nodes {
+                    let _ = digraph.add_edge(i.to_string(), (i + d).to_string());
+                }
+            }
+        }
+        let start = "0";
+
+        let build = |batch: bool| -> HashMap<String, String> {
+            let nodes = digraph.nodes_ordered();
+            let n = nodes.len();
+            let node_to_idx: HashMap<&str, usize> =
+                nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+            let start_idx = node_to_idx[start];
+            let mut visited = vec![false; n];
+            let mut postorder = Vec::new();
+            let mut stack = vec![(start_idx, false)];
+            while let Some((node, processed)) = stack.pop() {
+                if processed {
+                    postorder.push(node);
+                    continue;
+                }
+                if visited[node] {
+                    continue;
+                }
+                visited[node] = true;
+                stack.push((node, true));
+                if batch {
+                    for &s_idx in digraph.successors_indices(node).unwrap_or(&[]) {
+                        if !visited[s_idx] {
+                            stack.push((s_idx, false));
+                        }
+                    }
+                } else if let Some(succs) = digraph.successors(nodes[node]) {
+                    for s in succs {
+                        let s_idx = node_to_idx[s];
+                        if !visited[s_idx] {
+                            stack.push((s_idx, false));
+                        }
+                    }
+                }
+            }
+            let rpo: Vec<usize> = postorder.iter().rev().copied().collect();
+            let mut rpo_order = vec![usize::MAX; n];
+            for (order, &node) in rpo.iter().enumerate() {
+                rpo_order[node] = order;
+            }
+            let mut preds = vec![vec![]; n];
+            for &node in &rpo {
+                if batch {
+                    for &s_idx in digraph.successors_indices(node).unwrap_or(&[]) {
+                        if visited[s_idx] {
+                            preds[s_idx].push(node);
+                        }
+                    }
+                } else if let Some(succs) = digraph.successors(nodes[node]) {
+                    for s in succs {
+                        let s_idx = node_to_idx[s];
+                        if visited[s_idx] {
+                            preds[s_idx].push(node);
+                        }
+                    }
+                }
+            }
+            let mut idom = vec![usize::MAX; n];
+            idom[start_idx] = start_idx;
+            let intersect = |mut a: usize, mut b: usize, doms: &[usize]| -> usize {
+                while a != b {
+                    while rpo_order[a] > rpo_order[b] {
+                        a = doms[a];
+                    }
+                    while rpo_order[b] > rpo_order[a] {
+                        b = doms[b];
+                    }
+                }
+                a
+            };
+            let mut changed = true;
+            while changed {
+                changed = false;
+                for &node in &rpo {
+                    if node == start_idx {
+                        continue;
+                    }
+                    let mut new_idom = usize::MAX;
+                    for &pred in &preds[node] {
+                        if idom[pred] != usize::MAX {
+                            if new_idom == usize::MAX {
+                                new_idom = pred;
+                            } else {
+                                new_idom = intersect(new_idom, pred, &idom);
+                            }
+                        }
+                    }
+                    if new_idom != idom[node] {
+                        idom[node] = new_idom;
+                        changed = true;
+                    }
+                }
+            }
+            let mut result = HashMap::new();
+            for &node in &rpo {
+                if idom[node] != usize::MAX && idom[node] != node {
+                    result.insert(nodes[node].to_string(), nodes[idom[node]].to_string());
+                }
+            }
+            result.insert(start.to_string(), start.to_string());
+            result
+        };
+
+        let old = build(false);
+        let new = build(true);
+        assert_eq!(old, new, "successors_indices immediate_dominators must match the string baseline");
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            black_box(build(batch));
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "IMDOM_INT_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("IMDOM_INT_AB dag8000_od5 rounds={rounds} (>1 = index faster)");
         report("INT_vs_string", &paired(true, false));
         report("NULL_int_vs_int", &paired(true, true));
     }
