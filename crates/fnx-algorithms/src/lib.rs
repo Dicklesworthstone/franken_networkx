@@ -39510,20 +39510,26 @@ pub fn full_join(g1: &Graph, g2: &Graph) -> Graph {
     for &node in &g2_nodes {
         let _ = result.add_node(node.to_owned());
     }
+    // br-r37-c1-fulljoinbatch (cc): collect both operands' edges then the |V1|*|V2| cross
+    // edges (same order) + one extend_edges_with_attrs_unrecorded instead of per-edge add_edge
+    // (a policy record EACH — the cross-edge block alone is O(|V1|*|V2|) inserts). This loop
+    // reads only the inputs. The batch helper canonicalizes, dedups and merges attrs via the
+    // same `extend` as add_edge_with_attrs (and add_edge is just add_edge_with_attrs with an
+    // empty AttrMap), in the identical order → byte-identical.
+    let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
     for edge in g1.edges_ordered() {
-        let _ =
-            result.add_edge_with_attrs(edge.left.clone(), edge.right.clone(), edge.attrs.clone());
+        edges.push((edge.left.clone(), edge.right.clone(), edge.attrs.clone()));
     }
     for edge in g2.edges_ordered() {
-        let _ =
-            result.add_edge_with_attrs(edge.left.clone(), edge.right.clone(), edge.attrs.clone());
+        edges.push((edge.left.clone(), edge.right.clone(), edge.attrs.clone()));
     }
     // Cross-edges
     for &u in &g1_nodes {
         for &v in &g2_nodes {
-            let _ = result.add_edge(u.to_owned(), v.to_owned());
+            edges.push((u.to_owned(), v.to_owned(), AttrMap::new()));
         }
     }
+    let _ = result.extend_edges_with_attrs_unrecorded(edges);
     result
 }
 
@@ -68172,6 +68178,138 @@ mod tests {
             );
         };
         println!("MORAL_BATCH_AB bipartite60x60 rounds={rounds} (>1 = batch faster)");
+        report("BATCH_vs_string", &paired(true, false));
+        report("NULL_batch_vs_batch", &paired(true, true));
+    }
+
+    /// br-r37-c1-fulljoinbatch: paired-interleaved median A/B for full_join — inline per-edge
+    /// baseline vs the shipped batch, one binary / one worker with a NULL control. Two disjoint
+    /// 100-node cycle graphs → |V1|*|V2| = 10000 cross edges dominate the output, so the per-edge
+    /// policy record on every cross-edge add_edge is the cost the batch removes. Parity asserted.
+    /// `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib full_join_batch_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn full_join_batch_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let mut g1 = Graph::strict();
+        for i in 0..100 {
+            let _ = g1.add_node(format!("a{i}"));
+        }
+        for i in 0..100 {
+            let _ = g1.add_edge(format!("a{i}"), format!("a{}", (i + 1) % 100));
+        }
+        let mut g2 = Graph::strict();
+        for i in 0..100 {
+            let _ = g2.add_node(format!("b{i}"));
+        }
+        for i in 0..100 {
+            let _ = g2.add_edge(format!("b{i}"), format!("b{}", (i + 1) % 100));
+        }
+
+        let build = |g1: &Graph, g2: &Graph, batch: bool| -> Graph {
+            let mut result = Graph::with_runtime_policy(g1.runtime_policy().clone());
+            let g1_nodes: Vec<&str> = g1.nodes_ordered();
+            let g2_nodes: Vec<&str> = g2.nodes_ordered();
+            for &node in &g1_nodes {
+                let _ = result.add_node(node.to_owned());
+            }
+            for &node in &g2_nodes {
+                let _ = result.add_node(node.to_owned());
+            }
+            if batch {
+                let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
+                for edge in g1.edges_ordered() {
+                    edges.push((edge.left.clone(), edge.right.clone(), edge.attrs.clone()));
+                }
+                for edge in g2.edges_ordered() {
+                    edges.push((edge.left.clone(), edge.right.clone(), edge.attrs.clone()));
+                }
+                for &u in &g1_nodes {
+                    for &v in &g2_nodes {
+                        edges.push((u.to_owned(), v.to_owned(), AttrMap::new()));
+                    }
+                }
+                let _ = result.extend_edges_with_attrs_unrecorded(edges);
+            } else {
+                for edge in g1.edges_ordered() {
+                    let _ = result.add_edge_with_attrs(
+                        edge.left.clone(),
+                        edge.right.clone(),
+                        edge.attrs.clone(),
+                    );
+                }
+                for edge in g2.edges_ordered() {
+                    let _ = result.add_edge_with_attrs(
+                        edge.left.clone(),
+                        edge.right.clone(),
+                        edge.attrs.clone(),
+                    );
+                }
+                for &u in &g1_nodes {
+                    for &v in &g2_nodes {
+                        let _ = result.add_edge(u.to_owned(), v.to_owned());
+                    }
+                }
+            }
+            result
+        };
+
+        let old = build(&g1, &g2, false);
+        let new = build(&g1, &g2, true);
+        assert_eq!(
+            old.edges_ordered_borrowed(),
+            new.edges_ordered_borrowed(),
+            "batch full_join must equal the per-edge baseline"
+        );
+        assert_eq!(old.nodes_ordered(), new.nodes_ordered());
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            black_box(build(&g1, &g2, batch));
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "FULLJOIN_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("FULLJOIN_BATCH_AB C100_C100 rounds={rounds} (>1 = batch faster)");
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
     }

@@ -1,5 +1,20 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `full_join` cross-edge batch-insert **8.6553x** (br-r37-c1-fulljoinbatch)
+
+Seventeenth result-builder batch win. full_join(g1,g2) = the graph join: copy both operands' nodes+edges,
+then add a cross edge (u,v) for EVERY u∈V1,v∈V2 — an O(|V1|·|V2|) per-edge add_edge block that dominates.
+Collect all three phases (g1 edges, g2 edges, cross edges with an empty AttrMap) + one
+extend_edges_with_attrs_unrecorded. Byte-identical: add_edge(u,v) ≡ add_edge_with_attrs(u,v,AttrMap::new());
+merging an empty AttrMap into an existing edge is a no-op; same order; nodes pre-added → endpoints resolve.
+Textbook "output ≫ |E|" expander (cross block = 10000 inserts for two 100-node graphs).
+
+MEASURED — two disjoint 100-node cycle graphs (full_join = 10200 edges), 61 rounds: **BATCH_vs_string median
+8.6553x**, 61/61, p5_p95 [6.4055,12.2860] vs NULL 0.9951x [0.9073,1.1185]. DECISIVE: candidate p5 (6.41)
+~5.7x above null p95 (1.12). Suite tests test_full_join_empty + test_full_join_cross_edges green; parity
+assert passed. CLIPPY: my lines clean (production ~39513-39534 / test ~68185-68314); crate's 12 pre-existing
+peer errors untouched. Reachable via full_join_rust pyo3 binding. See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `DiGraph::to_undirected` reciprocal-edge batch-insert **2.0083x** (br-r37-c1-toundirbatch)
 
 Sixteenth result-builder batch win — FIRST in the core fnx-classes crate (prior 15 in fnx-algorithms).
