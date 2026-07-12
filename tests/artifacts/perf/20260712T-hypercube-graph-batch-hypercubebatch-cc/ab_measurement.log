@@ -1,0 +1,17 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib hypercube_graph_batch_ab -- --ignored --nocapture
+
+HYPERCUBE_BATCH_AB Q13 rounds=61 (>1 = batch faster)
+HYPERCUBE_BATCH_AB BATCH_vs_string: median=11.5494x win_rate=61/61 p5_p95=[8.8514,15.9960]
+HYPERCUBE_BATCH_AB NULL_batch_vs_batch: median=1.0467x win_rate=36/61 p5_p95=[0.8023,1.4939]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 987 filtered out; finished in 9.47s
+
+Marker HYPERCUBE_BATCH_AB + test name confirmed (fresh binary). Parity assert
+(edges_ordered_borrowed + nodes_ordered) on Q13 passed before timing (test result: ok).
+
+$ cargo test --release -p fnx-algorithms --lib hypercube -- --nocapture
+test tests::test_hypercube_graph ... ok
+test result: ok. 1 passed; 0 failed; 1 ignored; ...
+
+$ cargo clippy --release -p fnx-algorithms --lib --tests -- -D warnings
+--> NONE of my lines flagged (production ~33896-33920 / test ~68843-68940)
+--> 12 pre-existing peer -D warnings errors (untouched, shared checkout)

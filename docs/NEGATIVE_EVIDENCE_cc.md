@@ -1,5 +1,23 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `hypercube_graph` INDEX-pair edge batch-insert **11.5494x** (br-r37-c1-hypercubebatch)
+
+Twenty-second result-builder batch win. hypercube_graph(n) = Qn: 2^n nodes named "0".."2^n-1" via gen_nodes;
+edges i—(i^(1<<bit)) emitted once (j>i) via gen_edge(&mut g,i,j) which does i.to_string()+j.to_string()+
+add_edge. Because node index i == name i.to_string(), collect (i,j) INDEX pairs + one
+extend_existing_index_edges_unrecorded → drops BOTH to_string() allocs + name→index hashes + policy record.
+This is the full generator-batch lever (12x tier), NOT just the policy-drop (2.7x String-pair tier).
+Byte-identical: helper dedups on canon_pair + canonicalizes edge_index_endpoints by node NAME (same string
+cmp as add_edge, so "10"/"2" order the same) + pushes adj_indices in given order; nodes pre-added by gen_nodes.
+
+MEASURED — Q13 (8192 nodes, 53248 edges), 61 rounds: **BATCH_vs_string median 11.5494x**, 61/61, p5_p95
+[8.8514,15.9960] vs NULL 1.0467x [0.8023,1.4939]. DECISIVE: candidate p5 (8.85) ~5.9x above null p95 (1.49).
+test_hypercube_graph green; parity assert passed. Reachable via hypercube_graph pyo3. **OPENS the gen_edge
+index-batch sub-lever:** any generator naming nodes "0".."N-1" (gen_nodes) + adding via gen_edge(i,j) over
+integer indices → collect (i,j) + extend_existing_index_edges_unrecorded for the 12x tier. CLIPPY: my lines
+clean (production ~33896-33920 / test ~68843-68940); crate's 12 pre-existing peer errors untouched. See
+[[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `grid_graph` edge batch-insert **2.7268x** (br-r37-c1-gridbatch)
 
 Twenty-first result-builder batch win. grid_graph(dim) = n-dim grid: each node connects to its +1 neighbor
