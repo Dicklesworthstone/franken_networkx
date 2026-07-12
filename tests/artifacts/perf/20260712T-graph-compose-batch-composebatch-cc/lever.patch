@@ -1,0 +1,166 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index 021159b3b..126a07f52 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -24534,8 +24534,15 @@ pub fn graph_compose(g1: &Graph, g2: &Graph) -> Graph {
+             result.add_node(node);
+         }
+     }
++    // br-r37-c1-composebatch (cc): the g2 and g1 edge loops both add_edge_with_attrs
++    // UNCONDITIONALLY (g1 layered on top overwrites g2 via the attr merge), reading only the
++    // inputs — collect g2 edges then g1 edges (same order) + one extend_edges_with_attrs_
++    // unrecorded, which dedups on the canonical pair and merges attrs via the same `extend`
++    // (later g1 wins). The g1 node loop stays in place, so all endpoints are pre-added and
++    // resolve to existing indices; the g2/g1 edge relative order is preserved → byte-identical.
++    let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
+     for edge in g2.edges_ordered() {
+-        let _ = result.add_edge_with_attrs(edge.left, edge.right, edge.attrs);
++        edges.push((edge.left, edge.right, edge.attrs));
+     }
+     // Layer G1 on top (G1 attrs overwrite G2)
+     for node in g1.nodes_ordered() {
+@@ -24546,8 +24553,9 @@ pub fn graph_compose(g1: &Graph, g2: &Graph) -> Graph {
+         }
+     }
+     for edge in g1.edges_ordered() {
+-        let _ = result.add_edge_with_attrs(edge.left, edge.right, edge.attrs);
++        edges.push((edge.left, edge.right, edge.attrs));
+     }
++    let _ = result.extend_edges_with_attrs_unrecorded(edges);
+     result
+ }
+ 
+@@ -68448,6 +68456,133 @@ mod tests {
+         report("NULL_batch_vs_batch", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-composebatch: paired-interleaved median A/B for graph_compose — inline per-edge
++    /// baseline vs the shipped batch, one binary / one worker with a NULL control. Two overlapping
++    /// complete K200 graphs (same node set) make every g1 edge a merge-dup of a g2 edge → 39800
++    /// add_edge_with_attrs calls collapse to 19900 output edges, so the per-edge policy record on
++    /// each (dup) call is the cost the batch removes. Parity asserted first. `#[ignore]`; run with
++    /// `cargo test --release -p fnx-algorithms --lib graph_compose_batch_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn graph_compose_batch_ab() {
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        let complete = |prefix: &str| -> Graph {
++            let mut g = Graph::strict();
++            for i in 0..200 {
++                let _ = g.add_node(format!("{prefix}{i}"));
++            }
++            for i in 0..200 {
++                for j in (i + 1)..200 {
++                    let _ = g.add_edge(format!("{prefix}{i}"), format!("{prefix}{j}"));
++                }
++            }
++            g
++        };
++        let g1 = complete("n");
++        let g2 = complete("n");
++
++        let build = |g1: &Graph, g2: &Graph, batch: bool| -> Graph {
++            let mut result = Graph::with_runtime_policy(g1.runtime_policy().clone());
++            for node in g2.nodes_ordered() {
++                if let Some(attrs) = g2.node_attrs(node) {
++                    result.add_node_with_attrs(node, attrs.clone());
++                } else {
++                    result.add_node(node);
++                }
++            }
++            if batch {
++                let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
++                for edge in g2.edges_ordered() {
++                    edges.push((edge.left, edge.right, edge.attrs));
++                }
++                for node in g1.nodes_ordered() {
++                    if let Some(attrs) = g1.node_attrs(node) {
++                        result.add_node_with_attrs(node, attrs.clone());
++                    } else {
++                        result.add_node(node);
++                    }
++                }
++                for edge in g1.edges_ordered() {
++                    edges.push((edge.left, edge.right, edge.attrs));
++                }
++                let _ = result.extend_edges_with_attrs_unrecorded(edges);
++            } else {
++                for edge in g2.edges_ordered() {
++                    let _ = result.add_edge_with_attrs(edge.left, edge.right, edge.attrs);
++                }
++                for node in g1.nodes_ordered() {
++                    if let Some(attrs) = g1.node_attrs(node) {
++                        result.add_node_with_attrs(node, attrs.clone());
++                    } else {
++                        result.add_node(node);
++                    }
++                }
++                for edge in g1.edges_ordered() {
++                    let _ = result.add_edge_with_attrs(edge.left, edge.right, edge.attrs);
++                }
++            }
++            result
++        };
++
++        let old = build(&g1, &g2, false);
++        let new = build(&g1, &g2, true);
++        assert_eq!(
++            old.edges_ordered_borrowed(),
++            new.edges_ordered_borrowed(),
++            "batch graph_compose must equal the per-edge baseline"
++        );
++        assert_eq!(old.nodes_ordered(), new.nodes_ordered());
++
++        let time = |batch: bool| -> f64 {
++            let t0 = Instant::now();
++            black_box(build(&g1, &g2, batch));
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for round in 0..rounds {
++                let (tb, tc) = if round.is_multiple_of(2) {
++                    let bt = time(base_arm);
++                    let ct = time(cand);
++                    (bt, ct)
++                } else {
++                    let ct = time(cand);
++                    let bt = time(base_arm);
++                    (bt, ct)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "COMPOSE_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("COMPOSE_BATCH_AB K200_overlap rounds={rounds} (>1 = batch faster)");
++        report("BATCH_vs_string", &paired(true, false));
++        report("NULL_batch_vs_batch", &paired(true, true));
++    }
++
+     #[test]
+     fn test_cartesian_product_label_disambiguation() {
+         let mut g1 = Graph::strict();

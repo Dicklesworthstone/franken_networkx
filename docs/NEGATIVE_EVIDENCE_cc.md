@@ -1,5 +1,22 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `graph_compose` edge batch-insert **2.7416x** (br-r37-c1-composebatch)
+
+Nineteenth result-builder batch win. graph_compose(g1,g2) = nx.compose: all of g2 then g1 layered on top
+(g1 attrs overwrite g2). BOTH edge loops add_edge_with_attrs UNCONDITIONALLY (no result read) → collect g2
+edges then g1 edges + one extend_edges_with_attrs_unrecorded, which merges via the same `extend` (later g1
+wins) in the identical g2-then-g1 sequence → byte-identical (incl. attr overwrite, guaranteed by the
+documented extend-equivalence). g1 node loop stays in place so endpoints pre-resolve. Dup-heavy like
+to_undirected/moral (overlapping compose = |E1|+|E2| calls, half merge-dups).
+
+MEASURED — two overlapping complete K200 graphs (compose 19900 edges from 39800 add_edge calls), 61 rounds:
+**BATCH_vs_string median 2.7416x**, 61/61, p5_p95 [1.8926,3.6844] vs NULL 1.0144x [0.8447,1.2209]. DECISIVE:
+candidate p5 (1.89) ~1.5x above null p95 (1.22). test_graph_compose green; parity assert exercised the
+dedup/merge branch on every edge (19900-from-39800 collapse). Reachable via graph_compose pyo3. REJECTED
+neighbors: graph_union (reads result.has_edge mid-loop → g1-wins SKIP, incompatible with merging inserter),
+graph_intersection (collapsing filter). CLIPPY: my lines clean (production ~24537-24557 / test ~68459-68583);
+crate's 12 pre-existing peer errors untouched. See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `transitive_closure` reachability-edge batch-insert **8.5110x** (br-r37-c1-tcbatch)
 
 Eighteenth result-builder batch win. transitive_closure(digraph,reflexive) BFSes each source's reachable set
