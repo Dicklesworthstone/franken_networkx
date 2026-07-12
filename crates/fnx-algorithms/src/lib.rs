@@ -36836,93 +36836,121 @@ pub fn is_d_separator(
     y: &std::collections::HashSet<String>,
     z: &std::collections::HashSet<String>,
 ) -> bool {
-    use std::collections::{HashMap, HashSet, VecDeque};
+    use std::collections::{HashSet, VecDeque};
 
-    let _all_nodes: Vec<&str> = digraph.nodes_ordered();
+    // br-r37-c1-dsepint (cc): integer-index d-separation. The old kernel built a String-keyed moralized
+    // graph (`HashMap<String, HashSet<String>>`) with String cloning throughout, then BFS'd it. Resolve
+    // the graph-resident members of x/y/z to indices, build the ancestral moralized adjacency over
+    // `Vec<HashSet<usize>>`, remove z, and BFS reachability x→y over indices. The result is a bool (does
+    // any x reach any y in the moralized ancestral graph minus z) — order-independent, so the integer
+    // graph gives the identical answer. Non-graph "phantom" names in x/y/z have no adjacency and are
+    // inert in the old kernel EXCEPT a node in x∩y minus z (the old BFS seeds it from x then matches y
+    // at pop) — handled by the upfront check below.
+    let n = digraph.node_count();
 
-    // 1. Find ancestors of x ∪ y ∪ z
-    let mut relevant: HashSet<String> = HashSet::new();
-    relevant.extend(x.iter().cloned());
-    relevant.extend(y.iter().cloned());
-    relevant.extend(z.iter().cloned());
+    // A node in both x and y but not z is trivially reachable (old: seeded from x, matched at pop).
+    if x.iter().any(|xn| y.contains(xn) && !z.contains(xn)) {
+        return false;
+    }
 
-    let mut queue: VecDeque<String> = relevant.iter().cloned().collect();
+    let mut in_x = vec![false; n];
+    let mut in_y = vec![false; n];
+    let mut in_z = vec![false; n];
+    for s in x {
+        if let Some(i) = digraph.get_node_index(s) {
+            in_x[i] = true;
+        }
+    }
+    for s in y {
+        if let Some(i) = digraph.get_node_index(s) {
+            in_y[i] = true;
+        }
+    }
+    for s in z {
+        if let Some(i) = digraph.get_node_index(s) {
+            in_z[i] = true;
+        }
+    }
+
+    // 1. relevant = the graph-resident members of x∪y∪z and all their ancestors.
+    let mut relevant = vec![false; n];
+    let mut queue: VecDeque<usize> = VecDeque::new();
+    for i in 0..n {
+        if in_x[i] || in_y[i] || in_z[i] {
+            relevant[i] = true;
+            queue.push_back(i);
+        }
+    }
     while let Some(node) = queue.pop_front() {
-        if let Some(preds) = digraph.predecessors(&node) {
-            for p in preds {
-                if relevant.insert(p.to_owned()) {
-                    queue.push_back(p.to_owned());
+        if let Some(preds) = digraph.predecessors_indices(node) {
+            for &p in preds {
+                if !relevant[p] {
+                    relevant[p] = true;
+                    queue.push_back(p);
                 }
             }
         }
     }
 
-    // 2. Build moralized undirected graph on relevant nodes
-    let mut adj: HashMap<String, HashSet<String>> = HashMap::new();
-    for node in &relevant {
-        adj.entry(node.clone()).or_default();
+    // 2. Build the moralized undirected adjacency on the relevant nodes.
+    let mut adj: Vec<HashSet<usize>> = vec![HashSet::new(); n];
+    // undirected edges for directed edges in the ancestral subgraph
+    for node in 0..n {
+        if !relevant[node] {
+            continue;
+        }
+        if let Some(succs) = digraph.successors_indices(node) {
+            for &s in succs {
+                if relevant[s] {
+                    adj[node].insert(s);
+                    adj[s].insert(node);
+                }
+            }
+        }
     }
-
-    // Add undirected edges for all directed edges in ancestral subgraph
-    for node in &relevant {
-        if let Some(succs) = digraph.successors(node) {
-            for s in succs {
-                if relevant.contains(s) {
-                    adj.entry(node.clone()).or_default().insert(s.to_owned());
-                    adj.entry(s.to_owned()).or_default().insert(node.clone());
+    // moralize: connect co-parents (parents of the same child, within the relevant set)
+    for node in 0..n {
+        if !relevant[node] {
+            continue;
+        }
+        if let Some(preds) = digraph.predecessors_indices(node) {
+            let parents: Vec<usize> = preds.iter().copied().filter(|&p| relevant[p]).collect();
+            for i in 0..parents.len() {
+                for j in (i + 1)..parents.len() {
+                    adj[parents[i]].insert(parents[j]);
+                    adj[parents[j]].insert(parents[i]);
                 }
             }
         }
     }
 
-    // Moralize: connect co-parents (marry parents of same child)
-    for node in &relevant {
-        if let Some(preds) = digraph.predecessors(node) {
-            let parent_list: Vec<String> = preds
-                .into_iter()
-                .filter(|p| relevant.contains(*p))
-                .map(|s| s.to_owned())
-                .collect();
-            for i in 0..parent_list.len() {
-                for j in (i + 1)..parent_list.len() {
-                    adj.entry(parent_list[i].to_owned())
-                        .or_default()
-                        .insert(parent_list[j].to_owned());
-                    adj.entry(parent_list[j].to_owned())
-                        .or_default()
-                        .insert(parent_list[i].to_owned());
-                }
+    // 3. Remove z nodes.
+    for zi in 0..n {
+        if in_z[zi] {
+            adj[zi].clear();
+            for a in adj.iter_mut() {
+                a.remove(&zi);
             }
         }
     }
 
-    // 3. Remove z nodes
-    for zn in z {
-        adj.remove(zn);
-        for neighbors in adj.values_mut() {
-            neighbors.remove(zn);
+    // 4. BFS: can any x-node reach any y-node? (adj.contains_key(xn) ⟺ xn relevant and not z-removed.)
+    let mut visited = vec![false; n];
+    let mut bfs: VecDeque<usize> = VecDeque::new();
+    for xi in 0..n {
+        if in_x[xi] && relevant[xi] && !in_z[xi] && !visited[xi] {
+            visited[xi] = true;
+            bfs.push_back(xi);
         }
     }
-
-    // 4. Check if any x-node can reach any y-node via BFS
-    let mut visited: HashSet<String> = HashSet::new();
-    let mut bfs: VecDeque<String> = VecDeque::new();
-    for xn in x {
-        if adj.contains_key(xn) && !z.contains(xn) {
-            visited.insert(xn.clone());
-            bfs.push_back(xn.clone());
-        }
-    }
-
     while let Some(node) = bfs.pop_front() {
-        if y.contains(&node) {
+        if in_y[node] {
             return false; // Reachable → NOT d-separated
         }
-        if let Some(neighbors) = adj.get(&node) {
-            for nb in neighbors {
-                if visited.insert(nb.clone()) {
-                    bfs.push_back(nb.clone());
-                }
+        for &nb in &adj[node] {
+            if !visited[nb] {
+                visited[nb] = true;
+                bfs.push_back(nb);
             }
         }
     }
@@ -70805,6 +70833,174 @@ mod tests {
         println!("ISDOM_IDX_AB circ50k rounds={rounds} (>1 = index faster)");
         report("IDX_vs_string", &paired(true, false));
         report("NULL_idx_vs_idx", &paired(true, true));
+    }
+
+    /// br-r37-c1-dsepint: paired-interleaved median A/B for is_d_separator — inline ORIGINAL
+    /// String-keyed moralized-graph BFS vs the shipped integer-index version, one binary / one worker
+    /// with a NULL control. A 3000-node layered DAG (node i has parents i-1, i-2). A multi-config
+    /// differential parity check (no-z / z-blocking / x∩y overlap / disjoint) runs first. `#[ignore]`;
+    /// run with `cargo test --release -p fnx-algorithms --lib is_d_separator_int_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn is_d_separator_int_ab() {
+        use std::collections::{HashMap, HashSet, VecDeque};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n_nodes = 3000usize;
+        let mut digraph = DiGraph::strict();
+        for i in 0..n_nodes {
+            let _ = digraph.add_node(i.to_string());
+        }
+        for i in 2..n_nodes {
+            let _ = digraph.add_edge((i - 1).to_string(), i.to_string());
+            let _ = digraph.add_edge((i - 2).to_string(), i.to_string());
+        }
+
+        let old_fn = |digraph: &DiGraph,
+                      x: &HashSet<String>,
+                      y: &HashSet<String>,
+                      z: &HashSet<String>|
+         -> bool {
+            let mut relevant: HashSet<String> = HashSet::new();
+            relevant.extend(x.iter().cloned());
+            relevant.extend(y.iter().cloned());
+            relevant.extend(z.iter().cloned());
+            let mut queue: VecDeque<String> = relevant.iter().cloned().collect();
+            while let Some(node) = queue.pop_front() {
+                if let Some(preds) = digraph.predecessors(&node) {
+                    for p in preds {
+                        if relevant.insert(p.to_owned()) {
+                            queue.push_back(p.to_owned());
+                        }
+                    }
+                }
+            }
+            let mut adj: HashMap<String, HashSet<String>> = HashMap::new();
+            for node in &relevant {
+                adj.entry(node.clone()).or_default();
+            }
+            for node in &relevant {
+                if let Some(succs) = digraph.successors(node) {
+                    for s in succs {
+                        if relevant.contains(s) {
+                            adj.entry(node.clone()).or_default().insert(s.to_owned());
+                            adj.entry(s.to_owned()).or_default().insert(node.clone());
+                        }
+                    }
+                }
+            }
+            for node in &relevant {
+                if let Some(preds) = digraph.predecessors(node) {
+                    let pl: Vec<String> = preds
+                        .into_iter()
+                        .filter(|p| relevant.contains(*p))
+                        .map(|s| s.to_owned())
+                        .collect();
+                    for i in 0..pl.len() {
+                        for j in (i + 1)..pl.len() {
+                            adj.entry(pl[i].to_owned()).or_default().insert(pl[j].to_owned());
+                            adj.entry(pl[j].to_owned()).or_default().insert(pl[i].to_owned());
+                        }
+                    }
+                }
+            }
+            for zn in z {
+                adj.remove(zn);
+                for nbrs in adj.values_mut() {
+                    nbrs.remove(zn);
+                }
+            }
+            let mut visited: HashSet<String> = HashSet::new();
+            let mut bfs: VecDeque<String> = VecDeque::new();
+            for xn in x {
+                if adj.contains_key(xn) && !z.contains(xn) {
+                    visited.insert(xn.clone());
+                    bfs.push_back(xn.clone());
+                }
+            }
+            while let Some(node) = bfs.pop_front() {
+                if y.contains(&node) {
+                    return false;
+                }
+                if let Some(nbrs) = adj.get(&node) {
+                    for nb in nbrs {
+                        if visited.insert(nb.clone()) {
+                            bfs.push_back(nb.clone());
+                        }
+                    }
+                }
+            }
+            true
+        };
+
+        let mk = |ids: &[usize]| -> HashSet<String> { ids.iter().map(|i| i.to_string()).collect() };
+        let configs: Vec<(HashSet<String>, HashSet<String>, HashSet<String>)> = vec![
+            (mk(&[0]), mk(&[2999]), mk(&[])),
+            (mk(&[0]), mk(&[2999]), mk(&[1500])),
+            (mk(&[10, 20]), mk(&[2990]), mk(&[100, 200, 300])),
+            (mk(&[0, 1]), mk(&[0]), mk(&[])),
+            (mk(&[5]), mk(&[7]), mk(&[6])),
+            (mk(&[100]), mk(&[105]), mk(&[101, 102, 103, 104])),
+        ];
+        for (x, y, z) in &configs {
+            let old = old_fn(&digraph, x, y, z);
+            let new = is_d_separator(&digraph, x, y, z);
+            assert_eq!(old, new, "d-separator integer version must match the string baseline");
+        }
+
+        let (tx, ty, tz) = (&configs[0].0, &configs[0].1, &configs[0].2);
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if batch {
+                is_d_separator(&digraph, tx, ty, tz)
+            } else {
+                old_fn(&digraph, tx, ty, tz)
+            };
+            black_box(r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "DSEP_INT_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("DSEP_INT_AB ladder3000 rounds={rounds} (>1 = index faster)");
+        report("INT_vs_string", &paired(true, false));
+        report("NULL_int_vs_int", &paired(true, true));
     }
 
     #[test]

@@ -1,5 +1,23 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `is_d_separator` integer-index moralized graph **10.3488x** (br-r37-c1-dsepint)
+
+Fourth "name-keyed → integer" sub-family win, and the biggest rewrite. is_d_separator(digraph,x,y,z) built the
+MORALIZED ancestral subgraph as HashMap<String,HashSet<String>> with String cloning throughout (ancestors
+BFS, undirected+co-parent edge inserts, z-removal, reachability BFS), then checked x→y reachability. Convert:
+resolve graph-resident x/y/z to indices, ancestral set as vec![bool;n] via predecessors_indices, moralized
+adj as Vec<HashSet<usize>> via successors_indices + co-parent marriages, remove z by index, BFS x→y over
+indices. BYTE-IDENTICAL (bool = order-independent reachability). PHANTOM edge case: names not in graph are
+inert EXCEPT a node in x∩y minus z (old seeds from x, matches at pop) → handled by upfront
+x.any(|xn| y.contains(xn) && !z.contains(xn)) check.
+
+MEASURED — 3000-node layered DAG (i has parents i-1,i-2), x={0} y={2999} z={} (relevant = whole DAG), 61
+rounds: **INT_vs_string median 10.3488x**, 60/61, p5_p95 [7.0717,58.5783] vs NULL 0.9768x [0.7235,1.4127].
+DECISIVE: candidate p5 (7.07) ~5x above null p95. VALIDATED via 6-config DIFFERENTIAL PARITY (no-z/z-blocking/
+x∩y overlap/disjoint) all matched + fork/collider suite tests green. Reachable via is_d_separator pyo3.
+CLIPPY: my lines clean (production ~36839-36955 / test ~70838-71003); crate's 12 pre-existing peer errors
+untouched. Reachable deterministic name-keyed surface now largely swept. See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `is_dominating_set` integer-index check **6.0885x** (br-r37-c1-isdomint)
 
 Third win in the "neighbors + HashSet<&str>" residual sub-family. is_dominating_set(graph,dom_nodes) built a
