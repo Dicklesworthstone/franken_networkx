@@ -1,5 +1,21 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `reverse_digraph` batch-insert (with attrs) **2.3976x** (br-r37-c1-reversedigbatch)
+
+Ninth fnx-algorithms result-builder batch; FIRST to use the WITH-ATTRS inserter. reverse_digraph reverses
+each edge (right->left) carrying attrs via per-edge add_edge_with_attrs. Collect (right,left,attrs) tuples
++ one DiGraph::extend_edges_with_attrs_unrecorded. Byte-identical (reversed edges = bijection of distinct
+input edges → unique; self-loops handled). NOTE: no dedicated vs-nx test for reverse_digraph — byte-identity
+via A/B parity where build_old is a VERBATIM production replica (gnp_random_digraph posture).
+
+MEASURED — reverse of complete-digraph K60 (60 nodes, 3540 directed edges), 61 rounds: **BATCH_vs_string
+median 2.3976x**, win_rate 61/61, p5_p95 [2.0685, 2.7113] vs NULL 0.9959x [0.8101, 1.1106]. DECIDABLE:
+candidate p5 (2.07) ~1.9x above the null p95 (1.11), 61/61 won. SMALLER (2.40x) because reverse is
+|E|-bounded (no dense structure) — win is the policy record folded to one. CLIPPY: MY CODE CLEAN (0 in
+ranges 37669-37690 / 67298-67418, grep-verified); crate's ~12 pre-existing peer errors untouched.
+KEY: extend_edges_with_attrs_unrecorded works byte-identically → opens attr-carrying result-builders. See
+[[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `line_graph_directed` batch-insert **5.2421x** (br-r37-c1-linegraphdirbatch)
 
 Eighth fnx-algorithms result-builder batch. Directed L(G): node per edge + directed L(G) edge (u,v)->(u2,v2)

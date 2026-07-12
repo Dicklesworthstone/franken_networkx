@@ -37671,10 +37671,16 @@ pub fn reverse_digraph(digraph: &DiGraph) -> DiGraph {
     for node in digraph.nodes_ordered() {
         result.add_node(node.to_owned());
     }
+    // br-r37-c1-reversedigbatch (cc): reverse each edge (right->left) carrying its attrs, but collect
+    // them + one batch insert instead of per-edge add_edge_with_attrs (a policy record each). The
+    // reversed edges are a bijection of the input's distinct directed edges → all unique (a self-loop
+    // reverses to itself, handled). extend_edges_with_attrs_unrecorded matches add_edge_with_attrs'
+    // edge insertion + succ/pred adjacency order → byte-identical.
+    let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
     for edge in digraph.edges_ordered() {
-        let _ =
-            result.add_edge_with_attrs(edge.right.clone(), edge.left.clone(), edge.attrs.clone());
+        edges.push((edge.right.clone(), edge.left.clone(), edge.attrs.clone()));
     }
+    let _ = result.extend_edges_with_attrs_unrecorded(edges);
     result
 }
 
@@ -67288,6 +67294,110 @@ mod tests {
             );
         };
         println!("LINEGRAPHDIR_BATCH_AB dK30 rounds={rounds} (>1 = batch faster)");
+        report("BATCH_vs_string", &paired(true, false));
+        report("NULL_batch_vs_batch", &paired(true, true));
+    }
+
+    /// br-r37-c1-reversedigbatch: paired-interleaved median A/B for reverse_digraph — inline per-edge
+    /// baseline vs the shipped batch, one binary / one worker with a NULL control. Byte-identity asserted
+    /// first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib reverse_digraph_batch_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn reverse_digraph_batch_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Complete digraph K60 (3540 directed edges).
+        let mut input = DiGraph::strict();
+        let m = 60usize;
+        for i in 0..m {
+            let _ = input.add_node(format!("{i}"));
+        }
+        for i in 0..m {
+            for j in 0..m {
+                if i != j {
+                    let _ = input.add_edge(format!("{i}"), format!("{j}"));
+                }
+            }
+        }
+
+        let build = |g: &DiGraph, batch: bool| -> DiGraph {
+            let mut result = DiGraph::with_runtime_policy(g.runtime_policy().clone());
+            for node in g.nodes_ordered() {
+                result.add_node(node.to_owned());
+            }
+            if batch {
+                let mut edges: Vec<(String, String, fnx_classes::AttrMap)> = Vec::new();
+                for edge in g.edges_ordered() {
+                    edges.push((edge.right.clone(), edge.left.clone(), edge.attrs.clone()));
+                }
+                let _ = result.extend_edges_with_attrs_unrecorded(edges);
+            } else {
+                for edge in g.edges_ordered() {
+                    let _ = result.add_edge_with_attrs(
+                        edge.right.clone(),
+                        edge.left.clone(),
+                        edge.attrs.clone(),
+                    );
+                }
+            }
+            result
+        };
+
+        let old = build(&input, false);
+        let new = build(&input, true);
+        assert_eq!(
+            old.edges_ordered_borrowed(),
+            new.edges_ordered_borrowed(),
+            "batch reverse_digraph must equal the per-edge baseline"
+        );
+        assert_eq!(old.nodes_ordered(), new.nodes_ordered());
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            black_box(build(&input, batch));
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "REVERSEDIG_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("REVERSEDIG_BATCH_AB dK60 rounds={rounds} (>1 = batch faster)");
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
     }
