@@ -33059,14 +33059,19 @@ pub fn find_cliques_recursive(graph: &Graph) -> Vec<Vec<String>> {
             result.push(clique);
             return;
         }
-        // Choose pivot with maximum connections to p
+        // Choose pivot with maximum connections to p.
+        // br-r37-c1-bkrpivotdeg (cc): precompute each candidate's |N(u) ∩ P| ONCE instead of recomputing
+        // both sides inside the max_by comparator (which recounts the running max's O(|P|) intersection
+        // on every one of the ~|P∪X| comparisons). `counts` holds owned usize, so it borrows nothing.
+        // Byte-identical: same (|N(u) ∩ P|, u) max_by key → same pivot. Twin of br-r37-c1-bkpivotdeg on
+        // the iterative `find_cliques`.
+        let counts: HashMap<usize, usize> = p
+            .union(x)
+            .map(|&u| (u, adj[u].intersection(p).count()))
+            .collect();
         let pivot = p
             .union(x)
-            .max_by(|&&u, &&v| {
-                let deg_u = adj[u].intersection(p).count();
-                let deg_v = adj[v].intersection(p).count();
-                deg_u.cmp(&deg_v).then_with(|| u.cmp(&v))
-            })
+            .max_by(|&&u, &&v| counts[&u].cmp(&counts[&v]).then_with(|| u.cmp(&v)))
             .copied();
         let Some(pivot) = pivot else { return };
         let candidates: Vec<usize> = p.difference(&adj[pivot]).copied().collect();
@@ -50123,6 +50128,155 @@ mod tests {
             );
         };
         println!("BKPIVOTDEG_AB find_cliques 8xK40 rounds={rounds} (>1 = precompute faster)");
+        report("PRECOMPUTE_vs_recompute", &paired(true, false));
+        report("NULL_precompute_vs_precompute", &paired(true, true));
+    }
+
+    /// br-r37-c1-bkrpivotdeg: full-function paired-interleaved median A/B for `find_cliques_recursive` —
+    /// inline ORIGINAL recursive Bron-Kerbosch (pivot |N(u)∩P| recomputed inside the max_by comparator)
+    /// vs the shipped `super::find_cliques_recursive` (precompute each |N(u)∩P| once). Twin of
+    /// br-r37-c1-bkpivotdeg on the recursive variant. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib find_cliques_recursive_pivot_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn find_cliques_recursive_pivot_ab() {
+        use std::collections::{HashMap, HashSet};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let cliques_n = 8usize;
+        let clique_sz = 40usize;
+        let mut g = Graph::strict();
+        let total = cliques_n * clique_sz;
+        for i in 0..total {
+            let _ = g.add_node(i.to_string());
+        }
+        for c in 0..cliques_n {
+            let base = c * clique_sz;
+            for a in 0..clique_sz {
+                for b in (a + 1)..clique_sz {
+                    let _ = g.add_edge((base + a).to_string(), (base + b).to_string());
+                }
+            }
+        }
+
+        // ORIGINAL recursive BK with pivot recomputed in the comparator (matches the pre-lever code).
+        fn old_bron_kerbosch(
+            r: &HashSet<usize>,
+            p: &mut HashSet<usize>,
+            x: &mut HashSet<usize>,
+            adj: &[HashSet<usize>],
+            result: &mut Vec<Vec<usize>>,
+        ) {
+            if p.is_empty() && x.is_empty() {
+                let mut clique: Vec<usize> = r.iter().copied().collect();
+                clique.sort_unstable();
+                result.push(clique);
+                return;
+            }
+            let pivot = p
+                .union(x)
+                .max_by(|&&u, &&v| {
+                    let deg_u = adj[u].intersection(p).count();
+                    let deg_v = adj[v].intersection(p).count();
+                    deg_u.cmp(&deg_v).then_with(|| u.cmp(&v))
+                })
+                .copied();
+            let Some(pivot) = pivot else { return };
+            let candidates: Vec<usize> = p.difference(&adj[pivot]).copied().collect();
+            for v in candidates {
+                let mut new_r = r.clone();
+                new_r.insert(v);
+                let mut new_p: HashSet<usize> = p.intersection(&adj[v]).copied().collect();
+                let mut new_x: HashSet<usize> = x.intersection(&adj[v]).copied().collect();
+                old_bron_kerbosch(&new_r, &mut new_p, &mut new_x, adj, result);
+                p.remove(&v);
+                x.insert(v);
+            }
+        }
+        let old_fn = |graph: &Graph| -> Vec<Vec<String>> {
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            if n == 0 {
+                return vec![];
+            }
+            let node_to_idx: HashMap<&str, usize> =
+                nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+            let mut adj = vec![HashSet::new(); n];
+            for (i, &u) in nodes.iter().enumerate() {
+                if let Some(neighbors) = graph.neighbors_iter(u) {
+                    for v in neighbors {
+                        adj[i].insert(node_to_idx[v]);
+                    }
+                }
+            }
+            let mut result = Vec::new();
+            let r: HashSet<usize> = HashSet::new();
+            let mut p: HashSet<usize> = (0..n).collect();
+            let mut x: HashSet<usize> = HashSet::new();
+            old_bron_kerbosch(&r, &mut p, &mut x, &adj, &mut result);
+            let mut string_result: Vec<Vec<String>> = result
+                .into_iter()
+                .map(|clique| clique.into_iter().map(|i| nodes[i].to_string()).collect())
+                .collect();
+            string_result.sort();
+            string_result
+        };
+
+        assert_eq!(
+            old_fn(&g),
+            super::find_cliques_recursive(&g),
+            "precompute-pivot find_cliques_recursive must be byte-identical to the comparator-recompute version"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            if cand {
+                black_box(super::find_cliques_recursive(&g));
+            } else {
+                black_box(old_fn(&g));
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "BKRPIVOTDEG_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("BKRPIVOTDEG_AB find_cliques_recursive 8xK40 rounds={rounds} (>1 = precompute faster)");
         report("PRECOMPUTE_vs_recompute", &paired(true, false));
         report("NULL_precompute_vs_precompute", &paired(true, true));
     }
