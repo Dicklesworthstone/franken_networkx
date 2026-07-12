@@ -24805,44 +24805,68 @@ pub fn maximum_independent_set(graph: &Graph) -> Vec<String> {
     // the same unique winner. `effective_degree` is the same integer count, and the
     // name tie-break compares the same node names. The removed-neighbour set and the
     // sorted output are unchanged.
+    // br-r37-c1-misbucket (cc): O((|V|+|E|)·log|V|) min-degree BUCKETS replacing the O(|V|·|E|) peel
+    // that, EVERY round, rescanned all remaining nodes AND recomputed each one's effective degree via
+    // `neighbors_indices().filter(in_remaining).count()`. `buckets[d]` (a BTreeSet of node NAMES) holds
+    // the remaining nodes whose effective degree is d; each round pops the smallest name in the lowest
+    // non-empty bucket — byte-identical to the old `min (effective_degree, then node name)` selection (a
+    // total order → the unique minimum). Effective degrees are maintained incrementally: removing a node
+    // decrements each still-remaining neighbour by one (a bucket move). `min_d` drops to the lowest
+    // freshly-created degree on a decrement and is skipped up past emptied buckets each round. This is
+    // the decrementing min-degree sibling of the MCS max-label bucket lever (br-r37-c1-chordalmcs).
+    // eff_deg is seeded from `neighbors_indices().len()` (not degree_by_index) so any self-loop is
+    // counted exactly as the old per-round recompute did.
+    let name_to_idx: HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+    let mut eff_deg: Vec<usize> = (0..n)
+        .map(|i| graph.neighbors_indices(i).map_or(0, <[usize]>::len))
+        .collect();
     let mut in_remaining = vec![true; n];
     let mut remaining_count = n;
+    let mut buckets: Vec<std::collections::BTreeSet<&str>> =
+        vec![std::collections::BTreeSet::new(); n];
+    for i in 0..n {
+        buckets[eff_deg[i]].insert(nodes[i]);
+    }
+    let mut min_d = 0usize;
     let mut independent_set: Vec<usize> = Vec::new();
 
     while remaining_count > 0 {
-        let mut best: Option<usize> = None;
-        let mut best_deg = 0usize;
-        for i in 0..n {
-            if !in_remaining[i] {
-                continue;
-            }
-            let deg = graph
-                .neighbors_indices(i)
-                .map(|nbrs| nbrs.iter().filter(|&&ni| in_remaining[ni]).count())
-                .unwrap_or(0);
-            let take = match best {
-                None => true,
-                // (deg, name) strictly less than the current best -> new unique min.
-                Some(b) => deg < best_deg || (deg == best_deg && nodes[i] < nodes[b]),
-            };
-            if take {
-                best = Some(i);
-                best_deg = deg;
-            }
+        while buckets[min_d].is_empty() {
+            min_d += 1;
         }
-        let min_node = best.unwrap();
+        let min_name = *buckets[min_d].iter().next().expect("non-empty bucket");
+        let min_node = name_to_idx[min_name];
         independent_set.push(min_node);
 
-        // Remove min_node and its still-remaining neighbours.
-        if in_remaining[min_node] {
-            in_remaining[min_node] = false;
-            remaining_count -= 1;
-        }
+        // Remove min_node and its still-remaining neighbours (pull them from their buckets).
+        let mut removed_this_round: Vec<usize> = vec![min_node];
+        buckets[min_d].remove(min_name);
+        in_remaining[min_node] = false;
+        remaining_count -= 1;
         if let Some(nbrs) = graph.neighbors_indices(min_node) {
             for &ni in nbrs {
                 if in_remaining[ni] {
+                    buckets[eff_deg[ni]].remove(nodes[ni]);
                     in_remaining[ni] = false;
                     remaining_count -= 1;
+                    removed_this_round.push(ni);
+                }
+            }
+        }
+
+        // Each removed node's still-remaining neighbours lose one effective degree.
+        for &x in &removed_this_round {
+            if let Some(nbrs) = graph.neighbors_indices(x) {
+                for &y in nbrs {
+                    if in_remaining[y] {
+                        buckets[eff_deg[y]].remove(nodes[y]);
+                        eff_deg[y] -= 1;
+                        buckets[eff_deg[y]].insert(nodes[y]);
+                        if eff_deg[y] < min_d {
+                            min_d = eff_deg[y];
+                        }
+                    }
                 }
             }
         }
@@ -49655,6 +49679,143 @@ mod tests {
             );
         };
         println!("CHORDALTWMCS_AB chordal_graph_treewidth 6000-node interval rounds={rounds} (>1 = bucket faster)");
+        report("BUCKET_vs_scan", &paired(true, false));
+        report("NULL_bucket_vs_bucket", &paired(true, true));
+    }
+
+    /// br-r37-c1-misbucket: full-function paired-interleaved median A/B for `maximum_independent_set` —
+    /// inline PREVIOUS production (the `mismark` O(V·E) int scan: rescan all remaining + recompute each
+    /// effective degree per round) vs the shipped `super::maximum_independent_set` (O((V+E)logV)
+    /// min-degree buckets). Large sparse-ish graph so the O(V·E) recompute dominates. Full-output parity
+    /// asserted first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib mis_bucket_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn mis_bucket_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // 5th-power-of-a-path interval graph: large independent set → many peel rounds.
+        let n_nodes = 4000usize;
+        let k = 5usize;
+        let mut g = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for d in 1..=k {
+                if i >= d {
+                    let _ = g.add_edge(i.to_string(), (i - d).to_string());
+                }
+            }
+        }
+
+        // Inline PREVIOUS production maximum_independent_set (mismark O(V·E) int scan).
+        let old_fn = |graph: &Graph| -> Vec<String> {
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            if n == 0 {
+                return Vec::new();
+            }
+            let mut in_remaining = vec![true; n];
+            let mut remaining_count = n;
+            let mut independent_set: Vec<usize> = Vec::new();
+            while remaining_count > 0 {
+                let mut best: Option<usize> = None;
+                let mut best_deg = 0usize;
+                for i in 0..n {
+                    if !in_remaining[i] {
+                        continue;
+                    }
+                    let deg = graph
+                        .neighbors_indices(i)
+                        .map(|nbrs| nbrs.iter().filter(|&&ni| in_remaining[ni]).count())
+                        .unwrap_or(0);
+                    let take = match best {
+                        None => true,
+                        Some(b) => deg < best_deg || (deg == best_deg && nodes[i] < nodes[b]),
+                    };
+                    if take {
+                        best = Some(i);
+                        best_deg = deg;
+                    }
+                }
+                let min_node = best.unwrap();
+                independent_set.push(min_node);
+                if in_remaining[min_node] {
+                    in_remaining[min_node] = false;
+                    remaining_count -= 1;
+                }
+                if let Some(nbrs) = graph.neighbors_indices(min_node) {
+                    for &ni in nbrs {
+                        if in_remaining[ni] {
+                            in_remaining[ni] = false;
+                            remaining_count -= 1;
+                        }
+                    }
+                }
+            }
+            let mut result: Vec<String> =
+                independent_set.iter().map(|&i| nodes[i].to_owned()).collect();
+            result.sort();
+            result
+        };
+
+        assert_eq!(
+            old_fn(&g),
+            super::maximum_independent_set(&g),
+            "min-degree bucket MIS must be byte-identical to the O(V·E) scan"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if cand {
+                super::maximum_independent_set(&g)
+            } else {
+                old_fn(&g)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "MISBUCKET_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("MISBUCKET_AB maximum_independent_set 4000-node interval rounds={rounds} (>1 = bucket faster)");
         report("BUCKET_vs_scan", &paired(true, false));
         report("NULL_bucket_vs_bucket", &paired(true, true));
     }
