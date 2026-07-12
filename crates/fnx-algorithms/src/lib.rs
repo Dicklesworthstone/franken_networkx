@@ -41757,11 +41757,15 @@ pub fn generic_bfs_edges(
         if depth_limit.is_some_and(|l| depth >= l) {
             continue;
         }
+        // br-r37-c1-gbfsidx (cc): walk neighbors_indices(v) (zero-alloc &[usize]) instead of
+        // neighbors(nodes[v]) (a Vec<&str> alloc) + idx.get (a String re-hash per edge). Every neighbour
+        // is a graph node (the old idx.get was always Some), so the collected+sorted `nbrs` is identical
+        // → the BFS pushes the same edges in the same order → byte-identical output.
         let mut nbrs: Vec<usize> = graph
-            .neighbors(nodes[v])
-            .unwrap_or_default()
+            .neighbors_indices(v)
+            .unwrap_or(&[])
             .iter()
-            .filter_map(|nb| idx.get(nb).copied())
+            .copied()
             .filter(|&ni| !visited[ni])
             .collect();
         nbrs.sort();
@@ -71588,6 +71592,133 @@ mod tests {
             );
         };
         println!("SNAP_IDX_AB circ50k_g100 rounds={rounds} (>1 = index faster)");
+        report("INT_vs_string", &paired(true, false));
+        report("NULL_int_vs_int", &paired(true, true));
+    }
+
+    /// br-r37-c1-gbfsidx: paired-interleaved median A/B for generic_bfs_edges' neighbour iteration —
+    /// inline the full BFS with a flag branching only the neighbour collection (ORIGINAL neighbors(nodes
+    /// [v]) + idx.get re-hash vs the shipped neighbors_indices). Differential output-list parity asserted
+    /// first. One binary / one worker with a NULL control. 50000-node circulant. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib generic_bfs_edges_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn generic_bfs_edges_idx_ab() {
+        use std::collections::{HashMap, VecDeque};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n_nodes = 50000usize;
+        let mut graph = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = graph.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for d in 1..=10usize {
+                let j = (i + d) % n_nodes;
+                if i != j {
+                    let _ = graph.add_edge(i.to_string(), j.to_string());
+                }
+            }
+        }
+
+        let build = |batch: bool| -> Vec<(String, String)> {
+            let source = "0";
+            if !graph.has_node(source) {
+                return Vec::new();
+            }
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            let idx: HashMap<&str, usize> =
+                nodes.iter().enumerate().map(|(i, &nn)| (nn, i)).collect();
+            let s = idx[source];
+            let mut visited = vec![false; n];
+            visited[s] = true;
+            let mut result = Vec::new();
+            let mut queue = VecDeque::new();
+            queue.push_back((s, 0usize));
+            let depth_limit: Option<usize> = None;
+            while let Some((v, depth)) = queue.pop_front() {
+                if depth_limit.is_some_and(|l| depth >= l) {
+                    continue;
+                }
+                let mut nbrs: Vec<usize> = if batch {
+                    graph
+                        .neighbors_indices(v)
+                        .unwrap_or(&[])
+                        .iter()
+                        .copied()
+                        .filter(|&ni| !visited[ni])
+                        .collect()
+                } else {
+                    graph
+                        .neighbors(nodes[v])
+                        .unwrap_or_default()
+                        .iter()
+                        .filter_map(|nb| idx.get(nb).copied())
+                        .filter(|&ni| !visited[ni])
+                        .collect()
+                };
+                nbrs.sort();
+                for ni in nbrs {
+                    if !visited[ni] {
+                        visited[ni] = true;
+                        result.push((nodes[v].to_owned(), nodes[ni].to_owned()));
+                        queue.push_back((ni, depth + 1));
+                    }
+                }
+            }
+            result
+        };
+
+        let old = build(false);
+        let new = build(true);
+        assert_eq!(old, new, "neighbors_indices BFS must match the string baseline");
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            black_box(build(batch));
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "GBFS_IDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("GBFS_IDX_AB circ50k rounds={rounds} (>1 = index faster)");
         report("INT_vs_string", &paired(true, false));
         report("NULL_int_vs_int", &paired(true, true));
     }

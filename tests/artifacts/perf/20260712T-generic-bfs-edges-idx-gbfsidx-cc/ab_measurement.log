@@ -1,0 +1,19 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib generic_bfs_edges_idx_ab -- --ignored --nocapture
+
+GBFS_IDX_AB circ50k rounds=61 (>1 = index faster)
+GBFS_IDX_AB INT_vs_string: median=2.4201x win_rate=61/61 p5_p95=[1.9674,2.7280]
+GBFS_IDX_AB NULL_int_vs_int: median=1.0069x win_rate=34/61 p5_p95=[0.8847,1.1047]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1008 filtered out; finished in 9.73s
+
+Marker GBFS_IDX_AB + test name confirmed (fresh binary). Differential output-list parity
+(old neighbors+idx.get vs new neighbors_indices, full BFS over 50000 nodes) asserted equal
+before timing. The BFS sorts nbrs before processing, so the emitted edge order is
+canonicalized (independent of neighbour-iteration order) -> the conversion is byte-identical.
+
+$ cargo test --release -p fnx-algorithms --lib generic_bfs -- --nocapture
+test tests::test_generic_bfs_edges_depth ... ok      # depth-limited edge output
+test result: ok. 1 passed; 0 failed; 1 ignored; ...
+
+$ cargo clippy --release -p fnx-algorithms --lib --tests -- -D warnings
+--> NONE of my lines flagged (production ~41760-41772 / test ~71599-71723)
+--> 12 pre-existing peer -D warnings errors (untouched, shared checkout)

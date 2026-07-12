@@ -1,5 +1,21 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `generic_bfs_edges` neighbour-iteration integer swap **2.4201x** (br-r37-c1-gbfsidx)
+
+Ninth "name-keyed → integer" win — an ORDERED-OUTPUT traversal that's still safe to convert because it SORTS
+its neighbour frontier before emit. generic_bfs_edges collected neighbours by name per pop: neighbors(nodes[v])
+(Vec<&str> alloc) + idx.get(nb) (re-hash) + filter unvisited + nbrs.sort(). Walk neighbors_indices(v) instead
+(idx kept for the start node). BYTE-IDENTICAL: every neighbour a graph node → same unvisited-index set → after
+sort() identical → same edges pushed in same order (the sort canonicalises).
+
+MEASURED — BFS from 0 over 50000-node circulant (deg 20, visits all → 50000 edges), 61 rounds: **INT_vs_string
+median 2.4201x**, 61/61, p5_p95 [1.9674,2.7280] vs NULL 1.0069x [0.8847,1.1047]. DECISIVE: candidate p5 (1.97)
+~1.8x above null p95. Differential output-list parity asserted (full BFS); test_generic_bfs_edges_depth green.
+Reachable via generic_bfs_edges pyo3. LESSON: an ordered output is only a blocker if order depends on the
+UNSORTED neighbour-iteration order — a sort() before emit makes it order-safe. CLIPPY: my lines clean
+(production ~41760-41772 / test ~71599-71723); crate's 12 pre-existing peer errors untouched. See
+[[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `snap_aggregation` refinement-loop integer swap **3.2252x** (br-r37-c1-snapidx)
 
 Eighth "name-keyed → integer" win — residual in a genuinely HOT loop (not setup). snap_aggregation's iterative
