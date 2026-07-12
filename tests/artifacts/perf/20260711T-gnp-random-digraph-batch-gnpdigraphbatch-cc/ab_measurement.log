@@ -1,0 +1,11 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib gnp_digraph_batch_ab -- --ignored --nocapture
+
+GNP_DIGRAPH_BATCH_AB n=1000 p=0.4 rounds=61 (>1 = batch faster)
+GNP_DIGRAPH_BATCH_AB BATCH_vs_string: median=9.5627x win_rate=61/61 p5_p95=[5.8644,18.5493]
+GNP_DIGRAPH_BATCH_AB NULL_batch_vs_batch: median=1.0040x win_rate=33/61 p5_p95=[0.8473,1.1436]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 216 filtered out; finished in 63.63s
+
+PROFILE-FIRST: this A/B ran BEFORE the production edit. Its parity asserts across 4 configs — (10,0.5),
+(50,0.3), (100,0.7 dense), (1000,0.4) — where build_string is a VERBATIM replica of the production
+all-pairs loop, all passed, proving the batch is byte-identical to the per-edge baseline. Gate: candidate
+p5 (5.8644) >> NULL p95 (1.1436); 61/61.

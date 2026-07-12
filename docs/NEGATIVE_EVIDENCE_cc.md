@@ -1,5 +1,25 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `gnp_random_digraph` batch-by-index **9.5627x** (br-r37-c1-gnpdigraphbatch)
+
+Twenty-second engine-level generator batch win (second directed). gnp_random_digraph visits every ordered
+pair (u,v), u!=v, once; draws rng.random(); adds directed edge when draw<p. No has_edge, each pair once →
+NO dedup/seen-set. Collected accepted (u,v) index pairs in source-major order + batch via
+DiGraph::extend_existing_index_edges_with_attrs_unrecorded (empty AttrMap). The O(n^2) per-pair draws are
+common to both arms; only the per-edge insertion overhead is removed — but that still gave 9.56x on the
+~400k accepted edges.
+
+MEASURED — gnp_random_digraph(1000,0.4) (1000 nodes, ~399600 directed edges), 61 rounds: **BATCH_vs_string
+median 9.5627x**, win_rate 61/61, p5_p95 [5.8644, 18.5493] vs NULL 1.0040x [0.8473, 1.1436]. DECIDABLE:
+candidate p5 (5.86) ~5.1x above the null p95 (1.14), 61/61 won. BYTE-IDENTICAL profile-first — parity
+across 4 configs (10/0.5, 50/0.3, 100/0.7 dense, 1000/0.4) where build_string is a VERBATIM replica of the
+production all-pairs loop. NOTE: no dedicated vs-nx suite test exists for gnp_random_digraph (only
+fast_gnp has one); byte-identity rests on the parity (batch == exact production loop), which preserves the
+prior behavior with no regression. clippy `-D warnings` CLEAN.
+
+Vein spans undirected + directed. Next directed: fast_gnp_random_digraph (p>=1.0), random_uniform_k_out_digraph,
+random_k_out_graph. See [[generator_accept_loop_batch]].
+
 ## SHIPPED WIN (cc, 2026-07-11): `gnm_random_digraph` batch-by-index **6.5368x** (br-r37-c1-gnmdigraphbatch) — DIRECTED SUB-VEIN OPENED
 
 Twenty-first engine-level generator batch win — FIRST of the DIRECTED sub-vein. gnm_random_digraph is a

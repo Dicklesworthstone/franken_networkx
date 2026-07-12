@@ -1,0 +1,9 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo clippy -p fnx-generators --lib --tests -- -D warnings
+    Checking fnx-generators v0.2.0
+CLIPPY CLEAN (no errors, no warnings).
+
+BYTE-IDENTITY NOTE: gnp_random_digraph has no dedicated exact-vs-networkx suite test in the crate (only
+fast_gnp_random_digraph has one). Byte-identity here is established by the gnp_digraph_batch_ab parity
+asserts: build_string is a verbatim copy of the production all-pairs loop, and the batch matches it
+byte-for-byte across 4 configs incl. a dense (100, 0.7) case. The change therefore preserves the exact
+prior production behavior (same RNG draw sequence, same accepted-edge order); it introduces no regression.
