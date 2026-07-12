@@ -2522,21 +2522,33 @@ impl GraphGenerator {
             return Err(GenerationError::FailClosed { operation, reason });
         }
 
-        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n4);
+        // br-r37-c1-sudokubatch (cc): sudoku graph = row + column + box cliques on n^4 nodes. A cell
+        // shares its row AND its box with some peers, so the row/box cliques emit DUPLICATE pairs.
+        // Collect the (u,v) INDEX pairs with a gnm-style integer seen-set (canonical (min,max),
+        // skip-if-seen, first-occurrence order = exactly add_edge's dedup) in the SAME emission order
+        // (rows, then columns, then boxes), then batch-insert instead of per-edge add_edge (2 clones +
+        // 2 name hashes + policy each). No self-loops. Verified byte-identical via the sudoku_batch_ab
+        // parity asserts; extend_existing_index_edges_unrecorded matches add_edge canonicalization/order.
+        let (mut graph, _node_labels) = graph_with_n_nodes(self.mode, n4);
         if n >= 2 {
+            let mut edges: Vec<(usize, usize)> = Vec::new();
+            let mut seen: std::collections::HashSet<(usize, usize)> =
+                std::collections::HashSet::new();
+            let push =
+                |edges: &mut Vec<(usize, usize)>,
+                 seen: &mut std::collections::HashSet<(usize, usize)>,
+                 u: usize,
+                 v: usize| {
+                    let key = if u <= v { (u, v) } else { (v, u) };
+                    if seen.insert(key) {
+                        edges.push((u, v));
+                    }
+                };
             for row_no in 0..n2 {
                 let row_start = row_no * n2;
                 for j in 1..n2 {
                     for i in 0..j {
-                        graph
-                            .add_edge(
-                                node_labels[row_start + i].clone(),
-                                node_labels[row_start + j].clone(),
-                            )
-                            .map_err(|err| GenerationError::FailClosed {
-                                operation,
-                                reason: err.to_string(),
-                            })?;
+                        push(&mut edges, &mut seen, row_start + i, row_start + j);
                     }
                 }
             }
@@ -2546,12 +2558,7 @@ impl GraphGenerator {
                 while j < n4 {
                     let mut i = col_no;
                     while i < j {
-                        graph
-                            .add_edge(node_labels[i].clone(), node_labels[j].clone())
-                            .map_err(|err| GenerationError::FailClosed {
-                                operation,
-                                reason: err.to_string(),
-                            })?;
+                        push(&mut edges, &mut seen, i, j);
                         i += n2;
                     }
                     j += n2;
@@ -2565,16 +2572,12 @@ impl GraphGenerator {
                         for i in 0..j {
                             let u = box_start + (i % n) + n2 * (i / n);
                             let v = box_start + (j % n) + n2 * (j / n);
-                            graph
-                                .add_edge(node_labels[u].clone(), node_labels[v].clone())
-                                .map_err(|err| GenerationError::FailClosed {
-                                    operation,
-                                    reason: err.to_string(),
-                                })?;
+                            push(&mut edges, &mut seen, u, v);
                         }
                     }
                 }
             }
+            let _ = graph.extend_existing_index_edges_unrecorded(edges);
         }
 
         self.record(
@@ -9130,6 +9133,154 @@ mod tests {
             );
         };
         println!("GRIDN_BATCH_AB dim={dim:?} rounds={rounds} (>1 = batch faster)");
+        report("BATCH_vs_string", &paired(true, false));
+        report("NULL_batch_vs_batch", &paired(true, true));
+    }
+
+    /// br-r37-c1-sudokubatch: PROFILE-FIRST A/B for sudoku_graph. Row + column + box cliques on n^4
+    /// nodes; a cell shares its row AND box with peers, so row/box cliques emit DUPLICATE pairs → the
+    /// batch uses the seen-set. Parity asserts cover n=2..4 (dedup-heavy) BEFORE the production edit.
+    /// `#[ignore]`; run with
+    /// `cargo test --release -p fnx-generators --lib sudoku_batch_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn sudoku_batch_ab() {
+        use super::graph_with_n_nodes;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn emit(n: usize, dedup: bool) -> Vec<(usize, usize)> {
+            let n2 = n * n;
+            let n3 = n2 * n;
+            let n4 = n3 * n;
+            let mut edges: Vec<(usize, usize)> = Vec::new();
+            let mut seen: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+            let push = |edges: &mut Vec<(usize, usize)>,
+                        seen: &mut std::collections::HashSet<(usize, usize)>,
+                        u: usize,
+                        v: usize| {
+                if dedup {
+                    let key = if u <= v { (u, v) } else { (v, u) };
+                    if seen.insert(key) {
+                        edges.push((u, v));
+                    }
+                } else {
+                    edges.push((u, v));
+                }
+            };
+            if n >= 2 {
+                for row_no in 0..n2 {
+                    let row_start = row_no * n2;
+                    for j in 1..n2 {
+                        for i in 0..j {
+                            push(&mut edges, &mut seen, row_start + i, row_start + j);
+                        }
+                    }
+                }
+                for col_no in 0..n2 {
+                    let mut j = col_no;
+                    while j < n4 {
+                        let mut i = col_no;
+                        while i < j {
+                            push(&mut edges, &mut seen, i, j);
+                            i += n2;
+                        }
+                        j += n2;
+                    }
+                }
+                for band_no in 0..n {
+                    for stack_no in 0..n {
+                        let box_start = n3 * band_no + n * stack_no;
+                        for j in 1..n2 {
+                            for i in 0..j {
+                                let u = box_start + (i % n) + n2 * (i / n);
+                                let v = box_start + (j % n) + n2 * (j / n);
+                                push(&mut edges, &mut seen, u, v);
+                            }
+                        }
+                    }
+                }
+            }
+            edges
+        }
+
+        let build_string = |n: usize| {
+            let n4 = n * n * n * n;
+            let (mut g, labels) = graph_with_n_nodes(CompatibilityMode::Strict, n4);
+            for &(u, v) in &emit(n, false) {
+                let _ = g.add_edge(labels[u].clone(), labels[v].clone());
+            }
+            g
+        };
+        let build_batch = |n: usize| {
+            let n4 = n * n * n * n;
+            let (mut g, _labels) = graph_with_n_nodes(CompatibilityMode::Strict, n4);
+            let _ = g.extend_existing_index_edges_unrecorded(emit(n, true));
+            g
+        };
+
+        // Byte-identity across the dedup-heavy small orders (construction only, no timing).
+        for &n in &[2usize, 3, 4, 9] {
+            let gs = build_string(n);
+            let gb = build_batch(n);
+            assert_eq!(
+                gs.edges_ordered_borrowed(),
+                gb.edges_ordered_borrowed(),
+                "seen-set batch sudoku(n={n}) must equal the per-edge baseline"
+            );
+            assert_eq!(gs.nodes_ordered(), gb.nodes_ordered(), "nodes sudoku(n={n})");
+        }
+
+        // sudoku(9): 6561 nodes, ~735k edges.
+        let n = 9usize;
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            if batch {
+                black_box(build_batch(n));
+            } else {
+                black_box(build_string(n));
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "SUDOKU_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("SUDOKU_BATCH_AB n={n} rounds={rounds} (>1 = batch faster)");
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
     }

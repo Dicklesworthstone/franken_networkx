@@ -1,0 +1,9 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib sudoku -- --nocapture
+running 4 tests (+1 ignored measurement)
+test tests::sudoku_graph_rejects_dense_edge_count ... ok
+test tests::sudoku_graph_default_order_matches_networkx_counts_and_neighbors ... ok
+(+2 more) test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 210 filtered out; finished in 0.00s
+
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo clippy -p fnx-generators --lib --tests -- -D warnings
+    Checking fnx-generators v0.2.0
+CLIPPY CLEAN (no errors, no warnings).

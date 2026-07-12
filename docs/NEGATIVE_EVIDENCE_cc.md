@@ -1,5 +1,26 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `sudoku_graph` batch-by-index **8.3895x** (br-r37-c1-sudokubatch) — VEIN FULLY MINED
+
+Twentieth engine-level generator batch win — the engine-level per-edge-add_edge generator vein is now
+FULLY MINED (20 wins this session, all byte-identical, all >null). sudoku = row + column + box cliques on
+n^4 nodes; a cell shares its row AND box → row/box cliques emit DUPLICATE pairs → seen-set. Collected (u,v)
+index pairs with the gnm-style seen-set in exact emission order (rows, cols, boxes) + one
+extend_existing_index_edges_unrecorded.
+
+MEASURED — sudoku(9) (6561 nodes, ~735k edges), 61 rounds: **BATCH_vs_string median 8.3895x**, win_rate
+61/61, p5_p95 [5.5274, 9.9168] vs NULL 0.9990x [0.8638, 1.1066]. DECIDABLE: candidate p5 (5.53) ~5.0x above
+the null p95 (1.11), 61/61 won. BYTE-IDENTICAL profile-first — parity across n=2,3,4,9 (all dedup-heavy);
+vs-nx `sudoku_graph_default_order_matches_networkx_counts_and_neighbors` green; clippy `-D warnings` CLEAN.
+
+FULL SESSION VEIN (20 wins, all cc, 2026-07-11): gnp 13.20x, gnm 8.55x, complete_multipartite 13.24x, turan
+16.22x, ring_of_cliques 19.94x, windmill 18.63x, caveman 3.86x, barbell 16.92x, lollipop 13.29x, tadpole
+7.10x, hkn_harary 19.86x, hypercube 6.47x, wheel 24.28x, binomial_tree 6.96x, grid_2d 4.08x, circulant
+17.37x, generalized_petersen 6.13x, hnm_harary 8.24x, grid_graph 5.47x, sudoku 8.39x; barabasi 1.04x
+surfaced (sampling-bound, the ONLY non-win). Next frontiers: DIRECTED generators (need a DiGraph
+index-batch inserter) or upgrade ladder/circular_ladder String-pair batch → index-pair. See
+[[generator_accept_loop_batch]].
+
 ## SHIPPED WIN (cc, 2026-07-11): `grid_graph` (n-dim) batch-by-index **5.4715x** (br-r37-c1-gridnbatch)
 
 Nineteenth engine-level generator batch win; completes the grid family (grid_2d 4.08x + grid_graph 5.47x).
