@@ -3807,23 +3807,30 @@ impl GraphGenerator {
             return Ok(self.finish_digraph_report(graph, warnings));
         }
 
-        let (mut graph, node_labels) = digraph_with_n_nodes(self.mode, n);
+        // br-r37-c1-gnmdigraphbatch (cc): directed analog of the shipped undirected gnm batch. The
+        // rejection sampler read graph.has_edge (String-keyed) on every draw; replace it with an
+        // integer DIRECTED seen-set ((u,v), NO canonicalization — direction matters, mirrors has_edge
+        // exactly) and collect the accepted (u,v) index pairs, then batch-insert via the DiGraph index
+        // inserter. The RNG draw sequence + reject decisions are unchanged → identical accepted edges
+        // in identical order. Verified byte-identical (incl. dense) via the gnm_digraph_batch_ab
+        // parity asserts. extend_existing_index_edges_with_attrs_unrecorded matches add_edge's edge +
+        // succ/pred adjacency order (empty AttrMap == unweighted add_edge).
+        let (mut graph, _node_labels) = digraph_with_n_nodes(self.mode, n);
         let mut rng = PythonRandom::new(seed);
+        let mut seen: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+        let mut edges: Vec<(usize, usize, fnx_classes::AttrMap)> = Vec::with_capacity(m);
         let mut edge_count = 0usize;
         while edge_count < m {
             let u = rng.choice_index(n);
             let v = rng.choice_index(n);
-            if u == v || graph.has_edge(&node_labels[u], &node_labels[v]) {
+            if u == v || seen.contains(&(u, v)) {
                 continue;
             }
-            graph
-                .add_edge(node_labels[u].clone(), node_labels[v].clone())
-                .map_err(|err| GenerationError::FailClosed {
-                    operation: "gnm_random_digraph",
-                    reason: err.to_string(),
-                })?;
+            seen.insert((u, v));
+            edges.push((u, v, fnx_classes::AttrMap::new()));
             edge_count += 1;
         }
+        let _ = graph.extend_existing_index_edges_with_attrs_unrecorded(edges);
 
         self.record(
             "gnm_random_digraph",
@@ -9281,6 +9288,125 @@ mod tests {
             );
         };
         println!("SUDOKU_BATCH_AB n={n} rounds={rounds} (>1 = batch faster)");
+        report("BATCH_vs_string", &paired(true, false));
+        report("NULL_batch_vs_batch", &paired(true, true));
+    }
+
+    /// br-r37-c1-gnmdigraphbatch: PROFILE-FIRST A/B for gnm_random_digraph — the DIRECTED analog of the
+    /// shipped undirected gnm win. The rejection sampler reads `graph.has_edge` (String-keyed) every
+    /// draw; replace it with an integer directed seen-set (`(u,v)`, NO canonicalization — direction
+    /// matters) + batch-insert via the DiGraph index inserter. Both arms share the same RNG seed/draw
+    /// sequence, so the accepted edges are identical. Validates the DiGraph inserter byte-identity via
+    /// parity asserts BEFORE any production edit. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-generators --lib gnm_digraph_batch_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn gnm_digraph_batch_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let build_string = |n: usize, m: usize, seed: u64| {
+            let (mut g, labels) = super::digraph_with_n_nodes(CompatibilityMode::Strict, n);
+            let mut rng = super::PythonRandom::new(seed);
+            let mut edge_count = 0usize;
+            while edge_count < m {
+                let u = rng.choice_index(n);
+                let v = rng.choice_index(n);
+                if u == v || g.has_edge(&labels[u], &labels[v]) {
+                    continue;
+                }
+                let _ = g.add_edge(labels[u].clone(), labels[v].clone());
+                edge_count += 1;
+            }
+            g
+        };
+        let build_batch = |n: usize, m: usize, seed: u64| {
+            let (mut g, _labels) = super::digraph_with_n_nodes(CompatibilityMode::Strict, n);
+            let mut rng = super::PythonRandom::new(seed);
+            let mut seen: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+            let mut edges: Vec<(usize, usize, fnx_classes::AttrMap)> = Vec::with_capacity(m);
+            let mut edge_count = 0usize;
+            while edge_count < m {
+                let u = rng.choice_index(n);
+                let v = rng.choice_index(n);
+                if u == v || seen.contains(&(u, v)) {
+                    continue;
+                }
+                seen.insert((u, v));
+                edges.push((u, v, fnx_classes::AttrMap::new()));
+                edge_count += 1;
+            }
+            let _ = g.extend_existing_index_edges_with_attrs_unrecorded(edges);
+            g
+        };
+
+        // Byte-identity across sizes/densities (construction only, no timing).
+        for &(n, m, seed) in &[
+            (50usize, 200usize, 1u64),
+            (100, 2000, 7),
+            (200, 20000, 42), // dense → heavy has_edge rejection
+            (1000, 300000, 3),
+        ] {
+            let gs = build_string(n, m, seed);
+            let gb = build_batch(n, m, seed);
+            assert_eq!(
+                gs.edges_ordered_borrowed(),
+                gb.edges_ordered_borrowed(),
+                "directed seen-set batch gnm({n},{m},{seed}) must equal per-edge baseline"
+            );
+            assert_eq!(gs.nodes_ordered(), gb.nodes_ordered(), "nodes gnm_digraph");
+        }
+
+        // gnm_random_digraph(1000, 300000): 1000 nodes, 300000 directed edges (~30% dense).
+        let (n, m, seed) = (1000usize, 300000usize, 3u64);
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            if batch {
+                black_box(build_batch(n, m, seed));
+            } else {
+                black_box(build_string(n, m, seed));
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "GNM_DIGRAPH_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("GNM_DIGRAPH_BATCH_AB n={n} m={m} rounds={rounds} (>1 = batch faster)");
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
     }

@@ -1,5 +1,24 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `gnm_random_digraph` batch-by-index **6.5368x** (br-r37-c1-gnmdigraphbatch) — DIRECTED SUB-VEIN OPENED
+
+Twenty-first engine-level generator batch win — FIRST of the DIRECTED sub-vein. gnm_random_digraph is a
+rejection sampler (draw u,v until m distinct directed edges accepted; reject on u==v or existing edge). It
+read graph.has_edge (String-keyed) per draw + per-edge add_edge. Directed analog of the shipped undirected
+gnm (922444175, 8.55x): replace has_edge with an integer DIRECTED seen-set (HashSet<(usize,usize)>, key
+(u,v), NO canonicalization — direction matters), collect accepted (u,v), batch via
+DiGraph::extend_existing_index_edges_with_attrs_unrecorded (empty AttrMap = unweighted add_edge).
+
+KEY DE-RISK: profile-first parity asserts across 4 configs incl. dense (200,20000) ALL passed, AND the
+suite's `gnm_random_digraph_matches_networkx_seeded_example` passes → **DiGraph's
+extend_existing_index_edges_with_attrs_unrecorded is byte-identical to per-edge add_edge (direction +
+dedup + empty AttrMap).** This OPENS the directed generators for the same treatment.
+
+MEASURED — gnm_random_digraph(1000,300000) (1000 nodes, 300000 directed edges, ~30% dense), 61 rounds:
+**BATCH_vs_string median 6.5368x**, win_rate 61/61, p5_p95 [5.2052, 8.1557] vs NULL 0.9902x [0.8284,
+1.2817]. DECIDABLE: candidate p5 (5.21) ~4.1x above the null p95 (1.28), 61/61 won. clippy `-D warnings`
+CLEAN. Next directed: gnp_random_digraph (profile dense/insertion split first).
+
 ## SHIPPED WIN (cc, 2026-07-11): `sudoku_graph` batch-by-index **8.3895x** (br-r37-c1-sudokubatch) — VEIN FULLY MINED
 
 Twentieth engine-level generator batch win — the engine-level per-edge-add_edge generator vein is now

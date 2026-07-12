@@ -1,0 +1,12 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib gnm_digraph_batch_ab -- --ignored --nocapture
+
+GNM_DIGRAPH_BATCH_AB n=1000 m=300000 rounds=61 (>1 = batch faster)
+GNM_DIGRAPH_BATCH_AB BATCH_vs_string: median=6.5368x win_rate=61/61 p5_p95=[5.2052,8.1557]
+GNM_DIGRAPH_BATCH_AB NULL_batch_vs_batch: median=0.9902x win_rate=26/61 p5_p95=[0.8284,1.2817]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 215 filtered out; finished in 49.31s
+
+PROFILE-FIRST: this A/B ran BEFORE the production edit. Its parity asserts across 4 configs — incl. the
+dense (200,20000) with heavy has_edge rejection — ALL passed, proving the DiGraph index inserter
+extend_existing_index_edges_with_attrs_unrecorded is byte-identical to per-edge add_edge (direction +
+dedup + empty AttrMap). Gate: candidate p5 (5.2052) >> NULL p95 (1.2817); 61/61. First win of the
+DIRECTED sub-vein.
