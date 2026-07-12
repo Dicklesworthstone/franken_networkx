@@ -1,5 +1,19 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `power` (k-th graph power) batch-insert **1.9768x** (br-r37-c1-powerbatch)
+
+Fourteenth fnx-algorithms result-builder batch. power(graph,k) = BFS from each source up to distance k,
+adding (s, ni) with ni>s when ni first reached. Collect the power edges (BFS-discovery order) + one
+Graph::extend_edges_unrecorded. CLEAN (BFS reads only input; ni>s → unique, no self-loop). CONFIRMS the
+"output ≈ |E|" rule from the quotient reject: power EXPANDS (dense output) → clears null (quotient COLLAPSES
+→ below null).
+
+MEASURED — power(K120, k=1) (120 nodes, 7140 edges), 61 rounds: **BATCH_vs_string median 1.9768x**, win_rate
+61/61, p5_p95 [1.7631, 2.2286] vs NULL 0.9987x [0.9286, 1.1304]. DECIDABLE: candidate p5 (1.76) ~1.6x above
+the null p95 (1.13), 61/61 won. Marker confirmed (fresh binary); test_power_path suite test green. CLIPPY:
+MY CODE CLEAN (0 in ranges 38118-38160 / 67922-68056, grep-verified); crate's ~12 pre-existing peer errors
+untouched. See [[redundant_edge_materialization_family]].
+
 ## REJECT (cc, 2026-07-12): `quotient_graph` batch — BELOW NULL (br-r37-c1-quotientbatch)
 
 quotient_graph collapses nodes into partition blocks; it ALREADY has a seen_edges HashSet that dedups
