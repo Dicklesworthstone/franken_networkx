@@ -1,5 +1,21 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `local_reaching_centrality_directed` integer-index BFS **18.7543x** (br-r37-c1-lrcdiridx)
+
+DiGraph mirror of br-r37-c1-lrcidx. local_reaching_centrality_directed(digraph,node) BFSed forward
+reachability over a HashSet<&str> (String hash per node) + digraph.successors (Vec<&str> alloc per pop) —
+worse than the undirected sibling. Reached directly AND n times by global_reaching_centrality_directed
+(O(n·(V+E))). Fix: get_node_index once, BFS over successors_indices (&[usize]) + vec![false; n], count reached
+directly. BYTE-IDENTICAL: forward reachability order-independent → same reached count; ratio single f64. A/B
+ULP parity ALSO confirms successors_indices == name-based successors reachable set.
+
+MEASURED — global_reaching_centrality_directed (n local calls) on 1000-node directed circulant (out-deg 10),
+61 rounds: **IDX_vs_string median 18.7543x**, 61/61, p5_p95 [14.9547,25.7678] vs NULL 0.9771x [0.7275,1.3155].
+DECISIVE: candidate p5 (14.95) ~11x above null p95. ULP parity assert (to_bits) passed; 5 reaching-centrality
+suite tests green incl. directed_chain (the exact changed path). Reachable via global/local_reaching_
+centrality_directed pyo3. CLIPPY: my lines clean (production ~31570-31600 / test ~70531-70670); crate's 12
+pre-existing peer errors untouched. See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `local_reaching_centrality` integer-index BFS **21.4735x** (br-r37-c1-lrcidx)
 
 FRESH SUB-FAMILY: reached String-HashSet BFS that the String→index sweep SKIPPED because it already used

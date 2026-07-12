@@ -31567,21 +31567,33 @@ pub fn local_reaching_centrality_directed(digraph: &DiGraph, node: &str) -> f64 
     if n <= 1 || !digraph.has_node(node) {
         return 0.0;
     }
-    // BFS from node counting reachable nodes
-    let mut visited = HashSet::<&str>::new();
+    // br-r37-c1-lrcdiridx (cc): integer-index BFS — the DiGraph mirror of br-r37-c1-lrcidx. The old
+    // kernel BFS'd forward reachability over a `HashSet<&str>` (a String hash per visited node) via
+    // `digraph.successors` (a `Vec<&str>` alloc per pop). Resolve the start index once and walk
+    // `successors_indices` (zero-alloc &[usize]) over a `vec![false; n]` visited-mark, counting reached
+    // nodes directly. Byte-identical: forward reachability is order-independent, so `reachable` is the
+    // same count and the ratio is bit-identical. `global_reaching_centrality_directed` calls this n
+    // times, so it drops the per-node String hashing across the whole O(n·(V+E)) sweep.
+    let start = digraph
+        .get_node_index(node)
+        .expect("has_node checked above ensures the index exists");
+    let mut visited = vec![false; n];
     let mut queue = VecDeque::new();
-    visited.insert(node);
-    queue.push_back(node);
+    visited[start] = true;
+    let mut count = 1usize;
+    queue.push_back(start);
     while let Some(current) = queue.pop_front() {
-        if let Some(succs) = digraph.successors(current) {
-            for s in succs {
-                if visited.insert(s) {
+        if let Some(succs) = digraph.successors_indices(current) {
+            for &s in succs {
+                if !visited[s] {
+                    visited[s] = true;
+                    count += 1;
                     queue.push_back(s);
                 }
             }
         }
     }
-    let reachable = visited.len() - 1; // exclude node itself
+    let reachable = count - 1; // exclude node itself
     reachable as f64 / (n - 1) as f64
 }
 
@@ -70512,6 +70524,148 @@ mod tests {
             );
         };
         println!("LRC_IDX_AB circ1000 rounds={rounds} (>1 = index faster)");
+        report("IDX_vs_string", &paired(true, false));
+        report("NULL_idx_vs_idx", &paired(true, true));
+    }
+
+    /// br-r37-c1-lrcdiridx: paired-interleaved median A/B for local_reaching_centrality_directed's BFS —
+    /// inline ORIGINAL HashSet<&str> + successors BFS vs the shipped successors_indices integer BFS,
+    /// driven through the global_reaching_centrality_directed loop (n calls). One binary / one worker
+    /// with a NULL control. 1000-node directed circulant. ULP parity asserted first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib local_reaching_centrality_directed_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn local_reaching_centrality_directed_idx_ab() {
+        use std::collections::{HashSet, VecDeque};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let mut digraph = DiGraph::strict();
+        for i in 0..1000usize {
+            let _ = digraph.add_node(i.to_string());
+        }
+        for i in 0..1000usize {
+            for d in 1..=10usize {
+                let j = (i + d) % 1000;
+                if i != j {
+                    let _ = digraph.add_edge(i.to_string(), j.to_string());
+                }
+            }
+        }
+
+        let local_old = |digraph: &DiGraph, node: &str, n: usize| -> f64 {
+            if n <= 1 || !digraph.has_node(node) {
+                return 0.0;
+            }
+            let mut visited = HashSet::<&str>::new();
+            let mut queue = VecDeque::new();
+            visited.insert(node);
+            queue.push_back(node);
+            while let Some(current) = queue.pop_front() {
+                if let Some(succs) = digraph.successors(current) {
+                    for s in succs {
+                        if visited.insert(s) {
+                            queue.push_back(s);
+                        }
+                    }
+                }
+            }
+            (visited.len() - 1) as f64 / (n - 1) as f64
+        };
+        let local_new = |digraph: &DiGraph, node: &str, n: usize| -> f64 {
+            if n <= 1 || !digraph.has_node(node) {
+                return 0.0;
+            }
+            let start = digraph.get_node_index(node).unwrap();
+            let mut visited = vec![false; n];
+            let mut queue = VecDeque::new();
+            visited[start] = true;
+            let mut count = 1usize;
+            queue.push_back(start);
+            while let Some(current) = queue.pop_front() {
+                if let Some(succs) = digraph.successors_indices(current) {
+                    for &s in succs {
+                        if !visited[s] {
+                            visited[s] = true;
+                            count += 1;
+                            queue.push_back(s);
+                        }
+                    }
+                }
+            }
+            (count - 1) as f64 / (n - 1) as f64
+        };
+
+        let global = |batch: bool| -> f64 {
+            let nodes = digraph.nodes_ordered();
+            let n = nodes.len();
+            let local_vals: Vec<f64> = nodes
+                .iter()
+                .map(|&node| {
+                    if batch {
+                        local_new(&digraph, node, n)
+                    } else {
+                        local_old(&digraph, node, n)
+                    }
+                })
+                .collect();
+            let c_max = local_vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let sum_diff: f64 = local_vals.iter().map(|c| c_max - c).sum();
+            sum_diff / (n - 1) as f64
+        };
+
+        let old = global(false);
+        let new = global(true);
+        assert_eq!(
+            old.to_bits(),
+            new.to_bits(),
+            "integer-index BFS must be ULP-identical"
+        );
+
+        let time = |batch: bool| -> f64 {
+            let t0 = Instant::now();
+            black_box(global(batch));
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "LRCDIR_IDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("LRCDIR_IDX_AB dircirc1000 rounds={rounds} (>1 = index faster)");
         report("IDX_vs_string", &paired(true, false));
         report("NULL_idx_vs_idx", &paired(true, true));
     }
