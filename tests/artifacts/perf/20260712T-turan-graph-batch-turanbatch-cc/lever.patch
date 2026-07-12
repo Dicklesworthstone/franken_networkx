@@ -1,0 +1,131 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index 44f30eac1..3116c1cd5 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -33853,13 +33853,21 @@ pub fn turan_graph(n: usize, r: usize) -> Result<Graph, String> {
+     gen_nodes(&mut g, n);
+     // Assign nodes to partitions: partition[i] = i % r
+     // Nodes in different partitions are connected
++    // br-r37-c1-turanbatch (cc): collect the inter-partition edges as (i, j) INDEX pairs (same i<j
++    // order) + one extend_existing_index_edges_unrecorded instead of per-edge gen_edge (i.to_string()
++    // + j.to_string() + a name→index hash + a policy record EACH). The guard i%r!=j%r reads only the
++    // loop vars; nodes are gen_nodes'd as "0".."n-1" so index i names node i; i<j so every edge is
++    // unique with no self-loop, and the helper canonicalizes by node NAME + pushes adjacency exactly
++    // as add_edge in the identical order → byte-identical.
++    let mut edges: Vec<(usize, usize)> = Vec::new();
+     for i in 0..n {
+         for j in (i + 1)..n {
+             if i % r != j % r {
+-                gen_edge(&mut g, i, j);
++                edges.push((i, j));
+             }
+         }
+     }
++    let _ = g.extend_existing_index_edges_unrecorded(edges);
+     Ok(g)
+ }
+ 
+@@ -69163,6 +69171,103 @@ mod tests {
+         report("NULL_batch_vs_batch", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-turanbatch: paired-interleaved median A/B for turan_graph — inline per-edge baseline
++    /// (gen_edge) vs the shipped INDEX batch, one binary / one worker with a NULL control. T(300,5) has
++    /// 300 nodes and 36000 inter-partition edges (dense, few-node); the index batch removes the two
++    /// per-edge to_string() allocs + name→index hashes + policy record behind a cheap i%r!=j%r guard.
++    /// Parity asserted first. `#[ignore]`; run with
++    /// `cargo test --release -p fnx-algorithms --lib turan_graph_batch_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn turan_graph_batch_ab() {
++        use crate::{gen_edge, gen_nodes};
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        let (n, r) = (300usize, 5usize);
++
++        let build = |n: usize, r: usize, batch: bool| -> Graph {
++            let mut g = Graph::strict();
++            gen_nodes(&mut g, n);
++            if batch {
++                let mut edges: Vec<(usize, usize)> = Vec::new();
++                for i in 0..n {
++                    for j in (i + 1)..n {
++                        if i % r != j % r {
++                            edges.push((i, j));
++                        }
++                    }
++                }
++                let _ = g.extend_existing_index_edges_unrecorded(edges);
++            } else {
++                for i in 0..n {
++                    for j in (i + 1)..n {
++                        if i % r != j % r {
++                            gen_edge(&mut g, i, j);
++                        }
++                    }
++                }
++            }
++            g
++        };
++
++        let old = build(n, r, false);
++        let new = build(n, r, true);
++        assert_eq!(
++            old.edges_ordered_borrowed(),
++            new.edges_ordered_borrowed(),
++            "batch turan_graph must equal the per-edge baseline"
++        );
++        assert_eq!(old.nodes_ordered(), new.nodes_ordered());
++
++        let time = |batch: bool| -> f64 {
++            let t0 = Instant::now();
++            black_box(build(n, r, batch));
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for round in 0..rounds {
++                let (tb, tc) = if round.is_multiple_of(2) {
++                    let bt = time(base_arm);
++                    let ct = time(cand);
++                    (bt, ct)
++                } else {
++                    let ct = time(cand);
++                    let bt = time(base_arm);
++                    (bt, ct)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "TURAN_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("TURAN_BATCH_AB T300_5 rounds={rounds} (>1 = batch faster)");
++        report("BATCH_vs_string", &paired(true, false));
++        report("NULL_batch_vs_batch", &paired(true, true));
++    }
++
+     #[test]
+     fn test_cartesian_product_label_disambiguation() {
+         let mut g1 = Graph::strict();

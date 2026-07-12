@@ -1,5 +1,21 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `turan_graph` INDEX-pair edge batch-insert **25.4229x** (br-r37-c1-turanbatch)
+
+Twenty-fifth result-builder batch win. turan_graph(n,r) = T(n,r): n nodes named "0".."n-1" via gen_nodes,
+partitioned by i%r, edge between every pair in different partitions (i%r!=j%r) via gen_edge(&mut g,i,j).
+Collect inter-partition (i,j) INDEX pairs + one extend_existing_index_edges_unrecorded → drops both to_string
+allocs + name hashes + policy record. Combines cheap-guard (i%r!=j%r O(1), like kneser) + index-batch +
+dense-few-nodes.
+
+MEASURED — T(300,5) (300 nodes, 36000 edges), 61 rounds: **BATCH_vs_string median 25.4229x**, 61/61, p5_p95
+[17.3829,31.5429] vs NULL 0.9975x [0.8812,1.1438]. DECISIVE: candidate p5 (17.38) ~15x above null p95. (A bit
+below bipartite's 31.65x — turan's guard loop scans all C(300,2)=44850 pairs common to both arms for 36000
+edges.) Byte-identical: i<j always, helper canonicalizes by node NAME + pushes adj in given order, nodes
+pre-added. test_turan_graph green; parity assert passed. Reachable via turan_graph pyo3. CLIPPY: my lines
+clean (production ~33856-33874 / test ~69174-69268); crate's 12 pre-existing peer errors untouched. See
+[[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `complete_bipartite_graph` INDEX-pair edge batch-insert **31.6498x** (br-r37-c1-bipartitebatch)
 
 Twenty-fourth result-builder batch win — NEW SESSION RECORD. complete_bipartite_graph(n1,n2) = K_{n1,n2}:
