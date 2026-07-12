@@ -1,0 +1,11 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib hnm_harary_batch_ab -- --ignored --nocapture
+
+HNM_HARARY_BATCH_AB n=50000 m=250000 rounds=61 (>1 = batch faster)
+HNM_HARARY_BATCH_AB BATCH_vs_string: median=8.2428x win_rate=61/61 p5_p95=[6.3175,10.0339]
+HNM_HARARY_BATCH_AB NULL_batch_vs_batch: median=0.9974x win_rate=30/61 p5_p95=[0.8048,1.1847]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 212 filtered out; finished in 40.25s
+
+PROFILE-FIRST: this A/B ran BEFORE the production edit. Its parity asserts across 6 configs covering
+every branch — n even/odd x degree_floor even/odd, plus the remainder shell — (10,15),(10,20),(9,9),
+(9,14),(11,17),(50000,250000) — ALL passed, confirming the seen-set batch is byte-identical to per-edge
+add_edge. Gate: candidate p5 (6.3175) >> NULL p95 (1.1847); 61/61.

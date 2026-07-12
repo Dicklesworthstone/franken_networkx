@@ -1,5 +1,25 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `hnm_harary_graph` batch-by-index **8.2428x** (br-r37-c1-hnmhararybatch)
+
+Eighteenth engine-level generator batch win (third seen-set member) — completes the Harary pair (hkn
+19.86x + hnm 8.24x). H_{n,m} = circulant of offset=⌊2m/n⌋/2 shifts + parity-dependent matching + remainder
+shell (shift offset+1) OR partial half-shift shell; the shells overlap the circulant/each other → seen-set.
+Collected (u,v) index pairs with the gnm-style seen-set in exact emission order + one
+extend_existing_index_edges_unrecorded.
+
+MEASURED — hnm_harary(50000,250000) (50000 nodes, ~250000 edges, degree_floor 10), 61 rounds:
+**BATCH_vs_string median 8.2428x**, win_rate 61/61, p5_p95 [6.3175, 10.0339] vs NULL 0.9974x
+[0.8048, 1.1847]. DECIDABLE: candidate p5 (6.32) ~5.3x above the null p95 (1.18), 61/61 won.
+BYTE-IDENTICAL profile-first — parity asserts across 6 configs covering every branch (n even/odd ×
+degree_floor even/odd + remainder): (10,15),(10,20),(9,9),(9,14),(11,17),(50000,250000); vs-nx
+`hnm_harary_graph_even_order_remainder_matches_networkx_edges` green; clippy `-D warnings` CLEAN.
+
+Vein: gnp 13.20x, gnm 8.55x, complete_multipartite 13.24x, turan 16.22x, ring_of_cliques 19.94x, windmill
+18.63x, caveman 3.86x, barbell 16.92x, lollipop 13.29x, tadpole 7.10x, hkn_harary 19.86x, hypercube 6.47x,
+wheel 24.28x, binomial_tree 6.96x, grid_2d 4.08x, circulant 17.37x, generalized_petersen 6.13x, hnm_harary
+8.24x shipped; barabasi 1.04x surfaced. See [[generator_accept_loop_batch]].
+
 ## SHIPPED WIN (cc, 2026-07-11): `generalized_petersen_graph` batch-by-index **6.1290x** (br-r37-c1-gpetersenbatch)
 
 Seventeenth engine-level generator batch win (second seen-set member). GP(n,k) = outer n-cycle + n spokes
