@@ -1,0 +1,178 @@
+diff --git a/crates/fnx-generators/src/lib.rs b/crates/fnx-generators/src/lib.rs
+index 86723f404..4a257d7d2 100644
+--- a/crates/fnx-generators/src/lib.rs
++++ b/crates/fnx-generators/src/lib.rs
+@@ -3339,6 +3339,15 @@ impl GraphGenerator {
+             graph.add_node(label.clone());
+         }
+ 
++        // br-r37-c1-gridnbatch (cc): n-dimensional grid — collect the (index, target_index) pairs in
++        // the SAME (index, axis) emission order and batch-insert instead of per-edge add_edge (2 clones
++        // + 2 name hashes + policy each). Forward edges are unique; the size==2 periodic wrap is guarded
++        // to None (it would duplicate the single interior edge) and the size>=3 wrap goes to 0
++        // (distinct); a size==1 periodic axis emits one unique self-loop per node. So every pair is
++        // unique — no dedup needed — and self-loop handling is byte-identical (proven by the circulant
++        // win). extend_existing_index_edges_unrecorded matches add_edge's endpoint canonicalization +
++        // adj_indices order.
++        let mut edges: Vec<(usize, usize)> = Vec::new();
+         for index in 0..node_count {
+             let coordinates = grid_coordinates_from_index(index, &sizes);
+             for (axis, axis_size) in sizes.iter().copied().enumerate() {
+@@ -3363,15 +3372,11 @@ impl GraphGenerator {
+ 
+                 if let Some(target) = maybe_target {
+                     let target_index = grid_coordinates_to_index(&target, &sizes);
+-                    graph
+-                        .add_edge(labels[index].clone(), labels[target_index].clone())
+-                        .map_err(|err| GenerationError::FailClosed {
+-                            operation,
+-                            reason: err.to_string(),
+-                        })?;
++                    edges.push((index, target_index));
+                 }
+             }
+         }
++        let _ = graph.extend_existing_index_edges_unrecorded(edges);
+ 
+         self.record(
+             operation,
+@@ -8996,6 +9001,139 @@ mod tests {
+         report("NULL_batch_vs_batch", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-gridnbatch: paired-interleaved median A/B for grid_graph (n-dimensional) edge
++    /// insertion — batch-by-index vs the per-edge `add_edge`, one binary / one worker with a NULL
++    /// control. Grid is clean (no dup edges; a size-1 periodic axis emits self-loops, handled
++    /// byte-identically). Parity asserts cover periodic modes + the size-1 self-loop + size-2 guard.
++    /// `#[ignore]`; run with
++    /// `cargo test --release -p fnx-generators --lib grid_n_batch_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn grid_n_batch_ab() {
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        let build = |dim: &[usize], periodic: &[bool], batch: bool| -> Graph {
++            let sizes: Vec<usize> = dim.iter().rev().copied().collect();
++            let periodic_by_label_axis: Vec<bool> = periodic.iter().rev().copied().collect();
++            let node_count: usize = dim.iter().product();
++            let mut g = Graph::new(CompatibilityMode::Strict);
++            let labels: Vec<String> = (0..node_count)
++                .map(|i| {
++                    super::format_grid_graph_label(&super::grid_coordinates_from_index(i, &sizes))
++                })
++                .collect();
++            for label in &labels {
++                g.add_node(label.clone());
++            }
++            let mut edges: Vec<(usize, usize)> = Vec::new();
++            for index in 0..node_count {
++                let coordinates = super::grid_coordinates_from_index(index, &sizes);
++                for (axis, axis_size) in sizes.iter().copied().enumerate() {
++                    let coordinate = coordinates[axis];
++                    let maybe_target = if coordinate + 1 < axis_size {
++                        let mut t = coordinates.clone();
++                        t[axis] += 1;
++                        Some(t)
++                    } else if periodic_by_label_axis[axis] {
++                        match axis_size {
++                            1 => Some(coordinates.clone()),
++                            2 => None,
++                            _ => {
++                                let mut t = coordinates.clone();
++                                t[axis] = 0;
++                                Some(t)
++                            }
++                        }
++                    } else {
++                        None
++                    };
++                    if let Some(target) = maybe_target {
++                        edges.push((index, super::grid_coordinates_to_index(&target, &sizes)));
++                    }
++                }
++            }
++            if batch {
++                let _ = g.extend_existing_index_edges_unrecorded(edges);
++            } else {
++                for &(u, v) in &edges {
++                    let _ = g.add_edge(labels[u].clone(), labels[v].clone());
++                }
++            }
++            g
++        };
++
++        // Byte-identity across periodic modes + size-1 (self-loop) + size-2 (guard) axes.
++        let configs: [(&[usize], &[bool]); 6] = [
++            (&[3, 4], &[false, false]),
++            (&[3, 4], &[true, true]),
++            (&[2, 4], &[true, true]),        // size-2 axis → wrap guarded
++            (&[1, 4], &[true, false]),       // size-1 periodic axis → self-loops
++            (&[3, 3, 3], &[true, true, true]),
++            (&[100, 100, 10], &[false, false, false]), // timing config
++        ];
++        for &(dim, periodic) in &configs {
++            let gs = build(dim, periodic, false);
++            let gb = build(dim, periodic, true);
++            assert_eq!(
++                gs.edges_ordered_borrowed(),
++                gb.edges_ordered_borrowed(),
++                "batch grid_graph(dim={dim:?}, periodic={periodic:?}) must equal per-edge baseline"
++            );
++            assert_eq!(gs.nodes_ordered(), gb.nodes_ordered(), "nodes {dim:?}");
++        }
++
++        // grid_graph([100,100,10], non-periodic): 100000 nodes.
++        let dim: &[usize] = &[100, 100, 10];
++        let periodic: &[bool] = &[false, false, false];
++        let time = |batch: bool| -> f64 {
++            let t0 = Instant::now();
++            black_box(build(dim, periodic, batch));
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for round in 0..rounds {
++                let (tb, tc) = if round.is_multiple_of(2) {
++                    let bt = time(base_arm);
++                    let ct = time(cand);
++                    (bt, ct)
++                } else {
++                    let ct = time(cand);
++                    let bt = time(base_arm);
++                    (bt, ct)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "GRIDN_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("GRIDN_BATCH_AB dim={dim:?} rounds={rounds} (>1 = batch faster)");
++        report("BATCH_vs_string", &paired(true, false));
++        report("NULL_batch_vs_batch", &paired(true, true));
++    }
++
+     fn packet_007_forensics_bundle(
+         run_id: &str,
+         test_id: &str,

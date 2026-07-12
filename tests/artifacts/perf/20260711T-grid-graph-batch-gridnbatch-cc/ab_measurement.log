@@ -1,0 +1,11 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib grid_n_batch_ab -- --ignored --nocapture
+
+GRIDN_BATCH_AB dim=[100, 100, 10] rounds=61 (>1 = batch faster)
+GRIDN_BATCH_AB BATCH_vs_string: median=5.4715x win_rate=61/61 p5_p95=[4.7989,6.4594]
+GRIDN_BATCH_AB NULL_batch_vs_batch: median=1.0073x win_rate=34/61 p5_p95=[0.8544,1.2018]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 213 filtered out; finished in 73.07s
+
+Gate: candidate p5 (4.7989) >> NULL p95 (1.2018); 61/61 rounds. Byte-identity parity asserts across 6
+configs — periodic/non-periodic, the size-2 wrap-guard axis (2,4,TT), the size-1 periodic self-loop axis
+(1,4,TF), a 3D periodic grid, and the timing config — passed before timing. grid_graph is clean (no dup
+edges; size-1 periodic emits unique self-loops), so no seen-set needed; self-loop handling is byte-identical.

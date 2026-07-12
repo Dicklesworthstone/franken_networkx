@@ -1,0 +1,12 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib grid_graph -- --nocapture
+running 5 tests
+test tests::grid_graph_empty_axis_and_oversized_inputs_match_policy ... ok
+test tests::grid_graph_empty_one_dimensional_and_invalid_periodic_cases_match_policy ... ok
+test tests::grid_graph_two_dimensional_integer_dims_match_networkx_reversed_labels ... ok
+test tests::grid_graph_three_dimensions_match_networkx_counts_and_edges ... ok
+test tests::grid_graph_periodic_scalar_matches_networkx_cycle_axes ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 209 filtered out; finished in 0.00s
+
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo clippy -p fnx-generators --lib --tests -- -D warnings
+    Checking fnx-generators v0.2.0
+CLIPPY CLEAN (no errors, no warnings).

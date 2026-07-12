@@ -1,5 +1,25 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-11): `grid_graph` (n-dim) batch-by-index **5.4715x** (br-r37-c1-gridnbatch)
+
+Nineteenth engine-level generator batch win; completes the grid family (grid_2d 4.08x + grid_graph 5.47x).
+n-dimensional grid; forward edge per axis + optional periodic wraps. CLEAN (no seen-set): forward edges
+unique; the size==2 periodic wrap is guarded to None (would-dup), size>=3 wrap→0 (distinct), size==1
+periodic emits one UNIQUE self-loop per node. Collected (index, target_index) pairs in (index,axis)
+emission order + one extend_existing_index_edges_unrecorded; self-loops pass through (byte-identical,
+proven by circulant).
+
+MEASURED — grid_graph([100,100,10],non-periodic) (100000 nodes), 61 rounds: **BATCH_vs_string median
+5.4715x**, win_rate 61/61, p5_p95 [4.7989, 6.4594] vs NULL 1.0073x [0.8544, 1.2018]. DECIDABLE: candidate
+p5 (4.80) ~4.0x above the null p95 (1.20), 61/61 won. BYTE-IDENTICAL — parity across 6 configs incl. the
+size-1 periodic self-loop + size-2 guard; 5 vs-nx suite tests green (2D reversed-labels, 3D, periodic-cycle,
+empty/1D/invalid); clippy `-D warnings` CLEAN (first attempt — used `.is_multiple_of(2)` from the start).
+
+Vein: gnp 13.20x, gnm 8.55x, complete_multipartite 13.24x, turan 16.22x, ring_of_cliques 19.94x, windmill
+18.63x, caveman 3.86x, barbell 16.92x, lollipop 13.29x, tadpole 7.10x, hkn_harary 19.86x, hypercube 6.47x,
+wheel 24.28x, binomial_tree 6.96x, grid_2d 4.08x, circulant 17.37x, generalized_petersen 6.13x, hnm_harary
+8.24x, grid_graph 5.47x shipped; barabasi 1.04x surfaced. See [[generator_accept_loop_batch]].
+
 ## SHIPPED WIN (cc, 2026-07-11): `hnm_harary_graph` batch-by-index **8.2428x** (br-r37-c1-hnmhararybatch)
 
 Eighteenth engine-level generator batch win (third seen-set member) — completes the Harary pair (hkn
