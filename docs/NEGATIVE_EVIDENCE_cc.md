@@ -1,5 +1,20 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `circulant_graph` INDEX-pair edge batch-insert **19.1947x** (br-r37-c1-circulantbatch)
+
+Thirtieth result-builder batch win; 10th in the gen_edge index-batch seam — FIRST that exercises the DEDUP
+path. circulant_graph(n,offsets) connects each i to (i+off)%n per offset via gen_edge; symmetric offsets
+(off + n-off) revisit the same edge. Collect (i,j) INDEX pairs + one extend_existing_index_edges_unrecorded,
+which dedups on canon_pair keeping first — EXACTLY as add_edge — so symmetric offsets collapse identically;
+same order → same adjacency push order → byte-identical.
+
+MEASURED — circulant(1000, [1..50]+[950..999]) (1000 nodes, 50000 edges, 100000 pairs half-dup), 61 rounds:
+**BATCH_vs_string median 19.1947x**, 61/61, p5_p95 [9.8763,36.2682] vs NULL 1.0020x [0.8771,1.2908].
+DECISIVE: candidate p5 (9.88) ~7.6x above null p95 (wider spread — 1000-node/50000-edge dedup is heavier &
+noisier). Parity assert exercised the dedup on every edge; test_circulant_graph green. Reachable via
+circulant_graph pyo3. CLIPPY: my lines clean (production ~34199-34218 / test ~69749-69847); crate's 12
+pre-existing peer errors untouched. See [[redundant_edge_materialization_family]].
+
 ## SHIPPED WIN (cc, 2026-07-12): `barbell_graph` INDEX-pair edge batch-insert **23.0995x** (br-r37-c1-barbellbatch)
 
 Twenty-ninth result-builder batch win; 9th in the gen_edge index-batch seam. barbell_graph(n1,n2) = two
