@@ -1,5 +1,18 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cc, 2026-07-12): `line_graph_directed` batch-insert **5.2421x** (br-r37-c1-linegraphdirbatch)
+
+Eighth fnx-algorithms result-builder batch. Directed L(G): node per edge + directed L(G) edge (u,v)->(u2,v2)
+per pair with v==u2. from_node already hoisted; collect L(G) edges + one DiGraph::extend_edges_unrecorded.
+Byte-identical (each match yields a unique directed L(G) edge; input edges distinct; parity assert on
+L(dK30) + 4 line_graph_directed suite tests green).
+
+MEASURED — L(complete-digraph K30) (870 nodes), 61 rounds: **BATCH_vs_string median 5.2421x**, win_rate
+61/61, p5_p95 [4.1866, 6.3978] vs NULL 0.9995x [0.8185, 1.2324]. DECIDABLE: candidate p5 (4.19) ~3.4x above
+the null p95 (1.23), 61/61 won. CLIPPY: MY CODE CLEAN (0 in ranges 39590-39620 / 67175-67297,
+grep-verified); crate's ~12 pre-existing peer errors untouched. See [[redundant_edge_materialization_family]].
+Next: power, reverse_digraph.
+
 ## SHIPPED WIN (cc, 2026-07-12): `line_graph` hoist + batch **4.2809x** (br-r37-c1-linegraphbatch)
 
 Seventh fnx-algorithms result-builder batch. line_graph builds L(G): node per input edge + an L(G) edge
