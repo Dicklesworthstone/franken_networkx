@@ -32875,20 +32875,16 @@ pub fn is_distance_regular(graph: &Graph) -> bool {
         return true;
     }
 
-    let node_to_idx: HashMap<&str, usize> = nodes
-        .iter()
-        .enumerate()
-        .map(|(idx, &nd)| (nd, idx))
-        .collect();
     let mut dist_matrix = vec![vec![usize::MAX; n]; n];
     for (src_idx, _src) in nodes.iter().enumerate() {
         dist_matrix[src_idx][src_idx] = 0;
         let mut queue = VecDeque::new();
         queue.push_back(src_idx);
         while let Some(u) = queue.pop_front() {
-            if let Some(neighbors) = graph.neighbors_iter(nodes[u]) {
-                for v_str in neighbors {
-                    let v = node_to_idx[v_str];
+            // br-r37-c1-bgaxx: adjacency already stores these integer indices;
+            // avoid mapping each index to a node name and hashing it back.
+            if let Some(neighbors) = graph.neighbors_indices(u) {
+                for &v in neighbors {
                     if dist_matrix[src_idx][v] == usize::MAX {
                         dist_matrix[src_idx][v] = dist_matrix[src_idx][u] + 1;
                         queue.push_back(v);
@@ -32917,9 +32913,8 @@ pub fn is_distance_regular(graph: &Graph) -> bool {
                 }
                 let mut b_count = 0;
                 let mut c_count = 0;
-                if let Some(neighbors) = graph.neighbors_iter(nodes[col_idx]) {
-                    for w_str in neighbors {
-                        let w = node_to_idx[w_str];
+                if let Some(neighbors) = graph.neighbors_indices(col_idx) {
+                    for &w in neighbors {
                         if dist_matrix[row_idx][w] == d + 1 {
                             b_count += 1;
                         }
@@ -65827,6 +65822,233 @@ mod tests {
         let _ = g.add_edge("b", "c");
         let _ = g.add_edge("c", "d");
         assert!(!is_distance_regular(&g));
+    }
+
+    /// br-r37-c1-bgaxx: full-function A/B for walking the graph's native
+    /// adjacency indices instead of mapping index -> name -> hashed index in
+    /// both O(V*E) stages of `is_distance_regular`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn is_distance_regular_indices_ab() {
+        use std::collections::{HashMap, VecDeque};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn old_is_distance_regular(graph: &Graph) -> bool {
+            if !super::is_connected(graph).is_connected {
+                return false;
+            }
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            if n <= 1 {
+                return true;
+            }
+
+            let node_to_idx: HashMap<&str, usize> = nodes
+                .iter()
+                .enumerate()
+                .map(|(idx, &node)| (node, idx))
+                .collect();
+            let mut dist_matrix = vec![vec![usize::MAX; n]; n];
+            for src_idx in 0..n {
+                dist_matrix[src_idx][src_idx] = 0;
+                let mut queue = VecDeque::new();
+                queue.push_back(src_idx);
+                while let Some(u) = queue.pop_front() {
+                    if let Some(neighbors) = graph.neighbors_iter(nodes[u]) {
+                        for neighbor in neighbors {
+                            let v = node_to_idx[neighbor];
+                            if dist_matrix[src_idx][v] == usize::MAX {
+                                dist_matrix[src_idx][v] = dist_matrix[src_idx][u] + 1;
+                                queue.push_back(v);
+                            }
+                        }
+                    }
+                }
+            }
+
+            let diameter = dist_matrix
+                .iter()
+                .flat_map(|row| row.iter())
+                .filter(|&&distance| distance != usize::MAX)
+                .copied()
+                .max()
+                .unwrap_or(0);
+
+            for distance in 0..=diameter {
+                let mut b_value: Option<usize> = None;
+                let mut c_value: Option<usize> = None;
+                for (row_idx, row) in dist_matrix.iter().enumerate() {
+                    for (col_idx, &pair_distance) in row.iter().enumerate() {
+                        if pair_distance != distance {
+                            continue;
+                        }
+                        let mut b_count = 0;
+                        let mut c_count = 0;
+                        if let Some(neighbors) = graph.neighbors_iter(nodes[col_idx]) {
+                            for neighbor in neighbors {
+                                let w = node_to_idx[neighbor];
+                                if dist_matrix[row_idx][w] == distance + 1 {
+                                    b_count += 1;
+                                }
+                                if distance > 0 && dist_matrix[row_idx][w] == distance - 1 {
+                                    c_count += 1;
+                                }
+                            }
+                        }
+                        match b_value {
+                            Some(previous) if previous != b_count => return false,
+                            None => b_value = Some(b_count),
+                            _ => {}
+                        }
+                        if distance > 0 {
+                            match c_value {
+                                Some(previous) if previous != c_count => return false,
+                                None => c_value = Some(c_count),
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+            true
+        }
+
+        fn complete(n: usize, self_loops: bool) -> Graph {
+            let mut graph = Graph::strict();
+            for node in 0..n {
+                graph.add_node(node.to_string());
+            }
+            for left in 0..n {
+                for right in (left + 1)..n {
+                    graph.add_edge(left.to_string(), right.to_string()).unwrap();
+                }
+                if self_loops {
+                    graph.add_edge(left.to_string(), left.to_string()).unwrap();
+                }
+            }
+            graph
+        }
+
+        fn petersen() -> Graph {
+            let mut graph = Graph::strict();
+            for node in 0..10 {
+                graph.add_node(node.to_string());
+            }
+            for (left, right) in [
+                (0, 1),
+                (1, 2),
+                (2, 3),
+                (3, 4),
+                (4, 0),
+                (0, 5),
+                (1, 6),
+                (2, 7),
+                (3, 8),
+                (4, 9),
+                (5, 7),
+                (7, 9),
+                (9, 6),
+                (6, 8),
+                (8, 5),
+            ] {
+                graph.add_edge(left.to_string(), right.to_string()).unwrap();
+            }
+            graph
+        }
+
+        fn triangular_prism() -> Graph {
+            let mut graph = Graph::strict();
+            for node in 0..6 {
+                graph.add_node(node.to_string());
+            }
+            for (left, right) in [
+                (0, 1),
+                (1, 2),
+                (2, 0),
+                (3, 4),
+                (4, 5),
+                (5, 3),
+                (0, 3),
+                (1, 4),
+                (2, 5),
+            ] {
+                graph.add_edge(left.to_string(), right.to_string()).unwrap();
+            }
+            graph
+        }
+
+        let mut path = Graph::strict();
+        for node in 0..5 {
+            path.add_node(node.to_string());
+        }
+        for node in 0..4 {
+            path.add_edge(node.to_string(), (node + 1).to_string())
+                .unwrap();
+        }
+        let mut singleton = Graph::strict();
+        singleton.add_node("only");
+        for graph in [
+            complete(4, false),
+            complete(4, true),
+            petersen(),
+            triangular_prism(),
+            path,
+            singleton,
+        ] {
+            assert_eq!(
+                old_is_distance_regular(&graph),
+                super::is_distance_regular(&graph)
+            );
+        }
+
+        let graph = complete(160, false);
+        assert!(old_is_distance_regular(&graph));
+        assert!(super::is_distance_regular(&graph));
+
+        let time = |candidate: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate {
+                super::is_distance_regular(black_box(&graph))
+            } else {
+                old_is_distance_regular(black_box(&graph))
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 31usize;
+        let paired = |baseline_candidate: bool, contender_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline, contender) = if round.is_multiple_of(2) {
+                    (time(baseline_candidate), time(contender_candidate))
+                } else {
+                    let contender = time(contender_candidate);
+                    (time(baseline_candidate), contender)
+                };
+                ratios.push(baseline / contender);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "DISTREGIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("DISTREGIDX_AB complete_160 rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(false, true));
+        report("NULL_index_vs_index", &paired(true, true));
     }
 
     // -----------------------------------------------------------------------

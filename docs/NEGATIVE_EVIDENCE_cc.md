@@ -1,5 +1,59 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cod, 2026-07-12): `is_distance_regular` native neighbor-index walk **18.8461x** dense-complete self-time (br-r37-c1-bgaxx)
+
+NEGATIVE-LEDGER FIRST: the existing distance-regular rows cover the exact
+regular/connected wrapper precheck and the degree-2 cycle fast path. Neither
+targets the residual native kernel reached by regular connected graphs of
+degree greater than two. That kernel's all-source BFS and intersection-array
+pass both walked `neighbors_iter`, converting each stored adjacency index to a
+node name, then immediately hashed that name through `node_to_idx` to recover
+the same index. No prior keep or reject measured this representation round trip.
+
+ONE LEVER / EXACT PARITY: walk `neighbors_indices` directly in both stages and
+remove the now-unused name-to-index map. `neighbors_iter(nodes[i])` is the same
+`adj_indices[i]` row mapped through the node table; the old lookup maps every
+name back to its original index. The replacement therefore preserves the exact
+integer stream and adjacency order. BFS discovery and queue order, every
+distance-matrix cell, `b_count` / `c_count`, mismatch short-circuits, self-loop
+behavior, and the final boolean are identical. There are no floats, RNG, output
+ordering, tie breaks, or witness fields.
+
+STRICT-REMOTE MEDIAN GATE: release full-function A/B on worker `vmi1167313`,
+31 paired interleaved rounds over K160:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| native indices / name rehash | **18.8461x** | 31/31 | 7.7604-25.1915 |
+| indices / indices null | 0.9860x | 13/31 | 0.5205-1.1594 |
+
+The candidate p5 clears the null p95 by 6.69x. K160 is connected,
+distance-regular, and degree 159, so it forces both full stages and performs
+8,140,800 old name-to-index hashes per call. Before timing, the frozen old full
+function and production asserted exact parity on complete graphs with and
+without self-loops, Petersen, a non-distance-regular triangular prism, a path,
+and a singleton. The valid invocation executed exactly one ignored test under
+`RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo ...`; no local
+Cargo fallback occurred.
+
+This is full Rust-kernel K160 self-time, not a universal graph or Python-call
+ratio. The public wrapper reaches this kernel only after its regular,
+connected, degree-greater-than-two gates; its earlier fast rejects and correct
+O(1) degree-2 cycle path are unchanged.
+
+VALIDATION: strict-remote workspace `cargo check --workspace --all-targets`
+passed, as did both focused non-ignored `test_is_distance_regular` tests. Exact
+workspace Clippy reproduced only the established one `collapsible_if` and ten
+`doc_lazy_continuation` findings elsewhere in this shared file; the same
+strict-remote gate passed with only those two legacy lint classes allowed. UBS
+reported zero critical issues in the changed Rust file. Direct rustfmt still
+reports unrelated filewide drift, with no formatting diff in either changed
+hunk; `git diff --check` passes.
+
+RESULT: SHIP. Preserve adjacency-row order and the wrapper's correctness-first
+cycle behavior. Do not generalize 18.85x to sparse, early-reject, or wrapper-
+dominated inputs.
+
 ## SHIPPED WIN (cod, 2026-07-12): `global_node_connectivity` indexed neighbor-pair screen **44.1664x** dense-clique self-time (br-r37-c1-r7e4g)
 
 NEGATIVE-LEDGER FIRST: no prior keep or reject targeted the adjacency predicate
