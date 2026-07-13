@@ -42063,16 +42063,14 @@ pub fn generic_bfs_edges(
 #[must_use]
 pub fn local_bridges_list(graph: &Graph) -> Vec<(String, String)> {
     let mut result = Vec::new();
-    for edge in graph.edges_ordered() {
-        if edge.left == edge.right {
+    let nodes = graph.nodes_ordered();
+    // br-r37-c1-xuvu2: consume the index-space twin of the ordered edge walk.
+    // Avoid cloning both endpoint names and the attribute map for every edge,
+    // then hashing the names back to the same indices before the native probe.
+    for (u, v) in graph.edges_ordered_indices() {
+        if u == v {
             continue;
         }
-        let u = graph
-            .get_node_index(&edge.left)
-            .expect("edge endpoint is a graph node");
-        let v = graph
-            .get_node_index(&edge.right)
-            .expect("edge endpoint is a graph node");
         // br-r37-c1-f1run: N(u) is already an integer row and the edge map
         // answers N(v) membership directly. Skip both endpoints to preserve
         // the old `(N(u) - {v}) ∩ (N(v) - {u})` behavior around self-loops.
@@ -42083,7 +42081,7 @@ pub fn local_bridges_list(graph: &Graph) -> Vec<(String, String)> {
                 .any(|w| w != u && w != v && graph.has_edge_by_indices(v, w))
         });
         if !has_common_neighbor {
-            result.push((edge.left.clone(), edge.right.clone()));
+            result.push((nodes[u].to_owned(), nodes[v].to_owned()));
         }
     }
     result
@@ -68763,6 +68761,131 @@ mod tests {
         println!("LOCALBRIDX_AB complete_192 rounds={rounds} (>1 = indexed faster)");
         report("INDEX_vs_sets", &paired(true, false));
         report("NULL_index_vs_index", &paired(false, false));
+    }
+
+    /// br-r37-c1-xuvu2: full-function A/B for consuming ordered edge indices
+    /// instead of cloning `EdgeSnapshot`s and hashing both names back to indices.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn local_bridges_edge_indices_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn snapshot_local_bridges_list(graph: &Graph) -> Vec<(String, String)> {
+            let mut result = Vec::new();
+            for edge in graph.edges_ordered() {
+                if edge.left == edge.right {
+                    continue;
+                }
+                let u = graph
+                    .get_node_index(&edge.left)
+                    .expect("edge endpoint is a graph node");
+                let v = graph
+                    .get_node_index(&edge.right)
+                    .expect("edge endpoint is a graph node");
+                let has_common_neighbor = graph.neighbors_indices(u).is_some_and(|neighbors| {
+                    neighbors
+                        .iter()
+                        .copied()
+                        .any(|w| w != u && w != v && graph.has_edge_by_indices(v, w))
+                });
+                if !has_common_neighbor {
+                    result.push((edge.left.clone(), edge.right.clone()));
+                }
+            }
+            result
+        }
+
+        fn graph(edges: &[(&str, &str)]) -> Graph {
+            let mut graph = Graph::strict();
+            for &(left, right) in edges {
+                graph.add_edge(left, right).unwrap();
+            }
+            graph
+        }
+
+        fn complete(n: usize) -> Graph {
+            let mut graph = Graph::strict();
+            for node in 0..n {
+                graph.add_node(node.to_string());
+            }
+            for left in 0..n {
+                for right in (left + 1)..n {
+                    graph.add_edge(left.to_string(), right.to_string()).unwrap();
+                }
+            }
+            graph
+        }
+
+        let mut nonlexical = Graph::strict();
+        for node in ["z", "a", "m", "b", "q"] {
+            nonlexical.add_node(node);
+        }
+        for (left, right) in [("m", "a"), ("z", "b"), ("z", "a"), ("q", "m")] {
+            nonlexical.add_edge(left, right).unwrap();
+        }
+        for fixture in [
+            graph(&[("a", "b"), ("b", "c"), ("c", "d")]),
+            graph(&[("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")]),
+            graph(&[("a", "b"), ("b", "c"), ("c", "a"), ("c", "d")]),
+            graph(&[("a", "b"), ("a", "a")]),
+            graph(&[("a", "b"), ("a", "a"), ("b", "b")]),
+            nonlexical,
+            complete(6),
+        ] {
+            assert_eq!(
+                snapshot_local_bridges_list(&fixture),
+                super::local_bridges_list(&fixture)
+            );
+        }
+
+        let graph = complete(384);
+        assert_eq!(snapshot_local_bridges_list(&graph), Vec::new());
+        assert_eq!(super::local_bridges_list(&graph), Vec::new());
+
+        let time = |snapshot: bool| -> f64 {
+            let start = Instant::now();
+            let result = if snapshot {
+                snapshot_local_bridges_list(black_box(&graph))
+            } else {
+                super::local_bridges_list(black_box(&graph))
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+
+        let rounds = 31usize;
+        let paired = |baseline_snapshot: bool, contender_snapshot: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline, contender) = if round.is_multiple_of(2) {
+                    (time(baseline_snapshot), time(contender_snapshot))
+                } else {
+                    let contender = time(contender_snapshot);
+                    (time(baseline_snapshot), contender)
+                };
+                ratios.push(baseline / contender);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "LOCALBREDGEIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("LOCALBREDGEIDX_AB complete_384 rounds={rounds} (>1 = edge indices faster)");
+        report("EDGEIDX_vs_snapshots", &paired(true, false));
+        report("NULL_edgeidx_vs_edgeidx", &paired(false, false));
     }
 
     #[test]

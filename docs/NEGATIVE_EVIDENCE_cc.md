@@ -1,5 +1,56 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cod, 2026-07-12): `local_bridges_list` ordered edge indices **35.0456x** over the post-`f1run` kernel on dense K384 (br-r37-c1-xuvu2)
+
+NEGATIVE-LEDGER FIRST / DISTINCT SECOND LEVER: `br-r37-c1-f1run` deliberately
+held `edges_ordered()` and endpoint-name handling constant while replacing the
+common-neighbor sets. Its ledger row explicitly reserved edge-index iteration
+for a separate measurement. After that 49.76x keep, the dense no-output profile
+was dominated by `EdgeSnapshot` materialization and immediate name-to-index
+round trips. No prior keep or reject measured this post-`f1run` residual.
+
+ONE LEVER / EXACT PARITY: consume `edges_ordered_indices()`, the documented
+index-space twin of `edges_ordered()`, and resolve names only when emitting a
+local bridge. The common-neighbor predicate from `f1run` is unchanged.
+`edges_ordered_indices()` preserves the same node-major edge order and
+orientation, so loop skips, every common-neighbor decision, and the exact
+returned `(String, String)` sequence are identical. Edge attributes were never
+read. There are no floats, RNG, tie breaks, spans, or witness fields.
+
+STRICT-REMOTE MEDIAN GATE: release full-function A/B on worker `vmi1153651`,
+31 paired interleaved rounds over K384, comparing the frozen post-`f1run`
+snapshot arm against production:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| ordered indices / snapshots + endpoint rehash | **35.0456x** | 31/31 | 22.6241-50.4188 |
+| ordered indices / ordered indices null | 1.0511x | 19/31 | 0.6684-1.2585 |
+
+The candidate p5 clears the null p95 by 17.98x. K384 has 73,536 edges and no
+local bridges, so the baseline creates 73,536 `EdgeSnapshot`s, clones 147,072
+endpoint `String`s and 73,536 attribute maps, then hashes 147,072 endpoint names
+back to indices without emitting output. Before timing, the frozen post-`f1run`
+function and production asserted exact ordered-`Vec` parity on a path, a cycle,
+a triangle with a tail, endpoint self-loop cases, K6, and a deliberately
+non-lexical node/edge insertion-order fixture. The valid invocation ran exactly
+one ignored test under
+`RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo ...`; no local
+Cargo fallback occurred.
+
+VALIDATION: strict-remote workspace `cargo check --workspace --all-targets`
+passed, as did the focused non-ignored `test_local_bridges_list_path`. Exact
+workspace Clippy reproduced only the established one `collapsible_if` and ten
+`doc_lazy_continuation` findings elsewhere in the shared algorithms file; the
+same strict-remote gate passed with only those two legacy lint classes allowed.
+UBS reported zero critical issues. Direct rustfmt still reports unrelated
+filewide drift, with no formatting diff in either changed hunk; `git diff
+--check` passes.
+
+RESULT: SHIP. This is K384 loop-free raw-kernel self-time against the already
+optimized `f1run` baseline, not a universal Python-call ratio and not a license
+to multiply the two headline ratios. The wrapper routing and indexed
+common-neighbor algorithm are unchanged.
+
 ## SHIPPED WIN (cod, 2026-07-12): `local_bridges_list` indexed common-neighbor probe **49.7564x** dense-complete self-time (br-r37-c1-f1run)
 
 NEGATIVE-LEDGER FIRST: the only prior `local_bridges` evidence is a broad
