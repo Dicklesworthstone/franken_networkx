@@ -42067,19 +42067,22 @@ pub fn local_bridges_list(graph: &Graph) -> Vec<(String, String)> {
         if edge.left == edge.right {
             continue;
         }
-        let u_nbrs: std::collections::HashSet<&str> = graph
-            .neighbors(&edge.left)
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|&n| n != edge.right.as_str())
-            .collect();
-        let v_nbrs: std::collections::HashSet<&str> = graph
-            .neighbors(&edge.right)
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|&n| n != edge.left.as_str())
-            .collect();
-        if u_nbrs.intersection(&v_nbrs).next().is_none() {
+        let u = graph
+            .get_node_index(&edge.left)
+            .expect("edge endpoint is a graph node");
+        let v = graph
+            .get_node_index(&edge.right)
+            .expect("edge endpoint is a graph node");
+        // br-r37-c1-f1run: N(u) is already an integer row and the edge map
+        // answers N(v) membership directly. Skip both endpoints to preserve
+        // the old `(N(u) - {v}) ∩ (N(v) - {u})` behavior around self-loops.
+        let has_common_neighbor = graph.neighbors_indices(u).is_some_and(|neighbors| {
+            neighbors
+                .iter()
+                .copied()
+                .any(|w| w != u && w != v && graph.has_edge_by_indices(v, w))
+        });
+        if !has_common_neighbor {
             result.push((edge.left.clone(), edge.right.clone()));
         }
     }
@@ -68642,6 +68645,124 @@ mod tests {
         let _ = g.add_edge("b", "c");
         // All edges in a path are local bridges (no common neighbors)
         assert_eq!(local_bridges_list(&g).len(), 2);
+    }
+
+    /// br-r37-c1-f1run: full-function A/B for replacing two per-edge neighbor
+    /// vectors plus two `HashSet`s with one native-index adjacency probe.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn local_bridges_indexed_ab() {
+        use std::collections::HashSet;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn old_local_bridges_list(graph: &Graph) -> Vec<(String, String)> {
+            let mut result = Vec::new();
+            for edge in graph.edges_ordered() {
+                if edge.left == edge.right {
+                    continue;
+                }
+                let u_nbrs: HashSet<&str> = graph
+                    .neighbors(&edge.left)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|&neighbor| neighbor != edge.right.as_str())
+                    .collect();
+                let v_nbrs: HashSet<&str> = graph
+                    .neighbors(&edge.right)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|&neighbor| neighbor != edge.left.as_str())
+                    .collect();
+                if u_nbrs.intersection(&v_nbrs).next().is_none() {
+                    result.push((edge.left.clone(), edge.right.clone()));
+                }
+            }
+            result
+        }
+
+        fn graph(edges: &[(&str, &str)]) -> Graph {
+            let mut graph = Graph::strict();
+            for &(left, right) in edges {
+                graph.add_edge(left, right).unwrap();
+            }
+            graph
+        }
+
+        fn complete(n: usize) -> Graph {
+            let mut graph = Graph::strict();
+            for node in 0..n {
+                graph.add_node(node.to_string());
+            }
+            for left in 0..n {
+                for right in (left + 1)..n {
+                    graph.add_edge(left.to_string(), right.to_string()).unwrap();
+                }
+            }
+            graph
+        }
+
+        for fixture in [
+            graph(&[("a", "b"), ("b", "c"), ("c", "d")]),
+            graph(&[("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")]),
+            graph(&[("a", "b"), ("b", "c"), ("c", "a"), ("c", "d")]),
+            graph(&[("a", "b"), ("a", "a")]),
+            graph(&[("a", "b"), ("a", "a"), ("b", "b")]),
+            complete(6),
+        ] {
+            assert_eq!(
+                old_local_bridges_list(&fixture),
+                super::local_bridges_list(&fixture)
+            );
+        }
+
+        let graph = complete(192);
+        assert_eq!(old_local_bridges_list(&graph), Vec::new());
+        assert_eq!(super::local_bridges_list(&graph), Vec::new());
+
+        let time = |old: bool| -> f64 {
+            let start = Instant::now();
+            let result = if old {
+                old_local_bridges_list(black_box(&graph))
+            } else {
+                super::local_bridges_list(black_box(&graph))
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+
+        let rounds = 31usize;
+        let paired = |baseline_old: bool, contender_old: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline, contender) = if round.is_multiple_of(2) {
+                    (time(baseline_old), time(contender_old))
+                } else {
+                    let contender = time(contender_old);
+                    (time(baseline_old), contender)
+                };
+                ratios.push(baseline / contender);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "LOCALBRIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("LOCALBRIDX_AB complete_192 rounds={rounds} (>1 = indexed faster)");
+        report("INDEX_vs_sets", &paired(true, false));
+        report("NULL_index_vs_index", &paired(false, false));
     }
 
     #[test]

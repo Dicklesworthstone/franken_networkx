@@ -1,5 +1,54 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cod, 2026-07-12): `local_bridges_list` indexed common-neighbor probe **49.7564x** dense-complete self-time (br-r37-c1-f1run)
+
+NEGATIVE-LEDGER FIRST: the only prior `local_bridges` evidence is a broad
+6.3-6.6x comparison against NetworkX. No keep or reject targeted the raw Rust
+kernel's per-edge construction of two neighbor `Vec`s and two `HashSet<&str>`
+values. The Python surface reaches this kernel for loop-free
+`local_bridges(G, with_span=False, weight=None)`; span, weight, callable-weight,
+multigraph, directed, and self-loop wrapper routes remain unchanged.
+
+ONE LEVER / EXACT PARITY: for each ordered edge `(u, v)`, walk the existing
+integer `N(u)` row and ask the index-keyed edge map whether `(v, w)` exists.
+Skipping `w == u || w == v` is exactly the old predicate
+`(N(u) - {v}) intersect (N(v) - {u})`, including the raw Rust helper's endpoint
+self-loop behavior. Edge iteration, orientation, and output cloning remain
+unchanged. There are no floats, RNG, tie breaks, ordering choices, spans, or
+witness fields.
+
+STRICT-REMOTE MEDIAN GATE: release full-function A/B on worker `vmi1152480`,
+31 paired interleaved rounds over K192:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| indexed probe / neighbor sets | **49.7564x** | 31/31 | 8.4241-60.2775 |
+| indexed probe / indexed probe null | 1.0106x | 19/31 | 0.8480-1.1994 |
+
+The candidate p5 clears the null p95 by 7.02x. K192 has 18,336 edges and no
+local bridges, so the frozen old function performs 36,672 neighbor-vector
+allocations, 36,672 temporary set allocations, and 6,967,680 String-set insert
+attempts per call without output-clone dilution. Before timing, the frozen old
+function and production asserted exact ordered-`Vec` parity on a path, a cycle,
+a triangle with a tail, one- and two-endpoint self-loop cases, and K6. The valid
+invocation ran exactly one ignored test under
+`RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo ...`; no local
+Cargo fallback occurred.
+
+VALIDATION: strict-remote workspace `cargo check --workspace --all-targets`
+passed, as did the focused non-ignored `test_local_bridges_list_path`. Exact
+workspace Clippy reproduced only the established one `collapsible_if` and ten
+`doc_lazy_continuation` findings elsewhere in the shared algorithms file; the
+same strict-remote gate passed with only those two legacy lint classes allowed.
+UBS reported zero critical issues. Direct rustfmt still reports unrelated
+filewide drift, with no formatting diff in either changed hunk; `git diff
+--check` passes.
+
+RESULT: SHIP. This is K192 loop-free raw-kernel self-time, not a universal
+Python-call ratio. Preserve the wrapper's correctness-first routing for spans,
+weights, and self-loop graphs; measure edge-index iteration separately rather
+than folding it into this allocation-removal commit.
+
 ## SHIPPED WIN (cod, 2026-07-12): `is_distance_regular` native neighbor-index walk **18.8461x** dense-complete self-time (br-r37-c1-bgaxx)
 
 NEGATIVE-LEDGER FIRST: the existing distance-regular rows cover the exact
