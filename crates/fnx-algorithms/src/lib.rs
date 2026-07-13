@@ -31024,6 +31024,74 @@ pub fn single_target_shortest_path_directed(
     target: &str,
     cutoff: Option<usize>,
 ) -> HashMap<String, Vec<String>> {
+    // br-r37-c1-stspidx (cc): integer-index reverse BFS. The old kernel kept `result` keyed by
+    // &str and, for every discovered predecessor, CLONED the successor's full path
+    // (`result[node].iter().cloned()`) on top of the String-hashing predecessors_iter walk —
+    // O(|V|·depth) String allocations. Walk predecessors_indices over a Vec<bool> seen recording a
+    // `next_toward[pred] = node` tree, then reconstruct each path once at the end by walking the tree
+    // to the target. Byte-identical: the output is a HashMap (order-independent); each node maps to
+    // the same [node, …, target] shortest path (same predecessor discovery → same first-visit tree).
+    let Some(target_idx) = digraph.get_node_index(target) else {
+        return HashMap::new();
+    };
+    let n = digraph.node_count();
+    let names = digraph.nodes_ordered();
+
+    let mut seen = vec![false; n];
+    let mut next_toward = vec![usize::MAX; n];
+    let mut discovered: Vec<usize> = Vec::new();
+    seen[target_idx] = true;
+    discovered.push(target_idx);
+    let mut frontier: Vec<usize> = vec![target_idx];
+    let mut level = 0usize;
+
+    while !frontier.is_empty() {
+        if let Some(c) = cutoff
+            && level >= c
+        {
+            break;
+        }
+        let mut next_frontier: Vec<usize> = Vec::new();
+        for &node in &frontier {
+            if let Some(predecessors) = digraph.predecessors_indices(node) {
+                for &pred in predecessors {
+                    if !seen[pred] {
+                        seen[pred] = true;
+                        next_toward[pred] = node;
+                        discovered.push(pred);
+                        next_frontier.push(pred);
+                    }
+                }
+            }
+        }
+        frontier = next_frontier;
+        level += 1;
+    }
+
+    let mut result: HashMap<String, Vec<String>> = HashMap::with_capacity(discovered.len());
+    for &start in &discovered {
+        let mut path: Vec<String> = Vec::new();
+        let mut cur = start;
+        loop {
+            path.push(names[cur].to_owned());
+            if cur == target_idx {
+                break;
+            }
+            cur = next_toward[cur];
+        }
+        result.insert(names[start].to_owned(), path);
+    }
+    result
+}
+
+/// br-r37-c1-stspidx A/B baseline: the pre-lever String-keyed reverse BFS with per-predecessor
+/// path cloning. Test-only; byte-identical mapping to the shipped integer-index version.
+#[cfg(test)]
+fn single_target_shortest_path_directed_orig_string(
+    digraph: &DiGraph,
+    target: &str,
+    cutoff: Option<usize>,
+) -> HashMap<String, Vec<String>> {
     let mut result: HashMap<String, Vec<String>> = HashMap::new();
     if !digraph.has_node(target) {
         return result;
@@ -52228,6 +52296,99 @@ mod tests {
         };
         println!(
             "STSPLIDX_AB single_target_shortest_path_length_directed n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-stspidx: full-function paired-interleaved A/B for the directed reverse-BFS PATH builder
+    /// `single_target_shortest_path_directed` (String-keyed HashMap<String,Vec<String>> with per-
+    /// predecessor full-path clone → integer next-toward tree + reconstruct-once). Small-diameter
+    /// directed expander (shallow paths, HashMap output O(|V|)) so the win is the hash + path-clone tax,
+    /// not the O(|V|·depth) path materialisation. Byte-exact parity (HashMap equality). `#[ignore]`; run
+    /// with `cargo test --release -p fnx-algorithms --lib single_target_shortest_path_directed_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn single_target_shortest_path_directed_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Small-diameter directed expander: node i → deg pseudo-random targets. Reverse BFS from n0
+        // reaches ~all V in ~log_deg(V) hops (paths shallow), scanning ~V*deg predecessor edges.
+        let n = 30000usize;
+        let deg = 20usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                let j = ((i as u64)
+                    .wrapping_mul(1_000_003)
+                    .wrapping_add((k as u64).wrapping_mul(97))
+                    % (n as u64)) as usize;
+                let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+            }
+        }
+        let tgt = "n0";
+
+        // Byte-exact parity: HashMap equality (order-independent) between index + String baseline.
+        assert_eq!(
+            super::single_target_shortest_path_directed(&g, tgt, None),
+            super::single_target_shortest_path_directed_orig_string(&g, tgt, None),
+            "index single_target_shortest_path_directed must equal the String baseline"
+        );
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::single_target_shortest_path_directed(&g, tgt, None)
+            } else {
+                super::single_target_shortest_path_directed_orig_string(&g, tgt, None)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "STSPIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "STSPIDX_AB single_target_shortest_path_directed n={n} deg={deg} rounds={rounds} (>1 = index faster)"
         );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
