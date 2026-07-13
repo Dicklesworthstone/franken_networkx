@@ -2922,14 +2922,14 @@ gd.add_nodes_from(range(20000))
 for _u, _v in _base.edges():
     gd.add_edge(_u, _v)
 
-# Confirm the inline binding routes (native) and is BYTE-IDENTICAL to the old kernel+centrality_to_dict
-# path: same {node: score} mapping AND same key insertion order (drop-in dict contract).
-_old = _raw.in_degree_centrality(gd)
-_new = _raw.in_degree_centrality_inline(gd)
+# Confirm the live inline `in_degree_centrality` is BYTE-IDENTICAL to the preserved OLD
+# kernel+centrality_to_dict baseline: same {node: score} mapping AND same key insertion order.
+_old = _raw.in_degree_centrality_kernel_ab(gd)
+_new = _raw.in_degree_centrality(gd)
 assert list(_old.items()) == list(_new.items()), "in_degree_centrality inline parity (order+values)"
 
-old_binding = lambda: _raw.in_degree_centrality(gd)
-new_binding = lambda: _raw.in_degree_centrality_inline(gd)
+old_binding = lambda: _raw.in_degree_centrality_kernel_ab(gd)
+new_binding = lambda: _raw.in_degree_centrality(gd)
 "#,
         )
         .as_c_str(),

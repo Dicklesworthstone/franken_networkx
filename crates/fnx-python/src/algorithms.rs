@@ -21508,11 +21508,10 @@ pub fn in_degree_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py
             "in_degree_centrality is not defined for undirected graphs.",
         ));
     }
-    {
-        let dg_ref = gr.digraph().expect("is_directed checked above");
-        let scores = py.allow_threads(|| fnx_algorithms::in_degree_centrality(dg_ref));
-        centrality_to_dict(py, &gr, &scores)
-    }
+    // br-r37-c1-idcbind (cc): inline dict build (skip the kernel's throwaway CentralityScore
+    // Strings). Measured 1.46x vs the old kernel+centrality_to_dict path (with-GIL binding A/B,
+    // 20k-node DiGraph, non-overlapping CIs); byte-identical (parity gated in the bench).
+    digraph_degree_centrality_inline_to_dict(py, &gr, false)
 }
 
 /// Return the out-degree centrality for directed graph nodes.
@@ -21524,11 +21523,8 @@ pub fn out_degree_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<P
             "out_degree_centrality is not defined for undirected graphs.",
         ));
     }
-    {
-        let dg_ref = gr.digraph().expect("is_directed checked above");
-        let scores = py.allow_threads(|| fnx_algorithms::out_degree_centrality(dg_ref));
-        centrality_to_dict(py, &gr, &scores)
-    }
+    // br-r37-c1-idcbind (cc): inline dict build (out-degree twin of the in-degree route above).
+    digraph_degree_centrality_inline_to_dict(py, &gr, true)
 }
 
 /// br-r37-c1-idcbind (cc): inline in/out-degree-centrality dict — the directed twin of
@@ -21567,18 +21563,25 @@ fn digraph_degree_centrality_inline_to_dict(
     Ok(dict.unbind())
 }
 
-/// br-r37-c1-idcbind A/B probe (TEMP): inline in-degree centrality, paired against
-/// `in_degree_centrality` under a `Python::with_gil` binding-layer bench to decide whether the
-/// throwaway-String removal clears the PyDict-build floor. Removed or promoted after measurement.
+/// br-r37-c1-idcbind A/B baseline: the PRE-lever in-degree centrality via the kernel's
+/// `Vec<CentralityScore>` (throwaway `node.to_owned()` Strings) + `centrality_to_dict`. The live
+/// `in_degree_centrality` now uses the inline path; this preserves the OLD arm so the with-GIL
+/// binding bench `networkx_head_to_head_indeg_binding` stays a durable old-vs-new regression A/B.
+/// Byte-identical output to `in_degree_centrality`; not part of the public nx-parity surface.
 #[pyfunction]
-pub fn in_degree_centrality_inline(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+pub fn in_degree_centrality_kernel_ab(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
     if !gr.is_directed() {
         return Err(crate::NetworkXNotImplemented::new_err(
             "in_degree_centrality is not defined for undirected graphs.",
         ));
     }
-    digraph_degree_centrality_inline_to_dict(py, &gr, false)
+    let dg_ref = gr.digraph().expect("is_directed checked above");
+    let scores = py.allow_threads(|| fnx_algorithms::in_degree_centrality(dg_ref));
+    centrality_to_dict(py, &gr, &scores)
 }
 
 /// Return the local reaching centrality of a node.
@@ -25979,7 +25982,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Additional centrality algorithms
     m.add_function(wrap_pyfunction!(in_degree_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(out_degree_centrality, m)?)?;
-    m.add_function(wrap_pyfunction!(in_degree_centrality_inline, m)?)?;
+    m.add_function(wrap_pyfunction!(in_degree_centrality_kernel_ab, m)?)?;
     m.add_function(wrap_pyfunction!(local_reaching_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(global_reaching_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(group_degree_centrality, m)?)?;
