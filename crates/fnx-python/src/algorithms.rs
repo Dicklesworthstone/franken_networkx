@@ -8861,10 +8861,40 @@ pub fn core_number(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>>
     // bucket-based k-core decomposition); mirror that contract.
     require_not_multigraph(&gr)?;
     let inner = gr.undirected();
-    // br-r37-c1-ftorb: nx also rejects self-loops because the bucket
-    // decomposition double-counts loops in the degree, producing wrong
-    // core numbers. nx raises NetworkXNotImplemented with a remediation
-    // hint; mirror it.
+    // br-r37-c1-ftorb: nx also rejects self-loops because the bucket decomposition double-counts
+    // loops in the degree, producing wrong core numbers. nx raises NetworkXNotImplemented.
+    // br-r37-c1-corenumsl (cc): self-loop guard via a per-index INTEGER adjacency scan
+    // (`neighbors_indices`, a borrowed `&[usize]`) instead of per-node `inner.neighbors(node)`, which
+    // allocated a `Vec<&str>` per node (O(V) heap allocations) just to `.contains` scan it.
+    // Byte-identical: a self-loop is exactly a node that appears in its own adjacency row, and the
+    // same NetworkXNotImplemented is raised iff any exists.
+    let n_nodes = inner.node_count();
+    for idx in 0..n_nodes {
+        if let Some(neighbors) = inner.neighbors_indices(idx)
+            && neighbors.contains(&idx)
+        {
+            return Err(crate::NetworkXNotImplemented::new_err(
+                "Input graph has self loops which is not permitted; \
+                 Consider using G.remove_edges_from(nx.selfloop_edges(G)).",
+            ));
+        }
+    }
+    let result = py.allow_threads(|| fnx_algorithms::core_number(inner));
+    let dict = PyDict::new(py);
+    for nc in &result.core_numbers {
+        dict.set_item(gr.py_node_key(py, &nc.node), nc.core)?;
+    }
+    Ok(dict.unbind())
+}
+
+/// br-r37-c1-corenumsl A/B baseline: PRE-lever `core_number` self-loop guard (per-node
+/// `inner.neighbors(node)` Vec alloc + `.contains`). Preserved so the with-GIL binding bench stays a
+/// durable old-vs-new A/B; byte-identical to `core_number`. Not part of the public nx-parity surface.
+#[pyfunction]
+pub fn core_number_selfloopscan_ab(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    require_not_multigraph(&gr)?;
+    let inner = gr.undirected();
     for node in inner.nodes_ordered() {
         if let Some(neighbors) = inner.neighbors(node)
             && neighbors.contains(&node)
@@ -25758,6 +25788,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(bipartite_sets, m)?)?;
     m.add_function(wrap_pyfunction!(greedy_color, m)?)?;
     m.add_function(wrap_pyfunction!(core_number, m)?)?;
+    m.add_function(wrap_pyfunction!(core_number_selfloopscan_ab, m)?)?;
     m.add_function(wrap_pyfunction!(k_core_rust, m)?)?;
     m.add_function(wrap_pyfunction!(k_shell_rust, m)?)?;
     m.add_function(wrap_pyfunction!(k_crust_rust, m)?)?;

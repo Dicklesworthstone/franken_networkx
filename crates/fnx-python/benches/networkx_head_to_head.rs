@@ -2868,6 +2868,8 @@ struct IndegBindingWorkloads {
     new_binding: Py<PyAny>,
     old_total: Py<PyAny>,
     new_total: Py<PyAny>,
+    old_core: Py<PyAny>,
+    new_core: Py<PyAny>,
 }
 
 fn prepare_indeg_binding_workloads(py: Python<'_>) -> PyResult<IndegBindingWorkloads> {
@@ -2936,10 +2938,24 @@ _old_t = _raw.degree_centrality_directed_kernel_ab(gd)
 _new_t = _raw.degree_centrality(gd)
 assert list(_old_t.items()) == list(_new_t.items()), "degree_centrality (total) inline parity (order+values)"
 
+# br-r37-c1-corenumsl: core_number self-loop guard. Undirected simple Graph, NO self-loops (the
+# common case where the old per-node neighbors() Vec-alloc scan iterates all V nodes). Assert the
+# new alloc-free number_of_selfloops() guard gives the byte-identical {node: core} result.
+_ba = nx.barabasi_albert_graph(20000, 8, seed=13)
+gu = fnx.Graph()
+gu.add_nodes_from(range(20000))
+for _u, _v in _ba.edges():
+    gu.add_edge(_u, _v)
+_old_c = _raw.core_number_selfloopscan_ab(gu)
+_new_c = _raw.core_number(gu)
+assert list(_old_c.items()) == list(_new_c.items()), "core_number self-loop-guard parity (order+values)"
+
 old_binding = lambda: _raw.in_degree_centrality_kernel_ab(gd)
 new_binding = lambda: _raw.in_degree_centrality(gd)
 old_total = lambda: _raw.degree_centrality_directed_kernel_ab(gd)
 new_total = lambda: _raw.degree_centrality(gd)
+old_core = lambda: _raw.core_number_selfloopscan_ab(gu)
+new_core = lambda: _raw.core_number(gu)
 "#,
         )
         .as_c_str(),
@@ -2959,6 +2975,8 @@ new_total = lambda: _raw.degree_centrality(gd)
         new_binding: callable("new_binding")?,
         old_total: callable("old_total")?,
         new_total: callable("new_total")?,
+        old_core: callable("old_core")?,
+        new_core: callable("new_core")?,
     })
 }
 
@@ -2977,6 +2995,8 @@ fn indeg_binding_head_to_head(c: &mut Criterion) {
     bench_python_callable(&mut group, "new_inline_20k", &workloads.new_binding);
     bench_python_callable(&mut group, "old_total_centrality_to_dict_20k", &workloads.old_total);
     bench_python_callable(&mut group, "new_total_inline_20k", &workloads.new_total);
+    bench_python_callable(&mut group, "old_core_selfloopscan_20k", &workloads.old_core);
+    bench_python_callable(&mut group, "new_core_numselfloops_20k", &workloads.new_core);
     group.finish();
 }
 
