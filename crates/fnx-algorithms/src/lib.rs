@@ -9231,6 +9231,23 @@ fn edge_weight_or_default(graph: &Graph, left: &str, right: &str, weight_attr: &
         .unwrap_or(1.0)
 }
 
+/// br-r37-c1-aspwidx: index-keyed twin of `edge_weight_or_default` — IDENTICAL semantics
+/// (default 1.0, `is_finite && >= 0.0` filter) but resolves the edge via `edge_attrs_by_indices`
+/// (no node-map String probes). Bit-identical weight for the same (left_idx, right_idx) endpoints.
+fn edge_weight_or_default_idx(
+    graph: &Graph,
+    left_idx: usize,
+    right_idx: usize,
+    weight_attr: &str,
+) -> f64 {
+    graph
+        .edge_attrs_by_indices(left_idx, right_idx)
+        .and_then(|attrs| attrs.get(weight_attr))
+        .and_then(|val| val.as_f64())
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .unwrap_or(1.0)
+}
+
 fn weight_value_or_default_typed(raw: Option<&CgseValue>) -> (f64, bool) {
     match raw {
         None => (1.0, true),
@@ -22265,6 +22282,96 @@ pub fn all_shortest_paths_weighted(
         return vec![vec![source.to_owned()]];
     }
 
+    // br-r37-c1-aspwidx (cc): index-keyed weighted Dijkstra + multi-pred path enumeration. The old
+    // kernel kept dist as HashMap<&str,f64>, preds as HashMap<&str,Vec<&str>>, and a
+    // BinaryHeap<DijkstraState{node:&str}> and walked neighbors_iter with a name-keyed weight lookup.
+    // Index dist: Vec<f64> (INF = unvisited) + preds: Vec<Vec<usize>> + DijkstraState<usize> +
+    // neighbors_indices + edge_weight_or_default_idx; names materialised only at path emit. FLOAT-SAFE:
+    // the heap orders by (dist, seq) ONLY (node is not a tie-break; seq is a unique counter), the
+    // per-edge weight is bit-identical, and every f64 comparison / EPSILON test is unchanged and applied
+    // in the same pop/neighbour order → the same relaxation → the same predecessor DAG → the same paths.
+    let source_idx = graph.get_node_index(source).expect("has_node checked above");
+    let target_idx = graph.get_node_index(target).expect("has_node checked above");
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+
+    let mut dist = vec![f64::INFINITY; n];
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut pq = BinaryHeap::new();
+    let mut seq_counter: u64 = 0;
+
+    dist[source_idx] = 0.0;
+    seq_counter += 1;
+    pq.push(DijkstraState {
+        dist: 0.0,
+        seq: seq_counter,
+        node: source_idx,
+    });
+
+    let mut target_dist = f64::INFINITY;
+
+    while let Some(DijkstraState {
+        dist: d, node: u, ..
+    }) = pq.pop()
+    {
+        if d > target_dist + DISTANCE_COMPARISON_EPSILON {
+            break;
+        }
+
+        if d > dist[u] + DISTANCE_COMPARISON_EPSILON {
+            continue;
+        }
+
+        if u == target_idx {
+            target_dist = d;
+        }
+
+        if let Some(neighbors) = graph.neighbors_indices(u) {
+            for &v in neighbors {
+                let weight = edge_weight_or_default_idx(graph, u, v, weight_attr);
+                let next_dist = d + weight;
+                let current_dist_v = dist[v];
+
+                if next_dist < current_dist_v - DISTANCE_COMPARISON_EPSILON {
+                    dist[v] = next_dist;
+                    preds[v] = vec![u];
+                    seq_counter += 1;
+                    pq.push(DijkstraState {
+                        dist: next_dist,
+                        seq: seq_counter,
+                        node: v,
+                    });
+                } else if (next_dist - current_dist_v).abs() < DISTANCE_COMPARISON_EPSILON {
+                    preds[v].push(u);
+                }
+            }
+        }
+    }
+
+    if dist[target_idx].is_infinite() {
+        return Vec::new();
+    }
+
+    build_all_paths_from_preds_index(&preds, source_idx, target_idx, &nodes)
+}
+
+/// br-r37-c1-aspwidx A/B baseline: the pre-lever String-keyed weighted Dijkstra multi-pred path
+/// enumeration. Test-only; byte-identical (bit-identical f64) to the shipped integer-index version.
+#[cfg(test)]
+fn all_shortest_paths_weighted_orig_string(
+    graph: &Graph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> Vec<Vec<String>> {
+    if !graph.has_node(source) || !graph.has_node(target) {
+        return Vec::new();
+    }
+
+    if source == target {
+        return vec![vec![source.to_owned()]];
+    }
+
     let mut dist: HashMap<&str, f64> = HashMap::new();
     let mut preds: HashMap<&str, Vec<&str>> = HashMap::new();
     let mut pq = BinaryHeap::new();
@@ -22608,6 +22715,54 @@ fn build_all_paths_from_preds(
         }
 
         seen.remove(current);
+        stack.pop();
+    }
+
+    result
+}
+
+/// br-r37-c1-aspwidx: index-keyed twin of `build_all_paths_from_preds`. `preds[node]` is the
+/// predecessor-index list (empty = no predecessor); enumerates every shortest path target→…→source
+/// via the same seen-guarded DFS over the predecessor DAG, materialising names from `nodes` only at
+/// path emit. Byte-identical path order to the String version (same pred order, same DFS walk).
+fn build_all_paths_from_preds_index(
+    preds: &[Vec<usize>],
+    source_idx: usize,
+    target_idx: usize,
+    nodes: &[&str],
+) -> Vec<Vec<String>> {
+    if preds[target_idx].is_empty() {
+        return Vec::new();
+    }
+
+    let mut result = Vec::new();
+    let mut seen = vec![false; nodes.len()];
+    seen[target_idx] = true;
+    let mut stack: Vec<(usize, usize)> = vec![(target_idx, 0)];
+
+    while let Some((current, pred_index)) = stack.last().copied() {
+        if current == source_idx {
+            result.push(
+                stack
+                    .iter()
+                    .rev()
+                    .map(|(node, _)| nodes[*node].to_owned())
+                    .collect(),
+            );
+        }
+
+        let pred_list = &preds[current];
+        if pred_index < pred_list.len() {
+            stack.last_mut().expect("stack not empty").1 += 1;
+            let next = pred_list[pred_index];
+            if !seen[next] {
+                seen[next] = true;
+                stack.push((next, 0));
+            }
+            continue;
+        }
+
+        seen[current] = false;
         stack.pop();
     }
 
@@ -54384,6 +54539,99 @@ mod tests {
             );
         };
         println!("DAGLPWIDX_AB dag_longest_path_weighted n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-aspwidx: full-function paired-interleaved A/B for `all_shortest_paths_weighted` (String-
+    /// keyed weighted Dijkstra: dist HashMap<&str,f64> + preds HashMap<&str,Vec<&str>> +
+    /// BinaryHeap<DijkstraState{&str}> + name-keyed weight → integer-index). Weighted circulant with
+    /// edge weight = step² and an off-centre target so the shortest path is UNIQUE (short output) while
+    /// Dijkstra explores ~⅔ of V → relaxation-hash dominated. Byte-exact parity (paths). `#[ignore]`; run
+    /// with `cargo test --release -p fnx-algorithms --lib all_shortest_paths_weighted_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn all_shortest_paths_weighted_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Circulant n=30000, each node linked to ±1,±2,±3 with edge weight = step² (1,4,9). The unit-step
+        // (+1) route is strictly cheapest (k² > k·1²), and the off-centre target n10000 makes the short
+        // way strictly shorter than the long way → a UNIQUE shortest path, while Dijkstra relaxes every
+        // node within dist ≤ 10000 (~⅔ of V) — a name-keyed dist/preds hash per relaxation in the baseline.
+        let n = 30000usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=3usize {
+                let w = format!("{}", k * k);
+                let _ = g.add_edge_with_attrs(
+                    format!("n{i}"),
+                    format!("n{}", (i + k) % n),
+                    attrs([("weight", w.as_str())]),
+                );
+            }
+        }
+        let src = "n0";
+        let tgt = "n10000";
+
+        // Byte-exact parity (bit-identical f64 → same shortest paths).
+        let cand = super::all_shortest_paths_weighted(&g, src, tgt, "weight");
+        let base = super::all_shortest_paths_weighted_orig_string(&g, src, tgt, "weight");
+        assert_eq!(cand, base, "index all_shortest_paths_weighted must equal the String baseline");
+        assert_eq!(cand.len(), 1, "off-centre target on a step²-weighted circulant has a unique path");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::all_shortest_paths_weighted(&g, src, tgt, "weight")
+            } else {
+                super::all_shortest_paths_weighted_orig_string(&g, src, tgt, "weight")
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "ASPWIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("ASPWIDX_AB all_shortest_paths_weighted n={n} rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
