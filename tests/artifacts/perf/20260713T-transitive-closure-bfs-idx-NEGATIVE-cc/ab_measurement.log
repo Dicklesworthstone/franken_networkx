@@ -1,0 +1,4 @@
+TCIDX_AB transitive_closure chain-800 rounds=61 (>1 = index faster)
+TCIDX_AB INDEX_vs_string: median=1.2803x win_rate=51/61 p5_p95=[0.7184,2.1953]
+TCIDX_AB NULL_index_vs_index: median=0.9325x win_rate=27/61 p5_p95=[0.5876,1.9484]
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 1030 filtered out; finished in 29.14s
