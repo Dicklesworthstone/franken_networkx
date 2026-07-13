@@ -49213,14 +49213,7 @@ pub fn write_graphml_string_config_with_graph_attrs(
 
     // Pass 2: Emit XML
     let ind = GraphMLIndent::new(config.prettyprint);
-    // br-r37-c1-gmlestcnt (cc): the capacity estimate used nodes_ordered().len() +
-    // edges_ordered().len(), each materialising a FULL Vec (Vec<String> of names /
-    // Vec<EdgeSnapshot>: two owned Strings + an AttrMap clone per edge) that is then
-    // rebuilt AGAIN for the emission loops below. node_count()/edge_count() are O(1)
-    // (self.nodes.len()/self.edges.len()) and byte-identical values, so the estimate
-    // — and thus the output — is unchanged; drops one full node-Vec + one full
-    // edge-Vec-with-attr-clones materialisation per write.
-    let estimated_size = 256 + graph.node_count() * 64 + graph.edge_count() * 96;
+    let estimated_size = 256 + graph.nodes_ordered().len() * 64 + graph.edges_ordered().len() * 96;
     let mut xml = String::with_capacity(estimated_size);
 
     graphml_emit_header(&mut xml, &ind);
@@ -49434,10 +49427,8 @@ pub fn write_graphml_string_directed_config_with_graph_attrs(
 
     // Pass 2: Emit XML
     let ind = GraphMLIndent::new(config.prettyprint);
-    // br-r37-c1-gmlestcnt (cc): O(1) node_count()/edge_count() instead of
-    // nodes_ordered().len()/edges_ordered().len(), each of which materialised a full
-    // Vec (rebuilt again for the emission loops below). Byte-identical estimate.
-    let estimated_size = 256 + digraph.node_count() * 64 + digraph.edge_count() * 96;
+    let estimated_size =
+        256 + digraph.nodes_ordered().len() * 64 + digraph.edges_ordered().len() * 96;
     let mut xml = String::with_capacity(estimated_size);
 
     graphml_emit_header(&mut xml, &ind);
@@ -55932,94 +55923,6 @@ mod tests {
         report("IN_NULL_index_vs_index", &paired(&time_in, true, true));
         report("UNDIR_index_vs_string", &paired(&time_ud, true, false));
         report("UNDIR_NULL_index_vs_index", &paired(&time_ud, true, true));
-    }
-
-    /// br-r37-c1-gmlestcnt: A/B for the GraphML writer capacity estimate. The old estimate materialised
-    /// nodes_ordered()+edges_ordered() (a Vec<EdgeSnapshot>: HashMap build + owned Strings + AttrMap clone
-    /// per edge) purely for .len(), then rebuilt both for the emission loops; now uses O(1)
-    /// node_count()/edge_count(). Baseline arm = production writer with the two extra materialisations
-    /// (black_box'd) reproduced ahead of it; candidate arm = production writer alone. Output byte-identical
-    /// (same estimated_size value). `#[ignore]`; run with
-    /// `cargo test --release -p fnx-algorithms --lib graphml_estimate_count_ab -- --ignored --nocapture`.
-    #[test]
-    #[ignore = "measurement; run with --release --ignored --nocapture"]
-    fn graphml_estimate_count_ab() {
-        use std::hint::black_box;
-        use std::time::Instant;
-
-        // Dense-ish circulant: many unique edges so edges_ordered()'s Vec<EdgeSnapshot> build is a real
-        // fraction of the write. No attrs (EdgeSnapshot still allocates per edge + the dedup HashMap).
-        let n = 20000usize;
-        let deg = 10usize;
-        let mut g = Graph::strict();
-        for i in 0..n {
-            let _ = g.add_node(format!("n{i}"));
-        }
-        for i in 0..n {
-            for step in 1..=deg {
-                let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + step) % n));
-            }
-        }
-        let config = super::GraphMLWriterConfig::default();
-
-        // Capacity-hint equivalence (the only thing the lever changed): counts match the Vec lengths, so
-        // the estimated_size value — and therefore the emitted XML — is byte-identical.
-        assert_eq!(g.node_count(), g.nodes_ordered().len(), "node_count == nodes_ordered().len()");
-        assert_eq!(g.edge_count(), g.edges_ordered().len(), "edge_count == edges_ordered().len()");
-        let out = super::write_graphml_string_config_with_graph_attrs(&g, None, &config);
-        assert!(out.len() > 1000, "writer emitted a real document");
-
-        let time = |use_cand: bool| -> f64 {
-            let t0 = Instant::now();
-            if !use_cand {
-                // Reproduce the removed estimate-time materialisations (old behaviour).
-                black_box(g.nodes_ordered());
-                black_box(g.edges_ordered());
-            }
-            let r = super::write_graphml_string_config_with_graph_attrs(&g, None, &config);
-            black_box(&r);
-            t0.elapsed().as_secs_f64()
-        };
-        for _ in 0..2 {
-            black_box(time(true));
-            black_box(time(false));
-        }
-        let median = |v: &[f64]| {
-            let mut s = v.to_vec();
-            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            s[s.len() / 2]
-        };
-        let rounds = 41usize;
-        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
-            let mut v = Vec::with_capacity(rounds);
-            for round in 0..rounds {
-                let (tb, tc) = if round.is_multiple_of(2) {
-                    let bt = time(base_arm);
-                    let ct = time(use_cand);
-                    (bt, ct)
-                } else {
-                    let ct = time(use_cand);
-                    let bt = time(base_arm);
-                    (bt, ct)
-                };
-                v.push(tb / tc);
-            }
-            v
-        };
-        let report = |name: &str, ratios: &[f64]| {
-            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
-            let mut sorted = ratios.to_vec();
-            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            println!(
-                "GMLEST_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
-                median(ratios),
-                sorted[rounds * 5 / 100],
-                sorted[rounds * 95 / 100],
-            );
-        };
-        println!("GMLEST_AB write_graphml n={n} deg={deg} edges={} rounds={rounds} (>1 = count faster)", g.edge_count());
-        report("COUNT_vs_materialize", &paired(true, false));
-        report("NULL_count_vs_count", &paired(true, true));
     }
 
     /// br-r37-c1-bfslayidx (family): full-function A/B for `bfs_layers_multi` (representative of the
