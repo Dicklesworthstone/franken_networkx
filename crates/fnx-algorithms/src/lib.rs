@@ -21761,6 +21761,79 @@ pub fn lexicographic_topological_sort(digraph: &DiGraph) -> Option<Vec<String>> 
     use std::cmp::Reverse;
     use std::collections::BinaryHeap;
 
+    // br-r37-c1-lextopoidx (cc): index-key Kahn's lexicographic topo sort (twin of topological_sort/
+    // _generations). The old kernel kept in_degree as HashMap<&str,usize> (a get_mut String hash per
+    // edge) and walked successors() (a Vec<&str> alloc per pop). Index in_degree (Vec<usize>) + walk
+    // successors_indices; the min-heap carries `ByName { name, idx }` so it still pops in lexicographic
+    // NAME order (names are unique → the idx tie-break never fires), but pops yield the index directly.
+    // Byte-identical: same in_degree seed, same lexicographic pop order, same decrement/zero-reach →
+    // the same topological order (the initial heap push order is irrelevant — the heap normalises it).
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+
+    #[derive(PartialEq, Eq)]
+    struct ByName<'a> {
+        name: &'a str,
+        idx: usize,
+    }
+    impl PartialOrd for ByName<'_> {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+    impl Ord for ByName<'_> {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            self.name
+                .cmp(other.name)
+                .then_with(|| self.idx.cmp(&other.idx))
+        }
+    }
+
+    let mut in_degree: Vec<usize> = (0..n).map(|i| digraph.in_degree(nodes[i])).collect();
+
+    // Min-heap for lexicographic ordering (Reverse over ByName → smallest name pops first).
+    let mut heap: BinaryHeap<Reverse<ByName>> = BinaryHeap::new();
+    for i in 0..n {
+        if in_degree[i] == 0 {
+            heap.push(Reverse(ByName {
+                name: nodes[i],
+                idx: i,
+            }));
+        }
+    }
+
+    let mut result: Vec<String> = Vec::with_capacity(n);
+
+    while let Some(Reverse(ByName { idx: node, .. })) = heap.pop() {
+        result.push(nodes[node].to_owned());
+        if let Some(succs) = digraph.successors_indices(node) {
+            for &succ in succs {
+                in_degree[succ] -= 1;
+                if in_degree[succ] == 0 {
+                    heap.push(Reverse(ByName {
+                        name: nodes[succ],
+                        idx: succ,
+                    }));
+                }
+            }
+        }
+    }
+
+    if result.len() != n {
+        return None; // cycle detected
+    }
+
+    Some(result)
+}
+
+/// br-r37-c1-lextopoidx A/B baseline: the pre-lever String-keyed lexicographic topo sort
+/// (in_degree HashMap<&str> + successors() alloc + BinaryHeap<Reverse<&str>>). Test-only;
+/// byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn lexicographic_topological_sort_orig_string(digraph: &DiGraph) -> Option<Vec<String>> {
+    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
+
     let nodes = digraph.nodes_ordered();
     let n = nodes.len();
 
@@ -21769,7 +21842,6 @@ pub fn lexicographic_topological_sort(digraph: &DiGraph) -> Option<Vec<String>> 
         in_degree.insert(node, digraph.in_degree(node));
     }
 
-    // Min-heap for lexicographic ordering
     let mut heap: BinaryHeap<Reverse<&str>> = BinaryHeap::new();
     for (&node, &deg) in &in_degree {
         if deg == 0 {
@@ -21794,7 +21866,7 @@ pub fn lexicographic_topological_sort(digraph: &DiGraph) -> Option<Vec<String>> 
     }
 
     if result.len() != n {
-        return None; // cycle detected
+        return None;
     }
 
     Some(result)
@@ -55264,6 +55336,92 @@ mod tests {
             );
         };
         println!("PSPTIDX_AB partition_spanning_tree n={n} rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-lextopoidx: full-function paired-interleaved A/B for `lexicographic_topological_sort`
+    /// (in_degree HashMap<&str> + successors() alloc + BinaryHeap<Reverse<&str>> → in_degree Vec<usize>
+    /// + successors_indices + a ByName{name,idx} heap so pop order is unchanged). Forward DAG (acyclic).
+    /// Byte-exact parity (lexicographic order). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib lexicographic_topological_sort_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn lexicographic_topological_sort_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Forward DAG n=40000, out-degree ~20 (i → i+1..i+20): acyclic; Kahn's decrements every edge's
+        // successor in_degree (a String get_mut per edge in the baseline).
+        let n = 40000usize;
+        let deg = 20usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                if i + k < n {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{}", i + k));
+                }
+            }
+        }
+
+        // Byte-exact parity: same lexicographic topological order.
+        let cand = super::lexicographic_topological_sort(&g);
+        let base = super::lexicographic_topological_sort_orig_string(&g);
+        assert_eq!(cand, base, "index lexicographic_topological_sort must equal the String baseline");
+        assert!(cand.as_ref().map(|v| v.len() == n).unwrap_or(false), "acyclic → all n ordered");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::lexicographic_topological_sort(&g)
+            } else {
+                super::lexicographic_topological_sort_orig_string(&g)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "LEXTOPOIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("LEXTOPOIDX_AB lexicographic_topological_sort n={n} deg={deg} rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
