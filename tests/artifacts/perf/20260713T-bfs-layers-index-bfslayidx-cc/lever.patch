@@ -1,0 +1,166 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index be3924a8d..43733db9f 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -20360,24 +20360,32 @@ pub fn bfs_successors_directed(
+ /// Matches `networkx.bfs_layers`.
+ #[must_use]
+ pub fn bfs_layers(graph: &Graph, source: &str) -> Vec<Vec<String>> {
++    // br-r37-c1-bfslayidx (cc): integer-index BFS. The old kernel kept `visited` as a HashSet<&str>
++    // and called `graph.neighbors(node)` (a fresh Vec<&str> allocation) per node — a String hash on
++    // every visited probe across O(|E|) edge scans + O(|V|) neighbour-Vec allocs. Walk
++    // `neighbors_indices` over node INDICES with a `Vec<bool>` visited (O(1) probe, no alloc); only the
++    // per-layer output materialises names (`nodes[i]`). Byte-identical: node index i == nodes_ordered()
++    // position, neighbours_indices == neighbours order → the same per-layer discovery order and the same
++    // node names, layer by layer.
+     let mut layers: Vec<Vec<String>> = Vec::new();
+-    let mut visited: HashSet<&str> = HashSet::new();
+-
+-    if !graph.has_node(source) {
++    let Some(source_idx) = graph.get_node_index(source) else {
+         return layers;
+-    }
++    };
++    let nodes = graph.nodes_ordered();
++    let mut visited = vec![false; nodes.len()];
+ 
+-    visited.insert(source);
+-    let mut current_layer = vec![source];
++    visited[source_idx] = true;
++    let mut current_layer = vec![source_idx];
+ 
+     while !current_layer.is_empty() {
+-        layers.push(current_layer.iter().map(|&s| s.to_owned()).collect());
+-        let mut next_layer: Vec<&str> = Vec::new();
++        layers.push(current_layer.iter().map(|&i| nodes[i].to_owned()).collect());
++        let mut next_layer: Vec<usize> = Vec::new();
+         for &node in &current_layer {
+-            if let Some(neighbors) = graph.neighbors(node) {
+-                for neighbor in neighbors {
+-                    if visited.insert(neighbor) {
+-                        next_layer.push(neighbor);
++            if let Some(neighbors) = graph.neighbors_indices(node) {
++                for &nb in neighbors {
++                    if !visited[nb] {
++                        visited[nb] = true;
++                        next_layer.push(nb);
+                     }
+                 }
+             }
+@@ -50593,6 +50596,116 @@ mod tests {
+         report("NULL_index_vs_index", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-bfslayidx: full-function paired-interleaved median A/B for `bfs_layers` — inline
++    /// ORIGINAL String-keyed BFS (HashSet<&str> visited + graph.neighbors() Vec allocs) vs the shipped
++    /// integer-index BFS (Vec<bool> visited + neighbors_indices). Dense graph so the O(|E|) visited
++    /// probes + per-node neighbour-Vec allocs dominate the O(|V|) name output. Layer-list parity
++    /// asserted first. `#[ignore]`; run with
++    /// `cargo test --release -p fnx-algorithms --lib bfs_layers_idx_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn bfs_layers_idx_ab() {
++        use std::collections::HashSet;
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // Dense circulant: 3000 nodes, degree 100 → ~150k edges.
++        let n_nodes = 3000usize;
++        let mut g = Graph::strict();
++        for i in 0..n_nodes {
++            let _ = g.add_node(i.to_string());
++        }
++        for i in 0..n_nodes {
++            for step in 1..=50usize {
++                let _ = g.add_edge(i.to_string(), ((i + step) % n_nodes).to_string());
++            }
++        }
++
++        // Inline ORIGINAL String-keyed bfs_layers.
++        let old_fn = |graph: &Graph, source: &str| -> Vec<Vec<String>> {
++            let mut layers: Vec<Vec<String>> = Vec::new();
++            let mut visited: HashSet<&str> = HashSet::new();
++            if !graph.has_node(source) {
++                return layers;
++            }
++            visited.insert(source);
++            let mut current_layer = vec![source];
++            while !current_layer.is_empty() {
++                layers.push(current_layer.iter().map(|&s| s.to_owned()).collect());
++                let mut next_layer: Vec<&str> = Vec::new();
++                for &node in &current_layer {
++                    if let Some(neighbors) = graph.neighbors(node) {
++                        for neighbor in neighbors {
++                            if visited.insert(neighbor) {
++                                next_layer.push(neighbor);
++                            }
++                        }
++                    }
++                }
++                current_layer = next_layer;
++            }
++            layers
++        };
++
++        assert_eq!(
++            old_fn(&g, "0"),
++            super::bfs_layers(&g, "0"),
++            "integer-index bfs_layers must be byte-identical to the String-keyed BFS"
++        );
++
++        let time = |cand: bool| -> f64 {
++            let t0 = Instant::now();
++            let r = if cand {
++                super::bfs_layers(&g, "0")
++            } else {
++                old_fn(&g, "0")
++            };
++            black_box(&r);
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for round in 0..rounds {
++                let (tb, tc) = if round.is_multiple_of(2) {
++                    let bt = time(base_arm);
++                    let ct = time(cand);
++                    (bt, ct)
++                } else {
++                    let ct = time(cand);
++                    let bt = time(base_arm);
++                    (bt, ct)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "BFSLAYIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("BFSLAYIDX_AB bfs_layers 3000-node deg100 rounds={rounds} (>1 = index faster)");
++        report("INDEX_vs_string", &paired(true, false));
++        report("NULL_index_vs_index", &paired(true, true));
++    }
++
+     /// br-r37-c1-ra004: paired-interleaved median A/B for the `neighbor_count`
+     /// no-alloc lever on `bfs_beam_edges` (one per-candidate-neighbor `Vec<&str>`
+     /// degree allocation removed from the BFS inner loop), against its exact
