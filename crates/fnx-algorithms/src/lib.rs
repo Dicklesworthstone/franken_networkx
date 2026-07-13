@@ -2564,12 +2564,110 @@ pub fn single_source_shortest_path_index(
     result
 }
 
+/// Index-space core of [`single_source_shortest_path_directed`] (br-r37-c1-ssspdiridx).
+/// Directed mirror of [`single_source_shortest_path_index`]: BFS over `successors_indices`
+/// with a `Vec<Option<usize>>` predecessor tree, reconstructing paths from indices at the
+/// end. Returns `(target_idx, path_indices)` pairs in BFS discovery order.
+#[must_use]
+pub fn single_source_shortest_path_directed_index(
+    digraph: &DiGraph,
+    source: &str,
+    cutoff: Option<usize>,
+) -> Vec<(usize, Vec<usize>)> {
+    let n = digraph.node_count();
+
+    let Some(source_idx) = digraph.get_node_index(source) else {
+        return Vec::new();
+    };
+
+    let mut visited = vec![false; n];
+    let mut predecessors: Vec<Option<usize>> = vec![None; n];
+    let mut discovery_order: Vec<usize> = Vec::with_capacity(n);
+
+    visited[source_idx] = true;
+    discovery_order.push(source_idx);
+    let mut frontier: Vec<usize> = vec![source_idx];
+    let mut level = 0usize;
+
+    while !frontier.is_empty() {
+        if let Some(c) = cutoff
+            && level >= c
+        {
+            break;
+        }
+        let mut next_frontier: Vec<usize> = Vec::new();
+        for &node_idx in &frontier {
+            if let Some(successor_indices) = digraph.successors_indices(node_idx) {
+                for &nbr_idx in successor_indices {
+                    if !visited[nbr_idx] {
+                        visited[nbr_idx] = true;
+                        predecessors[nbr_idx] = Some(node_idx);
+                        discovery_order.push(nbr_idx);
+                        next_frontier.push(nbr_idx);
+                    }
+                }
+            }
+        }
+        frontier = next_frontier;
+        level += 1;
+    }
+
+    let mut result: Vec<(usize, Vec<usize>)> = Vec::with_capacity(discovery_order.len());
+    for &target_idx in &discovery_order {
+        let mut path_indices: Vec<usize> = Vec::new();
+        let mut current_idx = target_idx;
+
+        loop {
+            path_indices.push(current_idx);
+            if current_idx == source_idx {
+                break;
+            }
+            let Some(parent_idx) = predecessors[current_idx] else {
+                break;
+            };
+            current_idx = parent_idx;
+        }
+
+        path_indices.reverse();
+        result.push((target_idx, path_indices));
+    }
+
+    result
+}
+
 /// Return all shortest paths from a single source for a directed graph (unweighted, BFS).
 ///
 /// Returns (node, path) pairs in BFS discovery order.
 /// `cutoff` limits the search depth (None = no limit).
 #[must_use]
 pub fn single_source_shortest_path_directed(
+    digraph: &DiGraph,
+    source: &str,
+    cutoff: Option<usize>,
+) -> Vec<(String, Vec<String>)> {
+    // br-r37-c1-ssspdiridx (cc): the old kernel kept `paths` as a HashMap<String,Vec<String>>
+    // and CLONED the parent's full path (`paths[node].clone()`) plus a second clone into
+    // `result` for every discovered node — O(|V|·depth) String allocations on top of the
+    // String-hashing `successors_iter` walk. Delegate to the integer-index core (mirror of the
+    // undirected path) and materialise names once per node. Byte-identical: same adjacency-order
+    // successor discovery, same first-visit predecessor tree, same BFS discovery order.
+    let nodes = digraph.nodes_ordered();
+    single_source_shortest_path_directed_index(digraph, source, cutoff)
+        .into_iter()
+        .map(|(target, path)| {
+            (
+                nodes[target].to_owned(),
+                path.into_iter().map(|i| nodes[i].to_owned()).collect(),
+            )
+        })
+        .collect()
+}
+
+/// br-r37-c1-ssspdiridx A/B baseline: the pre-lever `single_source_shortest_path_directed` that
+/// kept `paths` String-keyed and cloned the full path per node. Test-only; byte-identical to the
+/// shipped integer-index version.
+#[cfg(test)]
+fn single_source_shortest_path_directed_orig_string(
     digraph: &DiGraph,
     source: &str,
     cutoff: Option<usize>,
@@ -51129,6 +51227,102 @@ mod tests {
         };
         println!(
             "SPUDIDX_AB shortest_path_unweighted_directed n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-ssspdiridx: full-function paired-interleaved A/B for `single_source_shortest_path_directed`.
+    /// The old kernel kept `paths` as a `HashMap<String,Vec<String>>` and deep-cloned the parent's full
+    /// path per node (twice) on top of the String-hashing `successors_iter` walk; the shipped version
+    /// delegates to the integer-index core. Small-diameter expander (pseudo-random directed targets) so
+    /// paths stay shallow → BFS-scan/hash + clone dominated, output O(|V|). Byte-exact parity asserted.
+    /// `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib single_source_shortest_path_directed_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn single_source_shortest_path_directed_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Small-diameter directed expander: each node i → deg pseudo-random targets, so from n0 the BFS
+        // reaches ~all V in ~log_deg(V) hops (paths shallow, output O(|V|)) while scanning ~V*deg edges.
+        // That isolates the String-hash + path-clone tax the old kernel paid (not the path materialisation,
+        // which is O(|V|·small-depth) and identical in both arms).
+        let n = 30000usize;
+        let deg = 20usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                let j = ((i as u64)
+                    .wrapping_mul(1_000_003)
+                    .wrapping_add((k as u64).wrapping_mul(97))
+                    % (n as u64)) as usize;
+                let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+            }
+        }
+        let src = "n0";
+
+        // Byte-exact parity: index core == String baseline (same (name, path) pairs, same BFS order).
+        assert_eq!(
+            super::single_source_shortest_path_directed(&g, src, None),
+            super::single_source_shortest_path_directed_orig_string(&g, src, None),
+            "index single_source_shortest_path_directed must equal the String baseline"
+        );
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::single_source_shortest_path_directed(&g, src, None)
+            } else {
+                super::single_source_shortest_path_directed_orig_string(&g, src, None)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "SSSPDIRIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "SSSPDIRIDX_AB single_source_shortest_path_directed n={n} deg={deg} rounds={rounds} (>1 = index faster)"
         );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
