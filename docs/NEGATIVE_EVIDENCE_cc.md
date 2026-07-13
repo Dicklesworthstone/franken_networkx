@@ -1,5 +1,69 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cod, 2026-07-13): `group_out_degree_centrality` integer successor union **11.5666x** raw-kernel self-time (br-r37-c1-8wr40)
+
+NEGATIVE-LEDGER FIRST / HOLD CORRECTION: the broad degree/centrality profile at
+the prior `Kernels are converged` HOLD enumerated scalar in/out/undirected
+degree centrality but omitted all three group-degree set-union kernels. No
+specific keep or reject targeted `group_out_degree_centrality`; old commits
+only established native Python routing. This row corrects that blanket HOLD
+for this one missed kernel while leaving the in-degree and undirected siblings
+for separate measurements.
+
+ONE LEVER / EXACT PARITY: resolve group names once to stable node indices, mark
+group membership, walk `successors_indices`, and count the distinct outside
+successors in a second mark array. Production still retains `group.len()` as
+the denominator input, so duplicate and missing group entries keep their exact
+legacy denominator behavior; missing nodes simply retain their old no-op
+traversal. Internal arcs and self-loops are excluded by the identical group
+membership predicate, and duplicate group entries or shared successors still
+contribute once. The same integer cardinality is divided once by the same
+integer denominator, so the returned `f64` bits are identical. There is no
+ordering, tie, RNG, or accumulation surface.
+
+Before timing, the frozen full String-set function and production asserted
+exact `to_bits()` parity on empty and nonlexical directed graphs, including
+empty, duplicate, missing, all-node, oversized, self-loop, internal-arc, and
+shared-successor group cases, plus the timed graph.
+
+STRICT-REMOTE MEDIAN GATE: release full-function A/B on worker `vmi1153651`,
+31 paired interleaved rounds over a prebuilt 50,000-node directed graph with a
+10,000-node group and fanout 16, followed by a mark/mark null:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| index marks / String sets | **11.5666x** | 31/31 | 9.0707-13.1366 |
+| index marks / index marks null | 1.0019x | 16/31 | 0.7816-1.1286 |
+
+The candidate p5 clears the null p95 by 8.04x. The fixture forces 10,000
+successor-`Vec` allocations and 160,000 outside-successor visits in the frozen
+arm; each visit hashes the successor for both group membership and the output
+set. Production scans the same 160,000 arcs through stable integer slices and
+fixed-size marks. The valid invocation selected and passed exactly one ignored
+measurement test under
+`RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo ...`; no local
+Cargo fallback occurred.
+
+This is Rust-kernel self-time, not a universal public-call ratio. The public
+Python `group_out_degree_centrality` route does enter this kernel directly, but
+Python iteration and node-key conversion remain outside the A/B and will dilute
+the end-to-end ratio.
+
+VALIDATION: the strict-remote focused non-measurement
+`test_group_out_degree_centrality` filter passed, as did workspace
+`cargo check --workspace --all-targets`. Exact workspace `-D warnings` Clippy
+reproduced only the concurrently landed `aspidx` benchmark's pre-existing
+unused-variable warning; the rerun allowing that one Rust lint plus the three
+established main-wide Clippy classes (`collapsible_if`,
+`doc_lazy_continuation`, and `manual_is_multiple_of`) passed with no `8wr40`
+finding. Direct nightly rustfmt still reports existing file-wide drift but no
+diff at either owned hunk; cached-diff checks passed, and staged UBS reported
+zero critical issues.
+
+RESULT: SHIP. Preserve `group.len()` denominator semantics for duplicate and
+unknown group entries. Do not fold the in-degree or undirected twins into this
+commit or generalize 11.57x to tiny groups dominated by wrapper overhead.
+
 ## SHIPPED WIN (cod, 2026-07-13): `global_minimum_node_cut` indexed neighbor-pair screen **49.8775x** dense-clique self-time (br-r37-c1-lmyth)
 
 NEGATIVE-LEDGER FIRST: the sibling `global_node_connectivity` row proved this

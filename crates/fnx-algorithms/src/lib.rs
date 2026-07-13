@@ -32554,18 +32554,25 @@ pub fn group_out_degree_centrality(digraph: &DiGraph, group: &[&str]) -> f64 {
     if n == 0 || s_len >= n {
         return 0.0;
     }
-    let group_set: HashSet<&str> = group.iter().copied().collect();
-    let mut successors_outside = HashSet::new();
-    for &node in group {
-        if let Some(succs) = digraph.successors(node) {
-            for s in succs {
-                if !group_set.contains(s) {
-                    successors_outside.insert(s);
-                }
+    let group_indices: Vec<usize> = group
+        .iter()
+        .filter_map(|node| digraph.get_node_index(node))
+        .collect();
+    let mut is_group_member = vec![false; n];
+    for &node in &group_indices {
+        is_group_member[node] = true;
+    }
+    let mut seen_outside = vec![false; n];
+    let mut outside_count = 0_usize;
+    for node in group_indices {
+        for &successor in digraph.successors_indices(node).unwrap_or_default() {
+            if !is_group_member[successor] && !seen_outside[successor] {
+                seen_outside[successor] = true;
+                outside_count += 1;
             }
         }
     }
-    successors_outside.len() as f64 / (n - s_len) as f64
+    outside_count as f64 / (n - s_len) as f64
 }
 
 // ===========================================================================
@@ -67794,6 +67801,147 @@ mod tests {
         dg.add_edge("a", "c").unwrap();
         // Group {a}: successors outside = {b, c}, non-group = 2, so 2/2 = 1.0
         assert!((group_out_degree_centrality(&dg, &["a"]) - 1.0).abs() < TEST_TOLERANCE);
+    }
+
+    /// br-r37-c1-8wr40: full-function A/B for the group-out successor union.
+    /// The frozen arm allocates one successor `Vec` per group entry and hashes
+    /// every successor through two String-keyed sets; production walks the
+    /// stable successor-index rows and records membership in mark arrays.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn group_out_degree_centrality_mark_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn frozen_string_sets(digraph: &DiGraph, group: &[&str]) -> f64 {
+            let n = digraph.node_count();
+            let s_len = group.len();
+            if n == 0 || s_len >= n {
+                return 0.0;
+            }
+            let group_set: HashSet<&str> = group.iter().copied().collect();
+            let mut successors_outside = HashSet::new();
+            for &node in group {
+                if let Some(succs) = digraph.successors(node) {
+                    for successor in succs {
+                        if !group_set.contains(successor) {
+                            successors_outside.insert(successor);
+                        }
+                    }
+                }
+            }
+            successors_outside.len() as f64 / (n - s_len) as f64
+        }
+
+        let empty = DiGraph::strict();
+        for group in [&[][..], &["missing"][..]] {
+            assert_eq!(
+                frozen_string_sets(&empty, group).to_bits(),
+                super::group_out_degree_centrality(&empty, group).to_bits()
+            );
+        }
+
+        let mut fixture = DiGraph::strict();
+        for node in ["z", "a", "m", "b", "q"] {
+            fixture.add_node(node);
+        }
+        for (source, target) in [
+            ("z", "z"),
+            ("z", "a"),
+            ("z", "m"),
+            ("a", "m"),
+            ("a", "b"),
+            ("q", "z"),
+            ("m", "q"),
+        ] {
+            fixture.add_edge(source, target).unwrap();
+        }
+        for group in [
+            &[][..],
+            &["z"][..],
+            &["z", "a"][..],
+            &["z", "z"][..],
+            &["z", "missing"][..],
+            &["missing"][..],
+            &["z", "a", "m", "b", "q"][..],
+            &["z", "a", "m", "b", "q", "missing"][..],
+        ] {
+            assert_eq!(
+                frozen_string_sets(&fixture, group).to_bits(),
+                super::group_out_degree_centrality(&fixture, group).to_bits(),
+                "exact float-bit parity for group {group:?}"
+            );
+        }
+
+        let n = 50_000_usize;
+        let group_len = 10_000_usize;
+        let fanout = 16_usize;
+        let names: Vec<String> = (0..n).map(|node| format!("node_{node}")).collect();
+        let mut digraph = DiGraph::strict();
+        for node in &names {
+            digraph.add_node(node.clone());
+        }
+        let outside_len = n - group_len;
+        for source in 0..group_len {
+            for edge in 0..fanout {
+                let target = group_len + ((source * 31 + edge * 997) % outside_len);
+                digraph
+                    .add_edge(names[source].clone(), names[target].clone())
+                    .unwrap();
+            }
+        }
+        let group: Vec<&str> = names[..group_len].iter().map(String::as_str).collect();
+        assert_eq!(
+            frozen_string_sets(&digraph, &group).to_bits(),
+            super::group_out_degree_centrality(&digraph, &group).to_bits(),
+            "timed graph must preserve the exact scalar"
+        );
+
+        let time = |use_candidate: bool| -> f64 {
+            let start = Instant::now();
+            let result = if use_candidate {
+                super::group_out_degree_centrality(black_box(&digraph), black_box(&group))
+            } else {
+                frozen_string_sets(black_box(&digraph), black_box(&group))
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 31_usize;
+        let paired = |baseline_candidate: bool, contender_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline, contender) = if round.is_multiple_of(2) {
+                    (time(baseline_candidate), time(contender_candidate))
+                } else {
+                    let contender = time(contender_candidate);
+                    (time(baseline_candidate), contender)
+                };
+                ratios.push(baseline / contender);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "GROUP_OUT_MARK_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "GROUP_OUT_MARK_AB nodes={n} group={group_len} fanout={fanout} rounds={rounds} (>1 = marks faster)"
+        );
+        report("MARKS_vs_string_sets", &paired(false, true));
+        report("NULL_marks_vs_marks", &paired(true, true));
     }
 
     // -----------------------------------------------------------------------
