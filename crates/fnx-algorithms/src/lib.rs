@@ -23543,8 +23543,14 @@ pub fn strongly_connected_components(digraph: &DiGraph) -> Vec<Vec<String>> {
     let mut index_counter: usize = 0;
     let mut components: Vec<Vec<String>> = Vec::new();
 
-    // Work stack stores: (node_idx, successors_list, next_successor_idx)
-    let mut work: Vec<(usize, Vec<&str>, usize)> = Vec::new();
+    // Work stack stores: (node_idx, successor_index_slice, next_successor_idx).
+    // br-r37-c1-sccidx (cc): the Tarjan state was already integer, but the work stack held
+    // `Vec<&str>` successors (a per-node alloc) and RE-HASHED each successor via
+    // `get_node_index(v_name)` per edge. Store `successors_indices(u)` slices (&[usize], zero alloc)
+    // and read the neighbour index directly. Byte-identical: same successor order, same v_idx (the
+    // slice entry IS get_node_index(name)), same DFS → same components/order; `v_name` is only needed
+    // for the cgse decision record → `nodes[v_idx]`.
+    let mut work: Vec<(usize, &[usize], usize)> = Vec::new();
 
     for i in 0..n {
         if indices[i].is_some() {
@@ -23558,28 +23564,26 @@ pub fn strongly_connected_components(digraph: &DiGraph) -> Vec<Vec<String>> {
         stack.push(i);
         on_stack[i] = true;
 
-        let succs = digraph.successors(nodes[i]).unwrap_or_default();
+        let succs = digraph.successors_indices(i).unwrap_or(&[]);
         work.push((i, succs, 0));
 
         while let Some((u_idx, u_succs, next_nbr_idx)) = work.last_mut() {
             let u_idx = *u_idx;
             if *next_nbr_idx < u_succs.len() {
-                let v_name = u_succs[*next_nbr_idx];
+                let v_idx = u_succs[*next_nbr_idx];
                 *next_nbr_idx += 1;
-
-                let v_idx = digraph.get_node_index(v_name).unwrap();
 
                 match indices[v_idx] {
                     None => {
                         // Tree edge
-                        cgse_record_decision(&mut cgse_sink, v_name, nodes[u_idx]);
+                        cgse_record_decision(&mut cgse_sink, nodes[v_idx], nodes[u_idx]);
                         indices[v_idx] = Some(index_counter);
                         lowlinks[v_idx] = index_counter;
                         index_counter += 1;
                         stack.push(v_idx);
                         on_stack[v_idx] = true;
 
-                        let v_succs = digraph.successors(v_name).unwrap_or_default();
+                        let v_succs = digraph.successors_indices(v_idx).unwrap_or(&[]);
                         work.push((v_idx, v_succs, 0));
                     }
                     Some(v_index) if on_stack[v_idx] => {
@@ -23609,6 +23613,101 @@ pub fn strongly_connected_components(digraph: &DiGraph) -> Vec<Vec<String>> {
                 }
 
                 // Propagate lowlink back to parent
+                if let Some((parent_idx, _, _)) = work.last_mut() {
+                    lowlinks[*parent_idx] = lowlinks[*parent_idx].min(u_low);
+                }
+            }
+        }
+    }
+
+    components.sort_unstable();
+
+    cgse_publish(
+        CgseReferenceAlgorithm::StronglyConnectedComponents,
+        digraph.node_count(),
+        digraph.edge_count(),
+        cgse_sink,
+    );
+
+    components
+}
+
+/// br-r37-c1-sccidx A/B baseline: the pre-lever Tarjan with a `Vec<&str>` work stack that
+/// re-hashed each successor via `get_node_index`. Test-only; byte-identical to the shipped
+/// integer-index version.
+#[cfg(test)]
+fn strongly_connected_components_orig_string(digraph: &DiGraph) -> Vec<Vec<String>> {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::StronglyConnectedComponents);
+
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    let mut indices: Vec<Option<usize>> = vec![None; n];
+    let mut lowlinks: Vec<usize> = vec![0; n];
+    let mut on_stack: Vec<bool> = vec![false; n];
+    let mut stack: Vec<usize> = Vec::new();
+    let mut index_counter: usize = 0;
+    let mut components: Vec<Vec<String>> = Vec::new();
+
+    let mut work: Vec<(usize, Vec<&str>, usize)> = Vec::new();
+
+    for i in 0..n {
+        if indices[i].is_some() {
+            continue;
+        }
+
+        indices[i] = Some(index_counter);
+        lowlinks[i] = index_counter;
+        index_counter += 1;
+        stack.push(i);
+        on_stack[i] = true;
+
+        let succs = digraph.successors(nodes[i]).unwrap_or_default();
+        work.push((i, succs, 0));
+
+        while let Some((u_idx, u_succs, next_nbr_idx)) = work.last_mut() {
+            let u_idx = *u_idx;
+            if *next_nbr_idx < u_succs.len() {
+                let v_name = u_succs[*next_nbr_idx];
+                *next_nbr_idx += 1;
+
+                let v_idx = digraph.get_node_index(v_name).unwrap();
+
+                match indices[v_idx] {
+                    None => {
+                        cgse_record_decision(&mut cgse_sink, v_name, nodes[u_idx]);
+                        indices[v_idx] = Some(index_counter);
+                        lowlinks[v_idx] = index_counter;
+                        index_counter += 1;
+                        stack.push(v_idx);
+                        on_stack[v_idx] = true;
+
+                        let v_succs = digraph.successors(v_name).unwrap_or_default();
+                        work.push((v_idx, v_succs, 0));
+                    }
+                    Some(v_index) if on_stack[v_idx] => {
+                        lowlinks[u_idx] = lowlinks[u_idx].min(v_index);
+                    }
+                    _ => {}
+                }
+            } else {
+                let (u_finished, _, _) = work.pop().unwrap();
+                let u_low = lowlinks[u_finished];
+                let u_index = indices[u_finished].unwrap();
+
+                if u_low == u_index {
+                    let mut component = Vec::new();
+                    loop {
+                        let w_idx = stack.pop().unwrap();
+                        on_stack[w_idx] = false;
+                        component.push(nodes[w_idx].to_owned());
+                        if w_idx == u_finished {
+                            break;
+                        }
+                    }
+                    component.sort_unstable();
+                    components.push(component);
+                }
+
                 if let Some((parent_idx, _, _)) = work.last_mut() {
                     lowlinks[*parent_idx] = lowlinks[*parent_idx].min(u_low);
                 }
@@ -52972,6 +53071,93 @@ mod tests {
         println!("REVDELEG_AB reverse_digraph K{m} ({} edges) rounds={rounds} (>1 = reversed() faster)", m * (m - 1));
         report("DELEG_vs_string", &paired(true, false));
         report("NULL_deleg_vs_deleg", &paired(true, true));
+    }
+
+    /// br-r37-c1-sccidx: full-function paired-interleaved A/B for `strongly_connected_components`
+    /// (Tarjan work stack held `Vec<&str>` successors + `get_node_index` re-hash per edge → integer
+    /// `successors_indices` slices). Forward DAG so every node is its own SCC (component builds are
+    /// O(1)) and the O(|E|) per-edge re-hash + per-node Vec<&str> alloc dominates. Byte-exact parity
+    /// (components). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib strongly_connected_components_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn strongly_connected_components_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Forward DAG n=40000, out-degree ~20 (i → i+1..i+20): all singleton SCCs, ~800k edges → the
+        // DFS re-hashes every successor in the baseline; index version reads the slice entry directly.
+        let n = 40000usize;
+        let deg = 20usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                if i + k < n {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{}", i + k));
+                }
+            }
+        }
+
+        // Byte-exact parity: same components (composition + order).
+        let cand = super::strongly_connected_components(&g);
+        let base = super::strongly_connected_components_orig_string(&g);
+        assert_eq!(cand, base, "index SCC must equal the String baseline");
+        assert_eq!(cand.len(), n, "forward DAG has n singleton SCCs");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::strongly_connected_components(&g)
+            } else {
+                super::strongly_connected_components_orig_string(&g)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "SCCIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("SCCIDX_AB strongly_connected_components n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
     }
 
     /// br-r37-c1-bfslayidx (family): full-function A/B for `bfs_layers_multi` (representative of the
