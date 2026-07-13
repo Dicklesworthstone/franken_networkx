@@ -37065,11 +37065,20 @@ pub fn sudoku_graph(n: usize) -> Graph {
 /// Return the volume of a set of nodes (sum of degrees of nodes in the set).
 #[must_use]
 pub fn volume(graph: &Graph, nodes: &[&str]) -> usize {
-    let node_set: HashSet<&str> = nodes.iter().copied().collect();
+    // br-r37-c1-cutexpidx (cc): integer-index mirror of edge_expansion/node_expansion. The old kernel
+    // deduped `nodes` into a HashSet<&str> and summed neighbors_iter(nd).count() — an O(degree) iterate
+    // per node keyed by a String lookup. Dedup with an is_set bool row (get_node_index once) and add
+    // neighbors_indices(idx).len() (the O(1) adjacency-row length, the exact integer twin of
+    // neighbors_iter().count(): same row, same self-loop treatment). Byte-identical usize sum.
+    let n = graph.node_count();
+    let mut in_set = vec![false; n];
     let mut vol = 0;
-    for &nd in &node_set {
-        if let Some(nbrs) = graph.neighbors_iter(nd) {
-            vol += nbrs.count();
+    for &node in nodes {
+        if let Some(idx) = graph.get_node_index(node)
+            && !in_set[idx]
+        {
+            in_set[idx] = true;
+            vol += graph.neighbors_indices(idx).map_or(0, |nbrs| nbrs.len());
         }
     }
     vol
@@ -37547,12 +37556,24 @@ pub fn boundary_expansion(graph: &Graph, nodes: &[&str]) -> f64 {
     if nodes.is_empty() {
         return 0.0;
     }
-    let node_set: HashSet<&str> = nodes.iter().copied().collect();
+    // br-r37-c1-cutexpidx (cc): integer boundary scan (mirror of edge_expansion). Old: HashSet<&str> +
+    // neighbors_iter(nd) + node_set.contains(nbr) String probe. New: in_set bool row + neighbors_indices
+    // + O(1) array read. Byte-identical: every emitted nbr is a graph node so in_set[nbr]==contains(nbr),
+    // and boundary_edges is an integer count (order-independent). Denominator stays nodes.len() (raw).
+    let n = graph.node_count();
+    let mut in_set = vec![false; n];
+    for &node in nodes {
+        if let Some(idx) = graph.get_node_index(node) {
+            in_set[idx] = true;
+        }
+    }
     let mut boundary_edges = 0;
-    for &nd in &node_set {
-        if let Some(nbrs) = graph.neighbors_iter(nd) {
-            for nbr in nbrs {
-                if !node_set.contains(nbr) {
+    for node_idx in 0..n {
+        if in_set[node_idx]
+            && let Some(neighbors) = graph.neighbors_indices(node_idx)
+        {
+            for &neighbor_idx in neighbors {
+                if !in_set[neighbor_idx] {
                     boundary_edges += 1;
                 }
             }
@@ -37565,27 +37586,37 @@ pub fn boundary_expansion(graph: &Graph, nodes: &[&str]) -> f64 {
 /// conductance(G, S) = |edge_boundary(S)| / min(vol(S), vol(V-S))
 #[must_use]
 pub fn conductance(graph: &Graph, nodes: &[&str]) -> f64 {
-    let node_set: HashSet<&str> = nodes.iter().copied().collect();
-    let all_nodes = graph.nodes_ordered();
-    let complement: Vec<&str> = all_nodes
-        .iter()
-        .filter(|&&n| !node_set.contains(n))
-        .copied()
-        .collect();
-
-    let mut boundary_edges = 0;
-    for &nd in &node_set {
-        if let Some(nbrs) = graph.neighbors_iter(nd) {
-            for nbr in nbrs {
-                if !node_set.contains(nbr) {
+    // br-r37-c1-cutexpidx (cc): one integer pass. Old kernel built a HashSet<&str> + a complement
+    // Vec<&str> (O(V) String contains) + a neighbors_iter boundary scan + TWO volume() traversals.
+    // New: an in_set bool row; per node compute its degree = neighbors_indices(i).len() once, accumulate
+    // vol_total and (for in-set nodes) vol_s + the integer boundary scan. vol_comp = vol_total - vol_s
+    // (the complement is exactly the non-in-set graph nodes → volume(complement) == vol_total - vol_s).
+    // Byte-identical: boundary_edges is an integer count, vol_s == volume(nodes), min unchanged.
+    let n = graph.node_count();
+    let mut in_set = vec![false; n];
+    for &node in nodes {
+        if let Some(idx) = graph.get_node_index(node) {
+            in_set[idx] = true;
+        }
+    }
+    let mut boundary_edges = 0usize;
+    let mut vol_s = 0usize;
+    let mut vol_total = 0usize;
+    for node_idx in 0..n {
+        let Some(neighbors) = graph.neighbors_indices(node_idx) else {
+            continue;
+        };
+        vol_total += neighbors.len();
+        if in_set[node_idx] {
+            vol_s += neighbors.len();
+            for &neighbor_idx in neighbors {
+                if !in_set[neighbor_idx] {
                     boundary_edges += 1;
                 }
             }
         }
     }
-
-    let vol_s = volume(graph, nodes);
-    let vol_comp = volume(graph, &complement);
+    let vol_comp = vol_total - vol_s;
     let min_vol = vol_s.min(vol_comp);
     if min_vol == 0 {
         return 0.0;
@@ -37657,8 +37688,11 @@ pub fn node_expansion(graph: &Graph, nodes: &[&str]) -> f64 {
 /// mixing_expansion(G, S) = |edge_boundary(S)| / (|S| * |V-S|)
 #[must_use]
 pub fn mixing_expansion(graph: &Graph, nodes: &[&str]) -> f64 {
+    // br-r37-c1-cutexpidx (cc): the denominator uses s = |distinct input NAMES| (may include names not
+    // in the graph), so keep the small HashSet purely for `s` (O(|nodes|), cheap). Convert the DOMINANT
+    // boundary scan to the integer in_set/neighbors_indices path (mirror of edge_expansion). Byte-identical.
     let node_set: HashSet<&str> = nodes.iter().copied().collect();
-    let n = graph.nodes_ordered().len();
+    let n = graph.node_count();
     let s = node_set.len();
     let complement_size = n - s;
     let denom = s * complement_size;
@@ -37666,6 +37700,49 @@ pub fn mixing_expansion(graph: &Graph, nodes: &[&str]) -> f64 {
         return 0.0;
     }
 
+    let mut in_set = vec![false; n];
+    for &node in nodes {
+        if let Some(idx) = graph.get_node_index(node) {
+            in_set[idx] = true;
+        }
+    }
+    let mut boundary_edges = 0;
+    for node_idx in 0..n {
+        if in_set[node_idx]
+            && let Some(neighbors) = graph.neighbors_indices(node_idx)
+        {
+            for &neighbor_idx in neighbors {
+                if !in_set[neighbor_idx] {
+                    boundary_edges += 1;
+                }
+            }
+        }
+    }
+
+    boundary_edges as f64 / denom as f64
+}
+
+/// br-r37-c1-cutexpidx A/B baselines: the pre-lever String-keyed cut-measure kernels
+/// (HashSet<&str> subset + neighbors_iter + contains). Test-only; byte-identical to the
+/// shipped integer-index versions (mirror of edge_expansion/node_expansion).
+#[cfg(test)]
+fn volume_orig_string(graph: &Graph, nodes: &[&str]) -> usize {
+    let node_set: HashSet<&str> = nodes.iter().copied().collect();
+    let mut vol = 0;
+    for &nd in &node_set {
+        if let Some(nbrs) = graph.neighbors_iter(nd) {
+            vol += nbrs.count();
+        }
+    }
+    vol
+}
+
+#[cfg(test)]
+fn boundary_expansion_orig_string(graph: &Graph, nodes: &[&str]) -> f64 {
+    if nodes.is_empty() {
+        return 0.0;
+    }
+    let node_set: HashSet<&str> = nodes.iter().copied().collect();
     let mut boundary_edges = 0;
     for &nd in &node_set {
         if let Some(nbrs) = graph.neighbors_iter(nd) {
@@ -37676,7 +37753,57 @@ pub fn mixing_expansion(graph: &Graph, nodes: &[&str]) -> f64 {
             }
         }
     }
+    boundary_edges as f64 / nodes.len() as f64
+}
 
+#[cfg(test)]
+fn conductance_orig_string(graph: &Graph, nodes: &[&str]) -> f64 {
+    let node_set: HashSet<&str> = nodes.iter().copied().collect();
+    let all_nodes = graph.nodes_ordered();
+    let complement: Vec<&str> = all_nodes
+        .iter()
+        .filter(|&&n| !node_set.contains(n))
+        .copied()
+        .collect();
+    let mut boundary_edges = 0;
+    for &nd in &node_set {
+        if let Some(nbrs) = graph.neighbors_iter(nd) {
+            for nbr in nbrs {
+                if !node_set.contains(nbr) {
+                    boundary_edges += 1;
+                }
+            }
+        }
+    }
+    let vol_s = volume_orig_string(graph, nodes);
+    let vol_comp = volume_orig_string(graph, &complement);
+    let min_vol = vol_s.min(vol_comp);
+    if min_vol == 0 {
+        return 0.0;
+    }
+    boundary_edges as f64 / min_vol as f64
+}
+
+#[cfg(test)]
+fn mixing_expansion_orig_string(graph: &Graph, nodes: &[&str]) -> f64 {
+    let node_set: HashSet<&str> = nodes.iter().copied().collect();
+    let n = graph.nodes_ordered().len();
+    let s = node_set.len();
+    let complement_size = n - s;
+    let denom = s * complement_size;
+    if denom == 0 {
+        return 0.0;
+    }
+    let mut boundary_edges = 0;
+    for &nd in &node_set {
+        if let Some(nbrs) = graph.neighbors_iter(nd) {
+            for nbr in nbrs {
+                if !node_set.contains(nbr) {
+                    boundary_edges += 1;
+                }
+            }
+        }
+    }
     boundary_edges as f64 / denom as f64
 }
 
@@ -55923,6 +56050,112 @@ mod tests {
         report("IN_NULL_index_vs_index", &paired(&time_in, true, true));
         report("UNDIR_index_vs_string", &paired(&time_ud, true, false));
         report("UNDIR_NULL_index_vs_index", &paired(&time_ud, true, true));
+    }
+
+    /// br-r37-c1-cutexpidx: full-function paired-interleaved A/B for the cut-measure mirror-lag family —
+    /// `conductance`, `boundary_expansion`, `mixing_expansion`, `volume` — String-keyed boundary scan
+    /// (HashSet<&str> + neighbors_iter + contains) → integer in_set/neighbors_indices (mirror of the
+    /// already-converted edge_expansion/node_expansion). Large subset (half a dense graph). Byte-exact
+    /// parity (bit-identical f64 / usize). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib cut_expansion_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn cut_expansion_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 50000usize;
+        let deg = 20usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for step in 1..=deg {
+                let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + step) % n));
+            }
+        }
+        let sub_names: Vec<String> = (0..(n / 2)).map(|i| format!("n{i}")).collect();
+        let sub: Vec<&str> = sub_names.iter().map(String::as_str).collect();
+
+        // Byte-exact parity for all four (bit-identical f64 via to_bits; usize for volume).
+        assert_eq!(
+            super::volume(&g, &sub),
+            super::volume_orig_string(&g, &sub),
+            "volume parity"
+        );
+        assert_eq!(
+            super::boundary_expansion(&g, &sub).to_bits(),
+            super::boundary_expansion_orig_string(&g, &sub).to_bits(),
+            "boundary_expansion parity"
+        );
+        assert_eq!(
+            super::conductance(&g, &sub).to_bits(),
+            super::conductance_orig_string(&g, &sub).to_bits(),
+            "conductance parity"
+        );
+        assert_eq!(
+            super::mixing_expansion(&g, &sub).to_bits(),
+            super::mixing_expansion_orig_string(&g, &sub).to_bits(),
+            "mixing_expansion parity"
+        );
+
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |time: &dyn Fn(bool) -> f64, use_cand: bool, base_arm: bool| -> Vec<f64> {
+            for _ in 0..3 {
+                black_box(time(true));
+                black_box(time(false));
+            }
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "CUTEXP_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        macro_rules! ab {
+            ($label:literal, $cand:path, $base:path) => {{
+                let t = |use_cand: bool| -> f64 {
+                    let t0 = Instant::now();
+                    let r = if use_cand { $cand(&g, &sub) } else { $base(&g, &sub) };
+                    black_box(r);
+                    t0.elapsed().as_secs_f64()
+                };
+                report(concat!($label, "_index_vs_string"), &paired(&t, true, false));
+                report(concat!($label, "_NULL"), &paired(&t, true, true));
+            }};
+        }
+
+        println!("CUTEXP_AB cut-measures n={n} deg={deg} |S|={} rounds={rounds} (>1 = index faster)", sub.len());
+        ab!("conductance", super::conductance, super::conductance_orig_string);
+        ab!("boundary_expansion", super::boundary_expansion, super::boundary_expansion_orig_string);
+        ab!("mixing_expansion", super::mixing_expansion, super::mixing_expansion_orig_string);
+        ab!("volume", super::volume, super::volume_orig_string);
     }
 
     /// br-r37-c1-bfslayidx (family): full-function A/B for `bfs_layers_multi` (representative of the
