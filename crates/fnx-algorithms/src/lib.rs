@@ -35195,7 +35195,82 @@ pub fn average_node_connectivity_directed(digraph: &DiGraph) -> f64 {
 
 /// Compute local node connectivity between s and t using iterative max-flow.
 fn local_node_connectivity_bfs(graph: &Graph, s: &str, t: &str) -> usize {
-    // Iteratively find node-disjoint paths from s to t using BFS
+    // br-r37-c1-lncidx (cc): integer-index Menger augmenting-path BFS. The old kernel kept
+    // excluded/visited as HashSet<&str> and parent as HashMap<&str,&str> and walked neighbors_iter —
+    // a String hash on every membership probe/insert over O(flow·|E|) scans, and this runs O(|V|^2)
+    // times inside average_node_connectivity. Walk neighbors_indices over Vec<bool> excluded/visited
+    // + Vec<Option<usize>> parent (reused across augmenting rounds via fill). Byte-identical: same
+    // adjacency-order neighbor discovery, same first-visit parent tree, same persistent exclusion
+    // set, same direct_edge_used flag → the same augmenting paths and the same returned flow.
+    let (Some(s_idx), Some(t_idx)) = (graph.get_node_index(s), graph.get_node_index(t)) else {
+        return 0;
+    };
+    let n = graph.node_count();
+
+    let mut flow = 0;
+    let mut excluded = vec![false; n];
+    let mut direct_edge_used = false;
+    let mut visited = vec![false; n];
+    let mut parent: Vec<Option<usize>> = vec![None; n];
+
+    loop {
+        // BFS from s to t avoiding excluded nodes (except s and t)
+        visited.fill(false);
+        parent.fill(None);
+        visited[s_idx] = true;
+        let mut queue: VecDeque<usize> = VecDeque::new();
+        queue.push_back(s_idx);
+        let mut found = false;
+
+        while let Some(curr) = queue.pop_front() {
+            if curr == t_idx {
+                found = true;
+                break;
+            }
+            if let Some(nbrs) = graph.neighbors_indices(curr) {
+                for &nbr in nbrs {
+                    // Skip the direct s->t edge if already used
+                    if curr == s_idx && nbr == t_idx && direct_edge_used {
+                        continue;
+                    }
+                    if !visited[nbr] && (nbr == t_idx || !excluded[nbr]) {
+                        visited[nbr] = true;
+                        parent[nbr] = Some(curr);
+                        queue.push_back(nbr);
+                    }
+                }
+            }
+        }
+
+        if !found {
+            break;
+        }
+
+        // Trace path and exclude internal nodes
+        let mut path_len = 0usize;
+        let mut node = t_idx;
+        while let Some(p) = parent[node] {
+            if node != s_idx && node != t_idx {
+                excluded[node] = true;
+            }
+            path_len += 1;
+            node = p;
+        }
+        flow += 1;
+
+        // If this was a direct edge (path length 1), mark it used so
+        // we don't re-discover the same direct edge and loop forever.
+        if path_len == 1 {
+            direct_edge_used = true;
+        }
+    }
+    flow
+}
+
+/// br-r37-c1-lncidx A/B baseline: the pre-lever String-keyed `local_node_connectivity_bfs`.
+/// Test-only; byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn local_node_connectivity_bfs_orig_string(graph: &Graph, s: &str, t: &str) -> usize {
     let nodes = graph.nodes_ordered();
     let node_set: HashSet<&str> = nodes.iter().copied().collect();
     if !node_set.contains(s) || !node_set.contains(t) {
@@ -35207,7 +35282,6 @@ fn local_node_connectivity_bfs(graph: &Graph, s: &str, t: &str) -> usize {
     let mut direct_edge_used = false;
 
     loop {
-        // BFS from s to t avoiding excluded nodes (except s and t)
         let mut visited = HashSet::new();
         visited.insert(s);
         let mut queue = std::collections::VecDeque::new();
@@ -35222,7 +35296,6 @@ fn local_node_connectivity_bfs(graph: &Graph, s: &str, t: &str) -> usize {
             }
             if let Some(nbrs) = graph.neighbors_iter(curr) {
                 for nbr in nbrs {
-                    // Skip the direct s->t edge if already used
                     if curr == s && nbr == t && direct_edge_used {
                         continue;
                     }
@@ -35239,7 +35312,6 @@ fn local_node_connectivity_bfs(graph: &Graph, s: &str, t: &str) -> usize {
             break;
         }
 
-        // Trace path and exclude internal nodes
         let mut path_len = 0usize;
         let mut node = t;
         while let Some(&p) = parent.get(node) {
@@ -35251,8 +35323,6 @@ fn local_node_connectivity_bfs(graph: &Graph, s: &str, t: &str) -> usize {
         }
         flow += 1;
 
-        // If this was a direct edge (path length 1), mark it used so
-        // we don't re-discover the same direct edge and loop forever.
         if path_len == 1 {
             direct_edge_used = true;
         }
@@ -35261,6 +35331,74 @@ fn local_node_connectivity_bfs(graph: &Graph, s: &str, t: &str) -> usize {
 }
 
 fn local_node_connectivity_bfs_directed(digraph: &DiGraph, s: &str, t: &str) -> usize {
+    // br-r37-c1-lncidx (cc): integer-index directed mirror of `local_node_connectivity_bfs` — see
+    // that function. Walks successors_indices over Vec<bool> excluded/visited + Vec<Option<usize>>
+    // parent; byte-identical flow count (same successor order, parent tree, exclusion set, flag).
+    let (Some(s_idx), Some(t_idx)) = (digraph.get_node_index(s), digraph.get_node_index(t)) else {
+        return 0;
+    };
+    let n = digraph.node_count();
+
+    let mut flow = 0;
+    let mut excluded = vec![false; n];
+    let mut direct_edge_used = false;
+    let mut visited = vec![false; n];
+    let mut parent: Vec<Option<usize>> = vec![None; n];
+
+    loop {
+        visited.fill(false);
+        parent.fill(None);
+        visited[s_idx] = true;
+        let mut queue: VecDeque<usize> = VecDeque::new();
+        queue.push_back(s_idx);
+        let mut found = false;
+
+        while let Some(curr) = queue.pop_front() {
+            if curr == t_idx {
+                found = true;
+                break;
+            }
+            if let Some(succs) = digraph.successors_indices(curr) {
+                for &succ in succs {
+                    if curr == s_idx && succ == t_idx && direct_edge_used {
+                        continue;
+                    }
+                    if !visited[succ] && (succ == t_idx || !excluded[succ]) {
+                        visited[succ] = true;
+                        parent[succ] = Some(curr);
+                        queue.push_back(succ);
+                    }
+                }
+            }
+        }
+
+        if !found {
+            break;
+        }
+
+        let mut path_len = 0usize;
+        let mut node = t_idx;
+        while let Some(p) = parent[node] {
+            if node != s_idx && node != t_idx {
+                excluded[node] = true;
+            }
+            path_len += 1;
+            node = p;
+        }
+        flow += 1;
+
+        if path_len == 1 {
+            direct_edge_used = true;
+        }
+    }
+
+    flow
+}
+
+/// br-r37-c1-lncidx A/B baseline: the pre-lever String-keyed `local_node_connectivity_bfs_directed`.
+/// Test-only; byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn local_node_connectivity_bfs_directed_orig_string(digraph: &DiGraph, s: &str, t: &str) -> usize {
     let nodes = digraph.nodes_ordered();
     let node_set: HashSet<&str> = nodes.iter().copied().collect();
     if !node_set.contains(s) || !node_set.contains(t) {
@@ -51324,6 +51462,126 @@ mod tests {
         println!(
             "SSSPDIRIDX_AB single_source_shortest_path_directed n={n} deg={deg} rounds={rounds} (>1 = index faster)"
         );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-lncidx: end-to-end A/B for the Menger augmenting-path BFS `local_node_connectivity_bfs`
+    /// via its O(|V|^2) caller `average_node_connectivity`. Old kernel: HashSet<&str> excluded/visited +
+    /// HashMap<&str,&str> parent + neighbors_iter (String hash per probe) run V^2 times; shipped:
+    /// integer-index. The candidate arm calls `average_node_connectivity` (uses the new BFS); the base arm
+    /// re-runs the identical O(|V|^2) loop against the String baseline BFS. Byte-exact parity asserted for
+    /// both the undirected result and the directed twin. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib local_node_connectivity_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn local_node_connectivity_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Moderate connected undirected graph: n=140, each node linked to ±1,±2,±3 (deg 6) so every pair
+        // packs up to ~6 node-disjoint augmenting paths → the BFS runs several rounds per pair, V^2 pairs.
+        let n = 140usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for step in 1..=3usize {
+                let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + step) % n));
+            }
+        }
+        // Directed variant for the directed-twin parity check.
+        let mut dg = DiGraph::strict();
+        for i in 0..n {
+            let _ = dg.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for step in 1..=3usize {
+                let _ = dg.add_edge(format!("n{i}"), format!("n{}", (i + step) % n));
+            }
+        }
+
+        // Baseline average_node_connectivity using the String-keyed BFS (mirrors the production loop).
+        let avg_orig = |graph: &Graph| -> f64 {
+            let nodes = graph.nodes_ordered();
+            let m = nodes.len();
+            let mut total = 0.0;
+            let mut count = 0usize;
+            for i in 0..m {
+                for j in (i + 1)..m {
+                    total += super::local_node_connectivity_bfs_orig_string(graph, nodes[i], nodes[j])
+                        as f64;
+                    count += 1;
+                }
+            }
+            if count == 0 { 0.0 } else { total / count as f64 }
+        };
+
+        // Byte-exact parity: undirected end-to-end + directed twin on a sample of pairs.
+        assert_eq!(
+            super::average_node_connectivity(&g),
+            avg_orig(&g),
+            "index average_node_connectivity must equal the String-baseline loop"
+        );
+        let dnodes = dg.nodes_ordered();
+        for &(i, j) in &[(0usize, 7usize), (3, 88), (10, 139), (50, 51), (0, 70)] {
+            assert_eq!(
+                super::local_node_connectivity_bfs_directed(&dg, dnodes[i], dnodes[j]),
+                super::local_node_connectivity_bfs_directed_orig_string(&dg, dnodes[i], dnodes[j]),
+                "directed index BFS must equal the String baseline"
+            );
+        }
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::average_node_connectivity(&g)
+            } else {
+                avg_orig(&g)
+            };
+            black_box(r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "LNCIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("LNCIDX_AB average_node_connectivity n={n} deg=6 rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
