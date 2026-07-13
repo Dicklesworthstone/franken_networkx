@@ -1,5 +1,59 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cod, 2026-07-13): `global_minimum_node_cut` indexed neighbor-pair screen **49.8775x** dense-clique self-time (br-r37-c1-lmyth)
+
+NEGATIVE-LEDGER FIRST: the sibling `global_node_connectivity` row proved this
+predicate shape, but no prior keep or reject targeted the separate global
+minimum-node-cut implementation. Its neighbor-pair loop still rebuilt a
+`HashSet` containing all neighbors of `x` for every candidate `(x, y)`, then
+consumed only the single membership bit for `y`.
+
+ONE LEVER / EXACT PARITY: replace that temporary row materialization with the
+graph's authoritative indexed `has_edge(x, y)` probe. Here `x` and `y` are
+distinct existing nodes in the same simple undirected graph, so both predicates
+are equivalent. Sorted pair order, skipped pairs, `minimum_node_cut` calls, cut
+replacement and tie policy, final sorted cut, and all complexity-witness fields
+are unchanged. There are no floats or RNG. Before timing, the frozen old full
+function and production asserted exact `MinimumNodeCutResult` equality on K4,
+self-looped K4, a five-node path, a deliberately nonlexical fixture, and K256.
+
+STRICT-REMOTE MEDIAN GATE: release full-function A/B on worker `vmi1153651`, 31
+paired interleaved rounds over K256, followed by an indexed/indexed null:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| indexed `has_edge` / per-pair `HashSet` | **49.8775x** | 31/31 | 26.0746-73.4330 |
+| indexed / indexed null | 0.9781x | 11/31 | 0.6541-1.2066 |
+
+The candidate p5 clears the null p95 by 21.6x. K256 deliberately isolates the
+screen: all 32,385 neighbor pairs are adjacent, so both arms execute zero flow
+calls and return the same 255-node cut with zero `edges_scanned` and
+`queue_peak`. The old screen performs 8,258,175 temporary neighbor insertions
+plus 32,385 allocations; the candidate performs 32,385 indexed probes. This
+changes the clique screen from O(V^3) temporary-row work to O(V^2) probes,
+without changing the flow-dominated general-case complexity.
+
+The valid invocation selected and passed exactly one ignored measurement test
+under `RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo ...`; no
+local Cargo fallback occurred. This is full Rust-kernel K256 self-time, not a
+universal graph or Python-call ratio. The canonical Python global
+`minimum_node_cut(G)` path currently delegates rather than entering this native
+kernel, so the result applies to Rust/raw-kernel callers; directed, local, and
+multigraph routes remain separate.
+
+VALIDATION: the strict-remote focused filter passed both non-measurement global
+minimum-node-cut tests (the A/B remained ignored), and workspace
+`cargo check --workspace --all-targets` passed. Workspace Clippy passed with
+only the three established main-wide lint classes allowed (`collapsible_if`,
+`doc_lazy_continuation`, and `manual_is_multiple_of`); no new finding was
+admitted. Direct rustfmt still reports unrelated file-wide drift, with no diff
+at either changed hunk. `git diff --cached --check` passes, and staged UBS
+reported zero critical issues.
+
+RESULT: SHIP. Preserve indexed undirected edge semantics and the unchanged
+sorted neighbor-pair order. Do not generalize 49.88x beyond dense graphs whose
+pair screen dominates and whose flow work is absent or small.
+
 ## SHIPPED WIN (cod, 2026-07-12): `chordal_graph_cliques` incremental MCS buckets **93.2248x** on a 1,200-node fourth-power path (br-r37-c1-6rzwp)
 
 NEGATIVE-LEDGER FIRST: existing chordal rows establish broad NetworkX-facing

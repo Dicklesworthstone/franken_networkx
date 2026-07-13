@@ -17381,11 +17381,7 @@ pub fn global_minimum_node_cut(graph: &Graph) -> MinimumNodeCutResult {
         for j in (i + 1)..v_nbr_vec.len() {
             let x = v_nbr_vec[i];
             let y = v_nbr_vec[j];
-            let x_neighbors: HashSet<&str> = graph
-                .neighbors_iter(x)
-                .map(|it| it.collect())
-                .unwrap_or_default();
-            if x_neighbors.contains(y) {
+            if graph.has_edge(x, y) {
                 continue;
             }
             let result = minimum_node_cut(graph, x, y);
@@ -63576,6 +63572,203 @@ mod tests {
             );
         };
         println!("GLOBAL_NODE_CONN_AB complete_256 rounds={rounds} (>1 = has_edge faster)");
+        report("HASEDGE_vs_hashset", &paired(false, true));
+        report("NULL_hasedge_vs_hasedge", &paired(true, true));
+    }
+
+    /// br-r37-c1-lmyth: full-function A/B for the neighbor-pair adjacency
+    /// screen in `global_minimum_node_cut`. K256 makes every screened pair
+    /// adjacent, so both arms execute zero flow calls while the frozen arm
+    /// rebuilds a 255-entry `HashSet` for each of 32,385 pairs.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn global_minimum_node_cut_hasedge_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn frozen_hashset_screen(graph: &Graph) -> super::MinimumNodeCutResult {
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            if n <= 1 {
+                return super::MinimumNodeCutResult {
+                    cut_nodes: vec![],
+                    witness: super::ComplexityWitness {
+                        algorithm: "global_minimum_node_cut".to_owned(),
+                        complexity_claim: "O(|V|^2 * |V| * |E|^2)".to_owned(),
+                        nodes_touched: n,
+                        edges_scanned: 0,
+                        queue_peak: 0,
+                    },
+                };
+            }
+            if !super::is_connected(graph).is_connected {
+                return super::MinimumNodeCutResult {
+                    cut_nodes: vec![],
+                    witness: super::ComplexityWitness {
+                        algorithm: "global_minimum_node_cut".to_owned(),
+                        complexity_claim: "O(|V|^2 * |V| * |E|^2)".to_owned(),
+                        nodes_touched: n,
+                        edges_scanned: 0,
+                        queue_peak: 0,
+                    },
+                };
+            }
+
+            let mut total_edges_scanned = 0_usize;
+            let mut max_queue_peak = 0_usize;
+            let v = nodes
+                .iter()
+                .min_by_key(|node| graph.neighbors_iter(node).map(|it| it.count()).unwrap_or(0))
+                .unwrap();
+            let v_neighbors: HashSet<&str> = graph
+                .neighbors_iter(v)
+                .map(|it| it.collect())
+                .unwrap_or_default();
+            let mut min_cut: Vec<String> =
+                v_neighbors.iter().map(|node| (*node).to_owned()).collect();
+            min_cut.sort();
+
+            for w in &nodes {
+                if *w == *v || v_neighbors.contains(*w) {
+                    continue;
+                }
+                let result = super::minimum_node_cut(graph, v, w);
+                total_edges_scanned += result.witness.edges_scanned;
+                max_queue_peak = max_queue_peak.max(result.witness.queue_peak);
+                if super::should_replace_minimum_node_cut(&min_cut, &result.cut_nodes) {
+                    min_cut = result.cut_nodes;
+                }
+            }
+
+            let mut v_nbr_vec: Vec<&str> = v_neighbors.iter().copied().collect();
+            v_nbr_vec.sort_unstable();
+            for i in 0..v_nbr_vec.len() {
+                for j in (i + 1)..v_nbr_vec.len() {
+                    let x = v_nbr_vec[i];
+                    let y = v_nbr_vec[j];
+                    let x_neighbors: HashSet<&str> = graph
+                        .neighbors_iter(x)
+                        .map(|it| it.collect())
+                        .unwrap_or_default();
+                    if x_neighbors.contains(y) {
+                        continue;
+                    }
+                    let result = super::minimum_node_cut(graph, x, y);
+                    total_edges_scanned += result.witness.edges_scanned;
+                    max_queue_peak = max_queue_peak.max(result.witness.queue_peak);
+                    if super::should_replace_minimum_node_cut(&min_cut, &result.cut_nodes) {
+                        min_cut = result.cut_nodes;
+                    }
+                }
+            }
+
+            min_cut.sort();
+            super::MinimumNodeCutResult {
+                cut_nodes: min_cut,
+                witness: super::ComplexityWitness {
+                    algorithm: "global_minimum_node_cut".to_owned(),
+                    complexity_claim: "O(|V|^2 * |V| * |E|^2)".to_owned(),
+                    nodes_touched: n,
+                    edges_scanned: total_edges_scanned,
+                    queue_peak: max_queue_peak,
+                },
+            }
+        }
+
+        fn complete(n: usize, self_loops: bool) -> Graph {
+            let mut graph = Graph::strict();
+            for i in 0..n {
+                graph.add_node(i.to_string());
+            }
+            for i in 0..n {
+                for j in (i + 1)..n {
+                    graph.add_edge(i.to_string(), j.to_string()).unwrap();
+                }
+                if self_loops {
+                    graph.add_edge(i.to_string(), i.to_string()).unwrap();
+                }
+            }
+            graph
+        }
+
+        let mut path = Graph::strict();
+        for i in 0..5 {
+            path.add_node(i.to_string());
+        }
+        for i in 0..4 {
+            path.add_edge(i.to_string(), (i + 1).to_string()).unwrap();
+        }
+        let mut nonlexical = Graph::strict();
+        for node in ["z", "a", "m", "b", "q"] {
+            nonlexical.add_node(node);
+        }
+        for (left, right) in [
+            ("z", "a"),
+            ("z", "m"),
+            ("a", "m"),
+            ("a", "b"),
+            ("m", "b"),
+            ("b", "q"),
+        ] {
+            nonlexical.add_edge(left, right).unwrap();
+        }
+        for graph in [complete(4, false), complete(4, true), path, nonlexical] {
+            assert_eq!(
+                frozen_hashset_screen(&graph),
+                super::global_minimum_node_cut(&graph),
+                "exact cut and witness parity"
+            );
+        }
+
+        let graph = complete(256, false);
+        let frozen = frozen_hashset_screen(&graph);
+        let candidate = super::global_minimum_node_cut(&graph);
+        assert_eq!(frozen, candidate);
+        assert_eq!(candidate.cut_nodes.len(), 255);
+        assert_eq!(candidate.witness.edges_scanned, 0);
+        assert_eq!(candidate.witness.queue_peak, 0);
+
+        let time = |use_candidate: bool| -> f64 {
+            let start = Instant::now();
+            let result = if use_candidate {
+                super::global_minimum_node_cut(black_box(&graph))
+            } else {
+                frozen_hashset_screen(black_box(&graph))
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 31_usize;
+        let paired = |baseline_candidate: bool, contender_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base_time, contender_time) = if round.is_multiple_of(2) {
+                    (time(baseline_candidate), time(contender_candidate))
+                } else {
+                    let contender_time = time(contender_candidate);
+                    (time(baseline_candidate), contender_time)
+                };
+                ratios.push(base_time / contender_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "GLOBAL_MIN_CUT_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("GLOBAL_MIN_CUT_AB complete_256 rounds={rounds} (>1 = has_edge faster)");
         report("HASEDGE_vs_hashset", &paired(false, true));
         report("NULL_hasedge_vs_hasedge", &paired(true, true));
     }
