@@ -34049,6 +34049,45 @@ pub fn group_degree_centrality(graph: &Graph, group: &[&str]) -> f64 {
     if n == 0 || s_len >= n {
         return 0.0;
     }
+    // br-r37-c1-grpdegidx (cc): integer-index mirror of group_out_degree_centrality
+    // (br-r37-c1-8wr40). The old kernel built group_set: HashSet<&str> and walked
+    // graph.neighbors_iter(node) (String) + a group_set.contains(nbr) String hash +
+    // a neighbors_outside HashSet<&str> String store per outside neighbour. Resolve
+    // group -> indices once, walk neighbors_indices (&[usize], no alloc), gate with
+    // an is_group_member bool row, dedup outside neighbours with a seen_outside bool
+    // row + counter. Byte-identical: the numerator is a set cardinality either way.
+    let group_indices: Vec<usize> = group
+        .iter()
+        .filter_map(|node| graph.get_node_index(node))
+        .collect();
+    let mut is_group_member = vec![false; n];
+    for &node in &group_indices {
+        is_group_member[node] = true;
+    }
+    let mut seen_outside = vec![false; n];
+    let mut outside_count = 0_usize;
+    for node in group_indices {
+        for &nbr in graph.neighbors_indices(node).unwrap_or_default() {
+            if !is_group_member[nbr] && !seen_outside[nbr] {
+                seen_outside[nbr] = true;
+                outside_count += 1;
+            }
+        }
+    }
+    outside_count as f64 / (n - s_len) as f64
+}
+
+/// br-r37-c1-grpdegidx A/B baseline: the pre-lever `group_degree_centrality` that
+/// built group_set: HashSet<&str> and walked graph.neighbors_iter(node) + a
+/// group_set.contains + neighbors_outside HashSet<&str>. Test-only; byte-identical
+/// to the shipped neighbors_indices/is_group_member version.
+#[cfg(test)]
+fn group_degree_centrality_orig_string(graph: &Graph, group: &[&str]) -> f64 {
+    let n = graph.node_count();
+    let s_len = group.len();
+    if n == 0 || s_len >= n {
+        return 0.0;
+    }
     let group_set: HashSet<&str> = group.iter().copied().collect();
     let mut neighbors_outside = HashSet::new();
     for &node in group {
@@ -34067,6 +34106,47 @@ pub fn group_degree_centrality(graph: &Graph, group: &[&str]) -> f64 {
 /// `C_gin(S) = |{v : v->s for some s in S, v not in S}| / (n - |S|)`
 #[must_use]
 pub fn group_in_degree_centrality(digraph: &DiGraph, group: &[&str]) -> f64 {
+    let n = digraph.node_count();
+    let s_len = group.len();
+    if n == 0 || s_len >= n {
+        return 0.0;
+    }
+    // br-r37-c1-grpdegidx (cc): integer-index mirror of group_out_degree_centrality
+    // (br-r37-c1-8wr40). The old kernel built group_set: HashSet<&str> and walked
+    // digraph.predecessors(node) (a Vec<&str> name alloc per group node) + a
+    // group_set.contains(p) String hash per predecessor + a predecessors_outside
+    // HashSet<&str> String store per outside pred. Resolve group -> indices once,
+    // walk predecessors_indices (&[usize], no alloc), gate membership with an
+    // is_group_member bool row, dedup outside preds with a seen_outside bool row +
+    // counter. Byte-identical: the numerator is a set cardinality (|distinct outside
+    // predecessors|) either way -> same usize count -> same f64 after division.
+    let group_indices: Vec<usize> = group
+        .iter()
+        .filter_map(|node| digraph.get_node_index(node))
+        .collect();
+    let mut is_group_member = vec![false; n];
+    for &node in &group_indices {
+        is_group_member[node] = true;
+    }
+    let mut seen_outside = vec![false; n];
+    let mut outside_count = 0_usize;
+    for node in group_indices {
+        for &pred in digraph.predecessors_indices(node).unwrap_or_default() {
+            if !is_group_member[pred] && !seen_outside[pred] {
+                seen_outside[pred] = true;
+                outside_count += 1;
+            }
+        }
+    }
+    outside_count as f64 / (n - s_len) as f64
+}
+
+/// br-r37-c1-grpdegidx A/B baseline: the pre-lever `group_in_degree_centrality` that
+/// built group_set: HashSet<&str> and walked digraph.predecessors(node) (Vec<&str>
+/// alloc) + group_set.contains + a predecessors_outside HashSet<&str>. Test-only;
+/// byte-identical to the shipped predecessors_indices/is_group_member version.
+#[cfg(test)]
+fn group_in_degree_centrality_orig_string(digraph: &DiGraph, group: &[&str]) -> f64 {
     let n = digraph.node_count();
     let s_len = group.len();
     if n == 0 || s_len >= n {
@@ -55736,6 +55816,113 @@ mod tests {
         println!("EBIDX_AB edge_boundary n={n} deg={deg} |nb1|={} rounds={rounds} (>1 = index faster)", nb1.len());
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-grpdegidx: full-function paired-interleaved A/B for the two mirror-lag siblings of the
+    /// already-converted `group_out_degree_centrality` — `group_in_degree_centrality` (DiGraph,
+    /// predecessors) and `group_degree_centrality` (Graph, neighbours). Old kernel: group_set HashSet<&str>
+    /// + predecessors()/neighbors_iter() (Vec<&str> alloc) + contains + outside HashSet<&str>. New: resolve
+    /// group→indices once, walk *_indices over is_group_member/seen_outside bool rows + counter.
+    /// Byte-identical f64 (set cardinality). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib group_degree_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn group_degree_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Circulant n=50000, each node -> ±1..±20 (in/out-deg 20 directed, deg 40 undirected). group =
+        // first n/2 nodes; the scan walks every group node's predecessors/neighbours + contains probe.
+        let n = 50000usize;
+        let deg = 20usize;
+        let mut dg = DiGraph::strict();
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = dg.add_node(format!("n{i}"));
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for step in 1..=deg {
+                let _ = dg.add_edge(format!("n{i}"), format!("n{}", (i + step) % n));
+                let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + step) % n));
+            }
+        }
+        let grp_names: Vec<String> = (0..(n / 2)).map(|i| format!("n{i}")).collect();
+        let grp: Vec<&str> = grp_names.iter().map(String::as_str).collect();
+
+        // Byte-exact parity (bit-identical f64: numerator is a set cardinality either way).
+        let din = super::group_in_degree_centrality(&dg, &grp);
+        let din_base = super::group_in_degree_centrality_orig_string(&dg, &grp);
+        assert_eq!(din.to_bits(), din_base.to_bits(), "group_in must equal String baseline");
+        let ugd = super::group_degree_centrality(&g, &grp);
+        let ugd_base = super::group_degree_centrality_orig_string(&g, &grp);
+        assert_eq!(ugd.to_bits(), ugd_base.to_bits(), "group_degree must equal String baseline");
+        assert!(din > 0.0 && ugd > 0.0, "centralities are non-zero");
+
+        let time_in = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::group_in_degree_centrality(&dg, &grp)
+            } else {
+                super::group_in_degree_centrality_orig_string(&dg, &grp)
+            };
+            black_box(r);
+            t0.elapsed().as_secs_f64()
+        };
+        let time_ud = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::group_degree_centrality(&g, &grp)
+            } else {
+                super::group_degree_centrality_orig_string(&g, &grp)
+            };
+            black_box(r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time_in(true));
+            black_box(time_in(false));
+            black_box(time_ud(true));
+            black_box(time_ud(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |time: &dyn Fn(bool) -> f64, use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "GRPDEG_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("GRPDEG_AB group_*degree_centrality n={n} deg={deg} |group|={} rounds={rounds} (>1 = index faster)", grp.len());
+        report("IN_index_vs_string", &paired(&time_in, true, false));
+        report("IN_NULL_index_vs_index", &paired(&time_in, true, true));
+        report("UNDIR_index_vs_string", &paired(&time_ud, true, false));
+        report("UNDIR_NULL_index_vs_index", &paired(&time_ud, true, true));
     }
 
     /// br-r37-c1-bfslayidx (family): full-function A/B for `bfs_layers_multi` (representative of the
