@@ -1122,6 +1122,66 @@ fn shortest_path_unweighted_directed_fast(
     source: &str,
     target: &str,
 ) -> Option<Vec<String>> {
+    // br-r37-c1-spudidx (cc): integer-index single-source→single-target BFS, mirror of the
+    // already-shipped undirected `shortest_path_unweighted_fast`. The old kernel kept `visited`
+    // as HashSet<&str> and `predecessor` as HashMap<&str,&str> and walked `successors_iter`
+    // (String hash on every visit/insert over the O(|V|+|E|) frontier). Walk `successors_indices`
+    // over a Vec<bool> visited + Vec<Option<usize>> predecessor; names are materialised only for
+    // the O(path) reconstructed path. Byte-identical: same adjacency-order successor discovery,
+    // same first-visit predecessor tree, same early exit at `target` → the same node sequence.
+    let source_idx = digraph.get_node_index(source)?;
+    let target_idx = digraph.get_node_index(target)?;
+
+    if source_idx == target_idx {
+        return Some(vec![source.to_owned()]);
+    }
+
+    let n = digraph.node_count();
+    let mut visited = vec![false; n];
+    let mut predecessor: Vec<Option<usize>> = vec![None; n];
+    let mut queue: VecDeque<usize> = VecDeque::new();
+
+    visited[source_idx] = true;
+    queue.push_back(source_idx);
+
+    while let Some(current) = queue.pop_front() {
+        if let Some(successors) = digraph.successors_indices(current) {
+            for &nbr in successors {
+                if !visited[nbr] {
+                    visited[nbr] = true;
+                    predecessor[nbr] = Some(current);
+                    queue.push_back(nbr);
+
+                    if nbr == target_idx {
+                        let mut path = Vec::new();
+                        let mut cur = nbr;
+                        loop {
+                            path.push(digraph.get_node_name(cur)?.to_owned());
+                            if cur == source_idx {
+                                break;
+                            }
+                            cur = predecessor[cur]?;
+                        }
+                        path.reverse();
+                        return Some(path);
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// br-r37-c1-spudidx A/B baseline: the pre-lever `shortest_path_unweighted_directed_fast` that
+/// kept `visited`/`predecessor` String-keyed and walked `successors_iter`. Test-only;
+/// byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn shortest_path_unweighted_directed_fast_orig_string(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+) -> Option<Vec<String>> {
     if !digraph.has_node(source) || !digraph.has_node(target) {
         return None;
     }
@@ -33320,36 +33380,38 @@ pub fn chordal_graph_cliques(graph: &Graph) -> Vec<Vec<String>> {
             .map(|(index, node)| (node.as_str(), index))
             .collect();
         let start = component[0].as_str();
-        let mut unnumbered: HashSet<&str> = component.iter().map(String::as_str).collect();
-        let mut numbered = HashSet::from([start]);
-        unnumbered.remove(start);
+        let mut numbered = vec![false; component.len()];
+        numbered[0] = true;
+        let mut weights = vec![0_usize; component.len()];
+        let mut buckets = vec![BTreeSet::new(); component.len()];
+        buckets[0].extend(1..component.len());
+        let mut max_weight = 0;
+        if let Some(neighbors) = graph.neighbors_iter(start) {
+            for neighbor in neighbors {
+                let Some(&neighbor_rank) = rank.get(neighbor) else {
+                    continue;
+                };
+                if numbered[neighbor_rank] {
+                    continue;
+                }
+                buckets[0].remove(&neighbor_rank);
+                weights[neighbor_rank] = 1;
+                buckets[1].insert(neighbor_rank);
+                max_weight = 1;
+            }
+        }
+        let mut remaining = component.len() - 1;
         let mut clique_wanna_be = HashSet::from([start]);
 
-        while !unnumbered.is_empty() {
-            let &chosen = unnumbered
-                .iter()
-                .max_by(|&&left, &&right| {
-                    let left_count = graph
-                        .neighbors_iter(left)
-                        .map(|neighbors| {
-                            neighbors
-                                .filter(|neighbor| numbered.contains(*neighbor))
-                                .count()
-                        })
-                        .unwrap_or(0);
-                    let right_count = graph
-                        .neighbors_iter(right)
-                        .map(|neighbors| {
-                            neighbors
-                                .filter(|neighbor| numbered.contains(*neighbor))
-                                .count()
-                        })
-                        .unwrap_or(0);
-                    left_count
-                        .cmp(&right_count)
-                        .then_with(|| rank[&right].cmp(&rank[&left]))
-                })
-                .expect("unnumbered is non-empty");
+        while remaining != 0 {
+            while buckets[max_weight].is_empty() {
+                max_weight -= 1;
+            }
+            let chosen_rank = *buckets[max_weight]
+                .first()
+                .expect("highest-weight bucket is non-empty");
+            buckets[max_weight].remove(&chosen_rank);
+            let chosen = component[chosen_rank].as_str();
 
             if node_set_is_complete(
                 graph,
@@ -33359,7 +33421,10 @@ pub fn chordal_graph_cliques(graph: &Graph) -> Vec<Vec<String>> {
                     .neighbors_iter(chosen)
                     .map(|neighbors| {
                         neighbors
-                            .filter(|neighbor| numbered.contains(*neighbor))
+                            .filter(|neighbor| {
+                                rank.get(*neighbor)
+                                    .is_some_and(|&neighbor_rank| numbered[neighbor_rank])
+                            })
                             .collect()
                     })
                     .unwrap_or_default();
@@ -33377,8 +33442,24 @@ pub fn chordal_graph_cliques(graph: &Graph) -> Vec<Vec<String>> {
                 return Vec::new();
             }
 
-            unnumbered.remove(chosen);
-            numbered.insert(chosen);
+            numbered[chosen_rank] = true;
+            remaining -= 1;
+            if let Some(neighbors) = graph.neighbors_iter(chosen) {
+                for neighbor in neighbors {
+                    let Some(&neighbor_rank) = rank.get(neighbor) else {
+                        continue;
+                    };
+                    if numbered[neighbor_rank] {
+                        continue;
+                    }
+                    let old_weight = weights[neighbor_rank];
+                    buckets[old_weight].remove(&neighbor_rank);
+                    let new_weight = old_weight + 1;
+                    weights[neighbor_rank] = new_weight;
+                    buckets[new_weight].insert(neighbor_rank);
+                    max_weight = max_weight.max(new_weight);
+                }
+            }
         }
 
         let mut clique: Vec<String> = clique_wanna_be
@@ -50945,6 +51026,110 @@ mod tests {
             );
         };
         println!("BIPIDX_AB bipartite_sets n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-spudidx: full-function paired-interleaved A/B for the directed single-source→
+    /// single-target BFS `shortest_path_unweighted_directed_fast` (String-keyed `HashSet<&str>` /
+    /// `HashMap<&str,&str>` + `successors_iter`) vs the shipped integer-index mirror. Loop-dominated
+    /// case: a dense strongly-connected reachable blob with the target having no in-edges, so the BFS
+    /// scans the whole component then returns None (max scan, zero path output). Path-reconstruction
+    /// parity also asserted on a reachable target. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib shortest_path_unweighted_directed_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn shortest_path_unweighted_directed_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // nodes 0..n-1; the reachable blob is 0..m (m=n-1) as a directed circulant (step 1 alone
+        // makes it strongly connected). Node n-1 has NO in-edges → unreachable from n0 → the BFS
+        // scans the entire ~m*deg-edge component before returning None. That is the max-work,
+        // zero-path-output case: 100% BFS-scan dominated.
+        let n = 40000usize;
+        let deg = 20usize;
+        let m = n - 1;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..m {
+            for k in 1..=deg {
+                let j = (i + k) % m;
+                let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+            }
+        }
+        let src = "n0";
+        let unreachable = format!("n{}", n - 1);
+        let reachable = "n12345";
+
+        // Byte-exact parity: index BFS == String baseline, for both the None (full-scan) case and a
+        // reachable target (validates the path reconstruction, not just None==None).
+        assert_eq!(
+            super::shortest_path_unweighted_directed_fast(&g, src, &unreachable),
+            super::shortest_path_unweighted_directed_fast_orig_string(&g, src, &unreachable),
+            "index BFS must equal String baseline (unreachable → None, full scan)"
+        );
+        let cand_path = super::shortest_path_unweighted_directed_fast(&g, src, reachable);
+        assert_eq!(
+            cand_path,
+            super::shortest_path_unweighted_directed_fast_orig_string(&g, src, reachable),
+            "index BFS must equal String baseline (reachable path reconstruction)"
+        );
+        assert!(cand_path.is_some(), "reachable target must yield a path");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::shortest_path_unweighted_directed_fast(&g, src, &unreachable)
+            } else {
+                super::shortest_path_unweighted_directed_fast_orig_string(&g, src, &unreachable)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "SPUDIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "SPUDIDX_AB shortest_path_unweighted_directed n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
