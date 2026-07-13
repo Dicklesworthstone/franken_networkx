@@ -1,5 +1,57 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cod, 2026-07-12): `global_node_connectivity` indexed neighbor-pair screen **44.1664x** dense-clique self-time (br-r37-c1-r7e4g)
+
+NEGATIVE-LEDGER FIRST: no prior keep or reject targeted the adjacency predicate
+inside the global node-connectivity neighbor-pair loop. Earlier connectivity
+rows cover residual-template reuse and flow kernels; the matching-family
+`has_edge` row covers a separate boolean validator. The remaining global loop
+rebuilt a `HashSet` containing all neighbors of `x` for every candidate pair
+`(x, y)`, even though it consumed only one membership bit.
+
+ONE LEVER / EXACT PARITY: replace that temporary row materialization with the
+graph's authoritative indexed `has_edge(x, y)` probe. For the existing,
+distinct nodes in this simple undirected graph, both predicates are equivalent.
+Pair ordering, skipped pairs, flow calls, cutoff updates, early exits, returned
+value, and complexity-witness counters are unchanged. Before timing, the frozen
+old full function and production asserted exact `NodeConnectivityResult`
+equality on K4, K4 with self-loops, and a five-node path.
+
+STRICT-REMOTE MEDIAN GATE: release A/B on worker `vmi1153651`, 31 paired
+interleaved rounds over K256:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| indexed `has_edge` / per-pair `HashSet` | **44.1664x** | 31/31 | 16.0947-68.6562 |
+| indexed / indexed null | 1.0114x | 17/31 | 0.5573-2.0470 |
+
+The candidate p5 clears the null p95 by nearly 8x. K256 deliberately isolates
+the screen: all 32,385 neighbor pairs are adjacent, so both arms execute zero
+max-flow calls and return value 255 with zero `edges_scanned` and `queue_peak`.
+On this dense-clique stage, the old screen performs 8,258,175 temporary
+neighbor insertions plus 32,385 allocations; the candidate performs 32,385
+indexed probes. This changes the clique screen from O(V^3) temporary-row work
+to O(V^2) probes, without changing the flow-dominated general-case complexity.
+
+This is full Rust-kernel K256 self-time, not a universal graph or Python-call
+ratio. Canonical simple-undirected Python `node_connectivity` reaches this
+kernel; directed, local, multigraph, self-loop, and custom-flow routes remain
+separate. The valid invocation ran exactly one ignored measurement test under
+`RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo ...`; no local
+Cargo fallback occurred.
+
+VALIDATION: the strict-remote workspace all-targets check and the focused
+global-connectivity regression passed. Exact workspace `-D warnings` clippy
+reproduced only the crate's 11 pre-existing `collapsible_if` /
+`doc_lazy_continuation` findings; the rerun allowing exactly those two known
+classes passed. Direct `rustfmt --check` reported unrelated existing file-wide
+format drift, with no finding at either changed hunk. UBS reported zero
+critical issues.
+
+RESULT: SHIP. Preserve indexed undirected edge semantics and the unchanged
+sorted neighbor-pair order. Do not generalize 44.17x beyond dense graphs whose
+pair screen dominates and whose flow work is absent or small.
+
 ## REJECT (cod, 2026-07-12): declined `closeness_centrality` per-source CSR fallback does not clear its null (br-r37-c1-yy0rp)
 
 NEGATIVE-LEDGER FIRST: the earlier `x0jz8` row left one explicit residual:
