@@ -15592,64 +15592,91 @@ fn voterank_generic<G: GraphView>(graph: &G, number_of_nodes: Option<usize>) -> 
         0.0
     };
 
-    let mut vote_power: HashMap<&str, f64> = nodes.iter().map(|&v| (v, 1.0)).collect();
+    // br-r37-c1-voterankidx (cc): integer-index voterank. The prior kernel kept vote_power / scores as
+    // `HashMap<&str, f64>` and `selected` as `HashSet<&str>`, paying a String hash on EVERY per-edge
+    // vote accumulation + per-neighbour decrement across up to |V| rounds (O(|V|·|E|) String hashes).
+    // Build the integer adjacency ONCE (`adj[i]` in the same `neighbors_iter` order → ULP-identical
+    // accumulation), then run the whole loop over `Vec<f64>`/`Vec<bool>` indexed by node index — no
+    // String hashing in the hot loop. ALSO: the per-round winner pick sorted ALL scored nodes
+    // (O(|V| log|V|)) just to take `.first()`; replaced with a single O(|V|) `max_by` with the same key
+    // (max score, ties by min node name). Byte-identical: same per-node score (accumulated in the same
+    // node-index order → same f64 sum), same (score, name) winner, same decay update, same edges_scanned.
+    let node_to_idx: HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for i in 0..n {
+        if let Some(neighbors) = graph.neighbors_iter(nodes[i]) {
+            for nb in neighbors {
+                adj[i].push(node_to_idx[nb]);
+            }
+        }
+    }
+
+    let mut vote_power: Vec<f64> = vec![1.0; n];
     let mut ranked: Vec<String> = Vec::new();
-    let mut selected: HashSet<&str> = HashSet::new();
+    let mut selected: Vec<bool> = vec![false; n];
     let mut edges_scanned = 0usize;
     let max_nodes = number_of_nodes.unwrap_or(n);
+
+    // Reused per-round score scratch: `scored`/`touched` reproduce the HashMap's "entry exists" set
+    // (a node is a candidate iff it received ≥1 vote this round, even if the summed value is 0.0).
+    let mut score: Vec<f64> = vec![0.0; n];
+    let mut scored: Vec<bool> = vec![false; n];
+    let mut touched: Vec<usize> = Vec::new();
 
     loop {
         if ranked.len() >= max_nodes {
             break;
         }
+        for &t in &touched {
+            score[t] = 0.0;
+            scored[t] = false;
+        }
+        touched.clear();
         // Accumulate votes
-        let mut scores: HashMap<&str, f64> = HashMap::new();
-        for &node in &nodes {
-            if selected.contains(node) {
+        for node in 0..n {
+            if selected[node] {
                 continue;
             }
-            if let Some(neighbors) = graph.neighbors_iter(node) {
-                for neighbor in neighbors {
-                    edges_scanned += 1;
-                    if !selected.contains(neighbor) {
-                        *scores.entry(neighbor).or_insert(0.0) += vote_power[node];
+            let vp = vote_power[node];
+            for &neighbor in &adj[node] {
+                edges_scanned += 1;
+                if !selected[neighbor] {
+                    if !scored[neighbor] {
+                        scored[neighbor] = true;
+                        touched.push(neighbor);
                     }
+                    score[neighbor] += vp;
                 }
             }
         }
 
-        if scores.is_empty() {
+        if touched.is_empty() {
             break;
         }
 
-        // Find node with max score; deterministic tie-break by node name (ascending)
-        let mut candidates: Vec<(&str, f64)> = scores.into_iter().collect();
-        candidates.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.0.cmp(b.0))
-        });
-        let best = candidates.first().copied();
-
-        let Some((winner, max_score)) = best else {
-            break;
-        };
-        if max_score <= 0.0 {
+        // Node with max score; deterministic tie-break by node name (ascending). One O(|V|) pass.
+        let winner = *touched
+            .iter()
+            .max_by(|&&a, &&b| {
+                score[a]
+                    .partial_cmp(&score[b])
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| nodes[b].cmp(nodes[a]))
+            })
+            .expect("touched is non-empty");
+        if score[winner] <= 0.0 {
             break;
         }
 
-        ranked.push(winner.to_owned());
-        selected.insert(winner);
+        ranked.push(nodes[winner].to_owned());
+        selected[winner] = true;
 
         // Reduce vote power of winner's neighbors
-        vote_power.insert(winner, 0.0);
-        if let Some(neighbors) = graph.neighbors_iter(winner) {
-            for neighbor in neighbors {
-                if !selected.contains(neighbor) {
-                    let current = vote_power[neighbor];
-                    let new_power = (current - decay).max(0.0);
-                    vote_power.insert(neighbor, new_power);
-                }
+        vote_power[winner] = 0.0;
+        for &neighbor in &adj[winner] {
+            if !selected[neighbor] {
+                vote_power[neighbor] = (vote_power[neighbor] - decay).max(0.0);
             }
         }
     }
@@ -50279,6 +50306,158 @@ mod tests {
         println!("BKRPIVOTDEG_AB find_cliques_recursive 8xK40 rounds={rounds} (>1 = precompute faster)");
         report("PRECOMPUTE_vs_recompute", &paired(true, false));
         report("NULL_precompute_vs_precompute", &paired(true, true));
+    }
+
+    /// br-r37-c1-voterankidx: full-function paired-interleaved median A/B for `voterank` — inline ORIGINAL
+    /// String-keyed kernel (HashMap<&str,f64> vote_power/scores, HashSet<&str> selected, per-round
+    /// sort-to-pick-max) vs the shipped `super::voterank` (integer-index adjacency built once, Vec<f64>/
+    /// Vec<bool> loop, O(|V|) max_by). Full `VoterankResult` (ranked + witness incl. edges_scanned)
+    /// parity asserted first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib voterank_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn voterank_idx_ab() {
+        use std::collections::{HashMap, HashSet};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Circulant: 2000 nodes, degree 20 → ~20k edges; voterank ranks all V nodes → V rounds.
+        let n_nodes = 2000usize;
+        let mut g = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for step in 1..=10usize {
+                let _ = g.add_edge(i.to_string(), ((i + step) % n_nodes).to_string());
+            }
+        }
+
+        // Inline ORIGINAL String-keyed voterank kernel for a Graph, returning the full VoterankResult.
+        let old_fn = |graph: &Graph| -> super::VoterankResult {
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            let edge_count = graph.edge_count();
+            let avg_degree = if n > 0 { (2.0 * edge_count as f64) / n as f64 } else { 0.0 };
+            let decay = if avg_degree > 0.0 { 1.0 / avg_degree } else { 0.0 };
+            let mut vote_power: HashMap<&str, f64> = nodes.iter().map(|&v| (v, 1.0)).collect();
+            let mut ranked: Vec<String> = Vec::new();
+            let mut selected: HashSet<&str> = HashSet::new();
+            let mut edges_scanned = 0usize;
+            let max_nodes = n;
+            loop {
+                if ranked.len() >= max_nodes {
+                    break;
+                }
+                let mut scores: HashMap<&str, f64> = HashMap::new();
+                for &node in &nodes {
+                    if selected.contains(node) {
+                        continue;
+                    }
+                    if let Some(neighbors) = graph.neighbors_iter(node) {
+                        for neighbor in neighbors {
+                            edges_scanned += 1;
+                            if !selected.contains(neighbor) {
+                                *scores.entry(neighbor).or_insert(0.0) += vote_power[node];
+                            }
+                        }
+                    }
+                }
+                if scores.is_empty() {
+                    break;
+                }
+                let mut candidates: Vec<(&str, f64)> = scores.into_iter().collect();
+                candidates.sort_by(|a, b| {
+                    b.1.partial_cmp(&a.1)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| a.0.cmp(b.0))
+                });
+                let Some((winner, max_score)) = candidates.first().copied() else {
+                    break;
+                };
+                if max_score <= 0.0 {
+                    break;
+                }
+                ranked.push(winner.to_owned());
+                selected.insert(winner);
+                vote_power.insert(winner, 0.0);
+                if let Some(neighbors) = graph.neighbors_iter(winner) {
+                    for neighbor in neighbors {
+                        if !selected.contains(neighbor) {
+                            let current = vote_power[neighbor];
+                            vote_power.insert(neighbor, (current - decay).max(0.0));
+                        }
+                    }
+                }
+            }
+            super::VoterankResult {
+                ranked,
+                witness: super::ComplexityWitness {
+                    algorithm: "voterank".to_owned(),
+                    complexity_claim: "O(|V|^2)".to_owned(),
+                    nodes_touched: n,
+                    edges_scanned,
+                    queue_peak: 0,
+                },
+            }
+        };
+
+        assert_eq!(
+            old_fn(&g),
+            super::voterank(&g, None),
+            "integer-index voterank must be byte-identical to the String-keyed kernel"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            if cand {
+                black_box(super::voterank(&g, None));
+            } else {
+                black_box(old_fn(&g));
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "VOTERANKIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("VOTERANKIDX_AB voterank 2000-node deg20 rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
     }
 
     /// br-r37-c1-ra004: paired-interleaved median A/B for the `neighbor_count`
