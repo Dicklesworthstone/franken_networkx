@@ -6784,9 +6784,11 @@ pub fn degree_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<Py
         GraphRef::Undirected(pg) => {
             return graph_degree_centrality_to_dict(py, pg);
         }
-        GraphRef::Directed { dg, .. } => {
-            let inner = &dg.inner;
-            py.allow_threads(|| fnx_algorithms::degree_centrality_directed(inner))
+        // br-r37-c1-tdcbind (cc): simple DiGraph → inline total-degree dict build, skipping the
+        // kernel's throwaway CentralityScore Strings (sibling of the in/out idcbind win). Multigraphs
+        // stay on the kernel path below (parallel-edge total-degree semantics via the projection).
+        GraphRef::Directed { .. } => {
+            return digraph_total_degree_centrality_inline_to_dict(py, &gr);
         }
         _ => {
             if gr.is_directed() {
@@ -21584,6 +21586,58 @@ pub fn in_degree_centrality_kernel_ab(
     centrality_to_dict(py, &gr, &scores)
 }
 
+/// br-r37-c1-tdcbind (cc): inline TOTAL degree centrality for a simple DiGraph — the directed sibling
+/// of the in/out inline (br-r37-c1-idcbind) and of `graph_degree_centrality_to_dict`. Skips the
+/// kernel's `Vec<CentralityScore>` throwaway Strings by walking indices → `get_node_name` →
+/// `py_node_key`. Byte-identical to `degree_centrality_directed` + `centrality_to_dict`: same
+/// `nodes_ordered` order, total `degree_by_index(i)` (== out_degree + in_degree), and — matching that
+/// kernel AND nx — `degree * (1.0/(n-1))` MULTIPLICATION (not division); same n==0 -> {} / n==1 -> 1.0.
+fn digraph_total_degree_centrality_inline_to_dict(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+) -> PyResult<Py<PyDict>> {
+    let dg = gr.digraph().expect("caller checked is_directed");
+    let n = dg.node_count();
+    let dict = PyDict::new(py);
+    if n == 0 {
+        return Ok(dict.unbind());
+    }
+    if n == 1 {
+        let node = dg.get_node_name(0).expect("index 0 must resolve to a node");
+        dict.set_item(gr.py_node_key(py, node), 1.0)?;
+        return Ok(dict.unbind());
+    }
+    let reciprocal = 1.0 / ((n - 1) as f64);
+    for idx in 0..n {
+        let node = dg.get_node_name(idx).expect("index must resolve to a node");
+        dict.set_item(
+            gr.py_node_key(py, node),
+            (dg.degree_by_index(idx) as f64) * reciprocal,
+        )?;
+    }
+    Ok(dict.unbind())
+}
+
+/// br-r37-c1-tdcbind A/B baseline: the PRE-lever directed total degree centrality via
+/// `degree_centrality_directed` (throwaway `Vec<CentralityScore>`) + `centrality_to_dict`. Preserved
+/// so the with-GIL binding bench stays a durable old-vs-new A/B; byte-identical to the routed
+/// `degree_centrality` on a simple DiGraph. Not part of the public nx-parity surface.
+#[pyfunction]
+pub fn degree_centrality_directed_kernel_ab(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    if !gr.is_directed() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "degree_centrality_directed_kernel_ab requires a directed graph.",
+        ));
+    }
+    let dg_ref = gr.digraph().expect("is_directed checked above");
+    let result = py.allow_threads(|| fnx_algorithms::degree_centrality_directed(dg_ref));
+    centrality_to_dict(py, &gr, &result.scores)
+}
+
 /// Return the local reaching centrality of a node.
 #[pyfunction]
 pub fn local_reaching_centrality(
@@ -25983,6 +26037,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(in_degree_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(out_degree_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(in_degree_centrality_kernel_ab, m)?)?;
+    m.add_function(wrap_pyfunction!(degree_centrality_directed_kernel_ab, m)?)?;
     m.add_function(wrap_pyfunction!(local_reaching_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(global_reaching_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(group_degree_centrality, m)?)?;

@@ -2866,6 +2866,8 @@ fn kcore_family_head_to_head(c: &mut Criterion) {
 struct IndegBindingWorkloads {
     old_binding: Py<PyAny>,
     new_binding: Py<PyAny>,
+    old_total: Py<PyAny>,
+    new_total: Py<PyAny>,
 }
 
 fn prepare_indeg_binding_workloads(py: Python<'_>) -> PyResult<IndegBindingWorkloads> {
@@ -2928,8 +2930,16 @@ _old = _raw.in_degree_centrality_kernel_ab(gd)
 _new = _raw.in_degree_centrality(gd)
 assert list(_old.items()) == list(_new.items()), "in_degree_centrality inline parity (order+values)"
 
+# br-r37-c1-tdcbind: directed TOTAL degree_centrality — same throwaway-String lever, multiplication
+# formula. Assert the routed inline degree_centrality == the preserved kernel baseline byte-for-byte.
+_old_t = _raw.degree_centrality_directed_kernel_ab(gd)
+_new_t = _raw.degree_centrality(gd)
+assert list(_old_t.items()) == list(_new_t.items()), "degree_centrality (total) inline parity (order+values)"
+
 old_binding = lambda: _raw.in_degree_centrality_kernel_ab(gd)
 new_binding = lambda: _raw.in_degree_centrality(gd)
+old_total = lambda: _raw.degree_centrality_directed_kernel_ab(gd)
+new_total = lambda: _raw.degree_centrality(gd)
 "#,
         )
         .as_c_str(),
@@ -2947,6 +2957,8 @@ new_binding = lambda: _raw.in_degree_centrality(gd)
     Ok(IndegBindingWorkloads {
         old_binding: callable("old_binding")?,
         new_binding: callable("new_binding")?,
+        old_total: callable("old_total")?,
+        new_total: callable("new_total")?,
     })
 }
 
@@ -2963,6 +2975,8 @@ fn indeg_binding_head_to_head(c: &mut Criterion) {
     group.sample_size(30);
     bench_python_callable(&mut group, "old_centrality_to_dict_20k", &workloads.old_binding);
     bench_python_callable(&mut group, "new_inline_20k", &workloads.new_binding);
+    bench_python_callable(&mut group, "old_total_centrality_to_dict_20k", &workloads.old_total);
+    bench_python_callable(&mut group, "new_total_inline_20k", &workloads.new_total);
     group.finish();
 }
 
