@@ -1,0 +1,11 @@
+  [2m2026-07-13T00:17:36.672644Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib girth -- --include-ignored --nocapture[0m
+test tests::test_girth_multiple_cycles ... ok
+test tests::test_girth_tree ... ok
+test tests::test_girth_empty ... ok
+test tests::test_girth_square ... ok
+test tests::test_girth_triangle ... ok
+GIRTHIDX_AB girth ring-1200 rounds=61 (>1 = index faster)
+GIRTHIDX_AB INDEX_vs_string: median=32.7144x win_rate=61/61 p5_p95=[29.5797,37.7600]
+GIRTHIDX_AB NULL_index_vs_index: median=0.9996x win_rate=30/61 p5_p95=[0.8937,1.0612]
+test tests::girth_idx_ab ... ok
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 1028 filtered out; finished in 19.62s
