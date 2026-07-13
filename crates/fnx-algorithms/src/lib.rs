@@ -22452,6 +22452,96 @@ pub fn all_shortest_paths_weighted_directed(
         return vec![vec![source.to_owned()]];
     }
 
+    // br-r37-c1-aspwdiridx (cc): directed mirror of `all_shortest_paths_weighted` (aspwidx). Index the
+    // weighted Dijkstra: dist: Vec<f64> (INF unvisited) + preds: Vec<Vec<usize>> + DijkstraState<usize>
+    // + successors_indices + the existing `digraph_edge_weight_or_default_idx` (bit-identical clamp to
+    // the name-keyed `digraph_edge_weight_or_default`) + build_all_paths_from_preds_index. FLOAT-SAFE:
+    // the heap orders by (dist, seq) ONLY, the per-edge weight is bit-identical, and every f64 / EPSILON
+    // comparison is unchanged and applied in the same pop×successor order → the same relaxation → the
+    // same predecessor DAG → the same paths.
+    let source_idx = digraph.get_node_index(source).expect("has_node checked above");
+    let target_idx = digraph.get_node_index(target).expect("has_node checked above");
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+
+    let mut dist = vec![f64::INFINITY; n];
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut pq = BinaryHeap::new();
+    let mut seq_counter: u64 = 0;
+
+    dist[source_idx] = 0.0;
+    seq_counter += 1;
+    pq.push(DijkstraState {
+        dist: 0.0,
+        seq: seq_counter,
+        node: source_idx,
+    });
+
+    let mut target_dist = f64::INFINITY;
+
+    while let Some(DijkstraState {
+        dist: d, node: u, ..
+    }) = pq.pop()
+    {
+        if d > target_dist + DISTANCE_COMPARISON_EPSILON {
+            break;
+        }
+
+        if d > dist[u] + DISTANCE_COMPARISON_EPSILON {
+            continue;
+        }
+
+        if u == target_idx {
+            target_dist = d;
+        }
+
+        if let Some(successors) = digraph.successors_indices(u) {
+            for &v in successors {
+                let weight = digraph_edge_weight_or_default_idx(digraph, u, v, weight_attr);
+                let next_dist = d + weight;
+                let current_dist_v = dist[v];
+
+                if next_dist < current_dist_v - DISTANCE_COMPARISON_EPSILON {
+                    dist[v] = next_dist;
+                    preds[v] = vec![u];
+                    seq_counter += 1;
+                    pq.push(DijkstraState {
+                        dist: next_dist,
+                        seq: seq_counter,
+                        node: v,
+                    });
+                } else if (next_dist - current_dist_v).abs() < DISTANCE_COMPARISON_EPSILON {
+                    preds[v].push(u);
+                }
+            }
+        }
+    }
+
+    if dist[target_idx].is_infinite() {
+        return Vec::new();
+    }
+
+    build_all_paths_from_preds_index(&preds, source_idx, target_idx, &nodes)
+}
+
+/// br-r37-c1-aspwdiridx A/B baseline: the pre-lever String-keyed directed weighted Dijkstra
+/// multi-pred path enumeration. Test-only; byte-identical (bit-identical f64) to the shipped
+/// integer-index version.
+#[cfg(test)]
+fn all_shortest_paths_weighted_directed_orig_string(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> Vec<Vec<String>> {
+    if !digraph.has_node(source) || !digraph.has_node(target) {
+        return Vec::new();
+    }
+
+    if source == target {
+        return vec![vec![source.to_owned()]];
+    }
+
     let mut dist: HashMap<&str, f64> = HashMap::new();
     let mut preds: HashMap<&str, Vec<&str>> = HashMap::new();
     let mut pq = BinaryHeap::new();
@@ -54632,6 +54722,98 @@ mod tests {
             );
         };
         println!("ASPWIDX_AB all_shortest_paths_weighted n={n} rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-aspwdiridx: full-function paired-interleaved A/B for `all_shortest_paths_weighted_directed`
+    /// (directed twin of aspwidx: String-keyed weighted Dijkstra → integer-index, reusing the existing
+    /// digraph_edge_weight_or_default_idx + build_all_paths_from_preds_index). Directed step²-weighted
+    /// circulant, forward edges only → unique forward shortest path. Byte-exact parity (paths). `#[ignore]`;
+    /// run with `cargo test --release -p fnx-algorithms --lib all_shortest_paths_weighted_directed_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn all_shortest_paths_weighted_directed_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Directed circulant n=20000, i → (i+1..i+10) with edge weight = step². The +1-only forward route
+        // is strictly cheapest (k² > k), so 0→n10000 is a UNIQUE forward path; Dijkstra relaxes every node
+        // with dist ≤ 10000 (~half of V) — a name-keyed dist/preds hash per relaxation in the baseline.
+        let n = 20000usize;
+        let deg = 10usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                let w = format!("{}", k * k);
+                let _ = g.add_edge_with_attrs(
+                    format!("n{i}"),
+                    format!("n{}", (i + k) % n),
+                    attrs([("weight", w.as_str())]),
+                );
+            }
+        }
+        let src = "n0";
+        let tgt = "n10000";
+
+        // Byte-exact parity (bit-identical f64 → same shortest paths).
+        let cand = super::all_shortest_paths_weighted_directed(&g, src, tgt, "weight");
+        let base = super::all_shortest_paths_weighted_directed_orig_string(&g, src, tgt, "weight");
+        assert_eq!(cand, base, "index all_shortest_paths_weighted_directed must equal the String baseline");
+        assert_eq!(cand.len(), 1, "forward step²-weighted circulant has a unique shortest path");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::all_shortest_paths_weighted_directed(&g, src, tgt, "weight")
+            } else {
+                super::all_shortest_paths_weighted_directed_orig_string(&g, src, tgt, "weight")
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "ASPWDIRIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("ASPWDIRIDX_AB all_shortest_paths_weighted_directed n={n} deg={deg} rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
