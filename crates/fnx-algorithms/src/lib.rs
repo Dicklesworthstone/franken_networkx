@@ -42040,9 +42040,58 @@ pub fn ra_index_soundarajan_hopcroft(
 /// blocks if any edge connects their members.
 #[must_use]
 pub fn quotient_graph(graph: &Graph, partition: &[Vec<String>]) -> Graph {
+    // br-r37-c1-qgidx (cc): the old kernel mapped each node to its block via a String-keyed
+    // `HashMap<&str,usize>`, walked `edges_ordered()` (which materialises an EdgeSnapshot per edge —
+    // owned left/right Strings AND a full attr CLONE, none of which quotient uses), probed the map
+    // twice per edge (String hash), then emitted each cross-block edge via a String round-trip
+    // (`add_edge(k.0.to_string(), k.1.to_string())` re-resolves the block index). Walk
+    // `edges_ordered_indices()` (zero-alloc (u,v) pairs, same u-major order/dedup) over a
+    // `block_of_idx: Vec<usize>` and batch the cross-block index pairs through the index-pair extend.
+    // Byte-identical: same edge scan order → same first-seen cross-block (min,max) sequence → the same
+    // block nodes/edges (the source-edge orientation is irrelevant — the block pair is canonicalised).
     let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
 
-    // Map each node to its block index
+    // Map each node index to its block index (usize::MAX = node not in any block).
+    let mut block_of_idx = vec![usize::MAX; graph.node_count()];
+    for (i, block) in partition.iter().enumerate() {
+        for node in block {
+            if let Some(ni) = graph.get_node_index(node) {
+                block_of_idx[ni] = i;
+            }
+        }
+    }
+
+    // Add block nodes (node index i == block i).
+    for i in 0..partition.len() {
+        let _ = result.add_node(i.to_string());
+    }
+
+    // Add edges between blocks
+    let mut seen_edges: std::collections::HashSet<(usize, usize)> =
+        std::collections::HashSet::new();
+    let mut block_edges: Vec<(usize, usize)> = Vec::new();
+    for (u, v) in graph.edges_ordered_indices() {
+        let bi = block_of_idx[u];
+        let bj = block_of_idx[v];
+        if bi != usize::MAX && bj != usize::MAX && bi != bj {
+            let key = if bi < bj { (bi, bj) } else { (bj, bi) };
+            if seen_edges.insert(key) {
+                block_edges.push(key);
+            }
+        }
+    }
+    let _ = result.extend_existing_index_edges_unrecorded(block_edges);
+
+    result
+}
+
+/// br-r37-c1-qgidx A/B baseline: the pre-lever String-keyed `quotient_graph` (edges_ordered() +
+/// HashMap<&str,usize> block map + String round-trip emit). Test-only; byte-identical to the
+/// shipped integer-index version.
+#[cfg(test)]
+fn quotient_graph_orig_string(graph: &Graph, partition: &[Vec<String>]) -> Graph {
+    let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
+
     let mut node_to_block: std::collections::HashMap<&str, usize> =
         std::collections::HashMap::new();
     for (i, block) in partition.iter().enumerate() {
@@ -42051,12 +42100,10 @@ pub fn quotient_graph(graph: &Graph, partition: &[Vec<String>]) -> Graph {
         }
     }
 
-    // Add block nodes
     for i in 0..partition.len() {
         let _ = result.add_node(i.to_string());
     }
 
-    // Add edges between blocks
     let mut seen_edges: std::collections::HashSet<(usize, usize)> =
         std::collections::HashSet::new();
     for edge in graph.edges_ordered() {
@@ -52719,6 +52766,110 @@ mod tests {
             );
         };
         println!("TCIDX_AB transitive_closure chain_dag n={n} rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-qgidx: full-function paired-interleaved A/B for `quotient_graph` (String-keyed
+    /// edges_ordered() + HashMap<&str,usize> block map + String round-trip emit → edges_ordered_indices
+    /// + Vec<usize> block map + index-pair batch extend). Dense graph, contiguous blocks so most edges
+    /// are intra-block (tiny output) → the O(|E|) edge scan + edges_ordered() attr-cloning materialisation
+    /// dominates. Byte-exact parity (quotient nodes + edges). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib quotient_graph_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn quotient_graph_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense circulant n=20000 deg~20; partition into contiguous blocks of 200 → most circulant
+        // edges (|i-j|<=10) are intra-block, so the quotient output is small and the O(|E|) scan +
+        // edges_ordered() EdgeSnapshot (String left/right + attr clone) materialisation dominates.
+        let n = 20000usize;
+        let block_size = 200usize;
+        // Longer node names so edges_ordered()'s per-edge left/right String CLONE (which
+        // edges_ordered_indices avoids) is a heavier, clearer signal above the alloc noise.
+        let name = |i: usize| format!("graph_node_identifier_{i:08}");
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(name(i));
+        }
+        for i in 0..n {
+            for step in 1..=10usize {
+                let _ = g.add_edge(name(i), name((i + step) % n));
+            }
+        }
+        let mut partition: Vec<Vec<String>> = Vec::new();
+        let mut b = 0usize;
+        while b < n {
+            let block: Vec<String> = (b..(b + block_size).min(n)).map(name).collect();
+            partition.push(block);
+            b += block_size;
+        }
+
+        // Byte-exact parity: same quotient nodes + edges.
+        let cand = super::quotient_graph(&g, &partition);
+        let base = super::quotient_graph_orig_string(&g, &partition);
+        assert_eq!(cand.nodes_ordered(), base.nodes_ordered(), "quotient nodes must match");
+        assert_eq!(
+            cand.edges_ordered_indices(),
+            base.edges_ordered_indices(),
+            "quotient edges (set + insertion order) must match"
+        );
+
+        // 3 calls per sample amortises allocator warmup (the per-call multi-MB Vec allocations
+        // otherwise make a single-call sample's first-vs-second asymmetry dominate the null spread).
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            for _ in 0..3 {
+                let r = if use_cand {
+                    super::quotient_graph(&g, &partition)
+                } else {
+                    super::quotient_graph_orig_string(&g, &partition)
+                };
+                black_box(&r);
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "QGIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("QGIDX_AB quotient_graph n={n} block_size={block_size} rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
