@@ -678,12 +678,14 @@ impl Graph {
                             graph.adj_indices.push(Vec::new());
                         }
                     }
-                    if !graph.adj_indices[node_idx[s_idx]].contains(&node_idx[t_idx]) {
-                        graph.adj_indices[node_idx[s_idx]].push(node_idx[t_idx]);
-                    }
-                    if node_idx[s_idx] != node_idx[t_idx]
-                        && !graph.adj_indices[node_idx[t_idx]].contains(&node_idx[s_idx])
-                    {
+                    // br-r37-c1-kneserpush (cc): we are inside `if seen.insert(pair)` — a FIRST
+                    // occurrence of this (s_idx,t_idx) edge — so it is provably not yet in either
+                    // adjacency row. The old `!adj_indices[..].contains(..)` guards were O(degree)
+                    // linear rescans always returning true here (redundant); push directly.
+                    // Byte-identical (Kneser edges have no parallel edges; self-loop s==t handled
+                    // by the != guard, exactly as before).
+                    graph.adj_indices[node_idx[s_idx]].push(node_idx[t_idx]);
+                    if node_idx[s_idx] != node_idx[t_idx] {
                         graph.adj_indices[node_idx[t_idx]].push(node_idx[s_idx]);
                     }
                     graph
@@ -3824,6 +3826,27 @@ mod tests {
         println!("DEGIDX_AB degree histogram n={n} deg={deg} rounds={rounds} (>1 = O(1) has_edge faster)");
         report("HASEDGE_vs_contains", &paired(true, false));
         report("NULL_new_vs_new", &paired(true, true));
+    }
+
+    /// br-r37-c1-kneserpush parity: removing the redundant `adj_indices.contains` guards under the
+    /// `seen.insert(pair)` new-pair guard must keep the Kneser build byte-identical — correct
+    /// node/edge counts and NO duplicate adjacency entries. (Same lever + adj_indices.push operation
+    /// as br-r37-c1-addedgenewedge, whose A/B measured the O(degree)→O(1) win.)
+    #[test]
+    fn kneser_push_no_duplicate_adjacency() {
+        // Kneser(10,3): C(10,3)=120 nodes, degree C(7,3)=35, edges = 120*35/2 = 2100.
+        let g = Graph::kneser(CompatibilityMode::Strict, 10, 3);
+        assert_eq!(g.node_count(), 120, "C(10,3) nodes");
+        assert_eq!(g.edge_count(), 2100, "120*35/2 Kneser edges");
+        let mut total_deg = 0usize;
+        for i in 0..g.node_count() {
+            let row = &g.adj_indices[i];
+            let uniq: BTreeSet<usize> = row.iter().copied().collect();
+            assert_eq!(uniq.len(), row.len(), "node {i} has duplicate adjacency entries");
+            assert_eq!(row.len(), 35, "Kneser(10,3) is 35-regular");
+            total_deg += row.len();
+        }
+        assert_eq!(total_deg, 2 * 2100, "handshake: sum of degrees == 2|E|");
     }
 
     fn node_name(id: u8) -> String {
