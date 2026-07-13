@@ -35123,10 +35123,7 @@ pub fn is_regular(graph: &Graph) -> bool {
 /// Check if an undirected graph is k-regular (all nodes have degree k).
 #[must_use]
 pub fn is_k_regular(graph: &Graph, k: usize) -> bool {
-    graph
-        .nodes_ordered()
-        .iter()
-        .all(|&node| node_degree(graph, node) == k)
+    (0..graph.node_count()).all(|index| graph.degree_by_index(index) == k)
 }
 
 fn node_degree(graph: &Graph, node: &str) -> usize {
@@ -72329,6 +72326,79 @@ mod tests {
         let _ = g.add_edge("a", "a");
         assert!(is_k_regular(&g, 2));
         assert!(!is_k_regular(&g, 1));
+    }
+
+    /// br-r37-c1-38tp8: paired-interleaved median A/B for `is_k_regular`'s full-scan path.
+    /// The baseline freezes the ordered-name materialization plus per-node String lookup; the
+    /// candidate walks the same dense node order through `degree_by_index`. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib is_k_regular_degree_index_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn is_k_regular_degree_index_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let mut graph = Graph::strict();
+        for index in 0..100_000usize {
+            let _ = graph.add_node(index.to_string());
+        }
+
+        let baseline = |graph: &Graph, k: usize| {
+            graph
+                .nodes_ordered()
+                .iter()
+                .all(|&node| graph.degree(node) == k)
+        };
+        assert_eq!(
+            baseline(&graph, 0),
+            is_k_regular(&graph, 0),
+            "indexed degree scan must match the ordered-name baseline"
+        );
+
+        let time = |indexed: bool| -> f64 {
+            let start = Instant::now();
+            let result = if indexed {
+                is_k_regular(black_box(&graph), black_box(0))
+            } else {
+                baseline(black_box(&graph), black_box(0))
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+
+        let rounds = 61usize;
+        let paired = |candidate: bool, baseline_arm: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(baseline_arm), time(candidate))
+                } else {
+                    let candidate_time = time(candidate);
+                    (time(baseline_arm), candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "KREG_IDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("KREG_IDX_AB empty100k rounds={rounds} (>1 = indexed scan faster)");
+        report("INDEX_vs_name", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
     }
 
     #[test]
