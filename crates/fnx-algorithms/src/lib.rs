@@ -42673,11 +42673,11 @@ pub fn line_graph(graph: &Graph) -> Graph {
         })
         .collect();
 
-    // Create a node for each edge, named as "(u, v)"
-    for (u, v) in &edges {
-        let node_name = pair_label(u, v);
-        let _ = result.add_node(node_name);
-    }
+    // Create a node for each edge, named as "(u, v)".
+    // br-r37-c1-prodnodebatch (cc): batch the L(G) node inserts — edges were already batched
+    // (linegraphbatch), but the node loop still paid a per-node add_node policy record. Same order
+    // + injective pair_label over distinct input edges → byte-identical node set.
+    let _ = result.extend_nodes_unrecorded(edges.iter().map(|(u, v)| pair_label(u, v)));
 
     // br-r37-c1-linegraphbatch (cc): hoist node_i = pair_label(u1,v1) OUT of the inner loop (it was
     // recomputed for every j) and batch-insert the L(G) edges instead of per-edge add_edge (a policy
@@ -42720,11 +42720,10 @@ pub fn line_graph_directed(digraph: &DiGraph) -> DiGraph {
         .map(|e| (e.left.clone(), e.right.clone()))
         .collect();
 
-    // Create a node for each edge, named as "(u, v)"
-    for (u, v) in &edges {
-        let node_name = pair_label(u, v);
-        let _ = result.add_node(node_name);
-    }
+    // Create a node for each edge, named as "(u, v)".
+    // br-r37-c1-prodnodebatch (cc): batch the L(G) node inserts (edges already batched by
+    // linegraphdirbatch; node loop still paid a per-node add_node policy record). Byte-identical.
+    let _ = result.extend_nodes_unrecorded(edges.iter().map(|(u, v)| pair_label(u, v)));
 
     // br-r37-c1-linegraphdirbatch (cc): collect the directed L(G) edges (same emission order) and
     // batch-insert once instead of per-edge add_edge (a policy record each). Each (outer, inner) match
@@ -42766,13 +42765,15 @@ pub fn cartesian_product(g: &Graph, h: &Graph) -> Graph {
     let g_nodes = g.nodes_ordered();
     let h_nodes = h.nodes_ordered();
 
-    // Create node for each pair (g_node, h_node)
-    for gn in &g_nodes {
-        for hn in &h_nodes {
-            let node_name = pair_label(gn, hn);
-            let _ = result.add_node(node_name);
-        }
-    }
+    // Create node for each pair (g_node, h_node).
+    // br-r37-c1-prodnodebatch (cc): batch the V(g)*V(h) product-node inserts — edges were already
+    // batched (cartprodbatch), but the node loop still paid a per-node add_node policy record. Same
+    // g-major/h-minor order + injective pair_label over distinct pairs → byte-identical node set.
+    let _ = result.extend_nodes_unrecorded(
+        g_nodes
+            .iter()
+            .flat_map(|gn| h_nodes.iter().map(move |hn| pair_label(gn, hn))),
+    );
 
     // br-r37-c1-cartprodbatch (cc): materialize the h/g edge lists ONCE (they were rebuilt inside the
     // outer-node loops — O(|g|*|h_edges| + |h|*|g_edges|) throwaway edge-Vec allocations) and
@@ -42809,12 +42810,13 @@ pub fn cartesian_product_directed(g: &DiGraph, h: &DiGraph) -> DiGraph {
     let g_nodes = g.nodes_ordered();
     let h_nodes = h.nodes_ordered();
 
-    for gn in &g_nodes {
-        for hn in &h_nodes {
-            let node_name = pair_label(gn, hn);
-            let _ = result.add_node(node_name);
-        }
-    }
+    // br-r37-c1-prodnodebatch (cc): batch the V(g)*V(h) product-node inserts (edges already batched
+    // by cartproddirbatch; node loop still paid a per-node add_node policy record). Byte-identical.
+    let _ = result.extend_nodes_unrecorded(
+        g_nodes
+            .iter()
+            .flat_map(|gn| h_nodes.iter().map(move |hn| pair_label(gn, hn))),
+    );
 
     // br-r37-c1-cartproddirbatch (cc): materialize the h/g edge lists ONCE (they were rebuilt inside
     // the outer-node loops → O(|g|*|h_edges| + |h|*|g_edges|) throwaway edge-Vec allocations) and
@@ -42854,13 +42856,14 @@ pub fn tensor_product(g: &Graph, h: &Graph) -> Graph {
     let g_nodes = g.nodes_ordered();
     let h_nodes = h.nodes_ordered();
 
-    // Create node for each pair
-    for gn in &g_nodes {
-        for hn in &h_nodes {
-            let node_name = pair_label(gn, hn);
-            let _ = result.add_node(node_name);
-        }
-    }
+    // Create node for each pair.
+    // br-r37-c1-prodnodebatch (cc): batch the V(g)*V(h) product-node inserts (edges already batched
+    // by tensorprodbatch; node loop still paid a per-node add_node policy record). Byte-identical.
+    let _ = result.extend_nodes_unrecorded(
+        g_nodes
+            .iter()
+            .flat_map(|gn| h_nodes.iter().map(move |hn| pair_label(gn, hn))),
+    );
 
     // Collect edges for iteration
     let g_edges: Vec<(String, String)> = g
@@ -42911,12 +42914,13 @@ pub fn tensor_product_directed(g: &DiGraph, h: &DiGraph) -> DiGraph {
     let g_nodes = g.nodes_ordered();
     let h_nodes = h.nodes_ordered();
 
-    for gn in &g_nodes {
-        for hn in &h_nodes {
-            let node_name = pair_label(gn, hn);
-            let _ = result.add_node(node_name);
-        }
-    }
+    // br-r37-c1-prodnodebatch (cc): batch the V(g)*V(h) product-node inserts (edges already batched
+    // by tensorproddirbatch; node loop still paid a per-node add_node policy record). Byte-identical.
+    let _ = result.extend_nodes_unrecorded(
+        g_nodes
+            .iter()
+            .flat_map(|gn| h_nodes.iter().map(move |hn| pair_label(gn, hn))),
+    );
 
     let g_edges: Vec<(String, String)> = g
         .edges_ordered()
@@ -81827,6 +81831,114 @@ mod tests {
         println!("EORDLEN_AB faster_could_be_isomorphic 10k/100k rounds={rounds} (>1 = edge_count faster)");
         report("EDGECOUNT_vs_edgesordered", &paired(true, false));
         report("NULL_edgecount_vs_edgecount", &paired(true, true));
+    }
+
+    /// br-r37-c1-prodnodebatch: paired-interleaved median A/B for the graph-product / line-graph node
+    /// creation. Those kernels already batch their EDGES (cartprodbatch/tensorprodbatch/linegraphbatch)
+    /// but still created the V(g)*V(h) (or |E|) product nodes one-by-one via `add_node`, which records
+    /// a per-node policy decision (two String-allocating EvidenceTerms + a ledger `record`).
+    /// `extend_nodes_unrecorded` inserts the same nodes in the same order with ONE ledger record.
+    /// Byte-exact node set asserted (order + count). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib product_node_batch_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn product_node_batch_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Two factor graphs; the product has 200*200 = 40k nodes (the per-node record the batch drops).
+        let build = |n: usize| -> Graph {
+            let mut g = Graph::strict();
+            for i in 0..n {
+                let _ = g.add_node(format!("v{i}"));
+            }
+            for i in 0..n {
+                let _ = g.add_edge(format!("v{i}"), format!("v{}", (i + 1) % n));
+            }
+            g
+        };
+        let g = build(200);
+        let h = build(200);
+        let g_nodes = g.nodes_ordered();
+        let h_nodes = h.nodes_ordered();
+
+        let build_old = || -> Graph {
+            let mut r = Graph::with_runtime_policy(g.runtime_policy().clone());
+            for gn in &g_nodes {
+                for hn in &h_nodes {
+                    let _ = r.add_node(super::pair_label(gn, hn));
+                }
+            }
+            r
+        };
+        let build_new = || -> Graph {
+            let mut r = Graph::with_runtime_policy(g.runtime_policy().clone());
+            let _ = r.extend_nodes_unrecorded(
+                g_nodes
+                    .iter()
+                    .flat_map(|gn| h_nodes.iter().map(move |hn| super::pair_label(gn, hn))),
+            );
+            r
+        };
+
+        // Byte-exact node structure: same order AND count.
+        let ro = build_old();
+        let rn = build_new();
+        assert_eq!(ro.node_count(), rn.node_count(), "product node count parity");
+        assert_eq!(
+            ro.nodes_ordered(),
+            rn.nodes_ordered(),
+            "product node ORDER parity"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if cand { build_new() } else { build_old() };
+            black_box(r.node_count());
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "PRODNODE_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "PRODNODE_AB cartesian-product node build 200x200=40k rounds={rounds} (>1 = batch faster)"
+        );
+        report("BATCH_vs_perNode", &paired(true, false));
+        report("NULL_batch_vs_batch", &paired(true, true));
     }
 
     /// br-r37-c1-vngrp: isolated paired-interleaved median A/B for `ego_graph`'s induced-edge copy
