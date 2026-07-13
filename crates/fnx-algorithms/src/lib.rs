@@ -34788,6 +34788,50 @@ fn kosaraju_strongly_connected_components_orig_string(digraph: &DiGraph) -> Vec<
 /// Matches `networkx.attracting_components(G)`.
 #[must_use]
 pub fn attracting_components(digraph: &DiGraph) -> Vec<Vec<String>> {
+    // br-r37-c1-attractidx (cc): the condensation "does this SCC have a cross-SCC out-edge?"
+    // scan kept node->scc as a HashMap<&str,usize> and walked digraph.successors(node) (a
+    // Vec<&str> name alloc per node) with a node_to_scc[s] String hash PER EDGE — an O(|E|)
+    // String tax on top of the (already integer-CSR) SCC. Build node_scc as a Vec<usize> by
+    // node index once (O(|V|) get_node_index), then walk successors_indices(u) (&[usize], no
+    // alloc) with node_scc[] array reads. Byte-identical: node index i == nodes_ordered()[i]
+    // (same node scan order), same cross-SCC test, has_outgoing is a per-SCC bool
+    // (order-independent), and the sccs order is preserved by the final filter.
+    let sccs = strongly_connected_components(digraph);
+    let n = digraph.node_count();
+    let mut node_scc: Vec<usize> = vec![0; n];
+    for (i, scc) in sccs.iter().enumerate() {
+        for node in scc {
+            if let Some(idx) = digraph.get_node_index(node) {
+                node_scc[idx] = i;
+            }
+        }
+    }
+
+    let mut has_outgoing = vec![false; sccs.len()];
+    for u_idx in 0..n {
+        let u_scc = node_scc[u_idx];
+        if let Some(succs) = digraph.successors_indices(u_idx) {
+            for &s_idx in succs {
+                if node_scc[s_idx] != u_scc {
+                    has_outgoing[u_scc] = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    sccs.into_iter()
+        .enumerate()
+        .filter(|(i, _)| !has_outgoing[*i])
+        .map(|(_, scc)| scc)
+        .collect()
+}
+
+/// br-r37-c1-attractidx A/B baseline: the pre-lever `attracting_components` that kept
+/// node->scc as a HashMap<&str,usize> and walked successors() (Vec<&str> alloc) + a
+/// String hash per edge. Test-only; byte-identical to the integer-index version.
+#[cfg(test)]
+fn attracting_components_orig_string(digraph: &DiGraph) -> Vec<Vec<String>> {
     let sccs = strongly_connected_components(digraph);
     let mut node_to_scc: HashMap<&str, usize> = HashMap::new();
     for (i, scc) in sccs.iter().enumerate() {
@@ -34795,7 +34839,6 @@ pub fn attracting_components(digraph: &DiGraph) -> Vec<Vec<String>> {
             node_to_scc.insert(node.as_str(), i);
         }
     }
-
     let mut has_outgoing = vec![false; sccs.len()];
     for &node in digraph.nodes_ordered().iter() {
         let u_scc = node_to_scc[node];
@@ -34809,7 +34852,6 @@ pub fn attracting_components(digraph: &DiGraph) -> Vec<Vec<String>> {
             }
         }
     }
-
     sccs.into_iter()
         .enumerate()
         .filter(|(i, _)| !has_outgoing[*i])
@@ -56050,6 +56092,90 @@ mod tests {
         report("IN_NULL_index_vs_index", &paired(&time_in, true, true));
         report("UNDIR_index_vs_string", &paired(&time_ud, true, false));
         report("UNDIR_NULL_index_vs_index", &paired(&time_ud, true, true));
+    }
+
+    /// br-r37-c1-attractidx: full-function paired-interleaved A/B for `attracting_components` — the
+    /// condensation out-edge scan (node_to_scc HashMap<&str,usize> + successors() Vec<&str> + String hash
+    /// per edge) → node_scc Vec<usize> by index + successors_indices. Dense STRONGLY-CONNECTED circulant
+    /// (one giant SCC → every edge is in-SCC → the scan checks all |E| without early-break, maximising the
+    /// String tax). Byte-exact parity. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib attracting_components_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn attracting_components_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Directed circulant i -> (i+1..=i+deg) mod n: strongly connected (one SCC), so the has-outgoing
+        // scan walks every node's `deg` successors WITHOUT the cross-SCC break → full |E| String hashing.
+        let n = 50000usize;
+        let deg = 20usize;
+        let mut dg = DiGraph::strict();
+        for i in 0..n {
+            let _ = dg.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for step in 1..=deg {
+                let _ = dg.add_edge(format!("n{i}"), format!("n{}", (i + step) % n));
+            }
+        }
+
+        // Byte-exact parity: same attracting components (one, the whole graph).
+        let cand = super::attracting_components(&dg);
+        let base = super::attracting_components_orig_string(&dg);
+        assert_eq!(cand, base, "index attracting_components must equal the String baseline");
+        assert_eq!(cand.len(), 1, "one attracting component (single SCC)");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::attracting_components(&dg)
+            } else {
+                super::attracting_components_orig_string(&dg)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "ATTRACT_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("ATTRACT_AB attracting_components n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
     }
 
     /// br-r37-c1-cutexpidx: full-function paired-interleaved A/B for the cut-measure mirror-lag family —
