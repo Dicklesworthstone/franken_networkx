@@ -21414,6 +21414,77 @@ pub fn dag_longest_path_weighted(
     default_weight: f64,
 ) -> Option<Vec<String>> {
     let topo = topological_sort(digraph)?;
+    if topo.order.is_empty() {
+        return Some(Vec::new());
+    }
+
+    // br-r37-c1-daglpwidx (cc): index-key the weighted DAG DP. The old kernel kept dist as
+    // HashMap<&str,f64> + pred as HashMap<&str,Option<&str>> and looked up each edge weight via the
+    // NAME-keyed `directed_edge_weight_with_default` (two node-map String probes per edge). Resolve the
+    // topo order to indices once, relax over successors_indices into dist: Vec<f64> + pred:
+    // Vec<Option<usize>>, and read weights via `directed_edge_weight_with_default_idx`
+    // (edge_attrs_by_indices, same semantics). BIT-IDENTICAL floats: only the KEY lookup changes — the
+    // per-edge weight, the `dist[u] + edge_w` add, and the `>` relaxation/first-max tie-break are
+    // unchanged and applied in the same topo×successor order → the same f64 dist values and same path.
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    let topo_idx: Vec<usize> = topo
+        .order
+        .iter()
+        .map(|name| {
+            digraph
+                .get_node_index(name)
+                .expect("topological_sort nodes are graph nodes")
+        })
+        .collect();
+
+    let mut dist = vec![0.0f64; n];
+    let mut pred: Vec<Option<usize>> = vec![None; n];
+
+    for &u in &topo_idx {
+        if let Some(succs) = digraph.successors_indices(u) {
+            for &v in succs {
+                let edge_w =
+                    directed_edge_weight_with_default_idx(digraph, u, v, weight_attr, default_weight);
+                let new_dist = dist[u] + edge_w;
+                if new_dist > dist[v] {
+                    dist[v] = new_dist;
+                    pred[v] = Some(u);
+                }
+            }
+        }
+    }
+
+    let mut best_node = topo_idx[0];
+    let mut best_dist = dist[best_node];
+    for &node in &topo_idx {
+        let d = dist[node];
+        if d > best_dist {
+            best_dist = d;
+            best_node = node;
+        }
+    }
+
+    let mut path = vec![nodes[best_node].to_owned()];
+    let mut current = best_node;
+    while let Some(p) = pred[current] {
+        path.push(nodes[p].to_owned());
+        current = p;
+    }
+    path.reverse();
+    Some(path)
+}
+
+/// br-r37-c1-daglpwidx A/B baseline: the pre-lever String-keyed weighted DAG longest-path DP
+/// (name-keyed dist/pred + name-keyed edge-weight lookup). Test-only; byte-identical (bit-identical
+/// f64) to the shipped integer-index version.
+#[cfg(test)]
+fn dag_longest_path_weighted_orig_string(
+    digraph: &DiGraph,
+    weight_attr: &str,
+    default_weight: f64,
+) -> Option<Vec<String>> {
+    let topo = topological_sort(digraph)?;
     let order = &topo.order;
     if order.is_empty() {
         return Some(Vec::new());
@@ -32852,6 +32923,26 @@ fn directed_edge_weight_with_default(
 ) -> f64 {
     digraph
         .edge_attrs(source, target)
+        .and_then(|attrs| attrs.get(weight_attr))
+        .and_then(|val| val.as_f64())
+        .filter(|value| value.is_finite())
+        .unwrap_or(default_weight)
+}
+
+/// br-r37-c1-daglpwidx: index-keyed twin of `directed_edge_weight_with_default` — IDENTICAL
+/// semantics (caller-supplied default, `is_finite` filter, negative weights allowed) but resolves
+/// the edge via `edge_attrs_by_indices` (no node-map String probes). Bit-identical weight for the
+/// same (source_idx, target_idx) endpoints. (Distinct from `digraph_edge_weight_or_default_idx`,
+/// which hard-codes a 1.0 default AND clamps negatives — that is the Dijkstra/non-negative variant.)
+fn directed_edge_weight_with_default_idx(
+    digraph: &DiGraph,
+    source_idx: usize,
+    target_idx: usize,
+    weight_attr: &str,
+    default_weight: f64,
+) -> f64 {
+    digraph
+        .edge_attrs_by_indices(source_idx, target_idx)
         .and_then(|attrs| attrs.get(weight_attr))
         .and_then(|val| val.as_f64())
         .filter(|value| value.is_finite())
@@ -54202,6 +54293,97 @@ mod tests {
             );
         };
         println!("DAGLPIDX_AB dag_longest_path n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-daglpwidx: full-function paired-interleaved A/B for `dag_longest_path_weighted` (String-
+    /// keyed weighted DAG DP: dist HashMap<&str,f64> + pred HashMap<&str,Option<&str>> + NAME-keyed edge-
+    /// weight lookup → integer-index dist/pred + directed_edge_weight_with_default_idx). f64 add/compare
+    /// unchanged; only the key lookup changes → bit-identical. Byte-exact parity (path). `#[ignore]`; run
+    /// with `cargo test --release -p fnx-algorithms --lib dag_longest_path_weighted_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn dag_longest_path_weighted_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Weighted forward DAG n=40000, out-degree ~20; edge (i,i+k) carries weight 1..9. The DP relaxes
+        // every edge with a per-edge weight lookup — 2 node-map String probes each in the baseline.
+        let n = 40000usize;
+        let deg = 20usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                if i + k < n {
+                    let w = format!("{}", (i + k) % 9 + 1);
+                    let _ = g.add_edge_with_attrs(
+                        format!("n{i}"),
+                        format!("n{}", i + k),
+                        attrs([("weight", w.as_str())]),
+                    );
+                }
+            }
+        }
+
+        // Byte-exact parity (bit-identical f64 → same path).
+        let cand = super::dag_longest_path_weighted(&g, "weight", 1.0);
+        let base = super::dag_longest_path_weighted_orig_string(&g, "weight", 1.0);
+        assert_eq!(cand, base, "index dag_longest_path_weighted must equal the String baseline");
+        assert!(cand.is_some(), "forward DAG is acyclic");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::dag_longest_path_weighted(&g, "weight", 1.0)
+            } else {
+                super::dag_longest_path_weighted_orig_string(&g, "weight", 1.0)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "DAGLPWIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("DAGLPWIDX_AB dag_longest_path_weighted n={n} deg={deg} rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
