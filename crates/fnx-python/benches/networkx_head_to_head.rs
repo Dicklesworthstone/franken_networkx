@@ -2696,9 +2696,177 @@ fn kcore_head_to_head(c: &mut Criterion) {
     group.finish();
 }
 
+struct KCoreFamilyWorkloads {
+    fnx_kshell: Py<PyAny>,
+    nx_kshell: Py<PyAny>,
+    fnx_kcrust: Py<PyAny>,
+    nx_kcrust: Py<PyAny>,
+    fnx_kcorona: Py<PyAny>,
+    nx_kcorona: Py<PyAny>,
+}
+
+fn prepare_kcore_family_workloads(py: Python<'_>) -> PyResult<KCoreFamilyWorkloads> {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("fnx-python crate must live under crates/");
+    let python_dir = repo_root.join("python");
+    let legacy_dir = repo_root.join("legacy_networkx_code").join("networkx");
+
+    let sys = py.import("sys")?;
+    let path = sys.getattr("path")?;
+    let path = path.cast::<PyList>()?;
+    path.insert(0, repo_root.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, python_dir.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, legacy_dir.to_str().expect("repo path must be UTF-8"))?;
+
+    let locals = PyDict::new(py);
+    py.run(
+        cstring(
+            r#"
+import glob
+import importlib.util
+import os
+import sys
+
+target_dir = os.environ.get("CARGO_TARGET_DIR")
+if target_dir and "franken_networkx._fnx" not in sys.modules:
+    candidates = [
+        os.path.join(target_dir, "release", "lib_fnx.so"),
+        *glob.glob(os.path.join(target_dir, "release", "deps", "lib_fnx*.so")),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            spec = importlib.util.spec_from_file_location("franken_networkx._fnx", path)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["franken_networkx._fnx"] = module
+            spec.loader.exec_module(module)
+            break
+
+for _name in list(sys.modules):
+    if _name == "networkx" or _name.startswith("networkx."):
+        del sys.modules[_name]
+
+import networkx as nx
+import franken_networkx as fnx
+
+if "legacy_networkx_code" not in getattr(nx, "__file__", ""):
+    raise AssertionError(f"expected vendored NetworkX oracle, got {nx.__file__!r}")
+
+def _paired_attr_graph(n, m, seed):
+    base = nx.barabasi_albert_graph(n, m, seed=seed)
+    gf = fnx.Graph()
+    gn = nx.Graph()
+    for i in base.nodes():
+        gf.add_node(i, color=(i % 5), tag="v")
+        gn.add_node(i, color=(i % 5), tag="v")
+    for j, (u, v) in enumerate(base.edges()):
+        w = (u * 7 + v * 11 + j) % 13
+        gf.add_edge(u, v, weight=w)
+        gn.add_edge(u, v, weight=w)
+    return gf, gn
+
+gf, gn = _paired_attr_graph(4000, 4, 7)
+
+def _canon_edges(G):
+    return sorted(tuple(sorted((u, v))) for u, v in G.edges())
+
+def _edge_attr_map(G):
+    return {tuple(sorted((u, v))): dict(d) for u, v, d in G.edges(data=True)}
+
+def _assert_pair(rf, rn, label):
+    assert list(rf.nodes()) == list(rn.nodes()), f"{label}: node order mismatch"
+    assert _canon_edges(rf) == _canon_edges(rn), f"{label}: edge set mismatch"
+    assert dict(rf.nodes(data=True)) == dict(rn.nodes(data=True)), f"{label}: node attrs mismatch"
+    assert _edge_attr_map(rf) == _edge_attr_map(rn), f"{label}: edge attrs mismatch"
+
+for _k in (None, 2, 3, 4, 5):
+    _assert_pair(fnx.k_shell(gf, _k), nx.k_shell(gn, _k), f"k_shell k={_k}")
+for _k in (None, 1, 2, 3, 4):
+    _assert_pair(fnx.k_crust(gf, _k), nx.k_crust(gn, _k), f"k_crust k={_k}")
+for _k in (1, 2, 3, 4):
+    _assert_pair(fnx.k_corona(gf, _k), nx.k_corona(gn, _k), f"k_corona k={_k}")
+
+# Edge-case parity: the native route must DELEGATE (not silently compute) where nx raises, so the
+# same exception surfaces. Empty graph with k=None -> nx max([]) ValueError; any self loop ->
+# nx.core_number NetworkXNotImplemented.
+def _both_raise(fn_f, fn_n, gf_, gn_, *a):
+    try:
+        fn_n(gn_, *a)
+        raised_n = False
+    except Exception:
+        raised_n = True
+    try:
+        fn_f(gf_, *a)
+        raised_f = False
+    except Exception:
+        raised_f = True
+    assert raised_n and raised_f, f"raise parity mismatch: nx={raised_n} fnx={raised_f}"
+
+ef, en = fnx.Graph(), nx.Graph()
+_both_raise(fnx.k_shell, nx.k_shell, ef, en)
+_both_raise(fnx.k_crust, nx.k_crust, ef, en)
+
+sf, sn = fnx.Graph(), nx.Graph()
+for _g in (sf, sn):
+    _g.add_edge(0, 0)
+    _g.add_edge(0, 1)
+    _g.add_edge(1, 2)
+_both_raise(fnx.k_shell, nx.k_shell, sf, sn)
+_both_raise(fnx.k_crust, nx.k_crust, sf, sn)
+_both_raise(fnx.k_core, nx.k_core, sf, sn)
+_both_raise(fnx.k_corona, nx.k_corona, sf, sn, 2)
+
+fnx_kshell = lambda: fnx.k_shell(gf, 3).number_of_nodes()
+nx_kshell = lambda: nx.k_shell(gn, 3).number_of_nodes()
+fnx_kcrust = lambda: fnx.k_crust(gf, 2).number_of_nodes()
+nx_kcrust = lambda: nx.k_crust(gn, 2).number_of_nodes()
+fnx_kcorona = lambda: fnx.k_corona(gf, 2).number_of_nodes()
+nx_kcorona = lambda: nx.k_corona(gn, 2).number_of_nodes()
+"#,
+        )
+        .as_c_str(),
+        Some(&locals),
+        Some(&locals),
+    )?;
+
+    let callable = |name: &str| -> PyResult<Py<PyAny>> {
+        let callable = locals.get_item(name)?.ok_or_else(|| {
+            pyo3::exceptions::PyKeyError::new_err(format!("missing Python callable {name}"))
+        })?;
+        Ok(callable.unbind())
+    };
+
+    Ok(KCoreFamilyWorkloads {
+        fnx_kshell: callable("fnx_kshell")?,
+        nx_kshell: callable("nx_kshell")?,
+        fnx_kcrust: callable("fnx_kcrust")?,
+        nx_kcrust: callable("nx_kcrust")?,
+        fnx_kcorona: callable("fnx_kcorona")?,
+        nx_kcorona: callable("nx_kcorona")?,
+    })
+}
+
+fn kcore_family_head_to_head(c: &mut Criterion) {
+    Python::initialize();
+    let workloads = Python::attach(prepare_kcore_family_workloads)
+        .expect("failed to prepare k_core-family Python workloads");
+    let mut group = c.benchmark_group("networkx_head_to_head_kcore_family");
+    group.sample_size(15);
+    bench_python_callable(&mut group, "fnx_k_shell_ba4000_k3", &workloads.fnx_kshell);
+    bench_python_callable(&mut group, "nx_k_shell_ba4000_k3", &workloads.nx_kshell);
+    bench_python_callable(&mut group, "fnx_k_crust_ba4000_k2", &workloads.fnx_kcrust);
+    bench_python_callable(&mut group, "nx_k_crust_ba4000_k2", &workloads.nx_kcrust);
+    bench_python_callable(&mut group, "fnx_k_corona_ba4000_k2", &workloads.fnx_kcorona);
+    bench_python_callable(&mut group, "nx_k_corona_ba4000_k2", &workloads.nx_kcorona);
+    group.finish();
+}
+
 criterion_group!(
     benches,
     kcore_head_to_head,
+    kcore_family_head_to_head,
     voronoi_head_to_head,
     tsp_head_to_head,
     construction_copy_head_to_head,

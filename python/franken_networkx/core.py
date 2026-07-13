@@ -62,6 +62,31 @@ for _name in _FNX_NATIVE_CORE_NAMES:
     globals()[_name] = _make_fnx_core_router(_name)
 
 
+def _k_core_family_native_ok(G, k, core_number):
+    """Whether the k-core family can route to native Rust with byte-exact nx parity.
+
+    The native kernels emit nodes in G-insertion order and re-attach node/edge attributes, so
+    the induced subgraph matches ``G.subgraph(nodes)``. Route ONLY when the result and the
+    error behaviour match ``networkx``:
+
+    - simple undirected fnx ``Graph`` (the nx wrappers go through ``core_number``, which is
+      undefined for multigraphs; directed inputs take a different degree definition);
+    - no precomputed ``core_number`` (a user map bypasses the native decomposition);
+    - at least one node (``nx.core_number`` -> ``max([])`` raises ``ValueError`` when ``k is
+      None`` on an empty graph — delegate so that raise is preserved);
+    - no self loops (``nx.core_number`` raises ``NetworkXNotImplemented`` on self loops);
+    - ``k`` is ``None`` or a non-negative ``int`` (the usize binding cannot represent a negative
+      or float ``k`` that networkx would still accept).
+    """
+    return (
+        core_number is None
+        and type(G) is _fnx.Graph
+        and G.number_of_nodes() > 0
+        and G.number_of_selfloops() == 0
+        and (k is None or (isinstance(k, int) and k >= 0))
+    )
+
+
 def k_core(G, k=None, core_number=None, *, backend=None, **backend_kwargs):
     """Return the k-core of G.
 
@@ -69,12 +94,9 @@ def k_core(G, k=None, core_number=None, *, backend=None, **backend_kwargs):
     the result to an fnx graph type for drop-in compatibility.
     """
     _fnx._validate_backend_dispatch_keywords("k_core", backend, backend_kwargs)
-    # br-r37-c1-kcorenative: route the plain simple-``Graph`` / no-precomputed-``core_number`` case to
-    # the native Rust k-core (nx runs a pure-Python core decomposition + subgraph copy). The native
-    # kernel emits nodes in G's insertion order and its binding re-attaches node/edge attributes, so
-    # the result matches ``G.subgraph({v: core[v] >= k})``. Delegate directed/multigraph inputs, a
-    # user-supplied ``core_number``, or non-fnx graphs to networkx (order/semantics parity risk).
-    if core_number is None and type(G) is _fnx.Graph:
+    # br-r37-c1-kcorenative: route the plain simple-``Graph`` case to the native Rust k-core (nx
+    # runs a pure-Python core decomposition + subgraph copy). See ``_k_core_family_native_ok``.
+    if _k_core_family_native_ok(G, k, core_number):
         from franken_networkx._fnx import k_core_rust as _raw_k_core
 
         return _raw_k_core(G, k)
@@ -89,6 +111,11 @@ def k_shell(G, k=None, core_number=None, *, backend=None, **backend_kwargs):
     the result to an fnx graph type for drop-in compatibility.
     """
     _fnx._validate_backend_dispatch_keywords("k_shell", backend, backend_kwargs)
+    # br-r37-c1-kshellnative: native route for the simple-``Graph`` case (see the k_core note).
+    if _k_core_family_native_ok(G, k, core_number):
+        from franken_networkx._fnx import k_shell_rust as _raw_k_shell
+
+        return _raw_k_shell(G, k)
     nx_result = _nx_core.k_shell(G, k=k, core_number=core_number)
     return _from_nx_graph(nx_result)
 
@@ -100,6 +127,11 @@ def k_crust(G, k=None, core_number=None, *, backend=None, **backend_kwargs):
     the result to an fnx graph type for drop-in compatibility.
     """
     _fnx._validate_backend_dispatch_keywords("k_crust", backend, backend_kwargs)
+    # br-r37-c1-kcrustnative: native route for the simple-``Graph`` case (see the k_core note).
+    if _k_core_family_native_ok(G, k, core_number):
+        from franken_networkx._fnx import k_crust_rust as _raw_k_crust
+
+        return _raw_k_crust(G, k)
     nx_result = _nx_core.k_crust(G, k=k, core_number=core_number)
     return _from_nx_graph(nx_result)
 
@@ -111,6 +143,12 @@ def k_corona(G, k, core_number=None, *, backend=None, **backend_kwargs):
     the result to an fnx graph type for drop-in compatibility.
     """
     _fnx._validate_backend_dispatch_keywords("k_corona", backend, backend_kwargs)
+    # br-r37-c1-kcoronanative: native route for the simple-``Graph`` case (see the k_core note).
+    # ``k`` is required here, so the guard's ``k is None`` branch is never taken.
+    if _k_core_family_native_ok(G, k, core_number):
+        from franken_networkx._fnx import k_corona_rust as _raw_k_corona
+
+        return _raw_k_corona(G, k)
     nx_result = _nx_core.k_corona(G, k, core_number=core_number)
     return _from_nx_graph(nx_result)
 

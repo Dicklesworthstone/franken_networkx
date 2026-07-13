@@ -15066,41 +15066,42 @@ pub fn k_shell(graph: &Graph, k: Option<usize>) -> KCoreResult {
     // Determine the effective k (default to max core number)
     let effective_k = k.unwrap_or_else(|| core_map.values().copied().max().unwrap_or(0));
 
-    // Filter nodes with core number == k
-    let nodes: Vec<String> = core_map
-        .iter()
-        .filter(|&(_, c)| *c == effective_k)
-        .map(|(&node, _)| node.to_owned())
-        .collect();
+    // br-r37-c1-kshellnative (cc): emit in-shell nodes in G INSERTION order (nodes_ordered) and
+    // collect induced edges by walking in-shell nodes in G order over integer adjacency
+    // (neighbors_indices, first-seen (min,max) index dedup), so the result matches
+    // nx.k_shell = G.subgraph({v: core[v] == k}) — same node order + induced edge set as nx.
+    let names = graph.nodes_ordered();
+    let n = names.len();
+    let mut in_shell = vec![false; n];
+    let mut nodes: Vec<String> = Vec::new();
+    for (i, &name) in names.iter().enumerate() {
+        if core_map.get(name).copied().unwrap_or(0) == effective_k {
+            in_shell[i] = true;
+            nodes.push(name.to_owned());
+        }
+    }
 
-    let node_set: HashSet<&str> = nodes.iter().map(String::as_str).collect();
-
-    // Collect edges in the induced subgraph
     let mut edges = Vec::new();
-    let mut seen: HashSet<(&str, &str)> = HashSet::new();
-    for node in &nodes {
-        if let Some(neighbors) = graph.neighbors_iter(node) {
-            for neighbor in neighbors {
-                if node_set.contains(neighbor) {
-                    let (left, right) = if node.as_str() <= neighbor {
-                        (node.as_str(), neighbor)
-                    } else {
-                        (neighbor, node.as_str())
-                    };
-                    if seen.insert((left, right)) {
-                        edges.push((left.to_owned(), right.to_owned()));
+    let mut seen: HashSet<(usize, usize)> = HashSet::new();
+    for u in 0..n {
+        if !in_shell[u] {
+            continue;
+        }
+        if let Some(neighbors) = graph.neighbors_indices(u) {
+            for &v in neighbors {
+                if in_shell[v] {
+                    let key = if u <= v { (u, v) } else { (v, u) };
+                    if seen.insert(key) {
+                        let (l, r) = key;
+                        edges.push((names[l].to_owned(), names[r].to_owned()));
                     }
                 }
             }
         }
     }
 
-    let mut sorted_nodes = nodes;
-    sorted_nodes.sort();
-    edges.sort();
-
     KCoreResult {
-        nodes: sorted_nodes,
+        nodes,
         edges,
         witness: ComplexityWitness {
             algorithm: "k_shell".to_owned(),
@@ -15129,43 +15130,49 @@ pub fn k_crust(graph: &Graph, k: Option<usize>) -> KCoreResult {
 
     // Default k is max core - 1
     let max_core = core_map.values().copied().max().unwrap_or(0);
+    // nx default is `max(core.values()) - 1`. When max_core == 0 (edgeless) that default is -1,
+    // and `core[v] <= -1` selects NO node — represent that as an empty selection (usize can't be
+    // negative). An explicit k is used as-is (an explicit k == 0 still selects the 0-core, as nx).
+    let select_none_default = k.is_none() && max_core == 0;
     let effective_k = k.unwrap_or_else(|| max_core.saturating_sub(1));
 
-    // Filter nodes with core number <= k
-    let nodes: Vec<String> = core_map
-        .iter()
-        .filter(|&(_, c)| *c <= effective_k)
-        .map(|(&node, _)| node.to_owned())
-        .collect();
+    // br-r37-c1-kcrustnative (cc): emit in-crust nodes in G INSERTION order + index-adjacency
+    // induced edges (first-seen (min,max) dedup) so the result matches
+    // nx.k_crust = G.subgraph({v: core[v] <= k}).
+    let names = graph.nodes_ordered();
+    let n = names.len();
+    let mut in_crust = vec![false; n];
+    let mut nodes: Vec<String> = Vec::new();
+    if !select_none_default {
+        for (i, &name) in names.iter().enumerate() {
+            if core_map.get(name).copied().unwrap_or(0) <= effective_k {
+                in_crust[i] = true;
+                nodes.push(name.to_owned());
+            }
+        }
+    }
 
-    let node_set: HashSet<&str> = nodes.iter().map(String::as_str).collect();
-
-    // Collect edges in the induced subgraph
     let mut edges = Vec::new();
-    let mut seen: HashSet<(&str, &str)> = HashSet::new();
-    for node in &nodes {
-        if let Some(neighbors) = graph.neighbors_iter(node) {
-            for neighbor in neighbors {
-                if node_set.contains(neighbor) {
-                    let (left, right) = if node.as_str() <= neighbor {
-                        (node.as_str(), neighbor)
-                    } else {
-                        (neighbor, node.as_str())
-                    };
-                    if seen.insert((left, right)) {
-                        edges.push((left.to_owned(), right.to_owned()));
+    let mut seen: HashSet<(usize, usize)> = HashSet::new();
+    for u in 0..n {
+        if !in_crust[u] {
+            continue;
+        }
+        if let Some(neighbors) = graph.neighbors_indices(u) {
+            for &v in neighbors {
+                if in_crust[v] {
+                    let key = if u <= v { (u, v) } else { (v, u) };
+                    if seen.insert(key) {
+                        let (l, r) = key;
+                        edges.push((names[l].to_owned(), names[r].to_owned()));
                     }
                 }
             }
         }
     }
 
-    let mut sorted_nodes = nodes;
-    sorted_nodes.sort();
-    edges.sort();
-
     KCoreResult {
-        nodes: sorted_nodes,
+        nodes,
         edges,
         witness: ComplexityWitness {
             algorithm: "k_crust".to_owned(),
@@ -15200,51 +15207,50 @@ pub fn k_corona(graph: &Graph, k: usize) -> KCoreResult {
         .map(|(&node, _)| node)
         .collect();
 
-    // Filter nodes with core number == k and exactly k neighbors in the k-core
-    let nodes: Vec<String> = core_map
-        .iter()
-        .filter(|&(&node, c)| {
-            if *c != k {
-                return false;
-            }
-            // Count neighbors in the k-core
-            let neighbors_in_k_core = graph
-                .neighbors_iter(node)
-                .map(|iter| iter.filter(|nb| k_core_nodes.contains(nb)).count())
-                .unwrap_or(0);
-            neighbors_in_k_core == k
-        })
-        .map(|(&node, _)| node.to_owned())
-        .collect();
+    // br-r37-c1-kcoronanative (cc): select nodes with core number == k and exactly k neighbors in
+    // the k-core (predicate byte-identical to the prior String-keyed count), but iterate in G
+    // INSERTION order (nodes_ordered) so the emitted node order matches
+    // nx.k_corona = G.subgraph({v: core[v] == k and #{w in G[v]: core[w] >= k} == k}). Induced
+    // edges are walked in G order over integer adjacency with first-seen (min,max) index dedup.
+    let names = graph.nodes_ordered();
+    let n = names.len();
+    let mut in_corona = vec![false; n];
+    let mut nodes: Vec<String> = Vec::new();
+    for (i, &name) in names.iter().enumerate() {
+        if core_map.get(name).copied().unwrap_or(0) != k {
+            continue;
+        }
+        let neighbors_in_k_core = graph
+            .neighbors_iter(name)
+            .map(|iter| iter.filter(|nb| k_core_nodes.contains(nb)).count())
+            .unwrap_or(0);
+        if neighbors_in_k_core == k {
+            in_corona[i] = true;
+            nodes.push(name.to_owned());
+        }
+    }
 
-    let node_set: HashSet<&str> = nodes.iter().map(String::as_str).collect();
-
-    // Collect edges in the induced subgraph
     let mut edges = Vec::new();
-    let mut seen: HashSet<(&str, &str)> = HashSet::new();
-    for node in &nodes {
-        if let Some(neighbors) = graph.neighbors_iter(node) {
-            for neighbor in neighbors {
-                if node_set.contains(neighbor) {
-                    let (left, right) = if node.as_str() <= neighbor {
-                        (node.as_str(), neighbor)
-                    } else {
-                        (neighbor, node.as_str())
-                    };
-                    if seen.insert((left, right)) {
-                        edges.push((left.to_owned(), right.to_owned()));
+    let mut seen: HashSet<(usize, usize)> = HashSet::new();
+    for u in 0..n {
+        if !in_corona[u] {
+            continue;
+        }
+        if let Some(neighbors) = graph.neighbors_indices(u) {
+            for &v in neighbors {
+                if in_corona[v] {
+                    let key = if u <= v { (u, v) } else { (v, u) };
+                    if seen.insert(key) {
+                        let (l, r) = key;
+                        edges.push((names[l].to_owned(), names[r].to_owned()));
                     }
                 }
             }
         }
     }
 
-    let mut sorted_nodes = nodes;
-    sorted_nodes.sort();
-    edges.sort();
-
     KCoreResult {
-        nodes: sorted_nodes,
+        nodes,
         edges,
         witness: ComplexityWitness {
             algorithm: "k_corona".to_owned(),
