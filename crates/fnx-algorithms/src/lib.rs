@@ -14341,12 +14341,123 @@ pub fn bipartite_sets(graph: &Graph) -> BipartiteSetsResult {
         };
     }
 
+    // br-r37-c1-bipidx (cc): integer-index 2-coloring BFS. The old kernel kept `color`
+    // as HashMap<&str, u8> and walked `neighbors_iter` (mapping every adjacency entry back
+    // to a &str), paying a String hash on every `color.get`/`insert` over the O(|E|) scan.
+    // Walk `neighbors_indices` over node indices with a Vec<i8> color (-1 = uncolored);
+    // names are materialised only for the O(|V|) partition output (sorted, so index order is
+    // irrelevant). Byte-identical: same name-sorted start order + same adjacency-row neighbor
+    // order → identical coloring, identical odd-cycle early exit, identical witness counters.
+    let mut color: Vec<i8> = vec![-1; n];
+    let mut colored = 0usize;
+    let mut queue: VecDeque<usize> = VecDeque::new();
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 0usize;
+
+    // Process all connected components in ascending node-name order (matches the old
+    // `sorted_nodes.sort_unstable()` on the node names; names are unique so the order is total).
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_unstable_by(|&a, &b| nodes[a].cmp(nodes[b]));
+
+    for &start in &order {
+        if color[start] != -1 {
+            continue;
+        }
+        color[start] = 0;
+        colored += 1;
+        queue.push_back(start);
+        if queue.len() > queue_peak {
+            queue_peak = queue.len();
+        }
+
+        while let Some(current) = queue.pop_front() {
+            let current_color = color[current];
+            if let Some(neighbors) = graph.neighbors_indices(current) {
+                for &neighbor in neighbors {
+                    edges_scanned += 1;
+                    let c = color[neighbor];
+                    if c == current_color {
+                        // Odd cycle found - not bipartite
+                        return BipartiteSetsResult {
+                            is_bipartite: false,
+                            set_a: Vec::new(),
+                            set_b: Vec::new(),
+                            witness: ComplexityWitness {
+                                algorithm: "bipartite_bfs".to_owned(),
+                                complexity_claim: "O(|V| + |E|)".to_owned(),
+                                nodes_touched: colored,
+                                edges_scanned,
+                                queue_peak,
+                            },
+                        };
+                    } else if c == -1 {
+                        color[neighbor] = 1 - current_color;
+                        colored += 1;
+                        queue.push_back(neighbor);
+                        if queue.len() > queue_peak {
+                            queue_peak = queue.len();
+                        }
+                    }
+                    // else: already colored correctly
+                }
+            }
+        }
+    }
+
+    let mut set_a: Vec<String> = Vec::new();
+    let mut set_b: Vec<String> = Vec::new();
+    for (i, &c) in color.iter().enumerate() {
+        if c == 0 {
+            set_a.push(nodes[i].to_owned());
+        } else if c == 1 {
+            set_b.push(nodes[i].to_owned());
+        }
+    }
+    set_a.sort();
+    set_b.sort();
+
+    BipartiteSetsResult {
+        is_bipartite: true,
+        set_a,
+        set_b,
+        witness: ComplexityWitness {
+            algorithm: "bipartite_bfs".to_owned(),
+            complexity_claim: "O(|V| + |E|)".to_owned(),
+            nodes_touched: colored,
+            edges_scanned,
+            queue_peak,
+        },
+    }
+}
+
+/// br-r37-c1-bipidx A/B baseline: the pre-lever `bipartite_sets` that kept `color` as a
+/// `HashMap<&str, u8>` and walked `neighbors_iter` (String-keyed). Test-only; byte-identical
+/// to `bipartite_sets` (same start order, neighbor order, coloring, and witness).
+#[cfg(test)]
+fn bipartite_sets_orig_string(graph: &Graph) -> BipartiteSetsResult {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+
+    if n == 0 {
+        return BipartiteSetsResult {
+            is_bipartite: true,
+            set_a: Vec::new(),
+            set_b: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "bipartite_bfs".to_owned(),
+                complexity_claim: "O(|V| + |E|)".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
     let mut color: HashMap<&str, u8> = HashMap::new();
     let mut queue = VecDeque::new();
     let mut edges_scanned = 0usize;
     let mut queue_peak = 0usize;
 
-    // Process all connected components
     let mut sorted_nodes = nodes.clone();
     sorted_nodes.sort_unstable();
 
@@ -14367,7 +14478,6 @@ pub fn bipartite_sets(graph: &Graph) -> BipartiteSetsResult {
                     edges_scanned += 1;
                     match color.get(neighbor) {
                         Some(&c) if c == current_color => {
-                            // Odd cycle found - not bipartite
                             return BipartiteSetsResult {
                                 is_bipartite: false,
                                 set_a: Vec::new(),
@@ -14381,7 +14491,7 @@ pub fn bipartite_sets(graph: &Graph) -> BipartiteSetsResult {
                                 },
                             };
                         }
-                        Some(_) => {} // Already colored correctly
+                        Some(_) => {}
                         None => {
                             color.insert(neighbor, 1 - current_color);
                             queue.push_back(neighbor);
@@ -50725,6 +50835,116 @@ mod tests {
             );
         };
         println!("BFSLAYIDX_AB bfs_layers 3000-node deg100 rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-bipidx: full-function paired-interleaved A/B for `bipartite_sets`. The old kernel
+    /// kept `color` as a `HashMap<&str, u8>` and walked `neighbors_iter` (String-hash per
+    /// adjacency probe); the shipped version walks `neighbors_indices` over a `Vec<i8>` color.
+    /// Loop-dominated graph: a guaranteed-bipartite even↔odd graph so the full 2-coloring BFS runs
+    /// (no early exit). Parity (result + witness) asserted first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib bipartite_sets_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn bipartite_sets_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // n=60000 nodes; every even node connects to `deg` odd nodes → every edge crosses the
+        // even/odd partition → 2-colorable, so the BFS colors all V and scans all E (no odd-cycle
+        // early exit). ~1.2M edge scans vs an O(V) sorted partition output → BFS-scan dominated.
+        let n = 60000usize;
+        let deg = 40usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in (0..n).step_by(2) {
+            for k in 1..=deg {
+                let mut j = ((i as u64)
+                    .wrapping_mul(1_000_003)
+                    .wrapping_add((k as u64).wrapping_mul(97))
+                    % (n as u64)) as usize;
+                if j % 2 == 0 {
+                    j = (j + 1) % n;
+                }
+                if j % 2 == 0 {
+                    continue; // n even → (n-1) odd, so this only trips if wrap hit 0
+                }
+                let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+            }
+        }
+
+        // Byte-exact parity: index 2-coloring == String baseline (result + witness).
+        let cand = super::bipartite_sets(&g);
+        let base = super::bipartite_sets_orig_string(&g);
+        assert_eq!(cand.is_bipartite, base.is_bipartite, "is_bipartite must match");
+        assert_eq!(cand.set_a, base.set_a, "set_a must match");
+        assert_eq!(cand.set_b, base.set_b, "set_b must match");
+        assert_eq!(
+            cand.witness.edges_scanned, base.witness.edges_scanned,
+            "witness edges_scanned must match"
+        );
+        assert_eq!(
+            cand.witness.nodes_touched, base.witness.nodes_touched,
+            "witness nodes_touched must match"
+        );
+        assert_eq!(
+            cand.witness.queue_peak, base.witness.queue_peak,
+            "witness queue_peak must match"
+        );
+        assert!(cand.is_bipartite, "bench graph must be bipartite (full BFS)");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::bipartite_sets(&g)
+            } else {
+                super::bipartite_sets_orig_string(&g)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "BIPIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("BIPIDX_AB bipartite_sets n={n} deg={deg} rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
