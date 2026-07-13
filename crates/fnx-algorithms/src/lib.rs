@@ -77133,6 +77133,209 @@ mod tests {
         report("POINTER_vs_rescan", &paired(true, false));
         report("NULL_pointer_vs_pointer", &paired(true, true));
     }
+
+    /// br-r37-c1-6rzwp: full-function paired-interleaved A/B for
+    /// `chordal_graph_cliques`. The frozen baseline rescans every unnumbered
+    /// node's numbered neighbors for each MCS comparison; production maintains
+    /// the same `(weight, Reverse(lexicographic_rank))` choice in rank buckets.
+    /// Exact ordered clique parity is asserted before timing. `#[ignore]`; run
+    /// with `cargo test --release -p fnx-algorithms --lib chordal_graph_cliques_mcs_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn chordal_graph_cliques_mcs_ab() {
+        use std::collections::{HashMap, HashSet};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn frozen_scan(graph: &Graph) -> Vec<Vec<String>> {
+            let mut result = Vec::new();
+
+            for mut component in super::connected_components(graph).components.into_iter() {
+                if component.is_empty() {
+                    continue;
+                }
+                if component.len() == 1 {
+                    result.push(component);
+                    continue;
+                }
+
+                component.sort_unstable();
+                let rank: HashMap<&str, usize> = component
+                    .iter()
+                    .enumerate()
+                    .map(|(index, node)| (node.as_str(), index))
+                    .collect();
+                let start = component[0].as_str();
+                let mut unnumbered: HashSet<&str> = component.iter().map(String::as_str).collect();
+                let mut numbered = HashSet::from([start]);
+                unnumbered.remove(start);
+                let mut clique_wanna_be = HashSet::from([start]);
+
+                while !unnumbered.is_empty() {
+                    let &chosen = unnumbered
+                        .iter()
+                        .max_by(|&&left, &&right| {
+                            let left_count = graph
+                                .neighbors_iter(left)
+                                .map(|neighbors| {
+                                    neighbors
+                                        .filter(|neighbor| numbered.contains(*neighbor))
+                                        .count()
+                                })
+                                .unwrap_or(0);
+                            let right_count = graph
+                                .neighbors_iter(right)
+                                .map(|neighbors| {
+                                    neighbors
+                                        .filter(|neighbor| numbered.contains(*neighbor))
+                                        .count()
+                                })
+                                .unwrap_or(0);
+                            left_count
+                                .cmp(&right_count)
+                                .then_with(|| rank[&right].cmp(&rank[&left]))
+                        })
+                        .expect("unnumbered is non-empty");
+
+                    if super::node_set_is_complete(
+                        graph,
+                        &clique_wanna_be.iter().copied().collect::<Vec<&str>>(),
+                    ) {
+                        let mut new_clique_wanna_be: HashSet<&str> = graph
+                            .neighbors_iter(chosen)
+                            .map(|neighbors| {
+                                neighbors
+                                    .filter(|neighbor| numbered.contains(*neighbor))
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        new_clique_wanna_be.insert(chosen);
+                        if !new_clique_wanna_be.is_superset(&clique_wanna_be) {
+                            let mut clique: Vec<String> = clique_wanna_be
+                                .iter()
+                                .map(|node| (*node).to_owned())
+                                .collect();
+                            clique.sort();
+                            result.push(clique);
+                        }
+                        clique_wanna_be = new_clique_wanna_be;
+                    } else {
+                        return Vec::new();
+                    }
+
+                    unnumbered.remove(chosen);
+                    numbered.insert(chosen);
+                }
+
+                let mut clique: Vec<String> = clique_wanna_be
+                    .iter()
+                    .map(|node| (*node).to_owned())
+                    .collect();
+                clique.sort();
+                result.push(clique);
+            }
+
+            result
+        }
+
+        let mut fixtures = Vec::new();
+        let mut path = Graph::strict();
+        path.add_edge("node-10", "node-2").unwrap();
+        path.add_edge("node-2", "node-1").unwrap();
+        fixtures.push(path);
+        let mut diamond = Graph::strict();
+        for (left, right) in [("d", "b"), ("d", "a"), ("b", "a"), ("b", "c"), ("a", "c")] {
+            diamond.add_edge(left, right).unwrap();
+        }
+        fixtures.push(diamond);
+        let mut star_and_isolate = Graph::strict();
+        star_and_isolate.add_node("isolate");
+        for leaf in ["z", "node-10", "node-2", "a"] {
+            star_and_isolate.add_edge("center", leaf).unwrap();
+        }
+        fixtures.push(star_and_isolate);
+        let mut cycle4 = Graph::strict();
+        for (left, right) in [("0", "1"), ("1", "2"), ("2", "3"), ("3", "0")] {
+            cycle4.add_edge(left, right).unwrap();
+        }
+        fixtures.push(cycle4);
+        for graph in &fixtures {
+            assert_eq!(
+                frozen_scan(graph),
+                super::chordal_graph_cliques(graph),
+                "exact ordered clique parity"
+            );
+        }
+
+        // A fourth-power path is chordal and keeps the output linear while the
+        // frozen selector repeatedly rescans all remaining candidates.
+        let n = 1_200_usize;
+        let mut graph = Graph::strict();
+        let names: Vec<String> = (0..n).map(|i| format!("node-{i}")).collect();
+        for name in names.iter().rev() {
+            graph.add_node(name);
+        }
+        for i in 0..n {
+            for distance in 1..=4 {
+                if i + distance < n {
+                    graph.add_edge(&names[i], &names[i + distance]).unwrap();
+                }
+            }
+        }
+        assert_eq!(
+            frozen_scan(&graph),
+            super::chordal_graph_cliques(&graph),
+            "timed fourth-power-path exact ordered clique parity"
+        );
+
+        let time = |candidate: bool| -> f64 {
+            let start = Instant::now();
+            let cliques = if candidate {
+                super::chordal_graph_cliques(black_box(&graph))
+            } else {
+                frozen_scan(black_box(&graph))
+            };
+            black_box(cliques);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |values: &[f64]| {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            sorted[sorted.len() / 2]
+        };
+        let rounds = 31_usize;
+        let paired = |candidate: bool, baseline: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(baseline), time(candidate))
+                } else {
+                    let candidate_time = time(candidate);
+                    (time(baseline), candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "CHORDCLIQMCS_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("CHORDCLIQMCS_AB path4_n={n} rounds={rounds} (>1 = buckets faster)");
+        report("BUCKETS_vs_scan", &paired(true, false));
+        report("NULL_buckets_vs_buckets", &paired(true, true));
+    }
 }
 
 #[cfg(test)]

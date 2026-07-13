@@ -1,5 +1,52 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cod, 2026-07-12): `chordal_graph_cliques` incremental MCS buckets **93.2248x** on a 1,200-node fourth-power path (br-r37-c1-6rzwp)
+
+NEGATIVE-LEDGER FIRST: existing chordal rows establish broad NetworkX-facing
+speedups and sister keeps for `is_chordal` and `chordal_graph_treewidth`, but no
+keep or reject measured this function's residual selector. The frozen production
+loop recomputed `|N(v) ∩ numbered|` for both sides of every `max_by` comparison,
+giving sparse inputs quadratic candidate scans plus repeated neighbor walks.
+
+ONE LEVER / EXACT PARITY: maintain each component-local lexicographic rank's MCS
+weight in `BTreeSet` buckets. Selecting the first rank in the highest nonempty
+bucket is exactly the old maximum numbered-neighbor count, then minimum sorted
+component-rank tie policy. Start-neighbor weights are seeded before selection;
+after choosing a node, each still-unnumbered neighbor moves up one bucket. The
+forced start, clique-completeness checks, partial-output behavior, clique sorting,
+component order, and all returned strings are unchanged. There are no floats or
+RNG. The frozen full function and production matched exact ordered
+`Vec<Vec<String>>` output on nonlexical path, diamond, disconnected star plus
+singleton, C4, and timed fourth-power-path fixtures.
+
+STRICT-REMOTE MEDIAN GATE: release full-function A/B on worker `vmi1153651`, 31
+paired interleaved rounds over a prebuilt 1,200-node fourth-power path, followed
+by a bucket/bucket null:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| incremental buckets / frozen rescans | **93.2248x** | 31/31 | 76.6314-117.0564 |
+| incremental buckets / incremental buckets null | 0.9899x | 14/31 | 0.8819-1.2321 |
+
+The candidate p5 clears the null p95 by 62.2x. The ignored A/B ran exactly one
+test and passed under `RCH_REQUIRE_REMOTE=1`; no local Cargo fallback occurred.
+The production hunk was concurrently swept into `22c0cdb3e` while its isolated
+proof harness remained staged; this row and the harness preserve the lever's
+actual proof boundary rather than attributing the adjacent shortest-path work to
+the result.
+
+VALIDATION: strict-remote workspace `cargo check --workspace --all-targets`
+passed, as did all four focused non-measurement chordal-clique tests. Workspace
+Clippy passed with only the three established main-wide lint classes allowed
+(`collapsible_if`, `doc_lazy_continuation`, and `manual_is_multiple_of`); no new
+finding was admitted. Staged UBS reported zero critical issues. Direct rustfmt
+still reports unrelated filewide drift; its one initially reported harness line
+was corrected, and `git diff --cached --check` passes.
+
+RESULT: SHIP. This is native kernel self-time on a sparse chordal interval graph;
+do not generalize 93.2248x to tiny inputs, wrapper overhead, multigraph routing,
+or non-chordal inputs that bypass the public native clique path.
+
 ## SHIPPED WIN (cod, 2026-07-12): `is_planar_lr` ordered edge indices **1.8621x** on a 120x120 planar grid (br-r37-c1-bndaf)
 
 NEGATIVE-LEDGER FIRST: existing planarity rows cover the Python certificate
