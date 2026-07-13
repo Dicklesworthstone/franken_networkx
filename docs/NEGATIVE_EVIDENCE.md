@@ -18680,3 +18680,75 @@ path-sized integer duplicate set, successor direction for DiGraph, and the
 empty/singleton fast paths. Future simple-path work should profile a different
 surface rather than restoring per-hop neighbor-name allocation or String
 adjacency scans.
+
+## 2026-07-13 MagentaTrout SHIP (`number_of_isolates`): count indexed degree rows — 55.95x Graph / 39.08x DiGraph (`br-r37-c1-xmi3s`)
+
+NEGATIVE-LEDGER / REACHABILITY FIRST: the current traversal, product,
+clique/coloring, centrality, regularity, simple-path, and MultiGraph substrate
+boundaries were refreshed before selection. The prior simple-graph `isolates`
+keeps removed per-node neighbor-vector allocation, and the MultiGraph count
+route already avoids projection, but the live simple Graph/DiGraph
+`number_of_isolates` bindings still called `isolates(...).len()`. Count-only
+queries therefore cloned every isolated node name into a `Vec<String>` and
+immediately discarded it. No prior ledger entry measured or rejected that
+remaining output-materialization seam. Opportunity score: impact 4 x
+confidence 5 / effort 1 = 20.
+
+ONE LEVER: count the same isolate predicate directly over dense node indices.
+Graph counts empty `neighbors_indices` rows; DiGraph counts indices whose
+out-degree and in-degree are both zero. The listing APIs remain unchanged.
+This removes all isolate-name clones and the result vector from count-only
+calls without changing graph storage, bindings, multigraph dispatch, or any
+other isolate operation.
+
+ISOMORPHISM: the Graph predicate is byte-for-byte the predicate already used
+by `isolates`: `neighbors_indices(i).map_or(0, len) == 0`. The directed
+predicate is exactly the existing `out_degree_by_index(i) == 0 &&
+in_degree_by_index(i) == 0`. Counting successful predicates equals the length
+of the former insertion-ordered list; list order is unobservable after
+`.len()`. Empty graphs remain zero, path endpoints remain non-isolates, and
+self-loops still make a node non-isolated. Ordering, tie-breaking,
+floating-point, RNG, mutation, errors, and public return types are untouched.
+
+HARNESS NULL FIRST: before the production edit, the ignored same-binary test
+compared the current count path with frozen `isolates(...).len()` baselines on
+a 100,000-node half-path / half-isolate fixture. Strict-remote worker
+`vmi1153651` reported Graph `0.9740x` and DiGraph `1.0230x`; A/A controls were
+`0.9977x` and `1.0050x`. This confirmed that the harness sat at the null before
+the lever.
+
+MEDIAN GATE: after the edit, one release binary on strict-remote worker
+`vmi1149989` asserted exact counts before 31 paired, alternating-order rounds:
+
+| paired A/B (>1 = indexed count faster) | median | wins | p5-p95 | A/A null |
+|---|---:|---:|---:|---:|
+| Graph indexed count vs materialized list | `55.9528x` | `31/31` | `[23.3005, 93.2561]` | `0.9934x` |
+| DiGraph indexed count vs materialized list | `39.0839x` | `31/31` | `[31.8104, 59.3125]` | `1.0548x` |
+
+Both candidates won every pair, and each candidate p5 is more than 18x above
+its null p95, so the keep is decisive despite shared-host tail width.
+
+CORRECTNESS / GATES: the A/B asserted both candidate counts equal their frozen
+former list-length implementations and the expected 50,000. Strict-remote
+focused isolate tests passed 3/3, covering empty, mixed, directed, and listed
+counts. Strict-remote `cargo check --workspace --all-targets` passed with one
+committed unused-variable warning outside this lever. Exact workspace clippy
+reached the committed `fnx-classes/src/lib.rs:1700` `collapsible_if` blocker;
+a no-dependency `fnx-algorithms` deny-all run allowing only the six previously
+recorded baseline lint classes passed. One exact-clippy admission failed
+remotely on a stale sibling `ftui 0.4.1`, and the first focused-test admission
+was refused for no eligible slot. Both were surfaced; every Cargo command used
+fail-closed `RCH_REQUIRE_REMOTE=1` plus `rch --no-self-healing exec`, with no
+local fallback. RCH refused `cargo fmt --check` as a non-compilation command;
+direct `rustfmt --check` reports existing file-wide drift, while the formatter
+has no remaining diff in the owned snippets and `git diff --check` passes. UBS
+completed its static Rust scan with the known file-wide backlog; its sole
+“critical” is the unrelated Prüfer test name containing `decode`, a lexical JWT
+false positive outside every owned hunk. UBS reported no finding in the two
+count functions or their A/B harness.
+
+RESULT: SHIP. Preserve the count-only indexed predicates and leave
+`isolates`/`isolates_directed` responsible for name materialization only when
+callers actually request the names. Future isolate work should profile a
+different public surface rather than rebuilding a String list for a scalar
+count.

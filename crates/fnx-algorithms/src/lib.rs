@@ -29326,6 +29326,15 @@ pub fn is_isolate(graph: &Graph, node: &str) -> bool {
 /// Return the number of isolate nodes.
 #[must_use]
 pub fn number_of_isolates(graph: &Graph) -> usize {
+    (0..graph.node_count())
+        .filter(|&index| graph.neighbors_indices(index).map_or(0, <[usize]>::len) == 0)
+        .count()
+}
+
+/// Frozen pre-`br-r37-c1-xmi3s` count path: materialize every isolate name,
+/// then discard the names and retain only the vector length.
+#[cfg(test)]
+fn number_of_isolates_orig_materialized(graph: &Graph) -> usize {
     isolates(graph).len()
 }
 
@@ -29380,6 +29389,16 @@ pub fn is_isolate_directed(graph: &DiGraph, node: &str) -> bool {
 /// Return the number of isolate nodes in a directed graph.
 #[must_use]
 pub fn number_of_isolates_directed(graph: &DiGraph) -> usize {
+    (0..graph.node_count())
+        .filter(|&index| {
+            graph.out_degree_by_index(index) == 0 && graph.in_degree_by_index(index) == 0
+        })
+        .count()
+}
+
+/// Directed frozen baseline for the former count-via-materialized-list path.
+#[cfg(test)]
+fn number_of_isolates_directed_orig_materialized(graph: &DiGraph) -> usize {
     isolates_directed(graph).len()
 }
 
@@ -59577,6 +59596,123 @@ mod tests {
         println!("ISO_AB n={n} rounds={rounds} (>1 = no-alloc faster)");
         report("NOALLOC_vs_string", &paired(true, false));
         report("NULL_noalloc_vs_noalloc", &paired(true, true));
+    }
+
+    /// `br-r37-c1-xmi3s`: paired same-binary A/B for count-only isolate queries.
+    /// The frozen baseline materializes every isolated node name into a
+    /// `Vec<String>` and then takes its length. The candidate counts indexed
+    /// degree rows directly. Run through strict remote RCH with:
+    /// `cargo test --profile release -p fnx-algorithms --lib
+    /// number_of_isolates_count_only_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn number_of_isolates_count_only_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Half-path, half-isolates: both predicates must reject non-isolates and
+        // accept isolates, while the former count path clones 50,000 names that
+        // the count-only API never returns.
+        let n = 100_000usize;
+        let path_nodes = n / 2;
+        let expected = n - path_nodes;
+        let mut graph = Graph::strict();
+        let mut digraph = DiGraph::strict();
+        for i in 0..n {
+            let node = format!("n{i}");
+            let _ = graph.add_node(node.clone());
+            let _ = digraph.add_node(node);
+        }
+        for i in 0..path_nodes.saturating_sub(1) {
+            let left = format!("n{i}");
+            let right = format!("n{}", i + 1);
+            let _ = graph.add_edge(left.clone(), right.clone());
+            let _ = digraph.add_edge(left, right);
+        }
+
+        assert_eq!(super::number_of_isolates(&graph), expected);
+        assert_eq!(super::number_of_isolates_directed(&digraph), expected);
+        assert_eq!(
+            super::number_of_isolates(&graph),
+            super::number_of_isolates_orig_materialized(&graph),
+            "Graph indexed count must exactly match the former materialized-list count"
+        );
+        assert_eq!(
+            super::number_of_isolates_directed(&digraph),
+            super::number_of_isolates_directed_orig_materialized(&digraph),
+            "DiGraph indexed count must exactly match the former materialized-list count"
+        );
+
+        let time_graph = |candidate: bool| -> f64 {
+            let start = Instant::now();
+            for _ in 0..3 {
+                let count = if candidate {
+                    super::number_of_isolates(&graph)
+                } else {
+                    super::number_of_isolates_orig_materialized(&graph)
+                };
+                black_box(count);
+            }
+            start.elapsed().as_secs_f64()
+        };
+        let time_digraph = |candidate: bool| -> f64 {
+            let start = Instant::now();
+            for _ in 0..3 {
+                let count = if candidate {
+                    super::number_of_isolates_directed(&digraph)
+                } else {
+                    super::number_of_isolates_directed_orig_materialized(&digraph)
+                };
+                black_box(count);
+            }
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time_graph(true));
+            black_box(time_graph(false));
+            black_box(time_digraph(true));
+            black_box(time_digraph(false));
+        }
+
+        let rounds = 31usize;
+        let paired = |time: &dyn Fn(bool) -> f64, baseline: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base_time, candidate_time) = if round.is_multiple_of(2) {
+                    let base_time = time(baseline);
+                    let candidate_time = time(true);
+                    (base_time, candidate_time)
+                } else {
+                    let candidate_time = time(true);
+                    let base_time = time(baseline);
+                    (base_time, candidate_time)
+                };
+                ratios.push(base_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            println!(
+                "ISOLATE_COUNT_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!(
+            "ISOLATE_COUNT_AB n={n} path_nodes={path_nodes} rounds={rounds} (>1 = indexed count faster)"
+        );
+        report("GRAPH_index_vs_materialized", &paired(&time_graph, false));
+        report("GRAPH_NULL_index_vs_index", &paired(&time_graph, true));
+        report(
+            "DIGRAPH_index_vs_materialized",
+            &paired(&time_digraph, false),
+        );
+        report("DIGRAPH_NULL_index_vs_index", &paired(&time_digraph, true));
     }
 
     /// br-r37-c1-odc: paired-interleaved median A/B for the no-alloc `out_degree_centrality`
