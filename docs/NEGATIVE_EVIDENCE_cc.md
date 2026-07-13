@@ -1,5 +1,54 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cod, 2026-07-12): `is_planar_lr` ordered edge indices **1.8621x** on a 120x120 planar grid (br-r37-c1-bndaf)
+
+NEGATIVE-LEDGER FIRST: existing planarity rows cover the Python certificate
+boundary and the native LR boolean dispatch, but no prior keep or reject measured
+the LR kernel's edge-materialization setup. The frozen production path cloned an
+`EdgeSnapshot` (two endpoint `String`s plus the `AttrMap`) for every edge, then
+hashed both endpoint names through a fresh node-index map before building the LR
+adjacency.
+
+ONE LEVER / EXACT PARITY: consume `Graph::edges_ordered_indices()`, the documented
+index-space twin of `edges_ordered()`. It preserves the same node-major edge order
+and orientation, so self-loop skips, simple-edge dedup, both adjacency insertion
+orders, Euler rejection, LR DFS ordering, conflict-stack behavior, and the final
+boolean are unchanged. There are no floats, RNG, returned witnesses, or altered
+tie policies. The frozen old full function and production matched exactly on K4,
+K5, K2,4, K3,3, self-looped K5, a nonlexical insertion-order graph, and 8x8 plus
+120x120 planar grids.
+
+STRICT-REMOTE MEDIAN GATE: release full-function A/B on worker `vmi1149989`,
+31 paired interleaved rounds over a prebuilt 120x120 grid (14,400 nodes, 28,560
+edges), followed by an edge-index/edge-index null:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| ordered indices / snapshots + endpoint rehash | **1.8621x** | 31/31 | 1.5521-2.2348 |
+| ordered indices / ordered indices null | 0.9801x | 12/31 | 0.8087-1.1697 |
+
+The candidate p5 clears the null p95 by 1.327x. The ignored A/B ran exactly one
+test and passed under `RCH_REQUIRE_REMOTE=1`; no local Cargo fallback occurred.
+Two earlier remote release invocations built successfully but selected zero tests
+because the shared source file advanced and replaced the then-unstaged harness;
+they are INVALID selector evidence and do not contribute to this verdict. A later
+remote compile caught and fixed the test-only `super::LrState` qualification before
+the valid run.
+
+VALIDATION: strict-remote workspace `cargo check --workspace --all-targets`
+passed, and the four focused non-measurement LR tests passed. Exact workspace
+clippy reproduced the known 11 filewide findings (one `collapsible_if`, ten
+`doc_lazy_continuation`), then the concurrently landed `bipidx` benchmark added
+two unrelated `manual_is_multiple_of` findings. With those three known lint
+classes allowed, strict-remote workspace clippy passed; no finding was in the
+staged `bndaf` hunks. Staged UBS reported zero critical issues.
+Direct rustfmt still reports unrelated filewide drift and no diff at either
+staged planarity hunk; `git diff --cached --check` passes.
+
+RESULT: SHIP. This is LR self-time evidence on a large planar grid; do not
+generalize 1.8621x to the Python certificate-producing path or tiny/Euler-rejected
+graphs where setup is diluted or skipped.
+
 ## SHIPPED WIN (cod, 2026-07-12): `local_bridges_list` ordered edge indices **35.0456x** over the post-`f1run` kernel on dense K384 (br-r37-c1-xuvu2)
 
 NEGATIVE-LEDGER FIRST / DISTINCT SECOND LEVER: `br-r37-c1-f1run` deliberately

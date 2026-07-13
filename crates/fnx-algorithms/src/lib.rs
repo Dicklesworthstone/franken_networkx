@@ -27505,13 +27505,13 @@ pub fn is_planar_lr(graph: &Graph) -> bool {
     if n <= 4 {
         return true; // every simple graph on <= 4 nodes is planar
     }
-    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
     let mut seen: HashSet<(usize, usize)> = HashSet::new();
     let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
     let mut m = 0usize;
-    for edge in graph.edges_ordered() {
-        let i = idx[edge.left.as_str()];
-        let j = idx[edge.right.as_str()];
+    // br-r37-c1-bndaf: consume the index-space twin of the ordered edge walk.
+    // This preserves LR adjacency insertion order while avoiding an EdgeSnapshot
+    // (two endpoint String clones plus an AttrMap clone) and two name hashes per edge.
+    for (i, j) in graph.edges_ordered_indices() {
         if i == j {
             continue; // self-loops do not affect planarity
         }
@@ -64462,6 +64462,148 @@ mod tests {
         let _ = g.add_edge("v0", "v0");
         let _ = g.add_edge("v2", "v2");
         assert!(!is_planar_lr(&g));
+    }
+
+    /// br-r37-c1-bndaf: full-function A/B for ordered edge indices versus the
+    /// frozen EdgeSnapshot + endpoint-rehash setup, in one binary and worker.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn is_planar_lr_edge_indices_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn snapshot_is_planar_lr(graph: &Graph) -> bool {
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            if n <= 4 {
+                return true;
+            }
+            let idx: HashMap<&str, usize> = nodes
+                .iter()
+                .enumerate()
+                .map(|(i, &node)| (node, i))
+                .collect();
+            let mut seen: HashSet<(usize, usize)> = HashSet::new();
+            let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+            let mut m = 0usize;
+            for edge in graph.edges_ordered() {
+                let i = idx[edge.left.as_str()];
+                let j = idx[edge.right.as_str()];
+                if i == j {
+                    continue;
+                }
+                let key = if i < j { (i, j) } else { (j, i) };
+                if seen.insert(key) {
+                    adj[i].push(j);
+                    adj[j].push(i);
+                    m += 1;
+                }
+            }
+            if n > 2 && m > 3 * n - 6 {
+                return false;
+            }
+            super::LrState::new(n, adj).run()
+        }
+
+        fn grid(side: usize) -> Graph {
+            let mut graph = Graph::strict();
+            for row in 0..side {
+                for col in 0..side {
+                    graph.add_node(format!("n{row}_{col}"));
+                }
+            }
+            for row in 0..side {
+                for col in 0..side {
+                    if col + 1 < side {
+                        let _ = graph.add_edge(
+                            format!("n{row}_{col}"),
+                            format!("n{row}_{}", col + 1),
+                        );
+                    }
+                    if row + 1 < side {
+                        let _ = graph.add_edge(
+                            format!("n{row}_{col}"),
+                            format!("n{}_{col}", row + 1),
+                        );
+                    }
+                }
+            }
+            graph
+        }
+
+        let mut nonlexical = Graph::strict();
+        for node in ["z", "a", "m", "b", "q"] {
+            nonlexical.add_node(node);
+        }
+        for (left, right) in [("m", "a"), ("z", "b"), ("z", "a"), ("q", "m")] {
+            let _ = nonlexical.add_edge(left, right);
+        }
+        let mut selfloops = complete_graph_n(5);
+        let _ = selfloops.add_edge("v0", "v0");
+        let _ = selfloops.add_edge("v2", "v2");
+        for fixture in [
+            complete_graph_n(4),
+            complete_graph_n(5),
+            complete_bipartite(2, 4),
+            complete_bipartite(3, 3),
+            nonlexical,
+            selfloops,
+            grid(8),
+        ] {
+            assert_eq!(
+                snapshot_is_planar_lr(&fixture),
+                is_planar_lr(&fixture),
+                "ordered edge indices must preserve the exact LR boolean"
+            );
+        }
+
+        let graph = grid(120);
+        assert!(snapshot_is_planar_lr(&graph));
+        assert!(is_planar_lr(&graph));
+
+        let time = |snapshot: bool| -> f64 {
+            let start = Instant::now();
+            let planar = if snapshot {
+                snapshot_is_planar_lr(black_box(&graph))
+            } else {
+                is_planar_lr(black_box(&graph))
+            };
+            black_box(planar);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+
+        let rounds = 31usize;
+        let paired = |baseline_snapshot: bool, contender_snapshot: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline, contender) = if round.is_multiple_of(2) {
+                    (time(baseline_snapshot), time(contender_snapshot))
+                } else {
+                    let contender = time(contender_snapshot);
+                    (time(baseline_snapshot), contender)
+                };
+                ratios.push(baseline / contender);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "PLANARLREDGEIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("PLANARLREDGEIDX_AB grid_120 rounds={rounds} (>1 = edge indices faster)");
+        report("EDGEIDX_vs_snapshots", &paired(true, false));
+        report("NULL_edgeidx_vs_edgeidx", &paired(false, false));
     }
 
     #[test]
