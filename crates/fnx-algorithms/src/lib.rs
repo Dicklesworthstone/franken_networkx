@@ -18559,6 +18559,120 @@ pub fn all_simple_paths_directed(
     target: &str,
     cutoff: Option<usize>,
 ) -> AllSimplePathsResult {
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+
+    if !nodes.contains(&source) || !nodes.contains(&target) {
+        return AllSimplePathsResult {
+            paths: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "all_simple_paths_directed".to_owned(),
+                complexity_claim: "O(|V|! / (|V|-k)!)".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    if source == target {
+        return AllSimplePathsResult {
+            paths: vec![vec![source.to_owned()]],
+            witness: ComplexityWitness {
+                algorithm: "all_simple_paths_directed".to_owned(),
+                complexity_claim: "O(1)".to_owned(),
+                nodes_touched: 1,
+                edges_scanned: 0,
+                queue_peak: 1,
+            },
+        };
+    }
+
+    let max_depth = cutoff.unwrap_or(n.saturating_sub(1));
+    let source_idx = digraph
+        .get_node_index(source)
+        .expect("source verified present above");
+    let target_idx = digraph
+        .get_node_index(target)
+        .expect("target verified present above");
+
+    let mut paths: Vec<Vec<String>> = Vec::new();
+    let mut nodes_touched = 0usize;
+    let mut edges_scanned = 0usize;
+    let mut stack_peak = 0usize;
+
+    // br-r37-c1-aspdiridx (cc): directed mirror of the undirected `all_simple_paths` (aspmark) —
+    // iterative DFS over INTEGER node indices with a `vec![false; n]` visited mark and the graph's
+    // integer successor adjacency, instead of a String-keyed `HashMap<&str,Vec<&str>>` neighbour
+    // cache (name-sorted) + `HashSet<&str>` visited that String-hashed on EVERY step of an
+    // exponential enumeration. Byte-identical: the SET of simple paths and all three witness counters
+    // (nodes_touched / edges_scanned / queue_peak) are independent of successor visit order — each
+    // frame examines ALL its successors before it is popped, and `paths.sort()` normalises the output
+    // — so the name-sort is dropped; node names are materialised only when a path is emitted.
+    let nbr_cache: Vec<&[usize]> = (0..n)
+        .map(|i| digraph.successors_indices(i).unwrap_or(&[]))
+        .collect();
+
+    let mut visited = vec![false; n];
+    visited[source_idx] = true;
+
+    let mut stack: Vec<(usize, usize)> = vec![(source_idx, 0)];
+    let mut path: Vec<usize> = vec![source_idx];
+
+    while !stack.is_empty() {
+        stack_peak = stack_peak.max(stack.len());
+        let (node, idx) = *stack.last().unwrap();
+        let nbrs = nbr_cache[node];
+
+        if idx < nbrs.len() {
+            let next = nbrs[idx];
+            stack.last_mut().unwrap().1 += 1;
+            edges_scanned += 1;
+
+            if next == target_idx {
+                nodes_touched += 1;
+                let mut found_path: Vec<String> =
+                    path.iter().map(|&i| nodes[i].to_owned()).collect();
+                found_path.push(target.to_owned());
+                paths.push(found_path);
+            } else if !visited[next] && path.len() < max_depth {
+                nodes_touched += 1;
+                visited[next] = true;
+                path.push(next);
+                stack.push((next, 0));
+            }
+        } else {
+            stack.pop();
+            if let Some(removed) = path.pop() {
+                visited[removed] = false;
+            }
+        }
+    }
+
+    paths.sort();
+
+    AllSimplePathsResult {
+        paths,
+        witness: ComplexityWitness {
+            algorithm: "all_simple_paths_directed".to_owned(),
+            complexity_claim: "O(|V|! / (|V|-k)!)".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak: stack_peak,
+        },
+    }
+}
+
+/// br-r37-c1-aspdiridx A/B baseline: the pre-lever String-keyed `all_simple_paths_directed`
+/// (HashMap<&str,Vec<&str>> name-sorted neighbour cache + HashSet<&str> visited). Test-only;
+/// byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn all_simple_paths_directed_orig_string(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+    cutoff: Option<usize>,
+) -> AllSimplePathsResult {
     use std::collections::{HashMap, HashSet};
 
     let nodes = digraph.nodes_ordered();
@@ -51866,6 +51980,101 @@ mod tests {
             );
         };
         println!("ASPIDX_AB all_shortest_paths D={d} w={w} rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-aspdiridx: full-function paired-interleaved A/B for `all_simple_paths_directed`
+    /// (String-keyed name-sorted `HashMap<&str,Vec<&str>>` neighbour cache + `HashSet<&str>` visited →
+    /// integer-index, mirror of the undirected `all_simple_paths`/aspmark). Trap-chain graph: a unique
+    /// spine s0→sD plus dead-end trap chains hanging off each spine node, so the DFS explores D*b*L trap
+    /// nodes (each a String hash on visited insert/remove in the baseline) plus the per-call O(n)
+    /// name-sorted nbr_cache rebuild, while the output is a SINGLE simple path. Byte-exact parity
+    /// (result incl. witness). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib all_simple_paths_directed_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn all_simple_paths_directed_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // spine s0..sD (unique s0→sD path); each spine node has b dead-end trap chains of length L.
+        let cap_d = 50usize;
+        let b = 10usize;
+        let l = 50usize;
+        let mut dg = DiGraph::strict();
+        for i in 0..cap_d {
+            let _ = dg.add_edge(format!("s{i}"), format!("s{}", i + 1));
+        }
+        for i in 0..=cap_d {
+            for j in 0..b {
+                let _ = dg.add_edge(format!("s{i}"), format!("t{i}_{j}_0"));
+                for k in 0..(l - 1) {
+                    let _ = dg.add_edge(format!("t{i}_{j}_{k}"), format!("t{i}_{j}_{}", k + 1));
+                }
+            }
+        }
+        let src = "s0";
+        let tgt = format!("s{cap_d}");
+
+        // Byte-exact parity (paths + witness via PartialEq).
+        let cand = super::all_simple_paths_directed(&dg, src, &tgt, None);
+        assert_eq!(
+            cand,
+            super::all_simple_paths_directed_orig_string(&dg, src, &tgt, None),
+            "index all_simple_paths_directed must equal the String baseline (paths + witness)"
+        );
+        assert_eq!(cand.paths.len(), 1, "trap-chain graph must yield a unique simple path");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::all_simple_paths_directed(&dg, src, &tgt, None)
+            } else {
+                super::all_simple_paths_directed_orig_string(&dg, src, &tgt, None)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "ASPDIRIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("ASPDIRIDX_AB all_simple_paths_directed D={cap_d} b={b} L={l} rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
