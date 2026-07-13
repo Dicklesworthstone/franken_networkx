@@ -33020,6 +33020,111 @@ pub fn biconnected_components(graph: &Graph) -> Vec<Vec<String>> {
 /// Matches `networkx.biconnected_component_edges(G)`.
 #[must_use]
 pub fn biconnected_component_edges(graph: &Graph) -> Vec<Vec<(String, String)>> {
+    // br-r37-c1-bccidx (cc): fully integer-index articulation/biconnected DFS. The old kernel kept
+    // discovery/low as HashMap<&str,usize>, parent as HashMap<&str,Option<&str>>, the edge stack as
+    // (&str,&str), and the work stack as (&str, Vec<&str>, usize) — a String hash on every
+    // discovery/low/parent probe AND a Vec<&str> alloc per node over the O(V+E) DFS. Index all state
+    // (discovery: Vec<usize>, usize::MAX = unvisited; low/parent: Vec; work stack over
+    // neighbors_indices slices) and materialise node names ONLY when a component edge is emitted.
+    // Byte-identical: same root scan (0..n), same neighbour order → same DFS/low-links → same
+    // component split; edges stay canonicalised BY NAME (nodes[u] <= nodes[w]) exactly as before.
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let mut discovery = vec![usize::MAX; n];
+    let mut low = vec![0usize; n];
+    let mut parent: Vec<Option<usize>> = vec![None; n];
+    let mut edge_stack: Vec<(usize, usize)> = Vec::new();
+    let mut components: Vec<Vec<(String, String)>> = Vec::new();
+    let mut time = 0usize;
+
+    for root in 0..n {
+        if discovery[root] != usize::MAX {
+            continue;
+        }
+
+        // Iterative DFS
+        let mut stack: Vec<(usize, &[usize], usize)> = Vec::new();
+        discovery[root] = time;
+        low[root] = time;
+        parent[root] = None;
+        time += 1;
+
+        let succs = graph.neighbors_indices(root).unwrap_or(&[]);
+        stack.push((root, succs, 0));
+
+        while let Some((v, neighbors, idx)) = stack.last_mut() {
+            let v_idx = *v;
+            if *idx < neighbors.len() {
+                let w = neighbors[*idx];
+                *idx += 1;
+                if discovery[w] == usize::MAX {
+                    parent[w] = Some(v_idx);
+                    discovery[w] = time;
+                    low[w] = time;
+                    time += 1;
+                    edge_stack.push((v_idx, w));
+                    let w_succs = graph.neighbors_indices(w).unwrap_or(&[]);
+                    stack.push((w, w_succs, 0));
+                } else if parent[v_idx] != Some(w) && discovery[w] < discovery[v_idx] {
+                    edge_stack.push((v_idx, w));
+                    // br-r37-c1-bccdisc: for a back edge (v, w) the low-link must
+                    // fold in the DISCOVERY time of w, not low[w]. Using low[w]
+                    // wrongly propagates a deeper ancestor reachable from w (e.g.
+                    // the bowtie's shared articulation vertex carries low < disc),
+                    // which defeats the `low >= disc[parent]` split test and merges
+                    // two biconnected components into one. nx's _biconnected_dfs
+                    // does `low[parent] = min(low[parent], discovery[child])`.
+                    let w_disc = discovery[w];
+                    if w_disc < low[v_idx] {
+                        low[v_idx] = w_disc;
+                    }
+                }
+            } else {
+                // Finished processing v
+                let v_idx = *v;
+                let v_low = low[v_idx];
+                let v_parent = parent[v_idx];
+                stack.pop();
+
+                if let Some(p) = v_parent {
+                    // Update parent's low value
+                    if v_low < low[p] {
+                        low[p] = v_low;
+                    }
+                    // If v is the root of a biconnected component
+                    let p_disc = discovery[p];
+                    if v_low >= p_disc {
+                        let mut component = Vec::new();
+                        while let Some(&(u, w)) = edge_stack.last() {
+                            edge_stack.pop();
+                            // Canonicalise BY NODE NAME (not index) — matches the old &str `u <= w`.
+                            let edge = if nodes[u] <= nodes[w] {
+                                (nodes[u].to_owned(), nodes[w].to_owned())
+                            } else {
+                                (nodes[w].to_owned(), nodes[u].to_owned())
+                            };
+                            component.push(edge);
+                            if (u == p && w == v_idx) || (u == v_idx && w == p) {
+                                break;
+                            }
+                        }
+                        if !component.is_empty() {
+                            component.sort_unstable();
+                            components.push(component);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    components
+}
+
+/// br-r37-c1-bccidx A/B baseline: the pre-lever fully String-keyed articulation/biconnected DFS.
+/// Test-only; byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn biconnected_component_edges_orig_string(graph: &Graph) -> Vec<Vec<(String, String)>> {
     let nodes = graph.nodes_ordered();
     let mut discovery: HashMap<&str, usize> = HashMap::new();
     let mut low: HashMap<&str, usize> = HashMap::new();
@@ -33033,7 +33138,6 @@ pub fn biconnected_component_edges(graph: &Graph) -> Vec<Vec<(String, String)>> 
             continue;
         }
 
-        // Iterative DFS
         let mut stack: Vec<(&str, Vec<&str>, usize)> = Vec::new();
         discovery.insert(root, time);
         low.insert(root, time);
@@ -33064,13 +33168,6 @@ pub fn biconnected_component_edges(graph: &Graph) -> Vec<Vec<(String, String)>> 
                     stack.push((w, w_succs, 0));
                 } else if parent.get(v_str) != Some(&Some(w)) && discovery[w] < discovery[v_str] {
                     edge_stack.push((v_str, w));
-                    // br-r37-c1-bccdisc: for a back edge (v, w) the low-link must
-                    // fold in the DISCOVERY time of w, not low[w]. Using low[w]
-                    // wrongly propagates a deeper ancestor reachable from w (e.g.
-                    // the bowtie's shared articulation vertex carries low < disc),
-                    // which defeats the `low >= disc[parent]` split test and merges
-                    // two biconnected components into one. nx's _biconnected_dfs
-                    // does `low[parent] = min(low[parent], discovery[child])`.
                     let w_disc = discovery[w];
                     if let Some(v_low) = low.get_mut(v_str)
                         && w_disc < *v_low
@@ -33079,21 +33176,17 @@ pub fn biconnected_component_edges(graph: &Graph) -> Vec<Vec<(String, String)>> 
                     }
                 }
             } else {
-                // Finished processing v
                 let v_str = *v;
                 let v_low = low[v_str];
-                let v_disc = discovery[v_str];
                 let v_parent = parent.get(v_str).copied().flatten();
                 stack.pop();
 
                 if let Some(p) = v_parent {
-                    // Update parent's low value
                     if let Some(p_low) = low.get_mut(p)
                         && v_low < *p_low
                     {
                         *p_low = v_low;
                     }
-                    // If v is the root of a biconnected component
                     let p_disc = discovery[p];
                     if v_low >= p_disc {
                         let mut component = Vec::new();
@@ -33115,8 +33208,6 @@ pub fn biconnected_component_edges(graph: &Graph) -> Vec<Vec<(String, String)>> 
                         }
                     }
                 }
-                let _ = v_low;
-                let _ = v_disc;
             }
         }
     }
@@ -53156,6 +53247,93 @@ mod tests {
             );
         };
         println!("SCCIDX_AB strongly_connected_components n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-bccidx: full-function paired-interleaved A/B for `biconnected_component_edges`
+    /// (fully String-keyed articulation DFS: discovery/low/parent HashMap<&str,_> + (&str,&str) edge
+    /// stack + Vec<&str> work stack → all integer-index). Chain of triangles so there are many small
+    /// biconnected components (tiny per-component output/sort) and the O(V+E) String-hash DFS dominates.
+    /// Byte-exact parity (components). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib biconnected_component_edges_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn biconnected_component_edges_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Chain of T triangles sharing even articulation nodes: triangle t on (2t, 2t+1, 2t+2).
+        // 2T+1 nodes, 3T edges, T biconnected components (each triangle) → per-component output is 3
+        // edges (cheap sort) while the O(V+E) discovery/low/parent probes are the dominant cost.
+        let t = 20000usize;
+        let n = 2 * t + 1;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for k in 0..t {
+            let a = 2 * k;
+            let _ = g.add_edge(format!("n{a}"), format!("n{}", a + 1));
+            let _ = g.add_edge(format!("n{}", a + 1), format!("n{}", a + 2));
+            let _ = g.add_edge(format!("n{a}"), format!("n{}", a + 2));
+        }
+
+        // Byte-exact parity: same components (composition + order).
+        let cand = super::biconnected_component_edges(&g);
+        let base = super::biconnected_component_edges_orig_string(&g);
+        assert_eq!(cand, base, "index biconnected_component_edges must equal the String baseline");
+        assert_eq!(cand.len(), t, "chain of T triangles has T biconnected components");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::biconnected_component_edges(&g)
+            } else {
+                super::biconnected_component_edges_orig_string(&g)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "BCCIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("BCCIDX_AB biconnected_component_edges T={t} (n={n}) rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
