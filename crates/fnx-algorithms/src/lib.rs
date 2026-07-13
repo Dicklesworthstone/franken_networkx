@@ -33385,6 +33385,85 @@ pub fn kosaraju_strongly_connected_components(digraph: &DiGraph) -> Vec<Vec<Stri
     // node-iteration order, shared ``visited``. Predecessors are pushed reversed so
     // they pop in forward predecessor order — matching nx's reverse-graph adjacency
     // traversal (same discipline as `dfs_postorder_nodes_directed`).
+    // br-r37-c1-kosidx (cc): both DFS phases keyed on node NAMES (HashSet<&str> visited/seen +
+    // predecessors()/successors() Vec<&str> allocs + String probes) → integer indices. Vec<bool>
+    // visited/seen, walk predecessors_indices/successors_indices (reversed exactly as before), keep
+    // `post` as Vec<usize>; names are materialised only for the O(|V|) component output. Byte-identical:
+    // same node scan (0..n), same reversed predecessor/successor order → the same postorder, the same
+    // reverse-postorder roots, the same forward-reachable SCC sets in the same emission sequence.
+    let mut visited = vec![false; n];
+    let mut post: Vec<usize> = Vec::with_capacity(n);
+    for start in 0..n {
+        if visited[start] {
+            continue;
+        }
+        let mut stack: Vec<(usize, bool)> = vec![(start, false)];
+        while let Some((v, backtrack)) = stack.pop() {
+            if backtrack {
+                post.push(v);
+                continue;
+            }
+            if visited[v] {
+                continue;
+            }
+            visited[v] = true;
+            stack.push((v, true));
+            if let Some(preds) = digraph.predecessors_indices(v) {
+                for &p in preds.iter().rev() {
+                    if !visited[p] {
+                        stack.push((p, false));
+                    }
+                }
+            }
+        }
+    }
+
+    // Phase 2: pop ``post`` in reverse; for each unseen root, the SCC is the set of
+    // unseen nodes reachable on the ORIGINAL graph (successors). Because reverse
+    // postorder of the reversed graph processes the condensation in topological
+    // order (every downstream SCC is already ``seen``), pruning the forward search
+    // at ``seen`` yields exactly the root's SCC — output-identical to nx's
+    // full-reachable-then-filter, in O(V+E) total instead of O(V*E).
+    let mut seen = vec![false; n];
+    let mut components: Vec<Vec<String>> = Vec::new();
+    for &root in post.iter().rev() {
+        if seen[root] {
+            continue;
+        }
+        let mut component: Vec<usize> = Vec::new();
+        let mut stack: Vec<usize> = vec![root];
+        while let Some(v) = stack.pop() {
+            if seen[v] {
+                continue;
+            }
+            seen[v] = true;
+            component.push(v);
+            if let Some(succs) = digraph.successors_indices(v) {
+                for &s in succs.iter().rev() {
+                    if !seen[s] {
+                        stack.push(s);
+                    }
+                }
+            }
+        }
+        let mut comp_owned: Vec<String> = component.iter().map(|&i| nodes[i].to_owned()).collect();
+        comp_owned.sort_unstable();
+        components.push(comp_owned);
+    }
+
+    components
+}
+
+/// br-r37-c1-kosidx A/B baseline: the pre-lever fully String-keyed two-phase Kosaraju DFS.
+/// Test-only; byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn kosaraju_strongly_connected_components_orig_string(digraph: &DiGraph) -> Vec<Vec<String>> {
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return Vec::new();
+    }
+
     let mut visited = HashSet::<&str>::new();
     let mut post: Vec<&str> = Vec::with_capacity(n);
     for &start in &nodes {
@@ -33411,12 +33490,6 @@ pub fn kosaraju_strongly_connected_components(digraph: &DiGraph) -> Vec<Vec<Stri
         }
     }
 
-    // Phase 2: pop ``post`` in reverse; for each unseen root, the SCC is the set of
-    // unseen nodes reachable on the ORIGINAL graph (successors). Because reverse
-    // postorder of the reversed graph processes the condensation in topological
-    // order (every downstream SCC is already ``seen``), pruning the forward search
-    // at ``seen`` yields exactly the root's SCC — output-identical to nx's
-    // full-reachable-then-filter, in O(V+E) total instead of O(V*E).
     let mut seen = HashSet::<&str>::new();
     let mut components: Vec<Vec<String>> = Vec::new();
     for &root in post.iter().rev() {
@@ -53334,6 +53407,92 @@ mod tests {
             );
         };
         println!("BCCIDX_AB biconnected_component_edges T={t} (n={n}) rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-kosidx: full-function paired-interleaved A/B for `kosaraju_strongly_connected_components`
+    /// (two String-keyed DFS phases: HashSet<&str> visited/seen + predecessors()/successors() Vec<&str>
+    /// allocs → integer-index). Forward DAG so all SCCs are singletons and both phases traverse the whole
+    /// O(V+E) graph. Byte-exact parity (components, incl. emission order). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib kosaraju_strongly_connected_components_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn kosaraju_strongly_connected_components_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Forward DAG n=40000, out-degree ~20 → all singleton SCCs; phase 1 (predecessors) + phase 2
+        // (successors) each walk the whole graph, re-hashing every neighbour in the baseline.
+        let n = 40000usize;
+        let deg = 20usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                if i + k < n {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{}", i + k));
+                }
+            }
+        }
+
+        // Byte-exact parity: same components (composition + emission order).
+        let cand = super::kosaraju_strongly_connected_components(&g);
+        let base = super::kosaraju_strongly_connected_components_orig_string(&g);
+        assert_eq!(cand, base, "index Kosaraju must equal the String baseline");
+        assert_eq!(cand.len(), n, "forward DAG has n singleton SCCs");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::kosaraju_strongly_connected_components(&g)
+            } else {
+                super::kosaraju_strongly_connected_components_orig_string(&g)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "KOSIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("KOSIDX_AB kosaraju_strongly_connected_components n={n} deg={deg} rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
