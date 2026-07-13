@@ -20167,9 +20167,15 @@ pub fn topological_generations(digraph: &DiGraph) -> Option<TopologicalGeneratio
     let nodes = digraph.nodes_ordered();
     let n = nodes.len();
 
-    let mut in_degree: HashMap<&str, usize> = HashMap::with_capacity(n);
-    for &node in &nodes {
-        in_degree.insert(node, digraph.in_degree(node));
+    // br-r37-c1-topogenidx (cc): Kahn's over integer indices. The old kernel kept `in_degree` as
+    // HashMap<&str,usize> and walked `successors()` (a Vec<&str> alloc per node) with an
+    // `in_degree.get_mut(succ)` String hash per edge. Index in_degree (Vec<usize>) and walk
+    // `successors_indices` (&[usize]); node names are materialised only when a generation is emitted.
+    // Byte-identical: same in_degree seed, same gen-0 node-iteration order, same successor scan order →
+    // same zero-reach order → the same generations (node, discovering-parent) + witness.
+    let mut in_degree: Vec<usize> = vec![0; n];
+    for i in 0..n {
+        in_degree[i] = digraph.in_degree(nodes[i]);
     }
 
     // re-audit 2026-06-06: nx emits generation 0 in NODE ITERATION order
@@ -20177,6 +20183,66 @@ pub fn topological_generations(digraph: &DiGraph) -> Option<TopologicalGeneratio
     // indegree hits zero while scanning the previous generation). The old
     // lexicographic sort_unstable diverged on both (and string-sorted
     // "10" before "2").
+    let mut current_gen: Vec<(usize, Option<usize>)> =
+        (0..n).filter(|&i| in_degree[i] == 0).map(|i| (i, None)).collect();
+
+    let mut generations: Vec<Vec<(String, Option<String>)>> = Vec::new();
+    let mut total_processed = 0usize;
+    let mut edges_scanned = 0usize;
+
+    while !current_gen.is_empty() {
+        let mut next_gen: Vec<(usize, Option<usize>)> = Vec::new();
+        for &(node, _) in &current_gen {
+            total_processed += 1;
+            if let Some(succs) = digraph.successors_indices(node) {
+                for &succ in succs {
+                    edges_scanned += 1;
+                    in_degree[succ] -= 1;
+                    if in_degree[succ] == 0 {
+                        next_gen.push((succ, Some(node)));
+                    }
+                }
+            }
+        }
+
+        generations.push(
+            current_gen
+                .iter()
+                .map(|&(s, p)| (nodes[s].to_owned(), p.map(|pi| nodes[pi].to_owned())))
+                .collect(),
+        );
+
+        current_gen = next_gen;
+    }
+
+    if total_processed != n {
+        return None; // cycle detected
+    }
+
+    Some(TopologicalGenerationsResult {
+        generations,
+        witness: ComplexityWitness {
+            algorithm: "kahn_topological_generations".to_owned(),
+            complexity_claim: "O(|V| + |E|)".to_owned(),
+            nodes_touched: total_processed,
+            edges_scanned,
+            queue_peak: 0,
+        },
+    })
+}
+
+/// br-r37-c1-topogenidx A/B baseline: the pre-lever String-keyed Kahn's generations.
+/// Test-only; byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn topological_generations_orig_string(digraph: &DiGraph) -> Option<TopologicalGenerationsResult> {
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+
+    let mut in_degree: HashMap<&str, usize> = HashMap::with_capacity(n);
+    for &node in &nodes {
+        in_degree.insert(node, digraph.in_degree(node));
+    }
+
     let mut current_gen: Vec<(&str, Option<&str>)> = nodes
         .iter()
         .filter(|&&node| in_degree.get(node) == Some(&0))
@@ -20215,7 +20281,7 @@ pub fn topological_generations(digraph: &DiGraph) -> Option<TopologicalGeneratio
     }
 
     if total_processed != n {
-        return None; // cycle detected
+        return None;
     }
 
     Some(TopologicalGenerationsResult {
@@ -53685,6 +53751,92 @@ mod tests {
             );
         };
         println!("TOPOSORTIDX_AB topological_sort n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-topogenidx: full-function paired-interleaved A/B for `topological_generations` (Kahn's
+    /// with in_degree HashMap<&str,usize> + successors() Vec<&str> alloc + get_mut re-hash per edge →
+    /// integer-index). Forward DAG (acyclic → full Kahn's). Byte-exact parity (result incl. generations
+    /// + order + witness via PartialEq). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib topological_generations_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn topological_generations_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Forward DAG n=40000, out-degree ~20 (i → i+1..i+20): acyclic, so Kahn's decrements every edge's
+        // successor in_degree (a String get_mut per edge in the baseline).
+        let n = 40000usize;
+        let deg = 20usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                if i + k < n {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{}", i + k));
+                }
+            }
+        }
+
+        // Byte-exact parity: same generations + witness.
+        let cand = super::topological_generations(&g);
+        let base = super::topological_generations_orig_string(&g);
+        assert_eq!(cand, base, "index topological_generations must equal the String baseline");
+        assert!(cand.is_some(), "forward DAG is acyclic");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::topological_generations(&g)
+            } else {
+                super::topological_generations_orig_string(&g)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "TOPOGENIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("TOPOGENIDX_AB topological_generations n={n} deg={deg} rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
