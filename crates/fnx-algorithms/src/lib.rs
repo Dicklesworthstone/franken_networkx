@@ -32438,6 +32438,173 @@ pub fn bidirectional_shortest_path(
     source: &str,
     target: &str,
 ) -> Option<Vec<String>> {
+    // br-r37-c1-bidirspidx (cc): integer-index bidirectional BFS. The old kernel kept forward/backward
+    // pred as HashMap<&str,&str> and visited as HashSet<&str> and walked neighbors_iter — a String hash
+    // on every visited/pred probe over both frontiers. Walk neighbors_indices over Vec<bool> visited +
+    // Vec<Option<usize>> pred; names are materialised only for the O(path) reconstructed path.
+    // Byte-identical: same frontier-size expansion choice, same neighbour order, same meeting-point
+    // detection → the same meeting node + predecessor trees → the same path.
+    let Some(source_idx) = graph.get_node_index(source) else {
+        return None;
+    };
+    let Some(target_idx) = graph.get_node_index(target) else {
+        return None;
+    };
+    if source_idx == target_idx {
+        return Some(vec![source.to_owned()]);
+    }
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+
+    let mut forward_pred: Vec<Option<usize>> = vec![None; n];
+    let mut backward_pred: Vec<Option<usize>> = vec![None; n];
+    let mut forward_visited = vec![false; n];
+    let mut backward_visited = vec![false; n];
+    let mut forward_frontier: Vec<usize> = vec![source_idx];
+    let mut backward_frontier: Vec<usize> = vec![target_idx];
+
+    forward_visited[source_idx] = true;
+    backward_visited[target_idx] = true;
+
+    while !forward_frontier.is_empty() && !backward_frontier.is_empty() {
+        // Expand the smaller frontier
+        if forward_frontier.len() <= backward_frontier.len() {
+            let mut next = Vec::new();
+            for &node in &forward_frontier {
+                if let Some(neighbors) = graph.neighbors_indices(node) {
+                    for &nbr in neighbors {
+                        if forward_visited[nbr] {
+                            continue;
+                        }
+                        forward_visited[nbr] = true;
+                        forward_pred[nbr] = Some(node);
+                        if backward_visited[nbr] {
+                            // Found meeting point
+                            return Some(build_bidir_path_index(
+                                source_idx,
+                                target_idx,
+                                nbr,
+                                &forward_pred,
+                                &backward_pred,
+                                &nodes,
+                            ));
+                        }
+                        next.push(nbr);
+                    }
+                }
+            }
+            forward_frontier = next;
+        } else {
+            let mut next = Vec::new();
+            for &node in &backward_frontier {
+                if let Some(neighbors) = graph.neighbors_indices(node) {
+                    for &nbr in neighbors {
+                        if backward_visited[nbr] {
+                            continue;
+                        }
+                        backward_visited[nbr] = true;
+                        backward_pred[nbr] = Some(node);
+                        if forward_visited[nbr] {
+                            return Some(build_bidir_path_index(
+                                source_idx,
+                                target_idx,
+                                nbr,
+                                &forward_pred,
+                                &backward_pred,
+                                &nodes,
+                            ));
+                        }
+                        next.push(nbr);
+                    }
+                }
+            }
+            backward_frontier = next;
+        }
+    }
+
+    None
+}
+
+/// Integer-index path reconstruction for bidirectional BFS (br-r37-c1-bidirspidx). Mirrors
+/// `build_bidirectional_path`: forward half source→…→meeting (via forward_pred, reversed) then
+/// backward half meeting→…→target (via backward_pred); names materialised from `nodes` here.
+fn build_bidir_path_index(
+    source_idx: usize,
+    target_idx: usize,
+    meeting: usize,
+    forward_pred: &[Option<usize>],
+    backward_pred: &[Option<usize>],
+    nodes: &[&str],
+) -> Vec<String> {
+    let mut path = vec![nodes[meeting].to_owned()];
+    let mut cur = meeting;
+    while cur != source_idx {
+        if let Some(prev) = forward_pred[cur] {
+            path.push(nodes[prev].to_owned());
+            cur = prev;
+        } else {
+            break;
+        }
+    }
+    path.reverse();
+
+    let mut cur = meeting;
+    while cur != target_idx {
+        if let Some(prev) = backward_pred[cur] {
+            path.push(nodes[prev].to_owned());
+            cur = prev;
+        } else {
+            break;
+        }
+    }
+
+    path
+}
+
+/// Helper to reconstruct path from bidirectional BFS (br-r37-c1-bidirspidx A/B baseline, String-keyed).
+#[cfg(test)]
+fn build_bidirectional_path<'a>(
+    source: &str,
+    target: &str,
+    meeting: &str,
+    forward_pred: &HashMap<&'a str, &'a str>,
+    backward_pred: &HashMap<&'a str, &'a str>,
+) -> Vec<String> {
+    // Build forward half: source -> ... -> meeting
+    let mut forward_half = vec![meeting.to_owned()];
+    let mut cur = meeting;
+    while cur != source {
+        if let Some(&prev) = forward_pred.get(cur) {
+            forward_half.push(prev.to_owned());
+            cur = prev;
+        } else {
+            break;
+        }
+    }
+    forward_half.reverse();
+
+    // Build backward half: meeting -> ... -> target
+    let mut cur = meeting;
+    while cur != target {
+        if let Some(&prev) = backward_pred.get(cur) {
+            forward_half.push(prev.to_owned());
+            cur = prev;
+        } else {
+            break;
+        }
+    }
+
+    forward_half
+}
+
+/// br-r37-c1-bidirspidx A/B baseline: the pre-lever String-keyed bidirectional BFS.
+/// Test-only; byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn bidirectional_shortest_path_orig_string(
+    graph: &Graph,
+    source: &str,
+    target: &str,
+) -> Option<Vec<String>> {
     if !graph.has_node(source) || !graph.has_node(target) {
         return None;
     }
@@ -32445,7 +32612,6 @@ pub fn bidirectional_shortest_path(
         return Some(vec![source.to_owned()]);
     }
 
-    // Forward and backward BFS frontiers
     let mut forward_pred: HashMap<&str, &str> = HashMap::new();
     let mut backward_pred: HashMap<&str, &str> = HashMap::new();
     let mut forward_visited: HashSet<&str> = HashSet::new();
@@ -32457,7 +32623,6 @@ pub fn bidirectional_shortest_path(
     backward_visited.insert(target);
 
     while !forward_frontier.is_empty() && !backward_frontier.is_empty() {
-        // Expand the smaller frontier
         if forward_frontier.len() <= backward_frontier.len() {
             let mut next = Vec::new();
             for &node in &forward_frontier {
@@ -32468,7 +32633,6 @@ pub fn bidirectional_shortest_path(
                         }
                         forward_pred.insert(nbr, node);
                         if backward_visited.contains(nbr) {
-                            // Found meeting point
                             return Some(build_bidirectional_path(
                                 source,
                                 target,
@@ -32509,41 +32673,6 @@ pub fn bidirectional_shortest_path(
     }
 
     None
-}
-
-/// Helper to reconstruct path from bidirectional BFS.
-fn build_bidirectional_path<'a>(
-    source: &str,
-    target: &str,
-    meeting: &str,
-    forward_pred: &HashMap<&'a str, &'a str>,
-    backward_pred: &HashMap<&'a str, &'a str>,
-) -> Vec<String> {
-    // Build forward half: source -> ... -> meeting
-    let mut forward_half = vec![meeting.to_owned()];
-    let mut cur = meeting;
-    while cur != source {
-        if let Some(&prev) = forward_pred.get(cur) {
-            forward_half.push(prev.to_owned());
-            cur = prev;
-        } else {
-            break;
-        }
-    }
-    forward_half.reverse();
-
-    // Build backward half: meeting -> ... -> target
-    let mut cur = meeting;
-    while cur != target {
-        if let Some(&prev) = backward_pred.get(cur) {
-            forward_half.push(prev.to_owned());
-            cur = prev;
-        } else {
-            break;
-        }
-    }
-
-    forward_half
 }
 
 /// Detect whether a graph contains a negative weight cycle.
@@ -53837,6 +53966,94 @@ mod tests {
             );
         };
         println!("TOPOGENIDX_AB topological_generations n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-bidirspidx: full-function paired-interleaved A/B for `bidirectional_shortest_path`
+    /// (String-keyed bidir BFS: forward/backward HashMap<&str,&str> pred + HashSet<&str> visited +
+    /// neighbors_iter → integer-index). Dense circulant with source/target diametrically opposite so
+    /// both frontiers explore ~all V before meeting while the path stays short → BFS-hash dominated.
+    /// Byte-exact parity (path). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib bidirectional_shortest_path_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn bidirectional_shortest_path_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Circulant n=120000, each node linked to ±1..±10 (deg 20). source=n0, target=n60000
+        // (diametrically opposite): the two frontiers sweep toward each other, exploring ~all V before
+        // meeting, but the shortest path is only ~6000 hops → the O(V+E) visited/pred probes dominate.
+        let n = 120000usize;
+        let deg = 10usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for step in 1..=deg {
+                let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + step) % n));
+            }
+        }
+        let src = "n0";
+        let tgt = "n60000";
+
+        // Byte-exact parity: same shortest path.
+        let cand = super::bidirectional_shortest_path(&g, src, tgt);
+        let base = super::bidirectional_shortest_path_orig_string(&g, src, tgt);
+        assert_eq!(cand, base, "index bidirectional_shortest_path must equal the String baseline");
+        assert!(cand.is_some(), "target is reachable");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::bidirectional_shortest_path(&g, src, tgt)
+            } else {
+                super::bidirectional_shortest_path_orig_string(&g, src, tgt)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "BIDIRSPIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("BIDIRSPIDX_AB bidirectional_shortest_path n={n} deg={deg} rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
