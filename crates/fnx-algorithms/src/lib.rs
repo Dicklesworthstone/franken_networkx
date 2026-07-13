@@ -29511,6 +29511,81 @@ pub fn edge_boundary_directed(
     nbunch1: &[&str],
     nbunch2: Option<&[&str]>,
 ) -> Vec<(String, String)> {
+    let n = graph.node_count();
+    let names = graph.nodes_ordered();
+    let mut result = Vec::new();
+
+    let mut in_set1 = vec![false; n];
+    for &node in nbunch1 {
+        if let Some(idx) = graph.get_node_index(node) {
+            in_set1[idx] = true;
+        }
+    }
+
+    if let Some(nodes2) = nbunch2 {
+        let mut in_set2 = vec![false; n];
+        for &node in nodes2 {
+            if let Some(idx) = graph.get_node_index(node) {
+                in_set2[idx] = true;
+            }
+        }
+        let mut seen_sources = vec![false; n];
+        for &node in nbunch1 {
+            let Some(u) = graph.get_node_index(node) else {
+                continue;
+            };
+            if seen_sources[u] {
+                continue;
+            }
+            seen_sources[u] = true;
+            if let Some(succs) = graph.successors_indices(u) {
+                for &v in succs {
+                    if (in_set1[u] && in_set2[v]) || (in_set1[v] && in_set2[u]) {
+                        result.push((names[u].to_owned(), names[v].to_owned()));
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    // br-r37-c1-ebdiridx (cc): the nbunch2=None branch walked graph.successors(node) (a Vec<&str>
+    // alloc per node) + a `set1.contains(succ)` String hash per successor; walk successors_indices over
+    // the `in_set1` bool row. Byte-identical: same nbunch1 iteration × successor-adjacency order, same
+    // "succ not in nbunch1" filter → the same (u→v) boundary edges (NOT sorted — matches nx's
+    // OutEdgeView order; every emitted `succ` is a graph node so in_set1[v] == set1.contains(succ)).
+    for &node in nbunch1 {
+        let Some(u) = graph.get_node_index(node) else {
+            continue;
+        };
+        if let Some(succs) = graph.successors_indices(u) {
+            for &v in succs {
+                if in_set1[v] {
+                    continue;
+                }
+                result.push((names[u].to_owned(), names[v].to_owned()));
+            }
+        }
+    }
+    // br-r37-c1-tep7r: do NOT sort. nx.edge_boundary emits boundary edges in
+    // nbunch1-iteration x successor-adjacency order (its OutEdgeView order), not
+    // sorted — the sibling undirected `edge_boundary` already returns unsorted.
+    // The stray sort made directed `edge_boundary(data=False)` diverge from nx
+    // on 16/768 sampled cases (edge SET correct, ORDER wrong). Emitting in
+    // source x successor order matches nx exactly (same nbunch order the wrapper
+    // passes, same adjacency order verified == nx for identically-built graphs).
+    result
+}
+
+/// br-r37-c1-ebdiridx A/B baseline: the pre-lever `edge_boundary_directed` nbunch2=None branch that
+/// walked graph.successors(node) (Vec<&str> alloc) + a set1.contains(succ) String probe. Test-only;
+/// byte-identical to the shipped `successors_indices`/in_set1 version.
+#[cfg(test)]
+fn edge_boundary_directed_orig_string(
+    graph: &DiGraph,
+    nbunch1: &[&str],
+    nbunch2: Option<&[&str]>,
+) -> Vec<(String, String)> {
     let set1: HashSet<&str> = nbunch1.iter().copied().collect();
     let set2: Option<HashSet<&str>> = nbunch2.map(|s| s.iter().copied().collect());
 
@@ -29563,13 +29638,6 @@ pub fn edge_boundary_directed(
             }
         }
     }
-    // br-r37-c1-tep7r: do NOT sort. nx.edge_boundary emits boundary edges in
-    // nbunch1-iteration x successor-adjacency order (its OutEdgeView order), not
-    // sorted — the sibling undirected `edge_boundary` already returns unsorted.
-    // The stray sort made directed `edge_boundary(data=False)` diverge from nx
-    // on 16/768 sampled cases (edge SET correct, ORDER wrong). Emitting in
-    // source x successor order matches nx exactly (same nbunch order the wrapper
-    // passes, same adjacency order verified == nx for identically-built graphs).
     result
 }
 
@@ -55422,6 +55490,92 @@ mod tests {
             );
         };
         println!("LEXTOPOIDX_AB lexicographic_topological_sort n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-ebdiridx: full-function paired-interleaved A/B for `edge_boundary_directed` (nbunch2=None
+    /// branch: graph.successors(node) Vec<&str> alloc + set1.contains(succ) String probe → successors_indices
+    /// + in_set1 bool row). Large nbunch1 (half a dense directed graph). Byte-exact parity (boundary edges +
+    /// order). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib edge_boundary_directed_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn edge_boundary_directed_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Directed circulant n=50000, i → (i+1..i+20) mod n (deg 20). nbunch1 = first n/2 nodes; the
+        // None branch scans every nbunch1 node's successors (~n/2 * 20 = 500k) + set1.contains per succ.
+        let n = 50000usize;
+        let deg = 20usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + k) % n));
+            }
+        }
+        let nb1_names: Vec<String> = (0..(n / 2)).map(|i| format!("n{i}")).collect();
+        let nb1: Vec<&str> = nb1_names.iter().map(String::as_str).collect();
+
+        // Byte-exact parity: same boundary edges in the same order.
+        let cand = super::edge_boundary_directed(&g, &nb1, None);
+        let base = super::edge_boundary_directed_orig_string(&g, &nb1, None);
+        assert_eq!(cand, base, "index edge_boundary_directed must equal the String baseline");
+        assert!(!cand.is_empty(), "boundary is non-empty");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::edge_boundary_directed(&g, &nb1, None)
+            } else {
+                super::edge_boundary_directed_orig_string(&g, &nb1, None)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "EBDIRIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("EBDIRIDX_AB edge_boundary_directed n={n} deg={deg} |nb1|={} rounds={rounds} (>1 = index faster)", nb1.len());
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
