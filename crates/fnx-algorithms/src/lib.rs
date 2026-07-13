@@ -21278,12 +21278,76 @@ pub fn descendants(digraph: &DiGraph, node: &str) -> HashSet<String> {
 #[must_use]
 pub fn dag_longest_path(digraph: &DiGraph) -> Option<Vec<String>> {
     let topo = topological_sort(digraph)?;
+    if topo.order.is_empty() {
+        return Some(Vec::new());
+    }
+
+    // br-r37-c1-daglpidx (cc): the DAG longest-path DP kept dist as HashMap<&str,usize> and pred as
+    // HashMap<&str,Option<&str>> and walked successors() (Vec<&str> alloc) with a dist[v]/insert String
+    // hash per edge. Resolve the topo order to indices ONCE, then relax over successors_indices into
+    // dist: Vec<usize> + pred: Vec<Option<usize>>; node names are materialised only for the O(path)
+    // output. Byte-identical: same topo order, same successor order, same `>` relaxation and first-max
+    // (strictly-greater) tie-break → the same longest path. (topological_sort is the same in both arms.)
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    let topo_idx: Vec<usize> = topo
+        .order
+        .iter()
+        .map(|name| {
+            digraph
+                .get_node_index(name)
+                .expect("topological_sort nodes are graph nodes")
+        })
+        .collect();
+
+    // dist[node] = length of longest path ending at node
+    let mut dist = vec![0usize; n];
+    let mut pred: Vec<Option<usize>> = vec![None; n];
+
+    for &u in &topo_idx {
+        if let Some(succs) = digraph.successors_indices(u) {
+            for &v in succs {
+                let new_dist = dist[u] + 1;
+                if new_dist > dist[v] {
+                    dist[v] = new_dist;
+                    pred[v] = Some(u);
+                }
+            }
+        }
+    }
+
+    // Find the node with maximum distance (first in topo order on ties).
+    let mut best_node = topo_idx[0];
+    let mut best_dist = 0;
+    for &node in &topo_idx {
+        let d = dist[node];
+        if d > best_dist {
+            best_dist = d;
+            best_node = node;
+        }
+    }
+
+    // Reconstruct path by following predecessors.
+    let mut path = vec![nodes[best_node].to_owned()];
+    let mut current = best_node;
+    while let Some(p) = pred[current] {
+        path.push(nodes[p].to_owned());
+        current = p;
+    }
+    path.reverse();
+    Some(path)
+}
+
+/// br-r37-c1-daglpidx A/B baseline: the pre-lever String-keyed DAG longest-path DP.
+/// Test-only; byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn dag_longest_path_orig_string(digraph: &DiGraph) -> Option<Vec<String>> {
+    let topo = topological_sort(digraph)?;
     let order = &topo.order;
     if order.is_empty() {
         return Some(Vec::new());
     }
 
-    // dist[node] = length of longest path ending at node
     let mut dist: HashMap<&str, usize> = HashMap::with_capacity(order.len());
     let mut pred: HashMap<&str, Option<&str>> = HashMap::with_capacity(order.len());
 
@@ -21304,7 +21368,6 @@ pub fn dag_longest_path(digraph: &DiGraph) -> Option<Vec<String>> {
         }
     }
 
-    // Find the node with maximum distance
     let mut best_node = order[0].as_str();
     let mut best_dist = 0;
     for node in order {
@@ -21315,7 +21378,6 @@ pub fn dag_longest_path(digraph: &DiGraph) -> Option<Vec<String>> {
         }
     }
 
-    // Reconstruct path by following predecessors
     let mut path = vec![best_node.to_owned()];
     let mut current = best_node;
     while let Some(Some(p)) = pred.get(current) {
@@ -54054,6 +54116,92 @@ mod tests {
             );
         };
         println!("BIDIRSPIDX_AB bidirectional_shortest_path n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-daglpidx: full-function paired-interleaved A/B for `dag_longest_path` (String-keyed DAG
+    /// DP: dist HashMap<&str,usize> + pred HashMap<&str,Option<&str>> + successors() re-hash per edge →
+    /// integer-index). Forward DAG (acyclic). The shared topological_sort (already index) is identical in
+    /// both arms, so this isolates the DP loop. Byte-exact parity (path). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib dag_longest_path_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn dag_longest_path_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Forward DAG n=40000, out-degree ~20 (i → i+1..i+20): acyclic; the DP relaxes every edge
+        // (dist[u]/dist[v]/insert String hash per edge in the baseline).
+        let n = 40000usize;
+        let deg = 20usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                if i + k < n {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{}", i + k));
+                }
+            }
+        }
+
+        // Byte-exact parity: same longest path.
+        let cand = super::dag_longest_path(&g);
+        let base = super::dag_longest_path_orig_string(&g);
+        assert_eq!(cand, base, "index dag_longest_path must equal the String baseline");
+        assert!(cand.is_some(), "forward DAG is acyclic");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::dag_longest_path(&g)
+            } else {
+                super::dag_longest_path_orig_string(&g)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "DAGLPIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("DAGLPIDX_AB dag_longest_path n={n} deg={deg} rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
