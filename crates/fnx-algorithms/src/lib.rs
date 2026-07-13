@@ -30087,63 +30087,46 @@ fn cut_volume_directed(digraph: &DiGraph, nodes: &[&str], weight_attr: Option<&s
 // is_simple_path
 // ---------------------------------------------------------------------------
 
-/// Return True if `path` is a simple path in the graph (no repeated nodes,
-/// all consecutive nodes connected by edges).
-#[must_use]
-pub fn is_simple_path(graph: &Graph, path: &[&str]) -> bool {
+fn is_simple_path_indexed<G: GraphView>(graph: &G, path: &[&str]) -> bool {
     if path.is_empty() {
         return false;
     }
     if path.len() == 1 {
-        return graph.neighbors(path[0]).is_some();
+        return graph.get_node_index(path[0]).is_some();
     }
-    // Check for repeated nodes
-    let mut seen: HashSet<&str> = HashSet::new();
+
+    let mut seen = HashSet::with_capacity(path.len());
+    let mut previous = None;
     for &node in path {
-        if !seen.insert(node) {
+        let Some(index) = graph.get_node_index(node) else {
+            return false;
+        };
+        if !seen.insert(index) {
             return false;
         }
-    }
-    // Check consecutive edges exist
-    for w in path.windows(2) {
-        match graph.neighbors(w[0]) {
-            Some(nbrs) => {
-                if !nbrs.contains(&w[1]) {
-                    return false;
-                }
-            }
-            None => return false,
+        if let Some(left) = previous
+            && !graph
+                .neighbors_indices(left)
+                .is_some_and(|neighbors| neighbors.contains(&index))
+        {
+            return false;
         }
+        previous = Some(index);
     }
     true
+}
+
+/// Return True if `path` is a simple path in the graph (no repeated nodes,
+/// all consecutive nodes connected by edges).
+#[must_use]
+pub fn is_simple_path(graph: &Graph, path: &[&str]) -> bool {
+    is_simple_path_indexed(graph, path)
 }
 
 /// Return True if `path` is a simple path in the directed graph.
 #[must_use]
 pub fn is_simple_path_directed(graph: &DiGraph, path: &[&str]) -> bool {
-    if path.is_empty() {
-        return false;
-    }
-    if path.len() == 1 {
-        return graph.successors(path[0]).is_some() || graph.predecessors(path[0]).is_some();
-    }
-    let mut seen: HashSet<&str> = HashSet::new();
-    for &node in path {
-        if !seen.insert(node) {
-            return false;
-        }
-    }
-    for w in path.windows(2) {
-        match graph.successors(w[0]) {
-            Some(succs) => {
-                if !succs.contains(&w[1]) {
-                    return false;
-                }
-            }
-            None => return false,
-        }
-    }
-    true
+    is_simple_path_indexed(graph, path)
 }
 
 // ---------------------------------------------------------------------------
@@ -70537,9 +70520,11 @@ mod tests {
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
         let _ = g.add_edge("c", "d");
+        let _ = g.add_node("isolated");
         assert!(is_simple_path(&g, &["a", "b", "c", "d"]));
         assert!(is_simple_path(&g, &["a", "b"]));
         assert!(is_simple_path(&g, &["a"]));
+        assert!(is_simple_path(&g, &["isolated"]));
     }
 
     #[test]
@@ -70562,9 +70547,154 @@ mod tests {
         let mut g = DiGraph::strict();
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
+        let _ = g.add_node("isolated");
         assert!(is_simple_path_directed(&g, &["a", "b", "c"]));
         // Reverse direction: no edge b->a
         assert!(!is_simple_path_directed(&g, &["c", "b", "a"]));
+        assert!(!is_simple_path_directed(&g, &["a", "b", "a"]));
+        assert!(!is_simple_path_directed(&g, &["a", "missing"]));
+        assert!(is_simple_path_directed(&g, &["isolated"]));
+        assert!(!is_simple_path_directed(&g, &["missing"]));
+    }
+
+    /// br-r37-c1-yk7eb: full-predicate paired-interleaved A/B for resolving path node names
+    /// once and scanning integer adjacency rows. The baselines freeze the former String-keyed
+    /// duplicate checks plus per-hop neighbor-name materialization for both graph directions.
+    /// `#[ignore]`; run with `cargo test --release -p fnx-algorithms --lib
+    /// is_simple_path_indexed_adjacency_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn is_simple_path_indexed_adjacency_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let nodes: Vec<String> = (0..30_000usize).map(|index| index.to_string()).collect();
+        let path: Vec<&str> = nodes.iter().map(String::as_str).collect();
+        let mut graph = Graph::strict();
+        let mut digraph = DiGraph::strict();
+        for node in &nodes {
+            let _ = graph.add_node(node.clone());
+            let _ = digraph.add_node(node.clone());
+        }
+        for pair in nodes.windows(2) {
+            let _ = graph.add_edge(pair[0].clone(), pair[1].clone());
+            let _ = digraph.add_edge(pair[0].clone(), pair[1].clone());
+        }
+
+        let baseline_graph = |graph: &Graph, path: &[&str]| {
+            if path.is_empty() {
+                return false;
+            }
+            if path.len() == 1 {
+                return graph.neighbors(path[0]).is_some();
+            }
+            let mut seen: HashSet<&str> = HashSet::new();
+            for &node in path {
+                if !seen.insert(node) {
+                    return false;
+                }
+            }
+            for pair in path.windows(2) {
+                match graph.neighbors(pair[0]) {
+                    Some(neighbors) if neighbors.contains(&pair[1]) => {}
+                    Some(_) | None => return false,
+                }
+            }
+            true
+        };
+        let baseline_digraph = |graph: &DiGraph, path: &[&str]| {
+            if path.is_empty() {
+                return false;
+            }
+            if path.len() == 1 {
+                return graph.successors(path[0]).is_some()
+                    || graph.predecessors(path[0]).is_some();
+            }
+            let mut seen: HashSet<&str> = HashSet::new();
+            for &node in path {
+                if !seen.insert(node) {
+                    return false;
+                }
+            }
+            for pair in path.windows(2) {
+                match graph.successors(pair[0]) {
+                    Some(successors) if successors.contains(&pair[1]) => {}
+                    Some(_) | None => return false,
+                }
+            }
+            true
+        };
+
+        assert_eq!(baseline_graph(&graph, &path), is_simple_path(&graph, &path));
+        assert_eq!(
+            baseline_digraph(&digraph, &path),
+            is_simple_path_directed(&digraph, &path)
+        );
+
+        let graph_time = |candidate: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate {
+                is_simple_path(black_box(&graph), black_box(&path))
+            } else {
+                baseline_graph(black_box(&graph), black_box(&path))
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        let digraph_time = |candidate: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate {
+                is_simple_path_directed(black_box(&digraph), black_box(&path))
+            } else {
+                baseline_digraph(black_box(&digraph), black_box(&path))
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(graph_time(true));
+            black_box(graph_time(false));
+            black_box(digraph_time(true));
+            black_box(digraph_time(false));
+        }
+
+        let rounds = 31usize;
+        let paired = |time: &dyn Fn(bool) -> f64, candidate: bool, baseline_arm: bool| {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(baseline_arm), time(candidate))
+                } else {
+                    let candidate_time = time(candidate);
+                    (time(baseline_arm), candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "SIMPLEPATH_IDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("SIMPLEPATH_IDX_AB path30k rounds={rounds} (>1 = indexed path faster)");
+        report("GRAPH_index_vs_string", &paired(&graph_time, true, false));
+        report("GRAPH_NULL_index_vs_index", &paired(&graph_time, true, true));
+        report(
+            "DIGRAPH_index_vs_string",
+            &paired(&digraph_time, true, false),
+        );
+        report(
+            "DIGRAPH_NULL_index_vs_index",
+            &paired(&digraph_time, true, true),
+        );
     }
 
     // -----------------------------------------------------------------------

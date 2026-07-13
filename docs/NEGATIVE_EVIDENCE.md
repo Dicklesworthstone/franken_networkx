@@ -18612,3 +18612,71 @@ RESULT: SHIP. Preserve dense index iteration, `degree_by_index` self-loop
 semantics, the empty-range result, and the early `all` exit. Future regularity
 work should profile a different public surface rather than restoring ordered
 name materialization or per-node String degree lookup.
+
+## 2026-07-13 MagentaTrout SHIP (`is_simple_path`): resolve once, scan indexed adjacency — 1.90x Graph / 1.89x DiGraph (`br-r37-c1-yk7eb`)
+
+NEGATIVE-LEDGER / REACHABILITY FIRST: the current dead-kernel, traversal,
+product, clique/coloring, centrality, tree-broadcast, and MultiGraph
+architectural boundaries were refreshed before selection. The only prior
+`is_simple_path` ledger mention assigned it to cod's lane; it contained no
+attempt or measurement, and live Agent Mail / Beads state had no conflicting
+reservation or in-progress perf bead. The public wrapper reaches the PyO3
+binding and these Rust Graph/DiGraph kernels directly. Each kernel still built
+a String-reference duplicate set, then materialized a neighbor-name `Vec` and
+performed a String comparison scan at every path hop. Opportunity score:
+impact 4 x confidence 5 / effort 1 = 20.
+
+ONE LEVER: share a single-pass indexed validator between Graph and DiGraph.
+Preserve the empty-path `false` and singleton membership fast paths; for longer
+paths, resolve each name through `get_node_index` exactly once, track duplicate
+`usize` indices in a path-sized `HashSet`, and test each consecutive edge in
+the existing zero-allocation integer adjacency row. DiGraph's `GraphView`
+implementation maps that row to successors, so direction is unchanged. A
+path-sized set was chosen over a graph-sized mark array to avoid O(|V|)
+initialization for short paths in large graphs. No binding, storage, ordering,
+floating-point, RNG, mutation, exception, or output contract changed.
+
+MEDIAN GATE: an ignored checked-in test freezes both former String kernels,
+asserts exact boolean parity, and alternates call order in one release binary.
+On strict-remote worker `vmi1153651`, a valid 30,000-node path forced every
+duplicate and adjacency check for 31 paired rounds. A pre-change run correctly
+showed frozen/current medians near one (Graph `0.9261x`, DiGraph `0.9631x`).
+After the lever:
+
+| paired A/B (>1 = indexed faster) | median | wins | p5-p95 | null median |
+|---|---:|---:|---:|---:|
+| Graph indexed vs String | `1.8998x` | `31/31` | `[1.1521, 2.7632]` | `1.0111x` |
+| DiGraph indexed vs String | `1.8867x` | `31/31` | `[1.3615, 3.2798]` | `0.9722x` |
+
+Both candidate p5 values remained above one and both arms won every pair;
+candidate medians are about 1.9x while the candidate/candidate controls stay
+near one. This clears the same-worker keep floor despite shared-host tail
+noise.
+
+CORRECTNESS / GATES: the same-binary A/B asserts the full valid Graph and
+DiGraph results equal their frozen former implementations. Strict-remote
+focused tests passed 3/3, covering valid/invalid adjacency, duplicates,
+missing nodes, empty input, forward-only directed edges, and present/missing
+isolated singletons. Strict-remote `cargo check --workspace --all-targets`
+passed. Exact workspace clippy stopped before this crate on the committed
+`fnx-classes` `collapsible_if` at line 1700. Exact no-dependency crate clippy
+then enumerated only six committed classes outside this lever
+(`unused_variables`, `explicit_counter_loop`, `question_mark`,
+`collapsible_if`, `manual_is_multiple_of`, `doc_lazy_continuation`); denying
+all other warnings while allowing only those six passed remotely. A first
+focused-test admission attempt found no eligible worker and refused local
+fallback; the successful retry was remote.
+
+Direct read-only `rustfmt --check` reports existing file-wide drift, while the
+formatter's emitted helper/test snippets exactly match the owned text and
+`git diff --check` passes. UBS ran on the changed Rust file with its local
+Cargo/style/build/dependency phases disabled. Its single “critical” is a
+file-wide lexical false positive on an unrelated Prüfer test function whose
+name contains `decode`; the owned hunk has no finding. No local Cargo command
+was substituted anywhere.
+
+RESULT: SHIP. Preserve one name-to-index resolution per path element, the
+path-sized integer duplicate set, successor direction for DiGraph, and the
+empty/singleton fast paths. Future simple-path work should profile a different
+surface rather than restoring per-hop neighbor-name allocation or String
+adjacency scans.
