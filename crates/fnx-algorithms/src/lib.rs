@@ -21387,19 +21387,95 @@ pub fn transitive_closure(digraph: &DiGraph, reflexive: Option<bool>) -> DiGraph
 /// graph contains a cycle.
 /// Matches `networkx.transitive_reduction(G)`.
 pub fn transitive_reduction(digraph: &DiGraph) -> Option<DiGraph> {
-    // Must be a DAG
+    // br-r37-c1-tredidx (cc): integer-index reachability. The old kernel sorted each node's direct
+    // successors by a String-hashed `pos: HashMap<&str,usize>` lookup and ran a per-node reachability
+    // BFS over `successors_iter` into a `HashSet<&str> reachable_via_others` — a String hash on every
+    // probe of an O(V·E) sweep. Walk successors_indices over a `pos_by_node: Vec<usize>` and an
+    // epoch-stamped `Vec<u32>` reachability mark (no per-u O(V) reset); names are materialised only for
+    // the O(kept) result edges. Byte-identical: the kept-edge SET and the (topo-u, successor-by-topo-
+    // position) edge insertion order are independent of the reachability BFS visit order (redundancy is
+    // a set-membership test), and the topo order + successor sort key are preserved exactly.
     let topo = topological_sort(digraph)?;
 
     let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
     let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
 
     // Add all nodes
     for &node in &nodes {
         let _ = result.add_node(node);
     }
 
-    // For each node in topological order, compute the set of nodes reachable
-    // WITHOUT direct edges, and only keep edges that are not redundant.
+    // Topological order as node indices + the inverse position map.
+    let topo_idx: Vec<usize> = topo
+        .order
+        .iter()
+        .map(|name| {
+            digraph
+                .get_node_index(name)
+                .expect("topological_sort nodes are graph nodes")
+        })
+        .collect();
+    let mut pos_by_node = vec![0usize; n];
+    for (i, &idx) in topo_idx.iter().enumerate() {
+        pos_by_node[idx] = i;
+    }
+
+    // Epoch-stamped reachability mark: stamp == current epoch means "reachable via others".
+    let mut reach_stamp = vec![0u32; n];
+    let mut epoch = 0u32;
+    let mut queue: VecDeque<usize> = VecDeque::new();
+
+    for &u in &topo_idx {
+        // Direct successors sorted by topological position (matches the old String-keyed sort).
+        let mut sorted_direct: Vec<usize> = digraph
+            .successors_indices(u)
+            .map(<[usize]>::to_vec)
+            .unwrap_or_default();
+        sorted_direct.sort_by_key(|&v| pos_by_node[v]);
+
+        epoch += 1;
+        let stamp = epoch;
+
+        for &v in &sorted_direct {
+            if reach_stamp[v] == stamp {
+                continue; // This edge is redundant
+            }
+            // Keep this edge
+            let _ = result.add_edge(nodes[u], nodes[v]);
+
+            // Mark everything reachable from v (BFS in the original graph from v).
+            queue.clear();
+            queue.push_back(v);
+            while let Some(current) = queue.pop_front() {
+                if let Some(succs) = digraph.successors_indices(current) {
+                    for &s in succs {
+                        if s != v && reach_stamp[s] != stamp {
+                            reach_stamp[s] = stamp;
+                            queue.push_back(s);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Some(result)
+}
+
+/// br-r37-c1-tredidx A/B baseline: the pre-lever String-keyed `transitive_reduction`. Test-only;
+/// byte-identical (nodes + edge insertion order) to the shipped integer-index version.
+#[cfg(test)]
+fn transitive_reduction_orig_string(digraph: &DiGraph) -> Option<DiGraph> {
+    let topo = topological_sort(digraph)?;
+
+    let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
+    let nodes = digraph.nodes_ordered();
+
+    for &node in &nodes {
+        let _ = result.add_node(node);
+    }
+
     let order = &topo.order;
     let pos: HashMap<&str, usize> = order
         .iter()
@@ -21408,28 +21484,18 @@ pub fn transitive_reduction(digraph: &DiGraph) -> Option<DiGraph> {
         .collect();
 
     for u in order {
-        // Get direct successors
         let direct: Vec<&str> = digraph.successors(u).unwrap_or_default();
-
-        // For each direct successor, check if it's reachable through
-        // another direct successor (making the edge redundant)
-        // Sort by topological position so we process in order
         let mut sorted_direct: Vec<&str> = direct.clone();
         sorted_direct.sort_by_key(|n| pos.get(n).copied().unwrap_or(0));
 
-        // Compute nodes reachable from u through the transitive reduction
-        // (i.e., the non-redundant edges we've added so far)
         let mut reachable_via_others: HashSet<&str> = HashSet::new();
 
         for &v in &sorted_direct {
             if reachable_via_others.contains(v) {
-                continue; // This edge is redundant
+                continue;
             }
-            // Keep this edge
             let _ = result.add_edge(u.as_str(), v);
 
-            // Mark everything reachable from v as reachable
-            // (BFS in the original graph from v)
             let mut queue: VecDeque<&str> = VecDeque::new();
             queue.push_back(v);
             while let Some(current) = queue.pop_front() {
@@ -52390,6 +52456,104 @@ mod tests {
         println!(
             "STSPIDX_AB single_target_shortest_path_directed n={n} deg={deg} rounds={rounds} (>1 = index faster)"
         );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-tredidx: full-function paired-interleaved A/B for `transitive_reduction` (String-keyed
+    /// per-node reachability BFS `HashSet<&str>` + `pos: HashMap<&str,usize>` sort → integer-index).
+    /// Complete DAG (i → all j>i): each kept edge's reachability BFS scans the whole upper-triangle
+    /// (~O(V^2) edges), summing to an O(V^3) String-hashed sweep, while the reduction output is just the
+    /// V-1-edge path → reachability-hash dominated. Byte-exact parity (nodes + edge insertion order).
+    /// `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib transitive_reduction_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn transitive_reduction_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Complete DAG on n nodes: edge i→j for all i<j. Reduction is the path 0→1→…→(n-1), but every
+        // kept edge's reachability BFS scans the full upper triangle → O(V^3) hash probes in the baseline.
+        let n = 200usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+            }
+        }
+
+        // Byte-exact parity: same node order + same edge insertion order.
+        let cand = super::transitive_reduction(&g).expect("DAG has a reduction");
+        let base = super::transitive_reduction_orig_string(&g).expect("DAG has a reduction");
+        assert_eq!(
+            cand.nodes_ordered(),
+            base.nodes_ordered(),
+            "reduction node order must match"
+        );
+        assert_eq!(
+            cand.edges_ordered_indices(),
+            base.edges_ordered_indices(),
+            "reduction edge insertion order must match"
+        );
+        assert_eq!(
+            cand.edges_ordered_indices().len(),
+            n - 1,
+            "complete-DAG reduction is the (n-1)-edge path"
+        );
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::transitive_reduction(&g)
+            } else {
+                super::transitive_reduction_orig_string(&g)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "TREDIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("TREDIDX_AB transitive_reduction complete_dag n={n} rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
