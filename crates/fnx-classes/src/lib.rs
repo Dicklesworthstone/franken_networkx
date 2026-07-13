@@ -1700,12 +1700,18 @@ impl Graph {
                     } else {
                         self.edge_index_endpoints.push((right_idx, left_idx));
                     }
-                }
-                if !self.adj_indices[left_idx].contains(&right_idx) {
+                    // br-r37-c1-addedgenewedge (cc): adj_indices membership is EXACTLY edge
+                    // existence, which `new_edge` (= !self.edges.contains_key(edge_key)) already
+                    // decided in O(1). The old `!adj_indices[left_idx].contains(&right_idx)` guards
+                    // were an O(degree) linear rescan of the adjacency row computing the SAME
+                    // answer — O(n²) to build a star/hub via add_edge. Push only when new_edge
+                    // (byte-identical: existing edge ⇒ new_edge false ⇒ both endpoints already in
+                    // adj_indices ⇒ old guards were false too; self-loop ⇒ left_idx==right_idx ⇒
+                    // single push in both).
                     self.adj_indices[left_idx].push(right_idx);
-                }
-                if left_idx != right_idx && !self.adj_indices[right_idx].contains(&left_idx) {
-                    self.adj_indices[right_idx].push(left_idx);
+                    if left_idx != right_idx {
+                        self.adj_indices[right_idx].push(left_idx);
+                    }
                 }
             }
             self.revision = self.revision.saturating_add(1);
@@ -3632,6 +3638,99 @@ mod tests {
     use fnx_runtime::{CgseValue, CompatibilityMode, DecisionAction, DecisionRecord};
     use proptest::prelude::*;
     use std::collections::BTreeSet;
+
+    /// br-r37-c1-addedgenewedge parity: the new_edge-gated adjacency push must never create a
+    /// duplicate adjacency entry, even under duplicate edges / self-loops / edges added in both
+    /// orientations. (The old `!adj_indices[..].contains(..)` guard prevented dups; the O(1)
+    /// `new_edge` flag must too, since adj-membership ⟺ edge existence.)
+    #[test]
+    fn add_edge_newedge_no_duplicate_adjacency() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("h", "a");
+        let _ = g.add_edge("h", "b");
+        let _ = g.add_edge("h", "a"); // exact duplicate
+        let _ = g.add_edge("a", "h"); // reversed duplicate
+        let _ = g.add_edge("s", "s"); // self-loop
+        let _ = g.add_edge("s", "s"); // duplicate self-loop
+        let n = g.node_count();
+        for i in 0..n {
+            if let Some(row) = g.neighbors_indices(i) {
+                let uniq: BTreeSet<usize> = row.iter().copied().collect();
+                assert_eq!(uniq.len(), row.len(), "node {i} has duplicate adjacency entries");
+            }
+        }
+        // Unique edges: h-a, h-b, s-s.
+        assert_eq!(g.edge_count(), 3, "duplicate/reversed adds must not create new edges");
+    }
+
+    /// br-r37-c1-addedgenewedge: paired-interleaved median A/B for the exact change — building a
+    /// high-degree hub's adjacency row. The OLD code guarded each push with
+    /// `adj_indices[hub].contains(&x)` (an O(row.len) linear rescan → O(n²) to build a star via
+    /// add_edge); the NEW code pushes on the O(1) `new_edge` flag → O(n). This isolates the two
+    /// changed lines; the rest of add_edge is O(1)/edge in both arms (so the full-function win is
+    /// this, diluted by that per-edge overhead). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-classes --lib add_edge_newedge_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn add_edge_newedge_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 40000usize;
+        let time = |use_new: bool| -> f64 {
+            let t0 = Instant::now();
+            let mut row: Vec<usize> = Vec::with_capacity(n);
+            for i in 0..n {
+                if use_new {
+                    row.push(i);
+                } else if !row.contains(&i) {
+                    row.push(i);
+                }
+            }
+            black_box(&row);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..2 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "ADDEDGE_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("ADDEDGE_AB adj-row push n={n} rounds={rounds} (>1 = new_edge-flag faster)");
+        report("NEWEDGE_vs_contains", &paired(true, false));
+        report("NULL_new_vs_new", &paired(true, true));
+    }
 
     fn node_name(id: u8) -> String {
         format!("n{}", id % 8)
