@@ -19952,6 +19952,117 @@ pub fn topological_sort(digraph: &DiGraph) -> Option<TopologicalSortResult> {
     let n = nodes.len();
 
     // DFS-based topological sort (reverse postorder)
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Color {
+        White,
+        Gray,
+        Black,
+    }
+
+    // br-r37-c1-toposortidx (cc): the 3-color DFS kept `color` as HashMap<&str,Color> and walked
+    // `successors()` (Vec<&str> alloc per node) with a `color.get(succ)` String re-hash per edge.
+    // Index the color array (Vec<Color>) and walk `successors_indices` (&[usize]); node names are
+    // materialised only at postorder push + the cgse record. Byte-identical: same node scan (0..n),
+    // same reversed successor order → same White/Gray/Black transitions, same cycle detection, same
+    // postorder → the same reverse-postorder result and witness.
+    let mut color: Vec<Color> = vec![Color::White; n];
+
+    let mut order: Vec<String> = Vec::with_capacity(n);
+    let mut nodes_touched = 0usize;
+    let mut edges_scanned = 0usize;
+
+    // Iterative DFS using an explicit stack to avoid stack overflow on large graphs.
+    // Stack items: (node, is_backtrack). When is_backtrack is true, we're returning
+    // from this node and should add it to the postorder.
+    for start in 0..n {
+        if color[start] != Color::White {
+            continue;
+        }
+
+        let mut stack: Vec<(usize, bool)> = vec![(start, false)];
+
+        while let Some((node, backtrack)) = stack.pop() {
+            if backtrack {
+                color[node] = Color::Black;
+                cgse_record_decision(&mut cgse_sink, nodes[node], "postorder");
+                order.push(nodes[node].to_owned());
+                continue;
+            }
+
+            match color[node] {
+                Color::Gray => {
+                    cgse_publish(
+                        CgseReferenceAlgorithm::TopologicalSort,
+                        digraph.node_count(),
+                        digraph.edge_count(),
+                        cgse_sink,
+                    );
+                    return None; // cycle detected
+                }
+                Color::Black => continue,
+                Color::White => {}
+            }
+
+            color[node] = Color::Gray;
+            nodes_touched += 1;
+
+            // Push backtrack marker
+            stack.push((node, true));
+
+            // Push successors in reverse order for deterministic iteration
+            if let Some(succs) = digraph.successors_indices(node) {
+                for &succ in succs.iter().rev() {
+                    edges_scanned += 1;
+                    match color[succ] {
+                        Color::Gray => {
+                            cgse_publish(
+                                CgseReferenceAlgorithm::TopologicalSort,
+                                digraph.node_count(),
+                                digraph.edge_count(),
+                                cgse_sink,
+                            );
+                            return None; // cycle detected
+                        }
+                        Color::Black => continue,
+                        Color::White => {
+                            stack.push((succ, false));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    order.reverse();
+
+    cgse_publish(
+        CgseReferenceAlgorithm::TopologicalSort,
+        digraph.node_count(),
+        digraph.edge_count(),
+        cgse_sink,
+    );
+
+    Some(TopologicalSortResult {
+        order,
+        witness: ComplexityWitness {
+            algorithm: "dfs_topological_sort".to_owned(),
+            complexity_claim: "O(|V| + |E|)".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak: 0,
+        },
+    })
+}
+
+/// br-r37-c1-toposortidx A/B baseline: the pre-lever String-keyed 3-color DFS topological sort.
+/// Test-only; byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn topological_sort_orig_string(digraph: &DiGraph) -> Option<TopologicalSortResult> {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::TopologicalSort);
+
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+
     #[derive(PartialEq, Eq)]
     enum Color {
         White,
@@ -19968,9 +20079,6 @@ pub fn topological_sort(digraph: &DiGraph) -> Option<TopologicalSortResult> {
     let mut nodes_touched = 0usize;
     let mut edges_scanned = 0usize;
 
-    // Iterative DFS using an explicit stack to avoid stack overflow on large graphs.
-    // Stack items: (node, is_backtrack). When is_backtrack is true, we're returning
-    // from this node and should add it to the postorder.
     for &start in &nodes {
         if color[start] != Color::White {
             continue;
@@ -19994,7 +20102,7 @@ pub fn topological_sort(digraph: &DiGraph) -> Option<TopologicalSortResult> {
                         digraph.edge_count(),
                         cgse_sink,
                     );
-                    return None; // cycle detected
+                    return None;
                 }
                 Some(Color::Black) => continue,
                 _ => {}
@@ -20002,11 +20110,8 @@ pub fn topological_sort(digraph: &DiGraph) -> Option<TopologicalSortResult> {
 
             color.insert(node, Color::Gray);
             nodes_touched += 1;
-
-            // Push backtrack marker
             stack.push((node, true));
 
-            // Push successors in reverse order for deterministic iteration
             if let Some(succs) = digraph.successors(node) {
                 for succ in succs.into_iter().rev() {
                     edges_scanned += 1;
@@ -20018,7 +20123,7 @@ pub fn topological_sort(digraph: &DiGraph) -> Option<TopologicalSortResult> {
                                 digraph.edge_count(),
                                 cgse_sink,
                             );
-                            return None; // cycle detected
+                            return None;
                         }
                         Some(Color::Black) => continue,
                         _ => {
@@ -53493,6 +53598,93 @@ mod tests {
             );
         };
         println!("KOSIDX_AB kosaraju_strongly_connected_components n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-toposortidx: full-function paired-interleaved A/B for `topological_sort` (String-keyed
+    /// 3-color DFS: HashMap<&str,Color> + successors() Vec<&str> alloc + color.get re-hash per edge →
+    /// integer-index). Forward DAG (no cycle → full sort). Byte-exact parity (result incl. order + witness
+    /// via PartialEq). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib topological_sort_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn topological_sort_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Forward DAG n=40000, out-degree ~20 (i → i+1..i+20): acyclic, so the DFS visits every node
+        // and scans every edge (re-hashing each successor via color.get in the baseline).
+        let n = 40000usize;
+        let deg = 20usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                if i + k < n {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{}", i + k));
+                }
+            }
+        }
+
+        // Byte-exact parity: same order + witness.
+        let cand = super::topological_sort(&g);
+        let base = super::topological_sort_orig_string(&g);
+        assert_eq!(cand, base, "index topological_sort must equal the String baseline");
+        assert!(cand.is_some(), "forward DAG is acyclic");
+        assert_eq!(cand.as_ref().unwrap().order.len(), n, "all n nodes ordered");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::topological_sort(&g)
+            } else {
+                super::topological_sort_orig_string(&g)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "TOPOSORTIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("TOPOSORTIDX_AB topological_sort n={n} deg={deg} rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
