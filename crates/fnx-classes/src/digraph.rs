@@ -1026,6 +1026,54 @@ impl DiGraph {
         inserted
     }
 
+    /// br-r37-c1-tcidx: bulk-add directed edges by EXISTING node index — the directed sibling of
+    /// `Graph::extend_existing_index_edges_unrecorded`. All endpoints MUST already exist (callers
+    /// gate on all nodes being pre-added). A new edge takes an empty AttrMap; a duplicate
+    /// `(source_idx, target_idx)` pair is skipped. Emits the IDENTICAL succ/pred adjacency,
+    /// revision bump, and batch ledger summary as `extend_edges_unrecorded` given the same
+    /// resolved index sequence — but with ZERO String hashing (endpoints arrive as integer
+    /// indices). Unblocks the O(|V|²)-closure `transitive_closure` from paying a per-edge
+    /// `get_index_of` on both endpoints.
+    pub fn extend_existing_index_edges_unrecorded<I>(&mut self, edges: I) -> usize
+    where
+        I: IntoIterator<Item = (usize, usize)>,
+    {
+        let iterator = edges.into_iter();
+        self.edges.reserve(iterator.size_hint().0);
+
+        let mut inserted = 0usize;
+        for (s_idx, t_idx) in iterator {
+            debug_assert!(s_idx < self.nodes.len());
+            debug_assert!(t_idx < self.nodes.len());
+            let edge_key = (s_idx, t_idx);
+            if self.edges.contains_key(&edge_key) {
+                continue;
+            }
+            self.edges.insert(edge_key, AttrMap::new());
+            self.succ_indices[s_idx].push(t_idx);
+            self.pred_indices[t_idx].push(s_idx);
+            inserted += 1;
+        }
+
+        if inserted > 0 {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_edges_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_edge_count".to_owned(),
+                    observed_value: inserted.to_string(),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+
+        inserted
+    }
+
     /// br-r37-c1-digbatch: bulk-add plain nodes (no attrs), one summary ledger
     /// record — the directed sibling of `Graph::extend_nodes_unrecorded`, backing
     /// PyDiGraph's fast integer-node path (`add_nodes_from(range)` / int list).

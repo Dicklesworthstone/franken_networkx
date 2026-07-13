@@ -21317,6 +21317,7 @@ pub fn lexicographic_topological_sort(digraph: &DiGraph) -> Option<Vec<String>> 
 pub fn transitive_closure(digraph: &DiGraph, reflexive: Option<bool>) -> DiGraph {
     let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
     let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
 
     let add_all_self_loops = reflexive == Some(true);
 
@@ -21341,6 +21342,75 @@ pub fn transitive_closure(digraph: &DiGraph, reflexive: Option<bool>) -> DiGraph
     // (source, w) is emitted once (visited-set dedup), and extend_edges_unrecorded resolves
     // indices + dedups on (s_idx, t_idx) + handles self-loops exactly as add_edge, in the
     // identical order (all nodes pre-added → endpoints resolve) → byte-identical.
+    // br-r37-c1-tcidx (cc): integer-index per-source BFS + index-pair edge emit. The old kernel ran
+    // the reachability BFS over `successors_iter` + `HashSet<&str> visited` and emitted (&str,&str)
+    // pairs into `extend_edges_unrecorded`, which re-resolved BOTH endpoints via `get_index_of`
+    // (String hash) for every one of the O(reachable-pairs) closure edges. Walk successors_indices
+    // over an epoch-stamped `Vec<u32>` visited, emit (source_idx, w_idx), and bulk-insert via the new
+    // index-pair `extend_existing_index_edges_unrecorded` (no String resolution). Byte-identical: same
+    // source-major discovery order, same seed-from-successors visited/self-loop semantics, same
+    // (s_idx,t_idx) dedup + adjacency + revision → the same closure DiGraph.
+    let mut visited_stamp = vec![0u32; n];
+    let mut epoch = 0u32;
+    let mut queue: VecDeque<usize> = VecDeque::new();
+    let mut edge_pairs: Vec<(usize, usize)> = Vec::new();
+
+    for source in 0..n {
+        epoch += 1;
+        let stamp = epoch;
+        let mut order: Vec<usize> = Vec::new();
+        queue.clear();
+
+        if let Some(succs) = digraph.successors_indices(source) {
+            for &s in succs {
+                if visited_stamp[s] != stamp {
+                    visited_stamp[s] = stamp;
+                    queue.push_back(s);
+                    order.push(s);
+                }
+            }
+        }
+        while let Some(current) = queue.pop_front() {
+            if let Some(succs) = digraph.successors_indices(current) {
+                for &s in succs {
+                    if visited_stamp[s] != stamp {
+                        visited_stamp[s] = stamp;
+                        queue.push_back(s);
+                        order.push(s);
+                    }
+                }
+            }
+        }
+
+        // reflexive=true forces the trivial (length-0) self-loop on every node.
+        if add_all_self_loops && visited_stamp[source] != stamp {
+            visited_stamp[source] = stamp;
+            order.push(source);
+        }
+
+        for &w in &order {
+            edge_pairs.push((source, w));
+        }
+    }
+    let _ = result.extend_existing_index_edges_unrecorded(edge_pairs);
+
+    result
+}
+
+/// br-r37-c1-tcidx A/B baseline: the pre-lever String-keyed per-source BFS emitting (&str,&str)
+/// pairs into `extend_edges_unrecorded`. Test-only; byte-identical to the shipped integer-index
+/// version.
+#[cfg(test)]
+fn transitive_closure_orig_string(digraph: &DiGraph, reflexive: Option<bool>) -> DiGraph {
+    let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
+    let nodes = digraph.nodes_ordered();
+
+    let add_all_self_loops = reflexive == Some(true);
+
+    for &node in &nodes {
+        let _ = result.add_node(node);
+    }
+
     let mut edges: Vec<(&str, &str)> = Vec::new();
     for &source in &nodes {
         let mut visited: HashSet<&str> = HashSet::new();
@@ -21366,7 +21436,6 @@ pub fn transitive_closure(digraph: &DiGraph, reflexive: Option<bool>) -> DiGraph
             }
         }
 
-        // reflexive=true forces the trivial (length-0) self-loop on every node.
         if add_all_self_loops && visited.insert(source) {
             order.push(source);
         }
@@ -52554,6 +52623,102 @@ mod tests {
             );
         };
         println!("TREDIDX_AB transitive_reduction complete_dag n={n} rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-tcidx: full-function paired-interleaved A/B for `transitive_closure` (String-keyed
+    /// per-source BFS + (&str,&str) emit into `extend_edges_unrecorded` → integer-index BFS + index-pair
+    /// emit into the new `extend_existing_index_edges_unrecorded`). Chain DAG (0→1→…→n-1) → closure is
+    /// the O(V²/2) upper triangle, so both the BFS String-hashing AND the per-edge endpoint resolution
+    /// are removed. Byte-exact parity (closure edges). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib transitive_closure_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn transitive_closure_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Chain DAG n0→n1→…→n(n-1): closure has n*(n-1)/2 edges (each node reaches all higher ones).
+        let n = 900usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..(n - 1) {
+            let _ = g.add_edge(format!("n{i}"), format!("n{}", i + 1));
+        }
+
+        // Byte-exact parity: same closure edge set + insertion order.
+        let cand = super::transitive_closure(&g, None);
+        let base = super::transitive_closure_orig_string(&g, None);
+        assert_eq!(cand.nodes_ordered(), base.nodes_ordered(), "closure nodes must match");
+        assert_eq!(
+            cand.edges_ordered_indices(),
+            base.edges_ordered_indices(),
+            "closure edges (set + insertion order) must match"
+        );
+        assert_eq!(
+            cand.edges_ordered_indices().len(),
+            n * (n - 1) / 2,
+            "chain-DAG closure is the upper triangle"
+        );
+        // reflexive=true path parity too (self-loops).
+        assert_eq!(
+            super::transitive_closure(&g, Some(true)).edges_ordered_indices(),
+            super::transitive_closure_orig_string(&g, Some(true)).edges_ordered_indices(),
+            "reflexive closure must match"
+        );
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::transitive_closure(&g, None)
+            } else {
+                super::transitive_closure_orig_string(&g, None)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "TCIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("TCIDX_AB transitive_closure chain_dag n={n} rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
