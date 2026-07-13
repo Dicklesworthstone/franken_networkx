@@ -35227,50 +35227,40 @@ pub fn edge_bfs_directed(digraph: &DiGraph, source: &str) -> Vec<(String, String
 /// DFS traversal yielding edges.
 #[must_use]
 pub fn edge_dfs(graph: &Graph, source: &str) -> Vec<(String, String)> {
+    // br-r37-c1-edfsidx (cc): integer-index edge-DFS. The old kernel cloned each node's neighbours into a
+    // `Vec<String>` (`.map(String::from)`) on the stack, keyed `visited_edges` on `(String,String)` and
+    // `visited_nodes` on `String`, and cloned u/v names on every step. Store borrowed integer adjacency
+    // rows (`&[usize]`, no alloc) on the stack, dedup edges via `(usize,usize)` and nodes via `Vec<bool>`;
+    // names materialise only into the O(|E|) result. Byte-identical: the edge-key canonicalisation
+    // (min,max) is consistent by index just as it was by name, so undirected-edge dedup behaves the same,
+    // and neighbours_indices preserves neighbour order → the same edge-DFS sequence of `(u_name,v_name)`.
     let mut result = Vec::new();
-    let mut visited_edges: HashSet<(String, String)> = HashSet::new();
-    let mut visited_nodes: HashSet<String> = HashSet::new();
+    let Some(source_idx) = graph.get_node_index(source) else {
+        return result;
+    };
+    let names = graph.nodes_ordered();
+    let mut visited_edges: HashSet<(usize, usize)> = HashSet::new();
+    let mut visited_nodes = vec![false; names.len()];
 
-    let mut stack = Vec::new();
-    let u = source.to_string();
-    visited_nodes.insert(u.clone());
-    let nbrs = graph
-        .neighbors(&u)
-        .unwrap_or_default()
-        .into_iter()
-        .map(String::from)
-        .collect::<Vec<_>>();
-    stack.push((u, nbrs, 0));
+    let mut stack: Vec<(usize, &[usize], usize)> = Vec::new();
+    visited_nodes[source_idx] = true;
+    stack.push((source_idx, graph.neighbors_indices(source_idx).unwrap_or(&[]), 0));
 
     while let Some((u, nbrs, mut idx)) = stack.pop() {
-        let mut pushed = false;
         while idx < nbrs.len() {
-            let v = nbrs[idx].clone();
+            let v = nbrs[idx];
             idx += 1;
 
-            let edge_key = if u < v {
-                (u.clone(), v.clone())
-            } else {
-                (v.clone(), u.clone())
-            };
+            let edge_key = if u < v { (u, v) } else { (v, u) };
             if visited_edges.insert(edge_key) {
-                result.push((u.clone(), v.clone()));
-                if visited_nodes.insert(v.clone()) {
-                    stack.push((u.clone(), nbrs, idx));
-                    let v_nbrs = graph
-                        .neighbors(&v)
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(String::from)
-                        .collect::<Vec<_>>();
-                    stack.push((v, v_nbrs, 0));
-                    pushed = true;
+                result.push((names[u].to_owned(), names[v].to_owned()));
+                if !visited_nodes[v] {
+                    visited_nodes[v] = true;
+                    stack.push((u, nbrs, idx));
+                    stack.push((v, graph.neighbors_indices(v).unwrap_or(&[]), 0));
                     break;
                 }
             }
-        }
-        if !pushed {
-            // Drop
         }
     }
     result
@@ -35279,46 +35269,36 @@ pub fn edge_dfs(graph: &Graph, source: &str) -> Vec<(String, String)> {
 /// DFS traversal yielding edges on a directed graph.
 #[must_use]
 pub fn edge_dfs_directed(digraph: &DiGraph, source: &str) -> Vec<(String, String)> {
+    // br-r37-c1-edfsidx (cc): integer-index edge-DFS (directed sibling of edge_dfs). Borrowed integer
+    // successor rows on the stack (no per-node Vec<String> clone), `(usize,usize)` directed edge dedup +
+    // `Vec<bool>` node dedup; names only into the O(|E|) result. Byte-identical: the directed edge key
+    // (u,v) dedups the same by index as by name, and successors_indices preserves successor order.
     let mut result = Vec::new();
-    let mut visited_edges: HashSet<(String, String)> = HashSet::new();
-    let mut visited_nodes: HashSet<String> = HashSet::new();
+    let Some(source_idx) = digraph.get_node_index(source) else {
+        return result;
+    };
+    let names = digraph.nodes_ordered();
+    let mut visited_edges: HashSet<(usize, usize)> = HashSet::new();
+    let mut visited_nodes = vec![false; names.len()];
 
-    let mut stack = Vec::new();
-    let u = source.to_string();
-    visited_nodes.insert(u.clone());
-    let succs = digraph
-        .successors(&u)
-        .unwrap_or_default()
-        .into_iter()
-        .map(String::from)
-        .collect::<Vec<_>>();
-    stack.push((u, succs, 0));
+    let mut stack: Vec<(usize, &[usize], usize)> = Vec::new();
+    visited_nodes[source_idx] = true;
+    stack.push((source_idx, digraph.successors_indices(source_idx).unwrap_or(&[]), 0));
 
     while let Some((u, succs, mut idx)) = stack.pop() {
-        let mut pushed = false;
         while idx < succs.len() {
-            let v = succs[idx].clone();
+            let v = succs[idx];
             idx += 1;
 
-            let edge_key = (u.clone(), v.clone());
-            if visited_edges.insert(edge_key) {
-                result.push((u.clone(), v.clone()));
-                if visited_nodes.insert(v.clone()) {
-                    stack.push((u.clone(), succs, idx));
-                    let v_succs = digraph
-                        .successors(&v)
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(String::from)
-                        .collect::<Vec<_>>();
-                    stack.push((v, v_succs, 0));
-                    pushed = true;
+            if visited_edges.insert((u, v)) {
+                result.push((names[u].to_owned(), names[v].to_owned()));
+                if !visited_nodes[v] {
+                    visited_nodes[v] = true;
+                    stack.push((u, succs, idx));
+                    stack.push((v, digraph.successors_indices(v).unwrap_or(&[]), 0));
                     break;
                 }
             }
-        }
-        if !pushed {
-            // Drop
         }
     }
     result
@@ -51114,6 +51094,180 @@ mod tests {
             );
         };
         println!("DFSPOSTDIRIDX_AB dfs_postorder_nodes_directed 3000-node fwd-deg50 rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-edfsidx: full-function A/B for `edge_dfs` (order-sensitive edge list) + a parity check
+    /// for `edge_dfs_directed`. Inline ORIGINAL String-keyed edge-DFS (Vec<String> neighbour clones on the
+    /// stack, (String,String) edge keys) vs the shipped integer-index version. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib edge_dfs_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn edge_dfs_idx_ab() {
+        use std::collections::HashSet;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense undirected circulant: 2000 nodes, degree 40 → ~40k edges.
+        let n_nodes = 2000usize;
+        let mut g = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for step in 1..=20usize {
+                let _ = g.add_edge(i.to_string(), ((i + step) % n_nodes).to_string());
+            }
+        }
+
+        let old_fn = |graph: &Graph, source: &str| -> Vec<(String, String)> {
+            let mut result = Vec::new();
+            let mut visited_edges: HashSet<(String, String)> = HashSet::new();
+            let mut visited_nodes: HashSet<String> = HashSet::new();
+            let mut stack = Vec::new();
+            let u = source.to_string();
+            visited_nodes.insert(u.clone());
+            let nbrs = graph
+                .neighbors(&u)
+                .unwrap_or_default()
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>();
+            stack.push((u, nbrs, 0));
+            while let Some((u, nbrs, mut idx)) = stack.pop() {
+                while idx < nbrs.len() {
+                    let v = nbrs[idx].clone();
+                    idx += 1;
+                    let edge_key = if u < v { (u.clone(), v.clone()) } else { (v.clone(), u.clone()) };
+                    if visited_edges.insert(edge_key) {
+                        result.push((u.clone(), v.clone()));
+                        if visited_nodes.insert(v.clone()) {
+                            stack.push((u.clone(), nbrs, idx));
+                            let v_nbrs = graph
+                                .neighbors(&v)
+                                .unwrap_or_default()
+                                .into_iter()
+                                .map(String::from)
+                                .collect::<Vec<_>>();
+                            stack.push((v, v_nbrs, 0));
+                            break;
+                        }
+                    }
+                }
+            }
+            result
+        };
+
+        assert_eq!(
+            old_fn(&g, "0"),
+            super::edge_dfs(&g, "0"),
+            "integer-index edge_dfs must be byte-identical (order-sensitive)"
+        );
+
+        // Parity check for edge_dfs_directed on a directed graph.
+        let mut dg = DiGraph::strict();
+        for i in 0..1000usize {
+            let _ = dg.add_node(i.to_string());
+        }
+        for i in 0..1000usize {
+            for step in 1..=10usize {
+                if i + step < 1000 {
+                    let _ = dg.add_edge(i.to_string(), (i + step).to_string());
+                }
+            }
+        }
+        let old_dir = |digraph: &DiGraph, source: &str| -> Vec<(String, String)> {
+            let mut result = Vec::new();
+            let mut visited_edges: HashSet<(String, String)> = HashSet::new();
+            let mut visited_nodes: HashSet<String> = HashSet::new();
+            let mut stack = Vec::new();
+            let u = source.to_string();
+            visited_nodes.insert(u.clone());
+            let succs = digraph
+                .successors(&u)
+                .unwrap_or_default()
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>();
+            stack.push((u, succs, 0));
+            while let Some((u, succs, mut idx)) = stack.pop() {
+                while idx < succs.len() {
+                    let v = succs[idx].clone();
+                    idx += 1;
+                    if visited_edges.insert((u.clone(), v.clone())) {
+                        result.push((u.clone(), v.clone()));
+                        if visited_nodes.insert(v.clone()) {
+                            stack.push((u.clone(), succs, idx));
+                            let v_succs = digraph
+                                .successors(&v)
+                                .unwrap_or_default()
+                                .into_iter()
+                                .map(String::from)
+                                .collect::<Vec<_>>();
+                            stack.push((v, v_succs, 0));
+                            break;
+                        }
+                    }
+                }
+            }
+            result
+        };
+        assert_eq!(
+            old_dir(&dg, "0"),
+            super::edge_dfs_directed(&dg, "0"),
+            "integer-index edge_dfs_directed must be byte-identical"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if cand {
+                super::edge_dfs(&g, "0")
+            } else {
+                old_fn(&g, "0")
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "EDFSIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("EDFSIDX_AB edge_dfs 2000-node deg40 rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
