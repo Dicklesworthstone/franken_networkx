@@ -26466,6 +26466,108 @@ pub fn maximal_independent_set(
     // the index permutation tracks the string permutation 1:1 (same RNG
     // sequence, same swap positions), and the greedy scan order is unchanged.
     let n = ordered_nodes.len();
+    // br-r37-c1-misadjidx (cc): build the peeling adjacency from `neighbors_indices` (zero-alloc
+    // &[usize]) instead of `neighbors(node)` (a Vec<&str> alloc per node) + a `node_to_idx.get(nbr)`
+    // String re-hash per edge; the `node_to_idx` map is then unneeded (the required-node seeding
+    // resolves via `get_node_index`). Byte-identical: `ordered_nodes[i]` IS graph node `i`, so
+    // `neighbors_indices(i)` yields the same neighbour set in the same adjacency order → `adj` unchanged.
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (i, row) in adj.iter_mut().enumerate() {
+        if let Some(neighbors) = graph.neighbors_indices(i) {
+            row.extend_from_slice(neighbors);
+        }
+    }
+
+    let mut blocked = vec![false; n];
+    let mut indep_nodes = required;
+    for node in &indep_nodes {
+        let i = graph
+            .get_node_index(node.as_str())
+            .expect("required node validated as a graph node above");
+        blocked[i] = true;
+        for &j in &adj[i] {
+            blocked[j] = true;
+        }
+    }
+
+    // Candidate indices in node-insertion order (matches the old
+    // ``ordered_nodes`` filter order before the shuffle).
+    let mut available: Vec<usize> = (0..n).filter(|&i| !blocked[i]).collect();
+
+    if let Some(mut s) = seed_state {
+        // Deterministic Fisher-Yates over indices — identical swap sequence
+        // to the previous string-based shuffle.
+        for i in (1..available.len()).rev() {
+            let j = (next_seed(&mut s) as usize) % (i + 1);
+            available.swap(i, j);
+        }
+    }
+
+    for idx in available {
+        if !blocked[idx] {
+            indep_nodes.push(ordered_nodes[idx].clone());
+            blocked[idx] = true;
+            for &j in &adj[idx] {
+                blocked[j] = true;
+            }
+        }
+    }
+
+    Ok(indep_nodes)
+}
+
+/// br-r37-c1-misadjidx A/B baseline: the pre-lever `maximal_independent_set` that built the peeling
+/// adjacency via `neighbors(node)` + a `node_to_idx` String re-hash per edge. Test-only;
+/// byte-identical to the shipped `neighbors_indices` version.
+#[cfg(test)]
+fn maximal_independent_set_orig_string(
+    graph: &Graph,
+    initial_nodes: &[String],
+    seed: Option<u64>,
+) -> Result<Vec<String>, MaximalIndependentSetError> {
+    let ordered_nodes: Vec<String> = graph
+        .nodes_ordered()
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+
+    let graph_nodes: HashSet<&str> = ordered_nodes.iter().map(String::as_str).collect();
+    let mut seen = HashSet::new();
+    let mut required = Vec::new();
+    let mut seed_state = seed;
+    for node in initial_nodes {
+        if !graph_nodes.contains(node.as_str()) {
+            return Err(MaximalIndependentSetError::NodesNotSubset {
+                nodes: initial_nodes.to_vec(),
+            });
+        }
+        if seen.insert(node.clone()) {
+            required.push(node.clone());
+        }
+    }
+    if required.is_empty() {
+        if ordered_nodes.is_empty() {
+            return Ok(Vec::new());
+        }
+        let first_index = choose_index(&mut seed_state, ordered_nodes.len());
+        required.push(ordered_nodes[first_index].clone());
+    }
+
+    let required_set: HashSet<&str> = required.iter().map(String::as_str).collect();
+    for node in &required {
+        if graph
+            .neighbors(node)
+            .unwrap_or_default()
+            .into_iter()
+            .any(|neighbor| required_set.contains(neighbor))
+        {
+            return Err(MaximalIndependentSetError::NodesNotIndependent {
+                nodes: initial_nodes.to_vec(),
+            });
+        }
+    }
+
+    let n = ordered_nodes.len();
     let node_to_idx: HashMap<&str, usize> = ordered_nodes
         .iter()
         .enumerate()
@@ -26492,13 +26594,9 @@ pub fn maximal_independent_set(
         }
     }
 
-    // Candidate indices in node-insertion order (matches the old
-    // ``ordered_nodes`` filter order before the shuffle).
     let mut available: Vec<usize> = (0..n).filter(|&i| !blocked[i]).collect();
 
     if let Some(mut s) = seed_state {
-        // Deterministic Fisher-Yates over indices — identical swap sequence
-        // to the previous string-based shuffle.
         for i in (1..available.len()).rev() {
             let j = (next_seed(&mut s) as usize) % (i + 1);
             available.swap(i, j);
@@ -54814,6 +54912,93 @@ mod tests {
             );
         };
         println!("ASPWDIRIDX_AB all_shortest_paths_weighted_directed n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-misadjidx: full-function paired-interleaved A/B for `maximal_independent_set`. The
+    /// peeling loop was already index-based, but the adjacency was built via neighbors(node) (Vec<&str>
+    /// alloc/node) + a node_to_idx String re-hash per edge → neighbors_indices (zero-alloc), node_to_idx
+    /// dropped. Dense graph so the O(|E|) adj build dominates. Byte-exact parity (same MIS for a fixed
+    /// seed). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib maximal_independent_set_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn maximal_independent_set_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense circulant n=50000, ±1..±10 (deg 20) → ~500k edges; the peeling adjacency build is O(|E|)
+        // String-hashed in the baseline.
+        let n = 50000usize;
+        let deg = 10usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for step in 1..=deg {
+                let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + step) % n));
+            }
+        }
+        let init: Vec<String> = Vec::new();
+        let seed = Some(42u64);
+
+        // Byte-exact parity: same maximal independent set for the fixed seed.
+        let cand = super::maximal_independent_set(&g, &init, seed);
+        let base = super::maximal_independent_set_orig_string(&g, &init, seed);
+        assert_eq!(cand, base, "index maximal_independent_set must equal the String baseline");
+        assert!(cand.as_ref().map(|v| !v.is_empty()).unwrap_or(false), "MIS is non-empty");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::maximal_independent_set(&g, &init, seed)
+            } else {
+                super::maximal_independent_set_orig_string(&g, &init, seed)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "MISADJIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("MISADJIDX_AB maximal_independent_set n={n} deg={deg} rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
