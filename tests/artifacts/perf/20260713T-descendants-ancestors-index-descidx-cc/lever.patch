@@ -1,0 +1,225 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index 84d3155d0..09fb4759d 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -20633,27 +20633,34 @@ pub fn descendants_at_distance_directed(
+ /// Matches `networkx.ancestors`.
+ #[must_use]
+ pub fn ancestors(digraph: &DiGraph, node: &str) -> HashSet<String> {
++    // br-r37-c1-descidx (cc): integer-index backward BFS (mirror of descendants). The old kernel kept
++    // `visited` as HashSet<&str> and called predecessors() (Vec<&str> alloc per node) — a String hash on
++    // every visited probe over O(|E|) scans. Walk predecessors_indices over node indices with a
++    // Vec<bool> visited; names are materialised only for the O(|V|) result set (order-independent).
++    // Byte-identical: the same set of nodes that reach `node` via ≥1 step (start excluded), by name.
++    let Some(start) = digraph.get_node_index(node) else {
++        return HashSet::new();
++    };
++    let names = digraph.nodes_ordered();
++    let mut visited = vec![false; digraph.node_count()];
++    let mut queue: VecDeque<usize> = VecDeque::new();
+     let mut result: HashSet<String> = HashSet::new();
+-    if !digraph.has_node(node) {
+-        return result;
+-    }
+-    // BFS backwards via predecessors
+-    let mut queue: VecDeque<&str> = VecDeque::new();
+-    let mut visited: HashSet<&str> = HashSet::new();
+-    visited.insert(node);
+-    if let Some(preds) = digraph.predecessors(node) {
+-        for pred in preds {
+-            if visited.insert(pred) {
+-                queue.push_back(pred);
++    visited[start] = true;
++    if let Some(preds) = digraph.predecessors_indices(start) {
++        for &p in preds {
++            if !visited[p] {
++                visited[p] = true;
++                queue.push_back(p);
+             }
+         }
+     }
+     while let Some(current) = queue.pop_front() {
+-        result.insert(current.to_owned());
+-        if let Some(preds) = digraph.predecessors(current) {
+-            for pred in preds {
+-                if visited.insert(pred) {
+-                    queue.push_back(pred);
++        result.insert(names[current].to_owned());
++        if let Some(preds) = digraph.predecessors_indices(current) {
++            for &p in preds {
++                if !visited[p] {
++                    visited[p] = true;
++                    queue.push_back(p);
+                 }
+             }
+         }
+@@ -20666,27 +20673,34 @@ pub fn ancestors(digraph: &DiGraph, node: &str) -> HashSet<String> {
+ /// Matches `networkx.descendants`.
+ #[must_use]
+ pub fn descendants(digraph: &DiGraph, node: &str) -> HashSet<String> {
++    // br-r37-c1-descidx (cc): integer-index forward BFS. The old kernel kept `visited` as HashSet<&str>
++    // and called successors() (Vec<&str> alloc per node) — a String hash on every visited probe over
++    // O(|E|) scans. Walk successors_indices over node indices with a Vec<bool> visited; names are
++    // materialised only for the O(|V|) result set (order-independent). Byte-identical: the same set of
++    // nodes reachable from `node` via ≥1 step (start excluded), by name.
++    let Some(start) = digraph.get_node_index(node) else {
++        return HashSet::new();
++    };
++    let names = digraph.nodes_ordered();
++    let mut visited = vec![false; digraph.node_count()];
++    let mut queue: VecDeque<usize> = VecDeque::new();
+     let mut result: HashSet<String> = HashSet::new();
+-    if !digraph.has_node(node) {
+-        return result;
+-    }
+-    // BFS forwards via successors
+-    let mut queue: VecDeque<&str> = VecDeque::new();
+-    let mut visited: HashSet<&str> = HashSet::new();
+-    visited.insert(node);
+-    if let Some(succs) = digraph.successors(node) {
+-        for succ in succs {
+-            if visited.insert(succ) {
+-                queue.push_back(succ);
++    visited[start] = true;
++    if let Some(succs) = digraph.successors_indices(start) {
++        for &s in succs {
++            if !visited[s] {
++                visited[s] = true;
++                queue.push_back(s);
+             }
+         }
+     }
+     while let Some(current) = queue.pop_front() {
+-        result.insert(current.to_owned());
+-        if let Some(succs) = digraph.successors(current) {
+-            for succ in succs {
+-                if visited.insert(succ) {
+-                    queue.push_back(succ);
++        result.insert(names[current].to_owned());
++        if let Some(succs) = digraph.successors_indices(current) {
++            for &s in succs {
++                if !visited[s] {
++                    visited[s] = true;
++                    queue.push_back(s);
+                 }
+             }
+         }
+@@ -50835,6 +50852,118 @@ mod tests {
+         report("NULL_index_vs_index", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-descidx: full-function A/B for `descendants` (representative of the descendants/ancestors
++    /// pair, both converted the same way). Inline ORIGINAL String-keyed forward BFS vs the shipped
++    /// integer-index BFS. Result-set parity asserted first. `#[ignore]`; run with
++    /// `cargo test --release -p fnx-algorithms --lib descendants_idx_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn descendants_idx_ab() {
++        use std::collections::{HashSet, VecDeque};
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // Dense forward directed graph: node i -> i+1..=i+50 → descendants(0) = all other nodes.
++        let n_nodes = 3000usize;
++        let mut g = DiGraph::strict();
++        for i in 0..n_nodes {
++            let _ = g.add_node(i.to_string());
++        }
++        for i in 0..n_nodes {
++            for step in 1..=50usize {
++                if i + step < n_nodes {
++                    let _ = g.add_edge(i.to_string(), (i + step).to_string());
++                }
++            }
++        }
++
++        let old_fn = |digraph: &DiGraph, node: &str| -> HashSet<String> {
++            let mut result: HashSet<String> = HashSet::new();
++            if !digraph.has_node(node) {
++                return result;
++            }
++            let mut queue: VecDeque<&str> = VecDeque::new();
++            let mut visited: HashSet<&str> = HashSet::new();
++            visited.insert(node);
++            if let Some(succs) = digraph.successors(node) {
++                for succ in succs {
++                    if visited.insert(succ) {
++                        queue.push_back(succ);
++                    }
++                }
++            }
++            while let Some(current) = queue.pop_front() {
++                result.insert(current.to_owned());
++                if let Some(succs) = digraph.successors(current) {
++                    for succ in succs {
++                        if visited.insert(succ) {
++                            queue.push_back(succ);
++                        }
++                    }
++                }
++            }
++            result
++        };
++
++        assert_eq!(
++            old_fn(&g, "0"),
++            super::descendants(&g, "0"),
++            "integer-index descendants must be byte-identical to the String-keyed BFS"
++        );
++
++        let time = |cand: bool| -> f64 {
++            let t0 = Instant::now();
++            let r = if cand {
++                super::descendants(&g, "0")
++            } else {
++                old_fn(&g, "0")
++            };
++            black_box(&r);
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for round in 0..rounds {
++                let (tb, tc) = if round.is_multiple_of(2) {
++                    let bt = time(base_arm);
++                    let ct = time(cand);
++                    (bt, ct)
++                } else {
++                    let ct = time(cand);
++                    let bt = time(base_arm);
++                    (bt, ct)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "DESCIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("DESCIDX_AB descendants 3000-node fwd-deg50 rounds={rounds} (>1 = index faster)");
++        report("INDEX_vs_string", &paired(true, false));
++        report("NULL_index_vs_index", &paired(true, true));
++    }
++
+     /// br-r37-c1-ra004: paired-interleaved median A/B for the `neighbor_count`
+     /// no-alloc lever on `bfs_beam_edges` (one per-candidate-neighbor `Vec<&str>`
+     /// degree allocation removed from the BFS inner loop), against its exact
