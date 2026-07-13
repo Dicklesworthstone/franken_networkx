@@ -21344,6 +21344,105 @@ pub fn transitive_reduction(digraph: &DiGraph) -> Option<DiGraph> {
 /// Matches `networkx.all_shortest_paths(G, source, target)`.
 #[must_use]
 pub fn all_shortest_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec<String>> {
+    // br-r37-c1-aspidx (cc): integer-index shortest-path-DAG BFS + backtrack. The old kernel kept
+    // `dist` as HashMap<&str,usize>, `preds` as HashMap<&str,Vec<&str>>, and the backtrack `seen` as
+    // HashSet<&str> — a String hash on every dist/preds probe over the O(|V|+|E|) BFS. Walk
+    // neighbors_indices over dist:Vec<u32> (u32::MAX = unvisited) + preds:Vec<Vec<usize>> and
+    // enumerate paths over integer indices, materialising names only when a completed path is pushed.
+    // Byte-identical: same adjacency-order neighbor discovery → same preds lists (nx BFS order), same
+    // target_dist cutoff, same predecessor-DAG DFS → the same paths in the same order.
+    let Some(source_idx) = graph.get_node_index(source) else {
+        return Vec::new();
+    };
+    let Some(target_idx) = graph.get_node_index(target) else {
+        return Vec::new();
+    };
+    if source_idx == target_idx {
+        return vec![vec![source.to_owned()]];
+    }
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+
+    let mut dist = vec![u32::MAX; n];
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut queue: VecDeque<usize> = VecDeque::new();
+
+    dist[source_idx] = 0;
+    queue.push_back(source_idx);
+
+    let mut target_dist: Option<u32> = None;
+
+    while let Some(current) = queue.pop_front() {
+        let d = dist[current];
+        // If we've already found target at a shorter distance, stop
+        if let Some(td) = target_dist
+            && d >= td
+        {
+            break;
+        }
+        if let Some(neighbors) = graph.neighbors_indices(current) {
+            for &nbr in neighbors {
+                let nd = d + 1;
+                if dist[nbr] == u32::MAX {
+                    dist[nbr] = nd;
+                    preds[nbr].push(current);
+                    queue.push_back(nbr);
+                    if nbr == target_idx {
+                        target_dist = Some(nd);
+                    }
+                } else if dist[nbr] == nd {
+                    preds[nbr].push(current);
+                }
+            }
+        }
+    }
+
+    if dist[target_idx] == u32::MAX {
+        return Vec::new();
+    }
+
+    // Backtrack from target to source to enumerate all shortest paths in networkx's order: a DFS
+    // over the predecessor DAG from `target` back to `source` (matching
+    // shortest_paths.generic._build_paths_from_predecessors). The `preds` lists are already in nx
+    // BFS-discovery order (level-order BFS above), so this yields byte-identical path order.
+    let mut paths: Vec<Vec<String>> = Vec::new();
+    let mut seen = vec![false; n];
+    seen[target_idx] = true;
+    let mut stack: Vec<(usize, usize)> = vec![(target_idx, 0)];
+    while let Some(&(node, i)) = stack.last() {
+        if node == source_idx {
+            paths.push(
+                stack
+                    .iter()
+                    .rev()
+                    .map(|(idx, _)| nodes[*idx].to_owned())
+                    .collect(),
+            );
+        }
+        if preds[node].len() > i {
+            stack.last_mut().unwrap().1 = i + 1;
+            let next = preds[node][i];
+            if seen[next] {
+                continue;
+            }
+            seen[next] = true;
+            stack.push((next, 0));
+        } else {
+            seen[node] = false;
+            stack.pop();
+        }
+    }
+    paths
+}
+
+/// br-r37-c1-aspidx A/B baseline: the pre-lever String-keyed `all_shortest_paths`.
+/// Test-only; byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn all_shortest_paths_orig_string(
+    graph: &Graph,
+    source: &str,
+    target: &str,
+) -> Vec<Vec<String>> {
     if !graph.has_node(source) || !graph.has_node(target) {
         return Vec::new();
     }
@@ -21351,7 +21450,6 @@ pub fn all_shortest_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec<
         return vec![vec![source.to_owned()]];
     }
 
-    // BFS to find shortest-path predecessors for each node
     let mut dist: HashMap<&str, usize> = HashMap::new();
     let mut preds: HashMap<&str, Vec<&str>> = HashMap::new();
     let mut queue: VecDeque<&str> = VecDeque::new();
@@ -21363,7 +21461,6 @@ pub fn all_shortest_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec<
 
     while let Some(current) = queue.pop_front() {
         let d = dist[current];
-        // If we've already found target at a shorter distance, stop
         if let Some(td) = target_dist
             && d >= td
         {
@@ -21394,13 +21491,6 @@ pub fn all_shortest_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec<
         return Vec::new();
     }
 
-    // Backtrack from target to source to enumerate all shortest paths
-    // Enumerate paths in networkx's order: a DFS over the predecessor DAG from
-    // `target` back to `source`, matching networkx's
-    // shortest_paths.generic._build_paths_from_predecessors. The `preds` lists
-    // are already in nx BFS-discovery order (level-order traversal above), so
-    // reproducing nx's stack walk yields byte-identical path order — letting the
-    // wrapper drop its unweighted fnx->nx delegation (br-r37-c1-qiplw).
     let mut paths: Vec<Vec<String>> = Vec::new();
     let empty_preds: Vec<&str> = Vec::new();
     let mut seen: HashSet<&str> = HashSet::new();
@@ -21429,6 +21519,99 @@ pub fn all_shortest_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec<
 /// Return all shortest paths between source and target in a directed graph.
 #[must_use]
 pub fn all_shortest_paths_directed(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+) -> Vec<Vec<String>> {
+    // br-r37-c1-aspidx (cc): integer-index directed mirror of `all_shortest_paths` — see that
+    // function. Walks successors_indices over dist:Vec<u32> + preds:Vec<Vec<usize>>; byte-identical
+    // (same successor order → same preds lists, same target_dist cutoff, same predecessor-DAG DFS).
+    let Some(source_idx) = digraph.get_node_index(source) else {
+        return Vec::new();
+    };
+    let Some(target_idx) = digraph.get_node_index(target) else {
+        return Vec::new();
+    };
+    if source_idx == target_idx {
+        return vec![vec![source.to_owned()]];
+    }
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+
+    let mut dist = vec![u32::MAX; n];
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut queue: VecDeque<usize> = VecDeque::new();
+
+    dist[source_idx] = 0;
+    queue.push_back(source_idx);
+
+    let mut target_dist: Option<u32> = None;
+
+    while let Some(current) = queue.pop_front() {
+        let d = dist[current];
+        if let Some(td) = target_dist
+            && d >= td
+        {
+            break;
+        }
+        if let Some(succs) = digraph.successors_indices(current) {
+            for &nbr in succs {
+                let nd = d + 1;
+                if dist[nbr] == u32::MAX {
+                    dist[nbr] = nd;
+                    preds[nbr].push(current);
+                    queue.push_back(nbr);
+                    if nbr == target_idx {
+                        target_dist = Some(nd);
+                    }
+                } else if dist[nbr] == nd {
+                    preds[nbr].push(current);
+                }
+            }
+        }
+    }
+
+    if dist[target_idx] == u32::MAX {
+        return Vec::new();
+    }
+
+    // Enumerate paths in networkx's order (DFS over the predecessor DAG from `target` back to
+    // `source`, matching _build_paths_from_predecessors). The forward BFS builds `preds` in nx
+    // BFS-discovery order, so this yields byte-identical path order.
+    let mut paths: Vec<Vec<String>> = Vec::new();
+    let mut seen = vec![false; n];
+    seen[target_idx] = true;
+    let mut stack: Vec<(usize, usize)> = vec![(target_idx, 0)];
+    while let Some(&(node, i)) = stack.last() {
+        if node == source_idx {
+            paths.push(
+                stack
+                    .iter()
+                    .rev()
+                    .map(|(idx, _)| nodes[*idx].to_owned())
+                    .collect(),
+            );
+        }
+        if preds[node].len() > i {
+            stack.last_mut().unwrap().1 = i + 1;
+            let next = preds[node][i];
+            if seen[next] {
+                continue;
+            }
+            seen[next] = true;
+            stack.push((next, 0));
+        } else {
+            seen[node] = false;
+            stack.pop();
+        }
+    }
+    paths
+}
+
+/// br-r37-c1-aspidx A/B baseline: the pre-lever String-keyed `all_shortest_paths_directed`.
+/// Test-only; byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn all_shortest_paths_directed_orig_string(
     digraph: &DiGraph,
     source: &str,
     target: &str,
@@ -21481,10 +21664,6 @@ pub fn all_shortest_paths_directed(
         return Vec::new();
     }
 
-    // Enumerate paths in networkx's order (DFS over the predecessor DAG from
-    // `target` back to `source`, matching _build_paths_from_predecessors). The
-    // forward BFS above builds `preds` in nx BFS-discovery order, so this yields
-    // byte-identical path order (br-r37-c1-wjz3x).
     let mut paths: Vec<Vec<String>> = Vec::new();
     let empty_preds: Vec<&str> = Vec::new();
     let mut seen: HashSet<&str> = HashSet::new();
@@ -51578,6 +51757,115 @@ mod tests {
             );
         };
         println!("LNCIDX_AB average_node_connectivity n={n} deg=6 rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-aspidx: full-function paired-interleaved A/B for `all_shortest_paths` (String-keyed
+    /// dist/preds HashMap + backtrack HashSet → integer-index). Caterpillar graph: a unique shortest
+    /// spine s0..sD plus degree-inflating leaf dead-ends per spine node, so the BFS scans ~D*(w+2)
+    /// edges (all String-hashed in the baseline) while the output is a SINGLE path of length D → the
+    /// win is the BFS hash tax, not the O(paths·len) materialisation. Byte-exact parity asserted for
+    /// undirected + directed twin. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib all_shortest_paths_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn all_shortest_paths_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // spine s0..sD (unique shortest s0→sD path of length D); each spine node also has `w` leaf
+        // dead-ends (degree-1) that inflate the BFS edge scan without creating alternate shortest routes.
+        let d = 1500usize;
+        let w = 20usize;
+        let build = |directed: bool| {
+            let spine = |i: usize| format!("s{i}");
+            let leaf = |i: usize, k: usize| format!("l{i}_{k}");
+            let mut edges: Vec<(String, String)> = Vec::new();
+            for i in 0..d {
+                edges.push((spine(i), spine(i + 1)));
+            }
+            for i in 0..=d {
+                for k in 0..w {
+                    edges.push((spine(i), leaf(i, k)));
+                }
+            }
+            (edges, spine(0), spine(d))
+        };
+
+        let (uedges, src, tgt) = build(false);
+        let mut g = Graph::strict();
+        for (u, v) in &uedges {
+            let _ = g.add_edge(u.clone(), v.clone());
+        }
+        let mut dg = DiGraph::strict();
+        for (u, v) in &uedges {
+            let _ = dg.add_edge(u.clone(), v.clone());
+        }
+
+        // Byte-exact parity: undirected + directed twin.
+        let cand = super::all_shortest_paths(&g, &src, &tgt);
+        assert_eq!(
+            cand,
+            super::all_shortest_paths_orig_string(&g, &src, &tgt),
+            "index all_shortest_paths must equal the String baseline"
+        );
+        assert_eq!(cand.len(), 1, "spine graph must have a unique shortest path");
+        assert_eq!(
+            super::all_shortest_paths_directed(&dg, &src, &tgt),
+            super::all_shortest_paths_directed_orig_string(&dg, &src, &tgt),
+            "directed index all_shortest_paths must equal the String baseline"
+        );
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::all_shortest_paths(&g, &src, &tgt)
+            } else {
+                super::all_shortest_paths_orig_string(&g, &src, &tgt)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "ASPIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("ASPIDX_AB all_shortest_paths D={d} w={w} rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
