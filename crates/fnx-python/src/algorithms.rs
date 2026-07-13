@@ -21531,6 +21531,56 @@ pub fn out_degree_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<P
     }
 }
 
+/// br-r37-c1-idcbind (cc): inline in/out-degree-centrality dict — the directed twin of
+/// `graph_degree_centrality_to_dict`. The current path builds a `Vec<CentralityScore>` in the
+/// kernel (an `n`-element `node.to_owned()` String materialization) then `centrality_to_dict`
+/// re-reads each `&s.node`. This walks node INDICES and reads `get_node_name(idx)` → `py_node_key`
+/// directly, skipping the throwaway Strings. Byte-identical to `in_degree_centrality` /
+/// `out_degree_centrality`: same `nodes_ordered` (index) order, same `deg_by_index(i) as f64 /
+/// (n-1)` (DIVISION, matching the kernel — NOT `* reciprocal`), same `n==0 → {}` / `n==1 → 1.0`.
+fn digraph_degree_centrality_inline_to_dict(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    out: bool,
+) -> PyResult<Py<PyDict>> {
+    let dg = gr.digraph().expect("caller checked is_directed");
+    let n = dg.node_count();
+    let dict = PyDict::new(py);
+    if n == 0 {
+        return Ok(dict.unbind());
+    }
+    if n == 1 {
+        let node = dg.get_node_name(0).expect("index 0 must resolve to a node");
+        dict.set_item(gr.py_node_key(py, node), 1.0)?;
+        return Ok(dict.unbind());
+    }
+    let denom = (n - 1) as f64;
+    for idx in 0..n {
+        let node = dg.get_node_name(idx).expect("index must resolve to a node");
+        let deg = if out {
+            dg.out_degree_by_index(idx)
+        } else {
+            dg.in_degree_by_index(idx)
+        };
+        dict.set_item(gr.py_node_key(py, node), deg as f64 / denom)?;
+    }
+    Ok(dict.unbind())
+}
+
+/// br-r37-c1-idcbind A/B probe (TEMP): inline in-degree centrality, paired against
+/// `in_degree_centrality` under a `Python::with_gil` binding-layer bench to decide whether the
+/// throwaway-String removal clears the PyDict-build floor. Removed or promoted after measurement.
+#[pyfunction]
+pub fn in_degree_centrality_inline(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    if !gr.is_directed() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "in_degree_centrality is not defined for undirected graphs.",
+        ));
+    }
+    digraph_degree_centrality_inline_to_dict(py, &gr, false)
+}
+
 /// Return the local reaching centrality of a node.
 #[pyfunction]
 pub fn local_reaching_centrality(
@@ -25929,6 +25979,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Additional centrality algorithms
     m.add_function(wrap_pyfunction!(in_degree_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(out_degree_centrality, m)?)?;
+    m.add_function(wrap_pyfunction!(in_degree_centrality_inline, m)?)?;
     m.add_function(wrap_pyfunction!(local_reaching_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(global_reaching_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(group_degree_centrality, m)?)?;

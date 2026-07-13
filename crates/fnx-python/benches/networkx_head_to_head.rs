@@ -2863,10 +2863,114 @@ fn kcore_family_head_to_head(c: &mut Criterion) {
     group.finish();
 }
 
+struct IndegBindingWorkloads {
+    old_binding: Py<PyAny>,
+    new_binding: Py<PyAny>,
+}
+
+fn prepare_indeg_binding_workloads(py: Python<'_>) -> PyResult<IndegBindingWorkloads> {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("fnx-python crate must live under crates/");
+    let python_dir = repo_root.join("python");
+    let legacy_dir = repo_root.join("legacy_networkx_code").join("networkx");
+
+    let sys = py.import("sys")?;
+    let path = sys.getattr("path")?;
+    let path = path.cast::<PyList>()?;
+    path.insert(0, repo_root.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, python_dir.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, legacy_dir.to_str().expect("repo path must be UTF-8"))?;
+
+    let locals = PyDict::new(py);
+    py.run(
+        cstring(
+            r#"
+import glob
+import importlib.util
+import os
+import sys
+
+target_dir = os.environ.get("CARGO_TARGET_DIR")
+if target_dir and "franken_networkx._fnx" not in sys.modules:
+    candidates = [
+        os.path.join(target_dir, "release", "lib_fnx.so"),
+        *glob.glob(os.path.join(target_dir, "release", "deps", "lib_fnx*.so")),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            spec = importlib.util.spec_from_file_location("franken_networkx._fnx", path)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["franken_networkx._fnx"] = module
+            spec.loader.exec_module(module)
+            break
+
+for _name in list(sys.modules):
+    if _name == "networkx" or _name.startswith("networkx."):
+        del sys.modules[_name]
+
+import networkx as nx
+import franken_networkx as fnx
+import franken_networkx._fnx as _raw
+
+# Directed graph, ~20k nodes so the O(V) dict build (not the O(V+E) degree scan) is timed.
+_base = nx.scale_free_graph(20000, seed=11)
+gd = fnx.DiGraph()
+gd.add_nodes_from(range(20000))
+for _u, _v in _base.edges():
+    gd.add_edge(_u, _v)
+
+# Confirm the inline binding routes (native) and is BYTE-IDENTICAL to the old kernel+centrality_to_dict
+# path: same {node: score} mapping AND same key insertion order (drop-in dict contract).
+_old = _raw.in_degree_centrality(gd)
+_new = _raw.in_degree_centrality_inline(gd)
+assert list(_old.items()) == list(_new.items()), "in_degree_centrality inline parity (order+values)"
+
+old_binding = lambda: _raw.in_degree_centrality(gd)
+new_binding = lambda: _raw.in_degree_centrality_inline(gd)
+"#,
+        )
+        .as_c_str(),
+        Some(&locals),
+        Some(&locals),
+    )?;
+
+    let callable = |name: &str| -> PyResult<Py<PyAny>> {
+        let callable = locals.get_item(name)?.ok_or_else(|| {
+            pyo3::exceptions::PyKeyError::new_err(format!("missing Python callable {name}"))
+        })?;
+        Ok(callable.unbind())
+    };
+
+    Ok(IndegBindingWorkloads {
+        old_binding: callable("old_binding")?,
+        new_binding: callable("new_binding")?,
+    })
+}
+
+// br-r37-c1-idcbind: with-GIL binding-layer A/B. Both arms build the SAME {node: score} PyDict for
+// the same 20k-node DiGraph; the only difference is the old arm materializes an n-element
+// Vec<CentralityScore> (throwaway node.to_owned() Strings) in the kernel, while the new inline arm
+// walks indices → get_node_name → py_node_key directly. Measures whether removing the String churn
+// clears the shared PyDict-build floor (py_node_key + set_item per node, common to both arms).
+fn indeg_binding_head_to_head(c: &mut Criterion) {
+    Python::initialize();
+    let workloads = Python::attach(prepare_indeg_binding_workloads)
+        .expect("failed to prepare in_degree_centrality binding A/B workloads");
+    let mut group = c.benchmark_group("networkx_head_to_head_indeg_binding");
+    group.sample_size(30);
+    bench_python_callable(&mut group, "old_centrality_to_dict_20k", &workloads.old_binding);
+    bench_python_callable(&mut group, "new_inline_20k", &workloads.new_binding);
+    group.finish();
+}
+
 criterion_group!(
     benches,
     kcore_head_to_head,
     kcore_family_head_to_head,
+    indeg_binding_head_to_head,
     voronoi_head_to_head,
     tsp_head_to_head,
     construction_copy_head_to_head,
