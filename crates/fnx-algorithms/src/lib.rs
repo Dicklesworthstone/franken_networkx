@@ -31081,6 +31081,61 @@ pub fn single_target_shortest_path_length_directed(
     target: &str,
     cutoff: Option<usize>,
 ) -> Vec<(String, usize)> {
+    // br-r37-c1-stsplidx (cc): integer-index reverse BFS. The old kernel kept `seen` as a
+    // HashSet<&str> and walked predecessors_iter (re-materialising each adjacency entry to a &str) —
+    // a String hash on every seen probe over the O(|V|+|E|) reverse frontier. Walk
+    // predecessors_indices over a Vec<bool> seen, collecting (idx, dist) in BFS discovery order;
+    // node names are materialised once at the end. Byte-identical: same predecessor order + same
+    // frontier order → the same (name, distance) sequence.
+    let Some(target_idx) = digraph.get_node_index(target) else {
+        return Vec::new();
+    };
+    let n = digraph.node_count();
+    let names = digraph.nodes_ordered();
+
+    let mut seen = vec![false; n];
+    let mut order: Vec<(usize, usize)> = Vec::with_capacity(n);
+    seen[target_idx] = true;
+    order.push((target_idx, 0));
+    let mut frontier: Vec<usize> = vec![target_idx];
+    let mut level = 0usize;
+
+    while !frontier.is_empty() {
+        if let Some(c) = cutoff
+            && level >= c
+        {
+            break;
+        }
+        let mut next_frontier: Vec<usize> = Vec::new();
+        for &node in &frontier {
+            if let Some(predecessors) = digraph.predecessors_indices(node) {
+                for &pred in predecessors {
+                    if !seen[pred] {
+                        seen[pred] = true;
+                        order.push((pred, level + 1));
+                        next_frontier.push(pred);
+                    }
+                }
+            }
+        }
+        frontier = next_frontier;
+        level += 1;
+    }
+
+    order
+        .into_iter()
+        .map(|(idx, dist)| (names[idx].to_owned(), dist))
+        .collect()
+}
+
+/// br-r37-c1-stsplidx A/B baseline: the pre-lever String-keyed reverse BFS. Test-only;
+/// byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn single_target_shortest_path_length_directed_orig_string(
+    digraph: &DiGraph,
+    target: &str,
+    cutoff: Option<usize>,
+) -> Vec<(String, usize)> {
     let mut result = Vec::with_capacity(digraph.node_count());
     if !digraph.has_node(target) {
         return result;
@@ -52082,6 +52137,98 @@ mod tests {
             );
         };
         println!("ASPDIRIDX_AB all_simple_paths_directed D={cap_d} b={b} L={l} rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-stsplidx: full-function paired-interleaved A/B for the directed reverse BFS
+    /// `single_target_shortest_path_length_directed` (String-keyed `HashSet<&str>` seen +
+    /// predecessors_iter → integer-index). Directed circulant (strongly connected via step-1, in-degree
+    /// `deg`) so the reverse BFS reaches all V and scans ~V*deg predecessor edges (all String-hashed in
+    /// the baseline) with O(V) output. Byte-exact parity asserted. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib single_target_shortest_path_length_directed_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn single_target_shortest_path_length_directed_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Directed circulant: node i → (i+1..i+deg) mod n. Predecessors of v are {v-1..v-deg}; step-1
+        // makes it strongly connected, so the reverse BFS from the target reaches all V, scanning
+        // ~V*deg predecessor edges, output O(V).
+        let n = 40000usize;
+        let deg = 20usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + k) % n));
+            }
+        }
+        let tgt = "n0";
+
+        // Byte-exact parity: index reverse BFS == String baseline (same (name, dist) sequence).
+        let cand = super::single_target_shortest_path_length_directed(&g, tgt, None);
+        assert_eq!(
+            cand,
+            super::single_target_shortest_path_length_directed_orig_string(&g, tgt, None),
+            "index single_target_shortest_path_length_directed must equal the String baseline"
+        );
+        assert_eq!(cand.len(), n, "strongly-connected graph must reach every node");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::single_target_shortest_path_length_directed(&g, tgt, None)
+            } else {
+                super::single_target_shortest_path_length_directed_orig_string(&g, tgt, None)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "STSPLIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "STSPLIDX_AB single_target_shortest_path_length_directed n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
