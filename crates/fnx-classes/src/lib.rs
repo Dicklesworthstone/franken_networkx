@@ -964,9 +964,14 @@ impl Graph {
     /// iterator which already walks nodes in index order.
     #[must_use]
     pub fn degree_by_index(&self, idx: usize) -> usize {
-        let row = &self.adj_indices[idx];
-        let mut count = row.len();
-        if row.contains(&idx) {
+        // br-r37-c1-degselfloopidx (cc): the self-loop check was `adj_indices[idx].contains(&idx)`
+        // — an O(degree) linear rescan of the adjacency row (which for the common no-self-loop node
+        // scans the WHOLE row to return false), making this hot per-node accessor O(degree) despite
+        // the "O(1)" claim. `has_edge_by_indices(idx, idx)` = `self.edges.contains_key(canon(idx,idx))`
+        // is an O(1) HashMap probe deciding the SAME fact (a self-loop edge exists IFF idx is in its
+        // own adjacency row — the maintained adj_indices<=>self.edges invariant). Byte-identical.
+        let mut count = self.adj_indices[idx].len();
+        if self.has_edge_by_indices(idx, idx) {
             count += 1; // self-loop contributes 2 to total degree
         }
         count
@@ -3729,6 +3734,95 @@ mod tests {
         };
         println!("ADDEDGE_AB adj-row push n={n} rounds={rounds} (>1 = new_edge-flag faster)");
         report("NEWEDGE_vs_contains", &paired(true, false));
+        report("NULL_new_vs_new", &paired(true, true));
+    }
+
+    /// br-r37-c1-degselfloopidx: parity + paired-interleaved A/B for `degree_by_index` — the O(1)
+    /// `has_edge_by_indices(idx,idx)` self-loop check vs the pre-lever O(degree)
+    /// `adj_indices[idx].contains(&idx)` rescan, over a degree histogram of a dense graph. Byte-exact
+    /// parity (also vs the `&str` `degree`). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-classes --lib degree_by_index_selfloop_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn degree_by_index_selfloop_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20000usize;
+        let deg = 20usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for step in 1..=deg {
+                let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + step) % n));
+            }
+        }
+        for i in (0..n).step_by(1000) {
+            let _ = g.add_edge(format!("n{i}"), format!("n{i}"));
+        }
+
+        // Byte-exact parity: new == old (row.contains) == the &str degree, incl. self-loop nodes.
+        for idx in 0..g.node_count() {
+            let new = g.degree_by_index(idx);
+            let old = g.adj_indices[idx].len() + usize::from(g.adj_indices[idx].contains(&idx));
+            assert_eq!(new, old, "degree_by_index parity vs row.contains at {idx}");
+            assert_eq!(new, g.degree(&format!("n{idx}")), "degree_by_index parity vs &str degree at {idx}");
+        }
+
+        let time = |use_new: bool| -> f64 {
+            let t0 = Instant::now();
+            let mut sum = 0usize;
+            for idx in 0..g.node_count() {
+                sum += if use_new {
+                    g.degree_by_index(idx)
+                } else {
+                    g.adj_indices[idx].len() + usize::from(g.adj_indices[idx].contains(&idx))
+                };
+            }
+            black_box(sum);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "DEGIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("DEGIDX_AB degree histogram n={n} deg={deg} rounds={rounds} (>1 = O(1) has_edge faster)");
+        report("HASEDGE_vs_contains", &paired(true, false));
         report("NULL_new_vs_new", &paired(true, true));
     }
 
