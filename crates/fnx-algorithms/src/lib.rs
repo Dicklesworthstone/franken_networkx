@@ -44289,9 +44289,17 @@ pub fn number_of_selfloops(graph: &Graph) -> usize {
 /// Nodes with self-loops.
 #[must_use]
 pub fn nodes_with_selfloops(graph: &Graph) -> Vec<String> {
+    // br-r37-c1-selfloopidx (cc): probe each node's self-loop by INDEX
+    // (`has_edge_by_indices(i, i)`, a direct O(1) integer-pair lookup) instead of
+    // `has_edge(node, node)`, which resolves BOTH `&str` endpoints to indices via
+    // `edge_pair_key` (two String-hash lookups per node). Undirected twin of the
+    // directed `nodes_with_selfloops_rust` selfloopdir fast path. Byte-identical:
+    // `has_edge_by_indices(i, i)` == `has_edge(nodes_ordered()[i], same)`, same
+    // node-insertion emission order.
+    let names = graph.nodes_ordered();
     let mut result = Vec::new();
-    for node in graph.nodes_ordered() {
-        if graph.has_edge(node, node) {
+    for (i, &node) in names.iter().enumerate() {
+        if graph.has_edge_by_indices(i, i) {
             result.push(node.to_owned());
         }
     }

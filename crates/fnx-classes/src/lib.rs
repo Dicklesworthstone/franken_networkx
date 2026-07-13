@@ -3928,6 +3928,92 @@ mod tests {
         report("NULL_new_vs_new", &paired(true, true));
     }
 
+    /// br-r37-c1-selfloopidx: paired-interleaved A/B for the `nodes_with_selfloops` per-node self-loop
+    /// probe (feeds `number_of_selfloops` / `selfloop_edges` / `nodes_with_selfloops`, many callers).
+    /// The kernel checked `has_edge(node, node)` — resolving BOTH `&str` endpoints via
+    /// `edge_pair_key` (two String-hash lookups per node) — vs the index probe
+    /// `has_edge_by_indices(i, i)` (a direct integer `canon_pair` + `contains_key`, no String
+    /// resolution). Byte-exact parity asserted (same self-loop node set). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-classes --lib nodes_selfloop_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn nodes_selfloop_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // 40k nodes, ring-of-chords, NO self-loops (the common case: every node is probed and misses).
+        let n = 40_000usize;
+        let deg = 10usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n {
+            for step in 1..=deg {
+                let _ = g.add_edge(i.to_string(), ((i + step) % n).to_string());
+            }
+        }
+
+        let names = g.nodes_ordered();
+        let old_scan = |g: &Graph| -> usize {
+            names
+                .iter()
+                .filter(|&&node| g.has_edge(node, node))
+                .count()
+        };
+        let new_scan = |g: &Graph| -> usize {
+            (0..names.len()).filter(|&i| g.has_edge_by_indices(i, i)).count()
+        };
+        assert_eq!(old_scan(&g), new_scan(&g), "nodes_with_selfloops parity (self-loop count)");
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let c = if cand { new_scan(&g) } else { old_scan(&g) };
+            black_box(c);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "SELFLOOPIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("SELFLOOPIDX_AB nodes_with_selfloops n={n} deg={deg} rounds={rounds} (>1 = index probe faster)");
+        report("HASEDGEIDX_vs_hasedge", &paired(true, false));
+        report("NULL_new_vs_new", &paired(true, true));
+    }
+
     /// br-r37-c1-kneserpush parity: removing the redundant `adj_indices.contains` guards under the
     /// `seen.insert(pair)` new-pair guard must keep the Kneser build byte-identical — correct
     /// node/edge counts and NO duplicate adjacency entries. (Same lever + adj_indices.push operation
