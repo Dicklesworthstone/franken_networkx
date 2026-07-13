@@ -18570,3 +18570,45 @@ RESULT: SHIP. Preserve the B-tree augmentation representation, sorted index to
 name mapping, public insertion-order partition projection, and exact witness
 counts. Do not retry the rejected compact residual-row representation; any
 next flow lever needs a fresh profile on a different seam.
+
+## 2026-07-13 MagentaTrout SHIP (`is_k_regular`): dense index degree scan — 38.9595x paired same-worker median (`br-r37-c1-38tp8`)
+
+NEGATIVE-LEDGER / REACHABILITY FIRST: the fresh dead-kernel, traversal, product,
+coloring, centrality, and MultiGraph no-retry boundaries were read before
+selection. `is_k_regular` had no prior keep/reject entry and is live through
+`python/franken_networkx/__init__.py` -> the PyO3 binding ->
+`fnx_algorithms::is_k_regular`. Its full-scan path still materialized
+`nodes_ordered()` and performed one String-keyed degree lookup per node.
+
+ONE LEVER: replace that ordered-name scan with dense node-index iteration and
+`Graph::degree_by_index`. The accessor returns the same self-loop-aware degree
+as `Graph::degree`, iteration order cannot affect an `all` predicate, and an
+empty range preserves NetworkX's empty-graph `all()` result. No binding,
+multigraph, graph-storage, or dispatch behavior changed.
+
+MEDIAN GATE: a checked-in ignored test freezes the exact former implementation
+and alternates baseline/candidate order in one release binary. On strict-remote
+worker `vmi1149989`, a 100,000-node zero-regular graph forced both arms to scan
+every node for 61 paired rounds. The indexed/name median ratio was `38.9595x`
+with 60/61 wins and p5-p95 `[24.3578, 168.6794]`; the indexed/indexed null
+median was `0.9291x` with p5-p95 `[0.7394, 1.1696]`. The candidate p5 is over
+20x above the null p95, so the keep decision is decisive despite the wide
+upper tail.
+
+CORRECTNESS / GATES: the A/B asserts exact boolean parity before timing. The
+focused strict-remote tests passed 2/2, including a self-loop that must count
+twice. Strict-remote `cargo check --workspace --all-targets` passed. Exact
+workspace clippy stopped on the committed `fnx-classes` `collapsible_if` at
+line 1700 before this diff. A scoped deny-all run initially enumerated only
+committed lint debt outside the owned lines; rerunning with allowances limited
+to those six baseline classes passed. RCH rejected `cargo fmt --check` as
+non-compilation under fail-closed mode rather than running locally; direct
+read-only `rustfmt --check` reports existing file-wide drift, while the owned
+hunks and `git diff --check` are clean. UBS completed with its broad existing
+file-wide heuristic backlog; Cargo/style phases were intentionally skipped so
+it could not violate the remote-only build rule.
+
+RESULT: SHIP. Preserve dense index iteration, `degree_by_index` self-loop
+semantics, the empty-range result, and the early `all` exit. Future regularity
+work should profile a different public surface rather than restoring ordered
+name materialization or per-node String degree lookup.
