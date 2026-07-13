@@ -3828,6 +3828,106 @@ mod tests {
         report("NULL_new_vs_new", &paired(true, true));
     }
 
+    /// br-r37-c1-isoedgecount: paired-interleaved A/B for the graph-isomorphism early-out edge
+    /// count check. `undirected_isomorphism_mappings` / `directed_isomorphism_mappings` (fnx-python,
+    /// reached by public `is_isomorphic`) compared edge COUNTS via `edges_ordered().len()`, which
+    /// materialises a full `Vec<EdgeSnapshot>` (two owned Strings per edge) only to read its length;
+    /// the O(1) `edge_count()` (== `self.edges.len()`) is byte-identical. This times the exact
+    /// early-out compare on the non-isomorphic same-node / different-edge case (where the check is
+    /// the dominant cost). Byte-exact parity asserted (`edge_count() == edges_ordered().len()`).
+    /// `#[ignore]`; run with
+    /// `cargo test --release -p fnx-classes --lib iso_edge_count_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn iso_edge_count_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 4000usize;
+        let deg = 25usize;
+        let build = |steps: usize| -> Graph {
+            let mut g = Graph::strict();
+            for i in 0..n {
+                let _ = g.add_node(format!("n{i}"));
+            }
+            for i in 0..n {
+                for step in 1..=steps {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + step) % n));
+                }
+            }
+            g
+        };
+        // Same node count, DIFFERENT edge count → the early-out returns at the edge-count compare.
+        let g1 = build(deg);
+        let g2 = build(deg - 1);
+
+        // Byte-exact parity: edge_count() must equal edges_ordered().len() for both graphs.
+        assert_eq!(g1.edge_count(), g1.edges_ordered().len(), "edge_count parity g1");
+        assert_eq!(g2.edge_count(), g2.edges_ordered().len(), "edge_count parity g2");
+        assert_ne!(
+            g1.edge_count(),
+            g2.edge_count(),
+            "workload must exercise the differing-count early-out"
+        );
+
+        let time = |use_new: bool| -> f64 {
+            let t0 = Instant::now();
+            let mut acc = 0usize;
+            for _ in 0..8 {
+                let differ = if use_new {
+                    g1.edge_count() != g2.edge_count()
+                } else {
+                    g1.edges_ordered().len() != g2.edges_ordered().len()
+                };
+                acc += usize::from(differ);
+            }
+            black_box(acc);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "ISOEDGE_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "ISOEDGE_AB same-node/different-edge early-out n={n} deg={deg} rounds={rounds} (>1 = edge_count faster)"
+        );
+        report("EDGECOUNT_vs_edgesordered", &paired(true, false));
+        report("NULL_new_vs_new", &paired(true, true));
+    }
+
     /// br-r37-c1-kneserpush parity: removing the redundant `adj_indices.contains` guards under the
     /// `seen.insert(pair)` new-pair guard must keep the Kneser build byte-identical — correct
     /// node/edge counts and NO duplicate adjacency entries. (Same lever + adj_indices.push operation

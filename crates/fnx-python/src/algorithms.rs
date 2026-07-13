@@ -17145,7 +17145,12 @@ fn undirected_isomorphism_mappings(
         return vec![Vec::new()];
     }
 
-    if g1.edges_ordered().len() != g2.edges_ordered().len() {
+    // br-r37-c1-isoedgecount (cc): compare edge COUNTS via the O(1) `edge_count()` (== self.edges
+    // .len()) instead of `edges_ordered().len()`, which materialised a full Vec<EdgeSnapshot> (two
+    // owned Strings per edge) just to read its length. Byte-identical early-out; same
+    // redundant-materialization lever as faster_could_be_isomorphic (br-r37-c1, edge_count vs
+    // edges_ordered().len()). Amplified on the non-isomorphic same-node/different-edge early-out.
+    if g1.edge_count() != g2.edge_count() {
         return Vec::new();
     }
 
@@ -17282,7 +17287,10 @@ fn directed_isomorphism_mappings(
         return vec![Vec::new()];
     }
 
-    if g1.edges_ordered().len() != g2.edges_ordered().len() {
+    // br-r37-c1-isoedgecount (cc): O(1) `edge_count()` compare instead of `edges_ordered().len()`
+    // (which materialised a full Vec<EdgeSnapshot>) — byte-identical early-out. See the undirected
+    // twin above ([[directed_undirected_mirror_lag_idx]] pattern — mirror both siblings).
+    if g1.edge_count() != g2.edge_count() {
         return Vec::new();
     }
 
