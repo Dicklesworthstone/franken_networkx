@@ -39049,15 +39049,27 @@ pub fn complement_digraph(digraph: &DiGraph) -> DiGraph {
 /// Return the reverse of a directed graph (all edges reversed).
 #[must_use]
 pub fn reverse_digraph(digraph: &DiGraph) -> DiGraph {
+    // br-r37-c1-revdeleg (cc): delegate to the core `DiGraph::reversed()` — an O(V+E) pure topology
+    // flip (clone the node table, walk the original successor rows u-major appending the reversed
+    // endpoint) — instead of the redundant `edges_ordered()` (EdgeSnapshot = 2 owned-String clones +
+    // attr clone PER EDGE) + a SECOND (right.clone(), left.clone(), attrs.clone()) + a String-resolving
+    // `extend_edges_with_attrs_unrecorded`. `reversed()` is already the blessed reverse used by
+    // PyDiGraph.reverse(); the sole caller of this fn uses the reversed graph only for topology (a
+    // Dijkstra pass). Same node table + same u-major reversed edge stream → byte-identical
+    // edges_ordered_borrowed()/nodes_ordered() and preserved runtime policy; it additionally preserves
+    // node attributes (the old add_node(name) path dropped them — a latent parity gap vs nx.reverse).
+    digraph.reversed()
+}
+
+/// br-r37-c1-revdeleg A/B baseline: the pre-lever String-path `reverse_digraph`
+/// (edges_ordered() clone + double clone + String-resolving extend). Test-only; byte-identical
+/// edge topology + node names to the shipped `DiGraph::reversed()` delegation.
+#[cfg(test)]
+fn reverse_digraph_orig_string(digraph: &DiGraph) -> DiGraph {
     let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
     for node in digraph.nodes_ordered() {
         result.add_node(node.to_owned());
     }
-    // br-r37-c1-reversedigbatch (cc): reverse each edge (right->left) carrying its attrs, but collect
-    // them + one batch insert instead of per-edge add_edge_with_attrs (a policy record each). The
-    // reversed edges are a bijection of the input's distinct directed edges → all unique (a self-loop
-    // reverses to itself, handled). extend_edges_with_attrs_unrecorded matches add_edge_with_attrs'
-    // edge insertion + succ/pred adjacency order → byte-identical.
     let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
     for edge in digraph.edges_ordered() {
         edges.push((edge.right.clone(), edge.left.clone(), edge.attrs.clone()));
@@ -52872,6 +52884,94 @@ mod tests {
         println!("QGIDX_AB quotient_graph n={n} block_size={block_size} rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-revdeleg: full-function paired-interleaved A/B for `reverse_digraph` (String-path
+    /// edges_ordered() clone + double-clone + String-resolving extend → delegate to the O(V+E)
+    /// `DiGraph::reversed()` topology flip). Dense complete digraph so the O(|E|) edge-reversal work
+    /// dominates. Byte-exact parity (edge topology via edges_ordered_borrowed + node names). `#[ignore]`;
+    /// run with `cargo test --release -p fnx-algorithms --lib reverse_digraph_deleg_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn reverse_digraph_deleg_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Complete digraph K200 (39800 directed edges).
+        let m = 200usize;
+        let mut g = DiGraph::strict();
+        for i in 0..m {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..m {
+            for j in 0..m {
+                if i != j {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+                }
+            }
+        }
+
+        // Byte-exact parity: same reversed edge topology (names + attrs) + same node names.
+        let cand = super::reverse_digraph(&g);
+        let base = super::reverse_digraph_orig_string(&g);
+        assert_eq!(
+            cand.edges_ordered_borrowed(),
+            base.edges_ordered_borrowed(),
+            "reversed edge topology must match the String-path baseline"
+        );
+        assert_eq!(cand.nodes_ordered(), base.nodes_ordered(), "node order must match");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::reverse_digraph(&g)
+            } else {
+                super::reverse_digraph_orig_string(&g)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "REVDELEG_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("REVDELEG_AB reverse_digraph K{m} ({} edges) rounds={rounds} (>1 = reversed() faster)", m * (m - 1));
+        report("DELEG_vs_string", &paired(true, false));
+        report("NULL_deleg_vs_deleg", &paired(true, true));
     }
 
     /// br-r37-c1-bfslayidx (family): full-function A/B for `bfs_layers_multi` (representative of the
