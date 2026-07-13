@@ -12289,6 +12289,181 @@ pub fn partition_spanning_tree(
         });
     }
 
+    // br-r37-c1-psptidx (cc): index-key the Kruskal partition MST. The old kernel kept union-find
+    // (parent/rank) as HashMap<&str,_> with a String-hashing path-compression find, and built edges via
+    // neighbors_iter + name-keyed edge_attrs (weight/partition) probes. Union-find over Vec<usize> +
+    // walk neighbors_indices + edge_attrs_by_indices; node names are materialised only for the
+    // O(chosen) output edges. BIT-IDENTICAL: same node-major × adjacency edge scan → same ordinal +
+    // first-seen dedup (an index (min,max) pair dedups the same undirected edge set), same weight +
+    // partition state (edge_attrs_by_indices == edge_attrs for the same endpoints) → the same sort
+    // (weight.total_cmp then ordinal) → the same union-find merges → the same chosen edges/total_weight.
+    let mut parent: Vec<usize> = (0..node_count).collect();
+    let mut rank: Vec<usize> = vec![0usize; node_count];
+
+    fn find_partition_root(parent: &mut [usize], node: usize) -> usize {
+        let mut root = node;
+        while parent[root] != root {
+            root = parent[root];
+        }
+        let mut current = node;
+        while current != root {
+            let next = parent[current];
+            parent[current] = root;
+            current = next;
+        }
+        root
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct OrderedSpanningEdge {
+        weight: f64,
+        ordinal: usize,
+        left: usize,
+        right: usize,
+    }
+
+    let mut included_edges = Vec::<OrderedSpanningEdge>::new();
+    let mut open_edges = Vec::<OrderedSpanningEdge>::new();
+    let mut seen: HashSet<(usize, usize)> = HashSet::new();
+    let mut ordinal = 0usize;
+    for u in 0..node_count {
+        if let Some(neighbors) = graph.neighbors_indices(u) {
+            for &v in neighbors {
+                let key = if u <= v { (u, v) } else { (v, u) };
+                if !seen.insert(key) {
+                    continue;
+                }
+
+                let raw_weight = graph
+                    .edge_attrs_by_indices(u, v)
+                    .and_then(|attrs| attrs.get(weight_attr))
+                    .and_then(|raw| raw.as_f64());
+                if raw_weight.is_some_and(f64::is_nan) {
+                    if ignore_nan {
+                        ordinal += 1;
+                        continue;
+                    }
+                    return Err(PartitionSpanningTreeError::NaNWeight {
+                        left: nodes[u].to_owned(),
+                        right: nodes[v].to_owned(),
+                    });
+                }
+
+                let weight = raw_weight.filter(|value| value.is_finite()).unwrap_or(1.0);
+                let entry = OrderedSpanningEdge {
+                    weight,
+                    ordinal,
+                    left: u,
+                    right: v,
+                };
+                ordinal += 1;
+
+                match parse_partition_state(
+                    graph
+                        .edge_attrs_by_indices(u, v)
+                        .and_then(|attrs| attrs.get(partition_attr))
+                        .as_ref()
+                        .map(|value| value.as_str())
+                        .as_deref(),
+                ) {
+                    PartitionState::Included => included_edges.push(entry),
+                    PartitionState::Excluded => {}
+                    PartitionState::Open => open_edges.push(entry),
+                }
+            }
+        }
+    }
+
+    open_edges.sort_by(|left, right| {
+        let order = if minimum {
+            left.weight.total_cmp(&right.weight)
+        } else {
+            right.weight.total_cmp(&left.weight)
+        };
+        order.then_with(|| left.ordinal.cmp(&right.ordinal))
+    });
+
+    let edges_scanned = included_edges.len() + open_edges.len();
+    let mut chosen = Vec::new();
+    let mut total_weight = 0.0;
+    let mut nodes_touched = 0usize;
+    for edge in included_edges.into_iter().chain(open_edges) {
+        let left_root = find_partition_root(&mut parent, edge.left);
+        let right_root = find_partition_root(&mut parent, edge.right);
+        if left_root == right_root {
+            continue;
+        }
+
+        let left_rank = rank[left_root];
+        let right_rank = rank[right_root];
+        if left_rank < right_rank {
+            parent[left_root] = right_root;
+        } else if left_rank > right_rank {
+            parent[right_root] = left_root;
+        } else {
+            parent[right_root] = left_root;
+            rank[left_root] = left_rank + 1;
+        }
+
+        chosen.push(MstEdge {
+            left: nodes[edge.left].to_owned(),
+            right: nodes[edge.right].to_owned(),
+            weight: edge.weight,
+        });
+        total_weight += edge.weight;
+        nodes_touched += 2;
+        if chosen.len() == node_count.saturating_sub(1) {
+            break;
+        }
+    }
+
+    Ok(MinimumSpanningTreeResult {
+        edges: chosen,
+        total_weight,
+        witness: ComplexityWitness {
+            algorithm: if minimum {
+                "kruskal_partition_mst".to_owned()
+            } else {
+                "kruskal_partition_max_st".to_owned()
+            },
+            complexity_claim: "O(|E| log |E|)".to_owned(),
+            nodes_touched: nodes_touched.min(node_count),
+            edges_scanned,
+            queue_peak: 0,
+        },
+    })
+}
+
+/// br-r37-c1-psptidx A/B baseline: the pre-lever String-keyed Kruskal partition MST (HashMap<&str>
+/// union-find + name-keyed edge_attrs). Test-only; bit-identical to the shipped integer-index version.
+#[cfg(test)]
+fn partition_spanning_tree_orig_string(
+    graph: &Graph,
+    minimum: bool,
+    weight_attr: &str,
+    partition_attr: &str,
+    ignore_nan: bool,
+) -> Result<MinimumSpanningTreeResult, PartitionSpanningTreeError> {
+    let nodes = graph.nodes_ordered();
+    let node_count = nodes.len();
+    if node_count == 0 {
+        return Ok(MinimumSpanningTreeResult {
+            edges: Vec::new(),
+            total_weight: 0.0,
+            witness: ComplexityWitness {
+                algorithm: if minimum {
+                    "kruskal_partition_mst".to_owned()
+                } else {
+                    "kruskal_partition_max_st".to_owned()
+                },
+                complexity_claim: "O(|E| log |E|)".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        });
+    }
+
     let mut parent: HashMap<&str, &str> = HashMap::new();
     let mut rank: HashMap<&str, usize> = HashMap::new();
     for node in &nodes {
@@ -54999,6 +55174,96 @@ mod tests {
             );
         };
         println!("MISADJIDX_AB maximal_independent_set n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-psptidx: full-function paired-interleaved A/B for `partition_spanning_tree` (String-keyed
+    /// Kruskal partition MST: HashMap<&str> union-find + name-keyed edge_attrs → integer-index union-find
+    /// (Vec<usize>) + neighbors_indices + edge_attrs_by_indices). Weight sort/tie-break untouched → bit-
+    /// identical MST. Dense weighted graph so the O(|E|) edge scan + union-find dominates. Byte-exact
+    /// parity (MST edges + total_weight). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib partition_spanning_tree_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn partition_spanning_tree_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense weighted circulant n=30000, ±1..±3 (deg 6), pseudo-random integer weights (no partition
+        // attr → all edges Open). The union-find processes every edge (find+union) and the edge build
+        // probes edge_attrs per edge — both String-hashed in the baseline.
+        let n = 30000usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=3usize {
+                let w = format!("{}", (i * 7 + k * 131) % 1000);
+                let _ = g.add_edge_with_attrs(
+                    format!("n{i}"),
+                    format!("n{}", (i + k) % n),
+                    attrs([("weight", w.as_str())]),
+                );
+            }
+        }
+
+        // Byte-exact parity (bit-identical f64 → same MST edges + total_weight).
+        let cand = super::partition_spanning_tree(&g, true, "weight", "partition", false);
+        let base = super::partition_spanning_tree_orig_string(&g, true, "weight", "partition", false);
+        assert_eq!(cand, base, "index partition_spanning_tree must equal the String baseline");
+        assert!(cand.as_ref().map(|r| !r.edges.is_empty()).unwrap_or(false), "MST is non-empty");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::partition_spanning_tree(&g, true, "weight", "partition", false)
+            } else {
+                super::partition_spanning_tree_orig_string(&g, true, "weight", "partition", false)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "PSPTIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("PSPTIDX_AB partition_spanning_tree n={n} rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
