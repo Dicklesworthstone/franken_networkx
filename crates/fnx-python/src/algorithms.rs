@@ -8896,14 +8896,21 @@ pub fn k_core_rust(
     let result = py.allow_threads(|| fnx_algorithms::k_core(inner, k));
 
     let mut new_graph = PyGraph::new_empty_with_policy(py, runtime_policy.clone())?;
+    // br-r37-c1-kcorenative (cc): re-attach node/edge attributes from the source graph so the native
+    // k-core matches nx.k_core = G.subgraph(nodes) (which preserves attrs). Node order is G-insertion
+    // order (the kernel now emits nodes_ordered order), matching the subgraph's node order.
     for node in &result.nodes {
-        new_graph.inner.add_node(node.clone());
+        let attrs = inner.node_attrs(node).cloned().unwrap_or_default();
+        new_graph.inner.add_node_with_attrs(node.clone(), attrs);
         new_graph
             .node_key_map
             .insert(node.clone(), gr.py_node_key(py, node));
     }
     for (u, v) in &result.edges {
-        let _ = new_graph.inner.add_edge(u.clone(), v.clone());
+        let attrs = inner.edge_attrs(u, v).cloned().unwrap_or_default();
+        let _ = new_graph
+            .inner
+            .add_edge_with_attrs(u.clone(), v.clone(), attrs);
     }
     new_graph.inner.set_runtime_policy(runtime_policy);
     Py::new(py, new_graph)

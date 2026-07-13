@@ -14999,41 +14999,43 @@ pub fn k_core(graph: &Graph, k: Option<usize>) -> KCoreResult {
     // Determine the effective k
     let effective_k = k.unwrap_or_else(|| core_map.values().copied().max().unwrap_or(0));
 
-    // Filter nodes with core number >= k
-    let nodes: Vec<String> = core_map
-        .iter()
-        .filter(|&(_, c)| *c >= effective_k)
-        .map(|(&node, _)| node.to_owned())
-        .collect();
+    // br-r37-c1-kcorenative (cc): emit nodes in G's INSERTION order (nodes_ordered), not
+    // HashMap-iteration-order-then-sort, so the result matches nx.k_core = G.subgraph(nodes)
+    // which preserves G's node order. Induced edges are collected by walking in-core nodes in
+    // G order over integer adjacency (first-seen canonical (min,max) index dedup), so both the
+    // node list and the edge set match nx (the binding re-attaches node/edge attributes).
+    let names = graph.nodes_ordered();
+    let n = names.len();
+    let mut in_core = vec![false; n];
+    let mut nodes: Vec<String> = Vec::new();
+    for (i, &name) in names.iter().enumerate() {
+        if core_map.get(name).copied().unwrap_or(0) >= effective_k {
+            in_core[i] = true;
+            nodes.push(name.to_owned());
+        }
+    }
 
-    let node_set: HashSet<&str> = nodes.iter().map(String::as_str).collect();
-
-    // Collect edges in the induced subgraph
     let mut edges = Vec::new();
-    let mut seen: HashSet<(&str, &str)> = HashSet::new();
-    for node in &nodes {
-        if let Some(neighbors) = graph.neighbors_iter(node) {
-            for neighbor in neighbors {
-                if node_set.contains(neighbor) {
-                    let (left, right) = if node.as_str() <= neighbor {
-                        (node.as_str(), neighbor)
-                    } else {
-                        (neighbor, node.as_str())
-                    };
-                    if seen.insert((left, right)) {
-                        edges.push((left.to_owned(), right.to_owned()));
+    let mut seen: HashSet<(usize, usize)> = HashSet::new();
+    for u in 0..n {
+        if !in_core[u] {
+            continue;
+        }
+        if let Some(neighbors) = graph.neighbors_indices(u) {
+            for &v in neighbors {
+                if in_core[v] {
+                    let key = if u <= v { (u, v) } else { (v, u) };
+                    if seen.insert(key) {
+                        let (l, r) = key;
+                        edges.push((names[l].to_owned(), names[r].to_owned()));
                     }
                 }
             }
         }
     }
 
-    let mut sorted_nodes = nodes;
-    sorted_nodes.sort();
-    edges.sort();
-
     KCoreResult {
-        nodes: sorted_nodes,
+        nodes,
         edges,
         witness: ComplexityWitness {
             algorithm: "k_core".to_owned(),

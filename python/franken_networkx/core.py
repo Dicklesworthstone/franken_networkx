@@ -69,6 +69,15 @@ def k_core(G, k=None, core_number=None, *, backend=None, **backend_kwargs):
     the result to an fnx graph type for drop-in compatibility.
     """
     _fnx._validate_backend_dispatch_keywords("k_core", backend, backend_kwargs)
+    # br-r37-c1-kcorenative: route the plain simple-``Graph`` / no-precomputed-``core_number`` case to
+    # the native Rust k-core (nx runs a pure-Python core decomposition + subgraph copy). The native
+    # kernel emits nodes in G's insertion order and its binding re-attaches node/edge attributes, so
+    # the result matches ``G.subgraph({v: core[v] >= k})``. Delegate directed/multigraph inputs, a
+    # user-supplied ``core_number``, or non-fnx graphs to networkx (order/semantics parity risk).
+    if core_number is None and type(G) is _fnx.Graph:
+        from franken_networkx._fnx import k_core_rust as _raw_k_core
+
+        return _raw_k_core(G, k)
     nx_result = _nx_core.k_core(G, k=k, core_number=core_number)
     return _from_nx_graph(nx_result)
 

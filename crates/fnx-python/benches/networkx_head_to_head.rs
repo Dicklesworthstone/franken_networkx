@@ -2572,8 +2572,133 @@ fn voronoi_head_to_head(c: &mut Criterion) {
     group.finish();
 }
 
+struct KCoreWorkloads {
+    fnx_kcore: Py<PyAny>,
+    nx_kcore: Py<PyAny>,
+}
+
+fn prepare_kcore_workloads(py: Python<'_>) -> PyResult<KCoreWorkloads> {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("fnx-python crate must live under crates/");
+    let python_dir = repo_root.join("python");
+    let legacy_dir = repo_root.join("legacy_networkx_code").join("networkx");
+
+    let sys = py.import("sys")?;
+    let path = sys.getattr("path")?;
+    let path = path.cast::<PyList>()?;
+    path.insert(0, repo_root.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, python_dir.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, legacy_dir.to_str().expect("repo path must be UTF-8"))?;
+
+    let locals = PyDict::new(py);
+    py.run(
+        cstring(
+            r#"
+import glob
+import importlib.util
+import os
+import sys
+
+target_dir = os.environ.get("CARGO_TARGET_DIR")
+if target_dir and "franken_networkx._fnx" not in sys.modules:
+    candidates = [
+        os.path.join(target_dir, "release", "lib_fnx.so"),
+        *glob.glob(os.path.join(target_dir, "release", "deps", "lib_fnx*.so")),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            spec = importlib.util.spec_from_file_location("franken_networkx._fnx", path)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["franken_networkx._fnx"] = module
+            spec.loader.exec_module(module)
+            break
+
+for _name in list(sys.modules):
+    if _name == "networkx" or _name.startswith("networkx."):
+        del sys.modules[_name]
+
+import networkx as nx
+import franken_networkx as fnx
+import franken_networkx._fnx as _raw
+
+if "legacy_networkx_code" not in getattr(nx, "__file__", ""):
+    raise AssertionError(f"expected vendored NetworkX oracle, got {nx.__file__!r}")
+
+def _paired_attr_graph(n, m, seed):
+    base = nx.barabasi_albert_graph(n, m, seed=seed)
+    gf = fnx.Graph()
+    gn = nx.Graph()
+    for i in base.nodes():
+        gf.add_node(i, color=(i % 5), tag="v")
+        gn.add_node(i, color=(i % 5), tag="v")
+    for j, (u, v) in enumerate(base.edges()):
+        w = (u * 7 + v * 11 + j) % 13
+        gf.add_edge(u, v, weight=w)
+        gn.add_edge(u, v, weight=w)
+    return gf, gn
+
+gf, gn = _paired_attr_graph(4000, 4, 7)
+
+def _canon_edges(G):
+    return sorted(tuple(sorted((u, v))) for u, v in G.edges())
+
+def _edge_attr_map(G):
+    return {tuple(sorted((u, v))): dict(d) for u, v, d in G.edges(data=True)}
+
+def _assert_parity(k):
+    rf = fnx.k_core(gf, k)
+    rn = nx.k_core(gn, k)
+    assert list(rf.nodes()) == list(rn.nodes()), f"k_core node order mismatch k={k}"
+    assert _canon_edges(rf) == _canon_edges(rn), f"k_core edge set mismatch k={k}"
+    assert dict(rf.nodes(data=True)) == dict(rn.nodes(data=True)), f"k_core node attrs mismatch k={k}"
+    assert _edge_attr_map(rf) == _edge_attr_map(rn), f"k_core edge attrs mismatch k={k}"
+
+for _k in (None, 2, 3, 5):
+    _assert_parity(_k)
+
+# Confirm fnx.k_core actually routes to the NATIVE kernel (not the nx fallback):
+# its result must equal the direct native binding for the same input.
+assert list(fnx.k_core(gf, 3).nodes()) == list(_raw.k_core_rust(gf, 3).nodes())
+
+fnx_kcore = lambda: fnx.k_core(gf, 3).number_of_nodes()
+nx_kcore = lambda: nx.k_core(gn, 3).number_of_nodes()
+"#,
+        )
+        .as_c_str(),
+        Some(&locals),
+        Some(&locals),
+    )?;
+
+    let callable = |name: &str| -> PyResult<Py<PyAny>> {
+        let callable = locals.get_item(name)?.ok_or_else(|| {
+            pyo3::exceptions::PyKeyError::new_err(format!("missing Python callable {name}"))
+        })?;
+        Ok(callable.unbind())
+    };
+
+    Ok(KCoreWorkloads {
+        fnx_kcore: callable("fnx_kcore")?,
+        nx_kcore: callable("nx_kcore")?,
+    })
+}
+
+fn kcore_head_to_head(c: &mut Criterion) {
+    Python::initialize();
+    let workloads =
+        Python::attach(prepare_kcore_workloads).expect("failed to prepare k_core Python workloads");
+    let mut group = c.benchmark_group("networkx_head_to_head_kcore");
+    group.sample_size(20);
+    bench_python_callable(&mut group, "fnx_k_core_ba4000_k3", &workloads.fnx_kcore);
+    bench_python_callable(&mut group, "nx_k_core_ba4000_k3", &workloads.nx_kcore);
+    group.finish();
+}
+
 criterion_group!(
     benches,
+    kcore_head_to_head,
     voronoi_head_to_head,
     tsp_head_to_head,
     construction_copy_head_to_head,
