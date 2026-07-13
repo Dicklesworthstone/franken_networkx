@@ -20401,24 +20401,31 @@ pub fn bfs_layers(graph: &Graph, source: &str) -> Vec<Vec<String>> {
 /// Matches `networkx.bfs_layers` with an iterable of sources.
 #[must_use]
 pub fn bfs_layers_multi(graph: &Graph, sources: &[&str]) -> Vec<Vec<String>> {
+    // br-r37-c1-bfslayidx (cc): integer-index BFS (see bfs_layers) — Vec<bool> visited over node indices
+    // + neighbors_indices (no per-node Vec alloc), byte-identical (same seed/discovery order + names).
     let mut layers: Vec<Vec<String>> = Vec::new();
-    let mut visited: HashSet<&str> = HashSet::new();
+    let nodes = graph.nodes_ordered();
+    let mut visited = vec![false; nodes.len()];
 
-    let mut current_layer: Vec<&str> = Vec::new();
+    let mut current_layer: Vec<usize> = Vec::new();
     for &s in sources {
-        if graph.has_node(s) && visited.insert(s) {
-            current_layer.push(s);
+        if let Some(si) = graph.get_node_index(s)
+            && !visited[si]
+        {
+            visited[si] = true;
+            current_layer.push(si);
         }
     }
 
     while !current_layer.is_empty() {
-        layers.push(current_layer.iter().map(|&s| s.to_owned()).collect());
-        let mut next_layer: Vec<&str> = Vec::new();
+        layers.push(current_layer.iter().map(|&i| nodes[i].to_owned()).collect());
+        let mut next_layer: Vec<usize> = Vec::new();
         for &node in &current_layer {
-            if let Some(neighbors) = graph.neighbors(node) {
-                for neighbor in neighbors {
-                    if visited.insert(neighbor) {
-                        next_layer.push(neighbor);
+            if let Some(neighbors) = graph.neighbors_indices(node) {
+                for &nb in neighbors {
+                    if !visited[nb] {
+                        visited[nb] = true;
+                        next_layer.push(nb);
                     }
                 }
             }
@@ -20437,13 +20444,19 @@ pub fn bfs_layers_multi_with_parents(
     graph: &Graph,
     sources: &[&str],
 ) -> Vec<Vec<(String, Option<String>)>> {
+    // br-r37-c1-bfslayidx (cc): integer-index BFS (see bfs_layers); parent tracked as a node index,
+    // materialised to a name (`nodes[pi]`) only in the output. Byte-identical.
     let mut layers: Vec<Vec<(String, Option<String>)>> = Vec::new();
-    let mut visited: HashSet<&str> = HashSet::new();
+    let nodes = graph.nodes_ordered();
+    let mut visited = vec![false; nodes.len()];
 
-    let mut current_layer: Vec<(&str, Option<&str>)> = Vec::new();
+    let mut current_layer: Vec<(usize, Option<usize>)> = Vec::new();
     for &s in sources {
-        if graph.has_node(s) && visited.insert(s) {
-            current_layer.push((s, None));
+        if let Some(si) = graph.get_node_index(s)
+            && !visited[si]
+        {
+            visited[si] = true;
+            current_layer.push((si, None));
         }
     }
 
@@ -20451,15 +20464,16 @@ pub fn bfs_layers_multi_with_parents(
         layers.push(
             current_layer
                 .iter()
-                .map(|&(s, p)| (s.to_owned(), p.map(str::to_owned)))
+                .map(|&(s, p)| (nodes[s].to_owned(), p.map(|pi| nodes[pi].to_owned())))
                 .collect(),
         );
-        let mut next_layer: Vec<(&str, Option<&str>)> = Vec::new();
+        let mut next_layer: Vec<(usize, Option<usize>)> = Vec::new();
         for &(node, _) in &current_layer {
-            if let Some(neighbors) = graph.neighbors(node) {
-                for neighbor in neighbors {
-                    if visited.insert(neighbor) {
-                        next_layer.push((neighbor, Some(node)));
+            if let Some(neighbors) = graph.neighbors_indices(node) {
+                for &nb in neighbors {
+                    if !visited[nb] {
+                        visited[nb] = true;
+                        next_layer.push((nb, Some(node)));
                     }
                 }
             }
@@ -20529,24 +20543,30 @@ pub fn bfs_layers_directed_multi_with_parents(
 /// BFS layers from multiple sources on a directed graph.
 #[must_use]
 pub fn bfs_layers_directed_multi(digraph: &DiGraph, sources: &[&str]) -> Vec<Vec<String>> {
+    // br-r37-c1-bfslayidx (cc): integer-index BFS over successors_indices (see bfs_layers), byte-identical.
     let mut layers: Vec<Vec<String>> = Vec::new();
-    let mut visited: HashSet<&str> = HashSet::new();
+    let nodes = digraph.nodes_ordered();
+    let mut visited = vec![false; nodes.len()];
 
-    let mut current_layer: Vec<&str> = Vec::new();
+    let mut current_layer: Vec<usize> = Vec::new();
     for &s in sources {
-        if digraph.has_node(s) && visited.insert(s) {
-            current_layer.push(s);
+        if let Some(si) = digraph.get_node_index(s)
+            && !visited[si]
+        {
+            visited[si] = true;
+            current_layer.push(si);
         }
     }
 
     while !current_layer.is_empty() {
-        layers.push(current_layer.iter().map(|&s| s.to_owned()).collect());
-        let mut next_layer: Vec<&str> = Vec::new();
+        layers.push(current_layer.iter().map(|&i| nodes[i].to_owned()).collect());
+        let mut next_layer: Vec<usize> = Vec::new();
         for &node in &current_layer {
-            if let Some(succs) = digraph.successors(node) {
-                for succ in succs {
-                    if visited.insert(succ) {
-                        next_layer.push(succ);
+            if let Some(succs) = digraph.successors_indices(node) {
+                for &nb in succs {
+                    if !visited[nb] {
+                        visited[nb] = true;
+                        next_layer.push(nb);
                     }
                 }
             }
@@ -50702,6 +50722,115 @@ mod tests {
             );
         };
         println!("BFSLAYIDX_AB bfs_layers 3000-node deg100 rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-bfslayidx (family): full-function A/B for `bfs_layers_multi` (representative of the
+    /// multi-source family: bfs_layers_multi / _directed_multi / _multi_with_parents, all converted the
+    /// same way). Inline ORIGINAL String-keyed BFS vs the shipped integer-index BFS. Parity asserted
+    /// first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib bfs_layers_multi_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn bfs_layers_multi_idx_ab() {
+        use std::collections::HashSet;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n_nodes = 3000usize;
+        let mut g = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for step in 1..=50usize {
+                let _ = g.add_edge(i.to_string(), ((i + step) % n_nodes).to_string());
+            }
+        }
+        let sources = ["0", "1000", "2000"];
+
+        let old_fn = |graph: &Graph, sources: &[&str]| -> Vec<Vec<String>> {
+            let mut layers: Vec<Vec<String>> = Vec::new();
+            let mut visited: HashSet<&str> = HashSet::new();
+            let mut current_layer: Vec<&str> = Vec::new();
+            for &s in sources {
+                if graph.has_node(s) && visited.insert(s) {
+                    current_layer.push(s);
+                }
+            }
+            while !current_layer.is_empty() {
+                layers.push(current_layer.iter().map(|&s| s.to_owned()).collect());
+                let mut next_layer: Vec<&str> = Vec::new();
+                for &node in &current_layer {
+                    if let Some(neighbors) = graph.neighbors(node) {
+                        for neighbor in neighbors {
+                            if visited.insert(neighbor) {
+                                next_layer.push(neighbor);
+                            }
+                        }
+                    }
+                }
+                current_layer = next_layer;
+            }
+            layers
+        };
+
+        assert_eq!(
+            old_fn(&g, &sources),
+            super::bfs_layers_multi(&g, &sources),
+            "integer-index bfs_layers_multi must be byte-identical to the String-keyed BFS"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if cand {
+                super::bfs_layers_multi(&g, &sources)
+            } else {
+                old_fn(&g, &sources)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "BFSLAYMULTIIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("BFSLAYMULTIIDX_AB bfs_layers_multi 3000-node deg100 rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
