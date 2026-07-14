@@ -13736,22 +13736,24 @@ fn graph_shortest_path_adjacency_indices(
     graph: &fnx_classes::Graph,
     nodes: &[&str],
 ) -> Vec<Vec<usize>> {
-    let node_indices: HashMap<&str, usize> = nodes
-        .iter()
-        .copied()
-        .enumerate()
-        .map(|(index, node)| (node, index))
-        .collect();
-    nodes
-        .iter()
-        .map(|&node| {
+    // br-r37-c1-ny6ly (cc): every caller passes `nodes == nodes_ordered()`, so
+    // position i in `nodes` is the native node index i. Read the native integer
+    // neighbor rows (`neighbors_indices`) directly instead of round-tripping
+    // int→name→int through a per-call `HashMap<&str,usize>` + `neighbors_iter`
+    // (which yields names from those same rows only to hash each back). The native
+    // row order equals the `neighbors_iter` order, so the adjacency is byte-identical.
+    debug_assert!(
+        nodes
+            .iter()
+            .enumerate()
+            .all(|(i, &n)| graph.get_node_index(n) == Some(i)),
+        "graph_shortest_path_adjacency_indices requires nodes == nodes_ordered()"
+    );
+    (0..nodes.len())
+        .map(|idx| {
             graph
-                .neighbors_iter(node)
-                .map_or_else(Vec::new, |neighbors| {
-                    neighbors
-                        .filter_map(|neighbor| node_indices.get(neighbor).copied())
-                        .collect()
-                })
+                .neighbors_indices(idx)
+                .map_or_else(Vec::new, <[usize]>::to_vec)
         })
         .collect()
 }
@@ -13769,22 +13771,22 @@ fn digraph_shortest_path_adjacency_indices(
     digraph: &fnx_classes::digraph::DiGraph,
     nodes: &[&str],
 ) -> Vec<Vec<usize>> {
-    let node_indices: HashMap<&str, usize> = nodes
-        .iter()
-        .copied()
-        .enumerate()
-        .map(|(index, node)| (node, index))
-        .collect();
-    nodes
-        .iter()
-        .map(|&node| {
+    // br-r37-c1-ny6ly (cc): mirror of the undirected builder — callers pass
+    // `nodes == nodes_ordered()`, so read the native integer successor rows
+    // (`successors_indices`) directly instead of the int→name→int
+    // `HashMap<&str,usize>` + `successors_iter` round-trip. Byte-identical rows.
+    debug_assert!(
+        nodes
+            .iter()
+            .enumerate()
+            .all(|(i, &n)| digraph.get_node_index(n) == Some(i)),
+        "digraph_shortest_path_adjacency_indices requires nodes == nodes_ordered()"
+    );
+    (0..nodes.len())
+        .map(|idx| {
             digraph
-                .successors_iter(node)
-                .map_or_else(Vec::new, |successors| {
-                    successors
-                        .filter_map(|successor| node_indices.get(successor).copied())
-                        .collect()
-                })
+                .successors_indices(idx)
+                .map_or_else(Vec::new, <[usize]>::to_vec)
         })
         .collect()
 }
@@ -29480,6 +29482,175 @@ mod tests {
 
         println!("DG_SCL_AB n={n} forward-DAG rounds={rounds} SCC-listing Tarjan (>1 = candidate faster)");
         report("candidate_vs_inline", &paired());
+        report("null", &null());
+    }
+
+    #[test]
+    fn shortest_path_adjacency_indices_native_matches_inline_route() {
+        use fnx_classes::digraph::DiGraph;
+        use fnx_classes::Graph;
+        use std::collections::HashMap;
+
+        let inline_graph = |g: &Graph, nodes: &[&str]| -> Vec<Vec<usize>> {
+            let node_indices: HashMap<&str, usize> =
+                nodes.iter().copied().enumerate().map(|(i, n)| (n, i)).collect();
+            nodes
+                .iter()
+                .map(|&node| {
+                    g.neighbors_iter(node).map_or_else(Vec::new, |nbrs| {
+                        nbrs.filter_map(|nb| node_indices.get(nb).copied()).collect()
+                    })
+                })
+                .collect()
+        };
+        let inline_digraph = |g: &DiGraph, nodes: &[&str]| -> Vec<Vec<usize>> {
+            let node_indices: HashMap<&str, usize> =
+                nodes.iter().copied().enumerate().map(|(i, n)| (n, i)).collect();
+            nodes
+                .iter()
+                .map(|&node| {
+                    g.successors_iter(node).map_or_else(Vec::new, |succs| {
+                        succs.filter_map(|s| node_indices.get(s).copied()).collect()
+                    })
+                })
+                .collect()
+        };
+
+        // Undirected: empty, isolated node, path, cycle + parallel-ish (simple graph
+        // dedups), self-loop.
+        let mut g = Graph::strict();
+        assert_eq!(
+            super::graph_shortest_path_adjacency_indices(&g, &g.nodes_ordered()),
+            inline_graph(&g, &g.nodes_ordered())
+        );
+        for node in ["a", "b", "c", "d", "iso"] {
+            let _ = g.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")] {
+            let _ = g.add_edge(u.to_owned(), v.to_owned());
+        }
+        let _ = g.add_edge("a".to_owned(), "a".to_owned()); // self-loop
+        let nodes = g.nodes_ordered();
+        assert_eq!(
+            super::graph_shortest_path_adjacency_indices(&g, &nodes),
+            inline_graph(&g, &nodes)
+        );
+        // Read-mutate-read.
+        let _ = g.add_edge("iso".to_owned(), "c".to_owned());
+        let nodes = g.nodes_ordered();
+        assert_eq!(
+            super::graph_shortest_path_adjacency_indices(&g, &nodes),
+            inline_graph(&g, &nodes)
+        );
+
+        // Directed: path + branch + cycle + self-loop + isolated node.
+        let mut dg = DiGraph::strict();
+        for node in ["p", "q", "r", "s", "iso"] {
+            let _ = dg.add_node(node.to_owned());
+        }
+        for (u, v) in [("p", "q"), ("q", "r"), ("r", "p"), ("q", "s")] {
+            let _ = dg.add_edge(u.to_owned(), v.to_owned());
+        }
+        let _ = dg.add_edge("s".to_owned(), "s".to_owned());
+        let dnodes = dg.nodes_ordered();
+        assert_eq!(
+            super::digraph_shortest_path_adjacency_indices(&dg, &dnodes),
+            inline_digraph(&dg, &dnodes)
+        );
+    }
+
+    /// `br-r37-c1-ny6ly`: same-binary paired proof for the Graph shortest-path
+    /// adjacency builder — native `neighbors_indices` rows vs the inline-HashMap
+    /// int→name→int round-trip (the DiGraph builder is the identical transform).
+    /// Run: `cargo test --profile release -p fnx-python --lib
+    /// shortest_path_adjacency_native_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn shortest_path_adjacency_native_ab() {
+        use fnx_classes::Graph;
+        use std::collections::HashMap;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("spa-node-{index:05}");
+        let mut graph = Graph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        for index in 0..n {
+            let _ = graph.add_edge(node(index), node((index + 1) % n));
+            let _ = graph.add_edge(node(index), node((index + 127) % n));
+        }
+        let nodes = graph.nodes_ordered();
+
+        let inline = |g: &Graph, nodes: &[&str]| -> Vec<Vec<usize>> {
+            let node_indices: HashMap<&str, usize> =
+                nodes.iter().copied().enumerate().map(|(i, nd)| (nd, i)).collect();
+            nodes
+                .iter()
+                .map(|&nd| {
+                    g.neighbors_iter(nd).map_or_else(Vec::new, |nbrs| {
+                        nbrs.filter_map(|nb| node_indices.get(nb).copied()).collect()
+                    })
+                })
+                .collect()
+        };
+        let candidate = super::graph_shortest_path_adjacency_indices(&graph, &nodes);
+        assert_eq!(candidate, inline(&graph, &nodes), "native rows must match inline route");
+
+        let time = |candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                super::graph_shortest_path_adjacency_indices(&graph, &nodes)
+            } else {
+                inline(&graph, &nodes)
+            };
+            black_box(result.len());
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+
+        let rounds = 31usize;
+        let paired = || -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(false), time(true))
+                } else {
+                    let c = time(true);
+                    (time(false), c)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let null = || -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let a = time(true);
+                let b = time(true);
+                ratios.push(if round.is_multiple_of(2) { b / a } else { a / b });
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "SPA_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("SPA_AB n={n} cycle+chord rounds={rounds} adjacency-build (>1 = candidate faster)");
+        report("native_vs_inline", &paired());
         report("null", &null());
     }
 
