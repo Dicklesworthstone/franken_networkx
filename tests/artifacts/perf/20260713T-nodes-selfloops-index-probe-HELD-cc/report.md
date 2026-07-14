@@ -1,5 +1,10 @@
 # nodes_with_selfloops index self-loop probe — MEASURED 5.1x, HELD for peer reservation (cc, 2026-07-13)
 
+> **RESOLVED: LANDED as `8b98a84d0`** (next turn). MagentaTrout committed their work (`4a4188afb`
+> number_of_isolates) and released the `crates/fnx-algorithms/src/lib.rs` reservation; the patches
+> re-applied cleanly, the kernel re-verified (`cargo check -p fnx-algorithms` clean on that HEAD),
+> and the lever shipped to main+master. The hold below is the historical coordination record.
+
 A ready, measured perf lever that is **not landed this turn** — blocked by an ACTIVE agent-mail file
 reservation on `crates/fnx-algorithms/src/lib.rs` held by peer **MagentaTrout** (codex/gpt-5, doing
 concurrent one-lever perf work; their uncommitted `is_isolate` WIP is in the shared checkout). I
