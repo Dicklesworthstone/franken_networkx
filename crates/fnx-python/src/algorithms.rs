@@ -6223,6 +6223,100 @@ fn multidigraph_bfs_edges_csr<'a>(
     edges
 }
 
+/// br-r37-c1-nqwti: single-source DFS over the MultiDiGraph's revision-keyed
+/// integer CSR successor rows, mirroring `dfs_edges_indexed` EXACTLY (reverse-push
+/// stack; immediate neighbors always pushed at depth 1 regardless of `depth_limit`,
+/// deeper descent gated on `depth < max_depth`). The CSR successor rows follow the
+/// same distinct-successor key order as `build_index_adjacency(&nodes, |u|
+/// inner.successors(u))` (both filter to live-node indices), so the reversed
+/// iteration and thus the emitted edge order are byte-identical — but the
+/// per-call index-adjacency rebuild is replaced by the shared cached CSR.
+fn multidigraph_dfs_edges_csr(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+    source: &str,
+    depth_limit: Option<usize>,
+) -> Vec<(String, String)> {
+    let max_depth = depth_limit.unwrap_or(usize::MAX);
+    let nodes = mdg.nodes_ordered();
+    let Some(source_idx) = nodes.iter().position(|&n| n == source) else {
+        return Vec::new();
+    };
+    let n = nodes.len();
+    let csr = mdg.csr();
+    let mut visited = vec![false; n];
+    let mut edges: Vec<(String, String)> = Vec::new();
+    visited[source_idx] = true;
+    let mut stack: Vec<(usize, usize, usize)> = Vec::new();
+    for &raw in csr.successors(source_idx).iter().rev() {
+        let nbr = raw as usize;
+        if nbr < n && !visited[nbr] {
+            stack.push((source_idx, nbr, 1));
+        }
+    }
+    while let Some((parent, node, depth)) = stack.pop() {
+        if visited[node] {
+            continue;
+        }
+        visited[node] = true;
+        edges.push((nodes[parent].to_owned(), nodes[node].to_owned()));
+        if depth < max_depth {
+            for &raw in csr.successors(node).iter().rev() {
+                let nbr = raw as usize;
+                if nbr < n && !visited[nbr] {
+                    stack.push((node, nbr, depth + 1));
+                }
+            }
+        }
+    }
+    edges
+}
+
+/// br-r37-c1-nqwti: forest DFS (no source) over the MultiDiGraph's cached CSR
+/// successor rows, mirroring `dfs_forest_indexed` EXACTLY (root iteration `0..n`,
+/// depth-1 star pushed unconditionally, deeper descent gated on `depth <
+/// max_depth`). Byte-identical to the former `build_index_adjacency` +
+/// `dfs_forest_indexed` route; reuses the shared cached CSR.
+fn multidigraph_dfs_forest_csr(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+    depth_limit: Option<usize>,
+) -> Vec<(String, String)> {
+    let max_depth = depth_limit.unwrap_or(usize::MAX);
+    let nodes = mdg.nodes_ordered();
+    let n = nodes.len();
+    let csr = mdg.csr();
+    let mut visited = vec![false; n];
+    let mut edges: Vec<(String, String)> = Vec::new();
+    for start in 0..n {
+        if visited[start] {
+            continue;
+        }
+        visited[start] = true;
+        let mut stack: Vec<(usize, usize, usize)> = Vec::new();
+        for &raw in csr.successors(start).iter().rev() {
+            let nbr = raw as usize;
+            if nbr < n && !visited[nbr] {
+                stack.push((start, nbr, 1));
+            }
+        }
+        while let Some((parent, node, depth)) = stack.pop() {
+            if visited[node] {
+                continue;
+            }
+            visited[node] = true;
+            edges.push((nodes[parent].to_owned(), nodes[node].to_owned()));
+            if depth < max_depth {
+                for &raw in csr.successors(node).iter().rev() {
+                    let nbr = raw as usize;
+                    if nbr < n && !visited[nbr] {
+                        stack.push((node, nbr, depth + 1));
+                    }
+                }
+            }
+        }
+    }
+    edges
+}
+
 /// br-r37-c1-1jm15: borrowed BFS tree edges over a MultiGraph's distinct
 /// neighbor rows. The public bfs_edges residual was dominated by rebuilding an
 /// indexed adjacency Vec<Vec<usize>> plus cloning String edge endpoints on every
@@ -11950,17 +12044,10 @@ fn dfs_edges_canonical(
                 if let GraphRef::MultiDirected { mdg, .. } = gr {
                     // br-r37-c1-86c7r: walk the MultiDiGraph successor adjacency
                     // DIRECTLY — no multidigraph->simple-digraph conversion.
+                    // br-r37-c1-nqwti (cc): reuse the pre-existing revision-keyed CSR memo instead of
+                    // rebuilding the index adjacency per call; byte-identical edge order.
                     let inner = &mdg.inner;
-                    py.allow_threads(|| {
-                        let nodes = inner.nodes_ordered();
-                        let Some(src) = nodes.iter().position(|&n| n == source_key) else {
-                            return Vec::new();
-                        };
-                        let adj = build_index_adjacency(&nodes, |u| {
-                            inner.successors(u).unwrap_or_default()
-                        });
-                        dfs_edges_indexed(&adj, &nodes, src, depth_limit)
-                    })
+                    py.allow_threads(|| multidigraph_dfs_edges_csr(inner, &source_key, depth_limit))
                 } else if gr.is_directed() {
                     let __gr_digraph = gr.digraph().expect("is_directed checked above");
                     py.allow_threads(|| {
@@ -12005,14 +12092,9 @@ fn dfs_edges_canonical(
                     if let GraphRef::MultiDirected { mdg, .. } = gr {
                         // br-r37-c1-86c7r: forest walk over the MultiDiGraph
                         // successor adjacency DIRECTLY — no conversion.
+                        // br-r37-c1-nqwti (cc): reuse the revision-keyed CSR memo (family memo-reuse).
                         let inner = &mdg.inner;
-                        py.allow_threads(|| {
-                            let mnodes = inner.nodes_ordered();
-                            let adj = build_index_adjacency(&mnodes, |u| {
-                                inner.successors(u).unwrap_or_default()
-                            });
-                            dfs_forest_indexed(&adj, &mnodes, depth_limit)
-                        })
+                        py.allow_threads(|| multidigraph_dfs_forest_csr(inner, depth_limit))
                     } else if gr.is_directed() {
                         let __gr_digraph = gr.digraph().expect("is_directed checked above");
                         py.allow_threads(|| {
@@ -27861,6 +27943,184 @@ mod tests {
         };
 
         println!("MG_BFS_AB n={n} degree=4+parallel rounds={rounds} single-source kernel (>1 = candidate faster)");
+        report("warm_candidate_vs_buildindex", &paired_warm(false));
+        report("warm_candidate_null", &paired_warm(true));
+        report("cold_candidate_vs_buildindex", &paired_cold(false));
+        report("cold_candidate_null", &paired_cold(true));
+    }
+
+    #[test]
+    fn multidigraph_dfs_csr_matches_buildindex_route() {
+        // Parity for the MultiDiGraph dfs paths: the cached-CSR kernels must equal
+        // the former `build_index_adjacency(successors)` + *_indexed route at every
+        // source and depth.
+        let baseline_edges = |mdg: &MultiDiGraph, src: usize, depth: Option<usize>| {
+            let nodes = mdg.nodes_ordered();
+            let adj =
+                super::build_index_adjacency(&nodes, |u| mdg.successors(u).unwrap_or_default());
+            super::dfs_edges_indexed(&adj, &nodes, src, depth)
+        };
+        let baseline_forest = |mdg: &MultiDiGraph, depth: Option<usize>| {
+            let nodes = mdg.nodes_ordered();
+            let adj =
+                super::build_index_adjacency(&nodes, |u| mdg.successors(u).unwrap_or_default());
+            super::dfs_forest_indexed(&adj, &nodes, depth)
+        };
+        let assert_parity = |mdg: &MultiDiGraph| {
+            let nodes = mdg.nodes_ordered();
+            for depth in [None, Some(0usize), Some(1usize), Some(3usize)] {
+                assert_eq!(
+                    super::multidigraph_dfs_forest_csr(mdg, depth),
+                    baseline_forest(mdg, depth),
+                    "forest parity at depth {depth:?}"
+                );
+                for (src_idx, &src_name) in nodes.iter().enumerate() {
+                    assert_eq!(
+                        super::multidigraph_dfs_edges_csr(mdg, src_name, depth),
+                        baseline_edges(mdg, src_idx, depth),
+                        "single-source parity from {src_name} at depth {depth:?}"
+                    );
+                }
+            }
+        };
+
+        assert_parity(&MultiDiGraph::strict());
+
+        // Directed path a->b->c->d plus a back edge and a branch.
+        let mut dg = MultiDiGraph::strict();
+        for node in ["a", "b", "c", "d", "e"] {
+            let _ = dg.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "d"), ("b", "e")] {
+            let _ = dg.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&dg);
+
+        // Directed cycle a->b->c->a + parallel edge + self-loop.
+        let _ = dg.add_edge("d".to_owned(), "a".to_owned());
+        let _ = dg.add_edge("a".to_owned(), "b".to_owned());
+        let _ = dg.add_edge("c".to_owned(), "c".to_owned());
+        assert_parity(&dg);
+
+        // Two weakly-disconnected pieces + an isolated node, then a read-mutate-read
+        // bridging edge exercising CSR revision invalidation between reads.
+        let mut multi = MultiDiGraph::strict();
+        for node in ["p", "q", "r", "s", "t", "iso"] {
+            let _ = multi.add_node(node.to_owned());
+        }
+        for (u, v) in [("p", "q"), ("q", "r"), ("s", "t")] {
+            let _ = multi.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&multi);
+        let _ = multi.add_edge("r".to_owned(), "s".to_owned());
+        assert_parity(&multi);
+    }
+
+    /// `br-r37-c1-nqwti`: same-binary paired proof for the MultiDiGraph dfs paths —
+    /// cached CSR kernel vs the per-call `build_index_adjacency(successors)` route.
+    /// Forest kernel (full traversal). Run with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multidigraph_dfs_forest_csr_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multidigraph_dfs_forest_csr_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("mdfs-node-{index:05}");
+        let mut graph = MultiDiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        for index in 0..n {
+            let next = (index + 1) % n;
+            let chord = (index + 127) % n;
+            let _ = graph.add_edge(node(index), node(next));
+            let _ = graph.add_edge(node(index), node(chord));
+            if index.is_multiple_of(8) {
+                let _ = graph.add_edge(node(index), node(next));
+            }
+        }
+        let candidate = super::multidigraph_dfs_forest_csr(&graph, None);
+        let baseline = {
+            let nodes = graph.nodes_ordered();
+            let adj =
+                super::build_index_adjacency(&nodes, |u| graph.successors(u).unwrap_or_default());
+            super::dfs_forest_indexed(&adj, &nodes, None)
+        };
+        assert_eq!(candidate, baseline, "cached-CSR forest DFS must match buildindex route");
+
+        // Prime the revision-keyed CSR memo before warm timing.
+        black_box(graph.csr().successors(0).len());
+
+        let time = |timed_graph: &MultiDiGraph, candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                super::multidigraph_dfs_forest_csr(timed_graph, None)
+            } else {
+                let nodes = timed_graph.nodes_ordered();
+                let adj = super::build_index_adjacency(&nodes, |u| {
+                    timed_graph.successors(u).unwrap_or_default()
+                });
+                super::dfs_forest_indexed(&adj, &nodes, None)
+            };
+            black_box(result.len());
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired_warm = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, baseline_candidate);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let paired_cold = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let baseline_graph = graph.clone();
+                let candidate_graph = graph.clone();
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    let candidate_time = time(&candidate_graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&candidate_graph, true);
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "MDG_DFS_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("MDG_DFS_AB n={n} degree=4+parallel rounds={rounds} forest kernel (>1 = candidate faster)");
         report("warm_candidate_vs_buildindex", &paired_warm(false));
         report("warm_candidate_null", &paired_warm(true));
         report("cold_candidate_vs_buildindex", &paired_cold(false));
