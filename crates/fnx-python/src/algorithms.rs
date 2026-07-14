@@ -7275,6 +7275,47 @@ pub fn degree_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<Py
 #[pyfunction]
 pub fn closeness_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
+    // br-r37-c1-or38d: every node in an edgeless graph is isolated, so NX
+    // closeness is exactly +0.0. Emit the ordered Python dict directly instead
+    // of running the all-sources kernel and allocating throwaway score Strings.
+    if gr.edge_count_original() == 0 {
+        let dict = PyDict::new(py);
+        for node in gr.nodes_ordered() {
+            dict.set_item(gr.py_node_key(py, node), 0.0_f64)?;
+        }
+        return Ok(dict.unbind());
+    }
+    let result = match &gr {
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            py.allow_threads(|| fnx_algorithms::closeness_centrality(inner))
+        }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            py.allow_threads(|| fnx_algorithms::closeness_centrality_directed(inner))
+        }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().expect("is_directed checked above");
+                py.allow_threads(|| fnx_algorithms::closeness_centrality_directed(inner))
+            } else {
+                let inner = gr.undirected();
+                py.allow_threads(|| fnx_algorithms::closeness_centrality(inner))
+            }
+        }
+    };
+    centrality_to_dict(py, &gr, &result.scores)
+}
+
+/// Frozen pre-`br-r37-c1-or38d` binding route for the same-binary A/B proof.
+/// This deliberately always runs the all-sources kernel before materializing
+/// the Python dict, including when the graph has no edges.
+#[cfg(test)]
+fn closeness_centrality_kernel_baseline(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
     let result = match &gr {
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
@@ -27233,6 +27274,191 @@ mod tests {
 
     fn ensure_python() {
         Python::initialize();
+    }
+
+    fn closeness_dict_bits(py: Python<'_>, dict: &Py<PyDict>) -> Vec<(String, u64)> {
+        dict.bind(py)
+            .iter()
+            .map(|(key, value)| {
+                (
+                    key.extract::<String>()
+                        .expect("closeness key must be a string"),
+                    value
+                        .extract::<f64>()
+                        .expect("closeness score must be a float")
+                        .to_bits(),
+                )
+            })
+            .collect()
+    }
+
+    fn assert_closeness_binding_matches_kernel(py: Python<'_>, graph: &Bound<'_, PyAny>) {
+        let candidate =
+            super::closeness_centrality(py, graph).expect("candidate closeness should succeed");
+        let baseline = super::closeness_centrality_kernel_baseline(py, graph)
+            .expect("baseline closeness should succeed");
+        assert_eq!(
+            closeness_dict_bits(py, &candidate),
+            closeness_dict_bits(py, &baseline),
+            "binding path must preserve insertion order and exact score bits"
+        );
+    }
+
+    #[test]
+    fn closeness_edgeless_binding_matches_kernel() {
+        ensure_python();
+        Python::attach(|py| {
+            let empty = PyGraph::new_empty(py).expect("graph should initialize");
+            let empty = Py::new(py, empty).expect("graph should bind");
+            assert_closeness_binding_matches_kernel(py, empty.bind(py).as_any());
+
+            let mut graph = PyGraph::new_empty(py).expect("graph should initialize");
+            for node in ["zeta", "alpha", "mu"] {
+                let _ = graph.inner.add_node(node.to_owned());
+            }
+            let graph = Py::new(py, graph).expect("graph should bind");
+            assert_closeness_binding_matches_kernel(py, graph.bind(py).as_any());
+
+            let mut digraph = PyDiGraph::new_empty(py).expect("digraph should initialize");
+            for node in ["zeta", "alpha", "mu"] {
+                let _ = digraph.inner.add_node(node.to_owned());
+            }
+            let digraph = Py::new(py, digraph).expect("digraph should bind");
+            assert_closeness_binding_matches_kernel(py, digraph.bind(py).as_any());
+
+            let mut multigraph = PyMultiGraph::new_empty_with_mode(py, CompatibilityMode::Strict)
+                .expect("multigraph should initialize");
+            for node in ["zeta", "alpha", "mu"] {
+                let _ = multigraph.inner.add_node(node.to_owned());
+            }
+            let multigraph = Py::new(py, multigraph).expect("multigraph should bind");
+            assert_closeness_binding_matches_kernel(py, multigraph.bind(py).as_any());
+
+            let mut multidigraph =
+                PyMultiDiGraph::new_empty_with_mode(py, CompatibilityMode::Strict)
+                    .expect("multidigraph should initialize");
+            for node in ["zeta", "alpha", "mu"] {
+                let _ = multidigraph.inner.add_node(node.to_owned());
+            }
+            let multidigraph = Py::new(py, multidigraph).expect("multidigraph should bind");
+            assert_closeness_binding_matches_kernel(py, multidigraph.bind(py).as_any());
+
+            // A non-edgeless fixture proves the ordinary kernel route remains
+            // byte-identical when the eventual fast-path predicate is false.
+            let mut edge_graph = PyGraph::new_empty(py).expect("graph should initialize");
+            let _ = edge_graph
+                .inner
+                .add_edge("left".to_owned(), "right".to_owned());
+            let edge_graph = Py::new(py, edge_graph).expect("graph should bind");
+            assert_closeness_binding_matches_kernel(py, edge_graph.bind(py).as_any());
+        });
+    }
+
+    /// `br-r37-c1-or38d`: with-GIL same-binary proof for bypassing the all-sources
+    /// kernel on an edgeless graph. Before the production branch is applied,
+    /// candidate and baseline are the same route, providing the A/A null.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn closeness_edgeless_binding_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| {
+            let n = 4_096usize;
+            let mut graph = PyGraph::new_empty(py).expect("graph should initialize");
+            for index in 0..n {
+                let _ = graph
+                    .inner
+                    .add_node(format!("closeness-isolate-{index:05}"));
+            }
+            let graph = Py::new(py, graph).expect("graph should bind");
+            let graph_any = graph.bind(py).as_any();
+
+            let candidate = super::closeness_centrality(py, graph_any)
+                .expect("candidate closeness should succeed");
+            let baseline = super::closeness_centrality_kernel_baseline(py, graph_any)
+                .expect("baseline closeness should succeed");
+            assert_eq!(
+                closeness_dict_bits(py, &candidate),
+                closeness_dict_bits(py, &baseline),
+                "candidate must preserve ordered keys and exact score bits"
+            );
+            assert!(
+                closeness_dict_bits(py, &candidate)
+                    .iter()
+                    .all(|(_, bits)| *bits == 0.0_f64.to_bits()),
+                "every isolated node must have positive-zero closeness"
+            );
+
+            let time = |candidate_route: bool| -> f64 {
+                let start = Instant::now();
+                let result = if candidate_route {
+                    super::closeness_centrality(py, graph_any)
+                } else {
+                    super::closeness_centrality_kernel_baseline(py, graph_any)
+                }
+                .expect("timed closeness should succeed");
+                black_box(result.bind(py).len());
+                start.elapsed().as_secs_f64()
+            };
+
+            for _ in 0..3 {
+                black_box(time(false));
+                black_box(time(true));
+            }
+
+            let rounds = 31usize;
+            let mut baseline_times = Vec::with_capacity(rounds);
+            let mut candidate_times = Vec::with_capacity(rounds);
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(false), time(true))
+                } else {
+                    let candidate_time = time(true);
+                    (time(false), candidate_time)
+                };
+                baseline_times.push(baseline_time);
+                candidate_times.push(candidate_time);
+                ratios.push(baseline_time / candidate_time);
+            }
+
+            let mut null_ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let first = time(true);
+                let second = time(true);
+                null_ratios.push(if round.is_multiple_of(2) {
+                    first / second
+                } else {
+                    second / first
+                });
+            }
+
+            let percentile = |values: &[f64], numerator: usize| -> f64 {
+                let mut sorted = values.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                sorted[(sorted.len() - 1) * numerator / 100]
+            };
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "CLOSENESS_EDGELESS_AB n={n} rounds={rounds} baseline_us_p50={:.3} candidate_us_p50={:.3}",
+                percentile(&baseline_times, 50) * 1.0e6,
+                percentile(&candidate_times, 50) * 1.0e6,
+            );
+            println!(
+                "CLOSENESS_EDGELESS_AB paired median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                percentile(&ratios, 50),
+                percentile(&ratios, 5),
+                percentile(&ratios, 95),
+            );
+            println!(
+                "CLOSENESS_EDGELESS_AB null median={:.4}x p5_p95=[{:.4},{:.4}]",
+                percentile(&null_ratios, 50),
+                percentile(&null_ratios, 5),
+                percentile(&null_ratios, 95),
+            );
+        });
     }
 
     #[test]

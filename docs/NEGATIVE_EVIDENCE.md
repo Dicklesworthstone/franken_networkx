@@ -19560,3 +19560,68 @@ baseline inventory. Every Cargo command used `RCH_REQUIRE_REMOTE=1`,
 RESULT: SHIP. Preserve the exact ordered-pair key count and live borrow. Do
 not replace it with neighbor or degree semantics, and do not widen this commit
 into other directed key-dict or materializing methods without separate proof.
+
+## 2026-07-14 SwiftCoast SHIP (`closeness_centrality`): bypass all-sources kernel for edgeless graphs — 3.103x (`br-r37-c1-or38d`)
+
+NEGATIVE-LEDGER FIRST: the preceding survey closeout (`br-r37-c1-v9me6`)
+explicitly exhausted count-only materialization, native-index-row, CSR, and
+owned-to-borrowed seams, and routed the next search toward a PyO3 centrality
+boundary with a proper with-GIL A/B. This tranche took a different structural
+early-exit family: the binding still ran the full all-sources closeness kernel
+for a graph with zero edges, then allocated one throwaway `CentralityScore`
+String per node before constructing the Python dict. No prior edgeless
+closeness attempt was found. Opportunity score: impact 3 x confidence 5 /
+effort 1 = 15.
+
+ONE LEVER: after extracting `GraphRef`, if `edge_count_original() == 0`, walk
+`nodes_ordered()` once and emit `{original_python_key: 0.0}` directly. Every
+node in an edgeless Graph, DiGraph, MultiGraph, or MultiDiGraph is isolated, so
+NetworkX closeness is exactly positive zero. The fast path preserves insertion
+order and `py_node_key` display objects. Any graph with an edge still enters
+the unchanged kernel route; no kernel, storage, projection, weighting, or
+non-edgeless behavior changed.
+
+NULL FIRST: with production still using the kernel, the public binding and a
+frozen copy of that exact pre-change route ran in one release binary on
+strict-remote worker `vmi1293453`. The fixture held 4,096 insertion-ordered
+string isolates; each sample made one with-GIL call, after three warmups, over
+31 alternating-order pairs:
+
+| pre-change paired A/A (>1 = public-shaped arm faster) | median | wins | p5-p95 |
+|---|---:|---:|---:|
+| public binding vs frozen kernel route | `0.9518x` | `15/31` | `[0.6394, 1.4114]` |
+| public/public null | `1.0126x` | — | `[0.6956, 1.4433]` |
+
+FOREGROUND MEDIAN GATE: after the sole production branch, the unchanged
+harness ran in a new release binary on the same actual worker and asserted
+ordered-key plus `f64::to_bits()` parity before timing:
+
+| same-binary paired A/B (>1 = edgeless fast path faster) | median | wins | p5-p95 |
+|---|---:|---:|---:|
+| direct zero dict vs frozen kernel route | **`3.1025x`** | **`31/31`** | `[1.6302, 5.1999]` |
+| direct-zero/direct-zero null | `1.0072x` | — | `[0.7442, 1.2438]` |
+
+Baseline and candidate medians were 1,475.679 us and 472.226 us. The candidate
+p5 clears its same-binary null p95, all 31 pairs win, and the median exceeds
+the 1.10x floor, so the keep gate is decisive.
+
+CORRECTNESS / GATES: the focused release test passed `1/1` on `vmi1293453`.
+It checks empty and three-isolate Graph, DiGraph, MultiGraph, and MultiDiGraph
+fixtures against the frozen kernel route, comparing dict insertion order and
+every score bit; a one-edge Graph separately proves the ordinary route remains
+identical. Strict-remote `cargo check --workspace --all-targets` passed on
+`vmi1153651` with only peer/baseline warnings. Scoped
+`cargo clippy -p fnx-python --lib --no-deps -- -D warnings -A dead-code` passed
+on `vmi1227854`. Exact workspace clippy reproduced the committed
+`fnx-classes/src/lib.rs:1700` `collapsible_if` blocker on `vmi1156319` before
+reaching this crate. Fail-closed RCH rejected an attempted wrapper shell with
+`RCH-E301`, so all Cargo gates were reissued directly via remote `rch exec` and
+no local Cargo fallback ran. Direct read-only rustfmt found only pre-existing or
+peer-owned drift outside the owned ranges; `git diff --check` passed. UBS's
+file-wide scan reported its three existing `panic!` findings in unrelated tests
+near lines 30,867-30,903 plus the standing warning inventory; it found no
+owned production issue, unsafe block, or security finding.
+
+RESULT: SHIP. Preserve the zero-edge predicate, ordered original Python keys,
+and exact `+0.0`; do not widen this commit into other centralities or
+non-edgeless approximations without separate parity and timing.
