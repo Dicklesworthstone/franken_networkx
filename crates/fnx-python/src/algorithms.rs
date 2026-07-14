@@ -11061,15 +11061,16 @@ pub fn bfs_edges(
             } else if let GraphRef::MultiUndirected { mg, .. } = &gr {
                 // br-r37-c1-86c7r: walk the MultiGraph neighbor adjacency
                 // DIRECTLY — no conversion.
+                // br-r37-c1-usx40 (cc): reuse the revision-keyed integer-adjacency memo instead of
+                // rebuilding the index adjacency per call (family memo-reuse); byte-identical rows in
+                // mg.neighbors order → identical FIFO BFS edge order. Mirror of dfs (5jmyo).
                 let inner = &mg.inner;
                 py.allow_threads(|| {
                     let nodes = inner.nodes_ordered();
                     let Some(src) = nodes.iter().position(|&n| n == source_key) else {
                         return Vec::new();
                     };
-                    let adj =
-                        build_index_adjacency(&nodes, |u| inner.neighbors(u).unwrap_or_default());
-                    bfs_edges_indexed(&adj, &nodes, src, depth_limit)
+                    inner.with_int_adjacency(|adj| bfs_edges_indexed(adj, &nodes, src, depth_limit))
                 })
             } else {
                 let inner = gr.undirected();
@@ -11163,15 +11164,16 @@ pub fn bfs_tree(
             } else if let GraphRef::MultiUndirected { mg, .. } = &gr {
                 // br-r37-c1-86c7r: walk the MultiGraph neighbor adjacency
                 // DIRECTLY — no conversion.
+                // br-r37-c1-usx40 (cc): reuse the revision-keyed integer-adjacency memo instead of
+                // rebuilding the index adjacency per call (family memo-reuse); byte-identical rows in
+                // mg.neighbors order → identical FIFO BFS edge order. Mirror of dfs (5jmyo).
                 let inner = &mg.inner;
                 py.allow_threads(|| {
                     let nodes = inner.nodes_ordered();
                     let Some(src) = nodes.iter().position(|&n| n == source_key) else {
                         return Vec::new();
                     };
-                    let adj =
-                        build_index_adjacency(&nodes, |u| inner.neighbors(u).unwrap_or_default());
-                    bfs_edges_indexed(&adj, &nodes, src, depth_limit)
+                    inner.with_int_adjacency(|adj| bfs_edges_indexed(adj, &nodes, src, depth_limit))
                 })
             } else {
                 let inner = gr.undirected();
@@ -27697,6 +27699,168 @@ mod tests {
         };
 
         println!("MG_DFS_AB n={n} degree=4+parallel rounds={rounds} forest kernel (>1 = candidate faster)");
+        report("warm_candidate_vs_buildindex", &paired_warm(false));
+        report("warm_candidate_null", &paired_warm(true));
+        report("cold_candidate_vs_buildindex", &paired_cold(false));
+        report("cold_candidate_null", &paired_cold(true));
+    }
+
+    #[test]
+    fn multigraph_bfs_memo_matches_buildindex_route() {
+        // Kernel-level parity for the bfs_edges/bfs_tree pyfunctions' shared
+        // MultiGraph single-source path: `with_int_adjacency(K)` must equal
+        // `{ build_index_adjacency; K(&adj) }` at every source and depth.
+        let assert_parity = |mg: &MultiGraph| {
+            let nodes = mg.nodes_ordered();
+            let baseline_adj =
+                super::build_index_adjacency(&nodes, |u| mg.neighbors(u).unwrap_or_default());
+            for depth in [None, Some(0usize), Some(1usize), Some(3usize)] {
+                for src in 0..nodes.len() {
+                    assert_eq!(
+                        mg.with_int_adjacency(|adj| super::bfs_edges_indexed(
+                            adj, &nodes, src, depth
+                        )),
+                        super::bfs_edges_indexed(&baseline_adj, &nodes, src, depth),
+                        "bfs parity from {src} at depth {depth:?}"
+                    );
+                }
+            }
+        };
+
+        assert_parity(&MultiGraph::strict());
+
+        // Path a-b-c-d + parallel edge + self-loop.
+        let mut path = MultiGraph::strict();
+        for node in ["a", "b", "c", "d"] {
+            let _ = path.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "d")] {
+            let _ = path.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&path);
+        let _ = path.add_edge("b".to_owned(), "c".to_owned());
+        let _ = path.add_edge("a".to_owned(), "a".to_owned());
+        assert_parity(&path);
+
+        // Two components + isolated node, then read-mutate-read joining them.
+        let mut multi = MultiGraph::strict();
+        for node in ["p", "q", "r", "s", "t", "iso"] {
+            let _ = multi.add_node(node.to_owned());
+        }
+        for (u, v) in [("p", "q"), ("q", "r"), ("r", "p"), ("s", "t")] {
+            let _ = multi.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&multi);
+        let _ = multi.add_edge("r".to_owned(), "s".to_owned());
+        assert_parity(&multi);
+    }
+
+    /// `br-r37-c1-usx40`: same-binary paired proof for the shared build-elimination
+    /// behind the bfs_edges + bfs_tree MultiGraph paths (mirror of dfs 5jmyo). Run:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multigraph_bfs_edges_intadj_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multigraph_bfs_edges_intadj_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("bfs-node-{index:05}");
+        let mut graph = MultiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        for index in 0..n {
+            let next = (index + 1) % n;
+            let chord = (index + 127) % n;
+            let _ = graph.add_edge(node(index), node(next));
+            let _ = graph.add_edge(node(index), node(chord));
+            if index.is_multiple_of(8) {
+                let _ = graph.add_edge(node(index), node(next));
+            }
+        }
+        let nodes = graph.nodes_ordered();
+        let candidate =
+            graph.with_int_adjacency(|adj| super::bfs_edges_indexed(adj, &nodes, 0, None));
+        let baseline = {
+            let adj =
+                super::build_index_adjacency(&nodes, |u| graph.neighbors(u).unwrap_or_default());
+            super::bfs_edges_indexed(&adj, &nodes, 0, None)
+        };
+        assert_eq!(candidate, baseline, "memo single-source BFS must match buildindex route");
+
+        graph.with_int_adjacency(|adjacency| {
+            black_box(adjacency.len());
+        });
+
+        let time = |timed_graph: &MultiGraph, candidate_route: bool| -> f64 {
+            let nodes = timed_graph.nodes_ordered();
+            let start = Instant::now();
+            let result = if candidate_route {
+                timed_graph.with_int_adjacency(|adj| super::bfs_edges_indexed(adj, &nodes, 0, None))
+            } else {
+                let adj = super::build_index_adjacency(&nodes, |u| {
+                    timed_graph.neighbors(u).unwrap_or_default()
+                });
+                super::bfs_edges_indexed(&adj, &nodes, 0, None)
+            };
+            black_box(result.len());
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired_warm = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, baseline_candidate);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let paired_cold = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let baseline_graph = graph.clone();
+                let candidate_graph = graph.clone();
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    let candidate_time = time(&candidate_graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&candidate_graph, true);
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "MG_BFS_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("MG_BFS_AB n={n} degree=4+parallel rounds={rounds} single-source kernel (>1 = candidate faster)");
         report("warm_candidate_vs_buildindex", &paired_warm(false));
         report("warm_candidate_null", &paired_warm(true));
         report("cold_candidate_vs_buildindex", &paired_cold(false));
