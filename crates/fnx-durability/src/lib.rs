@@ -241,9 +241,8 @@ pub fn run_decode_drill(
     recovered_output: &Path,
 ) -> Result<ArtifactEnvelope, DurabilityError> {
     let mut envelope = read_envelope(sidecar_path)?;
-    let (source_packets, repair_packets) = classify_decode_drill_packets(&envelope)?;
-    let dropped_packets = repair_packets.len() as u32;
-    let recovered = decode_with_packets(&envelope, &source_packets)?;
+    let (source_packets, dropped_packets) = classify_decode_drill_packets(&envelope)?;
+    let recovered = decode_with_binary_packets(&envelope, source_packets.iter().cloned())?;
     let fail_closed_beyond =
         verify_decode_drill_fail_closed(&envelope, &source_packets, dropped_packets)?;
     let reason = if envelope.raptorq.k == 0 {
@@ -297,9 +296,9 @@ fn decode_from_envelope(envelope: &ArtifactEnvelope) -> Result<Vec<u8>, Durabili
 
 fn classify_decode_drill_packets(
     envelope: &ArtifactEnvelope,
-) -> Result<(Vec<String>, Vec<String>), DurabilityError> {
+) -> Result<(Vec<EncodingPacket>, u32), DurabilityError> {
     if envelope.raptorq.k == 0 {
-        return Ok((Vec::new(), Vec::new()));
+        return Ok((Vec::new(), 0));
     }
 
     let oti = decode_oti(&envelope.raptorq.oti_b64)?;
@@ -310,7 +309,7 @@ fn classify_decode_drill_packets(
         partition(total_source_packets, u32::from(oti.source_blocks()));
 
     let mut source_packets = Vec::with_capacity(envelope.raptorq.k as usize);
-    let mut repair_packets = Vec::with_capacity(envelope.raptorq.repair_symbols as usize);
+    let mut repair_packet_count = 0usize;
 
     for encoded in &envelope.raptorq.packets_b64 {
         let packet_bytes = STANDARD.decode(encoded)?;
@@ -323,14 +322,14 @@ fn classify_decode_drill_packets(
         };
 
         if packet.payload_id().encoding_symbol_id() < source_symbols {
-            source_packets.push(encoded.clone());
+            source_packets.push(packet);
         } else {
-            repair_packets.push(encoded.clone());
+            repair_packet_count += 1;
         }
     }
 
     let observed_sources = u32::try_from(source_packets.len()).unwrap_or(u32::MAX);
-    let observed_repairs = u32::try_from(repair_packets.len()).unwrap_or(u32::MAX);
+    let observed_repairs = u32::try_from(repair_packet_count).unwrap_or(u32::MAX);
     if observed_sources != envelope.raptorq.k || observed_repairs != envelope.raptorq.repair_symbols
     {
         return Err(DurabilityError::DecodeDrillPacketLayout {
@@ -341,24 +340,22 @@ fn classify_decode_drill_packets(
         });
     }
 
-    Ok((source_packets, repair_packets))
+    Ok((source_packets, observed_repairs))
 }
 
 fn verify_decode_drill_fail_closed(
     envelope: &ArtifactEnvelope,
-    source_packets: &[String],
+    source_packets: &[EncodingPacket],
     dropped_packets: u32,
 ) -> Result<Option<u32>, DurabilityError> {
     if source_packets.is_empty() {
         return Ok(None);
     }
 
-    let fail_closed_candidate: Vec<String> = source_packets
-        .iter()
-        .take(source_packets.len() - 1)
-        .cloned()
-        .collect();
-    match decode_with_packets(envelope, &fail_closed_candidate) {
+    match decode_with_binary_packets(
+        envelope,
+        source_packets[..source_packets.len() - 1].iter().cloned(),
+    ) {
         Err(DurabilityError::DecodeFailed) => Ok(Some(dropped_packets + 1)),
         Err(err) => Err(err),
         Ok(_) => Err(DurabilityError::DecodeDrillFailOpen),
@@ -396,6 +393,28 @@ fn decode_with_packets(
     Err(DurabilityError::DecodeFailed)
 }
 
+fn decode_with_binary_packets<I>(
+    envelope: &ArtifactEnvelope,
+    packets: I,
+) -> Result<Vec<u8>, DurabilityError>
+where
+    I: IntoIterator<Item = EncodingPacket>,
+{
+    if envelope.raptorq.k == 0 {
+        return Ok(Vec::new());
+    }
+
+    let oti = decode_oti(&envelope.raptorq.oti_b64)?;
+    let mut decoder = Decoder::new(oti);
+    for packet in packets {
+        if let Some(decoded) = decoder.decode(packet) {
+            return Ok(decoded);
+        }
+    }
+
+    Err(DurabilityError::DecodeFailed)
+}
+
 fn hash_bytes(bytes: &[u8]) -> String {
     format!("blake3:{}", blake3::hash(bytes).to_hex())
 }
@@ -419,9 +438,83 @@ impl fmt::Display for ScrubState {
 
 #[cfg(test)]
 mod tests {
-    use super::{generate_sidecar_for_file, run_decode_drill, scrub_artifact};
+    use super::{
+        ArtifactEnvelope, DurabilityError, EncodingPacket, STANDARD, classify_decode_drill_packets,
+        decode_oti, decode_with_binary_packets, decode_with_packets, generate_sidecar_for_file,
+        partition, run_decode_drill, scrub_artifact, verify_decode_drill_fail_closed,
+    };
+    use base64::Engine;
     use std::fs;
     use tempfile::tempdir;
+
+    fn generated_envelope(payload: &[u8], mtu: u16, repair_symbols: u32) -> ArtifactEnvelope {
+        let temp = tempdir().expect("tempdir should be created");
+        let artifact = temp.path().join("artifact.bin");
+        let sidecar = temp.path().join("artifact.raptorq.json");
+        fs::write(&artifact, payload).expect("artifact write should succeed");
+        generate_sidecar_for_file(
+            &artifact,
+            &sidecar,
+            "perf-artifact",
+            "benchmark",
+            mtu,
+            repair_symbols,
+        )
+        .expect("sidecar generation should succeed")
+    }
+
+    fn decode_drill_core_frozen(
+        envelope: &ArtifactEnvelope,
+    ) -> Result<(Vec<u8>, u32, Option<u32>), DurabilityError> {
+        if envelope.raptorq.k == 0 {
+            return Ok((Vec::new(), 0, None));
+        }
+
+        let oti = decode_oti(&envelope.raptorq.oti_b64)?;
+        let total_source_packets =
+            u32::try_from(oti.transfer_length().div_ceil(u64::from(oti.symbol_size())))
+                .map_err(|_| DurabilityError::DecodeFailed)?;
+        let (large_block_symbols, small_block_symbols, large_block_count, _) =
+            partition(total_source_packets, u32::from(oti.source_blocks()));
+        let mut source_packets = Vec::with_capacity(envelope.raptorq.k as usize);
+        let mut repair_packets = Vec::with_capacity(envelope.raptorq.repair_symbols as usize);
+
+        for encoded in &envelope.raptorq.packets_b64 {
+            let packet_bytes = STANDARD.decode(encoded)?;
+            let packet = EncodingPacket::deserialize(&packet_bytes);
+            let block_number = u32::from(packet.payload_id().source_block_number());
+            let source_symbols = if block_number < large_block_count {
+                large_block_symbols
+            } else {
+                small_block_symbols
+            };
+            if packet.payload_id().encoding_symbol_id() < source_symbols {
+                source_packets.push(encoded.clone());
+            } else {
+                repair_packets.push(encoded.clone());
+            }
+        }
+
+        let dropped_packets = u32::try_from(repair_packets.len()).unwrap_or(u32::MAX);
+        let recovered = decode_with_packets(envelope, &source_packets)?;
+        let fail_closed_candidate = source_packets[..source_packets.len() - 1].to_vec();
+        let fail_closed_beyond = match decode_with_packets(envelope, &fail_closed_candidate) {
+            Err(DurabilityError::DecodeFailed) => Some(dropped_packets + 1),
+            Err(err) => return Err(err),
+            Ok(_) => return Err(DurabilityError::DecodeDrillFailOpen),
+        };
+        Ok((recovered, dropped_packets, fail_closed_beyond))
+    }
+
+    fn decode_drill_core_binary(
+        envelope: &ArtifactEnvelope,
+    ) -> Result<(Vec<u8>, u32, Option<u32>), DurabilityError> {
+        let (source_packets, dropped_packets) = classify_decode_drill_packets(envelope)?;
+        let recovered = decode_with_binary_packets(envelope, source_packets.iter().cloned())?;
+        let fail_closed_beyond =
+            verify_decode_drill_fail_closed(envelope, &source_packets, dropped_packets)?;
+        Ok((recovered, dropped_packets, fail_closed_beyond))
+    }
 
     #[test]
     fn sidecar_generation_and_scrub_recovery_work() {
@@ -500,5 +593,105 @@ mod tests {
             decode_proof.fail_closed_beyond,
             Some(post_drill.raptorq.repair_symbols + 1)
         );
+    }
+
+    #[test]
+    fn binary_decode_drill_core_matches_frozen_representation() {
+        let payload = (0_u8..=250).cycle().take(16_384).collect::<Vec<_>>();
+        let envelope = generated_envelope(&payload, 256, 12);
+
+        let frozen = decode_drill_core_frozen(&envelope).expect("frozen drill should succeed");
+        let binary = decode_drill_core_binary(&envelope).expect("binary drill should succeed");
+        assert_eq!(binary, frozen);
+        assert_eq!(binary.0, payload);
+    }
+
+    /// Same-binary paired A/B for decode-drill packet preparation. The frozen
+    /// arm retains the former base64 String partitions and repeats base64
+    /// decode/deserialization in both decoder passes; the candidate retains
+    /// classified binary packets and clones their payload bytes for reuse.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn decode_drill_binary_packet_reuse_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let payload = (0_u8..=250).cycle().take(131_072).collect::<Vec<_>>();
+        let envelope = generated_envelope(&payload, 512, 32);
+        let frozen = decode_drill_core_frozen(&envelope).expect("frozen drill should succeed");
+        let binary = decode_drill_core_binary(&envelope).expect("binary drill should succeed");
+        assert_eq!(binary, frozen);
+        assert_eq!(binary.0, payload);
+        println!(
+            "DURABILITY_BINARY_PACKET_AB fixture: bytes={} source_packets={} repair_packets={}",
+            payload.len(),
+            envelope.raptorq.k,
+            envelope.raptorq.repair_symbols,
+        );
+
+        let calls = 2usize;
+        let rounds = 15usize;
+        let time = |reuse_binary: bool| {
+            let started = Instant::now();
+            for _ in 0..calls {
+                let result = if reuse_binary {
+                    decode_drill_core_binary(&envelope)
+                } else {
+                    decode_drill_core_frozen(&envelope)
+                }
+                .expect("decode drill core should succeed");
+                black_box(result);
+            }
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let baseline_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "DURABILITY_BINARY_PACKET_AB {name}: baseline_median_ns={baseline_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds}",
+                baseline_median as f64 / candidate_median as f64,
+            );
+        };
+
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report(
+            "base64_redecode_vs_binary_reuse",
+            &baseline_ns,
+            &candidate_ns,
+        );
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("binary_reuse_vs_binary_reuse_null", &null_a_ns, &null_b_ns);
     }
 }

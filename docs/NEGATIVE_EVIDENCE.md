@@ -20699,3 +20699,61 @@ keyless, attribute-free edges with already-present endpoints. Implicit-node,
 attributed, keyed, malformed, directed, and multigraph payloads retain the
 generic validator unless separately proven for order, revision, warnings, and
 strict/hardened behavior.
+
+## 2026-07-14 GrayCitadel SHIP (`run_decode_drill`): reuse classified binary packets — **2.0022x** (`br-r37-c1-lns6a`)
+
+NEGATIVE-LEDGER / ROBOT-TRIAGE FIRST: `bv --robot-triage` again ranked the
+occupied no-gaps umbrella and namespace-parity work rather than an available
+measured kernel. The traversal ledger explicitly marks the BFS/DFS neighbor
+allocation family exhausted, and the dense-numerical ledger says those kernels
+already dominate NetworkX. A fresh `fnx-durability` audit found no existing
+performance row or bead for decode-drill packet preparation.
+
+PROFILE / ATTRIBUTION FIRST: `run_decode_drill` decoded/deserialized every base64
+packet once to classify source versus repair packets, cloned every encoded
+String into one of two vectors, decoded/deserialized all source packets again
+for the success proof, cloned all but one source String into a third vector,
+then decoded/deserialized those sources a third time for the beyond-bound
+fail-closed proof. For `S` source and `R` repair packets this is approximately
+`3S + R - 1` base64 decode/deserializations and `2S + R - 1` full encoded-String
+clones. Opportunity score: impact 4 x confidence 5 / effort 1 = 20.
+
+ONE LEVER: retain the `EncodingPacket` values produced by classification, count
+repairs without storing them, and feed deep binary clones to the two decoders.
+This leaves one mandatory base64 decode/deserialization per stored packet but
+removes both repeated base64 passes and all intermediate encoded-String
+partitions. Packet order, success-before-fail-closed sequencing, layout checks,
+decode bounds, proof fields, scrub recovery, and the serialized sidecar format
+remain unchanged.
+
+ONE FOREGROUND A/B + NULL: one strict-remote ordinary `--profile release`
+invocation on worker `vmi1149989` (job `j-29928833041828567`) used a
+131,072-byte deterministic payload that produced 256 source and 32 repair
+packets, two calls per sample, three warmups, and 15 alternating-order rounds:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen String/base64 path vs retained binary packets | `457,890 ns / 228,695 ns` | **`2.0022x`** | **`15/15`** | exact |
+| binary packets / binary packets null | `221,714 ns / 250,427 ns` | `0.8853x` | `6/15` | identical arm |
+
+The real arm wins every pair and remains about `1.77x` after conservatively
+dividing by the full 12.96% null-position skew. The timed test completed in
+0.03 seconds. RCH reported a cache miss; its pipeline took 58.9 seconds (38.6
+seconds sync, 17.6 seconds remote build/execution, and 2.6 seconds artifact
+retrieval; 68.7 seconds wrapper elapsed). That routing overhead is not benchmark
+evidence, and no retry or `release-perf` command ran.
+
+CORRECTNESS / GATES: the same-binary harness compares recovered bytes, dropped
+repair count, and the exact fail-closed bound against a frozen copy of the
+former String/base64 path before timing. Direct rustfmt and `git diff --check`
+passed before measurement. Targeted UBS completed with zero critical findings;
+its warnings were the file-wide test `expect`/assert, clone, direct-index, and
+cast inventories. The release test compiled the changed crate and passed. The
+only Cargo command was fail-closed with `RCH_REQUIRE_REMOTE=1`,
+`RCH_NO_SELF_HEALING=1`, and direct `rch --no-self-healing exec -- cargo ...`;
+no local fallback ran.
+
+RESULT: SHIP. Keep binary packet reuse local to decode drills. Serialized
+sidecars and scrub recovery retain the existing String/base64 path, while empty
+source sets, repair-only inputs, malformed packets, layout mismatches, and
+beyond-bound decode failures retain their former behavior.
