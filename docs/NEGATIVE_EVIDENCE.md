@@ -20019,3 +20019,64 @@ byte-identical to `HEAD`. Do not retry direct scalar DP alone for unweighted pla
 DiGraph longest-path length. A future candidate must remove the shared
 topological-order String materialization through a separately proved index-order
 primitive, or rotate to a different algorithm family.
+
+## 2026-07-14 RusticHollow SHIP (`transitivity`): direct scalar triangle kernel — **1.420x** (`br-r37-c1-bsd0p`)
+
+NEGATIVE-LEDGER FIRST: recent keeps and holds already cover traversal, DAG,
+shortest-path, connectivity, matching, flow, coloring, and centrality seams. The
+clustering ledger records the shared each-triangle-once kernel as a large public
+win, while the newer count-only survey declared ordinary `.len()` materialization
+siblings exhausted. One output-specific scalar seam remained: both Python
+`transitivity` entry points still called `clustering_coefficient(graph)` and kept
+only `.transitivity`, cloning every node name into `CentralityScore` and retaining
+per-node degree, triangle, and score vectors. This distinct scalar-metric seam
+scored impact 4 x confidence 5 / effort 1 = 20.
+
+ONE LEVER: add a scalar `fnx_algorithms::transitivity` kernel and route both
+Python bindings to it. The kernel scans the same insertion-index adjacency rows,
+uses the same `u < v < w` triangle enumeration, and accumulates the same ordered
+triple count. Each discovered triangle adds three directly to the scalar incidence
+total, exactly matching the materializing kernel's later `sum(tri)`; the final
+`(2.0 * total_triangles as f64) / total_triples as f64` expression is unchanged.
+Self-loops remain excluded, zero-triple and empty graphs remain positive zero,
+and the listing/average/directed clustering APIs are untouched.
+
+ONE FOREGROUND A/B + NULL: one completed release-profile invocation on strict-
+remote worker `vmi1149989` (job `j-29928833041828268`) used a 32,768-node radius-3
+ring lattice, three calls per sample, three warmups, and 15 alternating-order
+rounds. The frozen arm is the complete materializing `clustering_coefficient`
+path; the same binary also ran a scalar/scalar null control:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| materialized result vs scalar kernel | `28,340,126 ns / 19,961,691 ns` | **`1.420x`** | **`15/15`** | exact |
+| scalar/scalar null | `20,373,662 ns / 20,466,643 ns` | `0.995x` | identical arm | exact |
+
+The candidate clears the 1.10 keep floor by 42%, every pair wins, and the null is
+within 0.5% of unity. The harness asserted `f64::to_bits()` equality before any
+timer ran, so the timing cannot hide numerical drift.
+
+CORRECTNESS / GATES: the focused strict-remote parity test passed `1/1` on
+`vmi1149989` (job `j-29928833041828264`) across empty/zero-triple, self-looped
+mixed, and complete graphs. Strict-remote `cargo check --workspace --all-targets`
+passed on the same worker (job `j-29928833041828272`) with only three committed
+unused/dead-code warnings outside the owned ranges. Exact workspace clippy
+reproduced the committed `fnx-classes/src/lib.rs:1700` `collapsible_if` blocker
+(job `j-29928833041828274`); an all-targets owned-crate pass then reproduced only
+additional committed lint inventory (job `j-29928833041828276`). Production-only
+`--no-deps` clippy passed for `fnx-algorithms` and `fnx-python` after allowing only
+those documented baseline lint classes (job `j-29928833041828280`). Every Cargo
+command used fail-closed `RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`, and
+direct `rch --no-self-healing exec -- cargo ...`; no local fallback ran.
+Direct `rustfmt --edition 2024 --emit stdout` inspection confirmed the owned
+Rust snippets are already canonical; whole-file `--check` remains blocked by
+broad committed formatting drift outside them, while `git diff --check` passes.
+Static-only UBS completed separately on both owned Rust files: it reported only
+the committed lexical-JWT false positive in an unrelated test name and three
+unrelated test `panic!` calls, with no finding in either owned hunk.
+
+RESULT: SHIP. Preserve the scalar-only scope, exact integer incidence/triple
+arithmetic, self-loop exclusion, and materializing clustering kernel for callers
+that request per-node scores or average clustering. Do not widen this duplicate
+scan into directed clustering or weighted/multigraph semantics without a separate
+parity and same-binary proof.

@@ -9664,6 +9664,61 @@ pub fn clustering_coefficient(graph: &Graph) -> ClusteringCoefficientResult {
     }
 }
 
+/// Return the transitivity (global clustering coefficient) of an undirected graph.
+///
+/// This scalar kernel preserves the exact triangle and connected-triple arithmetic
+/// used by [`clustering_coefficient`] without materializing per-node scores.
+#[must_use]
+pub fn transitivity(graph: &Graph) -> f64 {
+    // br-r37-c1-bsd0p: the Python scalar API previously called
+    // `clustering_coefficient(graph).transitivity`, which cloned every node name
+    // into a `CentralityScore` and retained per-node degree/triangle vectors even
+    // though callers observe only one f64. Count the same ordered triples and the
+    // same three per-vertex triangle incidences directly. Keeping
+    // `total_triangles += 3` makes the final floating-point expression bit-for-bit
+    // identical to the materializing kernel's `sum(tri)` arithmetic.
+    let n = graph.node_count();
+    let mut total_triples = 0usize;
+    for u in 0..n {
+        let degree = graph
+            .neighbors_indices(u)
+            .map_or(0, |neighbors| neighbors.iter().filter(|&&v| v != u).count());
+        total_triples += degree * degree.saturating_sub(1);
+    }
+    if total_triples == 0 {
+        return 0.0;
+    }
+
+    let mut total_triangles = 0usize;
+    let mut in_neighborhood = vec![false; n];
+    for u in 0..n {
+        let neighbors_u = graph.neighbors_indices(u).unwrap_or(&[]);
+        for &neighbor in neighbors_u {
+            if neighbor != u {
+                in_neighborhood[neighbor] = true;
+            }
+        }
+        for &v in neighbors_u {
+            if v > u
+                && let Some(neighbors_v) = graph.neighbors_indices(v)
+            {
+                for &w in neighbors_v {
+                    if w > v && in_neighborhood[w] {
+                        total_triangles += 3;
+                    }
+                }
+            }
+        }
+        for &neighbor in neighbors_u {
+            if neighbor != u {
+                in_neighborhood[neighbor] = false;
+            }
+        }
+    }
+
+    (2.0 * total_triangles as f64) / total_triples as f64
+}
+
 /// Directed clustering coefficient (Fagiolo 2007).
 ///
 /// For each node u: `c_u = T(u) / (2 * (deg_tot(u) * (deg_tot(u)-1) - 2 * deg_recip(u)))`
@@ -74303,6 +74358,143 @@ mod tests {
     // -----------------------------------------------------------------------
     // Clustering & cliques — additional
     // -----------------------------------------------------------------------
+
+    #[test]
+    fn transitivity_scalar_matches_materialized_kernel() {
+        let mut graphs = vec![Graph::strict()];
+
+        let mut degenerate = Graph::strict();
+        degenerate.add_node("isolated");
+        let _ = degenerate.add_edge("loop", "loop");
+        let _ = degenerate.add_edge("left", "right");
+        graphs.push(degenerate);
+
+        let mut mixed = Graph::strict();
+        for edge in [
+            ("a", "b"),
+            ("b", "c"),
+            ("c", "a"),
+            ("c", "d"),
+            ("d", "e"),
+            ("e", "f"),
+            ("f", "c"),
+            ("a", "a"),
+        ] {
+            let _ = mixed.add_edge(edge.0, edge.1);
+        }
+        graphs.push(mixed);
+
+        let mut complete = Graph::strict();
+        for left in 0..7 {
+            for right in (left + 1)..7 {
+                let _ = complete.add_edge(format!("n{left}"), format!("n{right}"));
+            }
+        }
+        graphs.push(complete);
+
+        for (case, graph) in graphs.iter().enumerate() {
+            let materialized = super::clustering_coefficient(graph).transitivity;
+            let scalar = super::transitivity(graph);
+            assert_eq!(
+                scalar.to_bits(),
+                materialized.to_bits(),
+                "case {case} must preserve exact f64 output"
+            );
+        }
+    }
+
+    /// br-r37-c1-bsd0p: same-binary A/B for the scalar-only transitivity kernel
+    /// against the frozen materializing `clustering_coefficient` path, plus a
+    /// candidate/candidate null control.
+    #[test]
+    #[ignore = "measurement; run with --profile release --include-ignored --nocapture"]
+    fn transitivity_scalar_output_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        let n = 32_768usize;
+        let radius = 3usize;
+        let calls = 3usize;
+        let names = (0..n).map(|i| format!("n{i}")).collect::<Vec<_>>();
+        let mut graph = Graph::strict();
+        for name in &names {
+            graph.add_node(name);
+        }
+        for u in 0..n {
+            for offset in 1..=radius {
+                let v = (u + offset) % n;
+                let _ = graph.add_edge(&names[u], &names[v]);
+            }
+        }
+
+        let baseline = super::clustering_coefficient(&graph).transitivity;
+        let candidate = super::transitivity(&graph);
+        assert_eq!(candidate.to_bits(), baseline.to_bits(), "exact scalar parity");
+
+        let time = |use_candidate: bool| -> u128 {
+            let start = Instant::now();
+            for _ in 0..calls {
+                let value = if use_candidate {
+                    super::transitivity(black_box(&graph))
+                } else {
+                    super::clustering_coefficient(black_box(&graph)).transitivity
+                };
+                black_box(value);
+            }
+            start.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15usize;
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let mut null_first_times = Vec::with_capacity(rounds);
+        let mut null_second_times = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(false), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(false), candidate_time)
+            };
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+
+            let (null_first, null_second) = if round.is_multiple_of(2) {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                (time(true), null_second)
+            };
+            null_first_times.push(null_first);
+            null_second_times.push(null_second);
+        }
+
+        let baseline_median = median(&baseline_times);
+        let candidate_median = median(&candidate_times);
+        let null_first_median = median(&null_first_times);
+        let null_second_median = median(&null_second_times);
+        let paired_wins = baseline_times
+            .iter()
+            .zip(&candidate_times)
+            .filter(|(baseline_time, candidate_time)| baseline_time > candidate_time)
+            .count();
+
+        println!(
+            "TRANSITIVITY_SCALAR_AB n={n} radius={radius} calls={calls} rounds={rounds} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} speedup={:.3}x paired_wins={paired_wins}/{rounds} null_first_median_ns={null_first_median} null_second_median_ns={null_second_median} null_ratio={:.3}x exact_parity=true",
+            baseline_median as f64 / candidate_median as f64,
+            null_first_median as f64 / null_second_median as f64,
+        );
+    }
 
     #[test]
     fn test_all_triangles_triangle() {

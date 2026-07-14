@@ -8504,7 +8504,7 @@ pub fn transitivity(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
     // br-r37-c1-djohp: also reject multigraph (sister kernels do too).
     require_not_multigraph(&gr)?;
     let inner = gr.undirected();
-    Ok(py.allow_threads(|| fnx_algorithms::clustering_coefficient(inner).transitivity))
+    Ok(py.allow_threads(|| fnx_algorithms::transitivity(inner)))
 }
 
 /// br-r37-c1-lzh3n (cc): triangle count per node of a MultiGraph by a direct dedup
@@ -24482,8 +24482,7 @@ pub fn average_clustering_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult
 pub fn transitivity_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
-    let result = py.allow_threads(|| fnx_algorithms::clustering_coefficient(inner));
-    Ok(result.transitivity)
+    Ok(py.allow_threads(|| fnx_algorithms::transitivity(inner)))
 }
 
 // ---------------------------------------------------------------------------
