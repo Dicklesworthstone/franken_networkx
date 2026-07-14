@@ -20636,3 +20636,66 @@ node_index` unseen predicate, self-loop emission, isolates, single spaces, and
 the no-trailing-newline contract. Do not widen this lever to the directed
 serializer or formats with escaping/attribute semantics without a separate
 parity and timing proof.
+
+## 2026-07-14 GrayCitadel SHIP (`GraphConverter::from_edge_list`): batch plain explicit-node edges — **11.651x** (`br-r37-c1-dbpp5`)
+
+NEGATIVE-LEDGER / ROBOT-TRIAGE FIRST: `bv --robot-triage` again ranked the
+occupied no-gaps umbrella and broad structural work. The conversion ledger had
+no entry for the low-level Rust `fnx-convert::GraphConverter::from_edge_list`
+simple-Graph population loop, so this turn rotated to that fresh subsystem
+instead of reopening the mined Python converter or multigraph matrix surfaces.
+
+PROFILE / ATTRIBUTION FIRST: a valid 2,048-node / 8,193-edge plain payload sent
+every node through `Graph::add_node` and every edge through
+`Graph::add_edge_with_attrs`. Source accounting attributes 2,048 node-policy
+records, 16,386 edge-policy records, 16,386 owned endpoint clones, 8,193 empty
+attribute-map clones, and repeated name-to-index hashing to this generic loop.
+Those graph-local evidence records are then discarded when the completed graph
+adopts the converter policy. The payload already supplies all node names in
+first-seen order, so resolving each name once and submitting existing indices
+can preserve graph order and revision while removing that repeated work.
+Opportunity score: impact 3 x confidence 5 / effort 1 = 15.
+
+ONE LEVER: a mutation-free eligibility pass recognizes only non-empty explicit
+nodes with keyless, attribute-free edges whose endpoints are already present.
+It resolves endpoints once and uses the existing node and existing-index edge
+batches. Any implicit node, key, attribute, or malformed identifier returns to
+the former generic validator before graph mutation, preserving strict/hardened
+recovery and attributed/keyed semantics. Directed and multigraph conversions
+remain out of scope.
+
+ONE FOREGROUND A/B + NULL: one strict-remote ordinary `--profile release`
+invocation on worker `vmi1149989` (job `j-29928833041828554`) used a
+2,048-node / 8,193-edge deterministic payload, three warmups, and 15
+alternating-order rounds. The same binary first asserted full snapshot and
+revision equality:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen generic loop vs indexed batch | `12,812,962 ns / 1,099,736 ns` | **`11.6509x`** | **`15/15`** | exact |
+| indexed batch / indexed batch null | `861,518 ns / 883,240 ns` | `0.9754x` | identical arm | exact |
+
+The real arm wins every pair and remains about `11.36x` after conservatively
+dividing by the full 2.52% null skew. The timed test completed in 0.30 seconds.
+RCH reported a cache miss; total wall time was 63.3 seconds, of which 32.9
+seconds was sync, 28.5 seconds remote compilation/execution, and 2.0 seconds
+artifact retrieval. That routing overhead is not benchmark evidence, and no
+retry or `release-perf` command ran.
+
+CORRECTNESS / GATES: the same-binary harness compares complete ordered snapshots
+and public revisions for empty input and the timed fixture, including nonlexical
+labels, a self-loop, duplicate handling, and isolates; a unit case proves a late
+ineligible edge returns before mutation. Existing attributed and keyed tests
+compile against the unchanged fallback. Direct rustfmt and `git diff --check`
+passed before measurement. Targeted UBS completed with zero critical findings;
+its warnings were the committed file-wide test `expect`/assert, clone, direct-
+index, and allocation inventories. The release test compiled the changed crate
+and dependencies and passed. The only Cargo command was fail-closed with
+`RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`, and direct
+`rch --no-self-healing exec -- cargo ...`; no local fallback ran.
+
+RESULT: SHIP. Keep the fast-path gate limited to non-empty explicit nodes and
+keyless, attribute-free edges with already-present endpoints. Implicit-node,
+attributed, keyed, malformed, directed, and multigraph payloads retain the
+generic validator unless separately proven for order, revision, warnings, and
+strict/hardened behavior.
