@@ -19906,3 +19906,62 @@ RESULT: SHIP. Preserve the `successors.len() > 2` guard, oriented direct-edge
 semantics, source-identity precedence, and ordered BFS fallback. Do not widen
 this probe to low-degree rows, weighted paths, undirected/multigraph wrappers,
 or bidirectional search without a separate same-binary proof.
+
+## 2026-07-14 RusticHollow SHIP (`edge_bfs_directed`): index visited/queue state — **3.167x** (`br-r37-c1-vnlu0`)
+
+NEGATIVE-LEDGER FIRST: the broad traversal sweep records public `edge_bfs` as a
+hot, winning row, but no native directed index-state attempt was present. The
+live directed kernel still maintained `HashSet<String>` and `VecDeque<String>`,
+cloned queue labels, and allocated a successor-name vector for every visited
+node. Recent ledger entries already covered connectivity queue/accessor
+microlevers, matching remains constrained by exact tie/orientation behavior,
+and flow projection/residual seams have current keeps and rejects, so this turn
+rotated to the distinct traversal family. Opportunity score: impact 4 x
+confidence 5 / effort 1 = 20.
+
+ONE LEVER: resolve the source once, traverse the eager order-faithful
+`successors_indices` rows with `Vec<bool>` and `VecDeque<usize>`, and materialize
+node names only when appending output edges. Missing-source behavior, BFS
+first-discovery state, successor insertion order, non-tree edges, cycles, and
+self-loops are unchanged. The index rows are the same rows consumed by the old
+`successors()` projection, so no float, RNG, or tie-break surface exists. A
+frozen test-only copy of the pre-lever String traversal provides the A/B oracle.
+
+ONE FOREGROUND A/B + NULL: one release-profile invocation on strict-remote
+worker `vmi1149989` (job `j-29928833041828226`) used an 8,192-node bidirected
+path with long stable labels, four calls per sample, three warmups, and 15
+alternating-order rounds. The same binary compared the frozen String traversal
+with the index traversal and ran an identical candidate/candidate null:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen String state vs index state | `19,103,188 ns / 6,031,429 ns` | **`3.167x`** | **`14/15`** | exact |
+| index/index null | `5,598,628 ns / 5,893,893 ns` | `0.950x` | identical arm | exact |
+
+The harness asserted the complete ordered edge vector before timing, including
+all `2 * (n - 1)` oriented path edges. The win is well beyond the null-control
+floor and survives one noisy pair.
+
+CORRECTNESS / GATES: the focused differential test passed `1/1` on strict-
+remote worker `vmi1149989` (job `j-29928833041828223`). It compares complete
+ordered vectors from every existing and missing source in a graph containing
+cycles, converging paths, non-tree edges, a self-loop, an isolate, a disconnected
+source, and a remove/re-add order mutation. Strict-remote
+`cargo check --workspace --all-targets` passed on the same worker (job
+`j-29928833041828230`) with only three committed unused/dead-code warnings.
+Exact workspace clippy reproduced the committed
+`fnx-classes/src/lib.rs:1700` `collapsible_if` blocker (job
+`j-29928833041828234`). Scoped `--no-deps` clippy reached `fnx-algorithms` and
+reproduced only its four committed `explicit_counter_loop` / `question_mark`
+blockers (job `j-29928833041828235`), none in the owned traversal ranges. Direct
+read-only rustfmt reported broad pre-existing file drift; its sole owned-range
+suggestion was applied manually, and `git diff --check` passed. UBS scanned the
+single owned Rust diff, reproduced its file-wide inventory and known Prüfer
+test-name `decode`/JWT false positive, and found no unsafe block, panic macro, or
+lever-local defect. Every Cargo command used fail-closed remote RCH; no local
+Cargo fallback ran.
+
+RESULT: SHIP. Preserve source lookup, successor insertion order, full non-tree
+edge emission, and name materialization in the output only. Do not widen this
+change to undirected `edge_bfs`, either `edge_dfs` sibling, multigraph traversal,
+or Python orientation/source-list wrappers without separate exact-order proof.
