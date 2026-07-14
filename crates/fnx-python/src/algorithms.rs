@@ -6533,6 +6533,78 @@ fn multidigraph_is_dag_orig_hashmap(mdg: &fnx_classes::digraph::MultiDiGraph) ->
 /// trees). The COUNT is order-invariant (no nx-order matching needed, unlike the
 /// component LISTING / 8hjsu). Iterative DFS (no recursion). No simple-DiGraph build.
 fn multidigraph_number_scc(mdg: &fnx_classes::digraph::MultiDiGraph) -> usize {
+    // br-r37-c1-giqjb (cc): run Kosaraju over the pre-existing revision-keyed integer
+    // CSR (forward DFS over `csr.successors`, reverse DFS over `csr.predecessors`)
+    // instead of rebuilding an inline `HashMap<&str,usize>` + succ/pred `Vec<Vec<usize>>`
+    // from per-node `successors()` String Vecs each call. The forward successor rows are
+    // the same distinct successors in the same order → identical finish order; the SCC
+    // COUNT is a graph invariant (a fixed partition) regardless of the reverse-adjacency
+    // row order, so the result is byte-identical. Wins warm (cache) and cold (flat CSR
+    // build < HashMap/String rebuild). Same vein as is_dag (v03q9) / is_strongly_connected
+    // (d291d).
+    let n = mdg.node_count();
+    if n == 0 {
+        return 0;
+    }
+    let csr = mdg.csr();
+    // forward iterative DFS, record finish (post) order
+    let mut visited = vec![false; n];
+    let mut finish: Vec<usize> = Vec::with_capacity(n);
+    let mut stack: Vec<usize> = Vec::new();
+    let mut idx: Vec<usize> = Vec::new();
+    for s in 0..n {
+        if visited[s] {
+            continue;
+        }
+        stack.push(s);
+        idx.push(0);
+        visited[s] = true;
+        while let Some(&node) = stack.last() {
+            let ci = *idx.last().unwrap();
+            let succ = csr.successors(node);
+            if ci < succ.len() {
+                *idx.last_mut().unwrap() += 1;
+                let v = succ[ci] as usize;
+                if v < n && !visited[v] {
+                    visited[v] = true;
+                    stack.push(v);
+                    idx.push(0);
+                }
+            } else {
+                finish.push(node);
+                stack.pop();
+                idx.pop();
+            }
+        }
+    }
+    // reverse DFS over pred in reverse-finish order; each tree is one SCC
+    let mut visited2 = vec![false; n];
+    let mut count = 0usize;
+    for &s in finish.iter().rev() {
+        if visited2[s] {
+            continue;
+        }
+        count += 1;
+        let mut st = vec![s];
+        visited2[s] = true;
+        while let Some(node) = st.pop() {
+            for &raw in csr.predecessors(node) {
+                let v = raw as usize;
+                if v < n && !visited2[v] {
+                    visited2[v] = true;
+                    st.push(v);
+                }
+            }
+        }
+    }
+    count
+}
+
+/// Frozen pre-`br-r37-c1-giqjb` inline-`HashMap` Kosaraju route — rebuilds the
+/// name→index map and succ/pred adjacency each call. Kept for the same-binary A/B
+/// and parity proof.
+#[cfg(test)]
+fn multidigraph_number_scc_orig_hashmap(mdg: &fnx_classes::digraph::MultiDiGraph) -> usize {
     use std::collections::HashMap;
     let nodes = mdg.nodes_ordered();
     let n = nodes.len();
@@ -28559,6 +28631,168 @@ mod tests {
         };
 
         println!("MDG_SC_AB n={n} SC cycle+chord rounds={rounds} Tarjan (>1 = candidate faster)");
+        report("warm_candidate_vs_hashmap", &paired_warm(false));
+        report("warm_candidate_null", &paired_warm(true));
+        report("cold_candidate_vs_hashmap", &paired_cold(false));
+        report("cold_candidate_null", &paired_cold(true));
+    }
+
+    #[test]
+    fn multidigraph_number_scc_csr_matches_hashmap_route() {
+        let assert_parity = |mdg: &MultiDiGraph, expected: usize| {
+            let csr_route = super::multidigraph_number_scc(mdg);
+            assert_eq!(
+                csr_route,
+                super::multidigraph_number_scc_orig_hashmap(mdg),
+                "csr vs hashmap route must agree"
+            );
+            assert_eq!(csr_route, expected, "scc count");
+        };
+
+        assert_parity(&MultiDiGraph::strict(), 0);
+
+        let mut single = MultiDiGraph::strict();
+        let _ = single.add_node("solo".to_owned());
+        assert_parity(&single, 1);
+        let _ = single.add_edge("solo".to_owned(), "solo".to_owned());
+        assert_parity(&single, 1); // self-loop stays one SCC
+
+        // Directed cycle a->b->c->a is a single SCC.
+        let mut cyc = MultiDiGraph::strict();
+        for node in ["a", "b", "c"] {
+            let _ = cyc.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "a")] {
+            let _ = cyc.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&cyc, 1);
+        // Parallel edge + self-loop don't change the count.
+        let _ = cyc.add_edge("a".to_owned(), "b".to_owned());
+        let _ = cyc.add_edge("b".to_owned(), "b".to_owned());
+        assert_parity(&cyc, 1);
+        // Read-mutate-read: append a sink d (own SCC) → 2 SCCs.
+        let _ = cyc.add_node("d".to_owned());
+        let _ = cyc.add_edge("c".to_owned(), "d".to_owned());
+        assert_parity(&cyc, 2);
+
+        // Directed path x->y->z: three singleton SCCs.
+        let mut path = MultiDiGraph::strict();
+        for node in ["x", "y", "z"] {
+            let _ = path.add_node(node.to_owned());
+        }
+        for (u, v) in [("x", "y"), ("y", "z")] {
+            let _ = path.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&path, 3);
+
+        // Two disjoint 2-cycles + an isolated node: 3 SCCs.
+        let mut multi = MultiDiGraph::strict();
+        for node in ["p", "q", "r", "s", "iso"] {
+            let _ = multi.add_node(node.to_owned());
+        }
+        for (u, v) in [("p", "q"), ("q", "p"), ("r", "s"), ("s", "r")] {
+            let _ = multi.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&multi, 3);
+    }
+
+    /// `br-r37-c1-giqjb`: same-binary paired proof for multidigraph_number_scc —
+    /// cached-CSR Kosaraju vs the per-call inline-HashMap succ/pred rebuild. Run with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multidigraph_number_scc_csr_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multidigraph_number_scc_csr_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("nscc-node-{index:05}");
+        let mut graph = MultiDiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        // Directed cycle + chords → one SCC, so both DFS passes visit every node.
+        for index in 0..n {
+            let next = (index + 1) % n;
+            let chord = (index + 127) % n;
+            let _ = graph.add_edge(node(index), node(next));
+            let _ = graph.add_edge(node(index), node(chord));
+            if index.is_multiple_of(8) {
+                let _ = graph.add_edge(node(index), node(next));
+            }
+        }
+        let candidate = super::multidigraph_number_scc(&graph);
+        let baseline = super::multidigraph_number_scc_orig_hashmap(&graph);
+        assert_eq!(candidate, baseline, "csr Kosaraju must match hashmap route");
+        assert_eq!(candidate, 1, "cycle+chord graph is a single SCC");
+
+        // Prime the revision-keyed CSR memo before warm timing.
+        black_box(graph.csr().successors(0).len());
+
+        let time = |timed_graph: &MultiDiGraph, candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                super::multidigraph_number_scc(timed_graph)
+            } else {
+                super::multidigraph_number_scc_orig_hashmap(timed_graph)
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired_warm = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, baseline_candidate);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let paired_cold = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let baseline_graph = graph.clone();
+                let candidate_graph = graph.clone();
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    let candidate_time = time(&candidate_graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&candidate_graph, true);
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "MDG_NSCC_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("MDG_NSCC_AB n={n} SC cycle+chord rounds={rounds} Kosaraju (>1 = candidate faster)");
         report("warm_candidate_vs_hashmap", &paired_warm(false));
         report("warm_candidate_null", &paired_warm(true));
         report("cold_candidate_vs_hashmap", &paired_cold(false));
