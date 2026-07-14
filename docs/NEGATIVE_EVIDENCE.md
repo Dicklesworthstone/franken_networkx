@@ -20993,3 +20993,61 @@ no local fallback ran.
 RESULT: SHIP. Preserve descending priority, ascending name, and stable arrival
 order for exact duplicate keys. Keep resolver filtering, compatibility policy,
 discovery payloads, and evidence logging out of this lever.
+
+## 2026-07-14 GrayCitadel SHIP (`WitnessLedger::to_jsonl`): stream JSONL into one buffer — **1.6588x** (`br-r37-c1-j60l1`)
+
+NEGATIVE-LEDGER / ROBOT-TRIAGE FIRST: `bv --robot-triage` again ranked the
+occupied no-gaps umbrella and the same parity-hole or structural quick wins.
+The dispatch registration row closes that small startup vein. Memory and ledger
+history show recent work across shortest path, multigraph scans, flow, coloring,
+centrality, generators, traversal, durability, read/write, and runtime metrics,
+so this pass pivots to the fresh `fnx-cgse` witness-artifact subsystem. No prior
+ledger row or bead covers witness JSONL serialization.
+
+PROFILE / ATTRIBUTION FIRST: `WitnessLedger::to_jsonl` serialized each of `W`
+witnesses into a separate heap `String`, collected all `W` strings into a heap
+vector, then `join` allocated the final output and copied every JSON byte a
+second time. The payload is already emitted in ledger order and needs only one
+separator between entries. Opportunity score: impact 3 x confidence 5 / effort
+1 = 15.
+
+ONE LEVER: stream each witness directly into one growable byte buffer with
+`serde_json::to_writer`, preserve empty failed entries by truncating any partial
+serialization, retain the exact newline positions, then reuse that UTF-8 buffer
+as the returned `String`. Witness order, compact JSON formatting, field order,
+empty-ledger behavior, serialization-failure behavior, hashes, policies, and
+collection state remain unchanged.
+
+ONE FOREGROUND A/B + NULL: one strict-remote ordinary `--profile release`
+invocation on worker `vmi1153651` (job `j-29928833041828628`) froze the former
+per-entry `String` plus `Vec` plus `join` implementation, proved exact output
+bytes for empty and 2,048-entry deterministic ledgers, and used three warmups
+with 15 alternating-order rounds:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| per-entry strings plus join vs one-buffer streaming | `1,972,811 ns / 1,189,317 ns` | **`1.6588x`** | **`14/15`** | exact bytes |
+| one-buffer streaming / same streaming path null | `1,051,671 ns / 1,037,455 ns` | `1.0137x` | `7/15` | identical arm |
+
+The result remains about `1.636x` after conservatively dividing by the full
+1.37% null-position skew. The timed test completed in 0.11 seconds. RCH reported
+a cache miss; its pipeline took 92.1 seconds (34.5 seconds sync, 52.6 seconds
+remote build/execution, and 5.1 seconds artifact retrieval; 100.3 seconds
+wrapper elapsed). Routing overhead is not benchmark evidence, and no retry or
+`release-perf` command ran.
+
+CORRECTNESS / GATES: the same-binary harness compares the complete returned
+string against a frozen copy of the former collector for both empty and mixed
+2,048-witness ledgers. This proves byte-identical field order, compact JSON,
+entry order, and newline placement across multiple policies, optional seeds,
+terms, counts, and hashes. Direct rustfmt and `git diff --check` passed before
+measurement. Targeted UBS completed with zero critical findings; its warnings
+were the committed file-wide test `unwrap`/assert, direct-index, cast, and
+allocation inventories. The release test compiled the changed crate and passed.
+The only Cargo command was fail-closed with `RCH_REQUIRE_REMOTE=1`,
+`RCH_NO_SELF_HEALING=1`, and direct `rch --no-self-healing exec -- cargo ...`;
+no local fallback ran.
+
+RESULT: SHIP. Preserve ledger order, compact JSON bytes, empty failed entries,
+and separators exactly. Keep witness collection, hashing, policies, artifact
+durability, and tie-breaking out of this lever.
