@@ -6555,6 +6555,45 @@ fn multigraph_connected_components_orig_string(mg: &fnx_classes::MultiGraph) -> 
     components
 }
 
+/// Count MultiGraph components without materializing their members.
+///
+/// `br-r37-c1-a5rsz`: the listing helper must retain exact component and BFS
+/// discovery order, but a scalar count observes neither. Traverse the same
+/// revision-keyed integer adjacency rows and increment once per unseen start,
+/// avoiding `nodes_ordered()` plus every per-component output `Vec<&str>`.
+fn multigraph_number_connected_components(mg: &fnx_classes::MultiGraph) -> usize {
+    use std::collections::VecDeque;
+
+    mg.with_int_adjacency(|adjacency| {
+        let mut visited = vec![false; adjacency.len()];
+        let mut count = 0usize;
+        for start in 0..adjacency.len() {
+            if visited[start] {
+                continue;
+            }
+            count += 1;
+            visited[start] = true;
+            let mut queue: VecDeque<usize> = VecDeque::new();
+            queue.push_back(start);
+            while let Some(node) = queue.pop_front() {
+                for &neighbor in &adjacency[node] {
+                    if !visited[neighbor] {
+                        visited[neighbor] = true;
+                        queue.push_back(neighbor);
+                    }
+                }
+            }
+        }
+        count
+    })
+}
+
+/// Frozen pre-`br-r37-c1-a5rsz` count route for exact A/B proof.
+#[cfg(test)]
+fn multigraph_number_connected_components_orig_materialized(mg: &fnx_classes::MultiGraph) -> usize {
+    multigraph_connected_components_borrowed(mg).len()
+}
+
 /// Return the number of connected components.
 /// Raises ``NetworkXNotImplemented`` on DiGraph.
 #[pyfunction]
@@ -6565,7 +6604,7 @@ pub fn number_connected_components(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyRe
     // instead of building a full simple Graph first (was 12x slower).
     if let GraphRef::MultiUndirected { mg, .. } = &gr {
         let inner = &mg.inner;
-        return Ok(py.allow_threads(|| multigraph_connected_components_borrowed(inner).len()));
+        return Ok(py.allow_threads(|| multigraph_number_connected_components(inner)));
     }
     let inner = gr.undirected();
     Ok(py.allow_threads(|| fnx_algorithms::number_connected_components(inner).count))
@@ -26544,6 +26583,135 @@ mod tests {
             super::multigraph_connected_components_borrowed(&graph),
             super::multigraph_connected_components_orig_string(&graph)
         );
+    }
+
+    #[test]
+    fn multigraph_number_connected_components_matches_materialized_route() {
+        let mut graph = MultiGraph::strict();
+        assert_eq!(
+            super::multigraph_number_connected_components(&graph),
+            super::multigraph_number_connected_components_orig_materialized(&graph)
+        );
+
+        for node in ["zeta", "alpha", "mu", "theta", "xi"] {
+            let _ = graph.add_node(node.to_owned());
+        }
+        let _ = graph.add_edge("zeta".to_owned(), "alpha".to_owned());
+        let _ = graph.add_edge("zeta".to_owned(), "alpha".to_owned());
+        let _ = graph.add_edge("alpha".to_owned(), "mu".to_owned());
+        let _ = graph.add_edge("theta".to_owned(), "theta".to_owned());
+        assert_eq!(
+            super::multigraph_number_connected_components(&graph),
+            super::multigraph_number_connected_components_orig_materialized(&graph)
+        );
+
+        // Exercise read-mutate-read memo invalidation while merging three
+        // components into one.
+        let _ = graph.add_edge("mu".to_owned(), "theta".to_owned());
+        let _ = graph.add_edge("theta".to_owned(), "xi".to_owned());
+        assert_eq!(
+            super::multigraph_number_connected_components(&graph),
+            super::multigraph_number_connected_components_orig_materialized(&graph)
+        );
+        assert_eq!(super::multigraph_number_connected_components(&graph), 1);
+    }
+
+    /// `br-r37-c1-a5rsz`: same-binary paired proof for a count-only traversal
+    /// versus the former materialized `connected_components(...).len()` route.
+    /// Run through strict remote RCH with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multigraph_number_connected_components_count_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multigraph_number_connected_components_count_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let build_graph = |component_size: usize| {
+            let mut graph = MultiGraph::strict();
+            for i in 0..n {
+                let _ = graph.add_node(format!("count-node-{i:05}"));
+            }
+            if component_size > 1 {
+                for start in (0..n).step_by(component_size) {
+                    for offset in 0..component_size {
+                        let node = start + offset;
+                        let next = start + (offset + 1) % component_size;
+                        let _ = graph.add_edge(
+                            format!("count-node-{node:05}"),
+                            format!("count-node-{next:05}"),
+                        );
+                    }
+                }
+            }
+            graph
+        };
+        let fixtures = [
+            ("isolates", build_graph(1), n),
+            ("pairs", build_graph(2), n / 2),
+            ("ring", build_graph(n), 1),
+        ];
+        let rounds = 31usize;
+
+        for (label, graph, expected) in &fixtures {
+            let candidate = super::multigraph_number_connected_components(graph);
+            let baseline = super::multigraph_number_connected_components_orig_materialized(graph);
+            assert_eq!(
+                candidate, baseline,
+                "count-only route must match list length"
+            );
+            assert_eq!(candidate, *expected);
+
+            let time = |candidate_route: bool| -> f64 {
+                let start = Instant::now();
+                let count = if candidate_route {
+                    super::multigraph_number_connected_components(graph)
+                } else {
+                    super::multigraph_number_connected_components_orig_materialized(graph)
+                };
+                black_box(count);
+                start.elapsed().as_secs_f64()
+            };
+            for _ in 0..3 {
+                black_box(time(true));
+                black_box(time(false));
+            }
+
+            let paired = |baseline_candidate: bool| -> Vec<f64> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                        let baseline_time = time(baseline_candidate);
+                        let candidate_time = time(true);
+                        (baseline_time, candidate_time)
+                    } else {
+                        let candidate_time = time(true);
+                        let baseline_time = time(baseline_candidate);
+                        (baseline_time, candidate_time)
+                    };
+                    ratios.push(baseline_time / candidate_time);
+                }
+                ratios
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "MG_NCC_AB {label}/{name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "MG_NCC_AB {label}: n={n} components={expected} rounds={rounds} (>1 = count-only faster)"
+            );
+            report("count_vs_materialized", &paired(false));
+            report("count_vs_count_null", &paired(true));
+        }
     }
 
     /// `br-r37-c1-7xsg9`: same-binary paired proof for reusing the maintained

@@ -18832,3 +18832,81 @@ authoritative neighbor-row order, exact cache invalidation, and borrowed output
 names. Treat first-read performance as neutral. A future count-only
 `number_connected_components` route is a separate lever and must not be folded
 into this commit.
+
+## 2026-07-13 CopperPelican SHIP (`MultiGraph number_connected_components`): count indexed traversal directly — 4.57x isolates / 4.51x pairs (`br-r37-c1-a5rsz`)
+
+NEGATIVE-LEDGER FIRST: the 2026-06-22 connectivity probe found that rebuilding
+integer CSR on every call was a wash, and the immediately preceding
+`MultiGraph connected_components` keep deliberately deferred scalar counting
+as a separate lever. The revision-keyed integer-adjacency memo now removes the
+old structural blocker. The scalar binding still called the exact listing
+route and allocated `nodes_ordered()` plus one output `Vec<&str>` per component,
+even though callers only observe the list length. This unowned seam scored
+impact 3 x confidence 4 / effort 1 = 12; concurrent algorithm work remained
+untouched.
+
+ONE LEVER: route only `MultiGraph.number_connected_components` through a direct
+count over `MultiGraph::with_int_adjacency`. A `Vec<bool>` and `VecDeque<usize>`
+visit the same insertion-index starts and authoritative neighbor rows, but the
+counter increments once per unseen start instead of materializing component
+members. The public component-listing path, Graph path, graph/cache mutation,
+error behavior, output type, ordering contracts, and RNG/floating-point
+surfaces are unchanged. For the scalar result, traversing every connected
+component and counting unseen roots is isomorphic to the former component-list
+length.
+
+NULL FIRST: before the production edit, the ignored release harness compared
+the then-current route against its frozen materialized equivalent for 31 paired
+alternating-order rounds on strict-remote worker `vmi1156319`. Candidate and
+null rows both sat at the null:
+
+| pre-change paired A/A (>1 = first arm faster) | median | wins | p5-p95 |
+|---|---:|---:|---:|
+| isolates count vs materialized | `0.9844x` | `10/31` | `[0.9035, 1.0874]` |
+| isolates count/count null | `0.9820x` | `11/31` | `[0.8255, 1.7947]` |
+| pairs count vs materialized | `0.9967x` | `14/31` | `[0.8394, 1.0955]` |
+| pairs count/count null | `1.0051x` | `17/31` | `[0.9252, 1.1067]` |
+| ring count vs materialized | `1.0066x` | `16/31` | `[0.7842, 1.2179]` |
+| ring count/count null | `1.0422x` | `18/31` | `[0.8355, 1.2878]` |
+
+MEDIAN GATE: after the edit, the same release harness ran again on the same
+worker. It asserted candidate count equals the frozen materialized route and
+the expected count before 31 paired, alternating-order rounds:
+
+| paired A/B (>1 = direct count faster) | median | wins | p5-p95 | count/count null median (p5-p95) |
+|---|---:|---:|---:|---:|
+| 20,000 isolates / 20,000 components | `4.5671x` | `31/31` | `[3.8020, 5.8392]` | `1.0038x` (`[0.5677, 1.9582]`) |
+| 20,000 nodes / 10,000 paired components | `4.5109x` | `31/31` | `[3.8623, 5.6047]` | `0.9108x` (`[0.5900, 4.2414]`) |
+| 20,000-node ring / one component | `1.8033x` | `30/31` | `[1.2047, 3.7237]` | `0.9748x` (`[0.6619, 1.8580]`) |
+
+The isolate candidate p5 is 1.94x above its null p95 and won every pair, so the
+primary fragmented-graph gate is decisive. The paired-components row also won
+every pair at 4.51x median; its wide null tail is reported rather than hidden.
+The connected ring's 1.80x median and 30/31 wins provide supporting evidence
+that removing result materialization does not trade away the one-component
+case.
+
+CORRECTNESS / GATES: a regular test compares the direct count with the frozen
+former route for empty, insertion-ordered, parallel-edge, self-loop,
+disconnected, and read-mutate-read cache-invalidation cases. The release A/B
+also checked all three exact expected counts before timing. The fully qualified
+release-profile focused test passed 1/1 on the same `vmi1156319` worker. Three
+earlier zero-test results are excluded: one debug image was stale (38 tests
+instead of the current 40), and two exact filters omitted the `algorithms::`
+module prefix. Strict-remote `cargo check --workspace --all-targets` passed on
+`vmi1149989` with one pre-existing unused-variable warning in
+`fnx-algorithms`. Exact workspace clippy stopped on the already-recorded
+`fnx-classes/src/lib.rs:1700` `collapsible_if`; scoped strict-remote
+`cargo clippy -p fnx-python --lib --no-deps -- -D warnings` passed on
+`vmi1293453`. Direct `rustfmt --edition 2024 --check` and `git diff --check`
+passed. UBS's static-only scan reported the known file-wide test panic and
+warning backlog; the owned production hunk had no finding, and the one owned
+benchmark-only partial comparison was replaced with `f64::total_cmp`. Every
+explicit Cargo command used fail-closed `RCH_REQUIRE_REMOTE=1`,
+`RCH_NO_SELF_HEALING=1`, and `rch --no-self-healing exec`; two initial A/B
+admissions were refused for insufficient slots and no local fallback ran.
+
+RESULT: SHIP. Preserve the direct indexed traversal for the scalar MultiGraph
+count and retain the materializing traversal only for callers requesting
+component members. Future connectivity work should choose a distinct public
+surface rather than folding another lever into this commit.
