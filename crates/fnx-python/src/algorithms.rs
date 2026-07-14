@@ -14871,6 +14871,33 @@ fn multidigraph_csr_reaches_every_node(
 fn multidigraph_strongly_connected_components_nx_ordered(
     mdg: &fnx_classes::digraph::MultiDiGraph,
 ) -> Vec<Vec<String>> {
+    // br-r37-c1-vrbmf (cc): the sibling `_indices_` variant already runs this EXACT
+    // Tarjan (identical preorder/lowlink/scc_queue, single-SCC fast path, component
+    // collection order) over the cached `mdg.csr()`. Delegate to it and map the
+    // component indices to names instead of rebuilding a duplicate inline
+    // `HashMap<&str,usize>` + per-node `successors()` String adjacency. Byte-identical
+    // component partition AND order (csr.successors == mdg.successors key order; the
+    // (0..n) single-SCC fast path equals the node-insertion order); wins warm (cache)
+    // and cold (flat CSR build < HashMap/String rebuild) — same as number_scc (giqjb).
+    let nodes = mdg.nodes_ordered();
+    multidigraph_strongly_connected_component_indices_nx_ordered(mdg)
+        .into_iter()
+        .map(|component| {
+            component
+                .into_iter()
+                .map(|idx| nodes[idx].to_owned())
+                .collect()
+        })
+        .collect()
+}
+
+/// Frozen pre-`br-r37-c1-vrbmf` inline-`HashMap` Tarjan route — rebuilds the
+/// name→index map and successor/predecessor adjacency each call. Kept for the
+/// same-binary A/B and exact-order parity proof.
+#[cfg(test)]
+fn multidigraph_strongly_connected_components_nx_ordered_orig_inline(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+) -> Vec<Vec<String>> {
     let nodes = mdg.nodes_ordered();
     let node_indices: HashMap<&str, usize> = nodes
         .iter()
@@ -28999,6 +29026,175 @@ mod tests {
         report("warm_candidate_vs_hashmap", &paired_warm(false));
         report("warm_candidate_null", &paired_warm(true));
         report("cold_candidate_vs_hashmap", &paired_cold(false));
+        report("cold_candidate_null", &paired_cold(true));
+    }
+
+    #[test]
+    fn multidigraph_scc_listing_delegate_matches_inline_route() {
+        // EXACT parity: the delegating (cached-csr) route must produce the identical
+        // ordered Vec<Vec<String>> as the frozen inline route on every shape.
+        let assert_parity = |mdg: &MultiDiGraph| {
+            assert_eq!(
+                super::multidigraph_strongly_connected_components_nx_ordered(mdg),
+                super::multidigraph_strongly_connected_components_nx_ordered_orig_inline(mdg),
+                "delegated vs inline SCC listing must be byte-identical"
+            );
+            super::multidigraph_strongly_connected_components_nx_ordered(mdg)
+        };
+
+        assert!(assert_parity(&MultiDiGraph::strict()).is_empty());
+
+        let mut single = MultiDiGraph::strict();
+        let _ = single.add_node("solo".to_owned());
+        assert_eq!(assert_parity(&single), vec![vec!["solo".to_owned()]]);
+        let _ = single.add_edge("solo".to_owned(), "solo".to_owned());
+        assert_eq!(assert_parity(&single), vec![vec!["solo".to_owned()]]);
+
+        // Strongly-connected cycle a->b->c->a: one component (single-SCC fast path).
+        let mut cyc = MultiDiGraph::strict();
+        for node in ["a", "b", "c"] {
+            let _ = cyc.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "a")] {
+            let _ = cyc.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_eq!(
+            assert_parity(&cyc),
+            vec![vec!["a".to_owned(), "b".to_owned(), "c".to_owned()]]
+        );
+        // Parallel edge + self-loop keep the single component.
+        let _ = cyc.add_edge("a".to_owned(), "b".to_owned());
+        let _ = cyc.add_edge("b".to_owned(), "b".to_owned());
+        assert_parity(&cyc);
+        // Read-mutate-read: append sink d → two components (order asserted via parity).
+        let _ = cyc.add_node("d".to_owned());
+        let _ = cyc.add_edge("c".to_owned(), "d".to_owned());
+        let two = assert_parity(&cyc);
+        assert_eq!(two.len(), 2, "cycle + sink → 2 SCCs");
+
+        // Directed path + branch + two disjoint 2-cycles + isolated node: full Tarjan,
+        // several components — parity is the contract here.
+        let mut multi = MultiDiGraph::strict();
+        for node in ["p", "q", "r", "s", "t", "u", "iso"] {
+            let _ = multi.add_node(node.to_owned());
+        }
+        for (a, b) in [
+            ("p", "q"),
+            ("q", "r"),
+            ("r", "p"),
+            ("r", "s"),
+            ("t", "u"),
+            ("u", "t"),
+        ] {
+            let _ = multi.add_edge(a.to_owned(), b.to_owned());
+        }
+        assert_parity(&multi);
+    }
+
+    /// `br-r37-c1-vrbmf`: same-binary paired proof for the MultiDiGraph SCC listing —
+    /// cached-csr delegation vs the frozen per-call inline-HashMap Tarjan. Forward DAG
+    /// (n singleton SCCs → full Tarjan). Run with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multidigraph_scc_listing_delegate_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multidigraph_scc_listing_delegate_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("scl-node-{index:05}");
+        let mut graph = MultiDiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        // Forward-only edges → a DAG: every node is its own SCC, so the single-SCC
+        // fast path is skipped and the full Tarjan runs over all n nodes.
+        for index in 0..n {
+            if index + 1 < n {
+                let _ = graph.add_edge(node(index), node(index + 1));
+            }
+            if index + 127 < n {
+                let _ = graph.add_edge(node(index), node(index + 127));
+            }
+            if index.is_multiple_of(8) && index + 1 < n {
+                let _ = graph.add_edge(node(index), node(index + 1));
+            }
+        }
+        let candidate = super::multidigraph_strongly_connected_components_nx_ordered(&graph);
+        let baseline = super::multidigraph_strongly_connected_components_nx_ordered_orig_inline(&graph);
+        assert_eq!(candidate, baseline, "delegated csr listing must match inline route");
+        assert_eq!(candidate.len(), n, "forward DAG yields n singleton SCCs");
+
+        // Prime the revision-keyed CSR memo before warm timing.
+        black_box(graph.csr().successors(0).len());
+
+        let time = |timed_graph: &MultiDiGraph, candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                super::multidigraph_strongly_connected_components_nx_ordered(timed_graph)
+            } else {
+                super::multidigraph_strongly_connected_components_nx_ordered_orig_inline(timed_graph)
+            };
+            black_box(result.len());
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired_warm = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, baseline_candidate);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let paired_cold = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let baseline_graph = graph.clone();
+                let candidate_graph = graph.clone();
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    let candidate_time = time(&candidate_graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&candidate_graph, true);
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "MDG_SCL_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("MDG_SCL_AB n={n} forward-DAG rounds={rounds} SCC-listing Tarjan (>1 = candidate faster)");
+        report("warm_candidate_vs_inline", &paired_warm(false));
+        report("warm_candidate_null", &paired_warm(true));
+        report("cold_candidate_vs_inline", &paired_cold(false));
         report("cold_candidate_null", &paired_cold(true));
     }
 
