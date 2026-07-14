@@ -272,17 +272,10 @@ impl GraphGenerator {
     pub fn star_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
         // NetworkX integer semantics: star_graph(n) has n spokes and n + 1 nodes total.
         let (n, warnings) = self.validate_n("star_graph", n, MAX_N_STAR)?;
-        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n + 1);
-        if let Some((hub, spokes)) = node_labels.split_first() {
-            for spoke in spokes {
-                graph.add_edge(hub.clone(), spoke.clone()).map_err(|err| {
-                    GenerationError::FailClosed {
-                        operation: "star_graph",
-                        reason: err.to_string(),
-                    }
-                })?;
-            }
-        }
+        let (mut graph, _node_labels) = graph_with_n_nodes(self.mode, n + 1);
+        let inserted = graph
+            .extend_existing_index_edges_unrecorded((1..=n).map(|spoke_index| (0, spoke_index)));
+        debug_assert_eq!(inserted, n);
 
         self.record(
             "star_graph",
@@ -10015,6 +10008,107 @@ mod tests {
         let snapshot = report.graph.snapshot();
         assert_eq!(snapshot.nodes, vec!["0"]);
         assert!(snapshot.edges.is_empty());
+    }
+
+    /// Paired same-binary A/B for `star_graph`'s edge insertion. The frozen arm
+    /// retains the former per-edge String path; the candidate uses the shipped
+    /// existing-index batch. Both construct the same complete report substrate.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn star_graph_index_batch_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let build_frozen = |n: usize| {
+            let (mut graph, node_labels) =
+                super::graph_with_n_nodes(CompatibilityMode::Strict, n + 1);
+            let (hub, spokes) = node_labels
+                .split_first()
+                .expect("star graph always contains its hub");
+            for spoke in spokes {
+                graph
+                    .add_edge(hub.clone(), spoke.clone())
+                    .expect("frozen star endpoints already exist");
+            }
+            graph
+        };
+        let build_index_batch = |n: usize| {
+            let (mut graph, _node_labels) =
+                super::graph_with_n_nodes(CompatibilityMode::Strict, n + 1);
+            let inserted = graph.extend_existing_index_edges_unrecorded(
+                (1..=n).map(|spoke_index| (0, spoke_index)),
+            );
+            assert_eq!(inserted, n);
+            graph
+        };
+
+        for n in [0, 1, 2, 4, 17] {
+            assert_eq!(
+                build_frozen(n).snapshot(),
+                build_index_batch(n).snapshot(),
+                "index batch must preserve the complete ordered star snapshot for n={n}"
+            );
+        }
+
+        let n = 8_192usize;
+        let calls = 4usize;
+        let rounds = 15usize;
+        let time = |batch: bool| {
+            let started = Instant::now();
+            for _ in 0..calls {
+                if batch {
+                    black_box(build_index_batch(n));
+                } else {
+                    black_box(build_frozen(n));
+                }
+            }
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let base_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(base, candidate)| base > candidate)
+                .count();
+            println!(
+                "STAR_INDEX_BATCH_AB {name}: baseline_median_ns={base_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds}",
+                base_median as f64 / candidate_median as f64,
+            );
+        };
+
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("frozen_vs_index", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("index_vs_index_null", &null_a_ns, &null_b_ns);
     }
 
     #[test]

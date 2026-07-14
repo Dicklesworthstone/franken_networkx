@@ -20510,3 +20510,64 @@ gate, one-time pending-cell reconstruction before the first mixed key, and the
 frozen first-touch display semantics. Do not generalize the elision to floats,
 bools, tuple nodes, or already-populated mutation paths without a separate
 collision/display proof.
+
+## 2026-07-14 YellowFox SHIP (`star_graph`): batch existing-index spokes — **14.096x** (`br-r37-c1-16rkh`)
+
+NEGATIVE-LEDGER / ROBOT-TRIAGE FIRST: `bv --robot-triage` ranked the occupied
+no-gaps umbrella and exposed only broad or already-owned top recommendations,
+so this turn rotated into the smaller generator crate. The older generator
+construction-tax row measured `star_graph(5000)` at roughly `2.0x` slower than
+NetworkX, but subsequent generator work closed sibling rows and never removed
+the Rust generator's own per-spoke insertion loop. The random-regular seam is
+already heavily mined, making this recorded star residual the bounded fresh
+choice.
+
+PROFILE / ATTRIBUTION FIRST: source-level hot-loop accounting found that
+`graph_with_n_nodes` has already created the hub and every spoke at contiguous
+indices, yet `star_graph(n)` still performed `n` fallible `add_edge` calls. At
+the ledger's `n=5000` fixture that is 10,000 endpoint `String` clones, 10,000
+name-map probes, and 5,000 per-edge policy/error paths. All edges are unique and
+their required order is exactly `(0,1), (0,2), ..., (0,n)`, so those costs are
+entirely attributable to selecting the name-based insertion API.
+
+ONE LEVER: emit the same ordered spoke iterator into
+`extend_existing_index_edges_unrecorded`. This retains the existing node
+creation, validation bounds, strict/hardened policy handoff, canonical endpoint
+orientation, adjacency-row order, and final generator evidence record. A frozen
+test-only copy of the former per-edge String loop is the parity and timing
+oracle.
+
+ONE FOREGROUND A/B + NULL: one strict-remote ordinary `--profile release`
+invocation on worker `vmi1149989` (job `j-29928833041828524`) used 8,192
+spokes, four builds per sample, three warmups, and 15 alternating-order rounds.
+The same binary asserted full ordered `GraphSnapshot` equality at 0, 1, 2, 4,
+and 17 spokes before timing:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen per-edge String insertion vs existing-index batch | `83,881,520 ns / 5,950,720 ns` | **`14.0960x`** | **`15/15`** | exact |
+| existing-index batch / existing-index batch null | `6,103,232 ns / 5,956,110 ns` | `1.0247x` | identical arm | exact |
+
+The real arm wins every pair and remains about `13.76x` after conservatively
+dividing by the full 2.47% null skew. The timed test itself finished in 1.97
+seconds. RCH nevertheless reported a cache miss; total wall time was 134.6
+seconds, of which 41.4 seconds was sync and 80.7 seconds remote compilation.
+That routing overhead is not benchmark evidence, and no retry or
+`release-perf` command was used.
+
+CORRECTNESS / GATES: the same release invocation passed `1/1`; its frozen oracle
+compared every ordered node, edge, attribute map, and endpoint orientation in
+the complete snapshots across the five boundary sizes. Direct rustfmt and
+`git diff --check` passed before the measurement. Targeted UBS completed with
+zero critical findings; its warnings were the committed file-wide test
+`expect`/assert, clone, direct-index, and allocation inventories. The release
+test compiled the changed crate and dependencies successfully. The only Cargo
+command was fail-closed with `RCH_REQUIRE_REMOTE=1`,
+`RCH_NO_SELF_HEALING=1`, and direct `rch --no-self-healing exec -- cargo ...`;
+no local fallback ran.
+
+RESULT: SHIP. Preserve contiguous pre-created indices, ascending spoke emission,
+canonical endpoint orientation, the `n=0` singleton, and the generator's final
+policy handoff. Do not generalize this batch to generators with duplicate edges,
+non-contiguous node labels, or order-dependent intermediate mutations without a
+separate parity and timing proof.
