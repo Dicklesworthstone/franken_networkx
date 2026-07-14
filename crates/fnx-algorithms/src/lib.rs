@@ -51086,32 +51086,20 @@ mod bitpar_harmonic_tests {
     fn edgeless_fast_path_matches_old_arm_bit_for_bit() {
         for n in [1, 63, 64, 65, 256, CENTRALITY_PARALLEL_THRESHOLD - 1] {
             let g = edgeless(n);
-            let baseline = super::harmonic_centrality_generic_arm_impl(
-                &g,
-                super::BitparArm::Auto,
-                false,
-            );
-            let candidate = super::harmonic_centrality_generic_arm_impl(
-                &g,
-                super::BitparArm::Auto,
-                true,
-            );
+            let baseline =
+                super::harmonic_centrality_generic_arm_impl(&g, super::BitparArm::Auto, false);
+            let candidate =
+                super::harmonic_centrality_generic_arm_impl(&g, super::BitparArm::Auto, true);
             assert_result_identical(&candidate, &baseline, &format!("Graph n={n}"));
 
             let mut dg = DiGraph::strict();
             for i in 0..n {
                 let _ = dg.add_node(i.to_string());
             }
-            let directed_baseline = super::harmonic_centrality_generic_arm_impl(
-                &dg,
-                super::BitparArm::Auto,
-                false,
-            );
-            let directed_candidate = super::harmonic_centrality_generic_arm_impl(
-                &dg,
-                super::BitparArm::Auto,
-                true,
-            );
+            let directed_baseline =
+                super::harmonic_centrality_generic_arm_impl(&dg, super::BitparArm::Auto, false);
+            let directed_candidate =
+                super::harmonic_centrality_generic_arm_impl(&dg, super::BitparArm::Auto, true);
             assert_result_identical(
                 &directed_candidate,
                 &directed_baseline,
@@ -51122,14 +51110,15 @@ mod bitpar_harmonic_tests {
 
     fn run_harmonic_edgeless_fast_path_ab(candidate_enabled: bool) {
         const ROUNDS: usize = 31;
-        let mode = if candidate_enabled { "candidate" } else { "null" };
+        let mode = if candidate_enabled {
+            "candidate"
+        } else {
+            "null"
+        };
         let graph = edgeless(CENTRALITY_PARALLEL_THRESHOLD - 1);
 
-        let baseline = super::harmonic_centrality_generic_arm_impl(
-            &graph,
-            super::BitparArm::Auto,
-            false,
-        );
+        let baseline =
+            super::harmonic_centrality_generic_arm_impl(&graph, super::BitparArm::Auto, false);
         let candidate = super::harmonic_centrality_generic_arm_impl(
             &graph,
             super::BitparArm::Auto,

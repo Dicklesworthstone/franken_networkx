@@ -19625,3 +19625,67 @@ owned production issue, unsafe block, or security finding.
 RESULT: SHIP. Preserve the zero-edge predicate, ordered original Python keys,
 and exact `+0.0`; do not widen this commit into other centralities or
 non-edgeless approximations without separate parity and timing.
+
+## 2026-07-14 SwiftCoast SHIP (`harmonic_centrality`): bypass the bit-parallel batch for sub-threshold edgeless graphs — 1.780x (`br-r37-c1-l2z7a`)
+
+NEGATIVE-LEDGER FIRST: the immediately preceding closeness keep explicitly
+prohibited widening its binding-level zero-edge bypass into another centrality
+without separate proof. The harmonic sibling uses a different core path: for
+every non-empty graph below `CENTRALITY_PARALLEL_THRESHOLD`, `Auto` always
+entered one bit-parallel reverse-BFS batch. An edgeless graph can only mark each
+source as reaching itself, yet the kernel still built a CSR and initialized
+O(V^2/64) bit-matrix scratch. No prior edgeless harmonic attempt was found; the
+older harmonic work optimized connected traversal shapes. This is the separate
+structural early-exit family allowed by the count/materialization survey.
+Opportunity score: impact 3 x confidence 5 / effort 1 = 15.
+
+ONE LEVER: split the existing arm into an implementation with a frozen
+`edgeless_fast_path` selector. Production enables it only when the arm is not
+the explicit `PerSource` baseline, `0 < n < CENTRALITY_PARALLEL_THRESHOLD`, and
+`edge_count() == 0`. It emits insertion-ordered node Strings with exact `+0.0`
+scores and the old witness values (`nodes_touched=n`, `edges_scanned=0`,
+`queue_peak=n`). Empty graphs, every graph with an edge, and all graphs at or
+above the parallel threshold retain the old route unchanged.
+
+NULL FIRST: one release binary on strict-remote worker `vmi1149989` interleaved
+the frozen pre-change arm against itself on 499 isolates, after eight warmups,
+over 31 alternating-order pairs:
+
+| paired A/A null (>1 = second identical arm faster) | median times | speedup | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen old arm vs frozen old arm | `21,222 ns / 21,182 ns` | `1.0019x` | `20/31` | exact |
+
+FOREGROUND MEDIAN GATE: the real candidate run used the same worker and one
+same-binary interleaved A/B. It asserted every score bit, node order, and the
+complete `ComplexityWitness` before timing:
+
+| paired A/B (>1 = direct result faster) | median times | speedup | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen bit-parallel arm vs direct edgeless result | `21,423 ns / 12,039 ns` | **`1.7795x`** | **`30/31`** | exact |
+
+The 1.7795x median is far above the 1.0019x null floor and clears the 1.10x keep
+threshold. A first post-commit invocation matched zero tests because the shared
+checkout advanced during RCH synchronization; that invalid run contributed no
+timings. The stable-HEAD rerun above matched one test and is the admitted proof.
+
+CORRECTNESS / GATES: the focused differential test passed `1/1` on
+`vmi1149989`; it checks Graph and DiGraph at n={1,63,64,65,256,499}, comparing
+node order, every `f64::to_bits()`, and every witness field against the frozen
+old arm. Strict-remote `cargo check --workspace --all-targets` passed on
+`vmi1149989` with only existing unused/dead-code warnings outside the lever.
+Exact workspace clippy, and the crate-scoped run before `--no-deps`, reproduced
+the committed `fnx-classes/src/lib.rs:1700` `collapsible_if` blocker on
+`vmi1227854` before linting this crate. A follow-up `--no-deps` run reached
+`fnx-algorithms` and reproduced four unrelated committed blockers at lines
+21,970, 22,110, 33,442, and 33,445 (`explicit_counter_loop` and
+`question_mark`). Direct read-only rustfmt exposed broad pre-existing file
+drift; the new ranges were manually aligned with rustfmt and `git diff --check`
+passed. UBS reported its file-wide inventory plus one false positive that
+interpreted the test name
+`from_prufer_sequence_preserves_ordered_smallest_leaf_decode` as a JWT decode;
+it found no unsafe block, panic macro, or lever-local security issue. Every
+Cargo command used fail-closed remote RCH; no local Cargo fallback ran.
+
+RESULT: SHIP in `62d2f76bb`. Preserve the sub-threshold zero-edge predicate,
+exact positive-zero scores, and witness values. Do not widen into the parallel
+threshold or non-edgeless graphs without separate parity and timing.
