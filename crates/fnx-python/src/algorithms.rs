@@ -6084,6 +6084,92 @@ fn multidigraph_target_bfs_distance(
 /// contract while avoiding full successor+predecessor CSR materialization for
 /// the common not-strongly-connected case.
 fn multidigraph_is_strongly_connected(mdg: &fnx_classes::digraph::MultiDiGraph) -> bool {
+    // br-r37-c1-d291d (cc): run the iterative Tarjan over the pre-existing
+    // revision-keyed integer CSR successor rows instead of rebuilding an inline
+    // `HashMap<&str,usize>` + per-node `successors()` String Vec each call. The CSR
+    // rows are the same distinct successors in the same order (already node indices),
+    // so the preorder/lowlink DFS is byte-identical → identical strong-connectivity
+    // bool. Wins warm (cache) and cold (flat CSR build < HashMap/String rebuild).
+    let n = mdg.node_count();
+    if n == 0 {
+        return true;
+    }
+    let csr = mdg.csr();
+    let mut preorder = vec![0usize; n];
+    let mut lowlink = vec![0usize; n];
+    let mut scc_found = vec![false; n];
+    let mut scc_queue = Vec::<usize>::new();
+    let mut preorder_counter = 0usize;
+
+    for source in 0..n {
+        if scc_found[source] {
+            continue;
+        }
+        let mut queue: Vec<(usize, &[u32], usize)> = vec![(source, csr.successors(source), 0)];
+        while let Some((v_ref, successors, next_successor)) = queue.last_mut() {
+            let v = *v_ref;
+            if preorder[v] == 0 {
+                preorder_counter += 1;
+                preorder[v] = preorder_counter;
+            }
+
+            let mut descended = false;
+            while *next_successor < successors.len() {
+                let w = successors[*next_successor] as usize;
+                *next_successor += 1;
+                if w < n && preorder[w] == 0 {
+                    queue.push((w, csr.successors(w), 0));
+                    descended = true;
+                    break;
+                }
+            }
+            if descended {
+                continue;
+            }
+
+            lowlink[v] = preorder[v];
+            for &raw in csr.successors(v) {
+                let w = raw as usize;
+                if w >= n || scc_found[w] {
+                    continue;
+                }
+                if preorder[w] > preorder[v] {
+                    lowlink[v] = lowlink[v].min(lowlink[w]);
+                } else {
+                    lowlink[v] = lowlink[v].min(preorder[w]);
+                }
+            }
+
+            queue.pop();
+            if lowlink[v] == preorder[v] {
+                let mut component_size = 1usize;
+                while scc_queue
+                    .last()
+                    .is_some_and(|&queued| preorder[queued] > preorder[v])
+                {
+                    let Some(queued) = scc_queue.pop() else {
+                        break;
+                    };
+                    scc_found[queued] = true;
+                    component_size += 1;
+                }
+                scc_found[v] = true;
+                return component_size == n;
+            }
+            scc_queue.push(v);
+        }
+    }
+
+    false
+}
+
+/// Frozen pre-`br-r37-c1-d291d` inline-`HashMap` Tarjan route — rebuilds the
+/// name→index map and per-node successor Vecs each call. Kept for the same-binary
+/// A/B and parity proof.
+#[cfg(test)]
+fn multidigraph_is_strongly_connected_orig_hashmap(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+) -> bool {
     use std::collections::HashMap;
     let nodes = mdg.nodes_ordered();
     let n = nodes.len();
@@ -28310,6 +28396,169 @@ mod tests {
         };
 
         println!("MDG_DAG_AB n={n} forward-DAG rounds={rounds} Kahn (>1 = candidate faster)");
+        report("warm_candidate_vs_hashmap", &paired_warm(false));
+        report("warm_candidate_null", &paired_warm(true));
+        report("cold_candidate_vs_hashmap", &paired_cold(false));
+        report("cold_candidate_null", &paired_cold(true));
+    }
+
+    #[test]
+    fn multidigraph_is_strongly_connected_csr_matches_hashmap_route() {
+        let assert_parity = |mdg: &MultiDiGraph, expected: bool| {
+            let csr_route = super::multidigraph_is_strongly_connected(mdg);
+            assert_eq!(
+                csr_route,
+                super::multidigraph_is_strongly_connected_orig_hashmap(mdg),
+                "csr vs hashmap route must agree"
+            );
+            assert_eq!(csr_route, expected, "strong-connectivity value");
+        };
+
+        assert_parity(&MultiDiGraph::strict(), true); // empty is vacuously SC
+
+        let mut single = MultiDiGraph::strict();
+        let _ = single.add_node("solo".to_owned());
+        assert_parity(&single, true);
+        let _ = single.add_edge("solo".to_owned(), "solo".to_owned());
+        assert_parity(&single, true); // one node stays SC with a self-loop
+
+        // Directed cycle a->b->c->a is strongly connected.
+        let mut cyc = MultiDiGraph::strict();
+        for node in ["a", "b", "c"] {
+            let _ = cyc.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "a")] {
+            let _ = cyc.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&cyc, true);
+        // Parallel edge + self-loop keep it SC.
+        let _ = cyc.add_edge("a".to_owned(), "b".to_owned());
+        let _ = cyc.add_edge("b".to_owned(), "b".to_owned());
+        assert_parity(&cyc, true);
+        // Read-mutate-read: add an isolated sink node d, breaking SC.
+        let _ = cyc.add_node("d".to_owned());
+        let _ = cyc.add_edge("c".to_owned(), "d".to_owned());
+        assert_parity(&cyc, false);
+
+        // Two separate directed cycles (two SCCs) → not strongly connected.
+        let mut two = MultiDiGraph::strict();
+        for node in ["p", "q", "r", "s"] {
+            let _ = two.add_node(node.to_owned());
+        }
+        for (u, v) in [("p", "q"), ("q", "p"), ("r", "s"), ("s", "r")] {
+            let _ = two.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&two, false);
+
+        // Directed path a->b->c (weakly but not strongly connected).
+        let mut path = MultiDiGraph::strict();
+        for node in ["x", "y", "z"] {
+            let _ = path.add_node(node.to_owned());
+        }
+        for (u, v) in [("x", "y"), ("y", "z")] {
+            let _ = path.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&path, false);
+    }
+
+    /// `br-r37-c1-d291d`: same-binary paired proof for multidigraph_is_strongly_connected
+    /// — cached-CSR Tarjan vs the per-call inline-HashMap adjacency rebuild. Run with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multidigraph_is_strongly_connected_csr_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multidigraph_is_strongly_connected_csr_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("scc-node-{index:05}");
+        let mut graph = MultiDiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        // Directed cycle + forward chords keeps the whole graph one SCC, so Tarjan
+        // traverses every node before returning true.
+        for index in 0..n {
+            let next = (index + 1) % n;
+            let chord = (index + 127) % n;
+            let _ = graph.add_edge(node(index), node(next));
+            let _ = graph.add_edge(node(index), node(chord));
+            if index.is_multiple_of(8) {
+                let _ = graph.add_edge(node(index), node(next));
+            }
+        }
+        let candidate = super::multidigraph_is_strongly_connected(&graph);
+        let baseline = super::multidigraph_is_strongly_connected_orig_hashmap(&graph);
+        assert_eq!(candidate, baseline, "csr Tarjan must match hashmap route");
+        assert!(candidate, "directed cycle+chord graph is strongly connected");
+
+        // Prime the revision-keyed CSR memo before warm timing.
+        black_box(graph.csr().successors(0).len());
+
+        let time = |timed_graph: &MultiDiGraph, candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                super::multidigraph_is_strongly_connected(timed_graph)
+            } else {
+                super::multidigraph_is_strongly_connected_orig_hashmap(timed_graph)
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired_warm = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, baseline_candidate);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let paired_cold = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let baseline_graph = graph.clone();
+                let candidate_graph = graph.clone();
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    let candidate_time = time(&candidate_graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&candidate_graph, true);
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "MDG_SC_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("MDG_SC_AB n={n} SC cycle+chord rounds={rounds} Tarjan (>1 = candidate faster)");
         report("warm_candidate_vs_hashmap", &paired_warm(false));
         report("warm_candidate_null", &paired_warm(true));
         report("cold_candidate_vs_hashmap", &paired_cold(false));
