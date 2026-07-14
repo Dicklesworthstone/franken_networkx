@@ -15940,6 +15940,58 @@ pub fn common_neighbors(
     Ok(result.iter().map(|n| gr.py_node_key(py, n)).collect())
 }
 
+/// br-r37-c1-c4ye0 (cc): undirected upper-triangle non-edges over a `vec![false;n]`
+/// neighbor bool row instead of an O(V²/2) `has_edge(u,v)` String-hash probe per
+/// ordered pair. For each `i` mark `neighbors_indices(i)` in the reusable row, then a
+/// non-edge is any `j > i` with `!is_nbr[j]` (an O(1) array read), resetting the row
+/// after each `i`. Byte-identical: same `i < j` upper-triangle scan in node order,
+/// same emitted `(name, name)` pairs. Undirected sibling of
+/// `directed_non_edges_bool_row` (br-r37-c1-5k75q).
+fn undirected_non_edges_bool_row(graph: &fnx_classes::Graph) -> Vec<(String, String)> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let mut pairs = Vec::new();
+    let mut is_nbr = vec![false; n];
+    for i in 0..n {
+        if let Some(nbrs) = graph.neighbors_indices(i) {
+            for &w in nbrs {
+                if w < n {
+                    is_nbr[w] = true;
+                }
+            }
+        }
+        for j in (i + 1)..n {
+            if !is_nbr[j] {
+                pairs.push((nodes[i].to_string(), nodes[j].to_string()));
+            }
+        }
+        if let Some(nbrs) = graph.neighbors_indices(i) {
+            for &w in nbrs {
+                if w < n {
+                    is_nbr[w] = false;
+                }
+            }
+        }
+    }
+    pairs
+}
+
+/// Frozen pre-`br-r37-c1-c4ye0` O(V²) `has_edge` route for the same-binary A/B and
+/// parity proof.
+#[cfg(test)]
+fn undirected_non_edges_has_edge_orig(graph: &fnx_classes::Graph) -> Vec<(String, String)> {
+    let nodes = graph.nodes_ordered();
+    let mut pairs = Vec::new();
+    for (i, u) in nodes.iter().enumerate() {
+        for v in &nodes[i + 1..] {
+            if !graph.has_edge(u, v) {
+                pairs.push((u.to_string(), v.to_string()));
+            }
+        }
+    }
+    pairs
+}
+
 /// Helper to extract node pairs (ebunch) from Python.
 /// If ebunch is None, returns all non-edges.
 fn extract_ebunch(
@@ -15967,18 +16019,10 @@ fn extract_ebunch(
             .collect::<PyResult<Vec<_>>>()?;
         Ok(pairs)
     } else {
-        // Default: all non-edges
+        // br-r37-c1-c4ye0 (cc): default all-non-edges over the neighbor bool row (O(1)
+        // array reads) instead of an O(V²/2) has_edge String-hash probe per pair.
         let inner = gr.undirected();
-        let nodes = inner.nodes_ordered();
-        let mut pairs = Vec::new();
-        for (i, u) in nodes.iter().enumerate() {
-            for v in &nodes[i + 1..] {
-                if !inner.has_edge(u, v) {
-                    pairs.push((u.to_string(), v.to_string()));
-                }
-            }
-        }
-        Ok(pairs)
+        Ok(undirected_non_edges_bool_row(inner))
     }
 }
 
@@ -30129,6 +30173,123 @@ mod tests {
         };
 
         println!("NONEDGES_AB n={n} dense-DiGraph rounds={rounds} V^2 scan (>1 = candidate faster)");
+        report("boolrow_vs_hasedge", &paired());
+        report("null", &null());
+    }
+
+    #[test]
+    fn undirected_non_edges_bool_row_matches_has_edge_route() {
+        use fnx_classes::Graph;
+        let assert_parity = |g: &Graph| {
+            assert_eq!(
+                super::undirected_non_edges_bool_row(g),
+                super::undirected_non_edges_has_edge_orig(g),
+                "bool-row non-edges must match the has_edge route (order + pairs)"
+            );
+        };
+
+        assert_parity(&Graph::strict());
+
+        let mut single = Graph::strict();
+        let _ = single.add_node("solo".to_owned());
+        assert_parity(&single);
+        let _ = single.add_edge("solo".to_owned(), "solo".to_owned()); // self-loop irrelevant
+        assert_parity(&single);
+
+        // Mixed: path + a triangle + isolated node + a self-loop.
+        let mut g = Graph::strict();
+        for node in ["a", "b", "c", "d", "e", "iso"] {
+            let _ = g.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "a"), ("c", "d"), ("d", "d")] {
+            let _ = g.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&g);
+        // Read-mutate-read.
+        let _ = g.add_edge("iso".to_owned(), "e".to_owned());
+        assert_parity(&g);
+    }
+
+    /// `br-r37-c1-c4ye0`: same-binary paired proof for the undirected non-edges scan
+    /// (extract_ebunch default path) — neighbor bool row vs the O(V²) has_edge probe.
+    /// Dense graph (few non-edges → the pair scan dominates). Run with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// undirected_non_edges_bool_row_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn undirected_non_edges_bool_row_ab() {
+        use fnx_classes::Graph;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense: each node adjacent to ~half the others → the O(V²) has_edge scan is
+        // the whole cost; the non-edge OUTPUT stays small.
+        let n = 3_000usize;
+        let node = |index: usize| format!("une-node-{index:05}");
+        let mut graph = Graph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        for u in 0..n {
+            for step in 1..=(n / 2) {
+                let _ = graph.add_edge(node(u), node((u + step) % n));
+            }
+        }
+        let candidate = super::undirected_non_edges_bool_row(&graph);
+        let baseline = super::undirected_non_edges_has_edge_orig(&graph);
+        assert_eq!(candidate, baseline, "bool-row must match has_edge route");
+
+        let time = |candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                super::undirected_non_edges_bool_row(&graph)
+            } else {
+                super::undirected_non_edges_has_edge_orig(&graph)
+            };
+            black_box(result.len());
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+
+        let rounds = 31usize;
+        let paired = || -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(false), time(true))
+                } else {
+                    let c = time(true);
+                    (time(false), c)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let null = || -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let a = time(true);
+                let b = time(true);
+                ratios.push(if round.is_multiple_of(2) { b / a } else { a / b });
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "UNEDGES_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("UNEDGES_AB n={n} dense-Graph rounds={rounds} V^2 scan (>1 = candidate faster)");
         report("boolrow_vs_hasedge", &paired());
         report("null", &null());
     }
