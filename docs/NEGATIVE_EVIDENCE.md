@@ -20219,3 +20219,74 @@ RESULT: SHIP. Preserve the `len(subset) <= len(G) // 2` gate, graph iteration
 order, exact simple-Graph scope, both oriented output entries, and all existing
 delegation/missing-node behavior. Do not route directed, multigraph, custom-flow,
 or full-pair calls through this subset kernel without separate parity and timing.
+
+## 2026-07-14 RusticHollow SHIP (`MultiGraph` single-pair distance): smaller-frontier bidirectional BFS — **84.194x** (`br-r37-c1-ddw4l`)
+
+NEGATIVE-LEDGER / ROBOT-TRIAGE FIRST: `bv --robot-triage` identified the
+occupied campaign umbrella, so the actionable perf list and both negative
+ledgers were filtered for an unclaimed residual. `br-r37-c1-ykqs0` was rejected
+as stale because its native fused `is_path` kernel already shipped on July 8.
+The MultiGraph traversal ledger also forbids building the full integer-adjacency
+memo for a cold early-exit query: that `O(E)` setup can be about 1,000x worse for
+a close target. This turn took the distinct recorded seam in `ddw4l`: retain the
+String-keyed early-exit substrate and search from both endpoints.
+
+PROFILE / ATTRIBUTION FIRST: a fresh cProfile used a deterministic 4,096-node,
+8,192-edge ring-plus-two-matchings `MultiGraph`, chose a distance-9 farthest
+target, warmed 100 calls, then measured 3,000 public `shortest_path_length`
+calls. The run took `2.215 s`; the native `_fnx.shortest_path_length` call
+accounted for `2.198 s` (99.2%). A matching adjacency-snapshot work counter
+showed the current source-only BFS popping 2,743 nodes and scanning 10,972
+neighbors, while a smaller-frontier two-way BFS popped 126 and scanned 504 for
+the same distance: **21.770x fewer neighbor scans**. Opportunity score was
+impact 4 x confidence 5 / effort 2 = 10.
+
+ONE LEVER: replace only `multigraph_target_bfs_distance`'s source-only queue
+with forward/reverse level frontiers and distance maps, expanding the smaller
+frontier until the visited sets meet. Node names are resolved to the graph's
+borrowed canonical strings once. The kernel still reads the authoritative
+String adjacency lazily, does not build or consult the full integer memo, and
+retains multiplicity invariance, self-loop behavior, disconnected results, and
+the `source == target` result. Both existing consumers (`shortest_path_length`
+and `has_path`) keep their validation, error, and return contracts unchanged.
+
+ONE FOREGROUND A/B + NULL: one strict-remote ordinary `--profile release`
+invocation on worker `vmi1149989` (job `j-29928833041828368`) ran the exhaustive
+parity test and ignored A/B in one binary. The timed fixture had 4,096 nodes,
+8,192 edges, distance 9, 16 calls per sample, three warmups, and 31
+alternating-order rounds:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| source-only BFS vs smaller-frontier bidirectional BFS | `59,745,749 ns / 709,617 ns` | **`84.194x`** | **`31/31`** | exact |
+| bidirectional/bidirectional null | `675,627 ns / 698,921 ns` | `0.967x` | identical arm | exact |
+
+The candidate clears the keep floor by two orders of magnitude and every pair
+wins; the null differs by 3.3%. No `release-perf` command was issued. RCH
+unexpectedly chose a fresh worker-scoped target, reported a cache miss, and
+spent `4m20s` compiling the ordinary release artifact despite the warm-cache
+intent. That routing defect is separate from the in-binary timing; no retry or
+second benchmark was run.
+
+CORRECTNESS / GATES: the same release invocation passed `2/2`. The parity test
+compared the new kernel with a frozen copy of the old algorithm over all 1,024
+simple five-node edge masks and every ordered source/target pair, then covered
+parallel edges, self-loops, disconnected components, and missing endpoints.
+Strict-remote `cargo check --workspace --all-targets` passed on the same worker
+(job `j-29928833041828378`) with only committed warnings. Exact workspace
+clippy reproduced the committed `fnx-classes/src/lib.rs:1700`
+`collapsible_if` blocker (job `j-29928833041828381`); scoped production
+`fnx-python` clippy passed while allowing only documented baseline lint classes
+(job `j-29928833041828382`). Direct read-only rustfmt output has no remaining
+owned-range suggestion, and `git diff --check` passes. Targeted UBS completed;
+its three criticals are committed test-only `panic!` sites around line 31,253,
+outside every owned hunk. The owned map indexing is guarded by the frontier/map
+insertion invariant, and the benchmark's pair indexing follows
+`chunks_exact(2)`. Every Cargo command used
+fail-closed `RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`, and direct
+`rch --no-self-healing exec -- cargo ...`; no local Cargo fallback ran.
+
+RESULT: SHIP. Preserve undirected MultiGraph-only routing, lazy String-adjacency
+rows, smaller-frontier whole-level expansion, and the existing endpoint
+validation. Do not reuse this helper for `MultiDiGraph`: directed reverse search
+requires predecessor adjacency and separate parity/performance proof.

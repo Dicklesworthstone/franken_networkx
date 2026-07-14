@@ -5779,10 +5779,76 @@ fn emit_dijkstra_indexed_full(
     Ok((dist_dict.into_any().unbind(), path_dict.into_any().unbind()))
 }
 
-/// br-r37-c1-ubizp (cc): unweighted single-pair distance over a MultiGraph by a
-/// target-early-exit BFS over the adjacency (no simple-Graph build). Distance is
-/// multiplicity-invariant. Returns Some(distance) or None if target is unreachable.
+/// br-r37-c1-ddw4l: unweighted single-pair distance over a MultiGraph by a
+/// two-fringe BFS over the adjacency (no simple-Graph build). Expanding the
+/// smaller frontier preserves level-BFS distances while avoiding the nearly
+/// whole-graph scan paid by the old source-only search on sparse expanders.
+/// Distance is multiplicity-invariant. Returns `Some(distance)` or `None` if
+/// the target is unreachable.
 fn multigraph_target_bfs_distance(
+    mg: &fnx_classes::MultiGraph,
+    source: &str,
+    target: &str,
+) -> Option<usize> {
+    use std::collections::HashMap;
+
+    if source == target {
+        return Some(0);
+    }
+    let source = mg
+        .get_node_index(source)
+        .and_then(|index| mg.get_node_name(index))?;
+    let target = mg
+        .get_node_index(target)
+        .and_then(|index| mg.get_node_name(index))?;
+
+    let mut forward_distances = HashMap::from([(source, 0usize)]);
+    let mut reverse_distances = HashMap::from([(target, 0usize)]);
+    let mut forward_frontier = vec![source];
+    let mut reverse_frontier = vec![target];
+
+    while !forward_frontier.is_empty() && !reverse_frontier.is_empty() {
+        if forward_frontier.len() <= reverse_frontier.len() {
+            let mut next_frontier = Vec::new();
+            for node in std::mem::take(&mut forward_frontier) {
+                let next_distance = forward_distances[node] + 1;
+                for neighbor in mg.neighbors(node).unwrap_or_default() {
+                    if let Some(&reverse_distance) = reverse_distances.get(neighbor) {
+                        return Some(next_distance + reverse_distance);
+                    }
+                    if !forward_distances.contains_key(neighbor) {
+                        forward_distances.insert(neighbor, next_distance);
+                        next_frontier.push(neighbor);
+                    }
+                }
+            }
+            forward_frontier = next_frontier;
+        } else {
+            let mut next_frontier = Vec::new();
+            for node in std::mem::take(&mut reverse_frontier) {
+                let next_distance = reverse_distances[node] + 1;
+                for neighbor in mg.neighbors(node).unwrap_or_default() {
+                    if let Some(&forward_distance) = forward_distances.get(neighbor) {
+                        return Some(next_distance + forward_distance);
+                    }
+                    if !reverse_distances.contains_key(neighbor) {
+                        reverse_distances.insert(neighbor, next_distance);
+                        next_frontier.push(neighbor);
+                    }
+                }
+            }
+            reverse_frontier = next_frontier;
+        }
+    }
+
+    None
+}
+
+/// `br-r37-c1-ddw4l` A/B baseline: the source-only target-early-exit BFS that
+/// preceded the two-fringe search. Test-only so the benchmark compares both
+/// algorithms in one release binary.
+#[cfg(test)]
+fn multigraph_target_bfs_distance_orig_unidirectional(
     mg: &fnx_classes::MultiGraph,
     source: &str,
     target: &str,
@@ -5791,29 +5857,26 @@ fn multigraph_target_bfs_distance(
     if source == target {
         return Some(0);
     }
-    // O(1) source resolution: seed the BFS from source's neighbors directly (one hash
-    // lookup) instead of an O(|V|) scan to find the borrowed source &str. The source
-    // never re-enters the frontier (skip neighbors equal to it), so no revisit loop.
     let mut visited: HashSet<&str> = HashSet::new();
     let mut queue: VecDeque<(&str, usize)> = VecDeque::new();
-    if let Some(nbrs) = mg.neighbors(source) {
-        for v in nbrs {
-            if v == target {
+    if let Some(neighbors) = mg.neighbors(source) {
+        for neighbor in neighbors {
+            if neighbor == target {
                 return Some(1);
             }
-            if v != source && visited.insert(v) {
-                queue.push_back((v, 1));
+            if neighbor != source && visited.insert(neighbor) {
+                queue.push_back((neighbor, 1));
             }
         }
     }
-    while let Some((node, dist)) = queue.pop_front() {
-        if let Some(nbrs) = mg.neighbors(node) {
-            for v in nbrs {
-                if v == target {
-                    return Some(dist + 1);
+    while let Some((node, distance)) = queue.pop_front() {
+        if let Some(neighbors) = mg.neighbors(node) {
+            for neighbor in neighbors {
+                if neighbor == target {
+                    return Some(distance + 1);
                 }
-                if v != source && visited.insert(v) {
-                    queue.push_back((v, dist + 1));
+                if neighbor != source && visited.insert(neighbor) {
+                    queue.push_back((neighbor, distance + 1));
                 }
             }
         }
@@ -27338,6 +27401,200 @@ mod tests {
 
     fn ensure_python() {
         Python::initialize();
+    }
+
+    #[test]
+    fn multigraph_target_bidirectional_bfs_matches_unidirectional_baseline() {
+        let nodes = ["zeta", "alpha", "mu", "theta", "xi"];
+        let edges = [
+            (0usize, 1usize),
+            (0, 2),
+            (0, 3),
+            (0, 4),
+            (1, 2),
+            (1, 3),
+            (1, 4),
+            (2, 3),
+            (2, 4),
+            (3, 4),
+        ];
+
+        for edge_mask in 0usize..(1 << edges.len()) {
+            let mut graph = MultiGraph::strict();
+            for node in nodes {
+                let _ = graph.add_node(node.to_owned());
+            }
+            for (bit, &(left, right)) in edges.iter().enumerate() {
+                if edge_mask & (1 << bit) != 0 {
+                    let _ = graph.add_edge(nodes[left].to_owned(), nodes[right].to_owned());
+                }
+            }
+            for source in nodes {
+                for target in nodes {
+                    assert_eq!(
+                        super::multigraph_target_bfs_distance(&graph, source, target),
+                        super::multigraph_target_bfs_distance_orig_unidirectional(
+                            &graph, source, target,
+                        ),
+                        "edge mask {edge_mask:#05x}, source={source}, target={target}"
+                    );
+                }
+            }
+        }
+
+        let mut graph = MultiGraph::strict();
+        for node in nodes {
+            let _ = graph.add_node(node.to_owned());
+        }
+        for _ in 0..3 {
+            let _ = graph.add_edge("zeta".to_owned(), "alpha".to_owned());
+        }
+        let _ = graph.add_edge("alpha".to_owned(), "alpha".to_owned());
+        let _ = graph.add_edge("mu".to_owned(), "theta".to_owned());
+        for source in nodes {
+            for target in nodes {
+                assert_eq!(
+                    super::multigraph_target_bfs_distance(&graph, source, target),
+                    super::multigraph_target_bfs_distance_orig_unidirectional(
+                        &graph, source, target,
+                    ),
+                    "parallel/self-loop source={source}, target={target}"
+                );
+            }
+        }
+        assert_eq!(
+            super::multigraph_target_bfs_distance(&graph, "missing", "zeta"),
+            None
+        );
+        assert_eq!(
+            super::multigraph_target_bfs_distance(&graph, "zeta", "missing"),
+            None
+        );
+    }
+
+    /// `br-r37-c1-ddw4l`: same-binary A/B of the frozen source-only BFS and
+    /// the two-fringe BFS, plus a candidate/candidate null control.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multigraph_target_bidirectional_bfs_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn shuffle(values: &mut [usize], state: &mut u64) {
+            for upper in (1..values.len()).rev() {
+                *state = state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                let index = (*state as usize) % (upper + 1);
+                values.swap(upper, index);
+            }
+        }
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        let n = 4_096usize;
+        let calls = 16usize;
+        let rounds = 31usize;
+        let names = (0..n)
+            .map(|index| format!("bidir-{index:05}"))
+            .collect::<Vec<_>>();
+        let mut graph = MultiGraph::strict();
+        for name in &names {
+            let _ = graph.add_node(name.clone());
+        }
+        for left in 0..n {
+            let _ = graph.add_edge(names[left].clone(), names[(left + 1) % n].clone());
+        }
+        let mut order = (0..n).collect::<Vec<_>>();
+        let mut state = 90_210u64;
+        for _ in 0..2 {
+            shuffle(&mut order, &mut state);
+            for pair in order.chunks_exact(2) {
+                let _ = graph.add_edge(names[pair[0]].clone(), names[pair[1]].clone());
+            }
+        }
+
+        let source = names[0].as_str();
+        let (target, distance, _) =
+            super::multigraph_sssp_length_with_parents(&graph, source, None)
+                .into_iter()
+                .max_by_key(|(_, distance, _)| *distance)
+                .expect("fixture contains its source");
+        let target = target.to_owned();
+        let baseline =
+            super::multigraph_target_bfs_distance_orig_unidirectional(&graph, source, &target);
+        let candidate = super::multigraph_target_bfs_distance(&graph, source, &target);
+        assert_eq!(candidate, baseline, "two-fringe distance must be exact");
+        assert_eq!(candidate, Some(distance));
+
+        let time = |candidate_route: bool| -> u128 {
+            let start = Instant::now();
+            for _ in 0..calls {
+                let result = if candidate_route {
+                    super::multigraph_target_bfs_distance(
+                        black_box(&graph),
+                        black_box(source),
+                        black_box(&target),
+                    )
+                } else {
+                    super::multigraph_target_bfs_distance_orig_unidirectional(
+                        black_box(&graph),
+                        black_box(source),
+                        black_box(&target),
+                    )
+                };
+                black_box(result);
+            }
+            start.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let mut null_first_times = Vec::with_capacity(rounds);
+        let mut null_second_times = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(false), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(false), candidate_time)
+            };
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+
+            let (null_first, null_second) = if round.is_multiple_of(2) {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                (time(true), null_second)
+            };
+            null_first_times.push(null_first);
+            null_second_times.push(null_second);
+        }
+
+        let baseline_median = median(&baseline_times);
+        let candidate_median = median(&candidate_times);
+        let null_first_median = median(&null_first_times);
+        let null_second_median = median(&null_second_times);
+        let paired_wins = baseline_times
+            .iter()
+            .zip(&candidate_times)
+            .filter(|(baseline_time, candidate_time)| baseline_time > candidate_time)
+            .count();
+        println!(
+            "MG_TARGET_BIDIR_AB n={n} edges={} distance={distance} calls={calls} rounds={rounds} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} speedup={:.3}x paired_wins={paired_wins}/{rounds} null_first_median_ns={null_first_median} null_second_median_ns={null_second_median} null_ratio={:.3}x exact_parity=true",
+            graph.edge_count(),
+            baseline_median as f64 / candidate_median as f64,
+            null_first_median as f64 / null_second_median as f64,
+        );
     }
 
     fn closeness_dict_bits(py: Python<'_>, dict: &Py<PyDict>) -> Vec<(String, u64)> {
