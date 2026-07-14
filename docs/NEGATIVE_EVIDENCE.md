@@ -2,6 +2,56 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-14 RusticHollow KEEP: `is_distance_regular` validates one BFS row at a time (`br-r37-c1-isdr-single-source-3ch3u`)
+
+**NEGATIVE-LEDGER / ATTRIBUTE FIRST.** The June 21 row correctly forbids copying
+NetworkX's invalid diameter reject for degree-2 cycles and identifies the remaining
+safe seam: native single-source-lazy intersection validation. The July 12 neighbor-index
+keep removed index/name rehashing but retained an `n x n` distance matrix, followed by
+one full matrix scan per distance layer. On the selected degree-10 Q10 hypercube this
+means an 8 MiB distance matrix and 11,534,336 pair-cell checks after BFS; only 1,048,576
+pairs can contribute counts, so 10,485,760 checks are layer-filter overhead. The
+public wrapper reaches this native degree-greater-than-two path; its correct O(1)
+degree-2 cycle return remains untouched.
+
+**ONE LEVER / EXACT PARITY.** Reuse one `n`-entry distance row and validate its
+`b_d`/`c_d` counts immediately after each source BFS. This reduces temporary distance
+storage from O(V^2) to O(V) and removes the diameter-wide matrix rescans while retaining
+the same BFS and neighbor-count work. The frozen pre-change function and production
+candidate returned identical booleans for complete graphs with and without self-loops,
+Petersen, Q5, a non-distance-regular triangular prism, a path, and a singleton. For
+each source/vertex pair the candidate computes the same distance and neighbor counts
+and compares them with the same per-distance representative; only row lifetime and
+loop nesting change. There are no floats, RNG, witnesses, or order-bearing outputs.
+
+**STRICT-REMOTE FOREGROUND RELEASE GATE.** One invocation on worker `vmi1149989`
+ran the frozen full-function A/B, null control, and focused tests in the same ordinary
+`--profile release` binary. Q10 used 31 paired interleaved rounds:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| single row / matrix | **1.8016x** | **31/31** | 1.2875-2.1381 |
+| single row / single row null | 0.9942x | 14/31 | 0.8475-1.2876 |
+
+The candidate won every pair; its p5 and the null p95 touch at four-decimal
+resolution, while the median separates by 1.81x. The same run passed all parity
+assertions plus both focused non-ignored tests (`3 passed`, `0 failed`). RCH reported
+the selected worker and no local fallback. This ratio is native Q10 kernel self-time,
+not a universal public-call ratio; early rejects and degree-2 cycles are unchanged.
+
+**VALIDATION.** Strict-remote workspace `cargo check --workspace --all-targets`
+passed. Exact workspace Clippy stopped at the established `fnx-classes`
+`collapsible_if`; the changed crate then passed all-targets `-D warnings` with only
+the six pre-existing lint classes surfaced by the exact runs allowed. None points at
+the changed distance-regular code. `git diff --check` passed. UBS's changed-file scan
+exited zero with zero critical findings after excluding its false-positive JWT
+heuristic (triggered by an unrelated test name containing `decode`) and the local
+Cargo categories already covered remotely; formatting was clean.
+
+**RESULT: SHIP.** Preserve row-at-a-time validation. Do not add NetworkX's
+correctness-breaking diameter bound or rebuild the all-pairs matrix for witness data
+that this boolean API never emits.
+
 ## 2026-07-10 codex REJECT: `connected_components` Vec FIFO is bit-identical but slower on both median self-time gates
 
 **PROFILE FIRST.** The untouched pure-Rust Criterion group was built and run only through

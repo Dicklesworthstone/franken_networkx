@@ -35635,9 +35635,15 @@ pub fn is_distance_regular(graph: &Graph) -> bool {
         return true;
     }
 
-    let mut dist_matrix = vec![vec![usize::MAX; n]; n];
+    // br-r37-c1-isdr-single-source-3ch3u: validate each source's distance
+    // row while it is hot instead of retaining every row and scanning the
+    // full VxV matrix once per distance layer.
+    let mut distances = vec![usize::MAX; n];
+    let mut b_values: Vec<Option<usize>> = Vec::new();
+    let mut c_values: Vec<Option<usize>> = Vec::new();
     for (src_idx, _src) in nodes.iter().enumerate() {
-        dist_matrix[src_idx][src_idx] = 0;
+        distances.fill(usize::MAX);
+        distances[src_idx] = 0;
         let mut queue = VecDeque::new();
         queue.push_back(src_idx);
         while let Some(u) = queue.pop_front() {
@@ -35645,55 +35651,43 @@ pub fn is_distance_regular(graph: &Graph) -> bool {
             // avoid mapping each index to a node name and hashing it back.
             if let Some(neighbors) = graph.neighbors_indices(u) {
                 for &v in neighbors {
-                    if dist_matrix[src_idx][v] == usize::MAX {
-                        dist_matrix[src_idx][v] = dist_matrix[src_idx][u] + 1;
+                    if distances[v] == usize::MAX {
+                        distances[v] = distances[u] + 1;
                         queue.push_back(v);
                     }
                 }
             }
         }
-    }
 
-    let diameter = dist_matrix
-        .iter()
-        .flat_map(|row| row.iter())
-        .filter(|&&d| d != usize::MAX)
-        .copied()
-        .max()
-        .unwrap_or(0);
+        for (col_idx, &distance) in distances.iter().enumerate() {
+            debug_assert_ne!(distance, usize::MAX);
+            if b_values.len() <= distance {
+                b_values.resize(distance + 1, None);
+                c_values.resize(distance + 1, None);
+            }
 
-    for d in 0..=diameter {
-        let mut b_vals: Option<usize> = None;
-        let mut c_vals: Option<usize> = None;
-
-        for (row_idx, row) in dist_matrix.iter().enumerate() {
-            for (col_idx, &dist_val) in row.iter().enumerate() {
-                if dist_val != d {
-                    continue;
-                }
-                let mut b_count = 0;
-                let mut c_count = 0;
-                if let Some(neighbors) = graph.neighbors_indices(col_idx) {
-                    for &w in neighbors {
-                        if dist_matrix[row_idx][w] == d + 1 {
-                            b_count += 1;
-                        }
-                        if d > 0 && dist_matrix[row_idx][w] == d - 1 {
-                            c_count += 1;
-                        }
+            let mut b_count = 0;
+            let mut c_count = 0;
+            if let Some(neighbors) = graph.neighbors_indices(col_idx) {
+                for &neighbor in neighbors {
+                    if distances[neighbor] == distance + 1 {
+                        b_count += 1;
+                    }
+                    if distance > 0 && distances[neighbor] == distance - 1 {
+                        c_count += 1;
                     }
                 }
-                match b_vals {
-                    Some(prev_b) if prev_b != b_count => return false,
-                    None => b_vals = Some(b_count),
+            }
+            match b_values[distance] {
+                Some(previous) if previous != b_count => return false,
+                None => b_values[distance] = Some(b_count),
+                _ => {}
+            }
+            if distance > 0 {
+                match c_values[distance] {
+                    Some(previous) if previous != c_count => return false,
+                    None => c_values[distance] = Some(c_count),
                     _ => {}
-                }
-                if d > 0 {
-                    match c_vals {
-                        Some(prev_c) if prev_c != c_count => return false,
-                        None => c_vals = Some(c_count),
-                        _ => {}
-                    }
                 }
             }
         }
@@ -74231,13 +74225,13 @@ mod tests {
         assert!(!is_distance_regular(&g));
     }
 
-    /// br-r37-c1-bgaxx: full-function A/B for walking the graph's native
-    /// adjacency indices instead of mapping index -> name -> hashed index in
-    /// both O(V*E) stages of `is_distance_regular`.
+    /// br-r37-c1-isdr-single-source-3ch3u: full-function A/B for validating
+    /// each BFS row immediately instead of retaining and rescanning VxV
+    /// distances once per layer.
     #[test]
-    #[ignore = "measurement; run with --release --ignored --nocapture"]
-    fn is_distance_regular_indices_ab() {
-        use std::collections::{HashMap, VecDeque};
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn is_distance_regular_single_row_ab() {
+        use std::collections::VecDeque;
         use std::hint::black_box;
         use std::time::Instant;
 
@@ -74251,20 +74245,14 @@ mod tests {
                 return true;
             }
 
-            let node_to_idx: HashMap<&str, usize> = nodes
-                .iter()
-                .enumerate()
-                .map(|(idx, &node)| (node, idx))
-                .collect();
             let mut dist_matrix = vec![vec![usize::MAX; n]; n];
             for src_idx in 0..n {
                 dist_matrix[src_idx][src_idx] = 0;
                 let mut queue = VecDeque::new();
                 queue.push_back(src_idx);
                 while let Some(u) = queue.pop_front() {
-                    if let Some(neighbors) = graph.neighbors_iter(nodes[u]) {
-                        for neighbor in neighbors {
-                            let v = node_to_idx[neighbor];
+                    if let Some(neighbors) = graph.neighbors_indices(u) {
+                        for &v in neighbors {
                             if dist_matrix[src_idx][v] == usize::MAX {
                                 dist_matrix[src_idx][v] = dist_matrix[src_idx][u] + 1;
                                 queue.push_back(v);
@@ -74292,9 +74280,8 @@ mod tests {
                         }
                         let mut b_count = 0;
                         let mut c_count = 0;
-                        if let Some(neighbors) = graph.neighbors_iter(nodes[col_idx]) {
-                            for neighbor in neighbors {
-                                let w = node_to_idx[neighbor];
+                        if let Some(neighbors) = graph.neighbors_indices(col_idx) {
+                            for &w in neighbors {
                                 if dist_matrix[row_idx][w] == distance + 1 {
                                     b_count += 1;
                                 }
@@ -74332,6 +74319,24 @@ mod tests {
                 }
                 if self_loops {
                     graph.add_edge(left.to_string(), left.to_string()).unwrap();
+                }
+            }
+            graph
+        }
+
+        fn hypercube(dimensions: usize) -> Graph {
+            let mut graph = Graph::strict();
+            let node_count = 1usize << dimensions;
+            for node in 0..node_count {
+                graph.add_node(node.to_string());
+            }
+            for node in 0..node_count {
+                for bit in 0..dimensions {
+                    if node & (1usize << bit) == 0 {
+                        graph
+                            .add_edge(node.to_string(), (node | (1usize << bit)).to_string())
+                            .unwrap();
+                    }
                 }
             }
             graph
@@ -74399,6 +74404,7 @@ mod tests {
             complete(4, false),
             complete(4, true),
             petersen(),
+            hypercube(5),
             triangular_prism(),
             path,
             singleton,
@@ -74409,7 +74415,7 @@ mod tests {
             );
         }
 
-        let graph = complete(160, false);
+        let graph = hypercube(10);
         assert!(old_is_distance_regular(&graph));
         assert!(super::is_distance_regular(&graph));
 
@@ -74447,15 +74453,15 @@ mod tests {
             sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
             let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
             println!(
-                "DISTREGIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                "DISTREGROW_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
                 sorted[rounds / 2],
                 sorted[rounds * 5 / 100],
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("DISTREGIDX_AB complete_160 rounds={rounds} (>1 = index faster)");
-        report("INDEX_vs_string", &paired(false, true));
-        report("NULL_index_vs_index", &paired(true, true));
+        println!("DISTREGROW_AB hypercube_10 rounds={rounds} (>1 = single-row faster)");
+        report("SINGLE_ROW_vs_matrix", &paired(false, true));
+        report("NULL_single_row_vs_single_row", &paired(true, true));
     }
 
     // -----------------------------------------------------------------------
