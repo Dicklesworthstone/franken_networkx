@@ -21051,3 +21051,46 @@ no local fallback ran.
 RESULT: SHIP. Preserve ledger order, compact JSON bytes, empty failed entries,
 and separators exactly. Keep witness collection, hashing, policies, artifact
 durability, and tie-breaking out of this lever.
+
+## 2026-07-14 GrayCitadel INVALID / NO-SHIP (`build_crosswalk_report`): borrowed fixture-ID indexes did not reach timed path (`br-r37-c1-wrq5x`)
+
+NEGATIVE-LEDGER / ROBOT-TRIAGE FIRST: `bv --robot-triage` again ranked the
+occupied no-gaps umbrella and the same parity-hole or structural quick wins.
+The CGSE JSONL row closes that serialization vein. A fresh `fnx-conformance`
+audit found no ledger row or bead for Python/Rust crosswalk construction. Its
+artifact writer repeats the now-mined serialization shape, so this lever targets
+a distinct set-index allocation residual instead.
+
+PROFILE / ATTRIBUTION FIRST: `build_crosswalk_report` cloned all `R` Rust and
+`P` Python fixture IDs into two transient `BTreeSet<String>` indexes, then
+cloned IDs again into the three report-owned intersection/difference vectors.
+The source records outlive report construction, so lookup nodes need only
+borrow their strings. This removes `R + P` temporary string allocations and
+copies while retaining ordered-tree set operations. Opportunity score: impact
+3 x confidence 5 / effort 1 = 15.
+
+ONE LEVER: build the two lexical indexes as `BTreeSet<&str>` and allocate owned
+fixture IDs only when materializing the report vectors. String ordering,
+intersection/difference membership, duplicate collapse, unified-report sorting,
+mismatch counts, timestamps, Python-only conversion, and public schema remain
+unchanged.
+
+ONE FOREGROUND ATTEMPT: the sole fail-closed remote ordinary `--profile release`
+invocation was admitted to worker `vmi1153651` as job
+`j-29928833041828643`, but it did not reach the timed path. After a 41.1-second
+sync and 140.2-second cold dependency build, Rust rejected
+`rust_ids.contains(&py_record.fixture_id)`: `BTreeSet<&str>` implements borrowed
+lookup for `str`, not for `String` (`E0277`). The command exited 101 after 181.4
+seconds total. No benchmark samples or parity result exist.
+
+GATES / EVIDENCE STATUS: direct rustfmt and `git diff --check` passed before the
+attempt. Targeted UBS completed with zero critical findings; its warnings were
+the committed file-wide test `unwrap`/assert, direct-index, cast, and allocation
+inventories. RCH was fail-closed with `RCH_REQUIRE_REMOTE=1`,
+`RCH_NO_SELF_HEALING=1`, and direct `rch --no-self-healing exec -- cargo ...`;
+no local fallback ran. Per the one-foreground-command rule, there was no retry.
+
+RESULT: INVALID / NO-SHIP. Revert the source and ignored harness; commit only
+this negative-evidence row and the closed bead. A future fresh turn may correct
+the lookup to `contains(py_record.fixture_id.as_str())` and re-profile, but this
+attempt supplies no performance evidence.
