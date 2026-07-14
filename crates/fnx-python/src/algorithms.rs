@@ -22201,6 +22201,74 @@ fn multigraph_is_biconnected(mg: &fnx_classes::MultiGraph) -> bool {
     if n < 2 {
         return false;
     }
+    // br-r37-c1-sstk9 (cc): reuse the revision-keyed integer-adjacency memo instead of rebuilding
+    // the index adjacency per call via `build_index_adjacency` (a per-neighbour String→index
+    // resolution). The memo yields the same distinct-neighbour rows in the same mg.neighbors order →
+    // identical low-link DFS → identical biconnectivity bool (a vertex invariant). Byte-identical;
+    // joins the shared-memo ecosystem (warm reuse across MultiGraph ops on the same revision) —
+    // same transform already shipped for connected_components (7xsg9), number_connected_components
+    // (a5rsz) and node_connected_component (85ktt).
+    mg.with_int_adjacency(|adjacency| {
+        let undiscovered = usize::MAX;
+        let mut discovery = vec![undiscovered; n];
+        let mut low = vec![0usize; n];
+        let mut parent = vec![undiscovered; n];
+        let mut time = 1usize;
+        let mut visited_count = 1usize;
+        let mut root_children = 0usize;
+
+        discovery[0] = 0;
+        low[0] = 0;
+        let mut stack: Vec<(usize, usize, usize)> = vec![(undiscovered, 0, 0)];
+
+        while let Some(&(grandparent, node, pos)) = stack.last() {
+            if pos < adjacency[node].len() {
+                stack.last_mut().expect("non-empty").2 = pos + 1;
+                let child = adjacency[node][pos];
+                if child == grandparent || child == node {
+                    continue;
+                }
+                if discovery[child] == undiscovered {
+                    parent[child] = node;
+                    discovery[child] = time;
+                    low[child] = time;
+                    time += 1;
+                    visited_count += 1;
+                    if node == 0 {
+                        root_children += 1;
+                        if root_children > 1 {
+                            return false;
+                        }
+                    }
+                    stack.push((node, child, 0));
+                } else {
+                    low[node] = low[node].min(discovery[child]);
+                }
+            } else {
+                let finished = stack.pop().expect("non-empty").1;
+                let p = parent[finished];
+                if p != undiscovered {
+                    low[p] = low[p].min(low[finished]);
+                    if parent[p] != undiscovered && low[finished] >= discovery[p] {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        visited_count == n
+    })
+}
+
+/// Frozen pre-`br-r37-c1-sstk9` `build_index_adjacency` route — rebuilds the
+/// index adjacency per call. Kept for the same-binary A/B and parity proof.
+#[cfg(test)]
+fn multigraph_is_biconnected_orig_buildindex(mg: &fnx_classes::MultiGraph) -> bool {
+    let nodes = mg.nodes_ordered();
+    let n = nodes.len();
+    if n < 2 {
+        return false;
+    }
     let adjacency = build_index_adjacency(&nodes, |u| mg.neighbors(u).unwrap_or_default());
     let undiscovered = usize::MAX;
     let mut discovery = vec![undiscovered; n];
@@ -26756,6 +26824,168 @@ mod tests {
         report("warm_candidate_vs_string", &paired_warm(false));
         report("warm_candidate_null", &paired_warm(true));
         report("cold_candidate_vs_string", &paired_cold(false));
+        report("cold_candidate_null", &paired_cold(true));
+    }
+
+    #[test]
+    fn multigraph_is_biconnected_matches_buildindex_route() {
+        // Null/single-node rule, plus a range of connectivity shapes; parallel
+        // edges and self-loops must stay multiplicity-invariant.
+        let empty = MultiGraph::strict();
+        assert_eq!(
+            super::multigraph_is_biconnected(&empty),
+            super::multigraph_is_biconnected_orig_buildindex(&empty)
+        );
+
+        let mut single = MultiGraph::strict();
+        let _ = single.add_node("solo".to_owned());
+        assert_eq!(
+            super::multigraph_is_biconnected(&single),
+            super::multigraph_is_biconnected_orig_buildindex(&single)
+        );
+
+        // Biconnected square cycle a-b-c-d-a (no cut vertex).
+        let mut cycle = MultiGraph::strict();
+        for node in ["a", "b", "c", "d"] {
+            let _ = cycle.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")] {
+            let _ = cycle.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_eq!(
+            super::multigraph_is_biconnected(&cycle),
+            super::multigraph_is_biconnected_orig_buildindex(&cycle)
+        );
+        assert!(super::multigraph_is_biconnected(&cycle));
+
+        // Parallel edges + a self-loop must not change the vertex invariant.
+        let _ = cycle.add_edge("a".to_owned(), "b".to_owned());
+        let _ = cycle.add_edge("c".to_owned(), "c".to_owned());
+        assert_eq!(
+            super::multigraph_is_biconnected(&cycle),
+            super::multigraph_is_biconnected_orig_buildindex(&cycle)
+        );
+
+        // Add a pendant tail e off d → cut vertex d → not biconnected.
+        let _ = cycle.add_node("e".to_owned());
+        let _ = cycle.add_edge("d".to_owned(), "e".to_owned());
+        assert_eq!(
+            super::multigraph_is_biconnected(&cycle),
+            super::multigraph_is_biconnected_orig_buildindex(&cycle)
+        );
+        assert!(!super::multigraph_is_biconnected(&cycle));
+
+        // Read-mutate-read: heal the tail into the cycle (e-a) restoring
+        // biconnectivity while exercising memo invalidation between reads.
+        let _ = cycle.add_edge("e".to_owned(), "a".to_owned());
+        assert_eq!(
+            super::multigraph_is_biconnected(&cycle),
+            super::multigraph_is_biconnected_orig_buildindex(&cycle)
+        );
+    }
+
+    /// `br-r37-c1-sstk9`: same-binary paired proof for cached integer-row
+    /// low-link DFS versus the per-call `build_index_adjacency` route. Run with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multigraph_is_biconnected_intadj_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multigraph_is_biconnected_intadj_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("bic-node-{index:05}");
+        let mut graph = MultiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        // Cycle + chord keeps the graph 2-connected (worst case: full DFS runs).
+        for index in 0..n {
+            let next = (index + 1) % n;
+            let chord = (index + 127) % n;
+            let _ = graph.add_edge(node(index), node(next));
+            let _ = graph.add_edge(node(index), node(chord));
+            if index.is_multiple_of(8) {
+                let _ = graph.add_edge(node(index), node(next));
+            }
+        }
+        let candidate = super::multigraph_is_biconnected(&graph);
+        let baseline = super::multigraph_is_biconnected_orig_buildindex(&graph);
+        assert_eq!(candidate, baseline, "indexed low-link DFS must match");
+        assert!(candidate, "constructed graph must be biconnected");
+
+        // Prime the revision-keyed memo before warm timing.
+        graph.with_int_adjacency(|adjacency| {
+            black_box(adjacency.len());
+        });
+
+        let time = |timed_graph: &MultiGraph, candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                super::multigraph_is_biconnected(timed_graph)
+            } else {
+                super::multigraph_is_biconnected_orig_buildindex(timed_graph)
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired_warm = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, baseline_candidate);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let paired_cold = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let baseline_graph = graph.clone();
+                let candidate_graph = graph.clone();
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    let candidate_time = time(&candidate_graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&candidate_graph, true);
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "MG_BICONN_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("MG_BICONN_AB n={n} degree=4+parallel rounds={rounds} (>1 = candidate faster)");
+        report("warm_candidate_vs_buildindex", &paired_warm(false));
+        report("warm_candidate_null", &paired_warm(true));
+        report("cold_candidate_vs_buildindex", &paired_cold(false));
         report("cold_candidate_null", &paired_cold(true));
     }
 
