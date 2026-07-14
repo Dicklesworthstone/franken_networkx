@@ -18910,3 +18910,80 @@ RESULT: SHIP. Preserve the direct indexed traversal for the scalar MultiGraph
 count and retain the materializing traversal only for callers requesting
 component members. Future connectivity work should choose a distinct public
 surface rather than folding another lever into this commit.
+
+## 2026-07-13 CopperPelican SHIP (`MultiGraph node_connected_component`): reuse integer-adjacency memo — 19.99x warm / 1.52x clone-fresh (`br-r37-c1-85ktt`)
+
+NEGATIVE-LEDGER FIRST: the 2026-06-22 accessor experiment improved this helper
+from a standard `HashSet` and allocating neighbor accessor to `FxHashSet` plus
+`neighbors_iter`, but the public row still reached only `0.983x` NetworkX. Its
+closeout explicitly required the next attempt to avoid per-call String-keyed
+visitation through node-indexed MultiGraph adjacency. The latest clean-surface
+exhaustion report likewise routes new work to the MultiGraph integer-adjacency
+epoch rather than another generic grep-and-swap. The intervening revision-keyed
+`with_int_adjacency` memo removes the old rebuild-on-every-call blocker. This
+now-reachable seam scored impact 4 x confidence 5 / effort 1 = 20.
+
+ONE LEVER: resolve the requested source once with `get_node_index`, then traverse
+the maintained integer neighbor rows with `Vec<bool>` and `VecDeque<usize>`.
+Discovery indices map back through the same insertion-ordered node names only
+when appended to the result. The memo rows preserve every authoritative
+adjacency-row neighbor order, so source placement, first discovery, queue order,
+and the exact returned vector match the frozen String-hashed BFS. The public
+wrapper, missing-node validation, null/directed errors, output conversion,
+mutation/cache policy, floating-point, and RNG surfaces are unchanged.
+
+NULL FIRST: before the production edit, the checked-in ignored harness compared
+the then-current helper with its frozen copy for 31 paired alternating-order
+rounds. Strict-remote worker `vmi1227854` reported centered warm and clone-fresh
+controls; these are harness-validation evidence, not a cross-worker speed claim:
+
+| pre-change paired A/A (>1 = first arm faster) | median | wins | p5-p95 |
+|---|---:|---:|---:|
+| warm candidate vs frozen String | `0.9883x` | `14/31` | `[0.7769, 1.0967]` |
+| warm candidate/candidate null | `0.9758x` | `12/31` | `[0.7437, 1.0724]` |
+| clone-fresh candidate vs frozen String | `1.0017x` | `16/31` | `[0.8281, 1.3371]` |
+| clone-fresh candidate/candidate null | `0.9778x` | `13/31` | `[0.8017, 1.2400]` |
+
+MEDIAN GATE: after the one production edit, one release binary on strict-remote
+worker `vmi1149989` asserted full ordered-vector equality and the expected
+20,000-node component before timing. Candidate, frozen baseline, and null arms
+all ran in that same binary:
+
+| paired A/B (>1 = indexed faster) | median | wins | p5-p95 |
+|---|---:|---:|---:|
+| warm indexed vs frozen String | `19.9907x` | `31/31` | `[11.0785, 42.3671]` |
+| warm indexed/indexed null | `1.0043x` | `17/31` | `[0.8524, 1.3411]` |
+| clone-fresh indexed vs frozen String | `1.5172x` | `31/31` | `[1.0767, 2.0662]` |
+| clone-fresh indexed/indexed null | `1.1007x` | `23/31` | `[0.7997, 1.2818]` |
+
+The warm candidate p5 is 8.26x above its same-worker null p95 and every pair
+won, so memo reuse is decisive. Clone-fresh traversal also won every pair at a
+1.52x median, but its p5 overlaps the wide null p95; it is supporting positive
+evidence rather than the primary gate. An `RCH_WORKER` hint did not hold, so the
+pre-change controls and post-change proof landed on different workers; no
+before/after cross-worker ratio is claimed.
+
+CORRECTNESS / GATES: the release A/B compares the complete ordered component
+vector before timing. A regular focused test covers empty/missing source,
+insertion order, parallel edges, a self-loop, disconnected components, and
+read-mutate-read cache invalidation while merging all components; it passed 1/1
+on strict-remote worker `vmi1167313`. Strict-remote workspace check passed on
+`vmi1149989` with one pre-existing unused-variable warning in `fnx-algorithms`.
+Exact workspace clippy reached the already-recorded
+`fnx-classes/src/lib.rs:1700` `collapsible_if` baseline on `vmi1167313`;
+strict-remote `cargo clippy -p fnx-python --lib --no-deps -- -D warnings`
+passed on `vmi1227854`. Direct `rustfmt --edition 2024 --check` and `git diff
+--check` passed. UBS completed its static-only Rust scan; its three criticals
+are the known unrelated shortest-path test `panic!` calls, while the owned
+production hunk adds no panic or unsafe surface. Its generic indexing inventory
+is bounded here by `get_node_index` plus the memo invariant that node and
+adjacency lengths and neighbor indices match. Every explicit Cargo command used
+fail-closed
+`RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`, and
+`rch --no-self-healing exec`; the first scoped-clippy admission was refused for
+capacity and two clippy attempts exposed a stale sibling `ftui 0.4.1` on
+`vmi1264463`, with no local fallback.
+
+RESULT: SHIP. Preserve the revision-keyed integer-row traversal and exact BFS
+discovery order. Future component work should consume the same maintained rows
+only on a distinct public surface, with its own null-controlled proof.
