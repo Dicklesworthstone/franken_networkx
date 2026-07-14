@@ -6002,6 +6002,24 @@ fn edge_brandes_source(
 }
 
 fn edge_betweenness_centrality_generic<G: GraphView>(graph: &G) -> EdgeBetweennessCentralityResult {
+    if graph.edge_count() == 0 {
+        let n = graph.node_count();
+        return EdgeBetweennessCentralityResult {
+            scores: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "brandes_edge_betweenness_centrality".to_owned(),
+                complexity_claim: "O(|V| * |E|)".to_owned(),
+                nodes_touched: n,
+                edges_scanned: 0,
+                queue_peak: usize::from(n > 0),
+            },
+        };
+    }
+
+    edge_betweenness_centrality_brandes(graph)
+}
+
+fn edge_betweenness_centrality_brandes<G: GraphView>(graph: &G) -> EdgeBetweennessCentralityResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     if n == 0 {
@@ -64331,6 +64349,116 @@ mod tests {
         let _ = singleton.add_node("solo");
         let single_result = edge_betweenness_centrality(&singleton);
         assert!(single_result.scores.is_empty());
+    }
+
+    #[test]
+    fn edge_betweenness_edgeless_fast_path_preserves_brandes_result_and_witness() {
+        for n in [0usize, 1, 2, 31, 499, 500] {
+            let mut graph = Graph::strict();
+            let mut digraph = DiGraph::strict();
+            for node in 0..n {
+                let name = format!("n{node}");
+                let _ = graph.add_node(name.clone());
+                let _ = digraph.add_node(name);
+            }
+
+            assert_eq!(
+                super::edge_betweenness_centrality_generic(&graph),
+                super::edge_betweenness_centrality_brandes(&graph),
+                "undirected parity failed for {n} isolates"
+            );
+            assert_eq!(
+                super::edge_betweenness_centrality_generic(&digraph),
+                super::edge_betweenness_centrality_brandes(&digraph),
+                "directed parity failed for {n} isolates"
+            );
+        }
+
+        let mut one_edge = Graph::strict();
+        one_edge
+            .add_edge("left", "right")
+            .expect("edge add should succeed");
+        assert_eq!(
+            super::edge_betweenness_centrality_generic(&one_edge),
+            super::edge_betweenness_centrality_brandes(&one_edge),
+            "nonempty graphs must remain on the Brandes path"
+        );
+    }
+
+    #[test]
+    #[ignore = "foreground A/B benchmark"]
+    fn edge_betweenness_edgeless_fast_path_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let mut graph = Graph::strict();
+        let n = 2_048usize;
+        for node in 0..n {
+            let _ = graph.add_node(format!("n{node}"));
+        }
+
+        let candidate = super::edge_betweenness_centrality_generic(&graph);
+        let baseline = super::edge_betweenness_centrality_brandes(&graph);
+        assert_eq!(candidate, baseline, "A/B arms must have exact parity");
+
+        let measure = |use_candidate: bool| -> u128 {
+            let start = Instant::now();
+            let result = if use_candidate {
+                super::edge_betweenness_centrality_generic(black_box(&graph))
+            } else {
+                super::edge_betweenness_centrality_brandes(black_box(&graph))
+            };
+            black_box(result);
+            start.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(measure(false));
+            black_box(measure(true));
+        }
+
+        let rounds = 15usize;
+        let mut baseline_ns = Vec::with_capacity(rounds);
+        let mut candidate_ns = Vec::with_capacity(rounds);
+        let mut null_first_ns = Vec::with_capacity(rounds);
+        let mut null_second_ns = Vec::with_capacity(rounds);
+        let mut paired_wins = 0usize;
+        for round in 0..rounds {
+            let (baseline_elapsed, candidate_elapsed) = if round.is_multiple_of(2) {
+                (measure(false), measure(true))
+            } else {
+                let candidate_elapsed = measure(true);
+                let baseline_elapsed = measure(false);
+                (baseline_elapsed, candidate_elapsed)
+            };
+            paired_wins += usize::from(candidate_elapsed < baseline_elapsed);
+            baseline_ns.push(baseline_elapsed);
+            candidate_ns.push(candidate_elapsed);
+
+            null_first_ns.push(measure(true));
+            null_second_ns.push(measure(true));
+        }
+
+        let median = |mut samples: Vec<u128>| -> u128 {
+            samples.sort_unstable();
+            samples[samples.len() / 2]
+        };
+        let baseline_median_ns = median(baseline_ns);
+        let candidate_median_ns = median(candidate_ns);
+        let null_first_median_ns = median(null_first_ns);
+        let null_second_median_ns = median(null_second_ns);
+        let speedup = baseline_median_ns as f64 / candidate_median_ns as f64;
+        let null_ratio = null_first_median_ns as f64 / null_second_median_ns as f64;
+
+        println!(
+            "EDGE_BETWEENNESS_EDGELESS_AB n={n} rounds={rounds} \
+             baseline_median_ns={baseline_median_ns} \
+             candidate_median_ns={candidate_median_ns} speedup={speedup:.3}x \
+             paired_wins={paired_wins}/{rounds} \
+             null_first_median_ns={null_first_median_ns} \
+             null_second_median_ns={null_second_median_ns} null_ratio={null_ratio:.3}x \
+             exact_parity=true"
+        );
     }
 
     #[test]

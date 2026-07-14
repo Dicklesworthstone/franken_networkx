@@ -19689,3 +19689,56 @@ Cargo command used fail-closed remote RCH; no local Cargo fallback ran.
 RESULT: SHIP in `62d2f76bb`. Preserve the sub-threshold zero-edge predicate,
 exact positive-zero scores, and witness values. Do not widen into the parallel
 threshold or non-edgeless graphs without separate parity and timing.
+
+## 2026-07-14 RusticHollow SHIP (`edge_betweenness_centrality`): bypass Brandes for edgeless graphs — 4,713.550x (`br-r37-c1-strna`)
+
+NEGATIVE-LEDGER FIRST: the prior edge-betweenness work covered integer CSR,
+canonical edge ids, scratch reuse, and parallel source traversal on graphs with
+edges. No edgeless edge-betweenness attempt was found. The neighboring
+edgeless-centrality keeps explicitly required separate parity and timing for
+each algorithm family. A nonempty graph of isolates still entered one Brandes
+source pass per node even though its only valid edge-score vector is empty.
+Opportunity score: impact 4 x confidence 5 / effort 1 = 20.
+
+ONE LEVER: when `edge_count() == 0`, return the empty score vector before
+building adjacency or allocating per-source Brandes scratch. The branch emits
+the exact pre-change witness: `nodes_touched=n`, `edges_scanned=0`, and
+`queue_peak=1` for a nonempty graph (`0` for the empty graph). Graphs with any
+edge delegate to the frozen Brandes body unchanged; directed and undirected
+entry points share the same predicate.
+
+ONE FOREGROUND A/B + NULL: one release binary on strict-remote worker
+`vmi1149989` used 2,048 insertion-ordered isolates, three warmups, and 15
+alternating-order rounds. It asserted the entire result and witness before
+timing. The same invocation included a candidate/candidate null control:
+
+| same-binary arm | median times | speedup | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen Brandes vs edgeless return | `942,710 ns / 200 ns` | **`4,713.550x`** | **`15/15`** | exact |
+| candidate/candidate null | `160 ns / 100 ns` | `1.600x` | — | identical arm |
+
+The candidate is at the sub-microsecond timer floor, which explains the noisy
+null ratio; the baseline/candidate separation is nevertheless over four orders
+of magnitude and every A/B pair wins. The observed 4,713.550x is therefore a
+clear keep signal rather than a precision claim about the 100-200 ns tail.
+
+CORRECTNESS / GATES: the focused release differential test passed `1/1` on
+`vmi1149989`. It checks Graph and DiGraph at n={0,1,2,31,499,500}, comparing
+the complete score vector and `ComplexityWitness` against the frozen Brandes
+body, then proves a one-edge graph still delegates unchanged. Strict-remote
+`cargo check --workspace --all-targets` passed on `vmi1153651` with only
+committed unused/dead-code warnings outside this lever. Exact workspace clippy
+reproduced the committed `fnx-classes/src/lib.rs:1700` `collapsible_if`
+blocker on `vmi1149989` before reaching this crate. A scoped `--no-deps` pass
+then reached `fnx-algorithms` and reproduced only the four committed blockers
+at lines 21,988, 22,128, 33,460, and 33,463 (`explicit_counter_loop` and
+`question_mark`), all outside the lever. Direct read-only rustfmt reported
+broad pre-existing file drift; the one owned formatting delta was aligned
+manually and `git diff --check` passed. UBS reproduced its file-wide warning
+inventory and the known Prüfer test-name decode false positive; it found no
+unsafe block, panic macro, or lever-local security issue. Every Cargo command
+used fail-closed remote RCH; no local Cargo fallback ran.
+
+RESULT: SHIP. Preserve the zero-edge predicate and exact witness accounting.
+Do not widen this return to graphs containing edges or other centrality
+families without separate proof.
