@@ -2,6 +2,56 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-14 RusticHollow NO-SHIP: `min_weight_matching` in-place candidate transform is inside the null floor (`br-r37-c1-pic0x`)
+
+**NEGATIVE-LEDGER / ATTRIBUTE FIRST.** `bv --robot-triage` was run first. Its
+high-ranked work was assigned, correctness-oriented, or structurally broad. The
+unclaimed deep `single_source_shortest_path` bead was rejected because its own
+ledger says Python String/list output marshaling dominates and explicitly rules out
+the already-failed cache variants. Matching is a fresh family for this loop. Source
+attribution found that `min_weight_matching` built its canonical weighted candidates,
+then allocated a second `Vec<WeightedEdgeCandidate>` and cloned both endpoint Strings
+for every edge solely to invert weights. The first vector was never read afterward:
+the removable work is exactly `2 * |E|` endpoint clones plus one candidate-vector
+allocation and copy.
+
+**ONE LEVER / EXACT PARITY.** Make the candidate vector mutable and replace each
+weight in place after computing the same maximum. Candidate order, endpoint identity,
+the `(max_weight + 1.0) - weight` floating-point operation, blossom solver, original
+weight lookup for the returned total, matching sort, CGSE decisions, and witness are
+unchanged. A test-only frozen copy retains the old clone-transform implementation and
+the release A/B asserts complete `WeightedMatchingResult` equality before timing.
+
+**STRICT-REMOTE FOREGROUND RELEASE GATE.** One ordinary `--profile release`
+invocation on worker `vmi1149989` ran exact full-result parity, 21 paired interleaved
+rounds, and a same-function null control in one binary on a 64-node, 512-edge
+allocation-sensitive graph (1,024 removable endpoint clones):
+
+| arm | paired median | wins | p10-p90 |
+| --- | ---: | ---: | ---: |
+| in-place / clone-transform | **0.9910x** | 10/21 | 0.8735-1.3416 |
+| in-place / in-place null | **1.0518x** | 13/21 | 0.8839-1.1708 |
+
+The candidate median is slower, its distribution overlaps the null control broadly,
+and its win rate is below half. Exact `WeightedMatchingResult` parity passed before
+timing (`1 passed`, `0 failed`). RCH reported a strict remote cache miss and built the
+ordinary release test target in 4m42s; it never fell back locally.
+
+**VALIDATION.** `git diff --check` passed. Targeted UBS completed with exit zero and
+zero critical findings with its local Cargo phases disabled; its file-wide warning
+inventory predates this allocation-only lever. Whole-file rustfmt continues to report
+the repository's existing formatting backlog outside these hunks; the owned changes
+are formatted. Strict-remote Clippy compiled the changed crate and test target, then
+stopped on the established out-of-diff lint backlog: `collapsible_if` in `fnx-classes`
+and `explicit_counter_loop`, `question_mark`, `unused_variables`,
+`manual_is_multiple_of`, and `doc_lazy_continuation` in `fnx-algorithms`. No finding
+points at this lever.
+
+**RESULT: NO-SHIP.** The candidate, frozen baseline, and measurement test were removed;
+`crates/fnx-algorithms/src/lib.rs` is restored to its pre-trial content. Preserve the
+clone-transform until a profile finds work outside the null floor. The exact source
+operation count was real, but blossom setup/solve dominates this full-function row.
+
 ## 2026-07-14 RusticHollow KEEP: `is_distance_regular` validates one BFS row at a time (`br-r37-c1-isdr-single-source-3ch3u`)
 
 **NEGATIVE-LEDGER / ATTRIBUTE FIRST.** The June 21 row correctly forbids copying
