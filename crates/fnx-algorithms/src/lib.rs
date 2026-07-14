@@ -27662,6 +27662,85 @@ pub fn spanner(
 /// NetworkX equivalent: `networkx.algorithms.approximation.clique.max_clique`
 pub fn max_clique_approx(graph: &Graph) -> Vec<String> {
     let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return Vec::new();
+    }
+
+    // br-r37-c1-mmbpf: keep the greedy search entirely in node-index space.
+    // The previous mcapproxdeg lever stopped recomputing candidate degrees in
+    // the comparator, but every round still hashed owned node names through a
+    // HashSet<String> candidate set and a HashMap<&str, usize> degree table.
+    // A dense membership vector makes each neighbor probe O(1) by index, while
+    // the compact candidate list limits the scan to the live intersection.
+    // Selection is unchanged: the initial max_by_key still chooses the LAST
+    // insertion-order node on a degree tie, and each later round maximizes the
+    // identical (degree-within-candidates, node-name) total order.
+    let start = (0..n)
+        .max_by_key(|&idx| graph.neighbors_indices(idx).map_or(0, <[usize]>::len))
+        .expect("non-empty graph has a maximum-degree node");
+
+    let mut clique = vec![start];
+    let mut candidates = graph.neighbors_indices(start).unwrap_or(&[]).to_vec();
+    let mut is_candidate = vec![false; n];
+    for &candidate in &candidates {
+        is_candidate[candidate] = true;
+    }
+    let mut in_neighborhood = vec![false; n];
+
+    while !candidates.is_empty() {
+        let chosen = candidates
+            .iter()
+            .copied()
+            .map(|candidate| {
+                let degree = graph.neighbors_indices(candidate).map_or(0, |neighbors| {
+                    neighbors
+                        .iter()
+                        .filter(|&&neighbor| is_candidate[neighbor])
+                        .count()
+                });
+                (candidate, degree)
+            })
+            .max_by(|&(left, left_degree), &(right, right_degree)| {
+                left_degree
+                    .cmp(&right_degree)
+                    .then_with(|| nodes[left].cmp(nodes[right]))
+            })
+            .map(|(candidate, _)| candidate)
+            .expect("non-empty candidate list has a greedy maximum");
+
+        is_candidate[chosen] = false;
+        clique.push(chosen);
+
+        let chosen_neighbors = graph.neighbors_indices(chosen).unwrap_or(&[]);
+        for &neighbor in chosen_neighbors {
+            in_neighborhood[neighbor] = true;
+        }
+        candidates.retain(|&candidate| {
+            let keep = is_candidate[candidate] && in_neighborhood[candidate];
+            if !keep {
+                is_candidate[candidate] = false;
+            }
+            keep
+        });
+        for &neighbor in chosen_neighbors {
+            in_neighborhood[neighbor] = false;
+        }
+    }
+
+    let mut clique: Vec<String> = clique
+        .into_iter()
+        .map(|idx| nodes[idx].to_owned())
+        .collect();
+    clique.sort();
+    clique
+}
+
+/// br-r37-c1-mmbpf A/B baseline: the shipped mcapproxdeg implementation that
+/// retained candidate membership and per-round degrees in String hash tables.
+#[cfg(test)]
+fn max_clique_approx_orig_string_state(graph: &Graph) -> Vec<String> {
+    let nodes = graph.nodes_ordered();
     if nodes.is_empty() {
         return Vec::new();
     }
@@ -27669,10 +27748,10 @@ pub fn max_clique_approx(graph: &Graph) -> Vec<String> {
     let start = nodes
         .iter()
         .max_by_key(|&&node| graph.neighbor_count(node))
-        .unwrap()
+        .expect("non-empty graph has a maximum-degree node")
         .to_string();
 
-    let mut clique: Vec<String> = vec![start.clone()];
+    let mut clique = vec![start.clone()];
     let mut candidates: HashSet<String> = graph
         .neighbors(&start)
         .unwrap_or_default()
@@ -27681,39 +27760,37 @@ pub fn max_clique_approx(graph: &Graph) -> Vec<String> {
         .collect();
 
     while !candidates.is_empty() {
-        // Greedy: pick candidate with most neighbors in the candidate set.
-        // br-r37-c1-mcapproxdeg (cc): precompute each candidate's degree-within-candidates ONCE per
-        // round instead of recomputing BOTH sides inside the max_by comparator — where each call did a
-        // fresh `neighbors()` Vec<&str> allocation and the running max's degree was recomputed on every
-        // one of the ~|candidates| comparisons. Uses `neighbors_iter` (no Vec alloc) and reads the
-        // precomputed value in the comparator. Byte-identical: the max_by key is the same (degree, name)
-        // total order, so it selects the same node (max degree, ties by max name). `deg` is scoped so it
-        // (which borrows `candidates`) drops before the `candidates` mutation below.
         let chosen = {
-            let deg: HashMap<&str, usize> = candidates
+            let degree: HashMap<&str, usize> = candidates
                 .iter()
-                .map(|c| {
-                    let d = graph
-                        .neighbors_iter(c)
-                        .map(|it| it.filter(|&n| candidates.contains(n)).count())
+                .map(|candidate| {
+                    let value = graph
+                        .neighbors_iter(candidate)
+                        .map(|neighbors| {
+                            neighbors
+                                .filter(|&neighbor| candidates.contains(neighbor))
+                                .count()
+                        })
                         .unwrap_or(0);
-                    (c.as_str(), d)
+                    (candidate.as_str(), value)
                 })
                 .collect();
             candidates
                 .iter()
-                .max_by(|&a, &b| deg[a.as_str()].cmp(&deg[b.as_str()]).then_with(|| a.cmp(b)))
+                .max_by(|&left, &right| {
+                    degree[left.as_str()]
+                        .cmp(&degree[right.as_str()])
+                        .then_with(|| left.cmp(right))
+                })
                 .cloned()
-                .unwrap()
+                .expect("non-empty candidate set has a greedy maximum")
         };
 
         candidates.remove(&chosen);
         clique.push(chosen.clone());
-
-        // New candidates must be neighbors of the chosen node
-        if let Some(nbrs) = graph.neighbors(&chosen) {
-            let nbr_set: HashSet<&str> = nbrs.into_iter().collect();
-            candidates.retain(|c| nbr_set.contains(c.as_str()));
+        if let Some(neighbors) = graph.neighbors(&chosen) {
+            let neighborhood: HashSet<&str> = neighbors.into_iter().collect();
+            candidates.retain(|candidate| neighborhood.contains(candidate.as_str()));
         } else {
             candidates.clear();
         }
@@ -53077,8 +53154,8 @@ mod tests {
 
     /// br-r37-c1-mcapproxdeg: full-function paired-interleaved median A/B for `max_clique_approx` —
     /// inline ORIGINAL (degree recomputed inside the max_by comparator, a fresh neighbors() Vec alloc
-    /// per comparison) vs the shipped `super::max_clique_approx` (precompute each candidate's degree once
-    /// per round via neighbors_iter, no per-comparison alloc). Dense-ish graph so a large candidate set
+    /// per comparison) vs the frozen mcapproxdeg String-state helper (precompute each candidate's degree
+    /// once per round via neighbors_iter, no per-comparison alloc). Dense-ish graph so a large candidate set
     /// makes the ~|candidates| redundant recomputations/allocs the dominant cost. Output parity asserted
     /// first. `#[ignore]`; run with
     /// `cargo test --release -p fnx-algorithms --lib max_clique_approx_deg_ab -- --ignored --nocapture`.
@@ -53150,14 +53227,14 @@ mod tests {
 
         assert_eq!(
             old_fn(&g),
-            super::max_clique_approx(&g),
+            super::max_clique_approx_orig_string_state(&g),
             "precompute-degree max_clique_approx must be byte-identical to the comparator-recompute version"
         );
 
         let time = |cand: bool| -> f64 {
             let t0 = Instant::now();
             let r = if cand {
-                super::max_clique_approx(&g)
+                super::max_clique_approx_orig_string_state(&g)
             } else {
                 old_fn(&g)
             };
@@ -53205,6 +53282,102 @@ mod tests {
         println!("MCAPPROXDEG_AB max_clique_approx 1200-node deg120 rounds={rounds} (>1 = precompute faster)");
         report("PRECOMPUTE_vs_recompute", &paired(true, false));
         report("NULL_precompute_vs_precompute", &paired(true, true));
+    }
+
+    /// br-r37-c1-mmbpf: same-binary A/B for dense index/mark candidate state
+    /// against the frozen String HashSet/HashMap implementation, plus an
+    /// index/index null control.
+    #[test]
+    #[ignore = "measurement; run with --profile release --include-ignored --nocapture"]
+    fn max_clique_approx_index_state_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        let n = 2_048usize;
+        let radius = 96usize;
+        let calls = 2usize;
+        let names = (0..n).map(|idx| format!("n{idx}")).collect::<Vec<_>>();
+        let mut graph = Graph::strict();
+        for name in &names {
+            graph.add_node(name);
+        }
+        for left in 0..n {
+            for offset in 1..=radius {
+                let right = (left + offset) % n;
+                let _ = graph.add_edge(&names[left], &names[right]);
+            }
+        }
+
+        let baseline = super::max_clique_approx_orig_string_state(&graph);
+        let candidate = super::max_clique_approx(&graph);
+        assert_eq!(
+            candidate, baseline,
+            "index candidate state must preserve output"
+        );
+
+        let time = |use_candidate: bool| -> u128 {
+            let start = Instant::now();
+            for _ in 0..calls {
+                let clique = if use_candidate {
+                    super::max_clique_approx(black_box(&graph))
+                } else {
+                    super::max_clique_approx_orig_string_state(black_box(&graph))
+                };
+                black_box(clique);
+            }
+            start.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15usize;
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let mut null_first_times = Vec::with_capacity(rounds);
+        let mut null_second_times = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(false), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(false), candidate_time)
+            };
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+
+            let (null_first, null_second) = if round.is_multiple_of(2) {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                (time(true), null_second)
+            };
+            null_first_times.push(null_first);
+            null_second_times.push(null_second);
+        }
+
+        let baseline_median = median(&baseline_times);
+        let candidate_median = median(&candidate_times);
+        let null_first_median = median(&null_first_times);
+        let null_second_median = median(&null_second_times);
+        let paired_wins = baseline_times
+            .iter()
+            .zip(&candidate_times)
+            .filter(|(baseline_time, candidate_time)| baseline_time > candidate_time)
+            .count();
+
+        println!(
+            "MAX_CLIQUE_INDEX_AB n={n} radius={radius} calls={calls} rounds={rounds} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} speedup={:.3}x paired_wins={paired_wins}/{rounds} null_first_median_ns={null_first_median} null_second_median_ns={null_second_median} null_ratio={:.3}x exact_parity=true",
+            baseline_median as f64 / candidate_median as f64,
+            null_first_median as f64 / null_second_median as f64,
+        );
     }
 
     /// br-r37-c1-bkpivotdeg: full-function paired-interleaved median A/B for `find_cliques` — inline
@@ -70505,6 +70678,63 @@ mod tests {
         let g = Graph::strict();
         let clique = max_clique_approx(&g);
         assert!(clique.is_empty());
+    }
+
+    #[test]
+    fn max_clique_approx_index_state_matches_string_baseline() {
+        let names = ["z", "a", "m", "b", "q"];
+        let edges = [
+            (0, 1),
+            (0, 2),
+            (0, 3),
+            (0, 4),
+            (1, 2),
+            (1, 3),
+            (1, 4),
+            (2, 3),
+            (2, 4),
+            (3, 4),
+        ];
+
+        for edge_mask in 0usize..(1 << edges.len()) {
+            let mut graph = Graph::strict();
+            for name in names {
+                graph.add_node(name);
+            }
+            for (bit, &(left, right)) in edges.iter().enumerate() {
+                if edge_mask & (1 << bit) != 0 {
+                    let _ = graph.add_edge(names[left], names[right]);
+                }
+            }
+            assert_eq!(
+                max_clique_approx(&graph),
+                super::max_clique_approx_orig_string_state(&graph),
+                "simple edge mask {edge_mask:#05x}"
+            );
+        }
+
+        for loop_mask in 1usize..(1 << names.len()) {
+            let mut graph = Graph::strict();
+            for name in names {
+                graph.add_node(name);
+            }
+            let edge_mask = loop_mask.wrapping_mul(37) & ((1 << edges.len()) - 1);
+            for (bit, &(left, right)) in edges.iter().enumerate() {
+                if edge_mask & (1 << bit) != 0 {
+                    let _ = graph.add_edge(names[left], names[right]);
+                }
+            }
+            for (bit, name) in names.iter().enumerate() {
+                if loop_mask & (1 << bit) != 0 {
+                    let _ = graph.add_edge(*name, *name);
+                }
+            }
+            assert_eq!(
+                max_clique_approx(&graph),
+                super::max_clique_approx_orig_string_state(&graph),
+                "self-loop mask {loop_mask:#04x}, edge mask {edge_mask:#05x}"
+            );
+        }
     }
 
     #[test]

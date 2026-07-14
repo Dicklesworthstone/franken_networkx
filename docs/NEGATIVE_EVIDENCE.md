@@ -20080,3 +20080,67 @@ arithmetic, self-loop exclusion, and materializing clustering kernel for callers
 that request per-node scores or average clustering. Do not widen this duplicate
 scan into directed clustering or weighted/multigraph semantics without a separate
 parity and same-binary proof.
+
+## 2026-07-14 RusticHollow SHIP (`max_clique_approx`): dense index/mark candidate state — **22.011x** (`br-r37-c1-mmbpf`)
+
+NEGATIVE-LEDGER FIRST: recent turns already exercised centrality, shortest path,
+traversal, DAG, connectivity, flow, matching, coloring, and clustering seams. The
+older approximation sweep measured public `max_clique` at `0.90x` versus NetworkX
+and concluded that there was no clean wrapper lever. A later native keep
+(`50db79bcd`) improved the greedy kernel `1.7071x` by computing each candidate's
+degree once per round, but its own source left all live candidate membership,
+degree lookup, and neighborhood intersection in String hash tables. This turn
+audited that residual directly rather than retrying an exhausted family-wide
+wrapper idea.
+
+ONE LEVER: keep the greedy search in insertion-index space. A compact live-index
+list plus `Vec<bool>` candidate membership replaces `HashSet<String>` probes; a
+reused boolean neighborhood mark replaces the temporary String-neighborhood set;
+and candidate degrees scan `neighbors_indices` directly. The initial
+`max_by_key` retains its last-on-degree-tie behavior, later rounds retain the exact
+`(degree-within-candidates, node-name)` maximum, and names are materialized only
+for the final sorted output. A frozen test-only copy of the shipped String-state
+implementation is the parity and timing oracle.
+
+ONE FOREGROUND A/B + NULL: one completed release-profile invocation on strict-
+remote worker `vmi1149989` (job `j-29928833041828308`) used a 2,048-node
+radius-96 circulant, two calls per sample, three warmups, and 15 alternating-order
+rounds. The same binary compared the frozen String state with the index/mark state
+and ran an index/index null control:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen String state vs index/mark state | `47,678,305 ns / 2,166,142 ns` | **`22.011x`** | **`15/15`** | exact |
+| index/index null | `2,707,726 ns / 2,326,863 ns` | `1.164x` | identical arm | exact |
+
+The null is noisier than ideal and favors its second identical arm by 16.4%, but
+the candidate wins every real pair and remains about `18.9x` faster after dividing
+the observed win by that full null skew. The decision therefore does not depend
+on treating the null as unity.
+
+CORRECTNESS / INVALID-EVIDENCE DISCLOSURE / GATES: the focused strict-remote
+differential test passed `1/1` on `vmi1149989` (job
+`j-29928833041828302`). It exhaustively compared all 1,024 simple edge masks on
+five nonlexically inserted nodes, then 31 self-loop masks with varied edge masks,
+against the frozen String implementation. An earlier exact-filter invocation on
+the same worker (job `j-29928833041828296`) compiled successfully but admitted
+zero tests; it is VOID and contributes no parity evidence. Strict-remote
+`cargo check --workspace --all-targets` passed (job `j-29928833041828312`) with
+only committed warnings outside the owned ranges. Exact workspace clippy
+reproduced the committed `fnx-classes/src/lib.rs:1700` `collapsible_if` blocker
+(job `j-29928833041828317`); production-only `--no-deps` clippy for
+`fnx-algorithms` passed after allowing only documented baseline lint classes (job
+`j-29928833041828319`). Direct read-only rustfmt found broad committed drift; its
+sole suggestion in the new benchmark was applied manually, and the remaining
+owned additions are canonical. `git diff --check` passed. Static-only UBS
+completed before its timeout and reported broad file-wide assert, direct-index,
+and cast inventories; manual triage found no actionable lever-local issue, and
+all new direct indices come from graph adjacency rows and address vectors sized
+to the same node count. Every Cargo command used fail-closed
+`RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`, and direct
+`rch --no-self-healing exec -- cargo ...`; no local Cargo fallback ran.
+
+RESULT: SHIP. Preserve initial insertion-order degree ties, later lexical name
+ties, self-loop behavior, and final sorted output. Do not widen this index-state
+rewrite to directed clique heuristics, exact clique enumeration, or Python-only
+approximation wrappers without a separate order/parity proof.
