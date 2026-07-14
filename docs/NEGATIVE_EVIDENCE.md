@@ -21384,3 +21384,76 @@ allocation inventories. Both Cargo commands were fail-closed with
 RESULT: SHIP. Preserve exact token-order first touches while batching only the
 undirected adjacency-list graph population; keep all dispatch, warning,
 strict/hardened recovery, final policy adoption, and directed parsing behavior.
+
+## 2026-07-14 GrayCitadel SHIP (`EdgeListEngine::read_digraph_adjlist`): batch first-touch directed arcs by index — **10.2349x** (`br-r37-c1-spj0i`)
+
+NEGATIVE-LEDGER / ROBOT-TRIAGE FIRST: `bv --robot-triage` again ranked the
+occupied no-gaps umbrella and already-mined graph quick wins. The immediately
+preceding undirected adjacency-list batch measured a 9.1190x keep and explicitly
+left directed parsing untouched; the ledger has no dedicated directed-reader
+A/B or rejection. This turn therefore takes the remaining directed sibling as
+one narrow read-path lever rather than reopening a thinning family.
+
+PROFILE / ATTRIBUTION FIRST: `read_digraph_adjlist` still sends every row node
+through `DiGraph::add_node` and every neighbor token through generic
+`DiGraph::add_edge`, cloning owned endpoint Strings, hashing names, checking
+generic mutation invariants, and emitting graph-policy records which
+`finish_digraph_report` discards when it adopts the engine policy. On the planned
+2,048-row / 8,193-arc fixture, ranked work is (1) 8,193 generic directed edge
+insertions and endpoint clones, (2) 2,048 generic row-node insertions, and (3)
+final report assembly outside this lever. Opportunity score: impact 4 x
+confidence 5 / effort 1 = 20.
+
+ONE LEVER / PROOF PLAN: assign stable indices in exact node/neighbor first-touch
+order during the existing directed parse, retain directed pairs in token order,
+then submit ordered nodes and existing-index arcs through `DiGraph` batches.
+Comment stripping, malformed-line recovery, dispatch, warnings, duplicate and
+self-loop behavior, revision semantics, and final policy adoption must remain
+unchanged. A same-binary harness will compare complete ordered directed snapshots
+and revisions across nonlexical rows, neighbor-before-row first touches, reverse
+arcs, duplicates, isolates, and a self-loop. Because this changes the release
+test binary, first run an untimed strict-remote `--no-run` warm-up without a
+timeout, then one cheap foreground ordinary-release A/B with three warmups, 15
+alternating-order pairs, and an identical-path null control.
+
+COLD-TARGET WARM-UP: one untimed strict-remote ordinary-release `--no-run`
+invocation completed on worker `vmi1153651` (job `j-29928833041828738`)
+before measurement. It reported a cache miss and took 109.1 seconds in the RCH
+pipeline (33.8 seconds sync, 73.3 seconds build, 2.0 seconds artifact retrieval;
+118.2 seconds wrapper elapsed). No timeout wrapped the cold build, and none of
+that wall time is performance evidence.
+
+ONE FOREGROUND A/B + NULL: the subsequent strict-remote ordinary-release
+invocation ran on the same worker and target path (job `j-29928833041828741`).
+The fixed 2,048-row / 8,193-arc harness asserted complete ordered directed
+snapshot and revision equality before three warmups and 15 alternating-order
+pairs:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen per-item parser vs directed index batch | `18,589,214 ns / 1,816,259 ns` | **`10.2349x`** | **`15/15`** | exact |
+| directed index batch / same-path null | `1,679,984 ns / 1,804,987 ns` | `0.9307x` | `5/15` | identical arm |
+
+The real arm wins every pair and remains about `9.526x` after pessimistically
+charging the full 7.44% null-skew magnitude. The timed test completed in 0.50
+seconds. RCH redundantly reported another cache miss despite the successful
+warm-up; its 105.8-second pipeline (33.8 seconds sync, 69.3 seconds
+build/execution, 2.6 seconds artifact retrieval; 114.0 seconds wrapper elapsed)
+is routing/build overhead, not benchmark evidence. No timeout, retry, or
+`release-perf` command ran.
+
+CORRECTNESS / GATES: the same-binary harness compares complete ordered directed
+snapshots and public revisions before measurement, including neighbor-before-row
+first touches, reverse arcs, duplicates, an isolate, and a self-loop. A dedicated
+compiled unit case covers the same public-reader boundary with comments and
+nonlexical rows. Comment stripping, dispatch, warnings, strict/hardened recovery,
+and final policy adoption remain unchanged. Direct rustfmt and `git diff --check`
+passed. Targeted UBS completed with zero critical findings; its warnings were the
+existing file-wide test assertion, clone, direct-index, and allocation
+inventories. Both Cargo commands were fail-closed with `RCH_REQUIRE_REMOTE=1`,
+`RCH_NO_SELF_HEALING=1`, and direct `rch --no-self-healing exec -- cargo ...`;
+no local fallback ran.
+
+RESULT: SHIP. Preserve exact token-order first touches and directed successor /
+predecessor insertion order while batching only directed adjacency-list graph
+population; keep dispatch, warning, recovery, and final policy behavior intact.
