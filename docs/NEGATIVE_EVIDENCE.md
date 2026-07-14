@@ -20936,3 +20936,60 @@ and passed. The only Cargo command was fail-closed with
 RESULT: SHIP. Reuse the percentile only inside the immutable status snapshot.
 Keep standalone percentile, ratio, shift, recording, window eviction, and gate
 behavior unchanged.
+
+## 2026-07-14 GrayCitadel SHIP (`BackendRegistry::register_backend`): binary insert into sorted registry — **14.6760x** (`br-r37-c1-ug339`)
+
+NEGATIVE-LEDGER / ROBOT-TRIAGE FIRST: `bv --robot-triage` again ranked the
+occupied no-gaps umbrella and parity-hole or structural quick wins. A fresh
+`fnx-dispatch` audit found no ledger row or bead for backend registration. The
+first resolver hypothesis was already eliminated by current source: registration
+keeps the vector ordered, so ordinary resolution is already a single
+allocation-free `find`. The remaining local cost is maintaining that invariant.
+
+PROFILE / ATTRIBUTION FIRST: every `register_backend` appended one item and
+invoked a stable full-slice `sort_by` over the already sorted prefix plus that
+new tail. Across `B` registrations this repeatedly enters the general stable
+sort machinery, scans prefixes, compares priority/name keys, and may provision
+sort scratch even though the insertion point is the only unknown. The sorted
+invariant permits `O(log B)` key comparisons followed by the unavoidable vector
+shift. Opportunity score: impact 3 x confidence 5 / effort 1 = 15.
+
+ONE LEVER: locate the upper bound for descending priority and ascending name
+with `partition_point`, then insert once. Using the upper rather than lower
+bound preserves stable arrival order for duplicate priority/name pairs. Backend
+payloads, discovery order, requested-backend semantics, resolver filtering,
+evidence logging, and compatibility policy remain out of scope.
+
+ONE FOREGROUND A/B + NULL: one strict-remote ordinary `--profile release`
+invocation on worker `vmi1153651` (job `j-29928833041828621`) froze
+append-plus-stable-sort, compared the complete ordered `BackendSpec` vector
+exactly (including duplicate sort keys with distinct payloads), and timed 2,048
+deterministic registrations over three warmups and 15 alternating-order rounds:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| full stable sort after every append vs upper-bound insert | `24,200,927 ns / 1,649,015 ns` | **`14.6760x`** | **`15/15`** | exact order |
+| upper-bound insert / same upper-bound path null | `1,689,089 ns / 1,611,595 ns` | `1.0481x` | `8/15` | identical arm |
+
+The real arm wins every pair and remains about `14.0x` after conservatively
+dividing by the full 4.81% null-position skew. The timed test completed in 0.62
+seconds. RCH reported a cache miss; its pipeline took 72.9 seconds (34.9 seconds
+sync, 35.3 seconds remote build/execution, and 2.7 seconds artifact retrieval;
+82.2 seconds wrapper elapsed). Routing overhead is not benchmark evidence, and
+no retry or `release-perf` command ran.
+
+CORRECTNESS / GATES: the same-binary harness compares the entire ordered backend
+vector against a frozen copy of the former append-plus-stable-sort path before
+timing. The fixture repeats priority/name pairs while varying feature sets and
+mode flags, so equality proves stable duplicate ordering as well as primary and
+secondary sort keys. Direct rustfmt and `git diff --check` passed before
+measurement. Targeted UBS completed with zero critical findings; its warnings
+were the committed file-wide test `expect`/assert, direct-index, cast, and
+allocation inventories. The release test compiled the changed crate and passed.
+The only Cargo command was fail-closed with `RCH_REQUIRE_REMOTE=1`,
+`RCH_NO_SELF_HEALING=1`, and direct `rch --no-self-healing exec -- cargo ...`;
+no local fallback ran.
+
+RESULT: SHIP. Preserve descending priority, ascending name, and stable arrival
+order for exact duplicate keys. Keep resolver filtering, compatibility policy,
+discovery payloads, and evidence logging out of this lever.
