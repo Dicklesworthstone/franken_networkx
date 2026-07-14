@@ -19493,3 +19493,70 @@ RESULT: SHIP. Preserve the exact per-pair key count and live borrow. Do not
 replace it with neighbor count or degree semantics, and do not widen this
 commit into the directed key-dict twin or materializing methods without their
 own parity and timing.
+
+## 2026-07-14 SwiftCoast SHIP (`MultiDiKeyDictView.__len__`): count directed parallel keys without allocation — 153.315x (`br-r37-c1-gs676`)
+
+NEGATIVE-LEDGER FIRST: the immediately preceding undirected
+`MultiKeyDictView.__len__` keep removed a copied parallel-key vector, but its
+closeout explicitly prohibited widening into the directed twin without
+separate proof. The directed `MultiDiKeyDictView.__len__`, reached by
+`len(G[u][v])` and key-dict mapping truthiness on `MultiDiGraph`, still called
+`edge_keys(source, target)` and allocated every key solely to read `.len()`.
+History, the ledger, and active ownership showed no directed attempt. This
+one-method twin scored impact 4 x confidence 5 / effort 1 = 20.
+
+ONE LEVER: replace only that allocating call with
+`edge_keys_iter(source, target).map_or(0, Iterator::count)`. Both routes read
+the same authoritative directed source-to-target key bucket, while the new
+path stops copying its keys. Sparse explicit keys count occupied slots rather
+than their maximum value; the reverse target-to-source bucket stays
+independent; self-loop keys count once. The live graph borrow, attributes,
+public key objects, iteration order, mutation behavior, storage, and every
+materializing method are unchanged.
+
+NULL FIRST: with production still allocating, one release binary on
+strict-remote worker `vmi1293453` timed the public method against its frozen
+allocating copy. The fixture held 4,096 parallel directed keys on one ordered
+node pair; each sample made 4,096 calls, after three warmups, over 31
+alternating-order pairs:
+
+| pre-change paired A/A (>1 = public-shaped arm faster) | median | wins | p5-p95 |
+|---|---:|---:|---:|
+| public view vs frozen allocating route | `0.9928x` | `13/31` | `[0.8026, 1.1023]` |
+| public-view/public-view null | `0.9944x` | `13/31` | `[0.7063, 1.1795]` |
+
+FOREGROUND MEDIAN GATE: after the sole production edit, the unchanged harness
+ran in a new release binary on the same actual worker and asserted exact
+counts before timing candidate, frozen allocating baseline, and candidate
+null arms:
+
+| same-binary paired A/B (>1 = iterator count faster) | median | wins | p5-p95 |
+|---|---:|---:|---:|
+| iterator count vs allocating route | **`153.3149x`** | **`31/31`** | `[108.1257, 190.8516]` |
+| iterator-count/iterator-count null | `1.0318x` | `21/31` | `[0.9127, 1.1773]` |
+
+The candidate p5 is over 91x above its same-binary null p95 and every A/B pair
+wins, so the keep gate is decisive. The multiplier is deliberately scoped to
+repeated length reads on a 4,096-key bucket; small buckets have less copying to
+remove.
+
+CORRECTNESS / GATES: the regular parity test compares the result with the
+frozen allocating route for an empty ordered pair, sparse explicit keys `7`
+and `42`, automatically selected key `2`, the independent reverse pair, a
+self-loop, an unrelated pair, middle-key removal, and final-cell removals
+through held live views. Focused parity passed `1/1` on `vmi1293453`.
+Strict-remote `cargo check --workspace --all-targets` passed on `vmi1153651`
+with only peer-owned unused/dead-code warnings outside this hunk. Exact
+workspace clippy reproduced the committed `fnx-classes/src/lib.rs:1700`
+`collapsible_if` blocker on `vmi1152480`; scoped
+`fnx-python --lib --no-deps` clippy passed on `vmi1227854` with `-D warnings`
+after allowing only the current `dead_code` baseline. Fail-closed RCH refused
+`cargo fmt --check` as a non-compilation command (`RCH-E301`), so no local
+Cargo fallback ran; direct read-only rustfmt and `git diff --check` passed.
+Static-only UBS reported zero critical issues; its warnings are the file-wide
+baseline inventory. Every Cargo command used `RCH_REQUIRE_REMOTE=1`,
+`RCH_NO_SELF_HEALING=1`, and `rch --no-self-healing exec`.
+
+RESULT: SHIP. Preserve the exact ordered-pair key count and live borrow. Do
+not replace it with neighbor or degree semantics, and do not widen this commit
+into other directed key-dict or materializing methods without separate proof.

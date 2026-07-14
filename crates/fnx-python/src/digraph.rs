@@ -2887,8 +2887,8 @@ impl MultiDiKeyDictView {
         self.graph
             .borrow(py)
             .inner
-            .edge_keys(&self.source, &self.target)
-            .map_or(0, |keys| keys.len())
+            .edge_keys_iter(&self.source, &self.target)
+            .map_or(0, Iterator::count)
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<crate::NodeIterator>> {
@@ -15277,6 +15277,31 @@ mod tests {
         ))
     }
 
+    fn multidikeydict_len_allocating(view: &MultiDiKeyDictView, py: Python<'_>) -> usize {
+        view.graph
+            .borrow(py)
+            .inner
+            .edge_keys(&view.source, &view.target)
+            .map_or(0, |keys| keys.len())
+    }
+
+    fn multidikeydict_parallel_view(
+        py: Python<'_>,
+        key_count: usize,
+    ) -> PyResult<MultiDiKeyDictView> {
+        let mut graph = PyMultiDiGraph::new_empty_with_policy(py, RuntimePolicy::default())?;
+        assert!(graph.inner.add_node("source"));
+        assert!(graph.inner.add_node("target"));
+        for key in 0..key_count {
+            assert_eq!(graph.inner.add_edge("source", "target"), Ok(key));
+        }
+        Ok(MultiDiKeyDictView::new(
+            Py::new(py, graph)?,
+            "source".to_owned(),
+            "target".to_owned(),
+        ))
+    }
+
     #[test]
     fn multidiatlas_len_matches_allocating_baseline() {
         ensure_python();
@@ -15348,6 +15373,94 @@ mod tests {
             Ok(())
         })
         .expect("MultiDiAtlasView length parity should hold");
+    }
+
+    #[test]
+    fn multidikeydict_len_matches_allocating_baseline() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let forward = multidikeydict_parallel_view(py, 0)?;
+            let reverse = MultiDiKeyDictView::new(
+                forward.graph.clone_ref(py),
+                "target".to_owned(),
+                "source".to_owned(),
+            );
+            let self_loop = MultiDiKeyDictView::new(
+                forward.graph.clone_ref(py),
+                "source".to_owned(),
+                "source".to_owned(),
+            );
+            assert_eq!(
+                forward.__len__(py),
+                multidikeydict_len_allocating(&forward, py)
+            );
+            assert_eq!(forward.__len__(py), 0);
+            assert_eq!(reverse.__len__(py), 0);
+
+            {
+                let mut graph = forward.graph.borrow_mut(py);
+                assert_eq!(
+                    graph
+                        .inner
+                        .add_edge_with_key_and_attrs("source", "target", 7, AttrMap::new(),),
+                    Ok(7)
+                );
+                assert_eq!(
+                    graph
+                        .inner
+                        .add_edge_with_key_and_attrs("source", "target", 42, AttrMap::new(),),
+                    Ok(42)
+                );
+                assert_eq!(graph.inner.add_edge("source", "target"), Ok(2));
+                assert_eq!(
+                    graph
+                        .inner
+                        .add_edge_with_key_and_attrs("target", "source", 5, AttrMap::new(),),
+                    Ok(5)
+                );
+                assert_eq!(
+                    graph
+                        .inner
+                        .add_edge_with_key_and_attrs("source", "source", 11, AttrMap::new(),),
+                    Ok(11)
+                );
+                assert_eq!(graph.inner.add_edge("source", "other"), Ok(0));
+            }
+            assert_eq!(
+                forward.__len__(py),
+                multidikeydict_len_allocating(&forward, py)
+            );
+            assert_eq!(forward.__len__(py), 3);
+            assert_eq!(reverse.__len__(py), 1);
+            assert_eq!(self_loop.__len__(py), 1);
+
+            {
+                let mut graph = forward.graph.borrow_mut(py);
+                assert!(graph.inner.remove_edge("source", "target", Some(42)));
+            }
+            assert_eq!(
+                forward.__len__(py),
+                multidikeydict_len_allocating(&forward, py)
+            );
+            assert_eq!(forward.__len__(py), 2);
+            assert_eq!(reverse.__len__(py), 1);
+
+            {
+                let mut graph = forward.graph.borrow_mut(py);
+                assert!(graph.inner.remove_edge("source", "target", Some(7)));
+                assert!(graph.inner.remove_edge("source", "target", Some(2)));
+            }
+            assert_eq!(forward.__len__(py), 0);
+            assert_eq!(reverse.__len__(py), 1);
+
+            {
+                let mut graph = forward.graph.borrow_mut(py);
+                assert!(graph.inner.remove_edge("target", "source", Some(5)));
+            }
+            assert_eq!(reverse.__len__(py), 0);
+            Ok(())
+        })
+        .expect("MultiDiKeyDictView length parity should hold");
     }
 
     /// `br-r37-c1-owbzu`: same-binary proof for exact-size successor and
@@ -15425,6 +15538,77 @@ mod tests {
             Ok(())
         })
         .expect("MultiDiAtlasView length A/B should run");
+    }
+
+    /// `br-r37-c1-gs676`: same-binary proof for exact-size directed key
+    /// iterator counting versus the frozen allocating `edge_keys().len()`
+    /// route. Run with the release profile, `--ignored`, and `--nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multidikeydict_len_noalloc_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let key_count = 4_096usize;
+            let calls = 4_096usize;
+            let rounds = 31usize;
+            let view = multidikeydict_parallel_view(py, key_count)?;
+            assert_eq!(view.__len__(py), key_count);
+            assert_eq!(multidikeydict_len_allocating(&view, py), key_count);
+
+            let time = |candidate: bool| -> f64 {
+                let start = Instant::now();
+                for _ in 0..calls {
+                    let length = if candidate {
+                        view.__len__(py)
+                    } else {
+                        multidikeydict_len_allocating(&view, py)
+                    };
+                    black_box(length);
+                }
+                start.elapsed().as_secs_f64()
+            };
+            for _ in 0..3 {
+                black_box(time(false));
+                black_box(time(true));
+            }
+
+            let paired = |baseline_is_candidate: bool| -> Vec<f64> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                        (time(baseline_is_candidate), time(true))
+                    } else {
+                        let candidate_time = time(true);
+                        let baseline_time = time(baseline_is_candidate);
+                        (baseline_time, candidate_time)
+                    };
+                    ratios.push(baseline_time / candidate_time);
+                }
+                ratios
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "MULTIDIKEYDICT_LEN_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "MULTIDIKEYDICT_LEN_AB keys={key_count} calls={calls} rounds={rounds} (>1 = candidate faster)"
+            );
+            report("candidate_vs_allocating", &paired(false));
+            report("candidate_null", &paired(true));
+            Ok(())
+        })
+        .expect("MultiDiKeyDictView length A/B should run");
     }
 
     #[test]
