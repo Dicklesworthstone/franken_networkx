@@ -21094,3 +21094,51 @@ RESULT: INVALID / NO-SHIP. Revert the source and ignored harness; commit only
 this negative-evidence row and the closed bead. A future fresh turn may correct
 the lookup to `contains(py_record.fixture_id.as_str())` and re-profile, but this
 attempt supplies no performance evidence.
+
+## 2026-07-14 GrayCitadel INVALID / NO-SHIP (`dominance_frontiers`): index-space propagation did not reach timed path (`br-r37-c1-nfe62`)
+
+NEGATIVE-LEDGER / ROBOT-TRIAGE FIRST: `bv --robot-triage` ranked the occupied
+no-gaps umbrella plus already-mined shortest-path/storage quick wins. Ledger
+search found broad `dominance_frontiers` sweep rows and the shipped indexed
+`immediate_dominators` precursor, but no dedicated frontier-propagation lever
+or no-retry row. This is a fresh dominance-analysis tail rather than another
+conformance or shortest-path pass.
+
+PROFILE / ATTRIBUTION FIRST: after `immediate_dominators` computes the reachable
+dominator relation, `dominance_frontiers` converted every visited node and
+predecessor to owned `String`s, repeatedly hashed the String-keyed dominator and
+frontier maps, and cloned the runner String for every dominator-chain hop. A
+CFG-shaped chain with one many-predecessor sink makes that tail perform
+quadratically many runner hops while the graph itself remains sparse. Ranked
+cost: (1) String clone/hash per chain hop, (2) predecessor-name materialization,
+(3) unavoidable final name projection. Opportunity score: impact 4 x confidence
+5 / effort 2 = 10.
+
+ONE LEVER: resolve the returned immediate-dominator map to node indices once,
+walk `predecessors_indices`, propagate and deduplicate frontier membership in
+`Vec<Vec<usize>>`, then materialize names once at the public return boundary.
+Node order, predecessor order, first-insertion order inside every frontier,
+reachable-key membership, start-node behavior, and returned map/vector contents
+remain unchanged.
+
+ONE FOREGROUND ATTEMPT: the sole fail-closed remote ordinary `--profile release`
+command was admitted to worker `vmi1153651` as job
+`j-29928833041828662`, but compilation stopped before the parity assertion or
+timed path. The ignored test module referenced
+`dominance_frontiers_orig_string` without its required `super::` qualifier, so
+Rust reported `E0425` at both comparator call sites. The command exited 101
+after 118.3 seconds total: 36.5 seconds sync and 81.8 seconds remote build. No
+benchmark samples or parity result exist.
+
+GATES / EVIDENCE STATUS: `git diff --check` passed, and the owned hunks matched
+the rustfmt-requested shape despite unrelated pre-existing whole-file format
+drift. Targeted UBS entered its Rust scan without emitting a finding, but did
+not emit a final verdict before the remote run. RCH was fail-closed with
+`RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`, and direct
+`rch --no-self-healing exec -- cargo ...`; no local fallback ran. Per the
+one-foreground-command rule, there was no retry.
+
+RESULT: INVALID / NO-SHIP. Revert the index-space candidate and ignored probe;
+commit only this negative-evidence row and the closed bead. A future fresh turn
+may qualify both helper calls with `super::` and re-profile, but this attempt
+supplies no performance evidence.
