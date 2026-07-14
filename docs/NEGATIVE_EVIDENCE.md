@@ -19204,3 +19204,76 @@ candidate must either improve the keyed constructor batch itself or discriminate
 keyed tuples without exhausting or copying the iterator before preserving the
 streaming fallback. Plain/attributed wins are routing evidence only, not a
 partial ship hidden behind an unproved shape peek.
+
+## 2026-07-13 SwiftCoast SHIP (`number_strongly_connected_components`): count Tarjan roots directly — 4.419x (`br-r37-c1-941r3`)
+
+NEGATIVE-LEDGER FIRST: the immediately preceding directed-constructor probe
+rejected a broad iterator drain because explicitly keyed MultiDiGraph input
+regressed to `0.7633x` with `0/31` wins, and the clean traversal-frontier report
+marks simple String-to-index BFS/DFS swaps as mined out. The remaining scalar SCC
+helper exposed a different, output-specific seam: it called
+`strongly_connected_components(digraph).len()`, allocating an owned `String` for
+every node, sorting every component, sorting the final component vector, and
+then discarding all of that output. The full SCC enumerator already wins its
+public NetworkX comparison, so this tranche claims only an FNX self-speedup for
+the count-only API.
+
+ONE LEVER: run the same iterative integer-index Tarjan traversal directly in
+`number_strongly_connected_components`, but increment a scalar at each SCC root
+instead of constructing component vectors. Discovery indices, lowlink updates,
+successor order, stack pops, and the outer node order are identical. The CGSE
+begin/decision/publish sequence is also preserved exactly; only unobservable
+component materialization and sorting are omitted. No Python binding, graph
+storage, floating-point path, RNG state, or enumerating SCC API changed.
+
+NULL FIRST: with production still calling the materializing implementation, one
+release binary on strict-remote worker `vmi1293453` timed the public scalar arm
+against an explicit `strongly_connected_components(&g).len()` baseline on a
+20,000-node forward DAG of out-degree four. Every vertex is a singleton SCC,
+maximizing the output that the scalar API used to discard. Thirty-one paired,
+alternating-order rounds were neutral:
+
+| pre-change paired A/A (>1 = scalar-shaped arm faster) | median | wins | p5-p95 |
+|---|---:|---:|---:|
+| public scalar vs explicit materialization | `0.9965x` | `15/31` | `[0.8257, 1.3403]` |
+| materialized/materialized null | `1.0039x` | `16/31` | `[0.8675, 1.1953]` |
+
+FOREGROUND MEDIAN GATE: after the one production edit, a new release binary on
+the same worker asserted exact counts before timing candidate, frozen
+materializing baseline, and null arms:
+
+| same-binary paired A/B (>1 = count-only faster) | median | wins | p5-p95 |
+|---|---:|---:|---:|
+| count-only vs materialized | **`4.4188x`** | **`31/31`** | `[3.5744, 5.9219]` |
+| materialized/materialized null | `1.0018x` | `16/31` | `[0.8982, 1.3377]` |
+
+The candidate p5 is 2.67x above the same-binary null p95, and all 31 pairs win,
+so the keep gate is decisive. This is deliberately a many-SCC result: a graph
+with one large SCC has little discarded component-container overhead and is not
+claimed to receive the same multiplier.
+
+CORRECTNESS / GATES: the harness asserts the count equals both the materialized
+baseline and the known 20,000 singleton SCCs. The regular unit test additionally
+locks two cyclic components, an isolated vertex, and the empty graph against
+`strongly_connected_components(...).len()`; strict-remote focused test passed
+`1/1`. Strict-remote `cargo check --workspace --all-targets` passed on
+`vmi1149989`, with only committed unused/dead-code warnings outside this hunk.
+Exact workspace clippy stopped at the committed
+`fnx-classes/src/lib.rs:1700` `collapsible_if` baseline on `vmi1152480`; a
+crate-scoped no-deps clippy gate then exposed four more committed
+`explicit_counter_loop` / `question_mark` findings outside this hunk and passed
+after allowing only those two baseline lint classes. Fail-closed RCH refused
+`cargo fmt --check` because formatting is a non-compilation command, so no local
+Cargo fallback ran; direct rustfmt reports broad committed drift elsewhere in
+the 80k-line file and no formatter diff in either owned hunk. `git diff --check`
+passed. UBS's static-only scan reported its known file-wide inventory plus one
+false-positive "JWT decode" critical on the test name
+`from_prufer_sequence_preserves_ordered_smallest_leaf_decode`; the SCC hunk adds
+no unsafe code, parsing, I/O, or unchecked external index. Every Cargo
+build/test/check/clippy attempt used
+`RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`, and
+`rch --no-self-healing exec`.
+
+RESULT: SHIP. Preserve the scalar-only scope, the identical Tarjan/CGSE decision
+stream, and the materialized SCC enumerator for callers that need component
+contents or ordering.

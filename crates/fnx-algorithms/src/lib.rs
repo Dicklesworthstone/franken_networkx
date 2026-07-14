@@ -24534,7 +24534,92 @@ fn strongly_connected_components_orig_string(digraph: &DiGraph) -> Vec<Vec<Strin
 /// Return the number of strongly connected components.
 #[must_use]
 pub fn number_strongly_connected_components(digraph: &DiGraph) -> usize {
-    strongly_connected_components(digraph).len()
+    // br-r37-c1-941r3: count Tarjan roots directly. The old scalar helper
+    // materialized every component as owned Strings, sorted every component,
+    // sorted the component list, and then discarded all of it for `.len()`.
+    // Keep the exact integer-index DFS and CGSE decision stream from
+    // `strongly_connected_components`; only SCC-root emission changes from
+    // output construction to a counter increment.
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::StronglyConnectedComponents);
+
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    let mut indices: Vec<Option<usize>> = vec![None; n];
+    let mut lowlinks: Vec<usize> = vec![0; n];
+    let mut on_stack: Vec<bool> = vec![false; n];
+    let mut stack: Vec<usize> = Vec::new();
+    let mut index_counter: usize = 0;
+    let mut component_count: usize = 0;
+    let mut work: Vec<(usize, &[usize], usize)> = Vec::new();
+
+    for i in 0..n {
+        if indices[i].is_some() {
+            continue;
+        }
+
+        indices[i] = Some(index_counter);
+        lowlinks[i] = index_counter;
+        index_counter += 1;
+        stack.push(i);
+        on_stack[i] = true;
+
+        let successors = digraph.successors_indices(i).unwrap_or(&[]);
+        work.push((i, successors, 0));
+
+        while let Some((u_idx, u_successors, next_successor_idx)) = work.last_mut() {
+            let u_idx = *u_idx;
+            if *next_successor_idx < u_successors.len() {
+                let v_idx = u_successors[*next_successor_idx];
+                *next_successor_idx += 1;
+
+                match indices[v_idx] {
+                    None => {
+                        cgse_record_decision(&mut cgse_sink, nodes[v_idx], nodes[u_idx]);
+                        indices[v_idx] = Some(index_counter);
+                        lowlinks[v_idx] = index_counter;
+                        index_counter += 1;
+                        stack.push(v_idx);
+                        on_stack[v_idx] = true;
+
+                        let v_successors = digraph.successors_indices(v_idx).unwrap_or(&[]);
+                        work.push((v_idx, v_successors, 0));
+                    }
+                    Some(v_index) if on_stack[v_idx] => {
+                        lowlinks[u_idx] = lowlinks[u_idx].min(v_index);
+                    }
+                    _ => {}
+                }
+            } else {
+                let (u_finished, _, _) = work.pop().unwrap();
+                let u_low = lowlinks[u_finished];
+                let u_index = indices[u_finished].unwrap();
+
+                if u_low == u_index {
+                    loop {
+                        let w_idx = stack.pop().unwrap();
+                        on_stack[w_idx] = false;
+                        if w_idx == u_finished {
+                            break;
+                        }
+                    }
+                    component_count += 1;
+                }
+
+                if let Some((parent_idx, _, _)) = work.last_mut() {
+                    lowlinks[*parent_idx] = lowlinks[*parent_idx].min(u_low);
+                }
+            }
+        }
+    }
+
+    cgse_publish(
+        CgseReferenceAlgorithm::StronglyConnectedComponents,
+        digraph.node_count(),
+        digraph.edge_count(),
+        cgse_sink,
+    );
+
+    component_count
 }
 
 /// Return whether the directed graph is strongly connected.
@@ -54776,6 +54861,86 @@ mod tests {
         report("NULL_index_vs_index", &paired(true, true));
     }
 
+    /// br-r37-c1-941r3: full-function paired A/B for the scalar SCC count.
+    /// The baseline materializes and sorts every component before taking `.len()`;
+    /// the candidate uses `number_strongly_connected_components`. A forward DAG
+    /// makes every node a singleton SCC and amplifies that avoidable output work.
+    /// `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib number_strongly_connected_components_count_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn number_strongly_connected_components_count_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let degree = 4usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for offset in 1..=degree {
+                if i + offset < n {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{}", i + offset));
+                }
+            }
+        }
+
+        let materialized = super::strongly_connected_components(&g).len();
+        let counted = super::number_strongly_connected_components(&g);
+        assert_eq!(counted, materialized);
+        assert_eq!(counted, n, "forward DAG has one SCC per node");
+
+        let time = |use_count: bool| -> f64 {
+            let start = Instant::now();
+            let result = if use_count {
+                super::number_strongly_connected_components(&g)
+            } else {
+                super::strongly_connected_components(&g).len()
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 31usize;
+        let paired = |candidate: bool, baseline: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(baseline), time(candidate))
+                } else {
+                    let candidate_time = time(candidate);
+                    let base_time = time(baseline);
+                    (base_time, candidate_time)
+                };
+                ratios.push(base_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "SCCCOUNT_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!(
+            "SCCCOUNT_AB number_strongly_connected_components n={n} degree={degree} rounds={rounds} (>1 = count-only faster)"
+        );
+        report("COUNT_vs_materialized", &paired(true, false));
+        report("NULL_materialized_vs_materialized", &paired(false, false));
+    }
+
     /// br-r37-c1-bccidx: full-function paired-interleaved A/B for `biconnected_component_edges`
     /// (fully String-keyed articulation DFS: discovery/low/parent HashMap<&str,_> + (&str,&str) edge
     /// stack + Vec<&str> work stack → all integer-index). Chain of triangles so there are many small
@@ -68087,6 +68252,20 @@ mod tests {
         dg.add_edge("c", "d").unwrap();
         dg.add_edge("d", "c").unwrap();
         assert_eq!(number_strongly_connected_components(&dg), 2);
+        assert_eq!(
+            number_strongly_connected_components(&dg),
+            strongly_connected_components(&dg).len()
+        );
+
+        let _ = dg.add_node("isolated");
+        assert_eq!(number_strongly_connected_components(&dg), 3);
+        assert_eq!(
+            number_strongly_connected_components(&dg),
+            strongly_connected_components(&dg).len()
+        );
+
+        let empty = DiGraph::strict();
+        assert_eq!(number_strongly_connected_components(&empty), 0);
     }
 
     #[test]
