@@ -42186,26 +42186,15 @@ pub fn double_edge_swap_seeded(
     let mut swaps_done = 0usize;
     let total_tries = nswap.saturating_mul(max_tries);
 
-    // br-r37-c1-deswapedges (cc): materialise the ordered edge list ONCE and rebuild it ONLY after a
-    // successful swap (the only thing that mutates the graph) instead of every try, and build it from
-    // the BORROWED ordered-edge view (edges_ordered_borrowed → (&str,&str,&AttrMap), same u-major
-    // order as edges_ordered) so each (re)build clones two Strings/edge instead of edges_ordered's
-    // owned snapshot + this fn's re-clone (four Strings + an AttrMap/edge). Byte-identical: a non-swap
-    // try leaves the graph — and therefore the list — unchanged, so the edge list at the start of each
-    // try is the current graph's edges in the same order, and the same next_rand()-indexed i1/i2 pick
-    // the same edges and the same swaps happen. Was O(total_tries*|E|) owned-String rebuilds → O(nswap*|E|).
-    let build_edges = |g: &Graph| -> Vec<(String, String)> {
-        g.edges_ordered_borrowed()
-            .iter()
-            .map(|(l, r, _)| ((*l).to_owned(), (*r).to_owned()))
-            .collect()
-    };
-    let mut edges = build_edges(graph);
-
     for _ in 0..total_tries {
         if swaps_done >= nswap {
             break;
         }
+        let edges: Vec<(String, String)> = graph
+            .edges_ordered()
+            .iter()
+            .map(|e| (e.left.clone(), e.right.clone()))
+            .collect();
         let m = edges.len();
         if m < 2 {
             break;
@@ -42216,8 +42205,8 @@ pub fn double_edge_swap_seeded(
             continue;
         }
 
-        let (u, v) = (edges[i1].0.clone(), edges[i1].1.clone());
-        let (x, y) = (edges[i2].0.clone(), edges[i2].1.clone());
+        let (ref u, ref v) = edges[i1];
+        let (ref x, ref y) = edges[i2];
 
         let mut nodes = std::collections::HashSet::new();
         nodes.insert(u.as_str());
@@ -42228,13 +42217,12 @@ pub fn double_edge_swap_seeded(
             continue;
         }
 
-        if !graph.has_edge(&u, &x) && !graph.has_edge(&v, &y) {
-            let _ = graph.remove_edge(&u, &v);
-            let _ = graph.remove_edge(&x, &y);
-            let _ = graph.add_edge(u, x);
-            let _ = graph.add_edge(v, y);
+        if !graph.has_edge(u, x) && !graph.has_edge(v, y) {
+            let _ = graph.remove_edge(u, v);
+            let _ = graph.remove_edge(x, y);
+            let _ = graph.add_edge(u.clone(), x.clone());
+            let _ = graph.add_edge(v.clone(), y.clone());
             swaps_done += 1;
-            edges = build_edges(graph);
         }
     }
     swaps_done
@@ -82187,165 +82175,6 @@ mod tests {
         println!("EORDLEN_AB faster_could_be_isomorphic 10k/100k rounds={rounds} (>1 = edge_count faster)");
         report("EDGECOUNT_vs_edgesordered", &paired(true, false));
         report("NULL_edgecount_vs_edgecount", &paired(true, true));
-    }
-
-    /// br-r37-c1-deswapedges: paired-interleaved A/B for `double_edge_swap_seeded`'s per-try edge
-    /// rebuild. OLD rebuilt the full owned `Vec<(String,String)>` via `edges_ordered()` EVERY try
-    /// (`total_tries = nswap*max_tries`); NEW builds once + rebuilds (via `edges_ordered_borrowed`)
-    /// ONLY after a successful swap. Byte-identical final graph asserted (same seed → same swaps).
-    /// `#[ignore]`; run with
-    /// `cargo test --release -p fnx-algorithms --lib double_edge_swap_edges_ab -- --ignored --nocapture`.
-    #[test]
-    #[ignore = "measurement; run with --release --ignored --nocapture"]
-    fn double_edge_swap_edges_ab() {
-        use std::hint::black_box;
-        use std::time::Instant;
-
-        // The PRE-lever per-try-rebuild baseline.
-        fn old_swap(graph: &mut Graph, nswap: usize, max_tries: usize, seed: u64) -> usize {
-            if graph.edge_count() < 2 {
-                return 0;
-            }
-            let mut rng_state = seed.wrapping_add(1);
-            let mut next_rand = || -> usize {
-                rng_state = rng_state
-                    .wrapping_mul(6364136223846793005)
-                    .wrapping_add(1442695040888963407);
-                (rng_state >> 33) as usize
-            };
-            let mut swaps_done = 0usize;
-            let total_tries = nswap.saturating_mul(max_tries);
-            for _ in 0..total_tries {
-                if swaps_done >= nswap {
-                    break;
-                }
-                let edges: Vec<(String, String)> = graph
-                    .edges_ordered()
-                    .iter()
-                    .map(|e| (e.left.clone(), e.right.clone()))
-                    .collect();
-                let m = edges.len();
-                if m < 2 {
-                    break;
-                }
-                let i1 = next_rand() % m;
-                let i2 = next_rand() % m;
-                if i1 == i2 {
-                    continue;
-                }
-                let (ref u, ref v) = edges[i1];
-                let (ref x, ref y) = edges[i2];
-                let mut nodes = std::collections::HashSet::new();
-                nodes.insert(u.as_str());
-                nodes.insert(v.as_str());
-                nodes.insert(x.as_str());
-                nodes.insert(y.as_str());
-                if nodes.len() < 4 {
-                    continue;
-                }
-                if !graph.has_edge(u, x) && !graph.has_edge(v, y) {
-                    let _ = graph.remove_edge(u, v);
-                    let _ = graph.remove_edge(x, y);
-                    let _ = graph.add_edge(u.clone(), x.clone());
-                    let _ = graph.add_edge(v.clone(), y.clone());
-                    swaps_done += 1;
-                }
-            }
-            swaps_done
-        }
-
-        let n = 800usize;
-        let deg = 16usize;
-        let g0 = {
-            let mut g = Graph::strict();
-            for i in 0..n {
-                let _ = g.add_node(i.to_string());
-            }
-            for i in 0..n {
-                for step in 1..=deg {
-                    let _ = g.add_edge(i.to_string(), ((i + step) % n).to_string());
-                }
-            }
-            g
-        };
-        let nswap = 300usize;
-        let max_tries = 100usize;
-        let seed = 12345u64;
-
-        // Byte-exact parity: identical swap count AND identical final edge set.
-        let canon_edges = |g: &Graph| -> Vec<(String, String)> {
-            let mut e: Vec<(String, String)> = g
-                .edges_ordered_borrowed()
-                .iter()
-                .map(|(l, r, _)| {
-                    if l <= r {
-                        ((*l).to_owned(), (*r).to_owned())
-                    } else {
-                        ((*r).to_owned(), (*l).to_owned())
-                    }
-                })
-                .collect();
-            e.sort();
-            e
-        };
-        let mut g_old = g0.clone();
-        let mut g_new = g0.clone();
-        let so = old_swap(&mut g_old, nswap, max_tries, seed);
-        let sn = super::double_edge_swap_seeded(&mut g_new, nswap, max_tries, seed);
-        assert_eq!(so, sn, "double_edge_swap swap-count parity");
-        assert_eq!(canon_edges(&g_old), canon_edges(&g_new), "double_edge_swap final edge-set parity");
-
-        let time = |cand: bool| -> f64 {
-            let mut g = g0.clone();
-            let t0 = Instant::now();
-            let r = if cand {
-                super::double_edge_swap_seeded(&mut g, nswap, max_tries, seed)
-            } else {
-                old_swap(&mut g, nswap, max_tries, seed)
-            };
-            black_box(r);
-            t0.elapsed().as_secs_f64()
-        };
-        for _ in 0..3 {
-            black_box(time(true));
-            black_box(time(false));
-        }
-        let median = |v: &[f64]| {
-            let mut s = v.to_vec();
-            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            s[s.len() / 2]
-        };
-        let rounds = 21usize;
-        let paired = |cand: bool, base: bool| -> Vec<f64> {
-            let mut v = Vec::with_capacity(rounds);
-            for r in 0..rounds {
-                let (tb, tc) = if r % 2 == 0 {
-                    let b = time(base);
-                    let c = time(cand);
-                    (b, c)
-                } else {
-                    let c = time(cand);
-                    let b = time(base);
-                    (b, c)
-                };
-                v.push(tb / tc);
-            }
-            v
-        };
-        let report = |name: &str, ratios: &[f64]| {
-            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
-            let mut sorted = ratios.to_vec();
-            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            println!(
-                "DESWAP_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
-                median(ratios),
-                sorted[rounds * 5 / 100],
-                sorted[rounds * 95 / 100],
-            );
-        };
-        println!("DESWAP_AB double_edge_swap n={n} deg={deg} nswap={nswap} max_tries={max_tries} swaps_done={sn} (>1 = build-once faster)");
-        report("BUILDONCE_vs_perTry", &paired(true, false));
-        report("NULL_new_vs_new", &paired(true, true));
     }
 
     /// br-r37-c1-vngrp: isolated paired-interleaved median A/B for `ego_graph`'s induced-edge copy
