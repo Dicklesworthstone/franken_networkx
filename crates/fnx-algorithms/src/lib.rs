@@ -3506,6 +3506,14 @@ fn harmonic_centrality_generic_arm<G: GraphView>(
     graph: &G,
     arm: BitparArm,
 ) -> HarmonicCentralityResult {
+    harmonic_centrality_generic_arm_impl(graph, arm, true)
+}
+
+fn harmonic_centrality_generic_arm_impl<G: GraphView>(
+    graph: &G,
+    arm: BitparArm,
+    edgeless_fast_path: bool,
+) -> HarmonicCentralityResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     if n == 0 {
@@ -3517,6 +3525,34 @@ fn harmonic_centrality_generic_arm<G: GraphView>(
                 nodes_touched: 0,
                 edges_scanned: 0,
                 queue_peak: 0,
+            },
+        };
+    }
+
+    // Below the parallel threshold the old path always enters one bit-parallel
+    // batch. With no edges that batch can only mark every source as reaching
+    // itself, so construct the identical result directly and avoid its CSR plus
+    // O(V^2 / 64) bit-matrix setup. Keep forced `PerSource` available as the
+    // frozen pre-change arm for differential tests and foreground A/B evidence.
+    if edgeless_fast_path
+        && arm != BitparArm::PerSource
+        && n < CENTRALITY_PARALLEL_THRESHOLD
+        && graph.edge_count() == 0
+    {
+        return HarmonicCentralityResult {
+            scores: nodes
+                .into_iter()
+                .map(|node| CentralityScore {
+                    node: node.to_owned(),
+                    score: 0.0,
+                })
+                .collect(),
+            witness: ComplexityWitness {
+                algorithm: "harmonic_centrality".to_owned(),
+                complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
+                nodes_touched: n,
+                edges_scanned: 0,
+                queue_peak: n,
             },
         };
     }
@@ -50933,6 +50969,8 @@ mod bitpar_harmonic_tests {
     };
     use fnx_classes::{Graph, digraph::DiGraph};
     use std::collections::{HashMap, VecDeque};
+    use std::hint::black_box;
+    use std::time::Instant;
 
     /// Independent reference: per-source reverse BFS, `+= 1/d` in pop order.
     fn reference_harmonic<G: super::GraphView>(graph: &G) -> Vec<(String, f64)> {
@@ -51016,6 +51054,148 @@ mod bitpar_harmonic_tests {
             }
         }
         g
+    }
+
+    fn edgeless(n: usize) -> Graph {
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(i.to_string());
+        }
+        g
+    }
+
+    fn assert_result_identical(
+        got: &super::HarmonicCentralityResult,
+        want: &super::HarmonicCentralityResult,
+        label: &str,
+    ) {
+        assert_eq!(got.witness, want.witness, "{label}: witness");
+        assert_eq!(got.scores.len(), want.scores.len(), "{label}: score count");
+        for (got_score, want_score) in got.scores.iter().zip(&want.scores) {
+            assert_eq!(got_score.node, want_score.node, "{label}: node order");
+            assert_eq!(
+                got_score.score.to_bits(),
+                want_score.score.to_bits(),
+                "{label}: score bits at {}",
+                got_score.node
+            );
+        }
+    }
+
+    #[test]
+    fn edgeless_fast_path_matches_old_arm_bit_for_bit() {
+        for n in [1, 63, 64, 65, 256, CENTRALITY_PARALLEL_THRESHOLD - 1] {
+            let g = edgeless(n);
+            let baseline = super::harmonic_centrality_generic_arm_impl(
+                &g,
+                super::BitparArm::Auto,
+                false,
+            );
+            let candidate = super::harmonic_centrality_generic_arm_impl(
+                &g,
+                super::BitparArm::Auto,
+                true,
+            );
+            assert_result_identical(&candidate, &baseline, &format!("Graph n={n}"));
+
+            let mut dg = DiGraph::strict();
+            for i in 0..n {
+                let _ = dg.add_node(i.to_string());
+            }
+            let directed_baseline = super::harmonic_centrality_generic_arm_impl(
+                &dg,
+                super::BitparArm::Auto,
+                false,
+            );
+            let directed_candidate = super::harmonic_centrality_generic_arm_impl(
+                &dg,
+                super::BitparArm::Auto,
+                true,
+            );
+            assert_result_identical(
+                &directed_candidate,
+                &directed_baseline,
+                &format!("DiGraph n={n}"),
+            );
+        }
+    }
+
+    fn run_harmonic_edgeless_fast_path_ab(candidate_enabled: bool) {
+        const ROUNDS: usize = 31;
+        let mode = if candidate_enabled { "candidate" } else { "null" };
+        let graph = edgeless(CENTRALITY_PARALLEL_THRESHOLD - 1);
+
+        let baseline = super::harmonic_centrality_generic_arm_impl(
+            &graph,
+            super::BitparArm::Auto,
+            false,
+        );
+        let candidate = super::harmonic_centrality_generic_arm_impl(
+            &graph,
+            super::BitparArm::Auto,
+            candidate_enabled,
+        );
+        assert_result_identical(&candidate, &baseline, mode);
+
+        for _ in 0..8 {
+            black_box(super::harmonic_centrality_generic_arm_impl(
+                black_box(&graph),
+                super::BitparArm::Auto,
+                false,
+            ));
+            black_box(super::harmonic_centrality_generic_arm_impl(
+                black_box(&graph),
+                super::BitparArm::Auto,
+                candidate_enabled,
+            ));
+        }
+
+        let mut baseline_ns = Vec::with_capacity(ROUNDS);
+        let mut candidate_ns = Vec::with_capacity(ROUNDS);
+        let mut paired_wins = 0usize;
+        for round in 0..ROUNDS {
+            let measure = |fast_path| {
+                let started = Instant::now();
+                let result = super::harmonic_centrality_generic_arm_impl(
+                    black_box(&graph),
+                    super::BitparArm::Auto,
+                    fast_path,
+                );
+                let elapsed = started.elapsed().as_nanos();
+                black_box(result);
+                elapsed
+            };
+            let (baseline_elapsed, candidate_elapsed) = if round % 2 == 0 {
+                (measure(false), measure(candidate_enabled))
+            } else {
+                let candidate_elapsed = measure(candidate_enabled);
+                (measure(false), candidate_elapsed)
+            };
+            paired_wins += usize::from(candidate_elapsed < baseline_elapsed);
+            baseline_ns.push(baseline_elapsed);
+            candidate_ns.push(candidate_elapsed);
+        }
+        baseline_ns.sort_unstable();
+        candidate_ns.sort_unstable();
+        let baseline_median = baseline_ns[ROUNDS / 2];
+        let candidate_median = candidate_ns[ROUNDS / 2];
+        let speedup = baseline_median as f64 / candidate_median as f64;
+        eprintln!(
+            "HARMONIC_EDGELESS_AB mode={mode} n={} rounds={ROUNDS} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} speedup={speedup:.4} paired_wins={paired_wins}/{ROUNDS} exact_parity=true",
+            graph.node_count()
+        );
+    }
+
+    #[test]
+    #[ignore = "foreground paired A/A null; run through strict remote RCH"]
+    fn harmonic_edgeless_fast_path_null_ab() {
+        run_harmonic_edgeless_fast_path_ab(false);
+    }
+
+    #[test]
+    #[ignore = "foreground paired A/B; run through strict remote RCH"]
+    fn harmonic_edgeless_fast_path_candidate_ab() {
+        run_harmonic_edgeless_fast_path_ab(true);
     }
 
     fn grid(rows: usize, cols: usize) -> Graph {
