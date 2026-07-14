@@ -21142,3 +21142,50 @@ RESULT: INVALID / NO-SHIP. Revert the index-space candidate and ignored probe;
 commit only this negative-evidence row and the closed bead. A future fresh turn
 may qualify both helper calls with `super::` and re-profile, but this attempt
 supplies no performance evidence.
+
+## 2026-07-14 GrayCitadel INVALID / HOLD (`dominance_frontiers`): qualified retry exceeded the release-build cap (`br-r37-c1-9d76o`)
+
+NEGATIVE-LEDGER / ROBOT-TRIAGE FIRST: `bv --robot-triage` again ranked the
+occupied no-gaps umbrella and already-mined shortest-path/storage quick wins.
+The immediately preceding `br-r37-c1-nfe62` row is INVALID rather than a
+measured rejection: its sole release attempt stopped at two unqualified
+test-helper calls before parity or timing, and explicitly permits a fresh-turn
+qualified retry. No source from that attempt remained in the tree.
+
+PROFILE / ATTRIBUTION FIRST: the returned immediate-dominator relation is
+already computed in index space internally, but `dominance_frontiers` projected
+it to owned names before its propagation tail. A sparse CFG chain feeding one
+many-predecessor sink forces quadratically many dominator-chain hops; each old
+hop cloned and hashed a long runner name and probed String-keyed maps. Static
+ranked cost is (1) per-hop String clone/hash, (2) predecessor-name
+materialization, and (3) final output projection. Opportunity score remains
+impact 4 x confidence 5 / effort 2 = 10.
+
+ONE LEVER / PROOF PLAN: resolve the immediate-dominator map to stable node
+indices once, consume `predecessors_indices`, propagate ordered unique frontier
+indices in vectors, and project names only once at the public return boundary.
+The ignored A/B froze the old whole function, asserted exact `HashMap<String,
+Vec<String>>` equality before timing, then planned 15 paired interleaved rounds
+and an indexed-vs-indexed null control on 768 long-name CFG nodes. The only
+build/measurement was one fail-closed foreground `--profile release` command.
+
+ONE FOREGROUND ATTEMPT: strict RCH admitted job `j-29928833041828676` to worker
+`vmi1153651`. The worker synchronized 87,383 files in 38.0 seconds, downloaded
+and compiled the ordinary release dependencies, and reached the
+`fnx-algorithms` release test-binary link. It had not produced `Finished`, the
+parity assertion, or any timed sample when the client stopped it at about 4m55s
+to honor the explicit never-over-five-minutes cap. The last diagnostic was an
+unrelated pre-existing unused-variable warning at `lib.rs:55112`; no owned-code
+compiler error was emitted. There was no retry and no local fallback.
+
+GATES / EVIDENCE STATUS: `git diff --check` passed before the attempt. Targeted
+UBS entered its Rust scan but emitted no verdict after more than one minute, so
+that hung scanner process was stopped before the release command. RCH was
+fail-closed with `RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`, and direct
+`rch --no-self-healing exec -- cargo ...`. Because the test binary never ran,
+exact parity and performance remain unproved.
+
+RESULT: INVALID / HOLD, not a measured rejection. Remove the candidate and
+ignored probe; land only this evidence plus the closed bead. A future fresh
+turn may retry only with a known-warm ordinary-release test binary/target and
+must still obtain parity plus paired/null timing before considering the lever.
