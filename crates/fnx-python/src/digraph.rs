@@ -2694,12 +2694,12 @@ impl MultiDiAtlasView {
         match self.kind {
             MultiDiAdjKind::Successors => g
                 .inner
-                .successors(&self.node)
-                .map_or(0, |successors| successors.len()),
+                .successors_iter(&self.node)
+                .map_or(0, Iterator::count),
             MultiDiAdjKind::Predecessors => g
                 .inner
-                .predecessors(&self.node)
-                .map_or(0, |predecessors| predecessors.len()),
+                .predecessors_iter(&self.node)
+                .map_or(0, Iterator::count),
         }
     }
 
@@ -15211,6 +15211,220 @@ mod tests {
         let mut graph = MultiDiGraph::new(CompatibilityMode::Hardened);
         graph.add_node("seed".to_owned());
         graph.runtime_policy().clone()
+    }
+
+    fn multidiatlas_len_allocating(view: &MultiDiAtlasView, py: Python<'_>) -> usize {
+        let graph = view.graph.borrow(py);
+        match view.kind {
+            MultiDiAdjKind::Successors => graph
+                .inner
+                .successors(&view.node)
+                .map_or(0, |successors| successors.len()),
+            MultiDiAdjKind::Predecessors => graph
+                .inner
+                .predecessors(&view.node)
+                .map_or(0, |predecessors| predecessors.len()),
+        }
+    }
+
+    fn multidiatlas_hub_views(
+        py: Python<'_>,
+        degree: usize,
+    ) -> PyResult<(MultiDiAtlasView, MultiDiAtlasView)> {
+        assert!(degree > 0);
+        let mut graph = PyMultiDiGraph::new_empty_with_policy(py, RuntimePolicy::default())?;
+        assert!(graph.inner.add_node("hub".to_owned()));
+        for index in 0..degree {
+            graph
+                .inner
+                .add_edge("hub".to_owned(), format!("out-{index}"))
+                .expect("outgoing edge should be added");
+            graph
+                .inner
+                .add_edge(format!("in-{index}"), "hub".to_owned())
+                .expect("incoming edge should be added");
+        }
+        assert_eq!(
+            graph
+                .inner
+                .add_edge("hub".to_owned(), "out-0".to_owned())
+                .expect("parallel outgoing edge should be added"),
+            1
+        );
+        assert_eq!(
+            graph
+                .inner
+                .add_edge("in-0".to_owned(), "hub".to_owned())
+                .expect("parallel incoming edge should be added"),
+            1
+        );
+        assert_eq!(
+            graph
+                .inner
+                .add_edge("hub".to_owned(), "hub".to_owned())
+                .expect("self-loop should be added"),
+            0
+        );
+
+        let graph = Py::new(py, graph)?;
+        Ok((
+            MultiDiAtlasView::new(
+                graph.clone_ref(py),
+                "hub".to_owned(),
+                MultiDiAdjKind::Successors,
+            ),
+            MultiDiAtlasView::new(graph, "hub".to_owned(), MultiDiAdjKind::Predecessors),
+        ))
+    }
+
+    #[test]
+    fn multidiatlas_len_matches_allocating_baseline() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let mut graph = PyMultiDiGraph::new_empty_with_policy(py, RuntimePolicy::default())?;
+            assert!(graph.inner.add_node("hub".to_owned()));
+            let graph = Py::new(py, graph)?;
+            let successors = MultiDiAtlasView::new(
+                graph.clone_ref(py),
+                "hub".to_owned(),
+                MultiDiAdjKind::Successors,
+            );
+            let predecessors =
+                MultiDiAtlasView::new(graph, "hub".to_owned(), MultiDiAdjKind::Predecessors);
+
+            assert_eq!(successors.__len__(py), 0);
+            assert_eq!(predecessors.__len__(py), 0);
+            assert_eq!(
+                successors.__len__(py),
+                multidiatlas_len_allocating(&successors, py)
+            );
+            assert_eq!(
+                predecessors.__len__(py),
+                multidiatlas_len_allocating(&predecessors, py)
+            );
+
+            {
+                let mut graph = successors.graph.borrow_mut(py);
+                assert_eq!(graph.inner.add_edge("hub", "out-a"), Ok(0));
+                assert_eq!(graph.inner.add_edge("hub", "out-a"), Ok(1));
+                assert_eq!(graph.inner.add_edge("in-a", "hub"), Ok(0));
+                assert_eq!(graph.inner.add_edge("in-a", "hub"), Ok(1));
+                assert_eq!(graph.inner.add_edge("hub", "hub"), Ok(0));
+                assert_eq!(graph.inner.add_edge("hub", "out-b"), Ok(0));
+                assert_eq!(graph.inner.add_edge("in-b", "hub"), Ok(0));
+            }
+            assert_eq!(successors.__len__(py), 3);
+            assert_eq!(predecessors.__len__(py), 3);
+            assert_eq!(
+                successors.__len__(py),
+                multidiatlas_len_allocating(&successors, py)
+            );
+            assert_eq!(
+                predecessors.__len__(py),
+                multidiatlas_len_allocating(&predecessors, py)
+            );
+
+            {
+                let mut graph = successors.graph.borrow_mut(py);
+                assert!(graph.inner.remove_edge("hub", "out-a", Some(0)));
+            }
+            assert_eq!(successors.__len__(py), 3);
+            assert_eq!(predecessors.__len__(py), 3);
+
+            {
+                let mut graph = successors.graph.borrow_mut(py);
+                assert!(graph.inner.remove_edge("hub", "out-a", Some(1)));
+            }
+            assert_eq!(successors.__len__(py), 2);
+            assert_eq!(predecessors.__len__(py), 3);
+            assert_eq!(
+                successors.__len__(py),
+                multidiatlas_len_allocating(&successors, py)
+            );
+            assert_eq!(
+                predecessors.__len__(py),
+                multidiatlas_len_allocating(&predecessors, py)
+            );
+            Ok(())
+        })
+        .expect("MultiDiAtlasView length parity should hold");
+    }
+
+    /// `br-r37-c1-owbzu`: same-binary proof for exact-size successor and
+    /// predecessor iterator counting versus their frozen allocating routes.
+    /// Run with the release profile, `--ignored`, and `--nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multidiatlas_len_noalloc_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let degree = 4_096usize;
+            let calls = 4_096usize;
+            let rounds = 31usize;
+            let expected = degree + 1;
+            let (successors, predecessors) = multidiatlas_hub_views(py, degree)?;
+            assert_eq!(successors.__len__(py), expected);
+            assert_eq!(predecessors.__len__(py), expected);
+            assert_eq!(multidiatlas_len_allocating(&successors, py), expected);
+            assert_eq!(multidiatlas_len_allocating(&predecessors, py), expected);
+
+            let time = |candidate: bool| -> f64 {
+                let start = Instant::now();
+                for _ in 0..calls {
+                    let lengths = if candidate {
+                        (successors.__len__(py), predecessors.__len__(py))
+                    } else {
+                        (
+                            multidiatlas_len_allocating(&successors, py),
+                            multidiatlas_len_allocating(&predecessors, py),
+                        )
+                    };
+                    black_box(lengths);
+                }
+                start.elapsed().as_secs_f64()
+            };
+            for _ in 0..3 {
+                black_box(time(false));
+                black_box(time(true));
+            }
+
+            let paired = |baseline_is_candidate: bool| -> Vec<f64> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                        (time(baseline_is_candidate), time(true))
+                    } else {
+                        let candidate_time = time(true);
+                        let baseline_time = time(baseline_is_candidate);
+                        (baseline_time, candidate_time)
+                    };
+                    ratios.push(baseline_time / candidate_time);
+                }
+                ratios
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "MULTIDIATLAS_LEN_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "MULTIDIATLAS_LEN_AB degree={degree} calls={calls} rounds={rounds} (>1 = candidate faster)"
+            );
+            report("candidate_vs_allocating", &paired(false));
+            report("candidate_null", &paired(true));
+            Ok(())
+        })
+        .expect("MultiDiAtlasView length A/B should run");
     }
 
     #[test]

@@ -19351,3 +19351,73 @@ fallback. Every Cargo attempt used `RCH_REQUIRE_REMOTE=1`,
 RESULT: SHIP. Preserve the exact-size distinct-neighbor count and the live graph
 borrow. Do not replace it with degree semantics or widen this commit into other
 materializing `MultiAtlasView` methods without separate parity and timing.
+
+## 2026-07-14 SwiftCoast SHIP (`MultiDiAtlasView.__len__`): exact-size directed adjacency counts — 249.181x (`br-r37-c1-owbzu`)
+
+NEGATIVE-LEDGER FIRST: the immediately preceding `MultiAtlasView.__len__` keep
+removed a `Vec<&str>` allocation performed solely to read a distinct-neighbor
+row's length and measured `218.8833x` with 31/31 wins. Its closeout explicitly
+required separate parity and timing before widening the change. The directed
+multigraph twin remained live in `MultiDiAtlasView.__len__`: both the successor
+and predecessor arms materialized their full adjacency row with
+`successors()` / `predecessors()` and then discarded every element after
+`.len()`. This exact twin scored impact 4 x confidence 5 / effort 1 = 20 and
+ranked ahead of the more invasive scalar attracting-component candidate.
+
+ONE LEVER: replace only those two arms with `successors_iter()` /
+`predecessors_iter()` and `Iterator::count`. The locked `indexmap 2.14` keys
+iterator is exact-size, and its count is the backing row length. Each row still
+contains one cell per distinct neighbor, so parallel edges count once; a
+self-loop contributes once to each directed row; successor and predecessor
+direction stays separate. Every call still borrows the live graph. Edge keys,
+attrs, row order, graph storage, materializing view methods, and all other
+Python surfaces are unchanged.
+
+NULL FIRST: with production still using the allocating route, one release
+binary on strict-remote worker `vmi1227854` timed both public view arms against
+frozen copies of those same routes. The fixture gave one hub 4,096 distinct
+successors and 4,096 distinct predecessors, then added parallel duplicates and
+a self-loop; each sample made 4,096 paired successor/predecessor length calls,
+after three warmups, over 31 alternating-order pairs:
+
+| pre-change paired A/A (>1 = public-shaped arm faster) | median | wins | p5-p95 |
+|---|---:|---:|---:|
+| public views vs frozen allocating routes | `1.0027x` | `17/31` | `[0.9095, 1.0723]` |
+| public/public null | `1.0025x` | `18/31` | `[0.8803, 1.1875]` |
+
+FOREGROUND MEDIAN GATE: after the production edit, a new release binary pinned
+to the same strict-remote worker asserted exact successor and predecessor
+lengths before timing candidate, frozen allocating baseline, and candidate
+null arms:
+
+| same-binary paired A/B (>1 = exact-size counts faster) | median | wins | p5-p95 |
+|---|---:|---:|---:|
+| exact-size counts vs allocating routes | **`249.1810x`** | **`31/31`** | `[214.5913, 351.1866]` |
+| exact-size/exact-size null | `1.0283x` | `16/31` | `[0.7255, 1.7428]` |
+
+The candidate p5 is more than 123x above its same-binary null p95 and all 31
+pairs win, so the keep gate is decisive. The multiplier is deliberately scoped
+to repeated length reads on two 4,097-neighbor directed rows; small rows have
+less allocation to remove.
+
+CORRECTNESS / GATES: the regular parity test compared both directions with the
+frozen allocating routes for empty rows, parallel edges, a self-loop, distinct
+incoming/outgoing neighbors, one parallel-edge removal, and final-cell removal.
+It therefore locks distinct-neighbor, direction, self-loop, multiplicity, and
+live-view mutation semantics. Focused release parity passed `1/1` on
+`vmi1293453`; the ignored A/B passed `1/1` on `vmi1227854`. Strict-remote
+`cargo check --workspace --all-targets` passed on `vmi1152480` with only
+committed unused/dead-code warnings outside this hunk. Exact workspace clippy
+reproduced the committed `fnx-classes/src/lib.rs:1700` `collapsible_if` blocker
+on `vmi1156319`; scoped `fnx-python --lib --no-deps` clippy passed on
+`vmi1149989` after allowing only the current peer-owned `dead_code` baseline.
+Fail-closed RCH refused `cargo fmt --check` as a non-compilation command
+(`RCH-E301`), and direct read-only rustfmt plus `git diff --check` passed.
+Static-only UBS reported zero critical issues; its warnings are the file-wide
+baseline inventory. Every Cargo command used `RCH_REQUIRE_REMOTE=1`,
+`RCH_NO_SELF_HEALING=1`, and `rch --no-self-healing exec`; no local Cargo
+fallback ran.
+
+RESULT: SHIP. Preserve exact distinct-neighbor counts in each direction and the
+live graph borrow. Do not replace these with multiplicity-sensitive degree
+semantics or widen into directed key-dict methods without separate proof.
