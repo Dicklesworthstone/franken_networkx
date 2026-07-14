@@ -19064,3 +19064,81 @@ graph's node index space. Every Cargo command used fail-closed
 RESULT: SHIP. Preserve the revision-keyed integer-row predicate and classify
 first-read performance as neutral. Future MultiGraph adjacency consumers remain
 separate public-surface levers with their own null-controlled proofs.
+
+## 2026-07-13 FuchsiaCove SHIP (`MultiGraph(<true iterator>)`): drain once into the existing edge batch — 1.338x (`br-r37-c1-q86hv`)
+
+NEGATIVE-LEDGER FIRST: the 2026-07-10 constructor follow-up isolated a live
+shape-specific loss: list-shaped `MultiGraph` construction already reached the
+native batch, while a true iterator could not downcast to `PyList`/`PyTuple`
+and fell through to per-edge `add_edge`. Its clean baseline measured plain,
+attributed, and explicitly keyed iterator constructors at only `0.475x`,
+`0.416x`, and `0.312x` NetworkX. The exact one-time drain was prepared but not
+compiled because `maturin` could fail open to a local Cargo build. Strict,
+fail-closed `rch exec -- cargo test` is now available, satisfying that blocker.
+This distinct `fnx-python/src/lib.rs` surface avoided the concurrently owned
+MultiGraph traversal file. Opportunity score: impact 5 x confidence 5 / effort
+2 = 12.5.
+
+ONE LEVER: when `PyMultiGraph::__new__` receives an object carrying
+`__next__`, drain it once through the already-shipped
+`materialize_iterator_edge_list`. Pass that snapshot-safe list only to the two
+existing batch attempts and their fallback iterator. Graph-instance detection
+and copy arms still receive the original object. Lists, tuples, ranges, sets,
+dicts, arrays, graph instances, and other non-iterator iterables never enter
+the drain. The helper shallow-copies a trailing attribute dict at each yield,
+so a generator that mutates and reuses one dict preserves NetworkX's
+yield-time reads rather than collapsing every edge to the final dict value.
+
+NULL FIRST: before the production routing edit, one release binary on strict
+remote worker `vmi1149989` compared a true generator with an otherwise
+identical iterable lacking `__next__`; both therefore executed the frozen
+streaming fallback. Thirty-one alternating pairs sat inside the null:
+
+| pre-change paired A/A (>1 = true-iterator-shaped arm faster) | median | wins | p5-p95 |
+|---|---:|---:|---:|
+| candidate-shaped vs streaming fallback | `1.0270x` | `20/31` | `[0.8639, 1.2317]` |
+| candidate/candidate null | `0.9669x` | `13/31` | `[0.8416, 1.0964]` |
+
+MEDIAN GATE: after the five-line production routing edit, a single release
+binary on strict-remote worker `vmi1293453` ran candidate, frozen streaming
+fallback, and null arms on 20,000 plain integer edges. It asserted full graph
+snapshot and public displayed-key equality before timing:
+
+| paired A/B (>1 = one-time drain + batch faster) | median | wins | p5-p95 |
+|---|---:|---:|---:|
+| drained iterator vs streaming fallback | `1.3384x` | `30/31` | `[1.1819, 1.7733]` |
+| drained/drained null | `1.0205x` | `18/31` | `[0.8648, 1.1642]` |
+
+The candidate p5 clears its same-binary null p95 and 30/31 pairs win, so the
+keep gate passes. The margin over the null boundary is narrow (`1.1819x`
+versus `1.1642x`), so the claim is the measured 1.338x constructor self-win,
+not a refreshed NetworkX head-to-head result. The pre-change control ran on a
+different worker and is used only to validate the null, never as a
+cross-worker before/after comparison.
+
+CORRECTNESS / GATES: the regular release-profile test compared exact snapshots,
+node display objects, and reconstructed public edge keys against the frozen
+streaming route for plain two-tuples, attributed three-tuples, and explicitly
+keyed four-tuples. The attributed cases reuse and mutate one dict across yields,
+directly locking the snapshot invariant; iterator exhaustion is also asserted.
+Both parity and A/B tests passed (`2/2`). An initial proof compared the private
+`edge_py_keys` map and failed because the batch intentionally omits identity
+integer mirrors; full graph snapshots were already equal. The corrected oracle
+compares `py_edge_key`, proving the observable keys are identical.
+
+Strict-remote `cargo check --workspace --all-targets` passed on `vmi1152480`
+with one committed `fnx-algorithms` unused-variable warning. Exact workspace
+clippy reproduced the committed `fnx-classes/src/lib.rs:1700`
+`collapsible_if` blocker on `vmi1156319`; scoped strict-remote
+`cargo clippy -p fnx-python --lib --no-deps -- -D warnings` passed on
+`vmi1149989`. `git diff --check` passed. Direct rustfmt reports only concurrent
+committed drift in `algorithms.rs`; it reports no remaining `lib.rs` hunk after
+the owned manual wraps. Static-only UBS (`--skip-rust=12,13,14`) found zero
+critical issues; its warning inventory is file-wide baseline. Every Cargo
+command used `RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`, and
+`rch --no-self-healing exec`; no local Cargo fallback ran.
+
+RESULT: SHIP. Preserve the `__next__` gate, per-yield trailing-dict snapshot,
+original-object graph/copy arms, single exhaustion, and public displayed-key
+parity. DiGraph and MultiDiGraph iterator constructors remain a separately
+tracked follow-up rather than widening this one-lever commit.

@@ -4664,6 +4664,11 @@ impl PyMultiGraph {
                 g.inner = MultiGraph::new(mode);
                 return Ok(g);
             }
+            // br-r37-c1-q86hv: drain a true iterator once so the edge batches
+            // below can consume it as a list. Graph instances and every other
+            // constructor arm continue to receive the original `data`.
+            let materialized = materialize_iterator_edge_list(py, data)?;
+            let edata: &Bound<'_, PyAny> = materialized.as_ref().map_or(data, |list| list.as_any());
             if let Ok(other) = data.extract::<PyRef<'_, PyMultiGraph>>() {
                 g.inner = MultiGraph::with_runtime_policy(other.inner.runtime_policy().clone());
                 // br-r37-c1-tbh4q: single-pass attr crossing via
@@ -4766,15 +4771,15 @@ impl PyMultiGraph {
                     g.remember_edge_key(py, &edge.left, &edge.right, key, None);
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
-            } else if g.try_absorb_exact_int_str_keyed_ctor_edges(py, data)? {
+            } else if g.try_absorb_exact_int_str_keyed_ctor_edges(py, edata)? {
                 // Constructor-only batch path for exact int endpoints + exact str keys.
-            } else if g._try_add_attr_edges_from_batch(py, data, None)? {
+            } else if g._try_add_attr_edges_from_batch(py, edata, None)? {
                 // br-r37-c1-ctorbatch (cc): (u,v,attr_dict) 3-tuples route through
                 // the add_edges_from fast batch (lazy mirrors); try_absorb above
                 // only handles (u,v)/(u,v,key_string)/(u,v,key,dict), so weighted
                 // 3-tuples fell to the per-edge loop (~0.38x). Mutation-free on
                 // false -> the iterator loop below still owns declined inputs.
-            } else if let Ok(iter) = PyIterator::from_object(data) {
+            } else if let Ok(iter) = PyIterator::from_object(edata) {
                 // br-r37-c1-fl36h: nx's to_networkx_graph wraps every
                 // from_edgelist failure in NetworkXError("Input is not a
                 // valid edge list"). Unhashable endpoints/keys raise
@@ -13499,6 +13504,75 @@ mod tests {
     use super::*;
     use fnx_runtime::RuntimePolicy;
 
+    fn multigraph_ctor_edge_iterable_type<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let locals = PyDict::new(py);
+        py.run(
+            pyo3::ffi::c_str!(
+                r#"
+class FnxMultiGraphCtorEdgeIterable:
+    def __init__(self, edge_count, shape):
+        self.edge_count = edge_count
+        self.shape = shape
+
+    def __iter__(self):
+        attrs = {}
+        for index in range(self.edge_count):
+            if self.shape == 0:
+                yield (index, index + 1)
+            elif self.shape == 1:
+                attrs["weight"] = index
+                yield (index, index + 1, attrs)
+            else:
+                attrs["weight"] = index
+                yield (index, index + 1, f"key-{index}", attrs)
+"#
+            ),
+            None,
+            Some(&locals),
+        )?;
+        Ok(locals
+            .get_item("FnxMultiGraphCtorEdgeIterable")?
+            .expect("class definition must populate locals"))
+    }
+
+    fn multigraph_from_ctor_iterable(
+        py: Python<'_>,
+        iterable_type: &Bound<'_, PyAny>,
+        edge_count: usize,
+        shape: usize,
+        true_iterator: bool,
+    ) -> PyResult<PyMultiGraph> {
+        let iterable = iterable_type.call1((edge_count, shape))?;
+        let data = if true_iterator {
+            iterable.call_method0("__iter__")?
+        } else {
+            iterable
+        };
+        PyMultiGraph::new(py, Some(&data), None)
+    }
+
+    fn assert_multigraph_ctor_parity(
+        py: Python<'_>,
+        candidate: &PyMultiGraph,
+        baseline: &PyMultiGraph,
+    ) -> PyResult<()> {
+        assert_eq!(candidate.inner.snapshot(), baseline.inner.snapshot());
+        assert_eq!(candidate.node_key_map.len(), baseline.node_key_map.len());
+        for (key, value) in &baseline.node_key_map {
+            let candidate_value = candidate
+                .node_key_map
+                .get(key)
+                .expect("candidate must preserve every display node key");
+            assert!(value.bind(py).eq(candidate_value.bind(py))?);
+        }
+        for edge in candidate.inner.edges_ordered() {
+            let candidate_key = candidate.py_edge_key(py, &edge.left, &edge.right, edge.key);
+            let baseline_key = baseline.py_edge_key(py, &edge.left, &edge.right, edge.key);
+            assert!(candidate_key.bind(py).eq(baseline_key.bind(py))?);
+        }
+        Ok(())
+    }
+
     fn ensure_python() {
         Python::initialize();
     }
@@ -13513,6 +13587,104 @@ mod tests {
         let mut graph = MultiGraph::new(CompatibilityMode::Hardened);
         graph.add_node("seed".to_owned());
         graph.runtime_policy().clone()
+    }
+
+    #[test]
+    fn multigraph_true_iterator_ctor_matches_streaming_route() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let iterable_type = multigraph_ctor_edge_iterable_type(py)?;
+            for shape in 0..=2 {
+                let baseline = multigraph_from_ctor_iterable(py, &iterable_type, 32, shape, false)?;
+                let candidate = multigraph_from_ctor_iterable(py, &iterable_type, 32, shape, true)?;
+                assert_multigraph_ctor_parity(py, &candidate, &baseline)?;
+            }
+
+            let iterable = iterable_type.call1((8, 1))?;
+            let iterator = iterable.call_method0("__iter__")?;
+            let candidate = PyMultiGraph::new(py, Some(&iterator), None)?;
+            assert_eq!(candidate.inner.edge_count(), 8);
+            assert!(
+                PyIterator::from_object(&iterator)?.next().is_none(),
+                "constructor must exhaust a true iterator exactly once"
+            );
+            Ok(())
+        })
+        .expect("MultiGraph iterator constructor parity should hold");
+    }
+
+    /// `br-r37-c1-q86hv`: same-binary proof for the one-time true-iterator
+    /// drain versus the frozen streaming fallback (an iterable without
+    /// `__next__`). Run with release profile, `--ignored`, and `--nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multigraph_true_iterator_ctor_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let iterable_type = multigraph_ctor_edge_iterable_type(py)?;
+            let edge_count = 20_000usize;
+            let rounds = 31usize;
+            let time = |true_iterator: bool| -> PyResult<f64> {
+                let iterable = iterable_type.call1((edge_count, 0))?;
+                let data = if true_iterator {
+                    iterable.call_method0("__iter__")?
+                } else {
+                    iterable
+                };
+                let start = Instant::now();
+                let graph = PyMultiGraph::new(py, Some(&data), None)?;
+                black_box(graph.inner.edge_count());
+                black_box(graph.inner.node_count());
+                Ok(start.elapsed().as_secs_f64())
+            };
+
+            let baseline =
+                multigraph_from_ctor_iterable(py, &iterable_type, edge_count, 0, false)?;
+            let candidate =
+                multigraph_from_ctor_iterable(py, &iterable_type, edge_count, 0, true)?;
+            assert_multigraph_ctor_parity(py, &candidate, &baseline)?;
+            for _ in 0..3 {
+                black_box(time(false)?);
+                black_box(time(true)?);
+            }
+
+            let paired = |baseline_true_iterator: bool| -> PyResult<Vec<f64>> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                        (time(baseline_true_iterator)?, time(true)?)
+                    } else {
+                        let candidate_time = time(true)?;
+                        let baseline_time = time(baseline_true_iterator)?;
+                        (baseline_time, candidate_time)
+                    };
+                    ratios.push(baseline_time / candidate_time);
+                }
+                Ok(ratios)
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "MG_ITER_CTOR_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "MG_ITER_CTOR_AB edges={edge_count} rounds={rounds} (>1 = true-iterator route faster)"
+            );
+            report("candidate_vs_streaming", &paired(false)?);
+            report("candidate_null", &paired(true)?);
+            Ok(())
+        })
+        .expect("MultiGraph iterator constructor A/B should run");
     }
 
     fn exact_int_attr_ebunch(py: Python<'_>) -> PyResult<(Bound<'_, PyList>, Py<PyDict>)> {
