@@ -6491,12 +6491,44 @@ pub fn connected_components(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Ve
 /// HashSet yields the same components as networkx — at int-CSR-class speed.
 fn multigraph_connected_components_borrowed(mg: &fnx_classes::MultiGraph) -> Vec<Vec<&str>> {
     use std::collections::VecDeque;
-    // br-r37-c1-mgccfxhash (cc): the prior BFS used std HashSet (SipHash — slow for
-    // short node-key strings) + a fresh Vec<&str> alloc per `mg.neighbors(node)`
-    // call, making this Rust BFS ~5x SLOWER than nx's pure-Python walk. Swap to
-    // rustc_hash::FxHashSet (fast non-crypto hash, already a fnx-python dep) and
-    // `neighbors_iter` (borrowed iterator, no per-node allocation). Same node /
-    // neighbor / discovery order => component order byte-identical to nx.
+    // br-r37-c1-7xsg9: consume the revision-keyed integer-adjacency memo that the
+    // MultiGraph SSSP path already maintains. The former FxHashSet<&str> BFS hashed
+    // every discovered name and revisited String-keyed adjacency for every pop.
+    // `adj[i]` preserves the authoritative row order exactly, while insertion indices
+    // preserve outer node order, so component order and BFS discovery order are
+    // byte-identical. A Vec<bool> replaces all per-neighbor String hashing.
+    let nodes = mg.nodes_ordered();
+    mg.with_int_adjacency(|adjacency| {
+        let mut visited = vec![false; nodes.len()];
+        let mut components: Vec<Vec<&str>> = Vec::new();
+        for start in 0..nodes.len() {
+            if visited[start] {
+                continue;
+            }
+            visited[start] = true;
+            let mut component = vec![nodes[start]];
+            let mut queue: VecDeque<usize> = VecDeque::new();
+            queue.push_back(start);
+            while let Some(node) = queue.pop_front() {
+                for &neighbor in &adjacency[node] {
+                    if !visited[neighbor] {
+                        visited[neighbor] = true;
+                        component.push(nodes[neighbor]);
+                        queue.push_back(neighbor);
+                    }
+                }
+            }
+            components.push(component);
+        }
+        components
+    })
+}
+
+/// Frozen pre-`br-r37-c1-7xsg9` String/FxHashSet traversal for exact A/B proof.
+#[cfg(test)]
+fn multigraph_connected_components_orig_string(mg: &fnx_classes::MultiGraph) -> Vec<Vec<&str>> {
+    use std::collections::VecDeque;
+
     let nodes = mg.nodes_ordered();
     let mut visited: rustc_hash::FxHashSet<&str> =
         rustc_hash::FxHashSet::with_capacity_and_hasher(nodes.len(), Default::default());
@@ -6509,11 +6541,11 @@ fn multigraph_connected_components_borrowed(mg: &fnx_classes::MultiGraph) -> Vec
         let mut queue: VecDeque<&str> = VecDeque::new();
         queue.push_back(start);
         while let Some(node) = queue.pop_front() {
-            if let Some(nbrs) = mg.neighbors_iter(node) {
-                for v in nbrs {
-                    if visited.insert(v) {
-                        comp.push(v);
-                        queue.push_back(v);
+            if let Some(neighbors) = mg.neighbors_iter(node) {
+                for neighbor in neighbors {
+                    if visited.insert(neighbor) {
+                        comp.push(neighbor);
+                        queue.push_back(neighbor);
                     }
                 }
             }
@@ -26482,6 +26514,147 @@ mod tests {
 
     fn ensure_python() {
         Python::initialize();
+    }
+
+    #[test]
+    fn multigraph_connected_components_intadj_preserves_exact_order() {
+        let mut graph = MultiGraph::strict();
+        assert_eq!(
+            super::multigraph_connected_components_borrowed(&graph),
+            super::multigraph_connected_components_orig_string(&graph)
+        );
+
+        for node in ["zeta", "alpha", "mu", "theta", "xi"] {
+            let _ = graph.add_node(node.to_owned());
+        }
+        let _ = graph.add_edge("zeta".to_owned(), "alpha".to_owned());
+        let _ = graph.add_edge("zeta".to_owned(), "alpha".to_owned());
+        let _ = graph.add_edge("alpha".to_owned(), "mu".to_owned());
+        let _ = graph.add_edge("theta".to_owned(), "theta".to_owned());
+        assert_eq!(
+            super::multigraph_connected_components_borrowed(&graph),
+            super::multigraph_connected_components_orig_string(&graph)
+        );
+
+        // Exercise read-mutate-read cache invalidation while merging the three
+        // insertion-ordered components into one.
+        let _ = graph.add_edge("mu".to_owned(), "theta".to_owned());
+        let _ = graph.add_edge("theta".to_owned(), "xi".to_owned());
+        assert_eq!(
+            super::multigraph_connected_components_borrowed(&graph),
+            super::multigraph_connected_components_orig_string(&graph)
+        );
+    }
+
+    /// `br-r37-c1-7xsg9`: same-binary paired proof for reusing the maintained
+    /// MultiGraph integer-adjacency memo in connected-components traversal.
+    /// Run through strict remote RCH with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multigraph_connected_components_intadj_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multigraph_connected_components_intadj_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let component_size = 100usize;
+        let expected_components = n / component_size;
+        let mut graph = MultiGraph::strict();
+        for i in 0..n {
+            let _ = graph.add_node(format!("component-node-{i:05}"));
+        }
+        for start in (0..n).step_by(component_size) {
+            for offset in 0..component_size {
+                let node = start + offset;
+                let next = start + (offset + 1) % component_size;
+                let chord = start + (offset + 17) % component_size;
+                let left = format!("component-node-{node:05}");
+                let _ = graph.add_edge(left.clone(), format!("component-node-{next:05}"));
+                let _ = graph.add_edge(left, format!("component-node-{chord:05}"));
+            }
+        }
+
+        let candidate = super::multigraph_connected_components_borrowed(&graph);
+        let baseline = super::multigraph_connected_components_orig_string(&graph);
+        assert_eq!(
+            candidate, baseline,
+            "indexed traversal must preserve exact component and discovery order"
+        );
+        assert_eq!(candidate.len(), expected_components);
+        assert!(
+            candidate
+                .iter()
+                .all(|component| component.len() == component_size)
+        );
+
+        let time_warm = |indexed: bool| -> f64 {
+            let start = Instant::now();
+            let components = if indexed {
+                super::multigraph_connected_components_borrowed(&graph)
+            } else {
+                super::multigraph_connected_components_orig_string(&graph)
+            };
+            black_box(components);
+            start.elapsed().as_secs_f64()
+        };
+        let time_cold = |indexed: bool| -> f64 {
+            // `MultiGraph::clone` intentionally starts with an empty integer-adjacency
+            // memo. Clone outside the timer so this row measures first-read cache build
+            // plus traversal, not graph duplication.
+            let fresh = graph.clone();
+            let start = Instant::now();
+            let components = if indexed {
+                super::multigraph_connected_components_borrowed(&fresh)
+            } else {
+                super::multigraph_connected_components_orig_string(&fresh)
+            };
+            black_box(components);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time_warm(true));
+            black_box(time_warm(false));
+            black_box(time_cold(true));
+            black_box(time_cold(false));
+        }
+
+        let rounds = 31usize;
+        let paired = |time: &dyn Fn(bool) -> f64, baseline_indexed: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(baseline_indexed);
+                    let candidate_time = time(true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(true);
+                    let baseline_time = time(baseline_indexed);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            println!(
+                "MG_CC_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!(
+            "MG_CC_AB n={n} components={expected_components} rounds={rounds} (>1 = indexed faster)"
+        );
+        report("WARM_index_vs_string", &paired(&time_warm, false));
+        report("WARM_NULL_index_vs_index", &paired(&time_warm, true));
+        report("COLD_index_vs_string", &paired(&time_cold, false));
+        report("COLD_NULL_index_vs_index", &paired(&time_cold, true));
     }
 
     /// br-r37-c1-thp6w slice 2: paired-interleaved median A/B for the integer-adjacency

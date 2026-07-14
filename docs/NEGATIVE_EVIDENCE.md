@@ -18752,3 +18752,83 @@ RESULT: SHIP. Preserve the count-only indexed predicates and leave
 callers actually request the names. Future isolate work should profile a
 different public surface rather than rebuilding a String list for a scalar
 count.
+
+## 2026-07-13 LilacGrove SHIP (`MultiGraph connected_components`): reuse the integer-adjacency memo — 21.36x warm (`br-r37-c1-7xsg9`)
+
+NEGATIVE-LEDGER FIRST: the 2026-06-22 multigraph connectivity ledger records
+that building integer CSR on every call was a wash: String-to-index hashing
+merely moved from the BFS into the snapshot build, leaving the public path near
+`0.18x`. It correctly held this lane for an integer-adjacency storage epoch.
+That prerequisite is now real: commits `15d8c1d94` and `0e731d40f` shipped a
+revision-keyed `MultiGraph::with_int_adjacency` memo and proved reuse in the
+single-source BFS path. Connectivity still ignored it and repeated String-key
+hashing in `FxHashSet<&str>` plus String-key adjacency lookup on every visit.
+This newly reachable, unowned seam scored impact 4 x confidence 5 / effort 1 =
+20; concurrent self-loop work was left untouched.
+
+ONE LEVER: make `multigraph_connected_components_borrowed` traverse the
+maintained integer-adjacency memo with a `Vec<bool>` visited map and
+`VecDeque<usize>`. The outer scan uses node insertion indices, and each memo row
+preserves authoritative neighbor order, so component order and within-component
+BFS discovery order remain exact. The returned values still borrow the same
+ordered node strings. No graph mutation, cache policy, binding, output shape,
+error behavior, floating-point, or RNG surface changed.
+
+NULL FIRST: before the production edit, the checked-in ignored A/B compared the
+current String traversal with a frozen copy for 31 paired alternating-order
+rounds on strict-remote worker `vmi1149989`. A 20,000-node fixture contained 200
+disjoint 100-node ring-plus-chord components. Both warm and clone-fresh rows sat
+at the null:
+
+| pre-change paired A/A (>1 = first arm faster) | median | wins | p5-p95 |
+|---|---:|---:|---:|
+| warm String vs String | `0.9936x` | `14/31` | `[0.8893, 1.1976]` |
+| warm null String vs String | `1.0035x` | `16/31` | `[0.6829, 1.4438]` |
+| cold String vs String | `1.0145x` | `17/31` | `[0.7262, 1.1453]` |
+| cold null String vs String | `0.9904x` | `14/31` | `[0.8153, 1.2988]` |
+
+MEDIAN GATE: after the one production edit, the same release harness ran again
+on the same worker and asserted exact nested component equality before timing:
+
+| paired A/B (>1 = indexed faster) | median | wins | p5-p95 |
+|---|---:|---:|---:|
+| warm indexed vs String | `21.3623x` | `30/31` | `[11.1984, 93.1362]` |
+| warm indexed/indexed null | `1.0029x` | `16/31` | `[0.8329, 1.2017]` |
+| cold indexed vs String | `1.1932x` | `27/31` | `[0.9467, 2.6845]` |
+| cold indexed/indexed null | `0.9470x` | `10/31` | `[0.6855, 1.5713]` |
+
+The warm candidate p5 is 9.3x above its null p95, so memo reuse is decisive.
+The first-read row includes memo construction and overlaps its wide null; it is
+recorded as NEUTRAL, not claimed as a cold-path win. This closes rather than
+contradicts the old on-the-fly-CSR reject: the benefit appears only after the
+snapshot cost can be amortized through the revision-keyed memo.
+
+CORRECTNESS / GATES: a regular test compares exact component and discovery
+order with the frozen former traversal for empty, insertion-ordered,
+parallel-edge, self-loop, disconnected, and read-mutate-read cache-invalidation
+cases; it passed 1/1 on strict-remote worker `vmi1293453`. The release A/B's
+full nested-vector equality passed before every timing run. Strict-remote
+`cargo check --workspace --all-targets` passed on `vmi1152480` with one
+committed unused-variable warning outside this lever. Exact workspace clippy
+stopped on the committed `fnx-classes/src/lib.rs:1700` `collapsible_if`;
+strict-remote `cargo clippy -p fnx-python --lib --no-deps -- -D warnings` then
+passed on `vmi1149989`. One focused-test admission was refused with
+`no admissible workers: insufficient_slots=9,hard_preflight=1`, and one scoped
+clippy worker exposed stale sibling `ftui 0.4.1`; both were surfaced and
+retried remotely. Direct `rustfmt --edition 2024 --check` and `git diff
+--check` passed. UBS completed on the changed Rust file; its critical findings
+were pre-existing unrelated test `panic!` calls, while the owned production
+hunk had none. Every explicit Cargo gate used fail-closed
+`RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`, and
+`rch --no-self-healing exec`; no RCH fallback ran. A final generic
+`ubs --staged` invocation unexpectedly launched UBS's own shadow-workspace
+Cargo phases locally; those results violate this
+turn's execution boundary and are explicitly excluded. UBS was rerun with Rust
+phases 12-14 disabled, and only that static scan plus the strict-remote RCH
+gates count as evidence.
+
+RESULT: SHIP. Preserve revision-keyed memo reuse, insertion-index outer order,
+authoritative neighbor-row order, exact cache invalidation, and borrowed output
+names. Treat first-read performance as neutral. A future count-only
+`number_connected_components` route is a separate lever and must not be folded
+into this commit.
