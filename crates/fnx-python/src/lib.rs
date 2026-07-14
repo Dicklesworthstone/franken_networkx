@@ -4357,11 +4357,11 @@ impl MultiAtlasView {
     }
 
     fn __len__(&self, py: Python<'_>) -> usize {
-        self.graph
-            .borrow(py)
+        let graph = self.graph.borrow(py);
+        graph
             .inner
-            .neighbors(&self.node)
-            .map_or(0, |neighbors| neighbors.len())
+            .neighbors_iter(&self.node)
+            .map_or(0, Iterator::count)
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeIterator>> {
@@ -13573,6 +13573,28 @@ class FnxMultiGraphCtorEdgeIterable:
         Ok(())
     }
 
+    fn multiatlas_len_allocating(view: &MultiAtlasView, py: Python<'_>) -> usize {
+        view.graph
+            .borrow(py)
+            .inner
+            .neighbors(&view.node)
+            .map_or(0, |neighbors| neighbors.len())
+    }
+
+    fn multiatlas_star_view(py: Python<'_>, degree: usize) -> PyResult<MultiAtlasView> {
+        let mut graph = PyMultiGraph::new_empty_with_mode(py, CompatibilityMode::Strict)?;
+        assert!(graph.inner.add_node("hub"));
+        for index in 0..degree {
+            assert_eq!(
+                graph
+                    .inner
+                    .add_fresh_edge_unrecorded("hub", format!("leaf-{index}")),
+                Some(0)
+            );
+        }
+        Ok(MultiAtlasView::new(Py::new(py, graph)?, "hub".to_owned()))
+    }
+
     fn ensure_python() {
         Python::initialize();
     }
@@ -13611,6 +13633,113 @@ class FnxMultiGraphCtorEdgeIterable:
             Ok(())
         })
         .expect("MultiGraph iterator constructor parity should hold");
+    }
+
+    #[test]
+    fn multiatlas_len_matches_allocating_baseline() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let view = multiatlas_star_view(py, 0)?;
+            assert_eq!(view.__len__(py), multiatlas_len_allocating(&view, py));
+            assert_eq!(view.__len__(py), 0);
+
+            {
+                let mut graph = view.graph.borrow_mut(py);
+                assert_eq!(graph.inner.add_edge("hub", "a"), Ok(0));
+                assert_eq!(graph.inner.add_edge("hub", "a"), Ok(1));
+                assert_eq!(graph.inner.add_edge("hub", "hub"), Ok(0));
+                assert_eq!(graph.inner.add_edge("hub", "b"), Ok(0));
+            }
+            assert_eq!(view.__len__(py), multiatlas_len_allocating(&view, py));
+            assert_eq!(view.__len__(py), 3);
+
+            {
+                let mut graph = view.graph.borrow_mut(py);
+                assert!(graph.inner.remove_edge("hub", "a", Some(0)));
+            }
+            assert_eq!(view.__len__(py), multiatlas_len_allocating(&view, py));
+            assert_eq!(view.__len__(py), 3);
+
+            {
+                let mut graph = view.graph.borrow_mut(py);
+                assert!(graph.inner.remove_edge("hub", "a", Some(1)));
+            }
+            assert_eq!(view.__len__(py), multiatlas_len_allocating(&view, py));
+            assert_eq!(view.__len__(py), 2);
+            Ok(())
+        })
+        .expect("MultiAtlasView length parity should hold");
+    }
+
+    /// `br-r37-c1-ci87u`: same-binary proof for exact-size iterator counting
+    /// versus the frozen allocating `neighbors().len()` route. Run with the
+    /// release profile, `--ignored`, and `--nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multiatlas_len_noalloc_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let degree = 4_096usize;
+            let calls = 4_096usize;
+            let rounds = 31usize;
+            let view = multiatlas_star_view(py, degree)?;
+            assert_eq!(view.__len__(py), degree);
+            assert_eq!(multiatlas_len_allocating(&view, py), degree);
+
+            let time = |candidate: bool| -> f64 {
+                let start = Instant::now();
+                for _ in 0..calls {
+                    let length = if candidate {
+                        view.__len__(py)
+                    } else {
+                        multiatlas_len_allocating(&view, py)
+                    };
+                    black_box(length);
+                }
+                start.elapsed().as_secs_f64()
+            };
+            for _ in 0..3 {
+                black_box(time(false));
+                black_box(time(true));
+            }
+
+            let paired = |baseline_is_candidate: bool| -> Vec<f64> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                        (time(baseline_is_candidate), time(true))
+                    } else {
+                        let candidate_time = time(true);
+                        let baseline_time = time(baseline_is_candidate);
+                        (baseline_time, candidate_time)
+                    };
+                    ratios.push(baseline_time / candidate_time);
+                }
+                ratios
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "MULTIATLAS_LEN_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "MULTIATLAS_LEN_AB degree={degree} calls={calls} rounds={rounds} (>1 = candidate faster)"
+            );
+            report("candidate_vs_allocating", &paired(false));
+            report("candidate_null", &paired(true));
+            Ok(())
+        })
+        .expect("MultiAtlasView length A/B should run");
     }
 
     /// `br-r37-c1-q86hv`: same-binary proof for the one-time true-iterator
