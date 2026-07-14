@@ -6366,10 +6366,46 @@ fn multidigraph_bfs_edges_reverse(
         .collect()
 }
 
-/// br-r37-c1-zid1b2 (cc): is a MultiDiGraph a DAG? Kahn's algorithm over an integer CSR
-/// of DISTINCT successors (parallel edges don't affect acyclicity; a self-loop does).
+/// br-r37-c1-zid1b2 (cc): is a MultiDiGraph a DAG? Kahn's algorithm over the DISTINCT
+/// successor rows (parallel edges don't affect acyclicity; a self-loop does).
 /// Order-invariant boolean — no simple-DiGraph build. True iff all nodes get removed.
+///
+/// br-r37-c1-v03q9 (cc): reuse the pre-existing revision-keyed `mdg.csr()` instead of
+/// rebuilding an inline `HashMap<&str,usize>` + per-node `successors()` String Vec +
+/// dedup adjacency every call. The CSR successor rows are already distinct and in the
+/// same order, and the distinct in-degree of node j is exactly
+/// `csr.predecessors(j).len()`, so the Kahn traversal is byte-identical → identical
+/// acyclicity bool. Wins warm (cache) and cold (the flat CSR build beats the
+/// HashMap/String rebuild). Same lever as the MultiDiGraph dfs csr route (nqwti).
 fn multidigraph_is_dag(mdg: &fnx_classes::digraph::MultiDiGraph) -> bool {
+    use std::collections::VecDeque;
+    let n = mdg.node_count();
+    if n == 0 {
+        return true;
+    }
+    let csr = mdg.csr();
+    let mut indeg: Vec<usize> = (0..n).map(|j| csr.predecessors(j).len()).collect();
+    let mut queue: VecDeque<usize> = (0..n).filter(|&i| indeg[i] == 0).collect();
+    let mut processed = 0usize;
+    while let Some(u) = queue.pop_front() {
+        processed += 1;
+        for &raw in csr.successors(u) {
+            let v = raw as usize;
+            if v < n {
+                indeg[v] -= 1;
+                if indeg[v] == 0 {
+                    queue.push_back(v);
+                }
+            }
+        }
+    }
+    processed == n
+}
+
+/// Frozen pre-`br-r37-c1-v03q9` inline-`HashMap` Kahn route — rebuilds the successor
+/// adjacency per call. Kept for the same-binary A/B and parity proof.
+#[cfg(test)]
+fn multidigraph_is_dag_orig_hashmap(mdg: &fnx_classes::digraph::MultiDiGraph) -> bool {
     use std::collections::{HashMap, HashSet, VecDeque};
     let nodes = mdg.nodes_ordered();
     let n = nodes.len();
@@ -28124,6 +28160,159 @@ mod tests {
         report("warm_candidate_vs_buildindex", &paired_warm(false));
         report("warm_candidate_null", &paired_warm(true));
         report("cold_candidate_vs_buildindex", &paired_cold(false));
+        report("cold_candidate_null", &paired_cold(true));
+    }
+
+    #[test]
+    fn multidigraph_is_dag_csr_matches_hashmap_route() {
+        let assert_parity = |mdg: &MultiDiGraph, expected: bool| {
+            let csr_route = super::multidigraph_is_dag(mdg);
+            assert_eq!(
+                csr_route,
+                super::multidigraph_is_dag_orig_hashmap(mdg),
+                "csr vs hashmap route must agree"
+            );
+            assert_eq!(csr_route, expected, "acyclicity value");
+        };
+
+        assert_parity(&MultiDiGraph::strict(), true);
+
+        let mut single = MultiDiGraph::strict();
+        let _ = single.add_node("solo".to_owned());
+        assert_parity(&single, true);
+        let _ = single.add_edge("solo".to_owned(), "solo".to_owned());
+        assert_parity(&single, false); // self-loop is a cycle
+
+        // DAG a->b->c with a shortcut a->c and a branch b->d.
+        let mut dag = MultiDiGraph::strict();
+        for node in ["a", "b", "c", "d"] {
+            let _ = dag.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("a", "c"), ("b", "d")] {
+            let _ = dag.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&dag, true);
+        // Parallel edge must not change acyclicity.
+        let _ = dag.add_edge("a".to_owned(), "b".to_owned());
+        assert_parity(&dag, true);
+        // Read-mutate-read: add a back edge c->a forming a cycle (CSR revision bump).
+        let _ = dag.add_edge("c".to_owned(), "a".to_owned());
+        assert_parity(&dag, false);
+
+        // Two disconnected DAG pieces + an isolated node.
+        let mut multi = MultiDiGraph::strict();
+        for node in ["p", "q", "r", "s", "t", "iso"] {
+            let _ = multi.add_node(node.to_owned());
+        }
+        for (u, v) in [("p", "q"), ("q", "r"), ("s", "t")] {
+            let _ = multi.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&multi, true);
+    }
+
+    /// `br-r37-c1-v03q9`: same-binary paired proof for multidigraph_is_dag — cached
+    /// CSR Kahn vs the per-call inline-HashMap adjacency rebuild. Run with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multidigraph_is_dag_csr_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multidigraph_is_dag_csr_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("dag-node-{index:05}");
+        let mut graph = MultiDiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        // Forward-only edges → a DAG, so Kahn processes every node (exercises the
+        // full traversal, not just an early cycle bail).
+        for index in 0..n {
+            if index + 1 < n {
+                let _ = graph.add_edge(node(index), node(index + 1));
+            }
+            if index + 127 < n {
+                let _ = graph.add_edge(node(index), node(index + 127));
+            }
+            if index.is_multiple_of(8) && index + 1 < n {
+                let _ = graph.add_edge(node(index), node(index + 1));
+            }
+        }
+        let candidate = super::multidigraph_is_dag(&graph);
+        let baseline = super::multidigraph_is_dag_orig_hashmap(&graph);
+        assert_eq!(candidate, baseline, "csr Kahn must match hashmap route");
+        assert!(candidate, "forward-only graph is a DAG");
+
+        // Prime the revision-keyed CSR memo before warm timing.
+        black_box(graph.csr().successors(0).len());
+
+        let time = |timed_graph: &MultiDiGraph, candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                super::multidigraph_is_dag(timed_graph)
+            } else {
+                super::multidigraph_is_dag_orig_hashmap(timed_graph)
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired_warm = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, baseline_candidate);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let paired_cold = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let baseline_graph = graph.clone();
+                let candidate_graph = graph.clone();
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    let candidate_time = time(&candidate_graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&candidate_graph, true);
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "MDG_DAG_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("MDG_DAG_AB n={n} forward-DAG rounds={rounds} Kahn (>1 = candidate faster)");
+        report("warm_candidate_vs_hashmap", &paired_warm(false));
+        report("warm_candidate_null", &paired_warm(true));
+        report("cold_candidate_vs_hashmap", &paired_cold(false));
         report("cold_candidate_null", &paired_cold(true));
     }
 
