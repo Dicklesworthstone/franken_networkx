@@ -251,21 +251,7 @@ impl EdgeListEngine {
             unknown_incompatible_feature: false,
         })?;
 
-        let mut lines = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-        for node in graph.nodes_ordered() {
-            let mut tokens = Vec::new();
-            tokens.push(node.to_owned());
-            if let Some(neighbors) = graph.neighbors(node) {
-                for neighbor in neighbors {
-                    if !seen.contains(neighbor) {
-                        tokens.push(neighbor.to_owned());
-                    }
-                }
-            }
-            lines.push(tokens.join(" "));
-            seen.insert(node.to_owned());
-        }
+        let text = encode_adjlist_graph(graph);
 
         self.record(
             "write_adjlist",
@@ -274,7 +260,7 @@ impl EdgeListEngine {
             0.02,
         );
 
-        Ok(lines.join("\n"))
+        Ok(text)
     }
 
     pub fn write_digraph_adjlist(&mut self, graph: &DiGraph) -> Result<String, ReadWriteError> {
@@ -5003,6 +4989,38 @@ fn encode_edgelist_edges(edges: &[(&str, &str, &AttrMap)]) -> String {
     output
 }
 
+fn encode_adjlist_graph(graph: &Graph) -> String {
+    let mut output = String::with_capacity(
+        graph
+            .node_count()
+            .saturating_add(graph.edge_count())
+            .saturating_mul(16),
+    );
+    for node_index in 0..graph.node_count() {
+        if node_index > 0 {
+            output.push('\n');
+        }
+        output.push_str(
+            graph
+                .get_node_name(node_index)
+                .expect("ordered node index is valid"),
+        );
+        if let Some(neighbor_indices) = graph.neighbors_indices(node_index) {
+            for &neighbor_index in neighbor_indices {
+                if neighbor_index >= node_index {
+                    output.push(' ');
+                    output.push_str(
+                        graph
+                            .get_node_name(neighbor_index)
+                            .expect("adjacency node index is valid"),
+                    );
+                }
+            }
+        }
+    }
+    output
+}
+
 fn decode_attrs(
     encoded: &str,
     mode: CompatibilityMode,
@@ -5819,6 +5837,130 @@ mod tests {
             .expect("adjlist parse should succeed")
             .graph;
         assert_eq!(graph.snapshot(), parsed.snapshot());
+    }
+
+    /// Paired same-binary A/B for undirected adjacency-list encoding. The
+    /// frozen arm retains the former owned token/line/seen representation; the
+    /// candidate streams the same insertion-index rows into one buffer.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn write_adjlist_index_stream_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let encode_frozen = |graph: &Graph| {
+            let mut lines = Vec::new();
+            let mut seen = std::collections::HashSet::new();
+            for node in graph.nodes_ordered() {
+                let mut tokens = vec![node.to_owned()];
+                if let Some(neighbors) = graph.neighbors(node) {
+                    for neighbor in neighbors {
+                        if !seen.contains(neighbor) {
+                            tokens.push(neighbor.to_owned());
+                        }
+                    }
+                }
+                lines.push(tokens.join(" "));
+                seen.insert(node.to_owned());
+            }
+            lines.join("\n")
+        };
+
+        let mut boundary = Graph::strict();
+        for node in ["z", "a", "m", "q", "b"] {
+            boundary.add_node(node);
+        }
+        for (left, right) in [(0, 0), (0, 3), (4, 1), (2, 4), (3, 1)] {
+            let inserted = boundary.extend_existing_index_edges_unrecorded([(left, right)]);
+            assert_eq!(inserted, 1);
+        }
+        assert_eq!(
+            encode_frozen(&Graph::strict()),
+            super::encode_adjlist_graph(&Graph::strict())
+        );
+        assert_eq!(
+            encode_frozen(&boundary),
+            super::encode_adjlist_graph(&boundary),
+            "indexed stream must preserve node, neighbor, self-loop, and isolate order"
+        );
+
+        let n = 4_096usize;
+        let mut graph = Graph::strict();
+        for node in 0..n {
+            graph.add_node(format!("node-{node:05}"));
+        }
+        let mut edges = Vec::with_capacity(n * 4 + 1);
+        for node in 0..n {
+            for offset in [1usize, 17, 97, 257] {
+                edges.push((node, (node + offset) % n));
+            }
+        }
+        edges.push((0, 0));
+        let _ = graph.extend_existing_index_edges_unrecorded(edges);
+        assert_eq!(
+            encode_frozen(&graph),
+            super::encode_adjlist_graph(&graph),
+            "timed fixture output must be byte-identical"
+        );
+
+        let calls = 4usize;
+        let rounds = 15usize;
+        let time = |stream: bool| {
+            let started = Instant::now();
+            for _ in 0..calls {
+                if stream {
+                    black_box(super::encode_adjlist_graph(&graph));
+                } else {
+                    black_box(encode_frozen(&graph));
+                }
+            }
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let base_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(base, candidate)| base > candidate)
+                .count();
+            println!(
+                "ADJLIST_INDEX_STREAM_AB {name}: baseline_median_ns={base_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds}",
+                base_median as f64 / candidate_median as f64,
+            );
+        };
+
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("frozen_vs_stream", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("stream_vs_stream_null", &null_a_ns, &null_b_ns);
     }
 
     #[test]

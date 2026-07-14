@@ -20571,3 +20571,68 @@ canonical endpoint orientation, the `n=0` singleton, and the generator's final
 policy handoff. Do not generalize this batch to generators with duplicate edges,
 non-contiguous node labels, or order-dependent intermediate mutations without a
 separate parity and timing proof.
+
+## 2026-07-14 GrayPelican SHIP (`write_adjlist`): stream indexed rows into one buffer — **25.177x** (`br-r37-c1-30ffd`)
+
+NEGATIVE-LEDGER / ROBOT-TRIAGE FIRST: `bv --robot-triage` again ranked the
+occupied no-gaps umbrella. The read/write ledger says the broad public format
+sweep is parity/win and leaves the attribute-bearing GML writer as a broad
+byte-exact extension, so this turn did not reopen that mined surface. A source
+audit of the smaller Rust `fnx-readwrite` crate found a distinct unrecorded
+residual: only undirected `EdgeListEngine::write_adjlist` retained the original
+owned token/line/seen representation after the borrowed edgelist writer shipped.
+
+PROFILE / ATTRIBUTION FIRST: for every node the current encoder allocates a
+neighbor `Vec<&str>`, an owned token `Vec<String>`, and a completed line
+`String`; it also clones every node into both the token vector and a `HashSet`,
+clones every emitted neighbor, stores all lines, then copies them again in the
+final join. On the selected 4,096-node / 16,385-edge fixture this structurally
+means at least 8,192 node-name clones plus one clone per emitted edge, 4,096
+neighbor vectors, 4,096 token vectors, 4,096 line strings, and about `2E`
+String-hash membership probes. The authoritative integer adjacency already
+encodes the same rule: at row `i`, an undirected neighbor is unseen exactly when
+its insertion index is `>= i` (including a self-loop at `i`). Opportunity score:
+impact 3 x confidence 5 / effort 1 = 15.
+
+ONE LEVER: walk nodes and their authoritative neighbor indices in insertion
+order, apply that identical index predicate, and append borrowed node names
+directly to one pre-sized `String`. This leaves dispatch, policy evidence,
+spacing, row order, edge order, self-loop behavior, isolates, and the no-trailing-
+newline contract unchanged. Directed adjacency-list serialization is out of
+scope. A frozen test-only copy of the former encoder is the parity/timing oracle.
+
+ONE FOREGROUND A/B + NULL: one strict-remote ordinary `--profile release`
+invocation on worker `vmi1149989` (job `j-29928833041828539`) used a
+4,096-node / 16,385-edge deterministic graph, four serializations per sample,
+three warmups, and 15 alternating-order rounds. The same binary first asserted
+byte equality on an empty graph, a nonlexically inserted graph containing a
+self-loop and isolate, and the full timed fixture:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen owned rows vs indexed stream | `7,020,660 ns / 278,850 ns` | **`25.1772x`** | **`15/15`** | byte-exact |
+| indexed stream / indexed stream null | `329,296 ns / 310,116 ns` | `1.0618x` | identical arm | exact |
+
+The real arm wins every pair and remains about `23.71x` after conservatively
+dividing by the full 6.18% null skew. The timed test itself completed in 0.16
+seconds. RCH again reported a cache miss; total wall time was 97.6 seconds, of
+which 38.3 seconds was sync and 48.7 seconds remote compilation. That routing
+overhead is not benchmark evidence, and no retry or `release-perf` command ran.
+
+CORRECTNESS / GATES: exact output equality covers empty input, insertion order,
+neighbor order, a self-loop, an isolate, reverse-oriented edge insertion, and
+the complete timed output. Direct rustfmt and `git diff --check` passed before
+measurement. Targeted UBS completed with zero critical findings; its two new
+`expect` inventories are internal invariants because the outer index is bounded
+by `node_count` and every neighbor index comes from the graph's authoritative
+adjacency rows. Other warnings are committed file-wide test/assert, clone,
+index, and allocation inventories. The release test compiled the changed crate
+and dependencies successfully. The only Cargo command was fail-closed with
+`RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`, and direct
+`rch --no-self-healing exec -- cargo ...`; no local fallback ran.
+
+RESULT: SHIP. Preserve insertion-index row order, the `neighbor_index >=
+node_index` unseen predicate, self-loop emission, isolates, single spaces, and
+the no-trailing-newline contract. Do not widen this lever to the directed
+serializer or formats with escaping/attribute semantics without a separate
+parity and timing proof.
