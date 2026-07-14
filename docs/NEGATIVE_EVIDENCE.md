@@ -19799,3 +19799,53 @@ RESULT: SHIP. Preserve the zero-edge predicate, insertion order, exact positive
 zero scores, witness accounting, and the `PERF_SPANS` escape hatch. Do not widen
 this return to sampled, weighted, subset, or non-edgeless betweenness paths
 without separate proof.
+
+## 2026-07-14 RusticHollow NO-SHIP (`core_number`): edgeless peeling bypass is inside the null-control floor (`br-r37-c1-dy8w1`)
+
+NEGATIVE-LEDGER FIRST: the large-graph sweeps identify `core_number` as a hot
+kernel, but no prior edgeless-core attempt was present. The live
+Batagelj-Zaversnik path still computes every isolate degree, stable-sorts the
+vertices, builds position and bin arrays, runs the peel loop, and only then
+emits insertion-ordered zero core numbers. A zero-edge direct result therefore
+scored impact 4 x confidence 5 / effort 1 = 20, while the existing core-family
+ledger ruled out changing ordering, self-loop handling, or the non-edgeless
+peeling algorithm.
+
+ONE LEVER: branch only on `edge_count() == 0` and emit one
+`NodeCoreNumber { core: 0 }` per insertion-ordered node with the exact existing
+witness (`nodes_touched=n`, `edges_scanned=0`, `queue_peak=0`). The unchanged
+Batagelj-Zaversnik body was retained as both the non-edgeless delegate and the
+frozen A/B baseline. The harness compared the complete result and witness before
+timing; a one-edge fixture separately proved ordinary delegation.
+
+ONE FOREGROUND A/B + NULL: one completed release invocation on strict-remote
+worker `vmi1149989` (job `j-29928833041828190`) used 32,768 isolates, three
+warmups, and 15 alternating-order rounds. It timed the frozen peeling body,
+the direct result, and an identical candidate/candidate null in the same binary:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen peeling vs direct zero result | `1,634,695 ns / 1,319,849 ns` | `1.239x` | `15/15` | exact |
+| direct/direct null | `1,544,759 ns / 1,303,656 ns` | `1.185x` | identical arm | exact |
+
+The raw A/B clears 1.10x, but its signal is almost entirely consumed by the
+1.185x identical-arm control: `1.239 / 1.185 = 1.046x` null-adjusted. That is
+below the 1.10x keep floor, so 15 paired wins are not sufficient evidence for a
+production branch. The remaining time is dominated by the required ordered
+String result materialization shared by both arms; bypassing only degree/sort/
+bin setup is too shallow at this shape.
+
+GATES / CLOSEOUT: the completed strict-remote test passed `1/1` and asserted
+exact result-plus-witness parity before timing. An earlier compile-only attempt
+failed on unqualified test-module call paths before executing any test or timer;
+it supplied no benchmark evidence, was corrected, and never fell back locally.
+Every Cargo invocation used `RCH_REQUIRE_REMOTE=1`,
+`RCH_NO_SELF_HEALING=1`, and direct `rch --no-self-healing exec -- cargo ...`.
+The production branch, frozen helper, and temporary tests were then removed
+manually with `apply_patch`; `crates/fnx-algorithms/src/lib.rs` is byte-identical
+to `HEAD` and no algorithm source remains in this closeout.
+
+RESULT: NO-SHIP. Do not retry the edgeless `core_number` branch by itself; a
+future candidate must reduce the ordered String-result floor and establish at
+least 1.10x separation beyond its same-binary null control. Non-edgeless peeling,
+ordering, witness accounting, and all core-family APIs remain unchanged.
