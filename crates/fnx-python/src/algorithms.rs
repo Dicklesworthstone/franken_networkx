@@ -21987,10 +21987,13 @@ pub fn biconnected_components(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<
     let gr = extract_graph(g)?;
     require_undirected(&gr, "biconnected_components")?;
     if let GraphRef::MultiUndirected { mg, .. } = &gr {
+        // br-r37-c1-vi5rf (cc): reuse the revision-keyed integer-adjacency memo instead of rebuilding
+        // the index adjacency per call. Byte-identical index rows in mg.neighbors order → identical
+        // component partition; warm reuse after is_biconnected (sstk9) on the same revision.
         let inner = &mg.inner;
         let nodes = inner.nodes_ordered();
-        let adjacency = build_index_adjacency(&nodes, |u| inner.neighbors(u).unwrap_or_default());
-        let result = py.allow_threads(|| biconnected_components_from_adjacency(&adjacency));
+        let result =
+            py.allow_threads(|| inner.with_int_adjacency(biconnected_components_from_adjacency));
         return result
             .iter()
             .map(|comp| {
@@ -22027,10 +22030,12 @@ pub fn biconnected_component_edges(
     let gr = extract_graph(g)?;
     require_undirected(&gr, "biconnected_component_edges")?;
     if let GraphRef::MultiUndirected { mg, .. } = &gr {
+        // br-r37-c1-vi5rf (cc): reuse the revision-keyed integer-adjacency memo instead of rebuilding
+        // the index adjacency per call. Byte-identical index rows in mg.neighbors order → identical
+        // DFS edge stacks; warm reuse across the biconnected-inspection call sequence.
         let inner = &mg.inner;
         let nodes = inner.nodes_ordered();
-        let adjacency = build_index_adjacency(&nodes, |u| inner.neighbors(u).unwrap_or_default());
-        let result = py.allow_threads(|| biconnected_component_edges_dfs(&adjacency));
+        let result = py.allow_threads(|| inner.with_int_adjacency(biconnected_component_edges_dfs));
         return Ok(result
             .iter()
             .map(|comp| {
@@ -27352,6 +27357,178 @@ mod tests {
         };
 
         println!("MG_ARTIC_AB n={n} degree=4+parallel rounds={rounds} (>1 = candidate faster)");
+        report("warm_candidate_vs_buildindex", &paired_warm(false));
+        report("warm_candidate_null", &paired_warm(true));
+        report("cold_candidate_vs_buildindex", &paired_cold(false));
+        report("cold_candidate_null", &paired_cold(true));
+    }
+
+    #[test]
+    fn multigraph_biconnected_components_memo_matches_buildindex_route() {
+        // Kernel-level parity for BOTH biconnected pyfunctions' MultiGraph path:
+        // `with_int_adjacency(kernel)` must equal `{ build_index_adjacency; kernel(&adj) }`.
+        let baseline_components = |mg: &MultiGraph| -> Vec<Vec<usize>> {
+            let nodes = mg.nodes_ordered();
+            let adj = super::build_index_adjacency(&nodes, |u| mg.neighbors(u).unwrap_or_default());
+            super::biconnected_components_from_adjacency(&adj)
+        };
+        let baseline_edges = |mg: &MultiGraph| -> Vec<Vec<(usize, usize)>> {
+            let nodes = mg.nodes_ordered();
+            let adj = super::build_index_adjacency(&nodes, |u| mg.neighbors(u).unwrap_or_default());
+            super::biconnected_component_edges_dfs(&adj)
+        };
+        let assert_parity = |mg: &MultiGraph| {
+            assert_eq!(
+                mg.with_int_adjacency(super::biconnected_components_from_adjacency),
+                baseline_components(mg)
+            );
+            assert_eq!(
+                mg.with_int_adjacency(super::biconnected_component_edges_dfs),
+                baseline_edges(mg)
+            );
+        };
+
+        assert_parity(&MultiGraph::strict());
+
+        let mut single = MultiGraph::strict();
+        let _ = single.add_node("solo".to_owned());
+        assert_parity(&single);
+
+        // Path a-b-c-d: three biconnected components (each edge) sharing cut vertices.
+        let mut path = MultiGraph::strict();
+        for node in ["a", "b", "c", "d"] {
+            let _ = path.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "d")] {
+            let _ = path.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&path);
+
+        // Parallel edges + self-loop must not change the vertex-level partition.
+        let _ = path.add_edge("b".to_owned(), "c".to_owned());
+        let _ = path.add_edge("a".to_owned(), "a".to_owned());
+        assert_parity(&path);
+
+        // Cycle (single biconnected component) + a pendant tail (own component)
+        // + an isolated node, then a read-mutate-read closing the tail.
+        let mut cyc = MultiGraph::strict();
+        for node in ["p", "q", "r", "s", "iso"] {
+            let _ = cyc.add_node(node.to_owned());
+        }
+        for (u, v) in [("p", "q"), ("q", "r"), ("r", "p"), ("r", "s")] {
+            let _ = cyc.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&cyc);
+        let _ = cyc.add_edge("s".to_owned(), "p".to_owned());
+        assert_parity(&cyc);
+    }
+
+    /// `br-r37-c1-vi5rf`: same-binary paired proof for the shared build-elimination
+    /// behind biconnected_components + biconnected_component_edges (MultiGraph path).
+    /// Uses the heavier edge-DFS kernel (conservative). Run with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multigraph_biconnected_components_intadj_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multigraph_biconnected_components_intadj_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("bcc-node-{index:05}");
+        let mut graph = MultiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        for index in 0..n {
+            let next = (index + 1) % n;
+            let chord = (index + 127) % n;
+            let _ = graph.add_edge(node(index), node(next));
+            let _ = graph.add_edge(node(index), node(chord));
+            if index.is_multiple_of(8) {
+                let _ = graph.add_edge(node(index), node(next));
+            }
+        }
+        let candidate = graph.with_int_adjacency(super::biconnected_component_edges_dfs);
+        let baseline = {
+            let nodes = graph.nodes_ordered();
+            let adj =
+                super::build_index_adjacency(&nodes, |u| graph.neighbors(u).unwrap_or_default());
+            super::biconnected_component_edges_dfs(&adj)
+        };
+        assert_eq!(candidate, baseline, "memo edge-DFS must match buildindex route");
+
+        graph.with_int_adjacency(|adjacency| {
+            black_box(adjacency.len());
+        });
+
+        let time = |timed_graph: &MultiGraph, candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                timed_graph.with_int_adjacency(super::biconnected_component_edges_dfs)
+            } else {
+                let nodes = timed_graph.nodes_ordered();
+                let adj = super::build_index_adjacency(&nodes, |u| {
+                    timed_graph.neighbors(u).unwrap_or_default()
+                });
+                super::biconnected_component_edges_dfs(&adj)
+            };
+            black_box(result.len());
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired_warm = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, baseline_candidate);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let paired_cold = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let baseline_graph = graph.clone();
+                let candidate_graph = graph.clone();
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    let candidate_time = time(&candidate_graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&candidate_graph, true);
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "MG_BCC_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("MG_BCC_AB n={n} degree=4+parallel rounds={rounds} edge-DFS kernel (>1 = candidate faster)");
         report("warm_candidate_vs_buildindex", &paired_warm(false));
         report("warm_candidate_null", &paired_warm(true));
         report("cold_candidate_vs_buildindex", &paired_cold(false));
