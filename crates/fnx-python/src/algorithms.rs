@@ -22108,14 +22108,12 @@ fn biconnected_components_from_adjacency(adjacency: &[Vec<usize>]) -> Vec<Vec<us
         .collect()
 }
 
-/// Direct `MultiGraph` articulation points over distinct-neighbor adjacency.
-fn multigraph_articulation_points(mg: &fnx_classes::MultiGraph) -> Vec<&str> {
-    let nodes = mg.nodes_ordered();
-    let n = nodes.len();
-    if n == 0 {
-        return Vec::new();
-    }
-    let adjacency = build_index_adjacency(&nodes, |u| mg.neighbors(u).unwrap_or_default());
+/// Low-link articulation-point DFS over an integer adjacency, returning the
+/// articulation node indices in NetworkX discovery order. Pure over `adjacency`
+/// (`n = adjacency.len()`); shared by the live memo route and the frozen A/B
+/// baseline so the two differ ONLY in how the adjacency rows are sourced.
+fn multigraph_articulation_order(adjacency: &[Vec<usize>]) -> Vec<usize> {
+    let n = adjacency.len();
     let undiscovered = usize::MAX;
     let mut discovery = vec![undiscovered; n];
     let mut low = vec![undiscovered; n];
@@ -22185,6 +22183,38 @@ fn multigraph_articulation_points(mg: &fnx_classes::MultiGraph) -> Vec<&str> {
     }
 
     articulation_order
+}
+
+/// Direct `MultiGraph` articulation points over distinct-neighbor adjacency.
+fn multigraph_articulation_points(mg: &fnx_classes::MultiGraph) -> Vec<&str> {
+    let nodes = mg.nodes_ordered();
+    if nodes.is_empty() {
+        return Vec::new();
+    }
+    // br-r37-c1-wt0wh (cc): reuse the revision-keyed integer-adjacency memo instead of rebuilding
+    // the index adjacency per call via `build_index_adjacency` (a per-neighbour String→index
+    // resolution). The memo yields the same distinct-neighbour rows in the same mg.neighbors order →
+    // byte-identical low-link DFS → identical discovery-ordered articulation node names. Warm reuse
+    // across MultiGraph ops on the same revision (family: 7xsg9/a5rsz/85ktt/sstk9).
+    mg.with_int_adjacency(|adjacency| {
+        multigraph_articulation_order(adjacency)
+            .into_iter()
+            .map(|idx| nodes[idx])
+            .collect()
+    })
+}
+
+/// Frozen pre-`br-r37-c1-wt0wh` `build_index_adjacency` route — rebuilds the
+/// index adjacency per call, then runs the shared DFS. Kept for the same-binary
+/// A/B and parity proof.
+#[cfg(test)]
+fn multigraph_articulation_points_orig_buildindex(mg: &fnx_classes::MultiGraph) -> Vec<&str> {
+    let nodes = mg.nodes_ordered();
+    if nodes.is_empty() {
+        return Vec::new();
+    }
+    let adjacency = build_index_adjacency(&nodes, |u| mg.neighbors(u).unwrap_or_default());
+    multigraph_articulation_order(&adjacency)
         .into_iter()
         .map(|idx| nodes[idx])
         .collect()
@@ -26983,6 +27013,170 @@ mod tests {
         };
 
         println!("MG_BICONN_AB n={n} degree=4+parallel rounds={rounds} (>1 = candidate faster)");
+        report("warm_candidate_vs_buildindex", &paired_warm(false));
+        report("warm_candidate_null", &paired_warm(true));
+        report("cold_candidate_vs_buildindex", &paired_cold(false));
+        report("cold_candidate_null", &paired_cold(true));
+    }
+
+    #[test]
+    fn multigraph_articulation_points_matches_buildindex_route() {
+        let empty = MultiGraph::strict();
+        assert_eq!(
+            super::multigraph_articulation_points(&empty),
+            super::multigraph_articulation_points_orig_buildindex(&empty)
+        );
+
+        let mut single = MultiGraph::strict();
+        let _ = single.add_node("solo".to_owned());
+        assert_eq!(
+            super::multigraph_articulation_points(&single),
+            super::multigraph_articulation_points_orig_buildindex(&single)
+        );
+
+        // Path a-b-c-d: b and c are cut vertices (discovery order matters).
+        let mut path = MultiGraph::strict();
+        for node in ["a", "b", "c", "d"] {
+            let _ = path.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "d")] {
+            let _ = path.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_eq!(
+            super::multigraph_articulation_points(&path),
+            super::multigraph_articulation_points_orig_buildindex(&path)
+        );
+        assert_eq!(super::multigraph_articulation_points(&path), vec!["c", "b"]);
+
+        // Parallel edges + a self-loop must not change the vertex invariant.
+        let _ = path.add_edge("b".to_owned(), "c".to_owned());
+        let _ = path.add_edge("a".to_owned(), "a".to_owned());
+        assert_eq!(
+            super::multigraph_articulation_points(&path),
+            super::multigraph_articulation_points_orig_buildindex(&path)
+        );
+
+        // Two components with a shared cut-vertex shape + an isolated node.
+        let mut multi = MultiGraph::strict();
+        for node in ["p", "q", "r", "s", "t", "iso"] {
+            let _ = multi.add_node(node.to_owned());
+        }
+        for (u, v) in [("p", "q"), ("q", "r"), ("s", "t")] {
+            let _ = multi.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_eq!(
+            super::multigraph_articulation_points(&multi),
+            super::multigraph_articulation_points_orig_buildindex(&multi)
+        );
+
+        // Read-mutate-read: close p-q-r into a triangle removing q as a cut
+        // vertex, exercising memo invalidation between reads.
+        let _ = multi.add_edge("p".to_owned(), "r".to_owned());
+        assert_eq!(
+            super::multigraph_articulation_points(&multi),
+            super::multigraph_articulation_points_orig_buildindex(&multi)
+        );
+    }
+
+    /// `br-r37-c1-wt0wh`: same-binary paired proof for cached integer-row
+    /// articulation DFS versus the per-call `build_index_adjacency` route. Run:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multigraph_articulation_points_intadj_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multigraph_articulation_points_intadj_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("art-node-{index:05}");
+        let mut graph = MultiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        // Cycle + chord keeps the graph 2-connected (full DFS, empty result).
+        for index in 0..n {
+            let next = (index + 1) % n;
+            let chord = (index + 127) % n;
+            let _ = graph.add_edge(node(index), node(next));
+            let _ = graph.add_edge(node(index), node(chord));
+            if index.is_multiple_of(8) {
+                let _ = graph.add_edge(node(index), node(next));
+            }
+        }
+        let candidate = super::multigraph_articulation_points(&graph);
+        let baseline = super::multigraph_articulation_points_orig_buildindex(&graph);
+        assert_eq!(candidate, baseline, "indexed articulation DFS must match");
+        assert!(candidate.is_empty(), "2-connected graph has no cut vertices");
+
+        // Prime the revision-keyed memo before warm timing.
+        graph.with_int_adjacency(|adjacency| {
+            black_box(adjacency.len());
+        });
+
+        let time = |timed_graph: &MultiGraph, candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                super::multigraph_articulation_points(timed_graph)
+            } else {
+                super::multigraph_articulation_points_orig_buildindex(timed_graph)
+            };
+            black_box(result.len());
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired_warm = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, baseline_candidate);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let paired_cold = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let baseline_graph = graph.clone();
+                let candidate_graph = graph.clone();
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    let candidate_time = time(&candidate_graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&candidate_graph, true);
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "MG_ARTIC_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("MG_ARTIC_AB n={n} degree=4+parallel rounds={rounds} (>1 = candidate faster)");
         report("warm_candidate_vs_buildindex", &paired_warm(false));
         report("warm_candidate_null", &paired_warm(true));
         report("cold_candidate_vs_buildindex", &paired_cold(false));
