@@ -6768,7 +6768,7 @@ pub fn is_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     // of building a full simple Graph first (was 11x slower than the Graph path).
     if let GraphRef::MultiUndirected { mg, .. } = &gr {
         let inner = &mg.inner;
-        if inner.nodes_ordered().is_empty() {
+        if inner.node_count() == 0 {
             return Err(crate::NetworkXPointlessConcept::new_err(
                 "Connectivity is undefined for the null graph.",
             ));
@@ -6792,19 +6792,24 @@ pub fn is_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
 #[pyfunction]
 pub fn density(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
     let gr = extract_graph(g)?;
+    // br-r37-c1-e5hzf (cc): `node_count()` is an O(1) field read; the former
+    // `nodes_ordered().len()` materialized a whole `Vec<&str>` of every node name
+    // just to count it (O(V) alloc) — for the simple cases that was density's entire
+    // variable cost. Same count-only-materialization lever as edges_ordered().len()
+    // → edge_count(). Byte-identical n.
     let (n, m, directed) = match &gr {
-        GraphRef::Undirected(pg) => (pg.inner.nodes_ordered().len(), pg.inner.edge_count(), false),
+        GraphRef::Undirected(pg) => (pg.inner.node_count(), pg.inner.edge_count(), false),
         GraphRef::Directed { dg, .. } => {
-            (dg.inner.nodes_ordered().len(), dg.inner.edge_count(), true)
+            (dg.inner.node_count(), dg.inner.edge_count(), true)
         }
         GraphRef::MultiUndirected { .. } => {
             let simple = gr.undirected();
-            (simple.nodes_ordered().len(), simple.edge_count(), false)
+            (simple.node_count(), simple.edge_count(), false)
         }
         GraphRef::MultiDirected { .. } => {
             let simple_dg = gr.digraph().expect("is_directed checked above");
             (
-                simple_dg.nodes_ordered().len(),
+                simple_dg.node_count(),
                 simple_dg.edge_count(),
                 true,
             )
@@ -15186,7 +15191,7 @@ pub fn is_strongly_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<b
         // br-r37-c1-1pmou: direct boolean SCC over MultiDiGraph adjacency instead
         // of building a simple DiGraph or materializing forward+reverse CSR.
         let inner = &mdg.inner;
-        if inner.nodes_ordered().is_empty() {
+        if inner.node_count() == 0 {
             return Err(crate::NetworkXPointlessConcept::new_err(
                 "Connectivity is undefined for the null graph.",
             ));
@@ -15513,7 +15518,7 @@ pub fn is_weakly_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<boo
     }
     if let GraphRef::MultiDirected { mdg, .. } = &gr {
         let inner = &mdg.inner;
-        if inner.nodes_ordered().is_empty() {
+        if inner.node_count() == 0 {
             return Err(crate::NetworkXPointlessConcept::new_err(
                 "Connectivity is undefined for the null graph.",
             ));
@@ -29651,6 +29656,105 @@ mod tests {
 
         println!("SPA_AB n={n} cycle+chord rounds={rounds} adjacency-build (>1 = candidate faster)");
         report("native_vs_inline", &paired());
+        report("null", &null());
+    }
+
+    #[test]
+    fn node_count_equals_nodes_ordered_len_and_empty() {
+        use fnx_classes::Graph;
+        let mut g = Graph::strict();
+        assert_eq!(g.node_count(), g.nodes_ordered().len());
+        assert_eq!(g.node_count() == 0, g.nodes_ordered().is_empty());
+        for node in ["a", "b", "c", "d"] {
+            let _ = g.add_node(node.to_owned());
+        }
+        let _ = g.add_edge("a".to_owned(), "b".to_owned());
+        assert_eq!(g.node_count(), g.nodes_ordered().len());
+        assert_eq!(g.node_count() == 0, g.nodes_ordered().is_empty());
+        let _ = g.remove_node("b");
+        assert_eq!(g.node_count(), g.nodes_ordered().len());
+        assert!(g.node_count() != 0);
+    }
+
+    /// `br-r37-c1-e5hzf`: same-binary paired proof that the `node_count()` O(1) field
+    /// read replaces the O(V) `nodes_ordered().len()` materialization density used on
+    /// its simple-graph path. Run with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// node_count_vs_materialize_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn node_count_vs_materialize_ab() {
+        use fnx_classes::Graph;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("dens-node-{index:05}");
+        let mut graph = Graph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        for index in 0..n {
+            let _ = graph.add_edge(node(index), node((index + 1) % n));
+        }
+        assert_eq!(graph.node_count(), graph.nodes_ordered().len());
+
+        let iters = 2_000usize;
+        let time = |candidate: bool| -> f64 {
+            let start = Instant::now();
+            let mut acc = 0usize;
+            for _ in 0..iters {
+                acc += if candidate {
+                    graph.node_count()
+                } else {
+                    graph.nodes_ordered().len()
+                };
+            }
+            black_box(acc);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+
+        let rounds = 31usize;
+        let paired = || -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(false), time(true))
+                } else {
+                    let c = time(true);
+                    (time(false), c)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let null = || -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let a = time(true);
+                let b = time(true);
+                ratios.push(if round.is_multiple_of(2) { b / a } else { a / b });
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "DENSITY_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("DENSITY_AB n={n} iters={iters} rounds={rounds} node_count vs nodes_ordered().len() (>1 = candidate faster)");
+        report("node_count_vs_materialize", &paired());
         report("null", &null());
     }
 
