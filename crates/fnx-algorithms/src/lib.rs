@@ -7743,6 +7743,63 @@ pub fn minimum_st_edge_cut_edmonds_karp(
     let source_partition = cut.source_partition;
     let sink_partition = cut.sink_partition;
 
+    // br-r37-c1-a273b: partitions cover every graph node, so one source-side
+    // index mark is sufficient to identify crossing edges. The previous
+    // projection cloned every partition name and both endpoints of every edge,
+    // then performed four String HashSet probes per edge.
+    let mut in_source_partition = vec![false; graph.node_count()];
+    for node in &source_partition {
+        let node_index = graph
+            .get_node_index(node)
+            .expect("minimum-cut partition node must exist in the graph");
+        in_source_partition[node_index] = true;
+    }
+
+    let mut cut_edges = Vec::<(String, String)>::new();
+    let mut cut_edges_scanned = 0usize;
+    for (left_index, right_index) in graph.edges_ordered_indices() {
+        cut_edges_scanned += 1;
+        if in_source_partition[left_index] == in_source_partition[right_index] {
+            continue;
+        }
+        let left = graph
+            .get_node_name(left_index)
+            .expect("stored edge endpoint must exist in the graph");
+        let right = graph
+            .get_node_name(right_index)
+            .expect("stored edge endpoint must exist in the graph");
+        let (canonical_left, canonical_right) = canonical_undirected_edge(left, right);
+        cut_edges.push((canonical_left, canonical_right));
+    }
+    cut_edges.sort_unstable();
+    cut_edges.dedup();
+
+    Ok(EdgeCutResult {
+        value: cut.value,
+        cut_edges,
+        source_partition,
+        sink_partition,
+        witness: ComplexityWitness {
+            algorithm: "edmonds_karp_minimum_st_edge_cut".to_owned(),
+            complexity_claim: "O(|V| * |E|^2)".to_owned(),
+            nodes_touched: cut.witness.nodes_touched,
+            edges_scanned: cut.witness.edges_scanned + cut_edges_scanned,
+            queue_peak: cut.witness.queue_peak,
+        },
+    })
+}
+
+#[cfg(test)]
+fn minimum_st_edge_cut_edmonds_karp_string_projection_baseline(
+    graph: &Graph,
+    source: &str,
+    sink: &str,
+    capacity_attr: &str,
+) -> Result<EdgeCutResult, FlowError> {
+    let cut = minimum_cut_edmonds_karp(graph, source, sink, capacity_attr)?;
+    let source_partition = cut.source_partition;
+    let sink_partition = cut.sink_partition;
+
     let source_set = source_partition
         .iter()
         .cloned()
@@ -63051,6 +63108,114 @@ mod tests {
         let right = minimum_st_edge_cut_edmonds_karp(&graph, "s", "t", "capacity")
             .expect("flow algorithm should succeed");
         assert_eq!(left, right);
+    }
+
+    /// br-r37-c1-a273b: paired full-function A/B for index-space s-t cut-edge
+    /// projection. The frozen baseline clones partition/edge names and probes
+    /// String sets. Exact `EdgeCutResult` parity is asserted before timing.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn minimum_st_edge_cut_index_projection_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let side = 72usize;
+        let left_names = (0..side)
+            .map(|index| format!("left-cut-node-{index:04}-payload-abcdefghijkl"))
+            .collect::<Vec<_>>();
+        let right_names = (0..side)
+            .map(|index| format!("right-cut-node-{index:04}-payload-abcdefghijk"))
+            .collect::<Vec<_>>();
+        let mut graph = Graph::strict();
+        for name in left_names.iter().chain(&right_names) {
+            assert!(graph.add_node(name));
+        }
+        for names in [&left_names, &right_names] {
+            for left in 0..side {
+                for right in (left + 1)..side {
+                    graph
+                        .add_edge_with_attrs(
+                            &names[left],
+                            &names[right],
+                            attrs([("capacity", "1")]),
+                        )
+                        .expect("clique edge add should succeed");
+                }
+            }
+        }
+        graph
+            .add_edge_with_attrs(&left_names[0], &right_names[0], attrs([("capacity", "1")]))
+            .expect("bridge edge add should succeed");
+        let source = &left_names[side - 1];
+        let sink = &right_names[side - 1];
+
+        let candidate = super::minimum_st_edge_cut_edmonds_karp(&graph, source, sink, "capacity")
+            .expect("candidate cut should succeed");
+        let baseline = super::minimum_st_edge_cut_edmonds_karp_string_projection_baseline(
+            &graph, source, sink, "capacity",
+        )
+        .expect("baseline cut should succeed");
+        assert_eq!(candidate, baseline, "index projection must be exact");
+
+        let time = |use_candidate: bool| -> f64 {
+            let start = Instant::now();
+            let result = if use_candidate {
+                super::minimum_st_edge_cut_edmonds_karp(
+                    black_box(&graph),
+                    black_box(source),
+                    black_box(sink),
+                    black_box("capacity"),
+                )
+            } else {
+                super::minimum_st_edge_cut_edmonds_karp_string_projection_baseline(
+                    black_box(&graph),
+                    black_box(source),
+                    black_box(sink),
+                    black_box("capacity"),
+                )
+            };
+            black_box(result.expect("timed cut should succeed"));
+            start.elapsed().as_secs_f64()
+        };
+
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let rounds = 21usize;
+        let paired = |left_candidate: bool, right_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (left_time, right_time) = if round.is_multiple_of(2) {
+                    (time(left_candidate), time(right_candidate))
+                } else {
+                    let right_time = time(right_candidate);
+                    (time(left_candidate), right_time)
+                };
+                ratios.push(right_time / left_time);
+            }
+            ratios
+        };
+        let report = |name: &str, mut ratios: Vec<f64>| {
+            ratios.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "MIN_ST_EDGE_CUT_AB {name}: median={:.4}x win_rate={wins}/{rounds} p10_p90=[{:.4},{:.4}]",
+                ratios[rounds / 2],
+                ratios[rounds / 10],
+                ratios[rounds * 9 / 10],
+            );
+        };
+
+        println!(
+            "MIN_ST_EDGE_CUT_AB nodes={} edges={} unconditional_string_clones={} string_set_probes={} rounds={rounds} (>1 = left faster)",
+            graph.node_count(),
+            graph.edge_count(),
+            graph.node_count() + graph.edge_count() * 2,
+            graph.edge_count() * 4,
+        );
+        report("INDEX_vs_string", paired(true, false));
+        report("NULL_index_vs_index", paired(true, true));
     }
 
     #[test]

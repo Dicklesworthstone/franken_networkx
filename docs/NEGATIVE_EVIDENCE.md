@@ -2,6 +2,55 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-14 TanCat KEEP: `minimum_st_edge_cut` index-space crossing-edge projection — 1.5334x (`br-r37-c1-a273b`)
+
+**NEGATIVE-LEDGER / ATTRIBUTE FIRST.** `bv --robot-triage` found no unclaimed
+narrow perf recommendation: the leading ready work was namespace correctness, while
+the listed perf quick wins were assigned or structurally broad. The immediately prior
+matching allocation seam failed its null-control gate, so this loop rotated to the
+flow cut-projection subsystem. No previous `minimum_st_edge_cut` projection attempt is
+recorded in this ledger. Exact source attribution identified `|V| + 2|E|`
+unconditional String clones and `4|E|` String-set probes after Edmonds-Karp: both
+partitions were cloned into sets and every edge endpoint was cloned before four
+membership tests.
+
+**ONE LEVER / EXACT PARITY.** Mark the source partition in one node-index boolean
+row, walk the existing `Graph::edges_ordered_indices` contract, and resolve names only
+for actual crossing edges. The source/sink partitions still cover every node; an edge
+crosses exactly when its endpoint marks differ. The final edge list retains the same
+lexicographic endpoint canonicalization, sort, and dedup. Max-flow arithmetic,
+residual traversal, partition order, cut-value bits, and all witness counters are
+untouched. A frozen copy of the String projection compares the complete
+`EdgeCutResult` before timing.
+
+**STRICT-REMOTE FOREGROUND RELEASE GATE.** One ordinary `--profile release`
+invocation on worker `vmi1149989` ran exact full-result parity, 21 paired
+interleaved rounds, and a same-function null control in one binary. The full-function
+workload used two 72-node cliques joined by one capacity-1 bridge: 144 nodes, 5,113
+edges, 10,370 unconditional String clones and 20,452 String-set probes in the frozen
+projection per call.
+
+| arm | paired median | wins | p10-p90 |
+| --- | ---: | ---: | ---: |
+| index / String projection | **1.5334x** | **18/21** | 0.9795-1.8788 |
+| index / index null | 0.9963x | 10/21 | 0.8255-1.0818 |
+
+The candidate median exceeds the null median by 53.9 percentage points and wins 86%
+of pairs. Exact `EdgeCutResult` parity passed before timing (`1 passed`, `0 failed`).
+RCH reported a strict remote cache miss and built the ordinary release test target in
+3m57s; it never fell back locally.
+
+**VALIDATION.** The release A/B compiled and passed the changed crate and exact proof.
+`git diff --check` and owned-hunk rustfmt checks passed. Targeted UBS completed with
+exit zero and zero critical findings with its local Cargo phases disabled; its
+file-wide warning inventory predates this index-only lever. The release compiler
+reported only the established unrelated unused `directed` test variable.
+
+**RESULT: SHIP.** Preserve the one-sided partition mark, indexed edge scan, and final
+String canonicalization only for actual crossing edges. Do not remove the final
+sort/dedup or change residual/partition construction; those carry observable ordering
+and replay semantics outside this projection lever.
+
 ## 2026-07-14 RusticHollow NO-SHIP: `min_weight_matching` in-place candidate transform is inside the null floor (`br-r37-c1-pic0x`)
 
 **NEGATIVE-LEDGER / ATTRIBUTE FIRST.** `bv --robot-triage` was run first. Its
