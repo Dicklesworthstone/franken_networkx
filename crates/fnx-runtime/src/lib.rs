@@ -3638,14 +3638,23 @@ impl TailStabilityTracker {
     /// Get status of the tracker.
     #[must_use]
     pub fn status(&self) -> TailStabilityStatus {
+        let window_p99 = self.window_p99();
+        let p99_ratio = match (self.baseline_p99, window_p99) {
+            (Some(base), Some(current)) if base > 0.0 => Some(current / base),
+            _ => None,
+        };
+        let has_shift = match (self.baseline_p99, window_p99) {
+            (Some(base), Some(current)) if base > 0.0 => current / base > self.config.max_p99_ratio,
+            _ => false,
+        };
         TailStabilityStatus {
             baseline_samples: self.baseline.len(),
             window_samples: self.window.len(),
             baseline_locked: self.baseline_locked,
             baseline_p99: self.baseline_p99,
-            window_p99: self.window_p99(),
-            p99_ratio: self.p99_ratio(),
-            has_shift: self.has_shift(),
+            window_p99,
+            p99_ratio,
+            has_shift,
         }
     }
 
@@ -8086,6 +8095,129 @@ mod tests {
         assert!(status.baseline_locked);
         assert!(status.baseline_p99.is_some());
         assert!(status.p99_ratio.is_some());
+    }
+
+    /// Paired same-binary A/B for tail-status snapshots. The frozen arm asks
+    /// for the same window percentile three times; the candidate reuses one
+    /// immutable percentile across the reported fields.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn tail_status_single_percentile_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let frozen_status = |tracker: &super::TailStabilityTracker| super::TailStabilityStatus {
+            baseline_samples: tracker.baseline.len(),
+            window_samples: tracker.window.len(),
+            baseline_locked: tracker.baseline_locked,
+            baseline_p99: tracker.baseline_p99,
+            window_p99: tracker.window_p99(),
+            p99_ratio: tracker.p99_ratio(),
+            has_shift: tracker.has_shift(),
+        };
+        let assert_exact = |frozen: super::TailStabilityStatus,
+                            reused: super::TailStabilityStatus| {
+            assert_eq!(frozen.baseline_samples, reused.baseline_samples);
+            assert_eq!(frozen.window_samples, reused.window_samples);
+            assert_eq!(frozen.baseline_locked, reused.baseline_locked);
+            assert_eq!(
+                frozen.baseline_p99.map(f64::to_bits),
+                reused.baseline_p99.map(f64::to_bits)
+            );
+            assert_eq!(
+                frozen.window_p99.map(f64::to_bits),
+                reused.window_p99.map(f64::to_bits)
+            );
+            assert_eq!(
+                frozen.p99_ratio.map(f64::to_bits),
+                reused.p99_ratio.map(f64::to_bits)
+            );
+            assert_eq!(frozen.has_shift, reused.has_shift);
+        };
+
+        let empty = super::TailStabilityTracker::new();
+        assert_exact(frozen_status(&empty), empty.status());
+
+        let baseline_samples = 256usize;
+        let window_samples = 4_096usize;
+        let config = super::TailStabilityConfig {
+            baseline_samples,
+            window_samples,
+            max_p99_ratio: 1.2,
+            percentile: 0.99,
+        };
+        let mut tracker = super::TailStabilityTracker::with_config(config);
+        for sample in 0..baseline_samples {
+            tracker.record(10.0 + ((sample * 37) % 101) as f64 / 100.0);
+        }
+        assert_exact(frozen_status(&tracker), tracker.status());
+        for sample in 0..window_samples {
+            tracker.record(11.0 + ((sample * 7_919) % 10_007) as f64 / 1_000.0);
+        }
+        assert_exact(frozen_status(&tracker), tracker.status());
+
+        let calls = 8usize;
+        let rounds = 15usize;
+        let time = |reused: bool| {
+            let started = Instant::now();
+            for _ in 0..calls {
+                if reused {
+                    black_box(black_box(&tracker).status());
+                } else {
+                    black_box(frozen_status(black_box(&tracker)));
+                }
+            }
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let paired = |candidate_reused: bool, baseline_reused: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline, candidate) = if round % 2 == 0 {
+                    (time(baseline_reused), time(candidate_reused))
+                } else {
+                    let candidate = time(candidate_reused);
+                    let baseline = time(baseline_reused);
+                    (baseline, candidate)
+                };
+                baseline_ns.push(baseline);
+                candidate_ns.push(candidate);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let baseline_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "TAIL_STATUS_SINGLE_PERCENTILE_AB {name}: baseline_median_ns={baseline_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds}",
+                baseline_median as f64 / candidate_median as f64,
+            );
+        };
+
+        println!(
+            "TAIL_STATUS_SINGLE_PERCENTILE_AB fixture: baseline={baseline_samples} \
+             window={window_samples} calls={calls} percentile=0.99"
+        );
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("triple_sort_vs_single_sort", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("single_sort_vs_single_sort_null", &null_a_ns, &null_b_ns);
     }
 
     #[test]

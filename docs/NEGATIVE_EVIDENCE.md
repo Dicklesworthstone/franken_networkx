@@ -20878,3 +20878,61 @@ RESULT: SHIP. Preserve the ten half-open probability bins with the top bin
 clamped at index nine, original outcome addition order, zero-sample neutral
 metrics, and exact public field values. Keep recording, gates, and policy logic
 out of this lever.
+
+## 2026-07-14 GrayCitadel SHIP (`TailStabilityTracker::status`): reuse one window percentile — **3.2549x** (`br-r37-c1-3j48s`)
+
+NEGATIVE-LEDGER / ROBOT-TRIAGE FIRST: `bv --robot-triage` still ranked the
+occupied no-gaps umbrella and the same parity-hole or structural quick wins.
+The new Brier row establishes that the runtime metrics vein is measurable, and
+a sibling audit found no ledger row or bead for tail-status snapshots. This is
+a separate percentile/sort residual rather than another calibration-bin edit.
+
+PROFILE / ATTRIBUTION FIRST: `TailStabilityTracker::status` called
+`window_p99()` directly, then called it again through `p99_ratio()`, then a
+third time through `has_shift()`. Every call materializes all `W` window values
+into a new vector and sorts them before selecting the identical percentile. A
+single immutable status request therefore paid three allocations, `3W` value
+copies, and three `O(W log W)` sorts even though `&self` prevents the window
+from changing between fields. Opportunity score: impact 4 x confidence 5 /
+effort 1 = 20.
+
+ONE LEVER: compute the window percentile once inside `status` and derive its
+reported ratio and shift flag from that same snapshot. The standalone
+`window_p99`, `p99_ratio`, and `has_shift` APIs remain unchanged. Baseline and
+window counts, lock state, percentile selection, zero-baseline behavior,
+floating-point operation order within each derived field, and threshold
+semantics remain unchanged.
+
+ONE FOREGROUND A/B + NULL: one strict-remote ordinary `--profile release`
+invocation on worker `vmi1153651` (job `j-29928833041828609`) used a
+256-sample baseline and 4,096-sample deterministic window, eight status calls
+per sample, three warmups, and 15 alternating-order rounds:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen triple sort vs one percentile sort | `2,221,177 ns / 682,419 ns` | **`3.2549x`** | **`15/15`** | exact |
+| one percentile sort / same path null | `681,075 ns / 688,670 ns` | `0.9890x` | `7/15` | identical arm |
+
+The real arm wins every pair and remains about `3.219x` after conservatively
+dividing by the full 1.11% null-position skew. The timed test completed in 0.08
+seconds. RCH reported a cache miss; its pipeline took 72.3 seconds (35.8 seconds
+sync, 34.4 seconds remote build/execution, and 2.1 seconds artifact retrieval;
+80.1 seconds wrapper elapsed). That routing overhead is not benchmark evidence,
+and no retry or `release-perf` command ran.
+
+CORRECTNESS / GATES: the same-binary harness compares every count, flag, and
+optional floating value by exact bits against a frozen copy of the former
+triple-call status path for empty, baseline-only, and full-window inputs.
+The window is immutable for the duration of `&self`, so the three former
+percentile selections are identical by construction; the candidate retains the
+same division and threshold expressions. Direct rustfmt and `git diff --check`
+passed before measurement. Targeted UBS completed with zero critical findings;
+its warnings were the committed file-wide test `expect`/assert, direct-index,
+cast, and allocation inventories. The release test compiled the changed crate
+and passed. The only Cargo command was fail-closed with
+`RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`, and direct
+`rch --no-self-healing exec -- cargo ...`; no local fallback ran.
+
+RESULT: SHIP. Reuse the percentile only inside the immutable status snapshot.
+Keep standalone percentile, ratio, shift, recording, window eviction, and gate
+behavior unchanged.
