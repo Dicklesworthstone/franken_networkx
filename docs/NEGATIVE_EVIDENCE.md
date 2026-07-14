@@ -21189,3 +21189,64 @@ RESULT: INVALID / HOLD, not a measured rejection. Remove the candidate and
 ignored probe; land only this evidence plus the closed bead. A future fresh
 turn may retry only with a known-warm ordinary-release test binary/target and
 must still obtain parity plus paired/null timing before considering the lever.
+
+## 2026-07-14 GrayCitadel SHIP (`connected_caveman_graph`): batch clique construction by node index — **22.3094x** (`br-r37-c1-18zr9`)
+
+NEGATIVE-LEDGER / ROBOT-TRIAGE FIRST: `bv --robot-triage` again ranked the
+occupied no-gaps umbrella and already-mined shortest-path/storage quick wins.
+After two dominance attempts failed before timing, this pass pivots to the
+fresh generator subsystem. Broad sweeps show connected caveman already beating
+NetworkX, but there is no dedicated connected-caveman batch reject or perf
+bead. The sibling plain-caveman constructor already uses the available ordered
+index-batch primitive.
+
+PROFILE / ATTRIBUTION FIRST: `connected_caveman_graph(l, k)` inserted all
+`l*k*(k-1)/2` initial clique edges through `Graph::add_edge`, cloning two node
+names, hashing both endpoints, and recording graph policy evidence for every
+edge. Its NetworkX-exact remove/add rewiring performs only `l` iterations. On
+the planned `(48, 32)` fixture, the ranked work is (1) 23,808 per-edge String
+insertions, (2) 48 removals, and (3) 48 bridge insertions. Opportunity score:
+impact 4 x confidence 5 / effort 1 = 20.
+
+ONE LEVER / PROOF PLAN: emit the initial clique edges in the identical nested
+loop order as `(usize, usize)` pairs and insert them once with
+`extend_existing_index_edges_unrecorded`; leave every validation, cap, node,
+removal, and bridge-add expression unchanged. The ignored same-binary A/B
+compares ordered nodes, ordered edges, and every integer adjacency row across
+empty, single-clique, size-two, ordinary, and timed shapes before two warmups,
+15 alternating-order rounds, and an index-vs-index null control. The only
+build/measurement was one fail-closed foreground `--profile release` command.
+
+ONE FOREGROUND A/B + NULL: one strict-remote ordinary `--profile release`
+invocation on worker `vmi1153651` (job `j-29928833041828693`) measured the
+23,808-edge `(48, 32)` fixture:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| ordered index batch vs per-edge String insertion | `4,295,432 ns / 86,850,435 ns` | **`22.3094x`** | **`15/15`** | exact ordered graph |
+| index batch / same index path null | `2,630,088 ns / 2,651,927 ns` | `0.9740x` | `6/15` | identical arm |
+
+The real arm's paired p10 was still `16.7101x`, far above both unity and the
+null-position spread. The timed test completed in 1.84 seconds. RCH reported a
+cache miss; its pipeline took 166.3 seconds (43.5 seconds sync, 120.7 seconds
+remote build/execution, and 2.0 seconds artifact retrieval; 175.6 seconds
+wrapper elapsed). Routing/build overhead is not benchmark evidence, and no
+retry or `release-perf` command ran.
+
+CORRECTNESS / GATES: before timing, the same-binary harness compared ordered
+nodes, ordered edges, and every integer adjacency row against the frozen
+per-edge path for zero cliques, one clique, clique size two, ordinary rewired
+graphs, and the timed shape. The candidate retains the identical nested clique
+emission order and leaves the NetworkX-exact remove/add loop byte-for-byte
+unchanged. There are no attrs, duplicate initial pairs, self-loops, floating
+point operations, or RNG effects. Direct rustfmt and `git diff --check` passed.
+Targeted UBS completed with zero critical findings; its warnings were the
+existing file-wide test panic, direct-index, cast, clone, and allocation
+inventories. The release test compiled the changed crate and passed. The sole
+Cargo command was fail-closed with `RCH_REQUIRE_REMOTE=1`,
+`RCH_NO_SELF_HEALING=1`, and direct
+`rch --no-self-healing exec -- cargo ...`; no local fallback ran.
+
+RESULT: SHIP. Batch only the initial disjoint clique edges by stable node index;
+preserve all validation, caps, node order, edge order, adjacency order, and the
+subsequent remove/add rewiring exactly.

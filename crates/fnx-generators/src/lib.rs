@@ -2232,19 +2232,16 @@ impl GraphGenerator {
         }
 
         let (mut graph, node_labels) = graph_with_n_nodes(self.mode, total_nodes);
+        let mut clique_edges = Vec::with_capacity(edge_count);
         for start in (0..total_nodes).step_by(k) {
             let end = start + k;
             for left in start..end {
                 for right in (left + 1)..end {
-                    graph
-                        .add_edge(node_labels[left].clone(), node_labels[right].clone())
-                        .map_err(|err| GenerationError::FailClosed {
-                            operation,
-                            reason: err.to_string(),
-                        })?;
+                    clique_edges.push((left, right));
                 }
             }
         }
+        let _ = graph.extend_existing_index_edges_unrecorded(clique_edges);
 
         for start in (0..total_nodes).step_by(k) {
             let _ = graph.remove_edge(&node_labels[start], &node_labels[start + 1]);
@@ -7683,6 +7680,126 @@ mod tests {
         println!("CAVE_BATCH_AB l={l} k={k} rounds={rounds} (>1 = batch faster)");
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
+    }
+
+    /// br-r37-c1-18zr9: paired full-construction A/B for connected-caveman
+    /// clique insertion. Both arms preserve the subsequent remove/add rewiring;
+    /// ordered nodes, edges, and adjacency rows are compared before timing.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn connected_caveman_index_batch_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let build = |batch: bool, l: usize, k: usize| {
+            let total_nodes = l * k;
+            let edge_count = l * k * (k - 1) / 2;
+            let (mut graph, node_labels) =
+                super::graph_with_n_nodes(CompatibilityMode::Strict, total_nodes);
+            if batch {
+                let mut edges = Vec::with_capacity(edge_count);
+                for start in (0..total_nodes).step_by(k) {
+                    let end = start + k;
+                    for left in start..end {
+                        for right in (left + 1)..end {
+                            edges.push((left, right));
+                        }
+                    }
+                }
+                let _ = graph.extend_existing_index_edges_unrecorded(edges);
+            } else {
+                for start in (0..total_nodes).step_by(k) {
+                    let end = start + k;
+                    for left in start..end {
+                        for right in (left + 1)..end {
+                            let _ = graph
+                                .add_edge(node_labels[left].clone(), node_labels[right].clone());
+                        }
+                    }
+                }
+            }
+            for start in (0..total_nodes).step_by(k) {
+                let _ = graph.remove_edge(&node_labels[start], &node_labels[start + 1]);
+                let previous = (start + total_nodes - 1) % total_nodes;
+                let _ = graph.add_edge(node_labels[start].clone(), node_labels[previous].clone());
+            }
+            graph
+        };
+
+        for &(l, k) in &[(0, 3), (1, 2), (1, 3), (3, 2), (3, 3), (8, 7)] {
+            let string_graph = build(false, l, k);
+            let index_graph = build(true, l, k);
+            assert_eq!(string_graph.nodes_ordered(), index_graph.nodes_ordered());
+            assert_eq!(
+                string_graph.edges_ordered_borrowed(),
+                index_graph.edges_ordered_borrowed(),
+                "ordered edge mismatch for connected_caveman_graph({l}, {k})",
+            );
+            for node in 0..string_graph.node_count() {
+                assert_eq!(
+                    string_graph.neighbors_indices(node),
+                    index_graph.neighbors_indices(node),
+                    "adjacency-row mismatch for connected_caveman_graph({l}, {k}) node {node}",
+                );
+            }
+        }
+
+        const L: usize = 48;
+        const K: usize = 32;
+        let time = |batch: bool| -> u128 {
+            let started = Instant::now();
+            black_box(build(batch, L, K));
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..2 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+
+        const ROUNDS: usize = 15;
+        let paired = |left_batch: bool, right_batch: bool| {
+            let mut left_times = Vec::with_capacity(ROUNDS);
+            let mut right_times = Vec::with_capacity(ROUNDS);
+            let mut ratios = Vec::with_capacity(ROUNDS);
+            for round in 0..ROUNDS {
+                let (left, right) = if round.is_multiple_of(2) {
+                    (time(left_batch), time(right_batch))
+                } else {
+                    let right = time(right_batch);
+                    (time(left_batch), right)
+                };
+                left_times.push(left);
+                right_times.push(right);
+                ratios.push(right as f64 / left as f64);
+            }
+            (left_times, right_times, ratios)
+        };
+        let report = |name: &str,
+                      (mut left_times, mut right_times, mut ratios): (
+            Vec<u128>,
+            Vec<u128>,
+            Vec<f64>,
+        )| {
+            left_times.sort_unstable();
+            right_times.sort_unstable();
+            ratios.sort_by(f64::total_cmp);
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "CONNECTED_CAVEMAN_AB {name}: left_median_ns={} right_median_ns={} median={:.4}x win_rate={wins}/{ROUNDS} p10_p90=[{:.4},{:.4}]",
+                left_times[ROUNDS / 2],
+                right_times[ROUNDS / 2],
+                ratios[ROUNDS / 2],
+                ratios[ROUNDS / 10],
+                ratios[ROUNDS * 9 / 10],
+            );
+        };
+
+        println!(
+            "CONNECTED_CAVEMAN_AB l={L} k={K} edges={} rounds={ROUNDS} (>1 = left faster)",
+            L * K * (K - 1) / 2,
+        );
+        report("INDEX_vs_string", paired(true, false));
+        report("NULL_index_vs_index", paired(true, true));
     }
 
     /// br-r37-c1-barbellbatch: paired-interleaved median A/B for barbell_graph edge insertion —
