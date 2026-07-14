@@ -3291,20 +3291,34 @@ impl BrierScoreTracker {
         }
 
         let brier = self.brier_score();
-        let base_rate = self
-            .predictions
-            .iter()
-            .map(|p| p.actual_outcome)
-            .sum::<f64>()
-            / n as f64;
+        let mut actual_total = 0.0;
+        let mut bin_counts = [0usize; 10];
+        let mut bin_actual_totals = [0.0f64; 10];
+        for prediction in &self.predictions {
+            actual_total += prediction.actual_outcome;
+            let bin_index = (prediction.predicted_probability * 10.0).floor().min(9.0) as usize;
+            bin_counts[bin_index] += 1;
+            bin_actual_totals[bin_index] += prediction.actual_outcome;
+        }
 
-        // Reliability: how well do predicted probabilities match observed frequencies?
-        // Lower is better. This is a simplified version.
-        let reliability = self.compute_reliability();
-
-        // Resolution: ability to separate positive and negative cases
-        // Higher is better.
-        let resolution = self.compute_resolution(base_rate);
+        let n_float = n as f64;
+        let base_rate = actual_total / n_float;
+        let mut reliability = 0.0;
+        let mut resolution = 0.0;
+        for (bin_index, (&bin_count, &bin_actual_total)) in
+            bin_counts.iter().zip(&bin_actual_totals).enumerate()
+        {
+            if bin_count == 0 {
+                continue;
+            }
+            let actual_frequency = bin_actual_total / bin_count as f64;
+            let bin_probability = (bin_index as f64 + 0.5) / 10.0;
+            let reliability_error = bin_probability - actual_frequency;
+            reliability += (bin_count as f64 / n_float) * reliability_error * reliability_error;
+            let resolution_deviation = actual_frequency - base_rate;
+            resolution +=
+                (bin_count as f64 / n_float) * resolution_deviation * resolution_deviation;
+        }
 
         BrierScoreMetrics {
             brier_score: brier,
@@ -3313,62 +3327,6 @@ impl BrierScoreTracker {
             resolution,
             base_rate,
         }
-    }
-
-    fn compute_reliability(&self) -> f64 {
-        if self.predictions.is_empty() {
-            return 0.0;
-        }
-
-        // Bin predictions into 10 bins and compute reliability
-        let mut bins: [Vec<&PredictionOutcome>; 10] = Default::default();
-        for pred in &self.predictions {
-            let bin_idx = (pred.predicted_probability * 10.0).floor().min(9.0) as usize;
-            bins[bin_idx].push(pred);
-        }
-
-        let mut reliability = 0.0;
-        let n = self.predictions.len() as f64;
-
-        for (i, bin) in bins.iter().enumerate() {
-            if bin.is_empty() {
-                continue;
-            }
-            let bin_prob = (i as f64 + 0.5) / 10.0; // Bin center
-            let actual_freq = bin.iter().map(|p| p.actual_outcome).sum::<f64>() / bin.len() as f64;
-            let error = bin_prob - actual_freq;
-            reliability += (bin.len() as f64 / n) * error * error;
-        }
-
-        reliability
-    }
-
-    fn compute_resolution(&self, base_rate: f64) -> f64 {
-        if self.predictions.is_empty() {
-            return 0.0;
-        }
-
-        // Resolution measures how much predictions deviate from base rate
-        let mut resolution = 0.0;
-        let n = self.predictions.len() as f64;
-
-        // Bin predictions and compute resolution
-        let mut bins: [Vec<&PredictionOutcome>; 10] = Default::default();
-        for pred in &self.predictions {
-            let bin_idx = (pred.predicted_probability * 10.0).floor().min(9.0) as usize;
-            bins[bin_idx].push(pred);
-        }
-
-        for bin in &bins {
-            if bin.is_empty() {
-                continue;
-            }
-            let actual_freq = bin.iter().map(|p| p.actual_outcome).sum::<f64>() / bin.len() as f64;
-            let deviation = actual_freq - base_rate;
-            resolution += (bin.len() as f64 / n) * deviation * deviation;
-        }
-
-        resolution
     }
 }
 
@@ -7665,6 +7623,176 @@ mod tests {
             metrics.base_rate
         );
         assert_eq!(metrics.sample_count, 10);
+    }
+
+    /// Paired same-binary A/B for calibration metric aggregation. The frozen
+    /// arm retains the former five traversals and two arrays of bin vectors;
+    /// the candidate accumulates fixed-bin counts and sums once.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn brier_metrics_fused_aggregation_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn frozen_metrics(tracker: &super::BrierScoreTracker) -> super::BrierScoreMetrics {
+            let n = tracker.predictions.len();
+            if n == 0 {
+                return super::BrierScoreMetrics {
+                    brier_score: 0.5,
+                    sample_count: 0,
+                    reliability: 0.0,
+                    resolution: 0.0,
+                    base_rate: 0.5,
+                };
+            }
+
+            let base_rate = tracker
+                .predictions
+                .iter()
+                .map(|prediction| prediction.actual_outcome)
+                .sum::<f64>()
+                / n as f64;
+            let mut reliability_bins: [Vec<&super::PredictionOutcome>; 10] = Default::default();
+            for prediction in &tracker.predictions {
+                let bin_index = (prediction.predicted_probability * 10.0).floor().min(9.0) as usize;
+                reliability_bins[bin_index].push(prediction);
+            }
+            let mut reliability = 0.0;
+            for (bin_index, bin) in reliability_bins.iter().enumerate() {
+                if bin.is_empty() {
+                    continue;
+                }
+                let bin_probability = (bin_index as f64 + 0.5) / 10.0;
+                let actual_frequency = bin
+                    .iter()
+                    .map(|prediction| prediction.actual_outcome)
+                    .sum::<f64>()
+                    / bin.len() as f64;
+                let error = bin_probability - actual_frequency;
+                reliability += (bin.len() as f64 / n as f64) * error * error;
+            }
+
+            let mut resolution_bins: [Vec<&super::PredictionOutcome>; 10] = Default::default();
+            for prediction in &tracker.predictions {
+                let bin_index = (prediction.predicted_probability * 10.0).floor().min(9.0) as usize;
+                resolution_bins[bin_index].push(prediction);
+            }
+            let mut resolution = 0.0;
+            for bin in &resolution_bins {
+                if bin.is_empty() {
+                    continue;
+                }
+                let actual_frequency = bin
+                    .iter()
+                    .map(|prediction| prediction.actual_outcome)
+                    .sum::<f64>()
+                    / bin.len() as f64;
+                let deviation = actual_frequency - base_rate;
+                resolution += (bin.len() as f64 / n as f64) * deviation * deviation;
+            }
+
+            super::BrierScoreMetrics {
+                brier_score: tracker.brier_score(),
+                sample_count: n,
+                reliability,
+                resolution,
+                base_rate,
+            }
+        }
+
+        let assert_exact = |frozen: super::BrierScoreMetrics, fused: super::BrierScoreMetrics| {
+            assert_eq!(frozen.sample_count, fused.sample_count);
+            assert_eq!(frozen.brier_score.to_bits(), fused.brier_score.to_bits());
+            assert_eq!(frozen.base_rate.to_bits(), fused.base_rate.to_bits());
+            assert_eq!(frozen.reliability.to_bits(), fused.reliability.to_bits());
+            assert_eq!(frozen.resolution.to_bits(), fused.resolution.to_bits());
+        };
+
+        let empty = super::BrierScoreTracker::new();
+        assert_exact(frozen_metrics(&empty), empty.metrics());
+        let mut boundary = super::BrierScoreTracker::new();
+        for (probability, incompatible) in [
+            (0.0, false),
+            (0.09, true),
+            (0.1, false),
+            (0.49, true),
+            (0.5, false),
+            (0.89, true),
+            (0.9, false),
+            (1.0, true),
+        ] {
+            boundary.record(probability, incompatible);
+        }
+        assert_exact(frozen_metrics(&boundary), boundary.metrics());
+
+        let sample_count = 65_536usize;
+        let mut tracker = super::BrierScoreTracker::new();
+        for sample in 0..sample_count {
+            let probability = ((sample * 37) % 1_000) as f64 / 999.0;
+            let incompatible = ((sample * 13 + 7) % 17) < 6;
+            tracker.record(probability, incompatible);
+        }
+        assert_exact(frozen_metrics(&tracker), tracker.metrics());
+
+        let calls = 4usize;
+        let rounds = 15usize;
+        let time = |frozen: bool| {
+            let started = Instant::now();
+            for _ in 0..calls {
+                if frozen {
+                    black_box(frozen_metrics(black_box(&tracker)));
+                } else {
+                    black_box(black_box(&tracker).metrics());
+                }
+            }
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+
+        let paired = |candidate_frozen: bool, baseline_frozen: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline, candidate) = if round % 2 == 0 {
+                    (time(baseline_frozen), time(candidate_frozen))
+                } else {
+                    let candidate = time(candidate_frozen);
+                    let baseline = time(baseline_frozen);
+                    (baseline, candidate)
+                };
+                baseline_ns.push(baseline);
+                candidate_ns.push(candidate);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let baseline_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "BRIER_METRICS_FUSED_AB {name}: baseline_median_ns={baseline_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds}",
+                baseline_median as f64 / candidate_median as f64,
+            );
+        };
+
+        println!("BRIER_METRICS_FUSED_AB fixture: samples={sample_count} calls={calls} bins=10");
+        let (baseline_ns, candidate_ns) = paired(false, true);
+        report("frozen_vs_fused", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(false, false);
+        report("fused_vs_fused_null", &null_a_ns, &null_b_ns);
     }
 
     #[test]

@@ -20818,3 +20818,63 @@ RESULT: SHIP. Preserve insertion-index node and successor order, directed edge
 orientation, self-loop emission, isolates, single spaces, and the no-trailing-
 newline contract. Keep undirected and escaping/attribute-bearing formats out of
 this lever.
+
+## 2026-07-14 GrayCitadel SHIP (`BrierScoreTracker::metrics`): fuse fixed-bin aggregation — **4.1296x** (`br-r37-c1-51npz`)
+
+NEGATIVE-LEDGER / ROBOT-TRIAGE FIRST: `bv --robot-triage` again ranked the
+occupied no-gaps umbrella; its perf quick wins remain parity-hole repairs,
+already-mined dense kernels, or a broad MultiGraph storage epoch. The completed
+adjacency-list sibling closes that small serializer vein. A fresh `fnx-runtime`
+audit found no ledger row or bead for Brier calibration metrics and identified
+a self-contained numerical aggregation residual.
+
+PROFILE / ATTRIBUTION FIRST: `BrierScoreTracker::metrics` traversed all `N`
+predictions once for base rate, twice to partition references into two separate
+10-bin `Vec` arrays, and twice more to sum outcomes from those bins. That is
+approximately `5N` prediction visits, 20 bin vectors with up to 20 growing heap
+allocations, and duplicate bin classification before producing reliability and
+resolution. Both metrics need the same per-bin count and outcome sum, while the
+already-maintained squared-error total makes Brier score constant-time.
+Opportunity score: impact 4 x confidence 5 / effort 1 = 20.
+
+ONE LEVER: accumulate base-rate total plus ten fixed bin counts and outcome sums
+in one prediction pass, then compute reliability and resolution together across
+the ten scalar bins. Prediction order, bin boundaries, per-bin outcome addition
+order, bin iteration order, empty behavior, Brier score, timestamps, and public
+metric fields remain unchanged. No tracker recording, gate, or policy behavior
+is in scope.
+
+ONE FOREGROUND A/B + NULL: one strict-remote ordinary `--profile release`
+invocation on worker `vmi1153651` (job `j-29928833041828598`) used 65,536
+deterministic prediction/outcome samples, four metric calls per sample, three
+warmups, and 15 alternating-order rounds:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen five-pass/vector bins vs fused fixed bins | `7,884,714 ns / 1,909,328 ns` | **`4.1296x`** | **`15/15`** | exact bits |
+| fused fixed bins / same fused path null | `2,044,861 ns / 2,039,500 ns` | `1.0026x` | `8/15` | identical arm |
+
+The real arm wins every pair and remains about `4.119x` after conservatively
+dividing by the full 0.26% null-position skew. The timed test completed in 0.30
+seconds. RCH reported a cache miss; its pipeline took 79.4 seconds (37.2 seconds
+sync, 40.2 seconds remote build/execution, and 2.0 seconds artifact retrieval;
+87.1 seconds wrapper elapsed). That routing overhead is not benchmark evidence,
+and no retry or `release-perf` command ran.
+
+CORRECTNESS / GATES: the same-binary harness compares every floating metric by
+`to_bits()` plus the exact sample count against a frozen copy of the former
+five-pass/vector-bin implementation for empty, boundary-bin, and timed inputs.
+Because each fixed-bin accumulator receives outcomes in the original relative
+order and both result accumulators still visit bins from zero through nine, the
+proof is bit-exact rather than tolerance-based. Direct rustfmt and `git diff
+--check` passed before measurement. Targeted UBS completed with zero critical
+findings; its warnings were the committed file-wide test `expect`/assert,
+direct-index, cast, and allocation inventories. The release test compiled the
+changed crate and passed. The only Cargo command was fail-closed with
+`RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`, and direct
+`rch --no-self-healing exec -- cargo ...`; no local fallback ran.
+
+RESULT: SHIP. Preserve the ten half-open probability bins with the top bin
+clamped at index nine, original outcome addition order, zero-sample neutral
+metrics, and exact public field values. Keep recording, gates, and policy logic
+out of this lever.
