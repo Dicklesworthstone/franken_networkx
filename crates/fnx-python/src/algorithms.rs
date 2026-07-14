@@ -23606,37 +23606,69 @@ fn mixing_expansion(
     })
 }
 
+/// br-r37-c1-5k75q (cc): directed non-edges over a `vec![false;n]` successor bool row
+/// instead of an O(V²) `has_edge(u,v)` String-hash probe per ordered pair. For each
+/// source `u` mark `successors_indices(u)` in the reusable row, then a non-edge is
+/// `u != v && !is_succ[v]` (an O(1) array read; `(u,v)` is a directed edge ⟺ `v` is a
+/// successor of `u`), resetting the row after each source. Byte-identical: same
+/// row-major (u-outer, v-inner) node-order scan, same `u != v` guard, same emitted
+/// `(name,name)` pairs. Same bool-row lever as complement_edges_directed.
+fn directed_non_edges_bool_row(dg: &fnx_classes::digraph::DiGraph) -> Vec<(String, String)> {
+    let nodes = dg.nodes_ordered();
+    let n = nodes.len();
+    let mut missing = Vec::new();
+    let mut is_succ = vec![false; n];
+    for u in 0..n {
+        if let Some(succ) = dg.successors_indices(u) {
+            for &v in succ {
+                if v < n {
+                    is_succ[v] = true;
+                }
+            }
+        }
+        for v in 0..n {
+            if u != v && !is_succ[v] {
+                missing.push((nodes[u].to_owned(), nodes[v].to_owned()));
+            }
+        }
+        if let Some(succ) = dg.successors_indices(u) {
+            for &v in succ {
+                if v < n {
+                    is_succ[v] = false;
+                }
+            }
+        }
+    }
+    missing
+}
+
+/// Frozen pre-`br-r37-c1-5k75q` O(V²) `has_edge` route — a String-hash probe per
+/// ordered pair. Kept for the same-binary A/B and parity proof.
+#[cfg(test)]
+fn directed_non_edges_has_edge_orig(dg: &fnx_classes::digraph::DiGraph) -> Vec<(String, String)> {
+    let nodes = dg.nodes_ordered();
+    let mut missing = Vec::new();
+    for &u in &nodes {
+        for &v in &nodes {
+            if u != v && !dg.has_edge(u, v) {
+                missing.push((u.to_owned(), v.to_owned()));
+            }
+        }
+    }
+    missing
+}
+
 /// Return all non-edges of the graph.
 #[pyfunction]
 #[pyo3(signature = (g,))]
 fn non_edges(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<(PyObject, PyObject)>> {
     let gr = extract_graph(g)?;
     let result: Vec<(String, String)> = match &gr {
-        GraphRef::Directed { dg, .. } => {
-            let nodes = dg.inner.nodes_ordered();
-            let mut missing = Vec::new();
-            for &u in &nodes {
-                for &v in &nodes {
-                    if u != v && !dg.inner.has_edge(u, v) {
-                        missing.push((u.to_owned(), v.to_owned()));
-                    }
-                }
-            }
-            missing
-        }
+        GraphRef::Directed { dg, .. } => directed_non_edges_bool_row(&dg.inner),
         _ => {
             if gr.is_directed() {
                 let dg = gr.digraph().expect("is_directed checked above");
-                let nodes = dg.nodes_ordered();
-                let mut missing = Vec::new();
-                for &u in &nodes {
-                    for &v in &nodes {
-                        if u != v && !dg.has_edge(u, v) {
-                            missing.push((u.to_owned(), v.to_owned()));
-                        }
-                    }
-                }
-                missing
+                directed_non_edges_bool_row(dg)
             } else {
                 {
                     let __gr_undirected = gr.undirected();
@@ -29755,6 +29787,123 @@ mod tests {
 
         println!("DENSITY_AB n={n} iters={iters} rounds={rounds} node_count vs nodes_ordered().len() (>1 = candidate faster)");
         report("node_count_vs_materialize", &paired());
+        report("null", &null());
+    }
+
+    #[test]
+    fn directed_non_edges_bool_row_matches_has_edge_route() {
+        use fnx_classes::digraph::DiGraph;
+        let assert_parity = |dg: &DiGraph| {
+            assert_eq!(
+                super::directed_non_edges_bool_row(dg),
+                super::directed_non_edges_has_edge_orig(dg),
+                "bool-row non-edges must match the has_edge route (order + pairs)"
+            );
+        };
+
+        assert_parity(&DiGraph::strict());
+
+        let mut single = DiGraph::strict();
+        let _ = single.add_node("solo".to_owned());
+        assert_parity(&single); // no non-edges (u==v excluded)
+        let _ = single.add_edge("solo".to_owned(), "solo".to_owned()); // self-loop irrelevant
+        assert_parity(&single);
+
+        // Mixed: some edges, a self-loop, a fully-connected pair, isolated node.
+        let mut dg = DiGraph::strict();
+        for node in ["a", "b", "c", "d", "iso"] {
+            let _ = dg.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "a"), ("a", "c"), ("d", "d")] {
+            let _ = dg.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&dg);
+        // Read-mutate-read.
+        let _ = dg.add_edge("iso".to_owned(), "a".to_owned());
+        assert_parity(&dg);
+    }
+
+    /// `br-r37-c1-5k75q`: same-binary paired proof for the directed non_edges scan —
+    /// successor bool row vs the O(V²) has_edge probe. Dense DiGraph (few non-edges →
+    /// the pair scan dominates, not the output). Run with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// directed_non_edges_bool_row_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn directed_non_edges_bool_row_ab() {
+        use fnx_classes::digraph::DiGraph;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense: each node points to ~half the others → the O(V^2) has_edge scan is
+        // the whole cost; the non-edge OUTPUT stays small.
+        let n = 3_000usize;
+        let node = |index: usize| format!("ne-node-{index:05}");
+        let mut graph = DiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        for u in 0..n {
+            for step in 1..=(n / 2) {
+                let _ = graph.add_edge(node(u), node((u + step) % n));
+            }
+        }
+        let candidate = super::directed_non_edges_bool_row(&graph);
+        let baseline = super::directed_non_edges_has_edge_orig(&graph);
+        assert_eq!(candidate, baseline, "bool-row must match has_edge route");
+
+        let time = |candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                super::directed_non_edges_bool_row(&graph)
+            } else {
+                super::directed_non_edges_has_edge_orig(&graph)
+            };
+            black_box(result.len());
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+
+        let rounds = 31usize;
+        let paired = || -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(false), time(true))
+                } else {
+                    let c = time(true);
+                    (time(false), c)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let null = || -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let a = time(true);
+                let b = time(true);
+                ratios.push(if round.is_multiple_of(2) { b / a } else { a / b });
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "NONEDGES_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("NONEDGES_AB n={n} dense-DiGraph rounds={rounds} V^2 scan (>1 = candidate faster)");
+        report("boolrow_vs_hasedge", &paired());
         report("null", &null());
     }
 
