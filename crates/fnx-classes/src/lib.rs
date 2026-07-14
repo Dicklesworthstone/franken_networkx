@@ -4014,6 +4014,89 @@ mod tests {
         report("NULL_new_vs_new", &paired(true, true));
     }
 
+    /// br-r37-c1-numselfidx: paired-interleaved A/B for `number_of_selfloops` (feeds the is_planar
+    /// dense-graph `planarity_euler_reject` fast path). The kernel counted self-loops with
+    /// `edges_ordered().filter(|e| e.left == e.right).count()` — materialising a full
+    /// `Vec<EdgeSnapshot>` (two owned Strings + an attr clone PER edge) — vs the integer per-node
+    /// probe `(0..n).filter(|i| has_edge_by_indices(i, i)).count()` (no allocation). Byte-exact parity
+    /// asserted (same self-loop count). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-classes --lib number_of_selfloops_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn number_of_selfloops_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense-ish ring-of-chords, ~20k nodes * 20 = ~200k edges, no self-loops (the count is 0 and
+        // the old arm materialises the whole edge Vec anyway).
+        let n = 20_000usize;
+        let deg = 20usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n {
+            for step in 1..=deg {
+                let _ = g.add_edge(i.to_string(), ((i + step) % n).to_string());
+            }
+        }
+
+        let old_count = |g: &Graph| -> usize {
+            g.edges_ordered().iter().filter(|e| e.left == e.right).count()
+        };
+        let new_count = |g: &Graph| -> usize {
+            (0..g.node_count()).filter(|&i| g.has_edge_by_indices(i, i)).count()
+        };
+        assert_eq!(old_count(&g), new_count(&g), "number_of_selfloops parity");
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let c = if cand { new_count(&g) } else { old_count(&g) };
+            black_box(c);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "NUMSELFIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("NUMSELFIDX_AB number_of_selfloops n={n} deg={deg} rounds={rounds} (>1 = index count faster)");
+        report("INDEXCOUNT_vs_edgesordered", &paired(true, false));
+        report("NULL_new_vs_new", &paired(true, true));
+    }
+
     /// br-r37-c1-kneserpush parity: removing the redundant `adj_indices.contains` guards under the
     /// `seen.insert(pair)` new-pair guard must keep the Kneser build byte-identical — correct
     /// node/edge counts and NO duplicate adjacency entries. (Same lever + adj_indices.push operation

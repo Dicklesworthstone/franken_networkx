@@ -44279,10 +44279,14 @@ pub fn selfloop_edges(graph: &Graph) -> Vec<(String, String)> {
 /// Count of self-loop edges.
 #[must_use]
 pub fn number_of_selfloops(graph: &Graph) -> usize {
-    graph
-        .edges_ordered()
-        .iter()
-        .filter(|e| e.left == e.right)
+    // br-r37-c1-numselfidx (cc): count self-loops by an integer per-node index probe
+    // (`has_edge_by_indices(i, i)`) instead of `edges_ordered()`, which materialises a full
+    // `Vec<EdgeSnapshot>` (two owned Strings + an attr clone PER edge) only to filter for
+    // `left == right`. For a simple `Graph` each self-loop is exactly one edge on one node, so the
+    // count of `(i, i)` edges equals the count of self-loop edges — byte-identical. Sibling of the
+    // `nodes_with_selfloops` selfloopidx lever (this one additionally drops the O(|E|) materialization).
+    (0..graph.node_count())
+        .filter(|&i| graph.has_edge_by_indices(i, i))
         .count()
 }
 
