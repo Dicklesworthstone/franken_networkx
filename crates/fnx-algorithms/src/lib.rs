@@ -1122,6 +1122,15 @@ fn shortest_path_unweighted_directed_fast(
     source: &str,
     target: &str,
 ) -> Option<Vec<String>> {
+    shortest_path_unweighted_directed_fast_impl(digraph, source, target, true)
+}
+
+fn shortest_path_unweighted_directed_fast_impl(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+    direct_edge_fast_path: bool,
+) -> Option<Vec<String>> {
     // br-r37-c1-spudidx (cc): integer-index single-source→single-target BFS, mirror of the
     // already-shipped undirected `shortest_path_unweighted_fast`. The old kernel kept `visited`
     // as HashSet<&str> and `predecessor` as HashMap<&str,&str> and walked `successors_iter`
@@ -1134,6 +1143,17 @@ fn shortest_path_unweighted_directed_fast(
 
     if source_idx == target_idx {
         return Some(vec![source.to_owned()]);
+    }
+
+    // br-r37-c1-zlapg: mirror the proven undirected one-hop bypass. The
+    // out-degree guard avoids an extra edge-map probe on path/cycle-like rows.
+    if direct_edge_fast_path
+        && digraph
+            .successors_indices(source_idx)
+            .is_some_and(|successors| successors.len() > 2)
+        && digraph.has_edge(source, target)
+    {
+        return Some(vec![source.to_owned(), target.to_owned()]);
     }
 
     let n = digraph.node_count();
@@ -53893,6 +53913,149 @@ mod tests {
         println!("BIPIDX_AB bipartite_sets n={n} deg={deg} rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    #[test]
+    fn shortest_path_unweighted_directed_direct_edge_preserves_bfs_result() {
+        let mut graph = DiGraph::strict();
+        for node in ["s", "z", "a", "m", "t", "u"] {
+            graph.add_node(node);
+        }
+        for (source, target) in [
+            ("s", "z"),
+            ("s", "a"),
+            ("s", "m"),
+            ("s", "t"),
+            ("z", "t"),
+            ("a", "u"),
+            ("m", "u"),
+            ("u", "u"),
+        ] {
+            graph.add_edge(source, target).unwrap();
+        }
+
+        for source in ["s", "z", "a", "m", "t", "u", "missing"] {
+            for target in ["s", "z", "a", "m", "t", "u", "missing"] {
+                assert_eq!(
+                    super::shortest_path_unweighted_directed_fast_impl(
+                        &graph, source, target, true,
+                    ),
+                    super::shortest_path_unweighted_directed_fast_impl(
+                        &graph, source, target, false,
+                    ),
+                    "direct-edge bypass parity for {source}->{target}"
+                );
+            }
+        }
+
+        assert!(graph.remove_edge("s", "t"));
+        assert_eq!(
+            super::shortest_path_unweighted_directed_fast_impl(&graph, "s", "t", true),
+            super::shortest_path_unweighted_directed_fast_impl(&graph, "s", "t", false),
+            "a guarded miss must retain ordered BFS fallback"
+        );
+    }
+
+    /// br-r37-c1-zlapg: same-binary A/B for the directed one-hop bypass
+    /// against the frozen integer BFS, plus a candidate/candidate null.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn shortest_path_unweighted_directed_direct_edge_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        let n = 4_096_usize;
+        let calls = 256_usize;
+        let mut graph = DiGraph::strict();
+        graph.add_node("source");
+        for index in 1..n {
+            graph.add_node(format!("node-{index:04}"));
+        }
+        let target = format!("node-{:04}", n - 1);
+        for index in 1..n {
+            graph
+                .add_edge("source", format!("node-{index:04}"))
+                .unwrap();
+        }
+
+        let baseline = super::shortest_path_unweighted_directed_fast_impl(
+            &graph, "source", &target, false,
+        );
+        let candidate = super::shortest_path_unweighted_directed_fast_impl(
+            &graph, "source", &target, true,
+        );
+        assert_eq!(baseline, candidate, "exact path parity");
+        assert_eq!(
+            candidate,
+            Some(vec!["source".to_owned(), target.clone()]),
+            "the direct edge is the unique one-hop shortest path"
+        );
+
+        let time = |use_candidate: bool| -> u128 {
+            let start = Instant::now();
+            for _ in 0..calls {
+                let result = super::shortest_path_unweighted_directed_fast_impl(
+                    black_box(&graph),
+                    black_box("source"),
+                    black_box(&target),
+                    use_candidate,
+                );
+                black_box(result);
+            }
+            start.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15_usize;
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let mut null_first_times = Vec::with_capacity(rounds);
+        let mut null_second_times = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(false), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(false), candidate_time)
+            };
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+
+            let (null_first, null_second) = if round.is_multiple_of(2) {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                (time(true), null_second)
+            };
+            null_first_times.push(null_first);
+            null_second_times.push(null_second);
+        }
+
+        let baseline_median = median(&baseline_times);
+        let candidate_median = median(&candidate_times);
+        let null_first_median = median(&null_first_times);
+        let null_second_median = median(&null_second_times);
+        let paired_wins = baseline_times
+            .iter()
+            .zip(&candidate_times)
+            .filter(|(baseline_time, candidate_time)| baseline_time > candidate_time)
+            .count();
+
+        println!(
+            "DIRECTED_SHORTEST_PATH_DIRECT_EDGE_AB n={n} calls={calls} rounds={rounds} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} speedup={:.3}x paired_wins={paired_wins}/{rounds} null_first_median_ns={null_first_median} null_second_median_ns={null_second_median} null_ratio={:.3}x exact_parity=true",
+            baseline_median as f64 / candidate_median as f64,
+            null_first_median as f64 / null_second_median as f64,
+        );
     }
 
     /// br-r37-c1-spudidx: full-function paired-interleaved A/B for the directed single-source→

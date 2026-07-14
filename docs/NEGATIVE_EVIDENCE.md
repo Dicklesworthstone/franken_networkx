@@ -19849,3 +19849,60 @@ RESULT: NO-SHIP. Do not retry the edgeless `core_number` branch by itself; a
 future candidate must reduce the ordered String-result floor and establish at
 least 1.10x separation beyond its same-binary null control. Non-edgeless peeling,
 ordering, witness accounting, and all core-family APIs remain unchanged.
+
+## 2026-07-14 RusticHollow SHIP (`shortest_path_unweighted_directed`): degree-guarded direct-edge bypass — **102.875x** (`br-r37-c1-zlapg`)
+
+NEGATIVE-LEDGER FIRST: the shortest-path ledger already records the undirected
+degree-guarded direct-edge bypass as a keep, while the directed kernel's latest
+entry is the earlier String-to-index BFS conversion. No directed direct-edge
+attempt or active ownership claim was present. The live directed kernel still
+allocated `visited`, `predecessor`, and `VecDeque` storage and scanned ordered
+BFS successors even when a high-degree source had an edge straight to the
+target. Opportunity score: impact 4 x confidence 5 / effort 1 = 20.
+
+ONE LEVER: after resolving both node indices and preserving the source-equals-
+target return, sources with more than two successors now probe the oriented edge
+map and return `[source, target]` when that edge exists. A direct edge proves the
+unique one-hop shortest-path length, so no BFS ordering or tie-break decision is
+observable. The degree guard avoids adding a map probe to path/cycle-like rows;
+missing nodes, self identity, guarded misses, unreachable pairs, and every
+non-direct case retain the frozen integer BFS body unchanged.
+
+ONE FOREGROUND A/B + NULL: one release-profile invocation on strict-remote
+worker `vmi1149989` (job `j-29928833041828201`) used a 4,096-node directed star,
+256 calls per sample, three warmups, and 15 alternating-order rounds. The same
+binary compared the frozen integer BFS with the bypass and also ran an identical
+candidate/candidate null control:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen directed BFS vs direct-edge bypass | `1,889,607 ns / 18,368 ns` | **`102.875x`** | **`15/15`** | exact |
+| bypass/bypass null | `17,246 ns / 18,027 ns` | `0.957x` | identical arm | exact |
+
+The win is more than two orders of magnitude, every pair wins, and the null is
+near unity. The harness asserted the complete returned path against the frozen
+BFS and the exact expected `[source, target]` before timing.
+
+CORRECTNESS / GATES: the focused differential test passed `1/1` on strict-
+remote worker `vmi1149989` (job `j-29928833041828206`). It exhaustively compares
+the bypass with the frozen integer BFS over all ordered pairs of existing plus
+missing nodes, including direct and indirect paths, unreachable pairs, identity,
+a self-loop, and a removed-edge guarded miss. Strict-remote
+`cargo check --workspace --all-targets` passed on the same worker (job
+`j-29928833041828208`) with only three committed unused/dead-code warnings.
+Exact workspace clippy reproduced the committed
+`fnx-classes/src/lib.rs:1700` `collapsible_if` blocker (job
+`j-29928833041828211`). Scoped `--no-deps` clippy reached `fnx-algorithms` and
+reproduced only its four committed blockers at lines 22,037, 22,177, 33,509,
+and 33,512 (`explicit_counter_loop` and `question_mark`; job
+`j-29928833041828214`), none in the owned ranges. Direct read-only rustfmt
+reported broad pre-existing file drift but no diff in the owned ranges;
+`git diff --check` passed. UBS reproduced its file-wide warning inventory and
+the known Prüfer test-name `decode`/JWT false positive at line 83,628; it found
+no unsafe block, panic macro, or lever-local security issue. Every Cargo command
+used fail-closed remote RCH; no local Cargo fallback ran.
+
+RESULT: SHIP. Preserve the `successors.len() > 2` guard, oriented direct-edge
+semantics, source-identity precedence, and ordered BFS fallback. Do not widen
+this probe to low-degree rows, weighted paths, undirected/multigraph wrappers,
+or bidirectional search without a separate same-binary proof.
