@@ -21250,3 +21250,65 @@ Cargo command was fail-closed with `RCH_REQUIRE_REMOTE=1`,
 RESULT: SHIP. Batch only the initial disjoint clique edges by stable node index;
 preserve all validation, caps, node order, edge order, adjacency order, and the
 subsequent remove/add rewiring exactly.
+
+## 2026-07-14 GrayCitadel SHIP (`GraphConverter::digraph_from_edge_list`): batch plain explicit-node directed edges — **9.9980x** (`br-r37-c1-oabqi`)
+
+NEGATIVE-LEDGER / ROBOT-TRIAGE FIRST: `bv --robot-triage` again ranked the
+occupied no-gaps umbrella and broad already-mined graph work. The conversion
+ledger contains a measured plain-`Graph` batching keep but no entry or bead for
+its directed `DiGraph` sibling, so this turn rotates to that distinct conversion
+primitive rather than reopening the thinning dominance or generator veins.
+
+PROFILE / ATTRIBUTION FIRST: the former directed path sends every node through
+`DiGraph::add_node` and every edge through generic `add_edge_with_attrs`, even
+when the payload explicitly supplies every nonempty node and all edges are
+keyless and attribute-free. On the planned 2,048-node / 8,193-edge fixture that
+means repeated endpoint `String` clones and name hashing plus per-item policy
+accounting which is discarded when the completed graph adopts the converter
+policy. The identically shaped undirected sibling measured an 11.651x keep, and
+`DiGraph` already exposes ordered node and existing-index edge batch primitives.
+Ranked work: (1) 8,193 generic directed edge insertions, (2) 2,048 generic node
+insertions, (3) the final converter-policy adoption. Opportunity score: impact
+4 x confidence 5 / effort 1 = 20.
+
+ONE LEVER / PROOF PLAN: recognize only explicit nonempty nodes with keyless,
+attribute-free edges whose endpoints all resolve before mutation, then insert
+the nodes and directed pairs through the existing index batches. Every malformed,
+implicit-node, keyed, or attributed payload returns mutation-free to the former
+generic validator. One same-binary foreground ordinary-release A/B will compare
+complete ordered directed snapshots and revisions first, then run three warmups,
+15 alternating-order pairs, and an identical-path null control. The Cargo command
+must be strict remote-only and complete inside the five-minute cap.
+
+ONE FOREGROUND A/B + NULL: one strict-remote ordinary `--profile release`
+invocation on worker `vmi1153651` (job `j-29928833041828708`) measured the
+2,048-node / 8,193-edge deterministic directed fixture after asserting complete
+snapshot and revision equality:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen generic loop vs directed index batch | `23,020,584 ns / 2,302,508 ns` | **`9.9980x`** | **`15/15`** | exact |
+| directed index batch / same-path null | `1,858,729 ns / 1,838,021 ns` | `1.0113x` | `10/15` | identical arm |
+
+The real arm wins every pair and remains about `9.886x` after conservatively
+dividing by the full 1.13% null skew. The timed test completed in 0.59 seconds.
+RCH reported a cache miss; total pipeline time was 104.7 seconds (41.1 seconds
+sync, 61.4 seconds remote compilation/execution, 2.2 seconds artifact retrieval;
+112.8 seconds wrapper elapsed). Routing/build overhead is not benchmark evidence,
+and no retry or `release-perf` command ran.
+
+CORRECTNESS / GATES: the same-binary timed harness compares complete ordered
+directed snapshots and public revisions before measurement, including a
+self-loop, isolates, and both edge directions. Dedicated compiled unit cases
+also cover empty input, duplicate node and edge handling, nonlexical node order,
+and mutation-free fallback for a late implicit endpoint. Direct rustfmt and
+`git diff --check` passed. Targeted UBS completed with zero critical findings;
+its warnings were the existing file-wide test assertion, clone, direct-index,
+and allocation inventories. The release test compiled the changed crate and
+passed. The sole Cargo command was fail-closed with `RCH_REQUIRE_REMOTE=1`,
+`RCH_NO_SELF_HEALING=1`, and direct `rch --no-self-healing exec -- cargo ...`;
+no local fallback ran.
+
+RESULT: SHIP. Batch only explicit nonempty-node, keyless, attribute-free directed
+payloads whose endpoints all resolve before mutation. Preserve the generic
+validator for malformed, implicit-node, keyed, or attributed payloads.

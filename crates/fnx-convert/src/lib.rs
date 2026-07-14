@@ -221,7 +221,9 @@ impl GraphConverter {
         let mut graph = DiGraph::new(self.mode);
         let mut warnings = Vec::new();
 
-        self.populate_from_edge_list(&mut graph, &mut warnings, payload)?;
+        if !Self::try_populate_plain_digraph_from_edge_list(&mut graph, payload) {
+            self.populate_from_edge_list(&mut graph, &mut warnings, payload)?;
+        }
 
         self.record(
             "convert_edge_list",
@@ -426,6 +428,41 @@ impl GraphConverter {
     /// behavior unchanged.
     fn try_populate_plain_graph_from_edge_list(
         graph: &mut Graph,
+        payload: &EdgeListPayload,
+    ) -> bool {
+        let mut node_indices = HashMap::with_capacity(payload.nodes.len());
+        for node in &payload.nodes {
+            if node.is_empty() {
+                return false;
+            }
+            let next_index = node_indices.len();
+            node_indices.entry(node.as_str()).or_insert(next_index);
+        }
+
+        let mut indexed_edges = Vec::with_capacity(payload.edges.len());
+        for edge in &payload.edges {
+            if edge.key.is_some() || !edge.attrs.is_empty() {
+                return false;
+            }
+            let Some(&left_index) = node_indices.get(edge.left.as_str()) else {
+                return false;
+            };
+            let Some(&right_index) = node_indices.get(edge.right.as_str()) else {
+                return false;
+            };
+            indexed_edges.push((left_index, right_index));
+        }
+
+        let _ = graph.extend_nodes_unrecorded(payload.nodes.iter().cloned());
+        let _ = graph.extend_existing_index_edges_unrecorded(indexed_edges);
+        true
+    }
+
+    /// Directed sibling of `try_populate_plain_graph_from_edge_list`. The
+    /// eligibility pass resolves every endpoint before mutation, then preserves
+    /// payload order while inserting the directed pairs by existing node index.
+    fn try_populate_plain_digraph_from_edge_list(
+        graph: &mut DiGraph,
         payload: &EdgeListPayload,
     ) -> bool {
         let mut node_indices = HashMap::with_capacity(payload.nodes.len());
@@ -878,7 +915,7 @@ mod tests {
     use super::{
         AdjacencyEntry, AdjacencyPayload, ConvertError, EdgeListPayload, EdgeRecord, GraphConverter,
     };
-    use fnx_classes::{AttrMap, Graph};
+    use fnx_classes::{AttrMap, Graph, digraph::DiGraph};
     use fnx_runtime::{CgseValue, CompatibilityMode};
     use std::collections::BTreeMap;
 
@@ -896,6 +933,25 @@ mod tests {
     fn populate_plain_graph_batched(payload: &EdgeListPayload) -> Graph {
         let mut graph = Graph::strict();
         assert!(GraphConverter::try_populate_plain_graph_from_edge_list(
+            &mut graph, payload
+        ));
+        graph
+    }
+
+    fn populate_plain_digraph_frozen(payload: &EdgeListPayload) -> DiGraph {
+        let mut converter = GraphConverter::strict();
+        let mut graph = DiGraph::strict();
+        let mut warnings = Vec::new();
+        converter
+            .populate_from_edge_list(&mut graph, &mut warnings, payload)
+            .expect("plain frozen payload should convert");
+        assert!(warnings.is_empty());
+        graph
+    }
+
+    fn populate_plain_digraph_batched(payload: &EdgeListPayload) -> DiGraph {
+        let mut graph = DiGraph::strict();
+        assert!(GraphConverter::try_populate_plain_digraph_from_edge_list(
             &mut graph, payload
         ));
         graph
@@ -1089,6 +1145,175 @@ mod tests {
                 .count();
             println!(
                 "CONVERT_PLAIN_INDEX_BATCH_AB {name}: baseline_median_ns={baseline_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds}",
+                baseline_median as f64 / candidate_median as f64,
+            );
+        };
+
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("frozen_vs_index_batch", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("index_batch_vs_index_batch_null", &null_a_ns, &null_b_ns);
+    }
+
+    #[test]
+    fn plain_digraph_edge_list_batch_preserves_direction_order_and_revision() {
+        let edge = |left: &str, right: &str| EdgeRecord {
+            left: left.to_owned(),
+            right: right.to_owned(),
+            key: None,
+            attrs: AttrMap::new(),
+        };
+        let payloads = [
+            EdgeListPayload {
+                nodes: Vec::new(),
+                edges: Vec::new(),
+            },
+            EdgeListPayload {
+                nodes: ["z", "a", "m", "a", "q"]
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect(),
+                edges: vec![
+                    edge("z", "z"),
+                    edge("q", "a"),
+                    edge("a", "q"),
+                    edge("m", "z"),
+                    edge("z", "q"),
+                    edge("q", "z"),
+                    edge("q", "a"),
+                ],
+            },
+        ];
+
+        for payload in payloads {
+            let frozen = populate_plain_digraph_frozen(&payload);
+            let batched = populate_plain_digraph_batched(&payload);
+            assert_eq!(batched.snapshot(), frozen.snapshot());
+            assert_eq!(batched.revision(), frozen.revision());
+        }
+    }
+
+    #[test]
+    fn plain_digraph_edge_list_batch_fallback_is_mutation_free() {
+        let payload = EdgeListPayload {
+            nodes: vec!["a".to_owned(), "b".to_owned()],
+            edges: vec![
+                EdgeRecord {
+                    left: "a".to_owned(),
+                    right: "b".to_owned(),
+                    key: None,
+                    attrs: AttrMap::new(),
+                },
+                EdgeRecord {
+                    left: "b".to_owned(),
+                    right: "implicit".to_owned(),
+                    key: None,
+                    attrs: AttrMap::new(),
+                },
+            ],
+        };
+        let mut graph = DiGraph::strict();
+
+        assert!(!GraphConverter::try_populate_plain_digraph_from_edge_list(
+            &mut graph, &payload
+        ));
+        assert_eq!(graph.node_count(), 0);
+        assert_eq!(graph.edge_count(), 0);
+        assert_eq!(graph.revision(), 0);
+    }
+
+    /// Same-binary paired A/B for the plain simple-DiGraph population kernel.
+    /// The frozen arm retains the former generic per-item insertion loop; the
+    /// candidate resolves endpoint names once and submits directed index pairs.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn plain_digraph_edge_list_index_batch_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 2_048usize;
+        let nodes = (0..n)
+            .map(|node| format!("node-{node:05}"))
+            .collect::<Vec<_>>();
+        let mut edges = Vec::with_capacity(n * 4 + 1);
+        for node in 0..n {
+            for offset in [1usize, 17, 97, 257] {
+                edges.push(EdgeRecord {
+                    left: nodes[node].clone(),
+                    right: nodes[(node + offset) % n].clone(),
+                    key: None,
+                    attrs: AttrMap::new(),
+                });
+            }
+        }
+        edges.push(EdgeRecord {
+            left: nodes[0].clone(),
+            right: nodes[0].clone(),
+            key: None,
+            attrs: AttrMap::new(),
+        });
+        let payload = EdgeListPayload { nodes, edges };
+
+        let frozen = populate_plain_digraph_frozen(&payload);
+        let batched = populate_plain_digraph_batched(&payload);
+        assert_eq!(batched.snapshot(), frozen.snapshot());
+        assert_eq!(batched.revision(), frozen.revision());
+
+        let rounds = 15usize;
+        let time = |batch: bool| {
+            let started = Instant::now();
+            let mut converter = GraphConverter::strict();
+            let mut graph = DiGraph::strict();
+            let mut warnings = Vec::new();
+            if batch {
+                assert!(GraphConverter::try_populate_plain_digraph_from_edge_list(
+                    &mut graph, &payload
+                ));
+            } else {
+                converter
+                    .populate_from_edge_list(&mut graph, &mut warnings, &payload)
+                    .expect("frozen plain payload should convert");
+            }
+            black_box((converter, graph, warnings));
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let baseline_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "CONVERT_PLAIN_DIGRAPH_INDEX_BATCH_AB {name}: baseline_median_ns={baseline_median} \
                  candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds}",
                 baseline_median as f64 / candidate_median as f64,
             );
