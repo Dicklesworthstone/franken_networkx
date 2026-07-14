@@ -4531,8 +4531,8 @@ impl MultiKeyDictView {
         self.graph
             .borrow(py)
             .inner
-            .edge_keys(&self.source, &self.target)
-            .map_or(0, |keys| keys.len())
+            .edge_keys_iter(&self.source, &self.target)
+            .map_or(0, Iterator::count)
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeIterator>> {
@@ -13595,6 +13595,28 @@ class FnxMultiGraphCtorEdgeIterable:
         Ok(MultiAtlasView::new(Py::new(py, graph)?, "hub".to_owned()))
     }
 
+    fn multikeydict_len_allocating(view: &MultiKeyDictView, py: Python<'_>) -> usize {
+        view.graph
+            .borrow(py)
+            .inner
+            .edge_keys(&view.source, &view.target)
+            .map_or(0, |keys| keys.len())
+    }
+
+    fn multikeydict_parallel_view(py: Python<'_>, key_count: usize) -> PyResult<MultiKeyDictView> {
+        let mut graph = PyMultiGraph::new_empty_with_mode(py, CompatibilityMode::Strict)?;
+        assert!(graph.inner.add_node("left"));
+        assert!(graph.inner.add_node("right"));
+        for key in 0..key_count {
+            assert_eq!(graph.inner.add_edge("left", "right"), Ok(key));
+        }
+        Ok(MultiKeyDictView::new(
+            Py::new(py, graph)?,
+            "left".to_owned(),
+            "right".to_owned(),
+        ))
+    }
+
     fn ensure_python() {
         Python::initialize();
     }
@@ -13671,6 +13693,72 @@ class FnxMultiGraphCtorEdgeIterable:
         .expect("MultiAtlasView length parity should hold");
     }
 
+    #[test]
+    fn multikeydict_len_matches_allocating_baseline() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let view = multikeydict_parallel_view(py, 0)?;
+            let reverse = MultiKeyDictView::new(
+                view.graph.clone_ref(py),
+                "right".to_owned(),
+                "left".to_owned(),
+            );
+            let self_loop = MultiKeyDictView::new(
+                view.graph.clone_ref(py),
+                "left".to_owned(),
+                "left".to_owned(),
+            );
+            assert_eq!(view.__len__(py), multikeydict_len_allocating(&view, py));
+            assert_eq!(view.__len__(py), 0);
+
+            {
+                let mut graph = view.graph.borrow_mut(py);
+                assert_eq!(
+                    graph
+                        .inner
+                        .add_edge_with_key_and_attrs("left", "right", 7, AttrMap::new()),
+                    Ok(7)
+                );
+                assert_eq!(
+                    graph
+                        .inner
+                        .add_edge_with_key_and_attrs("left", "right", 42, AttrMap::new()),
+                    Ok(42)
+                );
+                assert_eq!(graph.inner.add_edge("left", "right"), Ok(2));
+                assert_eq!(
+                    graph
+                        .inner
+                        .add_edge_with_key_and_attrs("left", "left", 11, AttrMap::new()),
+                    Ok(11)
+                );
+                assert_eq!(graph.inner.add_edge("left", "other"), Ok(0));
+            }
+            assert_eq!(view.__len__(py), multikeydict_len_allocating(&view, py));
+            assert_eq!(view.__len__(py), 3);
+            assert_eq!(reverse.__len__(py), 3);
+            assert_eq!(self_loop.__len__(py), 1);
+
+            {
+                let mut graph = view.graph.borrow_mut(py);
+                assert!(graph.inner.remove_edge("left", "right", Some(42)));
+            }
+            assert_eq!(view.__len__(py), multikeydict_len_allocating(&view, py));
+            assert_eq!(view.__len__(py), 2);
+
+            {
+                let mut graph = view.graph.borrow_mut(py);
+                assert!(graph.inner.remove_edge("left", "right", Some(7)));
+                assert!(graph.inner.remove_edge("left", "right", Some(2)));
+            }
+            assert_eq!(view.__len__(py), multikeydict_len_allocating(&view, py));
+            assert_eq!(view.__len__(py), 0);
+            assert_eq!(reverse.__len__(py), 0);
+            Ok(())
+        })
+        .expect("MultiKeyDictView length parity should hold");
+    }
+
     /// `br-r37-c1-ci87u`: same-binary proof for exact-size iterator counting
     /// versus the frozen allocating `neighbors().len()` route. Run with the
     /// release profile, `--ignored`, and `--nocapture`.
@@ -13740,6 +13828,77 @@ class FnxMultiGraphCtorEdgeIterable:
             Ok(())
         })
         .expect("MultiAtlasView length A/B should run");
+    }
+
+    /// `br-r37-c1-dd84r`: same-binary proof for exact-size iterator counting
+    /// versus the frozen allocating `edge_keys().len()` route. Run with the
+    /// release profile, `--ignored`, and `--nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multikeydict_len_noalloc_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let key_count = 4_096usize;
+            let calls = 4_096usize;
+            let rounds = 31usize;
+            let view = multikeydict_parallel_view(py, key_count)?;
+            assert_eq!(view.__len__(py), key_count);
+            assert_eq!(multikeydict_len_allocating(&view, py), key_count);
+
+            let time = |candidate: bool| -> f64 {
+                let start = Instant::now();
+                for _ in 0..calls {
+                    let length = if candidate {
+                        view.__len__(py)
+                    } else {
+                        multikeydict_len_allocating(&view, py)
+                    };
+                    black_box(length);
+                }
+                start.elapsed().as_secs_f64()
+            };
+            for _ in 0..3 {
+                black_box(time(false));
+                black_box(time(true));
+            }
+
+            let paired = |baseline_is_candidate: bool| -> Vec<f64> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                        (time(baseline_is_candidate), time(true))
+                    } else {
+                        let candidate_time = time(true);
+                        let baseline_time = time(baseline_is_candidate);
+                        (baseline_time, candidate_time)
+                    };
+                    ratios.push(baseline_time / candidate_time);
+                }
+                ratios
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "MULTIKEYDICT_LEN_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "MULTIKEYDICT_LEN_AB keys={key_count} calls={calls} rounds={rounds} (>1 = candidate faster)"
+            );
+            report("candidate_vs_allocating", &paired(false));
+            report("candidate_null", &paired(true));
+            Ok(())
+        })
+        .expect("MultiKeyDictView length A/B should run");
     }
 
     /// `br-r37-c1-q86hv`: same-binary proof for the one-time true-iterator

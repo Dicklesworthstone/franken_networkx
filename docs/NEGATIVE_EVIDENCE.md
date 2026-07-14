@@ -19421,3 +19421,75 @@ fallback ran.
 RESULT: SHIP. Preserve exact distinct-neighbor counts in each direction and the
 live graph borrow. Do not replace these with multiplicity-sensitive degree
 semantics or widen into directed key-dict methods without separate proof.
+
+## 2026-07-14 SwiftCoast SHIP (`MultiKeyDictView.__len__`): exact-size parallel-key count — 118.089x (`br-r37-c1-dd84r`)
+
+NEGATIVE-LEDGER FIRST: the two immediately preceding view-length keeps showed
+that allocating an adjacency collection solely to read its length is a strong,
+exact seam, while their closeouts required separate proof before widening into
+other mapping primitives. The undirected `MultiKeyDictView.__len__`, reached by
+`len(G[u][v])` and mapping truthiness on `MultiGraph`, still materialized every
+parallel-edge key into a `Vec<usize>` and discarded it after `.len()`. This
+tranche stayed out of the peer-owned shortest-path lane and changed only that
+one key-dict method. Opportunity score: impact 4 x confidence 5 / effort 1 = 20.
+
+ONE LEVER: replace
+`edge_keys(source, target).map_or(0, |keys| keys.len())` with
+`edge_keys_iter(source, target).map_or(0, Iterator::count)`. Both routes read
+the same authoritative per-pair key bucket; the iterator is exact-size, so the
+new path removes the copied key vector without changing which slots count.
+Sparse explicit keys count as slots rather than by maximum key, the reverse
+orientation of an undirected pair sees the same bucket, and each self-loop key
+counts once. The live graph borrow, edge attrs, public key objects, iteration
+order, mutation behavior, storage, and every materializing key-dict method are
+unchanged.
+
+NULL FIRST: with production still using the allocating route, one release
+binary on strict-remote worker `vmi1227854` timed the public method against a
+frozen copy of that same route. The fixture held 4,096 parallel keys on one
+node pair; each sample made 4,096 calls, after three warmups, over 31
+alternating-order pairs:
+
+| pre-change paired A/A (>1 = public-shaped arm faster) | median | wins | p5-p95 |
+|---|---:|---:|---:|
+| public view vs frozen allocating route | `1.0095x` | `16/31` | `[0.8071, 1.1736]` |
+| public-view/public-view null | `0.9776x` | `12/31` | `[0.8270, 1.0590]` |
+
+FOREGROUND MEDIAN GATE: after the one production edit, the unchanged harness
+ran in a new release binary pinned to the same worker and asserted exact counts
+before timing candidate, frozen allocating baseline, and candidate null arms:
+
+| same-binary paired A/B (>1 = exact-size count faster) | median | wins | p5-p95 |
+|---|---:|---:|---:|
+| exact-size count vs allocating route | **`118.0885x`** | **`31/31`** | `[93.7003, 130.4766]` |
+| exact-size/exact-size null | `1.0248x` | `24/31` | `[0.8674, 1.1526]` |
+
+The candidate p5 is over 81x above its same-binary null p95 and every A/B pair
+wins, so the keep gate is decisive. The multiplier is deliberately scoped to
+repeated length reads on a 4,096-key bucket; small buckets have less allocation
+to remove.
+
+CORRECTNESS / GATES: the regular parity test compares the exact result with the
+frozen allocating route for an empty pair, sparse explicit keys `7` and `42`,
+an automatically selected key, reverse-pair access, a self-loop, an unrelated
+pair, middle-key removal, and final-cell removal through a held live view. The
+first remote parity attempt correctly exposed a fixture-only expectation error:
+after two sparse keys the auto-key policy returns bucket length `2`, not `0`.
+Only that expected/removal key changed; the production lever and timed fixture
+did not. The corrected focused test passed `1/1` on `vmi1293453`.
+Strict-remote `cargo check --workspace --all-targets` passed on `vmi1227854`
+with only committed or peer-owned warnings outside this hunk. Exact workspace
+clippy reproduced the committed `fnx-classes/src/lib.rs:1700`
+`collapsible_if` blocker on `vmi1156319`; scoped
+`fnx-python --lib --no-deps` clippy passed on `vmi1227854` with `-D warnings`
+after allowing only the current `dead_code` baseline. Fail-closed RCH refused
+`cargo fmt --check` as a non-compilation command (`RCH-E301`), so no local
+Cargo fallback ran; direct read-only rustfmt and `git diff --check` passed.
+Static-only UBS reported zero critical issues; its warnings are the file-wide
+baseline inventory. Every Cargo command used `RCH_REQUIRE_REMOTE=1`,
+`RCH_NO_SELF_HEALING=1`, and `rch --no-self-healing exec`.
+
+RESULT: SHIP. Preserve the exact per-pair key count and live borrow. Do not
+replace it with neighbor count or degree semantics, and do not widen this
+commit into the directed key-dict twin or materializing methods without their
+own parity and timing.
