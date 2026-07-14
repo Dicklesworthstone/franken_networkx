@@ -20340,3 +20340,74 @@ RESULT: SHIP. Preserve undirected MultiGraph-only routing, lazy String-adjacency
 rows, smaller-frontier whole-level expansion, and the existing endpoint
 validation. Do not reuse this helper for `MultiDiGraph`: directed reverse search
 requires predecessor adjacency and separate parity/performance proof.
+
+## 2026-07-14 RusticHollow SHIP (`DiGraph(<true iterator>)`): elide uniform row-key probes — **2.099x** (`br-r37-c1-b4rfz`)
+
+NEGATIVE-LEDGER / ROBOT-TRIAGE FIRST: `bv --robot-triage` exposed the unassigned
+DiGraph-constructor follow-up after the broader MultiDiGraph iterator drain was
+rejected for a 23.7% keyed-attribute regression. The bead also carried a
+pre-change A/A result: true-iterator-shaped input was only `1.0408x` versus a
+`1.0304x` null, so copying the successful Graph/MultiGraph drain was below the
+floor. This turn stayed inside DiGraph's existing streaming batch instead.
+
+PROFILE / ATTRIBUTION FIRST: source-level hot-path accounting on the bead's
+20,000-edge exact-int generator found that the store already commits in one
+`extend_edges_with_attrs_unrecorded` call, but every edge still cloned both
+canonical endpoint Strings into a cell tuple, probed `inner.has_edge`, and
+hashed/probed/inserted `pending_cells`. Those 40,000 String clones plus 20,000
+inner/hash probes exist only to preserve Python row-display objects when
+hash-equal mixed types (`1`, `1.0`, `True`) appear. Exact-int and exact-string
+endpoints on a fresh graph cannot require that override, making this the one
+remaining bounded cost inside the streaming batch.
+
+ONE LEVER: skip the cell-key allocation and row-display probes while the
+iterator prefix contains only exact ints/strings. On the first float, bool, or
+custom key, reconstruct `pending_cells` once from the not-yet-flushed bulk edge
+batch before processing that edge; after any flush, `inner.has_edge` continues
+to guard cells already committed. This preserves first-touch duplicate-edge
+semantics and confines the fast path to key types whose display form cannot
+drift.
+
+ONE FOREGROUND A/B + NULL: one strict-remote ordinary `--profile release`
+invocation on worker `vmi1149989` (job `j-29928833041828452`) used 20,000
+exact-int edges, three warmups, and 31 alternating-order rounds in one test
+binary. The frozen arm forces the previous per-edge cell/probe path; the null
+compares the candidate with itself:
+
+| same-binary arm | median ratio | wins | p5-p95 | parity |
+|---|---:|---:|---:|---:|
+| frozen row probes vs uniform-prefix elision | **`2.0993x`** | `20/31` | `[0.6343, 3.3133]` | exact |
+| candidate/candidate null | `1.0021x` | `16/31` | `[0.3820, 2.5366]` | exact |
+
+The remote host was noisy, so the full spread and modest win count are retained
+rather than summarized away. The real median is nevertheless 2.095x above the
+null median and matches the structural removal of four allocation/lookup
+operations per edge. No second benchmark or `release-perf` run was used. RCH
+selected the same worker and worker-scoped target as the preceding correctness
+gate but still reported a cache miss and spent `4m09s` rebuilding the ordinary
+release binary; that remote cache defect is not timing evidence.
+
+CORRECTNESS / GATES: a separate strict-remote release test on the same worker
+(job `j-29928833041828443`) passed candidate-versus-frozen parity for 128 exact
+integer edges and a mixed int/float duplicate corpus spanning both sides of the
+one-time reconstruction transition. It compares node order, edge order, global
+display objects, and both successor/predecessor row-key override maps exactly.
+Strict-remote `cargo check --workspace --all-targets` passed (job
+`j-29928833041828459`) with only three committed warnings outside the owned
+hunk. Exact workspace clippy reproduced the committed
+`fnx-classes/src/lib.rs:1700` `collapsible_if` blocker (job
+`j-29928833041828463`); scoped `fnx-python --all-targets --no-deps` clippy then
+passed with only the two documented dead-code baseline helpers allowed (job
+`j-29928833041828465`). Read-only rustfmt and `git diff --check` pass for the
+owned file. Targeted UBS completed with zero critical findings; its warning
+inventories are broad pre-existing whole-file unwrap/lock/clone/assert/index
+counts, and manual owned-hunk review found no actionable issue. All Cargo
+commands were fail-closed with `RCH_REQUIRE_REMOTE=1`,
+`RCH_NO_SELF_HEALING=1`, and direct `rch --no-self-healing exec -- cargo ...`;
+no local Cargo fallback ran.
+
+RESULT: SHIP. Preserve the fresh-constructor scope, exact-int/string prefix
+gate, one-time pending-cell reconstruction before the first mixed key, and the
+frozen first-touch display semantics. Do not generalize the elision to floats,
+bools, tuple nodes, or already-populated mutation paths without a separate
+collision/display proof.

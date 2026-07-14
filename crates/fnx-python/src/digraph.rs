@@ -24,6 +24,9 @@ use pyo3::types::{
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+#[cfg(test)]
+static FORCE_DIGRAPH_CTOR_ROW_KEY_PROBES: AtomicBool = AtomicBool::new(false);
+
 fn single_weight_float_attr_map(attrs: &Bound<'_, PyDict>) -> PyResult<Option<AttrMap>> {
     if attrs.len() != 1 {
         return Ok(None);
@@ -10238,6 +10241,20 @@ impl PyDiGraph {
                 // oracle; no separate pending set (see PyGraph::new).
                 let mut pending_cells: std::collections::HashSet<(String, String)> =
                     std::collections::HashSet::new();
+                // br-r37-c1-b4rfz: exact int/string endpoints cannot need a
+                // per-row display override on a fresh graph. Keep their common
+                // all-uniform prefix out of pending_cells (two String clones +
+                // an inner lookup + a hash probe/insert per edge). If a later
+                // float/bool/custom key can collide with an earlier canonical,
+                // rebuild the first-touch set once from the pending bulk batch
+                // before processing it. That preserves duplicate-edge display
+                // semantics while making the uniform iterator path allocation-
+                // free apart from the edge batch itself.
+                #[cfg(test)]
+                let mut row_key_probes_required =
+                    FORCE_DIGRAPH_CTOR_ROW_KEY_PROBES.load(Ordering::Relaxed);
+                #[cfg(not(test))]
+                let mut row_key_probes_required = false;
                 macro_rules! flush_batch {
                     () => {
                         if !edge_batch.is_empty() {
@@ -10267,24 +10284,38 @@ impl PyDiGraph {
                                 if let (Ok(u_canonical), Ok(v_canonical)) =
                                     (node_key_to_string(py, &u), node_key_to_string(py, &v))
                                 {
+                                    if !row_key_probes_required
+                                        && (!(u.is_exact_instance_of::<PyInt>()
+                                            || u.is_exact_instance_of::<PyString>())
+                                            || !(v.is_exact_instance_of::<PyInt>()
+                                                || v.is_exact_instance_of::<PyString>()))
+                                    {
+                                        row_key_probes_required = true;
+                                        pending_cells.reserve(edge_batch.len());
+                                        pending_cells.extend(edge_batch.iter().map(
+                                            |(source, target, _)| (source.clone(), target.clone()),
+                                        ));
+                                    }
                                     g.node_key_map
                                         .entry(u_canonical.clone())
                                         .or_insert_with(|| u.clone().unbind());
                                     g.node_key_map
                                         .entry(v_canonical.clone())
                                         .or_insert_with(|| v.clone().unbind());
-                                    let cell = (u_canonical.clone(), v_canonical.clone());
-                                    if !g.inner.has_edge(&u_canonical, &v_canonical)
-                                        && !pending_cells.contains(&cell)
-                                    {
-                                        g.maybe_store_row_keys(
-                                            py,
-                                            &u_canonical,
-                                            &v_canonical,
-                                            &u,
-                                            &v,
-                                        );
-                                        pending_cells.insert(cell);
+                                    if row_key_probes_required {
+                                        let cell = (u_canonical.clone(), v_canonical.clone());
+                                        if !g.inner.has_edge(&u_canonical, &v_canonical)
+                                            && !pending_cells.contains(&cell)
+                                        {
+                                            g.maybe_store_row_keys(
+                                                py,
+                                                &u_canonical,
+                                                &v_canonical,
+                                                &u,
+                                                &v,
+                                            );
+                                            pending_cells.insert(cell);
+                                        }
                                     }
                                     let mut rust_attrs = fnx_classes::AttrMap::new();
                                     if let Some(d) = &dict3
@@ -15199,6 +15230,191 @@ mod tests {
 
     fn ensure_python() {
         Python::initialize();
+    }
+
+    fn digraph_from_true_iterator(
+        py: Python<'_>,
+        edges: &Bound<'_, PyList>,
+        force_row_key_probes: bool,
+    ) -> PyResult<PyDiGraph> {
+        FORCE_DIGRAPH_CTOR_ROW_KEY_PROBES.store(force_row_key_probes, Ordering::Relaxed);
+        let iter = edges.call_method0("__iter__")?;
+        let graph = PyDiGraph::new(py, Some(&iter), None);
+        FORCE_DIGRAPH_CTOR_ROW_KEY_PROBES.store(false, Ordering::Relaxed);
+        graph
+    }
+
+    fn display_map_snapshot(
+        py: Python<'_>,
+        map: &HashMap<(String, String), PyObject>,
+    ) -> PyResult<Vec<(String, String, String, String)>> {
+        let mut snapshot = map
+            .iter()
+            .map(|((source, target), object)| {
+                let object = object.bind(py);
+                Ok((
+                    source.clone(),
+                    target.clone(),
+                    object.get_type().name()?.to_str()?.to_owned(),
+                    object.repr()?.to_string(),
+                ))
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        snapshot.sort();
+        Ok(snapshot)
+    }
+
+    fn node_map_snapshot(
+        py: Python<'_>,
+        map: &HashMap<String, PyObject>,
+    ) -> PyResult<Vec<(String, String, String)>> {
+        let mut snapshot = map
+            .iter()
+            .map(|(canonical, object)| {
+                let object = object.bind(py);
+                Ok((
+                    canonical.clone(),
+                    object.get_type().name()?.to_str()?.to_owned(),
+                    object.repr()?.to_string(),
+                ))
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        snapshot.sort();
+        Ok(snapshot)
+    }
+
+    fn assert_digraph_ctor_same(
+        py: Python<'_>,
+        candidate: &PyDiGraph,
+        baseline: &PyDiGraph,
+    ) -> PyResult<()> {
+        assert_eq!(
+            candidate.inner.nodes_ordered(),
+            baseline.inner.nodes_ordered()
+        );
+        assert_eq!(
+            candidate.inner.edges_ordered(),
+            baseline.inner.edges_ordered()
+        );
+        assert_eq!(
+            node_map_snapshot(py, &candidate.node_key_map)?,
+            node_map_snapshot(py, &baseline.node_key_map)?
+        );
+        assert_eq!(
+            display_map_snapshot(py, &candidate.succ_py_keys)?,
+            display_map_snapshot(py, &baseline.succ_py_keys)?
+        );
+        assert_eq!(
+            display_map_snapshot(py, &candidate.pred_py_keys)?,
+            display_map_snapshot(py, &baseline.pred_py_keys)?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn digraph_true_iterator_row_key_elision_matches_frozen_route() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let exact_edges = PyList::empty(py);
+            for source in 0_i64..128 {
+                let edge = [source.into_py_any(py)?, (source + 1).into_py_any(py)?];
+                exact_edges.append(PyTuple::new(py, &edge)?)?;
+            }
+            let candidate = digraph_from_true_iterator(py, &exact_edges, false)?;
+            let baseline = digraph_from_true_iterator(py, &exact_edges, true)?;
+            assert_digraph_ctor_same(py, &candidate, &baseline)?;
+            assert!(candidate.succ_py_keys.is_empty());
+            assert!(candidate.pred_py_keys.is_empty());
+
+            // The first float forces a one-time reconstruction of the exact-int
+            // prefix. Duplicate cells on both sides of that transition prove
+            // the z6uka first-touch display objects stay byte-for-byte aligned.
+            let mixed_edges = PyList::empty(py);
+            for (source, target) in [
+                (1_i64.into_py_any(py)?, 2_i64.into_py_any(py)?),
+                (1.0_f64.into_py_any(py)?, 2_i64.into_py_any(py)?),
+                (3.0_f64.into_py_any(py)?, 4_i64.into_py_any(py)?),
+                (3_i64.into_py_any(py)?, 4_i64.into_py_any(py)?),
+                (5_i64.into_py_any(py)?, 6.0_f64.into_py_any(py)?),
+                (5_i64.into_py_any(py)?, 6_i64.into_py_any(py)?),
+            ] {
+                mixed_edges.append(PyTuple::new(py, &[source, target])?)?;
+            }
+            let candidate = digraph_from_true_iterator(py, &mixed_edges, false)?;
+            let baseline = digraph_from_true_iterator(py, &mixed_edges, true)?;
+            assert_digraph_ctor_same(py, &candidate, &baseline)
+        })
+        .expect("DiGraph iterator row-key elision must preserve the frozen route");
+    }
+
+    /// `br-r37-c1-b4rfz`: same-binary proof for skipping cell-key clones and
+    /// row-display probes on the exact-int true-iterator constructor path.
+    /// Run with the release profile, `--ignored`, and `--nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn digraph_true_iterator_row_key_elision_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let edge_count = 20_000usize;
+            let rounds = 31usize;
+            let edges = PyList::empty(py);
+            for source in 0..edge_count {
+                let edge = [source.into_py_any(py)?, (source + 1).into_py_any(py)?];
+                edges.append(PyTuple::new(py, &edge)?)?;
+            }
+
+            let candidate = digraph_from_true_iterator(py, &edges, false)?;
+            let baseline = digraph_from_true_iterator(py, &edges, true)?;
+            assert_digraph_ctor_same(py, &candidate, &baseline)?;
+
+            let time = |force_baseline: bool| -> PyResult<f64> {
+                let start = Instant::now();
+                let graph = digraph_from_true_iterator(py, &edges, force_baseline)?;
+                black_box(graph.inner.edge_count());
+                Ok(start.elapsed().as_secs_f64())
+            };
+            for _ in 0..3 {
+                black_box(time(true)?);
+                black_box(time(false)?);
+            }
+
+            let paired = |baseline_is_candidate: bool| -> PyResult<Vec<f64>> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                        (time(baseline_is_candidate)?, time(false)?)
+                    } else {
+                        let candidate_time = time(false)?;
+                        let baseline_time = time(baseline_is_candidate)?;
+                        (baseline_time, candidate_time)
+                    };
+                    ratios.push(baseline_time / candidate_time);
+                }
+                Ok(ratios)
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "DIGRAPH_ITER_ROWKEY_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "DIGRAPH_ITER_ROWKEY_AB edges={edge_count} rounds={rounds} (>1 = candidate faster)"
+            );
+            report("candidate_vs_frozen", &paired(true)?);
+            report("candidate_null", &paired(false)?);
+            Ok(())
+        })
+        .expect("DiGraph iterator row-key A/B should run");
     }
 
     fn seeded_digraph_policy() -> RuntimePolicy {
