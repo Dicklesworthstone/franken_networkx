@@ -20144,3 +20144,78 @@ RESULT: SHIP. Preserve initial insertion-order degree ties, later lexical name
 ties, self-loop behavior, and final sorted output. Do not widen this index-state
 rewrite to directed clique heuristics, exact clique enumeration, or Python-only
 approximation wrappers without a separate order/parity proof.
+
+## 2026-07-14 RusticHollow SHIP (`all_pairs_node_connectivity(nbunch)`): native subset execution — **13.350x** (`br-r37-c1-qktr5`)
+
+NEGATIVE-LEDGER / ROBOT-TRIAGE FIRST: `bv --robot-triage` ranked the occupied
+no-gaps umbrella first and exposed this unclaimed perf residual in the actionable
+set. The prior `apncnbunch` ledger already proved that computing all `O(V^2)`
+pairs for a small subset is catastrophic and that shaving the faithful
+FNX-to-NetworkX conversion cannot recover the loss. It named one viable bounded
+lever: let the native kernel accept the requested nodes and run only their
+`C(k,2)` flows. This turn took that bead rather than continuing the preceding
+clique vein.
+
+PROFILE / ATTRIBUTION FIRST: a fresh cProfile on the current Python small-subset
+path used a 200-node radius-19 sparse circulant, a six-node subset, and 20 calls.
+Of `0.022 s` total, 300 `_approx_local_node_connectivity_dict` calls consumed
+`0.019 s` cumulative and their 1,800 `_approx_bbfs_dict` searches consumed
+`0.018 s` (about 82% of total); the native adjacency snapshot itself cost only
+`0.001 s`. This ruled out another snapshot/conversion micro-tweak and scored
+native subset execution at impact 4 x confidence 5 / effort 2 = 10.
+
+ONE LEVER: add an optional ordered node subset to the existing native binding,
+resolve those names to insertion indices once, and reuse the already shipped
+White-Newman index kernel for only the requested pairs. The public wrapper keeps
+its existing `set(nbunch)` semantics, graph-order node selection, small-subset
+gate, missing-node path, directed/flow-function delegation, nested dictionary
+order, and both oriented results. Full/near-full calls retain the existing
+all-pairs kernel unchanged; only exact simple-Graph small subsets move out of the
+Python dictionary/BFS loop.
+
+ONE FOREGROUND A/B + NULL: one ordinary `--profile release` invocation on
+strict-remote worker `vmi1149989` (job `j-29928833041828335`) used a 256-node
+radius-6 circulant, eight requested nodes, eight calls per sample, three warmups,
+and 15 alternating-order rounds. The same test binary compared a frozen
+String/hash-table representation of the current Python subset algorithm with the
+native index subset and ran an index/index null:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen String/dict subset vs native index subset | `121,837,601 ns / 9,126,625 ns` | **`13.350x`** | **`15/15`** | exact |
+| native/native null | `9,256,753 ns / 9,299,327 ns` | `0.995x` | identical arm | exact |
+
+The null is within 0.5% of unity and every real pair wins. No `release-perf`
+profile was built or run. RCH nevertheless reported a cache miss and spent
+`4m03s` compiling the ordinary release artifact despite selecting the same
+worker, project hash, and target path as the preceding parity command; this is a
+remote cache-routing defect, not benchmark evidence, and no retry was performed.
+
+CORRECTNESS / GATES: the focused strict-remote release test passed `1/1` on
+`vmi1149989` (job `j-29928833041828331`) across all 1,024 simple edge masks on
+five nonlexically inserted nodes, 31 self-loop masks with varied edges, and a
+missing-node rejection. The fresh pre-edit Python differential probe also found
+zero mismatches between the existing native local kernel and the current Python
+dict kernel over the same simple/self-loop graph families. Strict-remote
+`cargo check --workspace --all-targets` passed (job `j-29928833041828339`) with
+only committed warnings outside owned ranges. Exact workspace clippy reproduced
+the committed `fnx-classes/src/lib.rs:1700` `collapsible_if` blocker (job
+`j-29928833041828341`); production-only `--no-deps` clippy for both owned Rust
+crates passed after allowing only documented baseline lint classes (job
+`j-29928833041828343`). Direct read-only rustfmt suggestions in the two new
+owned expressions were applied manually; remaining reported drift is committed
+and outside the owned hunks. `py_compile` and `git diff --check` passed. Every
+targeted UBS Rust security scan completed with no finding in the owned hunks;
+its only critical was the committed Prüfer test name containing `decode`, a
+lexical JWT-decoder false positive, alongside unrelated pre-existing path-push
+warnings. The monolithic Python UBS scan exceeded its 180-second foreground
+limit even with irrelevant categories disabled, and Ruff is not installed, so
+that static-analysis limitation is surfaced rather than treated as a pass.
+Every Cargo command used fail-closed `RCH_REQUIRE_REMOTE=1`,
+`RCH_NO_SELF_HEALING=1`, and direct `rch --no-self-healing exec -- cargo ...`;
+no local Cargo fallback ran.
+
+RESULT: SHIP. Preserve the `len(subset) <= len(G) // 2` gate, graph iteration
+order, exact simple-Graph scope, both oriented output entries, and all existing
+delegation/missing-node behavior. Do not route directed, multigraph, custom-flow,
+or full-pair calls through this subset kernel without separate parity and timing.

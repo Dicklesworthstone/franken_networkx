@@ -25910,13 +25910,34 @@ pub fn write_graphml_string_rust(
 
 /// All-pairs node connectivity.
 #[pyfunction]
+#[pyo3(signature = (g, nbunch=None))]
 pub fn all_pairs_node_connectivity_rust(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
+    nbunch: Option<Vec<Bound<'_, PyAny>>>,
 ) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
-    let result = py.allow_threads(|| fnx_algorithms::all_pairs_node_connectivity(inner));
+    let node_names = nbunch
+        .map(|nodes| {
+            nodes
+                .iter()
+                .map(|node| node_key_to_string(py, node))
+                .collect::<PyResult<Vec<_>>>()
+        })
+        .transpose()?;
+    let result = if let Some(node_names) = &node_names {
+        for node in node_names {
+            validate_node_str(&gr, node, "Node")?;
+        }
+        let node_refs = node_names.iter().map(String::as_str).collect::<Vec<_>>();
+        py.allow_threads(|| {
+            fnx_algorithms::all_pairs_node_connectivity_subset(inner, &node_refs)
+                .expect("validated nbunch nodes exist")
+        })
+    } else {
+        py.allow_threads(|| fnx_algorithms::all_pairs_node_connectivity(inner))
+    };
     let dict = PyDict::new(py);
     for ((u, v), conn) in &result {
         dict.set_item((gr.py_node_key(py, u), gr.py_node_key(py, v)), conn)?;

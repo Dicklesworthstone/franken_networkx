@@ -37510,6 +37510,16 @@ pub fn approximate_local_node_connectivity(
     let Some(target_idx) = graph.get_node_index(target) else {
         return 0;
     };
+
+    approximate_local_node_connectivity_indices(graph, source_idx, target_idx, cutoff)
+}
+
+fn approximate_local_node_connectivity_indices(
+    graph: &Graph,
+    source_idx: usize,
+    target_idx: usize,
+    cutoff: Option<usize>,
+) -> usize {
     if source_idx == target_idx {
         return 0;
     }
@@ -45243,6 +45253,179 @@ pub fn all_pairs_node_connectivity(
         }
     }
     result
+}
+
+/// Approximate node connectivity for only the requested node pairs.
+///
+/// Returns `None` when any requested node is absent. Otherwise the result
+/// contains both orientations for every distinct pair, matching
+/// [`all_pairs_node_connectivity`]'s flat-map contract.
+#[must_use]
+pub fn all_pairs_node_connectivity_subset(
+    graph: &Graph,
+    nodes: &[&str],
+) -> Option<std::collections::HashMap<(String, String), usize>> {
+    // br-r37-c1-qktr5: the public small-nbunch path previously copied the full
+    // adjacency into Python dictionaries and ran every bidirectional BFS there.
+    // Resolve this already graph-ordered subset once, then reuse the native
+    // index kernel for only C(k, 2) requested pairs. Pair order, both oriented
+    // entries, and the White-Newman greedy path/exclusion choices are unchanged.
+    let indexed_nodes = nodes
+        .iter()
+        .map(|&node| graph.get_node_index(node).map(|index| (node, index)))
+        .collect::<Option<Vec<_>>>()?;
+    let pair_count = indexed_nodes
+        .len()
+        .saturating_mul(indexed_nodes.len().saturating_sub(1));
+    let mut result = std::collections::HashMap::with_capacity(pair_count);
+    for (position, &(left, left_idx)) in indexed_nodes.iter().enumerate() {
+        for &(right, right_idx) in &indexed_nodes[position + 1..] {
+            let connectivity =
+                approximate_local_node_connectivity_indices(graph, left_idx, right_idx, None);
+            result.insert((left.to_owned(), right.to_owned()), connectivity);
+            result.insert((right.to_owned(), left.to_owned()), connectivity);
+        }
+    }
+    Some(result)
+}
+
+/// br-r37-c1-qktr5 A/B baseline: the pre-lever Python-dict subset algorithm,
+/// represented with String-keyed Rust hash tables so the benchmark retains its
+/// adjacency snapshot, membership hashing, and per-BFS map allocation costs.
+#[cfg(test)]
+fn all_pairs_node_connectivity_subset_orig_string(
+    graph: &Graph,
+    nodes: &[&str],
+) -> Option<std::collections::HashMap<(String, String), usize>> {
+    fn bidirectional_path<'a>(
+        adjacency: &std::collections::HashMap<&'a str, Vec<&'a str>>,
+        source: &'a str,
+        target: &'a str,
+        excluded: &std::collections::HashSet<&'a str>,
+    ) -> Option<Vec<&'a str>> {
+        let mut predecessor = std::collections::HashMap::new();
+        let mut successor = std::collections::HashMap::new();
+        predecessor.insert(source, None);
+        successor.insert(target, None);
+        let mut forward_fringe = vec![source];
+        let mut reverse_fringe = vec![target];
+        let mut level = 0usize;
+        let mut found = None;
+
+        while !forward_fringe.is_empty() && !reverse_fringe.is_empty() && found.is_none() {
+            level += 1;
+            if !level.is_multiple_of(2) {
+                let this_level = std::mem::take(&mut forward_fringe);
+                'forward: for node in this_level {
+                    for &neighbor in adjacency
+                        .get(node)
+                        .expect("adjacency snapshot contains every node")
+                    {
+                        if excluded.contains(neighbor) {
+                            continue;
+                        }
+                        if !predecessor.contains_key(neighbor) {
+                            forward_fringe.push(neighbor);
+                            predecessor.insert(neighbor, Some(node));
+                        }
+                        if successor.contains_key(neighbor) {
+                            found = Some(neighbor);
+                            break 'forward;
+                        }
+                    }
+                }
+            } else {
+                let this_level = std::mem::take(&mut reverse_fringe);
+                'reverse: for node in this_level {
+                    for &neighbor in adjacency
+                        .get(node)
+                        .expect("adjacency snapshot contains every node")
+                    {
+                        if excluded.contains(neighbor) {
+                            continue;
+                        }
+                        if !successor.contains_key(neighbor) {
+                            successor.insert(neighbor, Some(node));
+                            reverse_fringe.push(neighbor);
+                        }
+                        if predecessor.contains_key(neighbor) {
+                            found = Some(neighbor);
+                            break 'reverse;
+                        }
+                    }
+                }
+            }
+        }
+
+        let found = found?;
+        let mut path = Vec::new();
+        let mut current = Some(found);
+        while let Some(node) = current {
+            path.push(node);
+            current = predecessor.get(node).copied().flatten();
+        }
+        path.reverse();
+        current = successor
+            .get(path.last().expect("path contains the meeting node"))
+            .copied()
+            .flatten();
+        while let Some(node) = current {
+            path.push(node);
+            current = successor.get(node).copied().flatten();
+        }
+        Some(path)
+    }
+
+    fn local_connectivity<'a>(
+        adjacency: &std::collections::HashMap<&'a str, Vec<&'a str>>,
+        degree: &std::collections::HashMap<&'a str, usize>,
+        source: &'a str,
+        target: &'a str,
+    ) -> usize {
+        let limit = degree[source].min(degree[target]);
+        let mut excluded = std::collections::HashSet::new();
+        let mut count = 0usize;
+        for _ in 0..limit {
+            let Some(path) = bidirectional_path(adjacency, source, target, &excluded) else {
+                break;
+            };
+            excluded.extend(path);
+            count += 1;
+        }
+        count
+    }
+
+    let graph_nodes = graph.nodes_ordered();
+    let adjacency = graph_nodes
+        .iter()
+        .map(|&node| {
+            let neighbors = graph
+                .neighbors_iter(node)
+                .map(Iterator::collect)
+                .unwrap_or_default();
+            (node, neighbors)
+        })
+        .collect::<std::collections::HashMap<_, Vec<_>>>();
+    let degree = adjacency
+        .iter()
+        .map(|(&node, neighbors)| (node, neighbors.len()))
+        .collect::<std::collections::HashMap<_, _>>();
+    let canonical_nodes = nodes
+        .iter()
+        .map(|&node| graph.get_node_index(node).map(|index| graph_nodes[index]))
+        .collect::<Option<Vec<_>>>()?;
+    let pair_count = canonical_nodes
+        .len()
+        .saturating_mul(canonical_nodes.len().saturating_sub(1));
+    let mut result = std::collections::HashMap::with_capacity(pair_count);
+    for (position, &left) in canonical_nodes.iter().enumerate() {
+        for &right in &canonical_nodes[position + 1..] {
+            let connectivity = local_connectivity(&adjacency, &degree, left, right);
+            result.insert((left.to_owned(), right.to_owned()), connectivity);
+            result.insert((right.to_owned(), left.to_owned()), connectivity);
+        }
+    }
+    Some(result)
 }
 
 /// Tutte polynomial via deletion-contraction. Exponential time.
@@ -54631,6 +54814,171 @@ mod tests {
         println!("LNCIDX_AB average_node_connectivity n={n} deg=6 rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    #[test]
+    fn all_pairs_node_connectivity_subset_matches_string_baseline() {
+        let names = ["z", "a", "m", "b", "q"];
+        let subset = ["z", "m", "b", "q"];
+        let edges = [
+            (0, 1),
+            (0, 2),
+            (0, 3),
+            (0, 4),
+            (1, 2),
+            (1, 3),
+            (1, 4),
+            (2, 3),
+            (2, 4),
+            (3, 4),
+        ];
+
+        for edge_mask in 0usize..(1 << edges.len()) {
+            let mut graph = Graph::strict();
+            for name in names {
+                graph.add_node(name);
+            }
+            for (bit, &(left, right)) in edges.iter().enumerate() {
+                if edge_mask & (1 << bit) != 0 {
+                    let _ = graph.add_edge(names[left], names[right]);
+                }
+            }
+            assert_eq!(
+                super::all_pairs_node_connectivity_subset(&graph, &subset),
+                super::all_pairs_node_connectivity_subset_orig_string(&graph, &subset),
+                "simple edge mask {edge_mask:#05x}"
+            );
+        }
+
+        for loop_mask in 1usize..(1 << names.len()) {
+            let mut graph = Graph::strict();
+            for name in names {
+                graph.add_node(name);
+            }
+            let edge_mask = loop_mask.wrapping_mul(37) & ((1 << edges.len()) - 1);
+            for (bit, &(left, right)) in edges.iter().enumerate() {
+                if edge_mask & (1 << bit) != 0 {
+                    let _ = graph.add_edge(names[left], names[right]);
+                }
+            }
+            for (bit, name) in names.iter().enumerate() {
+                if loop_mask & (1 << bit) != 0 {
+                    let _ = graph.add_edge(*name, *name);
+                }
+            }
+            assert_eq!(
+                super::all_pairs_node_connectivity_subset(&graph, &subset),
+                super::all_pairs_node_connectivity_subset_orig_string(&graph, &subset),
+                "self-loop mask {loop_mask:#04x}, edge mask {edge_mask:#05x}"
+            );
+        }
+
+        let mut graph = Graph::strict();
+        graph.add_node("known");
+        assert_eq!(
+            super::all_pairs_node_connectivity_subset(&graph, &["known", "missing"]),
+            None
+        );
+    }
+
+    /// br-r37-c1-qktr5: same-binary A/B for the current String/dict subset
+    /// path against the native index subset kernel, plus an index/index null.
+    #[test]
+    #[ignore = "measurement; run with --profile release --include-ignored --nocapture"]
+    fn all_pairs_node_connectivity_subset_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        let n = 256usize;
+        let radius = 6usize;
+        let calls = 8usize;
+        let names = (0..n).map(|index| format!("n{index}")).collect::<Vec<_>>();
+        let mut graph = Graph::strict();
+        for name in &names {
+            graph.add_node(name);
+        }
+        for left in 0..n {
+            for offset in 1..=radius {
+                let right = (left + offset) % n;
+                let _ = graph.add_edge(&names[left], &names[right]);
+            }
+        }
+        let subset_indices = [0usize, 17, 39, 71, 103, 149, 197, 233];
+        let subset = subset_indices
+            .iter()
+            .map(|&index| names[index].as_str())
+            .collect::<Vec<_>>();
+
+        let baseline = super::all_pairs_node_connectivity_subset_orig_string(&graph, &subset);
+        let candidate = super::all_pairs_node_connectivity_subset(&graph, &subset);
+        assert_eq!(candidate, baseline, "native subset output must be exact");
+
+        let time = |use_candidate: bool| -> u128 {
+            let start = Instant::now();
+            for _ in 0..calls {
+                let result = if use_candidate {
+                    super::all_pairs_node_connectivity_subset(black_box(&graph), black_box(&subset))
+                } else {
+                    super::all_pairs_node_connectivity_subset_orig_string(
+                        black_box(&graph),
+                        black_box(&subset),
+                    )
+                };
+                black_box(result);
+            }
+            start.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15usize;
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let mut null_first_times = Vec::with_capacity(rounds);
+        let mut null_second_times = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(false), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(false), candidate_time)
+            };
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+
+            let (null_first, null_second) = if round.is_multiple_of(2) {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                (time(true), null_second)
+            };
+            null_first_times.push(null_first);
+            null_second_times.push(null_second);
+        }
+
+        let baseline_median = median(&baseline_times);
+        let candidate_median = median(&candidate_times);
+        let null_first_median = median(&null_first_times);
+        let null_second_median = median(&null_second_times);
+        let paired_wins = baseline_times
+            .iter()
+            .zip(&candidate_times)
+            .filter(|(baseline_time, candidate_time)| baseline_time > candidate_time)
+            .count();
+        println!(
+            "APNC_SUBSET_AB n={n} radius={radius} subset={} calls={calls} rounds={rounds} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} speedup={:.3}x paired_wins={paired_wins}/{rounds} null_first_median_ns={null_first_median} null_second_median_ns={null_second_median} null_ratio={:.3}x exact_parity=true",
+            subset.len(),
+            baseline_median as f64 / candidate_median as f64,
+            null_first_median as f64 / null_second_median as f64,
+        );
     }
 
     /// br-r37-c1-aspidx: full-function paired-interleaved A/B for `all_shortest_paths` (String-keyed

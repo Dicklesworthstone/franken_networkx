@@ -31749,15 +31749,15 @@ def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
         in_g = [n for n in wanted if n in G]
         if len(in_g) == len(wanted) and len(in_g) <= len(G) // 2:
             nodes = [node for node in G if node in wanted]
-            nak = getattr(G, "_native_adjacency_keys", None)
-            if nak is not None and type(G) is Graph:
-                adj = {node: list(nbrs) for node, nbrs in nak()}
-                deg = {node: len(nbrs) for node, nbrs in adj.items()}
+            if type(G) is Graph:
+                # br-r37-c1-qktr5: run only these C(k, 2) pairs in the native
+                # index kernel. The previous branch crossed the full adjacency
+                # into Python dicts and spent nearly all of its time in the
+                # per-pair Python bidirectional-BFS loop.
+                flat = _fnx.all_pairs_node_connectivity_rust(G, nodes)
                 result = {node: {} for node in nodes}
                 for left, right in _itertools.combinations(nodes, 2):
-                    conn = _approx_local_node_connectivity_dict(
-                        adj, deg, left, right, None
-                    )
+                    conn = flat[(left, right)]
                     result[left][right] = conn
                     result[right][left] = conn
                 return result
