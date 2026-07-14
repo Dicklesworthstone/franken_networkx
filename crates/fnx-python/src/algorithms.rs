@@ -5248,9 +5248,38 @@ pub fn dijkstra_path_to_target(
 /// irrelevant to connectivity) — same lever that fixed connected_components.
 fn multigraph_is_connected(mg: &fnx_classes::MultiGraph) -> bool {
     use std::collections::VecDeque;
+
+    if mg.node_count() == 0 {
+        return true; // null graph; caller raises before reaching here
+    }
+
+    mg.with_int_adjacency(|adjacency| {
+        let mut visited = vec![false; adjacency.len()];
+        let mut visited_count = 1usize;
+        let mut queue: VecDeque<usize> = VecDeque::new();
+        visited[0] = true;
+        queue.push_back(0);
+        while let Some(node_idx) = queue.pop_front() {
+            for &neighbor_idx in &adjacency[node_idx] {
+                if !visited[neighbor_idx] {
+                    visited[neighbor_idx] = true;
+                    visited_count += 1;
+                    queue.push_back(neighbor_idx);
+                }
+            }
+        }
+        visited_count == adjacency.len()
+    })
+}
+
+/// Frozen pre-`br-r37-c1-59jm4` String-hashed traversal for exact A/B proof.
+#[cfg(test)]
+fn multigraph_is_connected_orig_string(mg: &fnx_classes::MultiGraph) -> bool {
+    use std::collections::VecDeque;
+
     let nodes = mg.nodes_ordered();
     if nodes.is_empty() {
-        return true; // null graph; caller raises before reaching here
+        return true;
     }
     let mut visited: rustc_hash::FxHashSet<&str> =
         rustc_hash::FxHashSet::with_capacity_and_hasher(nodes.len(), Default::default());
@@ -5259,10 +5288,10 @@ fn multigraph_is_connected(mg: &fnx_classes::MultiGraph) -> bool {
     let mut queue: VecDeque<&str> = VecDeque::new();
     queue.push_back(start);
     while let Some(node) = queue.pop_front() {
-        if let Some(nbrs) = mg.neighbors_iter(node) {
-            for v in nbrs {
-                if visited.insert(v) {
-                    queue.push_back(v);
+        if let Some(neighbors) = mg.neighbors_iter(node) {
+            for neighbor in neighbors {
+                if visited.insert(neighbor) {
+                    queue.push_back(neighbor);
                 }
             }
         }
@@ -26685,6 +26714,152 @@ mod tests {
 
     fn ensure_python() {
         Python::initialize();
+    }
+
+    #[test]
+    fn multigraph_is_connected_matches_string_route() {
+        let mut graph = MultiGraph::strict();
+        assert_eq!(
+            super::multigraph_is_connected(&graph),
+            super::multigraph_is_connected_orig_string(&graph)
+        );
+
+        let _ = graph.add_node("solo".to_owned());
+        assert_eq!(
+            super::multigraph_is_connected(&graph),
+            super::multigraph_is_connected_orig_string(&graph)
+        );
+
+        for node in ["alpha", "mu", "theta"] {
+            let _ = graph.add_node(node.to_owned());
+        }
+        let _ = graph.add_edge("solo".to_owned(), "alpha".to_owned());
+        let _ = graph.add_edge("solo".to_owned(), "alpha".to_owned());
+        let _ = graph.add_edge("mu".to_owned(), "theta".to_owned());
+        let _ = graph.add_edge("theta".to_owned(), "theta".to_owned());
+        assert_eq!(
+            super::multigraph_is_connected(&graph),
+            super::multigraph_is_connected_orig_string(&graph)
+        );
+        assert!(!super::multigraph_is_connected(&graph));
+
+        // Exercise read-mutate-read memo invalidation while joining the two
+        // components without changing any public error handling.
+        let _ = graph.add_edge("alpha".to_owned(), "mu".to_owned());
+        assert_eq!(
+            super::multigraph_is_connected(&graph),
+            super::multigraph_is_connected_orig_string(&graph)
+        );
+        assert!(super::multigraph_is_connected(&graph));
+    }
+
+    /// `br-r37-c1-59jm4`: same-binary paired proof for cached integer-row BFS
+    /// versus the former String-hashed `MultiGraph` connectivity traversal.
+    /// Run through strict remote RCH with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multigraph_is_connected_intadj_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multigraph_is_connected_intadj_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("isconn-node-{index:05}");
+        let mut graph = MultiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        for index in 0..n {
+            let next = (index + 1) % n;
+            let chord = (index + 127) % n;
+            let _ = graph.add_edge(node(index), node(next));
+            let _ = graph.add_edge(node(index), node(chord));
+            if index.is_multiple_of(8) {
+                let _ = graph.add_edge(node(index), node(next));
+            }
+        }
+        let candidate = super::multigraph_is_connected(&graph);
+        let baseline = super::multigraph_is_connected_orig_string(&graph);
+        assert_eq!(
+            candidate, baseline,
+            "indexed BFS must preserve connectivity"
+        );
+        assert!(candidate, "constructed graph must be connected");
+
+        // Prime the revision-keyed memo before warm timing. Pre-lever, the
+        // candidate is still the String route, giving a true A/A null baseline.
+        graph.with_int_adjacency(|adjacency| {
+            black_box(adjacency.len());
+        });
+
+        let time = |timed_graph: &MultiGraph, candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let connected = if candidate_route {
+                super::multigraph_is_connected(timed_graph)
+            } else {
+                super::multigraph_is_connected_orig_string(timed_graph)
+            };
+            black_box(connected);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired_warm = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, baseline_candidate);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let paired_cold = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let baseline_graph = graph.clone();
+                let candidate_graph = graph.clone();
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    let candidate_time = time(&candidate_graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&candidate_graph, true);
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "MG_ISCONN_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("MG_ISCONN_AB n={n} degree=4+parallel rounds={rounds} (>1 = candidate faster)");
+        report("warm_candidate_vs_string", &paired_warm(false));
+        report("warm_candidate_null", &paired_warm(true));
+        report("cold_candidate_vs_string", &paired_cold(false));
+        report("cold_candidate_null", &paired_cold(true));
     }
 
     #[test]

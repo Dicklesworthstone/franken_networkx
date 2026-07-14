@@ -18987,3 +18987,80 @@ capacity and two clippy attempts exposed a stale sibling `ftui 0.4.1` on
 RESULT: SHIP. Preserve the revision-keyed integer-row traversal and exact BFS
 discovery order. Future component work should consume the same maintained rows
 only on a distinct public surface, with its own null-controlled proof.
+
+## 2026-07-13 IndigoTower SHIP (`MultiGraph is_connected`): reuse integer-adjacency memo — 34.12x warm (`br-r37-c1-59jm4`)
+
+NEGATIVE-LEDGER FIRST: the 2026-06-22 connectivity accessor experiment replaced
+the original standard `HashSet` and allocating neighbor accessor with
+`FxHashSet` plus `neighbors_iter`. That was a real `1.261x` self-speedup and put
+the sampled public row at `1.229x` NetworkX, but every call still hashed node
+strings for visitation and String-keyed adjacency lookup. The latest clean
+surface exhaustion report explicitly routed further work to the MultiGraph
+integer-adjacency epoch. That epoch is now real, and three distinct component
+siblings have already proved the revision-keyed memo. Reusing it in this
+remaining public predicate scored impact 4 x confidence 5 / effort 1 = 20;
+concurrent biconnectivity/articulation work was left untouched.
+
+ONE LEVER: keep the null-graph helper result, then traverse index zero's
+component through `with_int_adjacency` with `Vec<bool>`, `VecDeque<usize>`, and
+a visited counter. The start is still the first insertion-ordered node, and the
+memo contains the same distinct neighbors in authoritative row order. Therefore
+the reached vertex set, and thus the only observable Boolean, is identical.
+Parallel edges and self-loops remain multiplicity-invariant. Public null-graph
+and directed-input errors, graph/cache mutation policy, output type,
+floating-point behavior, and RNG state are unchanged.
+
+NULL FIRST: before the production edit, the ignored release harness compared
+the then-current helper with a frozen String-hashed copy for 31 paired,
+alternating-order rounds. Strict-remote worker `vmi1167313` reported centered
+medians. The wide warm-null tail is retained rather than hidden; these rows
+validate the harness and are not used for a cross-worker speed claim:
+
+| pre-change paired A/A (>1 = first arm faster) | median | wins | p5-p95 |
+|---|---:|---:|---:|
+| warm candidate vs frozen String | `1.0106x` | `19/31` | `[0.7543, 1.2234]` |
+| warm candidate/candidate null | `1.0195x` | `17/31` | `[0.7027, 4.9499]` |
+| clone-fresh candidate vs frozen String | `1.0135x` | `17/31` | `[0.7428, 1.3221]` |
+| clone-fresh candidate/candidate null | `0.9886x` | `14/31` | `[0.5770, 1.3700]` |
+
+MEDIAN GATE: after the one production edit, one release binary on strict-remote
+worker `vmi1149989` asserted both routes returned `true` for the same 20,000-node
+ring-plus-chords-plus-parallel fixture before timing. Candidate, frozen String
+baseline, and null arms all ran in that same binary:
+
+| paired A/B (>1 = indexed faster) | median | wins | p5-p95 |
+|---|---:|---:|---:|
+| warm indexed vs frozen String | `34.1183x` | `31/31` | `[17.9550, 122.5093]` |
+| warm indexed/indexed null | `1.0027x` | `16/31` | `[0.8887, 1.9323]` |
+| clone-fresh indexed vs frozen String | `1.0539x` | `19/31` | `[0.3668, 4.5652]` |
+| clone-fresh indexed/indexed null | `0.9321x` | `10/31` | `[0.6357, 1.3728]` |
+
+The warm candidate p5 is 9.29x above its same-worker null p95 and every pair
+won, so revision-keyed memo reuse is decisive. The clone-fresh distribution
+overlaps its null and won only 19/31 pairs; first-read performance is NEUTRAL,
+not a claimed win. Pre-change controls and post-change proof landed on different
+workers, so no before/after cross-worker ratio is claimed.
+
+CORRECTNESS / GATES: a regular test compares the exact Boolean with the frozen
+String route for empty helper semantics, a singleton, disconnected components,
+parallel edges, a self-loop, and read-mutate-read cache invalidation while
+joining the components. It passed 1/1 under the release profile on strict-remote
+worker `vmi1149989`. Strict-remote `cargo check --workspace --all-targets`
+passed on the same worker with one pre-existing unused-variable warning in
+`fnx-algorithms`. Exact workspace clippy stopped at the already-recorded
+`fnx-classes/src/lib.rs:1700` `collapsible_if` baseline on `vmi1156319`;
+strict-remote `cargo clippy -p fnx-python --lib --no-deps -- -D warnings`
+passed on `vmi1149989`. `git diff --check` passed. Direct rustfmt identified
+and the owned harness fixed its sole line wrap; the remaining whole-file
+formatter diff is a concurrent unowned articulation-test wrap. UBS's static-only
+Rust scan reported the known file-wide three shortest-path test `panic!` calls
+and warning inventory; the owned production hunk adds neither panic nor unsafe.
+Its generic direct-index inventory is bounded by the nonempty node-count guard
+and the memo invariant that adjacency length and neighbor indices match the
+graph's node index space. Every Cargo command used fail-closed
+`RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`, and
+`rch --no-self-healing exec`; no local fallback ran.
+
+RESULT: SHIP. Preserve the revision-keyed integer-row predicate and classify
+first-read performance as neutral. Future MultiGraph adjacency consumers remain
+separate public-surface levers with their own null-controlled proofs.
