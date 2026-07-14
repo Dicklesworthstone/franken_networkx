@@ -19965,3 +19965,57 @@ RESULT: SHIP. Preserve source lookup, successor insertion order, full non-tree
 edge emission, and name materialization in the output only. Do not widen this
 change to undirected `edge_bfs`, either `edge_dfs` sibling, multigraph traversal,
 or Python orientation/source-list wrappers without separate exact-order proof.
+
+## 2026-07-14 RusticHollow NO-SHIP (`dag_longest_path_length`): direct scalar DP stays below the keep floor (`br-r37-c1-qwzl2`)
+
+NEGATIVE-LEDGER FIRST: matching remains held because its indexable kernels are
+already optimized and weighted matching is constrained by exact NetworkX tie and
+edge-orientation semantics. The Rust clique enumerators were also rejected before
+editing because the public order-compatible clique path is implemented in Python.
+The DAG ledger, however, records a `3.383x` MultiDiGraph keep from computing
+longest-path length directly instead of materializing a path, while the plain
+DiGraph Rust scalar still called `dag_longest_path()` and immediately reduced the
+returned `Vec<String>` to `path.len() - 1`. This missed sibling scored impact 4 x
+confidence 5 / effort 1 = 20.
+
+ONE LEVER: keep the existing `topological_sort` and its cycle semantics, relax
+the same unit edge distances into `Vec<usize>`, retain only the maximum distance,
+and omit the predecessor vector plus final String-path reconstruction. The scalar
+is order- and predecessor-tie-invariant; empty graphs remain `Some(0)`, cyclic
+graphs remain `None`, and no float or RNG surface exists. A frozen test-only
+wrapper retained the exact pre-lever `dag_longest_path(...).map(path.len()-1)`
+arm for parity and timing.
+
+ONE COMPLETED FOREGROUND A/B + NULL: strict-remote worker `vmi1149989` job
+`j-29928833041828254` used a 20,000-node forward DAG of out-degree four with
+long stable labels, four calls per sample, three warmups, and 15 alternating-
+order rounds. The harness asserted the exact scalar and known `Some(19_999)`
+before timing:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| path materialization vs direct scalar DP | `43,748,726 ns / 40,728,764 ns` | `1.074x` | `11/15` | exact |
+| direct/direct null | `40,465,048 ns / 40,270,956 ns` | `1.005x` | identical arm | exact |
+
+The null is clean, but the real arm improves only 7.4%, below the 1.10 keep
+floor, and loses four paired rounds. The shared `topological_sort` still
+materializes every ordered node name and dominates this workload; removing only
+the second path vector and predecessor state is too shallow.
+
+CORRECTNESS / INVALID-EVIDENCE DISCLOSURE: the focused strict-remote test passed
+`1/1` on `vmi1149989` (job `j-29928833041828247`). It exhaustively compared all
+1,024 forward-edge masks on five insertion-ordered nodes, plus explicit cycle and
+empty cases, against the frozen materializing wrapper. An earlier release command
+on the same worker (job `j-29928833041828249`) compiled successfully but the
+ignored+exact filter admitted zero tests; it produced no timings and is VOID, not
+benchmark evidence. The corrected unique-filter invocation above is the sole
+completed timed run. Every Cargo command used `RCH_REQUIRE_REMOTE=1`,
+`RCH_NO_SELF_HEALING=1`, and direct `rch --no-self-healing exec -- cargo ...`;
+no local fallback ran.
+
+RESULT: NO-SHIP. The production hunk, frozen helper, parity test, and ignored A/B
+were removed manually with `apply_patch`; `crates/fnx-algorithms/src/lib.rs` is
+byte-identical to `HEAD`. Do not retry direct scalar DP alone for unweighted plain
+DiGraph longest-path length. A future candidate must remove the shared
+topological-order String materialization through a separately proved index-order
+primitive, or rotate to a different algorithm family.
