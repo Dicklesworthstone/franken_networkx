@@ -449,6 +449,32 @@ impl EdgeListEngine {
         let mut graph = Graph::new(self.mode);
         let mut warnings = Vec::new();
 
+        self.populate_adjlist_indexed(&mut graph, &mut warnings, input)?;
+
+        self.record(
+            "read_adjlist",
+            DecisionAction::Allow,
+            "adjlist parse completed",
+            0.04,
+        );
+
+        Ok(self.finish_graph_report(graph, AttrMap::new(), warnings))
+    }
+
+    /// Parse an undirected adjacency list into first-touch node indices before
+    /// mutating the graph. This preserves the former node/neighbor encounter
+    /// order while replacing per-neighbor owned endpoint clones, graph-map
+    /// lookups, and transient policy records with two ordered batch inserts.
+    fn populate_adjlist_indexed(
+        &mut self,
+        graph: &mut Graph,
+        warnings: &mut Vec<String>,
+        input: &str,
+    ) -> Result<(), ReadWriteError> {
+        let mut node_indices: HashMap<&str, usize> = HashMap::new();
+        let mut ordered_nodes: Vec<&str> = Vec::new();
+        let mut indexed_edges = Vec::new();
+
         for (line_no, raw_line) in input.lines().enumerate() {
             let line = raw_line
                 .split_once('#')
@@ -477,21 +503,30 @@ impl EdgeListEngine {
                 continue;
             }
 
-            let node = node.to_owned();
-            let _ = graph.add_node(node.clone());
+            let node_index = if let Some(&index) = node_indices.get(node) {
+                index
+            } else {
+                let index = ordered_nodes.len();
+                node_indices.insert(node, index);
+                ordered_nodes.push(node);
+                index
+            };
             for neighbor in parts {
-                graph.add_edge(node.clone(), neighbor.to_owned())?;
+                let neighbor_index = if let Some(&index) = node_indices.get(neighbor) {
+                    index
+                } else {
+                    let index = ordered_nodes.len();
+                    node_indices.insert(neighbor, index);
+                    ordered_nodes.push(neighbor);
+                    index
+                };
+                indexed_edges.push((node_index, neighbor_index));
             }
         }
 
-        self.record(
-            "read_adjlist",
-            DecisionAction::Allow,
-            "adjlist parse completed",
-            0.04,
-        );
-
-        Ok(self.finish_graph_report(graph, AttrMap::new(), warnings))
+        let _ = graph.extend_nodes_unrecorded(ordered_nodes);
+        let _ = graph.extend_existing_index_edges_unrecorded(indexed_edges);
+        Ok(())
     }
 
     pub fn read_digraph_adjlist(
@@ -5857,6 +5892,146 @@ mod tests {
             .expect("adjlist parse should succeed")
             .graph;
         assert_eq!(graph.snapshot(), parsed.snapshot());
+    }
+
+    fn populate_adjlist_frozen_valid(graph: &mut Graph, input: &str) {
+        for raw_line in input.lines() {
+            let line = raw_line
+                .split_once('#')
+                .map_or(raw_line, |(prefix, _)| prefix)
+                .trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            let mut parts = line.split_whitespace();
+            let Some(node) = parts.next() else {
+                continue;
+            };
+            let node = node.to_owned();
+            let _ = graph.add_node(node.clone());
+            for neighbor in parts {
+                graph
+                    .add_edge(node.clone(), neighbor.to_owned())
+                    .expect("valid adjacency-list edge should insert");
+            }
+        }
+    }
+
+    #[test]
+    fn read_adjlist_index_batch_preserves_first_touch_order_and_revision() {
+        let input = "# leading comment\nz q a\nm z\nq a z\nb a\nisolated\nz z q # duplicates\n";
+        let mut frozen = Graph::strict();
+        populate_adjlist_frozen_valid(&mut frozen, input);
+
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_adjlist(input)
+            .expect("valid adjacency list should parse");
+
+        assert!(report.warnings.is_empty());
+        assert_eq!(report.graph.snapshot(), frozen.snapshot());
+        assert_eq!(report.graph.revision(), frozen.revision());
+    }
+
+    /// Same-binary paired A/B for the undirected adjacency-list population
+    /// kernel. The frozen arm retains the former per-node/per-neighbor graph
+    /// mutation loop; the candidate resolves first-touch indices while parsing
+    /// and submits nodes and edges through ordered batches.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn read_adjlist_index_batch_ab() {
+        use std::fmt::Write as _;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 2_048usize;
+        let mut input = String::with_capacity(n * 64);
+        for node in 0..n {
+            write!(&mut input, "node-{node:05}").expect("String write should succeed");
+            for offset in [1usize, 17, 97, 257] {
+                write!(&mut input, " node-{:05}", (node + offset) % n)
+                    .expect("String write should succeed");
+            }
+            if node == 0 {
+                write!(&mut input, " node-{node:05}").expect("String write should succeed");
+            }
+            input.push('\n');
+        }
+
+        let mut frozen = Graph::strict();
+        populate_adjlist_frozen_valid(&mut frozen, &input);
+        let mut candidate_engine = EdgeListEngine::strict();
+        let mut candidate = Graph::strict();
+        let mut candidate_warnings = Vec::new();
+        candidate_engine
+            .populate_adjlist_indexed(&mut candidate, &mut candidate_warnings, &input)
+            .expect("valid adjacency list should batch");
+        assert!(candidate_warnings.is_empty());
+        assert_eq!(candidate.snapshot(), frozen.snapshot());
+        assert_eq!(candidate.revision(), frozen.revision());
+
+        let rounds = 15usize;
+        let time = |batch: bool| {
+            let started = Instant::now();
+            let mut engine = EdgeListEngine::strict();
+            let mut graph = Graph::strict();
+            let mut warnings = Vec::new();
+            if batch {
+                engine
+                    .populate_adjlist_indexed(&mut graph, &mut warnings, &input)
+                    .expect("valid adjacency list should batch");
+            } else {
+                populate_adjlist_frozen_valid(&mut graph, &input);
+            }
+            black_box((engine, graph, warnings));
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let baseline_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "READ_ADJLIST_INDEX_BATCH_AB {name}: baseline_median_ns={baseline_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds}",
+                baseline_median as f64 / candidate_median as f64,
+            );
+        };
+
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("frozen_vs_index_batch", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("index_batch_vs_index_batch_null", &null_a_ns, &null_b_ns);
     }
 
     #[test]

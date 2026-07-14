@@ -21312,3 +21312,75 @@ no local fallback ran.
 RESULT: SHIP. Batch only explicit nonempty-node, keyless, attribute-free directed
 payloads whose endpoints all resolve before mutation. Preserve the generic
 validator for malformed, implicit-node, keyed, or attributed payloads.
+
+## 2026-07-14 GrayCitadel SHIP (`EdgeListEngine::read_adjlist`): batch first-touch nodes and edges by index — **9.1190x** (`br-r37-c1-an8vq`)
+
+NEGATIVE-LEDGER / ROBOT-TRIAGE FIRST: `bv --robot-triage` again ranked the
+occupied no-gaps umbrella and already-mined graph quick wins. The ledger names
+the adjacency-list reader's per-edge construction/decision-record tax as a
+known residual, but contains no dedicated Rust `read_adjlist` batch A/B or
+negative row. This pass therefore rotates from conversion/generator work to the
+fresh text-parser primitive rather than reopening a recently mined family.
+
+PROFILE / ATTRIBUTION FIRST: every valid neighbor token in `read_adjlist`
+formerly cloned the row node and neighbor into owned Strings, hashed both names
+through `Graph::add_edge`, and emitted transient graph-policy records. Each row
+also called generic `add_node`. `finish_graph_report` then replaces the graph's
+policy with the engine policy, so those per-item records cannot reach the result.
+For the planned 2,048-row / 8,193-token fixture, ranked work is (1) 8,193 generic
+edge insertions and endpoint clones, (2) 2,048 generic row-node insertions, and
+(3) the final engine record/report assembly. Opportunity score: impact 4 x
+confidence 5 / effort 1 = 20.
+
+ONE LEVER / PROOF PLAN: during the existing parse, assign stable indices in
+exact node/neighbor first-touch order and retain edge pairs in token order; once
+validation completes, submit the nodes and existing-index pairs through the
+ordered graph batches. Comment stripping, malformed-line recovery, dispatch,
+warnings, and final policy adoption remain unchanged. A same-binary harness will
+compare complete ordered snapshots and revisions across nonlexical rows,
+neighbor-only first touches, isolates, self-loops, and duplicate/reversed edges.
+Because this modifies the `fnx-readwrite` release test binary, first run one
+untimed strict-remote `--no-run` warm-up without a timeout, then one cheap
+foreground ordinary-release A/B with three warmups, 15 alternating pairs, and
+an identical-path null control.
+
+COLD-TARGET WARM-UP: one untimed strict-remote ordinary-release `--no-run`
+invocation completed on worker `vmi1153651` (job `j-29928833041828722`) before
+measurement. It reported a cache miss and took 111.5 seconds in the RCH pipeline
+(36.8 seconds sync, 71.9 seconds build, 2.7 seconds artifact retrieval; 119.6
+seconds wrapper elapsed). No timeout wrapped the cold build, and none of that
+wall time is performance evidence.
+
+ONE FOREGROUND A/B + NULL: the subsequent strict-remote ordinary-release
+invocation ran on the same worker and target path (job `j-29928833041828724`).
+The fixed 2,048-row / 8,193-token harness asserted complete ordered snapshot and
+revision equality before three warmups and 15 alternating-order pairs:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen per-item parser vs index batch | `19,203,954 ns / 2,105,929 ns` | **`9.1190x`** | **`15/15`** | exact |
+| index batch / same-path null | `2,145,331 ns / 2,126,246 ns` | `1.0090x` | `10/15` | identical arm |
+
+The real arm wins every pair and remains about `9.038x` after conservatively
+dividing by the full 0.90% null skew. The timed test completed in 0.55 seconds.
+RCH redundantly reported another cache miss despite the successful warm-up; its
+110.6-second pipeline (35.1 seconds sync, 73.0 seconds build/execution, 2.6
+seconds artifact retrieval; 118.7 seconds wrapper elapsed) is routing/build
+overhead, not benchmark evidence. No timeout, retry, or `release-perf` command
+ran.
+
+CORRECTNESS / GATES: the same-binary harness compares complete ordered graph
+snapshots and public revisions, including neighbor-before-row first touches,
+isolates, and a self-loop. A dedicated compiled unit case additionally covers
+comments, nonlexical rows, duplicate/reversed edges, and exact public-reader
+warnings. Parsing still performs comment stripping and malformed-line handling
+before graph mutation; directed parsing is untouched. Direct rustfmt and
+`git diff --check` passed. Targeted UBS completed with zero critical findings;
+its warnings were existing file-wide test assertion, clone, indexing, and
+allocation inventories. Both Cargo commands were fail-closed with
+`RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`, and direct
+`rch --no-self-healing exec -- cargo ...`; no local fallback ran.
+
+RESULT: SHIP. Preserve exact token-order first touches while batching only the
+undirected adjacency-list graph population; keep all dispatch, warning,
+strict/hardened recovery, final policy adoption, and directed parsing behavior.
