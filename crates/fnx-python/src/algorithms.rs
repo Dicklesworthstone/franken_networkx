@@ -14652,7 +14652,136 @@ pub fn strongly_connected_components(
         .collect()
 }
 
+/// Reachability of every node from `source` over the DiGraph's native integer
+/// successor (or predecessor, when `reverse`) rows. Order-invariant boolean used
+/// for the single-SCC fast path — no adjacency rebuild.
+fn digraph_reaches_every_node(
+    digraph: &fnx_classes::digraph::DiGraph,
+    source: usize,
+    n: usize,
+    reverse: bool,
+) -> bool {
+    let mut visited = vec![false; n];
+    let mut stack = vec![source];
+    visited[source] = true;
+    let mut seen = 1usize;
+    while let Some(node) = stack.pop() {
+        let neighbors = if reverse {
+            digraph.predecessors_indices(node)
+        } else {
+            digraph.successors_indices(node)
+        };
+        if let Some(neighbors) = neighbors {
+            for &neighbor in neighbors {
+                if !visited[neighbor] {
+                    visited[neighbor] = true;
+                    seen += 1;
+                    stack.push(neighbor);
+                }
+            }
+        }
+    }
+    seen == n
+}
+
 fn strongly_connected_components_nx_ordered(
+    digraph: &fnx_classes::digraph::DiGraph,
+) -> Vec<Vec<String>> {
+    // br-r37-c1-rjj10 (cc): walk the DiGraph's native integer successor rows
+    // (`successors_indices(idx) -> &[usize]`) directly instead of rebuilding an
+    // inline `HashMap<&str,usize>` + successors/predecessors `Vec<Vec<usize>>` via
+    // `successors_iter` — the former path round-trips int→name→int (name yield +
+    // per-neighbour hash lookup) every call. The native rows are the same distinct
+    // successors in the same order, so the preorder/lowlink Tarjan and the emitted
+    // component partition/order are byte-identical. Rows are always live (no memo),
+    // so this wins uniformly, not just warm.
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    if digraph_reaches_every_node(digraph, 0, n, false)
+        && digraph_reaches_every_node(digraph, 0, n, true)
+    {
+        return vec![nodes.into_iter().map(str::to_owned).collect()];
+    }
+
+    let mut preorder = vec![0usize; n];
+    let mut lowlink = vec![0usize; n];
+    let mut scc_found = vec![false; n];
+    let mut scc_queue = Vec::<usize>::new();
+    let mut neighbor_pos = vec![0usize; n];
+    let mut preorder_counter = 0usize;
+    let mut result = Vec::new();
+
+    for source in 0..n {
+        if scc_found[source] {
+            continue;
+        }
+        let mut queue = vec![source];
+        while let Some(&v) = queue.last() {
+            if preorder[v] == 0 {
+                preorder_counter += 1;
+                preorder[v] = preorder_counter;
+            }
+            let succ_v = digraph.successors_indices(v).unwrap_or(&[]);
+
+            let mut done = true;
+            while neighbor_pos[v] < succ_v.len() {
+                let w = succ_v[neighbor_pos[v]];
+                neighbor_pos[v] += 1;
+                if preorder[w] == 0 {
+                    queue.push(w);
+                    done = false;
+                    break;
+                }
+            }
+
+            if done {
+                lowlink[v] = preorder[v];
+                for &w in succ_v {
+                    if !scc_found[w] {
+                        if preorder[w] > preorder[v] {
+                            lowlink[v] = lowlink[v].min(lowlink[w]);
+                        } else {
+                            lowlink[v] = lowlink[v].min(preorder[w]);
+                        }
+                    }
+                }
+                queue.pop();
+                if lowlink[v] == preorder[v] {
+                    let mut component_indices = vec![v];
+                    while scc_queue
+                        .last()
+                        .is_some_and(|&queued| preorder[queued] > preorder[v])
+                    {
+                        if let Some(queued) = scc_queue.pop() {
+                            component_indices.push(queued);
+                        }
+                    }
+                    for &idx in &component_indices {
+                        scc_found[idx] = true;
+                    }
+                    let component = component_indices
+                        .into_iter()
+                        .map(|idx| nodes[idx].to_owned())
+                        .collect();
+                    result.push(component);
+                } else {
+                    scc_queue.push(v);
+                }
+            }
+        }
+    }
+
+    result
+}
+
+/// Frozen pre-`br-r37-c1-rjj10` inline-`HashMap` Tarjan route — rebuilds the
+/// name→index map and successor/predecessor adjacency via `successors_iter` each
+/// call. Kept for the same-binary A/B and exact-order parity proof.
+#[cfg(test)]
+fn strongly_connected_components_nx_ordered_orig_inline(
     digraph: &fnx_classes::digraph::DiGraph,
 ) -> Vec<Vec<String>> {
     let nodes = digraph.nodes_ordered();
@@ -29196,6 +29325,162 @@ mod tests {
         report("warm_candidate_null", &paired_warm(true));
         report("cold_candidate_vs_inline", &paired_cold(false));
         report("cold_candidate_null", &paired_cold(true));
+    }
+
+    #[test]
+    fn digraph_scc_listing_native_indices_matches_inline_route() {
+        use fnx_classes::digraph::DiGraph;
+        let assert_parity = |dg: &DiGraph| {
+            assert_eq!(
+                super::strongly_connected_components_nx_ordered(dg),
+                super::strongly_connected_components_nx_ordered_orig_inline(dg),
+                "native-indices vs inline SCC listing must be byte-identical"
+            );
+            super::strongly_connected_components_nx_ordered(dg)
+        };
+
+        assert!(assert_parity(&DiGraph::strict()).is_empty());
+
+        let mut single = DiGraph::strict();
+        let _ = single.add_node("solo".to_owned());
+        assert_eq!(assert_parity(&single), vec![vec!["solo".to_owned()]]);
+        let _ = single.add_edge("solo".to_owned(), "solo".to_owned());
+        assert_eq!(assert_parity(&single), vec![vec!["solo".to_owned()]]);
+
+        // Strongly-connected cycle a->b->c->a: one component (single-SCC fast path).
+        let mut cyc = DiGraph::strict();
+        for node in ["a", "b", "c"] {
+            let _ = cyc.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "a")] {
+            let _ = cyc.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_eq!(
+            assert_parity(&cyc),
+            vec![vec!["a".to_owned(), "b".to_owned(), "c".to_owned()]]
+        );
+        // Read-mutate-read: append sink d → two components.
+        let _ = cyc.add_node("d".to_owned());
+        let _ = cyc.add_edge("c".to_owned(), "d".to_owned());
+        assert_eq!(assert_parity(&cyc).len(), 2, "cycle + sink → 2 SCCs");
+
+        // Directed path x->y->z: three singleton SCCs.
+        let mut path = DiGraph::strict();
+        for node in ["x", "y", "z"] {
+            let _ = path.add_node(node.to_owned());
+        }
+        for (u, v) in [("x", "y"), ("y", "z")] {
+            let _ = path.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_eq!(assert_parity(&path).len(), 3);
+
+        // Two disjoint 2-cycles + branch + isolated node: full Tarjan, parity is the
+        // contract.
+        let mut multi = DiGraph::strict();
+        for node in ["p", "q", "r", "s", "t", "u", "iso"] {
+            let _ = multi.add_node(node.to_owned());
+        }
+        for (a, b) in [
+            ("p", "q"),
+            ("q", "p"),
+            ("q", "r"),
+            ("r", "s"),
+            ("t", "u"),
+            ("u", "t"),
+        ] {
+            let _ = multi.add_edge(a.to_owned(), b.to_owned());
+        }
+        assert_parity(&multi);
+    }
+
+    /// `br-r37-c1-rjj10`: same-binary paired proof for the simple-DiGraph SCC listing
+    /// — native `successors_indices` traversal vs the frozen inline-HashMap Tarjan.
+    /// Forward DAG (n singleton SCCs → full Tarjan). Run with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// digraph_scc_listing_native_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn digraph_scc_listing_native_ab() {
+        use fnx_classes::digraph::DiGraph;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("dscl-node-{index:05}");
+        let mut graph = DiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        // Forward-only edges → a DAG: every node is its own SCC, full Tarjan runs.
+        for index in 0..n {
+            if index + 1 < n {
+                let _ = graph.add_edge(node(index), node(index + 1));
+            }
+            if index + 127 < n {
+                let _ = graph.add_edge(node(index), node(index + 127));
+            }
+        }
+        let candidate = super::strongly_connected_components_nx_ordered(&graph);
+        let baseline = super::strongly_connected_components_nx_ordered_orig_inline(&graph);
+        assert_eq!(candidate, baseline, "native-indices listing must match inline route");
+        assert_eq!(candidate.len(), n, "forward DAG yields n singleton SCCs");
+
+        let time = |timed_graph: &DiGraph, candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                super::strongly_connected_components_nx_ordered(timed_graph)
+            } else {
+                super::strongly_connected_components_nx_ordered_orig_inline(timed_graph)
+            };
+            black_box(result.len());
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired = || -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, false);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, false);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let null = || -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let a = time(&graph, true);
+                let b = time(&graph, true);
+                ratios.push(if round.is_multiple_of(2) { b / a } else { a / b });
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "DG_SCL_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("DG_SCL_AB n={n} forward-DAG rounds={rounds} SCC-listing Tarjan (>1 = candidate faster)");
+        report("candidate_vs_inline", &paired());
+        report("null", &null());
     }
 
     #[test]
