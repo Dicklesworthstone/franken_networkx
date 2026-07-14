@@ -20757,3 +20757,64 @@ RESULT: SHIP. Keep binary packet reuse local to decode drills. Serialized
 sidecars and scrub recovery retain the existing String/base64 path, while empty
 source sets, repair-only inputs, malformed packets, layout mismatches, and
 beyond-bound decode failures retain their former behavior.
+
+## 2026-07-14 GrayCitadel SHIP (`write_digraph_adjlist`): stream successor-index rows — **11.2953x** (`br-r37-c1-f43b5`)
+
+NEGATIVE-LEDGER / ROBOT-TRIAGE FIRST: `bv --robot-triage` ranked an occupied
+no-gaps umbrella plus namespace work, while its shortest-path quick win retains
+explicit certificate holes and its MultiGraph sibling requires a broad storage
+epoch. The ledger marks the broad read/write sweep as parity/win, but its latest
+undirected adjacency-list keep explicitly left the directed serializer out of
+scope. A source audit found that sibling still uses the former owned row
+representation, making it a bounded fresh residual rather than reopening the
+byte-sensitive GML/GraphML surfaces.
+
+PROFILE / ATTRIBUTION FIRST: `write_digraph_adjlist` first materialized all node
+references, then allocated a successor vector and an owned token vector for
+each node. It cloned every node and successor name, joined each row into a new
+String retained in a line vector, then copied every completed line through a
+final join. On the selected 4,096-node / 16,385-edge fixture this structurally
+means 20,481 name clones, 4,096 token vectors, 4,096 line strings, up to 4,096
+successor vectors, the outer node/line vectors, and a final full-output copy.
+The authoritative integer successor rows already preserve the same insertion
+order without name hashing or intermediate ownership. Opportunity score:
+impact 3 x confidence 5 / effort 1 = 15.
+
+ONE LEVER: walk node and successor indices in insertion order and append their
+borrowed names directly to one pre-sized String. Dispatch, policy evidence,
+node order, successor order, directionality, self-loops, isolates, single-space
+separators, and the no-trailing-newline contract remain unchanged. Undirected
+serialization and all escaping/attribute-bearing formats remain out of scope.
+
+ONE FOREGROUND A/B + NULL: one strict-remote ordinary `--profile release`
+invocation on worker `vmi1149989` (job `j-29928833041828582`) used a
+4,096-node / 16,385-edge deterministic directed graph, four serializations per
+sample, three warmups, and 15 alternating-order rounds:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen owned rows vs successor-index stream | `3,399,239 ns / 300,943 ns` | **`11.2953x`** | **`15/15`** | byte-exact |
+| successor-index stream / same stream null | `314,624 ns / 320,432 ns` | `0.9819x` | `6/15` | identical arm |
+
+The real arm wins every pair and remains about `11.09x` after conservatively
+dividing by the full 1.84% null-position skew. The timed test completed in 0.09
+seconds. RCH reported a cache miss; its pipeline took 80.9 seconds (33.3 seconds
+sync, 45.2 seconds remote build/execution, and 2.4 seconds artifact retrieval;
+88.3 seconds wrapper elapsed). That routing overhead is not benchmark evidence,
+and no retry or `release-perf` command ran.
+
+CORRECTNESS / GATES: the same-binary harness compares byte output against a
+frozen copy of the former owned-row path for empty input, a nonlexical directed
+fixture with a self-loop and isolate, and the complete timed graph.
+An ordinary unit test freezes the exact directed boundary output. Direct
+rustfmt and `git diff --check` passed before measurement. Targeted UBS completed
+with zero critical findings; its warnings were the committed file-wide
+`expect`/assert, clone, direct-index, and allocation inventories. The release
+test compiled the changed crate and passed. The only Cargo command was
+fail-closed with `RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`, and direct
+`rch --no-self-healing exec -- cargo ...`; no local fallback ran.
+
+RESULT: SHIP. Preserve insertion-index node and successor order, directed edge
+orientation, self-loop emission, isolates, single spaces, and the no-trailing-
+newline contract. Keep undirected and escaping/attribute-bearing formats out of
+this lever.
