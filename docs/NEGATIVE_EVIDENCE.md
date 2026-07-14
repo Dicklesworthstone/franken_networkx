@@ -19142,3 +19142,65 @@ RESULT: SHIP. Preserve the `__next__` gate, per-yield trailing-dict snapshot,
 original-object graph/copy arms, single exhaustion, and public displayed-key
 parity. DiGraph and MultiDiGraph iterator constructors remain a separately
 tracked follow-up rather than widening this one-lever commit.
+
+## 2026-07-13 CrimsonHorizon REJECT (`MultiDiGraph(<true iterator>)`): broad drain wins plain/attrs but regresses keyed 23.7% (`br-r37-c1-2fxqr`)
+
+NEGATIVE-LEDGER FIRST: the frozen constructor report at
+`tests/artifacts/perf/20260710T-ctorgen-multi-cc/report.md` isolates true
+iterators as a live MultiDiGraph loss: plain, attributed, and explicitly keyed
+rows measured only `0.472x`, `0.431x`, and `0.319x` NetworkX while the list
+guard measured `1.170x`. MultiDiGraph still sent a true iterator through the
+per-edge `add_edge` fallback, unlike DiGraph's already-batched streaming
+fallback. The shipped MultiGraph twin made this a high-confidence candidate:
+impact 5 x confidence 5 / effort 2 = 12.5.
+
+ONE LEVER: after native graph-instance detection, drain a `__next__` carrier
+once through the existing snapshot-safe `materialize_iterator_edge_list` and
+pass the resulting list only to MultiDiGraph's two constructor batches and its
+fallback iterator. Graph/copy arms continued to receive the original object.
+The helper copied each trailing exact dict at yield time, preserving a reused
+mutable attribute dict for `(u, v, attrs)` and `(u, v, key, attrs)` shapes.
+
+NULL FIRST: before the production routing edit, one release binary on strict
+remote worker `vmi1227854` compared the true iterator with an otherwise
+identical reiterable object. Both arms therefore executed the frozen streaming
+fallback. Each row used 20,000 directed edges, three warmups, and 31 alternating
+pairs:
+
+| pre-change A/A row (>1 = true-iterator-shaped arm faster) | median | wins | p5-p95 |
+|---|---:|---:|---:|
+| plain vs streaming | `0.9811x` | `14/31` | `[0.7749, 1.2418]` |
+| plain null | `1.0085x` | `16/31` | `[0.8721, 1.1359]` |
+| attrs vs streaming | `1.0200x` | `18/31` | `[0.8936, 1.2393]` |
+| attrs null | `1.0146x` | `20/31` | `[0.8949, 1.1512]` |
+| keyed attrs vs streaming | `1.0011x` | `16/31` | `[0.8191, 1.1706]` |
+| keyed attrs null | `0.9989x` | `15/31` | `[0.8596, 1.1472]` |
+
+FOREGROUND MEDIAN GATE: the production candidate and frozen streaming fallback
+then ran inside one new release binary on the same worker. Plain and attributed
+inputs improved decisively, but explicitly keyed input regressed in every pair:
+
+| candidate row (>1 = drain + list batch faster) | median | wins | p5-p95 |
+|---|---:|---:|---:|
+| plain vs streaming | `1.5350x` | `31/31` | `[1.3629, 1.7726]` |
+| plain null | `1.0315x` | `22/31` | `[0.8234, 1.2480]` |
+| attrs vs streaming | `1.4471x` | `31/31` | `[1.1171, 1.7158]` |
+| attrs null | `0.9914x` | `14/31` | `[0.7904, 1.4079]` |
+| keyed attrs vs streaming | **`0.7633x`** | **`0/31`** | `[0.5964, 0.8863]` |
+| keyed attrs null | `0.9997x` | `15/31` | `[0.8322, 1.1258]` |
+
+CORRECTNESS / PROOF: the regular test and ignored A/B test both passed (`2/2`).
+The oracle covered plain, shared-mutable-dict attributed, and explicit string-key
+shapes with parallel, reverse, and self-loop edges. It compared exact inner
+snapshots, displayed node objects, successor/predecessor row keys, public edge
+keys, public materialized attrs, and single iterator exhaustion. Both Cargo
+runs used `RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`, and
+`rch --no-self-healing exec`; no local Cargo fallback ran.
+
+RESULT: REJECT and fully revert the Rust/test hunk. A broad true-iterator drain
+cannot ship because it silently selects the slower keyed-list collector for
+`(u, v, key, attrs)`. Do not retry this all-shape route unchanged. A future
+candidate must either improve the keyed constructor batch itself or discriminate
+keyed tuples without exhausting or copying the iterator before preserving the
+streaming fallback. Plain/attributed wins are routing evidence only, not a
+partial ship hidden behind an unproved shape peek.
