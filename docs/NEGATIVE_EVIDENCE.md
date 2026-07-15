@@ -22230,3 +22230,72 @@ ordinary `--profile release`, with no local fallback or `release-perf` build.
 RESULT: SHIP. Keep the undirected finite-negative-edge equivalence scan;
 `negative_edge_cycle` no longer constructs shortest-path state for a Boolean
 property determined directly by stored edge signs.
+
+## 2026-07-15 HazyOtter SHIP (`aux_max_flow`): cache sorted residual topology — **1.6499x** (`br-r37-c1-sixrd`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: `bv --robot-triage` found the
+top broad perf directive and weighted-MultiGraph repair already owned. The
+remaining unassigned perf beads were stale, subsequently shipped, explicitly
+rejected, or architectural; recent link-prediction, distance, traversal,
+clique, and triangle veins were also mined. This pass therefore rotated to the
+fresh node-connectivity max-flow core. An existing representative profile put
+`0.668s / 0.679s` (98.4%) of a 400-node regular-graph global-connectivity query
+inside native `_fnx.node_connectivity`. Within that boundary, `aux_max_flow`
+cloned every residual neighbor name and sorted the owned vector for every
+dequeued vertex on every Edmonds-Karp augmentation, although capacities—not
+topology—normally change. Mandatory work is the residual-capacity scan;
+avoidable work scales as augmentations x visited vertices x neighbor cloning
+and sorting. Residual construction is once per template and cut extraction is
+once per query, so this repeated BFS work was the highest-amplification seam.
+
+ONE LEVER: materialize each residual node's exact lexicographically sorted
+neighbor sequence once per max-flow call and reuse it across augmenting BFS
+rounds. If a caller omitted a reverse residual key, the capacity update inserts
+that key into the sorted cache at exactly the same point the former kernel
+inserted it into the residual map. Traversal order, capacity arithmetic, flow
+choice, and complexity-witness counters are therefore unchanged. A const-generic
+test-only instantiation freezes the former clone-and-sort-per-dequeue kernel as
+the parity and same-binary A/B oracle.
+
+COLD-TARGET WARM-UP: the first strict-remote compile on `vmi1149989` exposed
+one owned type-inference error before a test ran; it was fixed narrowly. The
+successful untimed ordinary-release correctness run then passed `1/1` on
+`vmi1153651` (job `j-29928833041829196`). Its RCH cache miss spent 6m42s
+building; the exact parity test itself finished in `0.00s`. No timeout, local
+fallback, or `release-perf` command ran, and build time is not benchmark
+evidence.
+
+ONE FOREGROUND ORDINARY-RELEASE A/B + NULL: the measurement stayed on
+`vmi1153651` and the identical worker-scoped target path (job
+`j-29928833041829208`), but RCH unexpectedly reported another cache miss and
+spent 8m09s rebuilding. That infrastructure time is excluded; only the
+`0.55s` in-process test is evidence. A fixed K(36,36) residual exposes 36
+augmentations between two nodes on the same side. The test used three warmups
+and 15 alternating-order pairs:
+
+| same-binary arm | median ratio | wins | p5-p95 | parity |
+|---|---:|---:|---:|---:|
+| frozen rebuilt neighbors vs cached topology | **`1.6499x`** | **`15/15`** | `1.3943x-1.8786x` | exact |
+| cached topology / cached topology null | `1.0188x` | `10/15` | `0.8323x-1.4869x` | identical arm |
+
+The candidate won every pair; its median is 1.62 times the null median and its
+slowest reported ratio remained 1.394x, so the keep decision clears the
+identical-arm positional floor despite the noisy null p95 outlier.
+
+CORRECTNESS / GATES: the strict-remote parity test covered both the normal
+pre-seeded reverse topology and a deliberately sparse residual whose reverse
+keys appear only during augmentation. It required exact `f64::to_bits()` flow,
+final nested residual-map equality, and exact `(nodes_touched, edges_scanned,
+queue_peak)` stats. The same-binary A/B repeated flow/stat parity on K(36,36).
+Both Cargo commands were fail-closed with `RCH_REQUIRE_REMOTE=1` and
+`RCH_NO_SELF_HEALING=1`, used ordinary `--profile release`, and ran in the
+foreground. `git diff --check` passed. Fail-closed RCH correctly refused
+`cargo fmt --check` as a non-compilation command (`RCH-E301`); direct read-only
+`rustfmt --check` exposed broad pre-existing file drift and one owned-range
+suggestion, which was applied. Staged UBS (`--skip=8`) exited zero with no
+critical finding; its shadow-workspace format, clippy, check, and test-build
+gates were clean. The only remote compiler warning was the known pre-existing
+unused `directed` test variable outside this lever.
+
+RESULT: SHIP. Keep the per-flow sorted topology cache; repeated Edmonds-Karp
+BFS rounds no longer reallocate and resort immutable residual neighbor names.

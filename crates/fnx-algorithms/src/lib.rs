@@ -16690,12 +16690,30 @@ pub fn graph_clique_number(graph: &Graph) -> GraphCliqueNumberResult {
 
 /// Edmonds-Karp max-flow on a HashMap-based auxiliary directed graph.
 /// Returns (flow_value, residual).
-fn aux_max_flow(
+fn aux_max_flow_impl<const CACHE_SORTED_NEIGHBORS: bool>(
     residual: &mut HashMap<String, HashMap<String, f64>>,
     source: &str,
     sink: &str,
     stats: &mut (usize, usize, usize),
 ) -> f64 {
+    // br-r37-c1-sixrd: residual capacities change after each augmentation, but
+    // the topology almost never does. Cache the exact lexicographically sorted
+    // neighbor sequence once instead of cloning and sorting every dequeued
+    // node's keys in every BFS. If a caller omitted an initial reverse edge,
+    // the update path inserts it into both maps at the same moment, preserving
+    // the former traversal order and edges_scanned witness exactly.
+    let mut sorted_neighbors: HashMap<String, Vec<String>> = if CACHE_SORTED_NEIGHBORS {
+        residual
+            .iter()
+            .map(|(node, capacities)| {
+                let mut neighbors: Vec<String> = capacities.keys().cloned().collect();
+                neighbors.sort_unstable();
+                (node.clone(), neighbors)
+            })
+            .collect()
+    } else {
+        HashMap::new()
+    };
     let mut total_flow = 0.0_f64;
     loop {
         let mut predecessor: HashMap<String, String> = HashMap::new();
@@ -16707,19 +16725,28 @@ fn aux_max_flow(
         stats.2 = stats.2.max(queue.len());
         let mut reached_sink = false;
         while let Some(current) = queue.pop_front() {
-            let mut neighbors: Vec<String> = residual
-                .get(&current)
-                .map(|caps| caps.keys().cloned().collect())
-                .unwrap_or_default();
-            neighbors.sort_unstable();
+            let mut rebuilt_neighbors: Vec<String>;
+            let neighbors: &[String] = if CACHE_SORTED_NEIGHBORS {
+                sorted_neighbors
+                    .get(&current)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default()
+            } else {
+                rebuilt_neighbors = residual
+                    .get(&current)
+                    .map(|caps| caps.keys().cloned().collect())
+                    .unwrap_or_default();
+                rebuilt_neighbors.sort_unstable();
+                &rebuilt_neighbors
+            };
             for neighbor in neighbors {
                 stats.1 += 1;
-                if visited.contains(&neighbor) {
+                if visited.contains(neighbor) {
                     continue;
                 }
                 let cap = residual
                     .get(&current)
-                    .and_then(|caps| caps.get(&neighbor))
+                    .and_then(|caps| caps.get(neighbor))
                     .copied()
                     .unwrap_or(0.0);
                 if cap <= 0.0 {
@@ -16732,7 +16759,7 @@ fn aux_max_flow(
                     reached_sink = true;
                     break;
                 }
-                queue.push_back(neighbor);
+                queue.push_back(neighbor.clone());
                 stats.2 = stats.2.max(queue.len());
             }
             if reached_sink {
@@ -16774,16 +16801,25 @@ fn aux_max_flow(
             }
 
             // Reverse edge update
-            if let Some(reverse_caps) = residual.get_mut(&cursor) {
+            let inserted_reverse = if let Some(reverse_caps) = residual.get_mut(&cursor) {
                 if let Some(cap) = reverse_caps.get_mut(&prev) {
                     *cap += bottleneck;
+                    false
                 } else {
                     reverse_caps.insert(prev.clone(), bottleneck);
+                    true
                 }
             } else {
                 let mut new_map = HashMap::new();
                 new_map.insert(prev.clone(), bottleneck);
                 residual.insert(cursor.clone(), new_map);
+                true
+            };
+            if CACHE_SORTED_NEIGHBORS && inserted_reverse {
+                let neighbors = sorted_neighbors.entry(cursor.clone()).or_default();
+                if let Err(position) = neighbors.binary_search(&prev) {
+                    neighbors.insert(position, prev.clone());
+                }
             }
 
             cursor = prev;
@@ -16791,6 +16827,26 @@ fn aux_max_flow(
         total_flow += bottleneck;
     }
     total_flow
+}
+
+fn aux_max_flow(
+    residual: &mut HashMap<String, HashMap<String, f64>>,
+    source: &str,
+    sink: &str,
+    stats: &mut (usize, usize, usize),
+) -> f64 {
+    aux_max_flow_impl::<true>(residual, source, sink, stats)
+}
+
+/// Frozen pre-`br-r37-c1-sixrd` max-flow kernel for parity and same-binary A/B.
+#[cfg(test)]
+fn aux_max_flow_rebuild_neighbors(
+    residual: &mut HashMap<String, HashMap<String, f64>>,
+    source: &str,
+    sink: &str,
+    stats: &mut (usize, usize, usize),
+) -> f64 {
+    aux_max_flow_impl::<false>(residual, source, sink, stats)
 }
 
 /// Build auxiliary directed graph for node connectivity:
@@ -70868,6 +70924,150 @@ mod tests {
 
         assert_eq!(super::global_node_connectivity(&g).value, 1);
         assert_eq!(super::global_minimum_node_cut(&g).cut_nodes, vec!["d"]);
+    }
+
+    fn node_connectivity_complete_bipartite(left: usize, right: usize) -> Graph {
+        let mut graph = Graph::strict();
+        for index in 0..left {
+            graph.add_node(format!("left_{index:03}"));
+        }
+        for index in 0..right {
+            graph.add_node(format!("right_{index:03}"));
+        }
+        for left_index in 0..left {
+            for right_index in 0..right {
+                graph
+                    .add_edge(
+                        format!("left_{left_index:03}"),
+                        format!("right_{right_index:03}"),
+                    )
+                    .unwrap();
+            }
+        }
+        graph
+    }
+
+    #[test]
+    fn aux_max_flow_sorted_topology_matches_rebuilt_neighbors() {
+        fn assert_flow_parity(
+            residual: HashMap<String, HashMap<String, f64>>,
+            source: &str,
+            sink: &str,
+        ) {
+            let mut frozen_residual = residual.clone();
+            let mut candidate_residual = residual;
+            let mut frozen_stats = (0, 0, 0);
+            let mut candidate_stats = (0, 0, 0);
+            let frozen = super::aux_max_flow_rebuild_neighbors(
+                &mut frozen_residual,
+                source,
+                sink,
+                &mut frozen_stats,
+            );
+            let candidate =
+                super::aux_max_flow(&mut candidate_residual, source, sink, &mut candidate_stats);
+            assert_eq!(candidate.to_bits(), frozen.to_bits());
+            assert_eq!(candidate_stats, frozen_stats);
+            assert_eq!(candidate_residual, frozen_residual);
+        }
+
+        let graph = node_connectivity_complete_bipartite(8, 8);
+        assert_flow_parity(
+            super::build_node_split_auxiliary(&graph),
+            "left_000_out",
+            "left_001_in",
+        );
+
+        // Exercise the rare topology-growth branch: the initial residual omits
+        // reverse keys, so both kernels discover them only after augmentation.
+        let mut residual = HashMap::<String, HashMap<String, f64>>::new();
+        residual
+            .entry("a".to_owned())
+            .or_default()
+            .insert("b".to_owned(), 1.0);
+        residual
+            .entry("b".to_owned())
+            .or_default()
+            .insert("c".to_owned(), 1.0);
+        residual.entry("c".to_owned()).or_default();
+        assert_flow_parity(residual, "a", "c");
+    }
+
+    /// `br-r37-c1-sixrd`: same-binary A/B of the residual Edmonds-Karp
+    /// kernel. K(36,36) exposes 36 augmentations between two nodes on the same
+    /// side, amplifying the former clone+sort per dequeued residual vertex.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn aux_max_flow_sorted_topology_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let graph = node_connectivity_complete_bipartite(36, 36);
+        let template = super::build_node_split_auxiliary(&graph);
+        let source = "left_000_out";
+        let sink = "left_001_in";
+
+        let run = |cached: bool| -> (f64, f64, (usize, usize, usize)) {
+            let mut residual = template.clone();
+            let mut stats = (0, 0, 0);
+            let start = Instant::now();
+            let flow = if cached {
+                super::aux_max_flow(
+                    black_box(&mut residual),
+                    source,
+                    sink,
+                    black_box(&mut stats),
+                )
+            } else {
+                super::aux_max_flow_rebuild_neighbors(
+                    black_box(&mut residual),
+                    source,
+                    sink,
+                    black_box(&mut stats),
+                )
+            };
+            black_box(&residual);
+            (start.elapsed().as_secs_f64(), flow, stats)
+        };
+
+        let frozen = run(false);
+        let candidate = run(true);
+        assert_eq!(candidate.1.to_bits(), frozen.1.to_bits());
+        assert_eq!(candidate.2, frozen.2);
+        assert_eq!(candidate.1 as usize, 36);
+        for _ in 0..3 {
+            black_box(run(false));
+            black_box(run(true));
+        }
+
+        let rounds = 15_usize;
+        let paired = |baseline_cached: bool, contender_cached: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline, contender) = if round.is_multiple_of(2) {
+                    (run(baseline_cached).0, run(contender_cached).0)
+                } else {
+                    let contender = run(contender_cached).0;
+                    (run(baseline_cached).0, contender)
+                };
+                ratios.push(baseline / contender);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "AUX_MAX_FLOW_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("AUX_MAX_FLOW_AB complete_bipartite_36x36 flow=36 rounds={rounds}");
+        report("CACHED_vs_rebuilt", &paired(false, true));
+        report("NULL_cached_vs_cached", &paired(true, true));
     }
 
     /// br-r37-c1-r7e4g: full-function A/B for the neighbor-pair adjacency
