@@ -42939,6 +42939,52 @@ pub fn attribute_mixing_dict(
     mixing
 }
 
+fn attribute_assortativity_matrix_square_sum(e: &[Vec<f64>]) -> f64 {
+    // br-r37-c1-ff5wy: `e` is a nonnegative normalized count matrix. The old
+    // dense product visited every (i, j, m) triple even though categorical
+    // mixing matrices are commonly sparse. Preserve the exact i/j/m fold
+    // order, but omit terms where either factor is +0.0; adding those terms is
+    // bit-neutral, while the remaining products retain their original order.
+    let nonzero_by_row = e
+        .iter()
+        .map(|row| {
+            row.iter()
+                .enumerate()
+                .filter_map(|(index, &value)| (value != 0.0).then_some(index))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
+    let mut sum = 0.0;
+    for (i, nonzero_m) in nonzero_by_row.iter().enumerate() {
+        for j in 0..e.len() {
+            let mut dot = 0.0;
+            for &m in nonzero_m {
+                if e[m][j] != 0.0 {
+                    dot += e[i][m] * e[m][j];
+                }
+            }
+            sum += dot;
+        }
+    }
+    sum
+}
+
+#[cfg(test)]
+fn attribute_assortativity_matrix_square_sum_orig(e: &[Vec<f64>]) -> f64 {
+    let mut sum = 0.0;
+    for i in 0..e.len() {
+        for j in 0..e.len() {
+            let mut dot = 0.0;
+            for m in 0..e.len() {
+                dot += e[i][m] * e[m][j];
+            }
+            sum += dot;
+        }
+    }
+    sum
+}
+
 // ---------------------------------------------------------------------------
 // Attribute assortativity coefficient
 // ---------------------------------------------------------------------------
@@ -42984,17 +43030,7 @@ pub fn attribute_assortativity(graph: &Graph, attribute: &str) -> f64 {
     // Compute assortativity r = (tr(e) - sum(e@e)) / (1 - sum(e@e))
     // per Newman (2003) Eq. (2)
     let trace: f64 = (0..k).map(|i| e[i][i]).sum();
-    // Compute sum of all elements of e@e (matrix product)
-    let mut e_sq_sum: f64 = 0.0;
-    for i in 0..k {
-        for j in 0..k {
-            let mut dot = 0.0;
-            for m in 0..k {
-                dot += e[i][m] * e[m][j];
-            }
-            e_sq_sum += dot;
-        }
-    }
+    let e_sq_sum = attribute_assortativity_matrix_square_sum(&e);
 
     let denom = 1.0 - e_sq_sum;
     if denom.abs() < ASSORTATIVITY_EPSILON {
@@ -53373,6 +53409,167 @@ mod tests {
         println!("ATTRMIXBORROW_AB attribute_mixing_dict 10k/400k rounds={rounds} (>1 = borrowed faster)");
         report("BORROWED_vs_owned", &paired(true, false));
         report("NULL_borrowed_vs_borrowed", &paired(true, true));
+    }
+
+    #[test]
+    fn attribute_assortativity_sparse_reduction_preserves_exact_fold() {
+        fn assert_exact(matrix: &[Vec<f64>]) {
+            let baseline = super::attribute_assortativity_matrix_square_sum_orig(matrix);
+            let candidate = super::attribute_assortativity_matrix_square_sum(matrix);
+            assert_eq!(
+                candidate.to_bits(),
+                baseline.to_bits(),
+                "zero-term elision must preserve the dense fold exactly"
+            );
+        }
+
+        assert_exact(&[]);
+        assert_exact(&[vec![0.0]]);
+        assert_exact(&[
+            vec![0.25, 0.0, 0.0],
+            vec![0.0, 0.5, 0.0],
+            vec![0.0, 0.0, 0.25],
+        ]);
+
+        let sparse_size = 17usize;
+        let mut sparse = vec![vec![0.0; sparse_size]; sparse_size];
+        for row in 0..sparse_size {
+            sparse[row][row] = (row + 1) as f64 / 10_000.0;
+            sparse[row][(row * 7 + 3) % sparse_size] = (row + 2) as f64 / 20_000.0;
+        }
+        assert_exact(&sparse);
+
+        let dense_size = 11usize;
+        let dense = (0..dense_size)
+            .map(|row| {
+                (0..dense_size)
+                    .map(|column| ((row * 17 + column * 13) % 23 + 1) as f64 / 10_000.0)
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        assert_exact(&dense);
+    }
+
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn attribute_assortativity_sparse_reduction_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        fn elapsed_ns<F>(mut run: F) -> u128
+        where
+            F: FnMut(),
+        {
+            let started = Instant::now();
+            run();
+            started.elapsed().as_nanos()
+        }
+
+        let category_count = 384usize;
+        let mut matrix = vec![vec![0.0; category_count]; category_count];
+        let unit = 1.0 / (2 * category_count) as f64;
+        for row in 0..category_count {
+            let next = (row + 1) % category_count;
+            matrix[row][next] = unit;
+            matrix[next][row] = unit;
+        }
+
+        let expected = super::attribute_assortativity_matrix_square_sum_orig(&matrix);
+        let actual = super::attribute_assortativity_matrix_square_sum(&matrix);
+        assert_eq!(actual.to_bits(), expected.to_bits());
+
+        for _ in 0..3 {
+            black_box(super::attribute_assortativity_matrix_square_sum_orig(
+                black_box(&matrix),
+            ));
+            black_box(super::attribute_assortativity_matrix_square_sum(black_box(
+                &matrix,
+            )));
+        }
+
+        let rounds = 15usize;
+        let mut baseline_ns = Vec::with_capacity(rounds);
+        let mut candidate_ns = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            if round.is_multiple_of(2) {
+                baseline_ns.push(elapsed_ns(|| {
+                    black_box(super::attribute_assortativity_matrix_square_sum_orig(
+                        black_box(&matrix),
+                    ));
+                }));
+                candidate_ns.push(elapsed_ns(|| {
+                    black_box(super::attribute_assortativity_matrix_square_sum(black_box(
+                        &matrix,
+                    )));
+                }));
+            } else {
+                candidate_ns.push(elapsed_ns(|| {
+                    black_box(super::attribute_assortativity_matrix_square_sum(black_box(
+                        &matrix,
+                    )));
+                }));
+                baseline_ns.push(elapsed_ns(|| {
+                    black_box(super::attribute_assortativity_matrix_square_sum_orig(
+                        black_box(&matrix),
+                    ));
+                }));
+            }
+        }
+
+        let mut null_first_ns = Vec::with_capacity(rounds);
+        let mut null_second_ns = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            if round.is_multiple_of(2) {
+                null_first_ns.push(elapsed_ns(|| {
+                    black_box(super::attribute_assortativity_matrix_square_sum(black_box(
+                        &matrix,
+                    )));
+                }));
+                null_second_ns.push(elapsed_ns(|| {
+                    black_box(super::attribute_assortativity_matrix_square_sum(black_box(
+                        &matrix,
+                    )));
+                }));
+            } else {
+                null_second_ns.push(elapsed_ns(|| {
+                    black_box(super::attribute_assortativity_matrix_square_sum(black_box(
+                        &matrix,
+                    )));
+                }));
+                null_first_ns.push(elapsed_ns(|| {
+                    black_box(super::attribute_assortativity_matrix_square_sum(black_box(
+                        &matrix,
+                    )));
+                }));
+            }
+        }
+
+        let baseline_median_ns = median(&baseline_ns);
+        let candidate_median_ns = median(&candidate_ns);
+        let null_first_median_ns = median(&null_first_ns);
+        let null_second_median_ns = median(&null_second_ns);
+        let paired_wins = baseline_ns
+            .iter()
+            .zip(&candidate_ns)
+            .filter(|(baseline, candidate)| baseline > candidate)
+            .count();
+        println!(
+            "ATTRIBUTE_ASSORTATIVITY_SPARSE_REDUCTION_AB categories={category_count} \
+             nonzeros={} rounds={rounds} baseline_median_ns={baseline_median_ns} \
+             candidate_median_ns={candidate_median_ns} speedup={:.4}x \
+             paired_wins={paired_wins}/{rounds} null_first_median_ns={null_first_median_ns} \
+             null_second_median_ns={null_second_median_ns} null_ratio={:.4}x \
+             exact_bit_parity=true",
+            2 * category_count,
+            baseline_median_ns as f64 / candidate_median_ns as f64,
+            null_first_median_ns as f64 / null_second_median_ns as f64,
+        );
     }
 
     /// br-r37-c1-numassortborrow: paired-interleaved median A/B for `numeric_assortativity_coefficient`'s

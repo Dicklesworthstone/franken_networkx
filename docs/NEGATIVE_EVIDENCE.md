@@ -22048,3 +22048,63 @@ timing used ordinary `--profile release`, with no local fallback and no
 
 RESULT: SHIP. Keep the exact heap-ordered tree-broadcast frontier; it removes
 the quadratic residual scan while preserving the public time and center list.
+
+## 2026-07-14 HazyOtter SHIP (`attribute_assortativity` reducer): exact sparse matrix-square fold — **74.179x** (`br-r37-c1-ff5wy`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: `bv --robot-triage` ranked the
+weighted-MultiGraph certificate repair as the top perf quick win, but that bead
+is owned by `cod_nx` and explicitly requires a multi-path correctness repair,
+so it was not an admissible one-lever lane. This pass rotated to categorical
+assortativity. After mixing-matrix construction, the residual
+`sum(elements(e @ e))` reducer visited every `(i, j, m)` triple. On the fixed
+384-category sparse ring matrix that is 56,623,104 multiply-add probes even
+though only 768 matrix entries are nonzero. The trace, normalized matrix, and
+final coefficient arithmetic remain outside this lever. Opportunity score:
+impact 5 x confidence 5 / effort 1 = 25.
+
+ONE LEVER: pre-index nonzero columns in each matrix row, then keep the original
+`i`, `j`, and ascending `m` fold order while omitting products for which either
+nonnegative normalized factor is `+0.0`. Those omitted products and additions
+are bit-neutral; every nonzero multiplication and accumulation remains in its
+former order. Sparse work becomes `O(k * nnz)` instead of unconditional
+`O(k^3)`, while dense matrices retain the same arithmetic. A frozen test-only
+copy of the former dense product is the exact A/B oracle.
+
+COLD-TARGET WARM-UP: one untimed fail-closed ordinary-release correctness run
+passed `1/1` on `vmi1227854` (job `j-29928833041829063`). Its remote cache miss
+took 4m09s to build; the focused test itself completed immediately. It covered
+empty, all-zero, diagonal, irregular sparse, and dense matrices with exact
+`f64::to_bits()` parity. No timeout, local fallback, or `release-perf` command
+ran, and build time is not benchmark evidence.
+
+ONE FOREGROUND ORDINARY-RELEASE A/B + NULL: the sole measurement stayed on
+`vmi1227854` and the same worker-scoped target path (job
+`j-29928833041829075`). RCH nevertheless reported another cache miss and spent
+4m10s rebuilding before process start; only the 0.98-second in-process test is
+evidence. The fixed 384 x 384 normalized matrix had 768 nonzeros, one reducer
+call per sample, three warmups, and 15 alternating-order pairs:
+
+| same-binary reducer arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen cubic fold vs sparse exact fold | `52,574,331 ns / 708,752 ns` | **`74.179x`** | **`15/15`** | exact bits |
+| sparse fold / sparse fold null | `727,239 ns / 716,023 ns` | `1.016x` | identical arm | exact |
+
+The candidate/null positional skew is approximately 1.6%, leaving the reducer
+keep decision far outside measurement noise. This row intentionally claims the
+matrix-square reducer speedup only; it does not claim an unmeasured public-call
+ratio for graphs whose mixing-matrix construction may dominate.
+
+CORRECTNESS / GATES: the focused strict-remote ordinary-release test and the
+same-binary benchmark both passed exact-bit parity. `git diff --check` passed,
+and direct rustfmt reported no suggestion in the owned ranges; remaining
+whole-file drift is pre-existing. Staged-only UBS, with the repository's
+established noisy Rust category 8 excluded, found zero critical issues. The
+compiler emitted only the known pre-existing unused `directed` test-variable
+warning at `crates/fnx-algorithms/src/lib.rs:55775`, outside this lever. Every Cargo
+command used fail-closed `RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`;
+timing used ordinary `--profile release`, with no local fallback and no
+`release-perf` build.
+
+RESULT: SHIP. Keep exact zero-term elision in categorical assortativity's
+matrix-square reducer; sparse high-cardinality mixing no longer pays the cubic
+dense product while the coefficient's floating-point fold remains bit-identical.
