@@ -21692,3 +21692,58 @@ fallback and no `release-perf` build.
 RESULT: SHIP. Keep the single stored-edge attribute pass: it preserves predicate
 semantics and exact checksums while eliminating duplicate undirected-edge visits,
 endpoint-name resolution, and edge-map reprobes from the full-scan hot path.
+
+## 2026-07-14 HazyOtter SHIP (`degree_histogram`): one compact-index adjacency pass (`br-r37-c1-qpbuf`)
+
+NEGATIVE-LEDGER-FIRST / ATTRIBUTION: `bv --robot-triage` found no narrow unowned
+ready perf bead; the broad perf directive and weighted-shortest-path residual were
+already assigned. The June 22 broad upstream sweep recorded `degree_histogram` at
+`0.97x`, but did not isolate its native storage path. Current source attribution
+showed a fresh primitive-level seam: the full path materialized every node name,
+walked all nodes once to find the maximum degree, then walked them again to fill
+the histogram. Both passes called `Graph::neighbor_count`, paying exactly `2N`
+name-to-index hashes and `2N` row lookups. Histogram bucket counts do not observe
+node order, and compact node index `i` maps directly to adjacency row `i`.
+
+ONE LEVER: scan `0..graph.node_count()` once, read each indexed adjacency-row
+length, grow the histogram only when a new maximum appears, and increment that
+bucket immediately. This removes node-name materialization, all `2N` hashes, and
+the duplicate row pass without changing the current degree definition. Empty
+graphs still return an empty vector; bucket order, integer arithmetic, graph
+state, RNG state, and public signatures are unchanged.
+
+ONE FOREGROUND ORDINARY-RELEASE A/B: the Criterion benchmark froze the exact old
+two-pass name route, asserted its output equal to production before timing, and
+measured a deterministic 4,096-node connected low-diameter graph. Each of the
+three same-binary arms used a 0.2-second warm-up, 1-second measurement time, and
+20 samples.
+
+| same-binary Criterion arm | time estimate (95% interval) | ratio | parity |
+|---|---:|---:|---:|
+| frozen name/two-pass | `79.279 us` (`75.371..83.779`) | baseline | exact vector |
+| compact-index/one-pass | `3.5569 us` (`3.3233..3.9202`) | **`22.2888x`** | exact vector |
+| compact-index null | `3.8538 us` (`3.4722..4.2957`) | null / candidate `1.0835x` | exact vector |
+
+RCH / TIMING NOTE: the untimed cold release-bench build succeeded on
+`vmi1227854` (job `j-29928833041828874`). RCH routed the foreground measurement
+to `vmi1149989` (job `j-29928833041828884`) and rebuilt there without a timeout;
+Cargo time was outside Criterion's clocks. After the requested three filtered
+arms completed, pre-existing ASPL/closeness/harmonic side probes in the shared
+benchmark binary also ran despite Criterion's filter. They are not evidence for
+this lever; the whole remote command still returned normally below five minutes.
+
+CORRECTNESS / GATES: the three focused strict-remote unit tests passed `3/3` on
+`vmi1149989` (job `j-29928833041828875`). The owned benchmark file is rustfmt
+clean, the owned diff passed `git diff --check`, and targeted UBS reported zero
+critical findings after excluding its established noisy Rust lexical category 8.
+Whole-file `lib.rs` rustfmt remains blocked by extensive pre-existing formatting
+drift outside this hunk. Scoped clippy reached the dependency graph but stopped
+on the pre-existing `collapsible_if` finding in untouched
+`crates/fnx-classes/src/lib.rs:1700`; that unowned lint was not changed. Every
+Cargo command used fail-closed `RCH_REQUIRE_REMOTE=1`,
+`RCH_NO_SELF_HEALING=1`; timing used ordinary `--profile release`, with no local
+fallback and no `release-perf` build.
+
+RESULT: SHIP. Keep the compact-index single pass: exact histogram parity holds,
+the measured speedup clears the candidate-null spread by a wide margin, and the
+native full-scan path no longer pays for names or a second traversal.

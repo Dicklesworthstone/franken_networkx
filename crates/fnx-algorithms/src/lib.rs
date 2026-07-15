@@ -26682,21 +26682,18 @@ pub fn graph_symmetric_difference(g1: &Graph, g2: &Graph) -> Graph {
 /// Matches `networkx.degree_histogram(G)`.
 #[must_use]
 pub fn degree_histogram(graph: &Graph) -> Vec<usize> {
-    let nodes = graph.nodes_ordered();
-    if nodes.is_empty() {
-        return Vec::new();
-    }
-
-    let max_degree = nodes
-        .iter()
-        .map(|&nd| graph.neighbor_count(nd))
-        .max()
-        .unwrap_or(0);
-
-    let mut hist = vec![0_usize; max_degree + 1];
-    for &nd in &nodes {
-        let deg = graph.neighbor_count(nd);
-        hist[deg] += 1;
+    // br-r37-c1-qpbuf: this scalar histogram does not observe node order, so
+    // avoid materializing names and hashing each name twice through
+    // `neighbor_count`. Compact node indices map one-to-one to adjacency rows.
+    let mut hist = Vec::new();
+    for node_idx in 0..graph.node_count() {
+        let degree = graph
+            .neighbors_indices(node_idx)
+            .map_or(0, |neighbors| neighbors.len());
+        if degree >= hist.len() {
+            hist.resize(degree + 1, 0);
+        }
+        hist[degree] += 1;
     }
     hist
 }

@@ -13,11 +13,11 @@ use fnx_algorithms::{
     average_shortest_path_length, average_shortest_path_length_arm, betweenness_centrality,
     closeness_centrality, closeness_centrality_arm, closeness_reverse_csr_build_cost,
     cn_soundarajan_hopcroft, common_neighbor_centrality, common_neighbors, connected_components,
-    degree_centrality, degree_mixing_dict, eigenvector_centrality, harmonic_centrality,
-    harmonic_centrality_arm, jaccard_coefficient, max_flow_edmonds_karp, minimum_cut_edmonds_karp,
-    minimum_spanning_tree, node_degree_xy, pagerank, preferential_attachment,
-    ra_index_soundarajan_hopcroft, resource_allocation_index, shortest_path_unweighted,
-    shortest_path_weighted, single_source_dijkstra_path_length,
+    degree_centrality, degree_histogram, degree_mixing_dict, eigenvector_centrality,
+    harmonic_centrality, harmonic_centrality_arm, jaccard_coefficient, max_flow_edmonds_karp,
+    minimum_cut_edmonds_karp, minimum_spanning_tree, node_degree_xy, pagerank,
+    preferential_attachment, ra_index_soundarajan_hopcroft, resource_allocation_index,
+    shortest_path_unweighted, shortest_path_weighted, single_source_dijkstra_path_length,
 };
 use fnx_classes::{Graph, digraph::DiGraph};
 use fnx_runtime::CgseValue;
@@ -373,6 +373,41 @@ fn bench_average_shortest_path_length(c: &mut Criterion) {
             b.iter(|| average_shortest_path_length(&g));
         });
     }
+    group.finish();
+}
+
+fn degree_histogram_name_two_pass(graph: &Graph) -> Vec<usize> {
+    let nodes = graph.nodes_ordered();
+    if nodes.is_empty() {
+        return Vec::new();
+    }
+    let max_degree = nodes
+        .iter()
+        .map(|&node| graph.neighbor_count(node))
+        .max()
+        .unwrap_or(0);
+    let mut histogram = vec![0_usize; max_degree + 1];
+    for &node in &nodes {
+        histogram[graph.neighbor_count(node)] += 1;
+    }
+    histogram
+}
+
+fn bench_degree_histogram_index_ab(c: &mut Criterion) {
+    let graph = build_low_diameter(4_096, 12_288);
+    let frozen = degree_histogram_name_two_pass(&graph);
+    assert_eq!(degree_histogram(&graph), frozen);
+
+    let mut group = c.benchmark_group("degree_histogram_index_ab");
+    group.bench_function("frozen_name_two_pass_n4096", |b| {
+        b.iter(|| degree_histogram_name_two_pass(&graph));
+    });
+    group.bench_function("candidate_index_one_pass_n4096", |b| {
+        b.iter(|| degree_histogram(&graph));
+    });
+    group.bench_function("candidate_index_one_pass_null_n4096", |b| {
+        b.iter(|| degree_histogram(&graph));
+    });
     group.finish();
 }
 
@@ -1091,6 +1126,7 @@ criterion_group!(
     bench_single_source_dijkstra,
     bench_connected_components,
     bench_average_shortest_path_length,
+    bench_degree_histogram_index_ab,
     bench_aspl_parallel,
     bench_degree_centrality,
     bench_closeness_centrality,
