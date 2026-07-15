@@ -46857,6 +46857,13 @@ pub fn find_asteroidal_triple(graph: &Graph) -> Option<(String, String, String)>
 /// each node represents a group of original nodes.
 #[must_use]
 pub fn snap_aggregation(graph: &Graph, node_attributes: &[String]) -> Graph {
+    snap_aggregation_impl::<true>(graph, node_attributes)
+}
+
+fn snap_aggregation_impl<const FAST_FORWARD_STABLE: bool>(
+    graph: &Graph,
+    node_attributes: &[String],
+) -> Graph {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     if n == 0 {
@@ -46892,7 +46899,8 @@ pub fn snap_aggregation(graph: &Graph, node_attributes: &[String]) -> Graph {
 
     // Iterative refinement: split groups by neighbor-group signature
     let mut changed = true;
-    for _ in 0..n {
+    let mut group_count = next_group;
+    for pass in 0..n {
         if !changed {
             break;
         }
@@ -46931,9 +46939,27 @@ pub fn snap_aggregation(graph: &Graph, node_attributes: &[String]) -> Graph {
             new_group_of[i] = new_group_id;
         }
 
+        let new_group_count = new_next - next_group;
+        // br-r37-c1-yx9iw: a refinement key contains the old group id, so a pass can
+        // split groups but can never merge them. Equal old/new group counts therefore
+        // mean that the partition is stable. The fresh ids are contiguous and assigned
+        // in first-node order on every pass; once stable, each remaining pass only adds
+        // `new_group_count` to every id. Preserve the exact ids that the former full `n`
+        // scans produced by arithmetically applying those label-only shifts.
+        if FAST_FORWARD_STABLE && new_group_count == group_count {
+            let remaining_passes = n - pass - 1;
+            let remaining_shift = new_group_count * remaining_passes;
+            for group in &mut new_group_of {
+                *group += remaining_shift;
+            }
+            group_of = new_group_of;
+            break;
+        }
+
         if changed {
             group_of = new_group_of;
             next_group = new_next;
+            group_count = new_group_count;
         }
     }
 
@@ -46964,6 +46990,13 @@ pub fn snap_aggregation(graph: &Graph, node_attributes: &[String]) -> Graph {
     }
 
     summary
+}
+
+/// br-r37-c1-yx9iw A/B baseline: the former refinement loop that rescanned all
+/// nodes on every one of its `n` passes, including label-only stable passes.
+#[cfg(test)]
+fn snap_aggregation_orig_all_passes(graph: &Graph, node_attributes: &[String]) -> Graph {
+    snap_aggregation_impl::<false>(graph, node_attributes)
 }
 
 // ---------------------------------------------------------------------------
@@ -79039,6 +79072,71 @@ mod tests {
     }
 
     #[test]
+    fn snap_aggregation_stable_fast_forward_parity() {
+        fn signature(graph: &Graph) -> (Vec<String>, Vec<(String, String)>) {
+            let nodes = graph
+                .nodes_ordered()
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
+            let edges = graph
+                .edges_ordered()
+                .into_iter()
+                .map(|edge| (edge.left, edge.right))
+                .collect();
+            (nodes, edges)
+        }
+
+        let attrs = ["color".to_owned()];
+        let fixtures = {
+            let mut path = Graph::strict();
+            for i in 0..17usize {
+                let color = if i % 3 == 0 { "red" } else { "blue" };
+                let _ = path.add_node_with_attrs(
+                    format!("path-node-{i:02}-with-a-long-label"),
+                    single_attr("color", color),
+                );
+            }
+            for i in 0..16usize {
+                let _ = path.add_edge(
+                    format!("path-node-{i:02}-with-a-long-label"),
+                    format!("path-node-{:02}-with-a-long-label", i + 1),
+                );
+            }
+
+            let mut regular = Graph::hardened();
+            for i in 0..12usize {
+                let _ = regular.add_node_with_attrs(
+                    format!("cycle-node-{i:02}"),
+                    single_attr("color", "same"),
+                );
+            }
+            for i in 0..12usize {
+                let _ = regular.add_edge(
+                    format!("cycle-node-{i:02}"),
+                    format!("cycle-node-{:02}", (i + 1) % 12),
+                );
+                let _ = regular.add_edge(
+                    format!("cycle-node-{i:02}"),
+                    format!("cycle-node-{:02}", (i + 3) % 12),
+                );
+            }
+
+            vec![Graph::strict(), path, regular]
+        };
+
+        for graph in &fixtures {
+            let baseline = super::snap_aggregation_orig_all_passes(graph, &attrs);
+            let candidate = snap_aggregation(graph, &attrs);
+            assert_eq!(
+                signature(&candidate),
+                signature(&baseline),
+                "stable-refinement fast-forward must preserve exact supernode labels and edge order"
+            );
+        }
+    }
+
+    #[test]
     fn test_gomory_hu_tree_preserves_runtime_policy() {
         let mut g = Graph::hardened();
         let _ = g.add_edge_with_attrs("a", "b", single_attr("weight", "1.0"));
@@ -85320,6 +85418,126 @@ mod tests {
         println!("SNAP_IDX_AB circ50k_g100 rounds={rounds} (>1 = index faster)");
         report("INT_vs_string", &paired(true, false));
         report("NULL_int_vs_int", &paired(true, true));
+    }
+
+    /// br-r37-c1-yx9iw: full-function paired A/B for stable-refinement
+    /// fast-forwarding. A regular single-attribute graph stabilizes after the
+    /// first pass; the frozen baseline still performs all `n` passes. Exact
+    /// supernode-label and edge-order parity is asserted before timing. Run with
+    /// `cargo test --profile release -p fnx-algorithms --lib
+    /// snap_aggregation_stable_fast_forward_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn snap_aggregation_stable_fast_forward_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn signature(graph: &Graph) -> (Vec<String>, Vec<(String, String)>) {
+            let nodes = graph
+                .nodes_ordered()
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
+            let edges = graph
+                .edges_ordered()
+                .into_iter()
+                .map(|edge| (edge.left, edge.right))
+                .collect();
+            (nodes, edges)
+        }
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        let n_nodes = 512usize;
+        let mut graph = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = graph.add_node_with_attrs(
+                format!("regular-node-{i:04}-with-a-long-label"),
+                single_attr("color", "same"),
+            );
+        }
+        for i in 0..n_nodes {
+            for step in 1..=12usize {
+                let _ = graph.add_edge(
+                    format!("regular-node-{i:04}-with-a-long-label"),
+                    format!(
+                        "regular-node-{:04}-with-a-long-label",
+                        (i + step) % n_nodes
+                    ),
+                );
+            }
+        }
+        let attrs = ["color".to_owned()];
+
+        let baseline = super::snap_aggregation_orig_all_passes(&graph, &attrs);
+        let candidate = super::snap_aggregation(&graph, &attrs);
+        assert_eq!(
+            signature(&candidate),
+            signature(&baseline),
+            "fast-forwarded SNAP output must exactly match all-pass output"
+        );
+
+        let time = |candidate: bool| -> u128 {
+            let started = Instant::now();
+            let result = if candidate {
+                super::snap_aggregation(&graph, &attrs)
+            } else {
+                super::snap_aggregation_orig_all_passes(&graph, &attrs)
+            };
+            black_box(result.node_count());
+            black_box(result.edge_count());
+            started.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15usize;
+        let paired = |baseline_is_candidate: bool| -> (Vec<f64>, Vec<u128>, Vec<u128>) {
+            let mut ratios = Vec::with_capacity(rounds);
+            let mut baseline_samples = Vec::with_capacity(rounds);
+            let mut candidate_samples = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_ns, candidate_ns) = if round.is_multiple_of(2) {
+                    (time(baseline_is_candidate), time(true))
+                } else {
+                    let candidate_ns = time(true);
+                    let baseline_ns = time(baseline_is_candidate);
+                    (baseline_ns, candidate_ns)
+                };
+                ratios.push(baseline_ns as f64 / candidate_ns as f64);
+                baseline_samples.push(baseline_ns);
+                candidate_samples.push(candidate_ns);
+            }
+            (ratios, baseline_samples, candidate_samples)
+        };
+        let (full_ratios, baseline_samples, candidate_samples) = paired(false);
+        let (null_ratios, _, _) = paired(true);
+        let report = |name: &str, ratios: &[f64]| {
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "SNAP_STABLE_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!(
+            "SNAP_STABLE_AB full_function n={n_nodes} degree=24 rounds={rounds} baseline_median_ns={} candidate_median_ns={}",
+            median(&baseline_samples),
+            median(&candidate_samples),
+        );
+        report("FAST_FORWARD_vs_all_passes", &full_ratios);
+        report("NULL_fast_forward_vs_fast_forward", &null_ratios);
     }
 
     /// br-r37-c1-gbfsidx: paired-interleaved median A/B for generic_bfs_edges' neighbour iteration —

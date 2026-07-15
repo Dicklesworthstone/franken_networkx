@@ -22299,3 +22299,59 @@ unused `directed` test variable outside this lever.
 
 RESULT: SHIP. Keep the per-flow sorted topology cache; repeated Edmonds-Karp
 BFS rounds no longer reallocate and resort immutable residual neighbor names.
+
+## 2026-07-15 HazyOtter SHIP (`snap_aggregation`): fast-forward stable refinement labels — **6.2822x** (`br-r37-c1-yx9iw`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: `bv --robot-triage` found the
+broad perf directive and weighted-MultiGraph repair already owned, with no
+clean unassigned narrow perf bead. The first fresh clique-builder candidate
+was rejected before editing because its Rust kernel is not on the public
+Python path. This pass then rotated to the live native SNAP summarization
+kernel. Its refinement key includes the old group id but assigns every new
+class a fresh monotonically increasing id; consequently the former `changed`
+comparison was true on every nonempty pass, and the function always performed
+all `n` full neighbor-signature scans even after the partition stopped
+splitting. Mandatory work ends when refinement stabilizes; the remaining
+passes only relabel already-stable classes.
+
+ONE LEVER: track the current class count. Because refinement keys contain the
+old class id, a pass can split classes but cannot merge them; equal old/new
+class counts therefore prove the partition is stable. Fresh ids are contiguous
+and assigned in first-node order, so each remaining pass adds exactly the
+unchanged class count to every id. Production now applies those remaining
+shifts arithmetically and exits the scan loop, preserving the exact final
+`Supernode-{id}` labels, node order, summary-edge order, and runtime policy. A
+const-generic test-only arm freezes the former all-`n`-passes implementation.
+
+COLD-TARGET WARM-UP: the first strict-remote compile exposed one test-only
+scope-qualification error before a test ran; it was fixed narrowly. The
+corrected untimed ordinary-release parity run then passed `1/1` on
+`vmi1153651` (job `j-29928833041829246`). Its RCH cache miss spent `7m12s`
+building; the focused test itself completed in `0.00s` and covered empty,
+multi-round path refinement, and stable regular graphs with exact ordered node
+and edge parity. No timeout, local fallback, or `release-perf` command ran.
+
+ONE FOREGROUND ORDINARY-RELEASE A/B + NULL: the supported measurement command
+stayed on `vmi1153651` and the same worker-scoped target path (job
+`j-29928833041829258`), but RCH unexpectedly reported another cache miss and
+spent `6m34s` rebuilding. That infrastructure time is excluded; only the
+`1.51s` in-process test is evidence. A fixed 512-node degree-24 regular graph
+with one attribute class stabilizes after its first pass. The test used three
+warmups and 15 alternating-order pairs:
+
+| same-binary full-function arm | median times | paired median | wins | p5-p95 | parity |
+|---|---:|---:|---:|---:|---:|
+| frozen all-pass vs stable fast-forward | `41,007,748 ns / 6,274,836 ns` | **`6.2822x`** | **`15/15`** | `5.2901x-8.5353x` | exact |
+| fast-forward / fast-forward null | — | `0.9738x` | `7/15` | `0.6176x-1.3069x` | identical arm |
+
+The candidate won every pair and its slowest pair remained more than four
+times the null p95, so the keep decision clears the measured positional floor.
+
+CORRECTNESS / GATES: strict-remote ordinary-release parity and same-binary A/B
+both passed. Every Cargo command was fail-closed with `RCH_REQUIRE_REMOTE=1`
+and `RCH_NO_SELF_HEALING=1`; timing used ordinary `--profile release` in the
+foreground. The only compiler warning was the known pre-existing unused
+`directed` test variable outside this lever.
+
+RESULT: SHIP. Keep stable-partition fast-forwarding; SNAP aggregation no longer
+rescans an unchanged partition merely to reproduce deterministic label shifts.
