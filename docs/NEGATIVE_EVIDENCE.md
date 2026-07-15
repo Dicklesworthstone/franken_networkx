@@ -21991,3 +21991,60 @@ owned critical finding. Scoped strict-remote clippy stopped at a pre-existing
 RESULT: SHIP. Keep compact-index local-efficiency ego BFS state; the public
 value and witness contract hold while repeated name-vector sorts and
 String-keyed traversal bookkeeping leave the hot kernel.
+
+## 2026-07-14 HazyOtter SHIP (`tree_broadcast_center`): heap frontier selection — **11.652x** (`br-r37-c1-536sn`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: `bv --robot-triage` found the
+broad perf umbrella already owned and no active narrow perf bead, so this pass
+rotated into tree analysis. The earlier clone-free leaf peel had removed the
+dominant graph-mutation cost, leaving frontier selection as the residual hot
+path: every peeled node scanned the complete `HashSet<String>` frontier and
+looked up each candidate's value to select the minimum `(value, node name)`.
+Balanced trees keep that frontier wide, making selection quadratic while the
+mandatory tree check, degree updates, and broadcast-value DP remain linear.
+Opportunity score: impact 5 x confidence 5 / effort 1 = 25.
+
+ONE LEVER: replace the repeated full frontier scan with a reversed
+`BinaryHeap<(usize, &str)>`, keyed by the unchanged broadcast value and lexical
+node-name tie-break. Each node enters the frontier exactly once when its live
+degree becomes one, so the heap preserves the former peel order while reducing
+selection to `O(log |frontier|)`. Borrowed names point into the immutable input
+graph; all informed/removed/value state and center construction are unchanged.
+A frozen test-only copy of the former scan is the exact A/B oracle.
+
+COLD-TARGET WARM-UP: one untimed fail-closed ordinary-release correctness run
+passed `1/1` on `vmi1227854` (job `j-29928833041829036`). Its remote cache miss
+took 4m14s to build; the focused test itself completed immediately. It covered
+empty, singleton, path, star, insertion-order-scrambled balanced-tree, and
+non-tree cases with exact output parity. No timeout, local fallback, or
+`release-perf` command ran, and build time is not benchmark evidence.
+
+ONE FOREGROUND ORDINARY-RELEASE A/B + NULL: the sole measurement stayed on
+`vmi1227854` and the same worker-scoped target path (job
+`j-29928833041829045`). RCH nevertheless reported another cache miss and spent
+4m08s rebuilding before process start; only the 1.54-second in-process test is
+evidence. The fixed complete binary tree used 4,095 long,
+insertion-order-scrambled labels, 4,094 edges, one call per sample, three
+warmups, and 15 alternating-order pairs:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen frontier scan vs heap frontier | `63,161,207 ns / 5,420,793 ns` | **`11.652x`** | **`15/15`** | exact result |
+| heap frontier / heap frontier null | `4,686,953 ns / 4,613,673 ns` | `1.016x` | identical arm | exact |
+
+The candidate/null positional skew is approximately 1.6%, leaving the keep
+decision far outside measurement noise.
+
+CORRECTNESS / GATES: the focused strict-remote ordinary-release test and the
+same-binary benchmark both passed exact parity. `git diff --check` passed, and
+all rustfmt suggestions in the owned ranges were applied; the remaining
+whole-file rustfmt drift is pre-existing. Staged-only UBS, with the repository's
+established noisy Rust category 8 excluded, found zero critical issues. The
+compiler emitted only the known pre-existing unused `directed` test-variable
+warning at `crates/fnx-algorithms/src/lib.rs:55578`, outside this lever. Every Cargo
+command used fail-closed `RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`;
+timing used ordinary `--profile release`, with no local fallback and no
+`release-perf` build.
+
+RESULT: SHIP. Keep the exact heap-ordered tree-broadcast frontier; it removes
+the quadratic residual scan while preserving the public time and center list.

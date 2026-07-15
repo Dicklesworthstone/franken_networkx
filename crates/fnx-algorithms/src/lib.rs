@@ -19805,6 +19805,97 @@ pub fn tree_broadcast_center(graph: &Graph) -> Option<(usize, Vec<String>)> {
     }
     let mut alive_count = graph.node_count() - removed.len();
 
+    // br-r37-c1-536sn: every peel formerly scanned the complete frontier
+    // HashSet to select the minimum `(value, node name)`. Balanced trees keep a
+    // wide frontier for most of the peel, turning that selection into the
+    // residual quadratic cost. A reversed heap returns the identical tuple
+    // minimum in O(log |frontier|), and borrowed graph names avoid new clones.
+    let mut frontier = BinaryHeap::new();
+    for node in graph
+        .nodes_ordered()
+        .into_iter()
+        .filter(|node| !removed.contains(*node) && degree.get(*node).copied() == Some(1))
+    {
+        let value = graph.neighbor_count(node).saturating_sub(1);
+        values.insert(node.to_owned(), value);
+        frontier.push(std::cmp::Reverse((value, node)));
+    }
+
+    while alive_count >= 2 {
+        let std::cmp::Reverse((_value, leaf)) = frontier.pop()?;
+        let neighbor = graph
+            .neighbors(leaf)
+            .unwrap_or_default()
+            .into_iter()
+            .find(|nb| !removed.contains(*nb))?;
+
+        informed.insert(leaf.to_owned());
+        removed.insert(leaf.to_owned());
+        alive_count -= 1;
+        if let Some(d) = degree.get_mut(neighbor) {
+            *d = d.saturating_sub(1);
+        }
+
+        if !removed.contains(neighbor) && degree.get(neighbor).copied() == Some(1) {
+            let value = tree_broadcast_max_value(graph, &informed, neighbor, &values);
+            values.insert(neighbor.to_owned(), value);
+            frontier.push(std::cmp::Reverse((value, neighbor)));
+        }
+    }
+
+    let root = graph
+        .nodes_ordered()
+        .into_iter()
+        .find(|node| !removed.contains(*node))
+        .map(str::to_owned)?;
+    let broadcast_time = tree_broadcast_max_value(graph, &informed, &root, &values);
+    let centers = tree_broadcast_centers(graph, &root, &values, broadcast_time);
+    Some((broadcast_time, centers))
+}
+
+#[cfg(test)]
+fn tree_broadcast_center_orig_frontier_scan(graph: &Graph) -> Option<(usize, Vec<String>)> {
+    let node_count = graph.node_count();
+    if node_count == 0 || !is_tree(graph).is_tree {
+        return None;
+    }
+    if node_count < 3 {
+        let mut nodes = graph
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<String>>();
+        nodes.sort_unstable();
+        return Some((node_count - 1, nodes));
+    }
+
+    let mut informed = graph
+        .nodes_ordered()
+        .into_iter()
+        .filter(|node| graph.neighbor_count(node) == 1)
+        .map(str::to_owned)
+        .collect::<HashSet<String>>();
+    let mut values = informed
+        .iter()
+        .cloned()
+        .map(|node| (node, 0usize))
+        .collect::<HashMap<String, usize>>();
+    let mut removed: HashSet<String> = informed.iter().cloned().collect();
+    let mut degree: HashMap<String, usize> = HashMap::new();
+    for node in graph.nodes_ordered() {
+        if removed.contains(node) {
+            continue;
+        }
+        let d = graph
+            .neighbors(node)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|nb| !removed.contains(*nb))
+            .count();
+        degree.insert(node.to_owned(), d);
+    }
+    let mut alive_count = graph.node_count() - removed.len();
+
     let mut frontier = graph
         .nodes_ordered()
         .into_iter()
@@ -52749,6 +52840,7 @@ mod tests {
         transitive_reduction,
         tree_all_pairs_lowest_common_ancestor,
         tree_broadcast_center,
+        tree_broadcast_center_orig_frontier_scan,
         tree_broadcast_time,
         tree_data,
         triadic_census,
@@ -72864,6 +72956,179 @@ mod tests {
         assert_eq!(tree_broadcast_time(&g, Some("1")), Some(2));
         assert_eq!(tree_broadcast_time(&g, Some("2")), Some(2));
         assert_eq!(tree_broadcast_time(&g, Some("3")), Some(3));
+    }
+
+    #[test]
+    fn tree_broadcast_center_heap_frontier_preserves_reference_contract() {
+        let empty = Graph::strict();
+        assert_eq!(
+            tree_broadcast_center(&empty),
+            tree_broadcast_center_orig_frontier_scan(&empty)
+        );
+
+        let mut singleton = Graph::strict();
+        singleton.add_node("only");
+        assert_eq!(
+            tree_broadcast_center(&singleton),
+            tree_broadcast_center_orig_frontier_scan(&singleton)
+        );
+
+        let mut path = Graph::strict();
+        let _ = path.add_edge("node-zulu", "node-alpha");
+        let _ = path.add_edge("node-alpha", "node-yankee");
+        let _ = path.add_edge("node-yankee", "node-bravo");
+        let _ = path.add_edge("node-bravo", "node-xray");
+        assert_eq!(
+            tree_broadcast_center(&path),
+            tree_broadcast_center_orig_frontier_scan(&path)
+        );
+
+        let mut star = Graph::strict();
+        for leaf in ["z", "a", "y", "b", "x", "c"] {
+            let _ = star.add_edge("hub", leaf);
+        }
+        assert_eq!(
+            tree_broadcast_center(&star),
+            tree_broadcast_center_orig_frontier_scan(&star)
+        );
+
+        let node_count = 63usize;
+        let labels = (0..node_count)
+            .map(|index| {
+                let lexical_key = (index * 47) % node_count;
+                format!("balanced-{lexical_key:02}-node-{index:02}")
+            })
+            .collect::<Vec<_>>();
+        let mut balanced = Graph::strict();
+        for label in &labels {
+            balanced.add_node(label);
+        }
+        for child in 1..node_count {
+            let parent = (child - 1) / 2;
+            let _ = balanced.add_edge(&labels[parent], &labels[child]);
+        }
+        assert_eq!(
+            tree_broadcast_center(&balanced),
+            tree_broadcast_center_orig_frontier_scan(&balanced)
+        );
+
+        let mut cycle = Graph::strict();
+        let _ = cycle.add_edge("a", "b");
+        let _ = cycle.add_edge("b", "c");
+        let _ = cycle.add_edge("c", "a");
+        assert_eq!(
+            tree_broadcast_center(&cycle),
+            tree_broadcast_center_orig_frontier_scan(&cycle)
+        );
+    }
+
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn tree_broadcast_center_heap_frontier_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        fn elapsed_ns<F>(mut run: F) -> u128
+        where
+            F: FnMut(),
+        {
+            let started = Instant::now();
+            run();
+            started.elapsed().as_nanos()
+        }
+
+        let node_count = 4_095usize;
+        let labels = (0..node_count)
+            .map(|index| {
+                let lexical_key = (index * 104_729) % node_count;
+                format!("broadcast-node-{lexical_key:05}-abcdefghijklmnopqrstuvwxyz-{index:05}")
+            })
+            .collect::<Vec<_>>();
+        let mut graph = Graph::strict();
+        for label in &labels {
+            graph.add_node(label);
+        }
+        for child in 1..node_count {
+            let parent = (child - 1) / 2;
+            let _ = graph.add_edge(&labels[parent], &labels[child]);
+        }
+
+        let expected = tree_broadcast_center_orig_frontier_scan(&graph);
+        let actual = tree_broadcast_center(&graph);
+        assert_eq!(actual, expected);
+
+        for _ in 0..3 {
+            black_box(tree_broadcast_center_orig_frontier_scan(black_box(&graph)));
+            black_box(tree_broadcast_center(black_box(&graph)));
+        }
+
+        let rounds = 15usize;
+        let mut baseline_ns = Vec::with_capacity(rounds);
+        let mut candidate_ns = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            if round.is_multiple_of(2) {
+                baseline_ns.push(elapsed_ns(|| {
+                    black_box(tree_broadcast_center_orig_frontier_scan(black_box(&graph)));
+                }));
+                candidate_ns.push(elapsed_ns(|| {
+                    black_box(tree_broadcast_center(black_box(&graph)));
+                }));
+            } else {
+                candidate_ns.push(elapsed_ns(|| {
+                    black_box(tree_broadcast_center(black_box(&graph)));
+                }));
+                baseline_ns.push(elapsed_ns(|| {
+                    black_box(tree_broadcast_center_orig_frontier_scan(black_box(&graph)));
+                }));
+            }
+        }
+
+        let mut null_first_ns = Vec::with_capacity(rounds);
+        let mut null_second_ns = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            if round.is_multiple_of(2) {
+                null_first_ns.push(elapsed_ns(|| {
+                    black_box(tree_broadcast_center(black_box(&graph)));
+                }));
+                null_second_ns.push(elapsed_ns(|| {
+                    black_box(tree_broadcast_center(black_box(&graph)));
+                }));
+            } else {
+                null_second_ns.push(elapsed_ns(|| {
+                    black_box(tree_broadcast_center(black_box(&graph)));
+                }));
+                null_first_ns.push(elapsed_ns(|| {
+                    black_box(tree_broadcast_center(black_box(&graph)));
+                }));
+            }
+        }
+
+        let baseline_median_ns = median(&baseline_ns);
+        let candidate_median_ns = median(&candidate_ns);
+        let null_first_median_ns = median(&null_first_ns);
+        let null_second_median_ns = median(&null_second_ns);
+        let paired_wins = baseline_ns
+            .iter()
+            .zip(&candidate_ns)
+            .filter(|(baseline, candidate)| baseline > candidate)
+            .count();
+        println!(
+            "TREE_BROADCAST_FRONTIER_HEAP_AB n={node_count} edges={} rounds={rounds} \
+             baseline_median_ns={baseline_median_ns} candidate_median_ns={candidate_median_ns} \
+             speedup={:.4}x paired_wins={paired_wins}/{rounds} \
+             null_first_median_ns={null_first_median_ns} \
+             null_second_median_ns={null_second_median_ns} null_ratio={:.4}x \
+             exact_parity=true",
+            graph.edge_count(),
+            baseline_median_ns as f64 / candidate_median_ns as f64,
+            null_first_median_ns as f64 / null_second_median_ns as f64,
+        );
     }
 
     // -----------------------------------------------------------------------
