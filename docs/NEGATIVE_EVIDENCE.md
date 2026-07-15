@@ -21599,3 +21599,50 @@ RESULT: SHIP. Keep `number_attracting_components` in integer index space: retain
 compact Tarjan SCC IDs, mark IDs with cross-component successor arcs, and count
 the unmarked sink IDs. Preserve the mirrored SCC CGSE decision/publish stream and
 leave the component-materializing `attracting_components` API unchanged.
+
+## 2026-07-14 GrayCitadel SHIP (`DiGraph::degree`): resolve the node name once — 1.675849x (`br-r37-c1-3gt4y`)
+
+NEGATIVE-LEDGER FIRST / ATTRIBUTION: the immediately preceding view-length rows
+already exhausted the non-materializing Python mapping primitives, while the
+standalone `fnx-views` crate only forwards to storage. The fresh storage seam was
+explicit in `DiGraph::degree(node)`: it called `in_degree(node)` and
+`out_degree(node)`, and each independently performed the same
+`IndexMap::get_index_of` name lookup. Both adjacency rows are keyed by the one
+resulting contiguous index, so the second hash-table probe was pure overhead.
+
+ONE LEVER: resolve the node name once and sum `pred_indices[idx].len()` with
+`succ_indices[idx].len()`. Missing nodes still return zero; directed self-loops
+still contribute once to each row and therefore two to total degree. No graph
+layout, row order, mutation path, public signature, or multigraph implementation
+changed. The existing `fnx-classes` release harness now carries a frozen
+two-public-call comparator so later toolchains can recheck this exact seam.
+
+ONE FOREGROUND ORDINARY-RELEASE A/B: after an untimed strict-remote warm-up build,
+one same-binary run on `vmi1149989` (job `j-29928833041828832`) used 4,096 stable
+24-byte node labels, a cycle plus deterministic chords and a self-loop, 128 full
+node sweeps per arm, 21 alternating-order pairs, and an identical candidate /
+candidate null. RCH rebuilt the binary before process start despite selecting the
+same worker and target pool; that 25.08-second Cargo step was outside every
+harness clock and is not benchmark evidence.
+
+| same-binary arm | median ratio | wins | parity |
+|---|---:|---:|---:|
+| frozen two-lookup route / single-lookup `degree` | **`1.675849x`** | **`17/21`** | checksum `1,110,528` exact |
+| candidate / candidate null | `0.973817x` | identical arm | checksum exact |
+
+CORRECTNESS / GATES: before timing, the harness compared both routes for every
+fixture node and an absent name. The focused strict-remote release test separately
+covered incoming, outgoing, absent-node, and directed-self-loop semantics and
+passed `1/1` (job `j-29928833041828825`). The release binary warm-up succeeded on
+the same worker (job `j-29928833041828823`). Both owned Rust files are rustfmt
+clean; targeted UBS reported zero critical findings. Crate-scoped clippy reached
+the code but `-D warnings` is blocked by pre-existing `collapsible_if` and
+`if_same_then_else` findings in untouched `crates/fnx-classes/src/lib.rs`; those
+unowned lints were not changed. Every Cargo command used fail-closed
+`RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`, ordinary `--profile release`
+where applicable, and no local fallback or `release-perf` build ran.
+
+RESULT: SHIP. Keep the single name-table lookup in `DiGraph::degree`; the paired
+median clears the near-unity null control by a wide margin, exact parity holds,
+and the production change removes one hash probe from every string-keyed degree
+query.

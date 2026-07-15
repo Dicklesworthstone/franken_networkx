@@ -589,7 +589,12 @@ impl DiGraph {
     /// Total degree: in_degree + out_degree.
     #[must_use]
     pub fn degree(&self, node: &str) -> usize {
-        self.in_degree(node) + self.out_degree(node)
+        // br-r37-c1-3gt4y: both rows share the same contiguous node index.
+        // Resolve the name once instead of paying the IndexMap lookup in both
+        // in_degree() and out_degree(). Missing nodes still report degree zero.
+        self.nodes.get_index_of(node).map_or(0, |idx| {
+            self.pred_indices[idx].len() + self.succ_indices[idx].len()
+        })
     }
 
     /// br-r37-c1-degidx: index-based degree accessors — O(1), zero
@@ -3493,6 +3498,20 @@ mod tests {
         assert_eq!(g.in_degree("a"), 1);
         assert_eq!(g.degree("a"), 3);
         assert_digraph_core_invariants(&g);
+    }
+
+    #[test]
+    fn degree_single_lookup_preserves_missing_and_self_loop_semantics() {
+        let mut g = DiGraph::strict();
+        g.add_edge("a", "a").expect("self-loop add should succeed");
+        g.add_edge("a", "b").expect("edge add should succeed");
+        g.add_edge("c", "a").expect("edge add should succeed");
+
+        for node in ["a", "b", "c", "missing"] {
+            assert_eq!(g.degree(node), g.in_degree(node) + g.out_degree(node));
+        }
+        assert_eq!(g.degree("a"), 4);
+        assert_eq!(g.degree("missing"), 0);
     }
 
     #[test]
