@@ -28944,6 +28944,10 @@ pub fn common_graph_edit_distance_mappings<G1: GraphView, G2: GraphView>(
 ///
 /// NetworkX equivalent: `networkx.algorithms.isomorphism.is_isomorphic`
 pub fn is_isomorphic(g1: &Graph, g2: &Graph) -> bool {
+    is_isomorphic_with_adjacency::<true>(g1, g2)
+}
+
+fn is_isomorphic_with_adjacency<const INDEX_ROWS: bool>(g1: &Graph, g2: &Graph) -> bool {
     let nodes1 = g1.nodes_ordered();
     let nodes2 = g2.nodes_ordered();
 
@@ -28976,24 +28980,43 @@ pub fn is_isomorphic(g1: &Graph, g2: &Graph) -> bool {
         return false;
     }
 
-    // Build adjacency matrices for fast lookup
-    let idx1: HashMap<&str, usize> = nodes1.iter().enumerate().map(|(i, &n)| (n, i)).collect();
-    let idx2: HashMap<&str, usize> = nodes2.iter().enumerate().map(|(i, &n)| (n, i)).collect();
-
+    // Build adjacency matrices for fast lookup. br-r37-c1-ec69g: the graph's
+    // adjacency rows already contain insertion indices, so walk them directly
+    // instead of materializing every edge as two owned Strings plus an AttrMap
+    // and then hashing both names back to these same indices.
     let mut adj1 = vec![vec![false; n]; n];
     let mut adj2 = vec![vec![false; n]; n];
 
-    for edge in g1.edges_ordered() {
-        let i = idx1[edge.left.as_str()];
-        let j = idx1[edge.right.as_str()];
-        adj1[i][j] = true;
-        adj1[j][i] = true;
-    }
-    for edge in g2.edges_ordered() {
-        let i = idx2[edge.left.as_str()];
-        let j = idx2[edge.right.as_str()];
-        adj2[i][j] = true;
-        adj2[j][i] = true;
+    if INDEX_ROWS {
+        for (node, row) in adj1.iter_mut().enumerate() {
+            if let Some(neighbors) = g1.neighbors_indices(node) {
+                for &neighbor in neighbors {
+                    row[neighbor] = true;
+                }
+            }
+        }
+        for (node, row) in adj2.iter_mut().enumerate() {
+            if let Some(neighbors) = g2.neighbors_indices(node) {
+                for &neighbor in neighbors {
+                    row[neighbor] = true;
+                }
+            }
+        }
+    } else {
+        let idx1: HashMap<&str, usize> = nodes1.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+        let idx2: HashMap<&str, usize> = nodes2.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+        for edge in g1.edges_ordered() {
+            let i = idx1[edge.left.as_str()];
+            let j = idx1[edge.right.as_str()];
+            adj1[i][j] = true;
+            adj1[j][i] = true;
+        }
+        for edge in g2.edges_ordered() {
+            let i = idx2[edge.left.as_str()];
+            let j = idx2[edge.right.as_str()];
+            adj2[i][j] = true;
+            adj2[j][i] = true;
+        }
     }
 
     // Group nodes by degree for pruning
@@ -29096,6 +29119,13 @@ pub fn is_isomorphic(g1: &Graph, g2: &Graph) -> bool {
         &mut mapping,
         &mut used,
     )
+}
+
+/// Frozen pre-`br-r37-c1-ec69g` edge-snapshot adjacency setup for exact
+/// full-function parity and same-binary A/B measurement.
+#[cfg(test)]
+fn is_isomorphic_orig_edge_snapshots(g1: &Graph, g2: &Graph) -> bool {
+    is_isomorphic_with_adjacency::<false>(g1, g2)
 }
 
 /// Check if two directed graphs are isomorphic.
@@ -72949,6 +72979,208 @@ mod tests {
         g2.add_node("f"); // isolated node to match count = 5 nodes
         // g1: 5-cycle (5 edges, all degree 2), g2: star+isolated (4 edges)
         assert!(!is_isomorphic(&g1, &g2));
+    }
+
+    #[test]
+    fn is_isomorphic_index_rows_match_edge_snapshot_setup() {
+        let mut path_left = Graph::strict();
+        let mut path_right = Graph::strict();
+        for node in ["left-a", "left-b", "left-c", "left-d", "left-isolate"] {
+            path_left.add_node(node);
+        }
+        for node in ["right-w", "right-x", "right-y", "right-z", "right-isolate"] {
+            path_right.add_node(node);
+        }
+        for (left, right) in [
+            ("left-a", "left-b"),
+            ("left-b", "left-c"),
+            ("left-c", "left-d"),
+            ("left-c", "left-c"),
+        ] {
+            path_left
+                .add_edge_with_attrs(left, right, attrs([("payload", "left-value")]))
+                .unwrap();
+        }
+        for (left, right) in [
+            ("right-w", "right-x"),
+            ("right-x", "right-y"),
+            ("right-y", "right-z"),
+            ("right-y", "right-y"),
+        ] {
+            path_right
+                .add_edge_with_attrs(left, right, attrs([("other", "right-value")]))
+                .unwrap();
+        }
+        assert_eq!(
+            is_isomorphic(&path_left, &path_right),
+            super::is_isomorphic_orig_edge_snapshots(&path_left, &path_right),
+            "relabelled attributed path with isolate and self-loop"
+        );
+
+        let mut cycle = Graph::strict();
+        let mut triangles = Graph::strict();
+        for node in 0..6 {
+            cycle.add_node(format!("cycle-{node}"));
+            triangles.add_node(format!("triangles-{node}"));
+        }
+        for node in 0..6 {
+            cycle
+                .add_edge(format!("cycle-{node}"), format!("cycle-{}", (node + 1) % 6))
+                .unwrap();
+        }
+        for base in [0, 3] {
+            for (left, right) in [(base, base + 1), (base + 1, base + 2), (base + 2, base)] {
+                triangles
+                    .add_edge(format!("triangles-{left}"), format!("triangles-{right}"))
+                    .unwrap();
+            }
+        }
+        assert_eq!(
+            is_isomorphic(&cycle, &triangles),
+            super::is_isomorphic_orig_edge_snapshots(&cycle, &triangles),
+            "same degree sequence but non-isomorphic"
+        );
+
+        let empty = Graph::strict();
+        assert_eq!(
+            is_isomorphic(&empty, &empty),
+            super::is_isomorphic_orig_edge_snapshots(&empty, &empty),
+            "empty graphs"
+        );
+    }
+
+    /// br-r37-c1-ec69g: full-function same-binary A/B for native index-row
+    /// adjacency setup against the frozen edge-snapshot setup, plus a candidate
+    /// null. The default isomorphism contract ignores edge attributes, making
+    /// attributed sparse graphs the clearest view of the avoidable clone work.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn is_isomorphic_index_rows_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        fn median_ratio(values: &[f64]) -> f64 {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            sorted[sorted.len() / 2]
+        }
+
+        let n = 768_usize;
+        let half_degree = 6_usize;
+        let calls = 2_usize;
+        let left_names = (0..n)
+            .map(|node| format!("isomorphic-left-{node:04}-abcdefghijklmnopqrstuvwxyz"))
+            .collect::<Vec<_>>();
+        let right_names = (0..n)
+            .map(|node| format!("isomorphic-right-{node:04}-zyxwvutsrqponmlkjihgfedcba"))
+            .collect::<Vec<_>>();
+        let mut left = Graph::strict();
+        let mut right = Graph::strict();
+        for node in 0..n {
+            left.add_node(&left_names[node]);
+            right.add_node(&right_names[node]);
+        }
+        for node in 0..n {
+            for offset in 1..=half_degree {
+                let neighbor = (node + offset) % n;
+                let edge_attrs = (0..6)
+                    .map(|slot| {
+                        (
+                            format!("payload-{slot}"),
+                            CgseValue::from(format!(
+                                "edge-{node:04}-{neighbor:04}-{slot}-abcdefghijklmnopqrstuvwxyz0123456789"
+                            )),
+                        )
+                    })
+                    .collect::<AttrMap>();
+                left.add_edge_with_attrs(
+                    left_names[node].clone(),
+                    left_names[neighbor].clone(),
+                    edge_attrs.clone(),
+                )
+                .unwrap();
+                right
+                    .add_edge_with_attrs(
+                        right_names[node].clone(),
+                        right_names[neighbor].clone(),
+                        edge_attrs,
+                    )
+                    .unwrap();
+            }
+        }
+
+        assert!(super::is_isomorphic_orig_edge_snapshots(&left, &right));
+        assert!(is_isomorphic(&left, &right));
+
+        let time = |use_candidate: bool| -> u128 {
+            let start = Instant::now();
+            for _ in 0..calls {
+                let result = if use_candidate {
+                    is_isomorphic(black_box(&left), black_box(&right))
+                } else {
+                    super::is_isomorphic_orig_edge_snapshots(black_box(&left), black_box(&right))
+                };
+                assert!(black_box(result));
+            }
+            start.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15_usize;
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let mut paired_ratios = Vec::with_capacity(rounds);
+        let mut null_ratios = Vec::with_capacity(rounds);
+        let mut wins = 0_usize;
+        let mut null_wins = 0_usize;
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(false), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(false), candidate_time)
+            };
+            wins += usize::from(candidate_time < baseline_time);
+            paired_ratios.push(baseline_time as f64 / candidate_time as f64);
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+
+            let (null_first, null_second) = if round.is_multiple_of(2) {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                (time(true), null_second)
+            };
+            null_wins += usize::from(null_second < null_first);
+            null_ratios.push(null_first as f64 / null_second as f64);
+        }
+
+        let baseline_median = median(&baseline_times);
+        let candidate_median = median(&candidate_times);
+        let paired_median = median_ratio(&paired_ratios);
+        let null_median = median_ratio(&null_ratios);
+        paired_ratios.sort_by(f64::total_cmp);
+        null_ratios.sort_by(f64::total_cmp);
+        let p5 = rounds * 5 / 100;
+        let p95 = rounds * 95 / 100;
+        println!(
+            "ISOMORPHIC_INDEX_ROWS_AB n={n} degree={} attrs_per_edge=6 calls={calls} rounds={rounds} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} paired_median={paired_median:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}] null_median={null_median:.4}x null_wins={null_wins}/{rounds} null_p5_p95=[{:.4},{:.4}] exact_boolean_parity=true",
+            half_degree * 2,
+            paired_ratios[p5],
+            paired_ratios[p95],
+            null_ratios[p5],
+            null_ratios[p95],
+        );
     }
 
     #[test]

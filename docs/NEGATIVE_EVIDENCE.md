@@ -22355,3 +22355,57 @@ foreground. The only compiler warning was the known pre-existing unused
 
 RESULT: SHIP. Keep stable-partition fast-forwarding; SNAP aggregation no longer
 rescans an unchanged partition merely to reproduce deterministic label shifts.
+
+## 2026-07-15 HazyOtter SHIP (`is_isomorphic`): native index-row adjacency setup — **31.2834x** (`br-r37-c1-ec69g`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: `bv --robot-triage` found the
+broad no-gaps perf directive already owned and no clean unassigned narrow perf
+bead, so this pass rotated to the live native isomorphism path. The public
+no-callback wrapper routes directly to `fnx_algorithms::is_isomorphic`. After
+the constant-time size/edge-count checks and degree-sequence gate, setup built
+two dense boolean matrices through `edges_ordered()`: it cloned both endpoint
+Strings and the full `AttrMap` for every edge, built name-to-index hash maps,
+then hashed those cloned names back to indices. The graph already stores those
+exact insertion indices in its native adjacency rows.
+
+ONE LEVER: populate each boolean matrix directly from
+`neighbors_indices(node)`. The VF2-style search, node ordering, degree pruning,
+matrix representation, and observable result are unchanged. A const-generic
+test arm freezes the former edge-snapshot setup for full-function parity and
+same-binary A/B measurement.
+
+COLD-TARGET WARM-UP: strict-remote ordinary-release-without-LTO correctness
+passed `1/1` on `vmi1149989` (job `j-29928833041829323`). Cargo used
+`--profile release --config profile.release.lto=false`; the RCH cache miss
+spent `4m11s` compiling, while the focused test itself finished in `0.00s`.
+It covered a relabelled attributed path with an isolate and self-loop, a
+same-degree non-isomorphic C6-versus-two-triangles pair, and empty graphs.
+Earlier cold link attempts with LTO never reached a test or timed path and are
+not evidence.
+
+ONE FOREGROUND ORDINARY-RELEASE A/B + NULL: the measurement was pinned to the
+same named worker (job `j-29928833041829331`) with LTO still explicitly off.
+RCH nevertheless reported another cache miss and spent `3m29s` rebuilding;
+that infrastructure time is excluded. The in-process test completed in
+`0.83s` on two isomorphic 768-node degree-12 circulants with six long String
+attributes per edge, using two calls per sample, three warmups, and 15
+alternating-order pairs:
+
+| same-binary full-function arm | median times | paired median | wins | p5-p95 | parity |
+|---|---:|---:|---:|---:|---:|
+| frozen edge snapshots vs native index rows | `35,896,511 ns / 1,230,303 ns` | **`31.2834x`** | **`15/15`** | `25.1901x-43.9977x` | exact |
+| index rows / index rows null | — | `0.9225x` | `4/15` | `0.6744x-1.1536x` | identical arm |
+
+The candidate won every pair and its slowest pair remained more than 21 times
+the null p95, decisively clearing the positional floor.
+
+CORRECTNESS / GATES: the focused parity test and same-binary A/B both passed
+strict-remote. Every successful Cargo command was fail-closed with
+`RCH_REQUIRE_REMOTE=1` and `RCH_NO_SELF_HEALING=1`, ran in the foreground,
+used `--profile release`, and explicitly disabled LTO. The only compiler
+warning was the known pre-existing unused `directed` test variable outside
+this lever.
+
+RESULT: SHIP. Keep native index-row matrix construction; default isomorphism no
+longer clones edge payloads or hashes endpoint names merely to recover indices
+already present in graph storage.
