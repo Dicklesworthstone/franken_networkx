@@ -21457,3 +21457,71 @@ no local fallback ran.
 RESULT: SHIP. Preserve exact token-order first touches and directed successor /
 predecessor insertion order while batching only directed adjacency-list graph
 population; keep dispatch, warning, recovery, and final policy behavior intact.
+
+## 2026-07-14 GrayCitadel NO-SHIP (`generate_sidecar_for_file`): fused packet serialization metadata pass — **1.0226x inside null noise** (`br-r37-c1-wv0gj`)
+
+NEGATIVE-LEDGER / ROBOT-TRIAGE FIRST: `bv --robot-triage` reported no occupied
+work and ranked broad or already-mined graph-family beads. The recent readwrite
+vein has reached its documented sibling boundary, while the durability ledger
+contains a decode-drill reuse keep but no sidecar-generation packet-metadata
+experiment. This turn therefore pivots to a distinct durability write path.
+
+PROFILE / ATTRIBUTION FIRST: after RaptorQ encoding, `generate_sidecar_for_file`
+serializes all `N` packets into a retained `Vec<Vec<u8>>`, walks the full batch
+once to hash every packet, and walks it again to base64-encode every packet.
+Serialization, SHA-256, and base64 are mandatory, but retaining all packet byte
+buffers until both later passes enlarges the live allocation set and forfeits
+cache locality between serialization and its two consumers. Opportunity score:
+impact 3 x confidence 5 / effort 1 = 15.
+
+ONE LEVER / PROOF PLAN: serialize one packet, immediately compute its ordered
+hash and base64 representation, then drop its byte buffer before advancing.
+Packet generation, order, serialized bytes, hashes, base64 strings, envelope
+schema, repair accounting, and file output remain unchanged. A same-binary
+ordinary-release harness will first compare both complete output vectors against
+a frozen copy of the former three-pass implementation, then run three warmups,
+15 alternating-order pairs, and an identical-candidate null control. Because the
+release test binary changes, an untimed strict-remote `--no-run` warm-up will
+precede one cheap foreground measurement; no timeout or `release-perf` build is
+permitted.
+
+COLD-TARGET WARM-UP: the first fail-closed request was not admitted because RCH
+reported stale capacity (`insufficient_slots=9, hard_preflight=1`) and correctly
+refused local fallback; it did not build or run anything and is not evidence. A
+fleet probe refreshed all 12 workers healthy, after which one untimed ordinary-
+release `--no-run` warm-up completed on `vmi1149989` (job
+`j-29928833041828766`). The remote build took 17.06 seconds; RCH reported 55.8
+seconds total pipeline time and 63.4 seconds wrapper elapsed, dominated by 34.9
+seconds of sync. No timeout or `release-perf` command ran.
+
+ONE FOREGROUND A/B + NULL: the sole measurement reused the same worker and
+worker-scoped target path (job `j-29928833041828768`). A fixed 524,288-byte
+payload produced 4,128 packets. The harness asserted exact ordered equality of
+both complete output vectors before eight calls per sample, three warmups, and
+15 alternating-order pairs:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| retained three-pass batch vs fused packet-local pass | `18,755,495 ns / 18,341,060 ns` | **`1.0226x`** | `11/15` | exact |
+| fused pass / fused pass null | `16,727,039 ns / 17,138,188 ns` | `0.9760x` | `6/15` | identical arm |
+
+The measured 2.26% advantage is smaller than the null arm's 2.46% positional
+skew; charging that full skew leaves approximately `0.998x`. The test itself
+finished in 1.20 seconds. RCH again reported a cache miss despite the untimed
+warm-up; its 52.5-second pipeline (32.5 seconds sync, 18.0 seconds remote
+build/execution, 2.0 seconds retrieval; 60.6 seconds wrapper elapsed) is routing
+overhead, not benchmark evidence.
+
+CORRECTNESS / GATES: before timing, the same-binary harness compared every
+ordered packet hash and base64 string against a frozen copy of the former
+implementation. Direct rustfmt and `git diff --check` passed. Targeted UBS
+completed with zero critical findings after excluding its known Rust category-8
+false positive that mistakes generic Base64 decoding for JWT bypass; Cargo was
+unavailable to UBS so no local build ran. The strict-remote release build and
+timed test both passed.
+
+RESULT: NO-SHIP. The candidate source and measurement harness were removed.
+Keep the retained three-pass implementation: packet-local cache locality does
+not clear the same-binary null floor on this 4,128-packet workload. Revisit only
+with a structural lever that removes mandatory serialization, hashing, or
+base64 work rather than merely rescheduling it.
