@@ -21747,3 +21747,64 @@ fallback and no `release-perf` build.
 RESULT: SHIP. Keep the compact-index single pass: exact histogram parity holds,
 the measured speedup clears the candidate-null spread by a wide margin, and the
 native full-scan path no longer pays for names or a second traversal.
+
+## 2026-07-14 HazyOtter SHIP (`edge_bfs`): index undirected traversal state — **3.904x** (`br-r37-c1-arouf`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: `bv --robot-triage` found no
+unowned narrow perf bead; its perf umbrella and shortest-path residuals were
+already assigned. The traversal ledger's directed `edge_bfs` keep explicitly
+left the undirected sibling for a separate same-binary proof. The live
+undirected kernel still stored owned node labels in both `HashSet<String>` and
+`VecDeque<String>`, hashed every oriented neighbor visit, cloned every
+first-discovered label into the queue, and resolved a name-keyed adjacency row
+for every dequeue. On the measured 8,192-node path that is 16,382 String-keyed
+neighbor probes per call. Ranked work was (1) mandatory output-label copies,
+(2) avoidable visited-set hashing and queue clones, and (3) avoidable dequeued
+name lookup. The lever removes only (2) and (3), leaving result materialization
+unchanged. Opportunity score: impact 4 x confidence 5 / effort 1 = 20.
+
+ONE LEVER: resolve the source once, keep visitation in `Vec<bool>`, queue compact
+node indices, and walk the order-faithful borrowed `neighbors_indices` rows.
+Materialize names only while appending the same complete oriented-edge result.
+Missing sources, BFS first-discovery state, neighbor insertion order, non-tree
+edges, cycles, self-loops, isolates, and remove/re-add order are unchanged. A
+frozen test-only copy of the former String-state implementation is the exact A/B
+oracle.
+
+COLD-TARGET WARM-UP: one untimed fail-closed ordinary-release correctness run
+completed on `vmi1149989` (job `j-29928833041828901`). Its cold release build
+took 3m50s and the focused parity test itself completed immediately. No timeout,
+local fallback, or `release-perf` command ran; build time is not benchmark
+evidence.
+
+ONE FOREGROUND ORDINARY-RELEASE A/B + NULL: the sole measurement selected the
+same worker and identical worker-scoped target pool (job
+`j-29928833041828907`). RCH nevertheless reported another cache miss and spent
+3m58s rebuilding before process start; only the 1.36-second in-process test is
+evidence. The fixed 8,192-node long-label path used four calls per arm, three
+warmups, and 15 alternating-order pairs:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen String state vs indexed state | `35,187,100 ns / 9,012,058 ns` | **`3.904x`** | **`12/15`** | exact |
+| indexed state / indexed state null | `8,497,442 ns / 8,190,049 ns` | `1.038x` | identical arm | exact |
+
+The complete ordered edge vector matched before timing and contained all
+`2 * (n - 1)` oriented path edges. Charging the full null skew still leaves
+approximately **3.761x**, so the keep decision is well outside positional noise.
+
+CORRECTNESS / GATES: the focused strict-remote release test passed `1/1` across
+cycles, converging paths, a self-loop, an isolate, a missing source, and
+remove/re-add ordering. `git diff --check` passed. Direct rustfmt reported broad
+pre-existing file drift but no suggestion in the owned ranges. Targeted UBS,
+with its established noisy Rust category 8 excluded, reported zero critical
+findings. Scoped strict-remote clippy reached `fnx-algorithms` and stopped only
+on four pre-existing `explicit_counter_loop` / `question_mark` lints at lines
+22,149, 22,289, 33,695, and 33,698, all outside the owned ranges. Every Cargo
+command used fail-closed `RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`; timing
+used ordinary `--profile release`, with no local fallback or `release-perf`.
+
+RESULT: SHIP. Keep compact-index visited and queue state in undirected
+`edge_bfs`; exact observable ordering holds, the same-binary median clears the
+null floor decisively, and the traversal no longer hashes or clones labels for
+its internal BFS state.

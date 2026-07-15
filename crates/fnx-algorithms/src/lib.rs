@@ -38336,6 +38336,33 @@ fn mixing_expansion_orig_string(graph: &Graph, nodes: &[&str]) -> f64 {
 #[must_use]
 pub fn edge_bfs(graph: &Graph, source: &str) -> Vec<(String, String)> {
     let mut result = Vec::new();
+    let Some(source_idx) = graph.get_node_index(source) else {
+        return result;
+    };
+    let names = graph.nodes_ordered();
+    let mut visited = vec![false; names.len()];
+    let mut queue = VecDeque::new();
+    visited[source_idx] = true;
+    queue.push_back(source_idx);
+    while let Some(u) = queue.pop_front() {
+        if let Some(neighbors) = graph.neighbors_indices(u) {
+            for &v in neighbors {
+                if !visited[v] {
+                    visited[v] = true;
+                    queue.push_back(v);
+                }
+                result.push((names[u].to_owned(), names[v].to_owned()));
+            }
+        }
+    }
+    result
+}
+
+/// br-r37-c1-arouf A/B baseline: the pre-lever undirected edge-BFS with
+/// String-keyed visited/queue state and a name lookup for every dequeued node.
+#[cfg(test)]
+fn edge_bfs_orig_string(graph: &Graph, source: &str) -> Vec<(String, String)> {
+    let mut result = Vec::new();
     let mut visited = HashSet::new();
     let mut queue = VecDeque::new();
     visited.insert(source.to_string());
@@ -38348,7 +38375,6 @@ pub fn edge_bfs(graph: &Graph, source: &str) -> Vec<(String, String)> {
                     result.push((u.clone(), v.to_string()));
                     queue.push_back(v.to_string());
                 } else {
-                    // Also yield non-tree edges for edge_bfs
                     result.push((u.clone(), v.to_string()));
                 }
             }
@@ -75164,6 +75190,147 @@ mod tests {
         // Should find tree edges (a,b) and (b,c)
         assert!(edges.contains(&("a".to_string(), "b".to_string())));
         assert!(edges.contains(&("b".to_string(), "c".to_string())));
+    }
+
+    #[test]
+    fn edge_bfs_index_state_preserves_exact_order() {
+        let mut graph = Graph::strict();
+        for node in ["s", "z", "a", "m", "t", "u", "isolated"] {
+            graph.add_node(node);
+        }
+        for (left, right) in [
+            ("s", "z"),
+            ("s", "a"),
+            ("s", "m"),
+            ("z", "t"),
+            ("a", "t"),
+            ("m", "a"),
+            ("t", "s"),
+            ("t", "t"),
+            ("u", "s"),
+        ] {
+            graph.add_edge(left, right).unwrap();
+        }
+
+        for source in ["s", "z", "a", "m", "t", "u", "isolated", "missing"] {
+            assert_eq!(
+                edge_bfs(&graph, source),
+                super::edge_bfs_orig_string(&graph, source),
+                "undirected edge-BFS parity from {source}"
+            );
+        }
+        assert_eq!(
+            &edge_bfs(&graph, "s")[..5],
+            &[
+                ("s".to_owned(), "z".to_owned()),
+                ("s".to_owned(), "a".to_owned()),
+                ("s".to_owned(), "m".to_owned()),
+                ("s".to_owned(), "t".to_owned()),
+                ("s".to_owned(), "u".to_owned()),
+            ],
+            "neighbor insertion order remains observable"
+        );
+
+        assert!(graph.remove_edge("s", "a"));
+        graph.add_edge("s", "a").unwrap();
+        assert_eq!(
+            edge_bfs(&graph, "s"),
+            super::edge_bfs_orig_string(&graph, "s"),
+            "remove/re-add neighbor order remains exact"
+        );
+    }
+
+    /// br-r37-c1-arouf: same-binary A/B for index-backed undirected edge-BFS
+    /// against the frozen String-state traversal, plus a candidate null.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn edge_bfs_index_state_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        let n = 8_192_usize;
+        let calls = 4_usize;
+        let names = (0..n)
+            .map(|index| format!("vertex-{index:05}-payload-abcdefghijklmnopqrstuvwxyz"))
+            .collect::<Vec<_>>();
+        let mut graph = Graph::strict();
+        for name in &names {
+            graph.add_node(name);
+        }
+        for index in 0..(n - 1) {
+            graph.add_edge(&names[index], &names[index + 1]).unwrap();
+        }
+        let source = names[0].as_str();
+
+        let baseline = super::edge_bfs_orig_string(&graph, source);
+        let candidate = edge_bfs(&graph, source);
+        assert_eq!(candidate, baseline, "exact ordered edge parity");
+        assert_eq!(candidate.len(), 2 * (n - 1), "all oriented path edges");
+
+        let time = |use_candidate: bool| -> u128 {
+            let start = Instant::now();
+            for _ in 0..calls {
+                let result = if use_candidate {
+                    edge_bfs(black_box(&graph), black_box(source))
+                } else {
+                    super::edge_bfs_orig_string(black_box(&graph), black_box(source))
+                };
+                black_box(result);
+            }
+            start.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15_usize;
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let mut null_first_times = Vec::with_capacity(rounds);
+        let mut null_second_times = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(false), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(false), candidate_time)
+            };
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+
+            let (null_first, null_second) = if round.is_multiple_of(2) {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                (time(true), null_second)
+            };
+            null_first_times.push(null_first);
+            null_second_times.push(null_second);
+        }
+
+        let baseline_median = median(&baseline_times);
+        let candidate_median = median(&candidate_times);
+        let null_first_median = median(&null_first_times);
+        let null_second_median = median(&null_second_times);
+        let paired_wins = baseline_times
+            .iter()
+            .zip(&candidate_times)
+            .filter(|(baseline_time, candidate_time)| baseline_time > candidate_time)
+            .count();
+
+        println!(
+            "EDGE_BFS_INDEX_AB n={n} calls={calls} rounds={rounds} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} speedup={:.3}x paired_wins={paired_wins}/{rounds} null_first_median_ns={null_first_median} null_second_median_ns={null_second_median} null_ratio={:.3}x exact_parity=true",
+            baseline_median as f64 / candidate_median as f64,
+            null_first_median as f64 / null_second_median as f64,
+        );
     }
 
     #[test]
