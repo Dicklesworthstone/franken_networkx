@@ -21931,3 +21931,63 @@ pre-existing `explicit_counter_loop` / `question_mark` lints at lines 22,332,
 RESULT: SHIP. Keep compact-index frontier state in the CGSE Prim reference;
 exact ordering, floats, output, and witness semantics hold, while the measured
 kernel no longer clones or hashes endpoint labels for every frontier edge.
+
+## 2026-07-14 HazyOtter SHIP (`local_efficiency`): reuse compact ego-BFS state — **29.432x** (`br-r37-c1-y2q6x`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: `bv --robot-triage` found the
+broad no-gaps perf umbrella already owned and no active narrow perf bead, so
+this pass rotated from matching/MST to the efficiency family. On the measured
+384-node radius-12 ring lattice, every node has 24 neighbors and the former
+kernel ran one induced-ego BFS from each neighbor. That meant roughly 221,184
+queue pops; every pop rebuilt and lexically sorted a neighbor-name vector,
+while every traversal probe hashed String-keyed ego and distance sets. The
+5,308,416 mandatory adjacency probes and reciprocal-distance additions remain;
+the repeated allocation, sorting, and String hashing are avoidable.
+Opportunity score: impact 5 x confidence 5 / effort 2 = 12.5.
+
+ONE LEVER: materialize compact adjacency rows once per call, preserving the
+former lexical neighbor order, then reuse one Boolean ego-membership vector,
+one stamped visited vector, one distance vector, one reached vector, and one
+queue across all induced-neighborhood BFS runs. Empty graphs, isolates,
+self-loops, disconnected ego components, reciprocal-distance arithmetic,
+adjacency scan counts, and queue-peak witness semantics remain unchanged. A
+frozen test-only copy of the former String-state implementation is the A/B
+oracle.
+
+COLD-TARGET WARM-UP: one untimed fail-closed ordinary-release correctness run
+passed `1/1` on `vmi1227854` (job `j-29928833041828991`). Its remote cache miss
+took 4m18s to build; the focused parity test itself completed immediately. No
+timeout, local fallback, or `release-perf` command ran, and build time is not
+benchmark evidence.
+
+ONE FOREGROUND ORDINARY-RELEASE A/B + NULL: the sole measurement stayed on
+`vmi1227854` and the same worker-scoped target path (job
+`j-29928833041829007`). RCH nevertheless reported another cache miss and spent
+4m03s rebuilding before process start; only the 6.94-second in-process test is
+evidence. The fixed graph used 384 long, insertion-order-scrambled labels,
+4,608 edges, radius 12, one call per sample, three warmups, and 15
+alternating-order pairs:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen String state vs indexed state | `326,337,755 ns / 11,087,814 ns` | **`29.432x`** | **`15/15`** | `1e-12` efficiency + exact witness |
+| indexed state / indexed state null | `10,805,631 ns / 10,790,056 ns` | `1.001x` | identical arm | exact |
+
+The candidate/null positional skew is approximately 0.1%, leaving the keep
+decision far outside measurement noise.
+
+CORRECTNESS / GATES: the focused strict-remote release test covered empty,
+isolated, self-looped, lexically scrambled, and partially connected ego cases;
+efficiency matched the frozen baseline within `1e-12`, and the complete
+complexity witness matched exactly. `git diff --check` passed, and every
+rustfmt suggestion in the owned ranges was applied; whole-workspace rustfmt
+remains blocked by extensive pre-existing drift. Targeted UBS reported no
+owned critical finding. Scoped strict-remote clippy stopped at a pre-existing
+`collapsible_if` in `fnx-classes/src/lib.rs:1700`, outside the owned file (job
+`j-29928833041829004`). Every Cargo command used fail-closed
+`RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`; timing used ordinary
+`--profile release`, with no local fallback and no `release-perf` build.
+
+RESULT: SHIP. Keep compact-index local-efficiency ego BFS state; the public
+value and witness contract hold while repeated name-vector sorts and
+String-keyed traversal bookkeeping leave the hot kernel.

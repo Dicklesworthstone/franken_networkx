@@ -19492,12 +19492,30 @@ pub fn local_efficiency(graph: &Graph) -> LocalEfficiencyResult {
     let mut total_edges_scanned = 0usize;
     let mut max_queue_peak = 0usize;
 
-    for &v in &nodes {
-        // Get neighbors of v
-        let nbrs: HashSet<&str> = graph
-            .neighbors_iter(v)
-            .map(|iter| iter.collect())
-            .unwrap_or_default();
+    // br-r37-c1-y2q6x: local efficiency runs one induced-neighborhood BFS
+    // from every neighbor of every node. Keep that repeated state in compact
+    // node-index space instead of rebuilding String-keyed HashSets/HashMaps and
+    // allocating a sorted Vec<&str> at every queue pop. Sorting each adjacency
+    // row once by node name preserves the former BFS order (and therefore the
+    // queue-peak witness) while the mark/dist arrays are reused across all egos.
+    let mut sorted_adjacency = Vec::with_capacity(n);
+    for node_index in 0..n {
+        let mut row = graph
+            .neighbors_indices(node_index)
+            .unwrap_or_default()
+            .to_vec();
+        row.sort_unstable_by(|&left, &right| nodes[left].cmp(nodes[right]));
+        sorted_adjacency.push(row);
+    }
+    let mut in_ego = vec![false; n];
+    let mut seen_stamp = vec![0usize; n];
+    let mut distance = vec![0usize; n];
+    let mut queue = VecDeque::with_capacity(n);
+    let mut reached = Vec::with_capacity(n);
+    let mut stamp = 0usize;
+
+    for node_index in 0..n {
+        let nbrs = &sorted_adjacency[node_index];
 
         let nbr_count = nbrs.len();
         if nbr_count < 2 {
@@ -19508,7 +19526,98 @@ pub fn local_efficiency(graph: &Graph) -> LocalEfficiencyResult {
         let denom = nbr_count * (nbr_count - 1);
         let mut sub_eff = 0.0f64;
 
+        for &neighbor in nbrs {
+            in_ego[neighbor] = true;
+        }
+
         // BFS from each neighbor within the induced subgraph
+        for &source in nbrs {
+            stamp += 1;
+            seen_stamp[source] = stamp;
+            distance[source] = 0;
+            queue.clear();
+            reached.clear();
+            queue.push_back(source);
+            reached.push(source);
+
+            while let Some(current) = queue.pop_front() {
+                let next_distance = distance[current] + 1;
+                for &nbr in &sorted_adjacency[current] {
+                    total_edges_scanned += 1;
+                    // Only traverse within the induced subgraph of v's neighbors
+                    if in_ego[nbr] && seen_stamp[nbr] != stamp {
+                        seen_stamp[nbr] = stamp;
+                        distance[nbr] = next_distance;
+                        queue.push_back(nbr);
+                        reached.push(nbr);
+                        max_queue_peak = max_queue_peak.max(queue.len());
+                    }
+                }
+            }
+
+            for &target in &reached {
+                if target != source {
+                    sub_eff += 1.0 / distance[target] as f64;
+                }
+            }
+        }
+
+        for &neighbor in nbrs {
+            in_ego[neighbor] = false;
+        }
+
+        total_eff += sub_eff / denom as f64;
+    }
+
+    let efficiency = total_eff / n as f64;
+
+    LocalEfficiencyResult {
+        efficiency,
+        witness: ComplexityWitness {
+            algorithm: "local_efficiency".to_owned(),
+            complexity_claim: "O(|V| * d_max * (d_max + |E_sub|))".to_owned(),
+            nodes_touched: n,
+            edges_scanned: total_edges_scanned,
+            queue_peak: max_queue_peak,
+        },
+    }
+}
+
+#[cfg(test)]
+fn local_efficiency_orig_string(graph: &Graph) -> LocalEfficiencyResult {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return LocalEfficiencyResult {
+            efficiency: 0.0,
+            witness: ComplexityWitness {
+                algorithm: "local_efficiency".to_owned(),
+                complexity_claim: "O(|V| * d_max * (d_max + |E_sub|))".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    let mut total_eff = 0.0f64;
+    let mut total_edges_scanned = 0usize;
+    let mut max_queue_peak = 0usize;
+
+    for &v in &nodes {
+        let nbrs: HashSet<&str> = graph
+            .neighbors_iter(v)
+            .map(|iter| iter.collect())
+            .unwrap_or_default();
+
+        let nbr_count = nbrs.len();
+        if nbr_count < 2 {
+            continue;
+        }
+
+        let denom = nbr_count * (nbr_count - 1);
+        let mut sub_eff = 0.0f64;
+
         for &source in &nbrs {
             let mut dist: HashMap<&str, usize> = HashMap::new();
             dist.insert(source, 0);
@@ -19525,7 +19634,6 @@ pub fn local_efficiency(graph: &Graph) -> LocalEfficiencyResult {
 
                 for nbr in cur_nbrs {
                     total_edges_scanned += 1;
-                    // Only traverse within the induced subgraph of v's neighbors
                     if nbrs.contains(nbr) && !dist.contains_key(nbr) {
                         dist.insert(nbr, d + 1);
                         queue.push_back(nbr);
@@ -19544,10 +19652,8 @@ pub fn local_efficiency(graph: &Graph) -> LocalEfficiencyResult {
         total_eff += sub_eff / denom as f64;
     }
 
-    let efficiency = total_eff / n as f64;
-
     LocalEfficiencyResult {
-        efficiency,
+        efficiency: total_eff / n as f64,
         witness: ComplexityWitness {
             algorithm: "local_efficiency".to_owned(),
             complexity_claim: "O(|V| * d_max * (d_max + |E_sub|))".to_owned(),
@@ -67742,6 +67848,158 @@ mod tests {
             (result.efficiency - 1.0).abs() < 1e-12,
             "K4 should have local efficiency 1.0, got {}",
             result.efficiency
+        );
+    }
+
+    #[test]
+    fn local_efficiency_index_state_preserves_string_baseline() {
+        let empty = Graph::strict();
+        assert_eq!(
+            local_efficiency(&empty),
+            super::local_efficiency_orig_string(&empty)
+        );
+
+        let mut graph = Graph::strict();
+        for node in ["z", "aa", "middle", "b", "tail", "isolate"] {
+            graph.add_node(node);
+        }
+        for (left, right) in [
+            ("z", "aa"),
+            ("z", "middle"),
+            ("z", "b"),
+            ("aa", "middle"),
+            ("middle", "b"),
+            ("b", "tail"),
+            ("tail", "tail"),
+        ] {
+            graph
+                .add_edge(left, right)
+                .expect("edge add should succeed");
+        }
+
+        let candidate = local_efficiency(&graph);
+        let baseline = super::local_efficiency_orig_string(&graph);
+        assert!(
+            (candidate.efficiency - baseline.efficiency).abs() <= TEST_TOLERANCE,
+            "compact index state changed local efficiency: candidate={}, baseline={}",
+            candidate.efficiency,
+            baseline.efficiency
+        );
+        assert_eq!(
+            candidate.witness, baseline.witness,
+            "compact index state must preserve scan and queue witnesses"
+        );
+    }
+
+    /// `br-r37-c1-y2q6x`: same-binary A/B for compact-index local-efficiency
+    /// ego BFS state against the frozen String-state baseline, plus a candidate null.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn local_efficiency_index_state_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        let n = 384usize;
+        let radius = 12usize;
+        let calls = 1usize;
+        let names = (0..n)
+            .map(|index| {
+                let lexical_key = (index * 104_729) % n;
+                format!(
+                    "local-efficiency-node-{lexical_key:05}-abcdefghijklmnopqrstuvwxyz-{index:05}"
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut graph = Graph::strict();
+        for name in &names {
+            graph.add_node(name);
+        }
+        for index in 0..n {
+            for offset in 1..=radius {
+                graph
+                    .add_edge(&names[index], &names[(index + offset) % n])
+                    .expect("benchmark edge add should succeed");
+            }
+        }
+
+        let baseline = super::local_efficiency_orig_string(&graph);
+        let candidate = local_efficiency(&graph);
+        assert!(
+            (candidate.efficiency - baseline.efficiency).abs() <= TEST_TOLERANCE,
+            "benchmark parity drift: candidate={}, baseline={}",
+            candidate.efficiency,
+            baseline.efficiency
+        );
+        assert_eq!(candidate.witness, baseline.witness);
+
+        let time = |use_candidate: bool| -> u128 {
+            let start = Instant::now();
+            let mut checksum = 0usize;
+            for _ in 0..calls {
+                let result = if use_candidate {
+                    local_efficiency(black_box(&graph))
+                } else {
+                    super::local_efficiency_orig_string(black_box(&graph))
+                };
+                checksum ^= result.efficiency.to_bits() as usize;
+                checksum ^= result.witness.edges_scanned;
+                checksum ^= result.witness.queue_peak;
+            }
+            black_box(checksum);
+            start.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15usize;
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let mut null_first_times = Vec::with_capacity(rounds);
+        let mut null_second_times = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(false), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(false), candidate_time)
+            };
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+
+            let (null_first, null_second) = if round.is_multiple_of(2) {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                (time(true), null_second)
+            };
+            null_first_times.push(null_first);
+            null_second_times.push(null_second);
+        }
+
+        let baseline_median = median(&baseline_times);
+        let candidate_median = median(&candidate_times);
+        let null_first_median = median(&null_first_times);
+        let null_second_median = median(&null_second_times);
+        let paired_wins = baseline_times
+            .iter()
+            .zip(&candidate_times)
+            .filter(|(baseline_time, candidate_time)| baseline_time > candidate_time)
+            .count();
+
+        println!(
+            "LOCAL_EFFICIENCY_INDEX_STATE_AB n={n} edges={} radius={radius} calls={calls} rounds={rounds} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} speedup={:.3}x paired_wins={paired_wins}/{rounds} null_first_median_ns={null_first_median} null_second_median_ns={null_second_median} null_ratio={:.3}x tolerance_parity=true witness_parity=true",
+            graph.edge_count(),
+            baseline_median as f64 / candidate_median as f64,
+            null_first_median as f64 / null_second_median as f64,
         );
     }
 
