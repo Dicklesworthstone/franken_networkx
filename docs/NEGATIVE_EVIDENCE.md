@@ -21646,3 +21646,49 @@ RESULT: SHIP. Keep the single name-table lookup in `DiGraph::degree`; the paired
 median clears the near-unity null control by a wide margin, exact parity holds,
 and the production change removes one hash probe from every string-keyed degree
 query.
+
+## 2026-07-14 HazyOtter SHIP (`is_weighted`): scan each stored edge attribute map once (`br-r37-c1-1its3`)
+
+NEGATIVE-LEDGER-FIRST / ATTRIBUTION: `bv --robot-triage` exposed no unowned,
+narrow ready perf bead, and the recent ledger showed the adjacent degree and
+shortest-path seams were already mined or owned. A fresh predicate/attribute
+profile of `fnx_algorithms::is_weighted` found that its positive/full-scan path
+walked every undirected adjacency row, so each ordinary edge was visited twice.
+Every visit also resolved both endpoint names and hash-probed the edge map before
+checking the attribute map. On the measured graph that was 65,537 visits per
+iteration. The existing authoritative `Graph::edges_storage_order_index_iter`
+already yields each stored edge attribute map exactly once (32,769 visits here),
+without endpoint-name resolution or edge-map reprobes.
+
+ONE LEVER: replace the adjacency/name/edge-lookup loop with a single pass over
+`edges_storage_order_index_iter`, retaining the existing non-empty-graph rule and
+early return on the first missing weight. Empty, weighted ordinary-edge,
+weighted-self-loop, wrong-key, and mixed weighted/unweighted cases are covered by
+the focused unit test. The ordinary-release harness freezes the old route and
+compares it with the exact storage-iterator body used in production.
+
+ONE FOREGROUND ORDINARY-RELEASE A/B: after an untimed strict-remote warm-up build
+on `vmi1149989` (job `j-29928833041828851`), one foreground run on the same worker
+(job `j-29928833041828858`) used 4,096 stable long-label nodes, 32,769 weighted
+edges including a self-loop, 16 iterations per arm, and 21 alternating-order
+paired samples. RCH rebuilt before process start despite the same worker/target
+pool; that Cargo time was outside every harness clock.
+
+| same-process arm | median ratio | wins | parity |
+|---|---:|---:|---:|
+| frozen adjacency/name route / stored-attribute pass | **`14.059966x`** | **`21/21`** | checksum `16` exact |
+| candidate / candidate null | `1.109522x` | identical arm | checksum exact |
+
+CORRECTNESS / GATES: the focused strict-remote test passed `1/1` on `vmi1227854`
+(job `j-29928833041828853`). The owned harness is rustfmt clean, `git diff
+--check` passed, and targeted UBS reported zero critical findings after excluding
+its established noisy Rust lexical category 8. Crate-scoped clippy reached the
+code but `-D warnings` stopped on the pre-existing `collapsible_if` finding in
+untouched `crates/fnx-classes/src/lib.rs:1700`; that unowned lint was not changed.
+Every Cargo command used fail-closed `RCH_REQUIRE_REMOTE=1`,
+`RCH_NO_SELF_HEALING=1`; timing used ordinary `--profile release`, with no local
+fallback and no `release-perf` build.
+
+RESULT: SHIP. Keep the single stored-edge attribute pass: it preserves predicate
+semantics and exact checksums while eliminating duplicate undirected-edge visits,
+endpoint-name resolution, and edge-map reprobes from the full-scan hot path.

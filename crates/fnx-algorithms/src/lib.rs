@@ -35689,20 +35689,14 @@ fn is_tournament_orig_string(digraph: &DiGraph) -> bool {
 /// Check if an undirected graph has weighted edges.
 #[must_use]
 pub fn is_weighted(graph: &Graph, weight_attr: &str) -> bool {
-    let nodes = graph.nodes_ordered();
     let mut has_edges = false;
-    for &u in &nodes {
-        if let Some(neighbors) = graph.neighbors_iter(u) {
-            for v in neighbors {
-                has_edges = true;
-                if graph
-                    .edge_attrs(u, v)
-                    .and_then(|attrs| attrs.get(weight_attr))
-                    .is_none()
-                {
-                    return false;
-                }
-            }
+    // br-r37-c1-1its3: the undirected adjacency walk visited each ordinary
+    // edge twice and resolved both endpoint names before every attribute-map
+    // probe. The authoritative edge iterator yields each AttrMap exactly once.
+    for (_, _, attrs) in graph.edges_storage_order_index_iter() {
+        has_edges = true;
+        if !attrs.contains_key(weight_attr) {
+            return false;
         }
     }
     has_edges
@@ -74551,11 +74545,19 @@ mod tests {
 
     #[test]
     fn test_is_weighted() {
+        let empty = Graph::strict();
+        assert!(!is_weighted(&empty, "weight"));
+
         let mut g = Graph::strict();
         g.add_edge_with_attrs("a", "b", attrs([("weight", "1.0")]))
             .unwrap();
+        g.add_edge_with_attrs("b", "b", attrs([("weight", "2.0")]))
+            .unwrap();
         assert!(is_weighted(&g, "weight"));
         assert!(!is_weighted(&g, "cost"));
+
+        let _ = g.add_edge("b", "c");
+        assert!(!is_weighted(&g, "weight"));
     }
 
     #[test]
