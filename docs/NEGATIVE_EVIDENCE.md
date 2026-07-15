@@ -22170,3 +22170,63 @@ RESULT: SHIP. Keep compact-index domination and induced-connectivity state in
 `is_connected_dominating_set`; the exact predicate contract holds while the
 hot full-set traversal no longer allocates neighbor-name vectors or hashes
 labels per adjacency probe.
+
+## 2026-07-15 HazyOtter SHIP (`negative_edge_cycle`): undirected edge-sign scan — **7.092x** (`br-r37-c1-yg26j`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: `bv --robot-triage` found the top
+perf directive and weighted-MultiGraph repair already owned, so this pass
+rotated away from the recently mined connected-dominating, semiconnected, and
+predecessor families. The public undirected `negative_edge_cycle` kernel was
+the fresh operation-count hotspot: its former implementation rebuilt the
+whole graph's CSR and weight vectors for each connected component, ran SPFA,
+then cloned String-keyed distance results into a visited set. Even a connected
+all-positive graph paid the full Bellman-Ford state cost; C components could
+multiply the whole-graph preparation cost by C.
+
+ONE LEVER: for an undirected graph, every edge can be traversed both ways, so
+one finite negative edge is itself a negative two-edge closed walk (or a
+one-edge cycle for a self-loop); without a negative edge, no cycle can have a
+negative sum. Production now reuses the authoritative O(|E|)
+`graph_has_negative_edge_weight` attribute scan. A frozen test-only copy of
+the former per-component Bellman-Ford implementation remains the parity and
+A/B oracle. Missing attributes still default positive, non-finite values are
+still treated as the positive default, and the result remains a deterministic
+Boolean.
+
+COLD-TARGET WARM-UP: an untimed fail-closed ordinary-release correctness run
+passed `1/1` on `vmi1149989` (job `j-29928833041829142`). The remote cache miss
+took 6m20s to build; the focused test itself completed immediately and covered
+missing/custom weights, positive zero and fractional weights, disconnected
+negative edges, non-finite values, and negative self-loops against the frozen
+Bellman-Ford result. No timeout, local fallback, or `release-perf` command ran;
+build time is not benchmark evidence.
+
+ONE FOREGROUND ORDINARY-RELEASE A/B + NULL: RCH unexpectedly routed the
+supported measurement command to `vmi1153651` (job
+`j-29928833041829157`) rather than the warmed worker and reported another
+cache miss. The cold 6m35s build is excluded; only the 0.36-second in-process
+test is evidence. The fixed connected all-positive 4,096-node path forced both
+arms to inspect the complete graph, with three warmups and 21
+alternating-order pairs:
+
+| same-binary arm | median ratio | wins | p5-p95 | parity |
+|---|---:|---:|---:|---:|
+| frozen Bellman-Ford vs edge scan | **`7.0920x`** | **`21/21`** | `4.7232x-10.0200x` | exact Boolean |
+| edge scan / edge scan null | `0.9991x` | `10/21` | `0.8699x-1.2939x` | identical arm |
+
+The candidate median is about 7.10 times the null median and won every pair,
+so the keep decision is well outside the measured positional noise.
+
+CORRECTNESS / GATES: the strict-remote focused release parity test and the
+same-binary A/B both passed. `git diff --check` passed; the owned ranges are
+rustfmt-clean while whole-file rustfmt remains blocked by extensive
+pre-existing drift. Staged-only UBS (with the repository's established noisy
+Rust category 8 excluded) exited zero with no critical finding. The compiler
+emitted only the known pre-existing unused
+`directed` test-variable warning outside this lever. Every Cargo command used
+fail-closed `RCH_REQUIRE_REMOTE=1` and `RCH_NO_SELF_HEALING=1`; timing used
+ordinary `--profile release`, with no local fallback or `release-perf` build.
+
+RESULT: SHIP. Keep the undirected finite-negative-edge equivalence scan;
+`negative_edge_cycle` no longer constructs shortest-path state for a Boolean
+property determined directly by stored edge signs.

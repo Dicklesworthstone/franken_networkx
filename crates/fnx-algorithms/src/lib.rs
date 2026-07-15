@@ -34307,7 +34307,18 @@ fn bidirectional_shortest_path_orig_string(
 /// Matches `networkx.negative_edge_cycle(G, weight=weight)`.
 #[must_use]
 pub fn negative_edge_cycle(graph: &Graph, weight_attr: &str) -> bool {
-    // Run Bellman-Ford from each component
+    // In an undirected graph every edge can be traversed in both directions, so
+    // a finite negative edge is itself a negative two-edge closed walk (and a
+    // negative self-loop is a one-edge cycle). Conversely, without a negative
+    // edge no cycle can have negative total weight. Reuse the authoritative
+    // O(|E|) attribute scan instead of rebuilding whole-graph Bellman-Ford CSR
+    // state once per connected component. (br-r37-c1-yg26j)
+    graph_has_negative_edge_weight(graph, weight_attr)
+}
+
+/// Frozen pre-br-r37-c1-yg26j implementation for parity and same-binary A/B.
+#[cfg(test)]
+fn negative_edge_cycle_orig_bellman_ford(graph: &Graph, weight_attr: &str) -> bool {
     let mut visited = HashSet::<String>::new();
     for node in graph.nodes_ordered() {
         if visited.contains(node) {
@@ -74465,6 +74476,134 @@ mod tests {
         let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "-3.0")]));
         let _ = g.add_edge_with_attrs("c", "a", attrs([("weight", "-1.0")]));
         assert!(negative_edge_cycle(&g, "weight"));
+    }
+
+    #[test]
+    fn test_negative_edge_cycle_edge_scan_matches_bellman_ford() {
+        let mut g = Graph::strict();
+        for node in 0usize..96 {
+            g.add_node(node.to_string());
+        }
+        for node in 0usize..95 {
+            if node.is_multiple_of(3) {
+                let _ = g.add_edge(node.to_string(), (node + 1).to_string());
+            } else {
+                let weight = if node.is_multiple_of(2) { "2.5" } else { "0" };
+                let _ = g.add_edge_with_attrs(
+                    node.to_string(),
+                    (node + 1).to_string(),
+                    attrs([("cost", weight)]),
+                );
+            }
+        }
+        assert_eq!(
+            negative_edge_cycle(&g, "cost"),
+            super::negative_edge_cycle_orig_bellman_ford(&g, "cost")
+        );
+
+        let _ = g.add_edge_with_attrs("isolated-a", "isolated-b", attrs([("cost", "-0.25")]));
+        assert_eq!(
+            negative_edge_cycle(&g, "cost"),
+            super::negative_edge_cycle_orig_bellman_ford(&g, "cost")
+        );
+        assert!(negative_edge_cycle(&g, "cost"));
+
+        let mut nonfinite = Graph::strict();
+        let _ = nonfinite.add_edge_with_attrs("nan-a", "nan-b", attrs([("cost", "NaN")]));
+        let _ = nonfinite.add_edge_with_attrs("inf-a", "inf-b", attrs([("cost", "inf")]));
+        assert_eq!(
+            negative_edge_cycle(&nonfinite, "cost"),
+            super::negative_edge_cycle_orig_bellman_ford(&nonfinite, "cost")
+        );
+        assert!(!negative_edge_cycle(&nonfinite, "cost"));
+
+        let mut self_loop = Graph::strict();
+        let _ = self_loop.add_edge_with_attrs("loop", "loop", attrs([("cost", "-1")]));
+        assert_eq!(
+            negative_edge_cycle(&self_loop, "cost"),
+            super::negative_edge_cycle_orig_bellman_ford(&self_loop, "cost")
+        );
+        assert!(negative_edge_cycle(&self_loop, "cost"));
+    }
+
+    /// br-r37-c1-yg26j: full-function same-binary A/B on a connected all-positive
+    /// graph, which forces both arms to inspect the complete graph. The baseline
+    /// is the frozen per-component Bellman-Ford implementation; the candidate is
+    /// the equivalent undirected finite-negative-edge scan. Candidate/candidate
+    /// pairs provide the local timing-noise control.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn negative_edge_cycle_edge_scan_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 4096usize;
+        let mut g = Graph::strict();
+        for node in 0..n {
+            g.add_node(node.to_string());
+        }
+        for node in 0..(n - 1) {
+            let _ = g.add_edge_with_attrs(
+                node.to_string(),
+                (node + 1).to_string(),
+                attrs([("weight", "1.0")]),
+            );
+        }
+        assert_eq!(
+            negative_edge_cycle(&g, "weight"),
+            super::negative_edge_cycle_orig_bellman_ford(&g, "weight")
+        );
+
+        let time = |candidate: bool| -> f64 {
+            let started = Instant::now();
+            let found = if candidate {
+                negative_edge_cycle(&g, "weight")
+            } else {
+                super::negative_edge_cycle_orig_bellman_ford(&g, "weight")
+            };
+            black_box(found);
+            started.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 21usize;
+        let paired = |baseline_is_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline, candidate) = if round.is_multiple_of(2) {
+                    let baseline = time(baseline_is_candidate);
+                    let candidate = time(true);
+                    (baseline, candidate)
+                } else {
+                    let candidate = time(true);
+                    let baseline = time(baseline_is_candidate);
+                    (baseline, candidate)
+                };
+                ratios.push(baseline / candidate);
+            }
+            ratios
+        };
+        let report = |label: &str, ratios: &[f64]| {
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "NEG_EDGE_CYCLE_AB {label}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!(
+            "NEG_EDGE_CYCLE_AB connected_positive_path nodes={n} edges={} (>1 = edge scan faster)",
+            g.edge_count()
+        );
+        report("EDGE_SCAN_vs_BELLMAN_FORD", &paired(false));
+        report("NULL_EDGE_SCAN_vs_EDGE_SCAN", &paired(true));
     }
 
     // -----------------------------------------------------------------------
