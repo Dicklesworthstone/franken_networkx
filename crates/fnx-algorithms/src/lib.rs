@@ -50984,8 +50984,66 @@ pub fn node_attribute_xy(graph: &Graph, attribute: &str) -> Vec<(String, String)
 
 /// Check if a set of nodes forms a connected dominating set.
 pub fn is_connected_dominating_set(graph: &Graph, nodes: &[&str]) -> bool {
-    let node_set: std::collections::HashSet<&str> = nodes.iter().copied().collect();
+    // br-r37-c1-73ztf: resolve the supplied set once, then keep both the
+    // domination scan and the induced-connectivity BFS in node-index space.
+    // The old kernel allocated a neighbor-name Vec at every visited node and
+    // hashed long labels for every set/visited probe. The final comparison
+    // intentionally remains against `nodes.len()` (not the number of marked
+    // indices), preserving the former false result for duplicate or partially
+    // missing input. A missing first node formerly entered the String visited
+    // set but had no neighbors, so the one-element missing-node case remains
+    // true exactly when the domination scan has already succeeded.
+    let node_count = graph.node_count();
+    let mut node_mask = vec![false; node_count];
+    for &node in nodes {
+        if let Some(index) = graph.get_node_index(node) {
+            node_mask[index] = true;
+        }
+    }
+
     // 1. Check domination: every non-set node is adjacent to a set node
+    for node in 0..node_count {
+        if node_mask[node] {
+            continue;
+        }
+        let has_neighbor_in_set = graph
+            .neighbors_indices(node)
+            .is_some_and(|neighbors| neighbors.iter().any(|&neighbor| node_mask[neighbor]));
+        if !has_neighbor_in_set {
+            return false;
+        }
+    }
+    // 2. Check connectivity of the induced subgraph
+    if nodes.is_empty() {
+        return node_count == 0;
+    }
+    let Some(source) = graph.get_node_index(nodes[0]) else {
+        return nodes.len() == 1;
+    };
+    let mut visited = vec![false; node_count];
+    let mut queue = std::collections::VecDeque::new();
+    visited[source] = true;
+    let mut visited_count = 1usize;
+    queue.push_back(source);
+    while let Some(v) = queue.pop_front() {
+        if let Some(neighbors) = graph.neighbors_indices(v) {
+            for &neighbor in neighbors {
+                if node_mask[neighbor] && !visited[neighbor] {
+                    visited[neighbor] = true;
+                    visited_count += 1;
+                    queue.push_back(neighbor);
+                }
+            }
+        }
+    }
+    visited_count == nodes.len()
+}
+
+/// br-r37-c1-73ztf A/B baseline: the former String-keyed domination and BFS
+/// state, including its duplicate/missing-input behavior.
+#[cfg(test)]
+fn is_connected_dominating_set_orig_string(graph: &Graph, nodes: &[&str]) -> bool {
+    let node_set: std::collections::HashSet<&str> = nodes.iter().copied().collect();
     for node in graph.nodes_ordered() {
         if node_set.contains(node) {
             continue;
@@ -50999,7 +51057,6 @@ pub fn is_connected_dominating_set(graph: &Graph, nodes: &[&str]) -> bool {
             return false;
         }
     }
-    // 2. Check connectivity of the induced subgraph
     if nodes.is_empty() {
         return graph.nodes_ordered().is_empty();
     }
@@ -78799,6 +78856,153 @@ mod tests {
                     .any(|nb| ds_set.contains(*nb));
             assert!(dominated, "Node {} not dominated", node);
         }
+    }
+
+    #[test]
+    fn is_connected_dominating_set_indexed_matches_string_baseline() {
+        let check = |graph: &Graph, nodes: &[&str]| {
+            assert_eq!(
+                super::is_connected_dominating_set(graph, nodes),
+                super::is_connected_dominating_set_orig_string(graph, nodes),
+                "predicate parity failed for {nodes:?}"
+            );
+        };
+
+        let empty = Graph::strict();
+        check(&empty, &[]);
+        check(&empty, &["ghost"]);
+        check(&empty, &["ghost", "ghost"]);
+
+        let mut path = Graph::strict();
+        let _ = path.add_edge("a", "b");
+        let _ = path.add_edge("b", "c");
+        let _ = path.add_edge("c", "d");
+        check(&path, &[]);
+        check(&path, &["a", "b", "c", "d"]);
+        check(&path, &["b", "c"]);
+        check(&path, &["a", "d"]);
+        check(&path, &["b", "b", "c"]);
+        check(&path, &["ghost", "b", "c"]);
+        check(&path, &["b", "c", "ghost"]);
+
+        let mut singleton = Graph::strict();
+        assert!(singleton.add_node("only".to_owned()));
+        check(&singleton, &["only"]);
+        check(&singleton, &["ghost"]);
+
+        let mut disconnected = Graph::strict();
+        assert!(disconnected.add_node("left".to_owned()));
+        assert!(disconnected.add_node("right".to_owned()));
+        check(&disconnected, &["left", "right"]);
+    }
+
+    /// br-r37-c1-73ztf: same-binary paired A/B for compact-index domination
+    /// and induced-connectivity state. The fixed long-label path keeps the
+    /// mandatory adjacency walk small while exposing the former per-node Vec
+    /// allocations and String hashes. Run only as the one foreground ordinary-
+    /// release measurement for this lever.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn is_connected_dominating_set_indexed_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        const NODE_COUNT: usize = 8_192;
+        const CALLS_PER_SAMPLE: usize = 8;
+        const PAIRS: usize = 15;
+
+        let labels: Vec<String> = (0..NODE_COUNT)
+            .map(|index| format!("connected-dominating-long-node-{index:05}-payload"))
+            .collect();
+        let mut graph = Graph::strict();
+        for label in &labels {
+            assert!(graph.add_node(label.clone()));
+        }
+        for edge in labels.windows(2) {
+            let _ = graph.add_edge(edge[0].clone(), edge[1].clone());
+        }
+        let node_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+
+        let baseline = super::is_connected_dominating_set_orig_string(&graph, &node_refs);
+        let indexed = super::is_connected_dominating_set(&graph, &node_refs);
+        assert_eq!(indexed, baseline);
+        assert!(indexed);
+
+        let time_arm = |use_indexed: bool| -> u128 {
+            let started = Instant::now();
+            for _ in 0..CALLS_PER_SAMPLE {
+                let value = if use_indexed {
+                    super::is_connected_dominating_set(black_box(&graph), black_box(&node_refs))
+                } else {
+                    super::is_connected_dominating_set_orig_string(
+                        black_box(&graph),
+                        black_box(&node_refs),
+                    )
+                };
+                black_box(value);
+            }
+            started.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(time_arm(false));
+            black_box(time_arm(true));
+        }
+
+        let mut baseline_times = Vec::with_capacity(PAIRS);
+        let mut indexed_times = Vec::with_capacity(PAIRS);
+        for pair in 0..PAIRS {
+            let (baseline_ns, indexed_ns) = if pair.is_multiple_of(2) {
+                (time_arm(false), time_arm(true))
+            } else {
+                let indexed_ns = time_arm(true);
+                let baseline_ns = time_arm(false);
+                (baseline_ns, indexed_ns)
+            };
+            baseline_times.push(baseline_ns);
+            indexed_times.push(indexed_ns);
+        }
+
+        let mut null_left = Vec::with_capacity(PAIRS);
+        let mut null_right = Vec::with_capacity(PAIRS);
+        for pair in 0..PAIRS {
+            let (left, right) = if pair.is_multiple_of(2) {
+                (time_arm(true), time_arm(true))
+            } else {
+                let right = time_arm(true);
+                let left = time_arm(true);
+                (left, right)
+            };
+            null_left.push(left);
+            null_right.push(right);
+        }
+
+        let median = |values: &[u128]| -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let baseline_median = median(&baseline_times);
+        let indexed_median = median(&indexed_times);
+        let null_left_median = median(&null_left);
+        let null_right_median = median(&null_right);
+        let wins = baseline_times
+            .iter()
+            .zip(&indexed_times)
+            .filter(|(baseline_ns, indexed_ns)| baseline_ns > indexed_ns)
+            .count();
+
+        println!(
+            "IS_CONNECTED_DOMINATING_SET_INDEXED_AB nodes={NODE_COUNT} calls={CALLS_PER_SAMPLE} \
+             pairs={PAIRS} baseline_median_ns={baseline_median} \
+             indexed_median_ns={indexed_median} ratio={:.3}x wins={wins}/{PAIRS} parity=exact",
+            baseline_median as f64 / indexed_median as f64
+        );
+        println!(
+            "IS_CONNECTED_DOMINATING_SET_INDEXED_NULL left_median_ns={null_left_median} \
+             right_median_ns={null_right_median} ratio={:.3}x parity=exact",
+            null_left_median as f64 / null_right_median as f64
+        );
     }
 
     #[test]

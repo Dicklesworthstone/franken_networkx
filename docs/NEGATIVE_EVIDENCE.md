@@ -22108,3 +22108,65 @@ timing used ordinary `--profile release`, with no local fallback and no
 RESULT: SHIP. Keep exact zero-term elision in categorical assortativity's
 matrix-square reducer; sparse high-cardinality mixing no longer pays the cubic
 dense product while the coefficient's floating-point fold remains bit-identical.
+
+## 2026-07-14 HazyOtter SHIP (`is_connected_dominating_set`): index domination and BFS state — **12.874x** (`br-r37-c1-73ztf`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: `bv --robot-triage` ranked a
+weighted-MultiGraph shortest-path repair first, but that bead is owned by
+`cod_nx`; the broad no-gaps perf directive is owned by `cod-b`. The LCA family
+was also explicitly rejected in prior evidence because equal-depth ancestor
+selection is HashSet-order-sensitive. This pass therefore rotated to the fresh
+connected-dominating predicate. On the fixed 8,192-node long-label path with
+the full node set, the former kernel performed about 57,000 avoidable String
+hash probes and allocated 8,192 neighbor-name vectors around the 16,382
+mandatory adjacency probes. Opportunity score: impact 5 x confidence 5 /
+effort 1 = 25.
+
+ONE LEVER: resolve the supplied names once into a compact node mask, scan
+domination through `neighbors_indices`, and reuse index-keyed visited/queue
+state for the induced-connectivity BFS. The final visited count deliberately
+still compares against the original slice length, preserving the former false
+result for duplicate or partially missing input. The former missing-first-node
+behavior, empty/nonempty graph behavior, self/neighbor domination, and induced
+connectivity decision are unchanged. A frozen test-only copy of the String
+implementation is the exact A/B oracle.
+
+COLD-TARGET WARM-UP: one untimed fail-closed ordinary-release correctness run
+passed `1/1` on `vmi1149989` (job `j-29928833041829105`). Its remote cache miss
+took 4m09s to build; the focused parity test itself completed immediately. No
+timeout, local fallback, or `release-perf` command ran, and build time is not
+benchmark evidence.
+
+ONE FOREGROUND ORDINARY-RELEASE A/B + NULL: the sole measurement stayed on
+`vmi1149989` and the same worker-scoped target path (job
+`j-29928833041829113`). RCH nevertheless reported another cache miss and spent
+4m03s rebuilding before process start; only the 0.49-second in-process test is
+evidence. The fixed long-label path used eight calls per sample, three warmups,
+and 15 alternating-order pairs:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen String state vs indexed state | `22,434,078 ns / 1,742,595 ns` | **`12.874x`** | **`15/15`** | exact |
+| indexed state / indexed state null | `1,264,114 ns / 1,318,796 ns` | `0.959x` | identical arm | exact |
+
+Charging the full approximately 4.3% candidate-null positional skew still
+leaves roughly **12.34x**, so the keep decision is well outside measurement
+noise.
+
+CORRECTNESS / GATES: the strict-remote focused release test covered empty
+graphs, nonempty graphs with empty input, full and partial path sets,
+disconnected induced sets, duplicate names, missing-first and missing-later
+names, singleton graphs, and disconnected graphs with exact Boolean parity.
+`git diff --check` passed, and the only rustfmt suggestion in the owned ranges
+was applied; whole-file rustfmt remains blocked by extensive pre-existing
+drift. Both Cargo commands used fail-closed `RCH_REQUIRE_REMOTE=1` and
+`RCH_NO_SELF_HEALING=1`; timing used ordinary `--profile release`, with no
+local fallback and no `release-perf` build. Staged UBS (with the repository's
+established noisy Rust category 8 excluded) exited zero with no critical
+finding. The compiler emitted only the known pre-existing unused `directed`
+test-variable warning outside this lever.
+
+RESULT: SHIP. Keep compact-index domination and induced-connectivity state in
+`is_connected_dominating_set`; the exact predicate contract holds while the
+hot full-set traversal no longer allocates neighbor-name vectors or hashes
+labels per adjacency probe.
