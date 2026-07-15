@@ -21808,3 +21808,62 @@ RESULT: SHIP. Keep compact-index visited and queue state in undirected
 `edge_bfs`; exact observable ordering holds, the same-binary median clears the
 null floor decisively, and the traversal no longer hashes or clones labels for
 its internal BFS state.
+
+## 2026-07-14 HazyOtter SHIP (`is_edge_cover`): reuse resolved endpoint indices — **8.795x** (`br-r37-c1-kdpe3`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: `bv --robot-triage` found no
+unowned narrow perf bead, so this pass rotated to matching validation. The
+prior `is_edge_cover` keep replaced each cover edge's linear neighbor scan with
+`Graph::has_edge`, but retained String-keyed coverage state. On an 8,192-node
+pair cover, each call therefore still paid for 8,192 endpoint lookups and 4,096
+indexed edge probes plus 8,192 String-keyed coverage inserts and a separate
+8,192-node name-membership pass. The first two costs are mandatory validation;
+the latter 16,384 long-label hash operations are avoidable. Opportunity score:
+impact 4 x confidence 5 / effort 1 = 20.
+
+ONE LEVER: resolve each supplied endpoint pair once, reuse those compact indices
+for `has_edge_by_indices`, and mark coverage in a node-indexed `Vec<bool>` with
+a running covered count. This removes String-keyed coverage and the final
+name-vector membership pass without changing the edge-validation contract.
+Empty graphs remain unconditionally covered; missing endpoints, absent edges,
+reversed undirected edges, duplicates, self-loops, and uncovered nodes preserve
+their former Boolean results. A frozen test-only copy of the former String-state
+implementation is the exact A/B oracle.
+
+COLD-TARGET WARM-UP: one untimed fail-closed ordinary-release correctness run
+completed on `vmi1293453` (job `j-29928833041828927`). Its cold release build
+took 3m51s and the focused contract test itself completed immediately. No
+timeout, local fallback, or `release-perf` command ran; build time is not
+benchmark evidence.
+
+ONE FOREGROUND ORDINARY-RELEASE A/B + NULL: RCH routed the sole measurement to
+`vmi1149989` (job `j-29928833041828934`), so it rebuilt for 4m34s before process
+start. Only the 0.55-second in-process test is evidence. The fixed 8,192-node
+long-label pair graph used 16 calls per arm, three warmups, and 15
+alternating-order pairs:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen String state vs indexed state | `22,783,776 ns / 2,590,452 ns` | **`8.795x`** | **`15/15`** | exact |
+| indexed state / indexed state null | `2,624,564 ns / 2,496,079 ns` | `1.051x` | identical arm | exact |
+
+Charging the full candidate-null skew still leaves approximately **8.368x**,
+so the keep decision is well outside positional noise.
+
+CORRECTNESS / GATES: the focused strict-remote release test passed `1/1` for
+empty, valid, reversed, duplicate, uncovered, absent-edge, and missing-endpoint
+cases. `git diff --check` passed, and the owned rustfmt suggestion was applied;
+whole-file rustfmt remains blocked by extensive pre-existing drift outside the
+owned ranges. Targeted UBS, with its established noisy Rust category 8
+excluded, reported zero critical findings. Scoped strict-remote clippy reached
+`fnx-algorithms` and stopped only on four pre-existing
+`explicit_counter_loop` / `question_mark` lints at lines 22,149, 22,289,
+33,695, and 33,698, all outside the owned ranges (job
+`j-29928833041828931`). Every Cargo command used fail-closed
+`RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`; timing used ordinary
+`--profile release`, with no local fallback and no `release-perf` build.
+
+RESULT: SHIP. Keep compact-index edge validation and coverage state in
+`is_edge_cover`; exact Boolean parity holds, the same-binary median clears the
+null floor decisively, and the matching validator no longer hashes long node
+labels for its coverage bookkeeping.

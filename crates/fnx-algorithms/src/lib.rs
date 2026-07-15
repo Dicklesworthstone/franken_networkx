@@ -38519,21 +38519,49 @@ pub fn edge_dfs_directed(digraph: &DiGraph, source: &str) -> Vec<(String, String
 /// Check if a set of edges is an edge cover (every node is incident to at least one edge).
 #[must_use]
 pub fn is_edge_cover(graph: &Graph, edges: &[(&str, &str)]) -> bool {
+    let node_count = graph.node_count();
+    if node_count == 0 {
+        return true;
+    }
+    let mut covered = vec![false; node_count];
+    let mut covered_count = 0usize;
+    for &(u, v) in edges {
+        let Some(u_idx) = graph.get_node_index(u) else {
+            return false;
+        };
+        let Some(v_idx) = graph.get_node_index(v) else {
+            return false;
+        };
+        if !graph.has_edge_by_indices(u_idx, v_idx) {
+            return false;
+        }
+        for idx in [u_idx, v_idx] {
+            if !covered[idx] {
+                covered[idx] = true;
+                covered_count += 1;
+            }
+        }
+    }
+    covered_count == node_count
+}
+
+/// br-r37-c1-kdpe3 A/B baseline: the retained indexed edge predicate with
+/// String-keyed coverage state and a final full name-membership pass.
+#[cfg(test)]
+fn is_edge_cover_orig_string_state(graph: &Graph, edges: &[(&str, &str)]) -> bool {
     let nodes = graph.nodes_ordered();
     if nodes.is_empty() {
         return true;
     }
     let mut covered: HashSet<&str> = HashSet::new();
     for &(u, v) in edges {
-        // br-r37-c1-4pchn: the indexed edge map answers the same undirected
-        // predicate without linearly scanning u's adjacency row.
         if !graph.has_edge(u, v) {
             return false;
         }
         covered.insert(u);
         covered.insert(v);
     }
-    nodes.iter().all(|&n| covered.contains(n))
+    nodes.iter().all(|&node| covered.contains(node))
 }
 
 /// Find the maximum weight clique.
@@ -75018,6 +75046,40 @@ mod tests {
         assert!(!is_edge_cover(&g, &[("a", "c")])); // a-c not in graph
     }
 
+    #[test]
+    fn is_edge_cover_index_state_preserves_boolean_contract() {
+        let empty = Graph::strict();
+        assert_eq!(
+            is_edge_cover(&empty, &[("missing", "missing")]),
+            super::is_edge_cover_orig_string_state(&empty, &[("missing", "missing")]),
+            "empty graphs retain the existing unconditional true result"
+        );
+
+        let mut graph = Graph::strict();
+        for node in ["z", "a", "m", "q", "self"] {
+            graph.add_node(node);
+        }
+        for (left, right) in [("z", "a"), ("m", "q"), ("self", "self"), ("z", "m")] {
+            graph.add_edge(left, right).unwrap();
+        }
+
+        for cover in [
+            vec![("z", "a"), ("m", "q"), ("self", "self")],
+            vec![("a", "z"), ("q", "m"), ("self", "self")],
+            vec![("z", "a"), ("z", "a"), ("m", "q"), ("self", "self")],
+            vec![("z", "a"), ("m", "q")],
+            vec![("z", "q")],
+            vec![("missing", "z")],
+            Vec::new(),
+        ] {
+            assert_eq!(
+                is_edge_cover(&graph, &cover),
+                super::is_edge_cover_orig_string_state(&graph, &cover),
+                "index coverage parity for {cover:?}"
+            );
+        }
+    }
+
     /// br-r37-c1-4pchn: paired-interleaved A/B for edge-cover validation's
     /// per-cover-edge existence check. The frozen baseline linearly scans the
     /// source adjacency row; the candidate probes the indexed edge map. Exact
@@ -75143,6 +75205,98 @@ mod tests {
         );
         report("HASEDGE_vs_neighbor_scan", &paired(true, false));
         report("NULL_hasedge_vs_hasedge", &paired(true, true));
+    }
+
+    /// br-r37-c1-kdpe3: same-binary A/B for resolved-index coverage state
+    /// against the retained indexed-edge/String-coverage route, plus a null.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn is_edge_cover_index_state_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        let n = 8_192usize;
+        let calls = 16usize;
+        let names = (0..n)
+            .map(|index| format!("cover-node-{index:05}-abcdefghijklmnopqrstuvwxyz"))
+            .collect::<Vec<_>>();
+        let mut graph = Graph::strict();
+        for name in &names {
+            graph.add_node(name);
+        }
+        let mut cover = Vec::with_capacity(n / 2);
+        for index in (0..n).step_by(2) {
+            graph.add_edge(&names[index], &names[index + 1]).unwrap();
+            cover.push((names[index].as_str(), names[index + 1].as_str()));
+        }
+
+        assert!(super::is_edge_cover_orig_string_state(&graph, &cover));
+        assert!(is_edge_cover(&graph, &cover));
+
+        let time = |use_candidate: bool| -> u128 {
+            let start = Instant::now();
+            for _ in 0..calls {
+                let result = if use_candidate {
+                    is_edge_cover(black_box(&graph), black_box(&cover))
+                } else {
+                    super::is_edge_cover_orig_string_state(black_box(&graph), black_box(&cover))
+                };
+                assert!(black_box(result));
+            }
+            start.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15usize;
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let mut null_first_times = Vec::with_capacity(rounds);
+        let mut null_second_times = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(false), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(false), candidate_time)
+            };
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+
+            let (null_first, null_second) = if round.is_multiple_of(2) {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                (time(true), null_second)
+            };
+            null_first_times.push(null_first);
+            null_second_times.push(null_second);
+        }
+
+        let baseline_median = median(&baseline_times);
+        let candidate_median = median(&candidate_times);
+        let null_first_median = median(&null_first_times);
+        let null_second_median = median(&null_second_times);
+        let paired_wins = baseline_times
+            .iter()
+            .zip(&candidate_times)
+            .filter(|(baseline_time, candidate_time)| baseline_time > candidate_time)
+            .count();
+
+        println!(
+            "EDGE_COVER_INDEX_STATE_AB n={n} calls={calls} rounds={rounds} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} speedup={:.3}x paired_wins={paired_wins}/{rounds} null_first_median_ns={null_first_median} null_second_median_ns={null_second_median} null_ratio={:.3}x exact_parity=true",
+            baseline_median as f64 / candidate_median as f64,
+            null_first_median as f64 / null_second_median as f64,
+        );
     }
 
     #[test]
