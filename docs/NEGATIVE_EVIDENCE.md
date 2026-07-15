@@ -2,6 +2,55 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-15 HazyOtter KEEP: `edge_disjoint_paths` ordered-index setup — 6.0780x (`br-r37-c1-lqir7`)
+
+**NEGATIVE-LEDGER / ATTRIBUTE FIRST.** `bv --robot-triage` was run first. Its
+perf quick wins were owned correctness work, an already-documented AVX no-op,
+or a broad storage epoch, so this loop pivoted to the fresh disjoint-path flow
+subsystem. The prior traversal scan called the kernel index-based, but source
+attribution found a missed mandatory setup tax before the first augmenting BFS:
+`edge_disjoint_paths` called `edges_ordered()`, cloning two endpoint `String`s
+and the complete `AttrMap` for every edge, then hashed both names back through
+the insertion-index map. Opportunity score: impact 4 x confidence 5 / effort 1
+= 20.
+
+**ONE LEVER / EXACT PARITY.** Consume `Graph::edges_ordered_indices()` in that
+one residual-construction loop. This accessor guarantees the same node-major
+edge order and orientation as `edges_ordered()`, so capacity/adjacency insertion
+order, residual updates, BFS traversal, and path extraction are unchanged. The
+same binary froze the exact prior full function and asserted identical complete
+path vectors on the measured graph plus unique-path, same-source, and
+disconnected controls before timing.
+
+**STRICT-REMOTE FOREGROUND RELEASE GATE.** An untimed warm-up build and one
+foreground A/B ran on explicitly pinned worker `vmi1152480` with
+`RCH_REQUIRE_REMOTE=1`, self-healing disabled, `--profile release`, and
+`profile.release.lto=false`; neither invocation fell back locally. The measured
+body was bounded to 21 paired-interleaved rounds and two complete calls per
+sample on a 6,000-node, 5,998-edge graph with eight stable long attributes per
+edge. The queried source/target form a direct two-node component, isolating the
+mandatory whole-graph residual setup while still timing the complete public
+kernel:
+
+| arm | median/call | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: | ---: |
+| snapshot setup / ordered-index setup | 16.821644 ms / 2.729850 ms | **6.0780x** | **21/21** | 4.3517-7.0570 |
+| ordered-index / ordered-index null | 2.308582 ms / 2.352628 ms | 0.9972x | 10/21 | 0.7830-1.1442 |
+
+The A/B p5 (`4.3517x`) exceeds the null p95 (`1.1442x`) by a wide margin. RCH
+reported a cache miss for both the warm-up and the measurement invocation, but
+both builds returned normally and the harness times only the paired algorithm
+calls, excluding sync and compilation from every ratio.
+
+**VALIDATION.** The remote ordinary-release target compiled successfully, all
+same-binary exact-vector assertions passed, and the bounded foreground A/B
+returned normally. Focused rustfmt and `git diff --check` passed before the
+measurement; staged UBS reported no critical findings.
+
+**RESULT: SHIP.** Keep ordered edge indices in undirected edge-disjoint-path
+residual setup. The residual-flow algorithm and observable path vectors remain
+unchanged.
+
 ## 2026-07-15 HazyOtter KEEP: `is_path_graph` index-space validation — 4.8171x (`br-r37-c1-tz5st`)
 
 **NEGATIVE-LEDGER / ATTRIBUTE FIRST.** `bv --robot-triage` was run first. Its

@@ -41265,9 +41265,12 @@ pub fn edge_disjoint_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec
     let mut cap = std::collections::HashMap::new();
     let mut initial_cap = std::collections::HashMap::new();
     let mut adj = vec![std::collections::HashSet::new(); n];
-    for edge in graph.edges_ordered() {
-        let i = idx[edge.left.as_str()];
-        let j = idx[edge.right.as_str()];
+    // br-r37-c1-lqir7: `edges_ordered_indices()` preserves the exact node-major
+    // order and orientation of `edges_ordered()` without cloning two endpoint
+    // Strings and the complete AttrMap for every edge, then hashing both names
+    // back through `idx`. Residual insertion order, capacities, and every
+    // augmenting/extraction step below are unchanged.
+    for (i, j) in graph.edges_ordered_indices() {
         if i != j {
             cap.insert((i, j), 1);
             cap.insert((j, i), 1);
