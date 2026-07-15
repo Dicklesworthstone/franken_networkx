@@ -13003,9 +13003,105 @@ fn partition_spanning_tree_orig_string(
     })
 }
 
+/// Select one exactly equivalent spanning-tree count setup for same-binary A/B.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpanningTreeCountArm {
+    Direct,
+    Contracted,
+}
+
 /// Return the number of spanning trees of an undirected graph.
 #[must_use]
 pub fn number_of_spanning_trees(graph: &Graph, weight_attr: Option<&str>) -> f64 {
+    number_of_spanning_trees_arm(graph, weight_attr, SpanningTreeCountArm::Direct)
+}
+
+/// Bench/test-only entry point pinning one exact spanning-tree count setup.
+#[doc(hidden)]
+#[must_use]
+pub fn number_of_spanning_trees_arm(
+    graph: &Graph,
+    weight_attr: Option<&str>,
+    arm: SpanningTreeCountArm,
+) -> f64 {
+    match arm {
+        SpanningTreeCountArm::Direct => number_of_spanning_trees_direct(graph, weight_attr),
+        SpanningTreeCountArm::Contracted => {
+            number_of_spanning_trees_contracted_baseline(graph, weight_attr)
+        }
+    }
+}
+
+fn number_of_spanning_trees_direct(graph: &Graph, weight_attr: Option<&str>) -> f64 {
+    if graph.node_count() == 0 {
+        return 0.0;
+    }
+    if graph.node_count() == 1 {
+        return 1.0;
+    }
+    if !is_connected(graph).is_connected {
+        return 0.0;
+    }
+
+    // br-r37-c1-jhxvq: the plain counting path has no included/excluded edges, so
+    // building the generic contraction graph only clones every EdgeSnapshot twice
+    // and round-trips endpoints through several String-keyed maps. Walk the stored
+    // edges by reference instead. Sorting by the same canonical endpoint pair as
+    // ContractedUndirectedGraph's BTreeMap preserves weighted accumulation order
+    // (and therefore exact floating-point output), while insertion indices address
+    // the Laplacian directly.
+    let nodes = graph.nodes_ordered();
+    let node_index: HashMap<&str, usize> = nodes
+        .iter()
+        .enumerate()
+        .map(|(index, &node)| (node, index))
+        .collect();
+    let mut edges = graph.edges_storage_order_borrowed();
+    edges.sort_unstable_by(|(left_a, right_a, _), (left_b, right_b, _)| {
+        let pair_a = if left_a <= right_a {
+            (*left_a, *right_a)
+        } else {
+            (*right_a, *left_a)
+        };
+        let pair_b = if left_b <= right_b {
+            (*left_b, *right_b)
+        } else {
+            (*right_b, *left_b)
+        };
+        pair_a.cmp(&pair_b)
+    });
+
+    let mut laplacian = vec![vec![0.0; nodes.len()]; nodes.len()];
+    for (left, right, attrs) in edges {
+        if left == right {
+            continue;
+        }
+        let mut weight_sum = 0.0;
+        weight_sum += spanning_tree_edge_weight_from_attrs(Some(attrs), weight_attr);
+        let weight = if weight_attr.is_some() {
+            weight_sum
+        } else {
+            1.0
+        };
+        let left_index = node_index[left];
+        let right_index = node_index[right];
+        laplacian[left_index][left_index] += weight;
+        laplacian[right_index][right_index] += weight;
+        laplacian[left_index][right_index] -= weight;
+        laplacian[right_index][left_index] -= weight;
+    }
+
+    let minor = laplacian
+        .iter()
+        .skip(1)
+        .map(|row| row.iter().skip(1).copied().collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+    determinant(minor)
+}
+
+/// Frozen pre-jhxvq implementation for exact parity and same-binary A/B tests.
+fn number_of_spanning_trees_contracted_baseline(graph: &Graph, weight_attr: Option<&str>) -> f64 {
     let available_edges = graph
         .edges_ordered()
         .into_iter()
@@ -71928,6 +72024,58 @@ mod tests {
         g.add_edge("b", "c").expect("edge add should succeed");
         g.add_edge("a", "c").expect("edge add should succeed");
         assert!((super::number_of_spanning_trees(&g, None) - 3.0).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn number_of_spanning_trees_direct_laplacian_exact_parity() {
+        let assert_parity = |graph: &Graph, weight_attr: Option<&str>| {
+            let baseline = super::number_of_spanning_trees_contracted_baseline(graph, weight_attr);
+            let candidate = super::number_of_spanning_trees(graph, weight_attr);
+            assert_eq!(
+                candidate.to_bits(),
+                baseline.to_bits(),
+                "direct Laplacian must preserve exact spanning-tree count"
+            );
+        };
+
+        let empty = Graph::strict();
+        assert_parity(&empty, None);
+
+        let mut singleton = Graph::strict();
+        assert!(singleton.add_node("only-node"));
+        assert_parity(&singleton, None);
+
+        let mut disconnected = Graph::strict();
+        disconnected
+            .add_edge("zeta", "alpha")
+            .expect("edge add should succeed");
+        assert!(disconnected.add_node("isolated"));
+        assert_parity(&disconnected, None);
+
+        let mut weighted = Graph::strict();
+        for node in ["node-z", "node-a", "node-m", "node-b", "node-y"] {
+            assert!(weighted.add_node(node));
+        }
+        for (left, right, weight) in [
+            ("node-z", "node-a", "1.25"),
+            ("node-z", "node-m", "-0.0"),
+            ("node-a", "node-m", "3.5"),
+            ("node-a", "node-b", "0.125"),
+            ("node-m", "node-b", "7.75"),
+            ("node-m", "node-y", "2.25"),
+            ("node-b", "node-y", "4.5"),
+            ("node-z", "node-y", "NaN"),
+        ] {
+            weighted
+                .add_edge_with_attrs(left, right, attrs([("weight", weight)]))
+                .expect("edge add should succeed");
+        }
+        weighted
+            .add_edge_with_attrs("node-z", "node-z", attrs([("weight", "99.0")]))
+            .expect("self-loop add should succeed");
+        assert_parity(&weighted, None);
+        assert_parity(&weighted, Some("weight"));
+        assert_parity(&weighted, Some("missing"));
     }
 
     #[test]

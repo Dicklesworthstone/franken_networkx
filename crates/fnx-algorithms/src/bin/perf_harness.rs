@@ -11,7 +11,8 @@
 //! Run:    ALGO=betweenness N=1500 DEG=8 ITERS=1 ./target/release-perf/perf_harness
 //!
 //! Env vars:
-//!   ALGO  — betweenness | pagerank | closeness | harmonic | aspl | components | dijkstra_ssp (default betweenness)
+//!   ALGO  — betweenness | pagerank | closeness | harmonic | aspl | components |
+//!           dijkstra_ssp | spanning_tree_ab (default betweenness)
 //!   N     — node count (default 1500)
 //!   DEG   — average degree for the sparse random graph (default 8)
 //!   ITERS — timed repetitions of the algorithm (default 1)
@@ -24,12 +25,14 @@
 use std::hint::black_box;
 use std::time::Instant;
 
+use std::collections::BTreeMap;
 #[cfg(feature = "profile-pprof")]
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 
 use fnx_algorithms::{
-    average_shortest_path_length, betweenness_centrality, closeness_centrality,
-    connected_components, harmonic_centrality, pagerank, shortest_path_unweighted,
+    SpanningTreeCountArm, average_shortest_path_length, betweenness_centrality,
+    closeness_centrality, connected_components, harmonic_centrality, number_of_spanning_trees_arm,
+    pagerank, shortest_path_unweighted,
 };
 use fnx_classes::Graph;
 
@@ -129,6 +132,11 @@ fn main() {
     });
     let pprof_enabled = args.pprof || std::env::var_os("PPROF").is_some();
 
+    if algo == "spanning_tree_ab" {
+        run_spanning_tree_ab(n, iters);
+        return;
+    }
+
     let g = build_sparse(n, deg, seed);
     let m = g.edge_count();
 
@@ -162,6 +170,110 @@ fn main() {
     );
 
     print_pprof_report(pprof_guard, pprof_top);
+}
+
+/// Same-binary, paired-interleaved A/B for br-r37-c1-jhxvq. Graph construction,
+/// parity, and warm-up are outside the measured region; each timing contains only
+/// complete spanning-tree count calls.
+fn run_spanning_tree_ab(node_count: usize, iterations: usize) {
+    assert!(node_count >= 12, "spanning_tree_ab needs at least 12 nodes");
+    let iterations = iterations.max(1);
+    let name = |index: usize| format!("spanning_tree_node_{index:04}_with_long_name");
+    let payload = "attribute-payload-that-is-intentionally-long-enough-to-make-cloning-visible";
+    let mut graph = Graph::strict();
+    for index in 0..node_count {
+        let _ = graph.add_node(name(index));
+    }
+    for left in 0..node_count {
+        for step in 1..=5usize {
+            let right = (left + step) % node_count;
+            let attrs: fnx_classes::AttrMap = (0..8usize)
+                .map(|index| (format!("payload-{index}"), payload.to_owned().into()))
+                .collect::<BTreeMap<_, _>>();
+            let _ = graph.add_edge_with_attrs(name(left), name(right), attrs);
+        }
+    }
+
+    let baseline = number_of_spanning_trees_arm(&graph, None, SpanningTreeCountArm::Contracted);
+    let candidate = number_of_spanning_trees_arm(&graph, None, SpanningTreeCountArm::Direct);
+    assert_eq!(
+        candidate.to_bits(),
+        baseline.to_bits(),
+        "direct and contracted spanning-tree counts must be bit-identical"
+    );
+
+    let time = |arm: SpanningTreeCountArm| -> f64 {
+        let started = Instant::now();
+        for _ in 0..iterations {
+            black_box(number_of_spanning_trees_arm(black_box(&graph), None, arm));
+        }
+        started.elapsed().as_nanos() as f64
+    };
+    for _ in 0..3 {
+        black_box(time(SpanningTreeCountArm::Contracted));
+        black_box(time(SpanningTreeCountArm::Direct));
+    }
+
+    let rounds = 21usize;
+    let paired = |null_control: bool| -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+        let mut ratios = Vec::with_capacity(rounds);
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let baseline_arm = if null_control {
+            SpanningTreeCountArm::Direct
+        } else {
+            SpanningTreeCountArm::Contracted
+        };
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(baseline_arm), time(SpanningTreeCountArm::Direct))
+            } else {
+                let candidate_time = time(SpanningTreeCountArm::Direct);
+                (time(baseline_arm), candidate_time)
+            };
+            ratios.push(baseline_time / candidate_time);
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+        }
+        (ratios, baseline_times, candidate_times)
+    };
+    let median = |values: &[f64]| {
+        let mut sorted = values.to_vec();
+        sorted.sort_by(|left, right| left.partial_cmp(right).expect("finite timing"));
+        sorted[sorted.len() / 2]
+    };
+    let report = |label: &str, ratios: &[f64], baseline_times: &[f64], candidate_times: &[f64]| {
+        let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+        let mut sorted = ratios.to_vec();
+        sorted.sort_by(|left, right| left.partial_cmp(right).expect("finite ratio"));
+        println!(
+            "NST_DIRECT_AB {label}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}] baseline_median_ns={:.0} candidate_median_ns={:.0}",
+            median(ratios),
+            sorted[rounds * 5 / 100],
+            sorted[rounds * 95 / 100],
+            median(baseline_times) / iterations as f64,
+            median(candidate_times) / iterations as f64,
+        );
+    };
+
+    println!(
+        "NST_DIRECT_AB full-function n={node_count} edges={} attrs_per_edge=8 rounds={rounds} iterations={iterations} (>1 = direct faster)",
+        graph.edge_count()
+    );
+    let (ratios, baseline_times, candidate_times) = paired(false);
+    report(
+        "DIRECT_vs_contracted",
+        &ratios,
+        &baseline_times,
+        &candidate_times,
+    );
+    let (null_ratios, null_left, null_right) = paired(true);
+    report(
+        "NULL_direct_vs_direct",
+        &null_ratios,
+        &null_left,
+        &null_right,
+    );
 }
 
 fn parse_args() -> HarnessArgs {

@@ -2,6 +2,53 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-15 HazyOtter KEEP: `number_of_spanning_trees` direct Laplacian setup — 11.5916x (`br-r37-c1-jhxvq`)
+
+**NEGATIVE-LEDGER / ATTRIBUTE FIRST.** `bv --robot-triage` was run first. The only
+unassigned neighbor-allocation bead reduced to a one-time degree read in the recently
+mined connected-domination family, so this loop rejected it and pivoted to the fresh
+spanning-tree-count subsystem. The live Python route was verified through
+`number_of_spanning_trees` to the Rust kernel. Source attribution ranked the generic
+contraction setup above the mandatory determinant on attribute-heavy small/medium
+graphs: the plain count cloned every full `EdgeSnapshot` twice, allocated canonical
+endpoint Strings, and built available-edge, union-find, contracted-edge, adjacency,
+and node-index maps even though its included/excluded edge sets are empty.
+
+**ONE LEVER / EXACT PARITY.** Build the Kirchhoff Laplacian from one borrowed
+storage-edge vector and insertion indices, bypassing only the redundant contraction
+scaffold. Edges are sorted by the same canonical lexicographic endpoint pair as the
+old `BTreeMap`, and the old `0.0 + weight` fold is retained, so weighted floating-point
+accumulation order and bits remain unchanged. Empty, singleton, disconnected, self-loop,
+missing-weight, nonfinite-weight, and `-0.0` cases are covered by a focused exact-bit
+parity test. The same-binary measurement harness asserted exact output bits before
+timing.
+
+**STRICT-REMOTE FOREGROUND RELEASE GATE.** One foreground `cargo run --profile
+release` invocation ran on explicitly pinned worker `vmi1152480` with
+`RCH_REQUIRE_REMOTE=1`, self-healing disabled, and `profile.release.lto=false`; it did
+not fall back locally. Its untimed cold build completed before the harness started.
+The timed body used 21 paired-interleaved rounds, eight calls per sample, and a
+candidate/candidate null on a connected 32-node/160-edge graph with long labels and
+eight long irrelevant attributes per edge:
+
+| arm | median/call | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: | ---: |
+| generic contraction / direct Laplacian | 452.242 us / 38.527 us | **11.5916x** | **21/21** | 8.7994-19.0789 |
+| direct Laplacian / direct Laplacian null | 32.032 us / 32.432 us | 0.9876x | 9/21 | 0.8961-1.2902 |
+
+The candidate exceeds the null median by 1,073.6 percentage points and wins every
+baseline pair. RCH reported a cache miss and a 2m15s cold build; compilation, sync,
+and artifact retrieval are excluded from the internal timings.
+
+**VALIDATION.** The remote ordinary-release production library and small perf target
+compiled successfully, the harness exact-bit assertion passed, and the paired A/B
+returned normally. `git diff --check` and the focused formatter check passed; the
+whole algorithm file retains broad pre-existing rustfmt drift outside the owned hunks.
+
+**RESULT: SHIP.** Keep the direct borrowed/indexed Laplacian setup. Preserve the
+generic contraction machinery for partition/random spanning-tree callers; only the
+plain count bypasses it.
+
 ## 2026-07-15 HazyOtter KEEP: `triadic_census` native successor-row setup — 2.6976x (`br-r37-c1-t37f9`)
 
 **NEGATIVE-LEDGER / ATTRIBUTE FIRST.** `bv --robot-triage` was run first. Its
