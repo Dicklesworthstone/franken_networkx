@@ -36297,20 +36297,26 @@ pub fn is_negatively_weighted(graph: &Graph, weight_attr: &str) -> bool {
 /// exactly 2 nodes have degree 1 unless single node).
 #[must_use]
 pub fn is_path_graph(graph: &Graph) -> bool {
-    let nodes = graph.nodes_ordered();
-    let n = nodes.len();
+    let n = graph.node_count();
     if n == 0 {
         return false;
     }
-    if nodes.iter().any(|&node| graph.has_edge(node, node)) {
+    // br-r37-c1-tz5st: validate entirely in index space. The old full-success
+    // path resolved each node name twice for the self-loop probe, then three
+    // more times through `degree()` (`neighbor_count` + another self-loop
+    // probe). Node indices are insertion-order identical to `nodes_ordered()`,
+    // `has_edge_by_indices(i, i)` tests the same canonical edge key, and
+    // `degree_by_index(i)` returns the same adjacency-row length plus the same
+    // self-loop contribution. The boolean and all early exits are unchanged.
+    if (0..n).any(|index| graph.has_edge_by_indices(index, index)) {
         return false;
     }
     if n == 1 {
         return true;
     }
     let mut degree_one_count = 0usize;
-    for &node in &nodes {
-        let deg = node_degree(graph, node);
+    for index in 0..n {
+        let deg = graph.degree_by_index(index);
         match deg {
             0 => return false,
             1 => degree_one_count += 1,

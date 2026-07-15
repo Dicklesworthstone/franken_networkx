@@ -2,6 +2,50 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-15 HazyOtter KEEP: `is_path_graph` index-space validation — 4.8171x (`br-r37-c1-tz5st`)
+
+**NEGATIVE-LEDGER / ATTRIBUTE FIRST.** `bv --robot-triage` was run first. Its
+advertised perf candidates were correctness work, a broad cross-crate epoch, or
+already-mined/no-op lanes, so this loop pivoted to the fresh graph-recognition
+subsystem. No prior `is_path_graph` perf row existed, and the public PyO3 `is_path`
+binding was verified to call this Rust kernel directly. Source attribution found that
+the full-success path resolved every node name twice for the self-loop check and three
+more times through `degree()` (`neighbor_count` plus a second self-loop check), before
+the already-indexed connectivity traversal: about five avoidable name-to-index probes
+per node.
+
+**ONE LEVER / EXACT PARITY.** Preserve the two validation passes and every early exit,
+but address them by insertion index with `has_edge_by_indices(i, i)` and
+`degree_by_index(i)`. Node indices enumerate the same insertion order, the canonical
+self-loop edge key is identical, and indexed degree uses the same adjacency-row length
+plus self-loop contribution. The same binary froze the exact former name-keyed kernel
+and asserted equal booleans on the measured full-success path plus empty, singleton,
+self-loop, and cycle controls before timing.
+
+**STRICT-REMOTE FOREGROUND RELEASE GATE.** An untimed warm-up and one foreground A/B
+ran on explicitly pinned worker `vmi1152480` with `RCH_REQUIRE_REMOTE=1`, self-healing
+disabled, `--profile release`, and `profile.release.lto=false`; neither invocation
+fell back locally. The measurement was internally bounded to 21 paired-interleaved
+rounds and four complete calls per sample on a 12,000-node path with stable long labels.
+Build, sync, and artifact retrieval are outside the timed body:
+
+| arm | median/call | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: | ---: |
+| name-keyed validation / index validation | 1.161916 ms / 241.205 us | **4.8171x** | **21/21** | 3.9873-6.3254 |
+| index validation / index validation null | 247.975 us / 222.419 us | 1.1075x | 14/21 | 0.8526-2.0731 |
+
+Even the A/B p5 (`3.9873x`) exceeds the noisy null p95 (`2.0731x`), and the candidate
+wins every baseline pair. RCH did not reuse the warm artifact pool and reported a
+second cache miss, but the full internal A/B returned normally and excludes both
+cold builds from the ratio.
+
+**VALIDATION.** The remote ordinary-release perf target compiled successfully, all
+same-binary parity assertions passed, and the paired A/B returned normally. Focused
+rustfmt and `git diff --check` passed; staged UBS reported no critical findings.
+
+**RESULT: SHIP.** Keep the index-space self-loop and degree validation. The mandatory
+connectivity traversal and all observable predicate behavior remain unchanged.
+
 ## 2026-07-15 HazyOtter KEEP: `number_of_spanning_trees` direct Laplacian setup — 11.5916x (`br-r37-c1-jhxvq`)
 
 **NEGATIVE-LEDGER / ATTRIBUTE FIRST.** `bv --robot-triage` was run first. The only

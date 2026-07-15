@@ -12,7 +12,7 @@
 //!
 //! Env vars:
 //!   ALGO  — betweenness | pagerank | closeness | harmonic | aspl | components |
-//!           dijkstra_ssp | spanning_tree_ab (default betweenness)
+//!           dijkstra_ssp | spanning_tree_ab | path_graph_ab (default betweenness)
 //!   N     — node count (default 1500)
 //!   DEG   — average degree for the sparse random graph (default 8)
 //!   ITERS — timed repetitions of the algorithm (default 1)
@@ -31,8 +31,8 @@ use std::collections::HashSet;
 
 use fnx_algorithms::{
     SpanningTreeCountArm, average_shortest_path_length, betweenness_centrality,
-    closeness_centrality, connected_components, harmonic_centrality, number_of_spanning_trees_arm,
-    pagerank, shortest_path_unweighted,
+    closeness_centrality, connected_components, harmonic_centrality, is_connected, is_path_graph,
+    number_of_spanning_trees_arm, pagerank, shortest_path_unweighted,
 };
 use fnx_classes::Graph;
 
@@ -134,6 +134,10 @@ fn main() {
 
     if algo == "spanning_tree_ab" {
         run_spanning_tree_ab(n, iters);
+        return;
+    }
+    if algo == "path_graph_ab" {
+        run_path_graph_ab(n, iters);
         return;
     }
 
@@ -274,6 +278,145 @@ fn run_spanning_tree_ab(node_count: usize, iterations: usize) {
         &null_left,
         &null_right,
     );
+}
+
+/// Same-binary, paired-interleaved A/B for br-r37-c1-tz5st. Graph construction,
+/// parity controls, and warm-up are outside the measured region; each timing
+/// contains only complete `is_path_graph` calls.
+fn run_path_graph_ab(node_count: usize, iterations: usize) {
+    assert!(node_count >= 3, "path_graph_ab needs at least 3 nodes");
+    let iterations = iterations.max(1);
+    let name = |index: usize| format!("path_graph_node_{index:06}_with_a_long_stable_label");
+    let mut graph = Graph::strict();
+    for index in 0..node_count {
+        let _ = graph.add_node(name(index));
+    }
+    for index in 0..node_count - 1 {
+        let _ = graph.add_edge(name(index), name(index + 1));
+    }
+
+    let baseline = is_path_graph_name_keyed(&graph);
+    let candidate = is_path_graph(&graph);
+    assert_eq!(
+        candidate, baseline,
+        "index and name-keyed path checks differ"
+    );
+    assert!(
+        candidate,
+        "benchmark graph must exercise the full-success path"
+    );
+
+    let empty = Graph::strict();
+    let mut singleton = Graph::strict();
+    let _ = singleton.add_node("singleton");
+    let mut self_loop = Graph::strict();
+    let _ = self_loop.add_edge("loop", "loop");
+    let mut cycle = Graph::strict();
+    let _ = cycle.add_edge("a", "b");
+    let _ = cycle.add_edge("b", "c");
+    let _ = cycle.add_edge("c", "a");
+    for control in [&empty, &singleton, &self_loop, &cycle] {
+        assert_eq!(
+            is_path_graph(control),
+            is_path_graph_name_keyed(control),
+            "index and name-keyed path checks differ on a parity control"
+        );
+    }
+
+    let time = |candidate_arm: bool| -> f64 {
+        let started = Instant::now();
+        for _ in 0..iterations {
+            let value = if candidate_arm {
+                is_path_graph(black_box(&graph))
+            } else {
+                is_path_graph_name_keyed(black_box(&graph))
+            };
+            black_box(value);
+        }
+        started.elapsed().as_nanos() as f64
+    };
+    for _ in 0..3 {
+        black_box(time(false));
+        black_box(time(true));
+    }
+
+    let rounds = 21usize;
+    let paired = |null_control: bool| -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+        let mut ratios = Vec::with_capacity(rounds);
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            let baseline_arm = null_control;
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(baseline_arm), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(baseline_arm), candidate_time)
+            };
+            ratios.push(baseline_time / candidate_time);
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+        }
+        (ratios, baseline_times, candidate_times)
+    };
+    let median = |values: &[f64]| {
+        let mut sorted = values.to_vec();
+        sorted.sort_by(|left, right| left.partial_cmp(right).expect("finite timing"));
+        sorted[sorted.len() / 2]
+    };
+    let report = |label: &str, ratios: &[f64], baseline_times: &[f64], candidate_times: &[f64]| {
+        let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+        let mut sorted = ratios.to_vec();
+        sorted.sort_by(|left, right| left.partial_cmp(right).expect("finite ratio"));
+        println!(
+            "PATH_GRAPH_INDEX_AB {label}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}] baseline_median_ns={:.0} candidate_median_ns={:.0}",
+            median(ratios),
+            sorted[rounds * 5 / 100],
+            sorted[rounds * 95 / 100],
+            median(baseline_times) / iterations as f64,
+            median(candidate_times) / iterations as f64,
+        );
+    };
+
+    println!(
+        "PATH_GRAPH_INDEX_AB full-function n={node_count} edges={} rounds={rounds} iterations={iterations} (>1 = index faster)",
+        graph.edge_count()
+    );
+    let (ratios, baseline_times, candidate_times) = paired(false);
+    report(
+        "INDEX_vs_name_keyed",
+        &ratios,
+        &baseline_times,
+        &candidate_times,
+    );
+    let (null_ratios, null_left, null_right) = paired(true);
+    report("NULL_index_vs_index", &null_ratios, &null_left, &null_right);
+}
+
+/// Exact pre-br-r37-c1-tz5st production kernel, retained only in the profiling
+/// harness as the paired baseline.
+fn is_path_graph_name_keyed(graph: &Graph) -> bool {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return false;
+    }
+    if nodes.iter().any(|&node| graph.has_edge(node, node)) {
+        return false;
+    }
+    if n == 1 {
+        return true;
+    }
+    let mut degree_one_count = 0usize;
+    for &node in &nodes {
+        match graph.degree(node) {
+            0 => return false,
+            1 => degree_one_count += 1,
+            2 => {}
+            _ => return false,
+        }
+    }
+    degree_one_count == 2 && is_connected(graph).is_connected
 }
 
 fn parse_args() -> HarnessArgs {
