@@ -2,6 +2,53 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-15 HazyOtter KEEP: `triadic_census` native successor-row setup — 2.6976x (`br-r37-c1-t37f9`)
+
+**NEGATIVE-LEDGER / ATTRIBUTE FIRST.** `bv --robot-triage` was run first. Its
+narrow perf recommendations were already owned or in recently mined families, so
+this loop pivoted to the fresh triads subsystem and rejected a tempting
+`graph_difference` cut because the public simple-graph path already routes through a
+different native implementation. The Python `triadic_census` route was verified
+end-to-end: `nodelist=None` calls `triadic_census_rust`, which calls this Rust kernel.
+Source attribution found that its integer Batagelj-Mrvar core was preceded by an
+avoidable `nodes_ordered` allocation, a String-to-index map, and `edges_ordered`
+clones of both endpoint Strings plus the complete `AttrMap` for every edge, followed
+by name hashing back to indices.
+
+**ONE LEVER / EXACT PARITY.** Build the existing successor/predecessor census sets
+directly from `DiGraph::successors_indices`. No census traversal, neighbor-set fold,
+tricode mapping, arithmetic, output key, or tie/order contract changed. A test-only
+const-generic arm freezes the prior owned-edge-snapshot setup. Exact equality of all
+16 cells passed on empty, self-loop, mutual, asymmetric, attributed, and long-label
+fixtures; the five-node fixture also preserved the `C(5,3)` total.
+
+**STRICT-REMOTE FOREGROUND RELEASE GATE.** An untimed cold warm-up and then one
+foreground A/B ran on worker `vmi1149989` with `RCH_REQUIRE_REMOTE=1`, self-healing
+disabled, `--profile release`, and `profile.release.lto=false`; neither invocation
+fell back locally. The timed body used one binary, 15 paired-interleaved rounds, and
+a candidate/candidate null control on a 768-node directed circulant with out-degree
+4, long labels, and six long attributes per edge. Build/sync time is excluded:
+
+| arm | median | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: | ---: |
+| owned edge snapshots / native index rows | 9.707770 ms / 3.679677 ms | **2.6976x** | **15/15** | 2.3068-3.0180 |
+| native index rows / native index rows null | — | 0.9960x | 5/15 | 0.8780-1.0708 |
+
+The candidate exceeds the null median by 170.2 percentage points and wins every
+pair. Exact 16-cell parity passed before timing; the measurement test passed in
+0.39s. RCH reported cache misses: the successful warm-up built in 4m08s and the
+measurement invocation built in 3m57s, but these untimed cold builds are not used as
+performance evidence.
+
+**VALIDATION.** The strict-remote parity test and release A/B passed. `git diff
+--check` passed. Whole-file rustfmt still reports broad pre-existing drift outside
+the owned hunks; the owned changes match rustfmt. The compiler emitted only the
+established unrelated unused `directed` test-variable warning.
+
+**RESULT: SHIP.** Keep native successor-row setup for the live census kernel. Preserve
+the HashSet-based adjacency representation and Batagelj-Mrvar traversal; this lever
+removes only redundant owned edge/name materialization before that core.
+
 ## 2026-07-14 TanCat KEEP: `minimum_st_edge_cut` index-space crossing-edge projection — 1.5334x (`br-r37-c1-a273b`)
 
 **NEGATIVE-LEDGER / ATTRIBUTE FIRST.** `bv --robot-triage` found no unclaimed

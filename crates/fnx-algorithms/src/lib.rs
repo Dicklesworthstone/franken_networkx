@@ -42886,6 +42886,12 @@ pub fn connected_dominating_set(graph: &Graph) -> Vec<String> {
 /// Counts the 16 MAN triad types. Returns a map from triad name to count.
 #[must_use]
 pub fn triadic_census(digraph: &DiGraph) -> std::collections::HashMap<String, usize> {
+    triadic_census_with_setup::<true>(digraph)
+}
+
+fn triadic_census_with_setup<const INDEX_ROWS: bool>(
+    digraph: &DiGraph,
+) -> std::collections::HashMap<String, usize> {
     use std::collections::{HashMap, HashSet};
 
     // Batagelj-Mrvar subquadratic triad census: iterate connected triads via
@@ -42905,8 +42911,7 @@ pub fn triadic_census(digraph: &DiGraph) -> std::collections::HashMap<String, us
         15, 8, 14, 13, 15, 11, 15, 15, 16,
     ];
 
-    let nodes = digraph.nodes_ordered();
-    let n = nodes.len();
+    let n = digraph.node_count();
     // census[t] counts triad-type index t (0 = "003" .. 15 = "300").
     let mut census = [0usize; 16];
     if n < 3 {
@@ -42917,16 +42922,29 @@ pub fn triadic_census(digraph: &DiGraph) -> std::collections::HashMap<String, us
             .collect();
     }
 
-    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, nd)| (*nd, i)).collect();
-
     // succ[u] = out-neighbors, pred[u] = in-neighbors.
     let mut succ: Vec<HashSet<usize>> = vec![HashSet::new(); n];
     let mut pred: Vec<HashSet<usize>> = vec![HashSet::new(); n];
-    for edge in digraph.edges_ordered() {
-        let u = idx[edge.left.as_str()];
-        let v = idx[edge.right.as_str()];
-        succ[u].insert(v);
-        pred[v].insert(u);
+    if INDEX_ROWS {
+        // br-r37-c1-t37f9: the census core consumes only integer adjacency.
+        // Populate its sets directly from DiGraph's canonical index rows instead
+        // of cloning every endpoint/AttrMap and hashing names back to indices.
+        for (u, succ_u) in succ.iter_mut().enumerate() {
+            for &v in digraph.successors_indices(u).unwrap_or_default() {
+                succ_u.insert(v);
+                pred[v].insert(u);
+            }
+        }
+    } else {
+        let nodes = digraph.nodes_ordered();
+        let idx: HashMap<&str, usize> =
+            nodes.iter().enumerate().map(|(i, nd)| (*nd, i)).collect();
+        for edge in digraph.edges_ordered() {
+            let u = idx[edge.left.as_str()];
+            let v = idx[edge.right.as_str()];
+            succ[u].insert(v);
+            pred[v].insert(u);
+        }
     }
     // nbrs[u] = succ[u] | pred[u] (neighbors ignoring direction).
     let nbrs: Vec<HashSet<usize>> = (0..n)
@@ -42996,6 +43014,13 @@ pub fn triadic_census(digraph: &DiGraph) -> std::collections::HashMap<String, us
         .enumerate()
         .map(|(t, &nm)| (nm.to_owned(), census[t]))
         .collect()
+}
+
+#[cfg(test)]
+fn triadic_census_orig_edge_snapshots(
+    digraph: &DiGraph,
+) -> std::collections::HashMap<String, usize> {
+    triadic_census_with_setup::<false>(digraph)
 }
 
 // ---------------------------------------------------------------------------
@@ -78368,6 +78393,166 @@ mod tests {
         d.add_edge("c", "a").unwrap();
         let census = triadic_census(&d);
         assert_eq!(census["030C"], 1);
+    }
+
+    #[test]
+    fn triadic_census_index_rows_match_edge_snapshot_setup() {
+        let empty = DiGraph::strict();
+        assert_eq!(
+            triadic_census(&empty),
+            super::triadic_census_orig_edge_snapshots(&empty)
+        );
+
+        let mut d = DiGraph::strict();
+        for node in [
+            "node-zeta-with-a-long-name",
+            "node-alpha-with-a-long-name",
+            "node-mu-with-a-long-name",
+            "node-beta-with-a-long-name",
+            "node-omega-with-a-long-name",
+        ] {
+            assert!(d.add_node(node));
+        }
+        for (source, target) in [
+            ("node-zeta-with-a-long-name", "node-alpha-with-a-long-name"),
+            ("node-alpha-with-a-long-name", "node-zeta-with-a-long-name"),
+            ("node-alpha-with-a-long-name", "node-mu-with-a-long-name"),
+            ("node-mu-with-a-long-name", "node-beta-with-a-long-name"),
+            ("node-beta-with-a-long-name", "node-alpha-with-a-long-name"),
+            ("node-omega-with-a-long-name", "node-mu-with-a-long-name"),
+            ("node-zeta-with-a-long-name", "node-zeta-with-a-long-name"),
+        ] {
+            let mut edge_attrs = AttrMap::new();
+            edge_attrs.insert(
+                "payload".to_owned(),
+                CgseValue::from(format!("attribute-{source}-{target}")),
+            );
+            d.add_edge_with_attrs(source, target, edge_attrs).unwrap();
+        }
+
+        let candidate = triadic_census(&d);
+        let baseline = super::triadic_census_orig_edge_snapshots(&d);
+        assert_eq!(candidate, baseline, "all 16 census cells must match");
+        assert_eq!(candidate.values().sum::<usize>(), 10, "C(5, 3) triads");
+    }
+
+    /// br-r37-c1-t37f9: same-binary paired A/B for the live native
+    /// `triadic_census` setup. The baseline clones ordered edge snapshots and
+    /// hashes endpoint names; the candidate reads canonical successor indices.
+    /// Run with `cargo test --profile release -p fnx-algorithms --lib
+    /// triadic_census_index_rows_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn triadic_census_index_rows_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        const N: usize = 768;
+        const OUT_DEGREE: usize = 4;
+        const ATTRS_PER_EDGE: usize = 6;
+        const ROUNDS: usize = 15;
+
+        let labels = (0..N)
+            .map(|i| format!("triad-node-{i:04}-abcdefghijklmnopqrstuvwxyz0123456789"))
+            .collect::<Vec<_>>();
+        let mut d = DiGraph::strict();
+        for label in &labels {
+            assert!(d.add_node(label.clone()));
+        }
+        for u in 0..N {
+            for offset in [1_usize, 7, 31, 97] {
+                let v = (u + offset) % N;
+                let mut edge_attrs = AttrMap::new();
+                for slot in 0..ATTRS_PER_EDGE {
+                    edge_attrs.insert(
+                        format!("payload-{slot}"),
+                        CgseValue::from(format!(
+                            "edge-{u:04}-{v:04}-slot-{slot}-{}",
+                            "x".repeat(80)
+                        )),
+                    );
+                }
+                d.add_edge_with_attrs(labels[u].clone(), labels[v].clone(), edge_attrs)
+                    .unwrap();
+            }
+        }
+
+        let candidate = triadic_census(&d);
+        let baseline = super::triadic_census_orig_edge_snapshots(&d);
+        assert_eq!(candidate, baseline, "exact 16-cell parity before timing");
+
+        let time = |candidate: bool| -> f64 {
+            let start = Instant::now();
+            let census = if candidate {
+                triadic_census(black_box(&d))
+            } else {
+                super::triadic_census_orig_edge_snapshots(black_box(&d))
+            };
+            black_box(census);
+            start.elapsed().as_nanos() as f64
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let mut baseline_ns = Vec::with_capacity(ROUNDS);
+        let mut candidate_ns = Vec::with_capacity(ROUNDS);
+        let mut paired_ratios = Vec::with_capacity(ROUNDS);
+        let mut null_ratios = Vec::with_capacity(ROUNDS);
+        for round in 0..ROUNDS {
+            let (baseline_elapsed, candidate_elapsed) = if round % 2 == 0 {
+                (time(false), time(true))
+            } else {
+                let candidate_elapsed = time(true);
+                let baseline_elapsed = time(false);
+                (baseline_elapsed, candidate_elapsed)
+            };
+            baseline_ns.push(baseline_elapsed);
+            candidate_ns.push(candidate_elapsed);
+            paired_ratios.push(baseline_elapsed / candidate_elapsed);
+
+            let (null_first, null_second) = if round % 2 == 0 {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                let null_first = time(true);
+                (null_first, null_second)
+            };
+            null_ratios.push(null_first / null_second);
+        }
+
+        let median = |values: &[f64]| -> f64 {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            sorted[sorted.len() / 2]
+        };
+        let percentile_range = |values: &[f64]| -> (f64, f64) {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            (sorted[ROUNDS * 5 / 100], sorted[ROUNDS * 95 / 100])
+        };
+        let paired_range = percentile_range(&paired_ratios);
+        let null_range = percentile_range(&null_ratios);
+        let paired_wins = paired_ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+        let null_wins = null_ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+        println!(
+            "TRIADIC_CENSUS_INDEX_ROWS_AB n={N} out_degree={OUT_DEGREE} \
+             attrs_per_edge={ATTRS_PER_EDGE} rounds={ROUNDS} \
+             baseline_median_ns={:.0} candidate_median_ns={:.0} \
+             paired_median={:.4}x paired_wins={paired_wins}/{ROUNDS} \
+             paired_p5_p95=[{:.4},{:.4}] null_median={:.4}x \
+             null_wins={null_wins}/{ROUNDS} null_p5_p95=[{:.4},{:.4}] \
+             exact_16_cell_parity=true",
+            median(&baseline_ns),
+            median(&candidate_ns),
+            median(&paired_ratios),
+            paired_range.0,
+            paired_range.1,
+            median(&null_ratios),
+            null_range.0,
+            null_range.1,
+        );
     }
 
     #[test]
