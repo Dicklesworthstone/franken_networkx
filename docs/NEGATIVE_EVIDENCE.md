@@ -21867,3 +21867,67 @@ RESULT: SHIP. Keep compact-index edge validation and coverage state in
 `is_edge_cover`; exact Boolean parity holds, the same-binary median clears the
 null floor decisively, and the matching validator no longer hashes long node
 labels for its coverage bookkeeping.
+
+## 2026-07-14 HazyOtter SHIP (`minimum_spanning_tree_prim`): index reference frontier state — **2.119x** (`br-r37-c1-ygrvk`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: `bv --robot-triage` exposed no
+unowned narrow perf bead; the broad perf umbrella was already assigned, so this
+pass rotated from matching to the older MST/CGSE reference seam. The measured
+2,048-node, 8,192-edge Prim run pushes each ordinary edge once when its first
+endpoint joins the tree. The former kernel therefore cloned two long endpoint
+Strings into 8,192 heap entries, hashed destination names for push/pop visited
+probes, allocated name-based neighbour iterators, and resolved both names again
+for every edge-attribute lookup. Heap comparisons and the 2,047 accepted output
+edge materializations remain mandatory; the per-frontier String/hash/name-lookup
+state is avoidable. Opportunity score: impact 5 x confidence 5 / effort 2 =
+12.5.
+
+ONE LEVER: keep roots, visited state, adjacency expansion, edge-weight lookup,
+and heap endpoints in compact node-index space. A one-time lexical-rank vector
+encodes the former String comparator, preserving the exact
+`(weight, left-name, right-name, sequence)` heap order. Node names are
+materialized only for accepted output edges and unchanged CGSE decisions.
+Lexical component roots, equal-weight ties, self-loop skipping, disconnected
+components, finite/default weight handling, floating-point accumulation order,
+edge orientation/order, and witness counts are unchanged. A frozen test-only
+copy of the former String-state function is the exact A/B oracle.
+
+COLD-TARGET WARM-UP: the first untimed strict-remote compile (job
+`j-29928833041828955`) stopped before execution because the focused test omitted
+one symbol from the module's explicit import list; that owned harness issue was
+corrected and is not timing evidence. The corrected ordinary-release warm-up
+passed `1/1` on `vmi1149989` (job `j-29928833041828961`); its cold build took
+3m58s and the test itself completed immediately. No timeout, local fallback, or
+`release-perf` command ran.
+
+ONE FOREGROUND ORDINARY-RELEASE A/B + NULL: the sole measurement stayed on
+`vmi1149989` and the same worker-scoped target pool (job
+`j-29928833041828971`). RCH nevertheless reported another cache miss and spent
+3m44s rebuilding before process start; only the 1.07-second in-process test is
+evidence. The fixed graph used 2,048 long, insertion-order-scrambled labels,
+8,192 deterministically weighted edges, two calls per arm, three warmups, and
+15 alternating-order pairs:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| frozen String state vs indexed state | `24,135,807 ns / 11,392,141 ns` | **`2.119x`** | **`15/15`** | exact result + witness |
+| indexed state / indexed state null | `11,170,959 ns / 11,365,040 ns` | `0.983x` | identical arm | exact |
+
+Charging the full candidate-null skew still leaves approximately **2.083x**,
+so the keep decision clears positional noise decisively.
+
+CORRECTNESS / GATES: exact result and witness parity passed for empty,
+disconnected, lexically scrambled, equal-weight, self-loop, and missing-weight
+cases. `git diff --check` passed; direct rustfmt reported broad pre-existing
+whole-file drift but no suggestion in the owned ranges. Targeted UBS, with its
+established noisy Rust category 8 excluded, reported zero critical findings.
+Scoped strict-remote clippy reached `fnx-algorithms` and stopped only on four
+pre-existing `explicit_counter_loop` / `question_mark` lints at lines 22,332,
+22,472, 33,878, and 33,881, all outside the owned ranges (job
+`j-29928833041828968`). Every Cargo command used fail-closed
+`RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`; timing used ordinary
+`--profile release`, with no local fallback and no `release-perf` build.
+
+RESULT: SHIP. Keep compact-index frontier state in the CGSE Prim reference;
+exact ordering, floats, output, and witness semantics hold, while the measured
+kernel no longer clones or hashes endpoint labels for every frontier edge.

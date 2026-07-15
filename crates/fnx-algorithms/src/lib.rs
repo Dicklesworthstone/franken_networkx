@@ -122,29 +122,62 @@ impl<T: Copy + PartialEq + Ord> Ord for DijkstraState<T> {
     }
 }
 
+#[cfg(test)]
 #[derive(Clone, PartialEq)]
-struct PrimEdgeState {
+struct PrimStringEdgeState {
     weight: f64,
     seq: u64,
     left: String,
     right: String,
 }
 
-impl Eq for PrimEdgeState {}
+#[cfg(test)]
+impl Eq for PrimStringEdgeState {}
 
-impl PartialOrd for PrimEdgeState {
+#[cfg(test)]
+impl PartialOrd for PrimStringEdgeState {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for PrimEdgeState {
+#[cfg(test)]
+impl Ord for PrimStringEdgeState {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         other
             .weight
             .total_cmp(&self.weight)
             .then_with(|| other.left.cmp(&self.left))
             .then_with(|| other.right.cmp(&self.right))
+            .then_with(|| other.seq.cmp(&self.seq))
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct PrimReferenceIndexEdge {
+    weight: f64,
+    seq: u64,
+    left: usize,
+    right: usize,
+    left_rank: usize,
+    right_rank: usize,
+}
+
+impl Eq for PrimReferenceIndexEdge {}
+
+impl PartialOrd for PrimReferenceIndexEdge {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PrimReferenceIndexEdge {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other
+            .weight
+            .total_cmp(&self.weight)
+            .then_with(|| other.left_rank.cmp(&self.left_rank))
+            .then_with(|| other.right_rank.cmp(&self.right_rank))
             .then_with(|| other.seq.cmp(&self.seq))
     }
 }
@@ -11789,6 +11822,156 @@ pub fn minimum_spanning_tree_prim(graph: &Graph, weight_attr: &str) -> MinimumSp
         };
     }
 
+    // Keep Prim's internal state in node-index space. The previous reference
+    // kernel cloned both endpoint names into every heap entry, hashed the
+    // destination name for each visited probe, allocated a neighbour-name
+    // iterator per expansion, and resolved both names again for every weight
+    // lookup. Lexical ranks preserve the exact `(weight, left, right, seq)`
+    // heap order while indices make all of that bookkeeping compact.
+    let n = nodes.len();
+    let mut roots: Vec<usize> = (0..n).collect();
+    roots.sort_unstable_by(|left, right| nodes[*left].cmp(nodes[*right]));
+    let mut lexical_rank = vec![0usize; n];
+    for (rank, &node) in roots.iter().enumerate() {
+        lexical_rank[node] = rank;
+    }
+
+    let edge_weight = |left: usize, right: usize| {
+        graph
+            .edge_attrs_by_indices(left, right)
+            .and_then(|attrs| attrs.get(weight_attr))
+            .and_then(|value| value.as_f64())
+            .filter(|value| value.is_finite())
+            .unwrap_or(1.0)
+    };
+
+    let mut visited = vec![false; n];
+    let mut frontier = BinaryHeap::new();
+    let mut seq_counter = 0u64;
+    let mut mst_edges = Vec::new();
+    let mut total_weight = 0.0;
+    let mut nodes_touched = 0usize;
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 0usize;
+
+    for root in roots {
+        if visited[root] {
+            continue;
+        }
+        visited[root] = true;
+        nodes_touched += 1;
+        cgse_record_decision(&mut cgse_sink, nodes[root], "component_root");
+
+        if let Some(neighbors) = graph.neighbors_indices(root) {
+            for &neighbor in neighbors {
+                if visited[neighbor] {
+                    continue;
+                }
+                seq_counter += 1;
+                edges_scanned += 1;
+                frontier.push(PrimReferenceIndexEdge {
+                    weight: edge_weight(root, neighbor),
+                    seq: seq_counter,
+                    left: root,
+                    right: neighbor,
+                    left_rank: lexical_rank[root],
+                    right_rank: lexical_rank[neighbor],
+                });
+                queue_peak = queue_peak.max(frontier.len());
+            }
+        }
+
+        while let Some(PrimReferenceIndexEdge {
+            weight,
+            left,
+            right,
+            ..
+        }) = frontier.pop()
+        {
+            if visited[right] {
+                continue;
+            }
+
+            visited[right] = true;
+            nodes_touched += 1;
+            total_weight += weight;
+            mst_edges.push(MstEdge {
+                left: nodes[left].to_owned(),
+                right: nodes[right].to_owned(),
+                weight,
+            });
+            cgse_record_decision(&mut cgse_sink, nodes[right], nodes[left]);
+
+            if let Some(neighbors) = graph.neighbors_indices(right) {
+                for &neighbor in neighbors {
+                    if visited[neighbor] {
+                        continue;
+                    }
+                    seq_counter += 1;
+                    edges_scanned += 1;
+                    frontier.push(PrimReferenceIndexEdge {
+                        weight: edge_weight(right, neighbor),
+                        seq: seq_counter,
+                        left: right,
+                        right: neighbor,
+                        left_rank: lexical_rank[right],
+                        right_rank: lexical_rank[neighbor],
+                    });
+                    queue_peak = queue_peak.max(frontier.len());
+                }
+            }
+        }
+    }
+
+    cgse_publish(
+        CgseReferenceAlgorithm::Prim,
+        graph.node_count(),
+        graph.edge_count(),
+        cgse_sink,
+    );
+
+    MinimumSpanningTreeResult {
+        edges: mst_edges,
+        total_weight,
+        witness: ComplexityWitness {
+            algorithm: "prim_mst".to_owned(),
+            complexity_claim: "O(|E| log |V|)".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak,
+        },
+    }
+}
+
+/// Frozen pre-`br-r37-c1-ygrvk` String-state Prim reference for exact A/B
+/// parity and timing. Production callers use [`minimum_spanning_tree_prim`].
+#[cfg(test)]
+fn minimum_spanning_tree_prim_orig_string(
+    graph: &Graph,
+    weight_attr: &str,
+) -> MinimumSpanningTreeResult {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::Prim);
+    let nodes = graph.nodes_ordered();
+    if nodes.is_empty() {
+        cgse_publish(
+            CgseReferenceAlgorithm::Prim,
+            graph.node_count(),
+            graph.edge_count(),
+            cgse_sink,
+        );
+        return MinimumSpanningTreeResult {
+            edges: Vec::new(),
+            total_weight: 0.0,
+            witness: ComplexityWitness {
+                algorithm: "prim_mst".to_owned(),
+                complexity_claim: "O(|E| log |V|)".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
     let mut roots: Vec<&str> = nodes.clone();
     roots.sort_unstable();
 
@@ -11815,7 +11998,7 @@ pub fn minimum_spanning_tree_prim(graph: &Graph, weight_attr: &str) -> MinimumSp
                 }
                 seq_counter += 1;
                 edges_scanned += 1;
-                frontier.push(PrimEdgeState {
+                frontier.push(PrimStringEdgeState {
                     weight: matching_edge_weight_or_default(graph, root, neighbor, weight_attr),
                     seq: seq_counter,
                     left: root.to_owned(),
@@ -11825,7 +12008,7 @@ pub fn minimum_spanning_tree_prim(graph: &Graph, weight_attr: &str) -> MinimumSp
             }
         }
 
-        while let Some(PrimEdgeState {
+        while let Some(PrimStringEdgeState {
             weight,
             left,
             right,
@@ -11853,7 +12036,7 @@ pub fn minimum_spanning_tree_prim(graph: &Graph, weight_attr: &str) -> MinimumSp
                     }
                     seq_counter += 1;
                     edges_scanned += 1;
-                    frontier.push(PrimEdgeState {
+                    frontier.push(PrimStringEdgeState {
                         weight: matching_edge_weight_or_default(
                             graph,
                             &right,
@@ -52354,6 +52537,7 @@ mod tests {
         minimum_cut_edmonds_karp,
         minimum_cut_edmonds_karp_directed,
         minimum_spanning_arborescence,
+        minimum_spanning_tree_prim,
         minimum_st_edge_cut_edmonds_karp,
         mixing_expansion,
         modularity,
@@ -64286,6 +64470,155 @@ mod tests {
         assert!(min_result.matching.is_empty());
         assert!((min_result.total_weight - 0.0).abs() <= TEST_TOLERANCE);
         assert_eq!(min_result.witness.nodes_touched, 0);
+    }
+
+    #[test]
+    fn minimum_spanning_tree_prim_index_state_preserves_reference_contract() {
+        let empty = Graph::strict();
+        assert_eq!(
+            minimum_spanning_tree_prim(&empty, "weight"),
+            super::minimum_spanning_tree_prim_orig_string(&empty, "weight")
+        );
+
+        let mut graph = Graph::strict();
+        for node in ["z", "aa", "middle", "b", "isolate"] {
+            graph.add_node(node);
+        }
+        for (left, right, weight) in [
+            ("z", "aa", "2"),
+            ("z", "middle", "1"),
+            ("aa", "middle", "1"),
+            ("aa", "b", "3"),
+            ("middle", "b", "3"),
+            ("z", "z", "0"),
+        ] {
+            graph
+                .add_edge_with_attrs(left, right, attrs([("weight", weight)]))
+                .expect("edge add should succeed");
+        }
+
+        assert_eq!(
+            minimum_spanning_tree_prim(&graph, "weight"),
+            super::minimum_spanning_tree_prim_orig_string(&graph, "weight"),
+            "index state must preserve lexical roots, equal-weight endpoint ties, self-loop handling, disconnected roots, floats, and witness counts"
+        );
+        assert_eq!(
+            minimum_spanning_tree_prim(&graph, "missing"),
+            super::minimum_spanning_tree_prim_orig_string(&graph, "missing"),
+            "missing weights retain the exact default-one route"
+        );
+    }
+
+    /// `br-r37-c1-ygrvk`: same-binary A/B for compact-index Prim frontier
+    /// state against the frozen String-state reference, plus a candidate null.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn minimum_spanning_tree_prim_index_state_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        let n = 2_048usize;
+        let calls = 2usize;
+        let names = (0..n)
+            .map(|index| {
+                let lexical_key = (index * 104_729) % n;
+                format!("prim-node-{lexical_key:05}-abcdefghijklmnopqrstuvwxyz-{index:05}")
+            })
+            .collect::<Vec<_>>();
+        let mut graph = Graph::strict();
+        for name in &names {
+            graph.add_node(name);
+        }
+        for index in 0..n {
+            for offset in [1usize, 7, 31, 127] {
+                let neighbor = (index + offset) % n;
+                let weight = ((index * 17 + offset * 13) % 11).to_string();
+                graph
+                    .add_edge_with_attrs(
+                        &names[index],
+                        &names[neighbor],
+                        attrs([("weight", weight.as_str())]),
+                    )
+                    .expect("benchmark edge add should succeed");
+            }
+        }
+
+        let baseline = super::minimum_spanning_tree_prim_orig_string(&graph, "weight");
+        let candidate = minimum_spanning_tree_prim(&graph, "weight");
+        assert_eq!(candidate, baseline);
+
+        let time = |use_candidate: bool| -> u128 {
+            let start = Instant::now();
+            let mut checksum = 0usize;
+            for _ in 0..calls {
+                let result = if use_candidate {
+                    minimum_spanning_tree_prim(black_box(&graph), black_box("weight"))
+                } else {
+                    super::minimum_spanning_tree_prim_orig_string(
+                        black_box(&graph),
+                        black_box("weight"),
+                    )
+                };
+                checksum ^= result.edges.len();
+                checksum ^= result.witness.edges_scanned;
+                checksum ^= result.total_weight.to_bits() as usize;
+            }
+            black_box(checksum);
+            start.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15usize;
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let mut null_first_times = Vec::with_capacity(rounds);
+        let mut null_second_times = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(false), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(false), candidate_time)
+            };
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+
+            let (null_first, null_second) = if round.is_multiple_of(2) {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                (time(true), null_second)
+            };
+            null_first_times.push(null_first);
+            null_second_times.push(null_second);
+        }
+
+        let baseline_median = median(&baseline_times);
+        let candidate_median = median(&candidate_times);
+        let null_first_median = median(&null_first_times);
+        let null_second_median = median(&null_second_times);
+        let paired_wins = baseline_times
+            .iter()
+            .zip(&candidate_times)
+            .filter(|(baseline_time, candidate_time)| baseline_time > candidate_time)
+            .count();
+
+        println!(
+            "PRIM_INDEX_STATE_AB n={n} edges={} calls={calls} rounds={rounds} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} speedup={:.3}x paired_wins={paired_wins}/{rounds} null_first_median_ns={null_first_median} null_second_median_ns={null_second_median} null_ratio={:.3}x exact_parity=true",
+            graph.edge_count(),
+            baseline_median as f64 / candidate_median as f64,
+            null_first_median as f64 / null_second_median as f64,
+        );
     }
 
     #[test]
