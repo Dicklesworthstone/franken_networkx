@@ -35250,7 +35250,106 @@ fn attracting_components_orig_string(digraph: &DiGraph) -> Vec<Vec<String>> {
 /// Matches `networkx.number_attracting_components(G)`.
 #[must_use]
 pub fn number_attracting_components(digraph: &DiGraph) -> usize {
-    attracting_components(digraph).len()
+    // br-r37-c1-r3r7h: retain compact SCC ids instead of materializing and
+    // sorting owned node-name components that this scalar API immediately
+    // discarded. The Tarjan traversal and CGSE decision stream intentionally
+    // mirror `strongly_connected_components`; only SCC emission changes.
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::StronglyConnectedComponents);
+
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    let mut indices: Vec<Option<usize>> = vec![None; n];
+    let mut lowlinks = vec![0usize; n];
+    let mut on_stack = vec![false; n];
+    let mut stack = Vec::<usize>::new();
+    let mut index_counter = 0usize;
+    let mut component_count = 0usize;
+    let mut component_of = vec![usize::MAX; n];
+    let mut work: Vec<(usize, &[usize], usize)> = Vec::new();
+
+    for start in 0..n {
+        if indices[start].is_some() {
+            continue;
+        }
+
+        indices[start] = Some(index_counter);
+        lowlinks[start] = index_counter;
+        index_counter += 1;
+        stack.push(start);
+        on_stack[start] = true;
+        let successors = digraph.successors_indices(start).unwrap_or(&[]);
+        work.push((start, successors, 0));
+
+        while let Some((u_idx, u_successors, next_successor_idx)) = work.last_mut() {
+            let u_idx = *u_idx;
+            if *next_successor_idx < u_successors.len() {
+                let v_idx = u_successors[*next_successor_idx];
+                *next_successor_idx += 1;
+
+                match indices[v_idx] {
+                    None => {
+                        cgse_record_decision(&mut cgse_sink, nodes[v_idx], nodes[u_idx]);
+                        indices[v_idx] = Some(index_counter);
+                        lowlinks[v_idx] = index_counter;
+                        index_counter += 1;
+                        stack.push(v_idx);
+                        on_stack[v_idx] = true;
+                        let successors = digraph.successors_indices(v_idx).unwrap_or(&[]);
+                        work.push((v_idx, successors, 0));
+                    }
+                    Some(v_index) if on_stack[v_idx] => {
+                        lowlinks[u_idx] = lowlinks[u_idx].min(v_index);
+                    }
+                    _ => {}
+                }
+            } else {
+                let (finished, _, _) = work.pop().unwrap();
+                let finished_lowlink = lowlinks[finished];
+                let finished_index = indices[finished].unwrap();
+
+                if finished_lowlink == finished_index {
+                    loop {
+                        let member = stack.pop().unwrap();
+                        on_stack[member] = false;
+                        component_of[member] = component_count;
+                        if member == finished {
+                            break;
+                        }
+                    }
+                    component_count += 1;
+                }
+
+                if let Some((parent_idx, _, _)) = work.last_mut() {
+                    lowlinks[*parent_idx] = lowlinks[*parent_idx].min(finished_lowlink);
+                }
+            }
+        }
+    }
+
+    cgse_publish(
+        CgseReferenceAlgorithm::StronglyConnectedComponents,
+        digraph.node_count(),
+        digraph.edge_count(),
+        cgse_sink,
+    );
+
+    let mut has_outgoing = vec![false; component_count];
+    for u in 0..n {
+        let u_component = component_of[u];
+        if let Some(successors) = digraph.successors_indices(u) {
+            for &v in successors {
+                if component_of[v] != u_component {
+                    has_outgoing[u_component] = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    has_outgoing
+        .into_iter()
+        .filter(|outgoing| !outgoing)
+        .count()
 }
 
 /// Return True if the given component is an attracting component.
@@ -73597,6 +73696,144 @@ mod tests {
         dg.add_edge("a", "b").unwrap();
         dg.add_edge("a", "c").unwrap();
         assert_eq!(number_attracting_components(&dg), 2);
+    }
+
+    fn assert_number_attracting_components_scalar_parity() {
+        let empty = DiGraph::strict();
+        assert_eq!(number_attracting_components(&empty), 0);
+        assert_eq!(
+            number_attracting_components(&empty),
+            attracting_components(&empty).len()
+        );
+
+        let names = ["zeta", "alpha", "middle"];
+        let edge_slots = names.len() * names.len();
+        for mask in 0usize..(1usize << edge_slots) {
+            let mut digraph = DiGraph::strict();
+            for name in names {
+                let _ = digraph.add_node(name);
+            }
+            for source in 0..names.len() {
+                for target in 0..names.len() {
+                    let bit = source * names.len() + target;
+                    if mask & (1usize << bit) != 0 {
+                        digraph.add_edge(names[source], names[target]).unwrap();
+                    }
+                }
+            }
+            assert_eq!(
+                number_attracting_components(&digraph),
+                attracting_components(&digraph).len(),
+                "scalar/materialized mismatch for directed edge mask {mask:#x}"
+            );
+        }
+    }
+
+    #[test]
+    fn number_attracting_components_scalar_matches_materialized_exhaustive() {
+        assert_number_attracting_components_scalar_parity();
+    }
+
+    /// br-r37-c1-r3r7h: same-binary A/B for direct sink-SCC counting against
+    /// the complete materializing `attracting_components(...).len()` route,
+    /// plus a direct/direct null control.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn number_attracting_components_sink_scc_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        assert_number_attracting_components_scalar_parity();
+
+        let n = 12_000usize;
+        let degree = 4usize;
+        let calls = 2usize;
+        let names = (0..n)
+            .map(|index| format!("node-{index:05}-payload-abcdefghijklmnopqrstuvwxyz"))
+            .collect::<Vec<_>>();
+        let mut digraph = DiGraph::strict();
+        for name in &names {
+            let _ = digraph.add_node(name);
+        }
+        for source in 0..n {
+            for offset in 1..=degree {
+                if source + offset < n {
+                    digraph
+                        .add_edge(&names[source], &names[source + offset])
+                        .unwrap();
+                }
+            }
+        }
+
+        let baseline = attracting_components(&digraph).len();
+        let candidate = number_attracting_components(&digraph);
+        assert_eq!(candidate, baseline, "large DAG scalar parity");
+        assert_eq!(candidate, 1, "forward DAG has one sink SCC");
+
+        let time = |use_candidate: bool| -> u128 {
+            let start = Instant::now();
+            for _ in 0..calls {
+                let count = if use_candidate {
+                    number_attracting_components(black_box(&digraph))
+                } else {
+                    attracting_components(black_box(&digraph)).len()
+                };
+                black_box(count);
+            }
+            start.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15usize;
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let mut null_first_times = Vec::with_capacity(rounds);
+        let mut null_second_times = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(false), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(false), candidate_time)
+            };
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+
+            let (null_first, null_second) = if round.is_multiple_of(2) {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                (time(true), null_second)
+            };
+            null_first_times.push(null_first);
+            null_second_times.push(null_second);
+        }
+
+        let baseline_median = median(&baseline_times);
+        let candidate_median = median(&candidate_times);
+        let null_first_median = median(&null_first_times);
+        let null_second_median = median(&null_second_times);
+        let paired_wins = baseline_times
+            .iter()
+            .zip(&candidate_times)
+            .filter(|(baseline_time, candidate_time)| baseline_time > candidate_time)
+            .count();
+
+        println!(
+            "ATTRACTING_COUNT_AB n={n} degree={degree} calls={calls} rounds={rounds} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} speedup={:.4}x paired_wins={paired_wins}/{rounds} null_first_median_ns={null_first_median} null_second_median_ns={null_second_median} null_ratio={:.4}x exact_parity=true",
+            baseline_median as f64 / candidate_median as f64,
+            null_first_median as f64 / null_second_median as f64,
+        );
     }
 
     // -----------------------------------------------------------------------

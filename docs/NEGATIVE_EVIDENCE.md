@@ -21525,3 +21525,77 @@ Keep the retained three-pass implementation: packet-local cache locality does
 not clear the same-binary null floor on this 4,128-packet workload. Revisit only
 with a structural lever that removes mandatory serialization, hashing, or
 base64 work rather than merely rescheduling it.
+
+## 2026-07-14 GrayCitadel SHIP (`number_attracting_components`): count sink SCC IDs directly — **4.7878x** (`br-r37-c1-r3r7h`)
+
+NEGATIVE-LEDGER / ROBOT-TRIAGE FIRST: `bv --robot-triage` ranked the occupied
+no-gaps umbrella and broad or stale quick wins. The exact subset-betweenness CSR
+idea was rejected before editing because an older ledger row already declares
+that family obsolete after a broader shortest-path keep. Fresh traversal and DAG
+rows are also exhausted by same-day keeps/rejects. The directed-components ledger
+has measured integer SCC traversal and the materializing `attracting_components`
+scan, but contains no scalar-only `number_attracting_components` A/B or rejection.
+
+PROFILE / ATTRIBUTION FIRST: the scalar function currently calls
+`attracting_components(digraph).len()`. On an `n`-node DAG this clones all `n`
+node names into singleton SCC vectors, sorts every SCC, globally sorts the `n`
+component vectors (`O(n log n)` comparisons), hashes all `n` names back to node
+indices, allocates the full attracting-component result, and then discards it for
+one integer. Ranked work is (1) owned String component materialization and global
+sorting, (2) name-to-index rebuilding, and (3) the mandatory Tarjan/edge scan.
+Opportunity score: impact 4 x confidence 5 / effort 1 = 20.
+
+ONE LEVER / PROOF PLAN: run the same iterative integer-index Tarjan traversal,
+assign each popped node a compact SCC ID, scan successor-index rows once to mark
+IDs with cross-component outgoing arcs, and count the unmarked IDs. Preserve the
+same CGSE decision/publish stream, empty-graph result, self-loop behavior, and
+directed semantics; leave the component-returning API untouched. A same-binary
+ordinary-release harness will compare the scalar result against the complete
+materializing route across exhaustive small digraphs and a large deterministic
+DAG, then run three warmups, 15 alternating-order pairs, and an identical-path
+null. Because the release test binary changes, first run an untimed strict-remote
+`--no-run` warm-up without a timeout, then exactly one cheap foreground A/B.
+
+COLD-TARGET WARM-UP: the first fail-closed request was not admitted because RCH
+reported stale capacity (`insufficient_slots=9, hard_preflight=1`) and refused
+local fallback; it built and ran nothing. After `rch workers probe --all`
+reported 12/12 healthy, one untimed ordinary-release `--no-run` warm-up completed
+on `vmi1153651` (job `j-29928833041828790`, exit 0). Remote compilation/linking
+took 456.4 seconds and the full pipeline 510.7 seconds. No timeout or
+`release-perf` command ran, and none of that wall time is benchmark evidence.
+
+ONE FOREGROUND A/B + NULL: the sole measurement selected the same worker, but
+RCH unexpectedly routed it to a different worker-pool target and reported a
+cache miss, so Cargo rebuilt before starting the test process. That infrastructure
+defect added 445.8 seconds of untimed compile/link work; the in-process parity and
+timing test itself completed in 0.92 seconds (job `j-29928833041828802`). The
+fixed 12,000-node degree-4 forward DAG used long stable labels, two calls per
+sample, three warmups, and 15 alternating-order pairs:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+|---|---:|---:|---:|---:|
+| materialized attracting components vs direct sink-SCC count | `19,273,949 ns / 4,025,637 ns` | **`4.7878x`** | **`15/15`** | exact |
+| direct count / direct count null | `3,141,194 ns / 4,884,412 ns` | `0.6431x` | identical arm | exact |
+
+The null is unusually position-skewed, but the real arm wins every pair and
+remains about **3.079x** faster after pessimistically multiplying by the full
+`0.6431` null ratio. The keep decision therefore does not depend on treating the
+null as unity.
+
+CORRECTNESS / GATES: before any timer ran, the same binary compared the scalar
+result with `attracting_components(...).len()` for the empty graph, all 512
+directed adjacency masks (including self-loops) on three nonlexically inserted
+nodes, and the complete timed DAG. The strict-remote release test passed `1/1`;
+its only compiler warning is a committed unused variable outside the owned hunk.
+Direct rustfmt exposed broad committed file drift; all suggestions in the owned
+additions were applied manually, and `git diff --check` passed. Targeted UBS
+completed with zero critical findings after excluding category 8's known lexical
+false positive on the unrelated committed test name containing `decode`; Cargo
+was hidden from UBS, so no local build ran. Every Cargo request used fail-closed
+`RCH_REQUIRE_REMOTE=1`, `RCH_NO_SELF_HEALING=1`, and direct
+`rch --no-self-healing exec -- cargo ...`; no local fallback ran.
+
+RESULT: SHIP. Keep `number_attracting_components` in integer index space: retain
+compact Tarjan SCC IDs, mark IDs with cross-component successor arcs, and count
+the unmarked sink IDs. Preserve the mirrored SCC CGSE decision/publish stream and
+leave the component-materializing `attracting_components` API unchanged.
