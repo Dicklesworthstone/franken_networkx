@@ -23940,6 +23940,29 @@ def tensor_product(G, H):
     _fast = _native_graph_product(G, H, kind="tensor")
     if _fast is not None:
         return _fast
+    # br-r37-c1-tensorprodattr (bt): native paired-attr attach for the common
+    # single-edge-attr-key undirected case — reuses the structure kernel and attaches
+    # each edge's paired {k: (g,h)} by index, skipping the set_edge_attributes
+    # tuple-node key resolution (~93% of a weighted tensor). Returns None on any
+    # other shape (directed / multigraph / self-loops / >1 distinct key / non-pristine
+    # mirror), keeping the set_edge_attributes path below. Node attrs decorated after.
+    if (
+        type(G) is Graph
+        and type(H) is Graph
+        and not number_of_selfloops(G)
+        and not number_of_selfloops(H)
+    ):
+        _edge_native = getattr(_fnx, "tensor_product_edge_attrs_fast", None)
+        if _edge_native is not None:
+            _r = _edge_native(G, H)
+            if _r is not None:
+                if _graph_has_any_node_attrs(G) or _graph_has_any_node_attrs(H):
+                    _r.add_nodes_from(
+                        ((g, h), _product_node_attrs(dict(g_attrs), dict(h_attrs)))
+                        for g, g_attrs in G.nodes(data=True)
+                        for h, h_attrs in H.nodes(data=True)
+                    )
+                return _r
     # br-cc-prod-edgeattr: `_native_graph_product` bails on EDGE attrs (the kernel
     # can't pair them), dropping the whole product to the O(E_G*E_H)
     # `add_edges_from` of TUPLE-NODE edges — 22.6ms of a 31ms weighted tensor (the

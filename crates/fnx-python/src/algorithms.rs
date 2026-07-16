@@ -17160,6 +17160,126 @@ fn lexicographic_product_edge_attrs_fast(
     }
 }
 
+/// br-r37-c1-tensorprodattr (bt): edge-attributed TENSOR product for two simple
+/// undirected Graphs with a SINGLE edge-attr key and pristine mirrors. The no-attr
+/// kernel builds the structure fast (11ms of a 165ms weighted tensor), but the
+/// Python wrapper then pays `set_edge_attributes` per-edge TUPLE-NODE key resolution
+/// (~93% of the time) to attach the paired attrs. This REUSES the proven
+/// `graph_product_fast` structure (byte-exact edge set + iteration order), then
+/// attaches the paired `{key: (g_val, h_val)}` attrs BY INDEX straight into
+/// `edge_py_attrs` — no re-canonicalisation. The paired value is a TUPLE (non-scalar)
+/// so it lives in the py mirror + `edges_dirty`, NOT the CgseValue store. GATE:
+/// undirected simple Graph x Graph, pristine mirrors (`edge_py_attrs` empty), and the
+/// union of ALL distinct edge-attr keys across G and H is <= 1 (so each paired dict
+/// has <= 1 key — trivial order; nx's `set(ga)|set(ha)` order is otherwise
+/// unreproducible). Node attrs are decorated by the Python wrapper.
+#[pyfunction]
+#[pyo3(signature = (g, h))]
+fn tensor_product_edge_attrs_fast(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    h: &Bound<'_, PyAny>,
+) -> PyResult<Option<PyObject>> {
+    let gr1 = extract_graph(g)?;
+    let gr2 = extract_graph(h)?;
+    let (pg1, pg2) = match (&gr1, &gr2) {
+        (GraphRef::Undirected(a), GraphRef::Undirected(b)) => (a, b),
+        _ => return Ok(None),
+    };
+    if !pg1.edge_py_attrs.is_empty() || !pg2.edge_py_attrs.is_empty() {
+        return Ok(None);
+    }
+    let g1 = &pg1.inner;
+    let h1 = &pg2.inner;
+    // Single-key gate: at most one distinct edge-attr key across both factors, so
+    // every paired dict has <= 1 key (trivial, reproducible order).
+    let mut keyset: HashSet<&str> = HashSet::new();
+    for (_, _, a) in g1.edges_ordered_borrowed() {
+        for k in a.keys() {
+            keyset.insert(k.as_str());
+        }
+    }
+    for (_, _, a) in h1.edges_ordered_borrowed() {
+        for k in a.keys() {
+            keyset.insert(k.as_str());
+        }
+    }
+    if keyset.len() > 1 {
+        return Ok(None);
+    }
+    let single_key: Option<String> = keyset.iter().next().map(|s| (*s).to_owned());
+
+    // Reuse the proven no-attr structure (byte-exact edge set + iteration order).
+    let structure_obj = match graph_product_fast(py, g, h, 1)? {
+        Some(o) => o,
+        None => return Ok(None),
+    };
+
+    let g_names: Vec<String> = g1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+    let h_names: Vec<String> = h1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+    let ng = g_names.len();
+    let nh = h_names.len();
+    let (canon, _node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
+
+    let undirected_edges = |graph: &fnx_classes::Graph, n: usize| -> Vec<(usize, usize)> {
+        let mut es = Vec::new();
+        for u in 0..n {
+            for &v in graph.neighbors_indices(u).unwrap_or(&[]) {
+                if v >= u {
+                    es.push((u, v));
+                }
+            }
+        }
+        es
+    };
+    let g_edges = undirected_edges(g1, ng);
+    let h_edges = undirected_edges(h1, nh);
+
+    let make_paired =
+        |py: Python<'_>, ga: Option<&AttrMap>, ha: Option<&AttrMap>| -> PyResult<Py<PyDict>> {
+            let dict = PyDict::new(py);
+            if let Some(k) = single_key.as_deref() {
+                let gv = ga.and_then(|m| m.get(k));
+                let hv = ha.and_then(|m| m.get(k));
+                if gv.is_some() || hv.is_some() {
+                    let gpy = match gv {
+                        Some(v) => crate::cgse_value_to_py(py, v)?,
+                        None => py.None(),
+                    };
+                    let hpy = match hv {
+                        Some(v) => crate::cgse_value_to_py(py, v)?,
+                        None => py.None(),
+                    };
+                    let tup = PyTuple::new(py, [gpy, hpy])?;
+                    dict.set_item(k, tup)?;
+                }
+            }
+            Ok(dict.unbind())
+        };
+
+    {
+        let bound = structure_obj.bind(py);
+        let cell = bound.downcast::<crate::PyGraph>().map_err(|_| {
+            pyo3::exceptions::PyTypeError::new_err("tensor structure is not a Graph")
+        })?;
+        let mut structure = cell.borrow_mut();
+        for &(gu, gv) in &g_edges {
+            let ga = g1.edge_attrs_by_indices(gu, gv);
+            for &(hu, hv) in &h_edges {
+                let ha = h1.edge_attrs_by_indices(hu, hv);
+                // Two diagonals of the undirected tensor edge, each a SEPARATE dict
+                // (matching nx's two `_paired_edge_attrs` calls).
+                let d1 = crate::PyGraph::edge_key(&canon[gu * nh + hu], &canon[gv * nh + hv]);
+                structure.edge_py_attrs.insert(d1, make_paired(py, ga, ha)?);
+                let d2 = crate::PyGraph::edge_key(&canon[gv * nh + hu], &canon[gu * nh + hv]);
+                structure.edge_py_attrs.insert(d2, make_paired(py, ga, ha)?);
+            }
+        }
+        structure.mark_edges_dirty();
+    }
+    Ok(Some(structure_obj))
+}
+
 /// br-r37-c1-prodmodular: native modular product fast path (undirected only).
 /// Two distinct product nodes (g1,h1),(g2,h2) are adjacent iff g1!=g2, h1!=h2,
 /// and G-adjacency(g1,g2) == H-adjacency(h1,h2) (both edges, or both non-edges).
@@ -26988,6 +27108,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(cartesian_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(cartesian_product_edge_attrs_fast, m)?)?;
     m.add_function(wrap_pyfunction!(lexicographic_product_edge_attrs_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(tensor_product_edge_attrs_fast, m)?)?;
     m.add_function(wrap_pyfunction!(tensor_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(strong_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(lexicographic_product_fast, m)?)?;
