@@ -8303,6 +8303,92 @@ impl PyDiGraph {
             }
         }
 
+        // br-r37-c1-wdegfnbdi (bt): FLOAT-store fast path — the directed nbunch twin of
+        // the Graph subset float block (br-r37-c1-wdegfnb) and PyDiGraph's full
+        // `weighted_degree_float_store_values`. Per-group Neumaier (Kahan-Babuska) sums
+        // straight from the CgseValue store (out = successors_indices, in =
+        // predecessors_indices), combined per `kind` EXACTLY as the exact path's arms
+        // (Total = sum(out).add(sum(in)) — a directed self-loop sits in each group once,
+        // so Total counts it twice = nx). Bit-identical to `builtins.sum` with NO
+        // per-edge PyObject/PyList. Gated on `!edges_dirty`; bails (whole subset) to the
+        // exact path on any non-float / missing weight; an nbunch node with no
+        // contributing float edge yields nx's int 0 (`sum(())`).
+        if !self.edges_dirty.load(Ordering::Relaxed) {
+            let mut float_pairs: Vec<(PyObject, PyObject)> = Vec::with_capacity(items.len());
+            let mut all_float = true;
+            'fnodes: for (node, canonical) in &items {
+                let Some(idx) = self.inner.get_node_index(canonical) else {
+                    all_float = false;
+                    break;
+                };
+                let mut fo = 0.0f64;
+                let mut co = 0.0f64;
+                let mut fi = 0.0f64;
+                let mut ci = 0.0f64;
+                let mut saw = false;
+                if build_out && let Some(succs) = self.inner.successors_indices(idx) {
+                    for &j in succs {
+                        let x = match self
+                            .inner
+                            .edge_attrs_by_indices(idx, j)
+                            .map(|a| a.get(weight))
+                        {
+                            Some(Some(CgseValue::Float(v))) => *v,
+                            _ => {
+                                all_float = false;
+                                break 'fnodes;
+                            }
+                        };
+                        saw = true;
+                        let t = fo + x;
+                        if fo.abs() >= x.abs() {
+                            co += (fo - t) + x;
+                        } else {
+                            co += (x - t) + fo;
+                        }
+                        fo = t;
+                    }
+                }
+                if build_in && let Some(preds) = self.inner.predecessors_indices(idx) {
+                    for &j in preds {
+                        let x = match self
+                            .inner
+                            .edge_attrs_by_indices(j, idx)
+                            .map(|a| a.get(weight))
+                        {
+                            Some(Some(CgseValue::Float(v))) => *v,
+                            _ => {
+                                all_float = false;
+                                break 'fnodes;
+                            }
+                        };
+                        saw = true;
+                        let t = fi + x;
+                        if fi.abs() >= x.abs() {
+                            ci += (fi - t) + x;
+                        } else {
+                            ci += (x - t) + fi;
+                        }
+                        fi = t;
+                    }
+                }
+                let value_obj = if !saw {
+                    0i64.into_py_any(py)?
+                } else {
+                    let deg = match kind {
+                        DegreeKind::Total => (fo + co) + (fi + ci),
+                        DegreeKind::Out => fo + co,
+                        DegreeKind::In => fi + ci,
+                    };
+                    pyo3::types::PyFloat::new(py, deg).into_any().unbind()
+                };
+                float_pairs.push((node.clone().unbind(), value_obj));
+            }
+            if all_float {
+                return Ok(float_pairs);
+            }
+        }
+
         let one = 1i64.into_pyobject(py)?.into_any();
         let sum_fn = py.import("builtins")?.getattr("sum")?;
         let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(items.len());
