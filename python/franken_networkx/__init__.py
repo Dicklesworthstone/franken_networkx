@@ -51398,6 +51398,16 @@ def non_edges(graph):
 def common_neighbors(G, u, v):
     """Returns the common neighbors of two nodes in a graph."""
     if type(G) is Graph and not _has_networkx_private_storage(G):
+        # br-r37-c1-comnbr (bt): native integer-adjacency-row intersection — no
+        # per-neighbour attr-dict materialisation, no Python-level `in G` round-trips,
+        # one FFI call. Raises NetworkXError (u-before-v) for missing nodes; returns
+        # None only for a hash-mixed-key graph (adj_py_keys), which keeps the row-dict
+        # path below (z6uka row-display objects).
+        _native = getattr(G, "_native_common_neighbors", None)
+        if _native is not None:
+            _common = _native(u, v)
+            if _common is not None:
+                return _common
         if u not in G:
             raise NetworkXError("u is not in the graph.")
         if v not in G:

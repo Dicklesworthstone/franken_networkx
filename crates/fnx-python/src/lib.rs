@@ -11464,6 +11464,53 @@ impl PyGraph {
         }
     }
 
+    /// br-r37-c1-comnbr (bt): native `common_neighbors(u, v)` for a simple Graph.
+    /// The Python fast path built TWO full `_native_adjacency_row_dict` attr dicts
+    /// (materialising every neighbour's attr map) just to intersect their KEYS, plus
+    /// two Python-level `u in G`/`v in G` membership checks (each a `node_key_to_string`
+    /// + `has_node` PyO3 round-trip) — ~0.76x nx. This intersects the two integer
+    /// adjacency index rows directly in Rust (probe the smaller into a set, walk the
+    /// larger), excluding `u`/`v`, and materialises ONLY the common neighbours' node
+    /// objects — no attr dicts, one FFI call. Returns `None` (-> the Python path) when
+    /// `adj_py_keys` is non-empty (hash-mixed keys need the z6uka row-display object,
+    /// which `py_node_key` does not carry). Missing `u`/`v` raise the exact nx
+    /// `NetworkXError` in u-before-v order. Result is a set == nx's `set(G[u]) & set(G[v]) - {u, v}`.
+    fn _native_common_neighbors(
+        &self,
+        py: Python<'_>,
+        u: &Bound<'_, PyAny>,
+        v: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<Py<pyo3::types::PySet>>> {
+        if !self.adj_py_keys.is_empty() {
+            return Ok(None);
+        }
+        let u_canon = node_key_to_string(py, u)?;
+        let Some(ui) = self.inner.get_node_index(&u_canon) else {
+            return Err(NetworkXError::new_err("u is not in the graph."));
+        };
+        let v_canon = node_key_to_string(py, v)?;
+        let Some(vi) = self.inner.get_node_index(&v_canon) else {
+            return Err(NetworkXError::new_err("v is not in the graph."));
+        };
+        let u_nbrs = self.inner.neighbors_indices(ui).unwrap_or(&[]);
+        let v_nbrs = self.inner.neighbors_indices(vi).unwrap_or(&[]);
+        let (small, large) = if u_nbrs.len() <= v_nbrs.len() {
+            (u_nbrs, v_nbrs)
+        } else {
+            (v_nbrs, u_nbrs)
+        };
+        let small_set: std::collections::HashSet<usize> = small.iter().copied().collect();
+        let result = pyo3::types::PySet::empty(py)?;
+        for &j in large {
+            if j != ui && j != vi && small_set.contains(&j) {
+                if let Some(name) = self.inner.get_node_name(j) {
+                    result.add(self.py_node_key(py, name))?;
+                }
+            }
+        }
+        Ok(Some(result.unbind()))
+    }
+
     /// br-r37-c1-snabulk: bulk set_node_attributes(values, name) — one
     /// Rust loop over the values dict instead of the Python wrapper's
     /// per-node has_node + G.nodes[n] materialization + setitem (3 PyO3
