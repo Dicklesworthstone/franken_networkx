@@ -2,6 +2,57 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-15 BlackThrush KEEP: reuse expected-graph snapshot — 1.4190x (`br-r37-c1-9p40e`)
+
+**NEGATIVE-LEDGER / PROFILE FIRST.** `bv --robot-triage`, the live bead state,
+recent commits, and both performance ledgers were read before choosing work. The
+remaining narrow perf beads were owned, stale-already-landed, or in recently mined
+algorithm/runtime/readwrite veins, so this loop pivoted to the fresh
+`fnx-conformance` subsystem. A pre-edit source-operation profile found that 115 of
+130 bootstrap fixtures request expected-graph validation and `run_fixture` built a
+complete `GraphSnapshot` independently for `compare_nodes` and `compare_edges`.
+Each snapshot clones ordered nodes, non-empty node attributes, and ordered edges,
+making the second O(V+E) clone pure duplicate work.
+
+**ONE LEVER / EXACT PARITY.** Build exactly one immutable snapshot inside the
+existing expected-graph branch and borrow it for both unchanged comparators. The
+fixture schema, graph construction, node/edge ordering, comparison logic, mismatch
+ordering and text, and fixtures without graph expectations remain unchanged. A
+same-binary probe freezes the former two-snapshot path and asserts its complete
+mismatch vector equals the one-snapshot candidate before timing.
+
+**STRICT-REMOTE FOREGROUND RELEASE GATE.** The release target was cold, so an
+untimed no-run warm-up ran first without a timeout wrapper. Two initial workers
+kept invalidating the release cache; as required, those build attempts were stopped
+and never classified as rejects. Pinning the remote Cargo home on effective worker
+`vmi1153651` retained the warmed target. The decisive foreground invocation used
+`RCH_REQUIRE_REMOTE=1`, self-healing disabled, no local fallback,
+`--profile release`, and `profile.release.lto=false`; only the test executable was
+capped by Cargo's runner. One binary validated a 2,048-node, 16,384-edge attributed
+graph for 15 paired alternating-order rounds:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+| --- | ---: | ---: | ---: | ---: |
+| two snapshots vs one snapshot | `121,523,439 ns / 85,639,949 ns` | **1.4190x** | **14/15** | exact mismatch vector |
+| one snapshot / same one-snapshot null | `88,910,188 ns / 85,031,288 ns` | 1.0456x | 8/15 | identical arm |
+
+The timed test body completed in 7.39 seconds. Sync, compilation, and artifact
+retrieval were outside every sample; worker/cache behavior is not performance
+evidence.
+
+**VALIDATION.** The strict-remote release-profile conformance library gate passed
+`9/9`, including the complete bootstrap-fixture sweep; the measurement test remains
+ignored by default. Focused rustfmt and `git diff --check` passed. Scoped
+strict-remote Clippy reached an unrelated pre-existing
+`fnx-classes/src/lib.rs:1700` `collapsible_if` denial before checking this crate, so
+that peer-owned file remains untouched and unstaged. Targeted UBS found zero
+critical issues; its warnings were existing file-wide test panic, direct-index,
+clone, allocation, and parser inventories.
+
+**RESULT: SHIP.** Keep the single expected-graph snapshot. It removes one complete
+graph clone from the common expected-graph validation path while preserving exact
+conformance-report semantics.
+
 ## 2026-07-15 BlackThrush KEEP: `attr_escape` single-pass encoding — 3.5159x (`br-r37-c1-onrgb`)
 
 **NEGATIVE-LEDGER / PROFILE FIRST.** `bv --robot-triage`, the live bead state,
