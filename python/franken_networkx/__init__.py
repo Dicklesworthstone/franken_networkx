@@ -23623,6 +23623,16 @@ def path_weight(G, path, weight):
     if not is_path(G, path):
         raise NetworkXNoPath("path does not exist")
 
+    # br-r37-c1-ykqs0: native single-call summation for simple, clean graphs —
+    # avoids the per-step ``G[node]`` AtlasView/row-keydict build (the profiled
+    # ~0.27x bottleneck). Returns None (fall through to the exact Python loop
+    # below) for multigraphs, mutated/unsynced edge dicts, and missing/
+    # non-numeric weights, so the fallback preserves byte-exact nx semantics.
+    if type(G) in (Graph, DiGraph):
+        native = _fnx.path_weight_rust(G, path, weight)
+        if native is not None:
+            return native
+
     cost = 0
     if G.is_multigraph():
         for node, nbr in _itertools.pairwise(path):

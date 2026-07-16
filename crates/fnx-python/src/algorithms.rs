@@ -24002,6 +24002,125 @@ pub fn path_exists_rust(
     Ok(true)
 }
 
+/// Accumulate `sum(attrs[weight])` over consecutive index pairs, matching
+/// Python's `int`/`float` promotion. `lookup(a, b)` returns the edge's inner
+/// AttrMap by node INDEX; `matches(i)` verifies node value `i` is stored at
+/// index `i` (so the value can be used directly as the index). Returns `None`
+/// (the Python-fallback signal) the instant any pair is off the int fast path
+/// (value != index), an edge is absent, the weight is missing/non-numeric, or
+/// an i64 sum overflows (Python promotes to bignum there).
+fn sum_path_weight_by_indices<'a>(
+    py: Python<'_>,
+    indices: &[usize],
+    weight: &str,
+    lookup: impl Fn(usize, usize) -> Option<&'a AttrMap>,
+    matches: impl Fn(usize) -> bool,
+) -> PyResult<Option<PyObject>> {
+    let mut acc_i: i64 = 0;
+    let mut acc_f: f64 = 0.0;
+    let mut is_float = false;
+    for pair in indices.windows(2) {
+        let (a, b) = (pair[0], pair[1]);
+        if !matches(a) || !matches(b) {
+            return Ok(None);
+        }
+        let Some(attrs) = lookup(a, b) else {
+            return Ok(None);
+        };
+        match attrs.get(weight) {
+            Some(fnx_runtime::CgseValue::Int(v)) => {
+                if is_float {
+                    acc_f += *v as f64;
+                } else {
+                    match acc_i.checked_add(*v) {
+                        Some(sum) => acc_i = sum,
+                        None => return Ok(None), // bignum territory -> Python
+                    }
+                }
+            }
+            Some(fnx_runtime::CgseValue::Float(v)) => {
+                if !is_float {
+                    is_float = true;
+                    acc_f = acc_i as f64;
+                }
+                acc_f += *v;
+            }
+            // Missing weight (KeyError in nx), bool/str/map (needs Python semantics).
+            _ => return Ok(None),
+        }
+    }
+    let result = if is_float {
+        acc_f.into_pyobject(py)?.into_any().unbind()
+    } else {
+        acc_i.into_pyobject(py)?.into_any().unbind()
+    };
+    Ok(Some(result))
+}
+
+/// Native `sum(G[u][v][weight] for u, v in pairwise(path))` for SIMPLE
+/// (non-multi) graphs on the integer node-value fast path (node value == storage
+/// index — the common `range(n)`/generator-built case), whose inner edge attrs
+/// are clean (no pending Python->inner sync). Returns `None` — signalling the
+/// Python wrapper to fall back to the exact `G[u][v][weight]` loop — for every
+/// case not handled byte-identically here: non-integer / non-contiguous node
+/// keys, multigraphs (min over parallel edges), dirty graphs (mutated Python
+/// edge dicts not yet mirrored into `inner`), a missing weight (nx raises
+/// KeyError), non-numeric weight values, and i64 overflow. br-r37-c1-ykqs0:
+/// eliminates the per-step `G[node]` AtlasView/row-keydict build (~len(path)
+/// PyO3 crossings) that made path_weight ~0.27x vs nx, using O(1) FxIndexMap
+/// edge-attr lookups by index with zero String canonicalization.
+#[pyfunction]
+#[pyo3(signature = (g, path, weight))]
+pub fn path_weight_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    path: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<Option<PyObject>> {
+    let gr = extract_graph(g)?;
+    // Cheap gate FIRST, before extracting the path: multigraphs need
+    // min-over-parallel-edges semantics, and a dirty graph has authoritative
+    // (unsynced) Python edge dicts that make `inner` stale — both defer to the
+    // Python fallback. Bailing here avoids building the index Vec on the miss.
+    match &gr {
+        GraphRef::Undirected(pg) if !pg.edges_dirty.load(Ordering::Relaxed) => {
+            let Some(indices) = exact_usize_path_sequence(path) else {
+                return Ok(None);
+            };
+            if indices.len() < 2 {
+                // Empty/singleton path: nx returns int 0 — let Python return it.
+                return Ok(None);
+            }
+            let inner = &pg.inner;
+            sum_path_weight_by_indices(
+                py,
+                &indices,
+                weight,
+                |a, b| inner.edge_attrs_by_indices(a, b),
+                |i| inner.node_index_matches_int(i),
+            )
+        }
+        GraphRef::Directed { dg, .. } if !dg.edges_dirty.load(Ordering::Relaxed) => {
+            let Some(indices) = exact_usize_path_sequence(path) else {
+                return Ok(None);
+            };
+            if indices.len() < 2 {
+                return Ok(None);
+            }
+            let inner = &dg.inner;
+            sum_path_weight_by_indices(
+                py,
+                &indices,
+                weight,
+                |a, b| inner.edge_attrs_by_indices(a, b),
+                |i| inner.node_index_matches_int(i),
+            )
+        }
+        // Dirty simple graph, or any multigraph -> Python fallback.
+        _ => Ok(None),
+    }
+}
+
 #[pyfunction]
 #[pyo3(signature = (g,))]
 pub fn is_path(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
@@ -27567,6 +27686,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(normalized_cut_size, m)?)?;
     // Path validation
     m.add_function(wrap_pyfunction!(path_exists_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(path_weight_rust, m)?)?;
     m.add_function(wrap_pyfunction!(is_simple_path, m)?)?;
     // Matching validators
     m.add_function(wrap_pyfunction!(is_matching, m)?)?;
