@@ -2,6 +2,62 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-16 BlackThrush KEEP: indexed GNR successor redirects — 1.1250x (`br-r37-c1-04z53.9175`)
+
+**NEGATIVE-LEDGER / PROFILE FIRST.** Fresh `bv --robot-triage`, live ownership,
+recent history, and exact searches across both performance ledgers found no
+prior `gnr_graph` numeric-successor experiment. The older directed-generator
+work only removed Python edge-attribute materialization; the Rust redirect
+kernel still converted its random target from `usize` to `String`, hashed it
+through `DiGraph::successors`, allocated a one-entry successor `Vec`, and
+parsed the result back to `usize`. Before the production edit, a strict-remote
+release probe replayed the exact RNG stream for `n=50,000`, `p=1`, seed 42 and
+counted **49,988** such round trips in 49,999 iterations. The untouched full
+generator took 167,891,237 ns on that probe.
+
+**ONE LEVER / EXACT PARITY.** Resolve only the redirect through the graph's
+already-maintained `successors_indices` slice. GNR inserts numeric labels once
+in ascending order, so every label equals its stable node index; every nonzero
+existing node also has exactly one earlier successor. The `randrange` then
+`random` call order, strict `draw < p`, `target != 0` guard, node/edge insertion
+order, policy recording, errors, and warnings are unchanged. A frozen-current
+arm matched the indexed arm and production on complete ordered snapshots,
+revisions, and redirect counts for `n=0/1`, `p=0/0.5/1`, negative and
+greater-than-one probabilities, both infinities, NaN, seeds 0/1, and a seed
+above `u32::MAX`. The existing hard-coded NetworkX-seeded GNR example also
+remained green; no live Python oracle was invoked.
+
+**STRICT-REMOTE FOREGROUND RELEASE A/B.** RCH ran fail-closed with
+`AGENT_NAME=BlackThrush`, self-healing disabled, `--profile release`, and
+`profile.release.lto=false`. Several workers discarded their identical warmed
+release pools between the required uncapped no-run warm-up and launch, so the
+route switched workers instead of waiting. The decisive foreground job built
+and immediately ran one binary on effective worker `vmi1149989`; compilation,
+sync, and retrieval stayed outside every in-process sample, and Cargo's runner
+capped only the test executable. Three untimed arm pairs preceded 15 alternating
+pairs at `n=50,000`, `p=1`, seed 42:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+| --- | ---: | ---: | ---: | ---: |
+| String/hash/allocated-row/parse vs indexed slice | `122,213,584 ns / 108,636,274 ns` | **1.1250x** | **12/15** | exact snapshot + revision + redirects |
+| indexed slice / same indexed-slice null | `100,378,138 ns / 100,216,254 ns` | 1.0016x | 8/15 | identical arm |
+
+The complete timed test body finished in 10.60 seconds. The 12.50% candidate
+movement is 78 times the 0.16% positional-null movement.
+
+**VALIDATION.** Strict-remote non-LTO release tests passed 195/195 default
+`fnx-generators` tests with 28 measurement probes ignored, and strict-remote
+workspace `cargo check --all-targets` passed. Workspace clippy stopped on the
+pre-existing peer-owned `fnx-classes/src/lib.rs:1700` `collapsible_if`; the
+owned `cargo clippy -p fnx-generators --all-targets --no-deps -- -D warnings`
+gate passed. Workspace `cargo fmt --check` likewise reported concurrent format
+drift outside this bead, while direct rustfmt on the owned generator file,
+owned `git diff --check`, and UBS all passed.
+
+**RESULT: KEEP.** GNR redirects now reuse the authoritative integer adjacency
+row instead of recreating and reparsing a String successor row on almost every
+iteration of the decision fixture.
+
 ## 2026-07-16 BlackThrush KEEP: batch plain DiGraph adjacency conversion — 10.8682x (`br-r37-c1-wfi27`)
 
 **NEGATIVE-LEDGER / PROFILE FIRST.** Fresh `bv --robot-triage`, live bead

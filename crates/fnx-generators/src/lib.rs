@@ -5428,15 +5428,13 @@ impl GraphGenerator {
             let _ = graph.add_node(src.clone());
             let mut target = rng.randrange(i);
             let draw = rng.random();
-            if draw < p && target != 0 {
-                // Redirect to the target's successor, matching NetworkX.
-                let target_name = target.to_string();
-                if let Some(successors) = graph.successors(&target_name)
-                    && let Some(succ) = successors.first()
-                    && let Ok(pred_idx) = succ.parse::<usize>()
-                {
-                    target = pred_idx;
-                }
+            if draw < p
+                && target != 0
+                && let Some(&successor) = graph
+                    .successors_indices(target)
+                    .and_then(|successors| successors.first())
+            {
+                target = successor;
             }
             graph
                 .add_edge(src, target.to_string())
@@ -14452,6 +14450,185 @@ mod tests {
             .random_k_out_graph(1, 1, 1.0, false, 1)
             .expect_err("no self-loop branch has no target for n=1");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
+    }
+
+    /// Operation profile for the frozen pre-lever `gnr_graph` redirect path.
+    /// Replaying the same RNG stream counts its String/hash/row/parse round trips.
+    #[test]
+    #[ignore = "operation profile; run with --profile release --ignored --nocapture"]
+    fn gnr_successor_round_trip_profile() {
+        let (n, p, seed) = (50_000usize, 1.0f64, 42u64);
+        let mut rng = super::PythonRandom::new(seed);
+        let mut redirect_round_trips = 0usize;
+        for i in 1..n {
+            let target = rng.randrange(i);
+            let draw = rng.random();
+            redirect_round_trips += usize::from(draw < p && target != 0);
+        }
+
+        assert_eq!(redirect_round_trips, 49_988);
+        println!(
+            "GNR_SUCCESSOR_PROFILE n={n} p={p} redirects={redirect_round_trips} \
+             target_formats={redirect_round_trips} successor_row_allocations={redirect_round_trips} \
+             successor_parses={redirect_round_trips}",
+        );
+    }
+
+    /// Frozen String-row implementation versus the indexed successor slice
+    /// used by production, with exact graph parity and a same-arm null.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn gnr_successor_indices_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let build_frozen = |n: usize, p: f64, seed: u64| {
+            let mut graph = DiGraph::new(CompatibilityMode::Strict);
+            if n == 0 {
+                return (graph, 0usize);
+            }
+            let _ = graph.add_node("0".to_owned());
+            let mut rng = super::PythonRandom::new(seed);
+            let mut redirects = 0usize;
+            for i in 1..n {
+                let src = i.to_string();
+                let _ = graph.add_node(src.clone());
+                let mut target = rng.randrange(i);
+                let draw = rng.random();
+                if draw < p && target != 0 {
+                    redirects += 1;
+                    let target_name = target.to_string();
+                    if let Some(successors) = graph.successors(&target_name)
+                        && let Some(successor) = successors.first()
+                        && let Ok(successor_index) = successor.parse::<usize>()
+                    {
+                        target = successor_index;
+                    }
+                }
+                graph
+                    .add_edge(src, target.to_string())
+                    .expect("frozen GNR edge should insert");
+            }
+            (graph, redirects)
+        };
+
+        let build_indexed = |n: usize, p: f64, seed: u64| {
+            let mut graph = DiGraph::new(CompatibilityMode::Strict);
+            if n == 0 {
+                return (graph, 0usize);
+            }
+            let _ = graph.add_node("0".to_owned());
+            let mut rng = super::PythonRandom::new(seed);
+            let mut redirects = 0usize;
+            for i in 1..n {
+                let src = i.to_string();
+                let _ = graph.add_node(src.clone());
+                let mut target = rng.randrange(i);
+                let draw = rng.random();
+                if draw < p
+                    && target != 0
+                    && let Some(&successor) = graph
+                        .successors_indices(target)
+                        .and_then(|successors| successors.first())
+                {
+                    redirects += 1;
+                    target = successor;
+                }
+                graph
+                    .add_edge(src, target.to_string())
+                    .expect("indexed GNR edge should insert");
+            }
+            (graph, redirects)
+        };
+
+        let parity_cases = [
+            (0usize, 0.5f64, 0u64),
+            (1, 0.5, 1),
+            (6, 0.5, 1),
+            (256, 0.0, 7),
+            (256, 1.0, 7),
+            (256, -1.0, 9),
+            (256, 2.0, 9),
+            (256, f64::NEG_INFINITY, 11),
+            (256, f64::INFINITY, 11),
+            (256, f64::NAN, u64::from(u32::MAX) + 17),
+        ];
+        for (n, p, seed) in parity_cases {
+            let (frozen, frozen_redirects) = build_frozen(n, p, seed);
+            let (indexed, indexed_redirects) = build_indexed(n, p, seed);
+            assert_eq!(indexed.snapshot(), frozen.snapshot());
+            assert_eq!(indexed.revision(), frozen.revision());
+            assert_eq!(indexed_redirects, frozen_redirects);
+
+            let mut generator = GraphGenerator::strict();
+            let report = generator
+                .gnr_graph(n, p, seed)
+                .expect("production GNR parity case should generate");
+            assert_eq!(report.graph.snapshot(), frozen.snapshot());
+            assert_eq!(report.graph.revision(), frozen.revision());
+            assert!(report.warnings.is_empty());
+        }
+
+        let (n, p, seed) = (50_000usize, 1.0f64, 42u64);
+        let (_, redirects) = build_indexed(n, p, seed);
+        let time = |indexed: bool| {
+            let started = Instant::now();
+            let (graph, observed_redirects) = if indexed {
+                build_indexed(n, p, seed)
+            } else {
+                build_frozen(n, p, seed)
+            };
+            black_box(&graph);
+            black_box(observed_redirects);
+            let elapsed = started.elapsed().as_nanos();
+            drop(graph);
+            elapsed
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15usize;
+        let paired = |left_indexed: bool, right_indexed: bool| {
+            let mut left = Vec::with_capacity(rounds);
+            let mut right = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                if round % 2 == 0 {
+                    left.push(time(left_indexed));
+                    right.push(time(right_indexed));
+                } else {
+                    right.push(time(right_indexed));
+                    left.push(time(left_indexed));
+                }
+            }
+            (left, right)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline: &[u128], candidate: &[u128]| {
+            let baseline_median = median(baseline);
+            let candidate_median = median(candidate);
+            let wins = baseline
+                .iter()
+                .zip(candidate)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "GNR_SUCCESSOR_INDICES_AB {name}: baseline_median_ns={baseline_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds} \
+                 redirects={redirects}",
+                baseline_median as f64 / candidate_median as f64,
+            );
+        };
+
+        let (frozen, indexed) = paired(false, true);
+        report("frozen_vs_indexed", &frozen, &indexed);
+        let (indexed_left, indexed_right) = paired(true, true);
+        report("indexed_vs_indexed_null", &indexed_left, &indexed_right);
     }
 
     #[test]
