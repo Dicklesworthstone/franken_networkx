@@ -2,6 +2,52 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-15 BlackThrush KEEP: `EffectTrace::summary` fused scan — 6.0713x (`br-r37-c1-g3ytr`)
+
+**NEGATIVE-LEDGER / PROFILE FIRST.** `bv --robot-triage` and both performance
+ledgers were read before choosing work. The remaining narrow open perf beads were
+owned, stale-already-landed, or in recently exhausted algorithm families, so this
+loop created a fresh runtime-subsystem bead. A pre-edit source-operation profile of
+`EffectTrace::summary` found five full trace traversals: one allocating/hash-counting
+pass whose map was never consumed, three independent `count_kind` passes, and one
+maximum-risk pass. The unused map also paid allocation and hashing costs on every
+summary.
+
+**ONE LEVER / EXACT PARITY.** Fuse the three requested counters and the existing
+ordered `f64::max` fold into one pass over the effects. Effect order, terminal-state
+lookup, total count, selected effect kinds, and floating-point evaluation order are
+unchanged. The same binary freezes the exact former implementation and compares
+every summary field, including `max_risk.to_bits()`, across all seven effect kinds
+before timing. The focused unit test also covers the empty-trace boundary.
+
+**STRICT-REMOTE FOREGROUND RELEASE GATE.** The target was cold, so an untimed
+`cargo bench --profile release` warm-up ran first without a timeout, with
+`profile.release.lto=false`, `--bin cgse_policy_bench`, and `--no-run`. After
+`vmi1152480` failed to retain its release cache across the calibration pair, the
+decisive warm-up and capped foreground measurement were moved to `vmi1149989`, with
+`RCH_REQUIRE_REMOTE=1`, self-healing disabled, and no local fallback. The measured
+body used one binary, 65,536 effects, 16 calls per arm, and 15 paired-interleaved
+rounds; sync, compilation, and artifact retrieval are outside every timed sample:
+
+| arm | median/call | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: | ---: |
+| frozen five-pass / fused one-pass | 844.186 us / 139.046 us | **6.0713x** | **15/15** | 4.1524-7.5472 |
+| fused one-pass / fused one-pass null | 149.208 us / 152.179 us | 1.0017x | 8/15 | 0.3432-1.1708 |
+
+The A/B p5 (`4.1524x`) exceeds the null p95 (`1.1708x`) by a wide margin. RCH
+reported cache misses for both decisive invocations, but both returned normally and
+the harness times only the summary calls; build-cache behavior is not used as
+performance evidence.
+
+**VALIDATION.** Same-binary exact-field/bit parity passed before timing. The focused
+strict-remote release test passed (`1 passed`), and strict-remote release
+`cargo clippy -p fnx-runtime --all-targets --no-deps -- -D warnings` passed. Focused
+rustfmt and `git diff --check` also passed.
+
+**RESULT: SHIP.** Keep the fused summary scan. Public summary contents and
+floating-point bits are unchanged while the redundant hash allocation and four extra
+full traversals are removed.
+
 ## 2026-07-15 HazyOtter KEEP: `edge_disjoint_paths` ordered-index setup — 6.0780x (`br-r37-c1-lqir7`)
 
 **NEGATIVE-LEDGER / ATTRIBUTE FIRST.** `bv --robot-triage` was run first. Its

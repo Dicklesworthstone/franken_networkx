@@ -4831,22 +4831,27 @@ impl EffectTrace {
     /// Convert to a summary for logging.
     #[must_use]
     pub fn summary(&self) -> EffectTraceSummary {
-        let mut by_kind = std::collections::HashMap::new();
+        let mut warnings = 0;
+        let mut failures = 0;
+        let mut coercions = 0;
+        let mut max_risk = 0.0_f64;
         for effect in &self.effects {
-            *by_kind.entry(effect.kind).or_insert(0) += 1;
+            match effect.kind {
+                ParserEffectKind::Warning => warnings += 1,
+                ParserEffectKind::FailClosed => failures += 1,
+                ParserEffectKind::Coercion => coercions += 1,
+                _ => {}
+            }
+            max_risk = f64::max(max_risk, effect.risk_probability);
         }
 
         EffectTraceSummary {
             total_effects: self.effects.len(),
-            warnings: self.count_kind(ParserEffectKind::Warning),
-            failures: self.count_kind(ParserEffectKind::FailClosed),
-            coercions: self.count_kind(ParserEffectKind::Coercion),
+            warnings,
+            failures,
+            coercions,
             is_terminated: self.is_terminated(),
-            max_risk: self
-                .effects
-                .iter()
-                .map(|e| e.risk_probability)
-                .fold(0.0_f64, f64::max),
+            max_risk,
         }
     }
 }
@@ -8850,7 +8855,19 @@ mod tests {
 
     #[test]
     fn effect_trace_summary() {
-        use super::{CompatibilityMode, EffectTrace, ParserEffect};
+        use super::{CompatibilityMode, EffectTrace, EffectTraceSummary, ParserEffect};
+
+        assert_eq!(
+            EffectTrace::new().summary(),
+            EffectTraceSummary {
+                total_effects: 0,
+                warnings: 0,
+                failures: 0,
+                coercions: 0,
+                is_terminated: false,
+                max_risk: 0.0,
+            }
+        );
 
         let mut trace = EffectTrace::new();
         trace.record(ParserEffect::warning("a", "m1", CompatibilityMode::Strict));

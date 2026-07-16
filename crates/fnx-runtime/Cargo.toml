@@ -16,3 +16,10 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 asupersync = { version = "0.3.4", optional = true, default-features = false }
 ftui = { path = "/dp/frankentui/crates/ftui", version = "0.5.0", optional = true, default-features = false }
+
+[[bin]]
+name = "cgse_policy_bench"
+path = "src/bin/cgse_policy_bench.rs"
+test = false
+bench = true
+harness = false
