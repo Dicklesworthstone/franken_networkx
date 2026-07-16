@@ -16920,6 +16920,57 @@ fn lexicographic_product_fast(
     graph_product_fast(py, g, h, 3)
 }
 
+/// Product edge-attr store-read admissibility for a simple UNDIRECTED factor.
+/// The product edge-attr kernels clone each source edge's inner `AttrMap` onto
+/// the product edges, so they need the inner store to be authoritative and
+/// loss-free. That holds when either the Python edge mirror is PRISTINE (empty
+/// `edge_py_attrs`: bulk-built, every attr genuine + store-complete + clean) OR
+/// the graph is CLEAN (no unsynced Python-dict mutations) AND every inner edge
+/// attr value is a faithful scalar (`Int`/`Float`/`Bool`). A `String`/`Map`
+/// value on a non-pristine graph is AMBIGUOUS — the py->inner boundary coerces
+/// `None`/list/dict/objects to their repr/JSON `String`, indistinguishable from
+/// a genuine `str` — so it defers to the Python batch. br-r37-c1-w868y sibling:
+/// admits the common per-edge-built / small-bulk numeric-weight graphs the
+/// pristine-only gate wrongly rejected (0.32x -> native).
+fn product_factor_store_readable_undirected(pg: &PyGraph) -> bool {
+    if pg.edge_py_attrs.is_empty() {
+        return true;
+    }
+    if pg.edges_dirty.load(Ordering::Relaxed) {
+        return false;
+    }
+    pg.inner.edges_ordered_borrowed().iter().all(|(_, _, attrs)| {
+        attrs.values().all(|v| {
+            matches!(
+                v,
+                fnx_runtime::CgseValue::Int(_)
+                    | fnx_runtime::CgseValue::Float(_)
+                    | fnx_runtime::CgseValue::Bool(_)
+            )
+        })
+    })
+}
+
+/// Directed sibling of `product_factor_store_readable_undirected`.
+fn product_factor_store_readable_directed(dg: &PyDiGraph) -> bool {
+    if dg.edge_py_attrs.is_empty() {
+        return true;
+    }
+    if dg.edges_dirty.load(Ordering::Relaxed) {
+        return false;
+    }
+    dg.inner.edges_ordered_borrowed().iter().all(|(_, _, attrs)| {
+        attrs.values().all(|v| {
+            matches!(
+                v,
+                fnx_runtime::CgseValue::Int(_)
+                    | fnx_runtime::CgseValue::Float(_)
+                    | fnx_runtime::CgseValue::Bool(_)
+            )
+        })
+    })
+}
+
 /// br-r37-c1-prodedgeattr (cc): native cartesian product carrying SCALAR edge
 /// attrs. Gated to simple undirected Graph x Graph with PRISTINE edge mirrors
 /// (`edge_py_attrs` empty) — which GUARANTEES every edge attribute lives in the
@@ -16944,7 +16995,9 @@ fn cartesian_product_edge_attrs_fast(
         (GraphRef::Undirected(pg1), GraphRef::Undirected(pg2)) => {
             // Pristine edge mirror => every edge attr is scalar (store-only). A single
             // non-scalar (list/dict/tuple) attr would leave a mirror entry -> bail.
-            if !pg1.edge_py_attrs.is_empty() || !pg2.edge_py_attrs.is_empty() {
+            if !product_factor_store_readable_undirected(pg1)
+                || !product_factor_store_readable_undirected(pg2)
+            {
                 return Ok(None);
             }
             let g1 = &pg1.inner;
@@ -17010,7 +17063,9 @@ fn cartesian_product_edge_attrs_fast(
             Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
         }
         (GraphRef::Directed { dg: dg1, .. }, GraphRef::Directed { dg: dg2, .. }) => {
-            if !dg1.edge_py_attrs.is_empty() || !dg2.edge_py_attrs.is_empty() {
+            if !product_factor_store_readable_directed(dg1)
+                || !product_factor_store_readable_directed(dg2)
+            {
                 return Ok(None);
             }
             let d1 = &dg1.inner;
@@ -17090,7 +17145,9 @@ fn lexicographic_product_edge_attrs_fast(
     let gr2 = extract_graph(h)?;
     match (&gr1, &gr2) {
         (GraphRef::Undirected(pg1), GraphRef::Undirected(pg2)) => {
-            if !pg1.edge_py_attrs.is_empty() || !pg2.edge_py_attrs.is_empty() {
+            if !product_factor_store_readable_undirected(pg1)
+                || !product_factor_store_readable_undirected(pg2)
+            {
                 return Ok(None);
             }
             let g1 = &pg1.inner;
@@ -17160,7 +17217,9 @@ fn lexicographic_product_edge_attrs_fast(
             // DIRECTED lexicographic — single-source store-clone, mirroring the
             // undirected branch + the cartesian directed branch. (u1,v1)->(u2,v2)
             // iff (u1,u2) in G (all v1,v2) OR u1==u2 and (v1,v2) in H.
-            if !dg1.edge_py_attrs.is_empty() || !dg2.edge_py_attrs.is_empty() {
+            if !product_factor_store_readable_directed(dg1)
+                || !product_factor_store_readable_directed(dg2)
+            {
                 return Ok(None);
             }
             let d1 = &dg1.inner;
@@ -17246,7 +17305,9 @@ fn tensor_product_edge_attrs_fast(
     // (no undirected second diagonal). PyDiGraph keys edge_py_attrs by (source,
     // target) directed. Same reuse-structure-then-attach-by-index recipe.
     if let (GraphRef::Directed { dg: dg1, .. }, GraphRef::Directed { dg: dg2, .. }) = (&gr1, &gr2) {
-        if !dg1.edge_py_attrs.is_empty() || !dg2.edge_py_attrs.is_empty() {
+        if !product_factor_store_readable_directed(dg1)
+            || !product_factor_store_readable_directed(dg2)
+        {
             return Ok(None);
         }
         let d1 = &dg1.inner;
@@ -17332,7 +17393,9 @@ fn tensor_product_edge_attrs_fast(
         (GraphRef::Undirected(a), GraphRef::Undirected(b)) => (a, b),
         _ => return Ok(None),
     };
-    if !pg1.edge_py_attrs.is_empty() || !pg2.edge_py_attrs.is_empty() {
+    if !product_factor_store_readable_undirected(pg1)
+        || !product_factor_store_readable_undirected(pg2)
+    {
         return Ok(None);
     }
     let g1 = &pg1.inner;
@@ -17450,7 +17513,9 @@ fn strong_product_edge_attrs_fast(
     // DIRECTED strong (cartesian ∪ tensor): three passes (nx skips the undirected
     // tensor pass 4 for directed). PyDiGraph keys edge_py_attrs by (source, target).
     if let (GraphRef::Directed { dg: dg1, .. }, GraphRef::Directed { dg: dg2, .. }) = (&gr1, &gr2) {
-        if !dg1.edge_py_attrs.is_empty() || !dg2.edge_py_attrs.is_empty() {
+        if !product_factor_store_readable_directed(dg1)
+            || !product_factor_store_readable_directed(dg2)
+        {
             return Ok(None);
         }
         let d1 = &dg1.inner;
@@ -17566,7 +17631,9 @@ fn strong_product_edge_attrs_fast(
         (GraphRef::Undirected(a), GraphRef::Undirected(b)) => (a, b),
         _ => return Ok(None),
     };
-    if !pg1.edge_py_attrs.is_empty() || !pg2.edge_py_attrs.is_empty() {
+    if !product_factor_store_readable_undirected(pg1)
+        || !product_factor_store_readable_undirected(pg2)
+    {
         return Ok(None);
     }
     let g1 = &pg1.inner;
