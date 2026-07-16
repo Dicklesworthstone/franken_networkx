@@ -4997,14 +4997,26 @@ impl GraphLike for DiGraph {
 }
 
 fn attr_escape(s: &str) -> String {
-    s.replace('%', "%25")
-        .replace('#', "%23")
-        .replace('=', "%3D")
-        .replace(';', "%3B")
-        .replace(' ', "%20")
-        .replace('\t', "%09")
-        .replace('\n', "%0A")
-        .replace('\r', "%0D")
+    let mut escaped = String::with_capacity(s.len());
+    let mut literal_start = 0usize;
+    for (index, byte) in s.bytes().enumerate() {
+        let replacement = match byte {
+            b'%' => "%25",
+            b'#' => "%23",
+            b'=' => "%3D",
+            b';' => "%3B",
+            b' ' => "%20",
+            b'\t' => "%09",
+            b'\n' => "%0A",
+            b'\r' => "%0D",
+            _ => continue,
+        };
+        escaped.push_str(&s[literal_start..index]);
+        escaped.push_str(replacement);
+        literal_start = index + 1;
+    }
+    escaped.push_str(&s[literal_start..]);
+    escaped
 }
 
 fn attr_unescape(s: &str) -> String {
@@ -5753,6 +5765,34 @@ mod tests {
     use proptest::prelude::*;
     use std::collections::BTreeMap;
 
+    fn attr_escape_frozen(s: &str) -> String {
+        s.replace('%', "%25")
+            .replace('#', "%23")
+            .replace('=', "%3D")
+            .replace(';', "%3B")
+            .replace(' ', "%20")
+            .replace('\t', "%09")
+            .replace('\n', "%0A")
+            .replace('\r', "%0D")
+    }
+
+    fn encode_attrs_frozen(attrs: &BTreeMap<String, CgseValue>) -> String {
+        if attrs.is_empty() {
+            return "-".to_owned();
+        }
+        attrs
+            .iter()
+            .map(|(key, value)| {
+                format!(
+                    "{}={}",
+                    attr_escape_frozen(key),
+                    attr_escape_frozen(&value.as_str())
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(";")
+    }
+
     fn packet_006_forensics_bundle(
         run_id: &str,
         test_id: &str,
@@ -5907,6 +5947,127 @@ mod tests {
             attrs.get("hash"),
             Some(&CgseValue::String("tag#a".to_owned()))
         );
+    }
+
+    #[test]
+    fn attr_escape_single_scan_preserves_exact_encoding() {
+        let exhaustive_ascii = String::from_utf8((0u8..=127).collect())
+            .expect("the exhaustive ASCII fixture is valid UTF-8");
+        for input in [
+            "",
+            "plain",
+            "%20",
+            "%2520",
+            "#=; \t\n\r",
+            "café-東京-🦀",
+            exhaustive_ascii.as_str(),
+        ] {
+            assert_eq!(
+                super::attr_escape(input),
+                attr_escape_frozen(input),
+                "escaping drifted for {input:?}"
+            );
+        }
+        assert_eq!(super::attr_escape("%20"), "%2520");
+
+        let attrs = BTreeMap::from([
+            (
+                "z key%=#;".to_owned(),
+                CgseValue::String("line 1\tline 2\nend\r".to_owned()),
+            ),
+            (
+                "unicode-é".to_owned(),
+                CgseValue::String("東京-🦀-%20".to_owned()),
+            ),
+        ]);
+        assert_eq!(super::encode_attrs(&attrs), encode_attrs_frozen(&attrs));
+    }
+
+    /// Same-binary paired A/B for edge-list attribute encoding. The frozen
+    /// arm retains the former eight-replacement escape chain, while the
+    /// candidate scans each key and value once into one output buffer.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn attr_escape_single_scan_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let attrs = (0..4_096usize)
+            .map(|index| {
+                (
+                    format!("key-{index:05} % # = ; spaces\tline\ncarriage\r unicode-é"),
+                    CgseValue::String(format!(
+                        "value-{index:05} % # = ; spaces\tline\ncarriage\r unicode-東京-🦀"
+                    )),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        assert_eq!(
+            super::encode_attrs(&attrs),
+            encode_attrs_frozen(&attrs),
+            "complete encoded attribute bytes drifted"
+        );
+
+        let time = |candidate: bool| {
+            let started = Instant::now();
+            let output = if candidate {
+                super::encode_attrs(&attrs)
+            } else {
+                encode_attrs_frozen(&attrs)
+            };
+            black_box(output);
+            started.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15usize;
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let baseline_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "ATTR_ESCAPE_SINGLE_SCAN_AB {name}: attrs={} baseline_median_ns={baseline_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds} \
+                 exact_bytes=true",
+                attrs.len(),
+                baseline_median as f64 / candidate_median as f64,
+            );
+        };
+
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("replace_chain_vs_single_scan", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("single_scan_vs_single_scan_null", &null_a_ns, &null_b_ns);
     }
 
     #[test]

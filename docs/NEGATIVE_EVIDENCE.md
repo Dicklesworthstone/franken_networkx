@@ -2,6 +2,60 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-15 BlackThrush KEEP: `attr_escape` single-pass encoding — 3.5159x (`br-r37-c1-onrgb`)
+
+**NEGATIVE-LEDGER / PROFILE FIRST.** `bv --robot-triage`, the live bead state,
+recent commits, and both performance ledgers were read before choosing work. The
+surfaced narrow perf beads were assigned, stale-already-landed, or architectural;
+the just-completed runtime vein was also closed, so this loop created a fresh
+`fnx-readwrite` bead. Source attribution found that every edge-attribute key and
+value paid eight chained `str::replace` traversals and intermediate `String`
+allocations in `attr_escape`. Before the production edit, a frozen release-profile
+probe over 4,096 inputs / 253,952 bytes measured the replace chain at `4,918,022 ns`
+versus a one-allocation copy floor at `195,031 ns`, a **25.2166x** overhead ratio.
+
+**ONE LEVER / EXACT PARITY.** Replace only that eight-pass chain with one byte scan
+that copies literal UTF-8 spans into one `String` and emits the same eight uppercase
+percent codes. Every matched byte is ASCII and therefore a valid UTF-8 boundary.
+Percent signs are consumed once, so `%20` still becomes `%2520` rather than being
+recursively escaped. Attribute ordering, value conversion, separators, empty-map
+encoding, unescaping, graph traversal, and the rest of the writer remain unchanged.
+
+**STRICT-REMOTE FOREGROUND RELEASE GATE.** The target was cold, so an untimed
+`--profile release` no-run warm-up with `profile.release.lto=false` ran first and had
+no timeout wrapper. After `vmi1227854` discarded its warmed release target twice,
+the decisive warm-up and capped foreground measurement moved to effective worker
+`vmi1152480`, with `RCH_REQUIRE_REMOTE=1`, self-healing disabled, and no local
+fallback. One binary encoded the same escape-heavy 4,096-entry `BTreeMap` through a
+frozen full `encode_attrs` implementation and the candidate for 15 paired,
+alternating-order rounds; sync, compilation, and artifact retrieval are outside all
+timed samples:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+| --- | ---: | ---: | ---: | ---: |
+| eight-replace chain vs one scan | `10,836,076 ns / 3,082,005 ns` | **3.5159x** | **15/15** | exact bytes |
+| one scan / same one-scan path null | `2,862,188 ns / 2,816,129 ns` | 1.0164x | 10/15 | identical arm |
+
+The result remains about **3.4592x** after conservatively dividing by the full
+1.64% null-position skew. The timed test body completed in 0.37 seconds. RCH
+reported a cache miss after the worker switch as well, but the foreground job
+returned normally and the benchmark times only the two same-binary encoder arms;
+build-cache behavior is not performance evidence.
+
+**VALIDATION.** The A/B asserts complete encoded-output equality before timing. A
+focused strict-remote release test separately proved the candidate byte-identical to
+the frozen chain for empty/plain strings, `%20` and `%2520`, every ASCII byte,
+all eight escaped characters, and multi-byte Unicode, then compared a complete
+ordered mixed-attribute encoding. It passed `1/1` on `vmi1264463`. Strict-remote
+release `cargo clippy -p fnx-readwrite --all-targets --no-deps -- -D warnings`
+passed on `vmi1149989`; focused rustfmt and `git diff --check` passed locally.
+Targeted UBS reported zero critical findings; its warnings were the existing
+file-wide test panic, direct-index, clone, and allocation inventories.
+
+**RESULT: SHIP.** Keep the single-pass escape encoder. Exact wire bytes and
+round-trip semantics are unchanged while seven redundant full traversals and their
+intermediate allocations are removed from every encoded attribute key and value.
+
 ## 2026-07-15 BlackThrush KEEP: `EffectTrace::summary` fused scan — 6.0713x (`br-r37-c1-g3ytr`)
 
 **NEGATIVE-LEDGER / PROFILE FIRST.** `bv --robot-triage` and both performance
