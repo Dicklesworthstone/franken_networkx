@@ -17447,6 +17447,121 @@ fn strong_product_edge_attrs_fast(
 ) -> PyResult<Option<PyObject>> {
     let gr1 = extract_graph(g)?;
     let gr2 = extract_graph(h)?;
+    // DIRECTED strong (cartesian ∪ tensor): three passes (nx skips the undirected
+    // tensor pass 4 for directed). PyDiGraph keys edge_py_attrs by (source, target).
+    if let (GraphRef::Directed { dg: dg1, .. }, GraphRef::Directed { dg: dg2, .. }) = (&gr1, &gr2) {
+        if !dg1.edge_py_attrs.is_empty() || !dg2.edge_py_attrs.is_empty() {
+            return Ok(None);
+        }
+        let d1 = &dg1.inner;
+        let d2 = &dg2.inner;
+        let mut keyset: HashSet<&str> = HashSet::new();
+        for gu in 0..d1.node_count() {
+            for &gv in d1.successors_indices(gu).unwrap_or(&[]) {
+                if let Some(a) = d1.edge_attrs_by_indices(gu, gv) {
+                    for k in a.keys() {
+                        keyset.insert(k.as_str());
+                    }
+                }
+            }
+        }
+        for hu in 0..d2.node_count() {
+            for &hv in d2.successors_indices(hu).unwrap_or(&[]) {
+                if let Some(a) = d2.edge_attrs_by_indices(hu, hv) {
+                    for k in a.keys() {
+                        keyset.insert(k.as_str());
+                    }
+                }
+            }
+        }
+        if keyset.len() > 1 {
+            return Ok(None);
+        }
+        let single_key: Option<String> = keyset.iter().next().map(|s| (*s).to_owned());
+        let structure_obj = match graph_product_fast(py, g, h, 2)? {
+            Some(o) => o,
+            None => return Ok(None),
+        };
+        let g_names: Vec<String> = d1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+        let h_names: Vec<String> = d2.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+        let ng = g_names.len();
+        let nh = h_names.len();
+        let (canon, _node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
+        let make_scalar = |py: Python<'_>, attrs: Option<&AttrMap>| -> PyResult<Py<PyDict>> {
+            let dict = PyDict::new(py);
+            if let Some(k) = single_key.as_deref() {
+                if let Some(v) = attrs.and_then(|m| m.get(k)) {
+                    dict.set_item(k, crate::cgse_value_to_py(py, v)?)?;
+                }
+            }
+            Ok(dict.unbind())
+        };
+        let make_paired =
+            |py: Python<'_>, ga: Option<&AttrMap>, ha: Option<&AttrMap>| -> PyResult<Py<PyDict>> {
+                let dict = PyDict::new(py);
+                if let Some(k) = single_key.as_deref() {
+                    let gv = ga.and_then(|m| m.get(k));
+                    let hv = ha.and_then(|m| m.get(k));
+                    if gv.is_some() || hv.is_some() {
+                        let gpy = match gv {
+                            Some(v) => crate::cgse_value_to_py(py, v)?,
+                            None => py.None(),
+                        };
+                        let hpy = match hv {
+                            Some(v) => crate::cgse_value_to_py(py, v)?,
+                            None => py.None(),
+                        };
+                        dict.set_item(k, PyTuple::new(py, [gpy, hpy])?)?;
+                    }
+                }
+                Ok(dict.unbind())
+            };
+        {
+            let bound = structure_obj.bind(py);
+            let cell = bound.downcast::<PyDiGraph>().map_err(|_| {
+                pyo3::exceptions::PyTypeError::new_err("strong structure is not a DiGraph")
+            })?;
+            let mut structure = cell.borrow_mut();
+            // Pass 1: cartesian H-layer (same G-node × directed H-edge) -> H-edge attrs.
+            for gi in 0..ng {
+                for hu in 0..nh {
+                    for &hv in d2.successors_indices(hu).unwrap_or(&[]) {
+                        let ha = d2.edge_attrs_by_indices(hu, hv);
+                        let key = PyDiGraph::edge_key(&canon[gi * nh + hu], &canon[gi * nh + hv]);
+                        structure.edge_py_attrs.insert(key, make_scalar(py, ha)?);
+                    }
+                }
+            }
+            // Pass 2: cartesian G-layer (directed G-edge × same H-node) -> G-edge attrs.
+            for gu in 0..ng {
+                for &gv in d1.successors_indices(gu).unwrap_or(&[]) {
+                    let ga = d1.edge_attrs_by_indices(gu, gv);
+                    for hi in 0..nh {
+                        let key = PyDiGraph::edge_key(&canon[gu * nh + hi], &canon[gv * nh + hi]);
+                        structure.edge_py_attrs.insert(key, make_scalar(py, ga)?);
+                    }
+                }
+            }
+            // Pass 3: tensor directed cross (single diagonal) -> paired tuple.
+            for gu in 0..ng {
+                for &gv in d1.successors_indices(gu).unwrap_or(&[]) {
+                    let ga = d1.edge_attrs_by_indices(gu, gv);
+                    for hu in 0..nh {
+                        for &hv in d2.successors_indices(hu).unwrap_or(&[]) {
+                            let ha = d2.edge_attrs_by_indices(hu, hv);
+                            let key =
+                                PyDiGraph::edge_key(&canon[gu * nh + hu], &canon[gv * nh + hv]);
+                            structure
+                                .edge_py_attrs
+                                .insert(key, make_paired(py, ga, ha)?);
+                        }
+                    }
+                }
+            }
+            structure.mark_edges_dirty();
+        }
+        return Ok(Some(structure_obj));
+    }
     let (pg1, pg2) = match (&gr1, &gr2) {
         (GraphRef::Undirected(a), GraphRef::Undirected(b)) => (a, b),
         _ => return Ok(None),
