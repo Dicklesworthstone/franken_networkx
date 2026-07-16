@@ -5532,6 +5532,18 @@ class _WeightAwareDegreeView:
                         _vals = _iv(weight)
                         if _vals is not None:
                             return iter(zip(self._graph, _vals))
+                    # br-r37-c1-wdegfval (bt): FLOAT weights get the same values-only
+                    # store accumulator (Neumaier-compensated in Rust, bit-identical to
+                    # builtins.sum), skipping the whole to_dict_of_dicts snapshot below.
+                    # Returns None on a dirty store / non-float / missing weight, which
+                    # keeps int/mixed/mutated graphs on the byte-identical gen path.
+                    _fv = getattr(
+                        self._graph, "_native_weighted_degree_float_values", None
+                    )
+                    if _fv is not None:
+                        _vals = _fv(weight)
+                        if _vals is not None:
+                            return iter(zip(self._graph, _vals))
                     dod = to_dict_of_dicts(self._graph)
 
                     def _weighted_degree_gen():

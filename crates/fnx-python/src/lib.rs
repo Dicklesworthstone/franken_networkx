@@ -13030,6 +13030,76 @@ impl PyGraph {
         Ok(Some(out))
     }
 
+    /// br-r37-c1-wdegfval (bt): FLOAT sibling of `_native_weighted_degree_int_values`.
+    /// Values-only total weighted degree in node-index order, summed straight from
+    /// the CgseValue store with CPython's Neumaier (Kahan-Babuska) compensation so
+    /// each per-node total is BIT-IDENTICAL to `builtins.sum` (the to_dict_of_dicts
+    /// gen path) — with NO per-edge PyObject, PyList, or `to_dict_of_dicts` snapshot,
+    /// which is all of float `degree(weight)`/`size(weight)`'s cost (~0.87x nx). An
+    /// undirected self-loop appears ONCE in `neighbors_indices` but nx counts its
+    /// weight TWICE, so it is added a second time OUTSIDE the compensated sum (matching
+    /// the gen's `total = sum(...) + selfloop.get(weight, 1)`). The compensation is the
+    /// undirected/simple twin of `PyMultiGraph::weighted_degree_float_node_store`.
+    /// Gated on `!edges_dirty` (store authoritative); returns None (-> the exact
+    /// to_dict_of_dicts gen) on a dirty store, any non-float weight, or ANY missing
+    /// weight (nx's default int 1 would mix an int into the float sum), so
+    /// int/heterogeneous/mutated graphs stay byte-identical. An edgeless node yields
+    /// nx's int `0` (NOT float `0.0`), matching `sum(())`.
+    fn _native_weighted_degree_float_values(
+        &self,
+        py: Python<'_>,
+        weight: &str,
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        if self.edges_dirty.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        let n = self.inner.node_count();
+        let mut out: Vec<PyObject> = Vec::with_capacity(n);
+        for i in 0..n {
+            let mut f = 0.0f64;
+            let mut c = 0.0f64;
+            let mut selfloop_w: Option<f64> = None;
+            let mut saw = false;
+            if let Some(nbrs) = self.inner.neighbors_indices(i) {
+                for &j in nbrs {
+                    let Some(attrs) = self.inner.edge_attrs_by_indices(i, j) else {
+                        return Ok(None);
+                    };
+                    let x = match attrs.get(weight) {
+                        Some(CgseValue::Float(v)) => *v,
+                        // Any non-float value OR a missing weight (nx default int 1)
+                        // would break the pure-float sum -> fall to the exact gen.
+                        _ => return Ok(None),
+                    };
+                    saw = true;
+                    // Neumaier / Kahan-Babuska compensated add (== CPython float sum).
+                    let t = f + x;
+                    if f.abs() >= x.abs() {
+                        c += (f - t) + x;
+                    } else {
+                        c += (x - t) + f;
+                    }
+                    f = t;
+                    if i == j {
+                        selfloop_w = Some(x);
+                    }
+                }
+            }
+            if !saw {
+                // Isolated node: nx `sum(())` is int 0, not float 0.0.
+                out.push(0i64.into_pyobject(py)?.into_any().unbind());
+                continue;
+            }
+            let mut total = f + c;
+            if let Some(w) = selfloop_w {
+                // nx's undirected DegreeView counts a self-loop's weight twice.
+                total += w;
+            }
+            out.push(pyo3::types::PyFloat::new(py, total).into_any().unbind());
+        }
+        Ok(Some(out))
+    }
+
     /// br-r37-c1-yo1nt: native weighted degree, returning the full
     /// ``(node, total)`` sequence in node order. The Python
     /// `_WeightAwareDegreeView` weighted path builds ``dict(G.adj[node])``
