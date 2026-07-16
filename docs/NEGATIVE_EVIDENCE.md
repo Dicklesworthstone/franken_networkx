@@ -2,6 +2,49 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-16 BlackThrush NO-SHIP: versioned-ledger linear merge is below its null (`br-r37-c1-gx0fd`)
+
+**NEGATIVE-LEDGER / PROFILE FIRST.** A fresh `bv --robot-triage`, live bead
+scan, recent history, and both performance ledgers found no admissible unowned
+narrow perf bead: the `neighbors().len()` and native-path trackers are stale or
+explicitly mined out, the residual MultiGraph integer-adjacency work has a real
+0.7152x reject, and weighted-degree work is peer-active. This loop therefore
+pivoted to the previously unmeasured `VersionedDecisionLedger::merge` seam. The
+pre-edit source profile found that merging two valid timestamp-ordered ledgers
+cloned the right records, concatenated both sorted runs, and invoked stable sort
+over all `N+M` records.
+
+**ONE LEVER / EXACT PARITY.** The candidate checked both timestamp sequences,
+then moved the left records and cloned the right records through a stable linear
+merge, choosing the left record on equal timestamps to match concatenate-then-
+stable-sort exactly. Out-of-order inputs declined mutation-free to the unchanged
+sort recovery path. Empty sides, interleaved timestamps, cross-ledger timestamp
+ties, unsorted fallback, metadata, and every complete record compared exactly to
+the frozen implementation before timing.
+
+**STRICT-REMOTE FOREGROUND RELEASE GATE.** The target was cold, so an untimed
+no-run warm-up completed first without a timeout wrapper on effective worker
+`vmi1167313` (job `j-29933307944763879`). The decisive same-binary invocation
+used `RCH_REQUIRE_REMOTE=1`, self-healing disabled, no local fallback,
+`--profile release`, and `profile.release.lto=false`; only the test executable was
+capped through Cargo's runner. Fifteen alternating-order paired rounds merging
+two 32,768-record ledgers produced:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+| --- | ---: | ---: | ---: | ---: |
+| stable sort vs explicit linear merge | `8,917,148 ns / 8,791,553 ns` | 1.0143x | 11/15 | exact full ledger |
+| linear merge / same linear-merge null | `5,898,623 ns / 5,759,182 ns` | **1.0242x** | 9/15 | identical arm |
+
+The timed test body completed in 1.20 seconds (job `j-29933307944763884`).
+Synchronization, compilation, artifact retrieval, and RCH's cache label were
+outside every sample and are not performance evidence.
+
+**RESULT: NO-SHIP.** The candidate's 1.0143x median is smaller than its own
+1.0242x null-position skew and does not clear the noise floor. Rust's stable
+sorter already exploits the two ordered runs, so the proposed asymptotic rewrite
+does not remove enough real work. The entire source and measurement harness were
+removed manually; only this real A/B evidence and the closed bead remain.
+
 ## 2026-07-16 BlackThrush KEEP: batch plain Graph adjacency conversion — 10.0499x (`br-r37-c1-7lyj7`)
 
 **NEGATIVE-LEDGER / PROFILE FIRST.** `bv --robot-triage`, the live bead state,
