@@ -2,6 +2,46 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-16 BlackThrush NO-SHIP: pre-size durability envelope JSON — 0.9985x (`br-r37-c1-04z53.9177`)
+
+**NEGATIVE-LEDGER / PROFILE FIRST.** Fresh `bv --robot-triage`, live ownership,
+recent history, and exact searches across the performance ledgers found no prior
+capacity experiment for `fnx-durability::write_envelope`. The checked-in
+`serde_json::to_string_pretty` path seeds its output vector at 128 bytes. Before
+the production edit, a strict-remote non-LTO release probe serialized a
+4,096-packet envelope to **1,422,049 bytes**, observed **14** vector growths,
+and found **2,096,465 live bytes** at those growth points. Four current
+serializations took a **5,503,738 ns** median, so the experiment targeted a real
+measured allocation-growth phase rather than a guessed serializer cost.
+
+**ONE LEVER / EXACT LARGE-FIXTURE BYTES.** Compute a saturating capacity hint
+from the envelope's already-owned string lengths and entry counts, then call
+`serde_json::to_writer_pretty` into that pre-sized `Vec<u8>`. The candidate's
+**1,471,802-byte** hint eliminated every measured growth, and its complete JSON
+bytes were exactly equal to the frozen `to_string_pretty` output. The temporary
+A/B scaffold and production edit were removed after measurement; the checked-in
+writer, error mapping, temporary-path write, and rename ordering are unchanged.
+
+The final foreground same-binary run used `AGENT_NAME=BlackThrush`,
+`--profile release`, `profile.release.lto=false`, strict remote-only RCH, three
+warm pairs, 15 alternating pairs, four serializations per sample, and a
+candidate/candidate null. Two required uncapped warm-up builds completed first,
+but their remote release pools were immediately reaped. Per the eviction rule,
+the final direct Cargo invocation left compilation uncapped and capped only the
+test executable; RCH routed the requested replacement to effective worker
+`ovh-b`. Build time is outside every in-process sample.
+
+| comparison | baseline / candidate median | ratio | paired wins | proof |
+|---|---:|---:|---:|---|
+| default 128-byte capacity vs envelope hint | `4,694,467 ns / 4,701,406 ns` | **0.9985x** | **8/15** | exact 1,422,049-byte JSON |
+| envelope hint vs itself (null) | `4,706,663 ns / 4,684,410 ns` | `1.0048x` | `10/15` | identical arm |
+
+**RESULT: NO-SHIP.** Eliminating 14 growths is slightly slower and well inside
+the same-binary null floor; the extra pre-scan offsets any allocation benefit.
+Do not retry capacity hints for this serializer shape unless the output builder
+or allocation regime changes. No durability source or benchmark scaffold
+remains.
+
 ## 2026-07-16 BlackThrush KEEP: share cached snapshots across clones — 77,795.5146x (`br-r37-c1-04z53.9176`)
 
 **NEGATIVE-LEDGER / PROFILE FIRST.** Fresh `bv --robot-triage`, live ownership,
