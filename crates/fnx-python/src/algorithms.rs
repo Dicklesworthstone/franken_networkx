@@ -17280,6 +17280,148 @@ fn tensor_product_edge_attrs_fast(
     Ok(Some(structure_obj))
 }
 
+/// br-r37-c1-strongprodattr (bt): edge-attributed STRONG product (cartesian ∪ tensor)
+/// for two simple undirected Graphs with a SINGLE edge-attr key and pristine mirrors.
+/// Same reuse-structure-then-attach-by-index recipe as tensor_product_edge_attrs_fast,
+/// but strong has FOUR edge passes with mixed attr shapes — the two cartesian layers
+/// inherit ONE source edge's attrs (scalar `dict(ga)` / `dict(ha)`), the two tensor
+/// layers get the paired `{k: (g_val, h_val)}` tuple. Inserted in nx's exact pass
+/// order (1 nodes×H-edges, 2 G-edges×nodes, 3 tensor directed, 4 tensor undirected)
+/// so any later write wins as a later nx add_edge would (the layers don't overlap, so
+/// order only matters defensively). All attrs go in `edge_py_attrs` + `edges_dirty`
+/// (the tuple values can't live in the CgseValue store). Gate: undirected simple
+/// Graph×Graph, no self-loops, pristine mirrors, ≤1 distinct edge-attr key. Node
+/// attrs decorated by the Python wrapper.
+#[pyfunction]
+#[pyo3(signature = (g, h))]
+fn strong_product_edge_attrs_fast(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    h: &Bound<'_, PyAny>,
+) -> PyResult<Option<PyObject>> {
+    let gr1 = extract_graph(g)?;
+    let gr2 = extract_graph(h)?;
+    let (pg1, pg2) = match (&gr1, &gr2) {
+        (GraphRef::Undirected(a), GraphRef::Undirected(b)) => (a, b),
+        _ => return Ok(None),
+    };
+    if !pg1.edge_py_attrs.is_empty() || !pg2.edge_py_attrs.is_empty() {
+        return Ok(None);
+    }
+    let g1 = &pg1.inner;
+    let h1 = &pg2.inner;
+    let mut keyset: HashSet<&str> = HashSet::new();
+    for (_, _, a) in g1.edges_ordered_borrowed() {
+        for k in a.keys() {
+            keyset.insert(k.as_str());
+        }
+    }
+    for (_, _, a) in h1.edges_ordered_borrowed() {
+        for k in a.keys() {
+            keyset.insert(k.as_str());
+        }
+    }
+    if keyset.len() > 1 {
+        return Ok(None);
+    }
+    let single_key: Option<String> = keyset.iter().next().map(|s| (*s).to_owned());
+
+    let structure_obj = match graph_product_fast(py, g, h, 2)? {
+        Some(o) => o,
+        None => return Ok(None),
+    };
+
+    let g_names: Vec<String> = g1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+    let h_names: Vec<String> = h1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+    let ng = g_names.len();
+    let nh = h_names.len();
+    let (canon, _node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
+
+    let undirected_edges = |graph: &fnx_classes::Graph, n: usize| -> Vec<(usize, usize)> {
+        let mut es = Vec::new();
+        for u in 0..n {
+            for &v in graph.neighbors_indices(u).unwrap_or(&[]) {
+                if v >= u {
+                    es.push((u, v));
+                }
+            }
+        }
+        es
+    };
+    let g_edges = undirected_edges(g1, ng);
+    let h_edges = undirected_edges(h1, nh);
+
+    // Single-source scalar attrs: `dict(attrs)` for the ≤1 key.
+    let make_scalar = |py: Python<'_>, attrs: Option<&AttrMap>| -> PyResult<Py<PyDict>> {
+        let dict = PyDict::new(py);
+        if let Some(k) = single_key.as_deref() {
+            if let Some(v) = attrs.and_then(|m| m.get(k)) {
+                dict.set_item(k, crate::cgse_value_to_py(py, v)?)?;
+            }
+        }
+        Ok(dict.unbind())
+    };
+    // Paired tuple attrs: `{k: (g_val, h_val)}`.
+    let make_paired =
+        |py: Python<'_>, ga: Option<&AttrMap>, ha: Option<&AttrMap>| -> PyResult<Py<PyDict>> {
+            let dict = PyDict::new(py);
+            if let Some(k) = single_key.as_deref() {
+                let gv = ga.and_then(|m| m.get(k));
+                let hv = ha.and_then(|m| m.get(k));
+                if gv.is_some() || hv.is_some() {
+                    let gpy = match gv {
+                        Some(v) => crate::cgse_value_to_py(py, v)?,
+                        None => py.None(),
+                    };
+                    let hpy = match hv {
+                        Some(v) => crate::cgse_value_to_py(py, v)?,
+                        None => py.None(),
+                    };
+                    let tup = PyTuple::new(py, [gpy, hpy])?;
+                    dict.set_item(k, tup)?;
+                }
+            }
+            Ok(dict.unbind())
+        };
+
+    {
+        let bound = structure_obj.bind(py);
+        let cell = bound.downcast::<crate::PyGraph>().map_err(|_| {
+            pyo3::exceptions::PyTypeError::new_err("strong structure is not a Graph")
+        })?;
+        let mut structure = cell.borrow_mut();
+        // Pass 1: cartesian H-layer (same G-node × H-edge) -> H-edge attrs.
+        for gi in 0..ng {
+            for &(hu, hv) in &h_edges {
+                let ha = h1.edge_attrs_by_indices(hu, hv);
+                let key = crate::PyGraph::edge_key(&canon[gi * nh + hu], &canon[gi * nh + hv]);
+                structure.edge_py_attrs.insert(key, make_scalar(py, ha)?);
+            }
+        }
+        // Pass 2: cartesian G-layer (G-edge × same H-node) -> G-edge attrs.
+        for &(gu, gv) in &g_edges {
+            let ga = g1.edge_attrs_by_indices(gu, gv);
+            for hi in 0..nh {
+                let key = crate::PyGraph::edge_key(&canon[gu * nh + hi], &canon[gv * nh + hi]);
+                structure.edge_py_attrs.insert(key, make_scalar(py, ga)?);
+            }
+        }
+        // Passes 3 & 4: tensor layers (both diagonals) -> paired tuple.
+        for &(gu, gv) in &g_edges {
+            let ga = g1.edge_attrs_by_indices(gu, gv);
+            for &(hu, hv) in &h_edges {
+                let ha = h1.edge_attrs_by_indices(hu, hv);
+                let d1 = crate::PyGraph::edge_key(&canon[gu * nh + hu], &canon[gv * nh + hv]);
+                structure.edge_py_attrs.insert(d1, make_paired(py, ga, ha)?);
+                let d2 = crate::PyGraph::edge_key(&canon[gv * nh + hu], &canon[gu * nh + hv]);
+                structure.edge_py_attrs.insert(d2, make_paired(py, ga, ha)?);
+            }
+        }
+        structure.mark_edges_dirty();
+    }
+    Ok(Some(structure_obj))
+}
+
 /// br-r37-c1-prodmodular: native modular product fast path (undirected only).
 /// Two distinct product nodes (g1,h1),(g2,h2) are adjacent iff g1!=g2, h1!=h2,
 /// and G-adjacency(g1,g2) == H-adjacency(h1,h2) (both edges, or both non-edges).
@@ -27109,6 +27251,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(cartesian_product_edge_attrs_fast, m)?)?;
     m.add_function(wrap_pyfunction!(lexicographic_product_edge_attrs_fast, m)?)?;
     m.add_function(wrap_pyfunction!(tensor_product_edge_attrs_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(strong_product_edge_attrs_fast, m)?)?;
     m.add_function(wrap_pyfunction!(tensor_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(strong_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(lexicographic_product_fast, m)?)?;
