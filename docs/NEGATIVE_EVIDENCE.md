@@ -21,13 +21,16 @@ every summary field, including `max_risk.to_bits()`, across all seven effect kin
 before timing. The focused unit test also covers the empty-trace boundary.
 
 **STRICT-REMOTE FOREGROUND RELEASE GATE.** The target was cold, so an untimed
-`cargo bench --profile release` warm-up ran first without a timeout, with
-`profile.release.lto=false`, `--bin cgse_policy_bench`, and `--no-run`. After
-`vmi1152480` failed to retain its release cache across the calibration pair, the
-decisive warm-up and capped foreground measurement were moved to `vmi1149989`, with
-`RCH_REQUIRE_REMOTE=1`, self-healing disabled, and no local fallback. The measured
-body used one binary, 65,536 effects, 16 calls per arm, and 15 paired-interleaved
-rounds; sync, compilation, and artifact retrieval are outside every timed sample:
+`cargo bench --profile release --bench runtime_perf --no-run` warm-up ran first,
+with `profile.release.lto=false` and no timeout. After `vmi1152480` failed to retain
+its release cache across the calibration pair, the decisive warm-up and capped
+foreground measurement were moved to `vmi1149989`, with `RCH_REQUIRE_REMOTE=1`,
+self-healing disabled, and no local fallback. The measured body used one binary,
+65,536 effects, 16 calls per arm, and 15 paired-interleaved rounds; sync,
+compilation, and artifact retrieval are outside every timed sample. Before commit,
+the same existing source file was registered warning-free as the harness-free
+`cgse_policy_bench` binary, and the final equivalent `cargo bench --profile release`
+target compiled remotely with `--bin cgse_policy_bench` and `--no-run`:
 
 | arm | median/call | paired median | wins | p5-p95 |
 | --- | ---: | ---: | ---: | ---: |
