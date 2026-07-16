@@ -2,6 +2,59 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-16 BlackThrush KEEP: share cached snapshots across clones — 77,795.5146x (`br-r37-c1-04z53.9176`)
+
+**NEGATIVE-LEDGER / PROFILE FIRST.** Fresh `bv --robot-triage`, live ownership,
+recent history, and exact searches across both performance ledgers found no prior
+`CachedSnapshotView` clone experiment. The first selected conformance seam was
+abandoned before any production edit when two strict-remote workers repeatedly
+discarded their warmed release targets; those canceled builds are not negative
+evidence. The loop pivoted to the fresh `fnx-views` subsystem and re-scoped the
+same bead. Before the production edit, a release probe cloned the current owned
+snapshot 32 times for a 2,048-node, 8,192-edge graph. It counted **589,824**
+fresh `String` allocations, copied **5,308,416 bytes**, and took **24,669,654
+ns**. Snapshot cloning was therefore the measured cost, not staleness checks or
+refresh construction.
+
+**ONE LEVER / EXACT PARITY.** Store the private immutable `GraphSnapshot` in an
+`Arc` so derived `Clone` shares it; only `new` and a stale refresh allocate a new
+snapshot. The public snapshot reference, cached revision, stale predicate,
+refresh return value, graph mode, ordered nodes, node attributes, ordered edges,
+edge attributes, and independent refresh state of each cloned view remain
+unchanged. The same-binary proof freezes the former owned-snapshot struct and
+matches complete snapshots and revisions before and after mutation. It also
+proves that refreshing one shared clone leaves its sibling stale with the old
+snapshot.
+
+**STRICT-REMOTE FOREGROUND RELEASE A/B.** RCH ran fail-closed with
+`AGENT_NAME=BlackThrush`, self-healing disabled, `--profile release`, and
+`profile.release.lto=false`. The fleet's pool reaper discarded identical warmed
+release targets between invocations on several workers, so those attempts were
+stopped rather than timed. The decisive foreground job compiled and immediately
+ran one binary on effective worker `ovh-b`; compilation, sync, and retrieval were
+outside every in-process sample, while Cargo's runner capped only the executable.
+Three untimed arm pairs preceded 15 alternating pairs:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+| --- | ---: | ---: | ---: | ---: |
+| owned deep clone vs shared immutable clone, 32 clones/sample | `31,896,161 ns / 410 ns` | **77,795.5146x** | **15/15** | exact snapshot + revision + independent refresh |
+| shared clone / same shared-clone null, 65,536 clones/sample | `809,476 ns / 809,412 ns` | 1.0001x | 7/15 | identical arm |
+
+The complete timed test body finished in 0.67 seconds. The primary ratio is
+large because the candidate reduces an O(V+E) deep clone to one atomic reference
+increment and preserves destruction inside both timed arms.
+
+**VALIDATION.** Strict-remote non-LTO release tests passed 9/9 default
+`fnx-views` tests with the measurement probe ignored. Scoped strict-remote
+`cargo clippy -p fnx-views --all-targets --no-deps -- -D warnings` passed.
+Strict-remote workspace `cargo check --all-targets` also passed with three
+peer-owned unused-code warnings outside this bead. Focused rustfmt, owned
+`git diff --check`, targeted UBS, and the bead dependency-cycle check complete
+the source/evidence gate.
+
+**RESULT: KEEP.** Cloning a cached immutable graph view now shares its snapshot
+instead of rebuilding every owned node, edge endpoint, and attribute container.
+
 ## 2026-07-16 BlackThrush KEEP: indexed GNR successor redirects — 1.1250x (`br-r37-c1-04z53.9175`)
 
 **NEGATIVE-LEDGER / PROFILE FIRST.** Fresh `bv --robot-triage`, live ownership,

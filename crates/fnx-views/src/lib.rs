@@ -2,6 +2,7 @@
 
 use fnx_classes::digraph::{DiGraph, DiGraphSnapshot};
 use fnx_classes::{EdgeSnapshot, Graph, GraphSnapshot};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy)]
 pub struct GraphView<'a> {
@@ -85,7 +86,7 @@ impl<'a> DiGraphView<'a> {
 #[derive(Debug, Clone)]
 pub struct CachedSnapshotView {
     cached_revision: u64,
-    snapshot: GraphSnapshot,
+    snapshot: Arc<GraphSnapshot>,
 }
 
 impl CachedSnapshotView {
@@ -93,7 +94,7 @@ impl CachedSnapshotView {
     pub fn new(graph: &Graph) -> Self {
         Self {
             cached_revision: graph.revision(),
-            snapshot: graph.snapshot(),
+            snapshot: Arc::new(graph.snapshot()),
         }
     }
 
@@ -118,7 +119,7 @@ impl CachedSnapshotView {
             return false;
         }
         self.cached_revision = graph.revision();
-        self.snapshot = graph.snapshot();
+        self.snapshot = Arc::new(graph.snapshot());
         true
     }
 }
@@ -167,8 +168,76 @@ impl CachedDiGraphSnapshotView {
 #[cfg(test)]
 mod tests {
     use super::{CachedDiGraphSnapshotView, CachedSnapshotView, DiGraphView, GraphView};
-    use fnx_classes::Graph;
     use fnx_classes::digraph::DiGraph;
+    use fnx_classes::{Graph, GraphSnapshot};
+    use std::hint::black_box;
+    use std::sync::Arc;
+    use std::time::Instant;
+
+    #[derive(Clone)]
+    struct OwnedCachedSnapshotView {
+        cached_revision: u64,
+        snapshot: GraphSnapshot,
+    }
+
+    impl OwnedCachedSnapshotView {
+        fn new(graph: &Graph) -> Self {
+            Self {
+                cached_revision: graph.revision(),
+                snapshot: graph.snapshot(),
+            }
+        }
+
+        fn is_stale(&self, graph: &Graph) -> bool {
+            self.cached_revision != graph.revision()
+        }
+
+        fn refresh_if_stale(&mut self, graph: &Graph) -> bool {
+            if !self.is_stale(graph) {
+                return false;
+            }
+            self.cached_revision = graph.revision();
+            self.snapshot = graph.snapshot();
+            true
+        }
+    }
+
+    fn cached_clone_fixture(nodes: usize, edges_per_node: usize) -> Graph {
+        let mut graph = Graph::strict();
+        for node in 0..nodes {
+            graph.add_node(format!("node_{node:04}"));
+        }
+        for left in 0..nodes {
+            for offset in 1..=edges_per_node {
+                let right = (left + offset) % nodes;
+                graph
+                    .add_edge(format!("node_{left:04}"), format!("node_{right:04}"))
+                    .expect("fixture edge should be unique");
+            }
+        }
+        graph
+    }
+
+    fn time_owned_clones(view: &OwnedCachedSnapshotView, clones: usize) -> u128 {
+        let started = Instant::now();
+        for _ in 0..clones {
+            drop(black_box(view.clone()));
+        }
+        started.elapsed().as_nanos()
+    }
+
+    fn time_shared_clones(view: &CachedSnapshotView, clones: usize) -> u128 {
+        let started = Instant::now();
+        for _ in 0..clones {
+            drop(black_box(view.clone()));
+        }
+        started.elapsed().as_nanos()
+    }
+
+    fn median_ns(samples: &mut [u128]) -> u128 {
+        samples.sort_unstable();
+        samples[samples.len() / 2]
+    }
 
     #[test]
     fn live_view_observes_graph_mutations() {
@@ -211,6 +280,111 @@ mod tests {
         assert!(refreshed);
         assert!(cached.cached_revision() > old_rev);
         assert_eq!(cached.snapshot().nodes, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    #[ignore = "release same-binary A/B benchmark; run explicitly"]
+    fn cached_snapshot_shared_clone_ab() {
+        const NODES: usize = 2_048;
+        const EDGES_PER_NODE: usize = 4;
+        const CLONES_PER_SAMPLE: usize = 32;
+        const NULL_CLONES_PER_SAMPLE: usize = 65_536;
+        const ROUNDS: usize = 15;
+
+        let mut parity_graph = cached_clone_fixture(16, 2);
+        let owned = OwnedCachedSnapshotView::new(&parity_graph);
+        let shared = CachedSnapshotView::new(&parity_graph);
+        assert_eq!(&owned.snapshot, shared.snapshot());
+
+        let owned_clone = owned.clone();
+        let mut shared_clone = shared.clone();
+        assert_eq!(owned.cached_revision, shared.cached_revision());
+        assert_eq!(&owned_clone.snapshot, shared_clone.snapshot());
+        assert!(Arc::ptr_eq(&shared.snapshot, &shared_clone.snapshot));
+
+        parity_graph
+            .add_edge("node_0000", "new_node")
+            .expect("parity mutation should succeed");
+        assert!(owned_clone.is_stale(&parity_graph));
+        assert!(shared.is_stale(&parity_graph));
+        assert!(shared_clone.refresh_if_stale(&parity_graph));
+        assert!(shared.is_stale(&parity_graph));
+        assert!(!Arc::ptr_eq(&shared.snapshot, &shared_clone.snapshot));
+
+        let mut refreshed_owned = owned_clone;
+        assert!(refreshed_owned.refresh_if_stale(&parity_graph));
+        assert_eq!(&refreshed_owned.snapshot, shared_clone.snapshot());
+        assert_eq!(
+            refreshed_owned.cached_revision,
+            shared_clone.cached_revision()
+        );
+
+        let graph = cached_clone_fixture(NODES, EDGES_PER_NODE);
+        let owned = OwnedCachedSnapshotView::new(&graph);
+        let shared = CachedSnapshotView::new(&graph);
+        assert_eq!(&owned.snapshot, shared.snapshot());
+
+        for round in 0..3 {
+            if round % 2 == 0 {
+                black_box(time_owned_clones(&owned, CLONES_PER_SAMPLE));
+                black_box(time_shared_clones(&shared, CLONES_PER_SAMPLE));
+            } else {
+                black_box(time_shared_clones(&shared, CLONES_PER_SAMPLE));
+                black_box(time_owned_clones(&owned, CLONES_PER_SAMPLE));
+            }
+        }
+
+        let mut baseline_ns = Vec::with_capacity(ROUNDS);
+        let mut candidate_ns = Vec::with_capacity(ROUNDS);
+        for round in 0..ROUNDS {
+            if round % 2 == 0 {
+                baseline_ns.push(time_owned_clones(&owned, CLONES_PER_SAMPLE));
+                candidate_ns.push(time_shared_clones(&shared, CLONES_PER_SAMPLE));
+            } else {
+                candidate_ns.push(time_shared_clones(&shared, CLONES_PER_SAMPLE));
+                baseline_ns.push(time_owned_clones(&owned, CLONES_PER_SAMPLE));
+            }
+        }
+
+        let mut null_left_ns = Vec::with_capacity(ROUNDS);
+        let mut null_right_ns = Vec::with_capacity(ROUNDS);
+        for round in 0..ROUNDS {
+            if round % 2 == 0 {
+                null_left_ns.push(time_shared_clones(&shared, NULL_CLONES_PER_SAMPLE));
+                null_right_ns.push(time_shared_clones(&shared, NULL_CLONES_PER_SAMPLE));
+            } else {
+                null_right_ns.push(time_shared_clones(&shared, NULL_CLONES_PER_SAMPLE));
+                null_left_ns.push(time_shared_clones(&shared, NULL_CLONES_PER_SAMPLE));
+            }
+        }
+
+        let wins = baseline_ns
+            .iter()
+            .zip(&candidate_ns)
+            .filter(|(baseline, candidate)| baseline > candidate)
+            .count();
+        let null_wins = null_left_ns
+            .iter()
+            .zip(&null_right_ns)
+            .filter(|(left, right)| left > right)
+            .count();
+        let baseline_median = median_ns(&mut baseline_ns);
+        let candidate_median = median_ns(&mut candidate_ns);
+        let null_left_median = median_ns(&mut null_left_ns);
+        let null_right_median = median_ns(&mut null_right_ns);
+        let ratio = baseline_median as f64 / candidate_median as f64;
+        let null_ratio = null_left_median as f64 / null_right_median as f64;
+
+        assert!(baseline_median > candidate_median);
+        println!(
+            "CACHED_SNAPSHOT_SHARED_CLONE_AB nodes={NODES} edges={} clones_per_sample={CLONES_PER_SAMPLE} \
+             rounds={ROUNDS} baseline_median_ns={baseline_median} \
+             candidate_median_ns={candidate_median} ratio={ratio:.4} wins={wins}/{ROUNDS} \
+             null_clones_per_sample={NULL_CLONES_PER_SAMPLE} null_left_median_ns={null_left_median} \
+             null_right_median_ns={null_right_median} null_ratio={null_ratio:.4} \
+             null_wins={null_wins}/{ROUNDS}",
+            shared.snapshot().edges.len()
+        );
     }
 
     #[test]
