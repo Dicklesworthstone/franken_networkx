@@ -134,10 +134,7 @@ pub fn generate_sidecar_for_file(
     let encoder = Encoder::with_defaults(&data, mtu);
     let config = encoder.get_config();
 
-    let mut total_k = 0u32;
-    for block_encoder in encoder.get_block_encoders() {
-        total_k += block_encoder.source_packets().len() as u32;
-    }
+    let total_k = source_packet_count_from_oti(&config);
 
     let blocks = encoder.get_block_encoders().len() as u32;
     let repair_per_block = if blocks == 0 {
@@ -371,6 +368,15 @@ fn decode_oti(oti_b64: &str) -> Result<ObjectTransmissionInformation, Durability
     Ok(ObjectTransmissionInformation::deserialize(&oti_slice))
 }
 
+fn source_packet_count_from_oti(config: &ObjectTransmissionInformation) -> u32 {
+    u32::try_from(
+        config
+            .transfer_length()
+            .div_ceil(u64::from(config.symbol_size())),
+    )
+    .unwrap_or(u32::MAX)
+}
+
 fn decode_with_packets(
     envelope: &ArtifactEnvelope,
     packet_b64: &[String],
@@ -439,9 +445,10 @@ impl fmt::Display for ScrubState {
 #[cfg(test)]
 mod tests {
     use super::{
-        ArtifactEnvelope, DurabilityError, EncodingPacket, STANDARD, classify_decode_drill_packets,
-        decode_oti, decode_with_binary_packets, decode_with_packets, generate_sidecar_for_file,
-        partition, run_decode_drill, scrub_artifact, verify_decode_drill_fail_closed,
+        ArtifactEnvelope, DurabilityError, Encoder, EncodingPacket, ObjectTransmissionInformation,
+        STANDARD, classify_decode_drill_packets, decode_oti, decode_with_binary_packets,
+        decode_with_packets, generate_sidecar_for_file, partition, run_decode_drill,
+        scrub_artifact, source_packet_count_from_oti, verify_decode_drill_fail_closed,
     };
     use base64::Engine;
     use std::fs;
@@ -461,6 +468,33 @@ mod tests {
             repair_symbols,
         )
         .expect("sidecar generation should succeed")
+    }
+
+    fn source_packet_count_frozen(encoder: &Encoder) -> u32 {
+        encoder
+            .get_block_encoders()
+            .iter()
+            .map(|block| {
+                u32::try_from(block.source_packets().len())
+                    .expect("source packets per block should fit u32")
+            })
+            .sum()
+    }
+
+    fn encoded_packets_with_count(
+        encoder: &Encoder,
+        repair_per_block: u32,
+        use_oti_count: bool,
+    ) -> (u32, Vec<EncodingPacket>) {
+        let source_packets = if use_oti_count {
+            source_packet_count_from_oti(&encoder.get_config())
+        } else {
+            source_packet_count_frozen(encoder)
+        };
+        (
+            source_packets,
+            encoder.get_encoded_packets(repair_per_block),
+        )
     }
 
     fn decode_drill_core_frozen(
@@ -604,6 +638,147 @@ mod tests {
         let binary = decode_drill_core_binary(&envelope).expect("binary drill should succeed");
         assert_eq!(binary, frozen);
         assert_eq!(binary.0, payload);
+    }
+
+    #[test]
+    fn oti_source_packet_count_matches_materialized_packets() {
+        for &(payload_len, mtu) in &[(1usize, 64u16), (63, 64), (64, 64), (65, 64), (16_384, 128)] {
+            let payload = (0_u8..=250).cycle().take(payload_len).collect::<Vec<_>>();
+            let encoder = Encoder::with_defaults(&payload, mtu);
+            assert_eq!(
+                source_packet_count_from_oti(&encoder.get_config()),
+                source_packet_count_frozen(&encoder),
+            );
+        }
+
+        let payload = (0_u8..=250).cycle().take(1_025).collect::<Vec<_>>();
+        let multi_block_oti = ObjectTransmissionInformation::new(1_025, 128, 3, 1, 8);
+        let multi_block = Encoder::new(&payload, multi_block_oti);
+        assert_eq!(multi_block.get_block_encoders().len(), 3);
+        assert_eq!(
+            source_packet_count_from_oti(&multi_block.get_config()),
+            source_packet_count_frozen(&multi_block),
+        );
+
+        let payload = (0_u8..=250).cycle().take(16_384).collect::<Vec<_>>();
+        let mtu = 128;
+        let repairs = 12;
+        let envelope = generated_envelope(&payload, mtu, repairs);
+        let encoder = Encoder::with_defaults(&payload, mtu);
+        let frozen_k = source_packet_count_frozen(&encoder);
+        let blocks = u32::try_from(encoder.get_block_encoders().len())
+            .expect("source block count should fit u32");
+        let repair_per_block = repairs.div_ceil(blocks);
+        let packets = encoder.get_encoded_packets(repair_per_block);
+        let serialized = packets
+            .iter()
+            .map(EncodingPacket::serialize)
+            .collect::<Vec<_>>();
+        let expected_hashes = serialized
+            .iter()
+            .map(|bytes| super::hash_bytes(bytes))
+            .collect::<Vec<_>>();
+        let expected_b64 = serialized
+            .iter()
+            .map(|bytes| STANDARD.encode(bytes))
+            .collect::<Vec<_>>();
+        let expected_repairs =
+            u32::try_from(packets.len()).expect("packet count should fit u32") - frozen_k;
+
+        assert_eq!(envelope.raptorq.k, frozen_k);
+        assert_eq!(envelope.raptorq.repair_symbols, expected_repairs);
+        assert_eq!(envelope.raptorq.symbol_hashes, expected_hashes);
+        assert_eq!(envelope.raptorq.packets_b64, expected_b64);
+        assert_eq!(
+            envelope.raptorq.overhead_ratio.to_bits(),
+            (f64::from(expected_repairs) / f64::from(frozen_k)).to_bits(),
+        );
+    }
+
+    /// Same-binary paired A/B for the source-packet count inside sidecar
+    /// generation. The frozen arm materializes every source packet once to
+    /// count it before both arms perform the identical real packet build.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn oti_source_packet_count_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let payload = (0_u8..=250).cycle().take(524_288).collect::<Vec<_>>();
+        let encoder = Encoder::with_defaults(&payload, 128);
+        let repair_per_block = 32;
+        let frozen = encoded_packets_with_count(&encoder, repair_per_block, false);
+        let candidate = encoded_packets_with_count(&encoder, repair_per_block, true);
+        assert_eq!(candidate, frozen);
+        println!(
+            "DURABILITY_OTI_COUNT_AB fixture: bytes={} blocks={} source_packets={} repair_per_block={repair_per_block}",
+            payload.len(),
+            encoder.get_block_encoders().len(),
+            candidate.0,
+        );
+
+        let calls = 8usize;
+        let rounds = 15usize;
+        let time = |use_oti_count: bool| {
+            let started = Instant::now();
+            for _ in 0..calls {
+                black_box(encoded_packets_with_count(
+                    &encoder,
+                    repair_per_block,
+                    use_oti_count,
+                ));
+            }
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let baseline_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "DURABILITY_OTI_COUNT_AB {name}: baseline_median_ns={baseline_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds}",
+                baseline_median as f64 / candidate_median as f64,
+            );
+        };
+
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report(
+            "materialized_count_vs_oti_count",
+            &baseline_ns,
+            &candidate_ns,
+        );
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("oti_count_vs_oti_count_null", &null_a_ns, &null_b_ns);
     }
 
     /// Same-binary paired A/B for decode-drill packet preparation. The frozen

@@ -2,6 +2,59 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-16 BlackThrush KEEP: derive durability source count from OTI — 1.9283x (`br-r37-c1-697js`)
+
+**NEGATIVE-LEDGER / PROFILE FIRST.** Fresh `bv --robot-triage`, live bead
+state, recent history, and both performance ledgers found no admissible narrow
+unowned perf bead: surfaced work was owned correctness, stale-already-landed,
+or a broad storage epoch. This loop therefore pivoted to the fresh
+`fnx-durability` sidecar-generation subsystem. Source inspection of the pinned
+`raptorq 2.0.1` implementation found that `generate_sidecar_for_file` called
+`SourceBlockEncoder::source_packets()` on every block solely for `.len()`.
+That method allocates an `EncodingPacket` and copies the payload for every source
+symbol; the immediately following `get_encoded_packets()` then materializes all
+of those source packets again. On the measured 512-KiB / MTU-128 fixture the
+count-only pass performed 4,096 redundant packet-payload allocations and copied
+512 KiB.
+
+**ONE LEVER / EXACT PARITY.** Derive `total_k` directly from the encoder's
+authoritative object-transmission information as
+`ceil(transfer_length / symbol_size)`. This is the exact `Kt` formula RaptorQ
+uses to partition source blocks and the same formula already used by this
+crate's decode classifier. The packet builder, repair allocation, serialization,
+hashing, Base64 conversion, packet order, and envelope construction are
+unchanged. A focused release test matched the former materialized count at
+empty-adjacent symbol boundaries and across an explicit three-block encoder,
+then proved exact `k`, repair count, ordered packet bytes/Base64, symbol hashes,
+and `overhead_ratio.to_bits()` for a complete generated envelope.
+
+**STRICT-REMOTE FOREGROUND RELEASE GATE.** The target was cold, so an untimed
+`--profile release` no-run warm-up completed first without a timeout wrapper on
+effective worker `vmi1167313`. The decisive same-worker invocation used
+`RCH_REQUIRE_REMOTE=1`, self-healing disabled, no local fallback,
+`--profile release`, and `profile.release.lto=false`; only the test executable
+was capped through Cargo's runner. One immutable encoder built the same 4,096
+source plus 32 repair packets in both arms for eight calls per sample and 15
+paired alternating-order rounds:
+
+| same-binary arm | median batch times | observed ratio | wins | parity |
+| --- | ---: | ---: | ---: | ---: |
+| materialized count vs OTI count | `5,569,251 ns / 2,888,152 ns` | **1.9283x** | **13/15** | exact count + ordered packets |
+| OTI count / same OTI-count null | `3,239,155 ns / 3,299,315 ns` | 0.9818x | 7/15 | identical arm |
+
+The timed test body completed in 0.49 seconds. Synchronization, compilation,
+artifact retrieval, and RCH cache behavior were outside every sample and are
+not performance evidence.
+
+**VALIDATION.** The strict-remote release-profile library gate passed all five
+default tests with the two measurement probes ignored. Scoped strict-remote
+release Clippy passed for all `fnx-durability` targets with dependencies skipped
+and warnings denied. Nightly rustfmt and `git diff --check` passed.
+
+**RESULT: SHIP.** Keep the OTI-derived count. It removes a complete redundant
+source-packet materialization while preserving the exact RaptorQ sidecar bytes
+and metadata.
+
 ## 2026-07-16 BlackThrush NO-SHIP: versioned-ledger linear merge is below its null (`br-r37-c1-gx0fd`)
 
 **NEGATIVE-LEDGER / PROFILE FIRST.** A fresh `bv --robot-triage`, live bead
