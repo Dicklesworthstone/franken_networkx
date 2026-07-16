@@ -2,6 +2,47 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-16 BlackThrush NO-SHIP: index self-loop k-out reinforcement — 0.9889x (`br-r37-c1-3uuu8`)
+
+**NEGATIVE-LEDGER / PROFILE FIRST.** Fresh `bv --robot-triage`, live ownership,
+recent history, and exact-name searches across both performance ledgers found
+no measured `random_k_out_graph` target-reinforcement experiment. The older
+generator row only records that mutable preferential weights prevent edge
+batching. A frozen counter for `n=2,048`, `k=4`, `alpha=1`, self-loops enabled,
+and seed 42 measured 8,192 updates and **8,569,537** tuple comparisons in the
+post-draw linear target lookup. Including the ordered roulette total and target
+walks, this lookup represented 25.2667% of 33,916,290 baseline weight-loop
+visits. Opportunity score was 15 (`impact 3 * confidence 5 / effort 1`).
+
+**ONE LEVER / EXACT PARITY.** With self-loops enabled, the weight vector is
+never remove-and-appended, so position remains equal to node id. The candidate
+updated `weights[target].1` directly only in that branch; the no-self-loop
+branch retained its linear lookup because its vector order changes. RNG draws,
+ordered roulette subtraction, the `+1.0` operation, active-source updates,
+edge insertion order, parallel-edge keys, errors, and warnings were unchanged.
+A same-binary matrix covering five graph sizes, four `k` values, three alphas,
+four seeds, the no-self-loop control, and zero/NaN/infinite/impossible error
+cases matched complete `MultiDiGraph` snapshots and warnings exactly.
+
+**STRICT-REMOTE FOREGROUND RELEASE A/B.** RCH ran fail-closed with
+`AGENT_NAME=BlackThrush`, self-healing disabled, `--profile release`, and
+`profile.release.lto=false`; only the test executable was capped. The first
+worker reset SSH during dependency preflight, so the run switched workers.
+Because the next worker evicted its release pool, the decisive proof used one
+compile-then-measure invocation on effective worker `vmi1264463`, keeping all
+15 alternating pairs and the positional null in one binary:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+| --- | ---: | ---: | ---: | ---: |
+| linear lookup vs indexed update | `135,120,678 ns / 136,632,449 ns` | **0.9889x** | 8/15 | exact snapshot/warnings |
+| indexed update / indexed-update null | `131,794,927 ns / 133,383,469 ns` | 0.9881x | 8/15 | identical arm |
+
+**RESULT: NO-SHIP.** The candidate's 0.9889x movement and 8/15 sign count are
+indistinguishable from the 0.9881x, 8/15 positional null. Ordered roulette and
+multigraph construction dominate the removed lookup at this fixture. The
+speculative source and measurement harness were removed; this evidence row is
+the only retained change.
+
 ## 2026-07-16 BlackThrush KEEP: borrow directed JSON serialization payload — 1.7200x (`br-r37-c1-uv0zr`)
 
 **NEGATIVE-LEDGER / PROFILE FIRST.** Fresh `bv --robot-triage`, live ownership,
