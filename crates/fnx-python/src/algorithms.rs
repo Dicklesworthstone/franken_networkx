@@ -17156,6 +17156,66 @@ fn lexicographic_product_edge_attrs_fast(
             py_graph.node_key_map = node_key_map;
             Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
         }
+        (GraphRef::Directed { dg: dg1, .. }, GraphRef::Directed { dg: dg2, .. }) => {
+            // DIRECTED lexicographic — single-source store-clone, mirroring the
+            // undirected branch + the cartesian directed branch. (u1,v1)->(u2,v2)
+            // iff (u1,u2) in G (all v1,v2) OR u1==u2 and (v1,v2) in H.
+            if !dg1.edge_py_attrs.is_empty() || !dg2.edge_py_attrs.is_empty() {
+                return Ok(None);
+            }
+            let d1 = &dg1.inner;
+            let d2 = &dg2.inner;
+            let g_names: Vec<String> = d1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+            let h_names: Vec<String> = d2.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+            let ng = g_names.len();
+            let nh = h_names.len();
+            let (canon, node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
+
+            let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
+            // G-layer: directed G-edge (gu->gv) x ALL (hu, hv) -> inherit G-edge attrs.
+            for gu in 0..ng {
+                for &gv in d1.successors_indices(gu).unwrap_or(&[]) {
+                    let ga = d1
+                        .edge_attrs_by_indices(gu, gv)
+                        .cloned()
+                        .unwrap_or_default();
+                    for hu in 0..nh {
+                        for hv in 0..nh {
+                            edges.push((
+                                canon[gu * nh + hu].clone(),
+                                canon[gv * nh + hv].clone(),
+                                ga.clone(),
+                            ));
+                        }
+                    }
+                }
+            }
+            // H-layer: same G-node + directed H-edge (hu->hv) -> inherit H-edge attrs.
+            for hu in 0..nh {
+                for &hv in d2.successors_indices(hu).unwrap_or(&[]) {
+                    let ha = d2
+                        .edge_attrs_by_indices(hu, hv)
+                        .cloned()
+                        .unwrap_or_default();
+                    for gi in 0..ng {
+                        edges.push((
+                            canon[gi * nh + hu].clone(),
+                            canon[gi * nh + hv].clone(),
+                            ha.clone(),
+                        ));
+                    }
+                }
+            }
+
+            let mut inner =
+                fnx_classes::digraph::DiGraph::with_runtime_policy(d1.runtime_policy().clone());
+            let _ = inner.extend_nodes_unrecorded(canon.iter().cloned());
+            let _ = inner.extend_edges_with_attrs_unrecorded(edges);
+            let mut py_dg = PyDiGraph::new_empty_with_policy(py, d1.runtime_policy().clone())?;
+            py_dg.inner = inner;
+            py_dg.node_key_map = node_key_map;
+            Ok(Some(py_dg.into_pyobject(py)?.into_any().unbind()))
+        }
         _ => Ok(None),
     }
 }

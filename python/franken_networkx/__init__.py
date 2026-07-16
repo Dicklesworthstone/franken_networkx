@@ -36683,8 +36683,8 @@ def lexicographic_product(G, H):
     # + |E_H|*|G|) product edges Rust-side — beating nx instead of the O(E_product)
     # Python attr batch. Returns None on any other shape; node attrs decorated after.
     if (
-        type(G) is Graph
-        and type(H) is Graph
+        type(G) in (Graph, DiGraph)
+        and type(H) in (Graph, DiGraph)
         and not number_of_selfloops(G)
         and not number_of_selfloops(H)
     ):
