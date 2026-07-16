@@ -2,6 +2,48 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-16 BlackThrush KEEP: deque-backed tail-stability window — 583.6491x (`br-r37-c1-maefq`)
+
+**NEGATIVE-LEDGER / PROFILE FIRST.** Fresh `bv --robot-triage`, live ownership,
+recent history, and exact searches across both performance ledgers found only
+the older `TailStabilityTracker::status` percentile-reuse keep, not a sliding
+window storage experiment. Before production edits, a frozen release-profile
+counter executed the current `Vec::remove(0)` path with a 4,096-sample window
+and 8,192 steady-state records. It measured exactly **8,192** front removals
+and **33,554,432** shifted `TailSample` payloads.
+
+**ONE LEVER / EXACT PARITY.** Replace only the tracker's sliding-window `Vec`
+with `VecDeque`, using `push_back` followed by `pop_front`; baseline storage and
+all percentile arithmetic remain unchanged. `compute_percentile` now accepts
+the chronological iterator shared by both containers, then materializes and
+sorts the same ordered values as before. The same-binary proof compared every
+retained sample's `value.to_bits()` and timestamp after every paired round.
+Focused coverage also freezes zero-capacity push-then-evict behavior, window
+limits 0/1/3/8, chronological order, signed zero, infinities, a NaN payload,
+and percentile result bits.
+
+**STRICT-REMOTE FOREGROUND RELEASE A/B.** RCH ran fail-closed with
+`AGENT_NAME=BlackThrush`, self-healing disabled, `--profile release`, and
+`profile.release.lto=false`. The cold target first received an untimed no-run
+warm-up without a timeout wrapper. Worker `vmi1153651` evicted its warmed
+release pool, so the candidate run switched to effective worker `ovh-b`; that
+worker also reported a cache miss, but compilation remained outside every
+in-process timer. Only the foreground measurement invocation was capped. Three
+untimed arm pairs preceded 15 alternating pairs in one binary:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+| --- | ---: | ---: | ---: | ---: |
+| `Vec::remove(0)` vs `VecDeque::pop_front()` | `32,051,675 ns / 54,916 ns` | **583.6491x** | **15/15** | exact sample bits/timestamps |
+| deque / same-deque null | `50,701 ns / 52,653 ns` | 0.9629x | 1/15 right-arm | identical arm |
+
+The complete timed test body finished in 0.61 seconds. The decisive improvement
+is three orders of magnitude and dominates the 3.71% same-arm positional
+movement.
+
+**RESULT: KEEP.** Steady-state insertion now evicts the oldest sample in
+amortized `O(1)` time instead of shifting the full `O(window_samples)` payload,
+while retaining the exact logical window and observable status semantics.
+
 ## 2026-07-16 BlackThrush NO-SHIP: index self-loop k-out reinforcement — 0.9889x (`br-r37-c1-3uuu8`)
 
 **NEGATIVE-LEDGER / PROFILE FIRST.** Fresh `bv --robot-triage`, live ownership,

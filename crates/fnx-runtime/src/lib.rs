@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const STRUCTURED_TEST_LOG_SCHEMA_VERSION_V1: &str = "1.0.0";
@@ -3514,7 +3514,7 @@ impl TailStabilityConfig {
 pub struct TailStabilityTracker {
     config: TailStabilityConfig,
     baseline: Vec<TailSample>,
-    window: Vec<TailSample>,
+    window: VecDeque<TailSample>,
     baseline_p99: Option<f64>,
     baseline_locked: bool,
 }
@@ -3538,7 +3538,7 @@ impl TailStabilityTracker {
         Self {
             config,
             baseline: Vec::new(),
-            window: Vec::new(),
+            window: VecDeque::new(),
             baseline_p99: None,
             baseline_locked: false,
         }
@@ -3559,9 +3559,9 @@ impl TailStabilityTracker {
             }
         } else {
             // Baseline locked, update sliding window
-            self.window.push(sample);
+            self.window.push_back(sample);
             if self.window.len() > self.config.window_samples {
-                self.window.remove(0);
+                let _ = self.window.pop_front();
             }
         }
     }
@@ -3572,7 +3572,7 @@ impl TailStabilityTracker {
             return;
         }
         self.baseline_p99 = Some(Self::compute_percentile(
-            &self.baseline,
+            self.baseline.iter(),
             self.config.percentile,
         ));
         self.baseline_locked = true;
@@ -3586,11 +3586,14 @@ impl TailStabilityTracker {
     }
 
     /// Compute percentile of samples.
-    fn compute_percentile(samples: &[TailSample], percentile: f64) -> f64 {
-        if samples.is_empty() {
+    fn compute_percentile<'a>(
+        samples: impl IntoIterator<Item = &'a TailSample>,
+        percentile: f64,
+    ) -> f64 {
+        let mut values: Vec<f64> = samples.into_iter().map(|sample| sample.value).collect();
+        if values.is_empty() {
             return 0.0;
         }
-        let mut values: Vec<f64> = samples.iter().map(|s| s.value).collect();
         values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         let idx = (values.len() as f64 * percentile).floor() as usize;
@@ -3605,7 +3608,7 @@ impl TailStabilityTracker {
             return None;
         }
         Some(Self::compute_percentile(
-            &self.window,
+            self.window.iter(),
             self.config.percentile,
         ))
     }
@@ -8251,6 +8254,266 @@ mod tests {
         // Window should now contain [15, 15, 20] approximately
         let p99 = tracker.window_p99().unwrap();
         assert!(p99 >= 15.0, "Window p99 should be >= 15 (got {})", p99);
+    }
+
+    #[test]
+    #[ignore = "profile counter; run with --profile release --ignored --nocapture"]
+    fn tail_window_front_shift_profile() {
+        use std::hint::black_box;
+
+        const WINDOW: usize = 4_096;
+        const STEADY_RECORDS: usize = 8_192;
+
+        let mut window: Vec<super::TailSample> = (0..WINDOW)
+            .map(|sample| super::TailSample {
+                value: sample as f64,
+                ts_unix_ms: sample as u128,
+            })
+            .collect();
+        let mut front_removals = 0usize;
+        let mut payload_relocations = 0usize;
+        for sample in 0..STEADY_RECORDS {
+            window.push(super::TailSample {
+                value: black_box(sample as f64),
+                ts_unix_ms: sample as u128,
+            });
+            if window.len() > WINDOW {
+                front_removals += 1;
+                payload_relocations += window.len() - 1;
+                black_box(window.remove(0));
+            }
+        }
+
+        println!(
+            "TAIL_WINDOW_SHIFT_PROFILE window={WINDOW} steady_records={STEADY_RECORDS} front_removals={front_removals} payload_relocations={payload_relocations}"
+        );
+        assert_eq!(window.len(), WINDOW);
+        assert_eq!(front_removals, STEADY_RECORDS);
+        assert_eq!(payload_relocations, WINDOW * STEADY_RECORDS);
+        black_box(window);
+    }
+
+    #[test]
+    fn tail_window_deque_preserves_frozen_semantics() {
+        use std::collections::VecDeque;
+
+        let samples = [
+            super::TailSample {
+                value: 0.0,
+                ts_unix_ms: 1,
+            },
+            super::TailSample {
+                value: -0.0,
+                ts_unix_ms: 2,
+            },
+            super::TailSample {
+                value: f64::INFINITY,
+                ts_unix_ms: 3,
+            },
+            super::TailSample {
+                value: f64::NEG_INFINITY,
+                ts_unix_ms: 4,
+            },
+            super::TailSample {
+                value: f64::from_bits(0x7ff8_0000_0000_0042),
+                ts_unix_ms: 5,
+            },
+            super::TailSample {
+                value: 17.25,
+                ts_unix_ms: 6,
+            },
+        ];
+
+        for limit in [0usize, 1, 3, 8] {
+            let mut frozen = Vec::new();
+            let mut candidate = VecDeque::new();
+            for sample in samples {
+                frozen.push(sample);
+                if frozen.len() > limit {
+                    frozen.remove(0);
+                }
+                candidate.push_back(sample);
+                if candidate.len() > limit {
+                    let _ = candidate.pop_front();
+                }
+            }
+
+            let frozen_bits: Vec<_> = frozen
+                .iter()
+                .map(|sample| (sample.value.to_bits(), sample.ts_unix_ms))
+                .collect();
+            let candidate_bits: Vec<_> = candidate
+                .iter()
+                .map(|sample| (sample.value.to_bits(), sample.ts_unix_ms))
+                .collect();
+            assert_eq!(candidate_bits, frozen_bits, "window limit {limit}");
+
+            for percentile in [0.0, 0.5, 0.99, 1.0] {
+                let mut frozen_values: Vec<f64> =
+                    frozen.iter().map(|sample| sample.value).collect();
+                frozen_values.sort_by(|left, right| {
+                    left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal)
+                });
+                let frozen_percentile = if frozen_values.is_empty() {
+                    0.0
+                } else {
+                    let index = ((frozen_values.len() as f64 * percentile).floor() as usize)
+                        .min(frozen_values.len() - 1);
+                    frozen_values[index]
+                };
+                let candidate_percentile =
+                    super::TailStabilityTracker::compute_percentile(candidate.iter(), percentile);
+                assert_eq!(
+                    candidate_percentile.to_bits(),
+                    frozen_percentile.to_bits(),
+                    "percentile {percentile} with window limit {limit}"
+                );
+            }
+        }
+
+        let zero_window = super::TailStabilityConfig {
+            baseline_samples: 1,
+            window_samples: 0,
+            max_p99_ratio: 1.2,
+            percentile: 0.99,
+        };
+        let mut tracker = super::TailStabilityTracker::with_config(zero_window);
+        tracker.record(10.0);
+        tracker.record(20.0);
+        assert_eq!(tracker.window_count(), 0);
+        assert_eq!(tracker.window_p99(), None);
+        assert!(!tracker.has_shift());
+    }
+
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn tail_window_deque_ab() {
+        use std::collections::VecDeque;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        const WINDOW: usize = 4_096;
+        const STEADY_RECORDS: usize = 8_192;
+        const ROUNDS: usize = 15;
+
+        let seed: Vec<super::TailSample> = (0..WINDOW)
+            .map(|sample| super::TailSample {
+                value: sample as f64,
+                ts_unix_ms: sample as u128,
+            })
+            .collect();
+        let stream: Vec<super::TailSample> = (0..STEADY_RECORDS)
+            .map(|sample| super::TailSample {
+                value: ((sample * 7_919) % 10_007) as f64,
+                ts_unix_ms: (WINDOW + sample) as u128,
+            })
+            .collect();
+
+        let time_frozen = |window: &mut Vec<super::TailSample>| {
+            let started = Instant::now();
+            for &sample in black_box(&stream) {
+                window.push(black_box(sample));
+                if window.len() > WINDOW {
+                    black_box(window.remove(0));
+                }
+            }
+            black_box(&*window);
+            started.elapsed().as_nanos()
+        };
+        let time_candidate = |window: &mut VecDeque<super::TailSample>| {
+            let started = Instant::now();
+            for &sample in black_box(&stream) {
+                window.push_back(black_box(sample));
+                if window.len() > WINDOW {
+                    let _ = black_box(window.pop_front());
+                }
+            }
+            black_box(&*window);
+            started.elapsed().as_nanos()
+        };
+        let median = |mut values: Vec<u128>| {
+            values.sort_unstable();
+            values[values.len() / 2]
+        };
+        let assert_exact = |frozen: &[super::TailSample],
+                            candidate: &VecDeque<super::TailSample>| {
+            assert_eq!(frozen.len(), candidate.len());
+            for (frozen_sample, candidate_sample) in frozen.iter().zip(candidate) {
+                assert_eq!(
+                    frozen_sample.value.to_bits(),
+                    candidate_sample.value.to_bits()
+                );
+                assert_eq!(frozen_sample.ts_unix_ms, candidate_sample.ts_unix_ms);
+            }
+        };
+
+        for _ in 0..3 {
+            let mut frozen = seed.clone();
+            let mut candidate: VecDeque<_> = seed.iter().copied().collect();
+            black_box(time_frozen(&mut frozen));
+            black_box(time_candidate(&mut candidate));
+            assert_exact(&frozen, &candidate);
+        }
+
+        let mut frozen = seed.clone();
+        let mut candidate: VecDeque<_> = seed.iter().copied().collect();
+        let mut baseline_ns = Vec::with_capacity(ROUNDS);
+        let mut candidate_ns = Vec::with_capacity(ROUNDS);
+        let mut candidate_wins = 0usize;
+        for round in 0..ROUNDS {
+            let (baseline, candidate_time) = if round % 2 == 0 {
+                (time_frozen(&mut frozen), time_candidate(&mut candidate))
+            } else {
+                let candidate_time = time_candidate(&mut candidate);
+                (time_frozen(&mut frozen), candidate_time)
+            };
+            candidate_wins += usize::from(candidate_time < baseline);
+            baseline_ns.push(baseline);
+            candidate_ns.push(candidate_time);
+            assert_exact(&frozen, &candidate);
+        }
+        let baseline_median = median(baseline_ns);
+        let candidate_median = median(candidate_ns);
+        println!(
+            "TAIL_WINDOW_DEQUE_AB vec_remove_vs_deque_pop baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} ratio={:.4}x candidate_wins={candidate_wins}/{ROUNDS}",
+            baseline_median as f64 / candidate_median as f64
+        );
+
+        let mut null_left: VecDeque<_> = seed.iter().copied().collect();
+        let mut null_right: VecDeque<_> = seed.iter().copied().collect();
+        let mut null_left_ns = Vec::with_capacity(ROUNDS);
+        let mut null_right_ns = Vec::with_capacity(ROUNDS);
+        let mut null_right_wins = 0usize;
+        for round in 0..ROUNDS {
+            let (left, right) = if round % 2 == 0 {
+                (
+                    time_candidate(&mut null_left),
+                    time_candidate(&mut null_right),
+                )
+            } else {
+                let right = time_candidate(&mut null_right);
+                (time_candidate(&mut null_left), right)
+            };
+            null_right_wins += usize::from(right < left);
+            null_left_ns.push(left);
+            null_right_ns.push(right);
+            assert_eq!(
+                null_left
+                    .iter()
+                    .map(|sample| (sample.value.to_bits(), sample.ts_unix_ms))
+                    .collect::<Vec<_>>(),
+                null_right
+                    .iter()
+                    .map(|sample| (sample.value.to_bits(), sample.ts_unix_ms))
+                    .collect::<Vec<_>>()
+            );
+        }
+        let null_left_median = median(null_left_ns);
+        let null_right_median = median(null_right_ns);
+        println!(
+            "TAIL_WINDOW_DEQUE_AB deque_vs_deque_null left_median_ns={null_left_median} right_median_ns={null_right_median} ratio={:.4}x right_wins={null_right_wins}/{ROUNDS}",
+            null_left_median as f64 / null_right_median as f64
+        );
     }
 
     #[test]
