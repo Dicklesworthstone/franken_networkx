@@ -23947,8 +23947,8 @@ def tensor_product(G, H):
     # other shape (directed / multigraph / self-loops / >1 distinct key / non-pristine
     # mirror), keeping the set_edge_attributes path below. Node attrs decorated after.
     if (
-        type(G) is Graph
-        and type(H) is Graph
+        type(G) in (Graph, DiGraph)
+        and type(H) in (Graph, DiGraph)
         and not number_of_selfloops(G)
         and not number_of_selfloops(H)
     ):
