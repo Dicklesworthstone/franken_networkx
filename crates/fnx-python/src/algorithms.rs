@@ -25859,6 +25859,58 @@ pub fn get_edge_attributes_rust(
     Ok(dict.unbind())
 }
 
+/// Typed native `get_edge_attributes(G, name)` for a SIMPLE UNDIRECTED `Graph`
+/// whose edge attrs are clean (no pending Python->inner sync). Reads the inner
+/// `edges` AttrMaps directly (authoritative for add_edge / add_edges_from /
+/// generator-built graphs) and returns `{(u, v): value}` for edges carrying
+/// `name`, converting each value with the byte-exact `cgse_value_to_py`.
+///
+/// Returns `None` — signalling the Python `get_edge_attributes` wrapper to fall
+/// back to the exact `edges(data=True)` walk — for every case not handled
+/// byte-identically here: directed / multigraph inputs (different key shape or
+/// already fast), a dirty graph (mutated Python edge dicts are authoritative,
+/// inner stale), and any value stored as `String`/`Map`. `String` is AMBIGUOUS —
+/// the py->inner boundary coerces `None`, lists, dicts, and arbitrary objects to
+/// their repr/JSON `String`, indistinguishable from a genuine `str` value — so a
+/// single non-scalar edge value defers the whole call to Python. Int/Float/Bool
+/// round-trip exactly. br-r37-c1-w868y: replaces the 0.79x EdgeView walk on the
+/// common numeric-weight case; dict order is `==`-irrelevant.
+#[pyfunction]
+#[pyo3(signature = (g, name))]
+pub fn get_edge_attributes_native(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    name: &str,
+) -> PyResult<Option<Py<PyDict>>> {
+    let gr = extract_graph(g)?;
+    let GraphRef::Undirected(pg) = &gr else {
+        return Ok(None);
+    };
+    if pg.edges_dirty.load(Ordering::Relaxed) {
+        return Ok(None);
+    }
+    let dict = PyDict::new(py);
+    for (left, right, attrs) in pg.inner.edges_ordered_borrowed() {
+        let Some(val) = attrs.get(name) else {
+            continue;
+        };
+        match val {
+            // Int/Float/Bool round-trip byte-exactly through cgse_value_to_py.
+            fnx_runtime::CgseValue::Int(_)
+            | fnx_runtime::CgseValue::Float(_)
+            | fnx_runtime::CgseValue::Bool(_) => {
+                let key = (pg.py_node_key(py, left), pg.py_node_key(py, right));
+                dict.set_item(key, crate::cgse_value_to_py(py, val)?)?;
+            }
+            // Ambiguous/uncertain fidelity -> exact Python edges(data=True) walk.
+            fnx_runtime::CgseValue::String(_) | fnx_runtime::CgseValue::Map(_) => {
+                return Ok(None);
+            }
+        }
+    }
+    Ok(Some(dict.unbind()))
+}
+
 // ---------------------------------------------------------------------------
 // Quotient graph
 // ---------------------------------------------------------------------------
@@ -27867,6 +27919,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Get node/edge attributes
     m.add_function(wrap_pyfunction!(get_node_attributes_rust, m)?)?;
     m.add_function(wrap_pyfunction!(get_edge_attributes_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(get_edge_attributes_native, m)?)?;
     // Quotient graph
     m.add_function(wrap_pyfunction!(quotient_graph_rust, m)?)?;
     // Moral graph

@@ -23334,6 +23334,15 @@ def get_edge_attributes(G, name, default=None):
         and _fnx.graph_has_any_attrs(G) is False
     ):
         return {}
+    # br-r37-c1-w868y: native inner-read fast path for a simple undirected Graph
+    # with scalar (int/float/bool) values — avoids the edges(data=True) EdgeView
+    # walk (was 0.79x vs nx). Returns None (fall through to the exact walk below)
+    # for dirty/mutated graphs, string/non-scalar values (ambiguous py->inner
+    # fidelity), and default != None, so nx semantics stay byte-exact.
+    if default is None and type(G) is Graph:
+        native = _fnx.get_edge_attributes_native(G, name)
+        if native is not None:
+            return native
     result = {}
     include_missing = default is not None
     if G.is_multigraph():
