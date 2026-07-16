@@ -2,6 +2,62 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-16 BlackThrush KEEP: batch plain Graph adjacency conversion — 10.0499x (`br-r37-c1-7lyj7`)
+
+**NEGATIVE-LEDGER / PROFILE FIRST.** `bv --robot-triage`, the live bead state,
+recent commits, and the performance ledgers were read before choosing work. The
+remaining narrow recommendations were owned, stale, or in recently mined graph
+algorithm/runtime veins, and the durability fused-packet sibling was already a
+measured 1.0226x no-ship within its null control, so this loop pivoted to the fresh
+`fnx-convert` adjacency subsystem. A pre-edit source-operation profile of a
+2,048-source / 8,192-entry plain payload found 2,048 source `add_node` calls,
+16,384 endpoint `String` clones, 8,192 empty `AttrMap` clones, and two
+graph-policy records per edge before the converter adopts its runtime policy.
+
+**ONE LEVER / EXACT PARITY.** For the simple undirected `Graph` path only, perform
+a mutation-free eligibility pass over nonempty, keyless, attribute-free adjacency
+entries, reproduce the generic BTree source and source-then-target first-touch
+order, resolve each distinct node name once, and batch nodes plus existing-index
+edges through the graph's unrecorded construction primitives. Node tables reserve
+only the source count and grow for implicit targets rather than duplicating the
+edge-count reserve. The generic path is unchanged for malformed names, keys,
+attributes, and all warning/recovery cases; directed and multigraph conversions are
+untouched. Exact ordered snapshots and revisions match for empty input, isolated
+nodes, implicit targets that later become sources, self-loops, duplicate entries,
+and reverse duplicates. Runtime-policy adoption remains at the same point after
+construction.
+
+**STRICT-REMOTE FOREGROUND RELEASE GATE.** The target was cold, so an untimed
+no-run warm-up completed first without a timeout wrapper on effective worker
+`vmi1167313` (job `j-29933307944763803`). The decisive invocation used
+`RCH_REQUIRE_REMOTE=1`, self-healing disabled, no local fallback,
+`--profile release`, and `profile.release.lto=false`; only the test executable was
+capped through Cargo's runner. Fifteen paired alternating-order rounds over the
+same 8,192-entry payload produced:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+| --- | ---: | ---: | ---: | ---: |
+| generic mutation loop vs index batch | `22,728,882 ns / 2,261,608 ns` | **10.0499x** | **15/15** | exact snapshot + revision |
+| index batch / same index-batch null | `2,010,311 ns / 1,943,748 ns` | 1.0342x | 8/15 | identical arm |
+
+The final timed test body completed in 0.68 seconds on the same worker (job
+`j-29933307944763838`). Synchronization, compilation,
+artifact retrieval, and RCH's cache label were outside every sample and are not
+performance evidence.
+
+**VALIDATION.** The strict-remote release-profile library gate passed `20/20`
+default tests with the three measurement probes ignored. Workspace dependency
+Clippy reached the pre-existing `fnx-classes/src/lib.rs:1700`
+`collapsible_if` denial before checking this crate, so that peer-owned file remains
+untouched and unstaged; the follow-up strict-remote release Clippy gate scoped with
+`--no-deps` passed for all `fnx-convert` targets with warnings denied. Focused
+rustfmt, `git diff --check`, targeted UBS (zero critical findings), and the bead
+dependency-cycle check complete the owned-source/evidence gate.
+
+**RESULT: SHIP.** Keep the plain-Graph adjacency index batch. It removes repeated
+name resolution, attribute cloning, and per-mutation policy bookkeeping from the
+eligible construction path while preserving exact graph semantics.
+
 ## 2026-07-16 BlackThrush KEEP: clone only unseen dispatch features — 1.3679x (`br-r37-c1-zz8g1`)
 
 **NEGATIVE-LEDGER / PROFILE FIRST.** `bv --robot-triage`, the live bead state,

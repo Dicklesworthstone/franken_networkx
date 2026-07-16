@@ -493,6 +493,54 @@ impl GraphConverter {
         true
     }
 
+    /// Fast path for keyless, attribute-free simple-Graph adjacency payloads.
+    /// The eligibility pass reproduces the generic loop's source-then-target
+    /// first-touch order while resolving each distinct name only once.
+    /// Returning `false` is mutation-free so malformed, keyed, or attributed
+    /// entries retain the generic validation and recovery path.
+    fn try_populate_plain_graph_from_adjacency(
+        graph: &mut Graph,
+        payload: &AdjacencyPayload,
+    ) -> bool {
+        let entry_count = payload.adjacency.values().map(Vec::len).sum::<usize>();
+        let mut nodes = Vec::with_capacity(payload.adjacency.len());
+        let mut node_indices = HashMap::with_capacity(payload.adjacency.len());
+        let mut indexed_edges = Vec::with_capacity(entry_count);
+
+        for (source, adjacency) in &payload.adjacency {
+            if source.is_empty() {
+                return false;
+            }
+            let source_index = if let Some(&index) = node_indices.get(source.as_str()) {
+                index
+            } else {
+                let index = nodes.len();
+                node_indices.insert(source.as_str(), index);
+                nodes.push(source.clone());
+                index
+            };
+
+            for neighbor in adjacency {
+                if neighbor.to.is_empty() || neighbor.key.is_some() || !neighbor.attrs.is_empty() {
+                    return false;
+                }
+                let target_index = if let Some(&index) = node_indices.get(neighbor.to.as_str()) {
+                    index
+                } else {
+                    let index = nodes.len();
+                    node_indices.insert(neighbor.to.as_str(), index);
+                    nodes.push(neighbor.to.clone());
+                    index
+                };
+                indexed_edges.push((source_index, target_index));
+            }
+        }
+
+        let _ = graph.extend_nodes_unrecorded(nodes);
+        let _ = graph.extend_existing_index_edges_unrecorded(indexed_edges);
+        true
+    }
+
     pub fn from_adjacency(
         &mut self,
         payload: &AdjacencyPayload,
@@ -513,7 +561,9 @@ impl GraphConverter {
         let mut graph = Graph::new(self.mode);
         let mut warnings = Vec::new();
 
-        self.populate_from_adjacency(&mut graph, &mut warnings, payload)?;
+        if !Self::try_populate_plain_graph_from_adjacency(&mut graph, payload) {
+            self.populate_from_adjacency(&mut graph, &mut warnings, payload)?;
+        }
 
         self.record(
             "convert_adjacency",
@@ -957,6 +1007,25 @@ mod tests {
         graph
     }
 
+    fn populate_plain_graph_adjacency_frozen(payload: &AdjacencyPayload) -> Graph {
+        let mut converter = GraphConverter::strict();
+        let mut graph = Graph::strict();
+        let mut warnings = Vec::new();
+        converter
+            .populate_from_adjacency(&mut graph, &mut warnings, payload)
+            .expect("plain frozen adjacency should convert");
+        assert!(warnings.is_empty());
+        graph
+    }
+
+    fn populate_plain_graph_adjacency_batched(payload: &AdjacencyPayload) -> Graph {
+        let mut graph = Graph::strict();
+        assert!(GraphConverter::try_populate_plain_graph_from_adjacency(
+            &mut graph, payload
+        ));
+        graph
+    }
+
     #[test]
     fn convert_from_edge_list_basic() {
         let mut converter = GraphConverter::strict();
@@ -1321,6 +1390,195 @@ mod tests {
 
         let (baseline_ns, candidate_ns) = paired(true, false);
         report("frozen_vs_index_batch", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("index_batch_vs_index_batch_null", &null_a_ns, &null_b_ns);
+    }
+
+    #[test]
+    fn plain_graph_adjacency_batch_preserves_order_and_revision() {
+        let entry = |target: &str| AdjacencyEntry {
+            to: target.to_owned(),
+            key: None,
+            attrs: AttrMap::new(),
+        };
+        let payloads = [
+            AdjacencyPayload {
+                adjacency: BTreeMap::new(),
+            },
+            AdjacencyPayload {
+                adjacency: BTreeMap::from([
+                    (
+                        "m".to_owned(),
+                        vec![entry("z"), entry("m"), entry("a"), entry("z")],
+                    ),
+                    ("z".to_owned(), vec![entry("a"), entry("m")]),
+                    ("a".to_owned(), Vec::new()),
+                ]),
+            },
+        ];
+
+        for payload in payloads {
+            let frozen = populate_plain_graph_adjacency_frozen(&payload);
+            let batched = populate_plain_graph_adjacency_batched(&payload);
+            assert_eq!(batched.snapshot(), frozen.snapshot());
+            assert_eq!(batched.revision(), frozen.revision());
+        }
+    }
+
+    #[test]
+    fn plain_graph_adjacency_batch_fallback_is_mutation_free() {
+        let payloads = [
+            AdjacencyPayload {
+                adjacency: BTreeMap::from([
+                    (
+                        "a".to_owned(),
+                        vec![AdjacencyEntry {
+                            to: "b".to_owned(),
+                            key: None,
+                            attrs: AttrMap::new(),
+                        }],
+                    ),
+                    (
+                        "z".to_owned(),
+                        vec![AdjacencyEntry {
+                            to: "a".to_owned(),
+                            key: None,
+                            attrs: AttrMap::from([("weight".to_owned(), CgseValue::Int(1))]),
+                        }],
+                    ),
+                ]),
+            },
+            AdjacencyPayload {
+                adjacency: BTreeMap::from([(
+                    "a".to_owned(),
+                    vec![AdjacencyEntry {
+                        to: "b".to_owned(),
+                        key: Some(7),
+                        attrs: AttrMap::new(),
+                    }],
+                )]),
+            },
+            AdjacencyPayload {
+                adjacency: BTreeMap::from([(
+                    "a".to_owned(),
+                    vec![AdjacencyEntry {
+                        to: String::new(),
+                        key: None,
+                        attrs: AttrMap::new(),
+                    }],
+                )]),
+            },
+        ];
+
+        for payload in payloads {
+            let mut graph = Graph::strict();
+            assert!(!GraphConverter::try_populate_plain_graph_from_adjacency(
+                &mut graph, &payload
+            ));
+            assert_eq!(graph.node_count(), 0);
+            assert_eq!(graph.edge_count(), 0);
+            assert_eq!(graph.revision(), 0);
+        }
+    }
+
+    /// Same-binary paired A/B for the plain simple-Graph adjacency kernel.
+    /// The frozen arm retains the generic source/neighbor mutation loop; the
+    /// candidate resolves exact first-touch node order and batches index edges.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn plain_graph_adjacency_index_batch_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 2_048usize;
+        let node_labels = (0..n)
+            .map(|node| format!("node-{node:05}"))
+            .collect::<Vec<_>>();
+        let adjacency = node_labels
+            .iter()
+            .enumerate()
+            .map(|(source, source_label)| {
+                let neighbors = [0usize, 1, 17, 257]
+                    .into_iter()
+                    .map(|offset| AdjacencyEntry {
+                        to: node_labels[(source + offset) % n].clone(),
+                        key: None,
+                        attrs: AttrMap::new(),
+                    })
+                    .collect();
+                (source_label.clone(), neighbors)
+            })
+            .collect::<BTreeMap<_, _>>();
+        let payload = AdjacencyPayload { adjacency };
+
+        let frozen = populate_plain_graph_adjacency_frozen(&payload);
+        let batched = populate_plain_graph_adjacency_batched(&payload);
+        assert_eq!(batched.snapshot(), frozen.snapshot());
+        assert_eq!(batched.revision(), frozen.revision());
+
+        let rounds = 15usize;
+        let time = |batch: bool| {
+            let started = Instant::now();
+            let mut converter = GraphConverter::strict();
+            let mut graph = Graph::strict();
+            let mut warnings = Vec::new();
+            if batch {
+                assert!(GraphConverter::try_populate_plain_graph_from_adjacency(
+                    &mut graph, &payload
+                ));
+            } else {
+                converter
+                    .populate_from_adjacency(&mut graph, &mut warnings, &payload)
+                    .expect("frozen plain adjacency should convert");
+            }
+            black_box((converter, graph, warnings));
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let baseline_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "CONVERT_PLAIN_ADJACENCY_INDEX_BATCH_AB {name}: entries={} \
+                 baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} \
+                 ratio={:.4}x wins={wins}/{rounds} exact_snapshot_revision=true",
+                n * 4,
+                baseline_median as f64 / candidate_median as f64,
+            );
+        };
+
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("generic_vs_index_batch", &baseline_ns, &candidate_ns);
         let (null_a_ns, null_b_ns) = paired(true, true);
         report("index_batch_vs_index_batch_null", &null_a_ns, &null_b_ns);
     }
