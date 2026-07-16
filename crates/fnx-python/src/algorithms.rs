@@ -17068,6 +17068,98 @@ fn cartesian_product_edge_attrs_fast(
     }
 }
 
+/// br-r37-c1-lexprodattr (bt): edge-attributed LEXICOGRAPHIC product for two simple
+/// undirected Graphs with a pristine (scalar-only, store-complete) edge mirror.
+/// Mirrors `cartesian_product_edge_attrs_fast` but with the lexicographic rule: each
+/// G-edge (gu,gv) connects (gu,hu)-(gv,hv) for ALL H-node pairs (hu,hv), inheriting
+/// the G-edge's attrs (|E_G|*|H|^2 edges — the densest product, so the Rust
+/// store-clone beats the O(E_product) Python attr batch the most: 0.24x -> faster);
+/// plus each H-edge within every G-node copy, inheriting the H-edge's attrs. Same
+/// edge set and insertion order (G-layer `G.edges() x hu x hv`, then H-layer
+/// `H.edges() x g`) as the Python `add_edges_from` build, so byte-identical. Node
+/// attrs are decorated in Python afterward. Returns None (-> Python path) on a
+/// non-pristine mirror (non-scalar attrs) or any non-undirected-simple factor;
+/// self-loops are caller-gated.
+#[pyfunction]
+fn lexicographic_product_edge_attrs_fast(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    h: &Bound<'_, PyAny>,
+) -> PyResult<Option<PyObject>> {
+    let gr1 = extract_graph(g)?;
+    let gr2 = extract_graph(h)?;
+    match (&gr1, &gr2) {
+        (GraphRef::Undirected(pg1), GraphRef::Undirected(pg2)) => {
+            if !pg1.edge_py_attrs.is_empty() || !pg2.edge_py_attrs.is_empty() {
+                return Ok(None);
+            }
+            let g1 = &pg1.inner;
+            let h1 = &pg2.inner;
+            let g_names: Vec<String> = g1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+            let h_names: Vec<String> = h1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+            let ng = g_names.len();
+            let nh = h_names.len();
+            let (canon, node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
+
+            let undirected_edges = |graph: &fnx_classes::Graph, n: usize| -> Vec<(usize, usize)> {
+                let mut es = Vec::new();
+                for u in 0..n {
+                    for &v in graph.neighbors_indices(u).unwrap_or(&[]) {
+                        if v >= u {
+                            es.push((u, v));
+                        }
+                    }
+                }
+                es
+            };
+            let g_edges = undirected_edges(g1, ng);
+            let h_edges = undirected_edges(h1, nh);
+
+            let mut edges: Vec<(String, String, AttrMap)> =
+                Vec::with_capacity(g_edges.len() * nh * nh + h_edges.len() * ng);
+            // G-layer: each G-edge x ALL (hu, hv) H-node pairs -> inherit G-edge attrs.
+            for &(gu, gv) in &g_edges {
+                let attrs = g1
+                    .edge_attrs_by_indices(gu, gv)
+                    .cloned()
+                    .unwrap_or_default();
+                for hu in 0..nh {
+                    for hv in 0..nh {
+                        edges.push((
+                            canon[gu * nh + hu].clone(),
+                            canon[gv * nh + hv].clone(),
+                            attrs.clone(),
+                        ));
+                    }
+                }
+            }
+            // H-layer: each H-edge within every G-node copy -> inherit H-edge attrs.
+            for &(hu, hv) in &h_edges {
+                let attrs = h1
+                    .edge_attrs_by_indices(hu, hv)
+                    .cloned()
+                    .unwrap_or_default();
+                for gi in 0..ng {
+                    edges.push((
+                        canon[gi * nh + hu].clone(),
+                        canon[gi * nh + hv].clone(),
+                        attrs.clone(),
+                    ));
+                }
+            }
+
+            let mut inner = fnx_classes::Graph::with_runtime_policy(g1.runtime_policy().clone());
+            let _ = inner.extend_nodes_unrecorded(canon.iter().cloned());
+            let _ = inner.extend_edges_with_attrs_unrecorded(edges);
+            let mut py_graph = PyGraph::new_empty_with_policy(py, g1.runtime_policy().clone())?;
+            py_graph.inner = inner;
+            py_graph.node_key_map = node_key_map;
+            Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
+        }
+        _ => Ok(None),
+    }
+}
+
 /// br-r37-c1-prodmodular: native modular product fast path (undirected only).
 /// Two distinct product nodes (g1,h1),(g2,h2) are adjacent iff g1!=g2, h1!=h2,
 /// and G-adjacency(g1,g2) == H-adjacency(h1,h2) (both edges, or both non-edges).
@@ -26895,6 +26987,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(tensor_product, m)?)?;
     m.add_function(wrap_pyfunction!(cartesian_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(cartesian_product_edge_attrs_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(lexicographic_product_edge_attrs_fast, m)?)?;
     m.add_function(wrap_pyfunction!(tensor_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(strong_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(lexicographic_product_fast, m)?)?;

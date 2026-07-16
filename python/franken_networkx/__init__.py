@@ -36631,6 +36631,29 @@ def lexicographic_product(G, H):
     _fast = _native_graph_product(G, H, kind="lexicographic")
     if _fast is not None:
         return _fast
+    # br-r37-c1-lexprodattr (bt): edge-attributed simple undirected lexicographic
+    # product falls through the no-attr native path above. When both factors are
+    # simple Graphs with SCALAR-only edge attrs (pristine mirror) and no self-loops,
+    # the native kernel clones each source edge's store AttrMap onto the (|E_G|*|H|^2
+    # + |E_H|*|G|) product edges Rust-side — beating nx instead of the O(E_product)
+    # Python attr batch. Returns None on any other shape; node attrs decorated after.
+    if (
+        type(G) is Graph
+        and type(H) is Graph
+        and not number_of_selfloops(G)
+        and not number_of_selfloops(H)
+    ):
+        _edge_native = getattr(_fnx, "lexicographic_product_edge_attrs_fast", None)
+        if _edge_native is not None:
+            _r = _edge_native(G, H)
+            if _r is not None:
+                if _graph_has_any_node_attrs(G) or _graph_has_any_node_attrs(H):
+                    _r.add_nodes_from(
+                        ((g, h), _product_node_attrs(dict(g_attrs), dict(h_attrs)))
+                        for g, g_attrs in G.nodes(data=True)
+                        for h, h_attrs in H.nodes(data=True)
+                    )
+                return _r
     P = _product_graph_class(G, H)()
     _attr_safe = _product_edge_attrs_kwarg_safe(G, H)
 
