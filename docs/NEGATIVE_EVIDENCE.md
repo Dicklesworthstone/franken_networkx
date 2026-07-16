@@ -2,6 +2,48 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-16 BlackThrush NO-SHIP: cache CGSE random-edge labels — 1.0278x, 7/15 (`br-r37-c1-ppmfy`)
+
+**NEGATIVE-LEDGER / PROFILE FIRST.** Fresh `bv --robot-triage`, live bead
+state, recent history, and the performance ledgers routed away from the mined
+generator-batch family and the peer-active Python relabel surface into the fresh
+`fnx-cgse` counter-example mining path. Before editing, the frozen
+`generate_random_edges` loop was counted on a directed 512-node, density-0.75,
+seed-`0x5eed` fixture: 261,632 candidate pairs produced 196,278 ordered edges,
+so formatting both integer endpoints at every acceptance performed exactly
+392,556 integer-to-decimal conversions.
+
+**ONE LEVER / EXACT PARITY.** Precompute the 512 canonical decimal node labels
+once and clone those strings into the unchanged edge output, removing 392,044
+formatting operations while retaining the same two owned output strings per
+edge. The candidate and frozen arms executed the identical nested candidate
+loop, self-loop skip, wrapping seeded LCG, random-index progression, floating
+threshold comparison, directed/undirected ordering, and edge acceptance. The
+complete ordered `Vec<(String, String)>` compared exactly before timing.
+
+**STRICT-REMOTE FOREGROUND RELEASE GATE.** The target was cold, so an untimed
+`--profile release` no-run warm-up completed first without a timeout wrapper on
+effective worker `vmi1167313`. The decisive same-worker invocation used
+`RCH_REQUIRE_REMOTE=1`, self-healing disabled, no local fallback,
+`--profile release`, and `profile.release.lto=false`; only the test executable
+was capped through Cargo's runner. Fifteen paired alternating-order rounds plus
+a same-arm null produced:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+| --- | ---: | ---: | ---: | ---: |
+| format endpoints per edge vs cached labels | `35,342,896 ns / 34,387,783 ns` | **1.0278x** | **7/15** | exact ordered edge vector |
+| cached labels / same cached-label null | `33,832,431 ns / 34,312,282 ns` | 0.9860x | 9/15 | identical arm |
+
+The timed test body completed in 3.42 seconds. Synchronization, compilation,
+artifact retrieval, and RCH cache behavior were outside every sample and are
+not performance evidence.
+
+**RESULT: NO-SHIP.** The 2.78% median movement won fewer than half of its pairs
+and is not a stable improvement relative to the same-arm positional noise. The
+unavoidable 392,556 output `String` allocations dominate the removed formatting
+work. The production edit, parity test, and measurement harness were removed
+manually; only this real A/B evidence and the closed bead remain.
+
 ## 2026-07-16 BlackThrush KEEP: derive durability source count from OTI — 1.9283x (`br-r37-c1-697js`)
 
 **NEGATIVE-LEDGER / PROFILE FIRST.** Fresh `bv --robot-triage`, live bead
