@@ -2101,6 +2101,50 @@ pub struct DriftAnalyzer {
     threshold: f64,
 }
 
+fn group_weekly_summaries(
+    records: &[DecisionRecord],
+    threshold: f64,
+) -> BTreeMap<u128, WeeklySummary> {
+    let min_ts = records
+        .iter()
+        .map(|record| record.ts_unix_ms)
+        .min()
+        .unwrap_or(0);
+    let mut weekly_map = BTreeMap::new();
+
+    for record in records {
+        let week_number = (record.ts_unix_ms - min_ts) / MILLIS_PER_WEEK;
+        let week_start = min_ts + (week_number * MILLIS_PER_WEEK);
+
+        let summary = weekly_map
+            .entry(week_start)
+            .or_insert_with(|| WeeklySummary {
+                week_start_unix_ms: week_start,
+                total_decisions: 0,
+                under_confident_count: 0,
+                // `Iterator::sum::<f64>` starts at -0.0; retain that identity so
+                // a week containing only -0.0 keeps the exact historical bits.
+                avg_probability: -0.0,
+                fail_closed_count: 0,
+            });
+
+        summary.total_decisions += 1;
+        summary.avg_probability += record.incompatibility_probability;
+        if record.incompatibility_probability >= threshold {
+            summary.under_confident_count += 1;
+        }
+        if record.action == DecisionAction::FailClosed {
+            summary.fail_closed_count += 1;
+        }
+    }
+
+    for summary in weekly_map.values_mut() {
+        summary.avg_probability /= summary.total_decisions as f64;
+    }
+
+    weekly_map
+}
+
 impl DriftAnalyzer {
     /// Create a new analyzer with the default threshold.
     #[must_use]
@@ -2139,52 +2183,7 @@ impl DriftAnalyzer {
             .filter(|r| r.incompatibility_probability >= self.threshold)
             .collect();
 
-        // Group by week
-        let min_ts = records.iter().map(|r| r.ts_unix_ms).min().unwrap_or(0);
-        let mut weekly_map: std::collections::BTreeMap<u128, WeeklySummary> =
-            std::collections::BTreeMap::new();
-
-        for record in records {
-            let week_number = (record.ts_unix_ms - min_ts) / MILLIS_PER_WEEK;
-            let week_start = min_ts + (week_number * MILLIS_PER_WEEK);
-
-            let summary = weekly_map
-                .entry(week_start)
-                .or_insert_with(|| WeeklySummary {
-                    week_start_unix_ms: week_start,
-                    total_decisions: 0,
-                    under_confident_count: 0,
-                    avg_probability: 0.0,
-                    fail_closed_count: 0,
-                });
-
-            summary.total_decisions += 1;
-            if record.incompatibility_probability >= self.threshold {
-                summary.under_confident_count += 1;
-            }
-            if record.action == DecisionAction::FailClosed {
-                summary.fail_closed_count += 1;
-            }
-        }
-
-        // Calculate averages
-        for (week_start, summary) in &mut weekly_map {
-            let week_records: Vec<_> = records
-                .iter()
-                .filter(|r| {
-                    let week_number = (r.ts_unix_ms - min_ts) / MILLIS_PER_WEEK;
-                    min_ts + (week_number * MILLIS_PER_WEEK) == *week_start
-                })
-                .collect();
-
-            if !week_records.is_empty() {
-                summary.avg_probability = week_records
-                    .iter()
-                    .map(|r| r.incompatibility_probability)
-                    .sum::<f64>()
-                    / week_records.len() as f64;
-            }
-        }
+        let weekly_map = group_weekly_summaries(records, self.threshold);
 
         // Find top operations by under-confidence
         let mut op_counts: std::collections::HashMap<String, usize> =
@@ -6968,6 +6967,252 @@ mod tests {
     // -----------------------------------------------------------------------
     // Drift Analysis tests
     // -----------------------------------------------------------------------
+
+    fn group_weekly_summaries_frozen(
+        records: &[super::DecisionRecord],
+        threshold: f64,
+    ) -> BTreeMap<u128, super::WeeklySummary> {
+        let min_ts = records
+            .iter()
+            .map(|record| record.ts_unix_ms)
+            .min()
+            .unwrap_or(0);
+        let mut weekly_map = BTreeMap::new();
+
+        for record in records {
+            let week_number = (record.ts_unix_ms - min_ts) / super::MILLIS_PER_WEEK;
+            let week_start = min_ts + (week_number * super::MILLIS_PER_WEEK);
+            let summary = weekly_map
+                .entry(week_start)
+                .or_insert_with(|| super::WeeklySummary {
+                    week_start_unix_ms: week_start,
+                    total_decisions: 0,
+                    under_confident_count: 0,
+                    avg_probability: 0.0,
+                    fail_closed_count: 0,
+                });
+
+            summary.total_decisions += 1;
+            if record.incompatibility_probability >= threshold {
+                summary.under_confident_count += 1;
+            }
+            if record.action == DecisionAction::FailClosed {
+                summary.fail_closed_count += 1;
+            }
+        }
+
+        for (week_start, summary) in &mut weekly_map {
+            let week_records: Vec<_> = records
+                .iter()
+                .filter(|record| {
+                    let week_number = (record.ts_unix_ms - min_ts) / super::MILLIS_PER_WEEK;
+                    min_ts + (week_number * super::MILLIS_PER_WEEK) == *week_start
+                })
+                .collect();
+
+            if !week_records.is_empty() {
+                summary.avg_probability = week_records
+                    .iter()
+                    .map(|record| record.incompatibility_probability)
+                    .sum::<f64>()
+                    / week_records.len() as f64;
+            }
+        }
+
+        weekly_map
+    }
+
+    fn assert_weekly_summaries_bit_exact(
+        frozen: &BTreeMap<u128, super::WeeklySummary>,
+        candidate: &BTreeMap<u128, super::WeeklySummary>,
+    ) {
+        assert_eq!(frozen.len(), candidate.len());
+        for ((frozen_week, frozen_summary), (candidate_week, candidate_summary)) in
+            frozen.iter().zip(candidate)
+        {
+            assert_eq!(frozen_week, candidate_week);
+            assert_eq!(
+                frozen_summary.week_start_unix_ms,
+                candidate_summary.week_start_unix_ms
+            );
+            assert_eq!(
+                frozen_summary.total_decisions,
+                candidate_summary.total_decisions
+            );
+            assert_eq!(
+                frozen_summary.under_confident_count,
+                candidate_summary.under_confident_count
+            );
+            assert_eq!(
+                frozen_summary.avg_probability.to_bits(),
+                candidate_summary.avg_probability.to_bits()
+            );
+            assert_eq!(
+                frozen_summary.fail_closed_count,
+                candidate_summary.fail_closed_count
+            );
+        }
+    }
+
+    fn drift_record(
+        ts_unix_ms: u128,
+        incompatibility_probability: f64,
+        action: DecisionAction,
+    ) -> super::DecisionRecord {
+        super::DecisionRecord {
+            ts_unix_ms,
+            operation: "drift_fixture".to_owned(),
+            mode: CompatibilityMode::Strict,
+            action,
+            incompatibility_probability,
+            rationale: "weekly aggregation parity".to_owned(),
+            evidence: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn drift_weekly_accumulator_matches_frozen_bits() {
+        let base = 1_000_u128;
+        let cases = [
+            Vec::new(),
+            vec![drift_record(base, -0.0, DecisionAction::Allow)],
+            vec![
+                drift_record(base, 1.0, DecisionAction::Allow),
+                drift_record(base + 1, f64::EPSILON, DecisionAction::FullValidate),
+                drift_record(base + 2, 1.0 / 3.0, DecisionAction::FailClosed),
+            ],
+            vec![
+                drift_record(
+                    base + 2 * super::MILLIS_PER_WEEK + 7,
+                    0.91,
+                    DecisionAction::FailClosed,
+                ),
+                drift_record(base, 0.11, DecisionAction::Allow),
+                drift_record(
+                    base + super::MILLIS_PER_WEEK - 1,
+                    0.29,
+                    DecisionAction::FullValidate,
+                ),
+                drift_record(
+                    base + super::MILLIS_PER_WEEK,
+                    0.31,
+                    DecisionAction::FullValidate,
+                ),
+                drift_record(base + 3, 0.17, DecisionAction::Allow),
+                drift_record(
+                    base + 2 * super::MILLIS_PER_WEEK,
+                    0.73,
+                    DecisionAction::FailClosed,
+                ),
+            ],
+        ];
+
+        for records in cases {
+            let frozen = group_weekly_summaries_frozen(&records, 0.3);
+            let candidate = super::group_weekly_summaries(&records, 0.3);
+            assert_weekly_summaries_bit_exact(&frozen, &candidate);
+        }
+    }
+
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn drift_weekly_accumulation_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        const WEEKS: usize = 256;
+        const RECORDS_PER_WEEK: usize = 32;
+        const ROUNDS: usize = 15;
+        const ITERATIONS: usize = 4;
+
+        let base = 10_000_u128;
+        let mut records = Vec::with_capacity(WEEKS * RECORDS_PER_WEEK);
+        for week in 0..WEEKS {
+            for offset in 0..RECORDS_PER_WEEK {
+                let probability = ((week * 37 + offset * 19) % 101) as f64 / 100.0;
+                let action = if (week + offset) % 7 == 0 {
+                    DecisionAction::FailClosed
+                } else {
+                    DecisionAction::Allow
+                };
+                records.push(drift_record(
+                    base + week as u128 * super::MILLIS_PER_WEEK + offset as u128 * 1_000,
+                    probability,
+                    action,
+                ));
+            }
+        }
+
+        let frozen = group_weekly_summaries_frozen(&records, 0.3);
+        let candidate = super::group_weekly_summaries(&records, 0.3);
+        assert_weekly_summaries_bit_exact(&frozen, &candidate);
+        println!(
+            "drift_weekly_fixture records={} weeks={} baseline_bucket_tests={} baseline_temp_vectors={}",
+            records.len(),
+            WEEKS,
+            records.len() * WEEKS,
+            WEEKS
+        );
+
+        let time = |frozen_arm: bool| {
+            let started = Instant::now();
+            for _ in 0..ITERATIONS {
+                let summaries = if frozen_arm {
+                    group_weekly_summaries_frozen(black_box(&records), 0.3)
+                } else {
+                    super::group_weekly_summaries(black_box(&records), 0.3)
+                };
+                black_box(summaries);
+            }
+            started.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+
+        let paired = |baseline_frozen: bool, candidate_frozen: bool| {
+            let mut baseline_ns = Vec::with_capacity(ROUNDS);
+            let mut candidate_ns = Vec::with_capacity(ROUNDS);
+            for round in 0..ROUNDS {
+                let (baseline, candidate) = if round % 2 == 0 {
+                    (time(baseline_frozen), time(candidate_frozen))
+                } else {
+                    let candidate = time(candidate_frozen);
+                    let baseline = time(baseline_frozen);
+                    (baseline, candidate)
+                };
+                baseline_ns.push(baseline);
+                candidate_ns.push(candidate);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let baseline_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "drift_weekly_accumulation_ab {name}: baseline_median_ns={baseline_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{ROUNDS}",
+                baseline_median as f64 / candidate_median as f64
+            );
+        };
+
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("rescan_vs_single_pass", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(false, false);
+        report("single_pass_vs_single_pass_null", &null_a_ns, &null_b_ns);
+    }
 
     #[test]
     fn drift_analyzer_empty_ledger() {

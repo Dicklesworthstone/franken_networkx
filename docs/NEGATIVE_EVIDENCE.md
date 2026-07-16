@@ -2,6 +2,52 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-16 BlackThrush KEEP: accumulate drift weekly averages while grouping — 25.0852x (`br-r37-c1-wd8er`)
+
+**NEGATIVE-LEDGER / PROFILE FIRST.** Fresh `bv --robot-triage`, live ownership,
+recent history, and both performance ledgers routed away from the mined graph,
+generator, and recent runtime-summary families into the untouched
+`DriftAnalyzer::analyze` weekly-average phase. The frozen implementation first
+grouped `N` records into `W` summaries, then allocated one temporary record
+vector and rescanned all `N` records for every week. The decisive 8,192-record,
+256-week fixture therefore performed 2,097,152 redundant bucket tests and 256
+temporary-vector allocations per aggregation.
+
+**ONE LEVER / BIT-EXACT PARITY.** Add each
+`incompatibility_probability` to its weekly summary during the existing
+record-order grouping loop, then divide each sum by that summary's unchanged
+`total_decisions`. Each week's additions retain their exact former relative
+order; week boundaries/order, counts, fail-closed counts, threshold decisions,
+top-operation ordering, recommendations, and report shape are unchanged. The
+first focused proof caught that Rust's frozen `Iterator::sum::<f64>` uses
+`-0.0` as its identity; initializing each accumulator to `-0.0` retained the
+historical bits even for a singleton negative-zero probability. Empty,
+singleton, floating-sensitive, interleaved, and exact-week-boundary fixtures
+then matched every weekly field, including `avg_probability.to_bits()`.
+
+**STRICT-REMOTE FOREGROUND RELEASE GATE.** The cold target received an untimed
+no-run release warm-up without a timeout wrapper. After the negative-zero proof
+correction, seven focused release tests passed on effective worker
+`vmi1227854`; the same worker then ran the final same-binary A/B with
+`RCH_REQUIRE_REMOTE=1`, self-healing disabled, `--profile release`, and
+`profile.release.lto=false`. Only the test executable was capped. Each sample
+performed four aggregations; three untimed arm pairs preceded 15 alternating
+timed pairs:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+| --- | ---: | ---: | ---: | ---: |
+| weekly rescan vs grouping-pass accumulation | `24,754,289 ns / 986,809 ns` | **25.0852x** | **15/15** | all weekly fields and float bits exact |
+| accumulation / same accumulation null | `976,863 ns / 944,807 ns` | 1.0339x | 9/15 | identical arm |
+
+The timed test body completed in 0.55 seconds. RCH reported another release
+cache miss, but synchronization, compilation, retrieval, and cache state were
+outside every in-process sample and are not performance evidence.
+
+**RESULT: KEEP.** The average phase drops from `O(W*N)` bucket work and `W`
+temporary vectors to `N` additions folded into the already-required grouping
+pass plus `W` divisions. The final 25.0852x result is over twenty-four times
+larger than the same-arm positional movement and won every pair.
+
 ## 2026-07-16 BlackThrush NO-SHIP: cache CGSE random-edge labels — 1.0278x, 7/15 (`br-r37-c1-ppmfy`)
 
 **NEGATIVE-LEDGER / PROFILE FIRST.** Fresh `bv --robot-triage`, live bead
