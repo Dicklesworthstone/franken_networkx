@@ -2,6 +2,58 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-16 BlackThrush KEEP: borrow directed JSON serialization payload — 1.7200x (`br-r37-c1-uv0zr`)
+
+**NEGATIVE-LEDGER / PROFILE FIRST.** Fresh `bv --robot-triage`, live ownership,
+recent history, and exact-name searches across both performance ledgers found
+no directed Rust JSON-writer experiment. Existing JSON rows concern Python
+`node_link_data` mirror correctness and materialization, not
+`fnx-readwrite::write_digraph_json_graph_with_graph_attrs`. The frozen writer
+called `DiGraph::snapshot()` before serialization, cloning `N + 2E` endpoint
+labels, all `E` edge attribute maps, every populated node attribute map even
+though the payload omits node attributes, and the graph attribute map. On the
+2,048-node / 16,384-edge decision fixture that is 34,816 label clones and
+16,384 edge-map clones per serialization before writing the 2,703,833-byte
+JSON output.
+
+**ONE LEVER / EXACT-BYTE PARITY.** Serialize the directed payload from
+`graph.mode()`, ordered borrowed node labels, ordered borrowed edge labels and
+attribute maps, and borrowed graph attributes. The owned `JsonGraphPayload`
+remains unchanged for deserialization; the undirected writer is deliberately
+out of scope. Struct field order, node order, source-major successor order,
+attribute key order, pretty-JSON formatting, dispatch, and evidence recording
+are unchanged. A frozen owned-payload oracle matched exact UTF-8 bytes for
+empty strict and hardened graphs, insertion-order-sensitive nodes, escaped and
+Unicode labels, isolated nodes with currently omitted attributes, self-loops,
+antiparallel edges, nested graph/edge attributes, and `-0.0`. A strict engine
+writing a hardened graph also proved that graph mode remains authoritative.
+
+**STRICT-REMOTE FOREGROUND RELEASE GATE.** Cold release targets received
+untimed no-run warm-ups without a timeout wrapper. RCH's worker-scoped pool
+evicted the release target between invocations even after switching workers
+and rewrote an explicit stable target request; the final proof therefore used
+one strict-remote cargo invocation on effective worker `vmi1149989` so its
+compile and all A/B samples shared one binary. The invocation used
+`RCH_REQUIRE_REMOTE=1`, self-healing disabled, `--profile release`, and
+`profile.release.lto=false`; only the test executable was capped. Each sample
+performed two complete serializations after three untimed warm-up pairs and
+used 15 alternating timed pairs:
+
+| same-binary arm | median batch times | observed ratio | wins | parity |
+| --- | ---: | ---: | ---: | ---: |
+| owned snapshot payload vs borrowed payload | `33,692,731 ns / 19,588,651 ns` | **1.7200x** | **15/15** | exact 2,703,833-byte JSON |
+| borrowed payload / same borrowed-payload null | `19,615,581 ns / 18,992,154 ns` | 1.0328x | 8/15 | identical arm |
+
+The timed test body completed in 1.73 seconds. A separate untimed strict-remote
+release run passed the adversarial exact-byte parity corpus. Synchronization,
+compilation, artifact retrieval, and cache churn were outside every in-process
+sample and are not performance evidence.
+
+**RESULT: KEEP.** The borrowed payload removes all pre-serialization deep
+clones on this directed writer while retaining the pointer-vector construction
+and unavoidable final JSON allocation. The 1.7200x median improvement won every
+pair and is far outside the 1.0328x same-arm positional movement.
+
 ## 2026-07-16 BlackThrush KEEP: accumulate drift weekly averages while grouping — 25.0852x (`br-r37-c1-wd8er`)
 
 **NEGATIVE-LEDGER / PROFILE FIRST.** Fresh `bv --robot-triage`, live ownership,

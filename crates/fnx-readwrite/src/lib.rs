@@ -57,6 +57,41 @@ struct JsonGraphPayload {
     pub edges: Vec<fnx_classes::EdgeSnapshot>,
 }
 
+#[derive(Debug, Serialize)]
+struct BorrowedJsonEdge<'a> {
+    left: &'a str,
+    right: &'a str,
+    attrs: &'a AttrMap,
+}
+
+#[derive(Debug, Serialize)]
+struct BorrowedJsonGraphPayload<'a> {
+    mode: CompatibilityMode,
+    directed: Option<bool>,
+    graph_attrs: &'a AttrMap,
+    nodes: Vec<&'a str>,
+    edges: Vec<BorrowedJsonEdge<'a>>,
+}
+
+fn serialize_digraph_json_graph(
+    graph: &DiGraph,
+    graph_attrs: &AttrMap,
+) -> Result<String, serde_json::Error> {
+    let edges = graph
+        .edges_ordered_borrowed()
+        .into_iter()
+        .map(|(left, right, attrs)| BorrowedJsonEdge { left, right, attrs })
+        .collect();
+    let payload = BorrowedJsonGraphPayload {
+        mode: graph.mode(),
+        directed: Some(true),
+        graph_attrs,
+        nodes: graph.nodes_ordered(),
+        edges,
+    };
+    serde_json::to_string_pretty(&payload)
+}
+
 #[derive(Debug, Clone)]
 struct GraphmlKeyDef {
     scope: String,
@@ -681,19 +716,12 @@ impl EdgeListEngine {
             unknown_incompatible_feature: false,
         })?;
 
-        let snapshot = graph.snapshot();
-        let payload = JsonGraphPayload {
-            mode: snapshot.mode,
-            directed: Some(true),
-            graph_attrs: graph_attrs.clone(),
-            nodes: snapshot.nodes,
-            edges: snapshot.edges,
-        };
-        let serialized =
-            serde_json::to_string_pretty(&payload).map_err(|err| ReadWriteError::FailClosed {
+        let serialized = serialize_digraph_json_graph(graph, graph_attrs).map_err(|err| {
+            ReadWriteError::FailClosed {
                 operation: "write_json_graph",
                 reason: format!("json serialization failed: {err}"),
-            })?;
+            }
+        })?;
 
         self.record(
             "write_json_graph",
@@ -5855,6 +5883,32 @@ mod tests {
         )
     }
 
+    fn serialize_digraph_json_graph_frozen(
+        graph: &DiGraph,
+        graph_attrs: &BTreeMap<String, CgseValue>,
+    ) -> Result<String, serde_json::Error> {
+        let snapshot = graph.snapshot();
+        let payload = super::JsonGraphPayload {
+            mode: snapshot.mode,
+            directed: Some(true),
+            graph_attrs: graph_attrs.clone(),
+            nodes: snapshot.nodes,
+            edges: snapshot.edges,
+        };
+        serde_json::to_string_pretty(&payload)
+    }
+
+    fn assert_digraph_json_payload_parity(
+        graph: &DiGraph,
+        graph_attrs: &BTreeMap<String, CgseValue>,
+    ) {
+        let frozen = serialize_digraph_json_graph_frozen(graph, graph_attrs)
+            .map_err(|error| error.to_string());
+        let borrowed = super::serialize_digraph_json_graph(graph, graph_attrs)
+            .map_err(|error| error.to_string());
+        assert_eq!(borrowed, frozen);
+    }
+
     fn packet_006_contract_graph() -> Graph {
         let mut graph = Graph::strict();
         graph
@@ -6751,6 +6805,196 @@ mod tests {
             .expect("json read should succeed")
             .graph;
         assert_eq!(graph.snapshot(), parsed.snapshot());
+    }
+
+    #[test]
+    fn borrowed_digraph_json_payload_is_byte_identical() {
+        assert_digraph_json_payload_parity(&DiGraph::strict(), &BTreeMap::new());
+
+        let mut graph = DiGraph::hardened();
+        graph.add_node_with_attrs(
+            "isolated-\"é\n".to_owned(),
+            BTreeMap::from([(
+                "currently-omitted-node-attr".to_owned(),
+                CgseValue::String("must remain omitted".to_owned()),
+            )]),
+        );
+        graph
+            .add_edge_with_attrs(
+                "z-last".to_owned(),
+                "a-first".to_owned(),
+                BTreeMap::from([
+                    ("bool".to_owned(), CgseValue::Bool(true)),
+                    ("float".to_owned(), CgseValue::Float(-0.0)),
+                    ("int".to_owned(), CgseValue::Int(-7)),
+                    (
+                        "map".to_owned(),
+                        CgseValue::Map(BTreeMap::from([(
+                            "nested".to_owned(),
+                            CgseValue::String("line\nquote\"".to_owned()),
+                        )])),
+                    ),
+                ]),
+            )
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs(
+                "a-first".to_owned(),
+                "z-last".to_owned(),
+                BTreeMap::from([(
+                    "string".to_owned(),
+                    CgseValue::String("antiparallel".to_owned()),
+                )]),
+            )
+            .expect("antiparallel edge add should succeed");
+        graph
+            .add_edge_with_attrs("z-last".to_owned(), "z-last".to_owned(), BTreeMap::new())
+            .expect("self-loop add should succeed");
+        let graph_attrs = BTreeMap::from([
+            (
+                "name".to_owned(),
+                CgseValue::String("demo\n\"graph".to_owned()),
+            ),
+            (
+                "nested".to_owned(),
+                CgseValue::Map(BTreeMap::from([(
+                    "enabled".to_owned(),
+                    CgseValue::Bool(false),
+                )])),
+            ),
+        ]);
+        assert_digraph_json_payload_parity(&graph, &graph_attrs);
+
+        let mut strict_engine = EdgeListEngine::strict();
+        let public = strict_engine
+            .write_digraph_json_graph_with_graph_attrs(&graph, &graph_attrs)
+            .expect("engine mode must not replace graph mode");
+        let frozen = serialize_digraph_json_graph_frozen(&graph, &graph_attrs)
+            .expect("frozen serializer should succeed");
+        assert_eq!(public, frozen);
+    }
+
+    /// Same-binary paired A/B for directed JSON serialization. The frozen arm
+    /// snapshots and deep-clones the graph; the candidate serializes borrowed
+    /// labels and attribute maps in the identical node/edge order.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn digraph_json_borrowed_payload_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let node_count = 2_048usize;
+        let offsets = 8usize;
+        let labels = (0..node_count)
+            .map(|index| format!("node-{index:04}-payload"))
+            .collect::<Vec<_>>();
+        let mut graph = DiGraph::strict();
+        for label in &labels {
+            graph.add_node(label.clone());
+        }
+        for source in 0..node_count {
+            for offset in 1..=offsets {
+                let target = (source + offset) % node_count;
+                graph
+                    .add_edge_with_attrs(
+                        labels[source].clone(),
+                        labels[target].clone(),
+                        BTreeMap::from([
+                            (
+                                "kind".to_owned(),
+                                CgseValue::String("payload-edge".to_owned()),
+                            ),
+                            (
+                                "weight".to_owned(),
+                                CgseValue::Int(((source + offset) % 97) as i64),
+                            ),
+                        ]),
+                    )
+                    .expect("fixture edge add should succeed");
+            }
+        }
+        let graph_attrs = BTreeMap::from([
+            (
+                "fixture".to_owned(),
+                CgseValue::String("borrowed-json".to_owned()),
+            ),
+            ("version".to_owned(), CgseValue::Int(1)),
+        ]);
+        let frozen = serialize_digraph_json_graph_frozen(&graph, &graph_attrs)
+            .expect("frozen serialization should succeed");
+        let borrowed = super::serialize_digraph_json_graph(&graph, &graph_attrs)
+            .expect("borrowed serialization should succeed");
+        assert_eq!(borrowed, frozen, "timed fixture JSON bytes drifted");
+
+        let calls = 2usize;
+        let rounds = 15usize;
+        let time = |candidate: bool| {
+            let started = Instant::now();
+            for _ in 0..calls {
+                let output = if candidate {
+                    super::serialize_digraph_json_graph(&graph, &graph_attrs)
+                } else {
+                    serialize_digraph_json_graph_frozen(&graph, &graph_attrs)
+                }
+                .expect("timed serialization should succeed");
+                black_box(output);
+            }
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let baseline_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "DIGRAPH_JSON_BORROWED_AB {name}: baseline_median_ns={baseline_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds}",
+                baseline_median as f64 / candidate_median as f64,
+            );
+        };
+
+        println!(
+            "DIGRAPH_JSON_BORROWED_AB fixture: nodes={} edges={} output_bytes={} \
+             baseline_label_clones={} baseline_edge_attr_clones={} calls={calls}",
+            graph.node_count(),
+            graph.edge_count(),
+            borrowed.len(),
+            graph.node_count() + 2 * graph.edge_count(),
+            graph.edge_count(),
+        );
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("owned_snapshot_vs_borrowed", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("borrowed_vs_borrowed_null", &null_a_ns, &null_b_ns);
     }
 
     #[test]
