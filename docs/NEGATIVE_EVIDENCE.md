@@ -2,6 +2,61 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-16 BlackThrush KEEP: batch plain DiGraph adjacency conversion — 10.8682x (`br-r37-c1-wfi27`)
+
+**NEGATIVE-LEDGER / PROFILE FIRST.** Fresh `bv --robot-triage`, live bead
+ownership, recent history, and exact ledger searches found only the adjacent
+plain-Graph adjacency keep, not a directed adjacency conversion experiment.
+This loop therefore stayed in the fresh `fnx-convert` subsystem but took its
+unmined directed sibling. Before the production edit, a release-profile probe
+executed the untouched generic path for 2,048 sources and 8,192 arcs. It counted
+2,048 public source-node calls, **16,384** endpoint `String` clones, **8,192**
+empty `AttrMap` clones, and **20,479** graph-policy records (including two for
+every edge) before the converter replaces the temporary graph policy.
+
+**ONE LEVER / EXACT PARITY.** Only `digraph_from_adjacency` now attempts a
+mutation-free eligibility pass for nonempty, keyless, attribute-free entries.
+It reproduces BTree source order and source-then-target first-touch node order,
+resolves every distinct label once, then submits the nodes and directed index
+pairs through `DiGraph`'s existing unrecorded construction primitives. Empty
+names, keys, attributes, and every warning/recovery case fall back to the
+unchanged generic loop before any mutation; Graph and both multigraph paths are
+untouched. Exact ordered snapshots and revisions match for empty input,
+isolated sources, implicit targets that later become sources, self-loops,
+duplicates, antiparallel arcs, and implicit-only nodes. Separate fallback tests
+prove the eligibility scan remains mutation-free.
+
+**STRICT-REMOTE FOREGROUND RELEASE A/B.** RCH ran fail-closed with
+`AGENT_NAME=BlackThrush`, self-healing disabled, `--profile release`, and
+`profile.release.lto=false`. A cold target first received an untimed no-run
+warm-up. When `vmi1156319` repeatedly evicted the identical release pool, the
+route switched; the decisive job kept a no-run warm-up and capped measurement
+in the same foreground remote invocation on effective worker `ovh-b` (job
+`j-29933730227290626`). Three untimed arm pairs preceded 15 alternating pairs
+in one binary:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+| --- | ---: | ---: | ---: | ---: |
+| generic directed mutation loop vs index batch | `20,498,116 ns / 1,886,057 ns` | **10.8682x** | **15/15** | exact directed snapshot + revision |
+| index batch / same index-batch null | `1,233,011 ns / 1,243,278 ns` | 0.9917x | 6/15 | identical arm |
+
+The complete timed test body finished in 0.48 seconds. Compilation, sync, and
+artifact retrieval remained outside every in-process sample; only the test
+executable was capped through Cargo's runner.
+
+**VALIDATION.** Strict-remote non-LTO release tests passed 22/22 default tests
+with five measurement probes ignored. `cargo check --workspace --all-targets`
+passed with three peer-owned unused-code warnings. Workspace Clippy reached
+pre-existing `fnx-classes` denials at lines 1700 (`collapsible_if`) and 3691
+(`if_same_then_else`); the warnings-denied `fnx-convert --all-targets --no-deps`
+gate passed, leaving those peer files untouched and unstaged. Focused rustfmt,
+`git diff --check`, targeted UBS, and the bead dependency-cycle check complete
+the owned-source/evidence gate.
+
+**RESULT: KEEP.** Plain directed adjacency conversion removes repeated endpoint
+hashing, owned argument cloning, and per-edge compatibility bookkeeping from
+the eligible construction path while preserving exact directed graph semantics.
+
 ## 2026-07-16 BlackThrush KEEP: deque-backed tail-stability window — 583.6491x (`br-r37-c1-maefq`)
 
 **NEGATIVE-LEDGER / PROFILE FIRST.** Fresh `bv --robot-triage`, live ownership,
