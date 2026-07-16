@@ -216,7 +216,11 @@ impl DispatchCoverage {
     pub fn record_success(&mut self, operation: &str, backend: &str, features: &BTreeSet<String>) {
         self.dispatched_operations.insert(operation.to_owned());
         self.used_backends.insert(backend.to_owned());
-        self.requested_features.extend(features.iter().cloned());
+        for feature in features {
+            if !self.requested_features.contains(feature) {
+                self.requested_features.insert(feature.clone());
+            }
+        }
         self.success_count += 1;
     }
 
@@ -1149,6 +1153,141 @@ mod tests {
         assert!(gap.is_feature_complete());
         assert!(gap.is_backend_complete());
         assert!(gap.is_failure_free());
+    }
+
+    /// Same-binary paired A/B for repeated dispatch coverage. The frozen arm
+    /// retains the former clone-before-insert behavior; the candidate clones
+    /// only features that are not already present in the coverage set.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn coverage_unseen_feature_clone_ab() {
+        fn frozen_record_success(
+            coverage: &mut super::DispatchCoverage,
+            operation: &str,
+            backend: &str,
+            features: &BTreeSet<String>,
+        ) {
+            coverage.dispatched_operations.insert(operation.to_owned());
+            coverage.used_backends.insert(backend.to_owned());
+            coverage.requested_features.extend(features.iter().cloned());
+            coverage.success_count += 1;
+        }
+
+        fn candidate_record_success(
+            coverage: &mut super::DispatchCoverage,
+            operation: &str,
+            backend: &str,
+            features: &BTreeSet<String>,
+        ) {
+            coverage.dispatched_operations.insert(operation.to_owned());
+            coverage.used_backends.insert(backend.to_owned());
+            for feature in features {
+                if !coverage.requested_features.contains(feature) {
+                    coverage.requested_features.insert(feature.clone());
+                }
+            }
+            coverage.success_count += 1;
+        }
+
+        let feature_count = 64usize;
+        let calls = 4_096usize;
+        let features = (0..feature_count)
+            .map(|index| format!("coverage-feature-{index:04}-with-a-nontrivial-name"))
+            .collect::<BTreeSet<_>>();
+        let record = |candidate: bool| {
+            let mut coverage = super::DispatchCoverage::new();
+            for _ in 0..calls {
+                if candidate {
+                    candidate_record_success(
+                        &mut coverage,
+                        "repeated-dispatch-operation",
+                        "native",
+                        &features,
+                    );
+                } else {
+                    frozen_record_success(
+                        &mut coverage,
+                        "repeated-dispatch-operation",
+                        "native",
+                        &features,
+                    );
+                }
+            }
+            coverage
+        };
+
+        let frozen = record(false);
+        let candidate = record(true);
+        assert_eq!(
+            candidate.dispatched_operations,
+            frozen.dispatched_operations
+        );
+        assert_eq!(candidate.requested_features, frozen.requested_features);
+        assert_eq!(candidate.used_backends, frozen.used_backends);
+        assert_eq!(candidate.failed_operations, frozen.failed_operations);
+        assert_eq!(candidate.success_count, frozen.success_count);
+        assert_eq!(candidate.failure_count, frozen.failure_count);
+
+        let rounds = 15usize;
+        let time = |candidate: bool| {
+            let started = Instant::now();
+            black_box(record(candidate));
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let baseline_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "DISPATCH_COVERAGE_FEATURE_CLONE_AB {name}: features={feature_count} calls={calls} \
+                 baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} \
+                 ratio={:.4}x wins={wins}/{rounds} exact_state=true",
+                baseline_median as f64 / candidate_median as f64,
+            );
+        };
+
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report(
+            "clone_every_feature_vs_clone_unseen_only",
+            &baseline_ns,
+            &candidate_ns,
+        );
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report(
+            "clone_unseen_only_vs_clone_unseen_only_null",
+            &null_a_ns,
+            &null_b_ns,
+        );
     }
 
     #[test]

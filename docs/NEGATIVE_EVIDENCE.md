@@ -2,6 +2,53 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-16 BlackThrush KEEP: clone only unseen dispatch features — 1.3679x (`br-r37-c1-zz8g1`)
+
+**NEGATIVE-LEDGER / PROFILE FIRST.** `bv --robot-triage`, the live bead state,
+recent commits, and the performance ledgers were read before choosing work. The
+remaining narrow recommendations were owned or in recently mined algorithm,
+runtime, read/write, conformance, and weighted-attribute veins, so this loop
+pivoted to the fresh `fnx-dispatch` subsystem. A pre-edit source-operation profile
+of repeated `DispatchCoverage::record_success` calls found that recording 64 stable
+features 4,096 times performed 262,144 `String` clone/insert attempts although only
+64 insertions could change the set.
+
+**ONE LEVER / EXACT PARITY.** Probe the existing feature set by borrowed `str` and
+clone only features that are not already present. Operation and backend recording,
+the `BTreeSet` representation and ordering, success/failure accounting, and all
+dispatch behavior remain unchanged. The same-binary probe freezes the former
+clone-before-insert implementation and asserts equality of every
+`DispatchCoverage` field before timing.
+
+**STRICT-REMOTE FOREGROUND RELEASE GATE.** The target was cold, so an untimed
+no-run warm-up completed first without a timeout wrapper on effective worker
+`vmi1152480`. A harness-only compile error from an unavailable test dependency was
+corrected before that warm-up and was not treated as performance evidence. The
+decisive invocation used `RCH_REQUIRE_REMOTE=1`, self-healing disabled, no local
+fallback, `--profile release`, and `profile.release.lto=false`; only the test
+executable was capped through Cargo's runner. Fifteen paired alternating-order
+rounds produced:
+
+| same-binary arm | median times | observed ratio | wins | parity |
+| --- | ---: | ---: | ---: | ---: |
+| clone every feature vs clone unseen only | `13,110,773 ns / 9,584,471 ns` | **1.3679x** | **15/15** | exact complete state |
+| clone unseen only / same clone-unseen null | `7,917,724 ns / 7,913,728 ns` | 1.0005x | 12/15 | identical arm |
+
+The timed test body completed in 0.66 seconds. Synchronization, compilation, and
+artifact retrieval were outside every sample; worker and cache behavior are not
+performance evidence.
+
+**VALIDATION.** After saturated workers refused two fail-closed dispatches before
+Cargo began, validation switched immediately to idle worker `vmi1167313` rather
+than waiting or falling back locally. The strict-remote release-profile library
+gate passed `21/21` default tests with the two measurement probes ignored, and
+scoped strict-remote release Clippy passed with warnings denied. Focused rustfmt,
+`git diff --check`, and targeted UBS complete the local source/evidence gate.
+
+**RESULT: SHIP.** Keep the borrowed membership gate. It eliminates repeated
+feature-name allocations on stable dispatch coverage while preserving exact
+coverage state and dispatch semantics.
+
 ## 2026-07-15 BlackThrush KEEP: reuse expected-graph snapshot — 1.4190x (`br-r37-c1-9p40e`)
 
 **NEGATIVE-LEDGER / PROFILE FIRST.** `bv --robot-triage`, the live bead state,

@@ -12632,6 +12632,97 @@ impl PyDiGraph {
         Ok(Some(out))
     }
 
+    /// br-r37-c1-wdegfvaldi (bt): FLOAT sibling of `weighted_degree_int_store_values`.
+    /// Values-only weighted degree summed straight from the CgseValue store with
+    /// CPython's Neumaier (Kahan-Babuska) compensation — bit-identical to the exact
+    /// path's `builtins.sum(succ) [+ builtins.sum(pred)]` but with NO per-edge
+    /// PyObject, PyList, or per-node `builtins.sum` call (which kept float
+    /// degree/size(weight) ~0.64-0.66x nx). Directional via inc_out/inc_in; the total
+    /// (both) sums the succ and pred groups with SEPARATE compensated accumulators
+    /// then adds the two group totals, exactly reproducing the exact path's
+    /// `o.add(i)` (a directed self-loop is in BOTH succ and pred, so it is counted
+    /// twice, matching nx's in+out total). Gated on `!edges_dirty` (store
+    /// authoritative); returns None (-> the exact PyList path) on any non-float
+    /// weight or ANY missing weight (nx's default int 1 would mix an int into the
+    /// float sum). A node with no contributing float edge yields nx's int `0`
+    /// (matching `sum(())`), not float `0.0`. Undirected twin lives in lib.rs
+    /// (`PyGraph::_native_weighted_degree_float_values`).
+    fn weighted_degree_float_store_values(
+        &self,
+        py: Python<'_>,
+        weight: &str,
+        inc_out: bool,
+        inc_in: bool,
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        if self.edges_dirty.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        let n = self.inner.node_count();
+        let mut out: Vec<PyObject> = Vec::with_capacity(n);
+        for i in 0..n {
+            let mut fo = 0.0f64;
+            let mut co = 0.0f64;
+            let mut fi = 0.0f64;
+            let mut ci = 0.0f64;
+            let mut saw = false;
+            if inc_out && let Some(succs) = self.inner.successors_indices(i) {
+                for &j in succs {
+                    let x = match self
+                        .inner
+                        .edge_attrs_by_indices(i, j)
+                        .map(|a| a.get(weight))
+                    {
+                        Some(Some(CgseValue::Float(v))) => *v,
+                        _ => return Ok(None),
+                    };
+                    saw = true;
+                    let t = fo + x;
+                    if fo.abs() >= x.abs() {
+                        co += (fo - t) + x;
+                    } else {
+                        co += (x - t) + fo;
+                    }
+                    fo = t;
+                }
+            }
+            if inc_in && let Some(preds) = self.inner.predecessors_indices(i) {
+                for &j in preds {
+                    let x = match self
+                        .inner
+                        .edge_attrs_by_indices(j, i)
+                        .map(|a| a.get(weight))
+                    {
+                        Some(Some(CgseValue::Float(v))) => *v,
+                        _ => return Ok(None),
+                    };
+                    saw = true;
+                    let t = fi + x;
+                    if fi.abs() >= x.abs() {
+                        ci += (fi - t) + x;
+                    } else {
+                        ci += (x - t) + fi;
+                    }
+                    fi = t;
+                }
+            }
+            if !saw {
+                // No contributing float edge: nx `sum(())` is int 0, not 0.0.
+                out.push(0i64.into_py_any(py)?);
+                continue;
+            }
+            // Combine per (inc_out, inc_in) EXACTLY as the exact path's match arms:
+            // total -> o.add(i); out-only -> o; in-only -> i.
+            let deg = match (inc_out, inc_in) {
+                (true, true) => (fo + co) + (fi + ci),
+                (true, false) => fo + co,
+                (false, true) => fi + ci,
+                (false, false) => 0.0,
+            };
+            out.push(pyo3::types::PyFloat::new(py, deg).into_any().unbind());
+        }
+        Ok(Some(out))
+    }
+
     /// Values-only total weighted degree in node-index order (NO per-node
     /// `py_node_key` rebuild). The Python `DiDegreeView` zips these with the cached
     /// node list (`list(G)` via node_iter_mirror) — the same win the unweighted
@@ -12738,6 +12829,9 @@ impl PyDiGraph {
         if let Some(v) = self.weighted_degree_int_store_values(py, weight, true, true)? {
             return Ok(v);
         }
+        if let Some(v) = self.weighted_degree_float_store_values(py, weight, true, true)? {
+            return Ok(v);
+        }
         self.weighted_degree_exact_values(py, weight, true, true)
     }
 
@@ -12750,6 +12844,9 @@ impl PyDiGraph {
         if let Some(v) = self.weighted_degree_int_store_values(py, weight, true, false)? {
             return Ok(v);
         }
+        if let Some(v) = self.weighted_degree_float_store_values(py, weight, true, false)? {
+            return Ok(v);
+        }
         self.weighted_degree_exact_values(py, weight, true, false)
     }
 
@@ -12760,6 +12857,9 @@ impl PyDiGraph {
         weight: &str,
     ) -> PyResult<Vec<PyObject>> {
         if let Some(v) = self.weighted_degree_int_store_values(py, weight, false, true)? {
+            return Ok(v);
+        }
+        if let Some(v) = self.weighted_degree_float_store_values(py, weight, false, true)? {
             return Ok(v);
         }
         self.weighted_degree_exact_values(py, weight, false, true)
