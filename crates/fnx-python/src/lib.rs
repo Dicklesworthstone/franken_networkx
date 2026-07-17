@@ -859,6 +859,28 @@ pub(crate) fn cgse_value_to_py(py: Python<'_>, val: &CgseValue) -> PyResult<PyOb
     }
 }
 
+/// True when a simple undirected `PyGraph`'s inner edge store is authoritative
+/// and loss-free for cloning attrs: either the Python edge mirror is pristine
+/// (empty) OR the graph is clean (no unsynced Python-dict mutations) AND every
+/// inner edge attr value is a faithful scalar (Int/Float/Bool). A String/Map
+/// value on a non-pristine graph is ambiguous — the py->inner boundary coerces
+/// None/list/dict/objects to their repr/JSON String, indistinguishable from a
+/// genuine str. br-r37-c1-41boc/w868y sibling: lets `_native_compose` skip the
+/// per-edge Python-dict mirror copy (relying on the inner-store edge batch +
+/// extend_edges_with_attrs_unrecorded's merge) when both factors qualify.
+pub(crate) fn graph_edge_store_scalar_readable(pg: &PyGraph) -> bool {
+    if pg.edge_py_attrs.is_empty() {
+        return true;
+    }
+    if pg.edges_dirty.load(Ordering::Relaxed) {
+        return false;
+    }
+    // No-alloc scan over the inner edge store (not edges_ordered_borrowed, which
+    // builds an O(E) dedup HashMap — that overhead diluted the win and taxed the
+    // non-scalar fallback).
+    pg.inner.all_edge_attr_values_scalar()
+}
+
 pub(crate) const fn compatibility_mode_name(mode: CompatibilityMode) -> &'static str {
     match mode {
         CompatibilityMode::Strict => "strict",
@@ -12533,6 +12555,17 @@ impl PyGraph {
         merged_graph_attrs.update(self.graph_attrs.bind(py).as_mapping())?;
         merged_graph_attrs.update(other.graph_attrs.bind(py).as_mapping())?;
         g.graph_attrs = merged_graph_attrs.unbind();
+        // br-r37-c1 compose store-read: when BOTH factors' edge stores are
+        // authoritative + all-scalar, the inner edge batch below (whose
+        // extend_edges_with_attrs_unrecorded MERGES duplicate edges, exactly
+        // nx.compose's H-wins-on-overlap semantics) reproduces every edge attr
+        // losslessly — so the per-edge Python-dict mirror COPY (String edge_key
+        // build + dict.copy/update per edge, the ~0.62x cost) is redundant and
+        // the result's edge mirror can stay lazy. Gate on BOTH parts (a mixed
+        // pristine/non-pristine pair would leave the result mirror inconsistent
+        // with inner on overlap edges).
+        let both_edge_stores_readable =
+            graph_edge_store_scalar_readable(self) && graph_edge_store_scalar_readable(&other);
         for (part_idx, part) in [self, &*other].into_iter().enumerate() {
             let nodes = part.inner.nodes_ordered();
             // node index map: lets the per-walk edge dedup run on (usize,
@@ -12546,12 +12579,18 @@ impl PyGraph {
                 Vec::with_capacity(nodes.len());
             for (i, node) in nodes.iter().enumerate() {
                 if let Some(attrs) = part.node_py_attrs.get(*node) {
-                    if let Some(existing) = g.node_py_attrs.get(*node) {
-                        // overlap: later graph's values win (dict update)
-                        existing.bind(py).update(attrs.bind(py).as_mapping())?;
-                    } else {
-                        g.node_py_attrs
-                            .insert((*node).to_owned(), attrs.bind(py).copy()?.unbind());
+                    // add_edge eagerly materializes an EMPTY node mirror dict for
+                    // every endpoint; skip those (nothing to merge, result reads
+                    // the inner node_batch), keeping the result node mirror lazy.
+                    let bound = attrs.bind(py);
+                    if !bound.is_empty() {
+                        if let Some(existing) = g.node_py_attrs.get(*node) {
+                            // overlap: later graph's values win (dict update)
+                            existing.bind(py).update(bound.as_mapping())?;
+                        } else {
+                            g.node_py_attrs
+                                .insert((*node).to_owned(), bound.copy()?.unbind());
+                        }
                     }
                 }
                 if let std::collections::hash_map::Entry::Vacant(e) =
@@ -12607,7 +12646,11 @@ impl PyGraph {
                     }
                     // attr-less fast path: no mirror lookups or edge_key
                     // String allocs when the source carries no edge mirrors.
-                    if !part.edge_py_attrs.is_empty()
+                    // clean-scalar fast path: when both stores are authoritative,
+                    // skip the per-edge Python-dict copy — the inner edge batch +
+                    // merge already carries every (scalar) attr losslessly.
+                    if !both_edge_stores_readable
+                        && !part.edge_py_attrs.is_empty()
                         && let Some(attrs) = part
                             .edge_py_attrs
                             .get(&Self::edge_key(u, v))

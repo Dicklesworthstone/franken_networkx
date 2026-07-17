@@ -1008,6 +1008,25 @@ impl Graph {
         self.edges.values().any(|attrs| attrs.contains_key(key))
     }
 
+    /// True if EVERY inner edge attr value is a faithful scalar (Int/Float/Bool)
+    /// — a String/Map value is a coerced non-scalar (repr/JSON) or genuine str,
+    /// ambiguous for lossless cloning. Direct no-alloc scan over the edge store
+    /// values (contrast `edges_ordered_borrowed`, which builds an O(E) dedup
+    /// HashMap). Used by the compose store-read gate.
+    #[must_use]
+    pub fn all_edge_attr_values_scalar(&self) -> bool {
+        self.edges.values().all(|attrs| {
+            attrs.values().all(|v| {
+                matches!(
+                    v,
+                    fnx_runtime::CgseValue::Int(_)
+                        | fnx_runtime::CgseValue::Float(_)
+                        | fnx_runtime::CgseValue::Bool(_)
+                )
+            })
+        })
+    }
+
     /// br-r37-c1-hasanyattrlazyfix: does ANY node carry a Python-visible attr, per the
     /// authoritative inner storage (not the lazy `node_py_attrs` mirror)?
     #[must_use]
