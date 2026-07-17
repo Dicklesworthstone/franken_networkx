@@ -11373,8 +11373,33 @@ impl PyDiGraph {
         // empty iff its mirror dict is empty). Any non-empty mirror dict (a real
         // attr, possibly an unsynced post-creation mutation) falls back to the
         // proven per-edge rebuild below.
-        let mirrors_all_empty = self.node_py_attrs.values().all(|d| d.bind(py).is_empty())
-            && self.edge_py_attrs.values().all(|d| d.bind(py).is_empty());
+        // Node attrs have NO dirty bit, so a materialized non-empty node dict may
+        // be an unsynced mutation the inner store misses -> keep the strict
+        // all-empty gate for nodes.
+        let node_mirrors_empty = self.node_py_attrs.values().all(|d| d.bind(py).is_empty());
+        // Edge attrs DO have a dirty bit. br-r37-c1-41boc (products) insight: even
+        // with a materialized edge mirror, when the graph is CLEAN (no unsynced
+        // Python-dict mutations) AND every inner edge attr value is a faithful
+        // scalar (Int/Float/Bool), the inner store is authoritative and
+        // `reversed()` transposes it losslessly. A String/Map value is ambiguous
+        // (the py->inner boundary coerces None/list/dict to their repr/JSON String,
+        // indistinguishable from a genuine str) so it keeps the per-edge rebuild.
+        let edge_store_authoritative = self
+            .edge_py_attrs
+            .values()
+            .all(|d| d.bind(py).is_empty())
+            || (!self.edges_dirty.load(Ordering::Relaxed)
+                && self.inner.edges_ordered_borrowed().iter().all(|(_, _, attrs)| {
+                    attrs.values().all(|v| {
+                        matches!(
+                            v,
+                            fnx_runtime::CgseValue::Int(_)
+                                | fnx_runtime::CgseValue::Float(_)
+                                | fnx_runtime::CgseValue::Bool(_)
+                        )
+                    })
+                }));
+        let mirrors_all_empty = node_mirrors_empty && edge_store_authoritative;
         if mirrors_all_empty {
             let mut rev = Self {
                 inner: self.inner.reversed(),
