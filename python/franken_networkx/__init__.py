@@ -301,7 +301,11 @@ def _digraph_in_edges(self, nbunch=None, data=False, default=None):
             native = getattr(self, "_native_in_edges_nbunch_data_key", None)
         if native is not None:
             try:
-                if data is False or data is True:
+                if data is True:
+                    # br in_edges nbunch-data cache: mirror the out_edges cache so
+                    # the directed pair matches (was 0.68x on the repeated view).
+                    result = _digraph_in_edges_data_cache(self, nbunch, native)
+                elif data is False:
                     result = native(nbunch)
                 else:
                     result = native(nbunch, data, default)
@@ -721,6 +725,27 @@ def _digraph_out_edges_data_cache(graph, nbunch, native, *native_args):
     result = native(nbunch, *native_args)
     if result is not None and key is not None:
         graph._fnx_out_edges_nbunch_data_cache = (key, tuple(result))
+    return result
+
+
+def _digraph_in_edges_data_cache(graph, nbunch, native, *native_args):
+    # br in_edges nbunch-data cache: pred-major mirror of
+    # _digraph_out_edges_data_cache. in_edges(nbunch, data=True) had NO cache while
+    # out_edges did, so the directed pair diverged (in 0.68x vs out ~7x on the
+    # repeated-view pattern). Same last-(nbunch, result) memo keyed on
+    # (nodes_seq, edges_seq, nbunch) — any structural mutation invalidates it, and
+    # the cached tuple holds the SAME live attr-dict objects the native returns, so
+    # post-capture attr mutations stay reflected (nx EdgeDataView live semantics).
+    key = _primitive_nbunch_cache_key(graph, nbunch)
+    if key is not None and native_args:
+        key = (*key, *native_args)
+    if key is not None:
+        cached = getattr(graph, "_fnx_in_edges_nbunch_data_cache", None)
+        if cached is not None and cached[0] == key:
+            return list(cached[1])
+    result = native(nbunch, *native_args)
+    if result is not None and key is not None:
+        graph._fnx_in_edges_nbunch_data_cache = (key, tuple(result))
     return result
 
 
