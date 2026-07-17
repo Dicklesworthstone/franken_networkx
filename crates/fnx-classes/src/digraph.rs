@@ -687,6 +687,24 @@ impl DiGraph {
         self.edges.values().any(|attrs| attrs.contains_key(key))
     }
 
+    /// Directed twin of `Graph::all_edge_attr_values_scalar`: true if EVERY inner
+    /// edge attr value is a faithful scalar (Int/Float/Bool). No-alloc scan over
+    /// the edge store values — contrast `edges_ordered_borrowed`, which allocates
+    /// an O(E) Vec and resolves node names per edge. Used by the reverse gate.
+    #[must_use]
+    pub fn all_edge_attr_values_scalar(&self) -> bool {
+        self.edges.values().all(|attrs| {
+            attrs.values().all(|v| {
+                matches!(
+                    v,
+                    fnx_runtime::CgseValue::Int(_)
+                        | fnx_runtime::CgseValue::Float(_)
+                        | fnx_runtime::CgseValue::Bool(_)
+                )
+            })
+        })
+    }
+
     /// br-r37-c1-hasanyattrlazyfix: any node / any edge carries a Python-visible attr per
     /// the authoritative inner storage (not the lazy `*_py_attrs` mirrors).
     #[must_use]

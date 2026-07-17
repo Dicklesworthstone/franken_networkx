@@ -11389,16 +11389,9 @@ impl PyDiGraph {
             .values()
             .all(|d| d.bind(py).is_empty())
             || (!self.edges_dirty.load(Ordering::Relaxed)
-                && self.inner.edges_ordered_borrowed().iter().all(|(_, _, attrs)| {
-                    attrs.values().all(|v| {
-                        matches!(
-                            v,
-                            fnx_runtime::CgseValue::Int(_)
-                                | fnx_runtime::CgseValue::Float(_)
-                                | fnx_runtime::CgseValue::Bool(_)
-                        )
-                    })
-                }));
+                // no-alloc scan (not edges_ordered_borrowed, whose O(E) Vec +
+                // per-edge node-name resolution diluted the reverse win at scale).
+                && self.inner.all_edge_attr_values_scalar());
         let mirrors_all_empty = node_mirrors_empty && edge_store_authoritative;
         if mirrors_all_empty {
             let mut rev = Self {
