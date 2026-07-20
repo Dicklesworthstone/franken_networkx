@@ -15,7 +15,10 @@ ftui-integration = ["dep:ftui"]
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 asupersync = { version = "0.3.4", optional = true, default-features = false }
-ftui = { path = "/dp/frankentui/crates/ftui", version = "0.5.0", optional = true, default-features = false }
+# Registry dependency so clean checkouts resolve without the author's local
+# /dp/frankentui sibling (GH #2). For local frankentui development, use an
+# untracked .cargo/config.toml with [patch.crates-io] ftui = { path = ... }.
+ftui = { version = "0.5.0", optional = true, default-features = false }
 
 [[bin]]
 name = "cgse_policy_bench"
