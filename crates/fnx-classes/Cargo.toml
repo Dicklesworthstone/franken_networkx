@@ -12,5 +12,12 @@ indexmap = "2.14.0"
 rustc-hash = "2"
 serde = { version = "1.0.228", features = ["derive"] }
 
+[features]
+# br-r37-c1-thp6w S5: index-keyed MultiGraph storage prototype (parity-gated
+# scaffolding for the d58s8-pattern storage flip). Off by default; the module
+# is also compiled under cfg(test) so the parity gates and the kernel A/B run
+# in the normal test suite.
+mg-int-storage-proto = []
+
 [dev-dependencies]
 proptest = "1.11.0"

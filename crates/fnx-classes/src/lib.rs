@@ -2330,6 +2330,151 @@ enum IntAdjEdgeDelta<'a> {
     },
 }
 
+/// br-r37-c1-thp6w S5 (`feature = "mg-int-storage-proto"`): index-keyed
+/// MultiGraph storage prototype — the d58s8-pattern layout the storage-flip
+/// epoch targets. The String adjacency rows and String-pair edge keys are
+/// replaced by node-index forms; the String node-name table remains the only
+/// String storage (exactly as in the flipped simple `Graph`). This module is
+/// parity-gated scaffolding, NOT production storage: the gates prove the
+/// index layout derives byte-identical observable orderings (node order,
+/// per-row distinct-neighbor order, per-pair key order) from the same insert
+/// stream, and the paired A/B measures the pure storage-representation tax
+/// the flip removes. Compiled under cfg(test) so the gates run in the normal
+/// suite; the cargo feature exposes it to sibling crates for benches.
+#[cfg(any(test, feature = "mg-int-storage-proto"))]
+pub mod mg_int_storage_proto {
+    use super::AttrMap;
+    use indexmap::{IndexMap, IndexSet};
+
+    /// Index-keyed analog of the MultiGraph storage core. Internal pair
+    /// canonicalization is (min_idx, max_idx) — deliberately DIFFERENT from
+    /// the String-lex `EdgeKey` canonical ("10" < "2" lex, 2 < 10 numeric) —
+    /// because pair-key orientation is never observable: every public
+    /// ordering derives from the rows walk + per-cell key sets, which the
+    /// parity gates pin byte-for-byte.
+    #[derive(Debug, Default)]
+    pub struct MgIntStorageProto {
+        /// Node names in insertion order (the surviving String table).
+        pub node_names: Vec<String>,
+        /// name -> index resolution (the `nodes` map analog).
+        pub node_index: IndexMap<String, usize, rustc_hash::FxBuildHasher>,
+        /// node idx -> distinct-neighbor idx -> parallel-edge key set,
+        /// insertion-ordered exactly like the String rows.
+        pub rows: Vec<IndexMap<usize, IndexSet<usize>>>,
+        /// (min_idx, max_idx) -> key -> attrs.
+        pub edges: IndexMap<(usize, usize), IndexMap<usize, AttrMap>, rustc_hash::FxBuildHasher>,
+        pub edge_count: usize,
+    }
+
+    impl MgIntStorageProto {
+        #[must_use]
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        fn ensure_node(&mut self, name: &str) -> usize {
+            if let Some(&idx) = self.node_index.get(name) {
+                return idx;
+            }
+            let idx = self.node_names.len();
+            self.node_names.push(name.to_owned());
+            self.node_index.insert(name.to_owned(), idx);
+            self.rows.push(IndexMap::new());
+            idx
+        }
+
+        /// Mirror of `MultiGraph::extend_keyed_edges_with_attrs_unrecorded`'s
+        /// per-edge storage ops: endpoint nodes created on demand, an existing
+        /// (pair, key) cell merges attrs, new cells count toward `edge_count`.
+        pub fn add_keyed_edge(&mut self, left: &str, right: &str, key: usize, attrs: AttrMap) {
+            let l = self.ensure_node(left);
+            let r = if left == right {
+                l
+            } else {
+                self.ensure_node(right)
+            };
+            let pair = (l.min(r), l.max(r));
+            let bucket = self.edges.entry(pair).or_default();
+            if !bucket.contains_key(&key) {
+                self.edge_count += 1;
+            }
+            bucket.entry(key).or_default().extend(attrs);
+            self.rows[l].entry(r).or_default().insert(key);
+            if l != r {
+                self.rows[r].entry(l).or_default().insert(key);
+            }
+        }
+
+        /// Mirror of `MultiGraph::extend_fresh_int_prefix_keyed_edges_unrecorded`
+        /// for the A/B: same node-name String table build (fairness — the name
+        /// table survives the flip), then pure index-keyed edge inserts with no
+        /// String clone/hash per edge.
+        #[must_use]
+        pub fn bulk_load_int_prefix<I>(node_count: usize, edges: I) -> Self
+        where
+            I: IntoIterator<Item = (usize, usize, usize)>,
+        {
+            let iterator = edges.into_iter();
+            let (lower_bound, _) = iterator.size_hint();
+            let mut proto = Self::new();
+            proto.node_names.reserve(node_count);
+            proto.node_index.reserve(node_count);
+            proto.rows.reserve(node_count);
+            proto.edges.reserve(lower_bound);
+            for node in 0..node_count {
+                let name = node.to_string();
+                proto.node_names.push(name.clone());
+                proto.node_index.insert(name, node);
+                proto.rows.push(IndexMap::new());
+            }
+            for (left_idx, right_idx, key) in iterator {
+                debug_assert!(left_idx < node_count);
+                debug_assert!(right_idx < node_count);
+                let pair = (left_idx.min(right_idx), left_idx.max(right_idx));
+                proto
+                    .edges
+                    .entry(pair)
+                    .or_default()
+                    .insert(key, AttrMap::new());
+                proto.rows[left_idx]
+                    .entry(right_idx)
+                    .or_default()
+                    .insert(key);
+                if left_idx != right_idx {
+                    proto.rows[right_idx]
+                        .entry(left_idx)
+                        .or_default()
+                        .insert(key);
+                }
+                proto.edge_count += 1;
+            }
+            proto
+        }
+
+        /// Distinct neighbors of node `i` as names, in row order.
+        #[must_use]
+        pub fn neighbor_names(&self, i: usize) -> Vec<&str> {
+            self.rows[i]
+                .keys()
+                .map(|&j| self.node_names[j].as_str())
+                .collect()
+        }
+
+        /// Parallel-edge key order for the (left, right) pair, `edge_keys_vec` analog.
+        #[must_use]
+        pub fn key_order(&self, left: &str, right: &str) -> Vec<usize> {
+            let (Some(&l), Some(&r)) = (self.node_index.get(left), self.node_index.get(right))
+            else {
+                return Vec::new();
+            };
+            self.edges
+                .get(&(l.min(r), l.max(r)))
+                .map(|bucket| bucket.keys().copied().collect())
+                .unwrap_or_default()
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MultiGraph {
     mode: CompatibilityMode,
@@ -4484,6 +4629,195 @@ mod tests {
             "remove_node stays invalidate-only; a warm memo here would serve stale indices"
         );
         assert_int_adjacency_matches(&g);
+    }
+
+    /// br-r37-c1-thp6w S5 PARITY GATES: the index-keyed prototype must derive
+    /// byte-identical observable orderings (node order, per-row distinct-
+    /// neighbor order, per-pair parallel-key order) and identical edge count +
+    /// merged attrs from the same insert stream as the real String-keyed
+    /// MultiGraph batch path. The stream deliberately includes names where
+    /// String-lex and index canonicalization DIVERGE ("10" < "2" lex, 2 < 10
+    /// numeric), reversed re-adds, self-loops, sparse explicit keys, dup
+    /// (pair, key) attr merges, and late out-of-order node introduction.
+    #[test]
+    fn thp6w_s5_int_storage_proto_parity_gates() {
+        use super::mg_int_storage_proto::MgIntStorageProto;
+
+        let stream: Vec<(&str, &str, usize)> = vec![
+            ("2", "10", 0),
+            ("10", "2", 1), // reversed orientation, same pair, next key
+            ("1", "1", 0),  // self-loop on a fresh node
+            ("2", "3", 0),
+            ("3", "2", 0), // dup (pair, key) from the reverse orientation -> attr merge
+            ("10", "1", 5), // sparse explicit key
+            ("0", "2", 0), // node "0" introduced late (insertion order != numeric)
+            ("2", "10", 1), // dup (pair, key) again -> attr merge
+            ("4", "5", 2),
+            ("5", "4", 0), // parallel keys, both orientations
+            ("1", "1", 1), // parallel self-loop key
+        ];
+        let attrs_for = |i: usize| {
+            let mut attrs = AttrMap::new();
+            attrs.insert(
+                format!("a{}", i % 3),
+                fnx_runtime::CgseValue::Int(i64::try_from(i).unwrap()),
+            );
+            attrs
+        };
+
+        let mut mg = MultiGraph::strict();
+        let _ = mg.extend_keyed_edges_with_attrs_unrecorded(
+            stream
+                .iter()
+                .enumerate()
+                .map(|(i, (l, r, k))| ((*l).to_owned(), (*r).to_owned(), *k, attrs_for(i))),
+        );
+        let mut proto = MgIntStorageProto::new();
+        for (i, (l, r, k)) in stream.iter().enumerate() {
+            proto.add_keyed_edge(l, r, *k, attrs_for(i));
+        }
+
+        // Gate 1: node insertion order.
+        assert_eq!(
+            proto
+                .node_names
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            mg.nodes_ordered(),
+            "node order must match"
+        );
+        // Gate 2 + 3: per-row distinct-neighbor order and per-pair key order.
+        for (i, name) in mg.nodes_ordered().iter().enumerate() {
+            let mg_row: Vec<&str> = mg
+                .neighbors_iter(name)
+                .map_or_else(Vec::new, Iterator::collect);
+            assert_eq!(proto.neighbor_names(i), mg_row, "row order for node {name}");
+            for v in &mg_row {
+                assert_eq!(
+                    proto.key_order(name, v),
+                    mg.edge_keys_vec(name, v),
+                    "key order for pair ({name}, {v})"
+                );
+            }
+        }
+        // Gate 4: edge count.
+        assert_eq!(proto.edge_count, mg.edge_count(), "edge_count must match");
+        // Gate 5: merged attrs on a dup-inserted cell ((2,10) key 1 saw inserts
+        // at stream positions 1 and 7 -> extend semantics on both sides).
+        let (Some(&l), Some(&r)) = (proto.node_index.get("2"), proto.node_index.get("10")) else {
+            panic!("proto lost nodes");
+        };
+        let proto_attrs = proto.edges[&(l.min(r), l.max(r))]
+            .get(&1)
+            .expect("proto (2,10,1) cell");
+        assert_eq!(
+            Some(proto_attrs),
+            mg.edge_attrs("2", "10", 1),
+            "merged attrs on the dup (pair, key) cell must match"
+        );
+    }
+
+    /// br-r37-c1-thp6w S5 A/B: pure storage-representation tax of the String-
+    /// keyed MultiGraph core vs the index-keyed prototype layout, on the SAME
+    /// pre-resolved (u_idx, v_idx, key) stream via the SAME-shape bulk loaders
+    /// (`extend_fresh_int_prefix_keyed_edges_unrecorded` vs
+    /// `bulk_load_int_prefix`) — no canonicalization, no Python boundary, no
+    /// per-edge ledger in either arm. Paired-interleaved (current, proto,
+    /// current-null per round), medians over 9 rounds.
+    /// `cargo test --release -p fnx-classes --lib thp6w_s5_int_storage_construction_ab -- --ignored --nocapture`
+    #[test]
+    #[ignore = "paired A/B benchmark; run --release with --ignored --nocapture"]
+    fn thp6w_s5_int_storage_construction_ab() {
+        use super::mg_int_storage_proto::MgIntStorageProto;
+        use std::collections::HashMap;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn push_edge(
+            stream: &mut Vec<(usize, usize, usize)>,
+            key_counter: &mut HashMap<(usize, usize), usize>,
+            u: usize,
+            v: usize,
+        ) {
+            let entry = key_counter.entry((u.min(v), u.max(v))).or_insert(0);
+            stream.push((u, v, *entry));
+            *entry += 1;
+        }
+
+        let n = 20000usize;
+        let mut stream = Vec::new();
+        let mut key_counter = HashMap::new();
+        for i in 0..n {
+            push_edge(&mut stream, &mut key_counter, i, (i + 1) % n);
+        }
+        // Deterministic LCG chords (incl. incidental self-loops) + explicit parallels.
+        let mut state = 0x2545_F491_4F6C_DD1D_u64;
+        let draw = |state: &mut u64| -> usize {
+            *state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            usize::try_from(*state >> 33).unwrap() % n
+        };
+        for _ in 0..3 * n {
+            let u = draw(&mut state);
+            let v = draw(&mut state);
+            push_edge(&mut stream, &mut key_counter, u, v);
+        }
+        for i in (0..2000).step_by(2) {
+            push_edge(&mut stream, &mut key_counter, i, i + 1);
+        }
+
+        let time_current = |stream: &[(usize, usize, usize)]| -> f64 {
+            let t0 = Instant::now();
+            let mut g = MultiGraph::strict();
+            let _ = g.extend_fresh_int_prefix_keyed_edges_unrecorded(n, stream.iter().copied());
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(&g);
+            dt
+        };
+        let time_proto = |stream: &[(usize, usize, usize)]| -> f64 {
+            let t0 = Instant::now();
+            let proto = MgIntStorageProto::bulk_load_int_prefix(n, stream.iter().copied());
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(&proto);
+            dt
+        };
+
+        // Structural agreement between the two arms (once, outside timing):
+        // the real store's derived integer rows must equal the proto rows.
+        let mut g = MultiGraph::strict();
+        let _ = g.extend_fresh_int_prefix_keyed_edges_unrecorded(n, stream.iter().copied());
+        let proto = MgIntStorageProto::bulk_load_int_prefix(n, stream.iter().copied());
+        g.with_int_adjacency(|adj| {
+            for (i, row) in adj.iter().enumerate() {
+                let proto_row: Vec<usize> = proto.rows[i].keys().copied().collect();
+                assert_eq!(row, &proto_row, "derived integer row {i} must agree");
+            }
+        });
+        assert_eq!(
+            proto.edge_count,
+            g.edge_count(),
+            "A/B arms built different graphs"
+        );
+
+        let median = |samples: &mut Vec<f64>| -> f64 {
+            samples.sort_by(f64::total_cmp);
+            samples[samples.len() / 2]
+        };
+        let (mut cur, mut pro, mut nul) = (Vec::new(), Vec::new(), Vec::new());
+        for _ in 0..9 {
+            cur.push(time_current(&stream));
+            pro.push(time_proto(&stream));
+            nul.push(time_current(&stream));
+        }
+        let (mc, mp, mn) = (median(&mut cur), median(&mut pro), median(&mut nul));
+        println!(
+            "THP6W_S5_AB n={n} m={} current={mc:.6}s proto={mp:.6}s ratio_current_over_proto={:.3} null_current_over_current={:.3}",
+            stream.len(),
+            mc / mp,
+            mc / mn,
+        );
     }
 
     #[test]

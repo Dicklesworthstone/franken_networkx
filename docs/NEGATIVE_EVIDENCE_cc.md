@@ -9029,3 +9029,39 @@ change (verified: both regions exist in HEAD 8b7dff824's lib.rs). Filed as a sep
 fixed in the S4 commit (one lever per commit). Python-level after-measurement of cc_cold remains
 BLOCKED on the stale local crates.io index (maturin builds locally only); the before-numbers and
 the monotone-safety argument are recorded above — re-measure cc_cold when a fresh .so lands.
+
+## 2026-07-22 SnowyBadger (cc) KEEP (thp6w S5): index-keyed MultiGraph storage prototype — the String-row/key tax is 1.65x of the store build, parity gates all green
+
+The storage-flip epoch's first measured justification. Behind `fnx-classes` cargo feature
+`mg-int-storage-proto` (+ cfg(test)): `MgIntStorageProto` — the d58s8-pattern MG layout
+(`rows: Vec<IndexMap<usize, IndexSet<usize>>>`, edges keyed `(min_idx, max_idx)`, String node-name
+table retained) with insert semantics mirroring `extend_keyed_edges_with_attrs_unrecorded`.
+
+**PARITY GATES (all green, 79/79 suite):** from one shared insert stream containing lex-vs-numeric
+divergent names ("10" < "2" lex, 2 < 10 numeric — the internal canonicalization DIVERGES by design),
+reversed re-adds, self-loops, sparse explicit keys, dup-(pair,key) attr merges, late node
+introduction: node order, per-row distinct-neighbor order, per-pair parallel-key order, edge_count,
+and merged cell attrs are all byte-identical to the real String-keyed MultiGraph. Pair-key
+orientation is NOT observable (every public ordering derives from the rows walk + key sets), so
+(min_idx,max_idx) internal canonical is parity-safe. Tie-break risk of the flip: LOW on these axes;
+snapshot/pickle orientation derivation (`edge_index_endpoints` analog) is the remaining axis to gate
+in the real flip.
+
+**A/B (pure storage tax, same-worker paired-interleaved, 9 rounds, release):** current store's BEST
+case (`extend_fresh_int_prefix_keyed_edges_unrecorded` — indices pre-resolved, no canonicalization,
+no per-edge ledger) vs `bulk_load_int_prefix` on the identical (u,v,key) stream, n=20000 m=81000
+(cycle + LCG chords + parallels + self-loops), structural-agreement asserts inside the test:
+run 1 `current 85.6ms / proto 52.0ms = 1.645x (null 0.976)`; run 2 `84.8ms / 51.3ms = 1.653x
+(null 1.003)`. VERDICT: the String rows + String pair keys cost ~39% of the store build even with
+canonicalization already paid; the flip recovers **1.65x kernel-level** on batch construction and
+compounds with hash-free row reads everywhere else. The proto's 52ms residual is the nested-bucket
+alloc floor (per-pair `IndexMap<usize, AttrMap>` + per-cell `IndexSet<usize>`, singleton in the
+common case) — NEXT measured sub-target of the flip design: a compact One/Many bucket enum, measure
+before building.
+
+**Epoch slice plan (updated):** S5 (this) = layout + gates + measured justification. S6 = compact
+bucket A/B on the same harness. S7+ = the real flip slice-by-slice (rows first, edges map second,
+snapshot/pickle orientation gates, node-removal renumber last — Graph's d58s8 remap as template).
+CAVEAT: final suite re-run after a one-token lint fix (`let mut draw` -> `let draw` in the ignored
+A/B) was blocked by renewed fleet saturation; the 79/79 green run covered all substantive code and
+the A/B ran green twice after that line existed. Re-confirm in the background/next session.
