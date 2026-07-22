@@ -149,6 +149,8 @@ struct ConstructionCopyWorkloads {
     nx_graph_iterator_attrs: Py<PyAny>,
     fnx_digraph_iterator_lists: Py<PyAny>,
     nx_digraph_iterator_lists: Py<PyAny>,
+    fnx_digraph_iterator_attrs: Py<PyAny>,
+    nx_digraph_iterator_attrs: Py<PyAny>,
     fnx_multigraph_iterator_lists: Py<PyAny>,
     nx_multigraph_iterator_lists: Py<PyAny>,
     fnx_multidigraph_iterator_lists: Py<PyAny>,
@@ -490,6 +492,8 @@ fnx_graph_iterator_attrs = lambda: fnx.Graph(iter(attr_edges))
 nx_graph_iterator_attrs = lambda: nx.Graph(iter(attr_edges))
 fnx_digraph_iterator_lists = lambda: fnx.DiGraph(iter(list_edges))
 nx_digraph_iterator_lists = lambda: nx.DiGraph(iter(list_edges))
+fnx_digraph_iterator_attrs = lambda: fnx.DiGraph(iter(attr_edges))
+nx_digraph_iterator_attrs = lambda: nx.DiGraph(iter(attr_edges))
 fnx_multigraph_iterator_lists = lambda: fnx.MultiGraph(iter(list_edges))
 nx_multigraph_iterator_lists = lambda: nx.MultiGraph(iter(list_edges))
 fnx_multidigraph_iterator_lists = lambda: fnx.MultiDiGraph(iter(list_edges))
@@ -524,6 +528,8 @@ nx_multidigraph_iterator_keyed = lambda: nx.MultiDiGraph(iter(keyed_edges))
         nx_graph_iterator_attrs: callable("nx_graph_iterator_attrs")?,
         fnx_digraph_iterator_lists: callable("fnx_digraph_iterator_lists")?,
         nx_digraph_iterator_lists: callable("nx_digraph_iterator_lists")?,
+        fnx_digraph_iterator_attrs: callable("fnx_digraph_iterator_attrs")?,
+        nx_digraph_iterator_attrs: callable("nx_digraph_iterator_attrs")?,
         fnx_multigraph_iterator_lists: callable("fnx_multigraph_iterator_lists")?,
         nx_multigraph_iterator_lists: callable("nx_multigraph_iterator_lists")?,
         fnx_multidigraph_iterator_lists: callable("fnx_multidigraph_iterator_lists")?,
@@ -2443,6 +2449,16 @@ fn construction_copy_head_to_head(c: &mut Criterion) {
         &mut group,
         "nx_digraph_iterator_lists_e20000",
         &workloads.nx_digraph_iterator_lists,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_digraph_iterator_attrs_e20000",
+        &workloads.fnx_digraph_iterator_attrs,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_digraph_iterator_attrs_e20000",
+        &workloads.nx_digraph_iterator_attrs,
     );
     bench_python_callable(
         &mut group,

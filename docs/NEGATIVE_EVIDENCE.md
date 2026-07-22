@@ -23535,3 +23535,59 @@ stable null floor. Do not apply it to caller-owned list/tuple dictionaries.
 The next constructor lever must attack the still-open public attributed-
 iterator loss on an `ovh-b`-class worker through a different measured primitive,
 not another mirror-copy variant.
+
+## 2026-07-22 WhiteJaguar BLOCKED (`DiGraph(iterator)` attrs): affine private-snapshot transfer could not clear the CV gate (`br-r37-c1-04z53.9179`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: both required ledgers and recent
+Git history were searched before editing. The older attributed-DiGraph batch
+family permits a retry only when a fresh profile points to source `PyDict`
+handles plus Rust attrs. That predicate held: the 20,000-edge three-attribute
+head-to-head row and source attribution showed that the transactional iterator
+decoder creates a private shallow dictionary snapshot, after which
+`PyDiGraph::collect_fresh_exact_int_attr_edge_batch` immediately copies it a
+second time to retain Python insertion order. The earlier DiGraph row-key probe
+elision and cc-owned MultiGraph integer-adjacency/AVX2 work were not touched.
+
+CURRENT-HEAD FRONTIER: the new Criterion row
+`fnx_digraph_iterator_attrs_e20000` ran through strict RCH on actual worker
+`ovh-b`: FNX `[65.500, 66.420, 67.449] ms`, NetworkX
+`[63.236, 66.516, 70.401] ms`, nominal **`1.0014x`** at the point estimates.
+The measured source seam was therefore relevant to a realistic tied frontier,
+not a synthetic-only path.
+
+PROTOTYPE / EXACTNESS: one affine-ownership lever threaded a private-snapshot
+certificate only from `PyDiGraph::new` into the fresh exact-int attributed
+collector. True iterators could transfer the already-private snapshot into the
+ordered mirror; public list/tuple batches kept the protective second copy. A
+same-binary test asserted exact native `DiGraph::snapshot()` equality, node-map
+and mirror cardinality equality, and byte-identical `repr` for every ordered
+edge dictionary before every timed series. Those assertions passed in all
+three runs. The production and test prototype were manually removed after the
+measurement gate failed; `main` retains only the head-to-head row and evidence.
+
+SAME-BINARY INTERLEAVED A/B + NULL: the release binary was built by strict RCH
+job `j-29942429901652354` on actual worker `vmi1227854`, then every series ran
+that exact binary on CPU 4. Each sample performed 32 complete 10,000-edge
+materialize-and-build operations; 21 pairs alternated order. All three attempts
+were directionally positive, but every attempt violated the mandatory
+**CV < 5% for both candidate and null** rule and is inadmissible as KEEP
+evidence.
+
+| attempt | frozen copy / transfer median | wins | candidate CV | candidate p5-p95 | transfer / transfer null | null wins | null CV | null p5-p95 |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | `1.1208x` | `20/21` | `6.749%` | `1.0359x-1.2551x` | `1.0101x` | `13/21` | `8.225%` | `0.8485x-1.0912x` |
+| 2 | `1.1333x` | `21/21` | `5.147%` | `1.0406x-1.1798x` | `0.9795x` | `7/21` | `6.314%` | `0.8719x-1.0851x` |
+| 3 | `1.1364x` | `21/21` | `7.139%` | `1.0290x-1.2467x` | `0.9979x` | `10/21` | `8.110%` | `0.9095x-1.1638x` |
+
+BLOCKER / RETRY PREDICATE: this is **not a source REJECT**; the repeated
+`1.12x-1.14x` medians are encouraging, but the null proves the worker was too
+noisy for a valid verdict. Retry only when the actual RCH worker has no
+concurrent Cargo/rustc job and a one-minute load average below `2.0` on at least
+10 logical CPUs. Rebuild the same single-binary test with at least 64 complete
+constructions per sample, retain 21 alternating pairs, and require both the
+candidate and identical-arm null CVs below `5%` in the same invocation. KEEP
+only if exact snapshot/mirror assertions still pass and the candidate median
+exceeds both `1.05x` and the null median by at least `0.05x`; otherwise record a
+dated REJECT with the new numbers. Until that concrete predicate holds, do not
+restore the production prototype or treat any of the three noisy medians as a
+win.
