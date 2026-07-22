@@ -23454,3 +23454,84 @@ the added 65-line test and this lane.
 RESULT: KEEP. Transactional iterator decoding closes the constructor parity
 corpus, removes the Python normalization tax, preserves the keyed streaming
 guard, and leaves cc-owned integer-adjacency/AVX2 work untouched.
+
+## 2026-07-22 WhiteJaguar KEEP (`Graph(iterator)` attrs): affine transfer of private attribute snapshots — **1.1126x** (`br-r37-c1-04z53.9178`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: both required ledgers and recent
+Git history were searched before editing. `Graph.to_directed` was already
+ledger-CLOSED and recently shipped, so it was not reopened. The prior true-
+iterator work closed transactional decoding, while the older attributed-list
+batch keep copied caller-owned dictionaries intentionally. This new seam is
+specific to attributed true iterators: `normalize_ctor_edge_item` first creates
+a private shallow `PyDict` snapshot at yield time, then
+`collect_fresh_exact_int_attr_edge_batch` called
+`py_dict_to_attr_map_with_mirror`, copying that private snapshot a second time
+solely to retain Python insertion order. The selected alien primitive is
+affine/linear ownership transfer (`alien_cs_graveyard.md` section 5.3): move a
+uniquely owned staged object at commit instead of cloning it again.
+
+ONE LEVER: only the transactional true-iterator constructor passes an ownership
+certificate into the fresh exact-int attributed batch. For duplicate-free
+multi-attribute rows, the batch validates/builds the Rust `AttrMap` and transfers
+the already-private staged dict into `edge_py_attrs`. Public list/tuple
+`add_edges_from` and batch entry points pass false and retain their protective
+copy because callers still own those dictionaries. Duplicate merging,
+unsupported shapes, small batches, and every fallback keep their prior paths.
+The algorithm and steady-state representation are unchanged; this removes one
+O(attributes) shallow copy per eligible edge without adding storage.
+
+BASELINE / HEAD-TO-HEAD FRONTIER: the new 20,000-edge three-attribute Criterion
+row first ran on actual worker `vmi1149989` (the requested `hz2` hint did not
+hold): FNX `58.225 ms`, NetworkX `70.460 ms`, nominal **`1.210x`**. The final
+post-edit row ran in one CPU-4-affined process on actual worker `ovh-b`: FNX
+`63.703 ms`, NetworkX `49.748 ms`, **`0.781x`**. This cross-worker reversal is
+reported honestly and is not causal evidence for or against the source edit;
+the public attributed-iterator frontier remains open on `ovh-b`-class workers.
+
+SAME-WORKER INTERLEAVED A/B + NULL: job `j-29942429901652261`, ordinary release,
+actual worker `ovh-b`, CPU 4, one binary. Each sample performed 32 complete
+10,000-edge materialize-and-build operations; 21 pairs alternated order. The
+frozen arm retained the second mirror copy, the candidate transferred the
+private snapshot, and the null compared candidate with itself. Exact native
+snapshots, node-key cardinalities, mirror cardinalities, and every ordered
+Python edge-dict representation matched before timing.
+
+| same-binary arm | median ratio | wins | CV | p5-p95 | parity |
+|---|---:|---:|---:|---:|---:|
+| frozen second copy vs affine transfer | **`1.1126x`** | **`21/21`** | **`2.127%`** | `1.0686x-1.1531x` | exact |
+| affine transfer / affine transfer null | `0.9928x` | `8/21` | **`2.223%`** | `0.9678x-1.0194x` | identical arm |
+
+Two earlier 8-repetition measurements were discarded as inadmissible. They
+showed candidate/null CVs of `6.248%/4.673%` at medians `1.1124x/1.0236x`, then
+`5.160%/5.106%` at `1.0948x/1.0010x`; neither is KEEP evidence.
+
+BEHAVIOR ISOMORPHISM: the same-binary proof compared every retained ordered
+mirror and the native graph snapshot. The focused Python regression additionally
+locks NetworkX's alias contract: later top-level source-dict mutation is
+isolated, while nested values remain shallow-shared. This follows directly from
+the unchanged first snapshot; only its redundant second copy is removed.
+
+GATES / HONEST BLOCKERS: the release A/B test passed, targeted rustfmt,
+`git diff --check`, Python syntax compilation, and targeted Rust UBS (zero
+critical findings) passed. A strict-remote full `fnx-python` test run compiled
+successfully and reported 60 active passes, 33 ignored measurement tests, and
+one pre-existing failure: `graph_fresh_exact_int_attr_batch_keeps_attrs_with_lazy_mirrors`
+still expects lazy mirrors even though committed `4c6c1fc80e` deliberately
+retains ordered mirrors for dictionaries with at least two keys; this lever's
+false arm is byte-equivalent to that committed path. The focused pytest attempt
+correctly refused the stale extension. Strict RCH then rejected
+`maturin develop --features pyo3/abi3-py310` as a non-compilation command with
+`RCH-E301`, and fail-closed policy forbade local fallback. Behavior proof is
+therefore transitive and exact: the previously passed 48-outcome NetworkX
+iterator corpus certifies the frozen path, and the new same-binary candidate
+matches that frozen path's native snapshot and every ordered attribute mirror.
+The mandatory all-staged-files UBS invocation also ran; its nonzero status came
+from 14 pre-existing whole-file Python heuristics (test-only `pickle.loads` and
+variables named `*_sig` compared for parity), all outside the added 27-line
+alias-contract test. The changed Rust files still reported zero critical issues.
+
+RESULT: KEEP the affine transfer as a measured **1.1126x** self-speedup above a
+stable null floor. Do not apply it to caller-owned list/tuple dictionaries.
+The next constructor lever must attack the still-open public attributed-
+iterator loss on an `ovh-b`-class worker through a different measured primitive,
+not another mirror-copy variant.

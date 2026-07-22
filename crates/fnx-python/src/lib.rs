@@ -2300,6 +2300,7 @@ impl PyGraph {
         py: Python<'py>,
         items: I,
         len: usize,
+        reuse_materialized_dict_as_mirror: bool,
     ) -> PyResult<Option<IndexedAttrEdgeBatch>>
     where
         I: IntoIterator<Item = Bound<'py, PyAny>>,
@@ -2357,10 +2358,23 @@ impl PyGraph {
             // edges(data)/get_edge_data preserve nx insertion order (the BTreeMap store
             // sorts keys). Single-key/empty dicts have no order to preserve.
             let (attrs, mirror) = if dict.len() >= 2 {
-                let Ok((attrs, m)) = py_dict_to_attr_map_with_mirror(py, dict) else {
-                    return Ok(None);
-                };
-                (attrs, Some(m))
+                if reuse_materialized_dict_as_mirror {
+                    // br-r37-c1-04z53.9178: the true-iterator decoder created
+                    // this shallow snapshot privately for this construction.
+                    // Transfer that affine-owned dict into the ordered mirror
+                    // instead of immediately copying it a second time. Public
+                    // list/tuple batches pass false because callers still own
+                    // their dictionaries.
+                    let Ok(attrs) = py_dict_to_attr_map(dict) else {
+                        return Ok(None);
+                    };
+                    (attrs, Some(dict.clone().unbind()))
+                } else {
+                    let Ok((attrs, m)) = py_dict_to_attr_map_with_mirror(py, dict) else {
+                        return Ok(None);
+                    };
+                    (attrs, Some(m))
+                }
             } else {
                 let Ok(attrs) = py_dict_to_attr_map(dict) else {
                     return Ok(None);
@@ -2652,6 +2666,7 @@ impl PyGraph {
         &mut self,
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
+        reuse_materialized_dict_as_mirror: bool,
     ) -> PyResult<bool> {
         const ATTR_EDGE_BATCH_MIN: usize = 8;
         if self.inner.node_count() != 0
@@ -2688,7 +2703,12 @@ impl PyGraph {
             ) {
                 self.collect_fresh_exact_int_attr_edge_batch_merged(py, list.iter(), list.len())?
             } else {
-                match self.collect_fresh_exact_int_attr_edge_batch(py, list.iter(), list.len())? {
+                match self.collect_fresh_exact_int_attr_edge_batch(
+                    py,
+                    list.iter(),
+                    list.len(),
+                    reuse_materialized_dict_as_mirror,
+                )? {
                     Some(batch) => Some(batch),
                     None => self.collect_fresh_exact_int_attr_edge_batch_merged(
                         py,
@@ -2710,7 +2730,12 @@ impl PyGraph {
             ) {
                 self.collect_fresh_exact_int_attr_edge_batch_merged(py, tuple.iter(), tuple.len())?
             } else {
-                match self.collect_fresh_exact_int_attr_edge_batch(py, tuple.iter(), tuple.len())? {
+                match self.collect_fresh_exact_int_attr_edge_batch(
+                    py,
+                    tuple.iter(),
+                    tuple.len(),
+                    reuse_materialized_dict_as_mirror,
+                )? {
                     Some(batch) => Some(batch),
                     None => self.collect_fresh_exact_int_attr_edge_batch_merged(
                         py,
@@ -2930,6 +2955,7 @@ impl PyGraph {
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
         global_attr: Option<&Bound<'_, PyDict>>,
+        reuse_materialized_dict_as_mirror: bool,
     ) -> PyResult<bool> {
         const ATTR_EDGE_BATCH_MIN: usize = 8;
         if !self.adj_row_py.is_empty() {
@@ -2946,7 +2972,11 @@ impl PyGraph {
             return Ok(false);
         }
         if global_attr.is_none_or(|attrs| attrs.is_empty())
-            && self.try_add_fresh_exact_int_attr_edge_batch(py, ebunch_to_add)?
+            && self.try_add_fresh_exact_int_attr_edge_batch(
+                py,
+                ebunch_to_add,
+                reuse_materialized_dict_as_mirror,
+            )?
         {
             return Ok(true);
         }
@@ -2995,6 +3025,18 @@ impl PyGraph {
             return Ok(true);
         }
         Ok(false)
+    }
+
+    fn try_add_edges_from_batch_impl(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+        reuse_materialized_dict_as_mirror: bool,
+    ) -> PyResult<bool> {
+        if self.try_add_plain_edge_batch(py, ebunch_to_add)? {
+            return Ok(true);
+        }
+        self.try_add_attr_edge_batch(py, ebunch_to_add, None, reuse_materialized_dict_as_mirror)
     }
 
     /// br-r37-c1-nodebatch: collect a batch of attributed nodes — a mix of
@@ -10524,7 +10566,7 @@ impl PyGraph {
                         .replace_edge_attrs(u, v, py_dict_to_attr_map(copied.bind(py))?);
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
-            } else if g._try_add_edges_from_batch(py, edata)? {
+            } else if g.try_add_edges_from_batch_impl(py, edata, materialized.is_some())? {
                 // br-r37-c1-ctorbatch (cc): route fresh edge-list construction
                 // through the add_edges_from fast batch — the constructor's own
                 // edge loop pays per-edge `has_node`/`has_edge`/`maybe_store_adj_key`
@@ -11015,10 +11057,7 @@ impl PyGraph {
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
-        if self.try_add_plain_edge_batch(py, ebunch_to_add)? {
-            return Ok(true);
-        }
-        self.try_add_attr_edge_batch(py, ebunch_to_add, None)
+        self.try_add_edges_from_batch_impl(py, ebunch_to_add, false)
     }
 
     /// br-r37-c1-nodebatch: native attributed-node batch for
@@ -11281,7 +11320,7 @@ impl PyGraph {
         // replicate exactly falls through to the loop unchanged.
         // br-r37-c1-d58s8: global **attr now batches too (was the 7x
         // residual: nx merge order = global first, per-edge overrides).
-        if self.try_add_attr_edge_batch(py, ebunch_to_add, attr)? {
+        if self.try_add_attr_edge_batch(py, ebunch_to_add, attr, false)? {
             return Ok(());
         }
         let iter = PyIterator::from_object(ebunch_to_add)?;
@@ -14421,6 +14460,122 @@ class FnxMultiGraphCtorEdgeIterable:
         .expect("Graph list-iterator constructor A/B should run");
     }
 
+    /// `br-r37-c1-04z53.9178`: same-binary proof for affine transfer of the
+    /// true-iterator decoder's private attribute snapshots versus the frozen
+    /// second-copy path. Run with the release profile, `--ignored`, and
+    /// `--nocapture` on one remote worker.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn graph_attr_iterator_owned_mirror_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let edge_count = 10_000usize;
+            let repetitions = 32usize;
+            let rounds = 21usize;
+            let rows = PyList::empty(py);
+            for node in 0..edge_count {
+                let attrs = PyDict::new(py);
+                attrs.set_item("weight", node % 97)?;
+                attrs.set_item("cost", node as f64 / 17.0)?;
+                attrs.set_item("tag", format!("e{}", node % 11))?;
+                let row = PyList::new(
+                    py,
+                    [
+                        node.into_py_any(py)?,
+                        (node + 1).into_py_any(py)?,
+                        attrs.unbind().into_any(),
+                    ],
+                )?;
+                rows.append(row)?;
+            }
+
+            let build = |reuse_materialized_dict_as_mirror: bool| -> PyResult<PyGraph> {
+                let iterator = rows.call_method0("__iter__")?;
+                let materialized = materialize_iterator_edge_list(py, &iterator, false, false)?
+                    .expect("a true iterator must materialize");
+                let mut graph = PyGraph::new_empty(py)?;
+                assert!(graph.try_add_edges_from_batch_impl(
+                    py,
+                    &materialized,
+                    reuse_materialized_dict_as_mirror,
+                )?);
+                black_box(graph.inner.edge_count());
+                black_box(graph.edge_py_attrs.len());
+                Ok(graph)
+            };
+            let time = |reuse_materialized_dict_as_mirror: bool| -> PyResult<f64> {
+                let start = Instant::now();
+                for _ in 0..repetitions {
+                    black_box(build(reuse_materialized_dict_as_mirror)?);
+                }
+                Ok(start.elapsed().as_secs_f64())
+            };
+
+            let baseline = build(false)?;
+            let candidate = build(true)?;
+            assert_eq!(candidate.inner.snapshot(), baseline.inner.snapshot());
+            assert_eq!(candidate.node_key_map.len(), baseline.node_key_map.len());
+            assert_eq!(candidate.edge_py_attrs.len(), baseline.edge_py_attrs.len());
+            for (edge, candidate_attrs) in &candidate.edge_py_attrs {
+                let baseline_attrs = baseline
+                    .edge_py_attrs
+                    .get(edge)
+                    .expect("both paths must retain every ordered mirror");
+                assert_eq!(
+                    candidate_attrs.bind(py).repr()?.to_str()?,
+                    baseline_attrs.bind(py).repr()?.to_str()?,
+                    "ordered Python edge payload must stay byte-identical"
+                );
+            }
+            black_box(time(false)?);
+            black_box(time(true)?);
+
+            let paired = |baseline_reuses_mirror: bool| -> PyResult<Vec<f64>> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                        (time(baseline_reuses_mirror)?, time(true)?)
+                    } else {
+                        let candidate_time = time(true)?;
+                        let baseline_time = time(baseline_reuses_mirror)?;
+                        (baseline_time, candidate_time)
+                    };
+                    ratios.push(baseline_time / candidate_time);
+                }
+                Ok(ratios)
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mean = ratios.iter().sum::<f64>() / ratios.len() as f64;
+                let variance = ratios
+                    .iter()
+                    .map(|ratio| (ratio - mean).powi(2))
+                    .sum::<f64>()
+                    / (ratios.len() - 1) as f64;
+                let cv_pct = variance.sqrt() / mean * 100.0;
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "GRAPH_ATTR_ITER_MIRROR_AB {name}: median={:.4}x wins={wins}/{rounds} cv={cv_pct:.3}% p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "GRAPH_ATTR_ITER_MIRROR_AB edges={edge_count} repetitions={repetitions} rounds={rounds} (>1 = affine transfer faster)"
+            );
+            report("candidate_vs_second_copy", &paired(false)?);
+            report("candidate_null", &paired(true)?);
+            Ok(())
+        })
+        .expect("Graph attributed iterator mirror A/B should run");
+    }
+
     fn exact_int_attr_ebunch(py: Python<'_>) -> PyResult<(Bound<'_, PyList>, Py<PyDict>)> {
         let ebunch = PyList::empty(py);
         let mut first_attrs = None;
@@ -14526,7 +14681,7 @@ class FnxMultiGraphCtorEdgeIterable:
             let (ebunch, first_source_attrs) = exact_int_attr_ebunch(py)?;
             let mut sparse = PyGraph::new_empty(py)?;
 
-            assert!(sparse.try_add_fresh_exact_int_attr_edge_batch(py, ebunch.as_any())?);
+            assert!(sparse.try_add_fresh_exact_int_attr_edge_batch(py, ebunch.as_any(), false,)?);
             assert_eq!(sparse.inner.node_count(), 9);
             assert_eq!(sparse.inner.edge_count(), 8);
             assert!(
@@ -14585,7 +14740,11 @@ class FnxMultiGraphCtorEdgeIterable:
 
             let (ebunch, _) = exact_int_attr_ebunch(py)?;
             let mut materialized = PyGraph::new_empty(py)?;
-            assert!(materialized.try_add_fresh_exact_int_attr_edge_batch(py, ebunch.as_any())?);
+            assert!(materialized.try_add_fresh_exact_int_attr_edge_batch(
+                py,
+                ebunch.as_any(),
+                false,
+            )?);
             let zero = 0_i64.into_pyobject(py)?.into_any();
             let one = 1_i64.into_pyobject(py)?.into_any();
             let data = materialized.get_edge_data(py, &zero, &one, None)?;

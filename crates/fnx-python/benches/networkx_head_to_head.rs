@@ -145,6 +145,8 @@ struct ConstructionCopyWorkloads {
     fnx_graph_iterator_lists_normalized: Py<PyAny>,
     fnx_graph_iterator_lists: Py<PyAny>,
     nx_graph_iterator_lists: Py<PyAny>,
+    fnx_graph_iterator_attrs: Py<PyAny>,
+    nx_graph_iterator_attrs: Py<PyAny>,
     fnx_digraph_iterator_lists: Py<PyAny>,
     nx_digraph_iterator_lists: Py<PyAny>,
     fnx_multigraph_iterator_lists: Py<PyAny>,
@@ -466,6 +468,14 @@ nx_graph_to_directed_scalar_attrs = lambda: scalar_nx.to_directed()
 iterator_edge_count = 20_000
 tuple_edges = tuple((i, i + 1) for i in range(iterator_edge_count))
 list_edges = tuple([i, i + 1] for i in range(iterator_edge_count))
+attr_edges = tuple(
+    [
+        i,
+        i + 1,
+        {"weight": i % 97, "cost": i / 17.0, "tag": f"e{i % 11}"},
+    ]
+    for i in range(iterator_edge_count)
+)
 
 fnx_graph_iterator_tuples = lambda: fnx.Graph(iter(tuple_edges))
 nx_graph_iterator_tuples = lambda: nx.Graph(iter(tuple_edges))
@@ -476,6 +486,8 @@ fnx_graph_iterator_lists_normalized = lambda: fnx.Graph(
 )
 fnx_graph_iterator_lists = lambda: fnx.Graph(iter(list_edges))
 nx_graph_iterator_lists = lambda: nx.Graph(iter(list_edges))
+fnx_graph_iterator_attrs = lambda: fnx.Graph(iter(attr_edges))
+nx_graph_iterator_attrs = lambda: nx.Graph(iter(attr_edges))
 fnx_digraph_iterator_lists = lambda: fnx.DiGraph(iter(list_edges))
 nx_digraph_iterator_lists = lambda: nx.DiGraph(iter(list_edges))
 fnx_multigraph_iterator_lists = lambda: fnx.MultiGraph(iter(list_edges))
@@ -508,6 +520,8 @@ nx_multidigraph_iterator_keyed = lambda: nx.MultiDiGraph(iter(keyed_edges))
         fnx_graph_iterator_lists_normalized: callable("fnx_graph_iterator_lists_normalized")?,
         fnx_graph_iterator_lists: callable("fnx_graph_iterator_lists")?,
         nx_graph_iterator_lists: callable("nx_graph_iterator_lists")?,
+        fnx_graph_iterator_attrs: callable("fnx_graph_iterator_attrs")?,
+        nx_graph_iterator_attrs: callable("nx_graph_iterator_attrs")?,
         fnx_digraph_iterator_lists: callable("fnx_digraph_iterator_lists")?,
         nx_digraph_iterator_lists: callable("nx_digraph_iterator_lists")?,
         fnx_multigraph_iterator_lists: callable("fnx_multigraph_iterator_lists")?,
@@ -2409,6 +2423,16 @@ fn construction_copy_head_to_head(c: &mut Criterion) {
         &mut group,
         "nx_graph_iterator_lists_e20000",
         &workloads.nx_graph_iterator_lists,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_graph_iterator_attrs_e20000",
+        &workloads.fnx_graph_iterator_attrs,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_graph_iterator_attrs_e20000",
+        &workloads.nx_graph_iterator_attrs,
     );
     bench_python_callable(
         &mut group,

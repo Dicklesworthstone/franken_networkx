@@ -6577,6 +6577,33 @@ def test_true_iterator_constructor_two_epoch_parity_all_graph_classes():
             ), (case_name, class_name)
 
 
+def test_graph_true_iterator_attr_snapshot_aliasing_matches_nx():
+    """br-r37-c1-04z53.9178: private top-level snapshot, shallow values."""
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    fnx_nested = ["seed"]
+    nx_nested = ["seed"]
+    fnx_source = {"weight": 7, "nested": fnx_nested, "tag": "edge"}
+    nx_source = {"weight": 7, "nested": nx_nested, "tag": "edge"}
+
+    fnx_graph = fnx.Graph(iter([[0, 1, fnx_source]]))
+    nx_graph = nx_mod.Graph(iter([[0, 1, nx_source]]))
+
+    # NetworkX snapshots the outer mapping at yield time but shares its values.
+    fnx_source["weight"] = 99
+    nx_source["weight"] = 99
+    fnx_nested.append("shared")
+    nx_nested.append("shared")
+
+    fnx_payload = dict(fnx_graph.get_edge_data(0, 1))
+    nx_payload = dict(nx_graph.get_edge_data(0, 1))
+    assert list(fnx_payload) == list(nx_payload)
+    assert fnx_payload == nx_payload
+    assert fnx_payload["weight"] == 7
+    assert fnx_payload["nested"] == ["seed", "shared"]
+
+
 def test_add_edges_from_accepts_list_edges_match_nx():
     """br-r37-c1-aeflist: ``G.add_edges_from([[0, 1], ...])`` must
     accept list-as-edge-spec like nx does.
