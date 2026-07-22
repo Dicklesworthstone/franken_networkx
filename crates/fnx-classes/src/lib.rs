@@ -2599,6 +2599,22 @@ pub mod mg_int_storage_proto {
                 Self::Many(set) => set.iter().copied().collect(),
             }
         }
+
+        /// br-r37-c1-thp6w S9: order-preserving key removal; returns
+        /// (removed, cell_now_empty). A `Many` that shrinks to one entry stays
+        /// `Many` — only iteration order is observable, not the variant.
+        pub fn shift_remove(&mut self, key: usize) -> (bool, bool) {
+            match self {
+                Self::One(existing) => {
+                    let removed = *existing == key;
+                    (removed, removed)
+                }
+                Self::Many(set) => {
+                    let removed = set.shift_remove(&key);
+                    (removed, set.is_empty())
+                }
+            }
+        }
     }
 
     /// br-r37-c1-thp6w S6: singleton-optimized (pair -> key -> attrs) bucket,
@@ -2648,6 +2664,45 @@ pub mod mg_int_storage_proto {
             match self {
                 Self::One(existing, attrs) => (*existing == key).then_some(attrs),
                 Self::Many(map) => map.get(&key),
+            }
+        }
+
+        /// br-r37-c1-thp6w S9: number of parallel keys in the bucket.
+        #[must_use]
+        pub fn len(&self) -> usize {
+            match self {
+                Self::One(..) => 1,
+                Self::Many(map) => map.len(),
+            }
+        }
+
+        #[must_use]
+        pub fn is_empty(&self) -> bool {
+            self.len() == 0
+        }
+
+        /// br-r37-c1-thp6w S9: the LAST key in insertion order (the real
+        /// `remove_edge(key=None)` default via `next_back`).
+        #[must_use]
+        pub fn last_key(&self) -> Option<usize> {
+            match self {
+                Self::One(key, _) => Some(*key),
+                Self::Many(map) => map.keys().next_back().copied(),
+            }
+        }
+
+        /// br-r37-c1-thp6w S9: order-preserving key removal; returns
+        /// (removed, bucket_now_empty).
+        pub fn shift_remove(&mut self, key: usize) -> (bool, bool) {
+            match self {
+                Self::One(existing, _) => {
+                    let removed = *existing == key;
+                    (removed, removed)
+                }
+                Self::Many(map) => {
+                    let removed = map.shift_remove(&key).is_some();
+                    (removed, map.is_empty())
+                }
             }
         }
     }
@@ -2790,6 +2845,242 @@ pub mod mg_int_storage_proto {
         #[must_use]
         pub fn key_order(&self, left: &str, right: &str) -> Vec<usize> {
             let (Some(&l), Some(&r)) = (self.node_index.get(left), self.node_index.get(right))
+            else {
+                return Vec::new();
+            };
+            self.edges
+                .get(&(l.min(r), l.max(r)))
+                .map(CompactBucket::key_order)
+                .unwrap_or_default()
+        }
+    }
+
+    /// br-r37-c1-thp6w S9: the slab/stable-slot layout MANDATED by the S8
+    /// removal A/B (positional renumber measured 190-203x slower than the
+    /// String store). Node identity = a STABLE SLOT that never renumbers;
+    /// removal tombstones the slot (free-list reuse) and shift-removes only
+    /// the order entry, so rows and edge pair-keys stay valid with ZERO
+    /// rekeying. nx-observable insertion order lives entirely in `node_order`
+    /// (name -> slot, insertion-ordered IndexMap — the same structure and
+    /// O(V) shift_remove the production String store already pays). Buckets
+    /// are the S6 compact enums (the winning construction layout).
+    #[derive(Debug, Default)]
+    pub struct MgSlabStorageProto {
+        /// name -> stable slot, iteration = nx node insertion order.
+        pub node_order: IndexMap<String, usize, rustc_hash::FxBuildHasher>,
+        /// slot -> name (None = tombstone awaiting reuse/compaction).
+        pub slot_names: Vec<Option<String>>,
+        /// LIFO free-list of tombstoned slots.
+        pub free_slots: Vec<usize>,
+        /// slot -> neighbor slot -> parallel-key cell (row insertion order).
+        pub rows: Vec<IndexMap<usize, CompactKeys>>,
+        /// slot-canonical (min, max) pair -> compact bucket. Slots are stable,
+        /// so pair keys survive any removal without rekeying.
+        pub edges: IndexMap<(usize, usize), CompactBucket, rustc_hash::FxBuildHasher>,
+        pub edge_count: usize,
+    }
+
+    impl MgSlabStorageProto {
+        #[must_use]
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        fn ensure_node(&mut self, name: &str) -> usize {
+            if let Some(&slot) = self.node_order.get(name) {
+                return slot;
+            }
+            let slot = if let Some(reused) = self.free_slots.pop() {
+                debug_assert!(self.slot_names[reused].is_none());
+                debug_assert!(self.rows[reused].is_empty());
+                self.slot_names[reused] = Some(name.to_owned());
+                reused
+            } else {
+                self.slot_names.push(Some(name.to_owned()));
+                self.rows.push(IndexMap::new());
+                self.slot_names.len() - 1
+            };
+            self.node_order.insert(name.to_owned(), slot);
+            slot
+        }
+
+        /// Same insert semantics as the S5/S6 variants, slot-keyed.
+        pub fn add_keyed_edge(&mut self, left: &str, right: &str, key: usize, attrs: AttrMap) {
+            let l = self.ensure_node(left);
+            let r = if left == right {
+                l
+            } else {
+                self.ensure_node(right)
+            };
+            let pair = (l.min(r), l.max(r));
+            match self.edges.entry(pair) {
+                indexmap::map::Entry::Occupied(mut bucket) => {
+                    if bucket.get_mut().merge(key, attrs) {
+                        self.edge_count += 1;
+                    }
+                }
+                indexmap::map::Entry::Vacant(slot) => {
+                    slot.insert(CompactBucket::One(key, attrs));
+                    self.edge_count += 1;
+                }
+            }
+            match self.rows[l].entry(r) {
+                indexmap::map::Entry::Occupied(mut cell) => {
+                    let _ = cell.get_mut().insert(key);
+                }
+                indexmap::map::Entry::Vacant(slot) => {
+                    slot.insert(CompactKeys::One(key));
+                }
+            }
+            if l != r {
+                match self.rows[r].entry(l) {
+                    indexmap::map::Entry::Occupied(mut cell) => {
+                        let _ = cell.get_mut().insert(key);
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactKeys::One(key));
+                    }
+                }
+            }
+        }
+
+        /// Bulk loader mirroring the S5/S6 int-prefix arms (fresh graph, slots
+        /// == 0..n, no tombstones).
+        #[must_use]
+        pub fn bulk_load_int_prefix<I>(node_count: usize, edges: I) -> Self
+        where
+            I: IntoIterator<Item = (usize, usize, usize)>,
+        {
+            let iterator = edges.into_iter();
+            let (lower_bound, _) = iterator.size_hint();
+            let mut proto = Self::new();
+            proto.node_order.reserve(node_count);
+            proto.slot_names.reserve(node_count);
+            proto.rows.reserve(node_count);
+            proto.edges.reserve(lower_bound);
+            for node in 0..node_count {
+                let name = node.to_string();
+                proto.node_order.insert(name.clone(), node);
+                proto.slot_names.push(Some(name));
+                proto.rows.push(IndexMap::new());
+            }
+            for (left_slot, right_slot, key) in iterator {
+                debug_assert!(left_slot < node_count);
+                debug_assert!(right_slot < node_count);
+                let pair = (left_slot.min(right_slot), left_slot.max(right_slot));
+                match proto.edges.entry(pair) {
+                    indexmap::map::Entry::Occupied(mut bucket) => {
+                        let _ = bucket.get_mut().merge(key, AttrMap::new());
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactBucket::One(key, AttrMap::new()));
+                    }
+                }
+                match proto.rows[left_slot].entry(right_slot) {
+                    indexmap::map::Entry::Occupied(mut cell) => {
+                        let _ = cell.get_mut().insert(key);
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactKeys::One(key));
+                    }
+                }
+                if left_slot != right_slot {
+                    match proto.rows[right_slot].entry(left_slot) {
+                        indexmap::map::Entry::Occupied(mut cell) => {
+                            let _ = cell.get_mut().insert(key);
+                        }
+                        indexmap::map::Entry::Vacant(slot) => {
+                            slot.insert(CompactKeys::One(key));
+                        }
+                    }
+                }
+                proto.edge_count += 1;
+            }
+            proto
+        }
+
+        /// Mirror of `MultiGraph::remove_edge` (key=None -> LAST bucket key).
+        pub fn remove_edge(&mut self, left: &str, right: &str, key: Option<usize>) -> bool {
+            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
+            else {
+                return false;
+            };
+            let pair = (l.min(r), l.max(r));
+            let Some(bucket) = self.edges.get_mut(&pair) else {
+                return false;
+            };
+            let Some(removal_key) = key.or_else(|| bucket.last_key()) else {
+                return false;
+            };
+            let (removed, bucket_empty) = bucket.shift_remove(removal_key);
+            if !removed {
+                return false;
+            }
+            self.edge_count -= 1;
+            if bucket_empty {
+                self.edges.swap_remove(&pair);
+            }
+            let mut drop_cell = |u: usize, v: usize| {
+                let mut cell_empty = false;
+                if let Some(keys) = self.rows[u].get_mut(&v) {
+                    let (cell_removed, now_empty) = keys.shift_remove(removal_key);
+                    debug_assert!(cell_removed);
+                    cell_empty = now_empty;
+                }
+                if cell_empty {
+                    self.rows[u].shift_remove(&v);
+                }
+            };
+            drop_cell(l, r);
+            if l != r {
+                drop_cell(r, l);
+            }
+            true
+        }
+
+        /// Slab removal: O(V) order-entry shift + O(degree) row/bucket drops.
+        /// NO renumber, NO edges rekey — the S8-mandated shape.
+        pub fn remove_node(&mut self, name: &str) -> bool {
+            let Some(&slot) = self.node_order.get(name) else {
+                return false;
+            };
+            let neighbors: Vec<usize> = self.rows[slot].keys().copied().collect();
+            for nbr in neighbors {
+                if nbr != slot {
+                    self.rows[nbr].shift_remove(&slot);
+                }
+                if let Some(bucket) = self.edges.swap_remove(&(slot.min(nbr), slot.max(nbr))) {
+                    self.edge_count -= bucket.len();
+                }
+            }
+            self.rows[slot] = IndexMap::new();
+            self.node_order.shift_remove(name);
+            self.slot_names[slot] = None;
+            self.free_slots.push(slot);
+            true
+        }
+
+        /// Distinct neighbors (names, row order) of the node at insertion-order
+        /// position `pos`.
+        #[must_use]
+        pub fn neighbor_names(&self, pos: usize) -> Vec<&str> {
+            let Some((_, &slot)) = self.node_order.get_index(pos) else {
+                return Vec::new();
+            };
+            self.rows[slot]
+                .keys()
+                .map(|&s| {
+                    self.slot_names[s]
+                        .as_deref()
+                        .expect("row references a live slot")
+                })
+                .collect()
+        }
+
+        /// Parallel-edge key order for the (left, right) pair.
+        #[must_use]
+        pub fn key_order(&self, left: &str, right: &str) -> Vec<usize> {
+            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
             else {
                 return Vec::new();
             };
@@ -5312,14 +5603,210 @@ mod tests {
             pro.push(time_proto_removals(&stream));
             nul.push(time_current_removals(&stream));
         }
+        // br-r37-c1-thp6w S9: slab arm — must be ~parity with the String store.
+        let time_slab_removals = |stream: &[(usize, usize, usize)]| -> f64 {
+            let mut slab = super::mg_int_storage_proto::MgSlabStorageProto::bulk_load_int_prefix(
+                n,
+                stream.iter().copied(),
+            );
+            let t0 = Instant::now();
+            for name in &victims {
+                assert!(slab.remove_node(name));
+            }
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(slab.edge_count);
+            dt
+        };
+        let mut g2 = MultiGraph::strict();
+        let _ = g2.extend_fresh_int_prefix_keyed_edges_unrecorded(n, stream.iter().copied());
+        let mut slab = super::mg_int_storage_proto::MgSlabStorageProto::bulk_load_int_prefix(
+            n,
+            stream.iter().copied(),
+        );
+        for name in &victims {
+            assert!(g2.remove_node(name));
+            assert!(slab.remove_node(name));
+        }
+        assert_eq!(
+            slab.edge_count,
+            g2.edge_count(),
+            "slab removal arm diverged in edge_count"
+        );
+        assert_eq!(
+            slab.node_order
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            g2.nodes_ordered(),
+            "slab removal arm diverged in node order"
+        );
+        let mut sla = Vec::new();
+        for _ in 0..7 {
+            sla.push(time_slab_removals(&stream));
+        }
+        let msl = median(&mut sla);
+
         let (mc, mp, mn) = (median(&mut cur), median(&mut pro), median(&mut nul));
         println!(
-            "THP6W_S8_REMOVAL_AB n={n} m={} removals={} current={mc:.6}s proto_renumber={mp:.6}s ratio_proto_over_current={:.3} null={:.3}",
+            "THP6W_S8_REMOVAL_AB n={n} m={} removals={} current={mc:.6}s proto_renumber={mp:.6}s slab={msl:.6}s ratio_proto_over_current={:.3} ratio_slab_over_current={:.3} null={:.3}",
             stream.len(),
             victims.len(),
             mp / mc,
+            msl / mc,
             mc / mn,
         );
+    }
+
+    /// br-r37-c1-thp6w S9 helper: full observable-order parity between the
+    /// real MultiGraph and the slab prototype (order from `node_order`, rows
+    /// resolved slot -> name), plus slab self-consistency (live slots named,
+    /// free slots tombstoned).
+    fn assert_slab_matches_mg(
+        mg: &MultiGraph,
+        slab: &super::mg_int_storage_proto::MgSlabStorageProto,
+    ) {
+        assert_eq!(
+            slab.node_order
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            mg.nodes_ordered(),
+            "slab node order"
+        );
+        for (name, &slot) in &slab.node_order {
+            assert_eq!(
+                slab.slot_names[slot].as_deref(),
+                Some(name.as_str()),
+                "slot_names desync for {name}"
+            );
+        }
+        for &free in &slab.free_slots {
+            assert!(
+                slab.slot_names[free].is_none(),
+                "free slot {free} still named"
+            );
+            assert!(slab.rows[free].is_empty(), "free slot {free} has row cells");
+        }
+        for (pos, name) in mg.nodes_ordered().iter().enumerate() {
+            let mg_row: Vec<&str> = mg
+                .neighbors_iter(name)
+                .map_or_else(Vec::new, Iterator::collect);
+            assert_eq!(
+                slab.neighbor_names(pos),
+                mg_row,
+                "slab row order for {name}"
+            );
+            for v in &mg_row {
+                assert_eq!(
+                    slab.key_order(name, v),
+                    mg.edge_keys_vec(name, v),
+                    "slab key order for ({name}, {v})"
+                );
+            }
+        }
+        assert_eq!(slab.edge_count, mg.edge_count(), "slab edge_count");
+    }
+
+    /// br-r37-c1-thp6w S9 PARITY GAUNTLET (slab + slot recycling): the
+    /// S8-mandated layout must stay byte-identical to the real MultiGraph
+    /// through the S7 removal shapes AND the slab-specific hazards — slot
+    /// reuse after removal (fresh name AND the removed name re-added must
+    /// append at the END of node order with no phantom edges from the slot's
+    /// previous occupant).
+    #[test]
+    fn thp6w_s9_slab_recycling_parity_gauntlet() {
+        use super::mg_int_storage_proto::MgSlabStorageProto;
+
+        let stream: Vec<(&str, &str, usize)> = vec![
+            ("2", "10", 0),
+            ("10", "2", 1),
+            ("1", "1", 0),
+            ("2", "3", 0),
+            ("3", "2", 0),
+            ("10", "1", 5),
+            ("0", "2", 0),
+            ("2", "10", 1),
+            ("4", "5", 2),
+            ("5", "4", 0),
+            ("1", "1", 1),
+        ];
+        let mut mg = MultiGraph::strict();
+        let _ = mg.extend_keyed_edges_with_attrs_unrecorded(
+            stream
+                .iter()
+                .map(|(l, r, k)| ((*l).to_owned(), (*r).to_owned(), *k, AttrMap::new())),
+        );
+        let mut slab = MgSlabStorageProto::new();
+        for (l, r, k) in &stream {
+            slab.add_keyed_edge(l, r, *k, AttrMap::new());
+        }
+        assert_slab_matches_mg(&mg, &slab);
+
+        // S7 removal shapes.
+        assert_eq!(
+            mg.remove_edge("4", "5", None),
+            slab.remove_edge("4", "5", None)
+        );
+        assert_slab_matches_mg(&mg, &slab);
+        assert_eq!(
+            mg.remove_edge("2", "10", Some(0)),
+            slab.remove_edge("2", "10", Some(0))
+        );
+        assert_slab_matches_mg(&mg, &slab);
+        assert_eq!(
+            mg.remove_edge("2", "10", None),
+            slab.remove_edge("2", "10", None)
+        );
+        assert_slab_matches_mg(&mg, &slab);
+        assert_eq!(
+            mg.remove_edge("1", "1", Some(0)),
+            slab.remove_edge("1", "1", Some(0))
+        );
+        assert_slab_matches_mg(&mg, &slab);
+        assert_eq!(
+            mg.remove_edge("0", "10", None),
+            slab.remove_edge("0", "10", None)
+        );
+        assert_eq!(
+            mg.remove_edge("2", "3", Some(9)),
+            slab.remove_edge("2", "3", Some(9))
+        );
+        assert_slab_matches_mg(&mg, &slab);
+
+        // Tombstone a mid-order node with live parallel edges...
+        assert_eq!(mg.remove_node("2"), slab.remove_node("2"));
+        assert_slab_matches_mg(&mg, &slab);
+        // ...then RECYCLE its slot with a FRESH name: must append at the END
+        // of node order and carry no phantom adjacency from the old occupant.
+        mg.extend_keyed_edges_with_attrs_unrecorded(vec![(
+            "fresh".to_owned(),
+            "3".to_owned(),
+            0,
+            AttrMap::new(),
+        )]);
+        slab.add_keyed_edge("fresh", "3", 0, AttrMap::new());
+        assert_slab_matches_mg(&mg, &slab);
+        // ...and re-add the REMOVED name too (recycles another slot or a fresh
+        // one; order must be append-at-end either way).
+        mg.extend_keyed_edges_with_attrs_unrecorded(vec![(
+            "2".to_owned(),
+            "fresh".to_owned(),
+            7,
+            AttrMap::new(),
+        )]);
+        slab.add_keyed_edge("2", "fresh", 7, AttrMap::new());
+        assert_slab_matches_mg(&mg, &slab);
+        // Remove the recycled node again (double-recycle path).
+        assert_eq!(mg.remove_node("fresh"), slab.remove_node("fresh"));
+        assert_slab_matches_mg(&mg, &slab);
+        // Self-loop node and end nodes.
+        assert_eq!(mg.remove_node("1"), slab.remove_node("1"));
+        assert_slab_matches_mg(&mg, &slab);
+        assert_eq!(mg.remove_node("10"), slab.remove_node("10"));
+        assert_slab_matches_mg(&mg, &slab);
+        // Missing-node refusal parity.
+        assert_eq!(mg.remove_node("gone"), slab.remove_node("gone"));
+        assert_slab_matches_mg(&mg, &slab);
     }
 
     /// br-r37-c1-thp6w S5 A/B: pure storage-representation tax of the String-
@@ -5427,30 +5914,60 @@ mod tests {
             g.edge_count(),
             "compact arm built a different graph"
         );
+        // br-r37-c1-thp6w S9: slab arm — must hold the compact win.
+        let time_slab = |stream: &[(usize, usize, usize)]| -> f64 {
+            let t0 = Instant::now();
+            let slab = super::mg_int_storage_proto::MgSlabStorageProto::bulk_load_int_prefix(
+                n,
+                stream.iter().copied(),
+            );
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(&slab);
+            dt
+        };
+        let slab = super::mg_int_storage_proto::MgSlabStorageProto::bulk_load_int_prefix(
+            n,
+            stream.iter().copied(),
+        );
+        g.with_int_adjacency(|adj| {
+            for (i, row) in adj.iter().enumerate() {
+                let slab_row: Vec<usize> = slab.rows[i].keys().copied().collect();
+                assert_eq!(row, &slab_row, "slab integer row {i} must agree");
+            }
+        });
+        assert_eq!(
+            slab.edge_count,
+            g.edge_count(),
+            "slab arm built a different graph"
+        );
 
         let median = |samples: &mut Vec<f64>| -> f64 {
             samples.sort_by(f64::total_cmp);
             samples[samples.len() / 2]
         };
-        let (mut cur, mut pro, mut com, mut nul) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let (mut cur, mut pro, mut com, mut sla, mut nul) =
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
         for _ in 0..9 {
             cur.push(time_current(&stream));
             pro.push(time_proto(&stream));
             com.push(time_compact(&stream));
+            sla.push(time_slab(&stream));
             nul.push(time_current(&stream));
         }
-        let (mc, mp, mk, mn) = (
+        let (mc, mp, mk, ms, mn) = (
             median(&mut cur),
             median(&mut pro),
             median(&mut com),
+            median(&mut sla),
             median(&mut nul),
         );
         println!(
-            "THP6W_S5_AB n={n} m={} current={mc:.6}s proto={mp:.6}s compact={mk:.6}s ratio_current_over_proto={:.3} ratio_current_over_compact={:.3} ratio_proto_over_compact={:.3} null_current_over_current={:.3}",
+            "THP6W_S5_AB n={n} m={} current={mc:.6}s proto={mp:.6}s compact={mk:.6}s slab={ms:.6}s ratio_current_over_proto={:.3} ratio_current_over_compact={:.3} ratio_current_over_slab={:.3} ratio_compact_over_slab={:.3} null_current_over_current={:.3}",
             stream.len(),
             mc / mp,
             mc / mk,
-            mp / mk,
+            mc / ms,
+            mk / ms,
             mc / mn,
         );
     }

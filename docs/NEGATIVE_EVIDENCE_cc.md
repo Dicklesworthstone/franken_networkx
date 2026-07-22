@@ -9117,3 +9117,29 @@ alien-graveyard Slab + Swiss-table discipline). Positional renumber is retryable
 deferred/batched compaction inside that design, never per-removal. NEXT (S9): slab-variant
 prototype + same parity gates/gauntlet + BOTH A/Bs — must hold ~3.5x construction AND beat the
 String store's O(V + degree) removal (or at least stay within small constants of it).
+
+## 2026-07-22 SnowyBadger (cc) KEEP (thp6w S9): slab/stable-slot layout WINS EVERY AXIS — construction 3.60x, removal 2.9-3.2x FASTER than the String store; epoch target layout fully pinned
+
+`MgSlabStorageProto` = S6 compact buckets + S8-mandated stable slots (free-list + tombstoned rows;
+nx insertion order carried by the name->slot IndexMap itself — same O(V) shift_remove the String
+store already pays; NO renumber, NO edges rekey ever). Suite **81/81** incl. the new
+`thp6w_s9_slab_recycling_parity_gauntlet`: S7 removal shapes + slab-specific hazards — slot reuse
+by a FRESH name, re-add of the REMOVED name, double-recycle — all byte-identical to the real
+MultiGraph (order append-at-end under recycling, zero phantom adjacency, free-slot hygiene
+asserts).
+
+**Construction A/B (5 arms, structural agreement asserted):** current 204.5ms / proto 112.2 /
+compact 57.8 / slab 56.7ms -> current/slab **3.604x**, compact/slab 1.018 (slab HOLDS the compact
+win; Option<String>+free-list overhead is noise), null 1.022.
+**Removal A/B (two runs):** current 22.6/26.1ms vs slab 7.9/8.1ms -> slab/current **0.351/0.309**
+(slab ~2.9-3.2x FASTER — swap_remove of slot-keyed buckets + row shift beats the String store's
+per-neighbor String hashing), renumber arm 186.3x/177.6x slower (S8 confirmed third+fourth time),
+nulls 0.974/0.926.
+
+**EPOCH DESIGN NOW CLOSED ON MEASUREMENT:** the real MG flip targets slab slots + compact One/Many
+buckets — faster on BOTH construction (3.6x) and removal (~3x), parity-gated on ordering incl.
+recycling. NO measured tradeoff remains at the storage-kernel level. Remaining pre-production gate
+axes for the real flip (S10+): `reorder_rows_for_nx_copy_walk` (copy-walk row reorder under slot
+storage), `edges_ordered`/snapshot orientation derivation, and pickle/`apply_row_orders`
+round-trips; then the production strangler slices. BENCH-INFRA NOTE: long background rch loops get
+killed by the runtime — run verification FOREGROUND when the fleet has slots (it did this hour).
