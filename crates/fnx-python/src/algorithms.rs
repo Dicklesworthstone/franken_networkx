@@ -6862,20 +6862,14 @@ pub fn density(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
     // → edge_count(). Byte-identical n.
     let (n, m, directed) = match &gr {
         GraphRef::Undirected(pg) => (pg.inner.node_count(), pg.inner.edge_count(), false),
-        GraphRef::Directed { dg, .. } => {
-            (dg.inner.node_count(), dg.inner.edge_count(), true)
-        }
+        GraphRef::Directed { dg, .. } => (dg.inner.node_count(), dg.inner.edge_count(), true),
         GraphRef::MultiUndirected { .. } => {
             let simple = gr.undirected();
             (simple.node_count(), simple.edge_count(), false)
         }
         GraphRef::MultiDirected { .. } => {
             let simple_dg = gr.digraph().expect("is_directed checked above");
-            (
-                simple_dg.node_count(),
-                simple_dg.edge_count(),
-                true,
-            )
+            (simple_dg.node_count(), simple_dg.edge_count(), true)
         }
     };
     if n < 2 {
@@ -12409,8 +12403,9 @@ fn dfs_edges_canonical(
                         let Some(src) = nodes.iter().position(|&n| n == source_key) else {
                             return Vec::new();
                         };
-                        inner
-                            .with_int_adjacency(|adj| dfs_edges_indexed(adj, &nodes, src, depth_limit))
+                        inner.with_int_adjacency(|adj| {
+                            dfs_edges_indexed(adj, &nodes, src, depth_limit)
+                        })
                     })
                 } else {
                     let inner = gr.undirected();
@@ -12452,7 +12447,9 @@ fn dfs_edges_canonical(
                         let inner = &mg.inner;
                         py.allow_threads(|| {
                             let mnodes = inner.nodes_ordered();
-                            inner.with_int_adjacency(|adj| dfs_forest_indexed(adj, &mnodes, depth_limit))
+                            inner.with_int_adjacency(|adj| {
+                                dfs_forest_indexed(adj, &mnodes, depth_limit)
+                            })
                         })
                     } else {
                         let inner = gr.undirected();
@@ -16939,16 +16936,19 @@ fn product_factor_store_readable_undirected(pg: &PyGraph) -> bool {
     if pg.edges_dirty.load(Ordering::Relaxed) {
         return false;
     }
-    pg.inner.edges_ordered_borrowed().iter().all(|(_, _, attrs)| {
-        attrs.values().all(|v| {
-            matches!(
-                v,
-                fnx_runtime::CgseValue::Int(_)
-                    | fnx_runtime::CgseValue::Float(_)
-                    | fnx_runtime::CgseValue::Bool(_)
-            )
+    pg.inner
+        .edges_ordered_borrowed()
+        .iter()
+        .all(|(_, _, attrs)| {
+            attrs.values().all(|v| {
+                matches!(
+                    v,
+                    fnx_runtime::CgseValue::Int(_)
+                        | fnx_runtime::CgseValue::Float(_)
+                        | fnx_runtime::CgseValue::Bool(_)
+                )
+            })
         })
-    })
 }
 
 /// Directed sibling of `product_factor_store_readable_undirected`.
@@ -16959,16 +16959,19 @@ fn product_factor_store_readable_directed(dg: &PyDiGraph) -> bool {
     if dg.edges_dirty.load(Ordering::Relaxed) {
         return false;
     }
-    dg.inner.edges_ordered_borrowed().iter().all(|(_, _, attrs)| {
-        attrs.values().all(|v| {
-            matches!(
-                v,
-                fnx_runtime::CgseValue::Int(_)
-                    | fnx_runtime::CgseValue::Float(_)
-                    | fnx_runtime::CgseValue::Bool(_)
-            )
+    dg.inner
+        .edges_ordered_borrowed()
+        .iter()
+        .all(|(_, _, attrs)| {
+            attrs.values().all(|v| {
+                matches!(
+                    v,
+                    fnx_runtime::CgseValue::Int(_)
+                        | fnx_runtime::CgseValue::Float(_)
+                        | fnx_runtime::CgseValue::Bool(_)
+                )
+            })
         })
-    })
 }
 
 /// br-r37-c1-prodedgeattr (cc): native cartesian product carrying SCALAR edge
@@ -29206,7 +29209,10 @@ mod tests {
         let candidate = super::multigraph_articulation_points(&graph);
         let baseline = super::multigraph_articulation_points_orig_buildindex(&graph);
         assert_eq!(candidate, baseline, "indexed articulation DFS must match");
-        assert!(candidate.is_empty(), "2-connected graph has no cut vertices");
+        assert!(
+            candidate.is_empty(),
+            "2-connected graph has no cut vertices"
+        );
 
         // Prime the revision-keyed memo before warm timing.
         graph.with_int_adjacency(|adjacency| {
@@ -29375,7 +29381,10 @@ mod tests {
                 super::build_index_adjacency(&nodes, |u| graph.neighbors(u).unwrap_or_default());
             super::biconnected_component_edges_dfs(&adj)
         };
-        assert_eq!(candidate, baseline, "memo edge-DFS must match buildindex route");
+        assert_eq!(
+            candidate, baseline,
+            "memo edge-DFS must match buildindex route"
+        );
 
         graph.with_int_adjacency(|adjacency| {
             black_box(adjacency.len());
@@ -29447,7 +29456,9 @@ mod tests {
             );
         };
 
-        println!("MG_BCC_AB n={n} degree=4+parallel rounds={rounds} edge-DFS kernel (>1 = candidate faster)");
+        println!(
+            "MG_BCC_AB n={n} degree=4+parallel rounds={rounds} edge-DFS kernel (>1 = candidate faster)"
+        );
         report("warm_candidate_vs_buildindex", &paired_warm(false));
         report("warm_candidate_null", &paired_warm(true));
         report("cold_candidate_vs_buildindex", &paired_cold(false));
@@ -29537,13 +29548,17 @@ mod tests {
             }
         }
         let nodes = graph.nodes_ordered();
-        let candidate = graph.with_int_adjacency(|adj| super::dfs_forest_indexed(adj, &nodes, None));
+        let candidate =
+            graph.with_int_adjacency(|adj| super::dfs_forest_indexed(adj, &nodes, None));
         let baseline = {
             let adj =
                 super::build_index_adjacency(&nodes, |u| graph.neighbors(u).unwrap_or_default());
             super::dfs_forest_indexed(&adj, &nodes, None)
         };
-        assert_eq!(candidate, baseline, "memo forest DFS must match buildindex route");
+        assert_eq!(
+            candidate, baseline,
+            "memo forest DFS must match buildindex route"
+        );
 
         graph.with_int_adjacency(|adjacency| {
             black_box(adjacency.len());
@@ -29615,7 +29630,9 @@ mod tests {
             );
         };
 
-        println!("MG_DFS_AB n={n} degree=4+parallel rounds={rounds} forest kernel (>1 = candidate faster)");
+        println!(
+            "MG_DFS_AB n={n} degree=4+parallel rounds={rounds} forest kernel (>1 = candidate faster)"
+        );
         report("warm_candidate_vs_buildindex", &paired_warm(false));
         report("warm_candidate_null", &paired_warm(true));
         report("cold_candidate_vs_buildindex", &paired_cold(false));
@@ -29705,7 +29722,10 @@ mod tests {
                 super::build_index_adjacency(&nodes, |u| graph.neighbors(u).unwrap_or_default());
             super::bfs_edges_indexed(&adj, &nodes, 0, None)
         };
-        assert_eq!(candidate, baseline, "memo single-source BFS must match buildindex route");
+        assert_eq!(
+            candidate, baseline,
+            "memo single-source BFS must match buildindex route"
+        );
 
         graph.with_int_adjacency(|adjacency| {
             black_box(adjacency.len());
@@ -29777,7 +29797,9 @@ mod tests {
             );
         };
 
-        println!("MG_BFS_AB n={n} degree=4+parallel rounds={rounds} single-source kernel (>1 = candidate faster)");
+        println!(
+            "MG_BFS_AB n={n} degree=4+parallel rounds={rounds} single-source kernel (>1 = candidate faster)"
+        );
         report("warm_candidate_vs_buildindex", &paired_warm(false));
         report("warm_candidate_null", &paired_warm(true));
         report("cold_candidate_vs_buildindex", &paired_cold(false));
@@ -29884,7 +29906,10 @@ mod tests {
                 super::build_index_adjacency(&nodes, |u| graph.successors(u).unwrap_or_default());
             super::dfs_forest_indexed(&adj, &nodes, None)
         };
-        assert_eq!(candidate, baseline, "cached-CSR forest DFS must match buildindex route");
+        assert_eq!(
+            candidate, baseline,
+            "cached-CSR forest DFS must match buildindex route"
+        );
 
         // Prime the revision-keyed CSR memo before warm timing.
         black_box(graph.csr().successors(0).len());
@@ -29955,7 +29980,9 @@ mod tests {
             );
         };
 
-        println!("MDG_DFS_AB n={n} degree=4+parallel rounds={rounds} forest kernel (>1 = candidate faster)");
+        println!(
+            "MDG_DFS_AB n={n} degree=4+parallel rounds={rounds} forest kernel (>1 = candidate faster)"
+        );
         report("warm_candidate_vs_buildindex", &paired_warm(false));
         report("warm_candidate_null", &paired_warm(true));
         report("cold_candidate_vs_buildindex", &paired_cold(false));
@@ -30204,7 +30231,10 @@ mod tests {
         let candidate = super::multidigraph_is_strongly_connected(&graph);
         let baseline = super::multidigraph_is_strongly_connected_orig_hashmap(&graph);
         assert_eq!(candidate, baseline, "csr Tarjan must match hashmap route");
-        assert!(candidate, "directed cycle+chord graph is strongly connected");
+        assert!(
+            candidate,
+            "directed cycle+chord graph is strongly connected"
+        );
 
         // Prime the revision-keyed CSR memo before warm timing.
         black_box(graph.csr().successors(0).len());
@@ -30433,7 +30463,9 @@ mod tests {
             );
         };
 
-        println!("MDG_NSCC_AB n={n} SC cycle+chord rounds={rounds} Kosaraju (>1 = candidate faster)");
+        println!(
+            "MDG_NSCC_AB n={n} SC cycle+chord rounds={rounds} Kosaraju (>1 = candidate faster)"
+        );
         report("warm_candidate_vs_hashmap", &paired_warm(false));
         report("warm_candidate_null", &paired_warm(true));
         report("cold_candidate_vs_hashmap", &paired_cold(false));
@@ -30523,7 +30555,10 @@ mod tests {
         }
         let candidate = super::multidigraph_topological_sort(&graph);
         let baseline = super::multidigraph_topological_sort_orig_hashmap(&graph);
-        assert_eq!(candidate, baseline, "csr Kahn topo order must match hashmap route");
+        assert_eq!(
+            candidate, baseline,
+            "csr Kahn topo order must match hashmap route"
+        );
         assert_eq!(
             candidate.as_ref().map(|v| v.len()),
             Some(n),
@@ -30595,7 +30630,9 @@ mod tests {
             );
         };
 
-        println!("MDG_TOPO_AB n={n} forward-DAG rounds={rounds} generation-Kahn (>1 = candidate faster)");
+        println!(
+            "MDG_TOPO_AB n={n} forward-DAG rounds={rounds} generation-Kahn (>1 = candidate faster)"
+        );
         report("warm_candidate_vs_hashmap", &paired_warm(false));
         report("warm_candidate_null", &paired_warm(true));
         report("cold_candidate_vs_hashmap", &paired_cold(false));
@@ -30695,8 +30732,12 @@ mod tests {
             }
         }
         let candidate = super::multidigraph_strongly_connected_components_nx_ordered(&graph);
-        let baseline = super::multidigraph_strongly_connected_components_nx_ordered_orig_inline(&graph);
-        assert_eq!(candidate, baseline, "delegated csr listing must match inline route");
+        let baseline =
+            super::multidigraph_strongly_connected_components_nx_ordered_orig_inline(&graph);
+        assert_eq!(
+            candidate, baseline,
+            "delegated csr listing must match inline route"
+        );
         assert_eq!(candidate.len(), n, "forward DAG yields n singleton SCCs");
 
         // Prime the revision-keyed CSR memo before warm timing.
@@ -30707,7 +30748,9 @@ mod tests {
             let result = if candidate_route {
                 super::multidigraph_strongly_connected_components_nx_ordered(timed_graph)
             } else {
-                super::multidigraph_strongly_connected_components_nx_ordered_orig_inline(timed_graph)
+                super::multidigraph_strongly_connected_components_nx_ordered_orig_inline(
+                    timed_graph,
+                )
             };
             black_box(result.len());
             start.elapsed().as_secs_f64()
@@ -30764,7 +30807,9 @@ mod tests {
             );
         };
 
-        println!("MDG_SCL_AB n={n} forward-DAG rounds={rounds} SCC-listing Tarjan (>1 = candidate faster)");
+        println!(
+            "MDG_SCL_AB n={n} forward-DAG rounds={rounds} SCC-listing Tarjan (>1 = candidate faster)"
+        );
         report("warm_candidate_vs_inline", &paired_warm(false));
         report("warm_candidate_null", &paired_warm(true));
         report("cold_candidate_vs_inline", &paired_cold(false));
@@ -30866,7 +30911,10 @@ mod tests {
         }
         let candidate = super::strongly_connected_components_nx_ordered(&graph);
         let baseline = super::strongly_connected_components_nx_ordered_orig_inline(&graph);
-        assert_eq!(candidate, baseline, "native-indices listing must match inline route");
+        assert_eq!(
+            candidate, baseline,
+            "native-indices listing must match inline route"
+        );
         assert_eq!(candidate.len(), n, "forward DAG yields n singleton SCCs");
 
         let time = |timed_graph: &DiGraph, candidate_route: bool| -> f64 {
@@ -30906,7 +30954,11 @@ mod tests {
             for round in 0..rounds {
                 let a = time(&graph, true);
                 let b = time(&graph, true);
-                ratios.push(if round.is_multiple_of(2) { b / a } else { a / b });
+                ratios.push(if round.is_multiple_of(2) {
+                    b / a
+                } else {
+                    a / b
+                });
             }
             ratios
         };
@@ -30922,32 +30974,43 @@ mod tests {
             );
         };
 
-        println!("DG_SCL_AB n={n} forward-DAG rounds={rounds} SCC-listing Tarjan (>1 = candidate faster)");
+        println!(
+            "DG_SCL_AB n={n} forward-DAG rounds={rounds} SCC-listing Tarjan (>1 = candidate faster)"
+        );
         report("candidate_vs_inline", &paired());
         report("null", &null());
     }
 
     #[test]
     fn shortest_path_adjacency_indices_native_matches_inline_route() {
-        use fnx_classes::digraph::DiGraph;
         use fnx_classes::Graph;
+        use fnx_classes::digraph::DiGraph;
         use std::collections::HashMap;
 
         let inline_graph = |g: &Graph, nodes: &[&str]| -> Vec<Vec<usize>> {
-            let node_indices: HashMap<&str, usize> =
-                nodes.iter().copied().enumerate().map(|(i, n)| (n, i)).collect();
+            let node_indices: HashMap<&str, usize> = nodes
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(i, n)| (n, i))
+                .collect();
             nodes
                 .iter()
                 .map(|&node| {
                     g.neighbors_iter(node).map_or_else(Vec::new, |nbrs| {
-                        nbrs.filter_map(|nb| node_indices.get(nb).copied()).collect()
+                        nbrs.filter_map(|nb| node_indices.get(nb).copied())
+                            .collect()
                     })
                 })
                 .collect()
         };
         let inline_digraph = |g: &DiGraph, nodes: &[&str]| -> Vec<Vec<usize>> {
-            let node_indices: HashMap<&str, usize> =
-                nodes.iter().copied().enumerate().map(|(i, n)| (n, i)).collect();
+            let node_indices: HashMap<&str, usize> = nodes
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(i, n)| (n, i))
+                .collect();
             nodes
                 .iter()
                 .map(|&node| {
@@ -31027,19 +31090,28 @@ mod tests {
         let nodes = graph.nodes_ordered();
 
         let inline = |g: &Graph, nodes: &[&str]| -> Vec<Vec<usize>> {
-            let node_indices: HashMap<&str, usize> =
-                nodes.iter().copied().enumerate().map(|(i, nd)| (nd, i)).collect();
+            let node_indices: HashMap<&str, usize> = nodes
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(i, nd)| (nd, i))
+                .collect();
             nodes
                 .iter()
                 .map(|&nd| {
                     g.neighbors_iter(nd).map_or_else(Vec::new, |nbrs| {
-                        nbrs.filter_map(|nb| node_indices.get(nb).copied()).collect()
+                        nbrs.filter_map(|nb| node_indices.get(nb).copied())
+                            .collect()
                     })
                 })
                 .collect()
         };
         let candidate = super::graph_shortest_path_adjacency_indices(&graph, &nodes);
-        assert_eq!(candidate, inline(&graph, &nodes), "native rows must match inline route");
+        assert_eq!(
+            candidate,
+            inline(&graph, &nodes),
+            "native rows must match inline route"
+        );
 
         let time = |candidate_route: bool| -> f64 {
             let start = Instant::now();
@@ -31075,7 +31147,11 @@ mod tests {
             for round in 0..rounds {
                 let a = time(true);
                 let b = time(true);
-                ratios.push(if round.is_multiple_of(2) { b / a } else { a / b });
+                ratios.push(if round.is_multiple_of(2) {
+                    b / a
+                } else {
+                    a / b
+                });
             }
             ratios
         };
@@ -31091,7 +31167,9 @@ mod tests {
             );
         };
 
-        println!("SPA_AB n={n} cycle+chord rounds={rounds} adjacency-build (>1 = candidate faster)");
+        println!(
+            "SPA_AB n={n} cycle+chord rounds={rounds} adjacency-build (>1 = candidate faster)"
+        );
         report("native_vs_inline", &paired());
         report("null", &null());
     }
@@ -31174,7 +31252,11 @@ mod tests {
             for round in 0..rounds {
                 let a = time(true);
                 let b = time(true);
-                ratios.push(if round.is_multiple_of(2) { b / a } else { a / b });
+                ratios.push(if round.is_multiple_of(2) {
+                    b / a
+                } else {
+                    a / b
+                });
             }
             ratios
         };
@@ -31190,7 +31272,9 @@ mod tests {
             );
         };
 
-        println!("DENSITY_AB n={n} iters={iters} rounds={rounds} node_count vs nodes_ordered().len() (>1 = candidate faster)");
+        println!(
+            "DENSITY_AB n={n} iters={iters} rounds={rounds} node_count vs nodes_ordered().len() (>1 = candidate faster)"
+        );
         report("node_count_vs_materialize", &paired());
         report("null", &null());
     }
@@ -31291,7 +31375,11 @@ mod tests {
             for round in 0..rounds {
                 let a = time(true);
                 let b = time(true);
-                ratios.push(if round.is_multiple_of(2) { b / a } else { a / b });
+                ratios.push(if round.is_multiple_of(2) {
+                    b / a
+                } else {
+                    a / b
+                });
             }
             ratios
         };
@@ -31307,7 +31395,9 @@ mod tests {
             );
         };
 
-        println!("NONEDGES_AB n={n} dense-DiGraph rounds={rounds} V^2 scan (>1 = candidate faster)");
+        println!(
+            "NONEDGES_AB n={n} dense-DiGraph rounds={rounds} V^2 scan (>1 = candidate faster)"
+        );
         report("boolrow_vs_hasedge", &paired());
         report("null", &null());
     }
@@ -31408,7 +31498,11 @@ mod tests {
             for round in 0..rounds {
                 let a = time(true);
                 let b = time(true);
-                ratios.push(if round.is_multiple_of(2) { b / a } else { a / b });
+                ratios.push(if round.is_multiple_of(2) {
+                    b / a
+                } else {
+                    a / b
+                });
             }
             ratios
         };

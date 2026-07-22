@@ -551,12 +551,7 @@ fn run_edge_disjoint_paths_ab(node_count: usize, iterations: usize) {
         &candidate_times,
     );
     let (null_ratios, null_left, null_right) = paired(true);
-    report(
-        "NULL_index_vs_index",
-        &null_ratios,
-        &null_left,
-        &null_right,
-    );
+    report("NULL_index_vs_index", &null_ratios, &null_left, &null_right);
 }
 
 /// Exact pre-br-r37-c1-lqir7 production kernel, retained only in the profiling
