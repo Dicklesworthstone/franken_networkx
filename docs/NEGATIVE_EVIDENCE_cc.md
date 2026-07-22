@@ -9143,3 +9143,23 @@ axes for the real flip (S10+): `reorder_rows_for_nx_copy_walk` (copy-walk row re
 storage), `edges_ordered`/snapshot orientation derivation, and pickle/`apply_row_orders`
 round-trips; then the production strangler slices. BENCH-INFRA NOTE: long background rch loops get
 killed by the runtime — run verification FOREGROUND when the fleet has slots (it did this hour).
+
+## 2026-07-22 SnowyBadger (cc) KEEP (thp6w S10): copy-walk reorder + snapshot orientation gates green on the slab — ALL pre-production tie-break axes now closed
+
+The two remaining flip-risk axes, prototyped and gated (suite 82/82):
+1. `edges_ordered` (the ONLY observed edge order): walk = node insertion order x row order x bucket
+   key order, first-touch dedup, emitted orientation = STRING-LEX canonical derived from names at
+   emission (internal pair keys stay slot-canonical). Byte-equal to `edges_ordered_borrowed` on the
+   real MultiGraph in every gauntlet state.
+2. `reorder_rows_for_nx_copy_walk` (the MultiGraph.copy row-order contract): two-phase like the
+   real one (ALL new orders computed against pre-reorder rows; sort key (pos, idx-of-u-in-row-v,
+   slot) equivalent to the real (pos, idx, name) since pos is unique). Gauntlet covers reorder,
+   IDEMPOTENT re-reorder, post-reorder appends, removal + slot recycling, and reorder-again on the
+   recycled state — all byte-identical.
+
+**EPOCH STATUS: the slab + compact-bucket target layout is now fully measured (construction 3.60x,
+removal ~3x faster) AND fully parity-gated (node/row/key order, attrs, recycling, copy-walk,
+snapshot orientation). Next stage = production strangler slices (S11+): introduce the layout into
+fnx-classes MultiGraph behind the feature flag, route construction first (the measured 0.49x
+Python-level loss), derived views second, then flip the default after the fnx-python suite goes
+green both ways.**

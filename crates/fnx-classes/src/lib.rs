@@ -3089,6 +3089,96 @@ pub mod mg_int_storage_proto {
                 .map(CompactBucket::key_order)
                 .unwrap_or_default()
         }
+
+        /// br-r37-c1-thp6w S10: slot -> insertion-order position (usize::MAX
+        /// for tombstones), rebuilt on demand in O(V).
+        fn slot_positions(&self) -> Vec<usize> {
+            let mut pos = vec![usize::MAX; self.slot_names.len()];
+            for (p, (_, &slot)) in self.node_order.iter().enumerate() {
+                pos[slot] = p;
+            }
+            pos
+        }
+
+        /// br-r37-c1-thp6w S10: `edges_ordered_borrowed` analog — the ONLY
+        /// observed edge order. Walk = node insertion order, row order, bucket
+        /// key order; each (pair, key) emitted once (first touch); emitted
+        /// orientation = STRING-LEX canonical (`EdgeKey` semantics), derived
+        /// from the names at emission since the internal pair key is
+        /// slot-canonical. This is the snapshot/pickle orientation gate.
+        #[must_use]
+        pub fn edges_ordered_names(&self) -> Vec<(&str, &str, usize)> {
+            let mut ordered = Vec::with_capacity(self.edge_count);
+            let mut seen: std::collections::HashSet<(usize, usize, usize)> =
+                std::collections::HashSet::with_capacity(self.edge_count);
+            for (u_name, &u_slot) in &self.node_order {
+                for &v_slot in self.rows[u_slot].keys() {
+                    let pair = (u_slot.min(v_slot), u_slot.max(v_slot));
+                    let Some(bucket) = self.edges.get(&pair) else {
+                        continue;
+                    };
+                    for key in bucket.key_order() {
+                        if !seen.insert((pair.0, pair.1, key)) {
+                            continue;
+                        }
+                        let v_name = self.slot_names[v_slot]
+                            .as_deref()
+                            .expect("row references a live slot");
+                        let (left, right) = if u_name.as_str() <= v_name {
+                            (u_name.as_str(), v_name)
+                        } else {
+                            (v_name, u_name.as_str())
+                        };
+                        ordered.push((left, right, key));
+                    }
+                }
+            }
+            ordered
+        }
+
+        /// br-r37-c1-thp6w S10: `MultiGraph::reorder_rows_for_nx_copy_walk`
+        /// under slot storage. Two-phase exactly like the real one: ALL new
+        /// row orders are computed against the PRE-reorder rows (early =
+        /// earlier-position neighbors sorted by (pos(v), index of u within
+        /// row v), then late in original order), then applied. Sort key
+        /// (pos, idx, slot) is equivalent to the real (pos, idx, name)
+        /// because pos is unique per neighbor.
+        pub fn reorder_rows_for_nx_copy_walk(&mut self) {
+            let pos = self.slot_positions();
+            let order_slots: Vec<usize> = self.node_order.values().copied().collect();
+            let mut new_orders: Vec<(usize, Vec<usize>)> = Vec::with_capacity(order_slots.len());
+            for &u_slot in &order_slots {
+                let pu = pos[u_slot];
+                let mut early: Vec<(usize, usize, usize)> = Vec::new();
+                let mut late: Vec<usize> = Vec::new();
+                for &v_slot in self.rows[u_slot].keys() {
+                    let pv = pos[v_slot];
+                    if pv < pu {
+                        let idx = self.rows[v_slot]
+                            .get_index_of(&u_slot)
+                            .unwrap_or(usize::MAX);
+                        early.push((pv, idx, v_slot));
+                    } else {
+                        late.push(v_slot);
+                    }
+                }
+                early.sort_unstable();
+                let mut order: Vec<usize> = early.into_iter().map(|(_, _, v)| v).collect();
+                order.extend(late);
+                new_orders.push((u_slot, order));
+            }
+            for (u_slot, order) in new_orders {
+                let mut old = std::mem::take(&mut self.rows[u_slot]);
+                let mut rebuilt = IndexMap::with_capacity(old.len());
+                for v_slot in order {
+                    if let Some(cell) = old.shift_remove(&v_slot) {
+                        rebuilt.insert(v_slot, cell);
+                    }
+                }
+                debug_assert!(old.is_empty(), "copy-walk reorder dropped a cell");
+                self.rows[u_slot] = rebuilt;
+            }
+        }
     }
 }
 
@@ -5807,6 +5897,100 @@ mod tests {
         // Missing-node refusal parity.
         assert_eq!(mg.remove_node("gone"), slab.remove_node("gone"));
         assert_slab_matches_mg(&mg, &slab);
+    }
+
+    /// br-r37-c1-thp6w S10 helper: the ONLY observed edge order — walk-order
+    /// emission with String-lex canonical orientation — must be byte-identical
+    /// between the real MultiGraph and the slab layout.
+    fn assert_slab_edges_ordered_matches_mg(
+        mg: &MultiGraph,
+        slab: &super::mg_int_storage_proto::MgSlabStorageProto,
+    ) {
+        let mg_ordered: Vec<(&str, &str, usize)> = mg
+            .edges_ordered_borrowed()
+            .into_iter()
+            .map(|(l, r, k, _)| (l, r, k))
+            .collect();
+        assert_eq!(
+            slab.edges_ordered_names(),
+            mg_ordered,
+            "edges_ordered walk emission must match"
+        );
+    }
+
+    /// br-r37-c1-thp6w S10 PARITY GAUNTLET (copy-walk reorder + snapshot
+    /// orientation): the two remaining tie-break axes for the real flip.
+    /// `edges_ordered` (walk emission with lex-canonical orientation) and
+    /// `reorder_rows_for_nx_copy_walk` (the MultiGraph.copy row-order
+    /// contract) must stay byte-identical through reorders, post-reorder
+    /// mutations, removals, and slot recycling.
+    #[test]
+    fn thp6w_s10_copy_walk_and_snapshot_orientation_gauntlet() {
+        use super::mg_int_storage_proto::MgSlabStorageProto;
+
+        let stream: Vec<(&str, &str, usize)> = vec![
+            ("2", "10", 0),
+            ("10", "2", 1),
+            ("1", "1", 0),
+            ("2", "3", 0),
+            ("10", "1", 5),
+            ("0", "2", 0),
+            ("4", "5", 2),
+            ("5", "4", 0),
+            ("3", "0", 0),
+            ("1", "1", 1),
+            ("5", "0", 3),
+        ];
+        let mut mg = MultiGraph::strict();
+        let _ = mg.extend_keyed_edges_with_attrs_unrecorded(
+            stream
+                .iter()
+                .map(|(l, r, k)| ((*l).to_owned(), (*r).to_owned(), *k, AttrMap::new())),
+        );
+        let mut slab = MgSlabStorageProto::new();
+        for (l, r, k) in &stream {
+            slab.add_keyed_edge(l, r, *k, AttrMap::new());
+        }
+        assert_slab_matches_mg(&mg, &slab);
+        assert_slab_edges_ordered_matches_mg(&mg, &slab);
+
+        // THE copy-walk reorder (MultiGraph.copy row-order contract).
+        mg.reorder_rows_for_nx_copy_walk();
+        slab.reorder_rows_for_nx_copy_walk();
+        assert_slab_matches_mg(&mg, &slab);
+        assert_slab_edges_ordered_matches_mg(&mg, &slab);
+
+        // Reorder must be idempotent on both sides.
+        mg.reorder_rows_for_nx_copy_walk();
+        slab.reorder_rows_for_nx_copy_walk();
+        assert_slab_matches_mg(&mg, &slab);
+        assert_slab_edges_ordered_matches_mg(&mg, &slab);
+
+        // Post-reorder mutations: new edges append after the reordered cells.
+        mg.extend_keyed_edges_with_attrs_unrecorded(vec![
+            ("0".to_owned(), "9".to_owned(), 0, AttrMap::new()),
+            ("9".to_owned(), "2".to_owned(), 0, AttrMap::new()),
+        ]);
+        slab.add_keyed_edge("0", "9", 0, AttrMap::new());
+        slab.add_keyed_edge("9", "2", 0, AttrMap::new());
+        assert_slab_matches_mg(&mg, &slab);
+        assert_slab_edges_ordered_matches_mg(&mg, &slab);
+
+        // Removal + slot recycling, then reorder AGAIN on the recycled state.
+        assert_eq!(mg.remove_node("2"), slab.remove_node("2"));
+        mg.extend_keyed_edges_with_attrs_unrecorded(vec![(
+            "fresh".to_owned(),
+            "9".to_owned(),
+            0,
+            AttrMap::new(),
+        )]);
+        slab.add_keyed_edge("fresh", "9", 0, AttrMap::new());
+        assert_slab_matches_mg(&mg, &slab);
+        assert_slab_edges_ordered_matches_mg(&mg, &slab);
+        mg.reorder_rows_for_nx_copy_walk();
+        slab.reorder_rows_for_nx_copy_walk();
+        assert_slab_matches_mg(&mg, &slab);
+        assert_slab_edges_ordered_matches_mg(&mg, &slab);
     }
 
     /// br-r37-c1-thp6w S5 A/B: pure storage-representation tax of the String-
