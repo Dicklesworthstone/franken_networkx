@@ -9244,3 +9244,16 @@ future route gates). Feature-on 84/84, feature-off 82/82.
 INFRA: the local crates.io sparse-index staleness HEALED (~3h) — local cargo builds and therefore
 maturin wheels work again; the fnx-python feature-on burn-in is now UNBLOCKED as the next stage
 after the attributed fresh-batch variant gets the same co-build.
+
+## 2026-07-22 SnowyBadger (cc) MILESTONE (thp6w burn-in): fnx-python fast suite CLEAN on the feature-on wheel — zero shadow-attributable failures in 49,508 passing tests
+
+Local index healed -> built the feature-on wheel (`maturin develop --release --features
+"pyo3/abi3-py310,fnx-classes/mg-int-storage"`) and ran `pytest tests/python -m "not slow"`:
+**49508 passed, 13 failed, 1065 skipped (3m44s)**. CONTROL: rebuilt feature-OFF from the SAME tree
+and re-ran exactly those 13 — **identical failure set** (peer ctor-WIP in the shared tree
+[MultiDiGraph ctor/dict-of-* tests — the hxdyb lane] + docs-freshness locks
+[coverage/review-mode/unused-raw]). The slab shadow — dual-write, warm-from-birth construction,
+and the routed edges_ordered read — is invisible to the entire Python parity surface, as the
+gates predicted. Default state restored to feature-off in site-packages. Remaining before any
+default flip: co-build in the attributed fresh variant, more read routes, and a FULL (incl. slow)
+suite pass on a clean tree.
