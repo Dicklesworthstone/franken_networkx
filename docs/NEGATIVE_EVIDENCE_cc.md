@@ -9065,3 +9065,35 @@ snapshot/pickle orientation gates, node-removal renumber last — Graph's d58s8 
 CAVEAT: final suite re-run after a one-token lint fix (`let mut draw` -> `let draw` in the ignored
 A/B) was blocked by renewed fleet saturation; the 79/79 green run covered all substantive code and
 the A/B ran green twice after that line existed. Re-confirm in the background/next session.
+
+## 2026-07-22 SnowyBadger (cc) KEEP (thp6w S6+S7): compact One/Many buckets 2.3x over plain index proto — combined 3.5x over the String store; removal/renumber parity gauntlet green
+
+**S6 (compact buckets, measured KEEP).** Added `CompactKeys` (One(usize) | Many(IndexSet)) and
+`CompactBucket` (One(key, AttrMap) | Many(IndexMap)) singleton-optimized enums +
+`MgIntStorageProtoCompact` — same layout as the S5 proto but ZERO per-pair/per-cell allocations in
+the singleton case (the dominant one). Same parity gates as S5 (node/row/key order + merged attrs vs
+real MG, lex-divergent names) ALL GREEN. Three-arm paired-interleaved A/B (current store best-case
+bulk loader / S5 index proto / S6 compact), n=20000 m=81000, two runs on different workers (paired
+ratios worker-stable, absolute times not):
+run 1: current 106.1ms / proto 68.5ms / compact 29.8ms -> current/compact **3.558x**, proto/compact
+**2.297x** (null 0.994); run 2: 61.7/40.3/17.8ms -> **3.475x** / **2.270x** (null 1.020).
+VERDICT: the nested-bucket alloc floor was REAL and bigger than the String tax itself. The flip's
+target layout = index-keyed rows/edges + compact One/Many buckets: **~3.5x kernel-level** on MG
+batch construction (the Python-measured 0.49x loss has ~2x headroom to become a win). S5's 1.65x
+current/proto reproduced as 1.55/1.53 on these workers — ratio worker-variance ~7%, direction
+unchanged.
+
+**S7 (removal/renumber semantics, parity-gated).** Prototype `remove_edge` (key=None -> LAST bucket
+key via next_back; survivor key order shift-preserved; emptied pair -> outer swap_remove + row cell
+shift_remove) and `remove_node` (d58s8-pattern fused positional renumber: row drop + one
+drop+decrement pass per row + order-preserving edges rebuild with uniform pair decrement — preserves
+the index-canonical invariant since both members decrement). Gauntlet
+`thp6w_s7_removal_renumber_parity_gauntlet` green: byte-identical orderings after every step incl.
+partial/last-key/self-loop removals, missing-pair/key refusals, TWO renumbers, and re-adds AFTER a
+renumber. Suite 80/80.
+
+**NEXT (S8, queued):** measure the flip's cost side — positional-renumber removal (O(V+E) per
+remove_node) vs the real String store's O(degree) removal — to decide whether the real flip needs
+the slab/stable-slot + tombstone design (alien graveyard: Slab stable indices + Swiss-table
+tombstone/compaction discipline; recorded in the bead). Decision predicate: take slab only if the
+removal A/B shows positional renumber losing badly AND slab preserves the 3.5x construction win.

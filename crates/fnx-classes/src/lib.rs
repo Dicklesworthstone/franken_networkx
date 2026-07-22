@@ -2472,6 +2472,332 @@ pub mod mg_int_storage_proto {
                 .map(|bucket| bucket.keys().copied().collect())
                 .unwrap_or_default()
         }
+
+        /// br-r37-c1-thp6w S7: mirror of `MultiGraph::remove_edge` on the
+        /// index layout — `key=None` picks the LAST bucket key (`next_back`),
+        /// the surviving bucket keeps its key order (shift semantics), an
+        /// emptied pair drops from the outer edges map (order unobservable)
+        /// and shift-removes the neighbor cell from both rows.
+        pub fn remove_edge(&mut self, left: &str, right: &str, key: Option<usize>) -> bool {
+            let (Some(&l), Some(&r)) = (self.node_index.get(left), self.node_index.get(right))
+            else {
+                return false;
+            };
+            let pair = (l.min(r), l.max(r));
+            let Some(bucket) = self.edges.get_mut(&pair) else {
+                return false;
+            };
+            let Some(removal_key) = key.or_else(|| bucket.keys().next_back().copied()) else {
+                return false;
+            };
+            if bucket.shift_remove(&removal_key).is_none() {
+                return false;
+            }
+            self.edge_count -= 1;
+            let pair_gone = bucket.is_empty();
+            if pair_gone {
+                self.edges.swap_remove(&pair);
+            }
+            let mut drop_cell = |u: usize, v: usize| {
+                let mut cell_empty = false;
+                if let Some(keys) = self.rows[u].get_mut(&v) {
+                    keys.shift_remove(&removal_key);
+                    cell_empty = keys.is_empty();
+                }
+                if cell_empty {
+                    self.rows[u].shift_remove(&v);
+                }
+            };
+            drop_cell(l, r);
+            if l != r {
+                drop_cell(r, l);
+            }
+            true
+        }
+
+        /// br-r37-c1-thp6w S7: mirror of `MultiGraph::remove_node` under the
+        /// index layout — the d58s8-pattern fused renumber (Graph::remove_node
+        /// template): drop the node's row, decrement every surviving index
+        /// above it in one order-preserving pass per row, rebuild the edges
+        /// map order-preserving with incident pairs skipped and both pair
+        /// members decremented (order within the pair is preserved by a
+        /// uniform decrement, so the index-canonical invariant survives).
+        pub fn remove_node(&mut self, name: &str) -> bool {
+            let Some(&idx) = self.node_index.get(name) else {
+                return false;
+            };
+            self.node_names.remove(idx);
+            self.node_index.shift_remove(name);
+            for stored in self.node_index.values_mut() {
+                if *stored > idx {
+                    *stored -= 1;
+                }
+            }
+            self.rows.remove(idx);
+            for row in &mut self.rows {
+                let old = std::mem::take(row);
+                for (j, keys) in old {
+                    if j == idx {
+                        continue;
+                    }
+                    row.insert(if j > idx { j - 1 } else { j }, keys);
+                }
+            }
+            let old_edges = std::mem::take(&mut self.edges);
+            let mut removed_cells = 0usize;
+            for ((a, b), bucket) in old_edges {
+                if a == idx || b == idx {
+                    removed_cells += bucket.len();
+                    continue;
+                }
+                self.edges.insert(
+                    (
+                        if a > idx { a - 1 } else { a },
+                        if b > idx { b - 1 } else { b },
+                    ),
+                    bucket,
+                );
+            }
+            self.edge_count -= removed_cells;
+            true
+        }
+    }
+
+    /// br-r37-c1-thp6w S6: singleton-optimized parallel-key cell. The
+    /// insertion-ordered set semantics of `IndexSet<usize>` are preserved
+    /// exactly (dedup on insert, One -> Many promotion appends), but the
+    /// singleton case — the overwhelmingly common one in real multigraphs —
+    /// allocates NOTHING.
+    #[derive(Debug)]
+    pub enum CompactKeys {
+        One(usize),
+        Many(IndexSet<usize>),
+    }
+
+    impl CompactKeys {
+        /// Set-insert preserving insertion order; returns true if newly added.
+        pub fn insert(&mut self, key: usize) -> bool {
+            match self {
+                Self::One(existing) => {
+                    if *existing == key {
+                        return false;
+                    }
+                    let mut set = IndexSet::with_capacity(2);
+                    set.insert(*existing);
+                    set.insert(key);
+                    *self = Self::Many(set);
+                    true
+                }
+                Self::Many(set) => set.insert(key),
+            }
+        }
+
+        #[must_use]
+        pub fn order(&self) -> Vec<usize> {
+            match self {
+                Self::One(key) => vec![*key],
+                Self::Many(set) => set.iter().copied().collect(),
+            }
+        }
+    }
+
+    /// br-r37-c1-thp6w S6: singleton-optimized (pair -> key -> attrs) bucket,
+    /// insertion-key-ordered like `IndexMap<usize, AttrMap>`; the singleton
+    /// case stores the key + attrs inline with no map allocation (an empty
+    /// `AttrMap`/BTreeMap does not allocate).
+    #[derive(Debug)]
+    pub enum CompactBucket {
+        One(usize, AttrMap),
+        Many(IndexMap<usize, AttrMap>),
+    }
+
+    impl CompactBucket {
+        /// `entry(key).or_default().extend(attrs)` analog; returns true if the
+        /// (key) cell is new.
+        pub fn merge(&mut self, key: usize, attrs: AttrMap) -> bool {
+            match self {
+                Self::One(existing, existing_attrs) => {
+                    if *existing == key {
+                        existing_attrs.extend(attrs);
+                        return false;
+                    }
+                    let mut map = IndexMap::with_capacity(2);
+                    map.insert(*existing, std::mem::take(existing_attrs));
+                    map.insert(key, attrs);
+                    *self = Self::Many(map);
+                    true
+                }
+                Self::Many(map) => {
+                    let is_new = !map.contains_key(&key);
+                    map.entry(key).or_default().extend(attrs);
+                    is_new
+                }
+            }
+        }
+
+        #[must_use]
+        pub fn key_order(&self) -> Vec<usize> {
+            match self {
+                Self::One(key, _) => vec![*key],
+                Self::Many(map) => map.keys().copied().collect(),
+            }
+        }
+
+        #[must_use]
+        pub fn attrs_for(&self, key: usize) -> Option<&AttrMap> {
+            match self {
+                Self::One(existing, attrs) => (*existing == key).then_some(attrs),
+                Self::Many(map) => map.get(&key),
+            }
+        }
+    }
+
+    /// br-r37-c1-thp6w S6: the compact-bucket variant of the index-keyed
+    /// layout — identical structure to `MgIntStorageProto` except both nested
+    /// bucket levels use the singleton-optimized enums, so a simple-graph-like
+    /// multigraph (no parallel edges) performs ZERO per-pair bucket
+    /// allocations.
+    #[derive(Debug, Default)]
+    pub struct MgIntStorageProtoCompact {
+        pub node_names: Vec<String>,
+        pub node_index: IndexMap<String, usize, rustc_hash::FxBuildHasher>,
+        pub rows: Vec<IndexMap<usize, CompactKeys>>,
+        pub edges: IndexMap<(usize, usize), CompactBucket, rustc_hash::FxBuildHasher>,
+        pub edge_count: usize,
+    }
+
+    impl MgIntStorageProtoCompact {
+        #[must_use]
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        fn ensure_node(&mut self, name: &str) -> usize {
+            if let Some(&idx) = self.node_index.get(name) {
+                return idx;
+            }
+            let idx = self.node_names.len();
+            self.node_names.push(name.to_owned());
+            self.node_index.insert(name.to_owned(), idx);
+            self.rows.push(IndexMap::new());
+            idx
+        }
+
+        /// Mirror of `MgIntStorageProto::add_keyed_edge` on compact buckets.
+        pub fn add_keyed_edge(&mut self, left: &str, right: &str, key: usize, attrs: AttrMap) {
+            let l = self.ensure_node(left);
+            let r = if left == right {
+                l
+            } else {
+                self.ensure_node(right)
+            };
+            let pair = (l.min(r), l.max(r));
+            match self.edges.entry(pair) {
+                indexmap::map::Entry::Occupied(mut bucket) => {
+                    if bucket.get_mut().merge(key, attrs) {
+                        self.edge_count += 1;
+                    }
+                }
+                indexmap::map::Entry::Vacant(slot) => {
+                    slot.insert(CompactBucket::One(key, attrs));
+                    self.edge_count += 1;
+                }
+            }
+            match self.rows[l].entry(r) {
+                indexmap::map::Entry::Occupied(mut cell) => {
+                    let _ = cell.get_mut().insert(key);
+                }
+                indexmap::map::Entry::Vacant(slot) => {
+                    slot.insert(CompactKeys::One(key));
+                }
+            }
+            if l != r {
+                match self.rows[r].entry(l) {
+                    indexmap::map::Entry::Occupied(mut cell) => {
+                        let _ = cell.get_mut().insert(key);
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactKeys::One(key));
+                    }
+                }
+            }
+        }
+
+        /// Mirror of `MgIntStorageProto::bulk_load_int_prefix` on compact buckets.
+        #[must_use]
+        pub fn bulk_load_int_prefix<I>(node_count: usize, edges: I) -> Self
+        where
+            I: IntoIterator<Item = (usize, usize, usize)>,
+        {
+            let iterator = edges.into_iter();
+            let (lower_bound, _) = iterator.size_hint();
+            let mut proto = Self::new();
+            proto.node_names.reserve(node_count);
+            proto.node_index.reserve(node_count);
+            proto.rows.reserve(node_count);
+            proto.edges.reserve(lower_bound);
+            for node in 0..node_count {
+                let name = node.to_string();
+                proto.node_names.push(name.clone());
+                proto.node_index.insert(name, node);
+                proto.rows.push(IndexMap::new());
+            }
+            for (left_idx, right_idx, key) in iterator {
+                debug_assert!(left_idx < node_count);
+                debug_assert!(right_idx < node_count);
+                let pair = (left_idx.min(right_idx), left_idx.max(right_idx));
+                match proto.edges.entry(pair) {
+                    indexmap::map::Entry::Occupied(mut bucket) => {
+                        let _ = bucket.get_mut().merge(key, AttrMap::new());
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactBucket::One(key, AttrMap::new()));
+                    }
+                }
+                match proto.rows[left_idx].entry(right_idx) {
+                    indexmap::map::Entry::Occupied(mut cell) => {
+                        let _ = cell.get_mut().insert(key);
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactKeys::One(key));
+                    }
+                }
+                if left_idx != right_idx {
+                    match proto.rows[right_idx].entry(left_idx) {
+                        indexmap::map::Entry::Occupied(mut cell) => {
+                            let _ = cell.get_mut().insert(key);
+                        }
+                        indexmap::map::Entry::Vacant(slot) => {
+                            slot.insert(CompactKeys::One(key));
+                        }
+                    }
+                }
+                proto.edge_count += 1;
+            }
+            proto
+        }
+
+        /// Distinct neighbors of node `i` as names, in row order.
+        #[must_use]
+        pub fn neighbor_names(&self, i: usize) -> Vec<&str> {
+            self.rows[i]
+                .keys()
+                .map(|&j| self.node_names[j].as_str())
+                .collect()
+        }
+
+        /// Parallel-edge key order for the (left, right) pair.
+        #[must_use]
+        pub fn key_order(&self, left: &str, right: &str) -> Vec<usize> {
+            let (Some(&l), Some(&r)) = (self.node_index.get(left), self.node_index.get(right))
+            else {
+                return Vec::new();
+            };
+            self.edges
+                .get(&(l.min(r), l.max(r)))
+                .map(CompactBucket::key_order)
+                .unwrap_or_default()
+        }
     }
 }
 
@@ -4676,6 +5002,11 @@ mod tests {
         for (i, (l, r, k)) in stream.iter().enumerate() {
             proto.add_keyed_edge(l, r, *k, attrs_for(i));
         }
+        // br-r37-c1-thp6w S6: the compact-bucket variant must pass the same gates.
+        let mut compact = super::mg_int_storage_proto::MgIntStorageProtoCompact::new();
+        for (i, (l, r, k)) in stream.iter().enumerate() {
+            compact.add_keyed_edge(l, r, *k, attrs_for(i));
+        }
 
         // Gate 1: node insertion order.
         assert_eq!(
@@ -4687,22 +5018,46 @@ mod tests {
             mg.nodes_ordered(),
             "node order must match"
         );
+        assert_eq!(
+            compact
+                .node_names
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            mg.nodes_ordered(),
+            "compact node order must match"
+        );
         // Gate 2 + 3: per-row distinct-neighbor order and per-pair key order.
         for (i, name) in mg.nodes_ordered().iter().enumerate() {
             let mg_row: Vec<&str> = mg
                 .neighbors_iter(name)
                 .map_or_else(Vec::new, Iterator::collect);
             assert_eq!(proto.neighbor_names(i), mg_row, "row order for node {name}");
+            assert_eq!(
+                compact.neighbor_names(i),
+                mg_row,
+                "compact row order for node {name}"
+            );
             for v in &mg_row {
                 assert_eq!(
                     proto.key_order(name, v),
                     mg.edge_keys_vec(name, v),
                     "key order for pair ({name}, {v})"
                 );
+                assert_eq!(
+                    compact.key_order(name, v),
+                    mg.edge_keys_vec(name, v),
+                    "compact key order for pair ({name}, {v})"
+                );
             }
         }
         // Gate 4: edge count.
         assert_eq!(proto.edge_count, mg.edge_count(), "edge_count must match");
+        assert_eq!(
+            compact.edge_count,
+            mg.edge_count(),
+            "compact edge_count must match"
+        );
         // Gate 5: merged attrs on a dup-inserted cell ((2,10) key 1 saw inserts
         // at stream positions 1 and 7 -> extend semantics on both sides).
         let (Some(&l), Some(&r)) = (proto.node_index.get("2"), proto.node_index.get("10")) else {
@@ -4716,6 +5071,141 @@ mod tests {
             mg.edge_attrs("2", "10", 1),
             "merged attrs on the dup (pair, key) cell must match"
         );
+        assert_eq!(
+            compact.edges[&(l.min(r), l.max(r))].attrs_for(1),
+            mg.edge_attrs("2", "10", 1),
+            "compact merged attrs on the dup (pair, key) cell must match"
+        );
+    }
+
+    /// br-r37-c1-thp6w S7 helper: full observable-order parity between the
+    /// real MultiGraph and the index-keyed prototype, plus the prototype's own
+    /// name->index consistency (the renumber invariant).
+    fn assert_proto_matches_mg(
+        mg: &MultiGraph,
+        proto: &super::mg_int_storage_proto::MgIntStorageProto,
+    ) {
+        assert_eq!(
+            proto
+                .node_names
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            mg.nodes_ordered(),
+            "node order"
+        );
+        for (i, name) in proto.node_names.iter().enumerate() {
+            assert_eq!(
+                proto.node_index.get(name),
+                Some(&i),
+                "node_index desync for {name}"
+            );
+        }
+        for (i, name) in mg.nodes_ordered().iter().enumerate() {
+            let mg_row: Vec<&str> = mg
+                .neighbors_iter(name)
+                .map_or_else(Vec::new, Iterator::collect);
+            assert_eq!(proto.neighbor_names(i), mg_row, "row order for {name}");
+            for v in &mg_row {
+                assert_eq!(
+                    proto.key_order(name, v),
+                    mg.edge_keys_vec(name, v),
+                    "key order for ({name}, {v})"
+                );
+            }
+        }
+        assert_eq!(proto.edge_count, mg.edge_count(), "edge_count");
+    }
+
+    /// br-r37-c1-thp6w S7 PARITY GAUNTLET (removal + renumber): the epoch's
+    /// riskiest semantics — `remove_edge` shift/`next_back` behavior and the
+    /// `remove_node` index renumber — must keep every observable ordering
+    /// byte-identical to the real String-keyed MultiGraph after EVERY step,
+    /// including re-adds AFTER a renumber (stale-index detection).
+    #[test]
+    fn thp6w_s7_removal_renumber_parity_gauntlet() {
+        use super::mg_int_storage_proto::MgIntStorageProto;
+
+        let stream: Vec<(&str, &str, usize)> = vec![
+            ("2", "10", 0),
+            ("10", "2", 1),
+            ("1", "1", 0),
+            ("2", "3", 0),
+            ("3", "2", 0),
+            ("10", "1", 5),
+            ("0", "2", 0),
+            ("2", "10", 1),
+            ("4", "5", 2),
+            ("5", "4", 0),
+            ("1", "1", 1),
+        ];
+        let mut mg = MultiGraph::strict();
+        let _ = mg.extend_keyed_edges_with_attrs_unrecorded(
+            stream
+                .iter()
+                .map(|(l, r, k)| ((*l).to_owned(), (*r).to_owned(), *k, AttrMap::new())),
+        );
+        let mut proto = MgIntStorageProto::new();
+        for (l, r, k) in &stream {
+            proto.add_keyed_edge(l, r, *k, AttrMap::new());
+        }
+        assert_proto_matches_mg(&mg, &proto);
+
+        // key=None must pick the LAST bucket key (next_back): (4,5) keys are
+        // [2, 0] in insertion order -> removes 0, survivor [2].
+        assert_eq!(
+            mg.remove_edge("4", "5", None),
+            proto.remove_edge("4", "5", None)
+        );
+        assert_proto_matches_mg(&mg, &proto);
+        // Partial removal of a parallel bundle: survivor key order preserved.
+        assert_eq!(
+            mg.remove_edge("2", "10", Some(0)),
+            proto.remove_edge("2", "10", Some(0))
+        );
+        assert_proto_matches_mg(&mg, &proto);
+        // Last key of the pair -> neighbor cell drops from both rows.
+        assert_eq!(
+            mg.remove_edge("2", "10", None),
+            proto.remove_edge("2", "10", None)
+        );
+        assert_proto_matches_mg(&mg, &proto);
+        // Self-loop partial removal.
+        assert_eq!(
+            mg.remove_edge("1", "1", Some(0)),
+            proto.remove_edge("1", "1", Some(0))
+        );
+        assert_proto_matches_mg(&mg, &proto);
+        // Missing pair / missing key: both sides must refuse identically.
+        assert_eq!(
+            mg.remove_edge("0", "10", None),
+            proto.remove_edge("0", "10", None)
+        );
+        assert_eq!(
+            mg.remove_edge("2", "3", Some(9)),
+            proto.remove_edge("2", "3", Some(9))
+        );
+        assert_proto_matches_mg(&mg, &proto);
+
+        // THE renumber: remove a mid-order node with live edges.
+        assert_eq!(mg.remove_node("2"), proto.remove_node("2"));
+        assert_proto_matches_mg(&mg, &proto);
+        // Re-adds AFTER the renumber: fresh node + edges into shifted indices.
+        mg.extend_keyed_edges_with_attrs_unrecorded(vec![
+            ("3".to_owned(), "99".to_owned(), 0, AttrMap::new()),
+            ("0".to_owned(), "3".to_owned(), 0, AttrMap::new()),
+        ]);
+        proto.add_keyed_edge("3", "99", 0, AttrMap::new());
+        proto.add_keyed_edge("0", "3", 0, AttrMap::new());
+        assert_proto_matches_mg(&mg, &proto);
+        // Renumber again from the other end, then the self-loop node.
+        assert_eq!(mg.remove_node("10"), proto.remove_node("10"));
+        assert_proto_matches_mg(&mg, &proto);
+        assert_eq!(mg.remove_node("1"), proto.remove_node("1"));
+        assert_proto_matches_mg(&mg, &proto);
+        // Removing a missing node refuses identically.
+        assert_eq!(mg.remove_node("2"), proto.remove_node("2"));
+        assert_proto_matches_mg(&mg, &proto);
     }
 
     /// br-r37-c1-thp6w S5 A/B: pure storage-representation tax of the String-
@@ -4783,16 +5273,34 @@ mod tests {
             black_box(&proto);
             dt
         };
+        // br-r37-c1-thp6w S6: compact One/Many bucket arm.
+        let time_compact = |stream: &[(usize, usize, usize)]| -> f64 {
+            let t0 = Instant::now();
+            let compact =
+                super::mg_int_storage_proto::MgIntStorageProtoCompact::bulk_load_int_prefix(
+                    n,
+                    stream.iter().copied(),
+                );
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(&compact);
+            dt
+        };
 
-        // Structural agreement between the two arms (once, outside timing):
-        // the real store's derived integer rows must equal the proto rows.
+        // Structural agreement between the arms (once, outside timing):
+        // the real store's derived integer rows must equal both proto rows.
         let mut g = MultiGraph::strict();
         let _ = g.extend_fresh_int_prefix_keyed_edges_unrecorded(n, stream.iter().copied());
         let proto = MgIntStorageProto::bulk_load_int_prefix(n, stream.iter().copied());
+        let compact = super::mg_int_storage_proto::MgIntStorageProtoCompact::bulk_load_int_prefix(
+            n,
+            stream.iter().copied(),
+        );
         g.with_int_adjacency(|adj| {
             for (i, row) in adj.iter().enumerate() {
                 let proto_row: Vec<usize> = proto.rows[i].keys().copied().collect();
                 assert_eq!(row, &proto_row, "derived integer row {i} must agree");
+                let compact_row: Vec<usize> = compact.rows[i].keys().copied().collect();
+                assert_eq!(row, &compact_row, "compact integer row {i} must agree");
             }
         });
         assert_eq!(
@@ -4800,22 +5308,35 @@ mod tests {
             g.edge_count(),
             "A/B arms built different graphs"
         );
+        assert_eq!(
+            compact.edge_count,
+            g.edge_count(),
+            "compact arm built a different graph"
+        );
 
         let median = |samples: &mut Vec<f64>| -> f64 {
             samples.sort_by(f64::total_cmp);
             samples[samples.len() / 2]
         };
-        let (mut cur, mut pro, mut nul) = (Vec::new(), Vec::new(), Vec::new());
+        let (mut cur, mut pro, mut com, mut nul) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
         for _ in 0..9 {
             cur.push(time_current(&stream));
             pro.push(time_proto(&stream));
+            com.push(time_compact(&stream));
             nul.push(time_current(&stream));
         }
-        let (mc, mp, mn) = (median(&mut cur), median(&mut pro), median(&mut nul));
+        let (mc, mp, mk, mn) = (
+            median(&mut cur),
+            median(&mut pro),
+            median(&mut com),
+            median(&mut nul),
+        );
         println!(
-            "THP6W_S5_AB n={n} m={} current={mc:.6}s proto={mp:.6}s ratio_current_over_proto={:.3} null_current_over_current={:.3}",
+            "THP6W_S5_AB n={n} m={} current={mc:.6}s proto={mp:.6}s compact={mk:.6}s ratio_current_over_proto={:.3} ratio_current_over_compact={:.3} ratio_proto_over_compact={:.3} null_current_over_current={:.3}",
             stream.len(),
             mc / mp,
+            mc / mk,
+            mp / mk,
             mc / mn,
         );
     }
