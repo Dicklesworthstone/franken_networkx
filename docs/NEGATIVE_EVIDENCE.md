@@ -23591,3 +23591,93 @@ exceeds both `1.05x` and the null median by at least `0.05x`; otherwise record a
 dated REJECT with the new numbers. Until that concrete predicate holds, do not
 restore the production prototype or treat any of the three noisy medians as a
 win.
+
+## 2026-07-22 WhiteJaguar KEEP (`Graph(iterator)` attrs): fused typed transactional staging — **1.3594x** (`br-r37-c1-04z53.9180`)
+
+NEGATIVE-LEDGER-FIRST / DIFFERENT ALIEN PRIMITIVE: both mandatory ledgers and
+the recent Git history were searched before editing. The adjacent DiGraph
+affine-transfer retry predicate was false because its requested worker was
+running Cargo above the recorded load limit, so that CLOSED lever stayed dead.
+The attributed-construction allocation family is also closed: prior evidence
+shows the residual floor is PyO3 conversion-bound, not arena/allocation-bound.
+This candidate instead maps to the alien-graveyard region/bulk-lifetime and
+affine-ownership primitives (sections 5.10 and 5.3): form one typed,
+failure-atomic commit region during the semantic pass already required for
+iterator parity, then consume it once.
+
+PROFILE FIRST: an ignored phase profiler ran before the candidate on strict-RCH
+actual worker `vmi1264463`, over 10,000 exact-int edges carrying three scalar
+attrs, 16 builds/sample, and 21 rotated rounds. The host was noisy, so these are
+attribution rather than KEEP numbers: stage median `320.228 ms` (CV `35.872%`),
+commit `703.307 ms` (CV `12.934%`), and full construction `1180.805 ms` (CV
+`10.092%`). Staging was **27.1%** of full wall, while source inspection showed
+the normalized Python list was then scanned again for losslessness, duplicate
+prefix, tuple shape, exact endpoints, attributes, and Rust conversion.
+
+ONE LEVER: while the existing two-epoch transactional decoder snapshots each
+row, it now also stages eligible `(exact_int, exact_int, exact_dict)` rows as
+typed node objects, integer labels, one Rust `AttrMap`, and the already-private
+ordered mirror. At commit, `PyGraph::new` consumes that region directly instead
+of reparsing the behavior-safe normalized `PyList`. The normalized list remains
+live as a fallback and is selected before mutation for duplicate undirected
+edges, lossless-store failures, incompatible keys, fewer than eight rows,
+non-int endpoints, non-dict attrs, exotic rows, or any mixed epoch. The first
+invalid row still clears both regions and starts NetworkX's suffix-retry epoch;
+a second invalid row still raises. DiGraph/MultiGraph/MultiDiGraph request no
+typed region and retain their old routes. Peak complexity remains O(E), with
+one additional transient Rust batch only on the eligible constructor path.
+
+SAME-WORKER INTERLEAVED A/B + NULL: strict RCH produced release binary SHA-256
+`b3fdd2ce79b2b7298c3621ef6bdfb7f054d4dc676c50b9d5b2c30ae2034896cd` on
+actual worker `vmi1149989`. Immediately before the final run, the worker had 10
+CPUs, one-minute load `1.28`, and no Cargo/rustc process. The exact binary ran
+directly on CPU 4. Each of 21 rounds alternated every individual construction
+and accumulated 128 complete 10,000-edge builds per arm, cancelling the
+frequency drift exposed by the initial blocked-arm harness.
+
+| same-binary arm | median | wins | CV | p5-p95 | parity |
+|---|---:|---:|---:|---:|---:|
+| frozen materialize + reparse / fused typed stage | **`1.3594x`** | **`21/21`** | **`1.849%`** | `1.3077x-1.3788x` | exact |
+| fused / fused null | `0.9963x` | `10/21` | **`2.438%`** | `0.9579x-1.0271x` | identical arm |
+
+Three earlier measurement designs were discarded, not averaged: 32-build
+RCH-run candidate/null CVs `9.915%/11.680%`; 128-build blocked-arm CVs
+`9.041%/8.461%`; and the same binary pinned to CPU 4 but still blocked by arm,
+`7.564%/11.067%`. Their candidate medians remained `1.3741x`, `1.3828x`, and
+`1.3567x` with 21/21 wins, but none is KEEP evidence.
+
+PUBLIC HEAD-TO-HEAD: the existing
+`networkx_head_to_head_construction_copy` attributed-iterator row then ran via
+strict RCH on the same named worker. For 20,000 edges, FNX measured
+`[32.175, 33.904, 35.477] ms` versus NetworkX
+`[55.611, 61.920, 67.194] ms`, a point-estimate **`1.826x`** win. The filter
+also measured the untouched DiGraph sibling at `61.424 ms` versus `95.556 ms`
+(`1.556x`); that is fresh routing evidence only, not attributed to this
+Graph-only source change.
+
+BEHAVIOR ISOMORPHISM: the release same-binary test compares exact native graph
+snapshots, node-key cardinality, mirror cardinality, and byte-identical ordered
+edge-dict repr for frozen and fused paths. It mutates the caller's first source
+dict after construction and proves the yield-time shallow snapshot remains
+isolated. A reversed duplicate edge proves the typed region declines and the
+merge-aware list fallback survives. The already-passed 48-outcome NetworkX
+iterator corpus certifies the frozen transactional path; every non-eligible
+shape still uses that byte-identical path, while the eligible path matches it
+exactly in one binary.
+
+REMOTE GATES: strict-RCH `cargo check --workspace --all-targets` passed on
+`hz1`; the focused release test passed `2/2` with `95` filtered. The exact
+workspace `cargo clippy --workspace --all-targets -- -D warnings` invocation
+was also offloaded to `hz1`, but stopped in concurrent peer-owned
+`crates/fnx-classes/src/lib.rs:1719` on `clippy::collapsible_if` before reaching
+this lever. The checked workspace otherwise reported only the existing unused
+`directed` binding in `fnx-algorithms` and two existing dead helpers in
+`fnx-python/src/algorithms.rs`. Targeted rustfmt, `git diff --check`, and UBS
+found no lever-owned blocker.
+
+RESULT: KEEP. Preserve transactional epoch reset, exact-int/scalar/dict and
+duplicate-free gates, the normalized-list fallback, and Graph-only dispatch.
+Do not retry post-materialization Python tuple/list rescans for this eligible
+private epoch. The next constructor lever must come from a different public
+head-to-head row/primitive; the DiGraph affine-transfer source remains CLOSED
+until its explicit clean-worker retry predicate holds.
