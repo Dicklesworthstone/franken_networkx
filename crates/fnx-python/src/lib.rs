@@ -213,19 +213,126 @@ pub(crate) fn fnx_graph_instance_mode(data: &Bound<'_, PyAny>) -> Option<Compati
 /// Peak transient memory grows by the drained item vector (~64 B/edge) for
 /// iterator inputs, which is small against fnx's per-edge steady-state
 /// (String keys + AttrMap + mirror dict).
-fn materialize_iterator_edge_list<'py>(
+pub(crate) fn materialize_iterator_edge_list<'py>(
     py: Python<'py>,
     data: &Bound<'py, PyAny>,
-) -> PyResult<Option<Bound<'py, PyList>>> {
+    is_multi: bool,
+    preserve_exact_tuple_stream: bool,
+) -> PyResult<Option<Bound<'py, PyAny>>> {
     if !data.hasattr("__next__")? {
         return Ok(None);
     }
-    let iter = PyIterator::from_object(data)?;
-    let mut items: Vec<Bound<'py, PyAny>> = Vec::new();
-    for item in iter {
-        items.push(snapshot_iterator_edge_item(py, item?)?);
+
+    let mut iter = PyIterator::from_object(data)?;
+    let Some(first) = iter.next() else {
+        return Ok(Some(PyList::empty(py).into_any()));
+    };
+
+    // br-r37-c1-hxdyb: DiGraph/MultiDiGraph already have faster streaming
+    // routes for canonical tuple rows. Peek only the first row and put it back
+    // with itertools.chain when that route is behavior-safe. Exotic first
+    // rows enter the transactional decoder below; the common tuple stream is
+    // neither exhausted nor copied (the retry predicate on the rejected broad
+    // MultiDiGraph drain).
+    if preserve_exact_tuple_stream
+        && first
+            .as_ref()
+            .is_ok_and(|item| ctor_tuple_can_stream(py, item, is_multi))
+    {
+        let first = first?;
+        let head = PyTuple::new(py, [first])?;
+        let chained = py
+            .import("itertools")?
+            .getattr("chain")?
+            .call1((head, iter))?;
+        return Ok(Some(chained));
     }
-    Ok(Some(PyList::new(py, items)?))
+
+    // NetworkX first tries from_edgelist under a broad exception handler. An
+    // invalid row consumes that row and discards the partially built graph;
+    // it then retries from the iterator's remaining suffix. Stage rows here so
+    // graph mutation is failure-atomic and reproduce exactly that two-epoch
+    // consume/retry contract.
+    let mut retrying = false;
+    let mut items: Vec<Bound<'py, PyAny>> = Vec::new();
+    let mut pending = Some(first);
+    loop {
+        let Some(item) = pending.take().or_else(|| iter.next()) else {
+            break;
+        };
+        let normalized = item.and_then(|item| normalize_ctor_edge_item(py, &item, is_multi));
+        match normalized {
+            Ok(item) => items.push(item),
+            Err(_) if !retrying => {
+                items.clear();
+                retrying = true;
+            }
+            Err(_) => return Err(NetworkXError::new_err("Input is not a valid edge list")),
+        }
+    }
+    Ok(Some(PyList::new(py, items)?.into_any()))
+}
+
+/// Return true when an exact tuple can remain on the existing directed
+/// streaming route. The checks exclude every shape whose first-pass failure
+/// NetworkX turns into a suffix retry. MultiGraph keyed tuples remain streaming
+/// so the rejected broad-drain keyed regression is not retried.
+pub(crate) fn ctor_tuple_can_stream(
+    py: Python<'_>,
+    item: &Bound<'_, PyAny>,
+    is_multi: bool,
+) -> bool {
+    let Ok(tuple) = item.downcast::<PyTuple>() else {
+        return false;
+    };
+    let arity = tuple.len();
+    if (!is_multi && !(2..=3).contains(&arity)) || (is_multi && !(2..=4).contains(&arity)) {
+        return false;
+    }
+    let Ok(u) = tuple.get_item(0) else {
+        return false;
+    };
+    let Ok(v) = tuple.get_item(1) else {
+        return false;
+    };
+    if u.is_none() || v.is_none() || u.hash().is_err() || v.hash().is_err() {
+        return false;
+    }
+    if !is_multi {
+        return arity == 2
+            || tuple
+                .get_item(2)
+                .is_ok_and(|attrs| attrs.is_exact_instance_of::<PyDict>());
+    }
+    match arity {
+        2 => false,
+        3 => {
+            let Ok(third) = tuple.get_item(2) else {
+                return false;
+            };
+            if third.is_exact_instance_of::<PyDict>() {
+                return false;
+            }
+            let probe = PyDict::new(py);
+            match probe.call_method1("update", (&third,)) {
+                Ok(_) => false,
+                Err(err)
+                    if err.is_instance_of::<PyTypeError>(py)
+                        || err.is_instance_of::<PyValueError>(py) =>
+                {
+                    third.hash().is_ok()
+                }
+                Err(_) => false,
+            }
+        }
+        4 => {
+            tuple.get_item(2).is_ok_and(|key| key.hash().is_ok())
+                && tuple
+                    .get_item(3)
+                    .is_ok_and(|attrs| attrs.is_exact_instance_of::<PyDict>())
+        }
+        _ => false,
+    }
 }
 
 /// br-r37-c1-ctorgen: a generator may yield the SAME attr dict on every step,
@@ -243,26 +350,49 @@ fn materialize_iterator_edge_list<'py>(
 /// `(u, v, key)` 3-tuple is untouched (a dict is unhashable and cannot be a
 /// key), and endpoints are immutable in every shape fnx accepts, so nothing
 /// else can drift between yields.
-fn snapshot_iterator_edge_item<'py>(
+pub(crate) fn normalize_ctor_edge_item<'py>(
     py: Python<'py>,
-    item: Bound<'py, PyAny>,
+    item: &Bound<'py, PyAny>,
+    is_multi: bool,
 ) -> PyResult<Bound<'py, PyAny>> {
-    let Ok(tuple) = item.downcast::<PyTuple>().cloned() else {
-        return Ok(item);
-    };
-    let arity = tuple.len();
-    if arity < 3 {
-        return Ok(item);
+    let arity = item.len()?;
+    if (!is_multi && !(2..=3).contains(&arity)) || (is_multi && !(2..=4).contains(&arity)) {
+        return Err(NetworkXError::new_err("invalid constructor edge row"));
     }
-    let last = tuple.get_item(arity - 1)?;
-    let Ok(attrs) = last.downcast::<PyDict>() else {
-        return Ok(item);
-    };
     let mut parts: Vec<Bound<'py, PyAny>> = Vec::with_capacity(arity);
-    for i in 0..arity - 1 {
-        parts.push(tuple.get_item(i)?);
+    for i in 0..arity {
+        parts.push(item.get_item(i)?);
     }
-    parts.push(attrs.copy()?.into_any());
+    if parts[0].is_none()
+        || parts[1].is_none()
+        || parts[0].hash().is_err()
+        || parts[1].hash().is_err()
+    {
+        return Err(NetworkXError::new_err("invalid constructor edge endpoint"));
+    }
+
+    if !is_multi && arity == 3 {
+        let attrs = PyDict::new(py);
+        attrs.call_method1("update", (&parts[2],))?;
+        parts[2] = attrs.into_any();
+    } else if is_multi && arity == 3 {
+        let attrs = PyDict::new(py);
+        match attrs.call_method1("update", (&parts[2],)) {
+            Ok(_) => parts[2] = attrs.into_any(),
+            Err(err)
+                if err.is_instance_of::<PyTypeError>(py)
+                    || err.is_instance_of::<PyValueError>(py) =>
+            {
+                parts[2].hash()?;
+            }
+            Err(err) => return Err(err),
+        }
+    } else if is_multi && arity == 4 {
+        parts[2].hash()?;
+        let attrs = PyDict::new(py);
+        attrs.call_method1("update", (&parts[3],))?;
+        parts[3] = attrs.into_any();
+    }
     Ok(PyTuple::new(py, parts)?.into_any())
 }
 
@@ -4689,8 +4819,8 @@ impl PyMultiGraph {
             // br-r37-c1-q86hv: drain a true iterator once so the edge batches
             // below can consume it as a list. Graph instances and every other
             // constructor arm continue to receive the original `data`.
-            let materialized = materialize_iterator_edge_list(py, data)?;
-            let edata: &Bound<'_, PyAny> = materialized.as_ref().map_or(data, |list| list.as_any());
+            let materialized = materialize_iterator_edge_list(py, data, true, false)?;
+            let edata: &Bound<'_, PyAny> = materialized.as_ref().unwrap_or(data);
             if let Ok(other) = data.extract::<PyRef<'_, PyMultiGraph>>() {
                 g.inner = MultiGraph::with_runtime_policy(other.inner.runtime_policy().clone());
                 // br-r37-c1-tbh4q: single-pass attr crossing via
@@ -10370,8 +10500,8 @@ impl PyGraph {
             // br-r37-c1-ctorgen: drain a true iterator once so the edge batch
             // below can fire on it (it only downcasts PyList/PyTuple). Every
             // other arm below deliberately keeps receiving the original `data`.
-            let materialized = materialize_iterator_edge_list(py, data)?;
-            let edata: &Bound<'_, PyAny> = materialized.as_ref().map_or(data, |l| l.as_any());
+            let materialized = materialize_iterator_edge_list(py, data, false, false)?;
+            let edata: &Bound<'_, PyAny> = materialized.as_ref().unwrap_or(data);
             // If it's another PyGraph, copy it.
             if let Ok(other) = data.extract::<PyRef<'_, PyGraph>>() {
                 g.inner = other.inner.clone();
@@ -14195,6 +14325,100 @@ class FnxMultiGraphCtorEdgeIterable:
             Ok(())
         })
         .expect("MultiGraph iterator constructor A/B should run");
+    }
+
+    /// `br-r37-c1-hxdyb`: same-binary proof for native list-row iterator
+    /// decoding versus the behavior-isomorphic Python `map(tuple, rows)`
+    /// workaround. Run with the release profile, `--ignored`, and
+    /// `--nocapture` on one remote worker.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn graph_list_iterator_ctor_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let edge_count = 20_000usize;
+            let rounds = 21usize;
+            let repetitions = 64usize;
+            let rows = PyList::empty(py);
+            for node in 0..edge_count {
+                rows.append(PyList::new(py, [node, node + 1])?)?;
+            }
+            let builtins = py.import("builtins")?;
+            let map = builtins.getattr("map")?;
+            let tuple = builtins.getattr("tuple")?;
+
+            let build = |direct: bool| -> PyResult<PyGraph> {
+                let data = if direct {
+                    rows.call_method0("__iter__")?
+                } else {
+                    map.call1((&tuple, &rows))?
+                };
+                let graph = PyGraph::new(py, Some(&data), None)?;
+                black_box(graph.inner.edge_count());
+                black_box(graph.inner.node_count());
+                Ok(graph)
+            };
+            let time = |direct: bool| -> PyResult<f64> {
+                let start = Instant::now();
+                for _ in 0..repetitions {
+                    black_box(build(direct)?);
+                }
+                Ok(start.elapsed().as_secs_f64())
+            };
+
+            let candidate = build(true)?;
+            let baseline = build(false)?;
+            assert_eq!(candidate.inner.snapshot(), baseline.inner.snapshot());
+            assert_eq!(candidate.node_key_map.len(), baseline.node_key_map.len());
+            for _ in 0..1 {
+                black_box(time(false)?);
+                black_box(time(true)?);
+            }
+
+            let paired = |baseline_is_direct: bool| -> PyResult<Vec<f64>> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                        (time(baseline_is_direct)?, time(true)?)
+                    } else {
+                        let candidate_time = time(true)?;
+                        let baseline_time = time(baseline_is_direct)?;
+                        (baseline_time, candidate_time)
+                    };
+                    ratios.push(baseline_time / candidate_time);
+                }
+                Ok(ratios)
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mean = ratios.iter().sum::<f64>() / ratios.len() as f64;
+                let variance = ratios
+                    .iter()
+                    .map(|ratio| (ratio - mean).powi(2))
+                    .sum::<f64>()
+                    / (ratios.len() - 1) as f64;
+                let cv_pct = variance.sqrt() / mean * 100.0;
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "GRAPH_LIST_ITER_CTOR_AB {name}: median={:.4}x wins={wins}/{rounds} cv={cv_pct:.3}% p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "GRAPH_LIST_ITER_CTOR_AB edges={edge_count} repetitions={repetitions} rounds={rounds} (>1 = native direct faster)"
+            );
+            report("candidate_vs_map_tuple", &paired(false)?);
+            report("candidate_null", &paired(true)?);
+            Ok(())
+        })
+        .expect("Graph list-iterator constructor A/B should run");
     }
 
     fn exact_int_attr_ebunch(py: Python<'_>) -> PyResult<(Bound<'_, PyList>, Py<PyDict>)> {

@@ -140,6 +140,19 @@ struct VoronoiWorkloads {
 struct ConstructionCopyWorkloads {
     fnx_graph_to_directed_scalar_attrs: Py<PyAny>,
     nx_graph_to_directed_scalar_attrs: Py<PyAny>,
+    fnx_graph_iterator_tuples: Py<PyAny>,
+    nx_graph_iterator_tuples: Py<PyAny>,
+    fnx_graph_iterator_lists_normalized: Py<PyAny>,
+    fnx_graph_iterator_lists: Py<PyAny>,
+    nx_graph_iterator_lists: Py<PyAny>,
+    fnx_digraph_iterator_lists: Py<PyAny>,
+    nx_digraph_iterator_lists: Py<PyAny>,
+    fnx_multigraph_iterator_lists: Py<PyAny>,
+    nx_multigraph_iterator_lists: Py<PyAny>,
+    fnx_multidigraph_iterator_lists: Py<PyAny>,
+    nx_multidigraph_iterator_lists: Py<PyAny>,
+    fnx_multidigraph_iterator_keyed: Py<PyAny>,
+    nx_multidigraph_iterator_keyed: Py<PyAny>,
 }
 
 struct ClearEdgesWorkloads {
@@ -449,6 +462,30 @@ _assert_to_directed_contract(scalar_fnx, scalar_nx)
 
 fnx_graph_to_directed_scalar_attrs = lambda: scalar_fnx.to_directed()
 nx_graph_to_directed_scalar_attrs = lambda: scalar_nx.to_directed()
+
+iterator_edge_count = 20_000
+tuple_edges = tuple((i, i + 1) for i in range(iterator_edge_count))
+list_edges = tuple([i, i + 1] for i in range(iterator_edge_count))
+
+fnx_graph_iterator_tuples = lambda: fnx.Graph(iter(tuple_edges))
+nx_graph_iterator_tuples = lambda: nx.Graph(iter(tuple_edges))
+# Frozen behavior-isomorphic baseline for the pre-fix implementation, which
+# cannot absorb list rows from a true iterator directly.
+fnx_graph_iterator_lists_normalized = lambda: fnx.Graph(
+    tuple(row) for row in list_edges
+)
+fnx_graph_iterator_lists = lambda: fnx.Graph(iter(list_edges))
+nx_graph_iterator_lists = lambda: nx.Graph(iter(list_edges))
+fnx_digraph_iterator_lists = lambda: fnx.DiGraph(iter(list_edges))
+nx_digraph_iterator_lists = lambda: nx.DiGraph(iter(list_edges))
+fnx_multigraph_iterator_lists = lambda: fnx.MultiGraph(iter(list_edges))
+nx_multigraph_iterator_lists = lambda: nx.MultiGraph(iter(list_edges))
+fnx_multidigraph_iterator_lists = lambda: fnx.MultiDiGraph(iter(list_edges))
+nx_multidigraph_iterator_lists = lambda: nx.MultiDiGraph(iter(list_edges))
+
+keyed_edges = tuple((i, i + 1, f"k{i}") for i in range(iterator_edge_count))
+fnx_multidigraph_iterator_keyed = lambda: fnx.MultiDiGraph(iter(keyed_edges))
+nx_multidigraph_iterator_keyed = lambda: nx.MultiDiGraph(iter(keyed_edges))
 "#,
         )
         .as_c_str(),
@@ -466,6 +503,19 @@ nx_graph_to_directed_scalar_attrs = lambda: scalar_nx.to_directed()
     Ok(ConstructionCopyWorkloads {
         fnx_graph_to_directed_scalar_attrs: callable("fnx_graph_to_directed_scalar_attrs")?,
         nx_graph_to_directed_scalar_attrs: callable("nx_graph_to_directed_scalar_attrs")?,
+        fnx_graph_iterator_tuples: callable("fnx_graph_iterator_tuples")?,
+        nx_graph_iterator_tuples: callable("nx_graph_iterator_tuples")?,
+        fnx_graph_iterator_lists_normalized: callable("fnx_graph_iterator_lists_normalized")?,
+        fnx_graph_iterator_lists: callable("fnx_graph_iterator_lists")?,
+        nx_graph_iterator_lists: callable("nx_graph_iterator_lists")?,
+        fnx_digraph_iterator_lists: callable("fnx_digraph_iterator_lists")?,
+        nx_digraph_iterator_lists: callable("nx_digraph_iterator_lists")?,
+        fnx_multigraph_iterator_lists: callable("fnx_multigraph_iterator_lists")?,
+        nx_multigraph_iterator_lists: callable("nx_multigraph_iterator_lists")?,
+        fnx_multidigraph_iterator_lists: callable("fnx_multidigraph_iterator_lists")?,
+        nx_multidigraph_iterator_lists: callable("nx_multidigraph_iterator_lists")?,
+        fnx_multidigraph_iterator_keyed: callable("fnx_multidigraph_iterator_keyed")?,
+        nx_multidigraph_iterator_keyed: callable("nx_multidigraph_iterator_keyed")?,
     })
 }
 
@@ -2335,6 +2385,71 @@ fn construction_copy_head_to_head(c: &mut Criterion) {
         "nx_graph_to_directed_scalar_attrs_n2000",
         &workloads.nx_graph_to_directed_scalar_attrs,
     );
+    bench_python_callable(
+        &mut group,
+        "fnx_graph_iterator_tuples_e20000",
+        &workloads.fnx_graph_iterator_tuples,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_graph_iterator_tuples_e20000",
+        &workloads.nx_graph_iterator_tuples,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_graph_iterator_lists_normalized_e20000",
+        &workloads.fnx_graph_iterator_lists_normalized,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_graph_iterator_lists_e20000",
+        &workloads.fnx_graph_iterator_lists,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_graph_iterator_lists_e20000",
+        &workloads.nx_graph_iterator_lists,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_digraph_iterator_lists_e20000",
+        &workloads.fnx_digraph_iterator_lists,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_digraph_iterator_lists_e20000",
+        &workloads.nx_digraph_iterator_lists,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_multigraph_iterator_lists_e20000",
+        &workloads.fnx_multigraph_iterator_lists,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_multigraph_iterator_lists_e20000",
+        &workloads.nx_multigraph_iterator_lists,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_multidigraph_iterator_lists_e20000",
+        &workloads.fnx_multidigraph_iterator_lists,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_multidigraph_iterator_lists_e20000",
+        &workloads.nx_multidigraph_iterator_lists,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_multidigraph_iterator_keyed_e20000",
+        &workloads.fnx_multidigraph_iterator_keyed,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_multidigraph_iterator_keyed_e20000",
+        &workloads.nx_multidigraph_iterator_keyed,
+    );
 
     group.finish();
 }
@@ -2991,9 +3106,17 @@ fn indeg_binding_head_to_head(c: &mut Criterion) {
         .expect("failed to prepare in_degree_centrality binding A/B workloads");
     let mut group = c.benchmark_group("networkx_head_to_head_indeg_binding");
     group.sample_size(30);
-    bench_python_callable(&mut group, "old_centrality_to_dict_20k", &workloads.old_binding);
+    bench_python_callable(
+        &mut group,
+        "old_centrality_to_dict_20k",
+        &workloads.old_binding,
+    );
     bench_python_callable(&mut group, "new_inline_20k", &workloads.new_binding);
-    bench_python_callable(&mut group, "old_total_centrality_to_dict_20k", &workloads.old_total);
+    bench_python_callable(
+        &mut group,
+        "old_total_centrality_to_dict_20k",
+        &workloads.old_total,
+    );
     bench_python_callable(&mut group, "new_total_inline_20k", &workloads.new_total);
     bench_python_callable(&mut group, "old_core_selfloopscan_20k", &workloads.old_core);
     bench_python_callable(&mut group, "new_core_numselfloops_20k", &workloads.new_core);

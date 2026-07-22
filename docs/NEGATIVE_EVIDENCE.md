@@ -23376,3 +23376,81 @@ this lever.
 RESULT: SHIP. Keep native index-row matrix construction; default isomorphism no
 longer clones edge payloads or hashes endpoint names merely to recover indices
 already present in graph storage.
+
+## 2026-07-22 WhiteJaguar KEEP (`Graph(iterator)` parity): transactional two-epoch edge decoding — **1.0977x** (`br-r37-c1-hxdyb`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: both negative ledgers and the
+recent Git history were searched before editing. The earlier true-iterator
+Graph drain was already shipped; the adjacent broad MultiDiGraph drain was
+closed after keyed construction fell to `0.7633x`, with the explicit retry
+predicate “improve the keyed batch path or discriminate keyed tuples without
+exhausting/copying the stream.” The open 36-case parity corpus showed the
+remaining work was not another broad drain: NetworkX stages `from_edgelist`,
+discards the partial graph after the first bad row, and retries only the
+iterator suffix. The measured constructor frontier also showed the current
+Python-side behavior-isomorphic workaround (`map(tuple, rows)`) spending work
+normalizing every row before the native constructor could batch it. The
+selected alien primitive is transactional staging / failure-atomic decode
+(`alien_cs_graveyard.md` section 4.1): validate and snapshot the iterator into
+an uncommitted epoch, then commit only the surviving retry epoch.
+
+ONE LEVER: true edge iterators now pass through one shared constructor decoder.
+It accepts general two-to-four-element row sequences, snapshots mutable attr
+dicts at yield time, validates endpoints/keys, and reproduces NetworkX's exact
+two-pass consume/discard/retry behavior before any graph mutation. The four
+Graph classes share this semantic boundary. MultiDiGraph preserves its common
+exact keyed-tuple stream with a one-item peek plus `itertools.chain`; its
+streaming fallback resets the partial graph on the first invalid row. A narrow
+exact-int/string keyed discriminator removes the per-row exception probe, so
+this satisfies the recorded keyed retry predicate without entering cc's
+MultiGraph integer-adjacency or AVX2 lanes. Peak transient storage for the
+staged noncanonical path is O(E); exact keyed MultiDiGraph tuples remain
+streamed.
+
+SAME-WORKER INTERLEAVED A/B + NULL: one release binary on pinned worker `hz1`
+constructed 20,000 list rows 64 times per sample, after warmup, for 21
+alternating-order pairs. The frozen baseline was the behavior-isomorphic
+pre-fix workaround `Graph(map(tuple, rows))`; the null ran the candidate
+against itself. Exact native graph snapshots and node-key cardinalities matched
+before timing.
+
+| same-binary arm | median ratio | wins | CV | p5-p95 | parity |
+|---|---:|---:|---:|---:|---:|
+| Python row normalization vs native transactional decode | **`1.0977x`** | **`21/21`** | **`3.743%`** | `1.0574x-1.1623x` | exact |
+| native decode / native decode null | `1.0028x` | `12/21` | `3.645%` | `0.9569x-1.0616x` | identical arm |
+
+Two earlier measurement attempts had `13%` and `10%` CV and were discarded;
+only the under-5% run above is admissible.
+
+PINNED HEAD-TO-HEAD FRONTIER: Criterion release measurements on one `hz1`
+worker put native list-iterator construction ahead of NetworkX across all four
+classes: Graph `14.688 ms` versus `161.57 ms` (**`11.00x`**), DiGraph
+`39.461 ms` versus `253.19 ms` (**`6.416x`**), MultiGraph `82.749 ms` versus
+`314.45 ms` (**`3.800x`**), and MultiDiGraph `108.70 ms` versus `148.02 ms`
+(**`1.362x`**). The tuple control was `14.980 ms` versus `89.898 ms`
+(**`6.00x`**); the Python-normalized fnx workaround was `50.237 ms`. After the
+narrow keyed discriminator, an independent same-worker guard on `vmi1227854`
+measured keyed MultiDiGraph at `156.01 ms` versus NetworkX `177.59 ms`
+(**`1.138x`**), reversing both the historical `0.7633x` closure and an
+inadmissible intermediate exception-probe regression.
+
+BEHAVIOR ISOMORPHISM / GATES: the differential lock compared exact exception
+type/message or ordered nodes, keyed edges, attrs, and graph attrs against the
+installed NetworkX oracle for 12 adversarial iterator factories across Graph,
+DiGraph, MultiGraph, and MultiDiGraph (48 outcomes). It includes list rows,
+mutable shared attrs, bare nodes, bad arities, `None`, keyed rows, two-epoch
+prefix/middle/suffix failures, strings/bytes, and iterators that raise; all
+48 outcomes passed against the retrieved release extension. The
+workspace-wide `cargo check --workspace --all-targets` passed through strict
+remote RCH. Targeted Rust formatting and `git diff --check` passed. The
+mandatory workspace and fnx-python-scoped clippy invocations were both run
+strict-remote and both stopped before this lever was linted on the concurrent
+cc-owned `crates/fnx-classes/src/lib.rs:1719` `collapsible_if` diagnostic; that
+file was not touched. Targeted UBS completed with zero Rust critical findings;
+its nonzero combined status came from pre-existing timing-safe-comparison
+heuristics elsewhere in the 7,000-line shared Python regression file, outside
+the added 65-line test and this lane.
+
+RESULT: KEEP. Transactional iterator decoding closes the constructor parity
+corpus, removes the Python normalization tax, preserves the keyed streaming
+guard, and leaves cc-owned integer-adjacency/AVX2 work untouched.

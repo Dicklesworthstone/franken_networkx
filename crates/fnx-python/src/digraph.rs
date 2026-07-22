@@ -27,6 +27,34 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(test)]
 static FORCE_DIGRAPH_CTOR_ROW_KEY_PROBES: AtomicBool = AtomicBool::new(false);
 
+fn exact_int_str_keyed_ctor_tuple(item: &Bound<'_, PyAny>) -> bool {
+    let Ok(tuple) = item.downcast::<PyTuple>() else {
+        return false;
+    };
+    let exact_endpoint = |value: &Bound<'_, PyAny>| {
+        value.is_exact_instance_of::<PyInt>() || value.is_exact_instance_of::<PyString>()
+    };
+    let Ok(u) = tuple.get_item(0) else {
+        return false;
+    };
+    let Ok(v) = tuple.get_item(1) else {
+        return false;
+    };
+    if !exact_endpoint(&u) || !exact_endpoint(&v) {
+        return false;
+    }
+    match tuple.len() {
+        3 => tuple.get_item(2).is_ok_and(|key| exact_endpoint(&key)),
+        4 => {
+            tuple.get_item(2).is_ok_and(|key| exact_endpoint(&key))
+                && tuple
+                    .get_item(3)
+                    .is_ok_and(|attrs| attrs.is_exact_instance_of::<PyDict>())
+        }
+        _ => false,
+    }
+}
+
 fn single_weight_float_attr_map(attrs: &Bound<'_, PyDict>) -> PyResult<Option<AttrMap>> {
     if attrs.len() != 1 {
         return Ok(None);
@@ -3024,6 +3052,8 @@ impl PyMultiDiGraph {
                 g.inner = MultiDiGraph::new(mode);
                 return Ok(g);
             }
+            let materialized = crate::materialize_iterator_edge_list(py, data, true, true)?;
+            let edata: &Bound<'_, PyAny> = materialized.as_ref().unwrap_or(data);
             if let Ok(other) = data.extract::<PyRef<'_, PyMultiDiGraph>>() {
                 g.inner = MultiDiGraph::with_runtime_policy(other.inner.runtime_policy().clone());
                 for (canonical, py_key) in &other.node_key_map {
@@ -3085,15 +3115,15 @@ impl PyMultiDiGraph {
                     g.remember_edge_key(py, u, v, key, None);
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
-            } else if g.try_absorb_exact_int_str_keyed_ctor_edges(py, data)? {
+            } else if g.try_absorb_exact_int_str_keyed_ctor_edges(py, edata)? {
                 // Constructor-only batch path for exact int endpoints + exact str keys.
-            } else if g._try_add_attr_edges_from_batch(py, data, None)? {
+            } else if g._try_add_attr_edges_from_batch(py, edata, None)? {
                 // br-r37-c1-ctorbatch (cc): (u,v,attr_dict) 3-tuples route through
                 // the add_edges_from fast batch (lazy mirrors); try_absorb above
                 // only handles (u,v)/(u,v,key_string)/(u,v,key,dict), so weighted
                 // 3-tuples fell to the per-edge loop (~0.49x). Mutation-free on
                 // false -> the iterator loop below still owns declined inputs.
-            } else if let Ok(iter) = PyIterator::from_object(data) {
+            } else if let Ok(iter) = PyIterator::from_object(edata) {
                 // br-r37-c1-baqyi: nx's to_networkx_graph wraps every
                 // from_edgelist failure in NetworkXError("Input is not a
                 // valid edge list") — unhashable keys raise TypeError from
@@ -3106,8 +3136,28 @@ impl PyMultiDiGraph {
                         e
                     }
                 };
+                let mut retrying = false;
                 for item in iter {
-                    let item = item?;
+                    let normalized = item.and_then(|item| {
+                        if exact_int_str_keyed_ctor_tuple(&item) {
+                            Ok(item)
+                        } else {
+                            crate::normalize_ctor_edge_item(py, &item, true)
+                        }
+                    });
+                    let item = match normalized {
+                        Ok(item) => item,
+                        Err(_) if !retrying => {
+                            let graph_attrs = g.graph_attrs.clone_ref(py);
+                            g = Self::new_empty_with_mode(py, CompatibilityMode::Strict)?;
+                            g.graph_attrs = graph_attrs;
+                            retrying = true;
+                            continue;
+                        }
+                        Err(_) => {
+                            return Err(NetworkXError::new_err("Input is not a valid edge list"));
+                        }
+                    };
                     if let Ok(tuple) = item.downcast::<PyTuple>() {
                         let merged = PyDict::new(py);
                         match tuple.len() {
@@ -10258,6 +10308,8 @@ impl PyDiGraph {
                 g.inner = DiGraph::new(mode);
                 return Ok(g);
             }
+            let materialized = crate::materialize_iterator_edge_list(py, data, false, false)?;
+            let edata: &Bound<'_, PyAny> = materialized.as_ref().unwrap_or(data);
             // Copy from another PyDiGraph.
             if let Ok(other) = data.extract::<PyRef<'_, PyDiGraph>>() {
                 g.inner = DiGraph::with_runtime_policy(other.inner.runtime_policy().clone());
@@ -10310,10 +10362,10 @@ impl PyDiGraph {
                     }
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
-            } else if g.try_add_plain_edge_batch(py, data, false)?
-                || g.try_add_attr_edge_batch(py, data, false)?
+            } else if g.try_add_plain_edge_batch(py, edata, false)?
+                || g.try_add_attr_edge_batch(py, edata, false)?
             {
-            } else if let Ok(iter) = PyIterator::from_object(data) {
+            } else if let Ok(iter) = PyIterator::from_object(edata) {
                 // br-r37-c1-d58s8 ctor lever 2 (directed twin): batch the
                 // edge-tuple stream through ONE
                 // extend_edges_with_attrs_unrecorded call, replicating
@@ -11384,10 +11436,7 @@ impl PyDiGraph {
         // `reversed()` transposes it losslessly. A String/Map value is ambiguous
         // (the py->inner boundary coerces None/list/dict to their repr/JSON String,
         // indistinguishable from a genuine str) so it keeps the per-edge rebuild.
-        let edge_store_authoritative = self
-            .edge_py_attrs
-            .values()
-            .all(|d| d.bind(py).is_empty())
+        let edge_store_authoritative = self.edge_py_attrs.values().all(|d| d.bind(py).is_empty())
             || (!self.edges_dirty.load(Ordering::Relaxed)
                 // no-alloc scan (not edges_ordered_borrowed, whose O(E) Vec +
                 // per-edge node-name resolution diluted the reverse win at scale).
