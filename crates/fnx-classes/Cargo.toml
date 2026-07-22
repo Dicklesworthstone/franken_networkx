@@ -18,6 +18,11 @@ serde = { version = "1.0.228", features = ["derive"] }
 # is also compiled under cfg(test) so the parity gates and the kernel A/B run
 # in the normal test suite.
 mg-int-storage-proto = []
+# br-r37-c1-thp6w S11: production strangler stage 1 — a revision-keyed slab
+# shadow store on MultiGraph, dual-written at the gauntlet-covered mutation
+# sites and dropped-to-stale everywhere else. Inert (no field, no code) when
+# the feature is off.
+mg-int-storage = []
 
 [dev-dependencies]
 proptest = "1.11.0"

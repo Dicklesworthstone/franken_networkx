@@ -2341,7 +2341,7 @@ enum IntAdjEdgeDelta<'a> {
 /// stream, and the paired A/B measures the pure storage-representation tax
 /// the flip removes. Compiled under cfg(test) so the gates run in the normal
 /// suite; the cargo feature exposes it to sibling crates for benches.
-#[cfg(any(test, feature = "mg-int-storage-proto"))]
+#[cfg(any(test, feature = "mg-int-storage-proto", feature = "mg-int-storage"))]
 pub mod mg_int_storage_proto {
     use super::AttrMap;
     use indexmap::{IndexMap, IndexSet};
@@ -2568,7 +2568,7 @@ pub mod mg_int_storage_proto {
     /// exactly (dedup on insert, One -> Many promotion appends), but the
     /// singleton case — the overwhelmingly common one in real multigraphs —
     /// allocates NOTHING.
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub enum CompactKeys {
         One(usize),
         Many(IndexSet<usize>),
@@ -2621,7 +2621,7 @@ pub mod mg_int_storage_proto {
     /// insertion-key-ordered like `IndexMap<usize, AttrMap>`; the singleton
     /// case stores the key + attrs inline with no map allocation (an empty
     /// `AttrMap`/BTreeMap does not allocate).
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub enum CompactBucket {
         One(usize, AttrMap),
         Many(IndexMap<usize, AttrMap>),
@@ -2864,7 +2864,7 @@ pub mod mg_int_storage_proto {
     /// (name -> slot, insertion-ordered IndexMap — the same structure and
     /// O(V) shift_remove the production String store already pays). Buckets
     /// are the S6 compact enums (the winning construction layout).
-    #[derive(Debug, Default)]
+    #[derive(Debug, Clone, Default)]
     pub struct MgSlabStorageProto {
         /// name -> stable slot, iteration = nx node insertion order.
         pub node_order: IndexMap<String, usize, rustc_hash::FxBuildHasher>,
@@ -3090,6 +3090,76 @@ pub mod mg_int_storage_proto {
                 .unwrap_or_default()
         }
 
+        /// br-r37-c1-thp6w S11: build a slab store from a live String-keyed
+        /// MultiGraph, reproducing EVERY observed order directly (node order,
+        /// each row's cell order, each bucket's key order, attrs) — valid for
+        /// ANY reachable state including post-`apply_row_orders` row orders
+        /// that no insert stream could reproduce. Fresh slots = positions
+        /// (no tombstones).
+        #[must_use]
+        pub fn from_string_state(g: &super::MultiGraph) -> Self {
+            let n = g.nodes.len();
+            let mut slab = Self::new();
+            slab.node_order.reserve(n);
+            slab.slot_names.reserve(n);
+            slab.rows.reserve(n);
+            for (slot, name) in g.nodes.keys().enumerate() {
+                slab.node_order.insert(name.clone(), slot);
+                slab.slot_names.push(Some(name.clone()));
+                slab.rows.push(IndexMap::new());
+            }
+            for (u_name, row) in &g.adjacency {
+                let u = *slab
+                    .node_order
+                    .get(u_name.as_str())
+                    .expect("adjacency key must be a live node");
+                for (v_name, keys) in row {
+                    let v = *slab
+                        .node_order
+                        .get(v_name.as_str())
+                        .expect("row neighbor must be a live node");
+                    let mut cell: Option<CompactKeys> = None;
+                    for &key in keys {
+                        match &mut cell {
+                            None => cell = Some(CompactKeys::One(key)),
+                            Some(c) => {
+                                let _ = c.insert(key);
+                            }
+                        }
+                    }
+                    if let Some(c) = cell {
+                        slab.rows[u].insert(v, c);
+                    }
+                }
+            }
+            slab.edges.reserve(g.edges.len());
+            for (edge_key, bucket) in &g.edges {
+                let l = *slab
+                    .node_order
+                    .get(edge_key.left.as_str())
+                    .expect("edge endpoint must be a live node");
+                let r = *slab
+                    .node_order
+                    .get(edge_key.right.as_str())
+                    .expect("edge endpoint must be a live node");
+                let pair = (l.min(r), l.max(r));
+                let mut compact: Option<CompactBucket> = None;
+                for (&key, attrs) in bucket {
+                    match &mut compact {
+                        None => compact = Some(CompactBucket::One(key, attrs.clone())),
+                        Some(b) => {
+                            let _ = b.merge(key, attrs.clone());
+                        }
+                    }
+                }
+                if let Some(b) = compact {
+                    slab.edges.insert(pair, b);
+                }
+            }
+            slab.edge_count = g.edge_count;
+            slab
+        }
+
         /// br-r37-c1-thp6w S10: slot -> insertion-order position (usize::MAX
         /// for tombstones), rebuilt on demand in O(V).
         fn slot_positions(&self) -> Vec<usize> {
@@ -3193,6 +3263,12 @@ pub struct MultiGraph {
     edge_count: usize,
     /// br-r37-c1-thp6w slice 1: lazy revision-keyed integer adjacency (see `IntAdjCache`).
     int_adj_cache: IntAdjCache,
+    /// br-r37-c1-thp6w S11: revision-keyed slab shadow store (production
+    /// strangler stage 1). `Some((rev, slab))` is valid iff `rev == revision`;
+    /// instrumented mutations advance it in place, everything else leaves it
+    /// stale (dropped lazily). Inert without the `mg-int-storage` feature.
+    #[cfg(feature = "mg-int-storage")]
+    slab_shadow: Option<Box<(u64, mg_int_storage_proto::MgSlabStorageProto)>>,
 }
 
 impl MultiGraph {
@@ -3209,6 +3285,8 @@ impl MultiGraph {
             runtime_policy: RuntimePolicy::new(self.mode),
             edge_count: self.edge_count,
             int_adj_cache: IntAdjCache::default(),
+            #[cfg(feature = "mg-int-storage")]
+            slab_shadow: None,
         }
     }
 
@@ -3286,6 +3364,13 @@ impl MultiGraph {
             .0
             .get_mut()
             .expect("int_adj_cache poisoned") = None;
+        // br-r37-c1-thp6w S11: same reasoning for the slab shadow — arbitrary
+        // row orders are not mirrored in slice 1; drop and let a later
+        // `sync_slab_shadow` rebuild from the (order-faithful) String state.
+        #[cfg(feature = "mg-int-storage")]
+        {
+            self.slab_shadow = None;
+        }
     }
 
     #[must_use]
@@ -3299,6 +3384,8 @@ impl MultiGraph {
             runtime_policy: RuntimePolicy::new(mode),
             edge_count: 0,
             int_adj_cache: IntAdjCache::default(),
+            #[cfg(feature = "mg-int-storage")]
+            slab_shadow: None,
         }
     }
 
@@ -3314,6 +3401,8 @@ impl MultiGraph {
             runtime_policy,
             edge_count: 0,
             int_adj_cache: IntAdjCache::default(),
+            #[cfg(feature = "mg-int-storage")]
+            slab_shadow: None,
         }
     }
 
@@ -3568,6 +3657,26 @@ impl MultiGraph {
         } else {
             *slot = None;
         }
+    }
+
+    /// br-r37-c1-thp6w S11: (re)build the slab shadow from the current String
+    /// state and key it at the current revision. The from-state builder
+    /// reproduces every observed order directly, so this is valid in ANY
+    /// reachable state (including post-`apply_row_orders`).
+    #[cfg(feature = "mg-int-storage")]
+    pub fn sync_slab_shadow(&mut self) {
+        let slab = mg_int_storage_proto::MgSlabStorageProto::from_string_state(self);
+        self.slab_shadow = Some(Box::new((self.revision, slab)));
+    }
+
+    /// br-r37-c1-thp6w S11: true iff the shadow exists and is keyed at the
+    /// CURRENT revision (i.e. advanced across every mutation since its sync).
+    #[cfg(feature = "mg-int-storage")]
+    #[must_use]
+    pub fn slab_shadow_is_warm(&self) -> bool {
+        self.slab_shadow
+            .as_deref()
+            .is_some_and(|(rev, _)| *rev == self.revision)
     }
 
     #[must_use]
@@ -3873,8 +3982,23 @@ impl MultiGraph {
     where
         I: IntoIterator<Item = (String, String, usize, AttrMap)>,
     {
+        // br-r37-c1-thp6w S11: write the batch through a warm slab shadow.
+        // Taken out of `self` for the loop (the store mutations below need
+        // `&mut self` fields), re-keyed and restored at the end.
+        #[cfg(feature = "mg-int-storage")]
+        let mut warm_shadow = match self.slab_shadow.take() {
+            Some(shadow) if shadow.0 == self.revision => Some(shadow),
+            other => {
+                self.slab_shadow = other;
+                None
+            }
+        };
         let mut inserted = 0usize;
         for (left, right, key, attrs) in edges {
+            #[cfg(feature = "mg-int-storage")]
+            if let Some(shadow) = warm_shadow.as_deref_mut() {
+                shadow.1.add_keyed_edge(&left, &right, key, attrs.clone());
+            }
             if !self.nodes.contains_key(&left) {
                 self.nodes.insert(left.clone(), AttrMap::new());
                 self.adjacency.entry(left.clone()).or_default();
@@ -3919,6 +4043,13 @@ impl MultiGraph {
                     log_likelihood_ratio: -1.0,
                 }],
             );
+        }
+        // br-r37-c1-thp6w S11: re-key the written-through shadow to the
+        // post-batch revision and put it back.
+        #[cfg(feature = "mg-int-storage")]
+        if let Some(mut shadow) = warm_shadow {
+            shadow.0 = self.revision;
+            self.slab_shadow = Some(shadow);
         }
         inserted
     }
@@ -4108,6 +4239,14 @@ impl MultiGraph {
         // br-r37-c1-thp6w S4: revision on entry — a warm int-adjacency memo
         // keyed here is advanced across this mutation instead of invalidated.
         let prev_revision = self.revision;
+        // br-r37-c1-thp6w S11: the slab shadow needs the attrs too; capture a
+        // copy only when the shadow is warm (they are consumed by the store).
+        #[cfg(feature = "mg-int-storage")]
+        let shadow_attrs = self
+            .slab_shadow
+            .as_deref()
+            .is_some_and(|(rev, _)| *rev == prev_revision)
+            .then(|| attrs.clone());
 
         let unknown_feature = attrs
             .keys()
@@ -4214,6 +4353,19 @@ impl MultiGraph {
                     pair_new: !pair_was_present,
                 },
             );
+        }
+        // br-r37-c1-thp6w S11: advance the warm slab shadow across this add.
+        #[cfg(feature = "mg-int-storage")]
+        if self.revision != prev_revision
+            && let Some(shadow_attrs) = shadow_attrs
+        {
+            let revision = self.revision;
+            if let Some(shadow) = self.slab_shadow.as_deref_mut()
+                && shadow.0 == prev_revision
+            {
+                shadow.1.add_keyed_edge(&left, &right, key, shadow_attrs);
+                shadow.0 = revision;
+            }
         }
 
         self.record_decision(
@@ -4336,6 +4488,19 @@ impl MultiGraph {
                 pair_gone,
             },
         );
+        // br-r37-c1-thp6w S11: advance the warm slab shadow across this
+        // removal, with the store-resolved key (never the None default).
+        #[cfg(feature = "mg-int-storage")]
+        {
+            let revision = self.revision;
+            if let Some(shadow) = self.slab_shadow.as_deref_mut()
+                && shadow.0 == prev_revision
+            {
+                let shadow_removed = shadow.1.remove_edge(left, right, Some(removal_key));
+                debug_assert!(shadow_removed, "shadow desync on remove_edge");
+                shadow.0 = revision;
+            }
+        }
         true
     }
 
@@ -4356,6 +4521,9 @@ impl MultiGraph {
         if !self.nodes.contains_key(node) {
             return false;
         }
+        // br-r37-c1-thp6w S11: revision on entry for the slab-shadow advance.
+        #[cfg(feature = "mg-int-storage")]
+        let prev_revision = self.revision;
 
         // br-r37-c1-p6bxu: drop each incident edge bucket with O(1) `swap_remove`
         // (the `edges` IndexMap order is never observed externally — every public
@@ -4384,6 +4552,19 @@ impl MultiGraph {
         self.adjacency.shift_remove(node);
         self.nodes.shift_remove(node);
         self.revision = self.revision.saturating_add(1);
+        // br-r37-c1-thp6w S11: advance the warm slab shadow (slab removal is
+        // O(V + degree): tombstone + order shift, no rekey).
+        #[cfg(feature = "mg-int-storage")]
+        {
+            let revision = self.revision;
+            if let Some(shadow) = self.slab_shadow.as_deref_mut()
+                && shadow.0 == prev_revision
+            {
+                let shadow_removed = shadow.1.remove_node(node);
+                debug_assert!(shadow_removed, "shadow desync on remove_node");
+                shadow.0 = revision;
+            }
+        }
         true
     }
 
@@ -5991,6 +6172,83 @@ mod tests {
         slab.reorder_rows_for_nx_copy_walk();
         assert_slab_matches_mg(&mg, &slab);
         assert_slab_edges_ordered_matches_mg(&mg, &slab);
+    }
+
+    /// br-r37-c1-thp6w S11 GAUNTLET (production dual-write shadow): with the
+    /// `mg-int-storage` feature on, every instrumented mutation (single-edge
+    /// add incl. autocreate/parallel/self-loop/attr-merge, keyed batch,
+    /// edge/node removal with slot recycling) must ADVANCE the shadow in
+    /// place (warm + byte-identical), and every UNINSTRUMENTED mutation must
+    /// leave it stale (revision key) or dropped (`apply_row_orders`) — never
+    /// silently wrong.
+    #[cfg(feature = "mg-int-storage")]
+    #[test]
+    fn thp6w_s11_slab_shadow_dual_write_gauntlet() {
+        let shadow_parity = |g: &MultiGraph| {
+            let shadow = g.slab_shadow.as_deref().expect("shadow must be present");
+            assert_eq!(shadow.0, g.revision, "shadow must be warm (advanced)");
+            assert_slab_matches_mg(g, &shadow.1);
+        };
+
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        shadow_parity(&g);
+
+        // Instrumented single-edge adds.
+        let _ = g.add_edge("b", "c"); // autocreated endpoint
+        shadow_parity(&g);
+        let _ = g.add_edge("a", "b"); // parallel key
+        shadow_parity(&g);
+        let _ = g.add_edge("d", "d"); // self-loop, fresh node
+        shadow_parity(&g);
+        let mut attrs = AttrMap::new();
+        attrs.insert("w".to_owned(), fnx_runtime::CgseValue::Int(3));
+        let _ = g.add_edge_with_key_and_attrs("a", "b", 0, attrs); // attr merge
+        shadow_parity(&g);
+
+        // Instrumented keyed batch (write-through).
+        let _ = g.extend_keyed_edges_with_attrs_unrecorded(vec![
+            ("x".to_owned(), "y".to_owned(), 0, AttrMap::new()),
+            ("y".to_owned(), "x".to_owned(), 1, AttrMap::new()),
+            ("a".to_owned(), "x".to_owned(), 0, AttrMap::new()),
+        ]);
+        shadow_parity(&g);
+
+        // Instrumented removals: parallel key (next_back), last key, node
+        // removal, then slot recycling via a fresh name.
+        assert!(g.remove_edge("a", "b", None));
+        shadow_parity(&g);
+        assert!(g.remove_edge("a", "b", None));
+        shadow_parity(&g);
+        assert!(g.remove_node("b"));
+        shadow_parity(&g);
+        let _ = g.add_edge("recycled", "c");
+        shadow_parity(&g);
+
+        // Uninstrumented order-only mutation DROPS the shadow.
+        g.reorder_rows_for_nx_copy_walk();
+        assert!(
+            g.slab_shadow.is_none(),
+            "apply_row_orders must drop the shadow"
+        );
+        // Re-sync must capture the post-reorder row orders exactly.
+        g.sync_slab_shadow();
+        shadow_parity(&g);
+
+        // Uninstrumented content mutations leave the shadow STALE, never wrong.
+        g.add_node("island");
+        assert!(
+            !g.slab_shadow_is_warm(),
+            "uninstrumented mutation must stale the shadow"
+        );
+        g.sync_slab_shadow();
+        shadow_parity(&g);
+        g.clear_edges();
+        assert!(!g.slab_shadow_is_warm());
+        g.sync_slab_shadow();
+        shadow_parity(&g);
     }
 
     /// br-r37-c1-thp6w S5 A/B: pure storage-representation tax of the String-

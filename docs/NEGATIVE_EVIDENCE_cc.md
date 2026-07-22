@@ -9187,3 +9187,25 @@ fnx-vs-nx LOSS whose self-time is dominated by matmul/eig cores (then multiversi
 or (b) v3 wheel/dispatch infrastructure lands for free, or (c) a blocked/tiled GEMM rewrite (the
 04z53 cache-blocked-GEMM directive) changes the kernel from store-bound to FLOP-bound — re-probe
 THEN.
+
+## 2026-07-22 SnowyBadger (cc) KEEP (thp6w S11 slice 1): production slab shadow behind `mg-int-storage` — dual-write green both ways
+
+The strangler's first production step. New fnx-classes feature `mg-int-storage`: MultiGraph gains a
+revision-keyed `slab_shadow: Option<Box<(u64, MgSlabStorageProto)>>` (cfg'd field — NO code or
+storage when off; default suite 82/82 unchanged). Instrumented mutations advance it in place:
+single-edge add (autocreate/parallel/self-loop/attr-merge; attrs captured pre-consumption only when
+warm), remove_edge (store-resolved key, never the None default), remove_node (slab tombstone +
+recycle), and the keyed batch (take-out/write-through/re-key pattern). `apply_row_orders` DROPS it
+(arbitrary row orders unmirrored in slice 1); every other mutation leaves it stale by revision key —
+the S4 monotone-safety argument, now for the full store. `sync_slab_shadow()` rebuilds from ANY
+reachable String state via the new `from_string_state` (direct order reproduction — valid even
+post-reorder, where no insert stream could reproduce row orders). Feature-ON suite **83/83** incl.
+`thp6w_s11_slab_shadow_dual_write_gauntlet` (warm+parity after every instrumented op; stale/dropped
+— never wrong — after uninstrumented ones). fnx-algorithms suite also confirmed green post-fmt
+(1149-test crate, background loop).
+
+NEXT (S12): route the FIRST production read through a warm shadow behind the same feature — the
+fresh-batch construction path stays the end goal, but the first read candidate is
+`with_int_adjacency`-family traversals or `edge_keys_vec`/`edges_ordered` derivations, measured
+before shipping. The dual-write burn-in must then run under the fnx-python suite (feature-on wheel)
+before any default flip.
