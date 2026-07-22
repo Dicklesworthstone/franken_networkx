@@ -3052,8 +3052,11 @@ impl PyMultiDiGraph {
                 g.inner = MultiDiGraph::new(mode);
                 return Ok(g);
             }
-            let materialized = crate::materialize_iterator_edge_list(py, data, true, true)?;
-            let edata: &Bound<'_, PyAny> = materialized.as_ref().unwrap_or(data);
+            let materialized = crate::materialize_iterator_edge_list(py, data, true, true, false)?;
+            let edata: &Bound<'_, PyAny> = materialized
+                .as_ref()
+                .map(|decoded| &decoded.items)
+                .unwrap_or(data);
             if let Ok(other) = data.extract::<PyRef<'_, PyMultiDiGraph>>() {
                 g.inner = MultiDiGraph::with_runtime_policy(other.inner.runtime_policy().clone());
                 for (canonical, py_key) in &other.node_key_map {
@@ -10308,8 +10311,12 @@ impl PyDiGraph {
                 g.inner = DiGraph::new(mode);
                 return Ok(g);
             }
-            let materialized = crate::materialize_iterator_edge_list(py, data, false, false)?;
-            let edata: &Bound<'_, PyAny> = materialized.as_ref().unwrap_or(data);
+            let materialized =
+                crate::materialize_iterator_edge_list(py, data, false, false, false)?;
+            let edata: &Bound<'_, PyAny> = materialized
+                .as_ref()
+                .map(|decoded| &decoded.items)
+                .unwrap_or(data);
             // Copy from another PyDiGraph.
             if let Ok(other) = data.extract::<PyRef<'_, PyDiGraph>>() {
                 g.inner = DiGraph::with_runtime_policy(other.inner.runtime_policy().clone());

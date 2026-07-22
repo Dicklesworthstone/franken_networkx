@@ -213,19 +213,156 @@ pub(crate) fn fnx_graph_instance_mode(data: &Bound<'_, PyAny>) -> Option<Compati
 /// Peak transient memory grows by the drained item vector (~64 B/edge) for
 /// iterator inputs, which is small against fnx's per-edge steady-state
 /// (String keys + AttrMap + mirror dict).
+pub(crate) struct MaterializedIteratorEdgeList<'py> {
+    pub(crate) items: Bound<'py, PyAny>,
+    graph_exact_int_attr_batch: Option<IndexedAttrEdgeBatch>,
+}
+
+struct GraphExactIntAttrRow {
+    u_value: i64,
+    v_value: i64,
+    u_object: PyObject,
+    v_object: PyObject,
+    attrs: AttrMap,
+    mirror: Option<Py<PyDict>>,
+}
+
+#[derive(Default)]
+struct GraphExactIntAttrStage {
+    rows: Vec<GraphExactIntAttrRow>,
+    seen_edges: HashSet<(i64, i64)>,
+}
+
+impl GraphExactIntAttrStage {
+    fn push(&mut self, row: GraphExactIntAttrRow) -> bool {
+        let edge = if row.u_value <= row.v_value {
+            (row.u_value, row.v_value)
+        } else {
+            (row.v_value, row.u_value)
+        };
+        if !self.seen_edges.insert(edge) {
+            return false;
+        }
+        self.rows.push(row);
+        true
+    }
+
+    fn into_batch(self) -> Option<IndexedAttrEdgeBatch> {
+        const ATTR_EDGE_BATCH_MIN: usize = 8;
+        if self.rows.len() < ATTR_EDGE_BATCH_MIN {
+            return None;
+        }
+
+        let node_capacity = self.rows.len().saturating_mul(2);
+        let mut node_indices: HashMap<i64, usize> = HashMap::with_capacity(node_capacity);
+        let mut node_labels = Vec::with_capacity(node_capacity);
+        let mut node_objects = Vec::with_capacity(node_capacity);
+        let mut edges = Vec::with_capacity(self.rows.len());
+        let mut node_bumps = 0_u64;
+        for row in self.rows {
+            let mut edge_added_node = false;
+            let u_index = match node_indices.get(&row.u_value).copied() {
+                Some(index) => index,
+                None => {
+                    let index = node_labels.len();
+                    node_indices.insert(row.u_value, index);
+                    node_labels.push(row.u_value.to_string());
+                    node_objects.push(row.u_object);
+                    edge_added_node = true;
+                    index
+                }
+            };
+            let v_index = match node_indices.get(&row.v_value).copied() {
+                Some(index) => index,
+                None => {
+                    let index = node_labels.len();
+                    node_indices.insert(row.v_value, index);
+                    node_labels.push(row.v_value.to_string());
+                    node_objects.push(row.v_object);
+                    edge_added_node = true;
+                    index
+                }
+            };
+            if edge_added_node {
+                node_bumps = node_bumps.wrapping_add(1);
+            }
+            edges.push((u_index, v_index, row.attrs, row.mirror));
+        }
+        Some((node_labels, node_objects, edges, node_bumps))
+    }
+}
+
+fn normalize_graph_exact_int_attr_row<'py>(
+    py: Python<'py>,
+    item: &Bound<'py, PyAny>,
+) -> PyResult<Option<(Bound<'py, PyAny>, Option<GraphExactIntAttrRow>)>> {
+    if item.len().ok() != Some(3) {
+        return Ok(None);
+    }
+    let u = item.get_item(0)?;
+    let v = item.get_item(1)?;
+    if !u.is_exact_instance_of::<PyInt>()
+        || !v.is_exact_instance_of::<PyInt>()
+        || u.is_exact_instance_of::<PyBool>()
+        || v.is_exact_instance_of::<PyBool>()
+    {
+        return Ok(None);
+    }
+    let Ok(u_value) = u.extract::<i64>() else {
+        return Ok(None);
+    };
+    let Ok(v_value) = v.extract::<i64>() else {
+        return Ok(None);
+    };
+    let third = item.get_item(2)?;
+    let Ok(source_attrs) = third.downcast::<PyDict>() else {
+        return Ok(None);
+    };
+    let attrs = source_attrs.copy()?;
+    let normalized = PyTuple::new(py, [u.clone(), v.clone(), attrs.clone().into_any()])?.into_any();
+    if !attr_dict_is_batch_lossless(&attrs) {
+        return Ok(Some((normalized, None)));
+    }
+    let Ok(rust_attrs) = py_dict_to_attr_map(&attrs) else {
+        return Ok(Some((normalized, None)));
+    };
+    if rust_attrs
+        .keys()
+        .any(|key| key.starts_with("__fnx_incompatible"))
+    {
+        return Ok(Some((normalized, None)));
+    }
+    let mirror = (attrs.len() >= 2).then(|| attrs.unbind());
+    Ok(Some((
+        normalized,
+        Some(GraphExactIntAttrRow {
+            u_value,
+            v_value,
+            u_object: u.unbind(),
+            v_object: v.unbind(),
+            attrs: rust_attrs,
+            mirror,
+        }),
+    )))
+}
+
 pub(crate) fn materialize_iterator_edge_list<'py>(
     py: Python<'py>,
     data: &Bound<'py, PyAny>,
     is_multi: bool,
     preserve_exact_tuple_stream: bool,
-) -> PyResult<Option<Bound<'py, PyAny>>> {
+    collect_graph_exact_int_attrs: bool,
+) -> PyResult<Option<MaterializedIteratorEdgeList<'py>>> {
     if !data.hasattr("__next__")? {
         return Ok(None);
     }
 
     let mut iter = PyIterator::from_object(data)?;
     let Some(first) = iter.next() else {
-        return Ok(Some(PyList::empty(py).into_any()));
+        return Ok(Some(MaterializedIteratorEdgeList {
+            items: PyList::empty(py).into_any(),
+            graph_exact_int_attr_batch: None,
+        }));
     };
 
     // br-r37-c1-hxdyb: DiGraph/MultiDiGraph already have faster streaming
@@ -245,7 +382,10 @@ pub(crate) fn materialize_iterator_edge_list<'py>(
             .import("itertools")?
             .getattr("chain")?
             .call1((head, iter))?;
-        return Ok(Some(chained));
+        return Ok(Some(MaterializedIteratorEdgeList {
+            items: chained,
+            graph_exact_int_attr_batch: None,
+        }));
     }
 
     // NetworkX first tries from_edgelist under a broad exception handler. An
@@ -255,22 +395,45 @@ pub(crate) fn materialize_iterator_edge_list<'py>(
     // consume/retry contract.
     let mut retrying = false;
     let mut items: Vec<Bound<'py, PyAny>> = Vec::new();
+    let mut graph_stage = collect_graph_exact_int_attrs.then(GraphExactIntAttrStage::default);
     let mut pending = Some(first);
     loop {
         let Some(item) = pending.take().or_else(|| iter.next()) else {
             break;
         };
-        let normalized = item.and_then(|item| normalize_ctor_edge_item(py, &item, is_multi));
+        let normalized = item.and_then(|item| {
+            if graph_stage.is_some()
+                && let Some(normalized) = normalize_graph_exact_int_attr_row(py, &item)?
+            {
+                return Ok(normalized);
+            }
+            normalize_ctor_edge_item(py, &item, is_multi).map(|normalized| (normalized, None))
+        });
         match normalized {
-            Ok(item) => items.push(item),
+            Ok((item, typed_row)) => {
+                items.push(item);
+                if let Some(stage) = graph_stage.as_mut() {
+                    if let Some(row) = typed_row {
+                        if !stage.push(row) {
+                            graph_stage = None;
+                        }
+                    } else {
+                        graph_stage = None;
+                    }
+                }
+            }
             Err(_) if !retrying => {
                 items.clear();
+                graph_stage = collect_graph_exact_int_attrs.then(GraphExactIntAttrStage::default);
                 retrying = true;
             }
             Err(_) => return Err(NetworkXError::new_err("Input is not a valid edge list")),
         }
     }
-    Ok(Some(PyList::new(py, items)?.into_any()))
+    Ok(Some(MaterializedIteratorEdgeList {
+        items: PyList::new(py, items)?.into_any(),
+        graph_exact_int_attr_batch: graph_stage.and_then(GraphExactIntAttrStage::into_batch),
+    }))
 }
 
 /// Return true when an exact tuple can remain on the existing directed
@@ -4861,8 +5024,11 @@ impl PyMultiGraph {
             // br-r37-c1-q86hv: drain a true iterator once so the edge batches
             // below can consume it as a list. Graph instances and every other
             // constructor arm continue to receive the original `data`.
-            let materialized = materialize_iterator_edge_list(py, data, true, false)?;
-            let edata: &Bound<'_, PyAny> = materialized.as_ref().unwrap_or(data);
+            let materialized = materialize_iterator_edge_list(py, data, true, false, false)?;
+            let edata: &Bound<'_, PyAny> = materialized
+                .as_ref()
+                .map(|decoded| &decoded.items)
+                .unwrap_or(data);
             if let Ok(other) = data.extract::<PyRef<'_, PyMultiGraph>>() {
                 g.inner = MultiGraph::with_runtime_policy(other.inner.runtime_policy().clone());
                 // br-r37-c1-tbh4q: single-pass attr crossing via
@@ -10542,10 +10708,24 @@ impl PyGraph {
             // br-r37-c1-ctorgen: drain a true iterator once so the edge batch
             // below can fire on it (it only downcasts PyList/PyTuple). Every
             // other arm below deliberately keeps receiving the original `data`.
-            let materialized = materialize_iterator_edge_list(py, data, false, false)?;
-            let edata: &Bound<'_, PyAny> = materialized.as_ref().unwrap_or(data);
+            let mut materialized = materialize_iterator_edge_list(py, data, false, false, true)?;
+            let typed_batch = materialized
+                .as_mut()
+                .and_then(|decoded| decoded.graph_exact_int_attr_batch.take());
+            let edata: &Bound<'_, PyAny> = materialized
+                .as_ref()
+                .map(|decoded| &decoded.items)
+                .unwrap_or(data);
             // If it's another PyGraph, copy it.
-            if let Ok(other) = data.extract::<PyRef<'_, PyGraph>>() {
+            if let Some((node_labels, node_objects, edges, node_bumps)) = typed_batch {
+                g.add_fresh_exact_int_attr_edge_batch(
+                    py,
+                    node_labels,
+                    node_objects,
+                    edges,
+                    node_bumps,
+                )?;
+            } else if let Ok(other) = data.extract::<PyRef<'_, PyGraph>>() {
                 g.inner = other.inner.clone();
                 g.lazy_int_node_stop = other.lazy_int_node_stop;
                 for canonical in other.inner.nodes_ordered() {
@@ -14460,6 +14640,371 @@ class FnxMultiGraphCtorEdgeIterable:
         .expect("Graph list-iterator constructor A/B should run");
     }
 
+    /// `br-r37-c1-04z53.9180`: phase attribution for attributed true-iterator
+    /// construction. This separates transactional normalization/materializing
+    /// from the existing native batch commit before any fused-stage candidate
+    /// is written. Run with the release profile, `--ignored`, and `--nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn graph_attr_iterator_ctor_phase_profile() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let edge_count = 10_000usize;
+            let repetitions = 16usize;
+            let rounds = 21usize;
+            let rows = PyList::empty(py);
+            for node in 0..edge_count {
+                let attrs = PyDict::new(py);
+                attrs.set_item("weight", node % 97)?;
+                attrs.set_item("cost", node as f64 / 17.0)?;
+                attrs.set_item("tag", format!("e{}", node % 11))?;
+                rows.append(PyList::new(
+                    py,
+                    [
+                        node.into_py_any(py)?,
+                        (node + 1).into_py_any(py)?,
+                        attrs.unbind().into_any(),
+                    ],
+                )?)?;
+            }
+
+            let stage = || -> PyResult<Bound<'_, PyAny>> {
+                let iterator = rows.call_method0("__iter__")?;
+                let materialized =
+                    materialize_iterator_edge_list(py, &iterator, false, false, false)?
+                    .expect("a true iterator must materialize");
+                black_box(materialized.items.len()?);
+                Ok(materialized.items)
+            };
+            let commit = |materialized: &Bound<'_, PyAny>| -> PyResult<()> {
+                let mut graph = PyGraph::new_empty(py)?;
+                assert!(graph.try_add_edges_from_batch_impl(py, materialized, true)?);
+                black_box(graph.inner.edge_count());
+                black_box(graph.edge_py_attrs.len());
+                Ok(())
+            };
+            let time_stage = || -> PyResult<f64> {
+                let start = Instant::now();
+                for _ in 0..repetitions {
+                    black_box(stage()?);
+                }
+                Ok(start.elapsed().as_secs_f64())
+            };
+            let materialized = stage()?;
+            let time_commit = || -> PyResult<f64> {
+                let start = Instant::now();
+                for _ in 0..repetitions {
+                    commit(&materialized)?;
+                }
+                Ok(start.elapsed().as_secs_f64())
+            };
+            let time_full = || -> PyResult<f64> {
+                let start = Instant::now();
+                for _ in 0..repetitions {
+                    let iterator = rows.call_method0("__iter__")?;
+                    let graph = PyGraph::new(py, Some(&iterator), None)?;
+                    black_box(graph.inner.edge_count());
+                    black_box(graph.edge_py_attrs.len());
+                }
+                Ok(start.elapsed().as_secs_f64())
+            };
+
+            black_box(time_stage()?);
+            black_box(time_commit()?);
+            black_box(time_full()?);
+            let mut stage_times = Vec::with_capacity(rounds);
+            let mut commit_times = Vec::with_capacity(rounds);
+            let mut full_times = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                match round % 3 {
+                    0 => {
+                        stage_times.push(time_stage()?);
+                        commit_times.push(time_commit()?);
+                        full_times.push(time_full()?);
+                    }
+                    1 => {
+                        commit_times.push(time_commit()?);
+                        full_times.push(time_full()?);
+                        stage_times.push(time_stage()?);
+                    }
+                    _ => {
+                        full_times.push(time_full()?);
+                        stage_times.push(time_stage()?);
+                        commit_times.push(time_commit()?);
+                    }
+                }
+            }
+
+            let report = |name: &str, samples: &[f64]| {
+                let mean = samples.iter().sum::<f64>() / samples.len() as f64;
+                let variance = samples
+                    .iter()
+                    .map(|sample| (sample - mean).powi(2))
+                    .sum::<f64>()
+                    / (samples.len() - 1) as f64;
+                let mut sorted = samples.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "GRAPH_ATTR_ITER_PHASE {name}: median_ms={:.3} cv={:.3}% p5_p95_ms=[{:.3},{:.3}]",
+                    sorted[rounds / 2] * 1_000.0,
+                    variance.sqrt() / mean * 100.0,
+                    sorted[rounds * 5 / 100] * 1_000.0,
+                    sorted[rounds * 95 / 100] * 1_000.0,
+                );
+            };
+            println!(
+                "GRAPH_ATTR_ITER_PHASE edges={edge_count} repetitions={repetitions} rounds={rounds}"
+            );
+            report("stage", &stage_times);
+            report("commit", &commit_times);
+            report("full", &full_times);
+            Ok(())
+        })
+        .expect("Graph attributed iterator phase profile should run");
+    }
+
+    fn build_graph_attr_iterator_stage_for_test(
+        py: Python<'_>,
+        rows: &Bound<'_, PyList>,
+        fused: bool,
+    ) -> PyResult<PyGraph> {
+        let iterator = rows.call_method0("__iter__")?;
+        let mut decoded = materialize_iterator_edge_list(py, &iterator, false, false, fused)?
+            .expect("a true iterator must materialize");
+        let mut graph = PyGraph::new_empty(py)?;
+        if fused {
+            let (node_labels, node_objects, edges, node_bumps) = decoded
+                .graph_exact_int_attr_batch
+                .take()
+                .expect("the exact-int attributed fixture must form a typed stage");
+            graph.add_fresh_exact_int_attr_edge_batch(
+                py,
+                node_labels,
+                node_objects,
+                edges,
+                node_bumps,
+            )?;
+        } else {
+            assert!(graph.try_add_edges_from_batch_impl(py, &decoded.items, true)?);
+        }
+        Ok(graph)
+    }
+
+    #[test]
+    fn graph_attr_iterator_fused_stage_matches_frozen_batch() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let rows = PyList::empty(py);
+            let mut first_source_attrs = None;
+            for node in 0..32usize {
+                let attrs = PyDict::new(py);
+                attrs.set_item("weight", node % 7)?;
+                attrs.set_item("cost", node as f64 / 3.0)?;
+                attrs.set_item("tag", format!("e{}", node % 5))?;
+                if node == 0 {
+                    first_source_attrs = Some(attrs.clone().unbind());
+                }
+                rows.append(PyList::new(
+                    py,
+                    [
+                        node.into_py_any(py)?,
+                        (node + 1).into_py_any(py)?,
+                        attrs.unbind().into_any(),
+                    ],
+                )?)?;
+            }
+
+            let frozen = build_graph_attr_iterator_stage_for_test(py, &rows, false)?;
+            let fused = build_graph_attr_iterator_stage_for_test(py, &rows, true)?;
+            assert_eq!(fused.inner.snapshot(), frozen.inner.snapshot());
+            assert_eq!(fused.node_key_map.len(), frozen.node_key_map.len());
+            assert_eq!(fused.edge_py_attrs.len(), frozen.edge_py_attrs.len());
+            for (edge, fused_attrs) in &fused.edge_py_attrs {
+                let frozen_attrs = frozen
+                    .edge_py_attrs
+                    .get(edge)
+                    .expect("both paths must retain every ordered mirror");
+                assert_eq!(
+                    fused_attrs.bind(py).repr()?.to_str()?,
+                    frozen_attrs.bind(py).repr()?.to_str()?,
+                    "ordered Python edge payload must stay byte-identical"
+                );
+            }
+
+            first_source_attrs
+                .expect("the fixture has a first attribute dictionary")
+                .bind(py)
+                .set_item("weight", 9999)?;
+            let first_edge = PyGraph::edge_key("0", "1");
+            assert_eq!(
+                fused.edge_py_attrs[&first_edge]
+                    .bind(py)
+                    .get_item("weight")?
+                    .expect("weight must remain present")
+                    .extract::<usize>()?,
+                0,
+                "the fused stage must retain the yield-time shallow snapshot"
+            );
+
+            let duplicate_rows = PyList::empty(py);
+            for (u, v) in [
+                (0, 1),
+                (1, 0),
+                (1, 2),
+                (2, 3),
+                (3, 4),
+                (4, 5),
+                (5, 6),
+                (6, 7),
+            ] {
+                duplicate_rows.append(PyTuple::new(
+                    py,
+                    [
+                        u.into_py_any(py)?,
+                        v.into_py_any(py)?,
+                        PyDict::new(py).unbind().into_any(),
+                    ],
+                )?)?;
+            }
+            let iterator = duplicate_rows.call_method0("__iter__")?;
+            let decoded = materialize_iterator_edge_list(py, &iterator, false, false, true)?
+                .expect("a true iterator must materialize");
+            assert!(
+                decoded.graph_exact_int_attr_batch.is_none(),
+                "duplicate undirected edges must retain merge-aware fallback"
+            );
+            Ok(())
+        })
+        .expect("fused Graph iterator stage parity should hold");
+    }
+
+    /// `br-r37-c1-04z53.9180`: same-binary proof for fusing exact-int
+    /// attributed iterator normalization with typed batch staging. The frozen
+    /// arm materializes a Python list and lets the existing batch collector
+    /// reparse it; the candidate commits the typed region produced during that
+    /// same transactional normalization pass.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn graph_attr_iterator_fused_stage_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let edge_count = 10_000usize;
+            let repetitions = std::env::var("FNX_CTOR_REPETITIONS")
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(32usize);
+            let rounds = 21usize;
+            let rows = PyList::empty(py);
+            for node in 0..edge_count {
+                let attrs = PyDict::new(py);
+                attrs.set_item("weight", node % 97)?;
+                attrs.set_item("cost", node as f64 / 17.0)?;
+                attrs.set_item("tag", format!("e{}", node % 11))?;
+                rows.append(PyList::new(
+                    py,
+                    [
+                        node.into_py_any(py)?,
+                        (node + 1).into_py_any(py)?,
+                        attrs.unbind().into_any(),
+                    ],
+                )?)?;
+            }
+
+            let build = |fused: bool| -> PyResult<PyGraph> {
+                let graph = build_graph_attr_iterator_stage_for_test(py, &rows, fused)?;
+                black_box(graph.inner.edge_count());
+                black_box(graph.edge_py_attrs.len());
+                Ok(graph)
+            };
+            let time = |fused: bool| -> PyResult<f64> {
+                let start = Instant::now();
+                for _ in 0..repetitions {
+                    black_box(build(fused)?);
+                }
+                Ok(start.elapsed().as_secs_f64())
+            };
+
+            let frozen = build(false)?;
+            let candidate = build(true)?;
+            assert_eq!(candidate.inner.snapshot(), frozen.inner.snapshot());
+            assert_eq!(candidate.node_key_map.len(), frozen.node_key_map.len());
+            assert_eq!(candidate.edge_py_attrs.len(), frozen.edge_py_attrs.len());
+            for (edge, candidate_attrs) in &candidate.edge_py_attrs {
+                let frozen_attrs = frozen
+                    .edge_py_attrs
+                    .get(edge)
+                    .expect("both paths must retain every ordered mirror");
+                assert_eq!(
+                    candidate_attrs.bind(py).repr()?.to_str()?,
+                    frozen_attrs.bind(py).repr()?.to_str()?,
+                    "ordered Python edge payload must stay byte-identical"
+                );
+            }
+            black_box(time(false)?);
+            black_box(time(true)?);
+
+            let paired = |baseline_is_fused: bool| -> PyResult<Vec<f64>> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let mut baseline_time = 0.0;
+                    let mut candidate_time = 0.0;
+                    for repetition in 0..repetitions {
+                        let baseline_first = (round + repetition).is_multiple_of(2);
+                        if baseline_first {
+                            let start = Instant::now();
+                            black_box(build(baseline_is_fused)?);
+                            baseline_time += start.elapsed().as_secs_f64();
+                            let start = Instant::now();
+                            black_box(build(true)?);
+                            candidate_time += start.elapsed().as_secs_f64();
+                        } else {
+                            let start = Instant::now();
+                            black_box(build(true)?);
+                            candidate_time += start.elapsed().as_secs_f64();
+                            let start = Instant::now();
+                            black_box(build(baseline_is_fused)?);
+                            baseline_time += start.elapsed().as_secs_f64();
+                        }
+                    }
+                    ratios.push(baseline_time / candidate_time);
+                }
+                Ok(ratios)
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mean = ratios.iter().sum::<f64>() / ratios.len() as f64;
+                let variance = ratios
+                    .iter()
+                    .map(|ratio| (ratio - mean).powi(2))
+                    .sum::<f64>()
+                    / (ratios.len() - 1) as f64;
+                let cv_pct = variance.sqrt() / mean * 100.0;
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "GRAPH_ATTR_ITER_FUSED_AB {name}: median={:.4}x wins={wins}/{rounds} cv={cv_pct:.3}% p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "GRAPH_ATTR_ITER_FUSED_AB edges={edge_count} repetitions={repetitions} rounds={rounds} (>1 = fused typed stage faster)"
+            );
+            report("candidate_vs_materialize_reparse", &paired(false)?);
+            report("candidate_null", &paired(true)?);
+            Ok(())
+        })
+        .expect("Graph attributed iterator fused-stage A/B should run");
+    }
+
     /// `br-r37-c1-04z53.9178`: same-binary proof for affine transfer of the
     /// true-iterator decoder's private attribute snapshots versus the frozen
     /// second-copy path. Run with the release profile, `--ignored`, and
@@ -14494,12 +15039,13 @@ class FnxMultiGraphCtorEdgeIterable:
 
             let build = |reuse_materialized_dict_as_mirror: bool| -> PyResult<PyGraph> {
                 let iterator = rows.call_method0("__iter__")?;
-                let materialized = materialize_iterator_edge_list(py, &iterator, false, false)?
+                let materialized =
+                    materialize_iterator_edge_list(py, &iterator, false, false, false)?
                     .expect("a true iterator must materialize");
                 let mut graph = PyGraph::new_empty(py)?;
                 assert!(graph.try_add_edges_from_batch_impl(
                     py,
-                    &materialized,
+                    &materialized.items,
                     reuse_materialized_dict_as_mirror,
                 )?);
                 black_box(graph.inner.edge_count());
