@@ -4148,11 +4148,61 @@ impl MultiGraph {
             self.nodes.insert(node.clone(), AttrMap::new());
             self.adjacency.insert(node.clone(), IndexMap::new());
         }
+        // br-r37-c1-thp6w S14: fresh graphs are born with a WARM slab shadow —
+        // the slab build is ~3.5x cheaper than the String build it rides
+        // along, and every routed read then serves the slab from birth.
+        #[cfg(feature = "mg-int-storage")]
+        let mut fresh_slab = {
+            use mg_int_storage_proto::MgSlabStorageProto;
+            let mut slab = MgSlabStorageProto::new();
+            slab.node_order.reserve(node_count);
+            slab.slot_names.reserve(node_count);
+            slab.rows.reserve(node_count);
+            slab.edges.reserve(lower_bound);
+            for (slot, name) in node_names.iter().enumerate() {
+                slab.node_order.insert(name.clone(), slot);
+                slab.slot_names.push(Some(name.clone()));
+                slab.rows.push(IndexMap::new());
+            }
+            slab
+        };
 
         let mut inserted = 0usize;
         for (left_idx, right_idx, key) in iterator {
             debug_assert!(left_idx < node_names.len());
             debug_assert!(right_idx < node_names.len());
+            #[cfg(feature = "mg-int-storage")]
+            {
+                use mg_int_storage_proto::{CompactBucket, CompactKeys};
+                let pair = (left_idx.min(right_idx), left_idx.max(right_idx));
+                match fresh_slab.edges.entry(pair) {
+                    indexmap::map::Entry::Occupied(mut bucket) => {
+                        let _ = bucket.get_mut().merge(key, AttrMap::new());
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactBucket::One(key, AttrMap::new()));
+                    }
+                }
+                match fresh_slab.rows[left_idx].entry(right_idx) {
+                    indexmap::map::Entry::Occupied(mut cell) => {
+                        let _ = cell.get_mut().insert(key);
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactKeys::One(key));
+                    }
+                }
+                if left_idx != right_idx {
+                    match fresh_slab.rows[right_idx].entry(left_idx) {
+                        indexmap::map::Entry::Occupied(mut cell) => {
+                            let _ = cell.get_mut().insert(key);
+                        }
+                        indexmap::map::Entry::Vacant(slot) => {
+                            slot.insert(CompactKeys::One(key));
+                        }
+                    }
+                }
+                fresh_slab.edge_count += 1;
+            }
 
             let left = &node_names[left_idx];
             let right = &node_names[right_idx];
@@ -4192,6 +4242,13 @@ impl MultiGraph {
                     log_likelihood_ratio: -1.0,
                 }],
             );
+        }
+        // br-r37-c1-thp6w S14: install the co-built slab, keyed at the final
+        // revision — the fresh graph is warm from birth.
+        #[cfg(feature = "mg-int-storage")]
+        {
+            debug_assert_eq!(fresh_slab.edge_count, self.edge_count);
+            self.slab_shadow = Some(Box::new((self.revision, fresh_slab)));
         }
         inserted
     }
@@ -6339,6 +6396,44 @@ mod tests {
             mc / ms,
             mc / mn,
         );
+    }
+
+    /// br-r37-c1-thp6w S14: a fresh bulk-built graph must be WARM from birth
+    /// (the slab co-built during construction), byte-identical, and stay warm
+    /// through instrumented mutations. NOTE: `edges_ordered_borrowed` is a
+    /// ROUTED read (S13) — comparing it against the shadow would be circular
+    /// with a warm shadow, so this gauntlet uses only unrouted ground-truth
+    /// accessors (`nodes_ordered`, `neighbors_iter`, `edge_keys_vec`); the
+    /// walk itself is gated non-circularly by the S13 route gate.
+    #[cfg(feature = "mg-int-storage")]
+    #[test]
+    fn thp6w_s14_fresh_bulk_graph_is_warm_from_birth() {
+        let mut g = MultiGraph::strict();
+        let stream = vec![
+            (0usize, 1usize, 0usize),
+            (1, 2, 0),
+            (0, 1, 1), // parallel
+            (2, 2, 0), // self-loop
+            (3, 0, 0),
+        ];
+        let _ = g.extend_fresh_int_prefix_keyed_edges_unrecorded(5, stream.into_iter());
+        assert!(
+            g.slab_shadow_is_warm(),
+            "fresh bulk graph must be born warm"
+        );
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+        }
+        // Instrumented mutations keep the born-warm shadow warm.
+        let _ = g.add_edge("2", "4");
+        assert!(g.slab_shadow_is_warm());
+        assert!(g.remove_edge("0", "1", None));
+        assert!(g.slab_shadow_is_warm());
+        assert!(g.remove_node("1"));
+        assert!(g.slab_shadow_is_warm());
+        let shadow = g.slab_shadow.as_deref().expect("shadow present");
+        assert_slab_matches_mg(&g, &shadow.1);
     }
 
     /// br-r37-c1-thp6w S11 GAUNTLET (production dual-write shadow): with the

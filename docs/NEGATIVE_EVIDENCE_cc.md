@@ -9228,3 +9228,19 @@ harness, then route behind warmth): `edges_ordered_indices_borrowed` / snapshot 
 `edge_keys_vec`, and the traversal family (needs the position<->slot mapping decision recorded in
 the bead). Python-visible payoff arrives when the fnx-python edges()/serialization paths run on a
 feature-on wheel — the burn-in gate before any default flip.
+
+## 2026-07-22 SnowyBadger (cc) KEEP (thp6w S14): fresh bulk graphs born WARM — the slab co-builds during construction behind the feature
+
+`extend_fresh_int_prefix_keyed_edges_unrecorded` (the production fresh-batch path) now co-builds the
+slab per edge (feature-on only) and installs it as the shadow keyed at the final revision. Cost when
+on: the slab build rides along at ~+28% of the String build (slab is 3.5x cheaper than the store it
+accompanies); payoff: every routed read serves the slab FROM BIRTH and dual-write keeps it warm
+through instrumented mutations — the shape a feature-on fnx-python burn-in needs. New gauntlet
+`thp6w_s14_fresh_bulk_graph_is_warm_from_birth` (born warm + parity + stays warm through
+add/remove_edge/remove_node) — using only UNROUTED ground-truth accessors, since
+`edges_ordered_borrowed` is now routed and would be circular (recorded as a standing rule for
+future route gates). Feature-on 84/84, feature-off 82/82.
+
+INFRA: the local crates.io sparse-index staleness HEALED (~3h) — local cargo builds and therefore
+maturin wheels work again; the fnx-python feature-on burn-in is now UNBLOCKED as the next stage
+after the attributed fresh-batch variant gets the same co-build.
