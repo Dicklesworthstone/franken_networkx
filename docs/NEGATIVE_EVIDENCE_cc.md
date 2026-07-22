@@ -9097,3 +9097,23 @@ remove_node) vs the real String store's O(degree) removal — to decide whether 
 the slab/stable-slot + tombstone design (alien graveyard: Slab stable indices + Swiss-table
 tombstone/compaction discipline; recorded in the bead). Decision predicate: take slab only if the
 removal A/B shows positional renumber losing badly AND slab preserves the 3.5x construction win.
+
+## 2026-07-22 SnowyBadger (cc) S8 MEASURED VERDICT: positional renumber REJECTED for the real flip — 190-203x slower than the String store on removals; slab/stable-slot design REQUIRED
+
+`thp6w_s8_removal_cost_ab` (removal phase timed alone; build excluded; 200 spread removals on the
+n=20000 m=80000 mixed graph; post-removal structural agreement asserted): current String store
+21.4ms/23.3ms vs index-proto positional renumber (d58s8-fused: per-row drop+decrement + full
+edges-map rebuild per removal) **4.34s/4.43s = 203.3x/190.3x SLOWER** (nulls 0.960/0.898). The
+String store's removal is O(V + degree) (shift_remove memmoves, swap_remove buckets, NO edge
+rekey); positional renumber is O(V + E) per removal with a full edges-map REBUILD — at 200
+removals that is ~16M rekeyed entries. Simple Graph absorbed this cost in d58s8 only because its
+removal was ALREADY renumber-bound; MultiGraph's String store is NOT, so the flip would regress
+removal-heavy workloads by two orders of magnitude.
+
+**DESIGN DECISION (measured, binding for S9+):** the real MG flip must key rows/edges by STABLE
+SLOTS (slab + free-list + tombstones; nx-observable insertion order in a separate order list whose
+removal is a cheap O(V) memmove; compaction only when tombstone burden crosses a threshold —
+alien-graveyard Slab + Swiss-table discipline). Positional renumber is retryable ONLY as a
+deferred/batched compaction inside that design, never per-removal. NEXT (S9): slab-variant
+prototype + same parity gates/gauntlet + BOTH A/Bs — must hold ~3.5x construction AND beat the
+String store's O(V + degree) removal (or at least stay within small constants of it).

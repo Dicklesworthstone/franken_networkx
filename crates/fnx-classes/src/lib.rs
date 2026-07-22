@@ -5208,6 +5208,120 @@ mod tests {
         assert_proto_matches_mg(&mg, &proto);
     }
 
+    /// br-r37-c1-thp6w S8 A/B: the flip's COST side — `remove_node` under the
+    /// index layout pays the d58s8 positional renumber (O(V+E) per removal:
+    /// row drop+decrement passes + full edges-map rebuild) where the current
+    /// String store pays only O(V + degree) (shift_remove memmoves, no edge
+    /// rekey). Same build stream, same 200-name removal sequence, removal
+    /// phase timed alone, paired-interleaved with a null arm. This number
+    /// decides whether the real flip needs the slab/stable-slot + tombstone
+    /// node store (see the bead's S8 design note) instead of positional
+    /// renumber.
+    /// `cargo test --release -p fnx-classes --lib thp6w_s8_removal_cost_ab -- --ignored --nocapture`
+    #[test]
+    #[ignore = "paired A/B benchmark; run --release with --ignored --nocapture"]
+    fn thp6w_s8_removal_cost_ab() {
+        use super::mg_int_storage_proto::MgIntStorageProto;
+        use std::collections::HashMap;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn push_edge(
+            stream: &mut Vec<(usize, usize, usize)>,
+            key_counter: &mut HashMap<(usize, usize), usize>,
+            u: usize,
+            v: usize,
+        ) {
+            let entry = key_counter.entry((u.min(v), u.max(v))).or_insert(0);
+            stream.push((u, v, *entry));
+            *entry += 1;
+        }
+
+        let n = 20000usize;
+        let mut stream = Vec::new();
+        let mut key_counter = HashMap::new();
+        for i in 0..n {
+            push_edge(&mut stream, &mut key_counter, i, (i + 1) % n);
+        }
+        let mut state = 0x2545_F491_4F6C_DD1D_u64;
+        let draw = |state: &mut u64| -> usize {
+            *state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            usize::try_from(*state >> 33).unwrap() % n
+        };
+        for _ in 0..3 * n {
+            let u = draw(&mut state);
+            let v = draw(&mut state);
+            push_edge(&mut stream, &mut key_counter, u, v);
+        }
+        let victims: Vec<String> = (0..n).step_by(100).map(|i| i.to_string()).collect();
+
+        let time_current_removals = |stream: &[(usize, usize, usize)]| -> f64 {
+            let mut g = MultiGraph::strict();
+            let _ = g.extend_fresh_int_prefix_keyed_edges_unrecorded(n, stream.iter().copied());
+            let t0 = Instant::now();
+            for name in &victims {
+                assert!(g.remove_node(name));
+            }
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(g.edge_count());
+            dt
+        };
+        let time_proto_removals = |stream: &[(usize, usize, usize)]| -> f64 {
+            let mut proto = MgIntStorageProto::bulk_load_int_prefix(n, stream.iter().copied());
+            let t0 = Instant::now();
+            for name in &victims {
+                assert!(proto.remove_node(name));
+            }
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(proto.edge_count);
+            dt
+        };
+
+        // Post-removal structural agreement (once, outside timing).
+        let mut g = MultiGraph::strict();
+        let _ = g.extend_fresh_int_prefix_keyed_edges_unrecorded(n, stream.iter().copied());
+        let mut proto = MgIntStorageProto::bulk_load_int_prefix(n, stream.iter().copied());
+        for name in &victims {
+            assert!(g.remove_node(name));
+            assert!(proto.remove_node(name));
+        }
+        assert_eq!(
+            proto.edge_count,
+            g.edge_count(),
+            "removal arms diverged in edge_count"
+        );
+        assert_eq!(
+            proto
+                .node_names
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            g.nodes_ordered(),
+            "removal arms diverged in node order"
+        );
+
+        let median = |samples: &mut Vec<f64>| -> f64 {
+            samples.sort_by(f64::total_cmp);
+            samples[samples.len() / 2]
+        };
+        let (mut cur, mut pro, mut nul) = (Vec::new(), Vec::new(), Vec::new());
+        for _ in 0..7 {
+            cur.push(time_current_removals(&stream));
+            pro.push(time_proto_removals(&stream));
+            nul.push(time_current_removals(&stream));
+        }
+        let (mc, mp, mn) = (median(&mut cur), median(&mut pro), median(&mut nul));
+        println!(
+            "THP6W_S8_REMOVAL_AB n={n} m={} removals={} current={mc:.6}s proto_renumber={mp:.6}s ratio_proto_over_current={:.3} null={:.3}",
+            stream.len(),
+            victims.len(),
+            mp / mc,
+            mc / mn,
+        );
+    }
+
     /// br-r37-c1-thp6w S5 A/B: pure storage-representation tax of the String-
     /// keyed MultiGraph core vs the index-keyed prototype layout, on the SAME
     /// pre-resolved (u_idx, v_idx, key) stream via the SAME-shape bulk loaders
