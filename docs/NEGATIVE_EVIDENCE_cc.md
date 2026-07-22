@@ -9014,3 +9014,18 @@ hard_preflight=2) AND the local cargo registry index is too stale to resolve the
 locked 1.0.228; local index tops out at 1.0.219/1.0.223, `--offline` fails too) — so LOCAL builds of
 this workspace are impossible on this box until the index refreshes. fnx-classes test verification
 + the .so rebuild for the cc_cold after-measurement ran through a background remote-slot retry loop.
+
+### 2026-07-22 addendum (SnowyBadger): thp6w S4 VERIFIED + COMMITTED
+
+`cargo test -p fnx-classes` on a remote worker (ovh-a, attempt 6 after fleet saturation cleared a
+slot): **78 passed / 0 failed**, including the existing thp6w invariant gauntlet and the two new S4
+tests (`thp6w_s4_single_edge_mutations_advance_warm_memo`, name confirmed in run output per the
+stale-test-binary discipline). Zero compiler warnings in my regions. NOTE: `cargo clippy -p
+fnx-classes --all-targets -- -D warnings` fails on clean HEAD under the current FLOATED nightly
+(rust-toolchain pins bare `channel = "nightly"`): two NEW-lint hits on PRE-EXISTING committed code —
+`collapsible_if` at the br-r37-c1-addedgenewedge Graph::add_edge site (~1719) and
+`if_same_then_else` on that lever's intentional A/B test (~3701/3864) — both predate this session's
+change (verified: both regions exist in HEAD 8b7dff824's lib.rs). Filed as a separate bead; not
+fixed in the S4 commit (one lever per commit). Python-level after-measurement of cc_cold remains
+BLOCKED on the stale local crates.io index (maturin builds locally only); the before-numbers and
+the monotone-safety argument are recorded above — re-measure cc_cold when a fresh .so lands.

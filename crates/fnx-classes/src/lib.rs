@@ -2312,6 +2312,24 @@ impl Clone for IntAdjCache {
     }
 }
 
+/// br-r37-c1-thp6w S4: the structural row delta of one single-edge MultiGraph
+/// mutation, used by `advance_int_adj_memo` to keep a warm integer-adjacency
+/// memo live across the mutation instead of invalidating it.
+enum IntAdjEdgeDelta<'a> {
+    Add {
+        left: &'a str,
+        right: &'a str,
+        left_new: bool,
+        right_new: bool,
+        pair_new: bool,
+    },
+    Remove {
+        left: &'a str,
+        right: &'a str,
+        pair_gone: bool,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub struct MultiGraph {
     mode: CompatibilityMode,
@@ -2602,6 +2620,102 @@ impl MultiGraph {
             .write()
             .expect("int_adj_cache poisoned") = Some((self.revision, adj));
         result
+    }
+
+    /// br-r37-c1-thp6w S4: advance a warm integer-adjacency memo across one
+    /// single-edge mutation instead of invalidating it. The memo must still be
+    /// keyed at `prev_revision` (the revision on entry to the mutating call);
+    /// the delta mirrors the String-row edit exactly (new distinct neighbors
+    /// append, emptied pairs shift-remove, new nodes push fresh rows), then the
+    /// memo re-keys to the post-mutation revision. Every mutation path that
+    /// does NOT call this leaves the memo keyed at a stale revision, so
+    /// `with_int_adjacency` lazily rebuilds — unhandled sites stay exactly as
+    /// safe as the invalidate-only scheme.
+    fn advance_int_adj_memo(&mut self, prev_revision: u64, delta: IntAdjEdgeDelta<'_>) {
+        let needs_indices = matches!(
+            delta,
+            IntAdjEdgeDelta::Add { pair_new: true, .. }
+                | IntAdjEdgeDelta::Remove {
+                    pair_gone: true,
+                    ..
+                }
+        );
+        let indices = if needs_indices {
+            let (left, right) = match &delta {
+                IntAdjEdgeDelta::Add { left, right, .. }
+                | IntAdjEdgeDelta::Remove { left, right, .. } => (*left, *right),
+            };
+            match (
+                self.nodes.get_index_of(left),
+                self.nodes.get_index_of(right),
+            ) {
+                (Some(u), Some(v)) => Some((u, v)),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let Ok(slot) = self.int_adj_cache.0.get_mut() else {
+            return;
+        };
+        if needs_indices && indices.is_none() {
+            // Endpoint missing from the node table (should be unreachable for a
+            // live edge): the delta cannot be mirrored, so drop the memo.
+            *slot = None;
+            return;
+        }
+        let Some((rev, rows)) = slot.as_mut() else {
+            return;
+        };
+        if *rev != prev_revision {
+            return;
+        }
+        let mut advanced = true;
+        match delta {
+            IntAdjEdgeDelta::Add {
+                left,
+                right,
+                left_new,
+                right_new,
+                pair_new,
+            } => {
+                if left_new {
+                    rows.push(Vec::new());
+                }
+                if right_new && left != right {
+                    rows.push(Vec::new());
+                }
+                if pair_new && let Some((u, v)) = indices {
+                    rows[u].push(v);
+                    if u != v {
+                        rows[v].push(u);
+                    }
+                }
+            }
+            IntAdjEdgeDelta::Remove { pair_gone, .. } => {
+                if pair_gone && let Some((u, v)) = indices {
+                    // Mirror `IndexMap::shift_remove` on the String row:
+                    // order-preserving removal of the emptied neighbor cell.
+                    if let Some(pu) = rows[u].iter().position(|&x| x == v) {
+                        rows[u].remove(pu);
+                        if u != v {
+                            if let Some(pv) = rows[v].iter().position(|&x| x == u) {
+                                rows[v].remove(pv);
+                            } else {
+                                advanced = false;
+                            }
+                        }
+                    } else {
+                        advanced = false;
+                    }
+                }
+            }
+        }
+        if advanced {
+            *rev = self.revision;
+        } else {
+            *slot = None;
+        }
     }
 
     #[must_use]
@@ -3139,6 +3253,9 @@ impl MultiGraph {
     ) -> Result<usize, GraphError> {
         let left = left.into();
         let right = right.into();
+        // br-r37-c1-thp6w S4: revision on entry — a warm int-adjacency memo
+        // keyed here is advanced across this mutation instead of invalidated.
+        let prev_revision = self.revision;
 
         let unknown_feature = attrs
             .keys()
@@ -3213,6 +3330,10 @@ impl MultiGraph {
             edge_bucket.len()
         };
 
+        let pair_was_present = self
+            .adjacency
+            .get(left.as_str())
+            .is_some_and(|row| row.contains_key(right.as_str()));
         self.adjacency
             .entry(left.clone())
             .or_default()
@@ -3229,6 +3350,18 @@ impl MultiGraph {
         }
         if changed {
             self.revision = self.revision.saturating_add(1);
+        }
+        if self.revision != prev_revision {
+            self.advance_int_adj_memo(
+                prev_revision,
+                IntAdjEdgeDelta::Add {
+                    left: &left,
+                    right: &right,
+                    left_new: left_autocreated,
+                    right_new: right_autocreated,
+                    pair_new: !pair_was_present,
+                },
+            );
         }
 
         self.record_decision(
@@ -3298,6 +3431,9 @@ impl MultiGraph {
     }
 
     pub fn remove_edge(&mut self, left: &str, right: &str, key: Option<usize>) -> bool {
+        // br-r37-c1-thp6w S4: revision on entry — a warm int-adjacency memo
+        // keyed here is advanced across this mutation instead of invalidated.
+        let prev_revision = self.revision;
         let edge_key = EdgeKeyRef::new(left, right);
         let removal_key = key.or_else(|| {
             self.edges
@@ -3309,6 +3445,7 @@ impl MultiGraph {
             return false;
         };
 
+        let mut pair_gone = false;
         let removed = if let Some(edge_bucket) = self.edges.get_mut(&edge_key) {
             // Inner bucket keeps shift_remove: per-pair KEY order IS observed
             // (edges(keys=True) yields the bucket's key order; nx preserves
@@ -3323,6 +3460,7 @@ impl MultiGraph {
                     // remove_node already swap_removes this same map). Turns
                     // remove_edges_from from O(k*pairs) into O(k).
                     self.edges.swap_remove(&edge_key);
+                    pair_gone = true;
                 }
             }
             was_removed
@@ -3338,6 +3476,14 @@ impl MultiGraph {
             self.remove_adjacency_key(right, left, removal_key);
         }
         self.revision = self.revision.saturating_add(1);
+        self.advance_int_adj_memo(
+            prev_revision,
+            IntAdjEdgeDelta::Remove {
+                left,
+                right,
+                pair_gone,
+            },
+        );
         true
     }
 
@@ -3682,11 +3828,19 @@ mod tests {
         for i in 0..n {
             if let Some(row) = g.neighbors_indices(i) {
                 let uniq: BTreeSet<usize> = row.iter().copied().collect();
-                assert_eq!(uniq.len(), row.len(), "node {i} has duplicate adjacency entries");
+                assert_eq!(
+                    uniq.len(),
+                    row.len(),
+                    "node {i} has duplicate adjacency entries"
+                );
             }
         }
         // Unique edges: h-a, h-b, s-s.
-        assert_eq!(g.edge_count(), 3, "duplicate/reversed adds must not create new edges");
+        assert_eq!(
+            g.edge_count(),
+            3,
+            "duplicate/reversed adds must not create new edges"
+        );
     }
 
     /// br-r37-c1-addedgenewedge: paired-interleaved median A/B for the exact change — building a
@@ -3789,7 +3943,11 @@ mod tests {
             let new = g.degree_by_index(idx);
             let old = g.adj_indices[idx].len() + usize::from(g.adj_indices[idx].contains(&idx));
             assert_eq!(new, old, "degree_by_index parity vs row.contains at {idx}");
-            assert_eq!(new, g.degree(&format!("n{idx}")), "degree_by_index parity vs &str degree at {idx}");
+            assert_eq!(
+                new,
+                g.degree(&format!("n{idx}")),
+                "degree_by_index parity vs &str degree at {idx}"
+            );
         }
 
         let time = |use_new: bool| -> f64 {
@@ -3842,7 +4000,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("DEGIDX_AB degree histogram n={n} deg={deg} rounds={rounds} (>1 = O(1) has_edge faster)");
+        println!(
+            "DEGIDX_AB degree histogram n={n} deg={deg} rounds={rounds} (>1 = O(1) has_edge faster)"
+        );
         report("HASEDGE_vs_contains", &paired(true, false));
         report("NULL_new_vs_new", &paired(true, true));
     }
@@ -3881,8 +4041,16 @@ mod tests {
         let g2 = build(deg - 1);
 
         // Byte-exact parity: edge_count() must equal edges_ordered().len() for both graphs.
-        assert_eq!(g1.edge_count(), g1.edges_ordered().len(), "edge_count parity g1");
-        assert_eq!(g2.edge_count(), g2.edges_ordered().len(), "edge_count parity g2");
+        assert_eq!(
+            g1.edge_count(),
+            g1.edges_ordered().len(),
+            "edge_count parity g1"
+        );
+        assert_eq!(
+            g2.edge_count(),
+            g2.edges_ordered().len(),
+            "edge_count parity g2"
+        );
         assert_ne!(
             g1.edge_count(),
             g2.edge_count(),
@@ -3974,16 +4142,18 @@ mod tests {
         }
 
         let names = g.nodes_ordered();
-        let old_scan = |g: &Graph| -> usize {
-            names
-                .iter()
-                .filter(|&&node| g.has_edge(node, node))
+        let old_scan =
+            |g: &Graph| -> usize { names.iter().filter(|&&node| g.has_edge(node, node)).count() };
+        let new_scan = |g: &Graph| -> usize {
+            (0..names.len())
+                .filter(|&i| g.has_edge_by_indices(i, i))
                 .count()
         };
-        let new_scan = |g: &Graph| -> usize {
-            (0..names.len()).filter(|&i| g.has_edge_by_indices(i, i)).count()
-        };
-        assert_eq!(old_scan(&g), new_scan(&g), "nodes_with_selfloops parity (self-loop count)");
+        assert_eq!(
+            old_scan(&g),
+            new_scan(&g),
+            "nodes_with_selfloops parity (self-loop count)"
+        );
 
         let time = |cand: bool| -> f64 {
             let t0 = Instant::now();
@@ -4028,7 +4198,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("SELFLOOPIDX_AB nodes_with_selfloops n={n} deg={deg} rounds={rounds} (>1 = index probe faster)");
+        println!(
+            "SELFLOOPIDX_AB nodes_with_selfloops n={n} deg={deg} rounds={rounds} (>1 = index probe faster)"
+        );
         report("HASEDGEIDX_vs_hasedge", &paired(true, false));
         report("NULL_new_vs_new", &paired(true, true));
     }
@@ -4061,10 +4233,15 @@ mod tests {
         }
 
         let old_count = |g: &Graph| -> usize {
-            g.edges_ordered().iter().filter(|e| e.left == e.right).count()
+            g.edges_ordered()
+                .iter()
+                .filter(|e| e.left == e.right)
+                .count()
         };
         let new_count = |g: &Graph| -> usize {
-            (0..g.node_count()).filter(|&i| g.has_edge_by_indices(i, i)).count()
+            (0..g.node_count())
+                .filter(|&i| g.has_edge_by_indices(i, i))
+                .count()
         };
         assert_eq!(old_count(&g), new_count(&g), "number_of_selfloops parity");
 
@@ -4111,7 +4288,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("NUMSELFIDX_AB number_of_selfloops n={n} deg={deg} rounds={rounds} (>1 = index count faster)");
+        println!(
+            "NUMSELFIDX_AB number_of_selfloops n={n} deg={deg} rounds={rounds} (>1 = index count faster)"
+        );
         report("INDEXCOUNT_vs_edgesordered", &paired(true, false));
         report("NULL_new_vs_new", &paired(true, true));
     }
@@ -4130,7 +4309,11 @@ mod tests {
         for i in 0..g.node_count() {
             let row = &g.adj_indices[i];
             let uniq: BTreeSet<usize> = row.iter().copied().collect();
-            assert_eq!(uniq.len(), row.len(), "node {i} has duplicate adjacency entries");
+            assert_eq!(
+                uniq.len(),
+                row.len(),
+                "node {i} has duplicate adjacency entries"
+            );
             assert_eq!(row.len(), 35, "Kneser(10,3) is 35-regular");
             total_deg += row.len();
         }
@@ -4224,6 +4407,82 @@ mod tests {
         // clear_edges
         assert_int_adjacency_matches(&g);
         g.clear_edges();
+        assert_int_adjacency_matches(&g);
+    }
+
+    /// br-r37-c1-thp6w S4: the memo is keyed at the CURRENT revision without any
+    /// intervening read — i.e. the mutation advanced it in place rather than
+    /// leaving it stale for the next `with_int_adjacency` rebuild.
+    fn int_adj_memo_is_warm(g: &MultiGraph) -> bool {
+        g.int_adj_cache
+            .0
+            .read()
+            .expect("int_adj_cache poisoned")
+            .as_ref()
+            .is_some_and(|(rev, _)| *rev == g.revision)
+    }
+
+    /// br-r37-c1-thp6w S4 INVARIANT: single-edge `add_edge`/`remove_edge` must
+    /// ADVANCE a warm integer-adjacency memo across the mutation (no rebuild),
+    /// and the advanced rows must equal a fresh derivation from the String
+    /// adjacency after every step. Unhandled mutation kinds (`remove_node`)
+    /// must still leave the memo stale so the lazy rebuild path takes over.
+    #[test]
+    fn thp6w_s4_single_edge_mutations_advance_warm_memo() {
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        assert_int_adjacency_matches(&g); // populate the memo
+
+        // new neighbor with an auto-created right endpoint
+        let _ = g.add_edge("b", "c");
+        assert!(
+            int_adj_memo_is_warm(&g),
+            "add_edge must advance, not invalidate"
+        );
+        assert_int_adjacency_matches(&g);
+        // both endpoints auto-created
+        let _ = g.add_edge("d", "e");
+        assert!(int_adj_memo_is_warm(&g));
+        assert_int_adjacency_matches(&g);
+        // self-loop on an auto-created node
+        let _ = g.add_edge("f", "f");
+        assert!(int_adj_memo_is_warm(&g));
+        assert_int_adjacency_matches(&g);
+        // parallel edge: rows unchanged, revision bumps -> re-key only
+        let _ = g.add_edge("a", "b");
+        assert!(int_adj_memo_is_warm(&g));
+        assert_int_adjacency_matches(&g);
+        // attr-only change on an existing key: rows unchanged, revision bumps
+        let mut attrs = AttrMap::new();
+        attrs.insert("w".to_owned(), fnx_runtime::CgseValue::Int(2));
+        let _ = g.add_edge_with_key_and_attrs("a", "b", 0, attrs);
+        assert!(int_adj_memo_is_warm(&g));
+        assert_int_adjacency_matches(&g);
+        // remove one parallel key (pair survives -> rows unchanged)
+        assert!(g.remove_edge("a", "b", None));
+        assert!(int_adj_memo_is_warm(&g));
+        assert_int_adjacency_matches(&g);
+        // remove the last key (pair gone -> shift-remove mirrored in the rows)
+        assert!(g.remove_edge("a", "b", None));
+        assert!(int_adj_memo_is_warm(&g));
+        assert_int_adjacency_matches(&g);
+        // order-sensitive middle-of-row removal: row b = [a-gone..., c, ...]; build
+        // b->x, b->y then drop (b,c) so the survivors must keep String-row order.
+        let _ = g.add_edge("b", "x");
+        let _ = g.add_edge("b", "y");
+        assert!(g.remove_edge("b", "c", None));
+        assert!(int_adj_memo_is_warm(&g));
+        assert_int_adjacency_matches(&g);
+        // self-loop removal
+        assert!(g.remove_edge("f", "f", None));
+        assert!(int_adj_memo_is_warm(&g));
+        assert_int_adjacency_matches(&g);
+        // unhandled mutation kind: remove_node renumbers -> memo must go stale
+        assert!(g.remove_node("x"));
+        assert!(
+            !int_adj_memo_is_warm(&g),
+            "remove_node stays invalidate-only; a warm memo here would serve stale indices"
+        );
         assert_int_adjacency_matches(&g);
     }
 
