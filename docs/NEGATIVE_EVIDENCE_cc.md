@@ -9163,3 +9163,27 @@ snapshot orientation). Next stage = production strangler slices (S11+): introduc
 fnx-classes MultiGraph behind the feature flag, route construction first (the measured 0.49x
 Python-level loss), derived views second, then flip the default after the fnx-python suite goes
 green both ways.**
+
+## 2026-07-22 SnowyBadger (cc) REJECT (br-r37-c1-2zn1u): AVX2 dense-linalg — the pure-FLOP core moves only 1.2-1.4x; below shipping threshold
+
+Probe `zn1u_avx2_matmul_probe` (fnx-algorithms): times `matmul_rowmajor` n=384 (the matrix-exp /
+communicability-family FLOP core, dense-positive so the zero-skip never fires) and prints
+compile-time `cfg!(target_feature)` as EXECUTION PROOF. Both arms on the SAME pinned worker (hz2),
+two rounds:
+- round 1: baseline `avx2_compiled=false` 8.915ms vs v3 `avx2_compiled=true fma_compiled=true`
+  6.301ms -> **1.415x**
+- round 2 (worker under load; within-round pairing is the signal): 13.289ms vs 10.810ms -> **1.229x**
+`RCH_ENV_ALLOWLIST=RUSTFLAGS RUSTFLAGS='-C target-cpu=x86-64-v3'` DOES forward through rch (the
+cfg print flips) — the infra path works.
+
+VERDICT: REJECT the AVX2 dense-linalg lane at current priorities. The BEST-case, pure-FLOP,
+cache-friendly kernel gains only 1.2-1.4x from avx2+fma (LLVM already autovectorizes the i-k-j
+kernel to SSE2 at ~12.7 GFLOP/s; the c_row read-modify-write is store-bound); every public dense
+fn dilutes that behind eig/LU/Padé + PyO3 marshaling (Amdahl), and shipping needs runtime dispatch
+(multiversion dep or v3 wheel variants) for a <=1.3x niche-family end-to-end effect. This closes
+the 2zn1u "pursue on dense-linalg" branch WITH numbers — the 3.17x ALU-microbench promise does not
+survive contact with the real kernel. RETRY PREDICATE: (a) a dense-family fn shows up as a measured
+fnx-vs-nx LOSS whose self-time is dominated by matmul/eig cores (then multiversion the ONE kernel),
+or (b) v3 wheel/dispatch infrastructure lands for free, or (c) a blocked/tiled GEMM rewrite (the
+04z53 cache-blocked-GEMM directive) changes the kernel from store-bound to FLOP-bound — re-probe
+THEN.

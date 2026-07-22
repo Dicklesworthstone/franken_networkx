@@ -21130,8 +21130,10 @@ pub fn topological_generations(digraph: &DiGraph) -> Option<TopologicalGeneratio
     // indegree hits zero while scanning the previous generation). The old
     // lexicographic sort_unstable diverged on both (and string-sorted
     // "10" before "2").
-    let mut current_gen: Vec<(usize, Option<usize>)> =
-        (0..n).filter(|&i| in_degree[i] == 0).map(|i| (i, None)).collect();
+    let mut current_gen: Vec<(usize, Option<usize>)> = (0..n)
+        .filter(|&i| in_degree[i] == 0)
+        .map(|i| (i, None))
+        .collect();
 
     let mut generations: Vec<Vec<(String, Option<String>)>> = Vec::new();
     let mut total_processed = 0usize;
@@ -22391,8 +22393,13 @@ pub fn dag_longest_path_weighted(
     for &u in &topo_idx {
         if let Some(succs) = digraph.successors_indices(u) {
             for &v in succs {
-                let edge_w =
-                    directed_edge_weight_with_default_idx(digraph, u, v, weight_attr, default_weight);
+                let edge_w = directed_edge_weight_with_default_idx(
+                    digraph,
+                    u,
+                    v,
+                    weight_attr,
+                    default_weight,
+                );
                 let new_dist = dist[u] + edge_w;
                 if new_dist > dist[v] {
                     dist[v] = new_dist;
@@ -23010,11 +23017,7 @@ pub fn all_shortest_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec<
 /// br-r37-c1-aspidx A/B baseline: the pre-lever String-keyed `all_shortest_paths`.
 /// Test-only; byte-identical to the shipped integer-index version.
 #[cfg(test)]
-fn all_shortest_paths_orig_string(
-    graph: &Graph,
-    source: &str,
-    target: &str,
-) -> Vec<Vec<String>> {
+fn all_shortest_paths_orig_string(graph: &Graph, source: &str, target: &str) -> Vec<Vec<String>> {
     if !graph.has_node(source) || !graph.has_node(target) {
         return Vec::new();
     }
@@ -23292,8 +23295,12 @@ pub fn all_shortest_paths_weighted(
     // the heap orders by (dist, seq) ONLY (node is not a tie-break; seq is a unique counter), the
     // per-edge weight is bit-identical, and every f64 comparison / EPSILON test is unchanged and applied
     // in the same pop/neighbour order → the same relaxation → the same predecessor DAG → the same paths.
-    let source_idx = graph.get_node_index(source).expect("has_node checked above");
-    let target_idx = graph.get_node_index(target).expect("has_node checked above");
+    let source_idx = graph
+        .get_node_index(source)
+        .expect("has_node checked above");
+    let target_idx = graph
+        .get_node_index(target)
+        .expect("has_node checked above");
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
 
@@ -23461,8 +23468,12 @@ pub fn all_shortest_paths_weighted_directed(
     // the heap orders by (dist, seq) ONLY, the per-edge weight is bit-identical, and every f64 / EPSILON
     // comparison is unchanged and applied in the same pop×successor order → the same relaxation → the
     // same predecessor DAG → the same paths.
-    let source_idx = digraph.get_node_index(source).expect("has_node checked above");
-    let target_idx = digraph.get_node_index(target).expect("has_node checked above");
+    let source_idx = digraph
+        .get_node_index(source)
+        .expect("has_node checked above");
+    let target_idx = digraph
+        .get_node_index(target)
+        .expect("has_node checked above");
     let nodes = digraph.nodes_ordered();
     let n = nodes.len();
 
@@ -26515,11 +26526,8 @@ pub fn modularity(
         return Ok(0.0);
     }
 
-    let node_to_idx: HashMap<&str, usize> = nodes
-        .iter()
-        .enumerate()
-        .map(|(i, &nd)| (nd, i))
-        .collect();
+    let node_to_idx: HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
 
     // br-r37-c1-modwmap (cc): precompute the edge weights into an index-keyed map ONCE (O(|E|)) so the
     // community double-loop reads a_uv with an O(1) integer lookup instead of a per-pair String has_edge
@@ -30091,7 +30099,8 @@ pub fn is_chordal(graph: &Graph) -> bool {
     let mut weight = vec![0_usize; n];
     let mut order = Vec::with_capacity(n);
     let mut numbered = vec![false; n];
-    let mut buckets: Vec<std::collections::BTreeSet<usize>> = vec![std::collections::BTreeSet::new(); n];
+    let mut buckets: Vec<std::collections::BTreeSet<usize>> =
+        vec![std::collections::BTreeSet::new(); n];
     for i in 0..n {
         buckets[0].insert(i);
     }
@@ -37818,7 +37827,8 @@ pub fn grid_graph(dim: &[usize]) -> Graph {
     // Add all nodes
     // br-r37-c1-grididxbatch (cc): upgrade the earlier String-pair batch to the INDEX batch. Nodes are
     // added in flat-index order so node i sits at index i; build them all with one extend_nodes_unrecorded.
-    let _ = g.extend_nodes_unrecorded((0..total).map(|i| coords_to_label(&index_to_coords(i, dim))));
+    let _ =
+        g.extend_nodes_unrecorded((0..total).map(|i| coords_to_label(&index_to_coords(i, dim))));
 
     // Add edges: connect nodes that differ by exactly 1 in exactly one dimension. The +1-in-dimension-d
     // neighbour of flat index i is `i + strides[d]` (strides[d] = product of dims after d), so collect
@@ -39031,7 +39041,11 @@ pub fn edge_dfs(graph: &Graph, source: &str) -> Vec<(String, String)> {
 
     let mut stack: Vec<(usize, &[usize], usize)> = Vec::new();
     visited_nodes[source_idx] = true;
-    stack.push((source_idx, graph.neighbors_indices(source_idx).unwrap_or(&[]), 0));
+    stack.push((
+        source_idx,
+        graph.neighbors_indices(source_idx).unwrap_or(&[]),
+        0,
+    ));
 
     while let Some((u, nbrs, mut idx)) = stack.pop() {
         while idx < nbrs.len() {
@@ -39070,7 +39084,11 @@ pub fn edge_dfs_directed(digraph: &DiGraph, source: &str) -> Vec<(String, String
 
     let mut stack: Vec<(usize, &[usize], usize)> = Vec::new();
     visited_nodes[source_idx] = true;
-    stack.push((source_idx, digraph.successors_indices(source_idx).unwrap_or(&[]), 0));
+    stack.push((
+        source_idx,
+        digraph.successors_indices(source_idx).unwrap_or(&[]),
+        0,
+    ));
 
     while let Some((u, succs, mut idx)) = stack.pop() {
         while idx < succs.len() {
@@ -43042,8 +43060,7 @@ fn triadic_census_with_setup<const INDEX_ROWS: bool>(
         }
     } else {
         let nodes = digraph.nodes_ordered();
-        let idx: HashMap<&str, usize> =
-            nodes.iter().enumerate().map(|(i, nd)| (*nd, i)).collect();
+        let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, nd)| (*nd, i)).collect();
         for edge in digraph.edges_ordered() {
             let u = idx[edge.left.as_str()];
             let v = idx[edge.right.as_str()];
@@ -53596,7 +53613,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("NDXYDIRBORROW_AB node_degree_xy_directed 8k/200k rounds={rounds} (>1 = borrowed faster)");
+        println!(
+            "NDXYDIRBORROW_AB node_degree_xy_directed 8k/200k rounds={rounds} (>1 = borrowed faster)"
+        );
         report("BORROWED_vs_owned", &paired(true, false));
         report("NULL_borrowed_vs_borrowed", &paired(true, true));
     }
@@ -53723,7 +53742,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("ATTRMIXBORROW_AB attribute_mixing_dict 10k/400k rounds={rounds} (>1 = borrowed faster)");
+        println!(
+            "ATTRMIXBORROW_AB attribute_mixing_dict 10k/400k rounds={rounds} (>1 = borrowed faster)"
+        );
         report("BORROWED_vs_owned", &paired(true, false));
         report("NULL_borrowed_vs_borrowed", &paired(true, true));
     }
@@ -53919,9 +53940,8 @@ mod tests {
             }
         }
         // val_idx over the k distinct value bit-patterns (0..k as f64).
-        let val_idx: std::collections::HashMap<u64, usize> = (0..k)
-            .map(|i| ((i as f64).to_bits(), i))
-            .collect();
+        let val_idx: std::collections::HashMap<u64, usize> =
+            (0..k).map(|i| ((i as f64).to_bits(), i)).collect();
 
         let old_fn = |g: &Graph| -> Vec<Vec<usize>> {
             let mut counts = vec![vec![0usize; k]; k];
@@ -54014,7 +54034,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("NUMASSORTBORROW_AB numeric_assortativity 10k/400k rounds={rounds} (>1 = borrowed faster)");
+        println!(
+            "NUMASSORTBORROW_AB numeric_assortativity 10k/400k rounds={rounds} (>1 = borrowed faster)"
+        );
         report("BORROWED_vs_owned", &paired(true, false));
         report("NULL_borrowed_vs_borrowed", &paired(true, true));
     }
@@ -54114,7 +54136,11 @@ mod tests {
 
         let time = |cand: bool| -> f64 {
             let t0 = Instant::now();
-            let r = if cand { super::is_chordal(&g) } else { old_fn(&g) };
+            let r = if cand {
+                super::is_chordal(&g)
+            } else {
+                old_fn(&g)
+            };
             black_box(r);
             t0.elapsed().as_secs_f64()
         };
@@ -54156,7 +54182,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("CHORDALMCS_AB is_chordal 6000-node interval graph rounds={rounds} (>1 = bucket-MCS faster)");
+        println!(
+            "CHORDALMCS_AB is_chordal 6000-node interval graph rounds={rounds} (>1 = bucket-MCS faster)"
+        );
         report("BUCKET_vs_scan", &paired(true, false));
         report("NULL_bucket_vs_bucket", &paired(true, true));
     }
@@ -54203,13 +54231,18 @@ mod tests {
             while !remaining.is_empty() {
                 let &chosen = remaining
                     .iter()
-                    .max_by(|&&l, &&r| labels[&l].cmp(&labels[&r]).then_with(|| rank[&r].cmp(&rank[&l])))
+                    .max_by(|&&l, &&r| {
+                        labels[&l]
+                            .cmp(&labels[&r])
+                            .then_with(|| rank[&r].cmp(&rank[&l]))
+                    })
                     .unwrap();
                 remaining.remove(chosen);
                 let clique_wanna_be: Vec<&str> = graph
                     .neighbors_iter(chosen)
                     .map(|nbrs| {
-                        nbrs.filter(|nb| nb != &chosen && !remaining.contains(*nb)).collect()
+                        nbrs.filter(|nb| nb != &chosen && !remaining.contains(*nb))
+                            .collect()
                     })
                     .unwrap_or_default();
                 assert!(
@@ -54284,7 +54317,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("CHORDALTWMCS_AB chordal_graph_treewidth 6000-node interval rounds={rounds} (>1 = bucket faster)");
+        println!(
+            "CHORDALTWMCS_AB chordal_graph_treewidth 6000-node interval rounds={rounds} (>1 = bucket faster)"
+        );
         report("BUCKET_vs_scan", &paired(true, false));
         report("NULL_bucket_vs_bucket", &paired(true, true));
     }
@@ -54361,8 +54396,10 @@ mod tests {
                     }
                 }
             }
-            let mut result: Vec<String> =
-                independent_set.iter().map(|&i| nodes[i].to_owned()).collect();
+            let mut result: Vec<String> = independent_set
+                .iter()
+                .map(|&i| nodes[i].to_owned())
+                .collect();
             result.sort();
             result
         };
@@ -54421,7 +54458,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("MISBUCKET_AB maximum_independent_set 4000-node interval rounds={rounds} (>1 = bucket faster)");
+        println!(
+            "MISBUCKET_AB maximum_independent_set 4000-node interval rounds={rounds} (>1 = bucket faster)"
+        );
         report("BUCKET_vs_scan", &paired(true, false));
         report("NULL_bucket_vs_bucket", &paired(true, true));
     }
@@ -54553,7 +54592,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("MCAPPROXDEG_AB max_clique_approx 1200-node deg120 rounds={rounds} (>1 = precompute faster)");
+        println!(
+            "MCAPPROXDEG_AB max_clique_approx 1200-node deg120 rounds={rounds} (>1 = precompute faster)"
+        );
         report("PRECOMPUTE_vs_recompute", &paired(true, false));
         report("NULL_precompute_vs_precompute", &paired(true, true));
     }
@@ -54945,7 +54986,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("BKRPIVOTDEG_AB find_cliques_recursive 8xK40 rounds={rounds} (>1 = precompute faster)");
+        println!(
+            "BKRPIVOTDEG_AB find_cliques_recursive 8xK40 rounds={rounds} (>1 = precompute faster)"
+        );
         report("PRECOMPUTE_vs_recompute", &paired(true, false));
         report("NULL_precompute_vs_precompute", &paired(true, true));
     }
@@ -54980,8 +55023,16 @@ mod tests {
             let nodes = graph.nodes_ordered();
             let n = nodes.len();
             let edge_count = graph.edge_count();
-            let avg_degree = if n > 0 { (2.0 * edge_count as f64) / n as f64 } else { 0.0 };
-            let decay = if avg_degree > 0.0 { 1.0 / avg_degree } else { 0.0 };
+            let avg_degree = if n > 0 {
+                (2.0 * edge_count as f64) / n as f64
+            } else {
+                0.0
+            };
+            let decay = if avg_degree > 0.0 {
+                1.0 / avg_degree
+            } else {
+                0.0
+            };
             let mut vote_power: HashMap<&str, f64> = nodes.iter().map(|&v| (v, 1.0)).collect();
             let mut ranked: Vec<String> = Vec::new();
             let mut selected: HashSet<&str> = HashSet::new();
@@ -55374,7 +55425,10 @@ mod tests {
         // Byte-exact parity: index 2-coloring == String baseline (result + witness).
         let cand = super::bipartite_sets(&g);
         let base = super::bipartite_sets_orig_string(&g);
-        assert_eq!(cand.is_bipartite, base.is_bipartite, "is_bipartite must match");
+        assert_eq!(
+            cand.is_bipartite, base.is_bipartite,
+            "is_bipartite must match"
+        );
         assert_eq!(cand.set_a, base.set_a, "set_a must match");
         assert_eq!(cand.set_b, base.set_b, "set_b must match");
         assert_eq!(
@@ -55389,7 +55443,10 @@ mod tests {
             cand.witness.queue_peak, base.witness.queue_peak,
             "witness queue_peak must match"
         );
-        assert!(cand.is_bipartite, "bench graph must be bipartite (full BFS)");
+        assert!(
+            cand.is_bipartite,
+            "bench graph must be bipartite (full BFS)"
+        );
 
         let time = |use_cand: bool| -> f64 {
             let t0 = Instant::now();
@@ -55513,12 +55570,10 @@ mod tests {
                 .unwrap();
         }
 
-        let baseline = super::shortest_path_unweighted_directed_fast_impl(
-            &graph, "source", &target, false,
-        );
-        let candidate = super::shortest_path_unweighted_directed_fast_impl(
-            &graph, "source", &target, true,
-        );
+        let baseline =
+            super::shortest_path_unweighted_directed_fast_impl(&graph, "source", &target, false);
+        let candidate =
+            super::shortest_path_unweighted_directed_fast_impl(&graph, "source", &target, true);
         assert_eq!(baseline, candidate, "exact path parity");
         assert_eq!(
             candidate,
@@ -55831,12 +55886,17 @@ mod tests {
             let mut count = 0usize;
             for i in 0..m {
                 for j in (i + 1)..m {
-                    total += super::local_node_connectivity_bfs_orig_string(graph, nodes[i], nodes[j])
-                        as f64;
+                    total +=
+                        super::local_node_connectivity_bfs_orig_string(graph, nodes[i], nodes[j])
+                            as f64;
                     count += 1;
                 }
             }
-            if count == 0 { 0.0 } else { total / count as f64 }
+            if count == 0 {
+                0.0
+            } else {
+                total / count as f64
+            }
         };
 
         // Byte-exact parity: undirected end-to-end + directed twin on a sample of pairs.
@@ -55902,7 +55962,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("LNCIDX_AB average_node_connectivity n={n} deg=6 rounds={rounds} (>1 = index faster)");
+        println!(
+            "LNCIDX_AB average_node_connectivity n={n} deg=6 rounds={rounds} (>1 = index faster)"
+        );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
@@ -56121,7 +56183,11 @@ mod tests {
             super::all_shortest_paths_orig_string(&g, &src, &tgt),
             "index all_shortest_paths must equal the String baseline"
         );
-        assert_eq!(cand.len(), 1, "spine graph must have a unique shortest path");
+        assert_eq!(
+            cand.len(),
+            1,
+            "spine graph must have a unique shortest path"
+        );
         assert_eq!(
             super::all_shortest_paths_directed(&dg, &src, &tgt),
             super::all_shortest_paths_directed_orig_string(&dg, &src, &tgt),
@@ -56221,7 +56287,11 @@ mod tests {
             super::all_simple_paths_directed_orig_string(&dg, src, &tgt, None),
             "index all_simple_paths_directed must equal the String baseline (paths + witness)"
         );
-        assert_eq!(cand.paths.len(), 1, "trap-chain graph must yield a unique simple path");
+        assert_eq!(
+            cand.paths.len(),
+            1,
+            "trap-chain graph must yield a unique simple path"
+        );
 
         let time = |use_cand: bool| -> f64 {
             let t0 = Instant::now();
@@ -56271,7 +56341,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("ASPDIRIDX_AB all_simple_paths_directed D={cap_d} b={b} L={l} rounds={rounds} (>1 = index faster)");
+        println!(
+            "ASPDIRIDX_AB all_simple_paths_directed D={cap_d} b={b} L={l} rounds={rounds} (>1 = index faster)"
+        );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
@@ -56311,7 +56383,11 @@ mod tests {
             super::single_target_shortest_path_length_directed_orig_string(&g, tgt, None),
             "index single_target_shortest_path_length_directed must equal the String baseline"
         );
-        assert_eq!(cand.len(), n, "strongly-connected graph must reach every node");
+        assert_eq!(
+            cand.len(),
+            n,
+            "strongly-connected graph must reach every node"
+        );
 
         let time = |use_cand: bool| -> f64 {
             let t0 = Instant::now();
@@ -56554,7 +56630,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("TREDIDX_AB transitive_reduction complete_dag n={n} rounds={rounds} (>1 = index faster)");
+        println!(
+            "TREDIDX_AB transitive_reduction complete_dag n={n} rounds={rounds} (>1 = index faster)"
+        );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
@@ -56584,7 +56662,11 @@ mod tests {
         // Byte-exact parity: same closure edge set + insertion order.
         let cand = super::transitive_closure(&g, None);
         let base = super::transitive_closure_orig_string(&g, None);
-        assert_eq!(cand.nodes_ordered(), base.nodes_ordered(), "closure nodes must match");
+        assert_eq!(
+            cand.nodes_ordered(),
+            base.nodes_ordered(),
+            "closure nodes must match"
+        );
         assert_eq!(
             cand.edges_ordered_indices(),
             base.edges_ordered_indices(),
@@ -56695,7 +56777,11 @@ mod tests {
         // Byte-exact parity: same quotient nodes + edges.
         let cand = super::quotient_graph(&g, &partition);
         let base = super::quotient_graph_orig_string(&g, &partition);
-        assert_eq!(cand.nodes_ordered(), base.nodes_ordered(), "quotient nodes must match");
+        assert_eq!(
+            cand.nodes_ordered(),
+            base.nodes_ordered(),
+            "quotient nodes must match"
+        );
         assert_eq!(
             cand.edges_ordered_indices(),
             base.edges_ordered_indices(),
@@ -56754,7 +56840,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("QGIDX_AB quotient_graph n={n} block_size={block_size} rounds={rounds} (>1 = index faster)");
+        println!(
+            "QGIDX_AB quotient_graph n={n} block_size={block_size} rounds={rounds} (>1 = index faster)"
+        );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
@@ -56792,7 +56880,11 @@ mod tests {
             base.edges_ordered_borrowed(),
             "reversed edge topology must match the String-path baseline"
         );
-        assert_eq!(cand.nodes_ordered(), base.nodes_ordered(), "node order must match");
+        assert_eq!(
+            cand.nodes_ordered(),
+            base.nodes_ordered(),
+            "node order must match"
+        );
 
         let time = |use_cand: bool| -> f64 {
             let t0 = Instant::now();
@@ -56842,7 +56934,10 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("REVDELEG_AB reverse_digraph K{m} ({} edges) rounds={rounds} (>1 = reversed() faster)", m * (m - 1));
+        println!(
+            "REVDELEG_AB reverse_digraph K{m} ({} edges) rounds={rounds} (>1 = reversed() faster)",
+            m * (m - 1)
+        );
         report("DELEG_vs_string", &paired(true, false));
         report("NULL_deleg_vs_deleg", &paired(true, true));
     }
@@ -56929,7 +57024,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("SCCIDX_AB strongly_connected_components n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        println!(
+            "SCCIDX_AB strongly_connected_components n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
@@ -57045,8 +57142,15 @@ mod tests {
         // Byte-exact parity: same components (composition + order).
         let cand = super::biconnected_component_edges(&g);
         let base = super::biconnected_component_edges_orig_string(&g);
-        assert_eq!(cand, base, "index biconnected_component_edges must equal the String baseline");
-        assert_eq!(cand.len(), t, "chain of T triangles has T biconnected components");
+        assert_eq!(
+            cand, base,
+            "index biconnected_component_edges must equal the String baseline"
+        );
+        assert_eq!(
+            cand.len(),
+            t,
+            "chain of T triangles has T biconnected components"
+        );
 
         let time = |use_cand: bool| -> f64 {
             let t0 = Instant::now();
@@ -57096,7 +57200,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("BCCIDX_AB biconnected_component_edges T={t} (n={n}) rounds={rounds} (>1 = index faster)");
+        println!(
+            "BCCIDX_AB biconnected_component_edges T={t} (n={n}) rounds={rounds} (>1 = index faster)"
+        );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
@@ -57182,7 +57288,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("KOSIDX_AB kosaraju_strongly_connected_components n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        println!(
+            "KOSIDX_AB kosaraju_strongly_connected_components n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
@@ -57217,7 +57325,10 @@ mod tests {
         // Byte-exact parity: same order + witness.
         let cand = super::topological_sort(&g);
         let base = super::topological_sort_orig_string(&g);
-        assert_eq!(cand, base, "index topological_sort must equal the String baseline");
+        assert_eq!(
+            cand, base,
+            "index topological_sort must equal the String baseline"
+        );
         assert!(cand.is_some(), "forward DAG is acyclic");
         assert_eq!(cand.as_ref().unwrap().order.len(), n, "all n nodes ordered");
 
@@ -57269,7 +57380,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("TOPOSORTIDX_AB topological_sort n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        println!(
+            "TOPOSORTIDX_AB topological_sort n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
@@ -57304,7 +57417,10 @@ mod tests {
         // Byte-exact parity: same generations + witness.
         let cand = super::topological_generations(&g);
         let base = super::topological_generations_orig_string(&g);
-        assert_eq!(cand, base, "index topological_generations must equal the String baseline");
+        assert_eq!(
+            cand, base,
+            "index topological_generations must equal the String baseline"
+        );
         assert!(cand.is_some(), "forward DAG is acyclic");
 
         let time = |use_cand: bool| -> f64 {
@@ -57355,7 +57471,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("TOPOGENIDX_AB topological_generations n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        println!(
+            "TOPOGENIDX_AB topological_generations n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
@@ -57392,7 +57510,10 @@ mod tests {
         // Byte-exact parity: same shortest path.
         let cand = super::bidirectional_shortest_path(&g, src, tgt);
         let base = super::bidirectional_shortest_path_orig_string(&g, src, tgt);
-        assert_eq!(cand, base, "index bidirectional_shortest_path must equal the String baseline");
+        assert_eq!(
+            cand, base,
+            "index bidirectional_shortest_path must equal the String baseline"
+        );
         assert!(cand.is_some(), "target is reachable");
 
         let time = |use_cand: bool| -> f64 {
@@ -57443,7 +57564,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("BIDIRSPIDX_AB bidirectional_shortest_path n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        println!(
+            "BIDIRSPIDX_AB bidirectional_shortest_path n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
@@ -57478,7 +57601,10 @@ mod tests {
         // Byte-exact parity: same longest path.
         let cand = super::dag_longest_path(&g);
         let base = super::dag_longest_path_orig_string(&g);
-        assert_eq!(cand, base, "index dag_longest_path must equal the String baseline");
+        assert_eq!(
+            cand, base,
+            "index dag_longest_path must equal the String baseline"
+        );
         assert!(cand.is_some(), "forward DAG is acyclic");
 
         let time = |use_cand: bool| -> f64 {
@@ -57529,7 +57655,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("DAGLPIDX_AB dag_longest_path n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        println!(
+            "DAGLPIDX_AB dag_longest_path n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
@@ -57569,7 +57697,10 @@ mod tests {
         // Byte-exact parity (bit-identical f64 → same path).
         let cand = super::dag_longest_path_weighted(&g, "weight", 1.0);
         let base = super::dag_longest_path_weighted_orig_string(&g, "weight", 1.0);
-        assert_eq!(cand, base, "index dag_longest_path_weighted must equal the String baseline");
+        assert_eq!(
+            cand, base,
+            "index dag_longest_path_weighted must equal the String baseline"
+        );
         assert!(cand.is_some(), "forward DAG is acyclic");
 
         let time = |use_cand: bool| -> f64 {
@@ -57620,7 +57751,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("DAGLPWIDX_AB dag_longest_path_weighted n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        println!(
+            "DAGLPWIDX_AB dag_longest_path_weighted n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
@@ -57662,8 +57795,15 @@ mod tests {
         // Byte-exact parity (bit-identical f64 → same shortest paths).
         let cand = super::all_shortest_paths_weighted(&g, src, tgt, "weight");
         let base = super::all_shortest_paths_weighted_orig_string(&g, src, tgt, "weight");
-        assert_eq!(cand, base, "index all_shortest_paths_weighted must equal the String baseline");
-        assert_eq!(cand.len(), 1, "off-centre target on a step²-weighted circulant has a unique path");
+        assert_eq!(
+            cand, base,
+            "index all_shortest_paths_weighted must equal the String baseline"
+        );
+        assert_eq!(
+            cand.len(),
+            1,
+            "off-centre target on a step²-weighted circulant has a unique path"
+        );
 
         let time = |use_cand: bool| -> f64 {
             let t0 = Instant::now();
@@ -57713,7 +57853,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("ASPWIDX_AB all_shortest_paths_weighted n={n} rounds={rounds} (>1 = index faster)");
+        println!(
+            "ASPWIDX_AB all_shortest_paths_weighted n={n} rounds={rounds} (>1 = index faster)"
+        );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
@@ -57754,8 +57896,15 @@ mod tests {
         // Byte-exact parity (bit-identical f64 → same shortest paths).
         let cand = super::all_shortest_paths_weighted_directed(&g, src, tgt, "weight");
         let base = super::all_shortest_paths_weighted_directed_orig_string(&g, src, tgt, "weight");
-        assert_eq!(cand, base, "index all_shortest_paths_weighted_directed must equal the String baseline");
-        assert_eq!(cand.len(), 1, "forward step²-weighted circulant has a unique shortest path");
+        assert_eq!(
+            cand, base,
+            "index all_shortest_paths_weighted_directed must equal the String baseline"
+        );
+        assert_eq!(
+            cand.len(),
+            1,
+            "forward step²-weighted circulant has a unique shortest path"
+        );
 
         let time = |use_cand: bool| -> f64 {
             let t0 = Instant::now();
@@ -57805,7 +57954,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("ASPWDIRIDX_AB all_shortest_paths_weighted_directed n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        println!(
+            "ASPWDIRIDX_AB all_shortest_paths_weighted_directed n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
@@ -57841,8 +57992,14 @@ mod tests {
         // Byte-exact parity: same maximal independent set for the fixed seed.
         let cand = super::maximal_independent_set(&g, &init, seed);
         let base = super::maximal_independent_set_orig_string(&g, &init, seed);
-        assert_eq!(cand, base, "index maximal_independent_set must equal the String baseline");
-        assert!(cand.as_ref().map(|v| !v.is_empty()).unwrap_or(false), "MIS is non-empty");
+        assert_eq!(
+            cand, base,
+            "index maximal_independent_set must equal the String baseline"
+        );
+        assert!(
+            cand.as_ref().map(|v| !v.is_empty()).unwrap_or(false),
+            "MIS is non-empty"
+        );
 
         let time = |use_cand: bool| -> f64 {
             let t0 = Instant::now();
@@ -57892,7 +58049,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("MISADJIDX_AB maximal_independent_set n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        println!(
+            "MISADJIDX_AB maximal_independent_set n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
@@ -57930,9 +58089,16 @@ mod tests {
 
         // Byte-exact parity (bit-identical f64 → same MST edges + total_weight).
         let cand = super::partition_spanning_tree(&g, true, "weight", "partition", false);
-        let base = super::partition_spanning_tree_orig_string(&g, true, "weight", "partition", false);
-        assert_eq!(cand, base, "index partition_spanning_tree must equal the String baseline");
-        assert!(cand.as_ref().map(|r| !r.edges.is_empty()).unwrap_or(false), "MST is non-empty");
+        let base =
+            super::partition_spanning_tree_orig_string(&g, true, "weight", "partition", false);
+        assert_eq!(
+            cand, base,
+            "index partition_spanning_tree must equal the String baseline"
+        );
+        assert!(
+            cand.as_ref().map(|r| !r.edges.is_empty()).unwrap_or(false),
+            "MST is non-empty"
+        );
 
         let time = |use_cand: bool| -> f64 {
             let t0 = Instant::now();
@@ -58017,8 +58183,14 @@ mod tests {
         // Byte-exact parity: same lexicographic topological order.
         let cand = super::lexicographic_topological_sort(&g);
         let base = super::lexicographic_topological_sort_orig_string(&g);
-        assert_eq!(cand, base, "index lexicographic_topological_sort must equal the String baseline");
-        assert!(cand.as_ref().map(|v| v.len() == n).unwrap_or(false), "acyclic → all n ordered");
+        assert_eq!(
+            cand, base,
+            "index lexicographic_topological_sort must equal the String baseline"
+        );
+        assert!(
+            cand.as_ref().map(|v| v.len() == n).unwrap_or(false),
+            "acyclic → all n ordered"
+        );
 
         let time = |use_cand: bool| -> f64 {
             let t0 = Instant::now();
@@ -58068,7 +58240,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("LEXTOPOIDX_AB lexicographic_topological_sort n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        println!(
+            "LEXTOPOIDX_AB lexicographic_topological_sort n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
@@ -58103,7 +58277,10 @@ mod tests {
         // Byte-exact parity: same boundary edges in the same order.
         let cand = super::edge_boundary_directed(&g, &nb1, None);
         let base = super::edge_boundary_directed_orig_string(&g, &nb1, None);
-        assert_eq!(cand, base, "index edge_boundary_directed must equal the String baseline");
+        assert_eq!(
+            cand, base,
+            "index edge_boundary_directed must equal the String baseline"
+        );
         assert!(!cand.is_empty(), "boundary is non-empty");
 
         let time = |use_cand: bool| -> f64 {
@@ -58154,7 +58331,10 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("EBDIRIDX_AB edge_boundary_directed n={n} deg={deg} |nb1|={} rounds={rounds} (>1 = index faster)", nb1.len());
+        println!(
+            "EBDIRIDX_AB edge_boundary_directed n={n} deg={deg} |nb1|={} rounds={rounds} (>1 = index faster)",
+            nb1.len()
+        );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
@@ -58188,7 +58368,10 @@ mod tests {
         // Byte-exact parity: same boundary edges in the same order.
         let cand = super::edge_boundary(&g, &nb1, None);
         let base = super::edge_boundary_orig_string(&g, &nb1, None);
-        assert_eq!(cand, base, "index edge_boundary must equal the String baseline");
+        assert_eq!(
+            cand, base,
+            "index edge_boundary must equal the String baseline"
+        );
         assert!(!cand.is_empty(), "boundary is non-empty");
 
         let time = |use_cand: bool| -> f64 {
@@ -58239,7 +58422,10 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("EBIDX_AB edge_boundary n={n} deg={deg} |nb1|={} rounds={rounds} (>1 = index faster)", nb1.len());
+        println!(
+            "EBIDX_AB edge_boundary n={n} deg={deg} |nb1|={} rounds={rounds} (>1 = index faster)",
+            nb1.len()
+        );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
@@ -58279,10 +58465,18 @@ mod tests {
         // Byte-exact parity (bit-identical f64: numerator is a set cardinality either way).
         let din = super::group_in_degree_centrality(&dg, &grp);
         let din_base = super::group_in_degree_centrality_orig_string(&dg, &grp);
-        assert_eq!(din.to_bits(), din_base.to_bits(), "group_in must equal String baseline");
+        assert_eq!(
+            din.to_bits(),
+            din_base.to_bits(),
+            "group_in must equal String baseline"
+        );
         let ugd = super::group_degree_centrality(&g, &grp);
         let ugd_base = super::group_degree_centrality_orig_string(&g, &grp);
-        assert_eq!(ugd.to_bits(), ugd_base.to_bits(), "group_degree must equal String baseline");
+        assert_eq!(
+            ugd.to_bits(),
+            ugd_base.to_bits(),
+            "group_degree must equal String baseline"
+        );
         assert!(din > 0.0 && ugd > 0.0, "centralities are non-zero");
 
         let time_in = |use_cand: bool| -> f64 {
@@ -58344,7 +58538,10 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("GRPDEG_AB group_*degree_centrality n={n} deg={deg} |group|={} rounds={rounds} (>1 = index faster)", grp.len());
+        println!(
+            "GRPDEG_AB group_*degree_centrality n={n} deg={deg} |group|={} rounds={rounds} (>1 = index faster)",
+            grp.len()
+        );
         report("IN_index_vs_string", &paired(&time_in, true, false));
         report("IN_NULL_index_vs_index", &paired(&time_in, true, true));
         report("UNDIR_index_vs_string", &paired(&time_ud, true, false));
@@ -58380,7 +58577,10 @@ mod tests {
         // Byte-exact parity: same attracting components (one, the whole graph).
         let cand = super::attracting_components(&dg);
         let base = super::attracting_components_orig_string(&dg);
-        assert_eq!(cand, base, "index attracting_components must equal the String baseline");
+        assert_eq!(
+            cand, base,
+            "index attracting_components must equal the String baseline"
+        );
         assert_eq!(cand.len(), 1, "one attracting component (single SCC)");
 
         let time = |use_cand: bool| -> f64 {
@@ -58430,7 +58630,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("ATTRACT_AB attracting_components n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        println!(
+            "ATTRACT_AB attracting_components n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
@@ -58525,19 +58727,41 @@ mod tests {
             ($label:literal, $cand:path, $base:path) => {{
                 let t = |use_cand: bool| -> f64 {
                     let t0 = Instant::now();
-                    let r = if use_cand { $cand(&g, &sub) } else { $base(&g, &sub) };
+                    let r = if use_cand {
+                        $cand(&g, &sub)
+                    } else {
+                        $base(&g, &sub)
+                    };
                     black_box(r);
                     t0.elapsed().as_secs_f64()
                 };
-                report(concat!($label, "_index_vs_string"), &paired(&t, true, false));
+                report(
+                    concat!($label, "_index_vs_string"),
+                    &paired(&t, true, false),
+                );
                 report(concat!($label, "_NULL"), &paired(&t, true, true));
             }};
         }
 
-        println!("CUTEXP_AB cut-measures n={n} deg={deg} |S|={} rounds={rounds} (>1 = index faster)", sub.len());
-        ab!("conductance", super::conductance, super::conductance_orig_string);
-        ab!("boundary_expansion", super::boundary_expansion, super::boundary_expansion_orig_string);
-        ab!("mixing_expansion", super::mixing_expansion, super::mixing_expansion_orig_string);
+        println!(
+            "CUTEXP_AB cut-measures n={n} deg={deg} |S|={} rounds={rounds} (>1 = index faster)",
+            sub.len()
+        );
+        ab!(
+            "conductance",
+            super::conductance,
+            super::conductance_orig_string
+        );
+        ab!(
+            "boundary_expansion",
+            super::boundary_expansion,
+            super::boundary_expansion_orig_string
+        );
+        ab!(
+            "mixing_expansion",
+            super::mixing_expansion,
+            super::mixing_expansion_orig_string
+        );
         ab!("volume", super::volume, super::volume_orig_string);
     }
 
@@ -58645,7 +58869,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("BFSLAYMULTIIDX_AB bfs_layers_multi 3000-node deg100 rounds={rounds} (>1 = index faster)");
+        println!(
+            "BFSLAYMULTIIDX_AB bfs_layers_multi 3000-node deg100 rounds={rounds} (>1 = index faster)"
+        );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
@@ -58787,38 +59013,39 @@ mod tests {
             }
         }
 
-        let old_dfs = |digraph: &DiGraph, source: &str, depth_limit: Option<usize>| -> Vec<String> {
-            let max_depth = depth_limit.unwrap_or(usize::MAX);
-            let mut visited: HashSet<&str> = HashSet::new();
-            let mut postorder: Vec<String> = Vec::new();
-            if !digraph.has_node(source) {
-                return postorder;
-            }
-            let mut stack: Vec<(&str, bool, usize)> = vec![(source, false, 0)];
-            while let Some((node, backtrack, depth)) = stack.pop() {
-                if backtrack {
-                    postorder.push(node.to_owned());
-                    continue;
+        let old_dfs =
+            |digraph: &DiGraph, source: &str, depth_limit: Option<usize>| -> Vec<String> {
+                let max_depth = depth_limit.unwrap_or(usize::MAX);
+                let mut visited: HashSet<&str> = HashSet::new();
+                let mut postorder: Vec<String> = Vec::new();
+                if !digraph.has_node(source) {
+                    return postorder;
                 }
-                if visited.contains(node) {
-                    continue;
-                }
-                visited.insert(node);
-                if node == source || depth < max_depth {
-                    stack.push((node, true, depth));
-                }
-                if depth < max_depth
-                    && let Some(succs) = digraph.successors(node)
-                {
-                    for succ in succs.into_iter().rev() {
-                        if !visited.contains(succ) {
-                            stack.push((succ, false, depth + 1));
+                let mut stack: Vec<(&str, bool, usize)> = vec![(source, false, 0)];
+                while let Some((node, backtrack, depth)) = stack.pop() {
+                    if backtrack {
+                        postorder.push(node.to_owned());
+                        continue;
+                    }
+                    if visited.contains(node) {
+                        continue;
+                    }
+                    visited.insert(node);
+                    if node == source || depth < max_depth {
+                        stack.push((node, true, depth));
+                    }
+                    if depth < max_depth
+                        && let Some(succs) = digraph.successors(node)
+                    {
+                        for succ in succs.into_iter().rev() {
+                            if !visited.contains(succ) {
+                                stack.push((succ, false, depth + 1));
+                            }
                         }
                     }
                 }
-            }
-            postorder
-        };
+                postorder
+            };
 
         assert_eq!(
             old_dfs(&g, "0", None),
@@ -58905,7 +59132,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("DFSPOSTDIRIDX_AB dfs_postorder_nodes_directed 3000-node fwd-deg50 rounds={rounds} (>1 = index faster)");
+        println!(
+            "DFSPOSTDIRIDX_AB dfs_postorder_nodes_directed 3000-node fwd-deg50 rounds={rounds} (>1 = index faster)"
+        );
         report("INDEX_vs_string", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
     }
@@ -58951,7 +59180,11 @@ mod tests {
                 while idx < nbrs.len() {
                     let v = nbrs[idx].clone();
                     idx += 1;
-                    let edge_key = if u < v { (u.clone(), v.clone()) } else { (v.clone(), u.clone()) };
+                    let edge_key = if u < v {
+                        (u.clone(), v.clone())
+                    } else {
+                        (v.clone(), u.clone())
+                    };
                     if visited_edges.insert(edge_key) {
                         result.push((u.clone(), v.clone()));
                         if visited_nodes.insert(v.clone()) {
@@ -73531,16 +73764,12 @@ mod tests {
             for row in 0..side {
                 for col in 0..side {
                     if col + 1 < side {
-                        let _ = graph.add_edge(
-                            format!("n{row}_{col}"),
-                            format!("n{row}_{}", col + 1),
-                        );
+                        let _ =
+                            graph.add_edge(format!("n{row}_{col}"), format!("n{row}_{}", col + 1));
                     }
                     if row + 1 < side {
-                        let _ = graph.add_edge(
-                            format!("n{row}_{col}"),
-                            format!("n{}_{col}", row + 1),
-                        );
+                        let _ =
+                            graph.add_edge(format!("n{row}_{col}"), format!("n{}_{col}", row + 1));
                     }
                 }
             }
@@ -74355,7 +74584,10 @@ mod tests {
 
         println!("SIMPLEPATH_IDX_AB path30k rounds={rounds} (>1 = indexed path faster)");
         report("GRAPH_index_vs_string", &paired(&graph_time, true, false));
-        report("GRAPH_NULL_index_vs_index", &paired(&graph_time, true, true));
+        report(
+            "GRAPH_NULL_index_vs_index",
+            &paired(&graph_time, true, true),
+        );
         report(
             "DIGRAPH_index_vs_string",
             &paired(&digraph_time, true, false),
@@ -77637,7 +77869,11 @@ mod tests {
 
         let baseline = super::clustering_coefficient(&graph).transitivity;
         let candidate = super::transitivity(&graph);
-        assert_eq!(candidate.to_bits(), baseline.to_bits(), "exact scalar parity");
+        assert_eq!(
+            candidate.to_bits(),
+            baseline.to_bits(),
+            "exact scalar parity"
+        );
 
         let time = |use_candidate: bool| -> u128 {
             let start = Instant::now();
@@ -81373,7 +81609,8 @@ mod tests {
                 .map(|e| (e.left.clone(), e.right.clone()))
                 .collect();
             if batch {
-                let mut edges: Vec<(String, String)> = Vec::with_capacity(g_edges.len() * h_edges.len());
+                let mut edges: Vec<(String, String)> =
+                    Vec::with_capacity(g_edges.len() * h_edges.len());
                 for (gu, gv) in &g_edges {
                     for (hu, hv) in &h_edges {
                         edges.push((pair_label(gu, hu), pair_label(gv, hv)));
@@ -82032,14 +82269,20 @@ mod tests {
         let build = |g: &Graph, mapping: &HashMap<String, String>, batch: bool| -> Graph {
             let mut result = Graph::with_runtime_policy(g.runtime_policy().clone());
             for node in g.nodes_ordered() {
-                let new_label = mapping.get(node).cloned().unwrap_or_else(|| node.to_owned());
+                let new_label = mapping
+                    .get(node)
+                    .cloned()
+                    .unwrap_or_else(|| node.to_owned());
                 let attrs = g.node_attrs(node).cloned().unwrap_or_default();
                 let _ = result.add_node_with_attrs(new_label, attrs);
             }
             if batch {
                 let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
                 for edge in g.edges_ordered() {
-                    let nl = mapping.get(&edge.left).cloned().unwrap_or_else(|| edge.left.clone());
+                    let nl = mapping
+                        .get(&edge.left)
+                        .cloned()
+                        .unwrap_or_else(|| edge.left.clone());
                     let nr = mapping
                         .get(&edge.right)
                         .cloned()
@@ -82049,7 +82292,10 @@ mod tests {
                 let _ = result.extend_edges_with_attrs_unrecorded(edges);
             } else {
                 for edge in g.edges_ordered() {
-                    let nl = mapping.get(&edge.left).cloned().unwrap_or_else(|| edge.left.clone());
+                    let nl = mapping
+                        .get(&edge.left)
+                        .cloned()
+                        .unwrap_or_else(|| edge.left.clone());
                     let nr = mapping
                         .get(&edge.right)
                         .cloned()
@@ -82065,8 +82311,9 @@ mod tests {
         let g_small = complete(20);
         let bijection: HashMap<String, String> =
             (0..20).map(|i| (format!("{i}"), format!("r{i}"))).collect();
-        let merging: HashMap<String, String> =
-            (0..20).map(|i| (format!("{i}"), format!("m{}", i / 2))).collect();
+        let merging: HashMap<String, String> = (0..20)
+            .map(|i| (format!("{i}"), format!("m{}", i / 2)))
+            .collect();
         for mapping in [&bijection, &merging] {
             let old = build(&g_small, mapping, false);
             let new = build(&g_small, mapping, true);
@@ -82161,14 +82408,20 @@ mod tests {
         let build = |g: &DiGraph, mapping: &HashMap<String, String>, batch: bool| -> DiGraph {
             let mut result = DiGraph::with_runtime_policy(g.runtime_policy().clone());
             for node in g.nodes_ordered() {
-                let new_label = mapping.get(node).cloned().unwrap_or_else(|| node.to_owned());
+                let new_label = mapping
+                    .get(node)
+                    .cloned()
+                    .unwrap_or_else(|| node.to_owned());
                 let attrs = g.node_attrs(node).cloned().unwrap_or_default();
                 let _ = result.add_node_with_attrs(new_label, attrs);
             }
             if batch {
                 let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
                 for edge in g.edges_ordered() {
-                    let nl = mapping.get(&edge.left).cloned().unwrap_or_else(|| edge.left.clone());
+                    let nl = mapping
+                        .get(&edge.left)
+                        .cloned()
+                        .unwrap_or_else(|| edge.left.clone());
                     let nr = mapping
                         .get(&edge.right)
                         .cloned()
@@ -82178,7 +82431,10 @@ mod tests {
                 let _ = result.extend_edges_with_attrs_unrecorded(edges);
             } else {
                 for edge in g.edges_ordered() {
-                    let nl = mapping.get(&edge.left).cloned().unwrap_or_else(|| edge.left.clone());
+                    let nl = mapping
+                        .get(&edge.left)
+                        .cloned()
+                        .unwrap_or_else(|| edge.left.clone());
                     let nr = mapping
                         .get(&edge.right)
                         .cloned()
@@ -82192,8 +82448,9 @@ mod tests {
         let g_small = complete(20);
         let bijection: HashMap<String, String> =
             (0..20).map(|i| (format!("{i}"), format!("r{i}"))).collect();
-        let merging: HashMap<String, String> =
-            (0..20).map(|i| (format!("{i}"), format!("m{}", i / 2))).collect();
+        let merging: HashMap<String, String> = (0..20)
+            .map(|i| (format!("{i}"), format!("m{}", i / 2)))
+            .collect();
         for mapping in [&bijection, &merging] {
             let old = build(&g_small, mapping, false);
             let new = build(&g_small, mapping, true);
@@ -84774,7 +85031,11 @@ mod tests {
 
         let old = build(false);
         let new = build(true);
-        assert_eq!(old.to_bits(), new.to_bits(), "modularity fold must be ULP-identical");
+        assert_eq!(
+            old.to_bits(),
+            new.to_bits(),
+            "modularity fold must be ULP-identical"
+        );
 
         let time = |batch: bool| -> f64 {
             let t0 = Instant::now();
@@ -85179,8 +85440,14 @@ mod tests {
 
         let old = old_fn(&graph, &dom_refs);
         let new = new_fn(&graph, &dom_refs);
-        assert_eq!(old, new, "integer domination check must match the string baseline");
-        assert!(old, "the every-11th dom set should be valid (so the pass scans all nodes)");
+        assert_eq!(
+            old, new,
+            "integer domination check must match the string baseline"
+        );
+        assert!(
+            old,
+            "the every-11th dom set should be valid (so the pass scans all nodes)"
+        );
 
         let time = |batch: bool| -> f64 {
             let t0 = Instant::now();
@@ -85299,8 +85566,12 @@ mod tests {
                         .collect();
                     for i in 0..pl.len() {
                         for j in (i + 1)..pl.len() {
-                            adj.entry(pl[i].to_owned()).or_default().insert(pl[j].to_owned());
-                            adj.entry(pl[j].to_owned()).or_default().insert(pl[i].to_owned());
+                            adj.entry(pl[i].to_owned())
+                                .or_default()
+                                .insert(pl[j].to_owned());
+                            adj.entry(pl[j].to_owned())
+                                .or_default()
+                                .insert(pl[i].to_owned());
                         }
                     }
                 }
@@ -85346,7 +85617,10 @@ mod tests {
         for (x, y, z) in &configs {
             let old = old_fn(&digraph, x, y, z);
             let new = is_d_separator(&digraph, x, y, z);
-            assert_eq!(old, new, "d-separator integer version must match the string baseline");
+            assert_eq!(
+                old, new,
+                "d-separator integer version must match the string baseline"
+            );
         }
 
         let (tx, ty, tz) = (&configs[0].0, &configs[0].1, &configs[0].2);
@@ -85534,7 +85808,10 @@ mod tests {
 
         let old = build(false);
         let new = build(true);
-        assert_eq!(old, new, "successors_indices immediate_dominators must match the string baseline");
+        assert_eq!(
+            old, new,
+            "successors_indices immediate_dominators must match the string baseline"
+        );
 
         let time = |batch: bool| -> f64 {
             let t0 = Instant::now();
@@ -85680,7 +85957,10 @@ mod tests {
 
         let old = build(false);
         let new = build(true);
-        assert_eq!(old, new, "successors_indices find_cycle must match the string baseline");
+        assert_eq!(
+            old, new,
+            "successors_indices find_cycle must match the string baseline"
+        );
 
         let time = |batch: bool| -> f64 {
             let t0 = Instant::now();
@@ -85828,7 +86108,10 @@ mod tests {
 
         let old = build(false);
         let new = build(true);
-        assert_eq!(old, new, "neighbors_indices find_cycle must match the string baseline");
+        assert_eq!(
+            old, new,
+            "neighbors_indices find_cycle must match the string baseline"
+        );
 
         let time = |batch: bool| -> f64 {
             let t0 = Instant::now();
@@ -85944,7 +86227,10 @@ mod tests {
 
         let old = refine_pass(false);
         let new = refine_pass(true);
-        assert_eq!(old, new, "neighbors_indices refinement must match the string baseline");
+        assert_eq!(
+            old, new,
+            "neighbors_indices refinement must match the string baseline"
+        );
 
         let time = |batch: bool| -> f64 {
             let t0 = Instant::now();
@@ -86038,10 +86324,7 @@ mod tests {
             for step in 1..=12usize {
                 let _ = graph.add_edge(
                     format!("regular-node-{i:04}-with-a-long-label"),
-                    format!(
-                        "regular-node-{:04}-with-a-long-label",
-                        (i + step) % n_nodes
-                    ),
+                    format!("regular-node-{:04}-with-a-long-label", (i + step) % n_nodes),
                 );
             }
         }
@@ -86191,7 +86474,10 @@ mod tests {
 
         let old = build(false);
         let new = build(true);
-        assert_eq!(old, new, "neighbors_indices BFS must match the string baseline");
+        assert_eq!(
+            old, new,
+            "neighbors_indices BFS must match the string baseline"
+        );
 
         let time = |batch: bool| -> f64 {
             let t0 = Instant::now();
@@ -86273,8 +86559,10 @@ mod tests {
             let n = nodes.len();
             let idx: HashMap<&str, usize> =
                 nodes.iter().enumerate().map(|(i, &nn)| (nn, i)).collect();
-            let group_set: HashSet<usize> =
-                group.iter().filter_map(|g| idx.get(g.as_str()).copied()).collect();
+            let group_set: HashSet<usize> = group
+                .iter()
+                .filter_map(|g| idx.get(g.as_str()).copied())
+                .collect();
             let c = group_set.len();
             if n <= c + 1 {
                 return 0.0;
@@ -86338,7 +86626,11 @@ mod tests {
 
         let old = build(false);
         let new = build(true);
-        assert_eq!(old.to_bits(), new.to_bits(), "neighbors_indices GBC must be ULP-identical");
+        assert_eq!(
+            old.to_bits(),
+            new.to_bits(),
+            "neighbors_indices GBC must be ULP-identical"
+        );
 
         let time = |batch: bool| -> f64 {
             let t0 = Instant::now();
@@ -86493,7 +86785,11 @@ mod tests {
 
         let old = build(false);
         let new = build(true);
-        assert_eq!(old.to_bits(), new.to_bits(), "w_map modularity must be ULP-identical");
+        assert_eq!(
+            old.to_bits(),
+            new.to_bits(),
+            "w_map modularity must be ULP-identical"
+        );
 
         let time = |batch: bool| -> f64 {
             let t0 = Instant::now();
@@ -86614,11 +86910,18 @@ mod tests {
 
         let old = old_fn(&graph);
         let new = new_fn(&graph);
-        assert_eq!(old, new, "bool-row complement_edges must match the has_edge baseline");
+        assert_eq!(
+            old, new,
+            "bool-row complement_edges must match the has_edge baseline"
+        );
 
         let time = |batch: bool| -> f64 {
             let t0 = Instant::now();
-            let r = if batch { new_fn(&graph) } else { old_fn(&graph) };
+            let r = if batch {
+                new_fn(&graph)
+            } else {
+                old_fn(&graph)
+            };
             black_box(r);
             t0.elapsed().as_secs_f64()
         };
@@ -86736,11 +87039,18 @@ mod tests {
 
         let old = old_fn(&digraph);
         let new = new_fn(&digraph);
-        assert_eq!(old, new, "bool-row complement_edges_directed must match the has_edge baseline");
+        assert_eq!(
+            old, new,
+            "bool-row complement_edges_directed must match the has_edge baseline"
+        );
 
         let time = |batch: bool| -> f64 {
             let t0 = Instant::now();
-            let r = if batch { new_fn(&digraph) } else { old_fn(&digraph) };
+            let r = if batch {
+                new_fn(&digraph)
+            } else {
+                old_fn(&digraph)
+            };
             black_box(r);
             t0.elapsed().as_secs_f64()
         };
@@ -86978,7 +87288,11 @@ mod tests {
 
         let time = |cand: bool| -> f64 {
             let t0 = Instant::now();
-            let r = if cand { new_fn(&g1, &g2) } else { old_fn(&g1, &g2) };
+            let r = if cand {
+                new_fn(&g1, &g2)
+            } else {
+                old_fn(&g1, &g2)
+            };
             black_box(r);
             t0.elapsed().as_secs_f64()
         };
@@ -87020,7 +87334,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("EORDLEN_AB faster_could_be_isomorphic 10k/100k rounds={rounds} (>1 = edge_count faster)");
+        println!(
+            "EORDLEN_AB faster_could_be_isomorphic 10k/100k rounds={rounds} (>1 = edge_count faster)"
+        );
         report("EDGECOUNT_vs_edgesordered", &paired(true, false));
         report("NULL_edgecount_vs_edgecount", &paired(true, true));
     }
@@ -87278,13 +87594,20 @@ mod tests {
             for (left, right, _attrs) in graph.edges_ordered_borrowed() {
                 if let (Some(&li), Some(&ri)) = (node_to_idx.get(left), node_to_idx.get(right)) {
                     let key = if li <= ri { (li, ri) } else { (ri, li) };
-                    w_map.insert(key, edge_weight_or_default(&graph, left, right, weight_attr));
+                    w_map.insert(
+                        key,
+                        edge_weight_or_default(&graph, left, right, weight_attr),
+                    );
                 }
             }
             w_map
         };
 
-        assert_eq!(old_fn(), new_fn(), "modularity w_map parity (owned vs borrowed)");
+        assert_eq!(
+            old_fn(),
+            new_fn(),
+            "modularity w_map parity (owned vs borrowed)"
+        );
 
         let time = |cand: bool| -> f64 {
             let t0 = Instant::now();
@@ -88381,6 +88704,42 @@ mod lu_pade_tests {
         assert_eq!(
             unweighted_laplacian_spectrum(&graph, None, 1).unwrap(),
             [0.0]
+        );
+    }
+
+    /// br-r37-c1-2zn1u AVX2 probe: does `-C target-cpu=x86-64-v3` move the
+    /// pure-FLOP dense core (`matmul_rowmajor`, the matrix-exponential /
+    /// communicability-family kernel)? Prints the COMPILE-TIME target features
+    /// so the ledger can prove the flag actually reached codegen through rch
+    /// env forwarding (execution-proof discipline). Run BOTH arms on the SAME
+    /// pinned worker:
+    /// baseline: `RCH_REQUIRE_REMOTE=1 RCH_WORKER=<pin> rch exec -- cargo test --release -p fnx-algorithms --lib zn1u_avx2_matmul_probe -- --ignored --nocapture`
+    /// avx2:     same + `RCH_ENV_ALLOWLIST=RUSTFLAGS RUSTFLAGS='-C target-cpu=x86-64-v3'`
+    #[test]
+    #[ignore = "timing probe; run --release with --ignored --nocapture"]
+    fn zn1u_avx2_matmul_probe() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 384usize;
+        let mut rng = Lcg(0x9E37_79B9_7F4A_7C15);
+        // Strictly positive entries: the kernel's zero-skip branch never fires,
+        // so this times the dense FLOP path.
+        let a: Vec<f64> = (0..n * n).map(|_| rng.next_f64() + 0.001).collect();
+        let b: Vec<f64> = (0..n * n).map(|_| rng.next_f64() + 0.001).collect();
+        let mut samples = Vec::new();
+        for _ in 0..9 {
+            let t0 = Instant::now();
+            let c = matmul_rowmajor(&a, &b, n);
+            samples.push(t0.elapsed().as_secs_f64());
+            black_box(&c);
+        }
+        samples.sort_by(f64::total_cmp);
+        println!(
+            "ZN1U_AVX2_PROBE n={n} avx2_compiled={} fma_compiled={} median_matmul={:.6}s",
+            cfg!(target_feature = "avx2"),
+            cfg!(target_feature = "fma"),
+            samples[samples.len() / 2],
         );
     }
 }
