@@ -8959,3 +8959,58 @@ node store. NET (definitive): every remaining fnx-vs-nx gap is now one of {strin
 multigraph nested-bucket construction ~0.80x, edge-attr product pairing kernel, node-removal renumber} —
 all ARCHITECTURAL. The value + correctness + crackable-perf surfaces are exhausted; the frontier is a
 deliberate multi-session storage-model primitive, not a single-turn lever.
+
+## 2026-07-22 SnowyBadger (cc) SURFACE + SLICE: MultiGraph mutation surface was MISSED by the convergence sweeps — construction 0.49x + cold-after-mutation traversal 0.57x are live losses on HEAD; implemented thp6w S4 (incremental memo advance)
+
+HEAD `8b7dff824` (installed .so 2026-07-16 21:34; no MG-affecting Rust commits after it — only the
+fnx-runtime ftui source fix). The two exotic-sweep convergence confirmations (br-r37-c1-5rfeo /
+br-r37-c1-li8qa, "fnx dominates ~40 ops") did NOT measure MultiGraph BATCH CONSTRUCTION or
+MUTATION-INTERLEAVED traversal. Fresh interleaved same-process A/B (randomized arm order, gc off,
+A/A null per op, n=20000 cycle+3n chords+1000 parallel; TRIALS=9):
+
+| op | nx/fnx | fnx | nx | cv | A/A null | verdict |
+|---|---|---|---|---|---|---|
+| MG add_edges_from construct (mixed) | 0.492x | 402.8ms | 198.3ms | 4.3% | 0.999 | LOSS |
+| MG construct dup-free | 0.547x | 317.9ms | 174.0ms | 11.6% | — | LOSS |
+| MG construct attributed (40k) | 0.738x | 130.5ms | 96.3ms | 11.1% | — | LOSS |
+| connected_components COLD (add+remove edge, then cc) | 0.566x | 10.89ms | 6.17ms | 15.9% | 1.005 | LOSS |
+| connected_components WARM | 2.503x | 2.39ms | 5.98ms | — | 1.645(noisy) | win |
+| shortest_path_length far (cycle) | 1.259x | — | — | 16.7% | 1.367(noisy) | win |
+| has_path close (early-exit) | 4.069x | 2.2us | 8.8us | high | 1.000 | win |
+| MG edges(keys=True) drain | 5.671x | 8.5ms | 48.2ms | 0.8% | 1.004 | win |
+| has_edge single | 0.260x | 0.42us | 0.11us | 9.7% | 0.992 | LOSS (string-node-key floor, NOT thp6w) |
+| degree(u) single | 0.913x | — | — | 11.0% | 0.994 | parity-ish (same floor) |
+
+THREE distinct root causes, two in the thp6w lane:
+1. **MG batch construction 0.49-0.55x (dup-free too, so NOT the parallel-key path):** the String
+   nested-bucket store tax — per edge: 2 String row-cell inserts + EdgeKey(String,String) + per-pair
+   IndexSet<usize> + IndexMap<usize,AttrMap> allocs. This is exactly what Graph's d58s8 flip removed
+   ("zero String allocs/hashes per insert"). Fix = the FULL MultiGraph index-keyed storage flip
+   (d58s8 pattern: rows + edges keyed by node index, String views derive through the name table).
+   MULTI-SESSION epoch (50 `self.adjacency` sites in fnx-classes alone + fnx-python callers).
+   RETRY PREDICATE: take as slice-by-slice epoch with the d58s8 template, NOT a one-session lever.
+2. **cold-after-mutation traversal 0.566x:** the lazy `IntAdjCache` memo pays a full O(E) rebuild
+   after EVERY revision bump — mutate-one-edge-then-traverse loses to nx. NEW evidence vs the prior
+   "cold ≈ neutral" claims (those measured FRESH-graph one-shot cold, where build ≈ 1 traversal; the
+   mutation-interleaved pattern pays build + traversal vs nx's traversal). IMPLEMENTED THIS SESSION as
+   **thp6w S4**: `advance_int_adj_memo` — single-edge `add_edge_impl`/`remove_edge` now ADVANCE a
+   warm memo across the mutation (append new distinct neighbors / push fresh rows / shift-remove
+   emptied pairs, mirroring the String-row edit byte-for-byte) and re-key it to the new revision;
+   parallel-key adds and attr-only changes become re-key-only (they never change distinct rows but
+   previously invalidated). Monotone-safe: every OTHER mutation path (batches, remove_node renumber,
+   clear_edges, apply_row_orders) leaves the memo stale-keyed and `with_int_adjacency` lazily
+   rebuilds exactly as before — unhandled sites cannot corrupt, only miss the fast path. Proof
+   harness: existing `thp6w_int_adjacency_invariant_across_mutations` (read-warm before EVERY
+   mutation kind, fresh-derivation compare after) now exercises the advance paths, plus new
+   `thp6w_s4_single_edge_mutations_advance_warm_memo` asserting the memo stays WARM (advanced, not
+   rebuilt) across add/parallel-add/attr-only/self-loop/partial-remove/last-key-remove/middle-of-row
+   remove, and goes STALE on remove_node.
+3. **has_edge 0.26x / degree(u) 0.91x:** the string-node-key per-call floor (node_key_to_string +
+   String hash vs nx's int dict hit) — confirmed unchanged from CopperCliff's 2026-07-02 profile.
+   NOT addressable by thp6w (adjacency-side); needs the int-node-index storage epoch.
+
+BENCH-INFRA BLOCKER (recorded): rch fleet fully saturated by peer projects (insufficient_slots=9,
+hard_preflight=2) AND the local cargo registry index is too stale to resolve the lockfile (serde
+locked 1.0.228; local index tops out at 1.0.219/1.0.223, `--offline` fails too) — so LOCAL builds of
+this workspace are impossible on this box until the index refreshes. fnx-classes test verification
++ the .so rebuild for the cc_cold after-measurement ran through a background remote-slot retry loop.
