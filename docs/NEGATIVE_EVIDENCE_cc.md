@@ -9209,3 +9209,22 @@ fresh-batch construction path stays the end goal, but the first read candidate i
 `with_int_adjacency`-family traversals or `edge_keys_vec`/`edges_ordered` derivations, measured
 before shipping. The dual-write burn-in must then run under the fnx-python suite (feature-on wheel)
 before any default flip.
+
+## 2026-07-22 SnowyBadger (cc) KEEP (thp6w S12+S13): first production READ routed through the slab shadow — edges_ordered walk 2.56-2.76x
+
+**S12 (measured):** slab `edges_ordered_borrowed` (attrs-carrying walk via a new allocation-free
+`CompactBucketIter`; usize hashing throughout) vs the String store's walk (per-cell `EdgeKeyRef`
+String-pair hash + String-pair seen-set probes): **2.558x / 2.758x** (nulls 0.990/0.973, n=20k
+m=80k, full-output equality asserted outside timing). The S9/S10 gauntlets now gate the FULL
+attrs-carrying walk (not just (l,r,k) triples).
+
+**S13 (routed):** production `MultiGraph::edges_ordered_borrowed` serves from a WARM shadow under
+`mg-int-storage` (stale/absent -> String walk unchanged; feature off -> zero code). Non-circular
+route gate in the dual-write gauntlet: the String-walk sequence captured while the shadow is STALE
+must equal the shadow-served sequence after sync. Feature-on 83/83, feature-off 82/82.
+
+The strangler now has its first live read. NEXT read candidates (same pattern: measure on the
+harness, then route behind warmth): `edges_ordered_indices_borrowed` / snapshot derivation,
+`edge_keys_vec`, and the traversal family (needs the position<->slot mapping decision recorded in
+the bead). Python-visible payoff arrives when the fnx-python edges()/serialization paths run on a
+feature-on wheel — the burn-in gate before any default flip.

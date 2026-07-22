@@ -2705,6 +2705,33 @@ pub mod mg_int_storage_proto {
                 }
             }
         }
+
+        /// br-r37-c1-thp6w S12: key-ordered (key, attrs) iteration without a
+        /// per-bucket allocation (read-path hot loop).
+        pub fn iter(&self) -> CompactBucketIter<'_> {
+            match self {
+                Self::One(key, attrs) => CompactBucketIter::One(std::iter::once((*key, attrs))),
+                Self::Many(map) => CompactBucketIter::Many(map.iter()),
+            }
+        }
+    }
+
+    /// br-r37-c1-thp6w S12: enum iterator for `CompactBucket::iter` (no Box,
+    /// no per-bucket allocation).
+    pub enum CompactBucketIter<'a> {
+        One(std::iter::Once<(usize, &'a AttrMap)>),
+        Many(indexmap::map::Iter<'a, usize, AttrMap>),
+    }
+
+    impl<'a> Iterator for CompactBucketIter<'a> {
+        type Item = (usize, &'a AttrMap);
+
+        fn next(&mut self) -> Option<Self::Item> {
+            match self {
+                Self::One(it) => it.next(),
+                Self::Many(it) => it.next().map(|(key, attrs)| (*key, attrs)),
+            }
+        }
     }
 
     /// br-r37-c1-thp6w S6: the compact-bucket variant of the index-keyed
@@ -3168,6 +3195,42 @@ pub mod mg_int_storage_proto {
                 pos[slot] = p;
             }
             pos
+        }
+
+        /// br-r37-c1-thp6w S12: full `edges_ordered_borrowed` analog with
+        /// attrs — the production read candidate. Same walk contract as
+        /// `edges_ordered_names` (node order x row order x bucket key order,
+        /// first-touch dedup, String-lex canonical emission orientation) but
+        /// hashing only usizes where the String store hashes `EdgeKeyRef`
+        /// String pairs per cell and per seen-set probe.
+        #[must_use]
+        pub fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, usize, &AttrMap)> {
+            let mut ordered = Vec::with_capacity(self.edge_count);
+            let mut seen: std::collections::HashSet<(usize, usize, usize)> =
+                std::collections::HashSet::with_capacity(self.edge_count);
+            for (u_name, &u_slot) in &self.node_order {
+                for &v_slot in self.rows[u_slot].keys() {
+                    let pair = (u_slot.min(v_slot), u_slot.max(v_slot));
+                    let Some(bucket) = self.edges.get(&pair) else {
+                        continue;
+                    };
+                    for (key, attrs) in bucket.iter() {
+                        if !seen.insert((pair.0, pair.1, key)) {
+                            continue;
+                        }
+                        let v_name = self.slot_names[v_slot]
+                            .as_deref()
+                            .expect("row references a live slot");
+                        let (left, right) = if u_name.as_str() <= v_name {
+                            (u_name.as_str(), v_name)
+                        } else {
+                            (v_name, u_name.as_str())
+                        };
+                        ordered.push((left, right, key, attrs));
+                    }
+                }
+            }
+            ordered
         }
 
         /// br-r37-c1-thp6w S10: `edges_ordered_borrowed` analog — the ONLY
@@ -4710,6 +4773,17 @@ impl MultiGraph {
 
     #[must_use]
     pub fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, usize, &AttrMap)> {
+        // br-r37-c1-thp6w S13: a warm slab shadow serves the identical walk
+        // (S10/S12 gates: same emission order, orientation, keys, attrs) with
+        // usize hashing instead of per-cell String-pair hashing — measured
+        // 2.56-2.76x on n=20k m=80k. Stale/absent shadow falls through to the
+        // String walk unchanged.
+        #[cfg(feature = "mg-int-storage")]
+        if let Some(shadow) = self.slab_shadow.as_deref()
+            && shadow.0 == self.revision
+        {
+            return shadow.1.edges_ordered_borrowed();
+        }
         let mut ordered = Vec::with_capacity(self.edge_count());
         let mut seen = HashSet::<(EdgeKeyRef, usize)>::with_capacity(self.edge_count());
 
@@ -6097,6 +6171,13 @@ mod tests {
             mg_ordered,
             "edges_ordered walk emission must match"
         );
+        // br-r37-c1-thp6w S12: the attrs-carrying walk must match in FULL,
+        // including per-cell attr payloads.
+        assert_eq!(
+            slab.edges_ordered_borrowed(),
+            mg.edges_ordered_borrowed(),
+            "attrs-carrying edges_ordered walk must match"
+        );
     }
 
     /// br-r37-c1-thp6w S10 PARITY GAUNTLET (copy-walk reorder + snapshot
@@ -6174,6 +6255,92 @@ mod tests {
         assert_slab_edges_ordered_matches_mg(&mg, &slab);
     }
 
+    /// br-r37-c1-thp6w S12 A/B: the `edges_ordered_borrowed` read on the
+    /// String store (per-cell `EdgeKeyRef` String-pair hashing + String-pair
+    /// seen-set probes) vs the slab walk (usize hashing throughout). Same
+    /// graph state on both sides (slab via `from_string_state`), full-output
+    /// equality asserted outside timing, paired-interleaved with a null arm.
+    /// `cargo test --release -p fnx-classes --lib thp6w_s12_edges_ordered_read_ab -- --ignored --nocapture`
+    #[test]
+    #[ignore = "paired A/B benchmark; run --release with --ignored --nocapture"]
+    fn thp6w_s12_edges_ordered_read_ab() {
+        use super::mg_int_storage_proto::MgSlabStorageProto;
+        use std::collections::HashMap;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn push_edge(
+            stream: &mut Vec<(usize, usize, usize)>,
+            key_counter: &mut HashMap<(usize, usize), usize>,
+            u: usize,
+            v: usize,
+        ) {
+            let entry = key_counter.entry((u.min(v), u.max(v))).or_insert(0);
+            stream.push((u, v, *entry));
+            *entry += 1;
+        }
+
+        let n = 20000usize;
+        let mut stream = Vec::new();
+        let mut key_counter = HashMap::new();
+        for i in 0..n {
+            push_edge(&mut stream, &mut key_counter, i, (i + 1) % n);
+        }
+        let mut state = 0x2545_F491_4F6C_DD1D_u64;
+        let draw = |state: &mut u64| -> usize {
+            *state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            usize::try_from(*state >> 33).unwrap() % n
+        };
+        for _ in 0..3 * n {
+            let u = draw(&mut state);
+            let v = draw(&mut state);
+            push_edge(&mut stream, &mut key_counter, u, v);
+        }
+
+        let mut g = MultiGraph::strict();
+        let _ = g.extend_fresh_int_prefix_keyed_edges_unrecorded(n, stream.iter().copied());
+        let slab = MgSlabStorageProto::from_string_state(&g);
+        assert_eq!(
+            slab.edges_ordered_borrowed(),
+            g.edges_ordered_borrowed(),
+            "arms must emit identical sequences"
+        );
+
+        let time_string = || -> f64 {
+            let t0 = Instant::now();
+            let out = g.edges_ordered_borrowed();
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(out.len());
+            dt
+        };
+        let time_slab = || -> f64 {
+            let t0 = Instant::now();
+            let out = slab.edges_ordered_borrowed();
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(out.len());
+            dt
+        };
+        let median = |samples: &mut Vec<f64>| -> f64 {
+            samples.sort_by(f64::total_cmp);
+            samples[samples.len() / 2]
+        };
+        let (mut cur, mut sla, mut nul) = (Vec::new(), Vec::new(), Vec::new());
+        for _ in 0..9 {
+            cur.push(time_string());
+            sla.push(time_slab());
+            nul.push(time_string());
+        }
+        let (mc, ms, mn) = (median(&mut cur), median(&mut sla), median(&mut nul));
+        println!(
+            "THP6W_S12_EDGES_ORDERED_AB n={n} m={} string={mc:.6}s slab={ms:.6}s ratio_string_over_slab={:.3} null={:.3}",
+            stream.len(),
+            mc / ms,
+            mc / mn,
+        );
+    }
+
     /// br-r37-c1-thp6w S11 GAUNTLET (production dual-write shadow): with the
     /// `mg-int-storage` feature on, every instrumented mutation (single-edge
     /// add incl. autocreate/parallel/self-loop/attr-merge, keyed batch,
@@ -6249,6 +6416,32 @@ mod tests {
         assert!(!g.slab_shadow_is_warm());
         g.sync_slab_shadow();
         shadow_parity(&g);
+
+        // br-r37-c1-thp6w S13 ROUTE GATE: with a warm shadow the production
+        // `edges_ordered_borrowed` serves from the slab; the sequence must be
+        // byte-identical to what the String walk produced while the shadow
+        // was STALE (owned snapshot so it survives the sync).
+        let _ = g.add_edge("r1", "r2"); // stales nothing — shadow advances...
+        g.add_node("stale_maker"); // ...so force staleness via an uninstrumented op
+        assert!(!g.slab_shadow_is_warm());
+        let _ = g.add_edge("r2", "r1"); // parallel via reverse orientation (shadow stays stale)
+        let _ = g.add_edge("r3", "r3");
+        let expected: Vec<(String, String, usize, AttrMap)> = g
+            .edges_ordered_borrowed() // stale shadow -> String walk
+            .into_iter()
+            .map(|(l, r, k, a)| (l.to_owned(), r.to_owned(), k, a.clone()))
+            .collect();
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        let served: Vec<(String, String, usize, AttrMap)> = g
+            .edges_ordered_borrowed() // warm shadow -> slab walk
+            .into_iter()
+            .map(|(l, r, k, a)| (l.to_owned(), r.to_owned(), k, a.clone()))
+            .collect();
+        assert_eq!(
+            served, expected,
+            "shadow-served edges_ordered must equal the String walk"
+        );
     }
 
     /// br-r37-c1-thp6w S5 A/B: pure storage-representation tax of the String-
