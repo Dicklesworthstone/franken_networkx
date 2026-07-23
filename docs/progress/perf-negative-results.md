@@ -237,3 +237,26 @@ LESSON (load-bearing): before trusting ANY full-suite pass/fail, verify install-
 must both be identical, and the .so must be a MATURIN build of the source under test (not rch). A
 mismatched combo produces phantom order-dependent failures that mimic a real fragility.
 Reinforces [[rch_so_nondeterministic_vs_maturin]].
+
+## 2026-07-23 SnowyBadger (cc) CONVERGENCE: MultiGraph/Graph clean-win perf surface mined out — remaining sub-parity ops are all string-key/view floors (thp6w epoch)
+
+After shipping the edges(nbunch,data) repack win, a broad CLEAN-methodology sweep (fresh graphs,
+gc.disable, isolated per-op A/B, verified install-state consistency) across MultiGraph/Graph ops:
+fnx DOMINATES — edges(data=True) 5.96x, degree(weight) 3.84x, to_directed 1.55x, contracted_nodes
+3.33x, number_of_selfloops 6.08x, number_of_edges 728x, subgraph.copy 1.6x, size(weight) 1.75-45x.
+The ONLY remaining sub-parity ops are ARCHITECTURAL FLOORS, none a clean single lever:
+- has_edge 0.19-0.25x (all 4 types): STRING-NODE-KEY floor (node_key_to_string x2 alloc+hash; no
+  integer-indexed has_edge for MultiGraph). Fix = integer-node storage = thp6w epoch.
+- `[len(G[n]) for n in G]` 0.27-0.57x: per-node VIEW CONSTRUCTION (G[n] builds a Python view object;
+  nx returns a live dict ref). G[n] must return a view -> can't fully close.
+- nodes(data=True) 0.80x: near-parity, ~33us/1500 nodes, all-native + thin wrapper — noise-level,
+  not a real loss.
+- edges(nbunch,data) 0.74x (post-repack): residual is the _FailFastEdgeIterator per-element
+  mutation-guard (Python per-element call vs nx's C generator) — a correctness feature, not
+  removable without breaking the raise-on-mutation-during-iteration contract.
+
+CONCLUSION: the crackable single-lever perf surface for the MG/Graph op families is EXHAUSTED. Every
+remaining fnx<nx residual is one of {string-node-key per-call floor (thp6w target), view-construction
+floor, _FailFast Python-overhead}. Next perf value requires the thp6w integer-node-storage epoch
+(closes has_edge/adj_iter/neighbors floors at once) — a multi-session architectural effort with the
+slab prototype + dual-write shadow already built (S1-S15). NOT a bead-sized lever.
