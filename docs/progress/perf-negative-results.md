@@ -275,3 +275,16 @@ verification x2 + has_edge_by_indices, vs nx's two C int-dict lookups. This is a
 index-verification FLOOR — the fast path is already present and optimal; no bead-sized lever remains.
 Closing it needs a Python-int->index cache / node-index-storage epoch. DO NOT re-attempt a has_edge
 micro-opt; it is done.
+
+## 2026-07-23 SnowyBadger (cc) SHIP (br-r37-c1-04z53): MG selfloop_edges fast path drops the O(N) node-name clone (sparse self-loops 0.60x->0.72x)
+
+The `selfloop_edges(keys=True, data="<attr>")` clean-scalar fast path (lib.rs ~6883) cloned EVERY
+node name up front (`nodes_ordered().map(to_owned).collect::<Vec<String>>()`) just to scan for
+self-loops — an O(N) String alloc per node, wasteful when a large graph has FEW self-loops (the
+common case). Replaced with a single borrowed pass collecting ONLY the self-loop nodes (name + keys)
+via `edge_keys(n, n)` — which is BOTH the self-loop test and the keys — mirroring the general path
+(6960) that already did this. Byte-identical emission (same nodes/order/keys/values; verified full
+value+order parity vs nx across sparse & dense). n=2500 w/ 5 self-loops: 0.60x -> 0.72x; dense
+(all-node self-loops) unaffected (same clone count). Full fast suite 49521 passed. The dense
+mg_selfloop_keys_weight bench workload stays a per-self-loop-emission floor (0.46x) — not this
+clone; that residual is the AttrMap/tuple-materialization model (architectural, unchanged).

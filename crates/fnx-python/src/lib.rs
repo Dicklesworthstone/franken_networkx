@@ -6884,23 +6884,32 @@ impl PyMultiGraph {
             let attr_name = value_attr_name
                 .as_deref()
                 .expect("value fast path has an attribute name");
-            let mut out: Vec<PyObject> = Vec::with_capacity(self.inner.edge_count());
-            let nodes: Vec<String> = self
+            let mut out: Vec<PyObject> = Vec::with_capacity(self.inner.number_of_selfloops());
+            // br-r37-c1-04z53 (cc): collect ONLY the self-loop nodes (name + keys)
+            // in one borrowed pass instead of cloning EVERY node name up front.
+            // The old `nodes_ordered().map(to_owned)` paid an O(N) String alloc per
+            // node just to scan for the (usually few) self-loops, dominating
+            // selfloop_edges on a large graph with sparse self-loops (0.60x).
+            // `edge_keys(n, n)` is BOTH the self-loop test and the keys, so this is
+            // the same scan minus the wasted clones — mirroring the general path
+            // below. Byte-identical emission (same nodes, order, keys, values).
+            let selfloops: Vec<(String, Vec<usize>)> = self
                 .inner
                 .nodes_ordered()
-                .into_iter()
-                .map(ToOwned::to_owned)
+                .iter()
+                .filter_map(|node| {
+                    let keys = self.inner.edge_keys(node, node)?;
+                    if keys.is_empty() {
+                        None
+                    } else {
+                        Some(((*node).to_owned(), keys))
+                    }
+                })
                 .collect();
-            for node in &nodes {
+            for (node, edge_keys) in &selfloops {
                 let node = node.as_str();
-                let Some(edge_keys) = self.inner.edge_keys(node, node) else {
-                    continue;
-                };
-                if edge_keys.is_empty() {
-                    continue;
-                }
                 let py_node = self.py_node_key(py, node);
-                for key in edge_keys {
+                for &key in edge_keys {
                     let val = match self
                         .inner
                         .edge_attrs(node, node, key)
