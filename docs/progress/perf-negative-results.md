@@ -288,3 +288,18 @@ value+order parity vs nx across sparse & dense). n=2500 w/ 5 self-loops: 0.60x -
 (all-node self-loops) unaffected (same clone count). Full fast suite 49521 passed. The dense
 mg_selfloop_keys_weight bench workload stays a per-self-loop-emission floor (0.46x) — not this
 clone; that residual is the AttrMap/tuple-materialization model (architectural, unchanged).
+
+## 2026-07-23 SnowyBadger (cc) SHIP (br-r37-c1-04z53): has_edge identity-int fast path completed across ALL graph types
+
+PyGraph::has_edge had the identity-int fast path (cc-hasedgeintidx) but MultiGraph, DiGraph, and
+MultiDiGraph's has_edge did NOT — they always paid 2 `i.to_string()` heap allocs for int nodes.
+Added `has_edge_by_indices` (resolve names from the node table by index, borrowed, no alloc; +
+`get_node_name` for MultiDiGraph which lacked it) to MultiGraph/DiGraph/MultiDiGraph in fnx-classes,
+and the keyless identity-int fast path (guarded by node_index_matches_int) to each PyO3 has_edge.
+Contiguous-int has_edge 1.17-1.19x (MG 283 vs 330ns, DG 298 vs 355ns) — avoids the 2 allocs; the
+String-keyed lookup remains (these types are not integer-flipped like simple Graph, so it can't reach
+Graph's level). Direction-sensitive + keyed + non-contiguous parity verified; fnx-classes 82/82, full
+fast suite 49521 passed. NOTE: has_predecessor (0.13x) is a SEPARATE floor — it uses `v in pred[u]`
+(predecessor-view construction), not has_edge; not addressed. This completes the has_edge fast-path
+CONSISTENCY across the 4 types; the residual is the String-keyed-lookup + PyO3 floor (thp6w/node-index
+epoch), not a lever.

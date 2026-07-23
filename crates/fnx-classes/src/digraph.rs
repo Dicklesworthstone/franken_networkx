@@ -396,6 +396,22 @@ impl DiGraph {
             .is_some_and(|k| self.edges.contains_key(&k))
     }
 
+    /// br-r37-c1-04z53 (cc): directed `has_edge` straight from insertion-order
+    /// indices (source-major), skipping the `i.to_string()` heap alloc for int
+    /// nodes. Names come from the node table by index (borrowed); the caller
+    /// guards each index with `node_index_matches_int`. Mirror of
+    /// `Graph::has_edge_by_indices`.
+    #[must_use]
+    pub fn has_edge_by_indices(&self, source_idx: usize, target_idx: usize) -> bool {
+        match (
+            self.get_node_name(source_idx),
+            self.get_node_name(target_idx),
+        ) {
+            (Some(source), Some(target)) => self.has_edge(source, target),
+            _ => false,
+        }
+    }
+
     #[must_use]
     pub fn nodes_ordered(&self) -> Vec<&str> {
         self.nodes.keys().map(String::as_str).collect()
@@ -2147,9 +2163,32 @@ impl MultiDiGraph {
             .is_some_and(|edge_bucket| !edge_bucket.is_empty())
     }
 
+    /// br-r37-c1-04z53 (cc): directed `has_edge` straight from insertion-order
+    /// indices (source-major), skipping the `i.to_string()` heap alloc for int
+    /// nodes. Names come from the node table by index (borrowed); the caller
+    /// guards each index with `node_index_matches_int`. Mirror of
+    /// `Graph::has_edge_by_indices`.
+    #[must_use]
+    pub fn has_edge_by_indices(&self, source_idx: usize, target_idx: usize) -> bool {
+        match (
+            self.get_node_name(source_idx),
+            self.get_node_name(target_idx),
+        ) {
+            (Some(source), Some(target)) => self.has_edge(source, target),
+            _ => false,
+        }
+    }
+
     #[must_use]
     pub fn nodes_ordered(&self) -> Vec<&str> {
         self.nodes.keys().map(String::as_str).collect()
+    }
+
+    /// Resolve the current node name for an insertion-order index.
+    #[must_use]
+    #[inline]
+    pub fn get_node_name(&self, index: usize) -> Option<&str> {
+        self.nodes.get_index(index).map(|(name, _)| name.as_str())
     }
 
     /// br-cc-nbunchbulk: int membership fast path for `_nbunch_present` — see the

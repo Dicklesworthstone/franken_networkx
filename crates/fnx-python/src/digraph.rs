@@ -4817,6 +4817,20 @@ impl PyMultiDiGraph {
         v: &Bound<'_, PyAny>,
         key: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<bool> {
+        // br-r37-c1-04z53 (cc): identity-int fast path (mirror PyGraph::has_edge
+        // cc-hasedgeintidx) for the keyless directed `has_edge(u, v)` — exact
+        // int u,v at their own index resolve straight by index, skipping 2
+        // `i.to_string()` heap allocs. Any key argument falls through.
+        if key.is_none()
+            && u.is_exact_instance_of::<PyInt>()
+            && v.is_exact_instance_of::<PyInt>()
+            && let Ok(iu) = u.extract::<usize>()
+            && let Ok(iv) = v.extract::<usize>()
+            && self.inner.node_index_matches_int(iu)
+            && self.inner.node_index_matches_int(iv)
+        {
+            return Ok(self.inner.has_edge_by_indices(iu, iv));
+        }
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
         Ok(match key {
@@ -11448,6 +11462,18 @@ impl PyDiGraph {
         u: &Bound<'_, PyAny>,
         v: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
+        // br-r37-c1-04z53 (cc): identity-int fast path (mirror PyGraph::has_edge
+        // cc-hasedgeintidx) — exact int u,v at their own index resolve straight
+        // by index (source-major), skipping 2 `i.to_string()` heap allocs.
+        if u.is_exact_instance_of::<PyInt>()
+            && v.is_exact_instance_of::<PyInt>()
+            && let Ok(iu) = u.extract::<usize>()
+            && let Ok(iv) = v.extract::<usize>()
+            && self.inner.node_index_matches_int(iu)
+            && self.inner.node_index_matches_int(iv)
+        {
+            return Ok(self.inner.has_edge_by_indices(iu, iv));
+        }
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
         Ok(self.inner.has_edge(&u_c, &v_c))
