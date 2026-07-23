@@ -153,3 +153,37 @@ maturin-built `.so` (same HEAD source). I nearly reverted this correct fix on th
 attribution. Authoritative fnx-python testing MUST use a local `maturin develop --release` build
 (into a FRESH CARGO_TARGET_DIR to dodge rch's E0514 rustc-mismatch contamination), cp'd to BOTH
 site-packages and python/franken_networkx/.
+
+## 2026-07-23 SnowyBadger (cc) — PROFILE MAP (clean isolated A/B, n=2000 m=8000): remaining MultiGraph/Graph losses + one tractable lever
+
+Methodology note (re-learned): a WIDE sweep with SHARED graphs + interleaved ops + GC gave FALSE
+losses (e.g. size(weight) showed 0.59-0.82x). Clean per-op isolated A/B (fresh graphs, gc.disable,
+9 reps, median) is the only trustworthy signal — size(weight) actually WINS everywhere (float
+1.75-3.78x, int 26-45x). Do NOT chase size(weight).
+
+CONFIRMED real losses (clean A/B):
+- `has_edge(u,v)`: G 0.19x, DG 0.23x, MG 0.25x — the STRING-NODE-KEY floor (node_key_to_string x2:
+  int->String alloc via i.to_string(), str->"str:{len}:{s}"; str nodes 384ns > int 295ns). Both the
+  alloc AND the String-keyed lookup. Partial win possible via a stack-buffer int fast path (~1.3x,
+  doesn't reach parity). REAL fix = integer-node-index storage = the thp6w epoch. NOT a clean lever.
+- `[len(G[n]) for n in G]` (adj_iter): G 0.54x, DG 0.57x, MG 0.27x — per-node VIEW CONSTRUCTION
+  (G[n] builds a Python AdjacencyView object ~500ns; nx returns a live dict ref). Materialization
+  floor; G[n] must return a view so can't be fully closed. Not a clean lever.
+
+TRACTABLE LEVER (next session's opener) — `edges(nbunch, data=True)`:
+- Simple **Graph** 0.64x LOSS; **DiGraph** 3.24x WIN; **MultiGraph** 0.99x par. The inconsistency is
+  a MISSING KERNEL: DiGraph has `_native_out_edges_nbunch_data` (+ `_digraph_out_edges_data_cache`),
+  MultiGraph has `_native_mg_edges_nbunch_data` (lib.rs:7177, routed __init__.py:2491), but simple
+  **PyGraph has NO `_native_edges_nbunch_data`** — so `EdgeView.__call__` (__init__.py ~2124) falls
+  to the slow Python `nbunch_iter` + per-source AtlasView walk.
+- RECIPE: add `_native_graph_edges_nbunch_data`/`_no_data`/`_data_key` to PyGraph, mirroring the MG
+  kernel (SIMPLER — simple graph has no edge keys; use `edge_py_attrs`/`materialize_edge_py_attrs`
+  keyed by (String,String), not the (String,String,usize) MG form). Route in EdgeView.__call__ for
+  `type(self._graph) is Graph` alongside the DiGraph/MG branches; add the last-(nbunch,result) cache
+  (mirror `_digraph_out_edges_data_cache`). PARITY GATE: nx's exact edges(nbunch) algorithm =
+  dedup by PROCESSED SOURCE node (a neighbor already processed as a source had the edge emitted from
+  its side; matches nx incl. duplicate-nbunch re-emission) — copy the MG kernel's `seen_nodes`
+  String-set logic verbatim. Expected: G edges(nbunch,data) 0.64x -> ~3x (matching DiGraph/MG).
+  Build with MATURIN (not rch — see [[rch_so_nondeterministic_vs_maturin]]); gate on the full fast
+  suite + a differential vs nx over {list/tuple/set nbunch, dup nbunch, single-node, isolated node,
+  self-loop, missing node}.
