@@ -260,3 +260,18 @@ remaining fnx<nx residual is one of {string-node-key per-call floor (thp6w targe
 floor, _FailFast Python-overhead}. Next perf value requires the thp6w integer-node-storage epoch
 (closes has_edge/adj_iter/neighbors floors at once) — a multi-session architectural effort with the
 slab prototype + dual-write shadow already built (S1-S15). NOT a bead-sized lever.
+
+## 2026-07-23 SnowyBadger (cc) — has_edge floor is ALREADY optimally fast-pathed (do not re-investigate)
+
+Confirmed the convergence across DG/MDG too (in_edges 30.7x, out_degree 2.5x, reverse 1.8x, pagerank
+6.35x, clustering 38x all WIN). The only new loss found — `DG has_predecessor` 0.13x — is the SAME
+string-node-key floor as has_edge. IMPORTANT: `PyGraph::has_edge` (lib.rs ~11864, cc-hasedgeintidx)
+ALREADY has the identity-int fast path: exact-int u,v + `node_index_matches_int(iu/iv)` ->
+`has_edge_by_indices` (no alloc, no String hash). It fires only when the node at index i IS the int i
+(contiguous insertion). Even WHEN it fires (contiguous), has_edge is 0.31x (267ns vs nx 82ns); with
+random insertion it can't fire (node 5 not at index 5) -> String path -> 0.20x. The 267ns residual is
+PyO3 marshaling (Bound<PyAny> exact-int check + usize extract x2) + the O(1) node_index_matches_int
+verification x2 + has_edge_by_indices, vs nx's two C int-dict lookups. This is a genuine PyO3 +
+index-verification FLOOR — the fast path is already present and optimal; no bead-sized lever remains.
+Closing it needs a Python-int->index cache / node-index-storage epoch. DO NOT re-attempt a has_edge
+micro-opt; it is done.
