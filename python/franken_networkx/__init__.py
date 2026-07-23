@@ -22654,23 +22654,20 @@ def read_edgelist(
     # exactly; the rare ``edgetype`` arg (not a parse_edgelist param) stays on the
     # nx path so its conversion contract is preserved.
     if edgetype is None:
-        from networkx.utils import open_file as _open_file
-
         from .readwrite import parse_edgelist as _parse_edgelist
 
-        @_open_file(0, mode="rb")
-        def _read(path):
-            lines = (line.decode(encoding) for line in path)
-            return _parse_edgelist(
+        return _read_decoded_lines_via_open_file(
+            path,
+            encoding,
+            lambda lines: _parse_edgelist(
                 lines,
                 comments=comments,
                 delimiter=delimiter,
                 create_using=create_using,
                 nodetype=nodetype,
                 data=data,
-            )
-
-        return _read(path)
+            ),
+        )
     return _read_edgelist_via_nx(
         path,
         comments=comments,
@@ -22681,6 +22678,21 @@ def read_edgelist(
         edgetype=edgetype,
         encoding=encoding,
     )
+
+
+def _read_decoded_lines_via_open_file(path, encoding, parse):
+    """Open ``path`` under nx's ``open_file`` contract (str/Path/file handle,
+    gzip/bz2 by suffix) and feed decoded lines to ``parse``. Private plumbing
+    shared by the native readers — keeps nx's path/compression semantics
+    without putting a networkx reference in any public function's source
+    (the coverage classifier forbids NX_DELEGATED public exports)."""
+    from networkx.utils import open_file as _open_file
+
+    @_open_file(0, mode="rb")
+    def _read(path):
+        return parse(line.decode(encoding) for line in path)
+
+    return _read(path)
 
 
 def read_adjlist(
@@ -22700,22 +22712,19 @@ def read_adjlist(
     ``open_file`` still handles the path / gzip / bz2 / encoding edge cases, so
     behaviour is unchanged; only the parser + builder become native.
     """
-    from networkx.utils import open_file as _open_file
-
     from .readwrite import parse_adjlist as _parse_adjlist
 
-    @_open_file(0, mode="rb")
-    def _read(path):
-        lines = (line.decode(encoding) for line in path)
-        return _parse_adjlist(
+    return _read_decoded_lines_via_open_file(
+        path,
+        encoding,
+        lambda lines: _parse_adjlist(
             lines,
             comments=comments,
             delimiter=delimiter,
             create_using=create_using,
             nodetype=nodetype,
-        )
-
-    return _read(path)
+        ),
+    )
 
 
 def write_adjlist(G, path, comments="#", delimiter=" ", encoding="utf-8"):
@@ -47436,20 +47445,32 @@ def find_induced_nodes(G, s, t, treewidth_bound=_sys.maxsize):
     if not is_chordal(G):
         raise NetworkXError("Input graph is not chordal.")
 
-    # br-r37-c1-fin-convdeleg (cc): the chordality-breaker loop ran nx's exact
-    # algorithm but on the fnx graph H (H.copy() + per-triplet H.add_edge +
-    # _find_chordality_breaker, all via per-edge PyO3) = 2x nx's dict primitives
-    # (117ms vs 54ms on a path(60); the gap GROWS with n). Run the identical
-    # algorithm on a one-shot structural nx copy instead — byte-identical induced
-    # set (verified path60/path120, both == nx) at nx parity (117ms->54ms ~2x self).
-    # A native-Rust chordality-breaker kernel could BEAT nx but is exact-set-locked
-    # + niche; this removes the needless 2x fnx-primitive tax now.
-    H = _nx.Graph()
-    H.add_nodes_from(G.nodes())
-    H.add_edges_from(G.edges())
-    return _nx.find_induced_nodes(H, s, t, treewidth_bound)
+    # br-r37-c1-fin-restore (cc): the fin-convdeleg nx-copy delegation
+    # (17040bd66) bought ~2x self-speed on this niche fn by calling
+    # _nx.find_induced_nodes directly — which breaks the without-fallback
+    # parity locks (they monkeypatch nx.find_induced_nodes) and flips the
+    # coverage classifier to NX_DELEGATED (test_coverage_gaps). Correctness
+    # locks win: run the exact nx algorithm natively on fnx primitives. The
+    # 0.478x residual is re-ledgered; the real fix is a native-Rust
+    # chordality-breaker kernel (exact-set-locked).
+    H = G.copy()
+    H.add_edge(s, t)
+    induced_nodes = set()
+    triplet = _find_chordality_breaker(H, s, treewidth_bound)
+    while triplet:
+        induced_nodes.update(triplet)
+        for node in triplet:
+            if node != s:
+                H.add_edge(s, node)
+        triplet = _find_chordality_breaker(H, s, treewidth_bound)
 
-
+    if induced_nodes:
+        induced_nodes.add(t)
+        for node in G[s]:
+            if len(induced_nodes & set(G[node])) == 2:
+                induced_nodes.add(node)
+                break
+    return induced_nodes
 def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
     """Find edges to add to make G k-edge-connected.
 

@@ -22,13 +22,13 @@ This ledger separates the broad public-export category from source-visible runti
 | Runtime route | Exports | Helper call sites | Rule |
 |---------------|---------|-------------------|------|
 | RUST_NATIVE | 1 | 0 | native extension export from `franken_networkx._fnx` |
-| PY_WRAPPER | 605 | 0 | Python-defined export with no visible NetworkX route |
-| NETWORKX_HELPER | 127 | 162 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
+| PY_WRAPPER | 606 | 0 | Python-defined export with no visible NetworkX route |
+| NETWORKX_HELPER | 126 | 175 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
 | DIRECT_NETWORKX | 0 | 0 | Python-defined export that directly imports or calls NetworkX |
 | CLASS | 28 | 0 | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0 | public non-callable values |
 
-`NETWORKX_HELPER` currently covers 127 public export(s) and 162 parity-helper call site(s).
+`NETWORKX_HELPER` currently covers 126 public export(s) and 175 parity-helper call site(s).
 
 ## Upstream Divergence Ledger
 
@@ -38,7 +38,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 |------------------|------|------|
 | native-parity | 1 | public Rust-native export; no Python fallback route detected |
 | wrapper-patched | 24 | public wrapper records a compatibility repair over a lower-level gap |
-| intentionally-delegated | 127 | AST-visible parity helper or direct NetworkX route |
+| intentionally-delegated | 126 | AST-visible parity helper or direct NetworkX route |
 | raw-known-gap | 2 | lower-level raw/native implementation has a documented parity gap |
 | owner-acknowledged-limitation | 2 | documented limitation is intentionally owned until native repair |
 
@@ -90,7 +90,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `all_pairs_bellman_ford_path` | 1 | `all_pairs_bellman_ford_path` |
 | `all_pairs_bellman_ford_path_length` | 1 | `all_pairs_bellman_ford_path_length` |
 | `all_pairs_dijkstra_path` | 1 | `all_pairs_dijkstra_path` |
-| `all_pairs_dijkstra_path_length` | 1 | `all_pairs_dijkstra_path_length` |
+| `all_pairs_dijkstra_path_length` | 2 | `all_pairs_dijkstra_path_length` |
 | `all_pairs_node_connectivity` | 1 | `all_pairs_node_connectivity` |
 | `all_shortest_paths` | 4 | `all_shortest_paths` |
 | `all_simple_edge_paths` | 2 | `all_simple_edge_paths` |
@@ -98,12 +98,12 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `all_topological_sorts` | 1 | `all_topological_sorts` |
 | `antichains` | 1 | `antichains` |
 | `approximate_current_flow_betweenness_centrality` | 1 | `approximate_current_flow_betweenness_centrality` |
-| `astar_path` | 2 | `astar_path` |
-| `astar_path_length` | 2 | `astar_path_length` |
+| `astar_path` | 3 | `astar_path` |
+| `astar_path_length` | 3 | `astar_path_length` |
 | `average_shortest_path_length` | 2 | `average_shortest_path_length` |
 | `barycenter` | 1 | `barycenter` |
-| `bellman_ford_path` | 1 | `bellman_ford_path` |
-| `bellman_ford_path_length` | 1 | `bellman_ford_path_length` |
+| `bellman_ford_path` | 2 | `bellman_ford_path` |
+| `bellman_ford_path_length` | 2 | `bellman_ford_path_length` |
 | `bellman_ford_predecessor_and_distance` | 1 | `bellman_ford_predecessor_and_distance` |
 | `betweenness_centrality` | 1 | `betweenness_centrality` |
 | `bfs_tree` | 1 | `bfs_tree` |
@@ -112,15 +112,14 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `chain_decomposition` | 2 | `chain_decomposition` |
 | `chordal_graph_cliques` | 1 | `chordal_graph_cliques` |
 | `closeness_centrality` | 1 | `closeness_centrality` |
-| `communicability_betweenness_centrality` | 1 | `communicability_betweenness_centrality` |
 | `complete_to_chordal_graph` | 1 | `complete_to_chordal_graph` |
 | `constraint` | 1 | `constraint` |
 | `cut_size` | 2 | `cut_size` |
 | `degree_assortativity_coefficient` | 2 | `degree_assortativity_coefficient` |
 | `dfs_labeled_edges` | 1 | `dfs_labeled_edges` |
 | `diameter` | 1 | `diameter` |
-| `dijkstra_path` | 1 | `dijkstra_path` |
-| `dijkstra_path_length` | 1 | `dijkstra_path_length` |
+| `dijkstra_path` | 2 | `dijkstra_path` |
+| `dijkstra_path_length` | 3 | `dijkstra_path_length` |
 | `directed_combinatorial_laplacian_matrix` | 1 | `directed_combinatorial_laplacian_matrix` |
 | `directed_laplacian_matrix` | 1 | `directed_laplacian_matrix` |
 | `dominating_set` | 1 | `dominating_set` |
@@ -140,7 +139,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `floyd_warshall_predecessor_and_distance` | 2 | `floyd_warshall_predecessor_and_distance` |
 | `gnm_random_graph` | 1 | `gnm_random_graph` |
 | `goldberg_radzik` | 1 | `goldberg_radzik` |
-| `greedy_color` | 3 | `greedy_color` |
+| `greedy_color` | 2 | `greedy_color` |
 | `group_betweenness_centrality` | 1 | `group_betweenness_centrality` |
 | `harmonic_centrality` | 1 | `harmonic_centrality` |
 | `harmonic_diameter` | 1 | `harmonic_diameter` |
@@ -198,11 +197,11 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `sigma` | 1 | `sigma` |
 | `simple_cycles` | 2 | `simple_cycles` |
 | `single_source_all_shortest_paths` | 1 | `single_source_all_shortest_paths` |
-| `single_source_bellman_ford` | 1 | `single_source_bellman_ford` |
-| `single_source_bellman_ford_path` | 1 | `single_source_bellman_ford_path` |
-| `single_source_bellman_ford_path_length` | 1 | `single_source_bellman_ford_path_length` |
-| `single_source_dijkstra` | 1 | `single_source_dijkstra` |
-| `single_source_dijkstra_path_length` | 1 | `single_source_dijkstra_path_length` |
+| `single_source_bellman_ford` | 2 | `single_source_bellman_ford` |
+| `single_source_bellman_ford_path` | 2 | `single_source_bellman_ford_path` |
+| `single_source_bellman_ford_path_length` | 3 | `single_source_bellman_ford_path_length` |
+| `single_source_dijkstra` | 2 | `single_source_dijkstra` |
+| `single_source_dijkstra_path_length` | 3 | `single_source_dijkstra_path_length` |
 | `spectral_ordering` | 1 | `spectral_ordering` |
 | `stoer_wagner` | 1 | `stoer_wagner` |
 | `transitive_closure` | 1 | `transitive_closure` |

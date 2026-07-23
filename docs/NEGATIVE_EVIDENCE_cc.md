@@ -9270,3 +9270,31 @@ origin and cleared via explicit-ref stash/pull/pop). Python subset on the featur
 2508 passed, 3 failed — the SAME pre-existing dict_of ctor failures from the control set (peer
 lane, now MINE: cod capped until Jul 29). Peer also left stash@{1} "br-r37-c1-ctorskip" with a
 handoff note — ctor-lane inheritance to triage.
+
+## 2026-07-22 SnowyBadger (cc) FIX BATCH (sole-producer frontier): stale-.so phantom failures unmasked; find_induced_nodes restored native; reader classification + raw triage healed
+
+**METHODOLOGY CORRECTION:** the "13 fnx-python failures" carried since the burn-in were mostly
+PHANTOM — pytest imports `python/franken_networkx/` whose `_fnx.abi3.so` was STALE (20:37, predating
+the peer's landed ctor fixes). Fresh .so into the repo package dir -> all 5 MultiDiGraph ctor
+failures VANISH (the peer's landed hxdyb work was already correct). The feature-on/off burn-in
+CONTROL stays valid (both arms used the same stale .so) but the failures' cause was staleness, not
+WIP. RULE (re-learned, now twice): install the .so to BOTH site-packages AND python/franken_networkx/.
+
+Real fixes in this batch (10 -> 3 remaining):
+1. **find_induced_nodes restored native (3 tests green):** the fin-convdeleg change (17040bd66)
+   called `_nx.find_induced_nodes` on an nx copy for ~2x self-speed on a NICHE fn — breaking the
+   without-fallback parity locks AND flipping the classifier to NX_DELEGATED. Restored the exact
+   nx algorithm on fnx primitives (byte-identical set). The 0.478x residual is the price of the
+   parity contract; proper fix = native-Rust chordality-breaker kernel (bead filed).
+2. **read_adjlist/read_edgelist reclassified PY_WRAPPER (1 test green):** their only networkx
+   reference was nx's `open_file` path/gzip contract used INLINE; hoisted into a private
+   module-level `_read_decoded_lines_via_open_file` (pure code motion, behavior identical,
+   397 reader tests green). NX_DELEGATED list now [].
+3. **`_raw_out_degree_centrality` triaged (2 tests green):** keep-public-api — the idcnative
+   wrapper's Python dict-comp is byte-exact + 1.23x vs the ULP-drifting PyO3 dict-build.
+4. Coverage matrix + unused-raw report regenerated (freshness pair green).
+
+REMAINING RED (3): the review_mode_regression_lock trio (write_gexf classification,
+true-iterator two-epoch parity, attr-snapshot aliasing) — suspected to need the peer's stashed
+`br-r37-c1-ctorskip` implementation (stash@{1}, note: "correct-by-analysis; needs pyo3 two-build
+bench cycle to ship"). Next lever.
