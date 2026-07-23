@@ -316,3 +316,22 @@ across all 4 types with exotic probes (bool/negative/float/str/non-existing/scra
 full fast suite 49521 passed. Residual 0.35x = PyO3 dispatch + node_index_matches_int's
 `name.parse::<usize>()` verification vs nx's C int-dict hit — the deeper string-node-key floor
 (thp6w/node-index epoch), not a lever.
+
+## 2026-07-23 SnowyBadger (cc) — identity-int fast-path family COMPLETE; per-node view-machinery floors remain
+
+This cycle shipped 5 clean byte-identical wins closing the int-node alloc tax on the direct-method
+per-node ops: edges(nbunch,data) repack (2f2f474e2), MG selfloop clone (f8246388d), MG has_edge fast
+path (061be8cf6), DG+MDG has_edge fast path (b30bd6dc9), has_node/__contains__ fast path all 4 types
+(191dddbd5). The identity-int fast-path family (has_edge + has_node/__contains__ across Graph/
+MultiGraph/DiGraph/MultiDiGraph) is now COMPLETE — every direct Rust-method per-node lookup skips the
+i.to_string() alloc for contiguous int nodes.
+
+REMAINING per-node losses are NOT the alloc floor — they are VIEW-MACHINERY / construction floors,
+NOT bead-sized levers (do not re-attempt as int-fast-paths):
+- degree(u) single-node 0.28x: dominated by the Python DegreeView property machinery — the
+  _has_networkx_private_storage per-access check (already optimized to ~120ns, br-r37-c1-31tby) +
+  DegreeView.__call__. nx's G.degree is a pure @cached_property; fnx must re-check private-storage per
+  access (correctness for private-storage subclasses). Churny view-layer, correctness-sensitive.
+- len(G[n]) 0.62x: G[n] constructs a Python AdjacencyView object per call (nx returns a live dict).
+- has_predecessor 0.13x: `v in pred[u]` predecessor-view construction, not has_edge.
+All need the view-object-elision / node-index-storage epoch, not micro-levers.
