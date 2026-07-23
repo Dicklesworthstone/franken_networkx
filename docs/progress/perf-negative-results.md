@@ -187,3 +187,29 @@ TRACTABLE LEVER (next session's opener) — `edges(nbunch, data=True)`:
   Build with MATURIN (not rch — see [[rch_so_nondeterministic_vs_maturin]]); gate on the full fast
   suite + a differential vs nx over {list/tuple/set nbunch, dup nbunch, single-node, isolated node,
   self-loop, missing node}.
+
+## 2026-07-23 SnowyBadger (cc) REJECT + BLOCKER (br-r37-c1-04z53): edges(nbunch,data=True) repack removal — correct but reddens full suite via summarization order-fragility
+
+LEVER (correct, byte-identical): in `EdgeDataView._materialize_via_adj_walk` (__init__.py ~897) the
+simple-Graph `data is True` branch did `return [(u, v, d) for u, v, d in rows]` — but the native
+`_fnx.edges_nbunch_data` ALREADY emits exactly `(u, v, attrs)` 3-tuples, so the comprehension rebuilt
+an identical tuple per edge (a wasted O(E) unpack+repack, the dominant self-time in _materialize).
+`return rows` is byte-identical (verified: full value AND exact-order parity vs nx) and lifts
+`edges(nbunch, data=True)` 0.64x -> 0.74x. Edge/view test subset: 8048 passed.
+
+WHY REJECTED: the FULL fast suite reddens with exactly 4 `test_summarization_module_parity` failures
+(dedensify "native path" / "copy_false identity") — DETERMINISTICALLY vs HEAD's 49521-pass, SAME
+maturin `.so`. But the interaction is NON-LOCAL and ORDER-DEPENDENT, not a data dependency:
+`dedensify` uses `_native_adjacency_row_dict`, NOT the edges path I changed. Stranger still, in
+ISOLATION my change makes summarization PASS (4/4) while **HEAD FAILS it (3/4)** — the pass/fail flips
+with test order. So the summarization module has a genuine ORDER/STATE fragility (module-level cache,
+monkeypatch leakage, or `type(G) in (Graph, DiGraph)` detection perturbed by accumulated global
+state); my correct change merely shifts which order-bucket it lands in. Cannot ship a change that
+reddens the G4 gate regardless of root cause.
+
+RETRY PREDICATE: ship the repack `return rows` (it is correct) ONCE the summarization order-fragility
+is fixed (bead filed). This fragility is a RECURRING BLOCKER for edges/view perf work — it also
+manifested as the rch-vs-maturin `.so` false failures ([[rch_so_nondeterministic_vs_maturin]]). Root
+cause likely in `_dedensify_simple_native_rows`'s `type(G) in (Graph, DiGraph)` gate or a
+module-level detection cache that leaks across tests. Until then, edges/view perf changes cannot be
+validated against the full suite reliably.
