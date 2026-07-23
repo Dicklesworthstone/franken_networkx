@@ -3534,6 +3534,21 @@ impl MultiGraph {
             .is_some_and(|edge_bucket| !edge_bucket.is_empty())
     }
 
+    /// br-r37-c1-04z53 (cc): resolve `has_edge` straight from insertion-order
+    /// indices, skipping the `i.to_string()` heap alloc the Python binding pays
+    /// for int nodes. The names come from the node table by index (borrowed, no
+    /// alloc); the caller (`PyMultiGraph::has_edge`) guards each index with
+    /// `node_index_matches_int` so the identity `index == int-value` holds
+    /// (any removal / remap that broke it fails the guard and falls through to
+    /// the String path). Mirror of `Graph::has_edge_by_indices`.
+    #[must_use]
+    pub fn has_edge_by_indices(&self, li: usize, ri: usize) -> bool {
+        match (self.get_node_name(li), self.get_node_name(ri)) {
+            (Some(left), Some(right)) => self.has_edge(left, right),
+            _ => false,
+        }
+    }
+
     #[must_use]
     pub fn nodes_ordered(&self) -> Vec<&str> {
         self.nodes.keys().map(String::as_str).collect()

@@ -8003,6 +8003,23 @@ impl PyMultiGraph {
         v: &Bound<'_, PyAny>,
         key: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<bool> {
+        // br-r37-c1-04z53 (cc): identity-int fast path (mirror of
+        // PyGraph::has_edge cc-hasedgeintidx) for the keyless
+        // `MultiGraph.has_edge(u, v)` — the common shape. Exact int u,v (bool
+        // excluded: canonical "0"/"1") that fit usize AND sit at their own
+        // index resolve straight by index, skipping 2 `i.to_string()` heap
+        // allocs. Any key argument, or a non-identity int, falls through to the
+        // String path (exact keyed / non-int semantics unchanged).
+        if key.is_none()
+            && u.is_exact_instance_of::<PyInt>()
+            && v.is_exact_instance_of::<PyInt>()
+            && let Ok(iu) = u.extract::<usize>()
+            && let Ok(iv) = v.extract::<usize>()
+            && self.inner.node_index_matches_int(iu)
+            && self.inner.node_index_matches_int(iv)
+        {
+            return Ok(self.inner.has_edge_by_indices(iu, iv));
+        }
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
         Ok(match key {
