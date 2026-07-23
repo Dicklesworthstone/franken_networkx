@@ -612,10 +612,20 @@ pub fn validate_ctor_edge_list(
         // also caught non-multi 3-tuples whose NON-DICT third element
         // the Rust __new__ mis-absorbs as a node (e.g. (1, 2, [3])) —
         // mirror that by hashing such third elements too.
-        if endpoints_hashable
-            && (item.get_item(0)?.hash().is_err() || item.get_item(1)?.hash().is_err())
-        {
-            endpoints_hashable = false;
+        // br-r37-c1-fo8zw: a None endpoint is also invalid — nx's add_edge
+        // raises ValueError("None cannot be a node"), which the constructor
+        // wraps as "Input is not a valid edge list". The Rust __new__ absorbs
+        // None as the node "None" (node_key_to_string) for the simple
+        // Graph/DiGraph d58s8 loop, so catch it here (this pre-validation gates
+        // list/tuple/set inputs; iterators skip it and are already rejected via
+        // the __new__ two-epoch). None is hashable, so the hash() checks below
+        // miss it — test is_none() explicitly.
+        if endpoints_hashable {
+            let u0 = item.get_item(0)?;
+            let u1 = item.get_item(1)?;
+            if u0.is_none() || u1.is_none() || u0.hash().is_err() || u1.hash().is_err() {
+                endpoints_hashable = false;
+            }
         }
         // (non-multi non-dict-third already rejected above)
     }

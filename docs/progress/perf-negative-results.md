@@ -335,3 +335,19 @@ NOT bead-sized levers (do not re-attempt as int-fast-paths):
 - len(G[n]) 0.62x: G[n] constructs a Python AdjacencyView object per call (nx returns a live dict).
 - has_predecessor 0.13x: `v in pred[u]` predecessor-view construction, not has_edge.
 All need the view-object-elision / node-index-storage epoch, not micro-levers.
+
+## 2026-07-23 SnowyBadger (cc) SHIP (br-r37-c1-fo8zw): Graph/DiGraph None-endpoint ctor divergence CLOSED — the LAST ctor divergence
+
+The deferred Graph/DiGraph `[(None,1)]` divergence (fnx built a "None" node; nx raises) turned out to
+need NO hot-path two-epoch port. Root: only the LIST/tuple/set path diverged (the ITER path already
+returned nx's empty via the __new__ materialize two-epoch), and the simple-Graph d58s8 loop absorbed
+None as node_key_to_string(None)="None". The `__init__` pre-validation ALREADY gates list/tuple/set
+inputs via native `validate_ctor_edge_list` — but None is HASHABLE so the endpoint-hashability check
+missed it. Added an explicit `is_none()` test to that same native pass: a None endpoint now marks the
+input invalid -> `NetworkXError("Input is not a valid edge list")`, matching nx's add_edge
+ValueError-wrapped-by-to_networkx_graph. Iterators skip this pre-validation (already handled);
+MG/MDG raise in __new__ first (my earlier two-epoch), so unaffected. 4-class x {list/tuple/set/iter,
+suffix, None-as-u, None-as-v} differential: 0 divergences. Full fast suite 49521 passed.
+
+CTOR-PARITY LANE COMPLETE: the broad 4-class differential (18 exotic inputs + the None matrix) now
+shows ZERO divergences across Graph/DiGraph/MultiGraph/MultiDiGraph.
