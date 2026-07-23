@@ -7991,6 +7991,18 @@ impl PyMultiGraph {
     }
 
     fn has_node(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
+        // (bool excluded) that fits usize AND sits at its own index IS present —
+        // `node_index_matches_int` is the whole answer, so we skip both the
+        // `i.to_string()` heap alloc and the String-keyed `has_node` lookup.
+        // A non-identity int (present at another index / absent) falls through
+        // to the String path, which stays correct.
+        if n.is_exact_instance_of::<PyInt>()
+            && let Ok(i) = n.extract::<usize>()
+            && self.inner.node_index_matches_int(i)
+        {
+            return Ok(true);
+        }
         let canonical = node_key_to_string(py, n)?;
         Ok(self.inner.has_node(&canonical))
     }
@@ -8060,6 +8072,18 @@ impl PyMultiGraph {
     }
 
     fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
+        // (bool excluded) that fits usize AND sits at its own index IS present —
+        // `node_index_matches_int` is the whole answer, so we skip both the
+        // `i.to_string()` heap alloc and the String-keyed `has_node` lookup.
+        // A non-identity int (present at another index / absent) falls through
+        // to the String path, which stays correct.
+        if n.is_exact_instance_of::<PyInt>()
+            && let Ok(i) = n.extract::<usize>()
+            && self.inner.node_index_matches_int(i)
+        {
+            return Ok(true);
+        }
         let canonical = node_key_to_string(py, n)?;
         Ok(self.inner.has_node(&canonical))
     }
@@ -11868,6 +11892,18 @@ impl PyGraph {
 
     /// Return True if graph has node n.
     fn has_node(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
+        // (bool excluded) that fits usize AND sits at its own index IS present —
+        // `node_index_matches_int` is the whole answer, so we skip both the
+        // `i.to_string()` heap alloc and the String-keyed `has_node` lookup.
+        // A non-identity int (present at another index / absent) falls through
+        // to the String path, which stays correct.
+        if n.is_exact_instance_of::<PyInt>()
+            && let Ok(i) = n.extract::<usize>()
+            && self.inner.node_index_matches_int(i)
+        {
+            return Ok(true);
+        }
         let canonical = node_key_to_string(py, n)?;
         Ok(self.inner.has_node(&canonical))
     }
@@ -12507,6 +12543,18 @@ impl PyGraph {
 
     /// Membership test (called by ``n in G``).
     fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
+        // (bool excluded) that fits usize AND sits at its own index IS present —
+        // `node_index_matches_int` is the whole answer, so we skip both the
+        // `i.to_string()` heap alloc and the String-keyed `has_node` lookup.
+        // A non-identity int (present at another index / absent) falls through
+        // to the String path, which stays correct.
+        if n.is_exact_instance_of::<PyInt>()
+            && let Ok(i) = n.extract::<usize>()
+            && self.inner.node_index_matches_int(i)
+        {
+            return Ok(true);
+        }
         let canonical = node_key_to_string(py, n)?;
         Ok(self.inner.has_node(&canonical))
     }

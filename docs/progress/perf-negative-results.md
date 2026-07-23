@@ -303,3 +303,16 @@ fast suite 49521 passed. NOTE: has_predecessor (0.13x) is a SEPARATE floor — i
 (predecessor-view construction), not has_edge; not addressed. This completes the has_edge fast-path
 CONSISTENCY across the 4 types; the residual is the String-keyed-lookup + PyO3 floor (thp6w/node-index
 epoch), not a lever.
+
+## 2026-07-23 SnowyBadger (cc) SHIP (br-r37-c1-04z53): has_node/__contains__ identity-int fast path (n in G 0.27x->0.35x, all 4 types)
+
+`n in G` / `G.has_node(n)` paid `i.to_string()` alloc + String-keyed has_node for int nodes across
+ALL four graph types (no fast path). Added the identity-int membership fast path to has_node AND
+__contains__ on Graph/MultiGraph/DiGraph/MultiDiGraph (8 sites): exact int (bool excluded) at its own
+index -> `node_index_matches_int(i)` IS the answer, so it skips BOTH the alloc AND the String lookup
+(more than has_edge, which still needed the lookup). Non-identity ints (present elsewhere / absent)
+fall through to the String path. `n in G` contiguous 0.27x->0.35x (177 vs 226ns). Parity verified
+across all 4 types with exotic probes (bool/negative/float/str/non-existing/scrambled-non-contiguous);
+full fast suite 49521 passed. Residual 0.35x = PyO3 dispatch + node_index_matches_int's
+`name.parse::<usize>()` verification vs nx's C int-dict hit — the deeper string-node-key floor
+(thp6w/node-index epoch), not a lever.
