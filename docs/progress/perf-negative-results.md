@@ -351,3 +351,27 @@ suffix, None-as-u, None-as-v} differential: 0 divergences. Full fast suite 49521
 
 CTOR-PARITY LANE COMPLETE: the broad 4-class differential (18 exotic inputs + the None matrix) now
 shows ZERO divergences across Graph/DiGraph/MultiGraph/MultiDiGraph.
+
+## 2026-07-23 SnowyBadger (cc) — thp6w FLIP FINDING: feature-on burn-in surfaces an order-fragile dedensify golden (NOT a default-build issue)
+
+Ran the FEATURE-ON (mg-int-storage / slab dual-write) burn-in with a clean maturin build + consistent
+install state: **49520 passed, 1 failed** — `test_dedensify_parity::test_dedensify_golden`. The
+DEFAULT (feature-off) build is CLEAN (49521/0). The failure: the dedensify compressor node name is
+`"".join(str(n) for n in high_deg_group)` where high_deg_group is a FROZENSET — its iteration order
+is not a stable contract. fnx produced 'ACB' vs nx's 'ABC' in the full-suite context; it PASSES in
+isolation across PYTHONHASHSEED={0,1,42}. So it is ORDER-DEPENDENT, and the feature-on BINARY (extra
+slab_shadow field + dual-write branches -> different codegen/memory layout) perturbs Python
+set/frozenset iteration enough to flip which order-bucket dedensify's intersection lands in during
+the full suite. Same fragile-test class already seen via rch-vs-maturin .so and install-state
+mismatches ([[rch_so_nondeterministic_vs_maturin]]).
+
+WHY IT MATTERS FOR THE FLIP: making the slab the DEFAULT storage changes the binary the same way, so
+this fragile golden (and any other frozenset/set-order-dependent fnx-vs-nx golden) must be stabilized
+FIRST. The dedensify output is SEMANTICALLY correct (same compression, same signature) — only the
+arbitrary compressor-name order differs. FLIP PREREQUISITE: either (a) make fnx.dedensify's
+compressor name order-independent from the binary (build high_deg_group insertion order to match nx's
+frozenset construction deterministically, or sort — but sorting diverges from nx's unsorted golden,
+so it must be a coordinated fnx+test change), or (b) sweep all *_golden tests for frozenset/set-order
+sensitivity and pin them. NOT a current blocker: the default feature-off build is clean; site-packages
+restored to feature-off. rch fleet was saturated for the Rust slab gauntlet (thp6w_s11/s14) —
+re-run those under the feature next slab session.
