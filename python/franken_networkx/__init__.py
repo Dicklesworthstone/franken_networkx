@@ -4142,6 +4142,15 @@ def _decode_dict_of_dicts_into(self, data, is_multigraph, multigraph_input=None)
         self.add_edges_from(batch)
         return
 
+    # br-r37-c1-fo8zw: seed ALL source nodes in dict-key order first, exactly
+    # like nx.convert.from_dict_of_dicts / from_dict_of_lists
+    # (``G.add_nodes_from(d)`` before any edge). The general per-source loop
+    # below adds target nodes as edges are discovered, so without this the node
+    # order interleaves source/target discovery instead of "all keys, then
+    # edge-order targets". Previously the Rust ``__new__`` pre-absorbed the dict
+    # keys as nodes, masking this; the fo8zw ctor guards stop absorbing dict
+    # inputs, so the canonical order must be established here.
+    self.add_nodes_from(data)
     for u, nbrs in data.items():
         self.add_node(u)
         if isinstance(nbrs, dict):

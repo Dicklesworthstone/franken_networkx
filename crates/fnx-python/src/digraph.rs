@@ -27,7 +27,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(test)]
 static FORCE_DIGRAPH_CTOR_ROW_KEY_PROBES: AtomicBool = AtomicBool::new(false);
 
-fn exact_int_str_keyed_ctor_tuple(item: &Bound<'_, PyAny>) -> bool {
+pub(crate) fn exact_int_str_keyed_ctor_tuple(item: &Bound<'_, PyAny>) -> bool {
     let Ok(tuple) = item.downcast::<PyTuple>() else {
         return false;
     };
@@ -3062,6 +3062,15 @@ impl PyMultiDiGraph {
             // first). Leaving an empty graph is correct: `_decode` re-adds every
             // source node itself.
             if data.is_instance_of::<PyDict>() {
+                return Ok(g);
+            }
+            // br-r37-c1-fo8zw: a FOREIGN graph object (nx.Graph / nx.MultiGraph
+            // — fnx-native graphs were caught by `fnx_graph_instance_mode`) is
+            // rebuilt by `__init__`'s `_copy_constructor_graph_source` via the
+            // public edge iterator. Skip absorption: the two-epoch loop below
+            // iterates the graph's NODES and `normalize` rejects a bare node as
+            // an invalid edge. Mirrors the PyMultiGraph guard.
+            if data.hasattr("is_multigraph")? && data.hasattr("nodes")? && data.hasattr("edges")? {
                 return Ok(g);
             }
             let materialized = crate::materialize_iterator_edge_list(py, data, true, true, false)?;

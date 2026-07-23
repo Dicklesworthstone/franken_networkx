@@ -125,3 +125,31 @@ failed pre-fix, all MultiDiGraph ctor). NB: those 5 + the earlier phantom "13" w
 a WEEK-STALE `_fnx.abi3.so` — `maturin develop` here builds into `/data/tmp/cargo-target/maturin/
 lib_fnx.so` but does NOT copy to site-packages; must `cp` to BOTH site-packages AND
 python/franken_networkx/ (reinforces [[stale_install_benchmark_trap]] / [[maturin_stale_so_wrong_python]]).
+
+## 2026-07-23 SnowyBadger (cc) — CTOR-PARITY (br-r37-c1-fo8zw): MultiGraph two-epoch + None-endpoint; MDG nx-graph guard
+
+Extends the MDG ctor fix (e0d464111). MultiGraph `__new__` ported to nx's exact two-epoch
+from_edgelist contract (the pattern proven on MDG): `normalize_ctor_edge_item` rejects a
+None/unhashable endpoint up front, epoch 0 discards + retries, epoch 1 raises. So MG `[(None, 1)]`
+now raises NetworkXError (was a raw ValueError — `edge_list_err` only wrapped TypeError) and the
+iterator suffix contract holds. Two guards were REQUIRED alongside the normalize step (which rejects
+bare items): (1) a dict guard — a dict is always from_dict_of_dicts, `__init__`'s decode owns it;
+(2) an nx-graph guard — a foreign graph is rebuilt by `_copy_constructor_graph_source`, so `__new__`
+must not iterate its nodes. Added the SAME nx-graph guard to MultiDiGraph (e0d464111 added its
+two-epoch+normalize but not the nx-graph guard, leaving `fnx.MultiDiGraph(nx.MultiGraph)` a latent
+divergence — now fixed). `_decode_dict_of_dicts_into` seeds `add_nodes_from(data)` first (matches
+nx's from_dict_of_dicts node order; previously the Rust `__new__` key pre-absorption masked this,
+which the dict guard removes).
+
+4-class differential: MG + MDG now MATCH nx on {None list/iter/suffix, dict-of-lists, nx-graph,
+4-tuple, bare-nodes, bad-3-tuple, valid}. Full fast suite 49521 passed, 0 failed. REMAINING (2,
+Graph + DiGraph `[(None, 1)]`): the simple classes absorb None as a "None" node via their
+fast-batch (node_key_to_string(None)→repr), needing batch-decline + two-epoch on the HOTTEST ctor
+path — deferred (higher regression risk; latent, no failing test). Tracked in fo8zw.
+
+CRITICAL BUILD LESSON (see [[rch_so_nondeterministic_vs_maturin]]): an rch-built `.so` (remote
+rustc) triggered 3-4 ORDER-DEPENDENT `test_summarization` failures that VANISH with a local
+maturin-built `.so` (same HEAD source). I nearly reverted this correct fix on that false
+attribution. Authoritative fnx-python testing MUST use a local `maturin develop --release` build
+(into a FRESH CARGO_TARGET_DIR to dodge rch's E0514 rustc-mismatch contamination), cp'd to BOTH
+site-packages and python/franken_networkx/.
