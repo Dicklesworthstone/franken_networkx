@@ -895,7 +895,14 @@ class EdgeDataView:
                 if data is False:
                     return [(u, v) for u, v, _d in rows]
                 if data is True:
-                    return [(u, v, d) for u, v, d in rows]
+                    # br-r37-c1-04z53 (cc): the native kernel already emits
+                    # exactly (u, v, attrs) 3-tuples for data=True, so the old
+                    # `[(u, v, d) for u, v, d in rows]` comprehension rebuilt an
+                    # identical tuple per edge (a wasted O(E) unpack+repack — the
+                    # dominant cost in _materialize_via_adj_walk). Return the
+                    # native list directly (byte-identical; it is freshly built
+                    # per call, so no aliasing).
+                    return rows
                 if data_is_none:
                     return [(u, v, default) for u, v, _d in rows]
                 # data is a string attr name

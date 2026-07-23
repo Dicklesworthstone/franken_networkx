@@ -213,3 +213,27 @@ manifested as the rch-vs-maturin `.so` false failures ([[rch_so_nondeterministic
 cause likely in `_dedensify_simple_native_rows`'s `type(G) in (Graph, DiGraph)` gate or a
 module-level detection cache that leaks across tests. Until then, edges/view perf changes cannot be
 validated against the full suite reliably.
+
+## 2026-07-23 SnowyBadger (cc) SHIP + CORRECTION (br-r37-c1-04z53): edges(nbunch,data) repack removal — the prior REJECT was an INSTALL-STATE artifact, not a real block
+
+CORRECTION of the REJECT above (same day). The 4 `test_summarization_module_parity` full-suite
+failures I attributed to this change were NOT caused by it and NOT a real "summarization
+order-fragility". They were an artifact of MY OWN inconsistent install state while debugging: I was
+swapping `python/franken_networkx/__init__.py` and `_fnx.abi3.so` between HEAD and change versions,
+leaving MISMATCHED combos (repo init != site-packages init, or a stale/rch-built .so). With a
+CONSISTENT state (repo init == site-packages init == the version under test, `.so` matching HEAD),
+the repack change passes the FULL fast suite **49521 passed, 0 failed**, and summarization passes
+3/3 in isolation both on HEAD and with the change. br-r37-c1-3t256 (the "order-fragility" blocker)
+is a FALSE alarm — closing it.
+
+SHIPPED: `EdgeDataView._materialize_via_adj_walk` data=True returns the native `_fnx.edges_nbunch_data`
+list directly instead of `[(u, v, d) for u, v, d in rows]` (the native kernel already emits exactly
+(u,v,attrs) 3-tuples, so the comprehension was a wasted O(E) unpack+repack). Byte-identical + exact
+edge-order parity vs nx (verified incl. duplicate-nbunch dedup). `Graph.edges(nbunch, data=True)`
+0.64x -> 0.74x.
+
+LESSON (load-bearing): before trusting ANY full-suite pass/fail, verify install-state CONSISTENCY:
+`diff repo/__init__.py site-packages/__init__.py` AND `diff repo/_fnx.abi3.so site-packages/_fnx.abi3.so`
+must both be identical, and the .so must be a MATURIN build of the source under test (not rch). A
+mismatched combo produces phantom order-dependent failures that mimic a real fragility.
+Reinforces [[rch_so_nondeterministic_vs_maturin]].
