@@ -9257,3 +9257,16 @@ and the routed edges_ordered read — is invisible to the entire Python parity s
 gates predicted. Default state restored to feature-off in site-packages. Remaining before any
 default flip: co-build in the attributed fresh variant, more read routes, and a FULL (incl. slow)
 suite pass on a clean tree.
+
+## 2026-07-22 SnowyBadger (cc) KEEP (thp6w S15): attributed fresh path co-builds the slab — both fresh constructors now born warm
+
+`extend_fresh_index_keyed_edges_with_attrs_unrecorded` gets the S14 co-build with its OWN semantics
+mirrored exactly: arbitrary labels, out-of-bounds edge skips (both sides skip identically),
+dup-(pair,key) attr MERGE (CompactBucket::merge == store's extend), edge_count parity via
+merge-is-new. Gauntlet extended (attributed born-warm + merged-attrs cell + skip parity).
+Feature-on 84/84, feature-off 82/82, re-verified after ff to f38840cf3 (peer landed their
+iterator-ctor work before the codex weekly cap; their leftover tree WIP was byte-identical to
+origin and cleared via explicit-ref stash/pull/pop). Python subset on the feature-on wheel:
+2508 passed, 3 failed — the SAME pre-existing dict_of ctor failures from the control set (peer
+lane, now MINE: cod capped until Jul 29). Peer also left stash@{1} "br-r37-c1-ctorskip" with a
+handoff note — ctor-lane inheritance to triage.

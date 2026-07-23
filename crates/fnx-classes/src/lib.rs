@@ -4277,6 +4277,23 @@ impl MultiGraph {
             self.nodes.insert(node.clone(), AttrMap::new());
             self.adjacency.insert(node.clone(), IndexMap::new());
         }
+        // br-r37-c1-thp6w S15: the attributed fresh path co-builds the slab
+        // too (S14 pattern) — arbitrary labels, out-of-bounds skips, and
+        // attr-merge semantics mirrored exactly.
+        #[cfg(feature = "mg-int-storage")]
+        let mut fresh_slab = {
+            use mg_int_storage_proto::MgSlabStorageProto;
+            let mut slab = MgSlabStorageProto::new();
+            slab.node_order.reserve(node_labels.len());
+            slab.slot_names.reserve(node_labels.len());
+            slab.rows.reserve(node_labels.len());
+            for (slot, name) in node_labels.iter().enumerate() {
+                slab.node_order.insert(name.clone(), slot);
+                slab.slot_names.push(Some(name.clone()));
+                slab.rows.push(IndexMap::new());
+            }
+            slab
+        };
 
         let node_count = node_labels.len();
         let mut inserted = 0usize;
@@ -4288,6 +4305,40 @@ impl MultiGraph {
             let Some(right) = node_labels.get(right_idx) else {
                 continue;
             };
+            #[cfg(feature = "mg-int-storage")]
+            {
+                use mg_int_storage_proto::{CompactBucket, CompactKeys};
+                let pair = (left_idx.min(right_idx), left_idx.max(right_idx));
+                match fresh_slab.edges.entry(pair) {
+                    indexmap::map::Entry::Occupied(mut bucket) => {
+                        if bucket.get_mut().merge(key, attrs.clone()) {
+                            fresh_slab.edge_count += 1;
+                        }
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactBucket::One(key, attrs.clone()));
+                        fresh_slab.edge_count += 1;
+                    }
+                }
+                match fresh_slab.rows[left_idx].entry(right_idx) {
+                    indexmap::map::Entry::Occupied(mut cell) => {
+                        let _ = cell.get_mut().insert(key);
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactKeys::One(key));
+                    }
+                }
+                if left_idx != right_idx {
+                    match fresh_slab.rows[right_idx].entry(left_idx) {
+                        indexmap::map::Entry::Occupied(mut cell) => {
+                            let _ = cell.get_mut().insert(key);
+                        }
+                        indexmap::map::Entry::Vacant(slot) => {
+                            slot.insert(CompactKeys::One(key));
+                        }
+                    }
+                }
+            }
 
             let edge_key = EdgeKey::new(left, right);
             let bucket = self.edges.entry(edge_key).or_default();
@@ -4342,6 +4393,13 @@ impl MultiGraph {
                     },
                 ],
             );
+        }
+        // br-r37-c1-thp6w S15: install the co-built slab keyed at the final
+        // revision — attributed fresh graphs are warm from birth too.
+        #[cfg(feature = "mg-int-storage")]
+        {
+            debug_assert_eq!(fresh_slab.edge_count, self.edge_count);
+            self.slab_shadow = Some(Box::new((self.revision, fresh_slab)));
         }
 
         inserted
@@ -6434,6 +6492,32 @@ mod tests {
         assert!(g.slab_shadow_is_warm());
         let shadow = g.slab_shadow.as_deref().expect("shadow present");
         assert_slab_matches_mg(&g, &shadow.1);
+
+        // br-r37-c1-thp6w S15: the ATTRIBUTED fresh path is born warm too —
+        // arbitrary labels, dup-(pair,key) attr merge, out-of-bounds skip.
+        let mut h = MultiGraph::strict();
+        let mut w1 = AttrMap::new();
+        w1.insert("w".to_owned(), fnx_runtime::CgseValue::Int(1));
+        let mut w2 = AttrMap::new();
+        w2.insert("x".to_owned(), fnx_runtime::CgseValue::Int(2));
+        let _ = h.extend_fresh_index_keyed_edges_with_attrs_unrecorded(
+            vec!["b".to_owned(), "a".to_owned(), "c".to_owned()],
+            vec![
+                (0, 1, 0, w1.clone()),
+                (1, 0, 0, w2),             // dup (pair, key) reversed -> attr merge
+                (2, 2, 0, w1),             // self-loop
+                (0, 9, 0, AttrMap::new()), // out-of-bounds -> skipped by BOTH sides
+                (1, 2, 3, AttrMap::new()), // sparse key
+            ],
+        );
+        assert!(h.slab_shadow_is_warm(), "attributed fresh graph born warm");
+        let shadow = h.slab_shadow.as_deref().expect("shadow present");
+        assert_slab_matches_mg(&h, &shadow.1);
+        assert_eq!(
+            shadow.1.edges[&(0, 1)].attrs_for(0),
+            h.edge_attrs("b", "a", 0),
+            "merged attrs on the dup cell must match"
+        );
     }
 
     /// br-r37-c1-thp6w S11 GAUNTLET (production dual-write shadow): with the
