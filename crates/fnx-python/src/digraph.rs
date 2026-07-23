@@ -3052,6 +3052,18 @@ impl PyMultiDiGraph {
                 g.inner = MultiDiGraph::new(mode);
                 return Ok(g);
             }
+            // br-r37-c1-hxdyb: a dict is ALWAYS from_dict_of_dicts in nx's
+            // to_networkx_graph dispatch (never an edge-list), so `__init__`'s
+            // `_decode_dict_of_dicts_into` owns it — skip absorption. Without
+            // this, iterating the dict yields bare-int KEYS, which the
+            // edge-normalizing loop below rejects as "Input is not a valid edge
+            // list" (MultiGraph/Graph/DiGraph absorb keys as bare nodes and get
+            // rescued by the same `__init__` decode; MultiDiGraph's loop raises
+            // first). Leaving an empty graph is correct: `_decode` re-adds every
+            // source node itself.
+            if data.is_instance_of::<PyDict>() {
+                return Ok(g);
+            }
             let materialized = crate::materialize_iterator_edge_list(py, data, true, true, false)?;
             let edata: &Bound<'_, PyAny> = materialized
                 .as_ref()
@@ -3126,7 +3138,7 @@ impl PyMultiDiGraph {
                 // only handles (u,v)/(u,v,key_string)/(u,v,key,dict), so weighted
                 // 3-tuples fell to the per-edge loop (~0.49x). Mutation-free on
                 // false -> the iterator loop below still owns declined inputs.
-            } else if let Ok(iter) = PyIterator::from_object(edata) {
+            } else if edata.try_iter().is_ok() {
                 // br-r37-c1-baqyi: nx's to_networkx_graph wraps every
                 // from_edgelist failure in NetworkXError("Input is not a
                 // valid edge list") — unhashable keys raise TypeError from
@@ -3139,45 +3151,48 @@ impl PyMultiDiGraph {
                         e
                     }
                 };
-                let mut retrying = false;
-                for item in iter {
-                    let normalized = item.and_then(|item| {
-                        if exact_int_str_keyed_ctor_tuple(&item) {
-                            Ok(item)
-                        } else {
-                            crate::normalize_ctor_edge_item(py, &item, true)
-                        }
-                    });
-                    let item = match normalized {
-                        Ok(item) => item,
-                        Err(_) if !retrying => {
-                            let graph_attrs = g.graph_attrs.clone_ref(py);
-                            g = Self::new_empty_with_mode(py, CompatibilityMode::Strict)?;
-                            g.graph_attrs = graph_attrs;
-                            retrying = true;
-                            continue;
-                        }
-                        Err(_) => {
-                            return Err(NetworkXError::new_err("Input is not a valid edge list"));
-                        }
+                // br-r37-c1-hxdyb: replicate nx `to_networkx_graph`'s TWO-EPOCH
+                // from_edgelist contract exactly. Epoch 0 tries to build; on a
+                // malformed row it discards the partial graph and drops to
+                // epoch 1 (nx's `except: pass`). Epoch 1 re-runs `from_edgelist`
+                // over a FRESH iterator of the SAME `edata` and RAISES on the
+                // next malformed row. This is why a re-iterable LIST with a bad
+                // last row raises (epoch 1 restarts from the top and fails
+                // again) while a one-shot ITERATOR yields the post-failure
+                // suffix (epoch 0 consumed up to the failure, so epoch 1 sees
+                // only what remains). A single-pass retry flag conflated the two
+                // and let a bad-tail LIST return an empty graph instead of
+                // raising (`[(1, 2, [3])]`).
+                'epochs: for epoch in 0..2 {
+                    let Ok(iter) = PyIterator::from_object(edata) else {
+                        break;
                     };
-                    if let Ok(tuple) = item.downcast::<PyTuple>() {
-                        let merged = PyDict::new(py);
-                        match tuple.len() {
-                            2 => {
-                                g.add_edge(
-                                    py,
-                                    &tuple.get_item(0)?,
-                                    &tuple.get_item(1)?,
-                                    None,
-                                    Some(&merged),
-                                )
-                                .map_err(edge_list_err)?;
+                    for item in iter {
+                        let normalized = item.and_then(|item| {
+                            if exact_int_str_keyed_ctor_tuple(&item) {
+                                Ok(item)
+                            } else {
+                                crate::normalize_ctor_edge_item(py, &item, true)
                             }
-                            3 => {
-                                let third = tuple.get_item(2)?;
-                                if let Ok(d) = third.downcast::<PyDict>() {
-                                    merged.update(d.as_mapping())?;
+                        });
+                        let item = match normalized {
+                            Ok(item) => item,
+                            Err(_) if epoch == 0 => {
+                                let graph_attrs = g.graph_attrs.clone_ref(py);
+                                g = Self::new_empty_with_mode(py, CompatibilityMode::Strict)?;
+                                g.graph_attrs = graph_attrs;
+                                continue 'epochs;
+                            }
+                            Err(_) => {
+                                return Err(NetworkXError::new_err(
+                                    "Input is not a valid edge list",
+                                ));
+                            }
+                        };
+                        if let Ok(tuple) = item.downcast::<PyTuple>() {
+                            let merged = PyDict::new(py);
+                            match tuple.len() {
+                                2 => {
                                     g.add_edge(
                                         py,
                                         &tuple.get_item(0)?,
@@ -3186,73 +3201,89 @@ impl PyMultiDiGraph {
                                         Some(&merged),
                                     )
                                     .map_err(edge_list_err)?;
-                                } else {
-                                    // br-r37-c1-baqyi: nx tries
-                                    // ddd.update(dd) FIRST; only a
-                                    // TypeError/ValueError makes the third
-                                    // element the key. Dict-able iterables
-                                    // of pairs are DATA.
-                                    let throwaway = PyDict::new(py);
-                                    match throwaway.call_method1("update", (&third,)) {
-                                        Ok(_) => {
-                                            merged.update(throwaway.as_mapping())?;
-                                            g.add_edge(
-                                                py,
-                                                &tuple.get_item(0)?,
-                                                &tuple.get_item(1)?,
-                                                None,
-                                                Some(&merged),
-                                            )
-                                            .map_err(edge_list_err)?;
+                                }
+                                3 => {
+                                    let third = tuple.get_item(2)?;
+                                    if let Ok(d) = third.downcast::<PyDict>() {
+                                        merged.update(d.as_mapping())?;
+                                        g.add_edge(
+                                            py,
+                                            &tuple.get_item(0)?,
+                                            &tuple.get_item(1)?,
+                                            None,
+                                            Some(&merged),
+                                        )
+                                        .map_err(edge_list_err)?;
+                                    } else {
+                                        // br-r37-c1-baqyi: nx tries
+                                        // ddd.update(dd) FIRST; only a
+                                        // TypeError/ValueError makes the third
+                                        // element the key. Dict-able iterables
+                                        // of pairs are DATA.
+                                        let throwaway = PyDict::new(py);
+                                        match throwaway.call_method1("update", (&third,)) {
+                                            Ok(_) => {
+                                                merged.update(throwaway.as_mapping())?;
+                                                g.add_edge(
+                                                    py,
+                                                    &tuple.get_item(0)?,
+                                                    &tuple.get_item(1)?,
+                                                    None,
+                                                    Some(&merged),
+                                                )
+                                                .map_err(edge_list_err)?;
+                                            }
+                                            Err(err)
+                                                if err.is_instance_of::<PyTypeError>(py)
+                                                    || err.is_instance_of::<PyValueError>(py) =>
+                                            {
+                                                g.add_edge(
+                                                    py,
+                                                    &tuple.get_item(0)?,
+                                                    &tuple.get_item(1)?,
+                                                    Some(&third),
+                                                    Some(&merged),
+                                                )
+                                                .map_err(edge_list_err)?;
+                                            }
+                                            Err(err) => return Err(err),
                                         }
-                                        Err(err)
-                                            if err.is_instance_of::<PyTypeError>(py)
-                                                || err.is_instance_of::<PyValueError>(py) =>
-                                        {
-                                            g.add_edge(
-                                                py,
-                                                &tuple.get_item(0)?,
-                                                &tuple.get_item(1)?,
-                                                Some(&third),
-                                                Some(&merged),
-                                            )
-                                            .map_err(edge_list_err)?;
-                                        }
-                                        Err(err) => return Err(err),
                                     }
                                 }
-                            }
-                            4 => {
-                                let edge_key = tuple.get_item(2)?;
-                                let fourth = tuple.get_item(3)?;
-                                if let Ok(d) = fourth.downcast::<PyDict>() {
-                                    merged.update(d.as_mapping())?;
-                                } else {
-                                    // br-r37-c1-baqyi: nx's ddd.update(dd)
-                                    // runs BEFORE add_edge — a non-dict
-                                    // 4th raises with NOTHING created (the
-                                    // ctor wraps it as an invalid edge
-                                    // list, like nx to_networkx_graph).
-                                    let throwaway = PyDict::new(py);
-                                    throwaway
-                                        .call_method1("update", (&fourth,))
-                                        .map_err(edge_list_err)?;
-                                    merged.update(throwaway.as_mapping())?;
+                                4 => {
+                                    let edge_key = tuple.get_item(2)?;
+                                    let fourth = tuple.get_item(3)?;
+                                    if let Ok(d) = fourth.downcast::<PyDict>() {
+                                        merged.update(d.as_mapping())?;
+                                    } else {
+                                        // br-r37-c1-baqyi: nx's ddd.update(dd)
+                                        // runs BEFORE add_edge — a non-dict
+                                        // 4th raises with NOTHING created (the
+                                        // ctor wraps it as an invalid edge
+                                        // list, like nx to_networkx_graph).
+                                        let throwaway = PyDict::new(py);
+                                        throwaway
+                                            .call_method1("update", (&fourth,))
+                                            .map_err(edge_list_err)?;
+                                        merged.update(throwaway.as_mapping())?;
+                                    }
+                                    g.add_edge(
+                                        py,
+                                        &tuple.get_item(0)?,
+                                        &tuple.get_item(1)?,
+                                        Some(&edge_key),
+                                        Some(&merged),
+                                    )
+                                    .map_err(edge_list_err)?;
                                 }
-                                g.add_edge(
-                                    py,
-                                    &tuple.get_item(0)?,
-                                    &tuple.get_item(1)?,
-                                    Some(&edge_key),
-                                    Some(&merged),
-                                )
-                                .map_err(edge_list_err)?;
+                                _ => g.add_node(py, &item, None)?,
                             }
-                            _ => g.add_node(py, &item, None)?,
+                        } else {
+                            g.add_node(py, &item, None)?;
                         }
-                    } else {
-                        g.add_node(py, &item, None)?;
                     }
+                    // Epoch finished with no malformed row — accept this graph.
+                    break;
                 }
             }
         }

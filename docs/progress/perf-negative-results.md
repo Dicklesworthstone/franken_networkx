@@ -97,3 +97,31 @@ routing history, but they do not close source families under this rule.
 | 2026-06-03 | `quotient_graph` raw edge insertion | Direct raw-edge insertion shortcut. | `tests/artifacts/perf/20260603T-quotient-raw-edge-insert/benchmark_report.md` recorded no real speedup under direct timing/hyperfine. | Rejected. | Do not retry raw edge insertion without a different representation-level bottleneck. |
 | 2026-06-06 | attributed DiGraph batch construction | Seen-node/copy/slot descriptor variants. | `tests/artifacts/perf/20260606T-digraph-add-edges-mirror-arena-cod/report.md` recorded regressions across several batch attempts. | Rejected. | Route to contiguous row batches with source PyDict handles and Rust attrs only if a fresh profile still points there. |
 | 2026-07-22 | Attributed `DiGraph(true_iterator)` private-snapshot transfer (`br-r37-c1-04z53.9179`, WhiteJaguar) | Fresh profile satisfied the old retry predicate: transfer the transactional decoder's private shallow attr snapshot into the ordered edge mirror instead of making a second copy; caller-owned list/tuple paths remained isolated. | Current-head public row on actual RCH worker `ovh-b`: FNX `66.420 ms`, NX `66.516 ms` (`1.0014x`). Exact same-binary snapshot/mirror parity passed. Three CPU-4 interleaved 21-pair A/B+null attempts on actual RCH worker `vmi1227854` were directionally positive but inadmissible: candidate medians `1.1208x/1.1333x/1.1364x`, wins `20/21`, `21/21`, `21/21`, CV `6.749%/5.147%/7.139%`; null medians `1.0101x/0.9795x/0.9979x`, CV `8.225%/6.314%/8.110%`. Production/test prototype manually removed; benchmark row retained. | BLOCKED / no source verdict; not a REJECT and not a KEEP. | Retry only on an actual RCH worker with no concurrent Cargo/rustc and one-minute load below `2.0` on at least 10 CPUs; use at least 64 constructions/sample, 21 alternating pairs, exact parity, both CVs below `5%`, candidate median above `1.05x` and at least `0.05x` above null. Until then do not restore or cite the noisy prototype as a win. |
+
+## 2026-07-23 SnowyBadger (cc) — CTOR-PARITY FIX (br-r37-c1-hxdyb, sole producer): MultiDiGraph dict + two-epoch edge-list
+
+Two genuine MultiDiGraph-only constructor divergences (all other three graph classes were already
+correct), fixed in `PyMultiDiGraph::__new__` (digraph.rs):
+
+1. **dict input** (`MultiDiGraph({1:[2,3],...})`): raised `"Input is not a valid edge list"` where nx
+   builds edges. A dict is ALWAYS `from_dict_of_dicts` in nx's `to_networkx_graph` dispatch, never an
+   edge-list; the other classes absorb dict KEYS as bare nodes in `__new__` and get rescued by
+   `__init__`'s `_decode_dict_of_dicts_into`, but MDG's edge-normalizing loop rejects bare-int keys
+   first. Fix: explicit `data.is_instance_of::<PyDict>()` early-return (empty graph; `_decode`
+   re-adds sources). Node ORDER verified byte-exact vs nx.
+
+2. **two-epoch edge-list** (`MultiDiGraph([(1,2,[3])])`): returned an empty graph where nx raises.
+   Root cause found by reading nx `convert.to_networkx_graph`: it calls `from_edgelist` TWICE — epoch
+   0 swallows a malformed-row failure (`except: pass`), epoch 1 re-runs over the SAME `data` and
+   RAISES. A re-iterable LIST re-runs from the top (bad row fails again → raise); a one-shot ITERATOR
+   was consumed to the failure point in epoch 0 so epoch 1 sees only the suffix (→ empty or
+   suffix-graph). fnx modeled this with a single-pass `retry` flag + `continue`, which handled
+   iterators but let a bad-TAIL list return empty. Fix: explicit `'epochs: for epoch in 0..2` loop,
+   each epoch a FRESH `PyIterator::from_object(edata)`; epoch 0 discards+continues, epoch 1 raises.
+
+Verified: 7-case boundary matrix (only-bad-list, bad-{first,middle,last}-iter, all-valid list/iter,
+dict-of-lists) all MATCH nx exactly. Full fnx-python fast suite **49521 passed, 0 failed** (was 5
+failed pre-fix, all MultiDiGraph ctor). NB: those 5 + the earlier phantom "13" were partly masked by
+a WEEK-STALE `_fnx.abi3.so` — `maturin develop` here builds into `/data/tmp/cargo-target/maturin/
+lib_fnx.so` but does NOT copy to site-packages; must `cp` to BOTH site-packages AND
+python/franken_networkx/ (reinforces [[stale_install_benchmark_trap]] / [[maturin_stale_so_wrong_python]]).
