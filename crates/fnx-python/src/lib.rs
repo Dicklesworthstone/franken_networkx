@@ -225,6 +225,9 @@ pub(crate) static FORCE_MULTIDIGRAPH_CTOR_KEYED_STREAMING: AtomicBool = AtomicBo
 #[cfg(test)]
 pub(crate) static FORCE_MULTIDIGRAPH_CTOR_KEYED_STRING_STAGE: AtomicBool = AtomicBool::new(false);
 
+#[cfg(test)]
+pub(crate) static FORCE_MULTIDIGRAPH_CTOR_KEYED_STRING_MIRRORS: AtomicBool = AtomicBool::new(false);
+
 pub(crate) enum MultiDiGraphExactIntStrKeyedNativeBatch {
     String {
         node_entries: Vec<(String, PyObject)>,
@@ -237,15 +240,31 @@ pub(crate) enum MultiDiGraphExactIntStrKeyedNativeBatch {
     },
 }
 
+pub(crate) struct MultiDiGraphExactIntStrKeyedIndexedMirror {
+    pub(crate) u_index: usize,
+    pub(crate) v_index: usize,
+    pub(crate) internal_key: usize,
+    pub(crate) attrs: Py<PyDict>,
+    pub(crate) key: PyObject,
+}
+
+pub(crate) enum MultiDiGraphExactIntStrKeyedMirrorBatch {
+    String {
+        edge_attrs: HashMap<(String, String, usize), Py<PyDict>>,
+        edge_keys: HashMap<(String, String, usize), PyObject>,
+    },
+    Indexed(Vec<MultiDiGraphExactIntStrKeyedIndexedMirror>),
+}
+
 pub(crate) struct MultiDiGraphExactIntStrKeyedBatch {
     pub(crate) native: MultiDiGraphExactIntStrKeyedNativeBatch,
-    pub(crate) edge_attrs: HashMap<(String, String, usize), Py<PyDict>>,
-    pub(crate) edge_keys: HashMap<(String, String, usize), PyObject>,
+    pub(crate) mirrors: MultiDiGraphExactIntStrKeyedMirrorBatch,
 }
 
 #[derive(Default)]
 struct MultiDiGraphExactIntStrKeyedStage {
     force_string_stage: bool,
+    force_string_mirrors: bool,
     node_seen: HashSet<String>,
     node_entries: Vec<(String, PyObject)>,
     occupied_keys: HashMap<(String, String), HashSet<usize>>,
@@ -255,8 +274,9 @@ struct MultiDiGraphExactIntStrKeyedStage {
     node_labels: Vec<String>,
     node_objects: Vec<PyObject>,
     indexed_occupied_keys: HashMap<(usize, usize), HashSet<usize>>,
-    indexed_public_to_internal: HashMap<(usize, usize, String), usize>,
+    indexed_public_to_internal: HashMap<(usize, usize, String), (usize, usize)>,
     indexed_edges: Vec<(usize, usize, usize, AttrMap)>,
+    indexed_mirrors: Vec<MultiDiGraphExactIntStrKeyedIndexedMirror>,
     edge_attrs: HashMap<(String, String, usize), Py<PyDict>>,
     edge_keys: HashMap<(String, String, usize), PyObject>,
 }
@@ -265,10 +285,16 @@ impl MultiDiGraphExactIntStrKeyedStage {
     fn new() -> Self {
         #[cfg(test)]
         let force_string_stage = FORCE_MULTIDIGRAPH_CTOR_KEYED_STRING_STAGE.load(Ordering::Relaxed);
+        #[cfg(test)]
+        let force_string_mirrors = force_string_stage
+            || FORCE_MULTIDIGRAPH_CTOR_KEYED_STRING_MIRRORS.load(Ordering::Relaxed);
         #[cfg(not(test))]
         let force_string_stage = false;
+        #[cfg(not(test))]
+        let force_string_mirrors = false;
         Self {
             force_string_stage,
+            force_string_mirrors,
             ..Self::default()
         }
     }
@@ -346,7 +372,7 @@ impl MultiDiGraphExactIntStrKeyedStage {
         // cleared; a declined row must leave the already-staged prefix
         // replayable by the frozen fallback.
         let public_lookup = edge_key_lookup_string(py, &key)?;
-        let (u_canonical, v_canonical, internal_key) = if self.force_string_stage {
+        let (internal_key, string_mirror_key, indexed_mirror_index) = if self.force_string_stage {
             let u_canonical = u_value.to_string();
             let v_canonical = v_value.to_string();
             if self.node_seen.insert(u_canonical.clone()) {
@@ -376,7 +402,7 @@ impl MultiDiGraphExactIntStrKeyedStage {
                 internal_key,
                 rust_attrs,
             ));
-            (u_canonical, v_canonical, internal_key)
+            (internal_key, Some((u_canonical, v_canonical)), None)
         } else {
             let u_index = match self.node_indices.get(&u_value).copied() {
                 Some(index) => index,
@@ -400,7 +426,7 @@ impl MultiDiGraphExactIntStrKeyedStage {
             };
             let pair = (u_index, v_index);
             let lookup_key = (u_index, v_index, public_lookup);
-            let internal_key =
+            let (internal_key, mirror_index) =
                 if let Some(existing) = self.indexed_public_to_internal.get(&lookup_key) {
                     *existing
                 } else {
@@ -410,28 +436,60 @@ impl MultiDiGraphExactIntStrKeyedStage {
                         candidate += 1;
                     }
                     occupied.insert(candidate);
+                    let mirror_index = if self.force_string_mirrors {
+                        usize::MAX
+                    } else {
+                        self.indexed_mirrors.len()
+                    };
                     self.indexed_public_to_internal
-                        .insert(lookup_key, candidate);
-                    candidate
+                        .insert(lookup_key, (candidate, mirror_index));
+                    (candidate, mirror_index)
                 };
-            let u_canonical = self.node_labels[u_index].clone();
-            let v_canonical = self.node_labels[v_index].clone();
             self.indexed_edges
                 .push((u_index, v_index, internal_key, rust_attrs));
-            (u_canonical, v_canonical, internal_key)
+            let string_mirror_key = self.force_string_mirrors.then(|| {
+                (
+                    self.node_labels[u_index].clone(),
+                    self.node_labels[v_index].clone(),
+                )
+            });
+            let indexed_mirror_index =
+                (!self.force_string_mirrors).then_some((u_index, v_index, mirror_index));
+            (internal_key, string_mirror_key, indexed_mirror_index)
         };
 
-        let edge_key = (u_canonical.clone(), v_canonical.clone(), internal_key);
-        let py_attrs = self
-            .edge_attrs
-            .entry(edge_key.clone())
-            .or_insert_with(|| PyDict::new(py).unbind());
-        if let Some(attrs) = attrs {
-            py_attrs.bind(py).update(attrs.as_mapping())?;
+        if let Some((u_canonical, v_canonical)) = string_mirror_key {
+            let edge_key = (u_canonical, v_canonical, internal_key);
+            let py_attrs = self
+                .edge_attrs
+                .entry(edge_key.clone())
+                .or_insert_with(|| PyDict::new(py).unbind());
+            if let Some(attrs) = attrs {
+                py_attrs.bind(py).update(attrs.as_mapping())?;
+            }
+            self.edge_keys
+                .entry(edge_key)
+                .or_insert_with(|| key.unbind());
+        } else {
+            let (u_index, v_index, mirror_index) =
+                indexed_mirror_index.expect("indexed mirror stage must retain its row index");
+            if mirror_index == self.indexed_mirrors.len() {
+                self.indexed_mirrors
+                    .push(MultiDiGraphExactIntStrKeyedIndexedMirror {
+                        u_index,
+                        v_index,
+                        internal_key,
+                        attrs: PyDict::new(py).unbind(),
+                        key: key.unbind(),
+                    });
+            }
+            if let Some(attrs) = attrs {
+                self.indexed_mirrors[mirror_index]
+                    .attrs
+                    .bind(py)
+                    .update(attrs.as_mapping())?;
+            }
         }
-        self.edge_keys
-            .entry(edge_key)
-            .or_insert_with(|| key.unbind());
         Ok(Some(normalized))
     }
 
@@ -457,11 +515,15 @@ impl MultiDiGraphExactIntStrKeyedStage {
                 edges: self.indexed_edges,
             }
         };
-        Some(MultiDiGraphExactIntStrKeyedBatch {
-            native,
-            edge_attrs: self.edge_attrs,
-            edge_keys: self.edge_keys,
-        })
+        let mirrors = if self.force_string_mirrors {
+            MultiDiGraphExactIntStrKeyedMirrorBatch::String {
+                edge_attrs: self.edge_attrs,
+                edge_keys: self.edge_keys,
+            }
+        } else {
+            MultiDiGraphExactIntStrKeyedMirrorBatch::Indexed(self.indexed_mirrors)
+        };
+        Some(MultiDiGraphExactIntStrKeyedBatch { native, mirrors })
     }
 }
 

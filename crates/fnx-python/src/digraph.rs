@@ -2084,17 +2084,20 @@ impl PyMultiDiGraph {
         py: Python<'_>,
         batch: crate::MultiDiGraphExactIntStrKeyedBatch,
     ) -> PyResult<()> {
-        let crate::MultiDiGraphExactIntStrKeyedBatch {
-            native,
-            edge_attrs,
-            edge_keys,
-        } = batch;
+        let crate::MultiDiGraphExactIntStrKeyedBatch { native, mirrors } = batch;
         let mirror_active = self.node_iter_mirror_active();
-        let (inserted_nodes, inserted_edges) = match native {
+        let (inserted_nodes, inserted_edges, edge_attrs, edge_keys) = match native {
             crate::MultiDiGraphExactIntStrKeyedNativeBatch::String {
                 node_entries,
                 edges,
             } => {
+                let crate::MultiDiGraphExactIntStrKeyedMirrorBatch::String {
+                    edge_attrs,
+                    edge_keys,
+                } = mirrors
+                else {
+                    unreachable!("String native stage must retain String-keyed mirrors");
+                };
                 let inserted_nodes = !node_entries.is_empty();
                 for (canonical, node) in node_entries {
                     self.node_key_map.entry(canonical.clone()).or_insert(node);
@@ -2108,6 +2111,8 @@ impl PyMultiDiGraph {
                 (
                     inserted_nodes,
                     self.inner.extend_keyed_edges_with_attrs_unrecorded(edges),
+                    edge_attrs,
+                    edge_keys,
                 )
             }
             crate::MultiDiGraphExactIntStrKeyedNativeBatch::Indexed {
@@ -2115,6 +2120,26 @@ impl PyMultiDiGraph {
                 node_objects,
                 edges,
             } => {
+                let (edge_attrs, edge_keys) = match mirrors {
+                    crate::MultiDiGraphExactIntStrKeyedMirrorBatch::String {
+                        edge_attrs,
+                        edge_keys,
+                    } => (edge_attrs, edge_keys),
+                    crate::MultiDiGraphExactIntStrKeyedMirrorBatch::Indexed(entries) => {
+                        let mut edge_attrs = HashMap::with_capacity(entries.len());
+                        let mut edge_keys = HashMap::with_capacity(entries.len());
+                        for entry in entries {
+                            let edge = (
+                                node_labels[entry.u_index].clone(),
+                                node_labels[entry.v_index].clone(),
+                                entry.internal_key,
+                            );
+                            edge_attrs.insert(edge.clone(), entry.attrs);
+                            edge_keys.insert(edge, entry.key);
+                        }
+                        (edge_attrs, edge_keys)
+                    }
+                };
                 let inserted_nodes = !node_labels.is_empty();
                 for (canonical, node) in node_labels.iter().zip(node_objects) {
                     self.node_key_map.entry(canonical.clone()).or_insert(node);
@@ -2129,6 +2154,8 @@ impl PyMultiDiGraph {
                     inserted_nodes,
                     self.inner
                         .extend_fresh_index_keyed_edges_with_attrs_unrecorded(node_labels, edges),
+                    edge_attrs,
+                    edge_keys,
                 )
             }
         };
@@ -15772,12 +15799,29 @@ mod tests {
         force_streaming: bool,
         force_string_stage: bool,
     ) -> PyResult<PyMultiDiGraph> {
+        multidigraph_from_keyed_true_iterator_with_all_controls(
+            py,
+            edges,
+            force_streaming,
+            force_string_stage,
+            false,
+        )
+    }
+
+    fn multidigraph_from_keyed_true_iterator_with_all_controls(
+        py: Python<'_>,
+        edges: &Bound<'_, PyList>,
+        force_streaming: bool,
+        force_string_stage: bool,
+        force_string_mirrors: bool,
+    ) -> PyResult<PyMultiDiGraph> {
         let iter = edges.call_method0("__iter__")?;
-        multidigraph_from_keyed_iterator_with_controls(
+        multidigraph_from_keyed_iterator_with_all_controls(
             py,
             &iter,
             force_streaming,
             force_string_stage,
+            force_string_mirrors,
         )
     }
 
@@ -15795,12 +15839,31 @@ mod tests {
         force_streaming: bool,
         force_string_stage: bool,
     ) -> PyResult<PyMultiDiGraph> {
+        multidigraph_from_keyed_iterator_with_all_controls(
+            py,
+            iter,
+            force_streaming,
+            force_string_stage,
+            false,
+        )
+    }
+
+    fn multidigraph_from_keyed_iterator_with_all_controls(
+        py: Python<'_>,
+        iter: &Bound<'_, PyAny>,
+        force_streaming: bool,
+        force_string_stage: bool,
+        force_string_mirrors: bool,
+    ) -> PyResult<PyMultiDiGraph> {
         crate::FORCE_MULTIDIGRAPH_CTOR_KEYED_STREAMING.store(force_streaming, Ordering::Relaxed);
         crate::FORCE_MULTIDIGRAPH_CTOR_KEYED_STRING_STAGE
             .store(force_string_stage, Ordering::Relaxed);
+        crate::FORCE_MULTIDIGRAPH_CTOR_KEYED_STRING_MIRRORS
+            .store(force_string_mirrors, Ordering::Relaxed);
         let graph = PyMultiDiGraph::new(py, Some(iter), None);
         crate::FORCE_MULTIDIGRAPH_CTOR_KEYED_STREAMING.store(false, Ordering::Relaxed);
         crate::FORCE_MULTIDIGRAPH_CTOR_KEYED_STRING_STAGE.store(false, Ordering::Relaxed);
+        crate::FORCE_MULTIDIGRAPH_CTOR_KEYED_STRING_MIRRORS.store(false, Ordering::Relaxed);
         graph
     }
 
@@ -15901,9 +15964,13 @@ mod tests {
                 )?)?;
             }
             let candidate = multidigraph_from_keyed_true_iterator(py, &edges, false)?;
+            let string_mirrors = multidigraph_from_keyed_true_iterator_with_all_controls(
+                py, &edges, false, false, true,
+            )?;
             let string_stage =
                 multidigraph_from_keyed_true_iterator_with_controls(py, &edges, false, true)?;
             let baseline = multidigraph_from_keyed_true_iterator(py, &edges, true)?;
+            assert_multidigraph_ctor_same(py, &candidate, &string_mirrors)?;
             assert_multidigraph_ctor_same(py, &candidate, &string_stage)?;
             assert_multidigraph_ctor_same(py, &candidate, &baseline)?;
 
@@ -15938,6 +16005,13 @@ mod tests {
                 )?)?;
             }
             let candidate = multidigraph_from_keyed_true_iterator(py, &attributed_edges, false)?;
+            let string_mirrors = multidigraph_from_keyed_true_iterator_with_all_controls(
+                py,
+                &attributed_edges,
+                false,
+                false,
+                true,
+            )?;
             let string_stage = multidigraph_from_keyed_true_iterator_with_controls(
                 py,
                 &attributed_edges,
@@ -15945,6 +16019,7 @@ mod tests {
                 true,
             )?;
             let baseline = multidigraph_from_keyed_true_iterator(py, &attributed_edges, true)?;
+            assert_multidigraph_ctor_same(py, &candidate, &string_mirrors)?;
             assert_multidigraph_ctor_same(py, &candidate, &string_stage)?;
             assert_multidigraph_ctor_same(py, &candidate, &baseline)?;
 
@@ -15976,9 +16051,17 @@ def fnx_keyed_attr_edges(mixed):
                 .expect("generator factory must populate locals");
             for mixed in [false, true] {
                 let candidate_iter = make_edges.call1((mixed,))?;
+                let string_mirrors_iter = make_edges.call1((mixed,))?;
                 let string_stage_iter = make_edges.call1((mixed,))?;
                 let baseline_iter = make_edges.call1((mixed,))?;
                 let candidate = multidigraph_from_keyed_iterator(py, &candidate_iter, false)?;
+                let string_mirrors = multidigraph_from_keyed_iterator_with_all_controls(
+                    py,
+                    &string_mirrors_iter,
+                    false,
+                    false,
+                    true,
+                )?;
                 let string_stage = multidigraph_from_keyed_iterator_with_controls(
                     py,
                     &string_stage_iter,
@@ -15986,6 +16069,7 @@ def fnx_keyed_attr_edges(mixed):
                     true,
                 )?;
                 let baseline = multidigraph_from_keyed_iterator(py, &baseline_iter, true)?;
+                assert_multidigraph_ctor_same(py, &candidate, &string_mirrors)?;
                 assert_multidigraph_ctor_same(py, &candidate, &string_stage)?;
                 assert_multidigraph_ctor_same(py, &candidate, &baseline)?;
             }
@@ -16250,6 +16334,116 @@ def fnx_keyed_attr_edges(mixed):
             Ok(())
         })
         .expect("MultiDiGraph attributed keyed indexed-stage A/B should run");
+    }
+
+    /// `br-r37-c1-sorrc`: same-binary proof for retaining keyed Python mirror
+    /// rows by dense endpoint index and materializing the two final
+    /// String-keyed maps once at commit.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multidigraph_keyed_attr_iterator_indexed_mirrors_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let edge_count = 10_000usize;
+            let repetitions = std::env::var("FNX_CTOR_REPETITIONS")
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(32usize);
+            let rounds = 21usize;
+            let edges = PyList::empty(py);
+            for source in 0..edge_count {
+                let attrs = PyDict::new(py);
+                attrs.set_item("weight", source as f64 * 0.25)?;
+                attrs.set_item("cost", source % 11)?;
+                attrs.set_item("tag", format!("e{source}"))?;
+                edges.append(PyTuple::new(
+                    py,
+                    [
+                        source.into_py_any(py)?,
+                        (source + 1).into_py_any(py)?,
+                        format!("k{source}").into_py_any(py)?,
+                        attrs.into_any().unbind(),
+                    ],
+                )?)?;
+            }
+
+            let build = |force_string_mirrors: bool| -> PyResult<PyMultiDiGraph> {
+                let graph = multidigraph_from_keyed_true_iterator_with_all_controls(
+                    py,
+                    &edges,
+                    false,
+                    false,
+                    force_string_mirrors,
+                )?;
+                black_box(graph.inner.edge_count());
+                black_box(graph.edge_py_keys.len());
+                black_box(graph.edge_py_attrs.len());
+                Ok(graph)
+            };
+
+            let string_mirrors = build(true)?;
+            let indexed = build(false)?;
+            assert_multidigraph_ctor_same(py, &indexed, &string_mirrors)?;
+            black_box(build(true)?);
+            black_box(build(false)?);
+
+            let paired = |baseline_forced_string: bool| -> PyResult<Vec<f64>> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let mut baseline_time = 0.0;
+                    let mut candidate_time = 0.0;
+                    for repetition in 0..repetitions {
+                        let baseline_first = (round + repetition).is_multiple_of(2);
+                        if baseline_first {
+                            let start = Instant::now();
+                            black_box(build(baseline_forced_string)?);
+                            baseline_time += start.elapsed().as_secs_f64();
+                            let start = Instant::now();
+                            black_box(build(false)?);
+                            candidate_time += start.elapsed().as_secs_f64();
+                        } else {
+                            let start = Instant::now();
+                            black_box(build(false)?);
+                            candidate_time += start.elapsed().as_secs_f64();
+                            let start = Instant::now();
+                            black_box(build(baseline_forced_string)?);
+                            baseline_time += start.elapsed().as_secs_f64();
+                        }
+                    }
+                    ratios.push(baseline_time / candidate_time);
+                }
+                Ok(ratios)
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mean = ratios.iter().sum::<f64>() / ratios.len() as f64;
+                let variance = ratios
+                    .iter()
+                    .map(|ratio| (ratio - mean).powi(2))
+                    .sum::<f64>()
+                    / (ratios.len() - 1) as f64;
+                let cv_pct = variance.sqrt() / mean * 100.0;
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "MULTIDIGRAPH_KEYED_ATTR_MIRRORS_AB {name}: median={:.4}x wins={wins}/{rounds} cv={cv_pct:.3}% p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "MULTIDIGRAPH_KEYED_ATTR_MIRRORS_AB edges={edge_count} repetitions={repetitions} rounds={rounds} (>1 = indexed mirror staging faster)"
+            );
+            report("indexed_vs_string_mirrors", &paired(true)?);
+            report("indexed_null", &paired(false)?);
+            Ok(())
+        })
+        .expect("MultiDiGraph attributed keyed indexed-mirror A/B should run");
     }
 
     #[test]

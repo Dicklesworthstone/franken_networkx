@@ -731,3 +731,50 @@ Require exact three-way parity, interleaved A/B plus A/A null, both CVs below
 Landing note: concurrent shared-checkout commit `18b106c63` swept this exact
 lever and evidence into its already-pushed S31 commit. The mixed landing was
 not rewritten; this constructor row remains StormyForge-owned.
+
+## 2026-07-24 StormyForge KEEP (`MultiDiGraph(iterator)` keyed scalar attrs): indexed Python-mirror staging — **1.1184x** (`br-r37-c1-sorrc`)
+
+Fresh ledger, Git, and epic-child scans excluded the earlier compact directed
+pair-counter REJECT, the private-mirror-transfer REJECT, the deferred-fallback
+REJECT, and cc's MultiGraph storage/SIMD lane. Static allocation tracing of the
+new indexed native stage found a different residual: every unique edge still
+cloned endpoint strings into two temporary mirror HashMaps, hashed both during
+staging, and hashed them again into the final graph. Fail-closed RCH refused a
+non-compilation `cargo flamegraph --version` probe without falling back
+locally.
+
+The one lever keeps each unique keyed Python mirror row in a dense
+endpoint-indexed vector and stores its vector index in the existing
+public-key lookup. Duplicates update the same live dict. Only the final commit
+constructs the two required String-keyed graph maps. A same-binary control
+retains the prior temporary String maps; native commit, public keys, attrs,
+snapshots, and fallback behavior are unchanged.
+
+Focused strict-remote parity passed on `vmi1149989` across candidate,
+String-mirror control, old String native stage, and frozen streaming route,
+covering duplicates, loops, reverse edges, reused mutable dicts, and late
+decline. Pinned release proof on `vmi1156319`, 10,000 edges, 32 constructions
+per arm, and 21 interleaved rounds:
+
+| arm | median | wins | CV | p5-p95 |
+|---|---:|---:|---:|---:|
+| temporary String maps / indexed mirror vector | **`1.1184x`** | **`21/21`** | **`3.878%`** | `1.0369x-1.1787x` |
+| indexed / indexed null | `0.9860x` | `9/21` | **`4.894%`** | `0.9377x-1.0860x` |
+
+The unchanged public row on the same worker measured FNX
+`[361.62, 382.10, 404.39] ms` versus NetworkX
+`[202.07, 252.67, 305.82] ms`, or **`0.661x`** by point estimate: improved
+from `0.622x`, but still behind.
+
+Strict-remote workspace check, focused parity, scoped production clippy, fmt,
+and diff-check passed. Mandatory workspace clippy stopped only at the
+pre-existing cc-owned `fnx-classes:1719` `collapsible_if`.
+Targeted UBS completed with zero critical findings.
+
+KEEP: the causal floor and both CV gates cleared, with 21/21 causal wins and
+exact parity. Consecutive REJECT count remains **0**. Preserve vector order,
+first key/dict identity, duplicate update order, and all fallback semantics.
+The public `0.661x` row remains open. Do not retry compact pair counters,
+mirror transfer, or deferred fallback tuples; profile a distinct
+decode/validation or final-map cost and repeat the same parity, null, CV, and
+public-row gates.
