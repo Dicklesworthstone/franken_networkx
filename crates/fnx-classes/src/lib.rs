@@ -3818,6 +3818,15 @@ impl MultiGraph {
 
     #[must_use]
     pub fn nodes_ordered(&self) -> Vec<&str> {
+        // br-r37-c1-thp6w S29: node names in insertion order from the always-warm
+        // slab feature-on (slab node_order iteration == nx node order), String
+        // fallback when stale/absent.
+        #[cfg(feature = "mg-int-storage")]
+        if let Some(shadow) = self.slab_shadow.as_deref()
+            && shadow.0 == self.revision
+        {
+            return shadow.1.node_order.keys().map(String::as_str).collect();
+        }
         self.nodes.keys().map(String::as_str).collect()
     }
 
@@ -7632,6 +7641,40 @@ mod tests {
         assert!(!h.slab_shadow_is_warm());
         assert_eq!(h.has_edge("p", "q"), he(&h, "p", "q"));
         assert_eq!(h.has_node("p"), h.nodes.contains_key("p"));
+    }
+
+    /// br-r37-c1-thp6w S29: feature-on `nodes_ordered` READS route through the
+    /// always-warm slab. Verified against the unrouted String field ground
+    /// truth (`g.nodes.keys()`) + exact insertion order, a node-removal advance
+    /// (order compaction), and the no-shadow fallback.
+    #[cfg(feature = "mg-int-storage")]
+    #[test]
+    fn thp6w_s29_nodes_ordered_reads_route_to_slab() {
+        fn gt<'a>(g: &'a MultiGraph) -> Vec<&'a str> {
+            g.nodes.keys().map(String::as_str).collect()
+        }
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("c", "a"); // insertion: c, a
+        let _ = g.add_edge("a", "b"); // b
+        let _ = g.add_node("z"); // z
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.nodes_ordered(), gt(&g), "routed node order == String");
+        assert_eq!(
+            g.nodes_ordered(),
+            vec!["c", "a", "b", "z"],
+            "insertion order"
+        );
+        // A node removal advances the shadow; order compacts.
+        assert!(g.remove_node("a"));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.nodes_ordered(), gt(&g), "after removal");
+        assert_eq!(g.nodes_ordered(), vec!["c", "b", "z"]);
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge("p", "q");
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(h.nodes_ordered(), gt(&h));
     }
 
     /// br-r37-c1-thp6w S11 GAUNTLET (production dual-write shadow): with the
