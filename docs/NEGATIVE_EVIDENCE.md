@@ -23901,3 +23901,48 @@ transfer. Revisit mirror removal only if an order-preserving native attribute
 substrate can reproduce Python insertion order and a fresh same-binary profile
 predicts at least five percent. The next constructor cycle must eliminate a
 different per-edge stage cost while preserving yield-time fallback snapshots.
+
+## 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` scalar attrs): defer normalized fallback tuples — **1.0105x** (`br-r37-c1-pab55`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE: both performance ledgers and the latest Git
+history were searched before this cycle. The earlier post-materialization
+Graph tuple/list rescans, broad MultiDiGraph drains, private-mirror transfer,
+and lazy native-mirror reconstruction remained closed. The fresh attributed
+keyed-stage KEEP retained one different allocation seam: each eligible
+four-tuple copied its source dict for mandatory yield-time fallback, then
+immediately allocated a normalized Python tuple and retained it in the
+materialized list even though a successful typed batch discarded both.
+
+ONE MEASURED LEVER: the candidate retained the immutable yielded tuple plus
+its private shallow dict snapshot without allocating the normalized fallback
+tuple. It reconstructed normalized rows only when a later row declined the
+typed stage or the stream ended below the eight-row batch floor. A test-only
+forced arm retained the prior eager tuple allocation and materialized-list
+path inside the same binary.
+
+BEHAVIOR ISOMORPHISM: focused strict-remote parity passed on `vmi1149989`.
+Candidate and frozen streaming results matched native graph snapshots, node
+and edge display maps, public key mirrors, and exact Python attribute repr and
+insertion order. Coverage included attributed duplicates, loops, a generator
+that clears and reuses one dict, late non-typed decline, both attributed-to-
+unattributed arity transitions, and a seven-row below-floor replay.
+
+SAME-WORKER INTERLEAVED A/B + NULL: strict RCH pinned one release binary to
+actual worker `vmi1156319`. Each arm constructed a fresh 10,000-edge
+attributed graph 32 times per round for 21 rounds, alternating every
+construction.
+
+| same-binary arm | median | wins | CV | p5-p95 | parity |
+|---|---:|---:|---:|---:|---:|
+| eager normalized tuples / deferred fallback | **`1.0105x`** | `14/21` | **`2.664%`** | `0.9718x-1.0504x` | exact |
+| deferred / deferred null | `0.9986x` | `9/21` | **`3.485%`** | `0.9529x-1.0496x` | identical arm |
+
+RESULT: REJECT. Both CV gates cleared, but the causal median missed the
+mandatory `1.05x` floor and sat inside the null envelope. Production and
+test-control source was reverted; only this evidence and bead closeout remain.
+Consecutive REJECT count: **2**. RETRY PREDICATE: do not retry deferred
+fallback tuple/list construction unless a new profile demonstrates at least a
+five-percent end-to-end contribution or the stage can avoid the mandatory
+yield-time dict snapshot too without changing reused-dict semantics. The next
+cycle must profile a distinct admitted-stage or commit-path cost and retain the
+same pinned-worker, exact-parity, and null-control gates.

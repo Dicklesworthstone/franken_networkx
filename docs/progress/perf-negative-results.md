@@ -647,3 +647,31 @@ was reverted. Consecutive REJECT count: **1**. Retry only with an
 order-preserving native attribute substrate plus a fresh profile predicting at
 least five percent; do not retry lazy reconstruction or mirror transfer. The
 next cycle must remove a different per-edge transactional-stage cost.
+
+## 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` scalar attrs): deferred normalized fallback tuples — **1.0105x** (`br-r37-c1-pab55`)
+
+Ledger and Git history were searched first. The fresh attributed keyed-stage
+KEEP still built one normalized Python fallback tuple per row and retained a
+large materialized list, although the successful typed batch discarded both.
+The candidate kept the original immutable tuple plus the mandatory yield-time
+dict snapshot and reconstructed normalized rows only on typed decline or below
+the eight-row batch floor. A same-binary forced arm retained the prior eager
+tuple/list path.
+
+Focused strict-remote parity passed on `vmi1149989`, including exact native and
+Python mirror state for duplicates, reusable mutable dicts, late mixed
+fallback, both arity-transition directions, and the seven-row below-floor
+control. The decisive release run was pinned to `vmi1156319`, with 10,000
+edges, 32 constructions per arm per round, and 21 interleaved rounds:
+
+| arm | median | wins | CV | p5-p95 |
+|---|---:|---:|---:|---:|
+| eager normalized tuples / deferred fallback | **`1.0105x`** | `14/21` | **`2.664%`** | `0.9718x-1.0504x` |
+| deferred / deferred null | `0.9986x` | `9/21` | **`3.485%`** | `0.9529x-1.0496x` |
+
+REJECT: stable evidence, but below the required `1.05x` causal floor and
+inside the null envelope. Source was reverted. Consecutive REJECT count:
+**2**. Retry only if a new profile shows fallback tuple/list construction is
+at least five percent of end-to-end time, or if the mandatory yield-time dict
+snapshot can also be removed without changing reused-dict semantics. The next
+cycle must target a distinct admitted-stage or commit-path cost.
