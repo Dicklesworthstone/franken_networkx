@@ -3608,6 +3608,36 @@ pub struct MultiGraph {
     slab_shadow: Option<Box<(u64, mg_int_storage_proto::MgSlabStorageProto)>>,
 }
 
+/// br-r37-c1-thp6w S32: return-type-unifying iterator for `neighbors_iter`.
+/// One arm walks the String adjacency row keys; the other walks the always-warm
+/// slab's integer row keys mapped through the slot-name table. Needed because
+/// the two `#[cfg]` routing branches produce DIFFERENT concrete iterator types
+/// that `impl Iterator` cannot unify.
+pub enum MgNeighborNames<'a> {
+    Str(indexmap::map::Keys<'a, String, IndexSet<usize>>),
+    #[cfg(feature = "mg-int-storage")]
+    Slab {
+        rows: indexmap::map::Keys<'a, usize, mg_int_storage_proto::CompactKeys>,
+        slot_names: &'a [Option<String>],
+    },
+}
+
+impl<'a> Iterator for MgNeighborNames<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Str(keys) => keys.next().map(String::as_str),
+            #[cfg(feature = "mg-int-storage")]
+            Self::Slab { rows, slot_names } => rows.next().map(|&s| {
+                slot_names[s]
+                    .as_deref()
+                    .expect("row references a live slot")
+            }),
+        }
+    }
+}
+
 impl MultiGraph {
     /// br-r37-c1-7dpyg: structural clone with a FRESH RuntimePolicy —
     /// see Graph::clone_with_fresh_policy.
@@ -3898,10 +3928,24 @@ impl MultiGraph {
             .map(|neighbors| neighbors.keys().map(String::as_str).collect::<Vec<&str>>())
     }
 
-    pub fn neighbors_iter(&self, node: &str) -> Option<impl Iterator<Item = &str> + '_> {
+    pub fn neighbors_iter(&self, node: &str) -> Option<MgNeighborNames<'_>> {
+        // br-r37-c1-thp6w S32: zero-alloc neighbor-name iteration from the
+        // always-warm slab feature-on (slot rows -> slot_names), String
+        // adjacency fallback when stale/absent. Both arms via `MgNeighborNames`
+        // so the two #[cfg] branches share one concrete return type.
+        #[cfg(feature = "mg-int-storage")]
+        if let Some(shadow) = self.slab_shadow.as_deref()
+            && shadow.0 == self.revision
+        {
+            let &slot = shadow.1.node_order.get(node)?;
+            return Some(MgNeighborNames::Slab {
+                rows: shadow.1.rows[slot].keys(),
+                slot_names: &shadow.1.slot_names,
+            });
+        }
         self.adjacency
             .get(node)
-            .map(|neighbors| neighbors.keys().map(String::as_str))
+            .map(|neighbors| MgNeighborNames::Str(neighbors.keys()))
     }
 
     /// br-r37-c1-thp6w slice 1: build the integer adjacency from the authoritative String
@@ -7820,6 +7864,51 @@ mod tests {
         assert!(!h.slab_shadow_is_warm());
         assert_eq!(h.weighted_size_int("weight"), gt(&h, "weight"));
         assert_eq!(h.weighted_size_int("weight"), Some(7));
+    }
+
+    /// br-r37-c1-thp6w S32: feature-on `neighbors_iter` READS route through the
+    /// always-warm slab via the `MgNeighborNames` enum iterator. Collected
+    /// output verified against the unrouted String field ground truth
+    /// (`g.adjacency` row keys) incl. row order, a removal advance, a missing
+    /// node (None), and the no-shadow fallback.
+    #[cfg(feature = "mg-int-storage")]
+    #[test]
+    fn thp6w_s32_neighbors_iter_reads_route_to_slab() {
+        fn gt<'a>(g: &'a MultiGraph, n: &str) -> Option<Vec<&'a str>> {
+            g.adjacency
+                .get(n)
+                .map(|row| row.keys().map(String::as_str).collect())
+        }
+        let collect = |g: &MultiGraph, n: &str| -> Option<Vec<String>> {
+            g.neighbors_iter(n)
+                .map(|it| it.map(str::to_owned).collect())
+        };
+        let want = |g: &MultiGraph, n: &str| -> Option<Vec<String>> {
+            gt(g, n).map(|v| v.into_iter().map(str::to_owned).collect())
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("a", "c");
+        let _ = g.add_edge("a", "b"); // parallel — distinct neighbor unchanged
+        let _ = g.add_edge("c", "d");
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(
+            collect(&g, "a"),
+            want(&g, "a"),
+            "routed iter == String, row order"
+        );
+        assert_eq!(collect(&g, "c"), want(&g, "c"));
+        assert!(g.neighbors_iter("missing").is_none(), "absent node -> None");
+        // A removal advances the shadow; the routed iteration reflects it.
+        assert!(g.remove_edge("a", "c", None));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(collect(&g, "a"), want(&g, "a"), "after removal");
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge("p", "q");
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(collect(&h, "p"), want(&h, "p"));
     }
 
     /// br-r37-c1-thp6w S11 GAUNTLET (production dual-write shadow): with the
