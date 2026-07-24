@@ -4933,6 +4933,12 @@ impl MultiGraph {
             return (0, 0);
         }
 
+        // br-r37-c1-thp6w S19: snapshot the pre-mutation revision so a warm
+        // shadow can be advanced (same node removals applied to the slab's
+        // stable slots — no renumber) at whichever exit path runs.
+        #[cfg(feature = "mg-int-storage")]
+        let prev_revision = self.revision;
+
         let old_node_count = self.nodes.len();
         let old_edge_count = self.edge_count;
 
@@ -4980,6 +4986,20 @@ impl MultiGraph {
             self.revision = self
                 .revision
                 .saturating_add(u64::try_from(removed_nodes).unwrap_or(u64::MAX));
+            // br-r37-c1-thp6w S19: advance the warm shadow (per-node slab
+            // remove; stale/absent shadow left as-is post-bump).
+            #[cfg(feature = "mg-int-storage")]
+            {
+                let revision = self.revision;
+                if let Some(shadow) = self.slab_shadow.as_deref_mut()
+                    && shadow.0 == prev_revision
+                {
+                    for &name in &remove_set {
+                        shadow.1.remove_node(name);
+                    }
+                    shadow.0 = revision;
+                }
+            }
             return (removed_nodes, removed_edges);
         }
 
@@ -5015,6 +5035,20 @@ impl MultiGraph {
         self.revision = self
             .revision
             .saturating_add(u64::try_from(removed_nodes).unwrap_or(u64::MAX));
+        // br-r37-c1-thp6w S19: advance the warm shadow (per-node slab remove;
+        // stale/absent shadow left as-is post-bump).
+        #[cfg(feature = "mg-int-storage")]
+        {
+            let revision = self.revision;
+            if let Some(shadow) = self.slab_shadow.as_deref_mut()
+                && shadow.0 == prev_revision
+            {
+                for &name in &remove_set {
+                    shadow.1.remove_node(name);
+                }
+                shadow.0 = revision;
+            }
+        }
         (removed_nodes, removed_edges)
     }
 
@@ -6849,6 +6883,59 @@ mod tests {
             h.edge_attrs("b", "a", 0),
             "merged attrs on the dup cell must match"
         );
+    }
+
+    /// br-r37-c1-thp6w S19: batch `remove_nodes_from` advances the warm shadow
+    /// (per-node slab remove, stable slots) on BOTH its exit paths — the
+    /// small-fraction incident fast path and the large-fraction whole-graph
+    /// retain — and never spuriously warms a stale shadow.
+    #[cfg(feature = "mg-int-storage")]
+    #[test]
+    fn thp6w_s19_remove_nodes_from_advances_shadow() {
+        let mut g = MultiGraph::strict();
+        for i in 0..12u32 {
+            let _ = g.add_edge(&i.to_string(), &((i + 1) % 12).to_string());
+        }
+        let _ = g.add_edge("0", "6"); // a chord
+        let _ = g.add_edge("3", "3"); // a self-loop
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+
+        // Fast path: small fraction (2*4 <= 12 nodes).
+        let (rn, _) = g.remove_nodes_from(["3", "9"].into_iter());
+        assert_eq!(rn, 2);
+        assert!(
+            g.slab_shadow_is_warm(),
+            "remove_nodes_from fast path must advance the shadow"
+        );
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+        }
+
+        // Fall-through path: large fraction (5*4 > 10 remaining nodes).
+        let (rn2, _) = g.remove_nodes_from(["0", "1", "2", "4", "5"].into_iter());
+        assert_eq!(rn2, 5);
+        assert!(
+            g.slab_shadow_is_warm(),
+            "remove_nodes_from fall-through must advance the shadow"
+        );
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+        }
+
+        // A STALE shadow must not be spuriously warmed by the removal.
+        g.add_node("island"); // structural (empty attrs) -> stales
+        assert!(!g.slab_shadow_is_warm());
+        let _ = g.remove_nodes_from(["island"].into_iter());
+        assert!(
+            !g.slab_shadow_is_warm(),
+            "remove_nodes_from must not warm a stale shadow"
+        );
+        g.sync_slab_shadow();
+        let shadow = g.slab_shadow.as_deref().expect("shadow present");
+        assert_slab_matches_mg(&g, &shadow.1);
     }
 
     /// br-r37-c1-thp6w S11 GAUNTLET (production dual-write shadow): with the
