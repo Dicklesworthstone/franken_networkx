@@ -3100,6 +3100,15 @@ pub mod mg_int_storage_proto {
             true
         }
 
+        /// br-r37-c1-thp6w S17 (cutover-prep): the node-attr write side — mirror
+        /// of `MultiGraph::add_node_with_attrs` (ensure the node exists, then
+        /// `extend` its attr map). Lets a node-attr mutation ADVANCE a warm
+        /// shadow in place instead of staling it into an O(V+E) rebuild.
+        pub fn set_node_attrs(&mut self, name: &str, attrs: AttrMap) {
+            let slot = self.ensure_node(name);
+            self.node_attrs[slot].extend(attrs);
+        }
+
         /// Distinct neighbors (names, row order) of the node at insertion-order
         /// position `pos`.
         #[must_use]
@@ -3955,6 +3964,24 @@ impl MultiGraph {
 
     pub fn add_node_with_attrs(&mut self, node: impl Into<String>, attrs: AttrMap) -> bool {
         let node = node.into();
+        // br-r37-c1-thp6w S17: snapshot the pre-mutation revision and (only when
+        // the shadow is warm AND real attrs are being merged) a copy of the
+        // incoming attrs BEFORE `extend` consumes them, so a node-attr SET can
+        // advance the shadow in place instead of staling it into an O(V+E)
+        // rebuild. The empty-attrs case (structural `add_node`, incl. the
+        // endpoints `add_edge` autocreates via `add_node`) is deliberately NOT
+        // advanced here: add_edge owns its own shadow advance, and a standalone
+        // structural `add_node` stales-then-rebuilds — advancing it here would
+        // re-key the shadow mid-`add_edge` and break add_edge's advance gate.
+        #[cfg(feature = "mg-int-storage")]
+        let prev_revision = self.revision;
+        #[cfg(feature = "mg-int-storage")]
+        let shadow_attrs = (!attrs.is_empty()
+            && self
+                .slab_shadow
+                .as_deref()
+                .is_some_and(|s| s.0 == self.revision))
+        .then(|| attrs.clone());
         let existed = self.nodes.contains_key(&node);
         let mut changed = !existed;
         let attrs_count = {
@@ -3972,6 +3999,20 @@ impl MultiGraph {
         self.adjacency.entry(node.clone()).or_default();
         if changed {
             self.revision = self.revision.saturating_add(1);
+        }
+        // br-r37-c1-thp6w S17: advance the warm slab shadow across this
+        // node-attr set (mirror of the S11 single-edge advance).
+        #[cfg(feature = "mg-int-storage")]
+        if self.revision != prev_revision
+            && let Some(shadow_attrs) = shadow_attrs
+        {
+            let revision = self.revision;
+            if let Some(shadow) = self.slab_shadow.as_deref_mut()
+                && shadow.0 == prev_revision
+            {
+                shadow.1.set_node_attrs(&node, shadow_attrs);
+                shadow.0 = revision;
+            }
         }
         self.record_decision(
             "add_node",
@@ -6709,26 +6750,43 @@ mod tests {
         let shadow = g.slab_shadow.as_deref().expect("shadow present");
         assert_slab_matches_mg(&g, &shadow.1);
 
-        // br-r37-c1-thp6w cutover-prep: setting a node attr is NOT an
-        // instrumented S11 advance site, so it STALES the shadow; the
-        // sync rebuild (from_string_state) must capture the node attrs.
+        // br-r37-c1-thp6w S17: a node-attr set now ADVANCES the warm shadow in
+        // place (was stale->rebuild in S16). Existing node "2":
         let mut nattrs = AttrMap::new();
         nattrs.insert("color".to_owned(), fnx_runtime::CgseValue::Int(7));
         let _ = g.add_node_with_attrs("2", nattrs);
         assert!(
-            !g.slab_shadow_is_warm(),
-            "node-attr set must stale the shadow"
+            g.slab_shadow_is_warm(),
+            "node-attr set must advance (not stale) the warm shadow"
         );
-        g.sync_slab_shadow();
-        assert!(g.slab_shadow_is_warm());
         {
             let shadow = g.slab_shadow.as_deref().expect("shadow present");
             assert_slab_matches_mg(&g, &shadow.1);
             assert_eq!(
                 shadow.1.node_attrs_for("2"),
                 g.node_attrs("2"),
-                "slab must shadow the set node attr for node 2"
+                "advanced shadow must carry the set node attr for node 2"
             );
+        }
+        // A node-attr set that CREATES a new node advances the shadow too.
+        let mut nattrs2 = AttrMap::new();
+        nattrs2.insert("w".to_owned(), fnx_runtime::CgseValue::Int(9));
+        let _ = g.add_node_with_attrs("attr_only", nattrs2);
+        assert!(g.slab_shadow_is_warm());
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+            assert_eq!(
+                shadow.1.node_attrs_for("attr_only"),
+                g.node_attrs("attr_only"),
+                "advanced shadow must carry a new attr-only node"
+            );
+        }
+        // A full rebuild still reproduces the same node attrs (from_string_state).
+        g.sync_slab_shadow();
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
         }
 
         // br-r37-c1-thp6w S15: the ATTRIBUTED fresh path is born warm too —
