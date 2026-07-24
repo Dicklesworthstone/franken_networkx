@@ -3941,6 +3941,14 @@ impl MultiGraph {
 
     #[must_use]
     pub fn edge_keys_vec(&self, left: &str, right: &str) -> Vec<usize> {
+        // br-r37-c1-thp6w S25: parallel-key order from the always-warm slab
+        // feature-on (slab `key_order`); String fallback when stale/absent.
+        #[cfg(feature = "mg-int-storage")]
+        if let Some(shadow) = self.slab_shadow.as_deref()
+            && shadow.0 == self.revision
+        {
+            return shadow.1.key_order(left, right);
+        }
         self.edges
             .get(&EdgeKeyRef::new(left, right))
             .map(|edge_bucket| edge_bucket.keys().copied().collect::<Vec<usize>>())
@@ -6513,12 +6521,17 @@ mod tests {
         mg: &MultiGraph,
         slab: &super::mg_int_storage_proto::MgSlabStorageProto,
     ) {
+        // br-r37-c1-thp6w: ground truth is the String FIELDS directly
+        // (mg.nodes/adjacency/edges), NOT the public reader methods — those
+        // route to the slab feature-on (S23/S24+), which would make this
+        // checker circular. Fields stay authoritative until step-3 removal.
+        let mg_node_order: Vec<&str> = mg.nodes.keys().map(String::as_str).collect();
         assert_eq!(
             slab.node_order
                 .keys()
                 .map(String::as_str)
                 .collect::<Vec<_>>(),
-            mg.nodes_ordered(),
+            mg_node_order,
             "slab node order"
         );
         for (name, &slot) in &slab.node_order {
@@ -6548,24 +6561,31 @@ mod tests {
                 "slab node attrs for {name}"
             );
         }
-        for (pos, name) in mg.nodes_ordered().iter().enumerate() {
+        for (pos, &name) in mg_node_order.iter().enumerate() {
             let mg_row: Vec<&str> = mg
-                .neighbors_iter(name)
-                .map_or_else(Vec::new, Iterator::collect);
+                .adjacency
+                .get(name)
+                .map(|row| row.keys().map(String::as_str).collect())
+                .unwrap_or_default();
             assert_eq!(
                 slab.neighbor_names(pos),
                 mg_row,
                 "slab row order for {name}"
             );
-            for v in &mg_row {
+            for &v in &mg_row {
+                let mg_keys: Vec<usize> = mg
+                    .edges
+                    .get(&super::EdgeKeyRef::new(name, v))
+                    .map(|bucket| bucket.keys().copied().collect())
+                    .unwrap_or_default();
                 assert_eq!(
                     slab.key_order(name, v),
-                    mg.edge_keys_vec(name, v),
+                    mg_keys,
                     "slab key order for ({name}, {v})"
                 );
             }
         }
-        assert_eq!(slab.edge_count, mg.edge_count(), "slab edge_count");
+        assert_eq!(slab.edge_count, mg.edge_count, "slab edge_count");
     }
 
     /// br-r37-c1-thp6w S9 PARITY GAUNTLET (slab + slot recycling): the
@@ -7345,6 +7365,48 @@ mod tests {
         let _ = h.add_edge_with_key_and_attrs("p", "q", 0, attr("z", 5));
         assert!(!h.slab_shadow_is_warm());
         assert_eq!(h.edge_attrs("p", "q", 0).cloned(), gt(&h, "p", "q", 0));
+    }
+
+    /// br-r37-c1-thp6w S25: feature-on `edge_keys_vec` READS route through the
+    /// always-warm slab (`key_order`). Verified against the unrouted String
+    /// field ground truth (`g.edges` bucket keys), incl. parallel keys, a
+    /// removal advance, missing edge, and the no-shadow fallback.
+    #[cfg(feature = "mg-int-storage")]
+    #[test]
+    fn thp6w_s25_edge_keys_vec_reads_route_to_slab() {
+        let gt = |g: &MultiGraph, l: &str, r: &str| -> Vec<usize> {
+            g.edges
+                .get(&super::EdgeKeyRef::new(l, r))
+                .map(|b| b.keys().copied().collect())
+                .unwrap_or_default()
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b"); // auto key 0
+        let _ = g.add_edge("a", "b"); // auto key 1
+        let _ = g.add_edge("a", "b"); // auto key 2
+        let _ = g.add_edge("b", "c");
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(
+            g.edge_keys_vec("a", "b"),
+            gt(&g, "a", "b"),
+            "routed key order"
+        );
+        assert_eq!(g.edge_keys_vec("b", "c"), gt(&g, "b", "c"));
+        assert_eq!(
+            g.edge_keys_vec("a", "z"),
+            Vec::<usize>::new(),
+            "missing edge"
+        );
+        // A per-key removal advances the shadow; the routed read reflects it.
+        assert!(g.remove_edge("a", "b", Some(1)));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.edge_keys_vec("a", "b"), gt(&g, "a", "b"), "after removal");
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge("p", "q");
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(h.edge_keys_vec("p", "q"), gt(&h, "p", "q"));
     }
 
     /// br-r37-c1-thp6w S11 GAUNTLET (production dual-write shadow): with the
