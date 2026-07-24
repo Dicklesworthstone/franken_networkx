@@ -3390,6 +3390,33 @@ pub mod mg_int_storage_proto {
                 self.rows[u_slot] = rebuilt;
             }
         }
+
+        /// br-r37-c1-thp6w S18 (cutover-prep): apply arbitrary per-node row
+        /// orders (keyed by neighbor NAME) to the slot-keyed rows — the slab
+        /// mirror of `MultiGraph::apply_row_orders`, so a copy-walk / pickle
+        /// row reorder ADVANCES the warm shadow in place (revision is
+        /// unchanged) instead of dropping it into a full rebuild. Same
+        /// requested-first-then-leftover semantics as the String applicator.
+        pub fn apply_row_orders(&mut self, orders: &[(String, Vec<String>)]) {
+            for (node, order) in orders {
+                let Some(&slot) = self.node_order.get(node.as_str()) else {
+                    continue;
+                };
+                let mut old = std::mem::take(&mut self.rows[slot]);
+                let mut new_row = IndexMap::with_capacity(old.len());
+                for v in order {
+                    if let Some(&v_slot) = self.node_order.get(v.as_str())
+                        && let Some((k, val)) = old.shift_remove_entry(&v_slot)
+                    {
+                        new_row.insert(k, val);
+                    }
+                }
+                for (k, val) in old {
+                    new_row.insert(k, val);
+                }
+                self.rows[slot] = new_row;
+            }
+        }
     }
 }
 
@@ -3505,12 +3532,20 @@ impl MultiGraph {
             .0
             .get_mut()
             .expect("int_adj_cache poisoned") = None;
-        // br-r37-c1-thp6w S11: same reasoning for the slab shadow — arbitrary
-        // row orders are not mirrored in slice 1; drop and let a later
-        // `sync_slab_shadow` rebuild from the (order-faithful) String state.
+        // br-r37-c1-thp6w S18: advance the warm slab shadow across this pure
+        // row-order change (mirror the same arbitrary orders onto the slab's
+        // slot rows). apply_row_orders does NOT bump `revision`, so a reordered
+        // warm shadow stays keyed at the current revision — no re-key needed.
+        // A stale/absent shadow is dropped (rebuilt later from String state).
         #[cfg(feature = "mg-int-storage")]
         {
-            self.slab_shadow = None;
+            if let Some(shadow) = self.slab_shadow.as_deref_mut()
+                && shadow.0 == self.revision
+            {
+                shadow.1.apply_row_orders(orders);
+            } else {
+                self.slab_shadow = None;
+            }
         }
     }
 
@@ -6819,10 +6854,10 @@ mod tests {
     /// br-r37-c1-thp6w S11 GAUNTLET (production dual-write shadow): with the
     /// `mg-int-storage` feature on, every instrumented mutation (single-edge
     /// add incl. autocreate/parallel/self-loop/attr-merge, keyed batch,
-    /// edge/node removal with slot recycling) must ADVANCE the shadow in
-    /// place (warm + byte-identical), and every UNINSTRUMENTED mutation must
-    /// leave it stale (revision key) or dropped (`apply_row_orders`) — never
-    /// silently wrong.
+    /// edge/node removal with slot recycling, node-attr set (S17), copy-walk
+    /// row reorder (S18)) must ADVANCE the shadow in place (warm +
+    /// byte-identical), and every UNINSTRUMENTED mutation must leave it stale
+    /// (revision key) — never silently wrong.
     #[cfg(feature = "mg-int-storage")]
     #[test]
     fn thp6w_s11_slab_shadow_dual_write_gauntlet() {
@@ -6869,13 +6904,16 @@ mod tests {
         let _ = g.add_edge("recycled", "c");
         shadow_parity(&g);
 
-        // Uninstrumented order-only mutation DROPS the shadow.
+        // br-r37-c1-thp6w S18: an order-only mutation (copy-walk reorder) now
+        // ADVANCES the warm shadow in place — rows reordered on the slab,
+        // revision unchanged so it stays warm and byte-identical.
         g.reorder_rows_for_nx_copy_walk();
         assert!(
-            g.slab_shadow.is_none(),
-            "apply_row_orders must drop the shadow"
+            g.slab_shadow_is_warm(),
+            "apply_row_orders must advance (not drop) the warm shadow"
         );
-        // Re-sync must capture the post-reorder row orders exactly.
+        shadow_parity(&g);
+        // A full rebuild still reproduces the same post-reorder row orders.
         g.sync_slab_shadow();
         shadow_parity(&g);
 
