@@ -596,3 +596,25 @@ lives. The shadow is now a complete, write-maintained mirror (S16/S17), so the c
 String reads and (3) the atomic String-removal, a large multi-session rewrite best done as a planned/
 coordinated effort (3 peers active in the shared tree). LEDGERED BLOCKER for a SOLO mid-session start;
 the payoff (5.3x/3.7x) justifies prioritizing it.
+
+## 2026-07-24 BlackThrush (cc) MILESTONE (br-r37-c1-thp6w): always-warm invariant COMPLETE + VALIDATED end-to-end (feature-on nx-differential CLEAN)
+
+Step A of the thp6w cutover — make the slab an always-warm, write-maintained mirror so it can become
+authoritative — is DONE and validated. Every MultiGraph mutation now advances the slab shadow feature-on
+(S16 node-attr storage, S17 node-attr set, S18 copy-walk reorder, S19 remove_nodes_from, S20 node-attr
+batch, S21 replace_node_attrs, S22 replace_edge_attrs; single-edge add/remove + remove_node + keyed edge
+batch already advanced; clear_edges shadow-aware). NO mutation stales it.
+
+VALIDATION: built the feature-on cdylib and ran a networkx-differential burn-in feature-on (isolated
+pkg, no shared .so touched). Since feature-on `edges_ordered` ALWAYS serves from the always-warm slab,
+comparing fnx-vs-nx on edges(keys,data)+nodes(data)+adjacency across 400 randomized mutation sequences
+(batch add, add_edge, add_node w/attrs, node.update, edge-attr set, remove_node/remove_nodes_from/
+remove_edge, add_nodes_from batch) x {live, copy, deepcopy} = 1200 comparisons -> **0 mismatches**.
+This exercises every S16-S22 advance site end-to-end. Rust gauntlets (thp6w_s11 + s16-s22) also green
+(88/0 feature-on, 82/0 feature-off). NOTE: the pytest suite could not run feature-on via PYTHONPATH (the
+conftest staleness guard checks the REPO .so); the nx-differential is the guard-free equivalent.
+
+NEXT (unblocked): step (2) route the remaining String reads (neighbors/degree/edge_attrs/node_attrs/
+has_edge) through the always-warm slab, each parity-gated; step (3) the ATOMIC String-removal (delete
+nodes/adjacency/edges + dual-write; slab primary; retire from_string_state) = the quantified 5.3x
+construction + 3.7x removal payoff. Step A is a de-risked foundation for step 3.
