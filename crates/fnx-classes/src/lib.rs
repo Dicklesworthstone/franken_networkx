@@ -2753,6 +2753,16 @@ pub mod mg_int_storage_proto {
                 Self::Many(map) => CompactBucketIter::Many(map.iter()),
             }
         }
+
+        /// br-r37-c1-thp6w S33: zero-alloc parallel-key iterator yielding
+        /// `&usize`, matching the String adjacency `IndexSet<usize>::iter` that
+        /// backs `edge_keys_iter`.
+        pub fn keys(&self) -> CompactBucketKeys<'_> {
+            match self {
+                Self::One(key, _) => CompactBucketKeys::One(Some(key)),
+                Self::Many(map) => CompactBucketKeys::Many(map.keys()),
+            }
+        }
     }
 
     /// br-r37-c1-thp6w S12: enum iterator for `CompactBucket::iter` (no Box,
@@ -2769,6 +2779,25 @@ pub mod mg_int_storage_proto {
             match self {
                 Self::One(it) => it.next(),
                 Self::Many(it) => it.next().map(|(key, attrs)| (*key, attrs)),
+            }
+        }
+    }
+
+    /// br-r37-c1-thp6w S33: zero-alloc `&usize` parallel-key iterator over a
+    /// `CompactBucket` (One = the single key once, Many = the map's keys),
+    /// matching `IndexSet<usize>::Iter` so `edge_keys_iter` keeps `Item=&usize`.
+    pub enum CompactBucketKeys<'a> {
+        One(Option<&'a usize>),
+        Many(indexmap::map::Keys<'a, usize, AttrMap>),
+    }
+
+    impl<'a> Iterator for CompactBucketKeys<'a> {
+        type Item = &'a usize;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            match self {
+                Self::One(opt) => opt.take(),
+                Self::Many(keys) => keys.next(),
             }
         }
     }
@@ -3638,6 +3667,28 @@ impl<'a> Iterator for MgNeighborNames<'a> {
     }
 }
 
+/// br-r37-c1-thp6w S33: return-type-unifying iterator for `edge_keys_iter`.
+/// One arm walks the String adjacency `IndexSet<usize>`, the other the slab
+/// bucket's compact keys; both yield `&usize` so the two `#[cfg]` branches share
+/// one concrete return type.
+pub enum MgEdgeKeys<'a> {
+    Str(indexmap::set::Iter<'a, usize>),
+    #[cfg(feature = "mg-int-storage")]
+    Slab(mg_int_storage_proto::CompactBucketKeys<'a>),
+}
+
+impl<'a> Iterator for MgEdgeKeys<'a> {
+    type Item = &'a usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Str(it) => it.next(),
+            #[cfg(feature = "mg-int-storage")]
+            Self::Slab(it) => it.next(),
+        }
+    }
+}
+
 impl MultiGraph {
     /// br-r37-c1-7dpyg: structural clone with a FRESH RuntimePolicy —
     /// see Graph::clone_with_fresh_policy.
@@ -3825,8 +3876,30 @@ impl MultiGraph {
     }
 
     /// Return an iterator over keys for edges between left and right.
-    pub fn edge_keys_iter(&self, left: &str, right: &str) -> Option<impl Iterator<Item = &usize>> {
-        self.adjacency.get(left)?.get(right).map(|keys| keys.iter())
+    pub fn edge_keys_iter(&self, left: &str, right: &str) -> Option<MgEdgeKeys<'_>> {
+        // br-r37-c1-thp6w S33: zero-alloc parallel-key iteration from the
+        // always-warm slab feature-on (slot-pair bucket keys), String adjacency
+        // fallback. Both arms via `MgEdgeKeys` so the #[cfg] branches unify.
+        #[cfg(feature = "mg-int-storage")]
+        if let Some(shadow) = self.slab_shadow.as_deref()
+            && shadow.0 == self.revision
+        {
+            let (Some(&l), Some(&r)) = (
+                shadow.1.node_order.get(left),
+                shadow.1.node_order.get(right),
+            ) else {
+                return None;
+            };
+            return shadow
+                .1
+                .edges
+                .get(&(l.min(r), l.max(r)))
+                .map(|bucket| MgEdgeKeys::Slab(bucket.keys()));
+        }
+        self.adjacency
+            .get(left)?
+            .get(right)
+            .map(|keys| MgEdgeKeys::Str(keys.iter()))
     }
 
     #[must_use]
@@ -7909,6 +7982,48 @@ mod tests {
         let _ = h.add_edge("p", "q");
         assert!(!h.slab_shadow_is_warm());
         assert_eq!(collect(&h, "p"), want(&h, "p"));
+    }
+
+    /// br-r37-c1-thp6w S33: feature-on `edge_keys_iter` READS route through the
+    /// always-warm slab via the `MgEdgeKeys` enum iterator. Collected output
+    /// verified against the unrouted String field ground truth (`g.adjacency`
+    /// key set) incl. the Many bucket (parallel keys), the One bucket (single
+    /// key), a per-key removal advance, a missing edge (None), and the no-shadow
+    /// fallback.
+    #[cfg(feature = "mg-int-storage")]
+    #[test]
+    fn thp6w_s33_edge_keys_iter_reads_route_to_slab() {
+        fn gt(g: &MultiGraph, l: &str, r: &str) -> Option<Vec<usize>> {
+            g.adjacency
+                .get(l)?
+                .get(r)
+                .map(|keys| keys.iter().copied().collect())
+        }
+        let collect = |g: &MultiGraph, l: &str, r: &str| -> Option<Vec<usize>> {
+            g.edge_keys_iter(l, r).map(|it| it.copied().collect())
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b"); // key 0
+        let _ = g.add_edge("a", "b"); // key 1
+        let _ = g.add_edge("a", "b"); // key 2 (Many bucket)
+        let _ = g.add_edge("b", "c"); // single key (One bucket)
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(collect(&g, "a", "b"), gt(&g, "a", "b"), "Many == String");
+        assert_eq!(collect(&g, "a", "b"), Some(vec![0, 1, 2]));
+        assert_eq!(collect(&g, "b", "c"), gt(&g, "b", "c"), "One == String");
+        assert_eq!(collect(&g, "b", "c"), Some(vec![0]));
+        assert!(g.edge_keys_iter("a", "z").is_none(), "missing edge -> None");
+        // A per-key removal advances the shadow; iteration reflects it.
+        assert!(g.remove_edge("a", "b", Some(1)));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(collect(&g, "a", "b"), gt(&g, "a", "b"), "after removal");
+        assert_eq!(collect(&g, "a", "b"), Some(vec![0, 2]));
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge("p", "q");
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(collect(&h, "p", "q"), gt(&h, "p", "q"));
     }
 
     /// br-r37-c1-thp6w S11 GAUNTLET (production dual-write shadow): with the
