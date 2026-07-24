@@ -3109,6 +3109,17 @@ pub mod mg_int_storage_proto {
             self.node_attrs[slot].extend(attrs);
         }
 
+        /// br-r37-c1-thp6w S21 (cutover-prep): OVERWRITE an existing node's attr
+        /// map (mirror of `MultiGraph::replace_node_attrs`). No-op if the node
+        /// is absent — the String side only bumps revision when the node exists
+        /// and its attrs actually change, so a warm-shadow advance always finds
+        /// it.
+        pub fn replace_node_attrs(&mut self, name: &str, attrs: AttrMap) {
+            if let Some(&slot) = self.node_order.get(name) {
+                self.node_attrs[slot] = attrs;
+            }
+        }
+
         /// Distinct neighbors (names, row order) of the node at insertion-order
         /// position `pos`.
         #[must_use]
@@ -4788,10 +4799,36 @@ impl MultiGraph {
 
     /// br-r37-c1-sjf4t: overwrite the attribute map for an existing node.
     pub fn replace_node_attrs(&mut self, node: &str, attrs: AttrMap) -> bool {
+        // br-r37-c1-thp6w S21: snapshot the pre-mutation revision + a warm-only
+        // attrs clone (before the move below) so a node-attr OVERWRITE advances
+        // the shadow in place instead of staling it.
+        #[cfg(feature = "mg-int-storage")]
+        let prev_revision = self.revision;
+        #[cfg(feature = "mg-int-storage")]
+        let shadow_attrs = self
+            .slab_shadow
+            .as_deref()
+            .is_some_and(|s| s.0 == prev_revision)
+            .then(|| attrs.clone());
         if let Some(slot) = self.nodes.get_mut(node) {
             if *slot != attrs {
                 *slot = attrs;
                 self.revision = self.revision.saturating_add(1);
+            }
+            // br-r37-c1-thp6w S21: advance the warm shadow (overwrite the slab's
+            // node attrs). Only fires when the attrs actually changed (revision
+            // bumped) and the shadow was warm on entry.
+            #[cfg(feature = "mg-int-storage")]
+            if self.revision != prev_revision
+                && let Some(shadow_attrs) = shadow_attrs
+            {
+                let revision = self.revision;
+                if let Some(shadow) = self.slab_shadow.as_deref_mut()
+                    && shadow.0 == prev_revision
+                {
+                    shadow.1.replace_node_attrs(node, shadow_attrs);
+                    shadow.0 = revision;
+                }
             }
             true
         } else {
@@ -7013,6 +7050,51 @@ mod tests {
                 "attr-only update must be reflected in the (still-warm) shadow"
             );
         }
+    }
+
+    /// br-r37-c1-thp6w S21: `replace_node_attrs` (node attr OVERWRITE) advances
+    /// the warm shadow; a no-op replace (no revision bump) and a missing-node
+    /// replace leave it warm and uncorrupted.
+    #[cfg(feature = "mg-int-storage")]
+    #[test]
+    fn thp6w_s21_replace_node_attrs_advances_shadow() {
+        let attr = |k: &str, v: i64| {
+            let mut a = AttrMap::new();
+            a.insert(k.to_owned(), fnx_runtime::CgseValue::Int(v));
+            a
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_node_with_attrs("x", attr("c", 1));
+        let _ = g.add_edge("x", "y");
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+
+        // Overwrite x's attrs -> advances the warm shadow.
+        assert!(g.replace_node_attrs("x", attr("d", 2)));
+        assert!(
+            g.slab_shadow_is_warm(),
+            "replace_node_attrs must advance the shadow"
+        );
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+            assert_eq!(
+                shadow.1.node_attrs_for("x"),
+                g.node_attrs("x"),
+                "shadow must reflect the overwrite"
+            );
+        }
+
+        // No-op replace (same attrs) does not bump revision; shadow stays warm.
+        let same = g.node_attrs("x").cloned().unwrap_or_default();
+        assert!(g.replace_node_attrs("x", same));
+        assert!(g.slab_shadow_is_warm());
+
+        // Replace on a missing node returns false and leaves the shadow warm.
+        assert!(!g.replace_node_attrs("missing", attr("z", 9)));
+        assert!(g.slab_shadow_is_warm());
+        let shadow = g.slab_shadow.as_deref().expect("shadow present");
+        assert_slab_matches_mg(&g, &shadow.1);
     }
 
     /// br-r37-c1-thp6w S11 GAUNTLET (production dual-write shadow): with the
