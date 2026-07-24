@@ -3213,6 +3213,25 @@ pub mod mg_int_storage_proto {
             deg
         }
 
+        /// br-r37-c1-thp6w S28: node membership (mirror of `MultiGraph::has_node`).
+        #[must_use]
+        pub fn has_node(&self, name: &str) -> bool {
+            self.node_order.contains_key(name)
+        }
+
+        /// br-r37-c1-thp6w S28: edge membership (mirror of `MultiGraph::has_edge`)
+        /// — true iff a non-empty (left, right) bucket exists.
+        #[must_use]
+        pub fn has_edge(&self, left: &str, right: &str) -> bool {
+            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
+            else {
+                return false;
+            };
+            self.edges
+                .get(&(l.min(r), l.max(r)))
+                .is_some_and(|bucket| !bucket.is_empty())
+        }
+
         /// Parallel-edge key order for the (left, right) pair.
         #[must_use]
         pub fn key_order(&self, left: &str, right: &str) -> Vec<usize> {
@@ -3758,11 +3777,25 @@ impl MultiGraph {
 
     #[must_use]
     pub fn has_node(&self, node: &str) -> bool {
+        // br-r37-c1-thp6w S28: membership from the always-warm slab feature-on.
+        #[cfg(feature = "mg-int-storage")]
+        if let Some(shadow) = self.slab_shadow.as_deref()
+            && shadow.0 == self.revision
+        {
+            return shadow.1.has_node(node);
+        }
         self.nodes.contains_key(node)
     }
 
     #[must_use]
     pub fn has_edge(&self, left: &str, right: &str) -> bool {
+        // br-r37-c1-thp6w S28: edge membership from the always-warm slab feature-on.
+        #[cfg(feature = "mg-int-storage")]
+        if let Some(shadow) = self.slab_shadow.as_deref()
+            && shadow.0 == self.revision
+        {
+            return shadow.1.has_edge(left, right);
+        }
         self.edges
             .get(&EdgeKeyRef::new(left, right))
             .is_some_and(|edge_bucket| !edge_bucket.is_empty())
@@ -7557,6 +7590,48 @@ mod tests {
         let _ = h.add_edge("p", "q");
         assert!(!h.slab_shadow_is_warm());
         assert_eq!(h.degree("p"), gt(&h, "p"));
+    }
+
+    /// br-r37-c1-thp6w S28: feature-on `has_node` / `has_edge` membership READS
+    /// route through the always-warm slab. Verified against the unrouted String
+    /// field ground truth incl. isolated node, undirected symmetry, a removal
+    /// advance, missing node/edge, and the no-shadow fallback.
+    #[cfg(feature = "mg-int-storage")]
+    #[test]
+    fn thp6w_s28_membership_reads_route_to_slab() {
+        let he = |g: &MultiGraph, l: &str, r: &str| {
+            g.edges
+                .get(&super::EdgeKeyRef::new(l, r))
+                .is_some_and(|b| !b.is_empty())
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_node("iso"); // isolated node
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        // has_node
+        assert_eq!(g.has_node("a"), g.nodes.contains_key("a"));
+        assert_eq!(g.has_node("iso"), g.nodes.contains_key("iso"));
+        assert_eq!(g.has_node("missing"), g.nodes.contains_key("missing"));
+        assert!(g.has_node("iso") && !g.has_node("missing"));
+        // has_edge (undirected: symmetric; missing nodes -> false)
+        assert_eq!(g.has_edge("a", "b"), he(&g, "a", "b"));
+        assert_eq!(g.has_edge("b", "a"), he(&g, "b", "a"));
+        assert_eq!(g.has_edge("a", "c"), he(&g, "a", "c"));
+        assert_eq!(g.has_edge("x", "y"), he(&g, "x", "y"));
+        assert!(g.has_edge("a", "b") && g.has_edge("b", "a") && !g.has_edge("a", "c"));
+        // A removal advances the shadow; membership reflects it.
+        assert!(g.remove_edge("a", "b", None));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.has_edge("a", "b"), he(&g, "a", "b"));
+        assert!(!g.has_edge("a", "b"));
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge("p", "q");
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(h.has_edge("p", "q"), he(&h, "p", "q"));
+        assert_eq!(h.has_node("p"), h.nodes.contains_key("p"));
     }
 
     /// br-r37-c1-thp6w S11 GAUNTLET (production dual-write shadow): with the
