@@ -3161,6 +3161,23 @@ pub mod mg_int_storage_proto {
                 .collect()
         }
 
+        /// br-r37-c1-thp6w S26: name-keyed distinct neighbors in row order
+        /// (mirror of `MultiGraph::neighbors`); `None` if the node is absent.
+        #[must_use]
+        pub fn neighbors_by_name(&self, name: &str) -> Option<Vec<&str>> {
+            let &slot = self.node_order.get(name)?;
+            Some(
+                self.rows[slot]
+                    .keys()
+                    .map(|&s| {
+                        self.slot_names[s]
+                            .as_deref()
+                            .expect("row references a live slot")
+                    })
+                    .collect(),
+            )
+        }
+
         /// Parallel-edge key order for the (left, right) pair.
         #[must_use]
         pub fn key_order(&self, left: &str, right: &str) -> Vec<usize> {
@@ -3762,6 +3779,14 @@ impl MultiGraph {
 
     #[must_use]
     pub fn neighbors(&self, node: &str) -> Option<Vec<&str>> {
+        // br-r37-c1-thp6w S26: distinct neighbors from the always-warm slab
+        // feature-on (row order preserved), String fallback when stale/absent.
+        #[cfg(feature = "mg-int-storage")]
+        if let Some(shadow) = self.slab_shadow.as_deref()
+            && shadow.0 == self.revision
+        {
+            return shadow.1.neighbors_by_name(node);
+        }
         self.adjacency
             .get(node)
             .map(|neighbors| neighbors.keys().map(String::as_str).collect::<Vec<&str>>())
@@ -7407,6 +7432,44 @@ mod tests {
         let _ = h.add_edge("p", "q");
         assert!(!h.slab_shadow_is_warm());
         assert_eq!(h.edge_keys_vec("p", "q"), gt(&h, "p", "q"));
+    }
+
+    /// br-r37-c1-thp6w S26: feature-on `neighbors` READS route through the
+    /// always-warm slab. Verified against the unrouted String field ground
+    /// truth (`g.adjacency` row keys) incl. row order, a removal advance, a
+    /// missing node (None), and the no-shadow fallback.
+    #[cfg(feature = "mg-int-storage")]
+    #[test]
+    fn thp6w_s26_neighbors_reads_route_to_slab() {
+        fn gt<'a>(g: &'a MultiGraph, n: &str) -> Option<Vec<&'a str>> {
+            g.adjacency
+                .get(n)
+                .map(|row| row.keys().map(String::as_str).collect())
+        }
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("a", "c");
+        let _ = g.add_edge("a", "b"); // parallel — distinct neighbor unchanged
+        let _ = g.add_edge("c", "d");
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(
+            g.neighbors("a"),
+            gt(&g, "a"),
+            "routed distinct neighbors, row order"
+        );
+        assert_eq!(g.neighbors("c"), gt(&g, "c"));
+        assert_eq!(g.neighbors("missing"), None, "absent node -> None");
+        assert_eq!(g.neighbors("missing"), gt(&g, "missing"));
+        // A removal advances the shadow; the routed read reflects it.
+        assert!(g.remove_edge("a", "c", None));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.neighbors("a"), gt(&g, "a"), "after removal");
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge("p", "q");
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(h.neighbors("p"), gt(&h, "p"));
     }
 
     /// br-r37-c1-thp6w S11 GAUNTLET (production dual-write shadow): with the
