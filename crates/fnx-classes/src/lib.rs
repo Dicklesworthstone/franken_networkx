@@ -3233,6 +3233,50 @@ pub mod mg_int_storage_proto {
             ordered
         }
 
+        /// br-r37-c1-thp6w S13: index-space analog of `edges_ordered_borrowed`
+        /// — the same walk/order/orientation, but each endpoint emitted as its
+        /// POSITION (node_order iteration index = nx node position), not its
+        /// name. A `slot -> position` array is built once up front (O(n),
+        /// hash-free — positions come straight from `node_order` iteration, so
+        /// this is correct under any slot recycling, where slot != position),
+        /// then the walk resolves both endpoints by O(1) array index. The only
+        /// per-edge string op is the lex compare for the canonical orientation
+        /// (production `edges_ordered_indices_borrowed` pays a `get_index_of`
+        /// String hash per endpoint plus an `EdgeKey` pair hash instead).
+        #[must_use]
+        pub fn edges_ordered_indices_borrowed(&self) -> Vec<(usize, usize, usize, &AttrMap)> {
+            let mut slot_to_pos = vec![0usize; self.slot_names.len()];
+            for (pos, (_name, &slot)) in self.node_order.iter().enumerate() {
+                slot_to_pos[slot] = pos;
+            }
+            let mut ordered = Vec::with_capacity(self.edge_count);
+            let mut seen: std::collections::HashSet<(usize, usize, usize)> =
+                std::collections::HashSet::with_capacity(self.edge_count);
+            for (u_name, &u_slot) in &self.node_order {
+                for &v_slot in self.rows[u_slot].keys() {
+                    let pair = (u_slot.min(v_slot), u_slot.max(v_slot));
+                    let Some(bucket) = self.edges.get(&pair) else {
+                        continue;
+                    };
+                    for (key, attrs) in bucket.iter() {
+                        if !seen.insert((pair.0, pair.1, key)) {
+                            continue;
+                        }
+                        let v_name = self.slot_names[v_slot]
+                            .as_deref()
+                            .expect("row references a live slot");
+                        let (left_pos, right_pos) = if u_name.as_str() <= v_name {
+                            (slot_to_pos[u_slot], slot_to_pos[v_slot])
+                        } else {
+                            (slot_to_pos[v_slot], slot_to_pos[u_slot])
+                        };
+                        ordered.push((left_pos, right_pos, key, attrs));
+                    }
+                }
+            }
+            ordered
+        }
+
         /// br-r37-c1-thp6w S10: `edges_ordered_borrowed` analog — the ONLY
         /// observed edge order. Walk = node insertion order, row order, bucket
         /// key order; each (pair, key) emitted once (first touch); emitted
@@ -4981,6 +5025,14 @@ impl MultiGraph {
 
     #[must_use]
     pub fn edges_ordered_indices_borrowed(&self) -> Vec<(usize, usize, usize, &AttrMap)> {
+        // br-r37-c1-thp6w S13: NOT routed through the slab. The slab analog
+        // (`MgSlabStorageProto::edges_ordered_indices_borrowed`) is byte-
+        // identical but must rebuild an O(n) `slot->position` array per call
+        // (positions != slots under recycling, and a sound "slots==positions"
+        // check is itself O(n)); that build offsets the String-hash savings to
+        // ~parity (measured 0.98-1.02x, ledger 2026-07-24). Retry only with a
+        // slab-maintained never-recycled flag that lets the fresh/pristine
+        // case emit `slot` directly as `position` and skip the build.
         let mut ordered = Vec::with_capacity(self.edge_count());
         let mut seen = HashSet::<(EdgeKeyRef, usize)>::with_capacity(self.edge_count());
 
@@ -6486,6 +6538,92 @@ mod tests {
         let (mc, ms, mn) = (median(&mut cur), median(&mut sla), median(&mut nul));
         println!(
             "THP6W_S12_EDGES_ORDERED_AB n={n} m={} string={mc:.6}s slab={ms:.6}s ratio_string_over_slab={:.3} null={:.3}",
+            stream.len(),
+            mc / ms,
+            mc / mn,
+        );
+    }
+
+    /// br-r37-c1-thp6w S13 A/B: the INDEX-space `edges_ordered_indices_borrowed`
+    /// read — String store (per-edge `nodes.get_index_of` String hash + `EdgeKey`
+    /// pair hash) vs the slab (hash-free `slot->position` array + usize walk).
+    /// Same graph state, output equality asserted outside timing, paired-
+    /// interleaved with a null arm.
+    /// `cargo test --release -p fnx-classes --lib thp6w_s13_edges_ordered_indices_ab -- --ignored --nocapture`
+    #[test]
+    #[ignore = "paired A/B benchmark; run --release with --ignored --nocapture"]
+    fn thp6w_s13_edges_ordered_indices_ab() {
+        use super::mg_int_storage_proto::MgSlabStorageProto;
+        use std::collections::HashMap;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn push_edge(
+            stream: &mut Vec<(usize, usize, usize)>,
+            key_counter: &mut HashMap<(usize, usize), usize>,
+            u: usize,
+            v: usize,
+        ) {
+            let entry = key_counter.entry((u.min(v), u.max(v))).or_insert(0);
+            stream.push((u, v, *entry));
+            *entry += 1;
+        }
+
+        let n = 20000usize;
+        let mut stream = Vec::new();
+        let mut key_counter = HashMap::new();
+        for i in 0..n {
+            push_edge(&mut stream, &mut key_counter, i, (i + 1) % n);
+        }
+        let mut state = 0x2545_F491_4F6C_DD1D_u64;
+        let draw = |state: &mut u64| -> usize {
+            *state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            usize::try_from(*state >> 33).unwrap() % n
+        };
+        for _ in 0..3 * n {
+            let u = draw(&mut state);
+            let v = draw(&mut state);
+            push_edge(&mut stream, &mut key_counter, u, v);
+        }
+
+        let mut g = MultiGraph::strict();
+        let _ = g.extend_fresh_int_prefix_keyed_edges_unrecorded(n, stream.iter().copied());
+        let slab = MgSlabStorageProto::from_string_state(&g);
+        assert_eq!(
+            slab.edges_ordered_indices_borrowed(),
+            g.edges_ordered_indices_borrowed(),
+            "arms must emit identical index sequences"
+        );
+
+        let time_string = || -> f64 {
+            let t0 = Instant::now();
+            let out = g.edges_ordered_indices_borrowed();
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(out.len());
+            dt
+        };
+        let time_slab = || -> f64 {
+            let t0 = Instant::now();
+            let out = slab.edges_ordered_indices_borrowed();
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(out.len());
+            dt
+        };
+        let median = |samples: &mut Vec<f64>| -> f64 {
+            samples.sort_by(f64::total_cmp);
+            samples[samples.len() / 2]
+        };
+        let (mut cur, mut sla, mut nul) = (Vec::new(), Vec::new(), Vec::new());
+        for _ in 0..9 {
+            cur.push(time_string());
+            sla.push(time_slab());
+            nul.push(time_string());
+        }
+        let (mc, ms, mn) = (median(&mut cur), median(&mut sla), median(&mut nul));
+        println!(
+            "THP6W_S13_EDGES_ORDERED_INDICES_AB n={n} m={} string={mc:.6}s slab={ms:.6}s ratio_string_over_slab={:.3} null={:.3}",
             stream.len(),
             mc / ms,
             mc / mn,

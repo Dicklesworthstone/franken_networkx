@@ -427,3 +427,35 @@ RETRY-PREDICATE: only revisit capacity-reserve if a future profile on a QUIET wo
 via taskset+gc.disable) isolates outer-map resize as >8% of construction self-time; otherwise the
 only construction fix is the thp6w integer-node-storage flip (kill String keys + the redundant
 dual adjacency/edges storage), not a capacity hint.
+
+## 2026-07-24 BlackThrush (cc) REJECT (br-r37-c1-thp6w S13): slab index-read route `edges_ordered_indices_borrowed` — O(n) slot->position build offsets the hash savings to ~parity
+
+Continued the thp6w strangler read-routing. After shipping the owned `edges_ordered` slab route
+(c79ae5efd), the next unrouted full-walk read was `edges_ordered_indices_borrowed` (emits node
+POSITION indices; 2 callers incl. the sparse/matrix exporter). Built the slab analog
+`MgSlabStorageProto::edges_ordered_indices_borrowed`: same walk/order/orientation as the name variant
+but emits positions via a `slot->position` array built once per call (hash-free; positions come from
+`node_order` iteration so it is correct under slot recycling, where slot != position). Byte-identical
+parity asserted (thp6w_s13 A/B `assert_eq!(slab, string)`).
+
+MEASURE (thp6w_s13_edges_ordered_indices_ab, release, feature-on, n=20k m=80k, 3 runs):
+ratio_string_over_slab **0.978x / 1.024x / 1.016x** (mean ~1.006x) — the ratio sits INSIDE the A/A
+null which itself ran 0.851-0.924 (strong within-run drift on this loaded host, load ~18). No
+measurable win.
+
+ROOT: the slab index walk must rebuild an O(n) `slot->position` array every call (n=20000 = ~25% of
+the m=80000 walk); that build offsets the String-hash savings (production pays `nodes.get_index_of`
+per edge + an `EdgeKey` string-pair hash) to ~parity. Contrast the NAME variant `edges_ordered_borrowed`
+which needs NO position array and DID win (1.096x, S12). There is no SOUND cheap way to skip the build:
+"no free slots" is unsound (a remove+re-add leaves free_slots empty yet slot != position), and a
+correct "slots==positions" check is itself O(n).
+
+VERDICT: production route NOT shipped (the method carries a comment recording this; String walk
+unchanged). Slab method + thp6w_s13 A/B RETAINED as substrate (mirrors the permanent s12 bench + the
+unused `edges_ordered_names` slab analog) — byte-identical, ready for the retry. Feature-on 84/0,
+feature-off 82/0, fmt clean.
+RETRY-PREDICATE: add a slab-maintained `ever_recycled: bool` flag (set on the first free-slot reuse);
+when false the fresh/pristine graph has slot==position, so emit `slot` directly as `position` and SKIP
+the O(n) build — then re-run thp6w_s13 A/B on a quiet worker (null within 3% of 1.0). This is REJECT #2
+of the session (construction-reserve was #1; the owned-edges_ordered KEEP landed between them, so not
+consecutive).
