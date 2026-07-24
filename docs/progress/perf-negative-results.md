@@ -618,3 +618,32 @@ NEXT (unblocked): step (2) route the remaining String reads (neighbors/degree/ed
 has_edge) through the always-warm slab, each parity-gated; step (3) the ATOMIC String-removal (delete
 nodes/adjacency/edges + dual-write; slab primary; retire from_string_state) = the quantified 5.3x
 construction + 3.7x removal payoff. Step A is a de-risked foundation for step 3.
+
+## 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` scalar attrs): private snapshot mirror transfer — **1.0280x** (`br-r37-c1-kbs9t`)
+
+Ledger and Git history were searched first. The live
+`networkx_head_to_head_construction_copy/fnx_multidigraph_iterator_keyed_attrs_e20000`
+frontier remained `0.579x`, admitting one distinct retry inside the newly
+shipped scalar-attribute stage. Static allocation tracing found that every row
+made the yield-time fallback snapshot and then allocated/updated a second
+Python dict for the live mirror.
+
+A fully lazy mirror was correctness-invalid before timing: rebuilding from the
+native `AttrMap` changed observable key iteration order from `weight, cost,
+tag` to `cost, tag, weight`. The measured candidate instead adopted the
+already-private snapshot on first insertion and retained ordered updates for
+duplicates. Focused strict-remote parity passed on `vmi1149989`.
+
+The decisive same-binary run was pinned to `vmi1156319`, with 10,000 edges, 32
+constructions per arm per round, 21 interleaved rounds:
+
+| arm | median | wins | CV | p5-p95 |
+|---|---:|---:|---:|---:|
+| second copy / adopted snapshot | **`1.0280x`** | `15/21` | **`3.655%`** | `0.9757x-1.0800x` |
+| adopted / adopted null | `1.0033x` | `12/21` | **`3.534%`** | `0.9655x-1.0695x` |
+
+REJECT: stable evidence, but below the required `1.05x` causal floor. Source
+was reverted. Consecutive REJECT count: **1**. Retry only with an
+order-preserving native attribute substrate plus a fresh profile predicting at
+least five percent; do not retry lazy reconstruction or mirror transfer. The
+next cycle must remove a different per-edge transactional-stage cost.

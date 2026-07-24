@@ -23857,3 +23857,47 @@ remove a distinct cost inside the already-admitted attributed stage (for
 example eager scalar mirror construction), prove exact observable attrs and
 fallback behavior, and again require candidate median at least `1.05x`,
 candidate and null CV below `5%`, plus a pinned-worker public re-baseline.
+
+## 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` scalar attrs): adopt the private snapshot as the live mirror — **1.0280x** (`br-r37-c1-kbs9t`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE: both performance ledgers and recent Git
+history were searched before this cycle. The earlier broad MultiDiGraph drain,
+MultiDiGraph mirror-copy helper, and MultiGraph lazy-mirror attempts remained
+closed; this retry was admitted only by the fresh `0.579x` public
+string-keyed-attribute constructor row and the preceding KEEP's explicit
+predicate to isolate a distinct cost inside its new transactional stage. Static
+allocation tracing found two Python dicts per eligible row: the mandatory
+yield-time snapshot retained for exact late fallback, followed by a second
+empty dict plus `update()` solely for the live edge mirror.
+
+CORRECTNESS-INVALID BRANCH: fully lazy mirror reconstruction from the native
+`AttrMap` was rejected before timing. It changed observable Python attribute
+iteration order from source order `weight, cost, tag` to native map order
+`cost, tag, weight`. That branch never reached an admissible benchmark and is
+not counted as a performance REJECT.
+
+ONE MEASURED LEVER: on the first occurrence of a public `(u, v, key)`, the
+candidate adopted the already-private yield-time snapshot as the live mirror;
+duplicates still updated that dict in input order. A test-only forced arm
+retained the old second allocation/update in the same binary. Focused remote
+parity on `vmi1149989` passed native snapshots, node/display maps, public key
+mirrors, exact Python dict order, duplicate merging, loop/reverse edges,
+mutable-dict generator snapshots, late fallback, and live dict identity.
+
+SAME-WORKER INTERLEAVED A/B + NULL: strict RCH pinned the release binary to
+actual worker `vmi1156319`. Each arm constructed a fresh 10,000-edge graph 32
+times per round for 21 rounds, alternating every individual construction.
+
+| same-binary arm | median | wins | CV | p5-p95 | parity |
+|---|---:|---:|---:|---:|---:|
+| second mirror copy / adopted snapshot | **`1.0280x`** | `15/21` | **`3.655%`** | `0.9757x-1.0800x` | exact |
+| adopted / adopted null | `1.0033x` | `12/21` | **`3.534%`** | `0.9655x-1.0695x` | identical arm |
+
+RESULT: REJECT. Both CV gates cleared, but the causal median missed the
+mandatory `1.05x` floor. Production and test-control source was reverted; only
+this evidence and bead closeout remain. Consecutive REJECT count: **1**.
+RETRY PREDICATE: do not retry lazy reconstruction or another private-mirror
+transfer. Revisit mirror removal only if an order-preserving native attribute
+substrate can reproduce Python insertion order and a fresh same-binary profile
+predicts at least five percent. The next constructor cycle must eliminate a
+different per-edge stage cost while preserving yield-time fallback snapshots.
