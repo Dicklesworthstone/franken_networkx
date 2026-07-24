@@ -3232,6 +3232,15 @@ pub mod mg_int_storage_proto {
                 .is_some_and(|bucket| !bucket.is_empty())
         }
 
+        /// br-r37-c1-thp6w S30: node is isolated (mirror of
+        /// `MultiGraph::is_isolate`) — present with an empty adjacency row.
+        #[must_use]
+        pub fn is_isolate(&self, name: &str) -> bool {
+            self.node_order
+                .get(name)
+                .is_some_and(|&slot| self.rows[slot].is_empty())
+        }
+
         /// Parallel-edge key order for the (left, right) pair.
         #[must_use]
         pub fn key_order(&self, left: &str, right: &str) -> Vec<usize> {
@@ -4194,6 +4203,14 @@ impl MultiGraph {
     /// (mirrors `is_isolate(&Graph)`); the binding validates presence first.
     #[must_use]
     pub fn is_isolate(&self, node: &str) -> bool {
+        // br-r37-c1-thp6w S30: isolation from the always-warm slab feature-on;
+        // String fallback when stale/absent.
+        #[cfg(feature = "mg-int-storage")]
+        if let Some(shadow) = self.slab_shadow.as_deref()
+            && shadow.0 == self.revision
+        {
+            return shadow.1.is_isolate(node);
+        }
         self.nodes.contains_key(node) && self.adjacency.get(node).is_none_or(IndexMap::is_empty)
     }
 
@@ -7675,6 +7692,43 @@ mod tests {
         let _ = h.add_edge("p", "q");
         assert!(!h.slab_shadow_is_warm());
         assert_eq!(h.nodes_ordered(), gt(&h));
+    }
+
+    /// br-r37-c1-thp6w S30: feature-on `is_isolate` READS route through the
+    /// always-warm slab. Verified against the unrouted String field ground
+    /// truth incl. an isolated node, a self-loop node (NOT isolated), a node
+    /// with edges, a missing node, a removal that isolates, and the no-shadow
+    /// fallback.
+    #[cfg(feature = "mg-int-storage")]
+    #[test]
+    fn thp6w_s30_is_isolate_reads_route_to_slab() {
+        let gt = |g: &MultiGraph, n: &str| -> bool {
+            g.nodes.contains_key(n) && g.adjacency.get(n).is_none_or(|row| row.is_empty())
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_node("iso"); // isolated
+        let _ = g.add_edge("s", "s"); // self-loop -> NOT isolated
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.is_isolate("iso"), gt(&g, "iso"));
+        assert!(g.is_isolate("iso"));
+        assert_eq!(g.is_isolate("a"), gt(&g, "a"));
+        assert!(!g.is_isolate("a"));
+        assert_eq!(g.is_isolate("s"), gt(&g, "s"));
+        assert!(!g.is_isolate("s"), "self-loop node is not isolated");
+        assert_eq!(g.is_isolate("missing"), gt(&g, "missing"));
+        assert!(!g.is_isolate("missing"));
+        // A removal isolates node "a"; the routed read reflects it.
+        assert!(g.remove_edge("a", "b", None));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.is_isolate("a"), gt(&g, "a"));
+        assert!(g.is_isolate("a"));
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_node("lonely");
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(h.is_isolate("lonely"), gt(&h, "lonely"));
     }
 
     /// br-r37-c1-thp6w S11 GAUNTLET (production dual-write shadow): with the
