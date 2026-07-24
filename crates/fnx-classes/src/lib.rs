@@ -2667,6 +2667,30 @@ pub mod mg_int_storage_proto {
             }
         }
 
+        /// br-r37-c1-thp6w S22: OVERWRITE the attr map for an existing key
+        /// (`merge` extends; this replaces). Returns true if the key was
+        /// present. Mirror of one cell of `MultiGraph::replace_edge_attrs`.
+        pub fn replace_attrs(&mut self, key: usize, attrs: AttrMap) -> bool {
+            match self {
+                Self::One(existing, existing_attrs) => {
+                    if *existing == key {
+                        *existing_attrs = attrs;
+                        true
+                    } else {
+                        false
+                    }
+                }
+                Self::Many(map) => {
+                    if let Some(slot) = map.get_mut(&key) {
+                        *slot = attrs;
+                        true
+                    } else {
+                        false
+                    }
+                }
+            }
+        }
+
         /// br-r37-c1-thp6w S9: number of parallel keys in the bucket.
         #[must_use]
         pub fn len(&self) -> usize {
@@ -3148,6 +3172,25 @@ pub mod mg_int_storage_proto {
                 .get(&(l.min(r), l.max(r)))
                 .map(CompactBucket::key_order)
                 .unwrap_or_default()
+        }
+
+        /// br-r37-c1-thp6w S22 (cutover-prep): OVERWRITE the attr map for the
+        /// (left, right, key) edge cell (mirror of
+        /// `MultiGraph::replace_edge_attrs`). Returns true if that cell exists.
+        pub fn replace_edge_attrs(
+            &mut self,
+            left: &str,
+            right: &str,
+            key: usize,
+            attrs: AttrMap,
+        ) -> bool {
+            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
+            else {
+                return false;
+            };
+            self.edges
+                .get_mut(&(l.min(r), l.max(r)))
+                .is_some_and(|bucket| bucket.replace_attrs(key, attrs))
         }
 
         /// br-r37-c1-thp6w cutover-prep: the node's attribute map (`None` if the
@@ -4784,6 +4827,17 @@ impl MultiGraph {
         key: usize,
         attrs: AttrMap,
     ) -> bool {
+        // br-r37-c1-thp6w S22: snapshot the pre-mutation revision + a warm-only
+        // attrs clone (before the move below) so an edge-attr OVERWRITE advances
+        // the shadow in place instead of staling it.
+        #[cfg(feature = "mg-int-storage")]
+        let prev_revision = self.revision;
+        #[cfg(feature = "mg-int-storage")]
+        let shadow_attrs = self
+            .slab_shadow
+            .as_deref()
+            .is_some_and(|s| s.0 == prev_revision)
+            .then(|| attrs.clone());
         let edge_key = EdgeKey::new(left, right);
         if let Some(bucket) = self.edges.get_mut(&edge_key)
             && let Some(slot) = bucket.get_mut(&key)
@@ -4791,6 +4845,21 @@ impl MultiGraph {
             if *slot != attrs {
                 *slot = attrs;
                 self.revision = self.revision.saturating_add(1);
+            }
+            // br-r37-c1-thp6w S22: advance the warm shadow (overwrite the slab's
+            // edge-cell attrs) — only when the attrs actually changed (revision
+            // bumped) and the shadow was warm on entry.
+            #[cfg(feature = "mg-int-storage")]
+            if self.revision != prev_revision
+                && let Some(shadow_attrs) = shadow_attrs
+            {
+                let revision = self.revision;
+                if let Some(shadow) = self.slab_shadow.as_deref_mut()
+                    && shadow.0 == prev_revision
+                {
+                    shadow.1.replace_edge_attrs(left, right, key, shadow_attrs);
+                    shadow.0 = revision;
+                }
             }
             return true;
         }
@@ -7092,6 +7161,58 @@ mod tests {
 
         // Replace on a missing node returns false and leaves the shadow warm.
         assert!(!g.replace_node_attrs("missing", attr("z", 9)));
+        assert!(g.slab_shadow_is_warm());
+        let shadow = g.slab_shadow.as_deref().expect("shadow present");
+        assert_slab_matches_mg(&g, &shadow.1);
+    }
+
+    /// br-r37-c1-thp6w S22: `replace_edge_attrs` (edge-cell attr OVERWRITE)
+    /// advances the warm shadow, leaves parallel cells untouched, and a no-op
+    /// or missing-edge replace leaves the shadow warm/uncorrupted.
+    #[cfg(feature = "mg-int-storage")]
+    #[test]
+    fn thp6w_s22_replace_edge_attrs_advances_shadow() {
+        let attr = |k: &str, v: i64| {
+            let mut a = AttrMap::new();
+            a.insert(k.to_owned(), fnx_runtime::CgseValue::Int(v));
+            a
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge_with_key_and_attrs("a", "b", 0, attr("w", 1));
+        let _ = g.add_edge_with_key_and_attrs("a", "b", 1, attr("w", 2)); // parallel
+        let _ = g.add_edge("b", "c");
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+
+        // Overwrite the (a,b,0) cell attrs -> advances the warm shadow.
+        assert!(g.replace_edge_attrs("a", "b", 0, attr("x", 5)));
+        assert!(
+            g.slab_shadow_is_warm(),
+            "replace_edge_attrs must advance the shadow"
+        );
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+            // a=slot0, b=slot1 (fresh graph) -> the a,b bucket is (0,1).
+            assert_eq!(
+                shadow.1.edges[&(0, 1)].attrs_for(0),
+                g.edge_attrs("a", "b", 0),
+                "advanced shadow must carry the overwritten cell attrs"
+            );
+            assert_eq!(
+                shadow.1.edges[&(0, 1)].attrs_for(1),
+                g.edge_attrs("a", "b", 1),
+                "the parallel cell (key 1) must be untouched"
+            );
+        }
+
+        // No-op replace (same attrs): no revision bump, shadow stays warm.
+        let same = g.edge_attrs("a", "b", 0).cloned().unwrap_or_default();
+        assert!(g.replace_edge_attrs("a", "b", 0, same));
+        assert!(g.slab_shadow_is_warm());
+
+        // Missing edge -> false, shadow left warm/uncorrupted.
+        assert!(!g.replace_edge_attrs("a", "z", 0, attr("q", 1)));
         assert!(g.slab_shadow_is_warm());
         let shadow = g.slab_shadow.as_deref().expect("shadow present");
         assert_slab_matches_mg(&g, &shadow.1);
