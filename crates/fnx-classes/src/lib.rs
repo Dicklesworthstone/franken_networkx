@@ -2600,6 +2600,21 @@ pub mod mg_int_storage_proto {
             }
         }
 
+        /// br-r37-c1-thp6w S27: number of parallel keys (never zero — a cell is
+        /// dropped wholesale when its last key is removed).
+        #[must_use]
+        pub fn len(&self) -> usize {
+            match self {
+                Self::One(_) => 1,
+                Self::Many(set) => set.len(),
+            }
+        }
+
+        #[must_use]
+        pub fn is_empty(&self) -> bool {
+            self.len() == 0
+        }
+
         /// br-r37-c1-thp6w S9: order-preserving key removal; returns
         /// (removed, cell_now_empty). A `Many` that shrinks to one entry stays
         /// `Many` — only iteration order is observable, not the variant.
@@ -3176,6 +3191,26 @@ pub mod mg_int_storage_proto {
                     })
                     .collect(),
             )
+        }
+
+        /// br-r37-c1-thp6w S27: node degree (mirror of `MultiGraph::degree`) —
+        /// sum of per-neighbor parallel-edge counts, self-loops counted twice
+        /// (nx convention). 0 if the node is absent.
+        #[must_use]
+        pub fn degree(&self, name: &str) -> usize {
+            let Some(&slot) = self.node_order.get(name) else {
+                return 0;
+            };
+            let mut deg = 0;
+            for (&nbr_slot, keys) in &self.rows[slot] {
+                let count = keys.len();
+                if nbr_slot == slot {
+                    deg += count * 2;
+                } else {
+                    deg += count;
+                }
+            }
+            deg
         }
 
         /// Parallel-edge key order for the (left, right) pair.
@@ -4057,6 +4092,14 @@ impl MultiGraph {
     /// Self-loops contribute 2 to the degree each (NetworkX convention).
     #[must_use]
     pub fn degree(&self, node: &str) -> usize {
+        // br-r37-c1-thp6w S27: degree from the always-warm slab feature-on;
+        // String fallback when stale/absent.
+        #[cfg(feature = "mg-int-storage")]
+        if let Some(shadow) = self.slab_shadow.as_deref()
+            && shadow.0 == self.revision
+        {
+            return shadow.1.degree(node);
+        }
         self.adjacency.get(node).map_or(0, |neighbors| {
             let mut deg = 0;
             for (neighbor, keys) in neighbors {
@@ -7470,6 +7513,50 @@ mod tests {
         let _ = h.add_edge("p", "q");
         assert!(!h.slab_shadow_is_warm());
         assert_eq!(h.neighbors("p"), gt(&h, "p"));
+    }
+
+    /// br-r37-c1-thp6w S27: feature-on `degree` READS route through the
+    /// always-warm slab. Verified against the unrouted String field ground
+    /// truth (same self-loop-double + parallel-count formula over
+    /// `g.adjacency`) incl. a removal advance, a missing node (0), and the
+    /// no-shadow fallback.
+    #[cfg(feature = "mg-int-storage")]
+    #[test]
+    fn thp6w_s27_degree_reads_route_to_slab() {
+        let gt = |g: &MultiGraph, n: &str| -> usize {
+            g.adjacency.get(n).map_or(0, |row| {
+                let mut d = 0;
+                for (nbr, keys) in row {
+                    let c = keys.len();
+                    if nbr.as_str() == n {
+                        d += c * 2;
+                    } else {
+                        d += c;
+                    }
+                }
+                d
+            })
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("a", "b"); // parallel
+        let _ = g.add_edge("a", "c");
+        let _ = g.add_edge("a", "a"); // self-loop -> +2 to a
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.degree("a"), gt(&g, "a"), "self-loop double + parallel");
+        assert_eq!(g.degree("b"), gt(&g, "b"));
+        assert_eq!(g.degree("missing"), 0, "absent node -> 0");
+        assert_eq!(g.degree("missing"), gt(&g, "missing"));
+        // A removal advances the shadow; the routed read reflects it.
+        assert!(g.remove_edge("a", "b", None));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.degree("a"), gt(&g, "a"), "after removal");
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge("p", "q");
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(h.degree("p"), gt(&h, "p"));
     }
 
     /// br-r37-c1-thp6w S11 GAUNTLET (production dual-write shadow): with the
