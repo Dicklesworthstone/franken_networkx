@@ -4168,8 +4168,26 @@ impl MultiGraph {
     where
         I: IntoIterator<Item = (String, AttrMap)>,
     {
+        // br-r37-c1-thp6w S20: write the node-attr batch through a warm slab
+        // shadow (taken out of `self` for the loop, re-keyed and restored).
+        // This also fixes a latent hazard: an attr-only batch (no NEW nodes)
+        // does NOT bump `revision`, so a warm shadow would otherwise stay
+        // "warm" while carrying STALE node attrs — advancing it here keeps the
+        // shadow's node_attrs correct regardless of the revision key.
+        #[cfg(feature = "mg-int-storage")]
+        let mut warm_shadow = match self.slab_shadow.take() {
+            Some(shadow) if shadow.0 == self.revision => Some(shadow),
+            other => {
+                self.slab_shadow = other;
+                None
+            }
+        };
         let mut inserted = 0usize;
         for (node, attrs) in nodes {
+            #[cfg(feature = "mg-int-storage")]
+            if let Some(shadow) = warm_shadow.as_deref_mut() {
+                shadow.1.set_node_attrs(&node, attrs.clone());
+            }
             if let Some(existing) = self.nodes.get_mut(&node) {
                 existing.extend(attrs);
                 continue;
@@ -4191,6 +4209,11 @@ impl MultiGraph {
                     log_likelihood_ratio: -1.0,
                 }],
             );
+        }
+        #[cfg(feature = "mg-int-storage")]
+        if let Some(mut shadow) = warm_shadow {
+            shadow.0 = self.revision;
+            self.slab_shadow = Some(shadow);
         }
         inserted
     }
@@ -6936,6 +6959,60 @@ mod tests {
         g.sync_slab_shadow();
         let shadow = g.slab_shadow.as_deref().expect("shadow present");
         assert_slab_matches_mg(&g, &shadow.1);
+    }
+
+    /// br-r37-c1-thp6w S20: batch `extend_nodes_with_attrs_unrecorded` advances
+    /// the warm shadow — including the latent attr-only case (no NEW nodes, so
+    /// no revision bump) where a warm shadow would otherwise carry stale attrs.
+    #[cfg(feature = "mg-int-storage")]
+    #[test]
+    fn thp6w_s20_extend_nodes_with_attrs_advances_shadow() {
+        let mut g = MultiGraph::strict();
+        for i in 0..6u32 {
+            let _ = g.add_edge(&i.to_string(), &((i + 1) % 6).to_string());
+        }
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+
+        let attr = |k: &str, v: i64| {
+            let mut a = AttrMap::new();
+            a.insert(k.to_owned(), fnx_runtime::CgseValue::Int(v));
+            a
+        };
+        // Batch: 2 new attr-only nodes + an attr update on existing node "0".
+        let ins = g.extend_nodes_with_attrs_unrecorded(vec![
+            ("new_a".to_owned(), attr("c", 1)),
+            ("new_b".to_owned(), attr("c", 2)),
+            ("0".to_owned(), attr("k", 3)),
+        ]);
+        assert_eq!(ins, 2, "two new nodes");
+        assert!(
+            g.slab_shadow_is_warm(),
+            "node-attr batch must advance the shadow"
+        );
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+            assert_eq!(shadow.1.node_attrs_for("new_a"), g.node_attrs("new_a"));
+            assert_eq!(shadow.1.node_attrs_for("0"), g.node_attrs("0"));
+        }
+
+        // ATTR-ONLY batch (no new nodes -> no revision bump): the shadow must
+        // still carry the updated attr, not stay warm-but-stale.
+        let ins2 = g.extend_nodes_with_attrs_unrecorded(vec![("new_a".to_owned(), attr("c", 99))]);
+        assert_eq!(ins2, 0, "no new nodes");
+        assert!(
+            g.slab_shadow_is_warm(),
+            "attr-only batch keeps the shadow warm"
+        );
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_eq!(
+                shadow.1.node_attrs_for("new_a"),
+                g.node_attrs("new_a"),
+                "attr-only update must be reflected in the (still-warm) shadow"
+            );
+        }
     }
 
     /// br-r37-c1-thp6w S11 GAUNTLET (production dual-write shadow): with the
