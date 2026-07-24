@@ -155,8 +155,12 @@ struct ConstructionCopyWorkloads {
     nx_multigraph_iterator_lists: Py<PyAny>,
     fnx_multidigraph_iterator_lists: Py<PyAny>,
     nx_multidigraph_iterator_lists: Py<PyAny>,
+    fnx_multidigraph_iterator_attrs: Py<PyAny>,
+    nx_multidigraph_iterator_attrs: Py<PyAny>,
     fnx_multidigraph_iterator_keyed: Py<PyAny>,
     nx_multidigraph_iterator_keyed: Py<PyAny>,
+    fnx_multidigraph_iterator_keyed_attrs: Py<PyAny>,
+    nx_multidigraph_iterator_keyed_attrs: Py<PyAny>,
 }
 
 struct ClearEdgesWorkloads {
@@ -498,10 +502,27 @@ fnx_multigraph_iterator_lists = lambda: fnx.MultiGraph(iter(list_edges))
 nx_multigraph_iterator_lists = lambda: nx.MultiGraph(iter(list_edges))
 fnx_multidigraph_iterator_lists = lambda: fnx.MultiDiGraph(iter(list_edges))
 nx_multidigraph_iterator_lists = lambda: nx.MultiDiGraph(iter(list_edges))
+fnx_multidigraph_iterator_attrs = lambda: fnx.MultiDiGraph(iter(attr_edges))
+nx_multidigraph_iterator_attrs = lambda: nx.MultiDiGraph(iter(attr_edges))
 
 keyed_edges = tuple((i, i + 1, f"k{i}") for i in range(iterator_edge_count))
 fnx_multidigraph_iterator_keyed = lambda: fnx.MultiDiGraph(iter(keyed_edges))
 nx_multidigraph_iterator_keyed = lambda: nx.MultiDiGraph(iter(keyed_edges))
+keyed_attr_edges = tuple(
+    (
+        i,
+        i + 1,
+        f"k{i}",
+        {"weight": i % 97, "cost": i / 17.0, "tag": f"e{i % 11}"},
+    )
+    for i in range(iterator_edge_count)
+)
+fnx_multidigraph_iterator_keyed_attrs = lambda: fnx.MultiDiGraph(
+    iter(keyed_attr_edges)
+)
+nx_multidigraph_iterator_keyed_attrs = lambda: nx.MultiDiGraph(
+    iter(keyed_attr_edges)
+)
 "#,
         )
         .as_c_str(),
@@ -534,8 +555,12 @@ nx_multidigraph_iterator_keyed = lambda: nx.MultiDiGraph(iter(keyed_edges))
         nx_multigraph_iterator_lists: callable("nx_multigraph_iterator_lists")?,
         fnx_multidigraph_iterator_lists: callable("fnx_multidigraph_iterator_lists")?,
         nx_multidigraph_iterator_lists: callable("nx_multidigraph_iterator_lists")?,
+        fnx_multidigraph_iterator_attrs: callable("fnx_multidigraph_iterator_attrs")?,
+        nx_multidigraph_iterator_attrs: callable("nx_multidigraph_iterator_attrs")?,
         fnx_multidigraph_iterator_keyed: callable("fnx_multidigraph_iterator_keyed")?,
         nx_multidigraph_iterator_keyed: callable("nx_multidigraph_iterator_keyed")?,
+        fnx_multidigraph_iterator_keyed_attrs: callable("fnx_multidigraph_iterator_keyed_attrs")?,
+        nx_multidigraph_iterator_keyed_attrs: callable("nx_multidigraph_iterator_keyed_attrs")?,
     })
 }
 
@@ -2482,6 +2507,16 @@ fn construction_copy_head_to_head(c: &mut Criterion) {
     );
     bench_python_callable(
         &mut group,
+        "fnx_multidigraph_iterator_attrs_e20000",
+        &workloads.fnx_multidigraph_iterator_attrs,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_multidigraph_iterator_attrs_e20000",
+        &workloads.nx_multidigraph_iterator_attrs,
+    );
+    bench_python_callable(
+        &mut group,
         "fnx_multidigraph_iterator_keyed_e20000",
         &workloads.fnx_multidigraph_iterator_keyed,
     );
@@ -2489,6 +2524,16 @@ fn construction_copy_head_to_head(c: &mut Criterion) {
         &mut group,
         "nx_multidigraph_iterator_keyed_e20000",
         &workloads.nx_multidigraph_iterator_keyed,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_multidigraph_iterator_keyed_attrs_e20000",
+        &workloads.fnx_multidigraph_iterator_keyed_attrs,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_multidigraph_iterator_keyed_attrs_e20000",
+        &workloads.nx_multidigraph_iterator_keyed_attrs,
     );
 
     group.finish();

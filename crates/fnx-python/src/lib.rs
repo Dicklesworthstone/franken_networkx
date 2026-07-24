@@ -245,10 +245,10 @@ impl MultiDiGraphExactIntStrKeyedStage {
         let Ok(tuple) = item.downcast::<PyTuple>() else {
             return false;
         };
-        if tuple.len() != 3 {
+        if !matches!(tuple.len(), 3 | 4) {
             return false;
         }
-        tuple
+        let keyed = tuple
             .get_item(0)
             .is_ok_and(|u| u.is_exact_instance_of::<PyInt>())
             && tuple
@@ -256,23 +256,64 @@ impl MultiDiGraphExactIntStrKeyedStage {
                 .is_ok_and(|v| v.is_exact_instance_of::<PyInt>())
             && tuple
                 .get_item(2)
-                .is_ok_and(|key| key.is_exact_instance_of::<PyString>())
+                .is_ok_and(|key| key.is_exact_instance_of::<PyString>());
+        keyed
+            && (tuple.len() == 3
+                || tuple.get_item(3).is_ok_and(|attrs| {
+                    attrs.is_exact_instance_of::<PyDict>()
+                        && attrs
+                            .downcast::<PyDict>()
+                            .is_ok_and(attr_dict_is_batch_lossless)
+                }))
     }
 
-    fn push(&mut self, py: Python<'_>, item: &Bound<'_, PyAny>) -> PyResult<bool> {
+    fn push<'py>(
+        &mut self,
+        py: Python<'py>,
+        item: &Bound<'py, PyAny>,
+    ) -> PyResult<Option<Bound<'py, PyAny>>> {
         if !Self::accepts(item) {
-            return Ok(false);
+            return Ok(None);
         }
         let tuple = item.downcast::<PyTuple>()?;
         let u = tuple.get_item(0)?;
         let v = tuple.get_item(1)?;
         let key = tuple.get_item(2)?;
         let Ok(u_value) = u.extract::<i64>() else {
-            return Ok(false);
+            return Ok(None);
         };
         let Ok(v_value) = v.extract::<i64>() else {
-            return Ok(false);
+            return Ok(None);
         };
+        // br-r37-c1-e2pw9: attributed true-iterator rows must snapshot the
+        // source dict at yield time. If a later row leaves the typed region,
+        // the normalized tuple below is replayed through the frozen one-shot
+        // route, so a generator that reuses one mutable dict keeps the same
+        // per-yield values as NetworkX.
+        let (normalized, rust_attrs, attrs) = if tuple.len() == 4 {
+            let fourth = tuple.get_item(3)?;
+            let source_attrs = fourth.downcast::<PyDict>()?;
+            let attrs = source_attrs.copy()?;
+            let normalized = PyTuple::new(
+                py,
+                [u.clone(), v.clone(), key.clone(), attrs.clone().into_any()],
+            )?
+            .into_any();
+            if !attr_dict_is_batch_lossless(&attrs) {
+                return Ok(None);
+            }
+            let Ok(rust_attrs) = py_dict_to_attr_map(&attrs) else {
+                return Ok(None);
+            };
+            (normalized, rust_attrs, Some(attrs))
+        } else {
+            (item.clone(), AttrMap::new(), None)
+        };
+
+        // Do not mutate the stage before every fallible discriminator has
+        // cleared; a declined row must leave the already-staged prefix
+        // replayable by the frozen fallback.
+        let public_lookup = edge_key_lookup_string(py, &key)?;
         let u_canonical = u_value.to_string();
         let v_canonical = v_value.to_string();
         if self.node_seen.insert(u_canonical.clone()) {
@@ -283,7 +324,6 @@ impl MultiDiGraphExactIntStrKeyedStage {
         }
 
         let pair = (u_canonical.clone(), v_canonical.clone());
-        let public_lookup = edge_key_lookup_string(py, &key)?;
         let lookup_key = (pair.0.clone(), pair.1.clone(), public_lookup);
         let internal_key = if let Some(existing) = self.public_to_internal.get(&lookup_key) {
             *existing
@@ -299,15 +339,19 @@ impl MultiDiGraphExactIntStrKeyedStage {
         };
 
         let edge_key = (u_canonical.clone(), v_canonical.clone(), internal_key);
-        self.edge_attrs
+        let py_attrs = self
+            .edge_attrs
             .entry(edge_key.clone())
             .or_insert_with(|| PyDict::new(py).unbind());
+        if let Some(attrs) = attrs {
+            py_attrs.bind(py).update(attrs.as_mapping())?;
+        }
         self.edge_keys
             .entry(edge_key)
             .or_insert_with(|| key.unbind());
         self.edges
-            .push((u_canonical, v_canonical, internal_key, AttrMap::new()));
-        Ok(true)
+            .push((u_canonical, v_canonical, internal_key, rust_attrs));
+        Ok(Some(normalized))
     }
 
     fn into_batch(self) -> Option<MultiDiGraphExactIntStrKeyedBatch> {
@@ -525,8 +569,8 @@ pub(crate) fn materialize_iterator_edge_list<'py>(
         };
         let normalized = item.and_then(|item| {
             if let Some(stage) = multidigraph_stage.as_mut() {
-                if stage.push(py, &item)? {
-                    return Ok((item, None));
+                if let Some(normalized) = stage.push(py, &item)? {
+                    return Ok((normalized, None));
                 }
                 multidigraph_stage = None;
             }

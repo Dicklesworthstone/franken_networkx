@@ -498,6 +498,45 @@ VERDICT: KEEP. Do not widen the discriminator. Retry another constructor shape o
 pinned public loss and distinct profile attribution, then require exact frozen parity, interleaved
 A/B and A/A null, both CVs below `5%`, and candidate median at least `1.05x`.
 
+## 2026-07-23 StormyForge KEEP (br-r37-c1-e2pw9): keyed-attribute MultiDiGraph true-iterator stage
+
+Ledger and Git history were searched first. The 36-case constructor parity lane remained closed at
+zero divergences, the broad MultiDiGraph drain remained rejected except through its typed retry
+predicate, and cc's MultiGraph integer-adjacency/slab/AVX2 lane was excluded. Fresh pinned
+`vmi1156319` rows showed the frontier: the unkeyed attribute iterator was FNX `294.96 ms` versus
+NetworkX `276.31 ms` (`0.937x`), while the exact string-keyed four-tuple iterator was FNX
+`473.36 ms` versus NetworkX `224.23 ms` (**`0.474x`**).
+
+The one lever widens the existing transactional exact-int/exact-string stage to exact four-tuples
+with scalar-only exact dict attrs. It snapshots each dict at yield time, preserves ordered
+duplicate-key merges, and commits the native keyed batch plus Python mirrors once. Non-scalar,
+mixed, small, list/tuple, and exotic inputs keep the normalized frozen fallback; no MultiGraph
+storage or SIMD code changed.
+
+Pinned same-binary proof on `vmi1156319`, 10,000 edges, 32 constructions per arm, 21 fully
+interleaved rounds:
+
+- frozen streaming / attributed stage: **`1.1091x`**, `21/21` wins, **`3.958%` CV**,
+  p5-p95 `1.0469x-1.1844x`;
+- attributed / attributed null: `1.0078x`, `15/21` wins, **`3.729%` CV**,
+  p5-p95 `0.9616x-1.0900x`.
+
+The earlier 8-repetition probe was INVALID-CV and was discarded. Candidate/frozen snapshots,
+public keys, and attr mirrors matched exactly. The post-edit public row was FNX `455.33 ms` versus
+NetworkX `263.59 ms` (**`0.579x`**): improved but still open, with noisy Criterion intervals.
+
+The remotely built release artifact
+`be7c4e211d8fb43cea2d891ccc8db6192488a62a1395c88a196a74f82398f898` passed direct legacy-NetworkX
+conformance for eligible duplicate/order/loop/reverse edges, reused mutable dict yields, late mixed
+and non-scalar fallback, and the seven-row null control. Focused release parity, strict-remote
+workspace check, fmt, diff-check, and UBS passed. Workspace and scoped clippy were run and stopped
+only on pre-existing findings outside this lever.
+
+VERDICT: KEEP. Preserve the discriminator, yield-time snapshot, merge order, eight-row floor, and
+transactional fallback. The public `0.579x` row remains the next measured frontier. Retry only a
+distinct attributed-stage primitive with exact conformance, pinned A/B plus null, both CVs below
+`5%`, and candidate median at least `1.05x`.
+
 ## 2026-07-24 BlackThrush (cc) FINDING (br-r37-c1-thp6w): MG mutation-interleaved + micro-op profile map — has_edge is a PyO3-BOUNDARY floor (NOT cutover-fixable); every other remaining loss is the cutover
 
 Fresh HEAD measurement (maturin .so, n=4000 m=16000 MG, gc.disable, median-of-13) to re-scope what the

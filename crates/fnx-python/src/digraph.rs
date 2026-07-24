@@ -15733,9 +15733,17 @@ mod tests {
         edges: &Bound<'_, PyList>,
         force_streaming: bool,
     ) -> PyResult<PyMultiDiGraph> {
-        crate::FORCE_MULTIDIGRAPH_CTOR_KEYED_STREAMING.store(force_streaming, Ordering::Relaxed);
         let iter = edges.call_method0("__iter__")?;
-        let graph = PyMultiDiGraph::new(py, Some(&iter), None);
+        multidigraph_from_keyed_iterator(py, &iter, force_streaming)
+    }
+
+    fn multidigraph_from_keyed_iterator(
+        py: Python<'_>,
+        iter: &Bound<'_, PyAny>,
+        force_streaming: bool,
+    ) -> PyResult<PyMultiDiGraph> {
+        crate::FORCE_MULTIDIGRAPH_CTOR_KEYED_STREAMING.store(force_streaming, Ordering::Relaxed);
+        let graph = PyMultiDiGraph::new(py, Some(iter), None);
         crate::FORCE_MULTIDIGRAPH_CTOR_KEYED_STREAMING.store(false, Ordering::Relaxed);
         graph
     }
@@ -15840,15 +15848,86 @@ mod tests {
             let baseline = multidigraph_from_keyed_true_iterator(py, &edges, true)?;
             assert_multidigraph_ctor_same(py, &candidate, &baseline)?;
 
+            let attributed_edges = PyList::empty(py);
+            for source in 0_i64..256 {
+                let attrs = PyDict::new(py);
+                attrs.set_item("weight", source as f64 * 0.25)?;
+                attrs.set_item("cost", source % 11)?;
+                attrs.set_item("tag", format!("e{source}"))?;
+                attributed_edges.append(PyTuple::new(
+                    py,
+                    [
+                        source.into_py_any(py)?,
+                        ((source * 17 + 11) % 97).into_py_any(py)?,
+                        format!("k{}", source % 13).into_py_any(py)?,
+                        attrs.into_any().unbind(),
+                    ],
+                )?)?;
+            }
+            for (weight, cost) in [(1.5_f64, 2_i64), (3.5, 7)] {
+                let attrs = PyDict::new(py);
+                attrs.set_item("weight", weight)?;
+                attrs.set_item("cost", cost)?;
+                attributed_edges.append(PyTuple::new(
+                    py,
+                    [
+                        1_i64.into_py_any(py)?,
+                        2_i64.into_py_any(py)?,
+                        "duplicate".into_py_any(py)?,
+                        attrs.into_any().unbind(),
+                    ],
+                )?)?;
+            }
+            let candidate = multidigraph_from_keyed_true_iterator(py, &attributed_edges, false)?;
+            let baseline = multidigraph_from_keyed_true_iterator(py, &attributed_edges, true)?;
+            assert_multidigraph_ctor_same(py, &candidate, &baseline)?;
+
+            // A real generator may reuse and mutate one dict between yields.
+            // Candidate staging must retain one shallow snapshot per row, both
+            // when the typed batch commits and when a late mixed row forces
+            // replay through the frozen route.
+            let locals = PyDict::new(py);
+            py.run(
+                pyo3::ffi::c_str!(
+                    r#"
+def fnx_keyed_attr_edges(mixed):
+    attrs = {}
+    for source in range(32):
+        attrs.clear()
+        attrs["weight"] = source * 0.25
+        attrs["cost"] = source % 11
+        attrs["tag"] = f"e{source}"
+        yield (source, source + 1, f"k{source}", attrs)
+    if mixed:
+        yield ("left", "right", "mixed")
+"#
+                ),
+                None,
+                Some(&locals),
+            )?;
+            let make_edges = locals
+                .get_item("fnx_keyed_attr_edges")?
+                .expect("generator factory must populate locals");
+            for mixed in [false, true] {
+                let candidate_iter = make_edges.call1((mixed,))?;
+                let baseline_iter = make_edges.call1((mixed,))?;
+                let candidate = multidigraph_from_keyed_iterator(py, &candidate_iter, false)?;
+                let baseline = multidigraph_from_keyed_iterator(py, &baseline_iter, true)?;
+                assert_multidigraph_ctor_same(py, &candidate, &baseline)?;
+            }
+
             // If a later row leaves the exact-int/string-key region, the
             // materializer must retain the frozen one-shot streaming semantics.
             let mixed = PyList::empty(py);
+            let first_attrs = PyDict::new(py);
+            first_attrs.set_item("weight", 1.25)?;
             mixed.append(PyTuple::new(
                 py,
                 [
                     1_i64.into_py_any(py)?,
                     2_i64.into_py_any(py)?,
                     "first".into_py_any(py)?,
+                    first_attrs.into_any().unbind(),
                 ],
             )?)?;
             mixed.append(PyTuple::new(
@@ -15878,6 +15957,7 @@ mod tests {
         ensure_python();
         Python::attach(|py| -> PyResult<()> {
             let edge_count = 10_000usize;
+            let attributed = std::env::var_os("FNX_CTOR_KEYED_ATTRS").is_some();
             let repetitions = std::env::var("FNX_CTOR_REPETITIONS")
                 .ok()
                 .and_then(|value| value.parse().ok())
@@ -15885,14 +15965,30 @@ mod tests {
             let rounds = 21usize;
             let edges = PyList::empty(py);
             for source in 0..edge_count {
-                edges.append(PyTuple::new(
-                    py,
-                    [
-                        source.into_py_any(py)?,
-                        (source + 1).into_py_any(py)?,
-                        format!("k{source}").into_py_any(py)?,
-                    ],
-                )?)?;
+                if attributed {
+                    let attrs = PyDict::new(py);
+                    attrs.set_item("weight", source as f64 * 0.25)?;
+                    attrs.set_item("cost", source % 11)?;
+                    attrs.set_item("tag", format!("e{source}"))?;
+                    edges.append(PyTuple::new(
+                        py,
+                        [
+                            source.into_py_any(py)?,
+                            (source + 1).into_py_any(py)?,
+                            format!("k{source}").into_py_any(py)?,
+                            attrs.into_any().unbind(),
+                        ],
+                    )?)?;
+                } else {
+                    edges.append(PyTuple::new(
+                        py,
+                        [
+                            source.into_py_any(py)?,
+                            (source + 1).into_py_any(py)?,
+                            format!("k{source}").into_py_any(py)?,
+                        ],
+                    )?)?;
+                }
             }
 
             let build = |force_streaming: bool| -> PyResult<PyMultiDiGraph> {
@@ -15964,7 +16060,7 @@ mod tests {
             };
 
             println!(
-                "MULTIDIGRAPH_KEYED_ITER_FUSED_AB edges={edge_count} repetitions={repetitions} rounds={rounds} (>1 = fused keyed stage faster)"
+                "MULTIDIGRAPH_KEYED_ITER_FUSED_AB edges={edge_count} attributed={attributed} repetitions={repetitions} rounds={rounds} (>1 = fused keyed stage faster)"
             );
             report("candidate_vs_streaming", &paired(true)?);
             report("candidate_null", &paired(false)?);

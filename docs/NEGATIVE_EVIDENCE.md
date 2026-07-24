@@ -23771,3 +23771,89 @@ after a fresh pinned-worker public row loses to NetworkX and a same-binary
 profile identifies a distinct per-edge parse/commit floor; require exact
 candidate/frozen parity, an interleaved A/A null, both CVs below `5%`, and at
 least `1.05x` candidate median before shipping.
+
+## 2026-07-23 StormyForge KEEP (`MultiDiGraph(iterator)` string-keyed scalar attrs): widen fused transactional staging — **1.1091x** (`br-r37-c1-e2pw9`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: both performance ledgers and
+recent Git history were searched before selecting this lever. The historical
+36-case `Graph(iterator)` parity lane under `br-r37-c1-04z53` remains closed at
+HEAD with zero divergent outcomes; no parity case was reopened. The rejected
+broad MultiDiGraph drain was retried only through its explicit discriminator
+predicate, and cc's MultiGraph integer-adjacency, slab-cutover, and AVX2 lane
+was excluded. Static path attribution showed that an exact four-tuple
+`(int, int, str, dict)` still passed `ctor_tuple_can_stream` and paid per-edge
+PyO3 parsing, public-key resolution, attribute conversion/mirroring, and
+single-edge graph commits. In contrast, the three-tuple attribute shape was
+already materialized into the existing batch dispatcher.
+
+PRE-EDIT PUBLIC FRONTIER: strict RCH pinned both new public rows to actual
+worker `vmi1156319`. At 20,000 edges, the already-batched unkeyed attribute row
+measured FNX `294.96 ms` versus NetworkX `276.31 ms` (**`0.937x`**). The
+independently attributed string-keyed four-tuple row measured FNX `473.36 ms`
+versus NetworkX `224.23 ms`, a live **`0.474x`** FNX/NX loss. The NetworkX
+Criterion intervals were wide, so these head-to-head numbers are routing
+evidence; causal admission comes from the same-binary proof below.
+
+ONE LEVER: the shipped exact-int/exact-string transactional iterator stage now
+also accepts four-tuples whose attribute object is an exact `dict` containing
+only losslessly representable scalar values. The existing two-epoch pass takes
+a shallow yield-time dict snapshot, converts its native `AttrMap`, merges
+repeated public `(u, v, key)` rows in input order, and commits the keyed native
+batch and Python mirrors once. The normalized tuple retained for every staged
+row preserves a generator that mutates and reuses one dict if any later row
+declines. Non-scalar/exotic attrs, mixed types, oversized endpoints, fewer than
+eight rows, list/tuple inputs, and all other graph classes keep the prior
+fallback. The first invalid row still resets the transaction and retries the
+remaining suffix; the second still raises. No MultiGraph storage or SIMD code
+changed.
+
+SAME-WORKER INTERLEAVED A/B + NULL: strict RCH ran one ordinary release test
+binary on `vmi1156319`. Each arm constructed a fresh 10,000-edge attributed
+graph 32 times per round; 21 rounds alternated every construction. The frozen
+arm forced the prior streaming route, the candidate used the widened stage,
+and the null compared the candidate with itself. An initial 8-repetition probe
+was explicitly INVALID-CV (candidate `9.611%`, null `6.393%`) and was not used
+for the KEEP decision. The 32-repetition retry cleared both admission floors:
+
+| same-binary arm | median | wins | CV | p5-p95 | parity |
+|---|---:|---:|---:|---:|---:|
+| frozen streaming / widened attributed stage | **`1.1091x`** | **`21/21`** | **`3.958%`** | `1.0469x-1.1844x` | exact |
+| widened / widened null | `1.0078x` | `15/21` | **`3.729%`** | `0.9616x-1.0900x` | identical arm |
+
+POST-EDIT PUBLIC HEAD-TO-HEAD: the exact keyed-attribute row then ran on the
+same named worker. FNX measured `[420.47, 455.33, 510.42] ms` versus NetworkX
+`[209.73, 263.59, 322.89] ms`, improving the point estimate to **`0.579x`** but
+not closing the public gap. Criterion's FNX comparison was noisy
+(`-3.808%` midpoint, `p=0.56`), so the low-CV interleaved A/B above remains the
+causal KEEP proof. The residual public loss is fresh routing evidence for the
+next distinct attributed-stage primitive, not a reason to broaden this lever.
+
+BEHAVIOR ISOMORPHISM / CONFORMANCE / REMOTE GATES: the focused serialized
+release tests passed candidate/frozen equality for native snapshots, node
+display maps, successor/predecessor maps, public key mirrors, and Python attr
+mirrors. Coverage includes duplicate-key attribute merging, loops, reverse
+edges, late mixed fallback, and a real generator that clears and reuses one
+dict between yields. Strict RCH returned the exact release extension with
+SHA-256
+`be7c4e211d8fb43cea2d891ccc8db6192488a62a1395c88a196a74f82398f898`.
+Direct comparison against the legacy NetworkX `3.7rc0.dev0` oracle passed five
+corpora: a 259-edge eligible order/duplicate/loop corpus, a reused-dict
+generator, late mixed fallback, late non-scalar fallback, and the seven-row
+below-batch-floor control.
+
+Strict-remote `cargo check --workspace --all-targets` passed. The mandatory
+workspace clippy command was run remotely and stopped on the pre-existing
+`crates/fnx-classes/src/lib.rs:1719` `collapsible_if`; a scoped no-deps
+`fnx-python` retry reached the crate and reported only existing dead helpers
+and existing `collapsible_if`/`chunks_exact` sites outside this lever.
+`cargo fmt --check`, targeted rustfmt, `git diff --check`, and UBS passed with
+zero critical findings.
+
+RESULT: KEEP. Preserve the exact four-tuple/int/string/exact-dict/scalar
+discriminator, yield-time shallow snapshot, merge order, eight-row floor,
+transaction reset, and normalized one-shot fallback. The remaining public
+`0.579x` row is still open. RETRY PREDICATE: the next cycle must profile and
+remove a distinct cost inside the already-admitted attributed stage (for
+example eager scalar mirror construction), prove exact observable attrs and
+fallback behavior, and again require candidate median at least `1.05x`,
+candidate and null CV below `5%`, plus a pinned-worker public re-baseline.
