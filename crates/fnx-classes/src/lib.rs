@@ -4871,6 +4871,27 @@ impl MultiGraph {
 
     #[must_use]
     pub fn edges_ordered(&self) -> Vec<MultiEdgeSnapshot> {
+        // br-r37-c1-thp6w S13: a warm slab shadow serves the identical owned
+        // walk — the same S10/S12 emission gates (order, orientation, keys,
+        // attrs) that back `edges_ordered_borrowed`, materialized into owned
+        // `MultiEdgeSnapshot`s. Stale/absent shadow falls through to the
+        // String walk unchanged.
+        #[cfg(feature = "mg-int-storage")]
+        if let Some(shadow) = self.slab_shadow.as_deref()
+            && shadow.0 == self.revision
+        {
+            return shadow
+                .1
+                .edges_ordered_borrowed()
+                .into_iter()
+                .map(|(left, right, key, attrs)| MultiEdgeSnapshot {
+                    left: left.to_owned(),
+                    right: right.to_owned(),
+                    key,
+                    attrs: attrs.clone(),
+                })
+                .collect();
+        }
         let mut ordered = Vec::with_capacity(self.edge_count());
         let mut seen = HashSet::<(String, String, usize)>::with_capacity(self.edge_count());
 
@@ -6625,6 +6646,12 @@ mod tests {
             .into_iter()
             .map(|(l, r, k, a)| (l.to_owned(), r.to_owned(), k, a.clone()))
             .collect();
+        // Same gate for the OWNED `edges_ordered` route (captured stale first).
+        let expected_owned: Vec<(String, String, usize, AttrMap)> = g
+            .edges_ordered() // stale shadow -> String walk (owned)
+            .into_iter()
+            .map(|e| (e.left, e.right, e.key, e.attrs))
+            .collect();
         g.sync_slab_shadow();
         assert!(g.slab_shadow_is_warm());
         let served: Vec<(String, String, usize, AttrMap)> = g
@@ -6635,6 +6662,15 @@ mod tests {
         assert_eq!(
             served, expected,
             "shadow-served edges_ordered must equal the String walk"
+        );
+        let served_owned: Vec<(String, String, usize, AttrMap)> = g
+            .edges_ordered() // warm shadow -> slab walk (owned)
+            .into_iter()
+            .map(|e| (e.left, e.right, e.key, e.attrs))
+            .collect();
+        assert_eq!(
+            served_owned, expected_owned,
+            "shadow-served owned edges_ordered must equal the String walk"
         );
     }
 
