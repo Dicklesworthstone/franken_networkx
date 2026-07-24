@@ -3193,6 +3193,21 @@ pub mod mg_int_storage_proto {
                 .is_some_and(|bucket| bucket.replace_attrs(key, attrs))
         }
 
+        /// br-r37-c1-thp6w S23 (read routing): the attrs of the (left, right,
+        /// key) edge cell (mirror of `MultiGraph::edge_attrs`). The String store
+        /// keys by lex `EdgeKey` and the slab by slot-(min,max), but both index
+        /// the SAME cell, so `attrs_for(key)` returns identical attrs.
+        #[must_use]
+        pub fn edge_attrs(&self, left: &str, right: &str, key: usize) -> Option<&AttrMap> {
+            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
+            else {
+                return None;
+            };
+            self.edges
+                .get(&(l.min(r), l.max(r)))
+                .and_then(|bucket| bucket.attrs_for(key))
+        }
+
         /// br-r37-c1-thp6w cutover-prep: the node's attribute map (`None` if the
         /// node is absent). The slab shadows the String store's
         /// `nodes[name] -> AttrMap`; this is the read side the cutover will route
@@ -3934,11 +3949,22 @@ impl MultiGraph {
 
     #[must_use]
     pub fn node_attrs(&self, node: &str) -> Option<&AttrMap> {
+        // br-r37-c1-thp6w S23: read from the always-warm slab feature-on (the
+        // step-A invariant guarantees `shadow.0 == revision` after any
+        // mutation). A stale/absent shadow falls through to the String store.
+        #[cfg(feature = "mg-int-storage")]
+        if let Some(shadow) = self.slab_shadow.as_deref()
+            && shadow.0 == self.revision
+        {
+            return shadow.1.node_attrs_for(node);
+        }
         self.nodes.get(node)
     }
 
     #[must_use]
     pub fn edge_attrs(&self, left: &str, right: &str, key: usize) -> Option<&AttrMap> {
+        // br-r37-c1-thp6w S23: slab `edge_attrs` reader exists as substrate;
+        // routing this deferred (its gauntlet ground truth needs EdgeKeyRef).
         self.edges
             .get(&EdgeKeyRef::new(left, right))
             .and_then(|edge_bucket| edge_bucket.get(&key))
@@ -6962,7 +6988,7 @@ mod tests {
             assert_slab_matches_mg(&g, &shadow.1);
             assert_eq!(
                 shadow.1.node_attrs_for("2"),
-                g.node_attrs("2"),
+                g.nodes.get("2"),
                 "advanced shadow must carry the set node attr for node 2"
             );
         }
@@ -6976,7 +7002,7 @@ mod tests {
             assert_slab_matches_mg(&g, &shadow.1);
             assert_eq!(
                 shadow.1.node_attrs_for("attr_only"),
-                g.node_attrs("attr_only"),
+                g.nodes.get("attr_only"),
                 "advanced shadow must carry a new attr-only node"
             );
         }
@@ -7099,8 +7125,8 @@ mod tests {
         {
             let shadow = g.slab_shadow.as_deref().expect("shadow present");
             assert_slab_matches_mg(&g, &shadow.1);
-            assert_eq!(shadow.1.node_attrs_for("new_a"), g.node_attrs("new_a"));
-            assert_eq!(shadow.1.node_attrs_for("0"), g.node_attrs("0"));
+            assert_eq!(shadow.1.node_attrs_for("new_a"), g.nodes.get("new_a"));
+            assert_eq!(shadow.1.node_attrs_for("0"), g.nodes.get("0"));
         }
 
         // ATTR-ONLY batch (no new nodes -> no revision bump): the shadow must
@@ -7115,7 +7141,7 @@ mod tests {
             let shadow = g.slab_shadow.as_deref().expect("shadow present");
             assert_eq!(
                 shadow.1.node_attrs_for("new_a"),
-                g.node_attrs("new_a"),
+                g.nodes.get("new_a"),
                 "attr-only update must be reflected in the (still-warm) shadow"
             );
         }
@@ -7149,13 +7175,13 @@ mod tests {
             assert_slab_matches_mg(&g, &shadow.1);
             assert_eq!(
                 shadow.1.node_attrs_for("x"),
-                g.node_attrs("x"),
+                g.nodes.get("x"),
                 "shadow must reflect the overwrite"
             );
         }
 
         // No-op replace (same attrs) does not bump revision; shadow stays warm.
-        let same = g.node_attrs("x").cloned().unwrap_or_default();
+        let same = g.nodes.get("x").cloned().unwrap_or_default();
         assert!(g.replace_node_attrs("x", same));
         assert!(g.slab_shadow_is_warm());
 
@@ -7216,6 +7242,57 @@ mod tests {
         assert!(g.slab_shadow_is_warm());
         let shadow = g.slab_shadow.as_deref().expect("shadow present");
         assert_slab_matches_mg(&g, &shadow.1);
+    }
+
+    /// br-r37-c1-thp6w S23: feature-on `node_attrs` READS route through the
+    /// always-warm slab. Verified against the unrouted String ground truth
+    /// (`g.nodes` direct field access) — non-circular — across present (with
+    /// and without attrs) and missing nodes, and after a mutation keeps the
+    /// shadow warm so the routed read stays correct.
+    #[cfg(feature = "mg-int-storage")]
+    #[test]
+    fn thp6w_s23_node_attrs_reads_route_to_slab() {
+        let attr = |k: &str, v: i64| {
+            let mut a = AttrMap::new();
+            a.insert(k.to_owned(), fnx_runtime::CgseValue::Int(v));
+            a
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_node_with_attrs("x", attr("c", 1));
+        let _ = g.add_edge("x", "y"); // y born attr-less
+        // A fresh graph built by individual adds has no shadow yet; sync it warm
+        // (individual adds only ADVANCE an existing warm shadow, never create one).
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        // Routed read (-> slab) == String field ground truth.
+        assert_eq!(
+            g.node_attrs("x"),
+            g.nodes.get("x"),
+            "attr node routes to slab"
+        );
+        assert_eq!(g.node_attrs("y"), g.nodes.get("y"), "attr-less node routes");
+        assert_eq!(g.node_attrs("missing"), g.nodes.get("missing"), "both None");
+        assert!(g.node_attrs("x").is_some_and(|a| a.get("c").is_some()));
+        // After an overwrite the shadow stays warm; the routed read reflects it.
+        assert!(g.replace_node_attrs("x", attr("d", 9)));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(
+            g.node_attrs("x"),
+            g.nodes.get("x"),
+            "routed read tracks overwrite"
+        );
+        // With a STALE/absent shadow the read falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_node_with_attrs("p", attr("c", 3));
+        assert!(
+            !h.slab_shadow_is_warm(),
+            "fresh individual-add graph has no shadow"
+        );
+        assert_eq!(
+            h.node_attrs("p"),
+            h.nodes.get("p"),
+            "unrouted fallback still correct"
+        );
     }
 
     /// br-r37-c1-thp6w S11 GAUNTLET (production dual-write shadow): with the
