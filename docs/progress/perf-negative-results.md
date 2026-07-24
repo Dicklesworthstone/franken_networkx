@@ -532,3 +532,28 @@ and the lookup micro-ops (has_node/__contains__/neighbors/degree) are PyO3-bound
 cutover targets. LEDGERED BLOCKER stands: the only remaining WINNABLE lever is the cutover (large
 multi-session storage rewrite; the slab lacks node-attr storage — a concrete prep gap; needs
 coordination with AzureCanyon's live fnx-python ctor WIP in the shared tree).
+
+## 2026-07-24 BlackThrush (cc) FINDING (br-r37-c1-thp6w): cutover payoff QUANTIFIED on HEAD — slab is 5.3x construction + 3.7x removal vs the String store; justifies the atomic cutover
+
+After S16 (slab node-attr storage) + S17 (node-attr write-advance) completed the shadow as a
+write-maintained mirror, I re-ran the store-level A/Bs on HEAD to quantify what the remaining atomic
+cutover (make the slab PRIMARY, remove the String nodes/adjacency/edges + dual-write) actually buys.
+
+STORE-LEVEL CONSTRUCTION (thp6w_s5_int_storage_construction_ab, release, feature-on, n=20k m=81k):
+  current String store = 0.169855s, proto = 0.070555s, compact = 0.039450s, SLAB = 0.031904s
+  **ratio_current_over_slab = 5.324x** (slab 4.3x vs compact-bucket, 2.4x vs proto; null 0.887).
+STORE-LEVEL REMOVAL (thp6w_s8_removal_cost_ab, 200 removals, n=20k m=80k):
+  current = 0.029984s, SLAB = 0.008140s -> **slab is ~3.69x faster** (slab/current = 0.271x); the
+  rejected positional-renumber path = 101x SLOWER (proto_renumber 3.04s) — the stable-slot slab is the
+  ONLY removal-viable layout.
+
+INTERPRETATION: the earlier "1.645x" S5 figure compared the slab against the current store's BEST-case
+pre-resolved bulk loader; against the actual String `extend_fresh_int_prefix` build the slab wins
+**5.3x**. The end-to-end MG construction loss (0.5x vs nx, live) is String store-build + node_key_to_string
++ Python-mirror; replacing the store build (5.3x faster) would substantially close/flip it. This is the
+DATA-BACKED case that the atomic cutover — not marginal read-routing — is where the construction win
+lives. The shadow is now a complete, write-maintained mirror (S16/S17), so the cutover's prerequisites
+(complete shadow + write API) are met; what remains is (2) read-authoritative routing of the remaining
+String reads and (3) the atomic String-removal, a large multi-session rewrite best done as a planned/
+coordinated effort (3 peers active in the shared tree). LEDGERED BLOCKER for a SOLO mid-session start;
+the payoff (5.3x/3.7x) justifies prioritizing it.
