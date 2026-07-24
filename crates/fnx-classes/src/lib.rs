@@ -3963,8 +3963,14 @@ impl MultiGraph {
 
     #[must_use]
     pub fn edge_attrs(&self, left: &str, right: &str, key: usize) -> Option<&AttrMap> {
-        // br-r37-c1-thp6w S23: slab `edge_attrs` reader exists as substrate;
-        // routing this deferred (its gauntlet ground truth needs EdgeKeyRef).
+        // br-r37-c1-thp6w S24: read from the always-warm slab feature-on; the
+        // String store is the stale/absent-shadow fallback.
+        #[cfg(feature = "mg-int-storage")]
+        if let Some(shadow) = self.slab_shadow.as_deref()
+            && shadow.0 == self.revision
+        {
+            return shadow.1.edge_attrs(left, right, key);
+        }
         self.edges
             .get(&EdgeKeyRef::new(left, right))
             .and_then(|edge_bucket| edge_bucket.get(&key))
@@ -7035,7 +7041,9 @@ mod tests {
         assert_slab_matches_mg(&h, &shadow.1);
         assert_eq!(
             shadow.1.edges[&(0, 1)].attrs_for(0),
-            h.edge_attrs("b", "a", 0),
+            h.edges
+                .get(&super::EdgeKeyRef::new("b", "a"))
+                .and_then(|kb| kb.get(&0)),
             "merged attrs on the dup cell must match"
         );
     }
@@ -7222,12 +7230,16 @@ mod tests {
             // a=slot0, b=slot1 (fresh graph) -> the a,b bucket is (0,1).
             assert_eq!(
                 shadow.1.edges[&(0, 1)].attrs_for(0),
-                g.edge_attrs("a", "b", 0),
+                g.edges
+                    .get(&super::EdgeKeyRef::new("a", "b"))
+                    .and_then(|kb| kb.get(&0)),
                 "advanced shadow must carry the overwritten cell attrs"
             );
             assert_eq!(
                 shadow.1.edges[&(0, 1)].attrs_for(1),
-                g.edge_attrs("a", "b", 1),
+                g.edges
+                    .get(&super::EdgeKeyRef::new("a", "b"))
+                    .and_then(|kb| kb.get(&1)),
                 "the parallel cell (key 1) must be untouched"
             );
         }
@@ -7293,6 +7305,46 @@ mod tests {
             h.nodes.get("p"),
             "unrouted fallback still correct"
         );
+    }
+
+    /// br-r37-c1-thp6w S24: feature-on `edge_attrs` READS route through the
+    /// always-warm slab. Verified against the unrouted String field ground
+    /// truth (`g.edges` direct access) across present cells (incl. a parallel
+    /// key), a missing key, and a missing edge, plus the no-shadow fallback.
+    #[cfg(feature = "mg-int-storage")]
+    #[test]
+    fn thp6w_s24_edge_attrs_reads_route_to_slab() {
+        let attr = |k: &str, v: i64| {
+            let mut a = AttrMap::new();
+            a.insert(k.to_owned(), fnx_runtime::CgseValue::Int(v));
+            a
+        };
+        let gt = |g: &MultiGraph, l: &str, r: &str, k: usize| {
+            g.edges
+                .get(&super::EdgeKeyRef::new(l, r))
+                .and_then(|kb| kb.get(&k))
+                .cloned()
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge_with_key_and_attrs("a", "b", 0, attr("w", 1));
+        let _ = g.add_edge_with_key_and_attrs("a", "b", 1, attr("w", 2)); // parallel
+        let _ = g.add_edge("b", "c");
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        // Routed read (-> slab) == String field ground truth.
+        assert_eq!(g.edge_attrs("a", "b", 0).cloned(), gt(&g, "a", "b", 0));
+        assert_eq!(g.edge_attrs("a", "b", 1).cloned(), gt(&g, "a", "b", 1));
+        assert_eq!(g.edge_attrs("a", "b", 9), None, "missing key");
+        assert_eq!(g.edge_attrs("a", "z", 0), None, "missing edge");
+        // Overwrite advances the shadow; the routed read reflects it.
+        assert!(g.replace_edge_attrs("a", "b", 0, attr("x", 8)));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.edge_attrs("a", "b", 0).cloned(), gt(&g, "a", "b", 0));
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge_with_key_and_attrs("p", "q", 0, attr("z", 5));
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(h.edge_attrs("p", "q", 0).cloned(), gt(&h, "p", "q", 0));
     }
 
     /// br-r37-c1-thp6w S11 GAUNTLET (production dual-write shadow): with the
