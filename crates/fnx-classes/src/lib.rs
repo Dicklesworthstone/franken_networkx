@@ -2897,6 +2897,14 @@ pub mod mg_int_storage_proto {
         pub node_order: IndexMap<String, usize, rustc_hash::FxBuildHasher>,
         /// slot -> name (None = tombstone awaiting reuse/compaction).
         pub slot_names: Vec<Option<String>>,
+        /// slot -> node attribute map (parallel to `slot_names`; empty for
+        /// attr-less / edge-created nodes and for tombstoned slots).
+        /// br-r37-c1-thp6w cutover-prep: the slab must shadow node attrs (the
+        /// String store keeps them in `nodes: FxIndexMap<String, AttrMap>`)
+        /// before it can become the authoritative store. Node-attr *setting*
+        /// stales the shadow -> `from_string_state` rebuild captures them; the
+        /// only incremental writers are edge-created nodes (empty) + removal.
+        pub node_attrs: Vec<AttrMap>,
         /// LIFO free-list of tombstoned slots.
         pub free_slots: Vec<usize>,
         /// slot -> neighbor slot -> parallel-key cell (row insertion order).
@@ -2921,10 +2929,12 @@ pub mod mg_int_storage_proto {
                 debug_assert!(self.slot_names[reused].is_none());
                 debug_assert!(self.rows[reused].is_empty());
                 self.slot_names[reused] = Some(name.to_owned());
+                self.node_attrs[reused] = AttrMap::new();
                 reused
             } else {
                 self.slot_names.push(Some(name.to_owned()));
                 self.rows.push(IndexMap::new());
+                self.node_attrs.push(AttrMap::new());
                 self.slot_names.len() - 1
             };
             self.node_order.insert(name.to_owned(), slot);
@@ -2985,11 +2995,13 @@ pub mod mg_int_storage_proto {
             proto.slot_names.reserve(node_count);
             proto.rows.reserve(node_count);
             proto.edges.reserve(lower_bound);
+            proto.node_attrs.reserve(node_count);
             for node in 0..node_count {
                 let name = node.to_string();
                 proto.node_order.insert(name.clone(), node);
                 proto.slot_names.push(Some(name));
                 proto.rows.push(IndexMap::new());
+                proto.node_attrs.push(AttrMap::new());
             }
             for (left_slot, right_slot, key) in iterator {
                 debug_assert!(left_slot < node_count);
@@ -3083,6 +3095,7 @@ pub mod mg_int_storage_proto {
             self.rows[slot] = IndexMap::new();
             self.node_order.shift_remove(name);
             self.slot_names[slot] = None;
+            self.node_attrs[slot] = AttrMap::new();
             self.free_slots.push(slot);
             true
         }
@@ -3117,6 +3130,16 @@ pub mod mg_int_storage_proto {
                 .unwrap_or_default()
         }
 
+        /// br-r37-c1-thp6w cutover-prep: the node's attribute map (`None` if the
+        /// node is absent). The slab shadows the String store's
+        /// `nodes[name] -> AttrMap`; this is the read side the cutover will route
+        /// node-attr access through once the slab is authoritative.
+        #[must_use]
+        pub fn node_attrs_for(&self, name: &str) -> Option<&AttrMap> {
+            let &slot = self.node_order.get(name)?;
+            Some(&self.node_attrs[slot])
+        }
+
         /// br-r37-c1-thp6w S11: build a slab store from a live String-keyed
         /// MultiGraph, reproducing EVERY observed order directly (node order,
         /// each row's cell order, each bucket's key order, attrs) — valid for
@@ -3129,10 +3152,12 @@ pub mod mg_int_storage_proto {
             let mut slab = Self::new();
             slab.node_order.reserve(n);
             slab.slot_names.reserve(n);
+            slab.node_attrs.reserve(n);
             slab.rows.reserve(n);
-            for (slot, name) in g.nodes.keys().enumerate() {
+            for (slot, (name, attrs)) in g.nodes.iter().enumerate() {
                 slab.node_order.insert(name.clone(), slot);
                 slab.slot_names.push(Some(name.clone()));
+                slab.node_attrs.push(attrs.clone());
                 slab.rows.push(IndexMap::new());
             }
             for (u_name, row) in &g.adjacency {
@@ -4216,11 +4241,13 @@ impl MultiGraph {
             let mut slab = MgSlabStorageProto::new();
             slab.node_order.reserve(node_count);
             slab.slot_names.reserve(node_count);
+            slab.node_attrs.reserve(node_count);
             slab.rows.reserve(node_count);
             slab.edges.reserve(lower_bound);
             for (slot, name) in node_names.iter().enumerate() {
                 slab.node_order.insert(name.clone(), slot);
                 slab.slot_names.push(Some(name.clone()));
+                slab.node_attrs.push(AttrMap::new());
                 slab.rows.push(IndexMap::new());
             }
             slab
@@ -4345,10 +4372,12 @@ impl MultiGraph {
             let mut slab = MgSlabStorageProto::new();
             slab.node_order.reserve(node_labels.len());
             slab.slot_names.reserve(node_labels.len());
+            slab.node_attrs.reserve(node_labels.len());
             slab.rows.reserve(node_labels.len());
             for (slot, name) in node_labels.iter().enumerate() {
                 slab.node_order.insert(name.clone(), slot);
                 slab.slot_names.push(Some(name.clone()));
+                slab.node_attrs.push(AttrMap::new());
                 slab.rows.push(IndexMap::new());
             }
             slab
@@ -6234,6 +6263,19 @@ mod tests {
                 "free slot {free} still named"
             );
             assert!(slab.rows[free].is_empty(), "free slot {free} has row cells");
+            assert!(
+                slab.node_attrs[free].is_empty(),
+                "free slot {free} still has node attrs"
+            );
+        }
+        // br-r37-c1-thp6w cutover-prep: the slab shadows the String store's
+        // per-node attribute maps (nodes[name] -> AttrMap).
+        for (name, mg_attrs) in &mg.nodes {
+            assert_eq!(
+                slab.node_attrs_for(name),
+                Some(mg_attrs),
+                "slab node attrs for {name}"
+            );
         }
         for (pos, name) in mg.nodes_ordered().iter().enumerate() {
             let mg_row: Vec<&str> = mg
@@ -6666,6 +6708,28 @@ mod tests {
         assert!(g.slab_shadow_is_warm());
         let shadow = g.slab_shadow.as_deref().expect("shadow present");
         assert_slab_matches_mg(&g, &shadow.1);
+
+        // br-r37-c1-thp6w cutover-prep: setting a node attr is NOT an
+        // instrumented S11 advance site, so it STALES the shadow; the
+        // sync rebuild (from_string_state) must capture the node attrs.
+        let mut nattrs = AttrMap::new();
+        nattrs.insert("color".to_owned(), fnx_runtime::CgseValue::Int(7));
+        let _ = g.add_node_with_attrs("2", nattrs);
+        assert!(
+            !g.slab_shadow_is_warm(),
+            "node-attr set must stale the shadow"
+        );
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+            assert_eq!(
+                shadow.1.node_attrs_for("2"),
+                g.node_attrs("2"),
+                "slab must shadow the set node attr for node 2"
+            );
+        }
 
         // br-r37-c1-thp6w S15: the ATTRIBUTED fresh path is born warm too —
         // arbitrary labels, dup-(pair,key) attr merge, out-of-bounds skip.
