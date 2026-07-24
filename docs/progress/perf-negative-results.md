@@ -459,3 +459,41 @@ when false the fresh/pristine graph has slot==position, so emit `slot` directly 
 the O(n) build — then re-run thp6w_s13 A/B on a quiet worker (null within 3% of 1.0). This is REJECT #2
 of the session (construction-reserve was #1; the owned-edges_ordered KEEP landed between them, so not
 consecutive).
+
+## 2026-07-23 AzureCanyon KEEP (br-r37-c1-mo9ud): MultiDiGraph exact-int/string-keyed true-iterator fused stage
+
+Ledger and Git history were searched first. The constructor-parity corpus was already at zero
+divergences, the historical broad MultiDiGraph drain remained rejected on its `0.7633x` keyed
+regression, and cc's MultiGraph integer-adjacency/slab/AVX2 lane was excluded. A pre-edit pinned
+`vmi1149989` public row showed the remaining keyed frontier: FNX `237.69 ms` versus NetworkX
+`216.17 ms` (**`0.909x`**).
+
+The one lever forms an exact-int/exact-string keyed batch during the existing failure-atomic,
+two-epoch true-iterator pass, then commits nodes, native keyed edges, public keys, and empty
+attribute mirrors once. Three-tuple shape, exact Python types, `i64` extraction, and an eight-row
+floor are mandatory. Mixed, attributed, exotic, small, list/tuple, and non-MultiDiGraph inputs keep
+their old route. No cc-owned storage code changed.
+
+Pinned same-binary A/B on `vmi1149989`, 10,000 edges, 64 constructions per arm, 21 fully
+interleaved rounds:
+
+- frozen streaming / fused stage: **`1.5286x`**, `21/21` wins, **`2.232%` CV**,
+  p5-p95 `1.4623x-1.5832x`;
+- fused / fused null: `0.9997x`, `9/21` wins, **`1.593%` CV**,
+  p5-p95 `0.9847x-1.0336x`.
+
+Exact native snapshots and all node, successor/predecessor, public-key, and attribute mirrors
+matched before timing. The post-edit public row on the same named worker flipped to FNX
+`152.88 ms` versus NetworkX `176.74 ms` (**`1.156x`**); Criterion measured the FNX midpoint
+`35.680%` faster (`p=0.00`).
+
+The remotely built release extension
+`ced9065e0aa599e3e22c571f4d2f44012fe1c3910275148f5b2dd6b97b4b84b9` passed the 48-outcome
+NetworkX iterator corpus plus an all-eligible keyed order/duplicate/loop corpus. Focused release
+tests, targeted and workspace checks, fmt, diff-check, and UBS passed. Exact workspace clippy was
+run and stopped on concurrent pre-existing `collapsible_if` findings outside this lever; the scoped
+no-deps retry likewise reported only three pre-existing sites outside the changed regions.
+
+VERDICT: KEEP. Do not widen the discriminator. Retry another constructor shape only after a fresh
+pinned public loss and distinct profile attribution, then require exact frozen parity, interleaved
+A/B and A/A null, both CVs below `5%`, and candidate median at least `1.05x`.

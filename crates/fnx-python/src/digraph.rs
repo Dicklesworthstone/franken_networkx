@@ -2079,6 +2079,43 @@ impl PyMultiDiGraph {
         Ok(true)
     }
 
+    fn absorb_exact_int_str_keyed_ctor_batch(
+        &mut self,
+        py: Python<'_>,
+        batch: crate::MultiDiGraphExactIntStrKeyedBatch,
+    ) -> PyResult<()> {
+        let crate::MultiDiGraphExactIntStrKeyedBatch {
+            node_entries,
+            edges,
+            edge_attrs,
+            edge_keys,
+        } = batch;
+        let inserted_nodes = !node_entries.is_empty();
+        let mirror_active = self.node_iter_mirror_active();
+        for (canonical, node) in node_entries {
+            self.node_key_map.entry(canonical.clone()).or_insert(node);
+            self.node_py_attrs
+                .entry(canonical.clone())
+                .or_insert_with(|| PyDict::new(py).unbind());
+            if mirror_active {
+                self.node_iter_mirror_insert(py, &canonical)?;
+            }
+        }
+        let inserted_edges = self.inner.extend_keyed_edges_with_attrs_unrecorded(edges);
+        self.edge_py_attrs.extend(edge_attrs);
+        for (edge, key) in &edge_keys {
+            self.note_public_key_value(edge.2, key.bind(py));
+        }
+        self.edge_py_keys.extend(edge_keys);
+        if inserted_nodes {
+            self.bump_nodes_seq();
+        }
+        if inserted_edges > 0 {
+            self.bump_edges_seq();
+        }
+        Ok(())
+    }
+
     /// br-r37-c1-nodebatch: collect a batch of attributed nodes for a FRESH
     /// MultiDiGraph (sibling of `PyDiGraph::collect_attr_node_batch`). Pure
     /// collect; bails to the per-node loop on any shape it can't replicate.
@@ -3073,7 +3110,11 @@ impl PyMultiDiGraph {
             if data.hasattr("is_multigraph")? && data.hasattr("nodes")? && data.hasattr("edges")? {
                 return Ok(g);
             }
-            let materialized = crate::materialize_iterator_edge_list(py, data, true, true, false)?;
+            let mut materialized =
+                crate::materialize_iterator_edge_list(py, data, true, true, false)?;
+            let multidigraph_exact_int_str_keyed_batch = materialized
+                .as_mut()
+                .and_then(|decoded| decoded.multidigraph_exact_int_str_keyed_batch.take());
             let edata: &Bound<'_, PyAny> = materialized
                 .as_ref()
                 .map(|decoded| &decoded.items)
@@ -3139,6 +3180,8 @@ impl PyMultiDiGraph {
                     g.remember_edge_key(py, u, v, key, None);
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
+            } else if let Some(batch) = multidigraph_exact_int_str_keyed_batch {
+                g.absorb_exact_int_str_keyed_ctor_batch(py, batch)?;
             } else if g.try_absorb_exact_int_str_keyed_ctor_edges(py, edata)? {
                 // Constructor-only batch path for exact int endpoints + exact str keys.
             } else if g._try_add_attr_edges_from_batch(py, edata, None)? {
@@ -15683,6 +15726,251 @@ mod tests {
             display_map_snapshot(py, &baseline.pred_py_keys)?
         );
         Ok(())
+    }
+
+    fn multidigraph_from_keyed_true_iterator(
+        py: Python<'_>,
+        edges: &Bound<'_, PyList>,
+        force_streaming: bool,
+    ) -> PyResult<PyMultiDiGraph> {
+        crate::FORCE_MULTIDIGRAPH_CTOR_KEYED_STREAMING.store(force_streaming, Ordering::Relaxed);
+        let iter = edges.call_method0("__iter__")?;
+        let graph = PyMultiDiGraph::new(py, Some(&iter), None);
+        crate::FORCE_MULTIDIGRAPH_CTOR_KEYED_STREAMING.store(false, Ordering::Relaxed);
+        graph
+    }
+
+    fn multidigraph_edge_key_snapshot(
+        py: Python<'_>,
+        map: &HashMap<(String, String, usize), PyObject>,
+    ) -> PyResult<Vec<(String, String, usize, String, String)>> {
+        let mut snapshot = map
+            .iter()
+            .map(|((source, target, key), object)| {
+                let object = object.bind(py);
+                Ok((
+                    source.clone(),
+                    target.clone(),
+                    *key,
+                    object.get_type().name()?.to_str()?.to_owned(),
+                    object.repr()?.to_string(),
+                ))
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        snapshot.sort();
+        Ok(snapshot)
+    }
+
+    fn multidigraph_edge_attr_snapshot(
+        py: Python<'_>,
+        map: &HashMap<(String, String, usize), Py<PyDict>>,
+    ) -> PyResult<Vec<(String, String, usize, String)>> {
+        let mut snapshot = map
+            .iter()
+            .map(|((source, target, key), attrs)| {
+                Ok((
+                    source.clone(),
+                    target.clone(),
+                    *key,
+                    attrs.bind(py).repr()?.to_string(),
+                ))
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        snapshot.sort();
+        Ok(snapshot)
+    }
+
+    fn assert_multidigraph_ctor_same(
+        py: Python<'_>,
+        candidate: &PyMultiDiGraph,
+        baseline: &PyMultiDiGraph,
+    ) -> PyResult<()> {
+        assert_eq!(candidate.inner.snapshot(), baseline.inner.snapshot());
+        assert_eq!(
+            node_map_snapshot(py, &candidate.node_key_map)?,
+            node_map_snapshot(py, &baseline.node_key_map)?
+        );
+        assert_eq!(
+            display_map_snapshot(py, &candidate.succ_py_keys)?,
+            display_map_snapshot(py, &baseline.succ_py_keys)?
+        );
+        assert_eq!(
+            display_map_snapshot(py, &candidate.pred_py_keys)?,
+            display_map_snapshot(py, &baseline.pred_py_keys)?
+        );
+        assert_eq!(
+            multidigraph_edge_key_snapshot(py, &candidate.edge_py_keys)?,
+            multidigraph_edge_key_snapshot(py, &baseline.edge_py_keys)?
+        );
+        assert_eq!(
+            multidigraph_edge_attr_snapshot(py, &candidate.edge_py_attrs)?,
+            multidigraph_edge_attr_snapshot(py, &baseline.edge_py_attrs)?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn multidigraph_keyed_iterator_fused_stage_matches_streaming_route() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let edges = PyList::empty(py);
+            for source in 0_i64..256 {
+                let target = (source * 17 + 11) % 97;
+                let key = format!("k{}", source % 13);
+                edges.append(PyTuple::new(
+                    py,
+                    [
+                        source.into_py_any(py)?,
+                        target.into_py_any(py)?,
+                        key.into_py_any(py)?,
+                    ],
+                )?)?;
+            }
+            for (source, target, key) in [(1_i64, 1_i64, "loop"), (1, 2, "dup"), (1, 2, "dup")] {
+                edges.append(PyTuple::new(
+                    py,
+                    [
+                        source.into_py_any(py)?,
+                        target.into_py_any(py)?,
+                        key.into_py_any(py)?,
+                    ],
+                )?)?;
+            }
+            let candidate = multidigraph_from_keyed_true_iterator(py, &edges, false)?;
+            let baseline = multidigraph_from_keyed_true_iterator(py, &edges, true)?;
+            assert_multidigraph_ctor_same(py, &candidate, &baseline)?;
+
+            // If a later row leaves the exact-int/string-key region, the
+            // materializer must retain the frozen one-shot streaming semantics.
+            let mixed = PyList::empty(py);
+            mixed.append(PyTuple::new(
+                py,
+                [
+                    1_i64.into_py_any(py)?,
+                    2_i64.into_py_any(py)?,
+                    "first".into_py_any(py)?,
+                ],
+            )?)?;
+            mixed.append(PyTuple::new(
+                py,
+                [
+                    "left".into_py_any(py)?,
+                    "right".into_py_any(py)?,
+                    "second".into_py_any(py)?,
+                ],
+            )?)?;
+            let candidate = multidigraph_from_keyed_true_iterator(py, &mixed, false)?;
+            let baseline = multidigraph_from_keyed_true_iterator(py, &mixed, true)?;
+            assert_multidigraph_ctor_same(py, &candidate, &baseline)
+        })
+        .expect("fused MultiDiGraph keyed iterator staging must preserve the streaming route");
+    }
+
+    /// `br-r37-c1-mo9ud`: same-binary proof for fusing exact-int/string-keyed
+    /// true-iterator staging with the MultiDiGraph batch commit. The frozen arm
+    /// retains the current one-item-peek plus per-edge streaming route.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multidigraph_keyed_iterator_fused_stage_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let edge_count = 10_000usize;
+            let repetitions = std::env::var("FNX_CTOR_REPETITIONS")
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(32usize);
+            let rounds = 21usize;
+            let edges = PyList::empty(py);
+            for source in 0..edge_count {
+                edges.append(PyTuple::new(
+                    py,
+                    [
+                        source.into_py_any(py)?,
+                        (source + 1).into_py_any(py)?,
+                        format!("k{source}").into_py_any(py)?,
+                    ],
+                )?)?;
+            }
+
+            let build = |force_streaming: bool| -> PyResult<PyMultiDiGraph> {
+                let graph =
+                    multidigraph_from_keyed_true_iterator(py, &edges, force_streaming)?;
+                black_box(graph.inner.edge_count());
+                black_box(graph.edge_py_keys.len());
+                black_box(graph.edge_py_attrs.len());
+                Ok(graph)
+            };
+            let time = |force_streaming: bool| -> PyResult<f64> {
+                let start = Instant::now();
+                for _ in 0..repetitions {
+                    black_box(build(force_streaming)?);
+                }
+                Ok(start.elapsed().as_secs_f64())
+            };
+
+            let frozen = build(true)?;
+            let candidate = build(false)?;
+            assert_multidigraph_ctor_same(py, &candidate, &frozen)?;
+            black_box(time(true)?);
+            black_box(time(false)?);
+
+            let paired = |baseline_is_candidate: bool| -> PyResult<Vec<f64>> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let mut baseline_time = 0.0;
+                    let mut candidate_time = 0.0;
+                    for repetition in 0..repetitions {
+                        let baseline_first = (round + repetition).is_multiple_of(2);
+                        if baseline_first {
+                            let start = Instant::now();
+                            black_box(build(baseline_is_candidate)?);
+                            baseline_time += start.elapsed().as_secs_f64();
+                            let start = Instant::now();
+                            black_box(build(false)?);
+                            candidate_time += start.elapsed().as_secs_f64();
+                        } else {
+                            let start = Instant::now();
+                            black_box(build(false)?);
+                            candidate_time += start.elapsed().as_secs_f64();
+                            let start = Instant::now();
+                            black_box(build(baseline_is_candidate)?);
+                            baseline_time += start.elapsed().as_secs_f64();
+                        }
+                    }
+                    ratios.push(baseline_time / candidate_time);
+                }
+                Ok(ratios)
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mean = ratios.iter().sum::<f64>() / ratios.len() as f64;
+                let variance = ratios
+                    .iter()
+                    .map(|ratio| (ratio - mean).powi(2))
+                    .sum::<f64>()
+                    / (ratios.len() - 1) as f64;
+                let cv_pct = variance.sqrt() / mean * 100.0;
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "MULTIDIGRAPH_KEYED_ITER_FUSED_AB {name}: median={:.4}x wins={wins}/{rounds} cv={cv_pct:.3}% p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "MULTIDIGRAPH_KEYED_ITER_FUSED_AB edges={edge_count} repetitions={repetitions} rounds={rounds} (>1 = fused keyed stage faster)"
+            );
+            report("candidate_vs_streaming", &paired(true)?);
+            report("candidate_null", &paired(false)?);
+            Ok(())
+        })
+        .expect("MultiDiGraph keyed iterator fused-stage A/B should run");
     }
 
     #[test]

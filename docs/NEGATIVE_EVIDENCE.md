@@ -23681,3 +23681,93 @@ Do not retry post-materialization Python tuple/list rescans for this eligible
 private epoch. The next constructor lever must come from a different public
 head-to-head row/primitive; the DiGraph affine-transfer source remains CLOSED
 until its explicit clean-worker retry predicate holds.
+
+## 2026-07-23 AzureCanyon KEEP (`MultiDiGraph(iterator)` exact-int/string-keyed): fused transactional staging — **1.5286x** (`br-r37-c1-mo9ud`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: both performance ledgers and recent
+Git history were searched before selecting a lever. The 36 constructor-parity
+divergences under `br-r37-c1-04z53` were already closed at HEAD with zero
+remaining outcomes, so this cycle stayed in the requested measured frontier.
+The historical broad MultiDiGraph iterator drain remained REJECTED because its
+keyed row regressed to `0.7633x`; only a shape-discriminated keyed batch was
+eligible for retry. The cc-owned MultiGraph integer-adjacency epoch, slab
+storage, and AVX2 surfaces were excluded. A pinned-worker pre-edit construction
+sweep attributed the live keyed loss to the true-iterator path: the
+materializer preserved the exact tuple stream through a one-item
+`itertools.chain`, after which `PyMultiDiGraph::new` paid per-edge PyO3 parsing,
+key resolution, node-map maintenance, empty attribute-dict allocation, and
+single-edge graph commits. The existing list/tuple keyed batch proved that a
+typed commit substrate already existed; the missing seam was forming that
+typed stage during the failure-atomic two-epoch iterator pass rather than
+rescanning or broadly draining the iterator.
+
+PRE-EDIT PUBLIC FRONTIER: strict RCH pinned the full constructor/copy sweep to
+actual worker `vmi1149989`. At 20,000 keyed MultiDiGraph edges, FNX measured
+`237.69 ms` versus NetworkX `216.17 ms`, a point-estimate **`0.909x`** FNX/NX
+loss. Nearby already-closed rows were not reopened. Two queued remote attempts
+that never reached a timed binary were discarded and were not treated as
+evidence; no local Cargo fallback ran.
+
+ONE LEVER: the existing transactional materializer now forms an optional typed
+batch only when the stream begins with a three-tuple whose endpoints are exact
+Python integers extractable as `i64` and whose public key is an exact Python
+string. During the same pass required for NetworkX's consume/retry behavior it
+records node insertion order, per-pair public-key deduplication and internal-key
+allocation, ordered public key objects, one empty attribute mirror per unique
+public edge, and the native keyed edge batch. `PyMultiDiGraph::new` consumes
+that batch in one commit. Fewer than eight rows, mixed endpoint/key types,
+attributed or exotic rows, and any stage decline use the prior one-shot
+streaming semantics. The first invalid row still discards the first epoch and
+restarts on the remaining suffix; the second still raises. Lists/tuples and all
+other graph classes retain their prior paths. No MultiGraph storage or SIMD
+code changed.
+
+SAME-WORKER INTERLEAVED A/B + NULL: strict RCH built and ran one ordinary
+release test binary on actual worker `vmi1149989`. Each arm constructed a fresh
+10,000-edge graph 64 times per round; 21 rounds alternated every individual
+construction. The frozen arm forced the prior materialize-plus-stream route,
+the candidate used fused staging, and the null compared candidate with itself.
+Before timing, exact native graph snapshots, node display objects, successor
+and predecessor display maps, public key mirrors, and Python attribute mirrors
+were asserted equal.
+
+| same-binary arm | median | wins | CV | p5-p95 | parity |
+|---|---:|---:|---:|---:|---:|
+| frozen streaming / fused keyed stage | **`1.5286x`** | **`21/21`** | **`2.232%`** | `1.4623x-1.5832x` | exact |
+| fused / fused null | `0.9997x` | `9/21` | **`1.593%`** | `0.9847x-1.0336x` | identical arm |
+
+POST-EDIT PUBLIC HEAD-TO-HEAD: the exact
+`networkx_head_to_head_construction_copy/...multidigraph_iterator_keyed...`
+row then ran on the same named worker with 20 Criterion samples. FNX measured
+`[147.43, 152.88, 158.47] ms` versus NetworkX
+`[139.49, 176.74, 216.42] ms`, flipping the point estimate to a
+**`1.156x`** FNX win. Criterion measured the FNX row itself
+`35.680%` faster at the midpoint (`p=0.00`); the noisy NetworkX interval is
+routing evidence, while the low-CV same-binary A/B above remains the causal
+KEEP proof.
+
+BEHAVIOR ISOMORPHISM / REMOTE GATES: the focused Rust release test passed on
+`vmi1149989` and compares both exact and mixed-fallback graphs. A release
+extension with SHA-256
+`ced9065e0aa599e3e22c571f4d2f44012fe1c3910275148f5b2dd6b97b4b84b9`
+was built remotely on that worker. Direct conformance against that exact
+artifact passed the established 12-shape by four-class iterator matrix
+(48 outcomes) and a keyed MultiDiGraph corpus covering public-key replacement,
+parallel keys, a self-loop, reverse edges, node/edge order, attrs, and graph
+kwargs. Strict-remote `cargo check --workspace --all-targets` and the targeted
+all-target `fnx-python` check passed. The mandatory exact workspace clippy
+command was run remotely and stopped on the concurrent pre-existing
+`crates/fnx-classes/src/lib.rs:1719` `collapsible_if`; a no-deps fnx-python
+retry reached the crate and stopped on three pre-existing `collapsible_if`
+sites at `algorithms.rs:17560`, `algorithms.rs:17688`, and `lib.rs:12143`,
+all outside this lever. Targeted rustfmt, `cargo fmt --check`,
+`git diff --check`, and UBS passed with zero critical findings.
+
+RESULT: KEEP. Preserve the exact-int/exact-string/three-tuple discriminator,
+eight-row floor, transactional epoch reset, and one-shot fallback. Do not widen
+this route to attributed, mixed, exotic, list/tuple, or MultiGraph inputs.
+RETRY PREDICATE for the older broad-drain family: only revisit another shape
+after a fresh pinned-worker public row loses to NetworkX and a same-binary
+profile identifies a distinct per-edge parse/commit floor; require exact
+candidate/frozen parity, an interleaved A/A null, both CVs below `5%`, and at
+least `1.05x` candidate median before shipping.

@@ -216,6 +216,112 @@ pub(crate) fn fnx_graph_instance_mode(data: &Bound<'_, PyAny>) -> Option<Compati
 pub(crate) struct MaterializedIteratorEdgeList<'py> {
     pub(crate) items: Bound<'py, PyAny>,
     graph_exact_int_attr_batch: Option<IndexedAttrEdgeBatch>,
+    pub(crate) multidigraph_exact_int_str_keyed_batch: Option<MultiDiGraphExactIntStrKeyedBatch>,
+}
+
+#[cfg(test)]
+pub(crate) static FORCE_MULTIDIGRAPH_CTOR_KEYED_STREAMING: AtomicBool = AtomicBool::new(false);
+
+pub(crate) struct MultiDiGraphExactIntStrKeyedBatch {
+    pub(crate) node_entries: Vec<(String, PyObject)>,
+    pub(crate) edges: Vec<(String, String, usize, AttrMap)>,
+    pub(crate) edge_attrs: HashMap<(String, String, usize), Py<PyDict>>,
+    pub(crate) edge_keys: HashMap<(String, String, usize), PyObject>,
+}
+
+#[derive(Default)]
+struct MultiDiGraphExactIntStrKeyedStage {
+    node_seen: HashSet<String>,
+    node_entries: Vec<(String, PyObject)>,
+    occupied_keys: HashMap<(String, String), HashSet<usize>>,
+    public_to_internal: HashMap<(String, String, String), usize>,
+    edges: Vec<(String, String, usize, AttrMap)>,
+    edge_attrs: HashMap<(String, String, usize), Py<PyDict>>,
+    edge_keys: HashMap<(String, String, usize), PyObject>,
+}
+
+impl MultiDiGraphExactIntStrKeyedStage {
+    fn accepts(item: &Bound<'_, PyAny>) -> bool {
+        let Ok(tuple) = item.downcast::<PyTuple>() else {
+            return false;
+        };
+        if tuple.len() != 3 {
+            return false;
+        }
+        tuple
+            .get_item(0)
+            .is_ok_and(|u| u.is_exact_instance_of::<PyInt>())
+            && tuple
+                .get_item(1)
+                .is_ok_and(|v| v.is_exact_instance_of::<PyInt>())
+            && tuple
+                .get_item(2)
+                .is_ok_and(|key| key.is_exact_instance_of::<PyString>())
+    }
+
+    fn push(&mut self, py: Python<'_>, item: &Bound<'_, PyAny>) -> PyResult<bool> {
+        if !Self::accepts(item) {
+            return Ok(false);
+        }
+        let tuple = item.downcast::<PyTuple>()?;
+        let u = tuple.get_item(0)?;
+        let v = tuple.get_item(1)?;
+        let key = tuple.get_item(2)?;
+        let Ok(u_value) = u.extract::<i64>() else {
+            return Ok(false);
+        };
+        let Ok(v_value) = v.extract::<i64>() else {
+            return Ok(false);
+        };
+        let u_canonical = u_value.to_string();
+        let v_canonical = v_value.to_string();
+        if self.node_seen.insert(u_canonical.clone()) {
+            self.node_entries.push((u_canonical.clone(), u.unbind()));
+        }
+        if self.node_seen.insert(v_canonical.clone()) {
+            self.node_entries.push((v_canonical.clone(), v.unbind()));
+        }
+
+        let pair = (u_canonical.clone(), v_canonical.clone());
+        let public_lookup = edge_key_lookup_string(py, &key)?;
+        let lookup_key = (pair.0.clone(), pair.1.clone(), public_lookup);
+        let internal_key = if let Some(existing) = self.public_to_internal.get(&lookup_key) {
+            *existing
+        } else {
+            let occupied = self.occupied_keys.entry(pair).or_default();
+            let mut candidate = occupied.len();
+            while occupied.contains(&candidate) {
+                candidate += 1;
+            }
+            occupied.insert(candidate);
+            self.public_to_internal.insert(lookup_key, candidate);
+            candidate
+        };
+
+        let edge_key = (u_canonical.clone(), v_canonical.clone(), internal_key);
+        self.edge_attrs
+            .entry(edge_key.clone())
+            .or_insert_with(|| PyDict::new(py).unbind());
+        self.edge_keys
+            .entry(edge_key)
+            .or_insert_with(|| key.unbind());
+        self.edges
+            .push((u_canonical, v_canonical, internal_key, AttrMap::new()));
+        Ok(true)
+    }
+
+    fn into_batch(self) -> Option<MultiDiGraphExactIntStrKeyedBatch> {
+        const KEYED_EDGE_BATCH_MIN: usize = 8;
+        if self.edges.len() < KEYED_EDGE_BATCH_MIN {
+            return None;
+        }
+        Some(MultiDiGraphExactIntStrKeyedBatch {
+            node_entries: self.node_entries,
+            edges: self.edges,
+            edge_attrs: self.edge_attrs,
+            edge_keys: self.edge_keys,
+        })
+    }
 }
 
 struct GraphExactIntAttrRow {
@@ -362,6 +468,7 @@ pub(crate) fn materialize_iterator_edge_list<'py>(
         return Ok(Some(MaterializedIteratorEdgeList {
             items: PyList::empty(py).into_any(),
             graph_exact_int_attr_batch: None,
+            multidigraph_exact_int_str_keyed_batch: None,
         }));
     };
 
@@ -371,7 +478,19 @@ pub(crate) fn materialize_iterator_edge_list<'py>(
     // rows enter the transactional decoder below; the common tuple stream is
     // neither exhausted nor copied (the retry predicate on the rejected broad
     // MultiDiGraph drain).
+    #[cfg(test)]
+    let force_multidigraph_keyed_streaming =
+        FORCE_MULTIDIGRAPH_CTOR_KEYED_STREAMING.load(Ordering::Relaxed);
+    #[cfg(not(test))]
+    let force_multidigraph_keyed_streaming = false;
+    let collect_multidigraph_exact_keyed = is_multi
+        && preserve_exact_tuple_stream
+        && !force_multidigraph_keyed_streaming
+        && first
+            .as_ref()
+            .is_ok_and(MultiDiGraphExactIntStrKeyedStage::accepts);
     if preserve_exact_tuple_stream
+        && !collect_multidigraph_exact_keyed
         && first
             .as_ref()
             .is_ok_and(|item| ctor_tuple_can_stream(py, item, is_multi))
@@ -385,6 +504,7 @@ pub(crate) fn materialize_iterator_edge_list<'py>(
         return Ok(Some(MaterializedIteratorEdgeList {
             items: chained,
             graph_exact_int_attr_batch: None,
+            multidigraph_exact_int_str_keyed_batch: None,
         }));
     }
 
@@ -396,12 +516,20 @@ pub(crate) fn materialize_iterator_edge_list<'py>(
     let mut retrying = false;
     let mut items: Vec<Bound<'py, PyAny>> = Vec::new();
     let mut graph_stage = collect_graph_exact_int_attrs.then(GraphExactIntAttrStage::default);
+    let mut multidigraph_stage =
+        collect_multidigraph_exact_keyed.then(MultiDiGraphExactIntStrKeyedStage::default);
     let mut pending = Some(first);
     loop {
         let Some(item) = pending.take().or_else(|| iter.next()) else {
             break;
         };
         let normalized = item.and_then(|item| {
+            if let Some(stage) = multidigraph_stage.as_mut() {
+                if stage.push(py, &item)? {
+                    return Ok((item, None));
+                }
+                multidigraph_stage = None;
+            }
             if graph_stage.is_some()
                 && let Some(normalized) = normalize_graph_exact_int_attr_row(py, &item)?
             {
@@ -425,14 +553,26 @@ pub(crate) fn materialize_iterator_edge_list<'py>(
             Err(_) if !retrying => {
                 items.clear();
                 graph_stage = collect_graph_exact_int_attrs.then(GraphExactIntAttrStage::default);
+                multidigraph_stage = collect_multidigraph_exact_keyed
+                    .then(MultiDiGraphExactIntStrKeyedStage::default);
                 retrying = true;
             }
             Err(_) => return Err(NetworkXError::new_err("Input is not a valid edge list")),
         }
     }
+    let multidigraph_exact_int_str_keyed_batch =
+        multidigraph_stage.and_then(MultiDiGraphExactIntStrKeyedStage::into_batch);
+    let materialized = PyList::new(py, items)?;
+    let items =
+        if collect_multidigraph_exact_keyed && multidigraph_exact_int_str_keyed_batch.is_none() {
+            materialized.call_method0("__iter__")?
+        } else {
+            materialized.into_any()
+        };
     Ok(Some(MaterializedIteratorEdgeList {
-        items: PyList::new(py, items)?.into_any(),
+        items,
         graph_exact_int_attr_batch: graph_stage.and_then(GraphExactIntAttrStage::into_batch),
+        multidigraph_exact_int_str_keyed_batch,
     }))
 }
 
