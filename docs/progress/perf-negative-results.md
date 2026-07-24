@@ -391,3 +391,39 @@ Same compression result (only the arbitrary name). VERIFIED: feature-OFF golden 
 across 20 shapes; feature-ON FULL fast suite now **49521 passed, 0 failed** (was 49520/1). This
 RESOLVES the thp6w flip prerequisite recorded earlier today AND removes a fragile-test class that had
 produced false REJECTs/blockers. Default build restored to feature-off.
+
+## 2026-07-23 BlackThrush (cc) REJECT (br-r37-c1-thp6w): MultiGraph fresh-batch capacity-reserve does NOT move construction — String-substrate floor, not a resize floor
+
+Deep re-profile of the MG construction loss (0.5-0.58x at n=20000 m=80000, live on HEAD via BOTH
+paths: ctor `MultiGraph(edges)` 0.58x and `add_edges_from(edges)` 0.51x). Established that BOTH
+paths already batch natively — the ctor runs the native `__new__` two-epoch absorb; add_edges_from
+runs `_try_add_edges_from_batch` -> `extend_keyed_edges_with_attrs_unrecorded`. The per-edge
+`PyDict::new` loop at PyMultiGraph::add_edges_from (lib.rs:7769) is a COLD fallback, NOT the hot
+path (disproves the "per-edge dict churn" theory). The native batch already memoizes
+node_key_to_string by Python object identity and pre-sizes the `edges` staging Vec.
+
+HYPOTHESIS TESTED: `extend_keyed_edges_with_attrs_unrecorded` inserts into the String-keyed
+`nodes`/`adjacency`/`edges` maps one-at-a-time with NO capacity reservation, so it pays incremental
+hashbrown rehashes across the batch. The fresh-graph guard (`edge_count()!=0 -> false`) means the
+caller knows the EXACT new-node count and edge-count-upper-bound, so a one-shot `reserve` is tight
+and free. Added `MultiGraph::reserve_for_keyed_edge_batch(extra_nodes, extra_pairs)` (reserves
+nodes+adjacency by exact new-node count, edges by edge count) called once before the extend.
+
+MEASURE (maturin release, isolated-pkg .so hot-swap, subprocess-interleaved same-worker A/B, 14
+rounds alternating order; candidate sha 9c7833a8 vs baseline HEAD 3d877bb1; n=20000 m=80000):
+- aef (TREATED path): base=407.9ms cand=417.0ms **speedup=0.9783x** (candidate marginally SLOWER),
+  CV base 5.5% / cand 12.9%.
+- ctor (UNTOUCHED control, native absorb not changed): 0.9909x ~= 1.0x as designed.
+- NULL control (baseline vs baseline, 8 rounds): aef 0.9979x (CV 6.9-7.6%), ctor 0.9916x.
+Candidate speedup (0.9783x) sits INSIDE the null spread (~1.0x +-7%) and on the slow side. No win.
+
+VERDICT: REJECT/no-ship; source reverted, tree clean at HEAD. The reserve theoretically eliminates
+only the OUTER-map resize rehashes; construction is instead dominated by per-edge String work
+(node_key_to_string, ~3-4 String clones/edge inside the extend loop across the dual adjacency+edges
+storage, EdgeKey build, AttrMap alloc) + the nested per-node inner IndexMaps that a reserve can't
+pre-size (degree unknown). nx pays ZERO string cost (keys its dicts by the Python int objects
+directly). This is the thp6w String-substrate floor a 3rd independent time — NOT a resize floor.
+RETRY-PREDICATE: only revisit capacity-reserve if a future profile on a QUIET worker (load<2, CV<3%
+via taskset+gc.disable) isolates outer-map resize as >8% of construction self-time; otherwise the
+only construction fix is the thp6w integer-node-storage flip (kill String keys + the redundant
+dual adjacency/edges storage), not a capacity hint.
