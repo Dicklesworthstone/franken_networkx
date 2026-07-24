@@ -727,3 +727,7 @@ row remains open. Retry only a distinct Python-mirror or indexed-stage
 primitive; do not reopen private-mirror transfer or deferred fallback tuples.
 Require exact three-way parity, interleaved A/B plus A/A null, both CVs below
 `5%`, candidate median at least `1.05x`, and another pinned-worker public row.
+
+Landing note: concurrent shared-checkout commit `18b106c63` swept this exact
+lever and evidence into its already-pushed S31 commit. The mixed landing was
+not rewritten; this constructor row remains StormyForge-owned.

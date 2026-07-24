@@ -24024,3 +24024,8 @@ deferred fallback-tuple levers. The next cycle must profile a distinct
 per-edge Python-mirror or indexed-stage primitive, then again require exact
 candidate/control/frozen parity, an interleaved A/A null, both CVs below `5%`,
 candidate median at least `1.05x`, and a pinned-worker public re-baseline.
+
+LANDING NOTE: the concurrent shared checkout swept this lever's exact source,
+tests, bead closeout, and ledger rows into already-pushed commit `18b106c63`
+alongside cc's separately owned S31 change. That immutable mixed landing was
+not rewritten; this constructor row and its evidence remain StormyForge-owned.
