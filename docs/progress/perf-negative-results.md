@@ -497,3 +497,38 @@ no-deps retry likewise reported only three pre-existing sites outside the change
 VERDICT: KEEP. Do not widen the discriminator. Retry another constructor shape only after a fresh
 pinned public loss and distinct profile attribution, then require exact frozen parity, interleaved
 A/B and A/A null, both CVs below `5%`, and candidate median at least `1.05x`.
+
+## 2026-07-24 BlackThrush (cc) FINDING (br-r37-c1-thp6w): MG mutation-interleaved + micro-op profile map — has_edge is a PyO3-BOUNDARY floor (NOT cutover-fixable); every other remaining loss is the cutover
+
+Fresh HEAD measurement (maturin .so, n=4000 m=16000 MG, gc.disable, median-of-13) to re-scope what the
+thp6w cutover actually buys, since the read-routing strangler is exhausted (all remaining production
+adjacency full-walks are mutations that already dual-write; edges_ordered pair shipped; index rejected).
+
+MUTATION-INTERLEAVED cc (the S4 `advance_int_adj_memo` surface):
+- single-edge add + cc: **6.06x WIN** (fnx 0.412ms vs nx 2.500ms) — S4 memo-advance CONFIRMED working
+  on HEAD; the earlier 0.566x cold-after-mutation loss is FIXED. (`advance_int_adj_memo` landed, called
+  at the add_edge/remove_edge single-edge sites lib.rs:4583/4720.)
+- add_node + cc: **1.19x WIN** (isolated-node add advances/keeps the memo usable).
+- remove_node + cc: **0.88x LOSS** — remove_node bumps the revision and INVALIDATES the int_adj memo
+  (the memo indices must track nodes_ordered positions, which RENUMBER on removal), so cc rebuilds O(E).
+  This is the node_removal_storage_wall: advancing the memo across remove_node costs ~O(V+E) (the
+  renumber) = same as rebuild. The ONLY fix is a STABLE-SLOT store (the slab removes without renumber) =
+  the cutover. Winnable, but cutover-dependent.
+
+MICRO-OP has_edge (string nodes), n=3000 m=12000, 20000 probes:
+- **0.304x** (fnx 0.402us/call vs nx 0.122us/call). DECOMPOSITION: a trivial fnx PyO3 call
+  (number_of_nodes) is **0.143us/call** — already SLOWER than nx's ENTIRE has_edge (0.122us). So the
+  PyO3 boundary is a hard floor BELOW which fnx cannot go; even a zero-Rust-work has_edge is ~0.85x.
+  The string-canonicalization work (node_key_to_string builds `"str:{len}:{s}"`, ~0.26us incl. 2 heap
+  allocs) is the gap from 0.30x to the 0.85x cap. CORRECTS the prior "has_edge = string-node-key floor,
+  needs cutover" note: the cutover would NOT fix has_edge (the boundary + canonical-hash remain; the
+  string node still resolves through a canonical-key lookup). has_edge is a PyO3-boundary floor,
+  UNWINNABLE. A stack-buffer canonical build could shave the 2 allocs (~1.15-1.25x self-speedup) but
+  stays a loss under the 0.85x cap — NOT shipped (poor ROI on an unwinnable op, hot-path risk).
+
+RESCOPED CONCLUSION: the thp6w cutover's real payoff is CONSTRUCTION (0.5x, String dual-storage) and
+remove_node+cc (0.88x, renumber floor) — both fixed by making the stable-slot slab PRIMARY. has_edge
+and the lookup micro-ops (has_node/__contains__/neighbors/degree) are PyO3-boundary-floored and are NOT
+cutover targets. LEDGERED BLOCKER stands: the only remaining WINNABLE lever is the cutover (large
+multi-session storage rewrite; the slab lacks node-attr storage — a concrete prep gap; needs
+coordination with AzureCanyon's live fnx-python ctor WIP in the shared tree).
