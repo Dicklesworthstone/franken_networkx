@@ -24206,3 +24206,56 @@ preallocation alone. Reopen only if a distinct workload profile attributes at
 least five percent end-to-end to allocator growth/rehashing and can preserve
 the exact-type no-user-code gate; otherwise target a different public-key or
 final-map representation cost.
+
+## 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` keyed scalar attrs): raw exact-string stage lookup — **0.9897x** (`br-r37-c1-04z53.9182`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: both performance ledgers, current
+Git history, and the epic's constructor children were searched before this
+lever. The scan excluded compact pair counters, snapshot transfer, deferred
+fallback tuples, fused scalar decoding, tuple-iterator pre-sizing, and cc's
+MultiGraph integer-adjacency/slab/AVX2 lane. Static allocation tracing of the
+10,000-edge attributed keyed iterator row found that every accepted exact
+Python string key was extracted into one Rust `String`, then copied into a
+second `"str:{key}"` allocation and hashed with the four-byte prefix solely for
+the disposable transaction-stage duplicate-key map.
+
+ONE LEVER TESTED: the candidate used the extracted exact string directly as a
+tagged stage-local lookup key, removing the prefix allocation/copy/hash. A
+same-binary forced control retained the global canonical representation.
+Unextractable exact strings, including lone surrogates, fell back to the
+canonical arm; separate `Exact` and `Canonical` enum variants prevented a
+valid literal string from colliding with a surrogate's `type:repr` fallback.
+Final native keys, Python key objects, mirror maps, ordering, duplicate
+updates, mutable-dict snapshots, and the frozen decline route were unchanged.
+
+BEHAVIOR ISOMORPHISM / CONFORMANCE: focused strict-remote parity passed 1/1 on
+`vmi1149989`. Candidate and forced-canonical stage arms were identical for
+plain and attributed rows, duplicates, canonical-looking strings, Unicode,
+embedded NUL, lone surrogates, and a literal surrogate-fallback collision
+control. Existing candidate/frozen coverage also passed for ordinary keyed
+rows, reused mutable dicts, and late typed decline. The extended fixture
+independently surfaced the pre-existing empty-string-key divergence now
+tracked as `br-r37-c1-04z53.9183`: both stage arms preserve `""`, while the
+frozen route maps the falsy key to public integer key `0`.
+
+SAME-WORKER INTERLEAVED A/B + NULL: strict RCH pinned one ordinary release
+test binary to `vmi1156319`, with 10,000 attributed keyed edges, 32
+constructions per arm per round, and 21 paired rounds:
+
+| same-binary arm | median | wins | CV | p5-p95 | parity |
+|---|---:|---:|---:|---:|---:|
+| canonical prefix / tagged raw lookup | **`0.9897x`** | `7/21` | **`3.481%`** | `0.9453x-1.0517x` | exact |
+| raw / raw null | `1.0065x` | `13/21` | **`2.815%`** | `0.9738x-1.0494x` | identical arm |
+
+RESULT: REJECT. Both CVs are below `5%`, but the causal arm is slightly slower
+than its canonical control, below the required `1.05x` floor, and fully inside
+the null envelope. Experimental source and test controls were removed. The
+public `networkx_head_to_head.rs` row was not run because the causal admission
+gate failed; the indexed-mirror KEEP and public `0.661x` row remain the
+baseline. Consecutive REJECT count is **3**, so the measured-frontier stop
+condition is satisfied. RETRY PREDICATE: do not retry string-prefix removal or
+stage-local key canonicalization alone. Reopen only if a fresh allocation
+profile attributes at least five percent end-to-end to public-key handling and
+a design removes both extraction and canonicalization or merges lookup-key
+creation with final mirror materialization while preserving surrogate and
+Python-equality semantics.

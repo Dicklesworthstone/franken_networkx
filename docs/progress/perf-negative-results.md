@@ -849,3 +849,39 @@ length-hint preallocation alone; reopen only if a distinct workload attributes
 at least five percent end-to-end to allocator growth/rehashing while preserving
 the exact-type no-user-code gate. Otherwise target a different public-key or
 final-map representation cost.
+
+## 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` keyed scalar attrs): raw exact-string stage lookup — **0.9897x** (`br-r37-c1-04z53.9182`)
+
+Fresh ledger, Git, and epic-child scans excluded compact pair counters,
+snapshot transfer, deferred fallback tuples, fused scalar decoding,
+tuple-iterator pre-sizing, and cc's MultiGraph storage/SIMD lane. Static
+allocation tracing found one redundant `"str:"` allocation/copy/hash per
+accepted exact-string edge key in the disposable constructor-stage lookup map.
+
+The candidate replaced that canonical string with a tagged raw extracted
+string; a same-binary forced arm retained canonical lookup. Unextractable
+strings fell back to a distinct tagged canonical variant, preventing
+surrogate `type:repr` values from colliding with valid literal strings.
+Focused strict-remote parity passed on `vmi1149989` for plain and attributed
+rows, duplicates, canonical-looking values, Unicode, embedded NUL, lone
+surrogates, reused mutable dicts, and late fallback. The fixture also surfaced
+an independent pre-existing empty-string-key staged/frozen divergence, filed
+as `br-r37-c1-04z53.9183`.
+
+Pinned `vmi1156319` then ran 32 constructions per arm per round for 21
+interleaved rounds in one release binary:
+
+| arm | median | wins | CV | p5-p95 |
+|---|---:|---:|---:|---:|
+| canonical prefix / tagged raw lookup | **`0.9897x`** | `7/21` | **`3.481%`** | `0.9453x-1.0517x` |
+| raw / raw null | `1.0065x` | `13/21` | **`2.815%`** | `0.9738x-1.0494x` |
+
+REJECT: stable evidence, but the causal arm was slightly slower, below the
+`1.05x` floor, and inside the null envelope. Source was removed. The public
+head-to-head row was not admitted; indexed-mirror KEEP and its public `0.661x`
+row remain the baseline. Consecutive REJECT count: **3**, satisfying the stop
+condition. Do not retry prefix removal or stage-local canonicalization alone.
+Reopen only if a fresh profile attributes at least five percent end-to-end to
+public-key handling and a design removes both extraction and canonicalization
+or merges lookup-key creation with final mirror materialization while
+preserving surrogate and Python-equality semantics.
