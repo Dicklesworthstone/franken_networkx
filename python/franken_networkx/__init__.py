@@ -32276,9 +32276,20 @@ def _dedensify_simple_native_rows(G, threshold, prefix, copy):
 
     auxiliary = {}
     for node in nodes:
-        high_degree_nbrs = frozenset(
-            high_degree_nodes.intersection(adjacency_row(node))
-        )
+        # br-r37-c1-thp6w: build the high-degree-neighbour frozenset with the
+        # EXACT operation nx uses — ``high_degree_nodes & set(G[node])`` — not
+        # ``high_degree_nodes.intersection(adjacency_row(node))``. The compressor
+        # node name is ``"".join(str(n) for n in high_degree_nbrs)``, i.e. the
+        # frozenset's ITERATION order, which is not a stable contract:
+        # ``set & set`` seeds the result set by iterating the operands in nx's
+        # order, while ``.intersection(<dict>)`` iterated the adjacency dict —
+        # a DIFFERENT insertion order, so hash-colliding labels landed in a
+        # different bucket order and the compressor name diverged from nx under
+        # some binaries (surfaced as an order-fragile golden under the
+        # mg-int-storage build). Using the identical ``& set(...)`` operation on
+        # identical operands makes fnx's frozenset byte-identical to nx's in any
+        # process. Same compression result either way (only the arbitrary name).
+        high_degree_nbrs = frozenset(high_degree_nodes & set(adjacency_row(node)))
         if high_degree_nbrs:
             auxiliary.setdefault(high_degree_nbrs, set()).add(node)
 

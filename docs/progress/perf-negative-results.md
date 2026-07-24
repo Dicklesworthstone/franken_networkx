@@ -375,3 +375,19 @@ so it must be a coordinated fnx+test change), or (b) sweep all *_golden tests fo
 sensitivity and pin them. NOT a current blocker: the default feature-off build is clean; site-packages
 restored to feature-off. rch fleet was saturated for the Rust slab gauntlet (thp6w_s11/s14) —
 re-run those under the feature next slab session.
+
+## 2026-07-23 SnowyBadger (cc) SHIP (br-r37-c1-thp6w): dedensify compressor-name frozenset order matches nx — flip prerequisite RESOLVED
+
+Fixed the order-fragile dedensify golden (the feature-on burn-in's 1 failure + a recurring
+false-alarm class). Root: fnx's `_dedensify_simple_native_rows` built the high-degree-neighbour
+frozenset as `high_degree_nodes.intersection(adjacency_row(node))` (iterates the ADJACENCY DICT),
+while nx uses `high_degree_nodes & set(G[node])` (set&set). The compressor node name is
+`"".join(str(n) for n in frozenset)` — the frozenset's ITERATION order — so the two constructions
+seeded the result set's hash buckets in different insertion orders, and hash-colliding labels
+diverged the name from nx under some binaries (the mg-int-storage build perturbed Python set order
+enough to flip it). Changed fnx to the IDENTICAL `frozenset(high_degree_nodes & set(adjacency_row(node)))`
+so the frozenset is byte-identical to nx's in any process/binary (same operands, same operation).
+Same compression result (only the arbitrary name). VERIFIED: feature-OFF golden + 0 name mismatches
+across 20 shapes; feature-ON FULL fast suite now **49521 passed, 0 failed** (was 49520/1). This
+RESOLVES the thp6w flip prerequisite recorded earlier today AND removes a fragile-test class that had
+produced false REJECTs/blockers. Default build restored to feature-off.
