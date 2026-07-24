@@ -813,3 +813,39 @@ profile can combine it with eliminating or transferring the mandatory
 yield-time snapshot without changing mutable-dict semantics and predicts at
 least five percent. Otherwise target a distinct final-map, public-key, or
 transaction-stage cost.
+
+## 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` keyed scalar attrs): exact tuple-iterator stage pre-sizing — **1.0144x** (`br-r37-c1-04z53.9181`)
+
+Fresh ledger, Git, and epic-child scans excluded compact pair counters,
+snapshot transfer, deferred fallback tuples, fused scalar decoding, and cc's
+MultiGraph storage/SIMD lane. Static allocation tracing of the public
+`iter(tuple_of_20000)` shape found five growable vectors and three indexed
+hash tables starting at capacity zero despite an exact built-in remaining-row
+hint.
+
+The candidate used that hint only for the exact built-in tuple-iterator type
+to pre-size normalized items plus indexed stage vectors/maps. A same-binary
+control forced zero capacity. Custom and generator iterators never exposed
+their `__length_hint__`. Focused strict-remote parity passed on `vmi1149989`
+across reserved, zero-capacity, and frozen streaming routes, including
+duplicates, mutable-dict reuse, late fallback, and a custom iterator whose
+length hint raises if observed.
+
+The first pinned `vmi1156319` run at 32 constructions per arm per round was
+discarded as INVALID-CV: causal `1.0325x`, 16/21 wins, `6.632%` CV,
+`0.9465x-1.1361x`; null `1.0060x`, 12/21 wins, `4.346%` CV,
+`0.9489x-1.0605x`. The unchanged design then ran at a harness-confirmed 64
+constructions per arm per round for 21 interleaved rounds:
+
+| arm | median | wins | CV | p5-p95 |
+|---|---:|---:|---:|---:|
+| zero-capacity growth / pre-sized stage | **`1.0144x`** | `14/21` | **`4.186%`** | `0.9559x-1.0998x` |
+| pre-sized / pre-sized null | `1.0009x` | `11/21` | **`3.539%`** | `0.9624x-1.0658x` |
+
+REJECT: stable evidence, but below the `1.05x` causal floor and inside the
+null envelope. Source was removed. Consecutive REJECT count: **2**. The
+indexed-mirror KEEP and public `0.661x` row remain the baseline. Do not retry
+length-hint preallocation alone; reopen only if a distinct workload attributes
+at least five percent end-to-end to allocator growth/rehashing while preserving
+the exact-type no-user-code gate. Otherwise target a different public-key or
+final-map representation cost.

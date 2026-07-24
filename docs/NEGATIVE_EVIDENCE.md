@@ -24157,3 +24157,52 @@ validation/decoding alone. Reopen only if a fresh profile shows the mandatory
 yield-time attribute snapshot can be eliminated or transferred without
 changing reused-dict semantics and predicts at least five percent end-to-end;
 otherwise select a distinct final-map, public-key, or transaction-stage cost.
+
+## 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` keyed scalar attrs): exact tuple-iterator stage pre-sizing — **1.0144x** (`br-r37-c1-04z53.9181`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: both performance ledgers, current
+Git history, and the epic's constructor children were searched before this
+lever. The scan excluded compact pair counters, private snapshot transfer,
+deferred fallback tuples, fused scalar decoding, and cc's MultiGraph
+integer-adjacency/slab/AVX2 lane. Static allocation tracing of the public
+`iter(tuple_of_20000)` row found that the normalized-item vector, indexed
+edge/mirror/node vectors, and three indexed hash tables all grew from zero
+despite the exact built-in tuple iterator exposing its remaining length.
+
+ONE LEVER TESTED: only an exact built-in tuple iterator supplied a capacity
+hint after the mandatory first-row peek. The candidate pre-sized normalized
+items, indexed edges/mirrors, endpoint storage, and indexed lookup tables; a
+same-binary control forced every structure back to zero capacity. Generators,
+custom iterators, and every other iterable never had `__length_hint__`
+consulted. The two-epoch retry, eight-row floor, mutable-dict snapshots,
+first-seen order, duplicate-key updates, and final native/Python mirrors were
+unchanged.
+
+BEHAVIOR ISOMORPHISM / CONFORMANCE: focused strict-remote parity passed 1/1 on
+`vmi1149989`. Reserved and zero-capacity tuple-iterator arms matched each
+other and frozen streaming exactly for plain and attributed keyed rows,
+duplicates, loops, reverse edges, mutable-dict reuse, and late typed decline.
+A custom iterator whose `__length_hint__` raises also matched frozen streaming,
+proving the production type gate did not add user-visible calls.
+
+SAME-WORKER INTERLEAVED A/B + NULL: strict RCH pinned one ordinary release
+test binary to `vmi1156319`, with 10,000 attributed keyed edges and 21 paired
+rounds. The initial 32-repetition causal sample was INVALID-CV and discarded:
+`1.0325x`, 16/21 wins, `6.632%` CV, p5-p95 `0.9465x-1.1361x`; its null was
+`1.0060x`, 12/21 wins, `4.346%` CV, p5-p95 `0.9489x-1.0605x`. The unchanged
+design was retried with a remote-confirmed `repetitions=64`:
+
+| same-binary arm | median | wins | CV | p5-p95 | parity |
+|---|---:|---:|---:|---:|---:|
+| zero-capacity growth / pre-sized stage | **`1.0144x`** | `14/21` | **`4.186%`** | `0.9559x-1.0998x` | exact |
+| pre-sized / pre-sized null | `1.0009x` | `11/21` | **`3.539%`** | `0.9624x-1.0658x` | identical arm |
+
+RESULT: REJECT. Both decisive CVs are below `5%`, but the causal median is
+well below the required `1.05x` floor and lies inside the null envelope.
+Experimental source and tests were removed; the indexed-mirror KEEP and public
+`0.661x` head-to-head row remain the production baseline. Consecutive REJECT
+count is **2**. RETRY PREDICATE: do not retry iterator length-hint
+preallocation alone. Reopen only if a distinct workload profile attributes at
+least five percent end-to-end to allocator growth/rehashing and can preserve
+the exact-type no-user-code gate; otherwise target a different public-key or
+final-map representation cost.
