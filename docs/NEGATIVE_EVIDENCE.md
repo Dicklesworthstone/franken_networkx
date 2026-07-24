@@ -23946,3 +23946,81 @@ five-percent end-to-end contribution or the stage can avoid the mandatory
 yield-time dict snapshot too without changing reused-dict semantics. The next
 cycle must profile a distinct admitted-stage or commit-path cost and retain the
 same pinned-worker, exact-parity, and null-control gates.
+
+## 2026-07-24 StormyForge KEEP (`MultiDiGraph(iterator)` keyed scalar attrs): indexed typed stage + fresh commit — **1.2012x** (`br-r37-c1-97iyf`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: both performance ledgers and
+recent Git history were searched before this lever. The original 36-case
+`Graph(iterator)` parity lane under `br-r37-c1-04z53` remained closed at zero
+divergences; the scalar-mirror and deferred-fallback levers remained rejected,
+and cc's MultiGraph integer-adjacency, slab-cutover, and AVX2 lane was
+excluded. Static attribution of the admitted exact `(int, int, str, dict)`
+stage found that it still canonicalized integer endpoints to `String`, keyed
+its node and pair maps by those strings, then committed through the
+String-keyed native loader. The existing list-batch path already proved a
+fresh indexed keyed-attribute loader, so this was a distinct missed commit
+seam rather than a storage-layout change.
+
+ONE LEVER: production staging now assigns first-seen exact-int endpoints dense
+indices, retains their canonical labels and original Python node objects in
+index order, keys the typed pair/public-key maps by those indices, and commits
+through the existing
+`extend_fresh_index_keyed_edges_with_attrs_unrecorded` substrate. A test-only
+arm preserves the prior String stage and String commit in the same binary.
+Python edge-key and attribute mirrors, duplicate public-key resolution,
+yield-time snapshots, normalized fallback rows, the eight-row floor, and the
+transactional retry rules are unchanged. Inputs outside the exact typed
+discriminator retain the frozen route. No MultiGraph storage, slab, SIMD, or
+AVX2 code changed.
+
+BEHAVIOR ISOMORPHISM / CONFORMANCE: focused strict-remote parity passed on
+`vmi1149989`. The indexed candidate, forced String-stage control, and frozen
+streaming route produced identical native graph snapshots, node/display maps,
+successor/predecessor maps, public key mirrors, and Python attribute mirrors.
+Coverage includes plain keyed rows, attributed duplicates and loops, reverse
+edges, a generator that clears and reuses one dict, and late typed decline.
+The frozen route's direct legacy-NetworkX 48-shape constructor corpus and
+keyed-attribute corpus were already green; exact three-way equality keeps the
+new indexed commit within that conformance envelope.
+
+SAME-WORKER INTERLEAVED A/B + NULL: strict RCH pinned one ordinary release
+test binary to actual worker `vmi1156319`. Each arm constructed a fresh
+10,000-edge attributed graph, alternating every construction for 21 rounds.
+The initial 32-repetition series was explicitly INVALID-CV: its causal median
+was `1.2000x` with `5.222%` CV, while its null was `0.9994x` with `4.693%` CV.
+It was discarded and did not admit the KEEP. The same design was retried at
+64 repetitions per arm per round:
+
+| same-binary arm | median | wins | CV | p5-p95 | parity |
+|---|---:|---:|---:|---:|---:|
+| String stage+commit / indexed stage+commit | **`1.2012x`** | **`21/21`** | **`2.776%`** | `1.1664x-1.2544x` | exact |
+| indexed / indexed null | `1.0115x` | `13/21` | **`2.990%`** | `0.9471x-1.0344x` | identical arm |
+
+POST-EDIT PUBLIC HEAD-TO-HEAD: the exact
+`multidigraph_iterator_keyed_attrs_e20000` row then ran through
+`crates/fnx-python/benches/networkx_head_to_head.rs` on the same named worker.
+FNX measured `[385.61, 408.77, 437.73] ms` versus NetworkX
+`[202.67, 254.39, 311.29] ms`, a point-estimate **`0.622x`** FNX/NX ratio.
+That improves the preceding `0.579x` row but still loses publicly; the
+low-CV same-binary A/B above is the causal KEEP proof.
+
+REMOTE GATES: strict-remote
+`cargo check --workspace --all-targets` passed on `vmi1149989`. The mandatory
+workspace clippy command was run remotely and stopped on the pre-existing
+`crates/fnx-classes/src/lib.rs:1719` `collapsible_if` in the separately owned
+storage lane. A scoped no-deps `fnx-python` retry reached the crate and stopped
+only on existing dead helpers and existing `collapsible_if`/`chunks_exact`
+sites outside this lever. `cargo fmt --check` and `git diff --check` passed.
+Targeted UBS completed with zero critical findings.
+
+RESULT: KEEP. The causal median clears the `1.05x` floor by a wide margin,
+both causal and null CVs are below `5%`, and exact three-way parity passed.
+Consecutive REJECT count resets from **2** to **0**. Preserve the exact-int /
+exact-string / scalar-dict discriminator, first-seen index order, original
+Python node objects, public-key semantics, mirror ordering, yield-time
+snapshots, and fallback transaction. RETRY PREDICATE: the public `0.622x` row
+remains open, but do not reopen the rejected private-mirror transfer or
+deferred fallback-tuple levers. The next cycle must profile a distinct
+per-edge Python-mirror or indexed-stage primitive, then again require exact
+candidate/control/frozen parity, an interleaved A/A null, both CVs below `5%`,
+candidate median at least `1.05x`, and a pinned-worker public re-baseline.

@@ -3241,6 +3241,26 @@ pub mod mg_int_storage_proto {
                 .is_some_and(|&slot| self.rows[slot].is_empty())
         }
 
+        /// br-r37-c1-thp6w S31: integer weighted size (mirror of
+        /// `MultiGraph::weighted_size_int`) — sum of the `weight` attr over
+        /// every edge cell (int -> value, missing -> 1); `None` on any non-int
+        /// weight. Order-independent (commutative sum; `None` iff any non-int).
+        #[must_use]
+        pub fn weighted_size_int(&self, weight: &str) -> Option<i128> {
+            let mut total: i128 = 0;
+            for bucket in self.edges.values() {
+                for (_key, attrs) in bucket.iter() {
+                    let value = match attrs.get(weight) {
+                        Some(fnx_runtime::CgseValue::Int(v)) => i128::from(*v),
+                        Some(_) => return None,
+                        None => 1,
+                    };
+                    total = total.checked_add(value)?;
+                }
+            }
+            Some(total)
+        }
+
         /// Parallel-edge key order for the (left, right) pair.
         #[must_use]
         pub fn key_order(&self, left: &str, right: &str) -> Vec<usize> {
@@ -5444,6 +5464,14 @@ impl MultiGraph {
     /// float/PyObject degree path); missing weight defaults to nx's int `1`.
     #[must_use]
     pub fn weighted_size_int(&self, weight: &str) -> Option<i128> {
+        // br-r37-c1-thp6w S31: weighted size from the always-warm slab feature-on;
+        // String fallback when stale/absent.
+        #[cfg(feature = "mg-int-storage")]
+        if let Some(shadow) = self.slab_shadow.as_deref()
+            && shadow.0 == self.revision
+        {
+            return shadow.1.weighted_size_int(weight);
+        }
         let mut total: i128 = 0;
         for bucket in self.edges.values() {
             for attrs in bucket.values() {
@@ -7729,6 +7757,69 @@ mod tests {
         let _ = h.add_node("lonely");
         assert!(!h.slab_shadow_is_warm());
         assert_eq!(h.is_isolate("lonely"), gt(&h, "lonely"));
+    }
+
+    /// br-r37-c1-thp6w S31: feature-on `weighted_size_int` READS route through
+    /// the always-warm slab. Verified against the unrouted String field ground
+    /// truth (same int-sum/missing=1/non-int=None formula over `g.edges`) incl.
+    /// parallel + self-loop weights, a removal advance, a non-int (Float) weight
+    /// -> None, and the no-shadow fallback.
+    #[cfg(feature = "mg-int-storage")]
+    #[test]
+    fn thp6w_s31_weighted_size_int_routes_to_slab() {
+        fn gt(g: &MultiGraph, w: &str) -> Option<i128> {
+            let mut total = 0i128;
+            for bucket in g.edges.values() {
+                for attrs in bucket.values() {
+                    let v = match attrs.get(w) {
+                        Some(fnx_runtime::CgseValue::Int(x)) => i128::from(*x),
+                        Some(_) => return None,
+                        None => 1,
+                    };
+                    total = total.checked_add(v)?;
+                }
+            }
+            Some(total)
+        }
+        let w = |v: i64| -> AttrMap {
+            let mut a = AttrMap::new();
+            a.insert("weight".to_owned(), fnx_runtime::CgseValue::Int(v));
+            a
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge_with_key_and_attrs("a", "b", 0, w(5));
+        let _ = g.add_edge_with_key_and_attrs("a", "b", 1, w(3)); // parallel
+        let _ = g.add_edge("b", "c"); // no weight -> counts as 1
+        let _ = g.add_edge_with_key_and_attrs("c", "c", 0, w(2)); // self-loop
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(
+            g.weighted_size_int("weight"),
+            gt(&g, "weight"),
+            "routed == String"
+        );
+        assert_eq!(g.weighted_size_int("weight"), Some(11), "5+3+1+2");
+        // A removal advances the shadow; the routed sum reflects it.
+        assert!(g.remove_edge("a", "b", Some(0)));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.weighted_size_int("weight"), gt(&g, "weight"));
+        assert_eq!(g.weighted_size_int("weight"), Some(6), "3+1+2");
+        // A non-int (Float) weight makes it None on both arms.
+        let mut fattr = AttrMap::new();
+        fattr.insert("weight".to_owned(), fnx_runtime::CgseValue::Float(1.5));
+        let _ = g.add_edge_with_key_and_attrs("d", "e", 0, fattr);
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.weighted_size_int("weight"), gt(&g, "weight"));
+        assert!(
+            g.weighted_size_int("weight").is_none(),
+            "non-int weight -> None"
+        );
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge_with_key_and_attrs("p", "q", 0, w(7));
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(h.weighted_size_int("weight"), gt(&h, "weight"));
+        assert_eq!(h.weighted_size_int("weight"), Some(7));
     }
 
     /// br-r37-c1-thp6w S11 GAUNTLET (production dual-write shadow): with the

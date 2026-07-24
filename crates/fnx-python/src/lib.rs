@@ -222,25 +222,57 @@ pub(crate) struct MaterializedIteratorEdgeList<'py> {
 #[cfg(test)]
 pub(crate) static FORCE_MULTIDIGRAPH_CTOR_KEYED_STREAMING: AtomicBool = AtomicBool::new(false);
 
+#[cfg(test)]
+pub(crate) static FORCE_MULTIDIGRAPH_CTOR_KEYED_STRING_STAGE: AtomicBool = AtomicBool::new(false);
+
+pub(crate) enum MultiDiGraphExactIntStrKeyedNativeBatch {
+    String {
+        node_entries: Vec<(String, PyObject)>,
+        edges: Vec<(String, String, usize, AttrMap)>,
+    },
+    Indexed {
+        node_labels: Vec<String>,
+        node_objects: Vec<PyObject>,
+        edges: Vec<(usize, usize, usize, AttrMap)>,
+    },
+}
+
 pub(crate) struct MultiDiGraphExactIntStrKeyedBatch {
-    pub(crate) node_entries: Vec<(String, PyObject)>,
-    pub(crate) edges: Vec<(String, String, usize, AttrMap)>,
+    pub(crate) native: MultiDiGraphExactIntStrKeyedNativeBatch,
     pub(crate) edge_attrs: HashMap<(String, String, usize), Py<PyDict>>,
     pub(crate) edge_keys: HashMap<(String, String, usize), PyObject>,
 }
 
 #[derive(Default)]
 struct MultiDiGraphExactIntStrKeyedStage {
+    force_string_stage: bool,
     node_seen: HashSet<String>,
     node_entries: Vec<(String, PyObject)>,
     occupied_keys: HashMap<(String, String), HashSet<usize>>,
     public_to_internal: HashMap<(String, String, String), usize>,
     edges: Vec<(String, String, usize, AttrMap)>,
+    node_indices: HashMap<i64, usize>,
+    node_labels: Vec<String>,
+    node_objects: Vec<PyObject>,
+    indexed_occupied_keys: HashMap<(usize, usize), HashSet<usize>>,
+    indexed_public_to_internal: HashMap<(usize, usize, String), usize>,
+    indexed_edges: Vec<(usize, usize, usize, AttrMap)>,
     edge_attrs: HashMap<(String, String, usize), Py<PyDict>>,
     edge_keys: HashMap<(String, String, usize), PyObject>,
 }
 
 impl MultiDiGraphExactIntStrKeyedStage {
+    fn new() -> Self {
+        #[cfg(test)]
+        let force_string_stage = FORCE_MULTIDIGRAPH_CTOR_KEYED_STRING_STAGE.load(Ordering::Relaxed);
+        #[cfg(not(test))]
+        let force_string_stage = false;
+        Self {
+            force_string_stage,
+            ..Self::default()
+        }
+    }
+
     fn accepts(item: &Bound<'_, PyAny>) -> bool {
         let Ok(tuple) = item.downcast::<PyTuple>() else {
             return false;
@@ -314,28 +346,79 @@ impl MultiDiGraphExactIntStrKeyedStage {
         // cleared; a declined row must leave the already-staged prefix
         // replayable by the frozen fallback.
         let public_lookup = edge_key_lookup_string(py, &key)?;
-        let u_canonical = u_value.to_string();
-        let v_canonical = v_value.to_string();
-        if self.node_seen.insert(u_canonical.clone()) {
-            self.node_entries.push((u_canonical.clone(), u.unbind()));
-        }
-        if self.node_seen.insert(v_canonical.clone()) {
-            self.node_entries.push((v_canonical.clone(), v.unbind()));
-        }
-
-        let pair = (u_canonical.clone(), v_canonical.clone());
-        let lookup_key = (pair.0.clone(), pair.1.clone(), public_lookup);
-        let internal_key = if let Some(existing) = self.public_to_internal.get(&lookup_key) {
-            *existing
-        } else {
-            let occupied = self.occupied_keys.entry(pair).or_default();
-            let mut candidate = occupied.len();
-            while occupied.contains(&candidate) {
-                candidate += 1;
+        let (u_canonical, v_canonical, internal_key) = if self.force_string_stage {
+            let u_canonical = u_value.to_string();
+            let v_canonical = v_value.to_string();
+            if self.node_seen.insert(u_canonical.clone()) {
+                self.node_entries.push((u_canonical.clone(), u.unbind()));
             }
-            occupied.insert(candidate);
-            self.public_to_internal.insert(lookup_key, candidate);
-            candidate
+            if self.node_seen.insert(v_canonical.clone()) {
+                self.node_entries.push((v_canonical.clone(), v.unbind()));
+            }
+
+            let pair = (u_canonical.clone(), v_canonical.clone());
+            let lookup_key = (pair.0.clone(), pair.1.clone(), public_lookup);
+            let internal_key = if let Some(existing) = self.public_to_internal.get(&lookup_key) {
+                *existing
+            } else {
+                let occupied = self.occupied_keys.entry(pair).or_default();
+                let mut candidate = occupied.len();
+                while occupied.contains(&candidate) {
+                    candidate += 1;
+                }
+                occupied.insert(candidate);
+                self.public_to_internal.insert(lookup_key, candidate);
+                candidate
+            };
+            self.edges.push((
+                u_canonical.clone(),
+                v_canonical.clone(),
+                internal_key,
+                rust_attrs,
+            ));
+            (u_canonical, v_canonical, internal_key)
+        } else {
+            let u_index = match self.node_indices.get(&u_value).copied() {
+                Some(index) => index,
+                None => {
+                    let index = self.node_labels.len();
+                    self.node_indices.insert(u_value, index);
+                    self.node_labels.push(u_value.to_string());
+                    self.node_objects.push(u.unbind());
+                    index
+                }
+            };
+            let v_index = match self.node_indices.get(&v_value).copied() {
+                Some(index) => index,
+                None => {
+                    let index = self.node_labels.len();
+                    self.node_indices.insert(v_value, index);
+                    self.node_labels.push(v_value.to_string());
+                    self.node_objects.push(v.unbind());
+                    index
+                }
+            };
+            let pair = (u_index, v_index);
+            let lookup_key = (u_index, v_index, public_lookup);
+            let internal_key =
+                if let Some(existing) = self.indexed_public_to_internal.get(&lookup_key) {
+                    *existing
+                } else {
+                    let occupied = self.indexed_occupied_keys.entry(pair).or_default();
+                    let mut candidate = occupied.len();
+                    while occupied.contains(&candidate) {
+                        candidate += 1;
+                    }
+                    occupied.insert(candidate);
+                    self.indexed_public_to_internal
+                        .insert(lookup_key, candidate);
+                    candidate
+                };
+            let u_canonical = self.node_labels[u_index].clone();
+            let v_canonical = self.node_labels[v_index].clone();
+            self.indexed_edges
+                .push((u_index, v_index, internal_key, rust_attrs));
+            (u_canonical, v_canonical, internal_key)
         };
 
         let edge_key = (u_canonical.clone(), v_canonical.clone(), internal_key);
@@ -349,19 +432,33 @@ impl MultiDiGraphExactIntStrKeyedStage {
         self.edge_keys
             .entry(edge_key)
             .or_insert_with(|| key.unbind());
-        self.edges
-            .push((u_canonical, v_canonical, internal_key, rust_attrs));
         Ok(Some(normalized))
     }
 
     fn into_batch(self) -> Option<MultiDiGraphExactIntStrKeyedBatch> {
         const KEYED_EDGE_BATCH_MIN: usize = 8;
-        if self.edges.len() < KEYED_EDGE_BATCH_MIN {
+        let edge_count = if self.force_string_stage {
+            self.edges.len()
+        } else {
+            self.indexed_edges.len()
+        };
+        if edge_count < KEYED_EDGE_BATCH_MIN {
             return None;
         }
+        let native = if self.force_string_stage {
+            MultiDiGraphExactIntStrKeyedNativeBatch::String {
+                node_entries: self.node_entries,
+                edges: self.edges,
+            }
+        } else {
+            MultiDiGraphExactIntStrKeyedNativeBatch::Indexed {
+                node_labels: self.node_labels,
+                node_objects: self.node_objects,
+                edges: self.indexed_edges,
+            }
+        };
         Some(MultiDiGraphExactIntStrKeyedBatch {
-            node_entries: self.node_entries,
-            edges: self.edges,
+            native,
             edge_attrs: self.edge_attrs,
             edge_keys: self.edge_keys,
         })
@@ -561,7 +658,7 @@ pub(crate) fn materialize_iterator_edge_list<'py>(
     let mut items: Vec<Bound<'py, PyAny>> = Vec::new();
     let mut graph_stage = collect_graph_exact_int_attrs.then(GraphExactIntAttrStage::default);
     let mut multidigraph_stage =
-        collect_multidigraph_exact_keyed.then(MultiDiGraphExactIntStrKeyedStage::default);
+        collect_multidigraph_exact_keyed.then(MultiDiGraphExactIntStrKeyedStage::new);
     let mut pending = Some(first);
     loop {
         let Some(item) = pending.take().or_else(|| iter.next()) else {
@@ -597,8 +694,8 @@ pub(crate) fn materialize_iterator_edge_list<'py>(
             Err(_) if !retrying => {
                 items.clear();
                 graph_stage = collect_graph_exact_int_attrs.then(GraphExactIntAttrStage::default);
-                multidigraph_stage = collect_multidigraph_exact_keyed
-                    .then(MultiDiGraphExactIntStrKeyedStage::default);
+                multidigraph_stage =
+                    collect_multidigraph_exact_keyed.then(MultiDiGraphExactIntStrKeyedStage::new);
                 retrying = true;
             }
             Err(_) => return Err(NetworkXError::new_err("Input is not a valid edge list")),

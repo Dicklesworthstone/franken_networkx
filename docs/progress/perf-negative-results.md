@@ -675,3 +675,55 @@ inside the null envelope. Source was reverted. Consecutive REJECT count:
 at least five percent of end-to-end time, or if the mandatory yield-time dict
 snapshot can also be removed without changing reused-dict semantics. The next
 cycle must target a distinct admitted-stage or commit-path cost.
+
+## 2026-07-24 StormyForge KEEP (`MultiDiGraph(iterator)` keyed scalar attrs): indexed typed stage + fresh commit — **1.2012x** (`br-r37-c1-97iyf`)
+
+Ledger and Git history were searched first. The original 36-case
+`Graph(iterator)` parity lane remained closed at zero divergences, the two
+preceding attributed-stage rejects remained closed, and cc's MultiGraph
+integer-adjacency/slab/AVX2 lane was excluded. Profiling showed that the exact
+`(int, int, str, dict)` stage still converted endpoints to `String`, keyed
+native staging maps by those strings, and used the String-keyed commit even
+though the existing list-batch substrate already supported fresh indexed
+keyed-attribute commits.
+
+The one lever assigns first-seen exact-int nodes dense indices, stages native
+pair/key state by index, and commits through the existing
+`extend_fresh_index_keyed_edges_with_attrs_unrecorded` path. A test-only arm
+retains the old String stage and commit in the same binary. Python node,
+public-key, and attribute mirrors plus all fallback/snapshot behavior are
+unchanged; no MultiGraph storage or SIMD code changed.
+
+Focused parity on strict-remote `vmi1149989` matched the indexed candidate,
+forced String control, and frozen streaming route exactly for native state
+and Python mirrors across plain/attributed keyed rows, duplicates, loops,
+reverse edges, reused mutable dicts, and late typed decline. The frozen route
+was already directly green against the legacy NetworkX constructor corpora.
+
+Pinned same-binary proof on `vmi1156319`, 10,000 edges, 64 constructions per
+arm, 21 fully interleaved rounds:
+
+| arm | median | wins | CV | p5-p95 |
+|---|---:|---:|---:|---:|
+| String stage+commit / indexed stage+commit | **`1.2012x`** | **`21/21`** | **`2.776%`** | `1.1664x-1.2544x` |
+| indexed / indexed null | `1.0115x` | `13/21` | **`2.990%`** | `0.9471x-1.0344x` |
+
+The earlier 32-repetition probe was INVALID-CV (`1.2000x`, `5.222%` causal
+CV; `0.9994x`, `4.693%` null CV) and was discarded. The post-edit public
+`networkx_head_to_head.rs` row on the same worker measured FNX
+`[385.61, 408.77, 437.73] ms` versus NetworkX
+`[202.67, 254.39, 311.29] ms`, or **`0.622x`** by point estimate: improved
+from `0.579x`, but still behind.
+
+Strict-remote workspace check, focused parity, fmt, and diff-check passed.
+Workspace clippy stopped on the pre-existing `fnx-classes` line 1719
+`collapsible_if`; scoped no-deps clippy reported only existing findings
+outside the lever. Targeted UBS completed with zero critical findings.
+
+KEEP: the causal floor and both CV gates cleared, and exact parity held.
+Consecutive REJECT count resets from **2** to **0**. Preserve first-seen index
+order and all existing Python-mirror/fallback semantics. The public `0.622x`
+row remains open. Retry only a distinct Python-mirror or indexed-stage
+primitive; do not reopen private-mirror transfer or deferred fallback tuples.
+Require exact three-way parity, interleaved A/B plus A/A null, both CVs below
+`5%`, candidate median at least `1.05x`, and another pinned-worker public row.
