@@ -24108,3 +24108,52 @@ deferred fallback tuples. The next cycle must profile a different per-row
 decode/validation or final-map cost and again require exact
 candidate/control/frozen parity, interleaved A/B plus A/A null, both CVs below
 `5%`, candidate median at least `1.05x`, and a pinned-worker public row.
+
+## 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` keyed scalar attrs): fused validation + native decode — **1.0202x** (`br-r37-c1-4ig2s`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: both performance ledgers, the
+latest Git history, and the epic's closed children were searched before this
+lever. The scan excluded the earlier compact pair-counter, private
+mirror-transfer, and deferred-fallback-tuple rejects plus cc's separately
+owned MultiGraph integer-adjacency/slab/AVX2 lane. Static per-row tracing of
+the fresh indexed attributed path identified three traversals of each scalar
+attribute dict: the admission predicate, a second predicate over the mandatory
+yield-time snapshot, and generic `AttrMap` conversion.
+
+ONE LEVER TESTED: a same-binary candidate retained the exact-dict structural
+guard, copied the yield-time snapshot, and fused exact-string-key/scalar-value
+validation with `CgseValue` conversion in one pass. A forced control retained
+the two lossless predicates plus generic conversion. The candidate failed
+closed to frozen streaming for non-string attribute keys, non-scalar values,
+and integers outside `i64`; no MultiGraph storage, slab, SIMD, or AVX2 code
+changed.
+
+BEHAVIOR ISOMORPHISM / CONFORMANCE: focused strict-remote parity passed 1/1
+on `vmi1149989`. Candidate, forced separate-validation control, and frozen
+streaming produced identical native graph state and Python mirrors for scalar
+attribute corpora, duplicate keys, loops, reverse edges, a generator that
+mutates and reuses one dict, list-valued attributes, oversized integers, and
+non-string attribute keys.
+
+SAME-WORKER INTERLEAVED A/B + NULL: strict RCH pinned one ordinary release
+test binary to `vmi1156319`, with 10,000 attributed keyed edges and 21 paired
+rounds. The initial 32-repetition causal sample was INVALID-CV and discarded:
+`1.0386x`, 17/21 wins, `5.801%` CV, p5-p95 `0.9787x-1.1087x`; its null was
+`1.0101x`, 13/21 wins, `2.845%` CV, p5-p95 `0.9665x-1.0573x`. The unchanged
+design was retried with the repetition variable passed inside the remote
+command and confirmed by the `repetitions=64` harness banner:
+
+| same-binary arm | median | wins | CV | p5-p95 | parity |
+|---|---:|---:|---:|---:|---:|
+| separate validation+decode / fused decode | **`1.0202x`** | `14/21` | **`2.080%`** | `0.9883x-1.0350x` | exact |
+| fused / fused null | `1.0056x` | `12/21` | **`2.238%`** | `0.9648x-1.0338x` | identical arm |
+
+RESULT: REJECT. Both decisive CVs are below `5%`, but the causal median is
+below the required `1.05x` floor and overlaps the null envelope. Experimental
+source and test controls were removed; the preceding indexed-mirror KEEP and
+its public `0.661x` head-to-head row remain the production baseline.
+Consecutive REJECT count is **1**. RETRY PREDICATE: do not retry scalar
+validation/decoding alone. Reopen only if a fresh profile shows the mandatory
+yield-time attribute snapshot can be eliminated or transferred without
+changing reused-dict semantics and predicts at least five percent end-to-end;
+otherwise select a distinct final-map, public-key, or transaction-stage cost.

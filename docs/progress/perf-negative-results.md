@@ -778,3 +778,38 @@ The public `0.661x` row remains open. Do not retry compact pair counters,
 mirror transfer, or deferred fallback tuples; profile a distinct
 decode/validation or final-map cost and repeat the same parity, null, CV, and
 public-row gates.
+
+## 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` keyed scalar attrs): fused validation + native decode — **1.0202x** (`br-r37-c1-4ig2s`)
+
+Fresh ledger, Git, and epic-child scans excluded the earlier compact
+pair-counter, private mirror-transfer, and deferred-fallback-tuple rejects,
+plus cc's MultiGraph storage/SIMD lane. Static tracing of the indexed
+attributed iterator path found three scalar-dict traversals: admission,
+post-snapshot lossless validation, and generic native conversion.
+
+The candidate retained the mandatory yield-time dict copy but fused exact
+string-key/scalar-value validation with native `AttrMap` conversion in one
+pass. A same-binary forced arm retained separate validation and generic
+conversion. Focused strict-remote parity passed on `vmi1149989` across
+candidate, control, and frozen streaming, including duplicates, reused mutable
+dicts, non-scalar values, oversized integers, and non-string attribute keys.
+
+The initial pinned `vmi1156319` run at 32 constructions per arm per round was
+discarded as INVALID-CV: causal `1.0386x`, 17/21 wins, `5.801%` CV,
+`0.9787x-1.1087x`; null `1.0101x`, 13/21 wins, `2.845%` CV,
+`0.9665x-1.0573x`. The unchanged design then ran at a harness-confirmed 64
+constructions per arm per round for 21 interleaved rounds:
+
+| arm | median | wins | CV | p5-p95 |
+|---|---:|---:|---:|---:|
+| separate validation+decode / fused decode | **`1.0202x`** | `14/21` | **`2.080%`** | `0.9883x-1.0350x` |
+| fused / fused null | `1.0056x` | `12/21` | **`2.238%`** | `0.9648x-1.0338x` |
+
+REJECT: stable evidence, but below the required `1.05x` causal floor and
+inside the null envelope. Source was removed. Consecutive REJECT count:
+**1**. The preceding indexed-mirror KEEP and public `0.661x` row remain the
+baseline. Do not retry scalar validation/decoding alone; retry only if a fresh
+profile can combine it with eliminating or transferring the mandatory
+yield-time snapshot without changing mutable-dict semantics and predicts at
+least five percent. Otherwise target a distinct final-map, public-key, or
+transaction-stage cost.
