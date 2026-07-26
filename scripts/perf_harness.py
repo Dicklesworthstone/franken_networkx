@@ -32,6 +32,7 @@ Usage:
     python3 scripts/perf_harness.py adj-iter
     python3 scripts/perf_harness.py multi-adj-iter
     python3 scripts/perf_harness.py multi-adj-contains
+    python3 scripts/perf_harness.py multi-row-getitem
     python3 scripts/perf_harness.py multiedge-getitem
     python3 scripts/perf_harness.py digraph-descriptors
     python3 scripts/perf_harness.py multidigraph-descriptors
@@ -710,6 +711,76 @@ def suite_multi_adjacency_contains():
     ]
 
 
+def suite_multi_row_getitem():
+    """br-r37-c1-fy913: reuse warm live multigraph adjacency-row views."""
+    import networkx as nx
+    import franken_networkx as fnx
+
+    nodes = tuple(f"u{index}" for index in range(512))
+
+    def build(graph_type):
+        graph = graph_type()
+        for index in range(512):
+            graph.add_edge(
+                f"u{index}", f"v{index}", key=0, weight=index
+            )
+        return graph
+
+    mg_nx, mg_fnx = build(nx.MultiGraph), build(fnx.MultiGraph)
+    mdg_nx, mdg_fnx = build(nx.MultiDiGraph), build(fnx.MultiDiGraph)
+
+    def allocated_mg_row(node):
+        """Source-equivalent pre-lever exact-MultiGraph return path."""
+        hash(node)
+        try:
+            mg_fnx._native_adjacency_row(node)
+        except KeyError as exc:
+            raise KeyError(node) from exc
+        return fnx.AdjacencyView(
+            lambda: mg_fnx._native_adjacency_row(node)
+        )
+
+    def allocated_mdg_row(node):
+        """Source-equivalent pre-lever exact-MultiDiGraph return path."""
+        hash(node)
+        try:
+            mdg_fnx._native_successor_row(node)
+        except KeyError as exc:
+            raise KeyError(node) from exc
+        return fnx.AdjacencyView(
+            lambda: mdg_fnx._native_successor_row(node)
+        )
+
+    def row_batch(getter):
+        last = None
+        for node in nodes:
+            last = getter(node)
+        return type(last).__name__, tuple(last)
+
+    return [
+        (
+            "MG[u] x512 [allocate/cache]",
+            lambda: row_batch(allocated_mg_row),
+            lambda: row_batch(mg_fnx.__getitem__),
+        ),
+        (
+            "NetworkX/FNX MG[u] x512 [cached]",
+            lambda: row_batch(mg_nx.__getitem__),
+            lambda: row_batch(mg_fnx.__getitem__),
+        ),
+        (
+            "MDG[u] x512 [allocate/cache]",
+            lambda: row_batch(allocated_mdg_row),
+            lambda: row_batch(mdg_fnx.__getitem__),
+        ),
+        (
+            "NetworkX/FNX MDG[u] x512 [cached]",
+            lambda: row_batch(mdg_nx.__getitem__),
+            lambda: row_batch(mdg_fnx.__getitem__),
+        ),
+    ]
+
+
 def suite_multiedge_getitem():
     """Scalar keyed edge-data lookup without view/key-resolution layering."""
     import networkx as nx
@@ -1214,6 +1285,7 @@ SUITES = {
     "adj-iter": suite_adjacency_iter,
     "multi-adj-iter": suite_multi_adjacency_iter,
     "multi-adj-contains": suite_multi_adjacency_contains,
+    "multi-row-getitem": suite_multi_row_getitem,
     "multiedge-getitem": suite_multiedge_getitem,
     "digraph-descriptors": suite_digraph_descriptors,
     "multidigraph-descriptors": suite_multidigraph_descriptors,

@@ -132,6 +132,68 @@ def test_cached_directed_predecessor_row_stays_live_like_networkx():
 @pytest.mark.parametrize(
     ("fnx_ctor", "nx_ctor"),
     [
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_cached_multigraph_getitem_row_stays_live_and_node_scoped(
+    fnx_ctor, nx_ctor
+):
+    """br-r37-c1-fy913: warm G[u] reuses one live view per extant node."""
+    fg, ng = fnx_ctor(), nx_ctor()
+    for graph in (fg, ng):
+        graph.add_node("new")
+        graph.add_edge("root", "leaf", key=0, weight=1)
+
+    def deep_row(row):
+        return {
+            neighbor: {
+                key: dict(attrs) for key, attrs in keydict.items()
+            }
+            for neighbor, keydict in row.items()
+        }
+
+    first = fg["root"]
+    assert fg["root"] is first
+    cache = vars(fg)["_fnx_getitem_atlas_cache"]
+    assert cache[0] == fg.nodes_seq
+    assert list(cache[1]) == ["root"]
+    assert deep_row(first) == deep_row(ng["root"])
+
+    first_attrs = first["leaf"][0]
+    nx_attrs = ng["root"]["leaf"][0]
+    for graph in (fg, ng):
+        graph.add_edge("root", "leaf", key=1, weight=2)
+        graph.add_edge("root", "new", key=0, weight=3)
+    assert fg["root"] is first
+    assert first["leaf"][0] is first_attrs
+    assert ng["root"]["leaf"][0] is nx_attrs
+    assert deep_row(first) == deep_row(ng["root"])
+
+    for graph in (fg, ng):
+        graph.remove_edge("root", "leaf", key=1)
+    assert deep_row(first) == deep_row(ng["root"])
+
+    # A node-set mutation invalidates the cache; edge-only mutations above do
+    # not. The replacement view remains content-equivalent to NetworkX.
+    for graph in (fg, ng):
+        graph.add_node("isolated")
+    replacement = fg["root"]
+    assert replacement is not first
+    assert deep_row(replacement) == deep_row(ng["root"])
+
+    with pytest.raises(TypeError):
+        fg[[]]
+    with pytest.raises(KeyError) as nx_error:
+        ng["missing"]
+    with pytest.raises(type(nx_error.value)) as fnx_error:
+        fg["missing"]
+    assert fnx_error.value.args == nx_error.value.args
+
+
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor"),
+    [
         (fnx.Graph, nx.Graph),
         (fnx.DiGraph, nx.DiGraph),
     ],

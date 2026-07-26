@@ -2052,12 +2052,24 @@ def _graph_getitem_from_adj(self, node):
 def _multigraph_getitem_from_native_row(self, node):
     if type(self) is not MultiGraph:
         return _graph_getitem_from_adj(self, node)
-    hash(node)
+    # br-r37-c1-fy913: the row wrapper remains live across edge churn, so reuse
+    # it exactly as the simple-graph path above does.  Node mutations advance
+    # nodes_seq and discard the cache before the next lookup.
+    cache = vars(self).get("_fnx_getitem_atlas_cache")
+    seq = self.nodes_seq
+    if cache is None or cache[0] != seq:
+        cache = (seq, {})
+        vars(self)["_fnx_getitem_atlas_cache"] = cache
+    view = cache[1].get(node)
+    if view is not None:
+        return view
     try:
         self._native_adjacency_row(node)
     except KeyError as exc:
         raise KeyError(node) from exc
-    return AdjacencyView(lambda: self._native_adjacency_row(node))
+    view = AdjacencyView(lambda: self._native_adjacency_row(node))
+    cache[1][node] = view
+    return view
 
 
 def _digraph_getitem_from_native_row(self, node):
@@ -2074,12 +2086,23 @@ def _digraph_getitem_from_native_row(self, node):
 def _multidigraph_getitem_from_native_row(self, node):
     if type(self) is not MultiDiGraph:
         return _graph_getitem_from_adj(self, node)
-    hash(node)
+    # Directed sibling of br-r37-c1-fy913.  The cached AdjacencyView calls the
+    # native successor-row binding lazily, so structural edge updates stay live.
+    cache = vars(self).get("_fnx_getitem_atlas_cache")
+    seq = self.nodes_seq
+    if cache is None or cache[0] != seq:
+        cache = (seq, {})
+        vars(self)["_fnx_getitem_atlas_cache"] = cache
+    view = cache[1].get(node)
+    if view is not None:
+        return view
     try:
         self._native_successor_row(node)
     except KeyError as exc:
         raise KeyError(node) from exc
-    return AdjacencyView(lambda: self._native_successor_row(node))
+    view = AdjacencyView(lambda: self._native_successor_row(node))
+    cache[1][node] = view
+    return view
 
 
 def _to_directed_class(self):

@@ -26166,3 +26166,105 @@ findings: two dead helpers, three `collapsible_if` sites, and one
 those three established categories and passed with every other warning denied.
 UBS exited zero with no critical finding on the four changed source,
 harness, and test files; its broad heuristic inventory remains pre-existing.
+
+## 2026-07-26 CloudyTurtle KEEP (warm `MultiGraph.__getitem__` lazy row return): node-scoped live-view reuse — **2.7482x MG / 2.7392x MDG causal** (`br-r37-c1-fy913`)
+
+NEGATIVE-LEDGER-FIRST: the exact preflight for `MultiGraph __getitem__ MG[u]
+lazy adjacency row return cache` found no direct row. Direct searches then
+read the governing simple `dict(G[u])` live-row KEEP, its different-mapping
+consumer predicate, the older materialization-floor discussion, and the
+already-mined `MG[u][v]` type-changing family by hand. This lever changes
+neither the multigraph row representation nor keyed neighbor access: it reuses
+the existing live row wrapper only for repeated bare `MG[u]` and `MDG[u]`
+returns.
+
+PROFILE ATTRIBUTION: the exact pre-edit package loaded ELF SHA-256
+`25be100cddc5fe3bbc207a60e6ea75382bd502d4f93c5b72d3b4f7ca75fd2e56`
+(13,154,256 bytes) and wrapper SHA-256
+`2fd428d45b55b9f95ba8c4359cc3699dfa00a3bcd8edb2230d359819bb6cadfe`.
+On drained `vmi1227854`, pinned to core 3, 200,000 warm `MG[u]` calls recorded
+800,002 calls in `0.275s`. `_multigraph_getitem_from_native_row` owned
+`0.138s` self (**50.2%**), the native existence probe `0.055s` (**20.0%**),
+`AdjacencyView.__init__` `0.019s` (**6.9%**), and required Python hashing
+`0.016s`. The directed sibling recorded 800,002 calls in `0.283s`, with
+`_multidigraph_getitem_from_native_row` at `0.142s` (**50.2%**), the native
+successor-row probe at `0.056s` (**19.8%**), view construction at `0.020s`
+(**7.1%**), and hashing at `0.017s`. The named allocation chain therefore
+owned approximately **77%** of each profile, for computed Amdahl ceilings of
+about **4.35-4.37x**. Unprofiled current wall ratios were `0.4088x` MG and
+`0.2948x` MDG versus NetworkX.
+
+NO-SOURCE PROTOTYPE / COUNTED MECHANISM: an invocation-local cache keyed by
+`nodes_seq` preserved every returned type and every ordered row key before
+timing. For each 512-node warm batch it removed exactly **512 native existence
+probes, 512 closure allocations, and 512 `AdjacencyView` allocations**,
+replacing them with 512 Python-dict probes. Same-ELF causal medians were
+`2.8013x` MG and `3.1887x` MDG, both outside their own doubled-null floors, so
+the source edit was admitted.
+
+ONE LEVER: exact ordinary `MultiGraph.__getitem__` and
+`MultiDiGraph.__getitem__` now share the same graph-local
+`_fnx_getitem_atlas_cache` scheme already used by simple graphs. The cache is
+`(nodes_seq, {public_node: live AdjacencyView})`: edge-only mutations keep the
+wrapper because its native row lambda remains live, while any node-set change
+invalidates the entire cache before lookup. Subclasses and graphs using
+NetworkX-private storage retain `_graph_getitem_from_adj`; missing and
+unhashable keys retain their original key objects and exception classes.
+
+BEHAVIOR ISOMORPHISM: permanent differential coverage proves wrapper identity
+reuse only while the node set is unchanged, live parallel-edge add/remove,
+new-neighbor visibility, edge-attribute dict identity, node-set invalidation,
+ordered deep row parity, unhashable input, and exact missing-key args for both
+MultiGraph and MultiDiGraph. The exact candidate artifact passed **93/93**
+focused adjacency-mapping tests and **695/695** broader adjacency-row,
+descriptor, mutation, default, pickle, repr, and str tests.
+
+PINNED-WORKER SAME-INVOCATION A/A + A/B: the final permanent harness ran on
+drained `vmi1227854`, pinned to core 3 at header load average
+`0.6436/1.2891/1.2671`; the worker was immediately re-enabled. Canonical line
+one reported the exact loaded ELF SHA-256
+`25be100cddc5fe3bbc207a60e6ea75382bd502d4f93c5b72d3b4f7ca75fd2e56`
+(13,154,256 bytes). Structured provenance reported wrapper SHA-256
+`d9eb050448d81115a07c3afbcdf9abe6edc879ccd93fd17b871064689af3d5db`,
+harness SHA-256
+`aa6fec8557d1aa57428260d2e02dbf0f5760b2c716e8ead45de69c8ee7f46469`,
+and focused-test SHA-256
+`cffb792b215a58cc4879e5ac710e9d85635cf67b4b2109bbc50d2abacac68ff9`.
+
+Every row proved an order-preserving digest before timing, ran 21 interleaved
+rounds with `min_of=3`, and ran its own A/A null in the same invocation.
+Decisions use only bootstrap median confidence intervals and the doubled
+log-space null margin; CV was reported as provenance and never gated.
+
+| row | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | required floor | decision |
+|---|---:|---:|---:|---:|---|
+| `MG[u]` allocate / cached live view | **`2.7482x`** | `2.4621-2.8597x` | `0.9363-1.0294x` | `1.1407x` | **DECIDABLE KEEP** |
+| NetworkX / FNX cached `MG[u]` | `0.7635x` | `0.7401-0.7762x` | `0.9505-1.0224x` | `1.1069x` | **DECIDABLE residual loss** |
+| `MDG[u]` allocate / cached live view | **`2.7392x`** | `2.6511-2.7706x` | `1.0021-1.1321x` | `1.2816x` | **DECIDABLE KEEP** |
+| NetworkX / FNX cached `MDG[u]` | `0.7585x` | `0.7345-0.7805x` | `0.9709-1.0044x` | `1.0608x` | **DECIDABLE residual loss** |
+
+RESULT: KEEP. The counted allocation/probe chain moved in the profiled
+direction on both graph classes. Warm bare row return improves from
+approximately **2.45x MG / 3.39x MDG slower** than NetworkX to approximately
+**1.31x MG / 1.32x MDG slower**; public parity is not claimed.
+
+RETRY PREDICATE: do not add another `MG[u]`/`MDG[u]` cache layer, retain row
+wrappers across node-set mutations, or change multigraph row types. Reopen
+this exact surface only if a fresh post-KEEP profile attributes at least
+**20% self-time** to a new removable frame and predicts at least **1.20x**
+end-to-end. Treat `MG.adj[u]`, `MDG.succ[u]`, and `MDG.pred[u]` as separate
+lazy-view-return siblings: edit one only after its own exact profile attributes
+at least **20% self-time** to wrapper/materialization work, its counted
+mechanism removes row-view allocations, and the same-invocation doubled-null
+floor is below **`1.05x`**. A node-key interning claim still requires at least
+30% canonicalization attribution and a doubled-null floor below `1.03x`.
+
+QUALITY GATES: exact Python parity passed at 93/93 focused and 695/695 broader;
+Python byte-compilation, `cargo fmt --check`, and `git diff --check` passed.
+Rust source is unchanged from the immediately preceding strict-remote
+workspace check and clippy runs: workspace check passed; mandatory strict
+clippy reproduced exactly the established six off-lane findings, and the
+filtered deny-warnings rerun passed. Targeted UBS completed on the harness and
+test with zero critical findings; its seven warnings are pre-existing test
+heuristics. The bounded scan that included the 61k-line wrapper reached the
+known 300-second Python-module timeout without emitting a wrapper finding.
