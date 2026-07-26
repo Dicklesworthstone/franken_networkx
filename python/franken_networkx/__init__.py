@@ -7158,10 +7158,16 @@ def _graph_deepcopy(self, memo=None):
     # them via its default __dict__ deepcopy.
     src_dict = vars(self)
     out_dict = vars(out)
+    # br-r37-c1-wbwkb: a view memoised by ``_CachedViewDescriptor`` lives under
+    # its PUBLIC name (``nodes``/``edges``/``degree``) and so is not caught by
+    # the ``_fnx_`` prefix rule, but it is an internal cache bound to THIS
+    # graph — copying it would hand the copy a view of the original. Skip it;
+    # the descriptor rebuilds it on the copy's first access.
+    descriptor_cached = src_dict.get(_DESCRIPTOR_CACHED_VIEWS) or ()
     for key, val in src_dict.items():
         if key in out_dict:
             continue
-        if key.startswith("_fnx_"):
+        if key.startswith("_fnx_") or key in descriptor_cached:
             continue
         try:
             out_dict[key] = _dc(val, memo)
@@ -42561,8 +42567,80 @@ def _private_override(self, attr_name):
     return vars(self).get(attr_name, _PRIVATE_MISSING)
 
 
+# br-r37-c1-wbwkb (cc): instance-dict key holding the set of PUBLIC accessor
+# names that ``_CachedViewDescriptor`` has memoised on this graph. Only these
+# names may be invalidated when a private override lands — a subgraph view sets
+# its OWN ``nodes`` instance attribute (``_FilteredGraphView.__init__``) that
+# never went through the descriptor, and dropping that one would expose the
+# bare ``_FilteredGraphView.nodes`` function as a bound method.
+_DESCRIPTOR_CACHED_VIEWS = "_fnx_descriptor_cached_views"
+
+
 def _set_private_override(self, attr_name, value):
+    # br-r37-c1-wbwkb: an override installed AFTER a plain accessor read must
+    # re-dispatch to the assigned-view branch, so drop what the descriptor
+    # memoised first (and only that).
+    storage = vars(self)
+    cached = storage.get(_DESCRIPTOR_CACHED_VIEWS)
+    if cached:
+        for name in cached:
+            storage.pop(name, None)
+        storage.pop(_DESCRIPTOR_CACHED_VIEWS, None)
     setattr(self, attr_name, value)
+
+
+class _CachedViewDescriptor:
+    """br-r37-c1-wbwkb (cc): nx's ``@cached_property`` mechanism for fnx's
+    private-override-aware accessors.
+
+    networkx installs ``nodes`` / ``edges`` / ``degree`` as ``@cached_property``
+    — a NON-data descriptor — so after the first access the view lives in the
+    instance ``__dict__`` and every later ``G.nodes`` is a C-level dict hit with
+    no Python frame at all. fnx installed the same accessors as ``property``, a
+    DATA descriptor, which always wins over the instance dict; its Python body
+    (a ``vars(self)`` snapshot, an override probe, and a cache ``get``) therefore
+    re-ran on EVERY access. Measured on the bare accessor, 2026-07-25:
+    ``G.nodes`` 163.5ns vs nx 31.6ns (0.133x), ``G.degree`` 0.110x, ``G.edges``
+    ~575ns vs ~20ns (0.035x). This restores nx's own mechanism: build once,
+    then get out of the way.
+
+    The returned object is unchanged — ``_build`` is the previous property body,
+    which already memoised its wrapper in ``_fnx_view_*`` so ``g.nodes is
+    g.nodes`` held. Two contracts are preserved explicitly:
+
+    * a graph carrying networkx private storage (``_node`` / ``_adj`` / ``_succ``
+      / ``_pred`` assigned) is never memoised under the public name, so the
+      assigned-view dispatch keeps running per access exactly as before;
+    * ``_set_private_override`` drops the memoised entry before an override
+      lands, so a later access re-selects the assigned view.
+
+    Assignment (``G.nodes = x``) now writes the instance dict instead of raising
+    ``AttributeError`` — that matches networkx, whose ``cached_property`` is
+    likewise assignable, and removes a pre-existing parity divergence.
+    """
+
+    # No ``__slots__``: one descriptor instance exists per (class, attribute), so
+    # the dict costs nothing measurable, and it lets ``__doc__`` carry the
+    # builder's docstring the way ``property``/``cached_property`` do.
+
+    def __init__(self, build, name):
+        self._build = build
+        self._name = name
+        self.__doc__ = getattr(build, "__doc__", None)
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self
+        view = self._build(obj)
+        if not _has_networkx_private_storage(obj):
+            storage = vars(obj)
+            storage[self._name] = view
+            cached = storage.get(_DESCRIPTOR_CACHED_VIEWS)
+            if cached is None:
+                storage[_DESCRIPTOR_CACHED_VIEWS] = {self._name}
+            else:
+                cached.add(self._name)
+        return view
 
 
 def _has_networkx_private_storage(self):
@@ -43306,7 +43384,8 @@ def _private_aware_nodes(raw_nodes):
             cache["_fnx_view_nodes"] = view
         return view
 
-    return property(nodes)
+    # br-r37-c1-wbwkb: nx's cached_property mechanism — see _CachedViewDescriptor.
+    return _CachedViewDescriptor(nodes, "nodes")
 
 
 def _private_aware_edges(raw_edges):
@@ -43340,7 +43419,12 @@ def _private_aware_edges(raw_edges):
             pass
         return view
 
-    return property(edges)
+    # br-r37-c1-wbwkb: nx's cached_property mechanism — see _CachedViewDescriptor.
+    # The ``_EDGE_VIEW_GRAPH_OWNER`` registration above now runs once per view
+    # instead of once per access; the entry is keyed by ``id(view)`` and holds a
+    # weak ref to the graph, and a memoised view lives exactly as long as the
+    # graph it is stored on, so the mapping is unchanged.
+    return _CachedViewDescriptor(edges, "edges")
 
 
 # id(EdgeView) -> owning Graph. br-r37-c1-cxglk: WeakValueDictionary
@@ -43383,7 +43467,8 @@ def _private_aware_degree(raw_degree):
             cache["_fnx_view_degree"] = view
         return view
 
-    return property(degree)
+    # br-r37-c1-wbwkb: nx's cached_property mechanism — see _CachedViewDescriptor.
+    return _CachedViewDescriptor(degree, "degree")
 
 
 def _private_aware_has_node(raw_has_node):
@@ -43953,8 +44038,11 @@ def _make_reduce_ex_preserving_frozen(raw_reduce_ex):
         # the user set on the graph (e.g. ``g.custom_attr = 'x'``) so
         # they survive pickle, matching nx's __dict__ preservation.
         extra = {}
+        # br-r37-c1-wbwkb: skip views memoised under their public name by
+        # ``_CachedViewDescriptor`` — see the matching note in _graph_deepcopy.
+        descriptor_cached = vars(self).get(_DESCRIPTOR_CACHED_VIEWS) or ()
         for key, val in vars(self).items():
-            if key.startswith("_fnx_"):
+            if key.startswith("_fnx_") or key in descriptor_cached:
                 continue
             if key == "frozen":
                 # Handled separately so the freeze() re-application

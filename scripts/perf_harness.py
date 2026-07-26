@@ -1,0 +1,353 @@
+#!/usr/bin/env python3
+"""Paired fnx-vs-nx measurement harness — the §2 bench-harness contract.
+
+Adopted 2026-07-25 (br-r37-c1-wbwkb, cc lane) from the fleet-wide contract in
+`PERF_CAMPAIGN_2026-07-25`. Three properties, all mandatory:
+
+1. **Self-reporting binary sha256.** The provenance header hashes the `_fnx`
+   extension that is actually loaded and prints it as line 1. A hash computed by a
+   shell step *next to* the run proves nothing about which ELF executed, and rch
+   compiles into an opaque per-worker pool target dir.
+
+2. **A/A null control in the same invocation.** Every row is measured twice:
+   `paired(base, base)` establishes the noise floor, then `paired(base, cand)`.
+   Both arms are timed INTERLEAVED inside one round with the order alternating per
+   round, and the statistic is the **median of per-round ratios** — not a ratio of
+   medians, which lets drift in either arm leak into the result.
+
+3. **Gate on the median-CI, never on `cv`.** A claim is decidable iff its median
+   ratio lies outside the A/A null's bootstrap 95% CI with a 2x margin in log
+   space. `cv` is reported as provenance only. On this hardware `cv` does not track
+   decidability: rows measured here at `cv 17.06%/5.52%` and `cv 0.44%/0.79%` had
+   null CIs of `0.9997-1.0152` and `0.9947-1.0065` — a 30x spread in `cv` for a
+   sub-2x spread in the decidable floor, ranked in the opposite order.
+
+Knobs follow §2.4: `min_sample ~2 ms`, `min_of = 3` inner replicates keeping the
+minimum (the dominant knob; longer samples are a bigger target for preemption).
+
+Usage:
+    python3 scripts/perf_harness.py view-accessors
+    python3 scripts/perf_harness.py marshaling
+
+Point `PYTHONPATH` at the package tree under test; the header records which one ran.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import os
+import statistics
+import sys
+from dataclasses import dataclass, field
+from time import perf_counter
+
+MIN_SAMPLE_S = 0.002
+MIN_OF = 3
+ROUNDS = 21
+
+# The nx arm must be genuinely unpatched upstream: a "2.6x faster" claim in this
+# repo's history was once measured against an already-dispatched fnx baseline and
+# genuine NetworkX turned out to be 1.88x FASTER. Clear the dispatch env first.
+for _var in ("NETWORKX_AUTOMATIC_BACKENDS", "NETWORKX_BACKEND_PRIORITY", "NETWORKX_FALLBACK_TO_NX"):
+    os.environ.pop(_var, None)
+
+
+# --------------------------------------------------------------------------- #
+# provenance
+# --------------------------------------------------------------------------- #
+def binary_sha256() -> tuple[str, str]:
+    """Path + sha256 of the `_fnx` extension module actually loaded."""
+    import franken_networkx._fnx as _fnx
+
+    path = _fnx.__file__
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return path, digest.hexdigest()
+
+
+def provenance_header(tag: str) -> dict:
+    import networkx as nx
+
+    path, sha = binary_sha256()
+    info = {
+        "tag": tag,
+        "fnx_so": path,
+        "fnx_so_sha256": sha,
+        "nx_version": nx.__version__,
+        "nx_file": nx.__file__,
+        "python": sys.version.split()[0],
+        "pid": os.getpid(),
+        "loadavg": os.getloadavg(),
+    }
+    print(json.dumps(info), flush=True)
+    return info
+
+
+# --------------------------------------------------------------------------- #
+# timing
+# --------------------------------------------------------------------------- #
+def _time_batch(fn, inner: int) -> float:
+    start = perf_counter()
+    for _ in range(inner):
+        fn()
+    return (perf_counter() - start) / inner
+
+
+def calibrate(fn, target_s: float = MIN_SAMPLE_S) -> int:
+    inner = 1
+    while True:
+        elapsed = _time_batch(fn, inner) * inner
+        if elapsed >= target_s or inner >= 1 << 20:
+            return max(1, inner)
+        inner *= max(2, min(64, int(target_s / max(elapsed, 1e-9)) + 1))
+
+
+def _sample(fn, inner: int, min_of: int = MIN_OF) -> float:
+    return min(_time_batch(fn, inner) for _ in range(min_of))
+
+
+@dataclass
+class PairedResult:
+    label: str
+    ratio_p50: float
+    ratio_ci: tuple[float, float]
+    p50_a: float
+    p50_b: float
+    cv_a: float
+    cv_b: float
+    mad_ratio: float
+    wins: str
+    rounds: int
+    checksum_a: str = ""
+    checksum_b: str = ""
+    ratios: list[float] = field(default_factory=list)
+
+
+def _median_ci(values: list[float], iters: int = 2000, seed: int = 12345) -> tuple[float, float]:
+    """Percentile bootstrap 95% CI of the median (fixed seed => reproducible)."""
+    import random
+
+    rng = random.Random(seed)
+    n = len(values)
+    medians = sorted(statistics.median(rng.choices(values, k=n)) for _ in range(iters))
+    return medians[int(0.025 * iters)], medians[min(iters - 1, int(0.975 * iters))]
+
+
+def paired(label: str, arm_a, arm_b, rounds: int = ROUNDS, min_of: int = MIN_OF) -> PairedResult:
+    """Interleave both arms inside each round, alternating order per round.
+
+    ratio = t_a / t_b, so ratio > 1 means arm_b is faster. With arm_a = networkx
+    and arm_b = franken_networkx this reads as "fnx is Nx faster", matching the
+    ledger convention.
+    """
+    inner_a, inner_b = calibrate(arm_a), calibrate(arm_b)
+    _sample(arm_a, inner_a, 1)
+    _sample(arm_b, inner_b, 1)
+
+    times_a, times_b, ratios = [], [], []
+    for round_index in range(rounds):
+        if round_index % 2 == 0:
+            ta = _sample(arm_a, inner_a, min_of)
+            tb = _sample(arm_b, inner_b, min_of)
+        else:
+            tb = _sample(arm_b, inner_b, min_of)
+            ta = _sample(arm_a, inner_a, min_of)
+        times_a.append(ta)
+        times_b.append(tb)
+        ratios.append(ta / tb)
+
+    median_ratio = statistics.median(ratios)
+
+    def cv(values):
+        return statistics.pstdev(values) / statistics.fmean(values) * 100.0
+
+    return PairedResult(
+        label=label,
+        ratio_p50=median_ratio,
+        ratio_ci=_median_ci(ratios),
+        p50_a=statistics.median(times_a),
+        p50_b=statistics.median(times_b),
+        cv_a=cv(times_a),
+        cv_b=cv(times_b),
+        mad_ratio=statistics.median([abs(r - median_ratio) for r in ratios]),
+        wins=f"{sum(1 for r in ratios if r > 1.0)}/{len(ratios)}",
+        rounds=rounds,
+        ratios=ratios,
+    )
+
+
+def decidable(cand: PairedResult, null: PairedResult, margin: float = 2.0) -> tuple[bool, str]:
+    edge = max(abs(math.log(null.ratio_ci[0])), abs(math.log(null.ratio_ci[1])))
+    need = margin * edge
+    return abs(math.log(cand.ratio_p50)) > need, (
+        f"floor={math.exp(need):.4f}x "
+        f"(null CI {null.ratio_ci[0]:.4f}-{null.ratio_ci[1]:.4f}, {margin:g}x margin)"
+    )
+
+
+def report(result: PairedResult, null: PairedResult | None = None) -> str:
+    line = (
+        f"{result.label:<54} ratio_p50={result.ratio_p50:9.4f}x "
+        f"CI=[{result.ratio_ci[0]:.4f},{result.ratio_ci[1]:.4f}] "
+        f"a={result.p50_a * 1e6:9.2f}us b={result.p50_b * 1e6:9.2f}us "
+        f"cv={result.cv_a:5.2f}/{result.cv_b:5.2f}% wins={result.wins}"
+    )
+    if null is not None:
+        ok, why = decidable(result, null)
+        line += f"  -> {'DECIDABLE' if ok else 'UNDECIDABLE'} {why}"
+    print(line, flush=True)
+    return line
+
+
+# --------------------------------------------------------------------------- #
+# byte-identity proof
+# --------------------------------------------------------------------------- #
+def canon(obj):
+    """Order-preserving canonical form — iteration order is part of the contract."""
+    if isinstance(obj, dict):
+        return ["<dict>"] + [[canon(k), canon(v)] for k, v in obj.items()]
+    if isinstance(obj, (list, tuple)):
+        return [canon(x) for x in obj]
+    if isinstance(obj, (set, frozenset)):
+        return ["<set>"] + sorted(canon(x) for x in obj)
+    if hasattr(obj, "edges") and hasattr(obj, "nodes"):
+        return ["<graph>", [canon(x) for x in obj.nodes()], [canon(e) for e in obj.edges()]]
+    if hasattr(obj, "__iter__") and not isinstance(obj, (str, bytes, int, float)):
+        return [canon(x) for x in obj]
+    return obj
+
+
+def digest(obj) -> str:
+    return hashlib.sha256(
+        json.dumps(canon(obj), sort_keys=False, default=str).encode()
+    ).hexdigest()[:16]
+
+
+def run_rows(tag: str, rows, rounds: int = ROUNDS) -> list[dict]:
+    """Prove byte-identity, then measure each row against its own A/A null."""
+    provenance_header(tag)
+    results = []
+    for label, arm_nx, arm_fnx in rows:
+        left, right = arm_nx(), arm_fnx()
+        da, db = digest(left), digest(right)
+        if da != db:
+            print(f"{label:<54} PARITY-DIVERGENCE nx={da} fnx={db} — NOT TIMED", flush=True)
+            results.append({"label": label, "parity": "DIVERGENT"})
+            continue
+        null = paired(f"[A/A null] {label}", arm_nx, arm_nx, rounds=rounds)
+        cand = paired(label, arm_nx, arm_fnx, rounds=rounds)
+        report(null)
+        report(cand, null)
+        ok, _ = decidable(cand, null)
+        results.append({
+            "label": label,
+            "parity": "IDENTICAL",
+            "checksum": da,
+            "ratio_p50": cand.ratio_p50,
+            "ratio_ci": list(cand.ratio_ci),
+            "null_ci": list(null.ratio_ci),
+            "decidable": ok,
+            "cv": [cand.cv_a, cand.cv_b],
+        })
+    return results
+
+
+# --------------------------------------------------------------------------- #
+# suites
+# --------------------------------------------------------------------------- #
+def _build_pair(n, m, seed, weighted, directed=False):
+    """Same node/edge insertion order in both libraries."""
+    import random
+
+    import networkx as nx
+    import franken_networkx as fnx
+
+    rng = random.Random(seed)
+    seen, stream = set(), []
+    while len(stream) < m:
+        u, v = rng.randrange(n), rng.randrange(n)
+        if u == v or (min(u, v), max(u, v)) in seen:
+            continue
+        seen.add((min(u, v), max(u, v)))
+        stream.append((str(u), str(v), {"weight": rng.randint(1, 20)} if weighted else {}))
+    nodes = [str(i) for i in range(n)]
+    gnx = (nx.DiGraph if directed else nx.Graph)()
+    gfx = (fnx.DiGraph if directed else fnx.Graph)()
+    gnx.add_nodes_from(nodes)
+    gfx.add_nodes_from(nodes)
+    gnx.add_edges_from([(u, v, dict(d)) for u, v, d in stream])
+    gfx.add_edges_from([(u, v, dict(d)) for u, v, d in stream])
+    assert type(gnx).__module__.startswith("networkx"), "nx arm must be genuine upstream"
+    return gnx, gfx
+
+
+def suite_view_accessors():
+    """br-r37-c1-wbwkb: the accessor-descriptor surface."""
+    gnx, gfx = _build_pair(2000, 8000, seed=7, weighted=True)
+    nodes = [str(i) for i in range(500)]
+    return [
+        ("G.nodes x500 (bare accessor)",
+         lambda: [gnx.nodes for _ in nodes], lambda: [gfx.nodes for _ in nodes]),
+        ("G.edges x500 (bare accessor)",
+         lambda: [gnx.edges for _ in nodes], lambda: [gfx.edges for _ in nodes]),
+        ("G.degree x500 (bare accessor)",
+         lambda: [gnx.degree for _ in nodes], lambda: [gfx.degree for _ in nodes]),
+        ("G.adj x500 (bare accessor)",
+         lambda: [gnx.adj for _ in nodes], lambda: [gfx.adj for _ in nodes]),
+        ("G.nodes[n] x500",
+         lambda: [gnx.nodes[n] for n in nodes], lambda: [gfx.nodes[n] for n in nodes]),
+        ("G.degree[n] x500",
+         lambda: [gnx.degree[n] for n in nodes], lambda: [gfx.degree[n] for n in nodes]),
+        ("len(G.edges) x500",
+         lambda: [len(gnx.edges) for _ in nodes], lambda: [len(gfx.edges) for _ in nodes]),
+        ("sum(G.nodes[n]['weight']) x500",
+         lambda: sum(gnx.nodes[n].get("weight", 0) for n in nodes),
+         lambda: sum(gfx.nodes[n].get("weight", 0) for n in nodes)),
+    ]
+
+
+def suite_marshaling():
+    """Return-shape / materialization surface."""
+    import networkx as nx
+    import franken_networkx as fnx
+
+    gnx, gfx = _build_pair(2000, 8000, seed=7, weighted=True)
+    src = "0"
+    return [
+        ("bfs_tree", lambda: nx.bfs_tree(gnx, src), lambda: fnx.bfs_tree(gfx, src)),
+        ("dfs_tree", lambda: nx.dfs_tree(gnx, src), lambda: fnx.dfs_tree(gfx, src)),
+        ("single_source_shortest_path",
+         lambda: nx.single_source_shortest_path(gnx, src),
+         lambda: fnx.single_source_shortest_path(gfx, src)),
+        ("to_dict_of_lists",
+         lambda: nx.to_dict_of_lists(gnx), lambda: fnx.to_dict_of_lists(gfx)),
+        ("node_link_data",
+         lambda: nx.node_link_data(gnx), lambda: fnx.node_link_data(gfx)),
+        ("adjacency()->list",
+         lambda: list(gnx.adjacency()), lambda: list(gfx.adjacency())),
+    ]
+
+
+SUITES = {"view-accessors": suite_view_accessors, "marshaling": suite_marshaling}
+
+
+def main(argv):
+    if len(argv) != 2 or argv[1] not in SUITES:
+        print(f"usage: {argv[0]} {{{'|'.join(SUITES)}}}", file=sys.stderr)
+        return 2
+    name = argv[1]
+    results = run_rows(f"suite={name}", SUITES[name]())
+    losses = [r for r in results if r.get("ratio_p50", 1) < 1.0 and r.get("decidable")]
+    if losses:
+        print("\ndecidable losses (fnx slower):", flush=True)
+        for row in sorted(losses, key=lambda r: r["ratio_p50"]):
+            print(f"  {row['ratio_p50']:7.4f}x  {row['label']}", flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

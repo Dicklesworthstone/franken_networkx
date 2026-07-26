@@ -885,3 +885,124 @@ Reopen only if a fresh profile attributes at least five percent end-to-end to
 public-key handling and a design removes both extraction and canonicalization
 or merges lookup-key creation with final mirror materialization while
 preserving surrogate and Python-equality semantics.
+
+## 2026-07-25 BlackThrush (cc) FINDING (campaign re-baseline): every named cc-lane "loss" in PERF_CAMPAIGN_2026-07-25 is a measured WIN on HEAD — the marshaling premise is stale
+
+`PERF_CAMPAIGN_2026-07-25` opens the franken_networkx section with "3-10x faster on compute-heavy
+algos, but **8-17x slower on weighted dijkstra**, **10-20x slower on single_pair_shortest_path**,
+**25-35x slower on bfs_tree/dfs_tree**", and assigns the cc lane a structural swing at the
+materialization boundary on that basis. Before taking the lever I re-measured every named row on
+HEAD (`8c450acce`) under the §2 harness contract — byte-identity proof before timing, A/A null
+control in the SAME invocation, median-of-per-round-ratios, decidability gated on the null's
+bootstrap 95% CI with a 2x margin, `_fnx` ELF sha256 `26c802ed8013d1618...` self-reported by the
+harness, genuine unpatched networkx 3.6.1 (dispatch env cleared, nx arm type-asserted).
+
+| campaign claim | measured on HEAD | null CI | verdict |
+|---|---:|---|---|
+| bfs_tree 25-35x SLOWER | **3.2403x FASTER** | 0.9916-1.0050 | DECIDABLE |
+| dfs_tree 25-35x SLOWER | **3.3439x FASTER** | 0.9968-1.0113 | DECIDABLE |
+| single_pair_shortest_path 10-20x SLOWER | **3.1614x FASTER** | 0.9966-1.0050 | DECIDABLE |
+| shortest_path(weighted) 8-17x SLOWER | **1.7684x FASTER** | 0.9947-1.0065 | DECIDABLE |
+| dijkstra_path(weighted) 8-17x SLOWER | **7.6077x FASTER** | 0.9983-1.0016 | DECIDABLE |
+| bidirectional_dijkstra 8-17x SLOWER | **1.8125x FASTER** | 0.9952-1.0053 | DECIDABLE |
+| single_source_shortest_path (dict-of-lists) | **3.8952x** | 0.9995-1.0052 | DECIDABLE |
+| single_source_shortest_path_length (dict) | **5.5005x** | 0.9985-1.0067 | DECIDABLE |
+| all_pairs_shortest_path_length (n=300) | **4.5647x** | 0.9927-1.0054 | DECIDABLE |
+| all_pairs_dijkstra_path_length (n=300) | **3.6658x** | 0.9962-1.0026 | DECIDABLE |
+| all_pairs_shortest_path (dict-of-dict-of-list) | **1.7624x** | 0.9870-1.0005 | DECIDABLE |
+
+Every row byte-identical (canonical order-preserving digest of the full result compared before
+timing). The "~0.5-1 us per returned dict entry dominates the tail" cost model does not hold on
+this surface: the N-entry dict/list returns (`single_source_*`, `all_pairs_*`) are 1.76-5.50x
+FASTER than nx, which produces the same containers.
+
+This does NOT mean there is no wall — per the NO-CEILING RULE I swept wider for the real one and
+found it (next entry). It means the campaign's premise for this repo was inherited from a stale
+snapshot, and a structural swing aimed at "stop materializing dicts" would have optimized a surface
+that already wins. RETRY PREDICATE for the marshaling thesis: reopen only if a profile of a
+specific returning API attributes >=20% exact self-time to PyO3 container construction (not to the
+Python view machinery, which is where this surface's cost actually is — see the next entry).
+
+## 2026-07-25 BlackThrush (cc) KEEP (br-r37-c1-wbwkb): accessor views were installed as a DATA descriptor, so their Python body re-ran on every access — nx's cached_property mechanism restored, **5.90x-17.98x** same-binary
+
+PROFILE FIRST. The wide return-shape sweep (28 rows) put the worst decidable losses on HEAD at
+`G.nodes[n]` **0.2477x** and `dict(G[u])` **0.5159x**. cProfile on both arms attributed them with
+ZERO native frames in the top: for `G.nodes[n]` x500 the fnx self-time went to
+`__init__.py:43293(nodes)` `0.036s/100k calls`, `__init__.py:6475(__getitem__)` `0.040s`,
+`__init__.py:42560(_private_override)` `0.022s`, plus `builtins.vars` 200k calls `0.017s` — against
+nx's single `reportviews.py:190(__getitem__)` `0.013s`. The cost is the pure-Python shim, not the
+Rust boundary and not marshaling.
+
+Mechanism: networkx installs `nodes`/`edges`/`degree` as `@cached_property` — a NON-data descriptor
+— so after the first access the view lives in the instance `__dict__` and every later `G.nodes` is
+a C-level dict hit with no Python frame at all. fnx installed the same accessors as `property`, a
+DATA descriptor, which always wins over the instance dict; its body (a `vars(self)` snapshot, an
+override probe, a cache `get`) therefore re-ran on EVERY access. Decomposition, per-access ns:
+
+| bare accessor | nx | fnx BEFORE | fnx AFTER |
+|---|---:|---:|---:|
+| `G.nodes` | 31.6 ns | 163.5 ns (0.133x) | **40.2 ns (0.856x)** |
+| `G.edges` | ~20 ns | ~575 ns (0.035x) | **(0.867x)** |
+| `G.degree` | ~32 ns | ~178 ns (0.110x) | **(0.854x)** |
+| `G.nodes[n]` end-to-end | 92.6 ns | 424.7 ns (0.190x) | **279.9 ns (0.298x)** |
+
+ONE LEVER: `_CachedViewDescriptor`, a non-data descriptor that memoises the built view under the
+PUBLIC attribute name — nx's own mechanism. The view object returned is unchanged (the builder is
+the previous property body, which already memoised its wrapper in `_fnx_view_*` so
+`g.nodes is g.nodes` held). `adj`/`_adj`/`succ`/`pred`/`_node` are deliberately NOT converted: their
+setters install the networkx private-storage overrides, so they must stay data descriptors.
+
+SAME-BINARY SAME-PROCESS INTERLEAVED A/B + NULL. ORIG arm = `property(build)` rebuilt from the SAME
+closure the candidate wraps, so the arms differ in descriptor kind and nothing else; both arms
+re-install per call so type-version invalidation is symmetric (this is CONSERVATIVE for the
+candidate). 21 paired rounds, `min_of=3`, `_fnx` sha256 `26c802ed8013d1618...`:
+
+| row | ORIG/CAND | null CI | verdict |
+|---|---:|---|---|
+| bare `G.edges` x500 | **17.9837x** | 0.9979-1.0034 | DECIDABLE |
+| `len(G.edges)` x500 | **10.3844x** | 0.9986-1.0021 | DECIDABLE |
+| bare `G.degree` x500 | **6.9839x** | 0.9986-1.0015 | DECIDABLE |
+| bare `G.nodes` x500 | **5.9047x** | 0.9977-0.9996 | DECIDABLE |
+| `G.degree[n]` x500 | **1.9173x** | 0.9984-1.0055 | DECIDABLE |
+| `G.nodes[n]` x500 | **1.7112x** | 0.9976-1.0004 | DECIDABLE |
+| `sum(G.nodes[n]['weight'])` x500 | **1.6472x** | 0.9997-1.0023 | DECIDABLE |
+| `list(G.edges(data=True))` x1 | 1.0022x | 0.9978-1.0018 | UNDECIDABLE (payload-dominated) |
+| `list(G.nodes(data=True))` x1 | 1.0076x | 0.9953-0.9992 | UNDECIDABLE (payload-dominated) |
+
+The two undecidable rows are the control: where the accessor is a one-off and the payload dominates,
+the lever correctly shows nothing.
+
+BEHAVIOR ISOMORPHISM. A dedicated gauntlet — landed as the permanent regression lock
+`tests/python/test_view_descriptor_parity.py`, run before any timing — checks, across all four
+graph classes: content/identity/type-name/repr parity vs nx for
+`nodes`/`edges`/`degree`; that the memoised view stays LIVE across add_edge/add_node/remove_node
+(never a snapshot); private-override dispatch when an override is installed BEFORE and AFTER a plain
+access; subgraph and edge_subgraph views; copy/deepcopy/pickle isolation; and 30 randomized
+mutation trials x 4 classes differentially against nx (nodes(data), edges(data), degree, adjacency).
+All green (44/44). Full suite: **49,521 passed / 0 failed / 1,065 skipped**. Run against a
+PRE-CHANGE package the same lock fails 3/44 — the `G.nodes = x` assignment-parity rows — which is
+the before/after control proving the lock has teeth.
+
+Two traps the gauntlet caught before timing, both now covered by explicit code:
+1. `copy.deepcopy`/`__reduce_ex__` preserve user instance attributes and skip only `_fnx_`-prefixed
+   keys — a view memoised under its PUBLIC name was therefore copied to the new graph and stayed
+   bound to the original (`D.add_node(x)` then `x not in D.nodes`). Both filters now skip names the
+   descriptor owns, tracked in `_fnx_descriptor_cached_views`.
+2. `_FilteredGraphView.__init__` sets its OWN `self.nodes` instance attribute and then assigns
+   `self.adj`, which routes through `_set_private_override`; a blind invalidation there would have
+   deleted the subgraph's node view and exposed the bare `_FilteredGraphView.nodes` FUNCTION as a
+   bound method. Invalidation is scoped to descriptor-owned names only.
+
+Side effect, deliberate: `G.nodes = x` now writes the instance dict instead of raising
+`AttributeError`. That REMOVES a pre-existing parity divergence — nx's `cached_property` is likewise
+assignable, verified against nx 3.6.1 in the gauntlet.
+
+REMAINING on this surface, with retry predicates:
+- **`G.adj` 0.1017x** is now the largest accessor loss and is NOT reachable by this lever (setter is
+  load-bearing). Retry via a Rust-implemented data descriptor whose `__get__` is C-level, or by
+  moving the override installation to `__setattr__`; take it only if a `__setattr__` prototype does
+  not regress the graph-mutation path, measured on the same harness.
+- **`G.nodes[n]` residual 0.298x**: the remaining frame is the `__getitem__` wrapper
+  (`hash(node)` + try/except re-raise, `__init__.py:6475`), which exists for KeyError-key fidelity
+  and unhashable-node TypeError parity. Retry only with a design that keeps both contracts without
+  the per-call `hash()` — e.g. moving the key-fidelity re-raise into the Rust getter.
