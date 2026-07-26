@@ -28,6 +28,7 @@ minimum (the dominant knob; longer samples are a bigger target for preemption).
 Usage:
     python3 scripts/perf_harness.py view-accessors
     python3 scripts/perf_harness.py node-primitives
+    python3 scripts/perf_harness.py lazy-rows
     python3 scripts/perf_harness.py marshaling
 
 Point `PYTHONPATH` at the package tree under test; the header records which one ran.
@@ -72,12 +73,20 @@ def binary_sha256() -> tuple[str, str]:
 
 def provenance_header(tag: str) -> dict:
     import networkx as nx
+    import franken_networkx as fnx
 
     path, sha = binary_sha256()
+    wrapper_path = fnx.__file__
+    wrapper_digest = hashlib.sha256()
+    with open(wrapper_path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            wrapper_digest.update(chunk)
     info = {
         "tag": tag,
         "fnx_so": path,
         "fnx_so_sha256": sha,
+        "fnx_python": wrapper_path,
+        "fnx_python_sha256": wrapper_digest.hexdigest(),
         "nx_version": nx.__version__,
         "nx_file": nx.__file__,
         "python": sys.version.split()[0],
@@ -360,6 +369,86 @@ def suite_node_primitives():
     ]
 
 
+def suite_lazy_rows():
+    """br-r37-c1-v9auw: live row-mirror materialization and counted mechanism."""
+    import networkx as nx
+    import franken_networkx as fnx
+
+    undirected_edges = [(0, node, {"weight": node}) for node in range(1, 65)]
+    gnx = nx.Graph()
+    gfx = fnx.Graph()
+    gnx.add_edges_from((u, v, dict(attrs)) for u, v, attrs in undirected_edges)
+    gfx.add_edges_from((u, v, dict(attrs)) for u, v, attrs in undirected_edges)
+
+    directed_edges = [
+        (0, node, {"weight": node}) for node in range(1, 65)
+    ] + [
+        (node, 0, {"weight": -node}) for node in range(65, 129)
+    ]
+    dnx = nx.DiGraph()
+    dfx = fnx.DiGraph()
+    dnx.add_edges_from((u, v, dict(attrs)) for u, v, attrs in directed_edges)
+    dfx.add_edges_from((u, v, dict(attrs)) for u, v, attrs in directed_edges)
+
+    nx_row = gnx[0]
+    fnx_row = gfx[0]
+    nx_succ = dnx.succ[0]
+    fnx_succ = dfx.succ[0]
+    nx_pred = dnx.pred[0]
+    fnx_pred = dfx.pred[0]
+
+    # Materialize each persistent mirror before timing so both mechanism arms
+    # measure the steady-state most-used call, not one-time observation cost.
+    dict(fnx_row)
+    dict(fnx_succ)
+    dict(fnx_pred)
+
+    nodes = tuple(fnx_row)
+    live = fnx_row._fnx_live_keydict
+    baseline_revision = (gfx.nodes_seq, gfx.edges_seq)
+
+    def token_checked_copy():
+        # Exact counted mechanism removed by the lever: the old __getitem__
+        # fetched both counters and compared this tuple for every neighbor.
+        return {
+            node: live[node]
+            if baseline_revision == (gfx.nodes_seq, gfx.edges_seq)
+            else fnx_row[node]
+            for node in nodes
+        }
+
+    def live_mirror_copy():
+        return {node: live[node] for node in nodes}
+
+    return [
+        (
+            "dict(G[u]) degree=64 [nx/fnx]",
+            lambda: dict(nx_row),
+            lambda: dict(fnx_row),
+        ),
+        (
+            "list(G[u].keys()) degree=64 [nx/fnx]",
+            lambda: list(nx_row.keys()),
+            lambda: list(fnx_row.keys()),
+        ),
+        (
+            "dict(DG.succ[u]) degree=64 [nx/fnx]",
+            lambda: dict(nx_succ),
+            lambda: dict(fnx_succ),
+        ),
+        (
+            "dict(DG.pred[u]) degree=64 [nx/fnx]",
+            lambda: dict(nx_pred),
+            lambda: dict(fnx_pred),
+        ),
+        (
+            "row-copy loop degree=64 [token/live]",
+            token_checked_copy,
+            live_mirror_copy,
+        ),
+    ]
+
+
 def suite_marshaling():
     """Return-shape / materialization surface."""
     import networkx as nx
@@ -385,6 +474,7 @@ def suite_marshaling():
 SUITES = {
     "view-accessors": suite_view_accessors,
     "node-primitives": suite_node_primitives,
+    "lazy-rows": suite_lazy_rows,
     "marshaling": suite_marshaling,
 }
 

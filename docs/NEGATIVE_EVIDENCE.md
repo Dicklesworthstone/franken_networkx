@@ -24581,3 +24581,105 @@ focused test; its three high labels were the existing/test-added trusted
 bounded scans of the 61k-line monolithic shim hit UBS's Python module timeout
 without emitting a source finding; the shim diff was reviewed directly and is
 covered by the parity and compiler gates above.
+
+## 2026-07-26 CloudyTurtle KEEP (`dict(G[u])` / simple directed rows): persistent live adjacency-row mirror — **1.1227x / 3.2981x mechanism** (`br-r37-c1-v9auw`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: before proposing the lever,
+`scripts/perf_ledger_preflight.py` and direct searches for `AtlasView`,
+`adjacency row`, `persistent mirror`, and `dict(G[u])` read the governing rows
+in both performance ledgers. The closest rejected prior art was the 2026-06-24
+outer-adjacency cache row, now adjudicated **VOID-NONULL**: its near-1.0 A/B had
+neither an A/A null nor a counted mechanism. It did not test the per-row
+`G[u]` mapping seam. Later surface rows measured `dict(G[u])` at `0.5159x`
+and `dict(G.adj[u])` near `0.40x`, attributing the loss to AtlasView
+materialization and per-neighbor validation.
+
+A pre-edit `cProfile` of 20,000 warm `dict(G[u])` copies at degree 64 recorded
+`0.240s` total Franken time. `AtlasView.__getitem__` alone consumed `0.197s`
+self-time (**82.1%**), versus `0.149s` total for NetworkX, for a computed
+Amdahl ceiling of **5.59x**. The exact repeated work was two PyO3 mutation
+counter reads plus tuple construction/comparison for each of 64 neighbors,
+even though the native graph already maintained the observed row as a
+persistent live `PyDict`.
+
+ONE LEVER: concrete `Graph` and `DiGraph` AtlasViews now retain that existing
+native-maintained row dict as their authoritative mapping. Warm
+`__getitem__` is one Python dict lookup; `keys()` iterates the same live row
+instead of allocating an intermediate neighbor-key list. Subclasses,
+filtered views, and assigned NetworkX private storage stay on the prior
+token-validated fallback. The directed native helper now returns its
+persistent successor/predecessor row directly instead of rebuilding a second
+dict from a whole-graph snapshot. No algorithm, node canonicalization, edge
+attribute, or ordering policy changed.
+
+BEHAVIOR ISOMORPHISM / COHERENCE: focused local suites passed **597/597**
+before the native coherence extension. The strict-remote rebuilt ELF then
+passed **592/592** selected adjacency, view, hypothesis, and parity tests on
+`vmi1149989`, plus an **86/86** destination-worker smoke suite. Explicit locks
+cover Graph/DiGraph outgoing rows, DiGraph predecessor rows, live `keys()`,
+attribute-dict identity, single and batch add/remove, `clear_edges`, captured
+rows after owner removal, and re-adding the same public node key. The expanded
+mutation matrix found and fixed one masked DiGraph bug before timing:
+`remove_nodes_from` had discarded integer display-key metadata before deleting
+cells from persistent successor/predecessor rows. It now updates surviving
+rows first while leaving removed owners' captured dicts detached and readable,
+matching NetworkX. A manual matrix also matched NetworkX for weighted adds,
+neighbor/owner batch removal, `clear`, and `update`.
+
+PINNED-WORKER SAME-INVOCATION A/A + A/B: strict RCH built the release extension
+on `vmi1149989`; the exact artifact was moved to the quiet `vmi1227854`
+measurement window after unrelated compilation arrived on the build worker.
+The benchmark's first line self-reported the loaded ELF
+`/data/projects/franken_networkx/python/franken_networkx/_fnx.abi3.so`,
+SHA-256
+`6e8b11827b5d742f1f9fa870ed556d18eefcc7156c62aff6823998ea92ef6f83`.
+It also self-reported wrapper SHA-256
+`bea619f027536f46eb52747f513c73a69589b189c0af2f20084c09fbdc0db4ec`
+(Python 3.13.7, NetworkX 3.6.1). Each 21-round interleaved row proved an
+order-preserving digest before timing and ran its own A/A null in the same
+invocation. Decisions use only the bootstrap median CI with the contract's
+2x log-space null margin; CV is provenance and was never a gate.
+
+| row (degree 64) | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | required floor | decision |
+|---|---:|---:|---:|---:|---|
+| NetworkX / FNX `dict(G[u])` | **`1.1227x`** | `1.0631-1.1435x` | `0.9864-1.0557x` | `1.1146x` | **DECIDABLE KEEP** |
+| NetworkX / FNX `list(G[u].keys())` | **`2.4967x`** | `2.3700-2.7288x` | `0.9190-1.0102x` | `1.1841x` | **DECIDABLE KEEP** |
+| NetworkX / FNX `dict(DG.succ[u])` | **`1.1672x`** | `1.0829-1.1871x` | `0.9897-1.0610x` | `1.1258x` | **DECIDABLE KEEP** |
+| NetworkX / FNX `dict(DG.pred[u])` | **`1.0966x`** | `1.0043-1.1342x` | `0.9667-1.0315x` | `1.0700x` | **DECIDABLE KEEP** |
+| old token loop / live-row loop | **`3.2981x`** | `3.1902-3.4127x` | `0.9572-0.9995x` | `1.0914x` | **DECIDABLE MECHANISM** |
+
+RESULT: KEEP. The named 82.1%-self frame and counted mechanism both moved as
+predicted, the most-used `dict(G[u])` surface crossed from a documented
+`0.5159x` loss to a median win over NetworkX, and all four public row surfaces
+clear their own doubled-null floors. The measurement window was released
+immediately after the invocation.
+
+RETRY PREDICATE: do not retry mutation-counter validation, outer-adjacency
+caching, or neighbor-key snapshotting on concrete simple rows. Reopen this
+family only if a fresh profile on a different mapping consumer attributes at
+least **20% self-time** to its row wrapper and the proposed change either
+reuses an already mutation-maintained mirror or records a counted reduction in
+row materializations. For `dict(G[u])` itself, reopen only if a same-invocation
+A/A floor is below **1.02x** and a remaining named frame predicts at least
+`1.05x`; otherwise switch to BFS/DFS tree-return construction or the weighted
+shortest-path frontier.
+
+QUALITY GATES: focused remote Python parity passed as above; strict-remote
+`cargo check -p fnx-python --all-targets -j 2`, `cargo fmt --check`,
+`python -m py_compile`, and `git diff --check` passed. The crate check emitted
+only the two known dead-helper warnings in `algorithms.rs`. UBS found no new
+Rust critical issue; its benchmark-only `token == revision` secret heuristic
+was a false positive and the local variable was renamed to make the counted
+revision comparison unambiguous. The four ledger-gate behaviors (`--check`,
+`--audit`, known rejected prior art, and unknown prior art) passed directly;
+the local pytest wrapper correctly refused the stale pre-rebuild extension,
+so no local Python fallback was used. Strict-remote
+`cargo check --workspace --all-targets -j 2` passed on `vmi1149989`.
+Strict workspace clippy reached `fnx-python` and reproduced only the existing
+two dead helpers, three `collapsible_if` sites, and one
+`chunks_exact_to_as_chunks` test lint; none touch this lever's files. Targeted
+UBS scans of the Rust, harness, and test diffs reported zero critical findings.
+As in the preceding raw-primitive lever, the bounded scan of the 61k-line
+monolithic Python shim reached its 180-second timeout without emitting a source
+finding; that shim diff was reviewed directly and is covered by the exact-ELF
+parity and compiler gates above.

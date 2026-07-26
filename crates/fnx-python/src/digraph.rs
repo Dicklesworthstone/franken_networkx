@@ -11042,6 +11042,31 @@ impl PyDiGraph {
                 self.node_iter_mirror_remove_key(py, py_key.bind(py));
             }
         }
+        // br-r37-c1-v9auw: remove neighbor cells while the node-key maps and
+        // per-row display-key overrides still exist. Doing this after dropping
+        // those maps rendered an integer node's canonical "1" as Python "1",
+        // so del_item silently missed the live row's integer key and left a
+        // captured AtlasView stale. Skip rows whose owner is itself removed:
+        // nx detaches those inner dicts without clearing them, so an already
+        // captured row remains readable with its old contents.
+        for (owner, row) in &self.succ_row_py {
+            if present.contains(owner) {
+                continue;
+            }
+            for canonical in &present {
+                let py_node = self.py_succ_key(py, owner, canonical);
+                let _ = row.bind(py).del_item(py_node);
+            }
+        }
+        for (owner, row) in &self.pred_row_py {
+            if present.contains(owner) {
+                continue;
+            }
+            for canonical in &present {
+                let py_node = self.py_pred_key(py, owner, canonical);
+                let _ = row.bind(py).del_item(py_node);
+            }
+        }
         for canonical in &present {
             self.node_key_map.remove(canonical);
             self.node_py_attrs.remove(canonical);
@@ -11056,18 +11081,6 @@ impl PyDiGraph {
         for canonical in &present {
             self.succ_row_py.remove(canonical);
             self.pred_row_py.remove(canonical);
-        }
-        for (owner, row) in &self.succ_row_py {
-            for canonical in &present {
-                let py_node = self.py_succ_key(py, owner, canonical);
-                let _ = row.bind(py).del_item(py_node);
-            }
-        }
-        for (owner, row) in &self.pred_row_py {
-            for canonical in &present {
-                let py_node = self.py_pred_key(py, owner, canonical);
-                let _ = row.bind(py).del_item(py_node);
-            }
         }
         self.bump_nodes_seq();
         if removed_edges > 0 || removed_py_edge_attrs {

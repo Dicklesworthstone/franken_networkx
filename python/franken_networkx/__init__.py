@@ -1390,8 +1390,9 @@ from collections.abc import ValuesView as _ValuesViewABC
 class _AdjKeysView(_KeysViewABC):
     # nx internals (non_neighbors) do
     # ``graph._adj.keys() - graph._adj[node].keys() - {node}`` expecting
-    # dict_keys-like views that support set-difference, so we snapshot to a
-    # frozen list and expose KeysView set algebra over it.
+    # dict_keys-like views that support set-difference. The backing object is
+    # normally a frozen list; AtlasView supplies its already-live row dict so
+    # ``dict(G[u])`` does not first allocate a redundant neighbor-key list.
     __slots__ = ("_snapshot",)
 
     def __init__(self, snapshot):
@@ -1465,6 +1466,16 @@ _AdjValuesView.__name__ = "ValuesView"
 
 
 def _adjacency_view_keys(self):
+    # br-r37-c1-v9auw: concrete Graph/DiGraph AtlasView rows already own a
+    # persistent native-maintained PyDict mirror. Hand that mapping directly to
+    # KeysView so CPython's ``dict(mapping)`` protocol can iterate its keys
+    # without first building ``list(self)`` (which also called _keydict twice,
+    # via list's length hint). Other mapping wrappers retain the snapshot path.
+    keydict_getter = getattr(self, "_keydict", None)
+    if keydict_getter is not None:
+        keydict = keydict_getter()
+        if keydict is not None:
+            return _AdjKeysView(keydict)
     return _AdjKeysView(list(self))
 
 
@@ -1482,6 +1493,13 @@ class AtlasView(_Mapping):
         self._fnx_owner = owner
         self._fnx_row_node = row_node
         self._fnx_row_kind = row_kind
+        # br-r37-c1-v9auw: exact Graph/DiGraph rows use a Rust-maintained live
+        # PyDict mirror. Once materialized, this handle remains authoritative:
+        # edge add/remove/clear mutate it in place, while remove-node/clear leave
+        # captured row objects detached-but-readable exactly like nx's inner
+        # adjacency dicts. This lets every neighbor lookup skip mutation-counter
+        # reads without sacrificing liveness.
+        self._fnx_live_keydict = None
         # br-r37-c1-spg9n: ((nodes_seq, edges_seq), keydict) — the row's
         # {nbr: <value>} keydict, cached on the (already per-node-cached) view so
         # iteration/len/membership are pure-Python dict ops like nx's
@@ -1494,6 +1512,9 @@ class AtlasView(_Mapping):
         return self._atlas_getter()
 
     def _keydict(self):
+        live = self._fnx_live_keydict
+        if live is not None:
+            return live
         owner = self._fnx_owner
         if owner is None:
             return None
@@ -1508,7 +1529,10 @@ class AtlasView(_Mapping):
             owner, self._fnx_row_kind, self._fnx_row_node, self._atlas
         )
         if keydict is not None:
-            self._fnx_kd_cache = (tok, keydict)
+            if type(owner) in (Graph, DiGraph) and not _has_networkx_private_storage(owner):
+                self._fnx_live_keydict = keydict
+            else:
+                self._fnx_kd_cache = (tok, keydict)
         return keydict
 
     def __len__(self):
@@ -1550,6 +1574,9 @@ class AtlasView(_Mapping):
         # (O(degree)); the single-edge fetch returns the SAME live edge_py_attrs
         # dict materialize_edge_py_attrs(u, v) caches, so identity + mutation
         # reflection match the keydict path exactly.
+        live = self._fnx_live_keydict
+        if live is not None:
+            return live[node]
         owner = self._fnx_owner
         cached = self._fnx_kd_cache
         if cached is not None and owner is not None:
@@ -42893,20 +42920,14 @@ def _cached_adj_row_keydict(owner, row_kind, row_node, row_getter):
     cache_key = (row_kind, row_node)
     keydict = cache.get(cache_key)
     if keydict is None:
-        if row_kind == "succ" and type(owner) is DiGraph:
-            native_adjacency = getattr(owner, "_native_adjacency_dict", None)
-            native_row = getattr(owner, "_native_successor_row_dict", None)
-            if native_adjacency is not None and native_row is not None:
-                try:
-                    fresh_keys = native_adjacency()[row_node]
-                    live_row = native_row(row_node)
-                except KeyError:
-                    return None
-                keydict = {
-                    neighbor: live_row.get(neighbor, attrs)
-                    for neighbor, attrs in fresh_keys.items()
-                }
-        if keydict is None and native_name is not None:
+        # br-r37-c1-v9auw: the simple Graph and DiGraph native row accessors
+        # return persistent PyDict mirrors in canonical adjacency order. Every
+        # structural mutator maintains those mirrors in place, so use the live
+        # row itself. The previous DiGraph branch rebuilt a second Python dict
+        # from a whole-graph adjacency snapshot solely to recover key order;
+        # the per-row accessor has carried identical order since
+        # br-r37-c1-gchm1/cc-succrowoV.
+        if native_name is not None:
             native_row = getattr(owner, native_name, None)
             if native_row is not None:
                 try:
