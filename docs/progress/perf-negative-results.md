@@ -1069,3 +1069,69 @@ RETRY PREDICATE for what remains on this surface: `G.adj` (0.1017x) still cannot
 its setter installs the nx private-storage override. Reopen `br-r37-c1-8d4r1` only with a
 Rust-implemented C-level data descriptor, or an `__setattr__` interception prototype that is first
 shown not to regress the graph-mutation path on this same harness.
+
+## 2026-07-25 BlackThrush (cc, Lane M) FINDING + CEILING: node-key interning is capped at 24% on the per-node primitives — the dominant cost is the PYTHON SHIM WRAPPER (56%), not key canonicalization and not the PyO3 boundary
+
+ALLOCATION_ADDENDUM put this repo in Lane M with two named first targets: "lazy view returns
+instead of dict materialization" and "node-key interning for the dijkstra string-hash loss", citing
+"8-35x losses on the most-used NetworkX calls (bfs_tree, dfs_tree, single_pair_shortest_path,
+weighted dijkstra)". Those four rows were re-measured earlier today as decidable WINS (3.24x, 3.34x,
+3.16x, 1.77-7.61x — see the campaign re-baseline entry above), so the window was spent instead on
+attributing the per-node primitives that ARE measured losses, before building either named lever.
+
+MEASURED LOSSES that nobody had named (per-call ns, median of 9 x 4-6k, n=2000 m=8000, vs genuine nx 3.6.1):
+
+| call | nx | fnx | ratio |
+|---|---:|---:|---:|
+| `G.has_node(n)` | 67.6-106.1 | 262.2-262.6 | **0.244-0.404x** |
+| `n in G` | 82.4 | 301.3 | **0.273x** |
+| `G.nodes[n]` | 87.6 | 264.6 | **0.331x** |
+| `G.degree[n]` | 120.6 | 232.0 | **0.520x** |
+| `G.is_directed()` | 37.6 | 192.5 | **0.195x** |
+
+KEY-SHAPE SENSITIVITY (the signature of a per-call canonicalization allocation): fnx `nodes[n]`
+costs 191.8ns for int keys, 262.5ns for short str keys, **344.2ns for long str keys**, while nx is
+FLAT at 88-95ns (interned str, cached hash). fnx scales with key LENGTH because
+`node_key_to_string` builds `format!("str:{len}:{s}")` — a malloc + copy — on EVERY lookup.
+
+THREE-WAY ATTRIBUTION of `has_node(str)` = 262.6ns, each component isolated by measurement rather
+than inference:
+* **Python wrapper frames: 146.4ns (56%)** — obtained by recovering the raw Rust slot out of the
+  wrapper's `__closure__` and timing it directly (`raw has_node` = 116.2ns).
+* key canonicalization: **63.5ns (24%)** — isolated via `has_node`'s existing identity-int fast
+  path, which skips canonicalization entirely (`has_node(int)` 198.7ns vs `has_node(str)` 262.2ns).
+* pure PyO3 boundary + probe: **52.7ns (20%)**. The bare boundary is cheap: raw
+  `is_directed()` (returns a constant) is **41.9ns**.
+
+CEILING ON THE ADDENDUM'S NAMED PRIMITIVE: node-key interning addresses only the 63.5ns component.
+Even with canonicalization made FREE, `has_node` lands at ~199ns = **0.35x** of nx — still a 2.9x
+loss. **Interning cannot close these gaps and must not be scoped as if it could.** It remains a
+legitimate ~24% follow-up AFTER the wrapper cost is removed, at which point it would take
+`has_node` from ~116ns to ~53ns, i.e. from 0.91x to ~2.0x of nx.
+
+WHERE THE REAL LEVER IS: every one of `is_directed`, `number_of_nodes`, `has_node`, `__len__`,
+`__contains__` is installed as a PYTHON function wrapping the Rust method (verified via
+`type(G).__mro__` descriptor inspection). `_private_aware_has_node` is representative — an outer
+frame plus a `_private_override(self, ...)` call which is itself a frame plus `vars(self)` plus a
+dict `get`. `G.is_directed()` is 192.5ns of which **150.6ns is wrapper**: the method returns a
+constant. Removing the wrapper alone takes `has_node` 262.6 -> 116.2ns = **0.91x of nx**, from 0.40x.
+
+This is the same class as the two levers shipped today (br-r37-c1-wbwkb, br-r37-c1-hwu8a): the cost
+is fnx's Python shim re-running per call, not the Rust side, not marshaling, and not the boundary.
+The structural form is also the same, and is filed as `br-r37-c1-qmi5w`: install the RAW Rust method
+on the class and have `_set_private_override` shadow it with an override-aware closure in the
+INSTANCE dict for the rare graphs that carry networkx private storage — methods are non-data
+descriptors, so an instance attribute shadows them, exactly the mechanism `_CachedViewDescriptor`
+exploits.
+
+RETRY PREDICATE for node-key interning (`br-r37-c1-ts80b` scope): reopen only AFTER the wrapper
+removal lands, and only if a re-run then shows the canonicalization share above 30% of the residual
+per-call cost with an A/A null floor below 1.02x. Do not scope it as a fix for the per-node
+primitive gap on its own — measured ceiling 0.35x of nx.
+
+RETRY PREDICATE for "lazy view returns": REJECTED as stated for this repo. The N-entry container
+returns it targets (`single_source_*`, `all_pairs_*`, `bfs_tree`, `dfs_tree`) measure 1.76-5.50x
+FASTER than nx, which builds the same containers. Reopen only if a profile of a specific returning
+API attributes >=20% exact self-time to PyO3 container construction. The genuinely materialization-
+shaped residuals are `dict(G[u])` 0.5159x (AtlasView `__getitem__` at 243k calls, already
+profile-attributed to the Python keydict machinery) and dense `DiGraph.edges()` 0.5850x.
