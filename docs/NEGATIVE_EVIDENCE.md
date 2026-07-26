@@ -27793,3 +27793,80 @@ same-invocation floor. Until then, switch veins.
 QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
+
+## 2026-07-26 CloudyTurtle ADMISSION REJECT (`Graph` scalar `EdgeView.__getitem__` C-slot cutover): **2.0008x executable ceiling**, first A/A floor **`1.2324x`** — **NO SOURCE EDIT** (`br-r37-c1-iy8ka`)
+
+NEGATIVE-LEDGER-FIRST: before reopening the 8.35x public scalar-edge residual,
+`scripts/perf_ledger_preflight.py --candidate --lever 'endpoint key
+interning' --surface 'Graph EdgeView.__getitem__ scalar lookup public
+residual'` printed the governing `br-r37-c1-sivs2` KEEP and its retry
+predicate. That row forbids another Python wrapper rearrangement or
+unprofiled key cache. It allows a class-safe native boundary replacement only
+after a fresh exact post-KEEP profile attributes at least 30% to a named
+removable scalar-lookup frame and **two consecutive** unchanged 512-lookup
+A/A-only runs each have a doubled-log floor below `1.03x`.
+
+EXACT-CURRENT PROFILE / COMPUTED CEILING: no source changed. On the exact
+loaded ELF below, 300,000 successful `view[("left", "right")]` calls took
+`0.767s`. cProfile named the compatibility
+`EdgeView.__getitem__` frame at `0.343s` self (**44.7%**), native
+`get_edge_data` at `0.158s`, `_has_networkx_private_storage` at `0.078s`,
+weak-owner lookup at `0.061s`, the two mandatory hashes at `0.056s`,
+`vars()` at `0.040s`, and `id()` at `0.031s`. The exact workload therefore
+attributes a substantial measured share to the named target frame; it is not
+`VOID-ZEROSELF`.
+
+The captured raw PyO3 EdgeView slot supplied the executable Amdahl ceiling:
+eleven 200,000-call rounds had median public wall `177,014,709ns` versus raw
+wall `88,473,730ns`, or **`2.000760x`**. A compatibility-complete native slot
+would still hash/unpack/canonicalize and return the live attribute dict, so
+this is a ceiling rather than a candidate claim. It demonstrates that the
+named Python/weak-owner boundary is material, while not licensing an edit
+without the separate null predicate.
+
+A/A-ONLY ADMISSION: the immutable current package ran on drained
+`vmi1152480`, pinned to core 3, and the worker was immediately re-enabled and
+probed healthy. The process self-reported line one:
+
+`bench_elf_sha256=a6dcc1f75f6f2e004e18f27b641d195f3a48b2473c3787acc011293bbd9f26c0
+(13153768 bytes)
+/data/tmp/franken_networkx-measure-current/franken_networkx/_fnx.abi3.so`
+
+Structured provenance recorded wrapper SHA-256
+`5f0635bfabefb100a83adba1a81d7d5e133f8759e7ff31acce4b9bc1a375d71e`,
+harness SHA-256
+`00b82448f3356df09dc996cc7dd01738f5a1c387151ea0390ccdda7c55e6ffd4`,
+Python 3.13.7, NetworkX 3.6.1, and header load average
+`0.3979/0.5190/0.7207`. The unchanged public/public arm performed 512 scalar
+lookups per sample over the `suite_simple_edge_getitem` graph, with 21
+interleaved rounds and `min_of=3`.
+
+| first preregistered A/A-only row | A/A median | A/A 95% median CI | doubled-null floor | required | result |
+|---|---:|---:|---:|---:|---|
+| `Graph.edges[u,v]` x512 | `1.0160x` | `1.0056-1.1101x` | **`1.232380x`** | `<1.03x` | **FAIL** |
+
+RESULT: **ADMISSION REJECT / NO SOURCE EDIT.** The profile and 2.00x
+executable ceiling satisfy the attribution side, but the first of two
+required nulls fails by a wide margin. A second run cannot create two
+consecutive passes and was not run. No A/B or source claim was made. The
+recorded in-process A/A makes the rejected admission falsifiable; CV never
+governs.
+
+RETRY PREDICATE: do not rerun this EdgeView slot in the current frontier
+cycle. Reopen only when a pre-measurement worker screen shows one-minute load
+below **`0.25`** and steal below **`0.5%`**, then restart the original
+two-consecutive-A/A requirement from run one; both doubled floors must be
+below `1.03x`. A later native-slot candidate must preserve arbitrary
+two-item iterable unpacking (including two-character strings), original
+unhashable-endpoint `TypeError`, exact missing-edge `KeyError` text, reverse
+undirected orientation, live attribute-dict identity, held-view behavior
+after NetworkX-private storage assignment, subclasses, mutation liveness,
+and equal-but-nonidentical public keys. Its newly built process must
+self-report the loaded ELF and place the final A/B bootstrap median CI wholly
+beyond its own same-invocation floor. This is the third consecutive rejected
+admission in the current lazy-view cycle, so the NO-CEILING rule requires a
+family switch now.
+
+QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
+Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
+claimed.
