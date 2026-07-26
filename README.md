@@ -1022,30 +1022,72 @@ The cost of a `fnx.algorithm(G)` call decomposes into four chunks:
 |---|---|---|
 | Python → Rust marshaling | ~5–50 μs base + O(n + m) for graph conversion when a *new* graph is constructed | Reusing an existing fnx graph: ~5 μs total per call (attribute lookup only). Constructing a fresh fnx graph from an nx graph at call time: O(n + m) plus a constant ~5 μs/node, ~3 μs/edge for dict→IndexMap conversion. |
 | Native algorithm execution | algorithm-dependent | Performance varies by algorithm family (see table below). Algorithms with native Rust kernels and minimal marshaling overhead (betweenness, clustering, shortest_path) are 2-4× faster. Algorithms requiring attr sync (dijkstra, MST, pagerank) or graph-result construction (bfs_tree, dfs_tree) are 2-6× slower. |
-| Rust → Python return marshaling | O(output size) | For algorithms returning a `dict[node, float]` of size `n`, this is the dominant tail. A `PyDict::set_item` per entry plus an arc-bumped node label string. ~0.5–1 μs per entry. |
+| Rust → Python return marshaling | O(output size) | A `PyDict::set_item` per entry plus an arc-bumped node label string. **Measured 2026-07-25: ~450 ns per `edges(data=True)` entry and ~27 ns per `nodes(data=True)` / `adjacency()` entry — and NetworkX pays *more* per entry than we do** (758 ns/edge, 1690 ns/node for `to_dict_of_lists`), because it builds the same containers in interpreted code. This chunk was previously described here as "the dominant tail"; it is not. See the note below the family table. |
 | Wrapper-side post-processing (if any) | O(output size) | The 25 wrapper-patched functions add a single pass over the output for iteration-order normalization. Skipped for the 731 - 25 = 706 functions that don't need it. |
 
 The performance break-even versus pure-Python NetworkX is roughly:
 
 - **Below ~100 nodes**: marshaling cost dominates; NetworkX usually wins or ties.
-- **100–10,000 nodes**: fnx wins on compute-heavy algorithms (betweenness 3×, clustering 4×, connected_components 10×). Single-query shortest paths and dijkstra are 8-20× slower due to string-key hashing overhead; all-pairs variants are 3× faster.
-- **Above ~10,000 nodes**: fnx wins by 3-10× on betweenness, cliques, and other cubic/exponential algorithms. Linear single-query algorithms with string-key overhead remain slower.
+- **100–10,000 nodes**: fnx wins across the traversal, shortest-path and centrality families.
+- **Above ~10,000 nodes**: fnx wins by 3-10× on betweenness, cliques, and other cubic/exponential algorithms.
 
-**Per-family performance (n=2000 BA graph, warmed imports):**
+**Per-family performance — remeasured 2026-07-25** (n=2000 / m=8000 random graph, genuine
+unpatched networkx 3.6.1, byte-identity of the full result proven *before* timing, A/A null
+control in the same invocation, decidability gated on the null's bootstrap 95% CI with a 2×
+margin; reproduce with `python3 scripts/perf_harness.py marshaling`):
 
 | Family | fnx vs nx | Notes |
 |--------|-----------|-------|
-| betweenness_centrality | 3× faster | Native bitset enumeration |
-| clustering (all nodes) | 4× faster | Native triangle counting |
-| all_pairs_shortest_path | 3× faster | Algorithmic work dominates |
-| single_pair_shortest_path | 10-20× slower | String-key hashing overhead |
-| number_connected_components | 10× faster | Native union-find |
-| bfs_edges / dfs_edges | 0.8-2× | Near parity |
-| bfs_tree / dfs_tree | 25-35× slower | DiGraph result construction overhead |
-| pagerank | 2-4× slower | Sync + scipy overhead |
-| core_number | 1-2× slower | Dict reordering |
-| minimum_spanning_tree | 4× slower | Sync + Graph result construction |
-| dijkstra (weighted) | 8-17× slower | String hashing + sync overhead |
+| clustering (all nodes) | **36.1× faster** | Native triangle counting |
+| triangles | **14.3× faster** | Native triangle counting |
+| dijkstra_path (weighted) | **7.6× faster** | Native bidirectional kernel + persistent dense node ids |
+| single_source_shortest_path_length | **5.5× faster** | Native BFS, dict returned from Rust |
+| all_pairs_shortest_path_length | **4.6× faster** | Algorithmic work dominates |
+| single_source_shortest_path | **3.9× faster** | Native BFS |
+| all_pairs_dijkstra_path_length | **3.7× faster** | Algorithmic work dominates |
+| subgraph(view) → edges | **3.6× faster** | Native induced-subgraph walk |
+| dfs_tree | **3.3× faster** | Native traversal + native result construction |
+| bfs_tree | **3.2× faster** | Native traversal + native result construction |
+| single_pair_shortest_path | **3.2× faster** | Native BFS |
+| pagerank | **2.6× faster** | Native power iteration |
+| to_scipy_sparse_array | **2.4× faster** | Native CSR assembly |
+| to_dict_of_lists | **2.0× faster** | Native row walk |
+| bidirectional_dijkstra / shortest_path(weighted) | **1.8× faster** | Native kernel |
+| all_pairs_shortest_path | **1.8× faster** | Result construction dilutes the kernel win |
+| edges(data=True) | **1.6× faster** | 452 ns/edge vs nx's 758 ns/edge |
+| nodes(data=True), adjacency() | **~1.0×** | Parity; already cheap on both sides |
+
+**Known remaining losses, measured the same way:**
+
+| Surface | fnx vs nx | Cause |
+|--------|-----------|-------|
+| `G.adj` (bare accessor) | **0.10×** | Python shim: a data-descriptor `property` whose body re-runs per access. Its setter installs networkx private storage, so it cannot use the cached non-data descriptor that fixed `nodes`/`edges`/`degree`. |
+| `G.has_node(n)` / `n in G` / `G.nodes[n]` | **0.24–0.33×** | 56% Python shim wrapper, 24% node-key canonicalization, 20% PyO3 boundary. The bare boundary is only ~42 ns. |
+| `degree(nbunch, weight=...)` | **0.47×** (Graph) | No native weighted-subset kernel; falls back to Python. |
+| dense `DiGraph.edges()` (no data) | **0.59×** | Tuple materialization in the edge-view walk. The `data=True` shape is a 1.6× *win*. |
+
+### A correction, and why it is stated here
+
+Earlier revisions of this table reported `single_pair_shortest_path` at 10-20× slower,
+`bfs_tree`/`dfs_tree` at 25-35× slower, `dijkstra (weighted)` at 8-17× slower, and `pagerank` at
+2-4× slower. **Every one of those rows is now a measured win**, and several were already wins when
+the figures were last quoted. The stale numbers propagated outward and were cited back at this
+project as its headline weakness, which is how a stale benchmark table becomes a planning input.
+
+Two lessons are worth keeping in the README rather than only in the ledger:
+
+1. **A performance table needs a measurement date and a reproduction command**, or it silently
+   becomes fiction as the code moves. Both are now present.
+2. **The old cost model — "~0.5-1 μs per returned dict entry dominates the tail" — was wrong in its
+   conclusion.** The per-entry figure is roughly right in magnitude, but NetworkX pays *more* per
+   entry, so return marshaling is a place fnx wins rather than a wall. The real per-call cost on the
+   losing surfaces is the pure-Python shim layer in `python/franken_networkx/__init__.py`, not the
+   Rust boundary and not marshaling.
+
+Construction-path rows (`Graph(...)` / `MultiGraph(...)` from an edge stream) are deliberately
+omitted: the MultiGraph store was cut over to stable-slot storage on 2026-07-25 (a measured 4.7× on
+fresh keyed construction) and the Python-level end-to-end numbers have not been re-measured since.
+They will be quoted again when they are measured, not before.
 
 If you can keep the graph on the fnx side (don't reconstruct per call), the marshaling chunk vanishes. The backend-dispatch path automatically caches the converted graph for repeat calls.
 
