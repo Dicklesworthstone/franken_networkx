@@ -548,6 +548,134 @@ def test_digraph_mutation_does_not_cross_public_adjacency_setattr(monkeypatch):
     assert calls == 1
 
 
+def test_multidigraph_public_adjacency_descriptors_are_cached_and_live():
+    """br-r37-c1-a5xrj: multi-directed warm reads are instance-dict hits."""
+    gnx, gfx = _pair("MultiDiGraph")
+
+    for accessor in ("adj", "succ", "pred"):
+        assert isinstance(
+            fnx.MultiDiGraph.__dict__[accessor], fnx._CachedViewDescriptor
+        )
+        assert accessor not in vars(gfx)
+        nx_view = getattr(gnx, accessor)
+        fnx_view = getattr(gfx, accessor)
+        assert vars(gfx)[accessor] is fnx_view
+        assert getattr(gfx, accessor) is fnx_view
+        assert {
+            node: {neighbor: list(keys) for neighbor, keys in row.items()}
+            for node, row in fnx_view.items()
+        } == {
+            node: {neighbor: list(keys) for neighbor, keys in row.items()}
+            for node, row in nx_view.items()
+        }
+
+    gnx.add_edge("later", "n0", key="live", weight=9)
+    gfx.add_edge("later", "n0", key="live", weight=9)
+    assert list(gfx.succ["later"]["n0"]) == list(gnx.succ["later"]["n0"])
+    assert list(gfx.pred["n0"]["later"]) == list(gnx.pred["n0"]["later"])
+
+
+@pytest.mark.parametrize("accessor", ["adj", "succ", "pred"])
+def test_multidigraph_public_adjacency_assignment_preserves_private_storage(
+    accessor,
+):
+    """A user value shadows only the assignable public cached descriptor."""
+    gnx, gfx = _pair("MultiDiGraph")
+    _ = getattr(gnx, accessor), getattr(gfx, accessor)
+    nx_value = {"public": {"nx": accessor}}
+    fnx_value = {"public": {"nx": accessor}}
+
+    setattr(gnx, accessor, nx_value)
+    setattr(gfx, accessor, fnx_value)
+
+    assert getattr(gnx, accessor) is nx_value
+    assert getattr(gfx, accessor) is fnx_value
+    assert accessor not in vars(gfx).get(fnx._DESCRIPTOR_CACHED_VIEWS, ())
+    assert list(gfx.edges(keys=True)) == list(gnx.edges(keys=True))
+    assert getattr(copy.deepcopy(gfx), accessor) == fnx_value
+    assert (
+        getattr(
+            pickle.loads(pickle.dumps(gfx)), accessor  # nosec B301  # ubs:ignore - trusted round trip
+        )
+        == fnx_value
+    )
+
+
+@pytest.mark.parametrize(
+    ("private_name", "public_names"),
+    [
+        ("_adj", ("adj",)),
+        ("_succ", ("adj", "succ")),
+        ("_pred", ("pred",)),
+    ],
+)
+def test_multidigraph_private_adjacency_assignment_invalidates_public_caches(
+    private_name, public_names
+):
+    graph = _build(fnx, "MultiDiGraph")
+    old_views = {name: getattr(graph, name) for name in ("adj", "succ", "pred")}
+    assigned = {"private": {}}
+
+    setattr(graph, private_name, assigned)
+
+    assert all(name not in vars(graph) for name in ("adj", "succ", "pred"))
+    for name in public_names:
+        assert getattr(graph, name) is assigned
+        assert getattr(graph, name) is not old_views[name]
+
+
+def test_multidigraph_filtered_and_reverse_views_keep_load_bearing_adjacency():
+    """Synthetic empty Rust bases must still install their Python mappings."""
+    gnx, gfx = _pair("MultiDiGraph")
+    sub_nx = nx.subgraph_view(gnx, filter_node=lambda node: node != "n1")
+    sub_fx = fnx.subgraph_view(gfx, filter_node=lambda node: node != "n1")
+    reverse_nx = gnx.reverse(copy=False)
+    reverse_fx = gfx.reverse(copy=False)
+
+    for nx_view, fnx_view in ((sub_nx, sub_fx), (reverse_nx, reverse_fx)):
+        assert list(fnx_view.nodes) == list(nx_view.nodes)
+        assert list(fnx_view.edges(keys=True)) == list(nx_view.edges(keys=True))
+        for accessor in ("adj", "succ", "pred"):
+            assert {
+                node: {
+                    neighbor: list(keys)
+                    for neighbor, keys in row.items()
+                }
+                for node, row in getattr(fnx_view, accessor).items()
+            } == {
+                node: {
+                    neighbor: list(keys)
+                    for neighbor, keys in row.items()
+                }
+                for node, row in getattr(nx_view, accessor).items()
+            }
+
+
+def test_multidigraph_mutation_does_not_cross_public_adjacency_setattr(
+    monkeypatch,
+):
+    graph = fnx.MultiDiGraph()
+    graph.add_nodes_from(("left", "right"))
+    raw_setattr = fnx._MULTIDIGRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE
+    calls = 0
+
+    def counted_setattr(self, name, value):
+        nonlocal calls
+        calls += 1
+        return raw_setattr(self, name, value)
+
+    monkeypatch.setattr(
+        fnx, "_MULTIDIGRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE", counted_setattr
+    )
+    for key in range(64):
+        graph.add_edge("left", "right", key=key)
+        graph.remove_edge("left", "right", key=key)
+    assert calls == 0
+
+    graph.user_value = 1
+    assert calls == 1
+
+
 @pytest.mark.parametrize(
     ("cls_name", "accessors"),
     [

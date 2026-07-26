@@ -44206,6 +44206,40 @@ for _name, _property in _DIGRAPH_PUBLIC_ADJ_PROPERTIES.items():
 del _name, _property
 
 
+# br-r37-c1-a5xrj: MultiDiGraph's public adjacency siblings paid the same
+# repeated data-descriptor tax as DiGraph's. Preserve the load-bearing private
+# properties above and the synthetic-view assignment path, but let ordinary
+# warm public reads resolve from the instance dict.
+_MULTIDIGRAPH_PUBLIC_ADJ_PROPERTIES = {
+    "adj": MultiDiGraph.__dict__["adj"],
+    "succ": MultiDiGraph.__dict__["succ"],
+    "pred": MultiDiGraph.__dict__["pred"],
+}
+_MULTIDIGRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE = MultiDiGraph.__setattr__
+
+
+def _multidigraph_setattr_with_cached_public_adjacency(self, name, value):
+    if name in _MULTIDIGRAPH_PUBLIC_ADJ_PROPERTIES and isinstance(
+        self, (_FilteredGraphView, _ReverseDirectedViewBase)
+    ):
+        return _MULTIDIGRAPH_PUBLIC_ADJ_PROPERTIES[name].__set__(self, value)
+
+    if name in _MULTIDIGRAPH_PUBLIC_ADJ_PROPERTIES:
+        storage = vars(self)
+        cached = storage.get(_DESCRIPTOR_CACHED_VIEWS)
+        if cached is not None:
+            cached.discard(name)
+            if not cached:
+                storage.pop(_DESCRIPTOR_CACHED_VIEWS, None)
+    return _MULTIDIGRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE(self, name, value)
+
+
+MultiDiGraph.__setattr__ = _multidigraph_setattr_with_cached_public_adjacency
+for _name, _property in _MULTIDIGRAPH_PUBLIC_ADJ_PROPERTIES.items():
+    setattr(MultiDiGraph, _name, _CachedViewDescriptor(_property.fget, _name))
+del _name, _property
+
+
 # br-r37-c1-o1i86: capture the raw Rust __copy__ impls BEFORE the Python
 # override below replaces them. The Rust versions clone the inner graph
 # wholesale (node order, edge order, adjacency ROW content order all

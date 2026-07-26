@@ -25720,3 +25720,120 @@ denied. UBS first found four chained literal-identity assertions in the new
 test; they were corrected, and the completed harness/test rerun reported zero
 critical or warning findings. Its bounded scan of the 61k-line monolithic
 Python shim reached 180 seconds without emitting a source finding.
+
+## 2026-07-26 CloudyTurtle KEEP (public `MultiDiGraph.adj` / `succ` / `pred` descriptors): split cached public reads from private setters — **14.4970x mechanism / 2.04-2.26x membership-gap recovery** (`br-r37-c1-a5xrj`)
+
+NEGATIVE-LEDGER-FIRST: before proposing this lever,
+`scripts/perf_ledger_preflight.py --prior-art 'MultiDiGraph succ pred public
+descriptor membership'` returned no direct prior row. Direct searches then read
+the governing DiGraph descriptor KEEP and the immediately preceding
+MultiAdjacencyView membership KEEP. The latter measured public present-key
+membership at `0.3585x` through `MDG.succ` and `0.3982x` through `MDG.pred`,
+then explicitly routed the property layer to this distinct sibling only after a
+fresh profile attributed at least 30% self-time and a 1.5x Amdahl ceiling to
+named removable frames. The prior `MultiAdjacencyView.__len__` admission reject
+remains governing for the separate length-slot seam and was not retried.
+
+PROFILE ATTRIBUTION: the exact pre-edit package loaded ELF SHA-256
+`4b30828df78e87ece5f6323d0b8864d46af76216c37a47e6375acf849dde122f`
+(13,154,016 bytes) and wrapper SHA-256
+`c56de55c94e559641d74ef9e0697ab301adea7e3d04c31cc5fbb7e7f24a0fe27`.
+On drained `vmi1227854`, pinned to core 3, 200,000 natural reads of
+`adj`/`succ`/`pred` recorded 5,400,002 calls in `1.136579s`. The driver loop
+used `0.086487s`; named removable property/private/cache frames consumed
+**`1.050056s` / 92.4% self-time**, for a computed Amdahl ceiling of
+**13.13x**. Frames included `_private_override` (`0.223386s`),
+`_cached_view`'s accessor (`0.169038s`), dict `get` (`0.138998s`), `vars`
+(`0.135288s`), `_private_directed_adj_mapping` (`0.106098s`),
+`_private_succ_mapping` (`0.073634s`), `_private_pred_mapping`
+(`0.073246s`), and the three property lambdas (`0.130367s` combined). Median
+unprofiled wall time for the old triple was `0.156317s`, versus `0.014893s`
+for upstream NetworkX.
+
+NO-SOURCE PROTOTYPE: an isolated process replaced only the three class
+descriptors and `MultiDiGraph.__setattr__` in memory. Exact parity passed for
+descriptor identity, live parallel-key mutation, public assignment, private
+`_adj` / `_succ` / `_pred` invalidation, deepcopy, pickle, filtered subgraph
+views, and reverse views. Across 512 native keyed add/remove pairs the
+prototype counted **zero** entries into the Python assignment hook. Its
+same-invocation causal row measured `14.6974x`
+(`14.2786-14.8638x` median CI) against A/A `0.9452-1.0723x`, required floor
+`1.1499x`, before any source edit.
+
+ONE LEVER: `MultiDiGraph.adj`, `succ`, and `pred` now use the existing
+`_CachedViewDescriptor`. Their captured property getter runs once and ordinary
+warm access becomes a C-level instance-dict hit. The load-bearing `_adj`,
+`_succ`, and `_pred` properties retain their private-override setters. A narrow
+`MultiDiGraph.__setattr__` hook removes only the internal cache marker when a
+user assigns one of the public names. Filtered and reverse synthetics own an
+empty Rust base, so their constructor's public assignments still delegate to
+the captured property setters and install their live Python mappings.
+
+BEHAVIOR ISOMORPHISM / COUNTED MECHANISM: the exact artifact passed
+**175/175** descriptor tests and the complete isolated adjacency/view parity
+bundle at **1,136/1,136**. Permanent tests cover descriptor type and identity,
+live keyed mutation, public assignment, private mapping invalidation,
+deepcopy/pickle, filtered and reverse synthetics, and a 64-pair counted native
+mutation proof with **zero** setter-hook entries. The wrapper preserves edge
+and key order and changes no node storage, key canonicalization, row
+materialization, mutation primitive, or Rust code.
+
+PINNED-WORKER SAME-INVOCATION A/A + A/B: final measurement ran in one
+invocation on drained `vmi1227854`, pinned to core 3 after the predeclared
+two-second frequency warm-up at header load average
+`0.7661/0.9810/1.3413`; the worker was immediately re-enabled. Canonical line
+one reported exact loaded ELF SHA-256 `4b30828d...` and 13,154,016 bytes.
+Structured provenance reported wrapper SHA-256
+`268d309bb3ca5a0d0ed545d58860fa991253085f5cb1542d0aadcd011afea5a9`,
+harness SHA-256
+`680b89a5bcf6b8bf8e4d33fe449419c80e4554eaf58dadd0808f31694962cca2`,
+and focused-test SHA-256
+`e29b88f7da9144bb3cbfa0f5e532e2d884d2e9f4a9823770fb426f8dea271c99`
+(Python 3.13.7, NetworkX 3.6.1).
+
+Every row proved an order-preserving digest before timing, ran 21 interleaved
+rounds with `min_of=3`, and ran its own A/A null in the same invocation.
+Decisions use only the bootstrap median CI with the 2x log-space null margin;
+CV was reported as provenance and never gated.
+
+| row | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | required floor | decision |
+|---|---:|---:|---:|---:|---|
+| old properties / cached public triple | **`14.4970x`** | `14.1222-14.8476x` | `0.9843-1.0577x` | `1.1188x` | **DECIDABLE KEEP** |
+| NetworkX / FNX public triple | `0.9001x` | `0.8670-0.9196x` | `0.9731-1.0362x` | `1.0736x` | **DECIDABLE residual loss** |
+| NetworkX / FNX `n in MDG.adj` | `0.7784x` | `0.7394-0.8507x` | `0.9635-1.1208x` | `1.2563x` | **DECIDABLE residual loss** |
+| NetworkX / FNX `n in MDG.succ` | `0.8152x` | `0.7716-0.8659x` | `0.9633-1.0201x` | `1.0777x` | **DECIDABLE residual loss** |
+| NetworkX / FNX `n in MDG.pred` | `0.8090x` | `0.7978-0.8426x` | `0.9597-1.0262x` | `1.0858x` | **DECIDABLE residual loss** |
+| NetworkX / FNX `len(MDG.adj)` | `0.6871x` | `0.6642-0.7200x` | `0.9196-1.0319x` | `1.1824x` | **DECIDABLE residual loss** |
+| NetworkX / FNX `len(MDG.succ)` | `0.7019x` | `0.6700-0.7242x` | `0.9746-1.0225x` | `1.0528x` | **DECIDABLE residual loss** |
+| NetworkX / FNX `len(MDG.pred)` | `0.6979x` | `0.6928-0.7038x` | `0.9661-1.0188x` | `1.0713x` | **DECIDABLE residual loss** |
+
+RESULT: KEEP. The measured property/private/cache chain loses **93.1%** of its
+old wall time and clears the doubled-null floor by **12.96x**. Relative to the
+immediately preceding exact membership rows, public `succ` recovers
+`0.3585x -> 0.8152x` (**2.27x**) and public `pred` recovers
+`0.3982x -> 0.8090x` (**2.03x**). Public parity is not claimed; residual
+membership and length losses remain explicit.
+
+RETRY PREDICATE: do not retry MultiDiGraph public descriptor caching, a broader
+`__setattr__` hook, per-mutation invalidation, or any synthetic view that
+stores load-bearing mappings as ordinary public instance attributes. Reopen
+the residual bare triple only if a fresh exact profile attributes at least
+**10% self-time** to a new named removable frame and predicts at least `1.05x`
+end-to-end. Keep node-key interning on HOLD unless a fresh post-binding profile
+attributes at least **30%** of membership residual to canonicalization and the
+same invocation's doubled-null floor is below **`1.02x`**. Do not retry
+`MultiAdjacencyView.__len__` until a new exact profile raises the prior
+individual-frame Amdahl ceiling from `1.45x` to at least **`1.5x`** and its
+doubled-null floor is below **`1.03x`**; otherwise switch view families.
+
+QUALITY GATES: exact Python byte-compilation, 1,136-test isolated parity,
+diff hygiene, and remote `cargo fmt --check` passed. Strict-remote
+`cargo check --workspace --all-targets -j 2` passed on `vmi1149989` with only
+the two established dead-helper warnings. Mandatory strict workspace clippy
+reproduced exactly the established six findings outside this Python-only
+lever: two dead helpers, three `collapsible_if` sites, and one
+`chunks_exact_to_as_chunks` site. The filtered strict rerun allowed only those
+three established categories and passed with every other warning denied. UBS
+completed the harness/test scan with zero critical or warning findings; its
+staged scan of the 61k-line Python shim reached UBS's 300-second module timeout
+without emitting a source finding.

@@ -33,6 +33,7 @@ Usage:
     python3 scripts/perf_harness.py multi-adj-iter
     python3 scripts/perf_harness.py multi-adj-contains
     python3 scripts/perf_harness.py digraph-descriptors
+    python3 scripts/perf_harness.py multidigraph-descriptors
     python3 scripts/perf_harness.py node-primitives
     python3 scripts/perf_harness.py nodeview-getitem
     python3 scripts/perf_harness.py lazy-rows
@@ -765,6 +766,108 @@ def suite_digraph_descriptors():
     ]
 
 
+def suite_multidigraph_descriptors():
+    """br-r37-c1-a5xrj: cache multi-directed public adjacency descriptors."""
+    import random
+
+    import networkx as nx
+    import franken_networkx as fnx
+
+    rng = random.Random(29)
+    nodes = [str(index) for index in range(2000)]
+    edges = []
+    for index in range(8000):
+        source = nodes[rng.randrange(len(nodes))]
+        target = nodes[rng.randrange(len(nodes))]
+        edges.append(
+            (
+                source,
+                target,
+                f"k{index % 3}",
+                {"weight": rng.randrange(1, 21)},
+            )
+        )
+    gnx = nx.MultiDiGraph()
+    gfx = fnx.MultiDiGraph()
+    for graph in (gnx, gfx):
+        graph.add_nodes_from(nodes)
+        graph.add_edges_from(
+            (source, target, key, dict(attrs))
+            for source, target, key, attrs in edges
+        )
+    assert type(gnx).__module__.startswith("networkx")
+
+    repeats = range(500)
+    present = nodes[:512]
+    properties = fnx._MULTIDIGRAPH_PUBLIC_ADJ_PROPERTIES
+    assert all(
+        isinstance(fnx.MultiDiGraph.__dict__[name], fnx._CachedViewDescriptor)
+        for name in ("adj", "succ", "pred")
+    )
+    _ = gfx.adj, gfx.succ, gfx.pred
+
+    def property_triple():
+        return [
+            (
+                properties["adj"].__get__(gfx, fnx.MultiDiGraph),
+                properties["succ"].__get__(gfx, fnx.MultiDiGraph),
+                properties["pred"].__get__(gfx, fnx.MultiDiGraph),
+            )
+            for _ in repeats
+        ]
+
+    def cached_triple():
+        return [(gfx.adj, gfx.succ, gfx.pred) for _ in repeats]
+
+    warm_deadline = perf_counter() + 2.0
+    while perf_counter() < warm_deadline:
+        property_triple()
+        cached_triple()
+
+    return [
+        (
+            "MDG adj/succ/pred x500 [property/cached]",
+            property_triple,
+            cached_triple,
+        ),
+        (
+            "MDG adj/succ/pred x500 [nx/fnx]",
+            lambda: [(gnx.adj, gnx.succ, gnx.pred) for _ in repeats],
+            cached_triple,
+        ),
+        (
+            "n in MDG.adj x512 [nx/fnx]",
+            lambda: sum(node in gnx.adj for node in present),
+            lambda: sum(node in gfx.adj for node in present),
+        ),
+        (
+            "n in MDG.succ x512 [nx/fnx]",
+            lambda: sum(node in gnx.succ for node in present),
+            lambda: sum(node in gfx.succ for node in present),
+        ),
+        (
+            "n in MDG.pred x512 [nx/fnx]",
+            lambda: sum(node in gnx.pred for node in present),
+            lambda: sum(node in gfx.pred for node in present),
+        ),
+        (
+            "len(MDG.adj) x500 [nx/fnx]",
+            lambda: [len(gnx.adj) for _ in repeats],
+            lambda: [len(gfx.adj) for _ in repeats],
+        ),
+        (
+            "len(MDG.succ) x500 [nx/fnx]",
+            lambda: [len(gnx.succ) for _ in repeats],
+            lambda: [len(gfx.succ) for _ in repeats],
+        ),
+        (
+            "len(MDG.pred) x500 [nx/fnx]",
+            lambda: [len(gnx.pred) for _ in repeats],
+            lambda: [len(gfx.pred) for _ in repeats],
+        ),
+    ]
+
+
 def suite_node_primitives():
     """br-r37-c1-qmi5w: raw-descriptor and competitive primitive proof."""
     import franken_networkx as fnx
@@ -967,6 +1070,7 @@ SUITES = {
     "multi-adj-iter": suite_multi_adjacency_iter,
     "multi-adj-contains": suite_multi_adjacency_contains,
     "digraph-descriptors": suite_digraph_descriptors,
+    "multidigraph-descriptors": suite_multidigraph_descriptors,
     "node-primitives": suite_node_primitives,
     "nodeview-getitem": suite_nodeview_getitem,
     "lazy-rows": suite_lazy_rows,
