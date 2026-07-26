@@ -1200,3 +1200,65 @@ shippable — AND (b) a dense-family or popcount-family fn shows up as a measure
 self-time is dominated by that kernel. A whole-binary process-level A/B is NOT the instrument for
 this question at these effect sizes: it has a ~±40% noise floor here. Use the in-binary two-arm form
 2zn1u used (both arms in one binary, one pinned quiet worker, `cfg!(target_feature)` execution proof).
+
+## 2026-07-26 BlackThrush (cc, Lane M) FINDING (br-r37-c1-5opn5): construction rows measured post-cutover — the stable-slot flip WORKED (MultiGraph 0.61x to parity), and MultiDiGraph is now the laggard sibling at 0.6958x
+
+These are the rows I deliberately omitted from the corrected README table on 2026-07-25 rather than
+guess, because the MultiGraph stable-slot cutover (`45cb1925e`) had landed the same day and the
+Python-level end-to-end numbers had not been re-measured. This closes that gap.
+
+PROVENANCE. Built strict-remote per the new standing rule
+(`RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo build --release`), on `ovh-a`;
+`_fnx` sha256 `eb07ed2ee248d816...`; source state `HEAD=934356595` plus peer worktree WIP
+`91d04ef747207763` (CloudyTurtle's in-flight shim caching levers are INCLUDED — construction runs
+through the shim, so these numbers describe the working tree, not the commit). Pre-build
+`df /data` = 647G free. Same §2 contract: byte-identity of the CONSTRUCTED GRAPH (node order, edge
+order, keys, attrs) proven before timing, A/A null in the same invocation, 15 paired rounds.
+
+| row | ratio | 95% CI | A/A null | verdict |
+|---|---:|---|---|---|
+| `Graph.copy()` | **7.5561x** | [6.6506,8.1550] | [0.9694,1.0877] | DECIDABLE |
+| `MultiGraph.copy()` | **1.3839x** | [1.3653,1.4853] | [0.9262,1.0227] | DECIDABLE |
+| `Graph(edge stream, no attrs)` | **1.0812x** | [1.0701,1.0918] | [0.9944,1.0365] | DECIDABLE |
+| `MultiGraph(edge stream, weight)` | 0.9540x | [0.8765,1.0218] | [0.9352,1.0481] | undecidable |
+| `MultiGraph add_nodes_from + add_edges_from` | 0.9364x | [0.9252,1.0093] | [0.9860,1.0596] | undecidable |
+| `Graph(edge stream, weight)` | **0.8337x** | [0.8142,0.8494] | [0.9948,1.0072] | DECIDABLE |
+| `MultiDiGraph(edge stream, weight)` | **0.6958x** | [0.6078,0.7236] | [0.9648,1.1313] | DECIDABLE |
+| `Graph add_nodes_from + add_edges_from` | **0.5654x** | [0.5340,0.5943] | [0.9844,1.0134] | DECIDABLE |
+| `DiGraph(edge stream, weight)` | **0.4246x** | [0.4123,0.4377] | [0.9828,1.0139] | DECIDABLE |
+| `Graph incremental add_edge x8000` | **0.2605x** | [0.2543,0.2693] | [0.9646,1.0198] | DECIDABLE |
+
+THREE FINDINGS.
+
+**1. The stable-slot cutover worked, and this is the independent confirmation.** MultiGraph
+construction measured **0.6123x** on 2026-07-25 before the cutover; it is now **0.9364-0.9540x** —
+both rows land INSIDE their A/A null, i.e. at parity with networkx. The cutover's own bench claimed
+4.735x on the store kernel; this is the Python-visible end of that same change, measured
+independently, and it is the difference between a decidable loss and no measurable loss.
+
+**2. MultiDiGraph is now the laggard sibling at 0.6958x.** `br-r37-c1-thp6w` cut over MultiGraph
+ONLY. MDG still carries the String-keyed store the cutover replaced, and it is now the worst
+multi-type construction row while its undirected sibling sits at parity. This is the
+directed/undirected mirror-the-laggard pattern that has paid repeatedly in this repo. Filed as
+`br-r37-c1-4c29a`. The prototype, the gauntlets, the trap list, and the slab layout are all already
+written and proven for MultiGraph — this is a port, not a design.
+
+**3. `Graph incremental add_edge` at 0.2605x is the per-call wall again, in construction form.**
+7285us for nx vs 28057us for fnx over 8000 calls = **~3.5 us per `add_edge`** against nx's 0.91 us.
+This is the same shim-wrapper tax already attributed on the read side (56% of `has_node` is Python
+wrapper frames, bare PyO3 boundary only ~42 ns): a per-call surface where the Python layer, not the
+Rust kernel, sets the cost. It is the single largest remaining construction loss and it is NOT a
+storage problem — `Graph(edge stream)` batch construction of the same 8000 edges is 0.8337x, i.e.
+3.2x better per edge than the incremental path.
+
+RETRY PREDICATES.
+* **`Graph incremental add_edge` (0.2605x):** retry with the wrapper-removal mechanism already
+  landing for the read side (`br-r37-c1-qmi5w` family) applied to the mutation entry points. Gate:
+  re-run only when a profile attributes >=40% of per-call `add_edge` self-time to Python shim frames
+  rather than to the native insert, with an A/A null below 1.02x.
+* **`DiGraph(edge stream)` 0.4246x / `Graph add_nodes_from+add_edges_from` 0.5654x:** these are batch
+  paths, so the shim-per-call argument does NOT apply; retry only against a fresh profile of the
+  batch loader itself.
+* **`Graph(edge stream, weight)` 0.8337x vs `no attrs` 1.0812x:** the entire delta is attribute
+  handling — 0.25x of ratio for one int attr per edge. Retry against a profile of the attr decode
+  path specifically.
