@@ -27367,3 +27367,67 @@ must first show a same-invocation doubled-log A/A floor below **`1.03x`**;
 the final exact process must self-report its loaded ELF and place the A/B
 bootstrap median CI wholly beyond its own floor while retaining every
 behavior lock above.
+
+## 2026-07-26 CloudyTurtle ADMISSION HOLD (`Graph.has_node` node-key interning): exact-current A/A floors remain above **`1.02x`** — **NO SOURCE EDIT** (`br-r37-c1-eloy8`)
+
+NEGATIVE-LEDGER-FIRST: before reopening the addendum's node-key-interning
+surface,
+`python3 scripts/perf_ledger_preflight.py --candidate --lever 'graph-level
+node-key interning' --surface 'Graph.has_node(present)'` found the governing
+`br-r37-c1-qmi5w` raw-descriptor KEEP and printed its retry predicate. That
+row permits graph-level interning only after a fresh profile attributes at
+least **30%** of the post-wrapper residual to canonicalization and the same
+invocation's doubled-log A/A floor is below **`1.02x`**. The later
+`br-r37-c1-zea7e` frontier sweep also failed that null predicate and explicitly
+required a vein switch rather than implementation from a public wall ratio.
+Both rows were read before this screen.
+
+EXACT-CURRENT NO-SOURCE SCREEN: no source, test, or harness file changed.
+The existing contract harness ran on drained `vmi1227854`, pinned to core 3,
+and the worker was immediately re-enabled. Line one self-reported the loaded
+ELF:
+
+`bench_elf_sha256=cdbb3c4a0681c33eb92426e3fb25c3d6181c3f4124115e109077d7a4703978c6
+(13155240 bytes)
+/data/tmp/fnx-heyxu-successors.CVL2ArZt/franken_networkx/_fnx.abi3.so`
+
+Structured provenance recorded wrapper SHA-256
+`45b98cf9b9e5cb3c6a9d00ae80ec3fec492dbfd2267a1de4644b826bf653812d`,
+harness SHA-256
+`4755380802be4a49bf439a977d9b170c5752cc981ca78bf968744b5bf1c74a2a`,
+Python 3.13.7, NetworkX 3.6.1, and header load average
+`0.5220/0.8994/1.7954`. Each row proved the result before timing and ran 21
+interleaved rounds with `min_of=3`; the A/A null and NetworkX/FNX A/B occupied
+the same process. Decisions used the bootstrap median CI and doubled
+log-space null margin, never CV.
+
+| exact-current row | median A/B | A/B 95% median CI | same-invocation A/A median / 95% median CI | doubled-null floor | admission |
+|---|---:|---:|---:|---:|---|
+| NetworkX / FNX `G.has_node(present)` | `0.4445x` | `0.4368-0.4560x` | `1.0111x` / `1.0058-1.0257x` | **`1.0521x`** | loss decisive; **`<1.02x` FAIL** |
+| NetworkX / FNX `G.has_node(missing)` | `0.5054x` | `0.4374-0.5260x` | `0.9937x` / `0.9813-1.0126x` | **`1.0385x`** | loss decisive; **`<1.02x` FAIL** |
+| former private-aware wrapper / current raw present probe | **`1.6899x`** | `1.6519-1.7280x` | `0.9917x` / `0.9657-1.0224x` | `1.0723x` | prior wrapper KEEP reconfirmed; not a new lever |
+
+RESULT: **ADMISSION HOLD / NO SOURCE EDIT.** The public loss is real, but
+both current A/A floors fail the predeclared retry predicate. Canonicalization
+share was not inferred from the wall ratio, and no successful-key cache or
+node-storage change was written. This is a provenance-complete null-control
+screen, not a CV rejection and not an undecidable REJECT row.
+
+RETRY PREDICATE: do not immediately rerun this screen or extend the NodeView
+cache into graph methods. Reopen graph-level node-key interning only after
+(a) a fresh exact-current profile or counted call probe attributes at least
+**30%** of `Graph.has_node(present)` post-wrapper residual to
+`node_key_to_string`/canonical conversion, and (b) two consecutive
+preregistered A/A-only runs of the unchanged 512-present-key workload on one
+drained, pinned worker each produce a doubled-log floor below **`1.02x`**,
+with one-minute load below `0.25` and steal below `0.5%` before each run. A
+candidate must then count the removed canonicalizations, preserve Python
+hash/equality and equal-but-nonidentical public keys, bound retained memory by
+the node set, self-report the loaded ELF, and place its final A/B bootstrap
+median CI wholly beyond its own same-invocation floor. Until all predicates
+hold, switch to a different view family.
+
+QUALITY / CLOSEOUT: the worker was confirmed healthy after re-enablement.
+`git diff --check` covers this ledger-only change. No Cargo command was
+needed or run; UBS has no Markdown scanner, so no UBS result is claimed for
+this row.
