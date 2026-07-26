@@ -655,6 +655,70 @@ def test_multi_outer_adjacency_iter_uses_live_node_mirror(cls_name, accessors):
     assert getter_calls == [0] * len(fnx_views)
 
 
+@pytest.mark.parametrize(
+    ("cls_name", "accessors"),
+    [
+        ("MultiGraph", ("adj",)),
+        ("MultiDiGraph", ("adj", "succ", "pred")),
+    ],
+)
+def test_multi_outer_adjacency_contains_uses_native_membership(
+    cls_name, accessors
+):
+    """br-r37-c1-7icpc: membership calls one raw node probe, not the atlas."""
+    gnx, gfx = _pair(cls_name)
+    nx_views = [getattr(gnx, name) for name in accessors]
+    fnx_views = [getattr(gfx, name) for name in accessors]
+    getter_calls = [0] * len(fnx_views)
+    native_calls = [0] * len(fnx_views)
+
+    for index, view in enumerate(fnx_views):
+        old_getter = view._atlas_getter
+        old_native_contains = view._fnx_native_contains
+
+        def counted_getter(old_getter=old_getter, index=index):
+            getter_calls[index] += 1
+            return old_getter()
+
+        def counted_native_contains(
+            node, old_native_contains=old_native_contains, index=index
+        ):
+            native_calls[index] += 1
+            return old_native_contains(node)
+
+        view._atlas_getter = counted_getter
+        view._fnx_native_contains = counted_native_contains
+
+    assert all(view._fnx_native_contains is not None for view in fnx_views)
+    for node in ("n0", "missing"):
+        assert [node in view for view in fnx_views] == [
+            node in view for view in nx_views
+        ]
+
+    calls_before_errors = native_calls.copy()
+    for view in nx_views:
+        with pytest.raises(TypeError, match="unhashable type: 'list'"):
+            [] in view
+    for view in fnx_views:
+        with pytest.raises(TypeError, match="unhashable type: 'list'"):
+            [] in view
+    assert native_calls == calls_before_errors
+
+    gnx.add_node("later")
+    gfx.add_node("later")
+    assert ["later" in view for view in fnx_views] == [
+        "later" in view for view in nx_views
+    ]
+
+    gnx.remove_node("n1")
+    gfx.remove_node("n1")
+    assert ["n1" in view for view in fnx_views] == [
+        "n1" in view for view in nx_views
+    ]
+    assert getter_calls == [0] * len(fnx_views)
+    assert native_calls == [4] * len(fnx_views)
+
+
 @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
 def test_simple_adjacency_iter_keeps_native_storage_under_node_override(cls_name):
     """An independent ``_node`` assignment must not change adjacency keys."""
@@ -680,6 +744,26 @@ def test_multi_adjacency_iter_keeps_native_storage_under_node_override(cls_name)
     assert list(old_fnx) == list(old_nx)
     assert list(gfx.adj) == list(gnx.adj) == list(old_nx)
     assert list(gfx) == list(gnx) == ["private-only"]
+
+
+@pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])
+def test_multi_adjacency_contains_keeps_native_storage_under_node_override(
+    cls_name,
+):
+    gnx, gfx = _pair(cls_name)
+    old_nx, old_fnx = gnx.adj, gfx.adj
+
+    gnx._node = {"private-only": {}}
+    gfx._node = {"private-only": {}}
+
+    assert "n0" in old_fnx
+    assert ("n0" in old_fnx) == ("n0" in old_nx)
+    assert "private-only" not in old_fnx
+    assert ("private-only" in old_fnx) == ("private-only" in old_nx)
+    assert "n0" in gfx.adj
+    assert ("n0" in gfx.adj) == ("n0" in gnx.adj)
+    assert "private-only" in gfx
+    assert ("private-only" in gfx) == ("private-only" in gnx)
 
 
 @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
@@ -745,9 +829,13 @@ def test_multi_adjacency_iter_without_native_owner_uses_live_mapping_fallback():
     snapshot = {"left": {}, "right": {}}
     view = fnx.MultiAdjacencyView(lambda: snapshot)
     assert view._fnx_native_iter is None
+    assert view._fnx_native_contains is None
     assert list(view) == ["left", "right"]
+    assert "left" in view
+    assert "missing" not in view
     snapshot["later"] = {}
     assert list(view) == ["left", "right", "later"]
+    assert "later" in view
 
 
 DIRECTED_ACCESSORS = ["in_degree", "out_degree", "in_edges", "out_edges"]

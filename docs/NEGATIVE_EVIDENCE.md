@@ -25588,3 +25588,135 @@ QUALITY GATES: no source, harness, or test file changed. The exact-artifact
 profile completed on the isolated worker; the ledger/bead-only diff passed
 `git diff --check`. UBS has no supported Markdown/JSONL scanner, so no scanner
 pass is claimed for this docs-only row.
+
+## 2026-07-26 CloudyTurtle KEEP (`MultiAdjacencyView.__contains__`): bind raw native node membership — **1.6323-1.7728x mechanism** (`br-r37-c1-7icpc`)
+
+NEGATIVE-LEDGER-FIRST: before selecting this lever,
+`python3 scripts/perf_ledger_preflight.py --prior-art 'MultiAdjacencyView
+__len__ __contains__ most-used view'` returned no direct row. Direct searches
+then read every multigraph adjacency, `nbunch_iter`, `has_node`,
+`__contains__`, node-key, and view-materialization match in both performance
+ledgers. The 2026-06-22 `nbunch_iter(None)` KEEP retained adjacency membership
+for non-None filters and recorded its per-element string-key substrate as the
+residual, but did not bind the raw node probe into the view. The 2026-07-25
+raw `has_node` accessor KEEP removed an ordinary method wrapper while
+explicitly excluding special-method `__contains__`; it made the raw descriptor
+available but did not change `n in G.adj`. The separately profiled
+`MultiAdjacencyView.__len__` sibling was rejected and ledgered first in
+`fe15a5e11`. This is therefore a distinct, profile-attributed use of an
+already-proven primitive rather than a retry of node interning.
+
+PROFILE ATTRIBUTION: profiling 200,000 present-key checks on a captured
+20,000-node `MultiDiGraph.adj` view recorded 1,200,002 calls in `0.249s`.
+The removable owner-membership chain owned **`0.152s` / 61.0% self-time**:
+the graph's private-aware `__contains__` wrapper owned `0.062s`,
+`_private_override` owned `0.052s`, `vars` owned `0.020s`, and dict `get`
+owned `0.018s`. Its computed Amdahl ceiling is approximately **2.56x**.
+The retained `MultiAdjacencyView.__contains__` frame owned `0.055s`, the
+driver `0.028s`, and the required CPython `hash` check `0.015s`. Unprofiled
+medians were `189.980ns` for NetworkX and `283.342ns` for current FNX on this
+integer-key probe. The exact profile ran on drained `vmi1227854`, pinned to
+core 3, and line one self-reported loaded ELF SHA-256
+`4b30828df78e87ece5f6323d0b8864d46af76216c37a47e6375acf849dde122f`
+(13,154,016 bytes).
+
+DYNAMIC ADMISSION: on that exact ELF, a no-source prototype bound the raw
+MultiGraph/MultiDiGraph `has_node` descriptor into outer views. It proved
+present/missing parity, exact unhashable-key exception type and text, live
+add/remove-node behavior, MultiGraph `adj`, MultiDiGraph
+`adj`/`succ`/`pred`, ownerless live fallback, and independence from an
+assigned `_node` mapping. The latter is a correctness improvement: NetworkX
+adjacency membership stays on `_adj` keys when `_node` is independently
+replaced, whereas the old FNX owner `__contains__` route followed `_node`.
+
+The same-invocation causal A/B measured **`1.9477x`**
+(`1.8719-2.1017x` median CI) against A/A `0.9765-1.0264x`, required floor
+`1.0535x`. Its integer-key NetworkX/prototype row was `1.1906x`
+(`1.1726-1.2154x`) against A/A `0.9101-1.0129x`, required floor `1.2074x`,
+so public parity was correctly **UNDECIDABLE**, not claimed. This cleared
+semantic, profile, and causal gates before editing.
+
+ONE COUNTED LEVER: each outer MultiGraph/MultiDiGraph adjacency view now
+captures the class's raw PyO3 `has_node` descriptor once. `__contains__`
+performs the mandatory Python `hash(node)` first, then calls that bound raw
+probe instead of crossing the graph's private-node-aware special-method
+wrapper. MultiGraph `adj` and MultiDiGraph `adj`/`succ`/`pred` share the
+mechanism. Ownerless/reconstructed views retain the live mapping fallback;
+graphs with private `_adj`/`_succ`/`_pred` storage return those mappings
+directly and never enter this path. No node storage, canonicalization,
+interning, mutation hook, row materialization, or iterator changed.
+
+COUNTED MECHANISM / CONFORMANCE: permanent tests wrap the bound native probe
+and atlas getter. Across present, missing, live-add, and live-remove checks,
+every outer view records exactly **four raw probes and zero atlas gets**;
+unhashable keys fail before the raw probe. The suite also locks private-node
+independence and ownerless liveness. The exact artifact passed **166/166**
+descriptor tests plus **961/961** broader adjacency-cache, attribute,
+edge-subgraph, filtered/reverse view, conversion-order, review-regression,
+pickle, default-view, and mutation tests: **1,127/1,127** focused tests.
+
+PINNED-WORKER SAME-INVOCATION A/A + A/B: final measurement ran in one
+invocation on drained `vmi1227854`, pinned to core 3 after the suite's
+predeclared two-second warm-up at header load average
+`0.7939/1.2544/1.5723`; the worker was immediately re-enabled. Canonical line
+one reported the exact ELF above. Structured provenance reported wrapper
+SHA-256
+`c56de55c94e559641d74ef9e0697ab301adea7e3d04c31cc5fbb7e7f24a0fe27`,
+harness SHA-256
+`b3618094648fa73241964e6beb0d3dd926ae45621dfceef8170819dd547cd3c4`,
+and focused-test SHA-256
+`1097781db6f81dcea822252e47bc8028da9fa00abd009fbe599f1acd391f4b51`
+(Python 3.13.7, NetworkX 3.6.1).
+
+Every row returned an identical integer checksum before timing, ran 21
+interleaved rounds with `min_of=3`, and ran its own A/A null in the same
+invocation. Decisions use only the bootstrap median CI with the 2x log-space
+null margin; CV is provenance and was never a gate.
+
+| row (512 string-key checks) | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | required floor | decision |
+|---|---:|---:|---:|---:|---|
+| present `n in MG.adj` owner-chain / raw-bound | **`1.7728x`** | `1.7415-1.7902x` | `0.9896-1.0009x` | `1.0211x` | **DECIDABLE KEEP** |
+| present `n in MDG.adj` owner-chain / raw-bound | **`1.7278x`** | `1.6094-1.7678x` | `0.9798-1.0368x` | `1.0750x` | **DECIDABLE KEEP** |
+| missing `n in MDG.adj` owner-chain / raw-bound | **`1.6323x`** | `1.5455-1.7209x` | `0.9840-1.0715x` | `1.1480x` | **DECIDABLE KEEP** |
+| NetworkX / FNX present `n in MG.adj` | `0.7550x` | `0.7208-0.7911x` | `0.9412-1.0465x` | `1.1288x` | **DECIDABLE residual loss** |
+| NetworkX / FNX missing `n in MG.adj` | **`1.4863x`** | `1.3586-1.6228x` | `0.9216-1.0537x` | `1.1773x` | **DECIDABLE FNX win** |
+| NetworkX / FNX present `n in MDG.adj` | `0.8253x` | `0.7805-0.9684x` | `0.9285-1.0924x` | `1.1932x` | **DECIDABLE residual loss** |
+| NetworkX / FNX present `n in MDG.succ` | `0.3585x` | `0.3549-0.3696x` | `0.9946-1.0780x` | `1.1620x` | **DECIDABLE property-layer loss** |
+| NetworkX / FNX present `n in MDG.pred` | `0.3982x` | `0.3810-0.4053x` | `0.9717-1.0327x` | `1.0664x` | **DECIDABLE property-layer loss** |
+
+RESULT: KEEP. The named owner/private-override chain is removed and all three
+causal string-key rows clear their own doubled-null floors by
+**1.42-1.74x**. Missing-key MultiGraph adjacency membership becomes a
+decidable FNX win. Present-key adjacency still pays the canonical-string
+lookup floor and remains an honestly reported `0.7550-0.8253x` public loss.
+The much larger MultiDiGraph `succ`/`pred` rows repeatedly resolve their
+public properties before reaching the now-faster captured view; they are
+routing evidence for a separate descriptor seam, not evidence against this
+counted mechanism.
+
+RETRY PREDICATE: do not retry the raw membership binding, remove the required
+`hash(node)` check, route through owner `__contains__`, or build/materialize
+an adjacency mapping per check. Node-key interning remains on HOLD: reopen it
+only if a fresh pinned-worker profile attributes at least **30%** of the
+post-binding present-key residual to canonicalization and the same
+invocation's doubled-null floor is below **`1.02x`**. Treat MultiDiGraph
+`succ`/`pred` public property lookup as a separate sibling: after its own
+negative-ledger preflight, admit only if a fresh exact profile assigns at
+least **30% self-time** and a **1.5x** Amdahl ceiling to named removable
+property frames, and a dynamic cached-descriptor prototype preserves
+private-assignment, synthetic filtered/reverse-view, copy/pickle, and native
+mutation semantics with zero setter-hook entries. Otherwise switch view
+families.
+
+QUALITY GATES: exact-artifact Python conformance, Python byte-compilation,
+`cargo fmt --check`, and diff hygiene passed. Strict-remote
+`cargo check --workspace --all-targets -j 2` passed on `vmi1149989`, emitting
+only the two established dead-helper warnings. Mandatory strict workspace
+clippy reproduced exactly the established six findings outside this lever:
+two dead helpers, three `collapsible_if` sites, and one
+`chunks_exact_to_as_chunks` test site. The filtered strict rerun allowed only
+those three established categories and passed with every other warning
+denied. UBS first found four chained literal-identity assertions in the new
+test; they were corrected, and the completed harness/test rerun reported zero
+critical or warning findings. Its bounded scan of the 61k-line monolithic
+Python shim reached 180 seconds without emitting a source finding.

@@ -1758,7 +1758,13 @@ _MULTI_NATIVE_ROW_ATTR = {
 
 class MultiAdjacencyView(_Mapping):
     def __init__(
-        self, atlas_getter, *, owner=None, row_kind="adj", native_iter=None
+        self,
+        atlas_getter,
+        *,
+        owner=None,
+        row_kind="adj",
+        native_iter=None,
+        native_contains=None,
     ):
         self._atlas_getter = atlas_getter
         # br-r37-c1-spg9n: the owning graph, for cheap membership/len/contains
@@ -1774,6 +1780,13 @@ class MultiAdjacencyView(_Mapping):
         # __iter__ need not rebuild an O(N) dict merely to recover NetworkX's
         # ``dict_keyiterator`` type. Ownerless/private/snapshot views omit it.
         self._fnx_native_iter = native_iter
+        # br-r37-c1-7icpc: outer multigraph adjacency membership is native
+        # node-key membership. Bind the raw owner descriptor once so ``n in
+        # G.adj`` skips the graph's private-node-aware ``__contains__`` wrapper.
+        # An independent ``_node`` override must not change adjacency keys;
+        # ownerless/private-adjacency views omit this binding and keep the
+        # mapping fallback.
+        self._fnx_native_contains = native_contains
 
     def _atlas(self):
         return self._atlas_getter()
@@ -1792,6 +1805,9 @@ class MultiAdjacencyView(_Mapping):
         # the owner so it is O(1) instead of rebuilding the entire multigraph
         # adjacency dict per check (was ~3ms/check => nbunch_iter 11000x slower).
         hash(node)
+        native_contains = self._fnx_native_contains
+        if native_contains is not None:
+            return native_contains(node)
         owner = self._fnx_owner
         if owner is not None:
             return node in owner
@@ -1906,6 +1922,8 @@ _GRAPH_ADJ_NATIVE_ITER = Graph.__iter__
 _DIGRAPH_ADJ_NATIVE_ITER = DiGraph.__iter__
 _MULTIGRAPH_ADJ_NATIVE_ITER = MultiGraph.__iter__
 _MULTIDIGRAPH_ADJ_NATIVE_ITER = MultiDiGraph.__iter__
+_MULTIGRAPH_ADJ_NATIVE_CONTAINS = MultiGraph.has_node
+_MULTIDIGRAPH_ADJ_NATIVE_CONTAINS = MultiDiGraph.has_node
 
 
 _multigraph_adj_view = _cached_view(
@@ -1914,6 +1932,7 @@ _multigraph_adj_view = _cached_view(
         lambda: _MULTIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiGraph),
         owner=self,
         native_iter=_MULTIGRAPH_ADJ_NATIVE_ITER.__get__(self, MultiGraph),
+        native_contains=_MULTIGRAPH_ADJ_NATIVE_CONTAINS.__get__(self, MultiGraph),
     ),
 )
 
@@ -1949,6 +1968,9 @@ _multidigraph_adj_view = _cached_view(
         owner=self,
         row_kind="succ",
         native_iter=_MULTIDIGRAPH_ADJ_NATIVE_ITER.__get__(self, MultiDiGraph),
+        native_contains=_MULTIDIGRAPH_ADJ_NATIVE_CONTAINS.__get__(
+            self, MultiDiGraph
+        ),
     ),
 )
 
@@ -1984,6 +2006,9 @@ _multidigraph_succ_view = _cached_view(
         owner=self,
         row_kind="succ",
         native_iter=_MULTIDIGRAPH_ADJ_NATIVE_ITER.__get__(self, MultiDiGraph),
+        native_contains=_MULTIDIGRAPH_ADJ_NATIVE_CONTAINS.__get__(
+            self, MultiDiGraph
+        ),
     ),
 )
 
@@ -1995,6 +2020,9 @@ _multidigraph_pred_view = _cached_view(
         owner=self,
         row_kind="pred",
         native_iter=_MULTIDIGRAPH_ADJ_NATIVE_ITER.__get__(self, MultiDiGraph),
+        native_contains=_MULTIDIGRAPH_ADJ_NATIVE_CONTAINS.__get__(
+            self, MultiDiGraph
+        ),
     ),
 )
 

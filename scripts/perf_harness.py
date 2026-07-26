@@ -31,6 +31,7 @@ Usage:
     python3 scripts/perf_harness.py adj-len
     python3 scripts/perf_harness.py adj-iter
     python3 scripts/perf_harness.py multi-adj-iter
+    python3 scripts/perf_harness.py multi-adj-contains
     python3 scripts/perf_harness.py digraph-descriptors
     python3 scripts/perf_harness.py node-primitives
     python3 scripts/perf_harness.py nodeview-getitem
@@ -614,6 +615,99 @@ def suite_multi_adjacency_iter():
     ]
 
 
+def suite_multi_adjacency_contains():
+    """br-r37-c1-7icpc: bind raw node membership into multigraph views."""
+    import networkx as nx
+    import franken_networkx as fnx
+
+    node_names = [f"node-{index}" for index in range(20_000)]
+    present = node_names[:512]
+    missing = [f"missing-{index}" for index in range(512)]
+    gnx, gfx = nx.MultiGraph(), fnx.MultiGraph()
+    dnx, dfx = nx.MultiDiGraph(), fnx.MultiDiGraph()
+    for graph in (gnx, gfx, dnx, dfx):
+        graph.add_nodes_from(node_names)
+    graph_view = gfx.adj
+    digraph_view = dfx.adj
+    assert graph_view._fnx_native_contains is not None
+    assert digraph_view._fnx_native_contains is not None
+
+    def old_contains(view, node):
+        hash(node)
+        owner = view._fnx_owner
+        if owner is not None:
+            return node in owner
+        return node in view._atlas()
+
+    def old_graph_present():
+        return sum(old_contains(graph_view, node) for node in present)
+
+    def new_graph_present():
+        return sum(node in graph_view for node in present)
+
+    def old_digraph_present():
+        return sum(old_contains(digraph_view, node) for node in present)
+
+    def new_digraph_present():
+        return sum(node in digraph_view for node in present)
+
+    def old_digraph_missing():
+        return sum(old_contains(digraph_view, node) for node in missing)
+
+    def new_digraph_missing():
+        return sum(node in digraph_view for node in missing)
+
+    warm_deadline = perf_counter() + 2.0
+    while perf_counter() < warm_deadline:
+        old_graph_present()
+        new_graph_present()
+        old_digraph_present()
+        new_digraph_present()
+
+    return [
+        (
+            "n in MG.adj x512 [owner-chain/raw-bound]",
+            old_graph_present,
+            new_graph_present,
+        ),
+        (
+            "n in MDG.adj x512 [owner-chain/raw-bound]",
+            old_digraph_present,
+            new_digraph_present,
+        ),
+        (
+            "missing in MDG.adj x512 [owner-chain/raw-bound]",
+            old_digraph_missing,
+            new_digraph_missing,
+        ),
+        (
+            "n in MG.adj x512 [nx/fnx]",
+            lambda: sum(node in gnx.adj for node in present),
+            new_graph_present,
+        ),
+        (
+            "missing in MG.adj x512 [nx/fnx]",
+            lambda: sum(node in gnx.adj for node in missing),
+            lambda: sum(node in graph_view for node in missing),
+        ),
+        (
+            "n in MDG.adj x512 [nx/fnx]",
+            lambda: sum(node in dnx.adj for node in present),
+            new_digraph_present,
+        ),
+        (
+            "n in MDG.succ x512 [nx/fnx]",
+            lambda: sum(node in dnx.succ for node in present),
+            lambda: sum(node in dfx.succ for node in present),
+        ),
+        (
+            "n in MDG.pred x512 [nx/fnx]",
+            lambda: sum(node in dnx.pred for node in present),
+            lambda: sum(node in dfx.pred for node in present),
+        ),
+    ]
+
+
 def suite_digraph_descriptors():
     """br-r37-c1-dyuzb: cache directed public adjacency descriptors."""
     import franken_networkx as fnx
@@ -871,6 +965,7 @@ SUITES = {
     "adj-len": suite_adjacency_len,
     "adj-iter": suite_adjacency_iter,
     "multi-adj-iter": suite_multi_adjacency_iter,
+    "multi-adj-contains": suite_multi_adjacency_contains,
     "digraph-descriptors": suite_digraph_descriptors,
     "node-primitives": suite_node_primitives,
     "nodeview-getitem": suite_nodeview_getitem,
