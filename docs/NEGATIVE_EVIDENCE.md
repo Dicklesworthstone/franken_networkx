@@ -26939,3 +26939,86 @@ harness and focused test with zero critical/warning findings. The bounded
 300-second UBS scan of the 61k-line wrapper reached the known large-module
 timeout without emitting a source finding. Markdown/JSONL have no UBS
 scanner, so no scanner pass is claimed for the ledger or bead row.
+
+## 2026-07-26 CloudyTurtle VALID-PROFILE HOLD (keyless multigraph `get_edge_data`): live keydict mechanism clears, `<1.02x` null admission fails — **23.5222-25.0211x screen** (`br-r37-c1-zfu6g`)
+
+NEGATIVE-LEDGER-FIRST: before proposing a lever,
+`scripts/perf_ledger_preflight.py --prior-art 'MultiGraph get_edge_data
+keyless outer mapping lazy view cache edge-key order attribute identity'`
+found no direct row. A direct hand grep found only the governing
+`br-r37-c1-57ba1` KEEP above. Its retry predicate permits this distinct
+keyless multigraph residual only after a fresh exact profile attributes at
+least 30% to outer key/attribute materialization, a live mapping design
+preserves key order, attribute identity, mutation visibility, missing-edge
+defaults, and explicit-key behavior, and that same invocation's doubled-log
+A/A floor is below `1.02x`.
+
+PROFILE ATTRIBUTION / COMPUTED CEILING: no source was edited. On drained
+`vmi1227854`, pinned to core 3, the exact post-`c5zn8` package self-reported
+loaded ELF SHA-256
+`8dfcc5a55cb68c9320712ffda131964764a28e9b1cf9c534e979a9f3bac85835`
+(13,155,048 bytes) as line one and wrapper SHA-256
+`e2aa54bc8942f82cef30a4fcfa368c560ef515b10fa6bb104351a3c323ddcc2c`.
+The header load average was `0.127/0.281/0.659`.
+
+Each graph carried eight keyed parallel edges. A 100,000-call profile named
+the raw keyless `get_edge_data` frame at `0.188s` of `0.205s` for MG and
+`0.167s` of `0.183s` for MDG. The same exact raw descriptor with an explicit
+identity-int key took only `0.049s` and `0.045s`. Wall decomposition was:
+
+| exact current path | keyless wall | explicit-key wall | conservative outer-materialization share | computed ceiling | keyless FNX / NetworkX |
+|---|---:|---:|---:|---:|---:|
+| `MultiGraph.get_edge_data("left", "right")` | `1,637.593ns` | `337.319ns` | **79.40%** | **4.85x** | **25.24x slower** |
+| `MultiDiGraph.get_edge_data("left", "right")` | `1,524.977ns` | `346.556ns` | **77.27%** | **4.40x** | **21.79x slower** |
+
+The explicit-key arm still pays endpoint hashing, canonicalization, native
+lookup, dirty marking, and one live attribute-dict return. Treating all of its
+cost as irreducible makes the 77-79% attribution conservative. The named
+target has non-zero self-time in the benchmark actually run and clears the
+30% predicate, so this is `VALID-PROFILE`, not `VOID-ZEROSELF`.
+
+NO-SOURCE LIVE-VIEW MECHANISM SCREEN: an existing native
+`MultiKeyDictView` for the exact edge pair supplied a structurally live
+mechanism ceiling. Before timing, the screen proved identical edge-key order,
+identical live attribute-dict objects, immediate visibility of a new key, and
+immediate disappearance after removing that key. A Python pair cache then
+performed a real `(u, v)` tuple/hash lookup on every candidate call rather
+than returning an uncharged global.
+
+This is not a shippable candidate: `MultiKeyDictView` is not the built-in
+`dict` returned by the current public method and NetworkX. It is only a
+counted test of whether avoiding the repeated outer keydict build can matter.
+Each arm performed 512 calls per batch, used a predeclared two-second
+frequency warm-up outside timing, then ran 21 interleaved rounds with
+`min_of=3` and its own A/A null in the same invocation. Decisions used the
+bootstrap median CI and doubled log-space null margin; CV was provenance only.
+
+| causal row | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | doubled-null floor | governing `<1.02x` admission |
+|---|---:|---:|---:|---:|---|
+| MG raw keyless build / pair-cached live view | **`23.5222x`** | `22.2179-25.3289x` | `1.0014-1.0980x` | **`1.2055x`** | **FAIL** |
+| MDG raw keyless build / pair-cached live view | **`25.0211x`** | `22.8076-26.0077x` | `0.9718-1.0027x` | **`1.0588x`** | **FAIL** |
+
+RESULT: **VALID-PROFILE HOLD / NO SOURCE EDIT.** Both mechanism effects are
+decisive, but neither independent null satisfies the predeclared `<1.02x`
+admission. The worker was re-enabled immediately. The screen is not promoted
+by ignoring the null, selecting a second run, or treating the non-dict live
+view as a compatibility-complete implementation.
+
+RETRY PREDICATE: do not implement a keyless pair cache or immediately rerun
+these two rows. Reopen only after two consecutive preregistered A/A-only runs
+of the unchanged 512-call workload on one drained, pinned worker each produce
+a doubled-log floor below **`1.02x`**. Only then may a source candidate be
+built. It must return a built-in `dict`, preserve key insertion order and
+live attribute-dict identity, keep explicit-key/default/private-store/subclass
+paths unchanged, and prove that a previously returned keydict observes graph
+edge add/remove without copy/deepcopy/pickle aliasing. Its exact final
+invocation must self-report a newly built ELF and place the A/B median CI
+wholly beyond its own doubled A/A floor. Do not substitute a new batch API or
+relax the return-type contract.
+
+QUALITY GATES: no source, harness, or test file changed. The profile and
+screen both self-reported the exact loaded ELF; all pre-timing order,
+identity, and mutation checks passed; and the measurement worker was
+re-enabled after each invocation. The ledger/tracker-only diff must pass
+`git diff --check`. UBS has no Markdown/JSONL scanner, so no scanner pass is
+claimed for this evidence-only result.
