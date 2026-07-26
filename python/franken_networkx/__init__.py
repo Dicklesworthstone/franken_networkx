@@ -42753,6 +42753,12 @@ _RAW_HAS_EDGE_METHODS = (
     _MULTIGRAPH_PRIVATE_AWARE_HAS_EDGE,
     _MULTIDIGRAPH_PRIVATE_AWARE_HAS_EDGE,
 )
+_RAW_GET_EDGE_DATA_METHODS = (
+    _GRAPH_PRIVATE_AWARE_GET_EDGE_DATA,
+    _DIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA,
+    _MULTIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA,
+    _MULTIDIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA,
+)
 
 
 def _assigned_private_has_node(self, n):
@@ -42793,6 +42799,29 @@ def _assigned_private_has_edge_multi(self, u, v, key=None):
     return True
 
 
+def _assigned_private_get_edge_data_simple(self, u, v, default=None):
+    hash(u)
+    hash(v)
+    if not self.has_edge(u, v):
+        return default
+    return self.adj[u][v]
+
+
+def _assigned_private_get_edge_data_multi(
+    self, u, v, key=None, default=None
+):
+    hash(u)
+    hash(v)
+    if key is not None:
+        hash(key)
+    if not self.has_edge(u, v, key):
+        return default
+    edge_data = self.adj[u][v]
+    if key is not None:
+        return edge_data[key]
+    return edge_data
+
+
 def _install_private_method_shadows(self, storage):
     """Restore mapping-aware dispatch only on instances that need it.
 
@@ -42805,6 +42834,10 @@ def _install_private_method_shadows(self, storage):
     br-r37-c1-6q4wl extends the same mechanism to ``has_edge``. Any assigned
     NetworkX private store makes edge membership mapping-backed, while ordinary
     graphs call the raw descriptor whose Rust body now owns the hash contract.
+
+    br-r37-c1-57ba1 extends it to ``get_edge_data`` under the identical private
+    storage predicate; raw methods own endpoint/key hashing and ordinary
+    attribute-dict materialization.
 
     Do not replace a user-supplied instance method or a subclass override. The
     tracked bound-method identities also let deepcopy/pickle distinguish these
@@ -42855,6 +42888,16 @@ def _install_private_method_shadows(self, storage):
             else _assigned_private_has_edge_simple
         )
         install("has_edge", fallback, _RAW_HAS_EDGE_METHODS)
+        edge_data_fallback = (
+            _assigned_private_get_edge_data_multi
+            if isinstance(self, (MultiGraph, MultiDiGraph))
+            else _assigned_private_get_edge_data_simple
+        )
+        install(
+            "get_edge_data",
+            edge_data_fallback,
+            _RAW_GET_EDGE_DATA_METHODS,
+        )
     if installed:
         storage[_PRIVATE_NODE_METHOD_SHADOWS] = installed
     else:
@@ -44115,6 +44158,10 @@ Graph.has_edge = _GRAPH_PRIVATE_AWARE_HAS_EDGE
 DiGraph.has_edge = _DIGRAPH_PRIVATE_AWARE_HAS_EDGE
 MultiGraph.has_edge = _MULTIGRAPH_PRIVATE_AWARE_HAS_EDGE
 MultiDiGraph.has_edge = _MULTIDIGRAPH_PRIVATE_AWARE_HAS_EDGE
+Graph.get_edge_data = _GRAPH_PRIVATE_AWARE_GET_EDGE_DATA
+DiGraph.get_edge_data = _DIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA
+MultiGraph.get_edge_data = _MULTIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA
+MultiDiGraph.get_edge_data = _MULTIDIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA
 
 
 # br-r37-c1-nv-hash: NodeView.__contains__ silently returned False
@@ -44141,10 +44188,6 @@ for _NodeViewCls in (
     _NodeViewCls.__contains__ = _make_hashed_node_view_contains(
         _NodeViewCls.__contains__
     )
-Graph.get_edge_data = _private_aware_get_edge_data_simple(_GRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
-DiGraph.get_edge_data = _private_aware_get_edge_data_simple(_DIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
-MultiGraph.get_edge_data = _private_aware_get_edge_data_multi(_MULTIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
-MultiDiGraph.get_edge_data = _private_aware_get_edge_data_multi(_MULTIDIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
 Graph.number_of_nodes = _GRAPH_PRIVATE_AWARE_NUMBER_OF_NODES
 DiGraph.number_of_nodes = _DIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES
 MultiGraph.number_of_nodes = _MULTIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES

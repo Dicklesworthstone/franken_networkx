@@ -5894,6 +5894,14 @@ impl PyMultiGraph {
         key: Option<&Bound<'_, PyAny>>,
         default: Option<PyObject>,
     ) -> PyResult<PyObject> {
+        // br-r37-c1-57ba1: preserve the former wrapper's eager hash contract
+        // inside the raw descriptor, including custom __hash__ exceptions for
+        // an explicit multiedge key.
+        u.hash()?;
+        v.hash()?;
+        if let Some(key_obj) = key {
+            key_obj.hash()?;
+        }
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
         if let Some(key_obj) = key {
@@ -13859,6 +13867,10 @@ impl PyGraph {
         v: &Bound<'_, PyAny>,
         default: Option<PyObject>,
     ) -> PyResult<PyObject> {
+        // br-r37-c1-57ba1: keep NetworkX's endpoint hashability contract in
+        // the raw descriptor so ordinary graphs need no Python shim.
+        u.hash()?;
+        v.hash()?;
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
         if !self.inner.has_edge(&u_c, &v_c) {

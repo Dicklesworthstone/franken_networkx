@@ -4005,6 +4005,29 @@ def test_get_edge_data_unhashable_raises_typeerror_match_nx():
     assert MG.get_edge_data(0, 1) == {0: {}}
 
 
+def test_get_edge_data_raw_descriptor_propagates_custom_hash_errors():
+    """br-r37-c1-57ba1: wrapper removal must retain __hash__ failures."""
+
+    class ExplodingHash:
+        def __hash__(self):
+            raise RuntimeError("edge-data hash probe reached")
+
+    for graph in (
+        fnx.Graph([(0, 1)]),
+        fnx.DiGraph([(0, 1)]),
+        fnx.MultiGraph([(0, 1)]),
+        fnx.MultiDiGraph([(0, 1)]),
+    ):
+        with pytest.raises(RuntimeError, match="edge-data hash probe reached"):
+            graph.get_edge_data(ExplodingHash(), 1)
+        with pytest.raises(RuntimeError, match="edge-data hash probe reached"):
+            graph.get_edge_data(0, ExplodingHash())
+
+    for graph in (fnx.MultiGraph([(0, 1)]), fnx.MultiDiGraph([(0, 1)])):
+        with pytest.raises(RuntimeError, match="edge-data hash probe reached"):
+            graph.get_edge_data(0, 1, key=ExplodingHash())
+
+
 def test_multigraph_add_edge_unhashable_key_raises_typeerror():
     """br-r37-c1-mae-keyhash: ``MultiGraph.add_edge`` /
     ``MultiDiGraph.add_edge`` with an unhashable ``key=`` arg

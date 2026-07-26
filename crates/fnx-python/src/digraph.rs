@@ -7741,6 +7741,13 @@ impl PyMultiDiGraph {
         key: Option<&Bound<'_, PyAny>>,
         default: Option<PyObject>,
     ) -> PyResult<PyObject> {
+        // br-r37-c1-57ba1: preserve the former wrapper's eager endpoint/key
+        // hash contract inside the raw descriptor.
+        u.hash()?;
+        v.hash()?;
+        if let Some(key_obj) = key {
+            key_obj.hash()?;
+        }
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
         if let Some(key_obj) = key {
@@ -12264,6 +12271,10 @@ impl PyDiGraph {
         v: &Bound<'_, PyAny>,
         default: Option<PyObject>,
     ) -> PyResult<PyObject> {
+        // br-r37-c1-57ba1: preserve NetworkX's endpoint hashability contract
+        // inside the raw descriptor so ordinary graphs need no Python shim.
+        u.hash()?;
+        v.hash()?;
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
         // br-r37-c1-d58s8: gate on the INNER edge, not mirror presence —

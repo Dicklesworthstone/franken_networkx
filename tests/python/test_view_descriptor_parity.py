@@ -128,6 +128,16 @@ def test_plain_has_edge_is_a_raw_descriptor(cls_name):
     assert "has_edge" not in vars(graph)
 
 
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+def test_plain_get_edge_data_is_a_raw_descriptor(cls_name):
+    """br-r37-c1-57ba1: ordinary attr reads must not pay a Python shim."""
+    graph = _build(fnx, cls_name)
+    assert type(graph.get_edge_data).__name__ == "builtin_function_or_method"
+    assert graph.get_edge_data("n0", "n1") is not None
+    assert graph.get_edge_data("n0", "missing", default="sentinel") == "sentinel"
+    assert "get_edge_data" not in vars(graph)
+
+
 @pytest.mark.parametrize(
     ("cls_name", "private_attr"),
     [
@@ -143,7 +153,7 @@ def test_private_storage_installs_has_edge_instance_shadow(
     graph = getattr(fnx, cls_name)()
     graph.add_edge("native-u", "native-v")
     graph._node = {"private-u": {}, "private-v": {}}
-    row_value = {0: {}} if "Multi" in cls_name else {}
+    row_value = {0: {"weight": 7}} if "Multi" in cls_name else {"weight": 7}
     setattr(
         graph,
         private_attr,
@@ -155,8 +165,18 @@ def test_private_storage_installs_has_edge_instance_shadow(
 
     assert graph.has_edge("private-u", "private-v")
     assert not graph.has_edge("native-u", "native-v")
+    assert graph.get_edge_data("private-u", "private-v") == row_value
+    assert (
+        graph.get_edge_data("missing", "private-v", default="sentinel")
+        == "sentinel"
+    )
+    if "Multi" in cls_name:
+        assert graph.get_edge_data("private-u", "private-v", key=0) == {
+            "weight": 7
+        }
     assert type(graph.has_edge).__name__ == "method"
-    assert "has_edge" in vars(graph)
+    assert type(graph.get_edge_data).__name__ == "method"
+    assert {"has_edge", "get_edge_data"} <= vars(graph).keys()
 
 
 @pytest.mark.parametrize("cls_name", CLASS_NAMES)
@@ -297,6 +317,7 @@ def test_private_node_method_shadows_do_not_alias_copy_or_pickle(cls_name):
         assert not {
             "has_node",
             "has_edge",
+            "get_edge_data",
             "number_of_nodes",
             "order",
         } & vars(other).keys()
@@ -321,11 +342,19 @@ def test_private_storage_install_preserves_user_has_edge_method():
     def custom(u, v):
         return (u, v) == ("sentinel-u", "sentinel-v")
 
+    def custom_data(u, v, default=None):
+        if (u, v) == ("sentinel-u", "sentinel-v"):
+            return {"custom": True}
+        return default
+
     graph.has_edge = custom
+    graph.get_edge_data = custom_data
     graph._adj = {"private-u": {"private-v": {}}}
 
     assert graph.has_edge is custom
     assert graph.has_edge("sentinel-u", "sentinel-v")
+    assert graph.get_edge_data is custom_data
+    assert graph.get_edge_data("sentinel-u", "sentinel-v") == {"custom": True}
 
 
 def test_private_override_state_is_never_memoised():

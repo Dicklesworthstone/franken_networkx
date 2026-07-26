@@ -26469,3 +26469,124 @@ direct changed-line review found no new critical. The bounded 300-second scan
 of the 61k-line wrapper reached the known Python-module timeout without
 emitting a source finding. Markdown/JSONL have no UBS scanner, so no scanner
 pass is claimed for the ledger or bead row.
+
+## 2026-07-26 CloudyTurtle KEEP (`get_edge_data` primitives): raw class descriptors with private-storage instance shadows — **1.4612-1.6413x** (`br-r37-c1-57ba1`)
+
+NEGATIVE-LEDGER-FIRST: before proposing the lever,
+`scripts/perf_ledger_preflight.py --prior-art 'get_edge_data private-aware
+wrapper raw descriptor private storage instance shadow'` found no direct row.
+The sole textual match was the unrelated 2026-06-21 multigraph subgraph-copy
+loop; it was read and adjudicated by hand rather than treated as a regex
+verdict. The fresh `has_edge` raw-descriptor KEEP above supplied the instance
+shadow safety pattern, but this sibling still required its own exact-path
+profile and independent same-invocation null controls.
+
+PROFILE ATTRIBUTION / COMPUTED CEILING: before editing, the exact post-KEEP
+package loaded ELF SHA-256
+`6831a349adc253f40905f85a5620eb5028f53d73c7a23b194cd8a6bc5dcf1865`
+(13,154,656 bytes). On drained `vmi1227854`, pinned to core 3, 50,000 warm
+present-string calls per graph class produced:
+
+| exact public path | total profile | Python `get_edge_data` wrapper self | private-storage guard self | wrapper + guard share | computed Amdahl ceiling | public / captured-raw wall |
+|---|---:|---:|---:|---:|---:|---:|
+| `Graph.get_edge_data` | `0.103167s` | `0.031464s` / 30.5% | `0.012681s` / 12.3% | **42.8%** | **1.75x** | `1.9709x` |
+| `DiGraph.get_edge_data` | `0.104943s` | `0.032076s` / 30.6% | `0.012721s` / 12.1% | **42.7%** | **1.75x** | `1.9291x` |
+| `MultiGraph.get_edge_data` | `0.121810s` | `0.033041s` / 27.1% | `0.012982s` / 10.7% | **37.8%** | **1.61x** | `1.7236x` |
+| `MultiDiGraph.get_edge_data` | `0.120315s` | `0.032999s` / 27.4% | `0.012924s` / 10.7% | **38.2%** | **1.62x** | `1.6383x` |
+
+All four named removable chains clear the 30% attribution floor and predict
+at least `1.61x`; this is neither a zero-self target nor a generic boundary
+guess.
+
+ONE LEVER / COUNTED MECHANISM: ordinary `Graph`, `DiGraph`, `MultiGraph`, and
+`MultiDiGraph` instances now expose their captured raw PyO3 `get_edge_data`
+descriptors directly. The native methods perform the required eager
+`hash(u)`, `hash(v)`, and, for an explicit multiedge key, `hash(key)` checks
+themselves. Assigning a NetworkX private `_node`, `_adj`, `_succ`, or `_pred`
+store installs the previous mapping-aware behavior only in that instance.
+The installer retains class/instance identity checks, so subclass and user
+overrides are not replaced; the existing internal-shadow registry prevents
+copy, deepcopy, or pickle from retaining a bound method back to the source
+graph.
+
+Each ordinary call removes exactly one Python `get_edge_data` frame, one
+Python `_has_networkx_private_storage` frame, one `vars(self)` lookup, and up
+to four private-key membership probes. Endpoint/key hashing is relocated into
+the native descriptor, not claimed as removed. The permanent causal control
+deliberately omits the former wrapper's Python hash calls before invoking the
+same new raw descriptor, so it measures only wrapper/private-guard removal and
+is conservative relative to the true old path. Graph storage, canonical key
+conversion, missing-edge defaults, returned live attribute mappings, and
+explicit multiedge-key semantics are otherwise unchanged.
+
+BEHAVIOR ISOMORPHISM / CONFORMANCE: the exact candidate artifact passed
+**1,109/1,109** isolated local focused/broader tests covering all four graph
+classes, raw descriptor installation and signatures, assigned private stores,
+missing-edge defaults, explicit multiedge keys, unhashable endpoints/keys,
+custom `__hash__` exceptions, user instance methods, adjacency/view/attribute
+behavior, and copy/deepcopy/pickle isolation. The unchanged package then
+passed **231/231** focused tests on the destination worker.
+
+PINNED-WORKER SAME-INVOCATION A/A + A/B: strict RCH built the release
+extension on `vmi1153651`. The exact proof package then ran on drained
+`vmi1227854`, pinned to core 3; the worker was immediately re-enabled.
+Canonical line one self-reported loaded ELF SHA-256
+`8dfcc5a55cb68c9320712ffda131964764a28e9b1cf9c534e979a9f3bac85835`
+(13,155,048 bytes). Structured provenance reported wrapper SHA-256
+`162eccb44960548c0a3efe149c0e3b66caca1393eb302bdac8576c8642d0f1e2`
+and harness SHA-256
+`5097e2c5b62d67841609c0403ec08bd727afc04e4f8356de7daf8fd879b4d813`
+(Python 3.13.7, NetworkX 3.6.1; header load average
+`0.017/0.177/0.411`).
+
+Every 512-probe row proved an order-preserving digest before timing, ran 21
+interleaved rounds with `min_of=3`, and ran its own A/A null in the same
+invocation. Decisions use only bootstrap median confidence intervals and the
+doubled log-space null margin; CV was reported as provenance and never gated.
+
+| row | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | required floor | decision |
+|---|---:|---:|---:|---:|---|
+| `Graph.get_edge_data` conservative wrapper / raw | **`1.6413x`** | `1.5593-1.8012x` | `0.8842-1.0362x` | `1.2791x` | **DECIDABLE KEEP** |
+| NetworkX / FNX `Graph.get_edge_data` | `0.3131x` | `0.3015-0.3538x` | `0.9373-1.0337x` | `1.1381x` | **DECIDABLE residual loss** |
+| `DiGraph.get_edge_data` conservative wrapper / raw | **`1.5087x`** | `1.4172-1.7130x` | `0.9876-1.0070x` | `1.0253x` | **DECIDABLE KEEP** |
+| NetworkX / FNX `DiGraph.get_edge_data` | `0.3343x` | `0.3114-0.3603x` | `0.9985-1.0654x` | `1.1350x` | **DECIDABLE residual loss** |
+| `MultiGraph.get_edge_data` conservative wrapper / raw | **`1.5190x`** | `1.4179-1.5737x` | `0.9258-1.0032x` | `1.1666x` | **DECIDABLE KEEP** |
+| NetworkX / FNX `MultiGraph.get_edge_data` | `0.2159x` | `0.2039-0.2253x` | `0.9819-1.1148x` | `1.2427x` | **DECIDABLE residual loss** |
+| `MultiDiGraph.get_edge_data` conservative wrapper / raw | **`1.4612x`** | `1.4001-1.5527x` | `0.9260-1.0864x` | `1.1803x` | **DECIDABLE KEEP** |
+| NetworkX / FNX `MultiDiGraph.get_edge_data` | `0.1989x` | `0.1970-0.2003x` | `0.9869-1.0210x` | `1.0424x` | **DECIDABLE residual loss** |
+
+RESULT: KEEP. All four conservative mechanism rows clear their own median-CI
+floors. Removing the common Python wrapper/private-store chain improves that
+mechanism by approximately `1.46-1.64x`, but the public primitive remains
+approximately `3.0-5.0x` slower than NetworkX. This row does not claim to
+close those residuals: simple graphs still cross the PyO3/canonicalization
+path, while the much larger multigraph loss includes keyless outer mapping
+materialization.
+
+RETRY PREDICATE: do not add another Python `get_edge_data` wrapper or
+private-storage guard cache. Reopen node-key interning on the simple-graph
+surface only if a fresh post-KEEP profile attributes at least **30% of raw
+call end-to-end time** to `node_key_to_string`/canonicalization and that same
+invocation's doubled log-space A/A floor is below **`1.02x`**. Treat the
+keyless multigraph residual as a distinct lazy-view vein: reopen it only if a
+fresh exact-path profile attributes at least **30%** to per-call outer
+`PyDict`/key/attribute materialization and a live outer mapping design
+preserves edge-key order, attribute-object identity, mutation visibility,
+missing-edge defaults, and explicit-key semantics with a doubled-null floor
+below **`1.02x`**. A batch API may not be represented as accelerating the
+existing user-level call.
+
+QUALITY GATES: `cargo fmt --check`, Python byte-compilation, `git diff
+--check`, and the exact Python proof suites passed. Strict-remote
+`cargo check --workspace --all-targets -j 2` passed on `vmi1153651`.
+Mandatory strict clippy reproduced exactly the established two dead helpers,
+three `collapsible_if` sites, and one `chunks_exact_to_as_chunks` test lint;
+the filtered deny-warnings rerun allowing only those six off-lane categories
+passed. The release build used `RCH_REQUIRE_REMOTE=1` and completed on
+`vmi1153651`; no local compilation fallback occurred. UBS completed on both
+changed Rust files with zero critical findings and on the permanent harness
+with zero critical/warning findings. Its two changed test files reported only
+the existing assertion/signature-string heuristic inventory; direct
+changed-line review found no new critical. The bounded wrapper scan retains
+the known large-module timeout documented immediately above. Markdown/JSONL
+have no UBS scanner, so no scanner pass is claimed for the ledger or bead row.
