@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group};
 use fnx_algorithms::{
     BitparArm, adamic_adar_index, aspl_gate_overhead_cost, average_degree_connectivity,
     average_shortest_path_length, average_shortest_path_length_arm, betweenness_centrality,
@@ -21,6 +21,25 @@ use fnx_algorithms::{
 };
 use fnx_classes::{Graph, digraph::DiGraph};
 use fnx_runtime::CgseValue;
+use sha2::{Digest, Sha256};
+
+/// SHA-256 of the benchmark executable, reported by the process that runs it.
+fn self_identity() -> String {
+    let Ok(path) = std::env::current_exe() else {
+        return "unavailable".to_owned();
+    };
+    let Ok(bytes) = std::fs::read(&path) else {
+        return "unavailable".to_owned();
+    };
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    format!(
+        "{:x} ({} bytes) {}",
+        hasher.finalize(),
+        bytes.len(),
+        path.display()
+    )
+}
 
 fn attr(key: &str, val: &str) -> BTreeMap<String, CgseValue> {
     let mut m = BTreeMap::new();
@@ -510,17 +529,26 @@ fn paired_interleaved_ab(
     // share this sampler without duplicating the statistics.
     run_arm: &dyn Fn(&Graph, BitparArm) -> usize,
     score_bits: &dyn Fn(&Graph, BitparArm) -> Vec<u64>,
-) {
+) -> PairedStats {
     paired_interleaved_ab_base(
         label,
         g,
+        "per_source",
         BitparArm::PerSource,
         cand_name,
         cand,
         rounds,
         run_arm,
         score_bits,
-    );
+    )
+}
+
+#[derive(Clone, Copy)]
+struct PairedStats {
+    ratio_median: f64,
+    ci_lo: f64,
+    ci_hi: f64,
+    median_cv: f64,
 }
 
 /// As above but with an explicit BASE arm. The A/A null control needs `base == cand`
@@ -532,13 +560,14 @@ fn paired_interleaved_ab(
 fn paired_interleaved_ab_base(
     label: &str,
     g: &Graph,
+    base_name: &str,
     base: BitparArm,
     cand_name: &str,
     cand: BitparArm,
     rounds: usize,
     run_arm: &dyn Fn(&Graph, BitparArm) -> usize,
     score_bits: &dyn Fn(&Graph, BitparArm) -> Vec<u64>,
-) {
+) -> PairedStats {
     use std::hint::black_box;
     use std::time::Instant;
 
@@ -588,11 +617,10 @@ fn paired_interleaved_ab_base(
         s.sort_by(|a, b| a.partial_cmp(b).unwrap());
         s[s.len() / 2]
     };
-    // The decision statistic is the MEDIAN paired ratio, so the quantity that must
-    // clear the cv gate is the sampling error OF THAT MEDIAN — not the spread of
-    // individual pairs, which on a shared worker mostly reflects other tenants.
-    // Bootstrap it. `win_rate` is the distribution-free companion: the fraction of
-    // adjacent pairs the candidate won, which drift cannot fake.
+    // The decision statistic is the MEDIAN paired ratio. Bootstrap its 95% CI;
+    // `median_cv` is provenance only and is never a gate. `win_rate` is the
+    // distribution-free companion: the fraction of adjacent pairs the candidate
+    // won, which drift cannot fake.
     let point = median(&ratios);
     let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
     let mut rng = || {
@@ -621,7 +649,7 @@ fn paired_interleaved_ab_base(
         .fold((f64::MAX, f64::MIN), |(l, h), &r| (l.min(r), h.max(r)));
 
     println!(
-        "PAIRED {label} per_source vs {cand_name}: orig_med={:.3}ms cand_med={:.3}ms \
+        "PAIRED {label} {base_name} vs {cand_name}: orig_med={:.3}ms cand_med={:.3}ms \
          ratio_med={:.3}x ci95=[{:.3},{:.3}] median_cv={:.2}% win_rate={}/{} \
          ratio_min={:.3}x ratio_max={:.3}x checksum={:#018x}",
         median(&orig),
@@ -635,6 +663,68 @@ fn paired_interleaved_ab_base(
         lo,
         hi,
         checksum
+    );
+
+    PairedStats {
+        ratio_median: point,
+        ci_lo,
+        ci_hi,
+        median_cv,
+    }
+}
+
+/// Run the required A/A control immediately before the real A/B and decide only
+/// against the null median's bootstrap CI. CV is printed as provenance, never used
+/// by this gate.
+#[allow(clippy::too_many_arguments)]
+fn paired_interleaved_with_null(
+    label: &str,
+    g: &Graph,
+    cand_name: &str,
+    cand: BitparArm,
+    rounds: usize,
+    run_arm: &dyn Fn(&Graph, BitparArm) -> usize,
+    score_bits: &dyn Fn(&Graph, BitparArm) -> Vec<u64>,
+) {
+    let null = paired_interleaved_ab(
+        label,
+        g,
+        "null_control",
+        BitparArm::PerSource,
+        rounds,
+        run_arm,
+        score_bits,
+    );
+    let candidate = paired_interleaved_ab(label, g, cand_name, cand, rounds, run_arm, score_bits);
+
+    let null_half_width = (null.ci_lo - 1.0).abs().max((null.ci_hi - 1.0).abs());
+    let effect = (candidate.ratio_median - 1.0).abs();
+    let outside_null_ci =
+        candidate.ratio_median < null.ci_lo || candidate.ratio_median > null.ci_hi;
+    let margin = if null_half_width > 0.0 {
+        effect / null_half_width
+    } else {
+        f64::INFINITY
+    };
+    let decidable = outside_null_ci && margin >= 2.0;
+    println!(
+        "MEDIAN_CI_GATE {label} per_source vs {cand_name}: verdict={} \
+         claim={:.3}x null_ci95=[{:.3},{:.3}] null_half_width={:.3} \
+         margin={margin:.2}x candidate_ci95=[{:.3},{:.3}] \
+         cv_report_only=null:{:.2}%/candidate:{:.2}%",
+        if decidable {
+            "DECIDABLE"
+        } else {
+            "UNDECIDABLE"
+        },
+        candidate.ratio_median,
+        null.ci_lo,
+        null.ci_hi,
+        null_half_width,
+        candidate.ci_lo,
+        candidate.ci_hi,
+        null.median_cv,
+        candidate.median_cv
     );
 }
 
@@ -659,21 +749,8 @@ fn bench_closeness_centrality_parallel(c: &mut Criterion) {
         ("closeness/lowdiam_2000", build_low_diameter(2000, 8000)),
         ("closeness/grid_1600", build_grid(40, 40)),
     ] {
-        // NULL CONTROL (franken_whisper): the IDENTICAL arm against itself, through the
-        // same interleaved routine. Its ratio is this harness's noise floor. Any effect
-        // smaller than the floor — win OR regression — is indistinguishable from noise
-        // and no lever may be judged on it.
-        paired_interleaved_ab(
-            label,
-            &g,
-            "null_control",
-            BitparArm::PerSource,
-            61,
-            &run,
-            &bits,
-        );
-        paired_interleaved_ab(label, &g, "auto", BitparArm::Auto, 61, &run, &bits);
-        paired_interleaved_ab(
+        paired_interleaved_with_null(label, &g, "auto", BitparArm::Auto, 61, &run, &bits);
+        paired_interleaved_with_null(
             label,
             &g,
             "chunked_bitpar",
@@ -738,32 +815,11 @@ fn bench_aspl_parallel(c: &mut Criterion) {
         ("aspl/grid_1600", build_grid(40, 40)), // GUARD: gate must decline
     ];
     for (label, g) in &workloads {
-        // br-r37-c1-4bubk: aspl's guard sat exactly on the per_source null's lower
-        // bound at 121 rounds — undecidable. 241 rounds tighten the median, and TWO
-        // nulls calibrate the floor: per_source-vs-per_source (the baseline path) AND
-        // auto-vs-auto (the path the guard actually runs, whose gate-probe + row-collect
-        // variance the per_source null cannot see). Decide the guard against the LATTER.
-        paired_interleaved_ab(
-            label,
-            g,
-            "null_persrc",
-            BitparArm::PerSource,
-            241,
-            &run,
-            &bits,
-        );
-        paired_interleaved_ab_base(
-            label,
-            g,
-            BitparArm::Auto,
-            "null_auto",
-            BitparArm::Auto,
-            241,
-            &run,
-            &bits,
-        );
-        paired_interleaved_ab(label, g, "auto", BitparArm::Auto, 241, &run, &bits);
-        paired_interleaved_ab(
+        // br-r37-c1-4bubk: 121 rounds left this guard undecidable, so retain 241
+        // while applying the fleet contract: base/base immediately followed by
+        // base/candidate, gated only on the base/base bootstrap-median CI.
+        paired_interleaved_with_null(label, g, "auto", BitparArm::Auto, 241, &run, &bits);
+        paired_interleaved_with_null(
             label,
             g,
             "chunked_bitpar",
@@ -824,23 +880,11 @@ fn bench_harmonic_centrality_parallel(c: &mut Criterion) {
         ("harmonic/lowdiam_2000", build_low_diameter(2000, 8000)),
         ("harmonic/grid_1600", build_grid(40, 40)), // GUARD: gate must decline
     ];
-    // 121 rounds, not 61: harmonic's per-source arm pays an f64 division per popped
-    // node, so its grid rows are noisier than closeness's and 61 rounds left the
-    // GUARD row's bootstrapped median at cv 6.00% — above the keep-gate. The extra
-    // rounds tighten the estimator, they do not change what is measured.
+    // Retain 121 rounds because the earlier 61-round median CI was too wide to
+    // decide the guard. The extra rounds tighten the estimator; CV is provenance.
     for (label, g) in &workloads {
-        // NULL CONTROL (franken_whisper): identical arm vs itself = the noise floor.
-        paired_interleaved_ab(
-            label,
-            g,
-            "null_control",
-            BitparArm::PerSource,
-            121,
-            &run,
-            &bits,
-        );
-        paired_interleaved_ab(label, g, "auto", BitparArm::Auto, 121, &run, &bits);
-        paired_interleaved_ab(
+        paired_interleaved_with_null(label, g, "auto", BitparArm::Auto, 121, &run, &bits);
+        paired_interleaved_with_null(
             label,
             g,
             "chunked_bitpar",
@@ -1145,4 +1189,8 @@ criterion_group!(
     bench_minimum_cut,
     bench_minimum_spanning_tree,
 );
-criterion_main!(benches);
+
+fn main() {
+    println!("bench_elf_sha256={}", self_identity());
+    benches();
+}

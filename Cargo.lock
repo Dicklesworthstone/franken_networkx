@@ -825,6 +825,7 @@ dependencies = [
  "rand_core 0.10.1",
  "rayon",
  "serde",
+ "sha2 0.10.9",
 ]
 
 [[package]]

@@ -30,6 +30,7 @@ rand_core = "0.10.1"
 fnx-runtime = { version = "0.2.0", path = "../fnx-runtime" }
 proptest = "1.11.0"
 criterion = { version = "0.8.2", features = ["html_reports"] }
+sha2 = "0.10.9"
 
 [[bench]]
 name = "algorithm_benchmarks"
