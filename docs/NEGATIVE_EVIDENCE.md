@@ -27178,3 +27178,192 @@ pickle-deserialization heuristic is informational to the combined result.
 The bounded 300-second UBS scan of the 61k-line wrapper reached the known
 large-module timeout without emitting a source finding. Markdown/JSONL have
 no UBS scanner, so no scanner pass is claimed for the ledger or bead row.
+
+## 2026-07-26 CloudyTurtle VALID-AB REJECT (plain `Graph.neighbors` raw descriptor): same-invocation null swallows **1.0575x** (`br-r37-c1-heyxu`)
+
+NEGATIVE-LEDGER-FIRST: before source editing,
+`scripts/perf_ledger_preflight.py --prior-art 'simple Graph neighbors DiGraph
+successors predecessors C-level raw descriptor cached row key iterator lazy
+return'` found no direct row. Hand adjudication read the governing string-key
+canonicalization floors and the fresh multigraph neighbor-row KEEP/HOLD rows;
+none had measured the ordinary simple-graph descriptor seam.
+
+PROFILE ATTRIBUTION / COMPUTED CEILING: on drained `vmi1227854`, pinned to
+core 3, the exact pre-edit package self-reported loaded ELF SHA-256
+`8dfcc5a55cb68c9320712ffda131964764a28e9b1cf9c534e979a9f3bac85835`
+(13,155,048 bytes) as line one. A 100,000-call `Graph.neighbors` profile
+attributed `0.202s` of `0.384s` (**52.6%**) to the named Python wrapper, for
+a computed **2.11x Amdahl ceiling** if that frame disappeared. The direct
+walls were NetworkX `80.95ns`, current FNX `299.58ns`, and the raw persistent
+row iterator `233.10ns`.
+
+ONE-CANDIDATE A/B: an initial combined candidate routed ordinary
+`Graph.neighbors` directly through a raw PyO3 descriptor which eagerly hashed
+and canonicalized the node, reused the persistent live adjacency-row dict,
+and returned its `dict_keyiterator`. The exact candidate invocation
+self-reported loaded ELF SHA-256
+`9899c68c55082039fa0879b3bbf314d81c3b91f37a16200485bc984e116c7dee`
+(13,155,576 bytes). It proved identical ordered output before timing and ran
+21 interleaved rounds with `min_of=3`; its A/A and A/B were in the same
+process. Decisions used the bootstrap median CI and doubled log-space null
+margin, never CV.
+
+| exact candidate row | median | bootstrap 95% median CI | doubled-null floor | decision |
+|---|---:|---:|---:|---|
+| A/A wrapper / wrapper | — | `0.9694-1.1204x` | **`1.2553x`** | null control |
+| wrapper / raw descriptor | **`1.0575x`** | `0.9852-1.2032x` | **`1.2553x`** | **UNDECIDABLE REJECT** |
+
+RESULT: **VALID-AB REJECT; SOURCE REVERTED.** The effect sits inside its
+recorded same-invocation A/A null. This is not a CV rejection and not a
+`VOID-NONULL` row. The entire Graph sibling was removed before the retained
+artifact was rebuilt.
+
+RETRY PREDICATE: do not retry this micro-wrapper or rearrange the same cache
+probe. Reopen only when (a) a fresh post-KEEP profile of a named end-to-end
+NetworkX algorithm attributes at least **10% of total self-time** to repeated
+ordinary `Graph.neighbors` creation, and (b) two consecutive preregistered
+A/A-only runs of this unchanged 512-call workload on one drained, pinned
+worker each produce a doubled-log floor below **`1.03x`**. A new final
+candidate must self-report its loaded ELF, preserve exact missing/unhashable,
+private-store, subclass, ordering, and structural-mutation behavior, and put
+its A/B bootstrap median CI wholly beyond its own doubled-null floor.
+
+## 2026-07-26 CloudyTurtle VALID-AB REJECT (`DiGraph.predecessors` raw descriptor): final exact row **1.0335x** inside a **1.1942x** floor (`br-r37-c1-heyxu`)
+
+NEGATIVE-LEDGER-FIRST AND PROFILE: the same preflight/adjudication above
+governs this sibling. Before editing, the exact benchmark profile named the
+`DiGraph.predecessors` Python wrapper at `0.184s` of `0.348s`
+(**52.9% self-time**, computed **2.12x Amdahl ceiling**). Direct walls were
+NetworkX `92.13ns`, current FNX `290.59ns`, and the raw persistent
+predecessor-row iterator `183.74ns`, so the target had real non-zero
+self-time in the workload actually timed.
+
+The Graph sibling was already gone when this decisive invocation ran. Its
+line one self-reported loaded ELF SHA-256
+`e59f42a03ce9741eba0855bf91ecbe1b7eedf69e174ffbb3b7425df005c7e058`
+(13,155,368 bytes). The exact package passed **217** focused and **1,589**
+broader tests before measurement. Each row proved ordered output identity,
+then ran its own A/A null and A/B in the same process using 21 interleaved
+rounds and `min_of=3`.
+
+| exact candidate row | median | bootstrap 95% median CI | doubled-null floor | decision |
+|---|---:|---:|---:|---|
+| A/A wrapper / wrapper | `0.9861x` | `0.9151-1.0269x` | **`1.1942x`** | null control |
+| wrapper / raw descriptor | **`1.0335x`** | `1.0127-1.0702x` | **`1.1942x`** | **UNDECIDABLE REJECT** |
+
+RESULT: **VALID-AB REJECT; SOURCE REVERTED.** The exact final effect is
+inside the same-invocation null floor, so `predecessors` retains its shipped
+mapping-aware wrapper. The worker was re-enabled immediately. CV was
+provenance only and did not decide this row.
+
+RETRY PREDICATE: do not immediately rerun or copy the retained successor
+implementation into `predecessors`. Reopen only after two consecutive
+preregistered A/A-only runs of the unchanged 512-call predecessor workload
+each produce a doubled-log floor below **`1.03x`**, and a fresh post-KEEP
+profile still attributes at least **30% self-time** to the mapping-aware
+predecessor wrapper. The exact final A/B bootstrap median CI must lie wholly
+beyond its own floor and the candidate must preserve live iterator,
+fail-fast mutation, private `_pred`, subclass, missing-node, unhashable-key,
+copy, and pickle semantics.
+
+## 2026-07-26 CloudyTurtle KEEP (plain `DiGraph.neighbors` / `successors` raw live descriptor): **1.1752x** exact-final causal win (`br-r37-c1-heyxu`)
+
+NEGATIVE-LEDGER-FIRST / SCOPE: the preflight and hand adjudication recorded
+above found no direct prior verdict. The two independently measured siblings
+that failed admission (`Graph.neighbors` and `DiGraph.predecessors`) are
+rejected above with concrete retry predicates and are absent from this
+source. This KEEP contains only the directed successor surface; NetworkX
+defines `DiGraph.neighbors` as the same successor operation.
+
+PROFILE ATTRIBUTION / COMPUTED CEILING: before editing, the exact loaded
+pre-edit ELF named the `DiGraph.successors` Python wrapper at `0.202s` of
+`0.384s` (**52.6% self-time**, computed **2.11x Amdahl ceiling**) in the
+100,000-call benchmark actually run. Direct walls were NetworkX `108.84ns`,
+current FNX `331.96ns`, and the raw persistent successor-row iterator
+`245.15ns`. This is a non-zero named target, not `VOID-ZEROSELF`.
+
+ONE LEVER / LAZY LIVE-VIEW MECHANISM: ordinary exact `DiGraph` instances now
+install the existing PyO3 `neighbors` and `successors` descriptors directly.
+The native method preserves eager `hash(n)` and canonical-key conversion,
+raises the exact NetworkX-compatible missing-node error, reuses the
+persistent successor-row `dict`, and returns that dict's native
+`dict_keyiterator`. This removes one Python wrapper frame plus its
+private-store predicate and mutation-token/cache probe on every warm call.
+
+Assigned NetworkX-private node/adjacency/successor/predecessor stores install
+mapping-backed instance shadows, while user instance methods and subclass
+overrides remain untouched. The returned iterator preserves neighbor
+insertion order, canonical public key identity, structural-mutation
+fail-fast behavior, and live row semantics. `DiGraph.predecessors` remains on
+the prior mapping-aware wrapper because its independent exact row rejected.
+
+PINNED-WORKER EXACT-FINAL A/A + A/B: the final successors-only release was
+built with strict remote execution and `CARGO_TARGET_DIR` unset. The build
+worker's source hashes matched the local retained files byte-for-byte, and
+the copied ELF hash matched the worker-pool artifact. On drained
+`vmi1227854`, pinned to core 3, line one independently self-reported the
+actually loaded ELF:
+
+`bench_elf_sha256=cdbb3c4a0681c33eb92426e3fb25c3d6181c3f4124115e109077d7a4703978c6
+(13155240 bytes)
+/data/tmp/fnx-heyxu-successors.CVL2ArZt/franken_networkx/_fnx.abi3.so`
+
+Structured provenance recorded wrapper SHA-256
+`45b98cf9b9e5cb3c6a9d00ae80ec3fec492dbfd2267a1de4644b826bf653812d`,
+harness SHA-256
+`4755380802be4a49bf439a977d9b170c5752cc981ca78bf968744b5bf1c74a2a`,
+focused-test SHA-256
+`1c8bca65d2bd34c619a241e9711f32c93f39d231e9dde838630d3b51abf67e7a`,
+Python 3.13.7, NetworkX 3.6.1, and header load average
+`0.723/1.953/2.321`. Every row proved order-preserving digest identity before
+timing, then ran 21 interleaved rounds with `min_of=3` and its own A/A null
+inside the same invocation. The bootstrap median CI and doubled log-space
+null margin are the gate; CV is reported but never gates.
+
+| exact-final row | median A/B | A/B 95% median CI | same-invocation A/A median / 95% median CI | doubled-null floor | decision |
+|---|---:|---:|---:|---:|---|
+| wrapper / raw successor descriptor | **`1.1752x`** | **`1.1170-1.2243x`** | `1.0008x` / `0.9960-1.0094x` | **`1.0190x`** | **DECIDABLE KEEP** |
+| NetworkX / FNX successor call | `0.3138x` | `0.3032-0.3212x` | `0.9903x` / `0.9731-1.0375x` | `1.0764x` | **DECIDABLE 3.19x residual loss** |
+
+RESULT: **KEEP.** The causal row wins 18/21 pairs, and its entire A/B
+bootstrap median CI lies beyond the independent doubled-null floor. The
+public result remains slower than NetworkX and is recorded rather than
+hidden. The worker was immediately re-enabled and probed healthy.
+
+BEHAVIOR ISOMORPHISM / CONFORMANCE: the immutable exact-final package passed
+**214/214** focused tests locally and on the measurement worker, plus
+**1,586/1,586** broader tests covering graph method signatures, adjacency
+rows and view liveness, unhashable keys, canonical public node identity,
+traversal, copy/pickle, and review-mode regressions. Focused locks cover raw
+descriptor identity, exact `dict_keyiterator` type and order, mutation
+fail-fast behavior, assigned-private-store shadows, preservation of user
+instance methods, and copy/pickle shadow removal. Python byte-compilation and
+`git diff --check` pass. The strict-remote exact release build completed with
+only the repository's two established dead helper warnings. UBS reported no
+critical finding in the changed Rust, harness, and focused test; its broad
+warning inventory points at pre-existing whole-file patterns rather than a
+new changed-line defect. Strict-remote
+`cargo check --workspace --all-targets` passed. Exact workspace
+`cargo clippy --workspace --all-targets -- -D warnings` reproduced only the
+six established off-lane findings (two `dead_code`, three `collapsible_if`,
+one `chunks_exact_to_as_chunks`); the filtered deny-warnings rerun allowing
+exactly those baseline categories passed. Fail-closed RCH rejected
+`cargo fmt --check` as a non-compilation command (`RCH-E301`), so no local
+Cargo fallback ran; direct `rustfmt --edition 2024 --check` on the changed
+Rust module passed. A final staged-file UBS run completed its Rust scan, then
+reached the bounded 300-second timeout in the 61k-line wrapper without
+emitting a changed-line finding.
+
+RETRY PREDICATE: do not retry another Python cache-probe rearrangement or
+widen this KEEP into `predecessors`. Reopen the remaining **3.19x** public
+successor loss only when a fresh exact post-KEEP profile of an end-to-end
+NetworkX workload attributes at least **30% self-time** to one named
+removable frame in node hashing/canonicalization, persistent-row
+materialization, private-store shadow dispatch, or the PyO3 boundary. A
+node-key interning lever specifically requires at least **30%** measured
+self-time in canonical conversion and must preserve equal-but-nonidentical
+keys plus canonical public display identity. The unchanged 512-call workload
+must first show a same-invocation doubled-log A/A floor below **`1.03x`**;
+the final exact process must self-report its loaded ELF and place the A/B
+bootstrap median CI wholly beyond its own floor while retaining every
+behavior lock above.

@@ -42,6 +42,7 @@ Usage:
     python3 scripts/perf_harness.py edge-primitives
     python3 scripts/perf_harness.py edge-data-primitives
     python3 scripts/perf_harness.py multi-neighbor-keydict
+    python3 scripts/perf_harness.py digraph-neighbor-descriptors
     python3 scripts/perf_harness.py nodeview-getitem
     python3 scripts/perf_harness.py lazy-rows
     python3 scripts/perf_harness.py marshaling
@@ -1531,6 +1532,49 @@ def suite_nodeview_getitem():
     ]
 
 
+def suite_digraph_neighbor_descriptors():
+    """br-r37-c1-heyxu: directed successor calls use raw live-row descriptors."""
+    import networkx as nx
+    import franken_networkx as fnx
+
+    neighbors = tuple(f"n{index}" for index in range(64))
+    dnx, dfx = nx.DiGraph(), fnx.DiGraph()
+    dnx.add_edges_from(("hub", node) for node in neighbors)
+    dfx.add_edges_from(("hub", node) for node in neighbors)
+    dnx.add_edges_from((node, "sink") for node in neighbors)
+    dfx.add_edges_from((node, "sink") for node in neighbors)
+
+    old_successors = fnx._private_aware_digraph_successors().__get__(
+        dfx, fnx.DiGraph
+    )
+
+    def batch(call, node):
+        last = None
+        for _ in range(512):
+            last = call(node)
+        return type(last).__name__, list(last)
+
+    controls = ((old_successors, dfx.successors, "hub"),)
+    warm_deadline = perf_counter() + 2.0
+    while perf_counter() < warm_deadline:
+        for old, raw, node in controls:
+            batch(old, node)
+            batch(raw, node)
+
+    return [
+        (
+            "DiGraph.successors x512 [wrapper/raw]",
+            lambda: batch(old_successors, "hub"),
+            lambda: batch(dfx.successors, "hub"),
+        ),
+        (
+            "DiGraph.successors x512 [nx/fnx]",
+            lambda: batch(dnx.successors, "hub"),
+            lambda: batch(dfx.successors, "hub"),
+        ),
+    ]
+
+
 def suite_lazy_rows():
     """br-r37-c1-v9auw: live row-mirror materialization and counted mechanism."""
     import networkx as nx
@@ -1650,6 +1694,7 @@ SUITES = {
     "edge-primitives": suite_edge_primitives,
     "edge-data-primitives": suite_edge_data_primitives,
     "multi-neighbor-keydict": suite_multi_neighbor_keydict,
+    "digraph-neighbor-descriptors": suite_digraph_neighbor_descriptors,
     "nodeview-getitem": suite_nodeview_getitem,
     "lazy-rows": suite_lazy_rows,
     "marshaling": suite_marshaling,

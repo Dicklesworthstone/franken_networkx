@@ -139,6 +139,44 @@ def test_plain_get_edge_data_is_a_raw_descriptor(cls_name):
 
 
 @pytest.mark.parametrize(
+    ("cls_name", "method_name", "node", "expected"),
+    [
+        ("DiGraph", "neighbors", "n0", ["n1", "n3"]),
+        ("DiGraph", "successors", "n0", ["n1", "n3"]),
+    ],
+)
+def test_plain_digraph_neighbor_methods_are_raw_live_iterators(
+    cls_name, method_name, node, expected
+):
+    """br-r37-c1-heyxu: ordinary calls stay in the native descriptor."""
+    graph = _build(fnx, cls_name)
+    call = getattr(graph, method_name)
+    assert type(call).__name__ == "builtin_function_or_method"
+    iterator = call(node)
+    assert type(iterator).__name__ == "dict_keyiterator"
+    assert list(iterator) == expected
+    assert method_name not in vars(graph)
+
+
+@pytest.mark.parametrize(
+    ("cls_name", "method_name", "first_edge", "second_edge"),
+    [
+        ("DiGraph", "successors", ("hub", "first"), ("hub", "second")),
+    ],
+)
+def test_plain_digraph_neighbor_iterators_are_live_and_fail_fast(
+    cls_name, method_name, first_edge, second_edge
+):
+    graph = getattr(fnx, cls_name)()
+    graph.add_edge(*first_edge)
+    iterator = getattr(graph, method_name)("hub")
+    graph.add_edge(*second_edge)
+    with pytest.raises(RuntimeError, match="dictionary changed size"):
+        next(iterator)
+    assert list(getattr(graph, method_name)("hub")) == ["first", "second"]
+
+
+@pytest.mark.parametrize(
     ("cls_name", "method_name", "row_kind", "expected"),
     [
         ("MultiGraph", "neighbors", "adj", ["n1", "n2", "n3"]),
@@ -286,6 +324,40 @@ def test_private_storage_installs_has_edge_instance_shadow(
     assert {"has_edge", "get_edge_data"} <= vars(graph).keys()
 
 
+@pytest.mark.parametrize(
+    ("cls_name", "method_name", "private_attr", "rows"),
+    [
+        (
+            "DiGraph",
+            "neighbors",
+            "_succ",
+            {"private-u": {"private-v": {}}, "private-v": {}},
+        ),
+        (
+            "DiGraph",
+            "successors",
+            "_succ",
+            {"private-u": {"private-v": {}}, "private-v": {}},
+        ),
+    ],
+)
+def test_private_storage_installs_digraph_neighbor_instance_shadow(
+    cls_name, method_name, private_attr, rows
+):
+    graph = getattr(fnx, cls_name)()
+    graph.add_edge("native-u", "native-v")
+    graph._node = {"private-u": {}, "private-v": {}}
+    setattr(graph, private_attr, rows)
+
+    call = getattr(graph, method_name)
+    assert type(call).__name__ == "method"
+    assert list(call("private-u")) == ["private-v"]
+    assert method_name in vars(graph)
+    with pytest.raises(nx.NetworkXError) as error:
+        call("missing")
+    assert str(error.value) == "The node missing is not in the digraph."
+
+
 @pytest.mark.parametrize("cls_name", CLASS_NAMES)
 def test_node_view_getitem_is_a_raw_descriptor(cls_name):
     """br-r37-c1-yere4: successful lookup must not cross a Python wrapper."""
@@ -421,13 +493,16 @@ def test_private_node_method_shadows_do_not_alias_copy_or_pickle(cls_name):
         assert other.has_node("native")
         assert not other.has_node("private")
         assert other.number_of_nodes() == other.order() == 1
-        assert not {
+        internal_method_names = {
             "has_node",
             "has_edge",
             "get_edge_data",
             "number_of_nodes",
             "order",
-        } & vars(other).keys()
+        }
+        if cls_name == "DiGraph":
+            internal_method_names.update({"neighbors", "successors"})
+        assert not internal_method_names & vars(other).keys()
 
 
 def test_private_node_install_preserves_user_instance_methods():

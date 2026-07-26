@@ -42867,6 +42867,10 @@ _RAW_GET_EDGE_DATA_METHODS = (
     _MULTIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA,
     _MULTIDIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA,
 )
+_RAW_DIGRAPH_NEIGHBOR_METHODS = (
+    _DIGRAPH_NEIGHBORS,
+    _DIGRAPH_SUCCESSORS,
+)
 
 
 def _assigned_private_has_node(self, n):
@@ -42930,6 +42934,14 @@ def _assigned_private_get_edge_data_multi(
     return edge_data
 
 
+def _assigned_private_digraph_successors(self, n):
+    hash(n)
+    try:
+        return iter(self.succ[n])
+    except KeyError as exc:
+        raise NetworkXError(f"The node {n} is not in the digraph.") from exc
+
+
 def _install_private_method_shadows(self, storage):
     """Restore mapping-aware dispatch only on instances that need it.
 
@@ -42946,6 +42958,11 @@ def _install_private_method_shadows(self, storage):
     br-r37-c1-57ba1 extends it to ``get_edge_data`` under the identical private
     storage predicate; raw methods own endpoint/key hashing and ordinary
     attribute-dict materialization.
+
+    br-r37-c1-heyxu extends it to the directed ``neighbors`` / ``successors``
+    descriptors. Their raw methods return live dict-key iterators; assigned
+    NetworkX stores keep the corresponding mapping-backed iterator only on that
+    instance.
 
     Do not replace a user-supplied instance method or a subclass override. The
     tracked bound-method identities also let deepcopy/pickle distinguish these
@@ -43006,6 +43023,17 @@ def _install_private_method_shadows(self, storage):
             edge_data_fallback,
             _RAW_GET_EDGE_DATA_METHODS,
         )
+        if isinstance(self, DiGraph):
+            install(
+                "neighbors",
+                _assigned_private_digraph_successors,
+                _RAW_DIGRAPH_NEIGHBOR_METHODS,
+            )
+            install(
+                "successors",
+                _assigned_private_digraph_successors,
+                _RAW_DIGRAPH_NEIGHBOR_METHODS,
+            )
     if installed:
         storage[_PRIVATE_NODE_METHOD_SHADOWS] = installed
     else:
@@ -44314,9 +44342,12 @@ Graph.number_of_edges = _private_aware_number_of_edges(_GRAPH_PRIVATE_AWARE_NUMB
 DiGraph.number_of_edges = _private_aware_number_of_edges(_DIGRAPH_PRIVATE_AWARE_NUMBER_OF_EDGES)
 MultiGraph.number_of_edges = _private_aware_number_of_edges(_MULTIGRAPH_PRIVATE_AWARE_NUMBER_OF_EDGES)
 MultiDiGraph.number_of_edges = _private_aware_number_of_edges(_MULTIDIGRAPH_PRIVATE_AWARE_NUMBER_OF_EDGES)
+# br-r37-c1-heyxu: ordinary DiGraphs call the native live-row iterator
+# descriptors directly. Private NetworkX storage restores mapping-aware
+# versions through `_install_private_method_shadows`.
 Graph.neighbors = _private_aware_graph_neighbors()
-DiGraph.neighbors = _private_aware_digraph_successors()
-DiGraph.successors = _private_aware_digraph_successors()
+DiGraph.neighbors = _DIGRAPH_NEIGHBORS
+DiGraph.successors = _DIGRAPH_SUCCESSORS
 DiGraph.predecessors = _private_aware_digraph_predecessors()
 MultiGraph.neighbors = _private_aware_neighbors(_MULTIGRAPH_PRIVATE_AWARE_NEIGHBORS)
 MultiDiGraph.neighbors = _private_aware_neighbors(_MULTIDIGRAPH_PRIVATE_AWARE_NEIGHBORS, attr_name="succ")

@@ -11451,21 +11451,21 @@ impl PyDiGraph {
 
     // ---- Directed-specific queries ----
 
-    /// Return a list of successors of node n.
-    fn successors(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
+    /// Return a live successor-key iterator for node n.
+    fn successors(&mut self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        // br-r37-c1-heyxu: ordinary DiGraph instances expose this raw
+        // descriptor directly. Preserve the eager Python hash contract and
+        // reuse the persistent live successor row without a Python wrapper.
+        n.hash()?;
         let canonical = node_key_to_string(py, n)?;
-        match self.inner.successors(&canonical) {
-            Some(succs) => Ok(succs
-                .into_iter()
-                .map(
-                    |s| self.py_succ_key(py, &canonical, s), /* br-r37-c1-z6uka */
-                )
-                .collect()),
-            None => Err(NodeNotFound::new_err(format!(
-                "The node {} is not in the graph.",
-                n.repr()?
-            ))),
+        if !self.inner.has_node(&canonical) {
+            return Err(NetworkXError::new_err(format!(
+                "The node {} is not in the digraph.",
+                n.str()?
+            )));
         }
+        let row = self.successor_row_dict_by_canonical(py, &canonical)?;
+        Ok(row.bind(py).call_method0("__iter__")?.unbind())
     }
 
     /// Return a list of predecessors of node n.
@@ -11487,7 +11487,7 @@ impl PyDiGraph {
     }
 
     /// Neighbors = successors (matches NetworkX ``DiGraph.neighbors()``).
-    fn neighbors(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
+    fn neighbors(&mut self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<PyObject> {
         self.successors(py, n)
     }
 
