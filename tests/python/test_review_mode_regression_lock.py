@@ -3947,6 +3947,29 @@ def test_has_edge_unhashable_raises_typeerror_match_nx():
     assert MG.has_edge(0, 1, key=0) is True
 
 
+def test_has_edge_raw_descriptor_propagates_custom_hash_errors():
+    """br-r37-c1-6q4wl: wrapper removal must not swallow __hash__ failures."""
+
+    class ExplodingHash:
+        def __hash__(self):
+            raise RuntimeError("has-edge hash probe reached")
+
+    for graph in (
+        fnx.Graph([(0, 1)]),
+        fnx.DiGraph([(0, 1)]),
+        fnx.MultiGraph([(0, 1)]),
+        fnx.MultiDiGraph([(0, 1)]),
+    ):
+        with pytest.raises(RuntimeError, match="has-edge hash probe reached"):
+            graph.has_edge(ExplodingHash(), 1)
+        with pytest.raises(RuntimeError, match="has-edge hash probe reached"):
+            graph.has_edge(0, ExplodingHash())
+
+    for graph in (fnx.MultiGraph([(0, 1)]), fnx.MultiDiGraph([(0, 1)])):
+        with pytest.raises(RuntimeError, match="has-edge hash probe reached"):
+            graph.has_edge(0, 1, key=ExplodingHash())
+
+
 def test_get_edge_data_unhashable_raises_typeerror_match_nx():
     """br-r37-c1-ged-hash: nx propagates ``TypeError: unhashable
     type: 'X'`` from the underlying ``self._adj[u]`` lookup;

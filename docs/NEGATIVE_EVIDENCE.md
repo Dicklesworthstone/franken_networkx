@@ -26341,3 +26341,131 @@ identity, full 512-row return-type/order parity, same-invocation nulls, and
 worker re-enablement were verified. The ledger/bead-only diff passed
 `git diff --check`; UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed for this docs-only result.
+
+## 2026-07-26 CloudyTurtle KEEP (`has_edge` primitives): raw class descriptors with private-storage instance shadows — **1.8044-1.9501x** (`br-r37-c1-6q4wl`)
+
+NEGATIVE-LEDGER-FIRST: before proposing the lever,
+`scripts/perf_ledger_preflight.py --prior-art 'has_edge private-aware wrapper
+raw descriptor private storage instance shadow'` found no direct row. Direct
+searches then read the governing 2026-07-02 identity-int KEEP, its earlier
+string-storage HOLD, the 2026-07-08 PyO3-floor handoff, and the fresh
+`has_node` raw-descriptor sibling in full. The old claim that the private-aware
+wrapper added approximately zero was explicitly superseded by the current
+`has_node` implementation/profile, so this sibling required a fresh exact-path
+profile rather than inheriting either conclusion.
+
+PROFILE ATTRIBUTION / COMPUTED CEILING: before editing, the exact post-KEEP
+package loaded ELF SHA-256
+`25be100cddc5fe3bbc207a60e6ea75382bd502d4f93c5b72d3b4f7ca75fd2e56`
+(13,154,256 bytes) and wrapper SHA-256
+`d9eb050448d81115a07c3afbcdf9abe6edc879ccd93fd17b871064689af3d5db`.
+On drained `vmi1227854`, pinned to core 3, 100,000 warm present-string probes
+per graph class produced:
+
+| exact public path | total profile | Python `has_edge` wrapper self | private-storage guard self | wrapper + guard share | computed Amdahl ceiling |
+|---|---:|---:|---:|---:|---:|
+| `Graph.has_edge` | `0.138607s` | `0.050267s` / **36.3%** | `0.019382s` / 14.0% | **50.3%** | **2.01x** |
+| `DiGraph.has_edge` | `0.154243s` | `0.055481s` / **36.0%** | `0.021330s` / 13.8% | **49.8%** | **1.99x** |
+| `MultiGraph.has_edge` | `0.152180s` | `0.054673s` / **35.9%** | `0.020497s` / 13.5% | **49.4%** | **1.98x** |
+| `MultiDiGraph.has_edge` | `0.165426s` | `0.060328s` / **36.5%** | `0.022822s` / 13.8% | **50.3%** | **2.01x** |
+
+An adjacent 200,000-call wall decomposition on that same loaded artifact
+measured public-wrapper / captured-raw ratios of `1.9796x`, `1.9552x`,
+`2.0892x`, and `2.5748x`, respectively, with identical results. The named
+removable chain therefore cleared the 30% attribution floor on every class;
+this is not a zero-self or speculative boundary-floor lever.
+
+ONE LEVER / COUNTED MECHANISM: ordinary `Graph`, `DiGraph`, `MultiGraph`, and
+`MultiDiGraph` instances now expose their captured raw PyO3 `has_edge`
+descriptors directly. The native methods perform the required eager
+`hash(u)`, `hash(v)`, and multigraph `hash(key)` checks themselves, preserving
+TypeError and arbitrary custom `__hash__` exceptions. Assigning any NetworkX
+private `_node`, `_adj`, `_succ`, or `_pred` store installs the previous
+mapping-aware behavior only in that instance's dictionary. The installer
+identity-checks class and instance methods, so it does not replace subclass or
+user overrides; its existing shadow registry also prevents copy, deepcopy, or
+pickle from aliasing an internally bound method back to the source graph.
+
+Each ordinary call removes exactly one Python `has_edge` frame, one Python
+`_has_networkx_private_storage` frame, one `vars(self)` lookup, and up to four
+private-key membership probes. Hashability work is relocated into the raw
+descriptor, not claimed as removed. The permanent causal control deliberately
+omits the former wrapper's Python hash calls before invoking that same new raw
+descriptor; this avoids double-charging hash work and makes the measured
+wrapper-removal effect strictly conservative relative to the true old path.
+The identity-int edge lookup, canonical storage, private mappings, edge-key
+resolution, and public return contract are otherwise unchanged.
+
+BEHAVIOR ISOMORPHISM / CONFORMANCE: the exact candidate artifact passed
+**1,090/1,090** isolated local focused/broader tests covering all four graph
+classes, raw-descriptor installation and signatures, assigned adjacency and
+successor stores, unhashable endpoints/keys, custom hash exceptions, user
+instance methods, adjacency/view/attribute behavior, and copy/deepcopy/pickle
+isolation. The unchanged package then passed **215/215** focused smoke tests on
+the destination worker. No shared in-tree extension was overwritten: the
+repository pytest timestamp guard examines that stale shared file even when an
+isolated `PYTHONPATH` is supplied, so the exact tests ran from the proof
+package rather than weakening the guard.
+
+PINNED-WORKER SAME-INVOCATION A/A + A/B: strict RCH built the release
+extension on `vmi1153651`. The exact proof package then ran on drained
+`vmi1227854`, pinned to core 3; the worker was immediately re-enabled.
+Canonical line one self-reported loaded ELF SHA-256
+`6831a349adc253f40905f85a5620eb5028f53d73c7a23b194cd8a6bc5dcf1865`
+(13,154,656 bytes). Structured provenance reported wrapper SHA-256
+`bb767e5086f9eb65b9b6a75add97e0787c7880263d0563f716e17b1090252b34`
+and harness SHA-256
+`dfa42b19d1a376c115f7e4de3ff632acdd2f0ee0a01309eae756013b0de1260d`
+(Python 3.13.7, NetworkX 3.6.1).
+
+Every 512-probe row proved an order-preserving digest before timing, ran 21
+interleaved rounds with `min_of=3`, and ran its own A/A null in the same
+invocation. Decisions use only bootstrap median confidence intervals and the
+doubled log-space null margin; CV was reported as provenance and never gated.
+
+| row | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | required floor | decision |
+|---|---:|---:|---:|---:|---|
+| `Graph.has_edge` conservative wrapper / raw | **`1.9501x`** | `1.8786-1.9765x` | `0.9424-1.0891x` | `1.1861x` | **DECIDABLE KEEP** |
+| NetworkX / FNX `Graph.has_edge` | `0.3441x` | `0.3342-0.3867x` | `1.0038-1.0246x` | `1.0499x` | **DECIDABLE residual loss** |
+| `DiGraph.has_edge` conservative wrapper / raw | **`1.8250x`** | `1.7318-1.9863x` | `0.7920-0.9942x` | `1.5944x` | **DECIDABLE KEEP** |
+| NetworkX / FNX `DiGraph.has_edge` | `0.3909x` | `0.3639-0.4040x` | `0.9721-1.0301x` | `1.0610x` | **DECIDABLE residual loss** |
+| `MultiGraph.has_edge` conservative wrapper / raw | **`1.8044x`** | `1.6327-1.9936x` | `0.9506-1.0279x` | `1.1067x` | **DECIDABLE KEEP** |
+| NetworkX / FNX `MultiGraph.has_edge` | `0.4150x` | `0.3852-0.4502x` | `0.9936-1.0455x` | `1.0930x` | **DECIDABLE residual loss** |
+| `MultiDiGraph.has_edge` conservative wrapper / raw | **`1.9262x`** | `1.9140-1.9340x` | `0.9952-1.0198x` | `1.0400x` | **DECIDABLE KEEP** |
+| NetworkX / FNX `MultiDiGraph.has_edge` | `0.4510x` | `0.4485-0.4560x` | `1.0017-1.0125x` | `1.0252x` | **DECIDABLE residual loss** |
+
+RESULT: KEEP. All four conservative mechanism rows clear their own median-CI
+floors. The common primitive is approximately 1.80-1.95x faster than the
+previous wrapper shape, but it remains 2.22-2.91x slower than NetworkX because
+the post-wrapper path still crosses the PyO3 boundary. This row does not claim
+to close that residual and does not revive the disproven generic
+string-node-floor theory.
+
+RETRY PREDICATE: do not add another Python `has_edge` wrapper, private-storage
+guard cache, or identity-int membership layer. Reopen node-key interning on
+this surface only if a fresh post-KEEP pinned-worker profile attributes at
+least **30% of raw-call end-to-end time** to
+`node_key_to_string`/canonicalization and that same invocation's doubled
+log-space A/A floor is below **`1.02x`**. Reopen the remaining boundary floor
+without that attribution only for a class-safe C-level descriptor or storage
+design that eliminates the PyO3 crossing for the existing public call (no new
+batch API may be represented as accelerating user-level `G.has_edge(u, v)`).
+Any retry must retain eager endpoint/key hash exceptions and the
+private-storage instance-shadow, copy, deepcopy, pickle, subclass, and user
+method locks above.
+
+QUALITY GATES: `cargo fmt --check`, Python byte-compilation, `git diff
+--check`, and the exact Python proof suites passed. Strict-remote
+`cargo check --workspace --all-targets -j 2` passed on `vmi1153651`.
+Mandatory strict clippy reproduced exactly the established two dead helpers,
+three `collapsible_if` sites, and one `chunks_exact_to_as_chunks` test lint;
+the filtered deny-warnings rerun allowing only those six off-lane categories
+passed. The release build used `RCH_REQUIRE_REMOTE=1` and completed on
+`vmi1153651`; no local compilation fallback occurred. UBS completed on both
+changed Rust files with zero critical findings and on the permanent harness
+with zero critical/warning findings. Its full-file regression-test scan
+reported only the existing assertion/signature-string heuristic inventory;
+direct changed-line review found no new critical. The bounded 300-second scan
+of the 61k-line wrapper reached the known Python-module timeout without
+emitting a source finding. Markdown/JSONL have no UBS scanner, so no scanner
+pass is claimed for the ledger or bead row.

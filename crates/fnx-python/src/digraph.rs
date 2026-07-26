@@ -4931,6 +4931,13 @@ impl PyMultiDiGraph {
         v: &Bound<'_, PyAny>,
         key: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<bool> {
+        // br-r37-c1-6q4wl: preserve the former wrapper's eager hash contract in
+        // the raw descriptor, including custom __hash__ exceptions for key=.
+        u.hash()?;
+        v.hash()?;
+        if let Some(edge_key) = key {
+            edge_key.hash()?;
+        }
         // br-r37-c1-04z53 (cc): identity-int fast path (mirror PyGraph::has_edge
         // cc-hasedgeintidx) for the keyless directed `has_edge(u, v)` — exact
         // int u,v at their own index resolve straight by index, skipping 2
@@ -11640,6 +11647,10 @@ impl PyDiGraph {
         u: &Bound<'_, PyAny>,
         v: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
+        // br-r37-c1-6q4wl: preserve NetworkX's hashability contract inside the
+        // raw descriptor so the ordinary call path needs no Python shim.
+        u.hash()?;
+        v.hash()?;
         // br-r37-c1-04z53 (cc): identity-int fast path (mirror PyGraph::has_edge
         // cc-hasedgeintidx) — exact int u,v at their own index resolve straight
         // by index (source-major), skipping 2 `i.to_string()` heap allocs.

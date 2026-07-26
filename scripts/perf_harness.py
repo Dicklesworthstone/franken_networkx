@@ -37,6 +37,7 @@ Usage:
     python3 scripts/perf_harness.py digraph-descriptors
     python3 scripts/perf_harness.py multidigraph-descriptors
     python3 scripts/perf_harness.py node-primitives
+    python3 scripts/perf_harness.py edge-primitives
     python3 scripts/perf_harness.py nodeview-getitem
     python3 scripts/perf_harness.py lazy-rows
     python3 scripts/perf_harness.py marshaling
@@ -1133,6 +1134,69 @@ def suite_node_primitives():
     ]
 
 
+def suite_edge_primitives():
+    """br-r37-c1-6q4wl: raw has_edge descriptors and public residuals."""
+    import networkx as nx
+    import franken_networkx as fnx
+
+    probes = [(str(i), str(i + 1)) for i in range(512)]
+    rows = []
+    classes = (
+        (nx.Graph, fnx.Graph, fnx._GRAPH_PRIVATE_AWARE_HAS_EDGE),
+        (nx.DiGraph, fnx.DiGraph, fnx._DIGRAPH_PRIVATE_AWARE_HAS_EDGE),
+        (nx.MultiGraph, fnx.MultiGraph, fnx._MULTIGRAPH_PRIVATE_AWARE_HAS_EDGE),
+        (
+            nx.MultiDiGraph,
+            fnx.MultiDiGraph,
+            fnx._MULTIDIGRAPH_PRIVATE_AWARE_HAS_EDGE,
+        ),
+    )
+    for nx_cls, fnx_cls, raw_descriptor in classes:
+        gnx, gfx = nx_cls(), fnx_cls()
+        nodes = [str(i) for i in range(2000)]
+        edges = [(str(i), str(i + 1)) for i in range(1999)]
+        gnx.add_nodes_from(nodes)
+        gfx.add_nodes_from(nodes)
+        gnx.add_edges_from(edges)
+        gfx.add_edges_from(edges)
+        raw = raw_descriptor.__get__(gfx, fnx_cls)
+
+        def conservative_control(u, v, *, graph=gfx, raw_call=raw):
+            # The former wrapper also hash-checked u/v in Python. The candidate
+            # raw descriptor now performs those checks itself, so retaining
+            # them here would double-charge the control. Measure only the
+            # wrapper frame + private-storage probe before the same raw call:
+            # this is strictly cheaper than the true old path and therefore a
+            # conservative mechanism gate.
+            if fnx._has_networkx_private_storage(graph):
+                raise AssertionError("ordinary benchmark graph gained private storage")
+            return raw_call(u, v)
+
+        rows.extend(
+            [
+                (
+                    f"{fnx_cls.__name__}.has_edge x512 [conservative-wrapper/raw]",
+                    lambda probes=probes, call=conservative_control: sum(
+                        call(u, v) for u, v in probes
+                    ),
+                    lambda probes=probes, graph=gfx: sum(
+                        graph.has_edge(u, v) for u, v in probes
+                    ),
+                ),
+                (
+                    f"{fnx_cls.__name__}.has_edge x512 [nx/fnx]",
+                    lambda probes=probes, graph=gnx: sum(
+                        graph.has_edge(u, v) for u, v in probes
+                    ),
+                    lambda probes=probes, graph=gfx: sum(
+                        graph.has_edge(u, v) for u, v in probes
+                    ),
+                ),
+            ]
+        )
+    return rows
+
+
 def suite_nodeview_getitem():
     """br-r37-c1-yere4: intern warm public keys in each live NodeView."""
     gnx, gfx = _build_pair(2000, 8000, seed=7, weighted=True)
@@ -1290,6 +1354,7 @@ SUITES = {
     "digraph-descriptors": suite_digraph_descriptors,
     "multidigraph-descriptors": suite_multidigraph_descriptors,
     "node-primitives": suite_node_primitives,
+    "edge-primitives": suite_edge_primitives,
     "nodeview-getitem": suite_nodeview_getitem,
     "lazy-rows": suite_lazy_rows,
     "marshaling": suite_marshaling,

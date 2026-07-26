@@ -8432,6 +8432,15 @@ impl PyMultiGraph {
         v: &Bound<'_, PyAny>,
         key: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<bool> {
+        // br-r37-c1-6q4wl: keep NetworkX's hashability contract inside the raw
+        // descriptor so ordinary graphs do not need a Python wrapper solely to
+        // call hash(u), hash(v), and hash(key).  Propagate custom __hash__
+        // exceptions before any lookup, exactly as the former wrapper did.
+        u.hash()?;
+        v.hash()?;
+        if let Some(edge_key) = key {
+            edge_key.hash()?;
+        }
         // br-r37-c1-04z53 (cc): identity-int fast path (mirror of
         // PyGraph::has_edge cc-hasedgeintidx) for the keyless
         // `MultiGraph.has_edge(u, v)` — the common shape. Exact int u,v (bool
@@ -12345,6 +12354,11 @@ impl PyGraph {
         u: &Bound<'_, PyAny>,
         v: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
+        // br-r37-c1-6q4wl: the raw descriptor owns NetworkX's hashability
+        // contract, allowing ordinary graphs to bypass the mapping-aware
+        // Python wrapper without swallowing TypeError/custom __hash__ errors.
+        u.hash()?;
+        v.hash()?;
         // cc-hasedgeintidx: identity-int fast path. `G.has_edge(u, v)` on int nodes
         // otherwise pays 2 `i.to_string()` heap allocs + 2 String-hash
         // `get_index_of` (vs nx's 2 int-dict lookups). When u and v are EXACT ints

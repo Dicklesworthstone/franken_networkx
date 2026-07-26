@@ -42747,6 +42747,12 @@ _RAW_NUMBER_OF_NODES_METHODS = (
     _MULTIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES,
     _MULTIDIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES,
 )
+_RAW_HAS_EDGE_METHODS = (
+    _GRAPH_PRIVATE_AWARE_HAS_EDGE,
+    _DIGRAPH_PRIVATE_AWARE_HAS_EDGE,
+    _MULTIGRAPH_PRIVATE_AWARE_HAS_EDGE,
+    _MULTIDIGRAPH_PRIVATE_AWARE_HAS_EDGE,
+)
 
 
 def _assigned_private_has_node(self, n):
@@ -42757,14 +42763,48 @@ def _assigned_private_number_of_nodes(self):
     return len(self)
 
 
-def _install_private_node_method_shadows(self, storage):
-    """Restore private-storage dispatch only on instances that need it.
+def _assigned_private_has_edge_simple(self, u, v):
+    hash(u)
+    hash(v)
+    if u not in self:
+        return False
+    try:
+        neighbors = self.adj[u]
+    except KeyError:
+        return False
+    return v in neighbors
+
+
+def _assigned_private_has_edge_multi(self, u, v, key=None):
+    hash(u)
+    hash(v)
+    if key is not None:
+        hash(key)
+    if u not in self:
+        return False
+    try:
+        neighbors = self.adj[u]
+    except KeyError:
+        return False
+    if v not in neighbors:
+        return False
+    if key is not None:
+        return key in neighbors[v]
+    return True
+
+
+def _install_private_method_shadows(self, storage):
+    """Restore mapping-aware dispatch only on instances that need it.
 
     br-r37-c1-qmi5w: ordinary graphs install the raw PyO3 ``has_node`` and
     ``number_of_nodes`` descriptors on their classes, avoiding a Python frame
     on every primitive call. NetworkX utilities can replace ``G._node`` with a
     Python mapping, though, so that setter shadows the raw descriptors on that
     one instance with the old mapping-aware behavior.
+
+    br-r37-c1-6q4wl extends the same mechanism to ``has_edge``. Any assigned
+    NetworkX private store makes edge membership mapping-backed, while ordinary
+    graphs call the raw descriptor whose Rust body now owns the hash contract.
 
     Do not replace a user-supplied instance method or a subclass override. The
     tracked bound-method identities also let deepcopy/pickle distinguish these
@@ -42791,13 +42831,30 @@ def _install_private_node_method_shadows(self, storage):
         storage[name] = bound
         installed[name] = bound
 
-    install("has_node", _assigned_private_has_node, _RAW_HAS_NODE_METHODS)
-    install(
-        "number_of_nodes",
-        _assigned_private_number_of_nodes,
-        _RAW_NUMBER_OF_NODES_METHODS,
-    )
-    install("order", _assigned_private_number_of_nodes, _RAW_NUMBER_OF_NODES_METHODS)
+    if _PRIVATE_NODE_OVERRIDE in storage:
+        install("has_node", _assigned_private_has_node, _RAW_HAS_NODE_METHODS)
+        install(
+            "number_of_nodes",
+            _assigned_private_number_of_nodes,
+            _RAW_NUMBER_OF_NODES_METHODS,
+        )
+        install(
+            "order",
+            _assigned_private_number_of_nodes,
+            _RAW_NUMBER_OF_NODES_METHODS,
+        )
+    if (
+        _PRIVATE_NODE_OVERRIDE in storage
+        or _PRIVATE_ADJ_OVERRIDE in storage
+        or _PRIVATE_SUCC_OVERRIDE in storage
+        or _PRIVATE_PRED_OVERRIDE in storage
+    ):
+        fallback = (
+            _assigned_private_has_edge_multi
+            if isinstance(self, (MultiGraph, MultiDiGraph))
+            else _assigned_private_has_edge_simple
+        )
+        install("has_edge", fallback, _RAW_HAS_EDGE_METHODS)
     if installed:
         storage[_PRIVATE_NODE_METHOD_SHADOWS] = installed
     else:
@@ -42815,8 +42872,7 @@ def _set_private_override(self, attr_name, value):
             storage.pop(name, None)
         storage.pop(_DESCRIPTOR_CACHED_VIEWS, None)
     setattr(self, attr_name, value)
-    if attr_name == _PRIVATE_NODE_OVERRIDE:
-        _install_private_node_method_shadows(self, storage)
+    _install_private_method_shadows(self, storage)
 
 
 class _CachedViewDescriptor:
@@ -44048,19 +44104,17 @@ for _cls, _accessor in (
         setattr(_cls, _accessor, _CachedViewDescriptor(_installed.fget, _accessor))
 del _cls, _accessor, _installed
 
-# br-r37-c1-qmi5w: the private-aware Python wrapper consumed 146.4ns of a
-# 262.6ns ``Graph.has_node(str)`` call (56% of wall time), while the raw PyO3
-# descriptor took 116.2ns end-to-end. Install the raw descriptor for ordinary
-# graphs; ``_set_private_override`` restores the mapping-aware Python behavior
-# per instance if a NetworkX utility assigns ``G._node``.
+# br-r37-c1-qmi5w / br-r37-c1-6q4wl: install raw primitive descriptors for
+# ordinary graphs. ``_set_private_override`` restores mapping-aware behavior
+# per instance if a NetworkX utility assigns one of its private stores.
 Graph.has_node = _GRAPH_PRIVATE_AWARE_HAS_NODE
 DiGraph.has_node = _DIGRAPH_PRIVATE_AWARE_HAS_NODE
 MultiGraph.has_node = _MULTIGRAPH_PRIVATE_AWARE_HAS_NODE
 MultiDiGraph.has_node = _MULTIDIGRAPH_PRIVATE_AWARE_HAS_NODE
-Graph.has_edge = _private_aware_has_edge_simple(_GRAPH_PRIVATE_AWARE_HAS_EDGE)
-DiGraph.has_edge = _private_aware_has_edge_simple(_DIGRAPH_PRIVATE_AWARE_HAS_EDGE)
-MultiGraph.has_edge = _private_aware_has_edge_multi(_MULTIGRAPH_PRIVATE_AWARE_HAS_EDGE)
-MultiDiGraph.has_edge = _private_aware_has_edge_multi(_MULTIDIGRAPH_PRIVATE_AWARE_HAS_EDGE)
+Graph.has_edge = _GRAPH_PRIVATE_AWARE_HAS_EDGE
+DiGraph.has_edge = _DIGRAPH_PRIVATE_AWARE_HAS_EDGE
+MultiGraph.has_edge = _MULTIGRAPH_PRIVATE_AWARE_HAS_EDGE
+MultiDiGraph.has_edge = _MULTIDIGRAPH_PRIVATE_AWARE_HAS_EDGE
 
 
 # br-r37-c1-nv-hash: NodeView.__contains__ silently returned False

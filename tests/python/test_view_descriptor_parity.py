@@ -119,6 +119,47 @@ def test_plain_node_primitives_are_raw_descriptors(cls_name):
 
 
 @pytest.mark.parametrize("cls_name", CLASS_NAMES)
+def test_plain_has_edge_is_a_raw_descriptor(cls_name):
+    """br-r37-c1-6q4wl: ordinary edge probes must not pay a Python shim."""
+    graph = _build(fnx, cls_name)
+    assert type(graph.has_edge).__name__ == "builtin_function_or_method"
+    assert graph.has_edge("n0", "n1")
+    assert not graph.has_edge("n0", "missing")
+    assert "has_edge" not in vars(graph)
+
+
+@pytest.mark.parametrize(
+    ("cls_name", "private_attr"),
+    [
+        ("Graph", "_adj"),
+        ("DiGraph", "_succ"),
+        ("MultiGraph", "_adj"),
+        ("MultiDiGraph", "_succ"),
+    ],
+)
+def test_private_storage_installs_has_edge_instance_shadow(
+    cls_name, private_attr
+):
+    graph = getattr(fnx, cls_name)()
+    graph.add_edge("native-u", "native-v")
+    graph._node = {"private-u": {}, "private-v": {}}
+    row_value = {0: {}} if "Multi" in cls_name else {}
+    setattr(
+        graph,
+        private_attr,
+        {
+            "private-u": {"private-v": row_value},
+            "private-v": {},
+        },
+    )
+
+    assert graph.has_edge("private-u", "private-v")
+    assert not graph.has_edge("native-u", "native-v")
+    assert type(graph.has_edge).__name__ == "method"
+    assert "has_edge" in vars(graph)
+
+
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
 def test_node_view_getitem_is_a_raw_descriptor(cls_name):
     """br-r37-c1-yere4: successful lookup must not cross a Python wrapper."""
     gnx, gfx = _pair(cls_name)
@@ -253,7 +294,12 @@ def test_private_node_method_shadows_do_not_alias_copy_or_pickle(cls_name):
         assert other.has_node("native")
         assert not other.has_node("private")
         assert other.number_of_nodes() == other.order() == 1
-        assert not {"has_node", "number_of_nodes", "order"} & vars(other).keys()
+        assert not {
+            "has_node",
+            "has_edge",
+            "number_of_nodes",
+            "order",
+        } & vars(other).keys()
 
 
 def test_private_node_install_preserves_user_instance_methods():
@@ -267,6 +313,19 @@ def test_private_node_install_preserves_user_instance_methods():
 
     assert graph.has_node is custom
     assert graph.has_node("sentinel")
+
+
+def test_private_storage_install_preserves_user_has_edge_method():
+    graph = fnx.Graph()
+
+    def custom(u, v):
+        return (u, v) == ("sentinel-u", "sentinel-v")
+
+    graph.has_edge = custom
+    graph._adj = {"private-u": {"private-v": {}}}
+
+    assert graph.has_edge is custom
+    assert graph.has_edge("sentinel-u", "sentinel-v")
 
 
 def test_private_override_state_is_never_memoised():
