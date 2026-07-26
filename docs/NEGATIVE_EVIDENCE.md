@@ -27638,3 +27638,96 @@ own non-zero profile attribution, computed Amdahl ceiling, and same-invocation
 nulls rather than inheriting this verdict. Every final candidate must
 self-report its loaded ELF as line one and place its bootstrap median CI
 wholly beyond its own doubled-null floor.
+
+## 2026-07-26 CloudyTurtle REJECT (directed/multigraph `NodeView.__contains__` raw-slot cutover): repeated A/A admission does not sustain the no-hash upper bound — **NO SOURCE EDIT** (`br-r37-c1-ewvwr`)
+
+NEGATIVE-LEDGER-FIRST / HAND ADJUDICATION: before profiling each sibling,
+`scripts/perf_ledger_preflight.py --candidate` searched `DiGraph`,
+`MultiGraph`, and `MultiDiGraph` `NodeView.__contains__` membership with the
+native-hash-guard lever. The only match was the immediately preceding
+ordinary-`Graph` KEEP. Its retry predicate explicitly leaves these three
+siblings undecided until each has its own non-zero profile attribution,
+computed Amdahl ceiling, and same-invocation null. No earlier row decided the
+three surfaces.
+
+EXACT-CURRENT PROFILE / EXECUTABLE CEILING: the exact post-Graph-KEEP
+artifact profiled 400,000 `DiGraph` probes and 200,000 probes for each
+multigraph type. The named Python `__contains__` wrapper carried
+`0.143s/0.141s` self of `0.172s/0.170s` total for DiGraph present/missing,
+`0.070s/0.071s` of `0.086s/0.086s` for MultiGraph, and
+`0.071s/0.063s` of `0.086s/0.077s` for MultiDiGraph. The separately reported
+`hash()` calls were `0.029s`, `0.015s`, and `0.015s/0.013s`, respectively.
+cProfile rolls the unreported native descriptor call into its Python caller,
+so those self-time shares are named-target evidence but not honest Amdahl
+ceilings by themselves.
+
+The executable ceiling therefore compared the current hash-plus-Python-frame
+path against the existing raw native descriptor. This is a deliberately
+optimistic upper bound: it removes both the Python frame and its mandatory
+hash, whereas an isomorphic candidate must put the hash back inside Rust.
+Consequently, an upper bound that does not clear its own null cannot justify a
+source edit.
+
+SAME-PROCESS A/A + UPPER-BOUND SCREEN: the already-built immutable package
+was copied into the reusable `/data/tmp/franken_networkx-measure-current`
+measurement tree on idle `vmi1152480`; no Cargo command or new Cargo target
+ran. The worker was drained, the process was pinned to core 3, and line one
+self-reported:
+
+`bench_elf_sha256=a6dcc1f75f6f2e004e18f27b641d195f3a48b2473c3787acc011293bbd9f26c0
+(13153768 bytes)
+/data/tmp/franken_networkx-measure-current/franken_networkx/_fnx.abi3.so`
+
+Structured provenance recorded wrapper SHA-256
+`5f0635bfabefb100a83adba1a81d7d5e133f8759e7ff31acce4b9bc1a375d71e`,
+harness SHA-256
+`00b82448f3356df09dc996cc7dd01738f5a1c387151ea0390ccdda7c55e6ffd4`,
+Python 3.13.7, NetworkX 3.6.1, and header load average
+`0.3564/0.8696/0.9268`. Every row proved result parity, then ran 21
+interleaved `min_of=3` rounds with an independent A/A null in the same
+invocation. Only the bootstrap median CI and doubled log-space null margin
+govern; CV does not gate.
+
+| raw no-hash upper-bound row | median A/B | A/B 95% median CI | same-invocation A/A median / 95% median CI | doubled-null floor | admission |
+|---|---:|---:|---:|---:|---|
+| DiGraph present | `1.0922x` | `1.0123-1.1613x` | `1.0323x` / `0.9725-1.0726x` | **`1.1505x`** | **REJECT / inside null** |
+| DiGraph missing | `1.0449x` | `0.9805-1.1117x` | `1.0358x` / `0.9651-1.1052x` | **`1.2215x`** | **REJECT / inside null** |
+| MultiGraph present | `1.0869x` | `1.0166-1.1122x` | `0.9983x` / `0.9921-1.0007x` | `1.0160x` | provisional only |
+| MultiGraph missing | `1.1181x` | `1.0454-1.2567x` | `1.0200x` / `0.9245-1.0817x` | **`1.1701x`** | **REJECT / inside null** |
+| MultiDiGraph present | `1.0763x` | `1.0665-1.0885x` | `0.9783x` / `0.9704-1.0142x` | `1.0619x` | narrow provisional only |
+| MultiDiGraph missing | `1.1299x` | `1.0973-1.1798x` | `1.0138x` / `0.8770-1.1105x` | **`1.3002x`** | **REJECT / inside null** |
+
+Because the only clean MultiGraph row was narrow and the upper bound omitted
+required work, a second preregistered run was required before editing. Its
+header load average was `0.3872/0.7734/0.8887` on the same drained, pinned
+worker and the same loaded ELF:
+
+| MultiGraph confirmation row | median A/B | A/B 95% median CI | same-invocation A/A median / 95% median CI | doubled-null floor | admission |
+|---|---:|---:|---:|---:|---|
+| present raw no-hash upper bound | `1.0694x` | `1.0411-1.1190x` | `0.9817x` / `0.9464-1.0543x` | **`1.1164x`** | **REJECT / not reproduced** |
+| missing raw no-hash upper bound | `1.0792x` | `1.0669-1.0864x` | `0.9815x` / `0.9267-1.0206x` | **`1.1644x`** | **REJECT / inside null** |
+
+RESULT: **VALID-AB REJECT / NO SOURCE EDIT.** DiGraph fails on both keys,
+MultiGraph's one provisional result fails immediate confirmation, and the
+MultiDiGraph present result is too narrow to spend a build on a candidate
+that must restore work excluded from the measured upper bound. Both benchmark
+invocations recorded A/A nulls, so this row is not `VOID-NONULL`; no verdict
+uses CV. The worker was immediately re-enabled and probed healthy after each
+invocation.
+
+RETRY PREDICATE: do not port the Graph change to another NodeView class or
+rerun this vein immediately. Reopen one sibling only after two consecutive
+preregistered raw-upper screens on one drained, pinned worker each have a
+doubled-log A/A floor below **`1.03x`** and place the causal bootstrap median
+CI wholly above **`1.08x`**. The implementation must then restore the
+mandatory hash inside the native slot, preserve unhashable-key `TypeError`,
+equal-but-nonidentical keys, canonical public display identity, private-store
+fallbacks, and mutation liveness. Its exact final process must self-report the
+loaded ELF and place the final A/B bootstrap median CI wholly beyond its own
+same-invocation doubled-null floor. Until those predicates hold, switch to a
+different lazy-view family.
+
+QUALITY / CLOSEOUT: this was an exact-artifact profile and timing screen only;
+no product, test, or harness source changed. `git diff --check` covers the
+ledger-only change. No Cargo command ran, and UBS has no Markdown scanner, so
+no UBS result is claimed for this row.
