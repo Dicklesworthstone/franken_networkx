@@ -183,6 +183,57 @@ def test_accessor_assignment_matches_networkx(accessor):
     assert getattr(gfx, accessor) == getattr(gnx, accessor) == "SENTINEL"
 
 
+DIRECTED_ACCESSORS = ["in_degree", "out_degree", "in_edges", "out_edges"]
+
+
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("accessor", DIRECTED_ACCESSORS)
+def test_directed_accessor_identity_matches_networkx(cls_name, accessor):
+    """br-r37-c1-hwu8a: nx caches all four; fnx's edge views used to rebuild.
+
+    ``G.out_edges is G.out_edges`` was False under the old per-access
+    ``property`` getter while nx's ``cached_property`` makes it True.
+    """
+    gnx, gfx = _pair(cls_name)
+    assert (getattr(gfx, accessor) is getattr(gfx, accessor)) is (
+        getattr(gnx, accessor) is getattr(gnx, accessor)
+    )
+    assert type(getattr(gfx, accessor)).__name__ == type(getattr(gnx, accessor)).__name__
+
+
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("accessor", DIRECTED_ACCESSORS)
+def test_directed_accessor_content_matches_networkx(cls_name, accessor):
+    gnx, gfx = _pair(cls_name)
+    assert sorted(map(str, getattr(gfx, accessor))) == sorted(map(str, getattr(gnx, accessor)))
+    assert len(getattr(gfx, accessor)) == len(getattr(gnx, accessor))
+
+
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("accessor", DIRECTED_ACCESSORS)
+def test_directed_accessor_view_is_live(cls_name, accessor):
+    """A memoised edge/degree view must observe later mutation."""
+    gnx, gfx = _pair(cls_name)
+    view_fx, view_nx = getattr(gfx, accessor), getattr(gnx, accessor)
+    gfx.add_edge("fresh_u", "fresh_v", weight=3)
+    gnx.add_edge("fresh_u", "fresh_v", weight=3)
+    assert sorted(map(str, view_fx)) == sorted(map(str, view_nx))
+    gfx.remove_node("n1")
+    gnx.remove_node("n1")
+    assert sorted(map(str, view_fx)) == sorted(map(str, view_nx))
+
+
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+def test_directed_accessor_copy_is_not_aliased(cls_name):
+    _, gfx = _pair(cls_name)
+    for accessor in DIRECTED_ACCESSORS:
+        getattr(gfx, accessor)
+    other = copy.deepcopy(gfx)
+    other.add_edge("only_u", "only_v")
+    assert ("only_u", "only_v") in {(u, v) for u, v, *_ in other.out_edges}
+    assert ("only_u", "only_v") not in {(u, v) for u, v, *_ in gfx.out_edges}
+
+
 @pytest.mark.parametrize("cls_name", CLASS_NAMES)
 def test_randomized_mutation_differential(cls_name):
     """Accessor surface stays byte-identical to nx across mutation sequences."""

@@ -43787,6 +43787,43 @@ DiGraph.degree = _private_aware_degree(_DIGRAPH_PRIVATE_AWARE_DEGREE)
 MultiGraph.degree = _private_aware_degree(_MULTIGRAPH_PRIVATE_AWARE_DEGREE)
 MultiDiGraph.degree = _private_aware_degree(_MULTIDIGRAPH_PRIVATE_AWARE_DEGREE)
 
+# br-r37-c1-hwu8a (cc): the DIRECTED siblings of the accessors converted above.
+# `in_degree`/`out_degree`/`in_edges`/`out_edges` were still plain `property`
+# objects, so — exactly like `nodes`/`edges`/`degree` before br-r37-c1-wbwkb —
+# their Python body re-ran on every access while nx serves all four from
+# `@cached_property`. Measured per-access before this change: `in_degree` 0.365x,
+# `out_degree` 0.371x, `in_edges` 0.290x, `out_edges` 0.293x of nx (DiGraph;
+# MultiDiGraph 0.244-0.394x), against 0.90-1.05x for the already-converted
+# accessors on the same graphs.
+#
+# The build closures are reused verbatim (`fget` of the property being replaced),
+# so the view each accessor returns is unchanged. For `in_degree`/`out_degree`
+# that view was already memoised in `_fnx_view_{in,out}_degree`, so identity is
+# unchanged; for `in_edges`/`out_edges` the getter built a FRESH
+# `_DiEdgeMethodView` per access, which made `G.out_edges is G.out_edges` False
+# where nx's cached_property makes it True — memoising fixes that divergence.
+# Sharing one instance is safe: `_DiEdgeMethodView` is `__slots__ =
+# ("_graph", "_method")` with no mutable per-instance state; every method reads
+# through to the graph.
+#
+# Only setter-less accessors may be converted (a setter means the attribute
+# installs networkx private storage and must stay a DATA descriptor), so the
+# guard below skips anything carrying one rather than silently dropping it.
+for _cls, _accessor in (
+    (DiGraph, "in_degree"),
+    (DiGraph, "out_degree"),
+    (MultiDiGraph, "in_degree"),
+    (MultiDiGraph, "out_degree"),
+    (DiGraph, "in_edges"),
+    (DiGraph, "out_edges"),
+    (MultiDiGraph, "in_edges"),
+    (MultiDiGraph, "out_edges"),
+):
+    _installed = _cls.__dict__.get(_accessor)
+    if isinstance(_installed, property) and _installed.fset is None:
+        setattr(_cls, _accessor, _CachedViewDescriptor(_installed.fget, _accessor))
+del _cls, _accessor, _installed
+
 Graph.has_node = _private_aware_has_node(_GRAPH_PRIVATE_AWARE_HAS_NODE)
 DiGraph.has_node = _private_aware_has_node(_DIGRAPH_PRIVATE_AWARE_HAS_NODE)
 MultiGraph.has_node = _private_aware_has_node(_MULTIGRAPH_PRIVATE_AWARE_HAS_NODE)

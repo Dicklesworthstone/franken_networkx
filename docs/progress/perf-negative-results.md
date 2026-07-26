@@ -1006,3 +1006,66 @@ REMAINING on this surface, with retry predicates:
   (`hash(node)` + try/except re-raise, `__init__.py:6475`), which exists for KeyError-key fidelity
   and unhashable-node TypeError parity. Retry only with a design that keeps both contracts without
   the per-call `hash()` — e.g. moving the key-fidelity re-raise into the Rust getter.
+
+## 2026-07-25 BlackThrush (cc) KEEP (br-r37-c1-hwu8a): mirror the cached view descriptor onto the DIRECTED accessor siblings — **3.55-3.82x** same-binary, plus an identity divergence fixed
+
+Sibling sweep after br-r37-c1-wbwkb. That lever converted `nodes`/`edges`/`degree`; the DIRECTED
+accessors were left as plain `property` objects, so they still re-ran their Python body per access.
+Measured per-access on HEAD with the first lever already in (same graphs, same process), vs genuine
+networkx 3.6.1:
+
+| accessor | DiGraph before | MultiDiGraph before | after (both) |
+|---|---:|---:|---:|
+| `in_degree` | 0.365x | 0.370x | **0.787-0.844x** |
+| `out_degree` | 0.371x | 0.394x | **0.848-0.864x** |
+| `in_edges` | 0.290x | 0.244x | **0.838-0.842x** |
+| `out_edges` | 0.293x | 0.311x | **0.854-0.864x** |
+| (control: already-converted `nodes`/`degree`) | 0.90-1.05x | 0.98-1.05x | unchanged |
+
+The already-converted accessors sitting at 0.90-1.05x on the SAME graphs, while the unconverted
+siblings sat at 0.244-0.394x, is the attribution: same mechanism, same fix.
+
+ONE LEVER: re-install the four accessors as `_CachedViewDescriptor`, reusing each replaced
+property's own `fget` verbatim so the view built is unchanged. The loop skips any accessor carrying
+a setter (a setter means the attribute installs networkx private storage and must remain a DATA
+descriptor) rather than silently dropping it.
+
+SAME-BINARY SAME-PROCESS INTERLEAVED A/B + NULL, 21 paired rounds, `min_of=3`, DiGraph n=2000
+m=8000, `_fnx` sha256 `26c802ed8013d1618...`:
+
+| row | ORIG/CAND | null CI | verdict |
+|---|---:|---|---|
+| bare `G.out_edges` x500 | **3.8217x** | 0.9899-1.0045 | DECIDABLE |
+| bare `G.in_edges` x500 | **3.5491x** | 0.9935-1.0044 | DECIDABLE |
+| `len(G.out_edges)` x500 | **1.3906x** | 0.9988-1.0020 | DECIDABLE |
+| `G.in_degree[n]` x500 | **1.2853x** | 0.9989-1.0012 | DECIDABLE |
+| `list(G.out_edges(data=True))` x1 | 1.0035x | 0.9948-1.0160 | UNDECIDABLE (payload-dominated control) |
+
+PARITY FIX, not just perf: `_make_edge_method_view_property` built a FRESH `_DiEdgeMethodView` on
+every access, so `G.out_edges is G.out_edges` was **False** in fnx while nx's `cached_property`
+makes it **True** — a divergence nobody had caught. Memoising fixes it. Sharing one instance is
+safe: `_DiEdgeMethodView` is `__slots__ = ("_graph", "_method")` with no mutable per-instance
+state; every method reads through to the graph. `in_degree`/`out_degree` already memoised into
+`_fnx_view_{in,out}_degree`, so their identity is unchanged.
+
+VERIFICATION. `tests/python/test_view_descriptor_parity.py` extended to 70 checks (identity vs nx,
+content, liveness across add_edge/remove_node, deepcopy non-aliasing for all four directed
+accessors) — **70/70 green**; against a PRE-CHANGE package the same lock fails **7/70** (3
+assignment-parity + 4 directed-identity rows), which is the before/after control. Full suite run
+against an isolated HEAD package: **49,543 passed**; the residual failures are all repo-path
+artifacts of the isolated layout (`legacy_networkx_code/` oracle absent, `test_round_trip_identity`
+asserting the import comes from the checkout, `backend.py` path) and none are attributable to the
+change.
+
+MEASUREMENT BLOCKER, stated plainly: the IN-TREE full-suite re-run for this second lever could not
+run — `tests/python/conftest.py`'s freshness gate compares the in-tree `_fnx.abi3.so` mtime against
+the newest Rust source, and two peers currently hold uncommitted Rust WIP (fnx-algorithms,
+fnx-classes) that is newer than the HEAD-built extension. Rebuilding would bake unfinished peer
+work into the shared binary and make any failure ambiguous, and touch-bypassing the guard is a
+documented trap. The first lever DID get a clean in-tree full-suite run (49,521 passed / 0 failed)
+and the mechanism is identical; re-run in-tree once the peer WIP lands.
+
+RETRY PREDICATE for what remains on this surface: `G.adj` (0.1017x) still cannot use this lever —
+its setter installs the nx private-storage override. Reopen `br-r37-c1-8d4r1` only with a
+Rust-implemented C-level data descriptor, or an `__setattr__` interception prototype that is first
+shown not to regress the graph-mutation path on this same harness.
