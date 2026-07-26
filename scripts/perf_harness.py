@@ -50,6 +50,7 @@ Usage:
     python3 scripts/perf_harness.py lazy-rows
     python3 scripts/perf_harness.py constant-predicates
     python3 scripts/perf_harness.py digraph-string-attr-construction
+    python3 scripts/perf_harness.py multidigraph-string-attr-construction
     python3 scripts/perf_harness.py marshaling
 
 Point `PYTHONPATH` at the package tree under test; the header records which one ran.
@@ -1868,6 +1869,44 @@ def suite_digraph_string_attr_construction():
     ]
 
 
+def suite_multidigraph_string_attr_construction():
+    """br-r37-c1-z9f09: exact-string fresh attributed MultiDiGraph batch."""
+    import networkx as nx
+    import franken_networkx as fnx
+
+    edge_count = 8_000
+    nx_rows = [
+        (f"node-{source}", f"node-{source + 1}", {"weight": float(source)})
+        for source in range(edge_count)
+    ]
+    fnx_rows = [
+        (f"node-{source}", f"node-{source + 1}", {"weight": float(source)})
+        for source in range(edge_count)
+    ]
+
+    def build_nx():
+        graph = nx.MultiDiGraph(nx_rows)
+        assert graph.number_of_nodes() == edge_count + 1
+        assert graph.number_of_edges() == edge_count
+        assert graph["node-17"]["node-18"][0]["weight"] == 17.0
+        return graph
+
+    def build_fnx():
+        graph = fnx.MultiDiGraph(fnx_rows)
+        assert graph.number_of_nodes() == edge_count + 1
+        assert graph.number_of_edges() == edge_count
+        assert graph["node-17"]["node-18"][0]["weight"] == 17.0
+        return graph
+
+    return [
+        (
+            "MultiDiGraph(list[str,str,{weight}]) e=8000 [nx/fnx]",
+            build_nx,
+            build_fnx,
+        ),
+    ]
+
+
 def suite_marshaling():
     """Return-shape / materialization surface."""
     import networkx as nx
@@ -1914,6 +1953,7 @@ SUITES = {
     "lazy-rows": suite_lazy_rows,
     "constant-predicates": suite_constant_predicates,
     "digraph-string-attr-construction": suite_digraph_string_attr_construction,
+    "multidigraph-string-attr-construction": suite_multidigraph_string_attr_construction,
     "marshaling": suite_marshaling,
 }
 

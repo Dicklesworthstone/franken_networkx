@@ -27794,6 +27794,149 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-26 CloudyTurtle KEEP (`MultiDiGraph` fresh exact-string attributed batch): dense node-key interning — **`1.1648x` causal**; public row **UNDECIDABLE** (`br-r37-c1-z9f09`)
+
+NEGATIVE-LEDGER-FIRST / DISTINCT SURFACE: before proposing the lever,
+`scripts/perf_ledger_preflight.py --candidate --lever 'fresh exact-string
+indexed attributed multiedge batch' --surface 'MultiDiGraph list constructor
+string nodes weight attrs'` found no exact row. The adjacent
+`MultiDiGraph(iterator)` rows were then adjudicated by hand. Their
+`br-r37-c1-mo9ud`, `br-r37-c1-e2pw9`, `br-r37-c1-97iyf`, and
+`br-r37-c1-sorrc` KEEPs concern true iterators with exact-int endpoints and
+explicit public edge keys; their rejects forbid another public-key
+canonicalization, private snapshot transfer, deferred tuple, scalar
+validation, or length-hint lever. This row is the missed unkeyed
+`(exact-str, exact-str, attr-dict)` list/tuple sibling: its endpoints still
+entered the general owned-String collector, and its auto-key is an internal
+per-directed-pair counter. The open stable-slot storage port
+`br-r37-c1-4c29a` is a separate, much larger substrate.
+
+PROFILE FIRST / COMPUTED AMDahl CEILING: the exact pre-edit public extension
+self-identified as SHA-256
+`f5452972e9128aed809e5dd758b606ecc8c1b6e5565aefc0f86afc977248d1c1`
+(`13,169,040` bytes). Thirty 8,000-edge constructions spent `0.020s` of
+`0.023s` cProfile time in the named native
+`validate_ctor_edge_list`/constructor boundary, rather than in an unrelated
+Python wrapper.
+
+A 142,000-sample native `perf` capture (11 lost chunks, disclosed rather than
+silently ignored) then named the current general batch and its exact removable
+work: String-pair map reserve/hash/entry frames contributed at least `2.79%`
+self, while repeated canonical-format frames contributed another `1.24%`.
+That conservative directly named floor is **`4.03%`**, for a perfect-removal
+Amdahl ceiling of **`1 / (1 - 0.0403) = 1.0420x`**. String hashing, seen-node
+set maintenance, and String clone frames raise the attributable family to
+approximately `8.35%` (`1.0911x` ceiling) before counting their allocator
+descendants. The target therefore carried substantial measured named
+self-time and a computed ceiling; this was not inferred from a near-1.0 public
+wall ratio.
+
+ONE LEVER: on a fresh `PyMultiDiGraph`, list/tuple batches of at least eight
+exact three-tuples with exact built-in `str` endpoints and losslessly
+convertible attr dicts now intern raw string content to a dense node index.
+Each canonical `str:{len}:{text}` label and first display object is recorded
+once, per-pair auto-keys count `(source_idx, target_idx)`, and the proven
+exact-int indexed commit inserts the whole batch. Global attrs, string
+subclasses, non-three-tuples, incompatible attrs, non-fresh graphs, and every
+unsupported shape retain the transactional general path. Parallel directed
+pairs remain legal and receive keys `0,1,...` in input order.
+
+EXACT CAUSAL ELF / SAME-INVOCATION NULL CONTRACT: strict-remote
+`release-perf` compilation ran on `vmi1153651`; no local Cargo fallback
+occurred. The immutable test ELF was copied to drained `vmi1152480`, pinned
+first to CPU 3 and then CPU 8, and printed its own loaded executable identity
+before Python initialization:
+
+`bench_elf_sha256=7673329d9e9249cd0d103b4e3173222c9c3ec94ae23a37919f4a0f12762a41da
+(67413304 bytes)
+/data/tmp/fnx-cloudyturtle-frontier/multidigraph_attr_ab_candidate_7673329d`
+
+The test-only control disables only the new exact-string collector, so
+`general/indexed` compares the frozen pre-candidate batch route against the
+candidate, not against per-edge fallback. Each invocation built 8,000
+single-weight edges per graph, used 8 graph builds per timed repetition,
+`min_of=3`, 21 alternating rounds, and a fixed-seed 2,000-resample bootstrap
+CI of the median. A/A and causal arms ran in the same process; the decision
+uses only the entire causal median CI relative to the doubled log-space null
+envelope. CV is neither computed nor gated.
+
+| exact same-ELF invocation | median A/B | A/B 95% median CI | same-invocation A/A median / CI | doubled-null boundary | verdict |
+|---|---:|---:|---:|---:|---|
+| CPU 3 replication 1 | `1.1821x` | `1.1110-1.2391x` | `0.9939x` / `0.9452-1.0381x` | floor `1.1192x` | **UNDECIDABLE** |
+| CPU 8 fixed-ELF retry | **`1.1648x`** | **`1.0909-1.2352x`** | `0.9929x` / `0.9848-1.0398x` | floor **`1.0811x`** | **DECIDABLE KEEP** |
+
+The first invocation is retained rather than discarded: its point effect was
+large, but its lower causal CI overlapped the floor by `0.0082x`, so it could
+not authorize a KEEP. The one unchanged-ELF replication satisfied the
+explicit retry condition—the entire causal CI lies above that invocation's
+own doubled-null floor. Both worker windows were immediately closed by
+re-enabling and probing `vmi1152480` healthy.
+
+PUBLIC EXTENSION / DIAGNOSTIC ROW: the exact final extension self-reported
+line one:
+
+`bench_elf_sha256=e532cf2f6b03aa36d21f1ccc131986ede77930bd2d49ad64f858062b89d7f25e
+(70107608 bytes)
+/data/tmp/franken_networkx-measure-mdg-e532cf2f/franken_networkx/_fnx.abi3.so`
+
+Structured provenance recorded wrapper SHA-256
+`f562009e7899e72a32a37e502cef03de80a27a908f1aac52de572ee4f101c2b7`,
+harness SHA-256
+`3c0f5381ddd7462bb124974ca6033c72553d872b7796c1b022ec244fea0a633a`,
+Python 3.13.7, NetworkX 3.6.1, and load average
+`0.8818/1.0957/1.1553`.
+
+| public NetworkX/FNX row | median A/B | A/B 95% median CI | same-invocation A/A median / CI | doubled-null boundary | result |
+|---|---:|---:|---:|---:|---|
+| `MultiDiGraph(list[str,str,{weight}])`, 8,000 edges | `0.8639x` | `0.8078-0.9677x` | `1.0361x` / `0.9594-1.0789x` | slowdown ceiling `0.8590x` | **UNDECIDABLE** |
+
+The prior cross-artifact finding was `0.6958x`, but the apparent public
+improvement is routing evidence only: this row's CI overlaps its own null
+boundary and therefore makes no public parity or public-speedup claim. The
+KEEP rests solely on the causal before/after row above.
+
+CORRECTNESS / QUALITY: the fully qualified focused release-perf Rust parity
+test passed on the exact candidate source. It compares indexed and forced
+general routes across repeated parallel pairs, exact key order, internal
+snapshot, first node-display objects, row-display mirrors, public edge-key
+mirrors, ordered two-attribute live dicts, and mutation sequences. Public
+Python differential parity passed exact-string chains, repeated parallel
+pairs, ordered multi-attrs, tuple input, string-subclass fallback, global
+attrs, and post-construction live attr mutation (`5` cases plus mutation);
+the complete attributed-edge batch parity file then passed `27/27` on the
+exact extension.
+The strict-remote extension build passed with only the two established
+unrelated dead-helper warnings. Direct rustfmt, Python byte-compilation, and
+`git diff --check` passed. Strict-remote
+`cargo check --workspace --all-targets -j 2` passed with those same two
+warnings. Workspace clippy with `-D warnings` reached the candidate cleanly,
+then failed on six pre-existing findings in untouched
+`crates/fnx-python/src/algorithms.rs` / `src/lib.rs`: the two dead helpers,
+three collapsible-if sites, and one `chunks_exact_to_as_chunks` test lint. No
+candidate-file clippy finding was emitted. Focused UBS scanned the Rust
+collector/test and Python harness with exit 0 and zero critical findings; its
+warnings are broad inventory (existing asserts/indexing/allocation patterns),
+not a candidate defect.
+
+RESULT: **KEEP.** Dense exact-string node interning removes the measured
+owned-String collection work and yields a decisive same-ELF causal
+`1.1648x`; public parity is preserved. The public NetworkX comparison remains
+explicitly undecidable and is not upgraded by the causal result.
+
+RETRY PREDICATE: do not retry exact-string canonical formatting, String-pair
+auto-key maps, or another fresh indexed commit for this unkeyed attributed
+MultiDiGraph surface. Reopen its remaining public residual only after a fresh
+exact final-artifact profile attributes at least **`10%`** of end-to-end
+self-time to one different named removable frame—such as stable-slot storage
+insertion or attr-mirror allocation—and computes at least a **`1.08x`**
+ceiling. Any sibling must preserve exact/non-exact string routing, first
+display-object identity, ordered live edge-attr dicts, parallel key order,
+global attr precedence, transactional fallback, list/tuple distinctions,
+mutation-token invalidation, and subclasses. Its process must again
+self-report the loaded ELF, run A/A and causal arms together, and place the
+entire bootstrap median CI beyond its own doubled-null envelope. Otherwise
+switch to the lazy-view or distinct storage vein.
+
 ## 2026-07-26 CloudyTurtle KEEP (`DiGraph` fresh exact-string attributed batch): dense node-key interning — **`3.5056x` causal**; public row **UNDECIDABLE** (`br-r37-c1-cu8me`)
 
 NEGATIVE-LEDGER-FIRST: before proposing this lever,
