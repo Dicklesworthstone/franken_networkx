@@ -62,23 +62,28 @@ for _var in ("NETWORKX_AUTOMATIC_BACKENDS", "NETWORKX_BACKEND_PRIORITY", "NETWOR
 # --------------------------------------------------------------------------- #
 # provenance
 # --------------------------------------------------------------------------- #
-def binary_sha256() -> tuple[str, str]:
-    """Path + sha256 of the `_fnx` extension module actually loaded."""
+def binary_sha256() -> tuple[str, str, int]:
+    """Path + sha256 + size of the `_fnx` extension module actually loaded."""
     import franken_networkx._fnx as _fnx
 
     path = _fnx.__file__
     digest = hashlib.sha256()
+    byte_count = 0
     with open(path, "rb") as handle:
         for chunk in iter(lambda: handle.read(1 << 20), b""):
             digest.update(chunk)
-    return path, digest.hexdigest()
+            byte_count += len(chunk)
+    return path, digest.hexdigest(), byte_count
 
 
 def provenance_header(tag: str) -> dict:
     import networkx as nx
     import franken_networkx as fnx
 
-    path, sha = binary_sha256()
+    path, sha, byte_count = binary_sha256()
+    # Fleet contract: this exact loaded-artifact identity is line one. A shell
+    # hash adjacent to the invocation cannot prove which worker-pool ELF ran.
+    print(f"bench_elf_sha256={sha} ({byte_count} bytes) {path}", flush=True)
     wrapper_path = fnx.__file__
     wrapper_digest = hashlib.sha256()
     with open(wrapper_path, "rb") as handle:
@@ -88,6 +93,7 @@ def provenance_header(tag: str) -> dict:
         "tag": tag,
         "fnx_so": path,
         "fnx_so_sha256": sha,
+        "fnx_so_bytes": byte_count,
         "fnx_python": wrapper_path,
         "fnx_python_sha256": wrapper_digest.hexdigest(),
         "nx_version": nx.__version__,
