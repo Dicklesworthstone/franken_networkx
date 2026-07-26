@@ -15,12 +15,13 @@ Adopted 2026-07-25 (br-r37-c1-wbwkb, cc lane) from the fleet-wide contract in
    round, and the statistic is the **median of per-round ratios** — not a ratio of
    medians, which lets drift in either arm leak into the result.
 
-3. **Gate on the median-CI, never on `cv`.** A claim is decidable iff its median
-   ratio lies outside the A/A null's bootstrap 95% CI with a 2x margin in log
-   space. `cv` is reported as provenance only. On this hardware `cv` does not track
-   decidability: rows measured here at `cv 17.06%/5.52%` and `cv 0.44%/0.79%` had
-   null CIs of `0.9997-1.0152` and `0.9947-1.0065` — a 30x spread in `cv` for a
-   sub-2x spread in the decidable floor, ranked in the opposite order.
+3. **Gate on the median-CI, never on `cv`.** A claim is decidable iff its entire
+   bootstrap 95% CI of the median lies outside the A/A null's bootstrap 95% CI
+   with a 2x margin in log space. `cv` is reported as provenance only. On this
+   hardware `cv` does not track decidability: rows measured here at
+   `cv 17.06%/5.52%` and `cv 0.44%/0.79%` had null CIs of `0.9997-1.0152` and
+   `0.9947-1.0065` — a 30x spread in `cv` for a sub-2x spread in the decidable
+   floor, ranked in the opposite order.
 
 Knobs follow §2.4: `min_sample ~2 ms`, `min_of = 3` inner replicates keeping the
 minimum (the dominant knob; longer samples are a bigger target for preemption).
@@ -48,6 +49,7 @@ Usage:
     python3 scripts/perf_harness.py nodeview-getitem
     python3 scripts/perf_harness.py lazy-rows
     python3 scripts/perf_harness.py constant-predicates
+    python3 scripts/perf_harness.py digraph-string-attr-construction
     python3 scripts/perf_harness.py marshaling
 
 Point `PYTHONPATH` at the package tree under test; the header records which one ran.
@@ -218,8 +220,11 @@ def paired(label: str, arm_a, arm_b, rounds: int = ROUNDS, min_of: int = MIN_OF)
 def decidable(cand: PairedResult, null: PairedResult, margin: float = 2.0) -> tuple[bool, str]:
     edge = max(abs(math.log(null.ratio_ci[0])), abs(math.log(null.ratio_ci[1])))
     need = margin * edge
-    return abs(math.log(cand.ratio_p50)) > need, (
-        f"floor={math.exp(need):.4f}x "
+    lower_log = math.log(cand.ratio_ci[0])
+    upper_log = math.log(cand.ratio_ci[1])
+    return lower_log > need or upper_log < -need, (
+        f"speedup_floor={math.exp(need):.4f}x "
+        f"slowdown_ceiling={math.exp(-need):.4f}x "
         f"(null CI {null.ratio_ci[0]:.4f}-{null.ratio_ci[1]:.4f}, {margin:g}x margin)"
     )
 
@@ -250,7 +255,13 @@ def canon(obj):
     if isinstance(obj, (set, frozenset)):
         return ["<set>"] + sorted(canon(x) for x in obj)
     if hasattr(obj, "edges") and hasattr(obj, "nodes"):
-        return ["<graph>", [canon(x) for x in obj.nodes()], [canon(e) for e in obj.edges()]]
+        nodes = list(obj.nodes(data=True))
+        edges = (
+            list(obj.edges(keys=True, data=True))
+            if obj.is_multigraph()
+            else list(obj.edges(data=True))
+        )
+        return ["<graph>", [canon(x) for x in nodes], [canon(e) for e in edges]]
     if hasattr(obj, "__iter__") and not isinstance(obj, (str, bytes, int, float)):
         return [canon(x) for x in obj]
     return obj
@@ -1821,6 +1832,42 @@ def suite_constant_predicates():
     return rows
 
 
+def suite_digraph_string_attr_construction():
+    """br-r37-c1-cu8me: exact-string fresh attributed DiGraph batch."""
+    import networkx as nx
+    import franken_networkx as fnx
+
+    edge_count = 8_000
+    nx_rows = [
+        (f"node-{source}", f"node-{source + 1}", {"weight": source})
+        for source in range(edge_count)
+    ]
+    fnx_rows = [
+        (f"node-{source}", f"node-{source + 1}", {"weight": source})
+        for source in range(edge_count)
+    ]
+
+    def build_nx():
+        graph = nx.DiGraph(nx_rows)
+        assert graph.number_of_nodes() == edge_count + 1
+        assert graph.number_of_edges() == edge_count
+        return graph
+
+    def build_fnx():
+        graph = fnx.DiGraph(fnx_rows)
+        assert graph.number_of_nodes() == edge_count + 1
+        assert graph.number_of_edges() == edge_count
+        return graph
+
+    return [
+        (
+            "DiGraph(list[str,str,{weight}]) e=8000 [nx/fnx]",
+            build_nx,
+            build_fnx,
+        ),
+    ]
+
+
 def suite_marshaling():
     """Return-shape / materialization surface."""
     import networkx as nx
@@ -1866,6 +1913,7 @@ SUITES = {
     "nodeview-getitem": suite_nodeview_getitem,
     "lazy-rows": suite_lazy_rows,
     "constant-predicates": suite_constant_predicates,
+    "digraph-string-attr-construction": suite_digraph_string_attr_construction,
     "marshaling": suite_marshaling,
 }
 

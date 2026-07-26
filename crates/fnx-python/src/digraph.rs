@@ -9643,6 +9643,159 @@ impl PyDiGraph {
         Ok(true)
     }
 
+    /// br-r37-c1-cu8me: fresh attributed DiGraph batches with exact-string
+    /// endpoints. The general collector formats a fresh canonical `String` for
+    /// both endpoints of every edge and then commits through the String-keyed
+    /// store, which repeats the node-table lookup for both endpoints. Intern raw
+    /// string contents to a dense index while collecting, format the canonical
+    /// label only on first touch, and reuse the exact-int indexed commit.
+    ///
+    /// The gate is deliberately narrow: fresh graph, list/tuple batch, exact
+    /// `str` endpoints, unique directed pairs, and losslessly convertible attrs.
+    /// Equal-but-nonidentical strings resolve to the first display object because
+    /// the content map follows Python string equality. Duplicates and every
+    /// unsupported shape decline to the merge-aware general path.
+    fn collect_fresh_exact_string_attr_edge_batch<'py, I>(
+        &self,
+        py: Python<'py>,
+        items: I,
+        len: usize,
+    ) -> PyResult<Option<DiIndexedAttrEdgeBatch>>
+    where
+        I: IntoIterator<Item = Bound<'py, PyAny>>,
+    {
+        let node_capacity = len.saturating_mul(2);
+        let mut node_indices: HashMap<String, usize> = HashMap::with_capacity(node_capacity);
+        let mut node_labels: Vec<String> = Vec::with_capacity(node_capacity);
+        let mut node_objects: Vec<PyObject> = Vec::with_capacity(node_capacity);
+        let mut edges: Vec<(usize, usize, AttrMap, Option<Py<PyDict>>)> = Vec::with_capacity(len);
+        let mut seen_edges: HashSet<(usize, usize)> = HashSet::with_capacity(len);
+        let mut node_bumps = 0_u64;
+
+        for item in items {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(None);
+            };
+            if tuple.len() != 3 {
+                return Ok(None);
+            }
+
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            let Ok(u_string) = u.cast_exact::<PyString>() else {
+                return Ok(None);
+            };
+            let Ok(v_string) = v.cast_exact::<PyString>() else {
+                return Ok(None);
+            };
+            let u_text = u_string.to_str()?;
+            let v_text = v_string.to_str()?;
+
+            let third = tuple.get_item(2)?;
+            let Ok(dict) = third.downcast::<PyDict>() else {
+                return Ok(None);
+            };
+            let (attrs, mirror) = if dict.len() >= 2 {
+                let Ok((attrs, mirror)) = py_dict_to_attr_map_with_mirror(py, dict) else {
+                    return Ok(None);
+                };
+                (attrs, Some(mirror))
+            } else {
+                let Ok(attrs) = py_dict_to_attr_map(dict) else {
+                    return Ok(None);
+                };
+                (attrs, None)
+            };
+            if attrs
+                .keys()
+                .any(|key| key.starts_with("__fnx_incompatible"))
+            {
+                return Ok(None);
+            }
+
+            let mut edge_added_node = false;
+            let u_index = match node_indices.get(u_text).copied() {
+                Some(index) => index,
+                None => {
+                    let index = node_labels.len();
+                    node_indices.insert(u_text.to_owned(), index);
+                    node_labels.push(format!("str:{}:{u_text}", u_text.len()));
+                    node_objects.push(u.clone().unbind());
+                    edge_added_node = true;
+                    index
+                }
+            };
+            let v_index = match node_indices.get(v_text).copied() {
+                Some(index) => index,
+                None => {
+                    let index = node_labels.len();
+                    node_indices.insert(v_text.to_owned(), index);
+                    node_labels.push(format!("str:{}:{v_text}", v_text.len()));
+                    node_objects.push(v.clone().unbind());
+                    edge_added_node = true;
+                    index
+                }
+            };
+            if edge_added_node {
+                node_bumps = node_bumps.wrapping_add(1);
+            }
+            if !seen_edges.insert((u_index, v_index)) {
+                return Ok(None);
+            }
+            edges.push((u_index, v_index, attrs, mirror));
+        }
+
+        Ok(Some((node_labels, node_objects, edges, node_bumps)))
+    }
+
+    fn try_add_fresh_exact_string_attr_edge_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+        final_edge_bump: bool,
+    ) -> PyResult<bool> {
+        const ATTR_EDGE_BATCH_MIN: usize = 8;
+        if self.inner.node_count() != 0
+            || self.inner.edge_count() != 0
+            || !self.node_key_map.is_empty()
+            || !self.node_py_attrs.is_empty()
+            || !self.edge_py_attrs.is_empty()
+            || !self.succ_py_keys.is_empty()
+            || !self.pred_py_keys.is_empty()
+            || !self.succ_row_py.is_empty()
+            || !self.pred_row_py.is_empty()
+        {
+            return Ok(false);
+        }
+
+        let collected = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+            if list.len() < ATTR_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            self.collect_fresh_exact_string_attr_edge_batch(py, list.iter(), list.len())?
+        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+            if tuple.len() < ATTR_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            self.collect_fresh_exact_string_attr_edge_batch(py, tuple.iter(), tuple.len())?
+        } else {
+            return Ok(false);
+        };
+
+        let Some((node_labels, node_objects, edges, node_bumps)) = collected else {
+            return Ok(false);
+        };
+        self.add_fresh_exact_int_attr_edge_batch(
+            py,
+            node_labels,
+            node_objects,
+            edges,
+            node_bumps,
+            final_edge_bump,
+        )?;
+        Ok(true)
+    }
+
     /// br-r37-c1-dodattrbatch: every node display key is a plain int matching its
     /// canonical label, and no per-row display overrides — the precondition for
     /// resolving int edge endpoints by label.
@@ -9887,6 +10040,9 @@ impl PyDiGraph {
             return Ok(false);
         }
         if self.try_add_fresh_exact_int_attr_edge_batch(py, ebunch_to_add, final_edge_bump)? {
+            return Ok(true);
+        }
+        if self.try_add_fresh_exact_string_attr_edge_batch(py, ebunch_to_add, final_edge_bump)? {
             return Ok(true);
         }
         // br-r37-c1-dodattrbatch: attributed edges onto a DiGraph whose int nodes
@@ -15860,6 +16016,260 @@ mod tests {
             display_map_snapshot(py, &baseline.pred_py_keys)?
         );
         Ok(())
+    }
+
+    #[test]
+    fn fresh_exact_string_attr_batch_matches_general_commit() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let rows = PyList::empty(py);
+            for source in 0_i64..12 {
+                let attrs = PyDict::new(py);
+                attrs.set_item("weight", source)?;
+                if source % 2 == 0 {
+                    attrs.set_item("label", format!("edge-{source}"))?;
+                }
+                rows.append(PyTuple::new(
+                    py,
+                    [
+                        format!("node-{source}").into_py_any(py)?,
+                        format!("node-{}", source + 1).into_py_any(py)?,
+                        attrs.into_any().unbind(),
+                    ],
+                )?)?;
+            }
+
+            let mut candidate = PyDiGraph::new(py, None, None)?;
+            assert!(candidate.try_add_attr_edge_batch(py, rows.as_any(), false)?);
+
+            let mut baseline = PyDiGraph::new(py, None, None)?;
+            let Some((edges, new_nodes, node_bumps)) =
+                baseline.collect_attr_edge_batch(py, rows.iter(), rows.len())?
+            else {
+                return Err(PyRuntimeError::new_err(
+                    "general attributed-edge collector should accept fixture",
+                ));
+            };
+            baseline.add_attr_edge_batch(py, edges, new_nodes, node_bumps, false)?;
+
+            assert_eq!(candidate.inner.snapshot(), baseline.inner.snapshot());
+            assert_eq!(
+                node_map_snapshot(py, &candidate.node_key_map)?,
+                node_map_snapshot(py, &baseline.node_key_map)?
+            );
+            assert_eq!(candidate.nodes_seq, baseline.nodes_seq);
+            assert_eq!(candidate.edges_seq, baseline.edges_seq);
+
+            for edge in candidate.inner.edges_ordered() {
+                let candidate_attrs =
+                    candidate.materialize_edge_py_attrs(py, &edge.left, &edge.right);
+                let baseline_attrs =
+                    baseline.materialize_edge_py_attrs(py, &edge.left, &edge.right);
+                assert_eq!(
+                    candidate_attrs.bind(py).repr()?.to_string(),
+                    baseline_attrs.bind(py).repr()?.to_string()
+                );
+            }
+            Ok(())
+        })
+        .expect("exact-string indexed batch should match the general commit");
+    }
+
+    /// `br-r37-c1-cu8me`: same-binary causal A/B for the exact-string indexed
+    /// collector versus the frozen String-keyed general collector. The executed
+    /// test ELF self-identifies before Python initialization; both the A/A null
+    /// and causal arms run interleaved in this invocation, and decidability is
+    /// computed only from a fixed-seed bootstrap median CI.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn digraph_exact_string_attr_batch_indexed_ab() {
+        use sha2::{Digest, Sha256};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let exe = std::env::current_exe().expect("benchmark executable path");
+        let bytes = std::fs::read(&exe).expect("benchmark executable bytes");
+        let sha = hex::encode(Sha256::digest(&bytes));
+        println!(
+            "bench_elf_sha256={sha} ({} bytes) {}",
+            bytes.len(),
+            exe.display()
+        );
+
+        fn median(values: &[f64]) -> f64 {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            sorted[sorted.len() / 2]
+        }
+
+        fn median_ci(values: &[f64]) -> (f64, f64) {
+            const BOOTSTRAPS: usize = 2_000;
+            let mut state = 12_345_u64;
+            let mut medians = Vec::with_capacity(BOOTSTRAPS);
+            let mut sample = Vec::with_capacity(values.len());
+            for _ in 0..BOOTSTRAPS {
+                sample.clear();
+                for _ in values {
+                    // Fixed-seed xorshift64*: deterministic bootstrap indices.
+                    state ^= state >> 12;
+                    state ^= state << 25;
+                    state ^= state >> 27;
+                    let random = state.wrapping_mul(0x2545_f491_4f6c_dd1d);
+                    let index = usize::try_from(random % values.len() as u64)
+                        .expect("bootstrap index fits usize");
+                    sample.push(values[index]);
+                }
+                medians.push(median(&sample));
+            }
+            medians.sort_by(f64::total_cmp);
+            (
+                medians[BOOTSTRAPS * 25 / 1_000],
+                medians[BOOTSTRAPS * 975 / 1_000],
+            )
+        }
+
+        fn cv(values: &[f64]) -> f64 {
+            let mean = values.iter().sum::<f64>() / values.len() as f64;
+            let variance = values
+                .iter()
+                .map(|value| {
+                    let delta = value - mean;
+                    delta * delta
+                })
+                .sum::<f64>()
+                / values.len() as f64;
+            variance.sqrt() / mean * 100.0
+        }
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            const EDGE_COUNT: usize = 8_000;
+            const REPETITIONS: usize = 8;
+            const ROUNDS: usize = 21;
+            const MIN_OF: usize = 3;
+
+            let rows = PyList::empty(py);
+            for source in 0..EDGE_COUNT {
+                let attrs = PyDict::new(py);
+                attrs.set_item("weight", source)?;
+                rows.append(PyTuple::new(
+                    py,
+                    [
+                        format!("node-{source}").into_py_any(py)?,
+                        format!("node-{}", source + 1).into_py_any(py)?,
+                        attrs.into_any().unbind(),
+                    ],
+                )?)?;
+            }
+
+            let build = |indexed: bool| -> PyResult<PyDiGraph> {
+                let mut graph = PyDiGraph::new(py, None, None)?;
+                if indexed {
+                    let Some((labels, objects, edges, node_bumps)) = graph
+                        .collect_fresh_exact_string_attr_edge_batch(
+                            py,
+                            rows.iter(),
+                            rows.len(),
+                        )?
+                    else {
+                        return Err(PyRuntimeError::new_err(
+                            "indexed exact-string collector declined benchmark fixture",
+                        ));
+                    };
+                    graph.add_fresh_exact_int_attr_edge_batch(
+                        py, labels, objects, edges, node_bumps, false,
+                    )?;
+                } else {
+                    let Some((edges, new_nodes, node_bumps)) =
+                        graph.collect_attr_edge_batch(py, rows.iter(), rows.len())?
+                    else {
+                        return Err(PyRuntimeError::new_err(
+                            "general attributed-edge collector declined benchmark fixture",
+                        ));
+                    };
+                    graph.add_attr_edge_batch(py, edges, new_nodes, node_bumps, false)?;
+                }
+                black_box(graph.inner.node_count());
+                black_box(graph.inner.edge_count());
+                Ok(graph)
+            };
+
+            let baseline = build(false)?;
+            let candidate = build(true)?;
+            assert_eq!(candidate.inner.snapshot(), baseline.inner.snapshot());
+            assert_eq!(
+                node_map_snapshot(py, &candidate.node_key_map)?,
+                node_map_snapshot(py, &baseline.node_key_map)?
+            );
+
+            let time = |indexed: bool| -> PyResult<f64> {
+                let start = Instant::now();
+                for _ in 0..REPETITIONS {
+                    black_box(build(indexed)?);
+                }
+                Ok(start.elapsed().as_secs_f64())
+            };
+            let sample = |indexed: bool| -> PyResult<f64> {
+                let mut best = f64::INFINITY;
+                for _ in 0..MIN_OF {
+                    best = best.min(time(indexed)?);
+                }
+                Ok(best)
+            };
+            black_box(sample(false)?);
+            black_box(sample(true)?);
+
+            let paired = |left_indexed: bool,
+                          right_indexed: bool|
+             -> PyResult<(Vec<f64>, Vec<f64>, Vec<f64>)> {
+                    let mut ratios = Vec::with_capacity(ROUNDS);
+                    let mut left_times = Vec::with_capacity(ROUNDS);
+                    let mut right_times = Vec::with_capacity(ROUNDS);
+                    for round in 0..ROUNDS {
+                        let (left, right) = if round.is_multiple_of(2) {
+                            (sample(left_indexed)?, sample(right_indexed)?)
+                        } else {
+                            let right = sample(right_indexed)?;
+                            let left = sample(left_indexed)?;
+                            (left, right)
+                        };
+                        left_times.push(left);
+                        right_times.push(right);
+                        ratios.push(left / right);
+                    }
+                    Ok((ratios, left_times, right_times))
+                };
+
+            let (null_ratios, null_left, null_right) = paired(true, true)?;
+            let (causal_ratios, causal_left, causal_right) = paired(false, true)?;
+            let null_ci = median_ci(&null_ratios);
+            let causal_ci = median_ci(&causal_ratios);
+            let null_median = median(&null_ratios);
+            let causal_median = median(&causal_ratios);
+            let null_edge = null_ci.0.ln().abs().max(null_ci.1.ln().abs());
+            let doubled_floor = (2.0 * null_edge).exp();
+            let doubled_ceiling = (-2.0 * null_edge).exp();
+            let decidable =
+                causal_ci.0 > doubled_floor || causal_ci.1 < doubled_ceiling;
+
+            println!(
+                "[A/A null] DiGraph string attr batch indexed/indexed ratio_p50={null_median:.4}x CI=[{:.4},{:.4}] cv={:.2}/{:.2}% floor={doubled_floor:.4}x",
+                null_ci.0,
+                null_ci.1,
+                cv(&null_left),
+                cv(&null_right),
+            );
+            println!(
+                "DiGraph string attr batch general/indexed ratio_p50={causal_median:.4}x CI=[{:.4},{:.4}] cv={:.2}/{:.2}% decision={} floor={doubled_floor:.4}x ceiling={doubled_ceiling:.4}x",
+                causal_ci.0,
+                causal_ci.1,
+                cv(&causal_left),
+                cv(&causal_right),
+                if decidable { "DECIDABLE" } else { "UNDECIDABLE" },
+            );
+            Ok(())
+        })
+        .expect("exact-string attributed-batch A/B should run");
     }
 
     fn multidigraph_from_keyed_true_iterator(

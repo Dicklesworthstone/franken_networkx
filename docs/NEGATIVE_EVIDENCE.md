@@ -27794,6 +27794,136 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-26 CloudyTurtle KEEP (`DiGraph` fresh exact-string attributed batch): dense node-key interning — **`3.5056x` causal**; public row **UNDECIDABLE** (`br-r37-c1-cu8me`)
+
+NEGATIVE-LEDGER-FIRST: before proposing this lever,
+`scripts/perf_ledger_preflight.py --candidate --lever 'fresh exact-string
+indexed attributed edge batch' --surface 'DiGraph list constructor string
+nodes weight attrs'` found no exact governing row. The broader ledger search
+did find the 2026-07-03 `collect_fresh_general_attr_edge_batch` Graph KEEP:
+canonicalize each distinct node once, remap it to a dense index, and
+generalize exact-node siblings still falling through the String-keyed path.
+That row was hand-adjudicated rather than treated as a regex verdict. Its
+attributed dual-store warning remains valid, but it did not cover this
+`PyDiGraph` exact-string sibling.
+
+EXACT-CURRENT PROFILE / COMPUTED CEILING: the unmodified loaded extension
+spent `96.6%` of cProfile wall inside the opaque native `DiGraph` constructor;
+Python-side fixture validation was only `2.74%`, for a computed wrapper-only
+Amdahl ceiling of about `1.028x`. That rejected Python validation as the
+target before any source edit. A 7,495-sample, zero-loss native profile then
+named Sip13 writes at `7.84%`, `_int_malloc` at `6.96%`,
+`PyDiGraph::add_attr_edge_batch` self at `5.12%`, `memcmp` at `4.55%`,
+`IndexMap::get_index_of` at `4.35%`, RandomState `String` hashing at `3.40%`,
+`collect_attr_edge_batch` self at `2.68%`, and
+`py_dict_to_attr_map_with_mirror` at `2.07%`. The collector plus committer
+alone therefore carried `7.80%` substantial measured named self-time, a
+conservative removal ceiling of
+`1 / (1 - 0.0780) = 1.0846x`; the child hash/index/allocation frames identified
+the broader counted mechanism that dense remapping could remove.
+
+LEVER: fresh list/tuple batches of at least eight three-tuples now take a
+class-safe exact-string collector in `PyDiGraph`. It interns raw Python string
+content to dense node indices, emits the canonical
+`str:{byte_length}:{text}` label only on first touch, and reuses the existing
+indexed attributed commit instead of formatting both endpoints per edge and
+probing the growing String-keyed node table twice. Admission is deliberately
+narrow: the graph and all Python-side mirrors must be fresh, endpoint objects
+must be exact built-in `str` (not subclasses), attributes must convert
+losslessly, and directed endpoint pairs must be unique. Any duplicate,
+unsupported shape, incompatible attribute, or subclass declines before
+mutation and replays through the established merge-aware general path.
+
+PARITY: the focused Rust differential test builds the same mixed one-/two-key
+attribute fixture through the new and frozen general collectors, then asserts
+identical inner snapshots, Python node-key maps, node/edge sequence counters,
+and materialized edge dictionaries. It passed under strict remote execution.
+The public harness canonicalizer was strengthened in this change to include
+node attributes, edge attributes, and multigraph keys; its 8,000-edge
+NetworkX/FrankenNetworkX fixture produced identical canonical graph digests.
+
+HARNESS CONTRACT / PROVENANCE: both final measurements ran on drained
+`vmi1152480`, pinned to core 3, with zero observed core steal; the worker was
+immediately re-enabled and probed healthy afterward. The exact-source causal
+test process self-reported:
+
+`bench_elf_sha256=a0bb7f71d91f68f3138102969c66b9f536e6808eef600b65ea4f9e603ede8870
+(7810824 bytes)
+/data/tmp/franken_networkx-measure-current/digraph_attr_ab_candidate_a0bb7f71`
+
+The public process self-reported the loaded extension as:
+
+`bench_elf_sha256=f5452972e9128aed809e5dd758b606ecc8c1b6e5565aefc0f86afc977248d1c1
+(13169040 bytes)
+/data/tmp/franken_networkx-measure-final/franken_networkx/_fnx.abi3.so`
+
+Its structured header also recorded wrapper SHA-256
+`f562009e7899e72a32a37e502cef03de80a27a908f1aac52de572ee4f101c2b7`,
+corrected harness SHA-256
+`3dc09c200ccf13eb4ee07796c0a6e0d784bc8ddd2650bceffff20cc0cba5bc79`,
+Python 3.13.7, NetworkX 3.6.1, and load
+`0.52/0.29/0.22`. The causal run's preflight load was
+`0.44/0.81/0.54`, with core-3 steal `0.00%`.
+
+The same test invocation interleaved 21 fixed-seed bootstrap rounds with
+`min_of=3`, first indexed/indexed A/A and then frozen-general/indexed A/B:
+
+| exact-source same-binary row | median | bootstrap 95% median CI | doubled-log null envelope | verdict |
+|---|---:|---:|---:|---|
+| A/A indexed / indexed | `1.0068x` | `0.9525-1.0693x` | speedup floor `1.1433x`; slowdown ceiling `0.8746x` | null |
+| causal general / indexed | **`3.5056x`** | **`3.3716-3.6681x`** | speedup floor `1.1433x` | **DECIDABLE** |
+
+The corrected public invocation was intentionally adjudicated separately:
+
+| public row | median | bootstrap 95% median CI | doubled-log null envelope | verdict |
+|---|---:|---:|---:|---|
+| A/A NetworkX / NetworkX | `1.0374x` | `0.9070-1.0954x` | speedup floor `1.2155x`; slowdown ceiling `0.8227x` | null |
+| NetworkX / FrankenNetworkX | `1.1218x` | `1.0226-1.1913x` | speedup floor `1.2155x` | **UNDECIDABLE** |
+
+The generic harness previously compared only the candidate point median to
+the doubled-null floor and could therefore print `DECIDABLE` while the
+candidate bootstrap CI still crossed the envelope. Its gate now requires the
+entire candidate bootstrap median CI to clear either side of that envelope.
+A regression probe classifies this public row as undecidable and the causal
+row as decidable. CV remains printed as diagnostic provenance and never
+governs either verdict.
+
+RESULT: **KEEP.** The source claim rests only on the exact-source,
+same-invocation causal row: its complete bootstrap median CI is at least
+`2.95x` beyond the doubled-null speedup floor (`3.3716 / 1.1433`). The public
+comparison is retained as honest current user-path context and contributes no
+positive evidence. This is a counted mechanism backed by a decisive A/A-aware
+A/B, not a near-1.0 wall-ratio inference.
+
+QUALITY / CLOSEOUT: strict-remote
+`cargo test -p fnx-python
+fresh_exact_string_attr_batch_matches_general_commit -j 2 -- --nocapture`
+passed `1/1`; the exact-source release measurement target also compiled and
+ran its ignored test successfully. Strict-remote
+`cargo check --workspace --all-targets -j 2` passed, with the two established
+dead-helper warnings in `algorithms.rs`. Workspace Clippy with
+`-D warnings` reached six pre-existing non-candidate findings in
+`algorithms.rs` and `lib.rs` (two dead helpers, two collapsible nested
+conditions, one `chunks_exact` suggestion in a test, plus a separate
+collapsible condition in `lib.rs`) and emitted no finding in `digraph.rs`.
+Direct Rust formatting, Python byte-compilation, the median-CI regression
+probe, and `git diff --check` passed. Focused UBS rescanning after replacing
+the parity test's explicit `panic!` reported **zero critical** Rust findings;
+the Python scan exited 0 with only its established low-severity benchmark
+`assert` inventory.
+
+RETRY PREDICATE: do not retry exact-string canonical formatting, per-edge
+String-key node lookup, or another fresh dense-remap variant for this simple
+`DiGraph` constructor; that mechanism is consumed. Reopen the residual only
+after a fresh exact-path native profile attributes at least **`20%`** of total
+wall to one different removable attributed-conversion or mirror-materialization
+frame and computes a public Amdahl ceiling of at least **`1.10x`**. Before any
+edit, two consecutive same-invocation A/A-only runs must each produce a
+doubled-log speedup floor below **`1.05x`**. Any successor must retain exact
+node/edge attributes and order, duplicate merge semantics, `str` subclass
+behavior, incompatible-attribute fallback, loaded-ELF self-reporting, and a
+causal bootstrap median CI wholly beyond its own doubled-null envelope.
+
 ## 2026-07-26 CloudyTurtle ADMISSION REJECT (`Graph.add_edge` wrapper-removal retry): exact current A/A floor is **`1.2959x`** — **NO SOURCE EDIT** (`br-r37-c1-vabqj`)
 
 NEGATIVE-LEDGER-FIRST: before proposing a mutation-entry cutover,
