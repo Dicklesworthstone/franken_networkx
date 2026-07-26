@@ -25237,3 +25237,60 @@ those three established categories and passed with every other warning
 denied. UBS completed the changed harness/test/ledger scan with zero critical
 or warning findings; its bounded scan of the 61k-line Python shim reached 180
 seconds without emitting a source finding.
+
+## 2026-07-26 CloudyTurtle VALID-PROFILE (post-descriptor `AdjacencyView.__len__` C-level slot): individual frame misses the 30% admission gate — **NO SOURCE EDIT** (`br-r37-c1-1ehij`)
+
+NEGATIVE-LEDGER-FIRST: before proposing a C-level length-slot lever,
+`scripts/perf_ledger_preflight.py --prior-art 'AdjacencyView __len__ C slot'`
+and direct searches for `AdjacencyView`, `__len__`, `number_of_nodes`, and
+`length slot` read the governing view-length and directed-descriptor rows.
+The immediately preceding descriptor KEEP explicitly permitted this seam only
+if a fresh exact profile attributed at least **30% self-time** to
+`AdjacencyView.__len__` or its bound raw call, a dynamic C-level-slot
+prototype preserved ownerless/filtered/private semantics, and the unchanged
+same-invocation doubled-null floor was below **`1.03x`**.
+
+EXACT PROFILE / ADJUDICATION: the post-KEEP artifact self-reported loaded ELF
+SHA-256
+`4b30828df78e87ece5f6323d0b8864d46af76216c37a47e6375acf849dde122f`
+(13,154,016 bytes). Profiling 500,000 calls on one already-captured
+`fv = fg.adj` recorded 1,500,002 calls in `0.268941072s`.
+`AdjacencyView.__len__` owned `0.076s` self / `0.121s` cumulative
+(**28.3% self**), the raw `DiGraph.number_of_nodes` descriptor owned `0.045s`
+self (**16.7% self**), built-in `len` owned `0.095s`, and the driver owned
+`0.053s`. Unprofiled medians were `0.032904s` for NetworkX,
+`0.047335s` for FNX, and `0.021984s` for a direct raw-bound call.
+
+This is **VALID-PROFILE**, not VOID-ZEROSELF or VOID-NONULL: the candidate was
+rejected before any source edit on named frames with non-zero measured
+self-time and computed ceilings. Removing the Python `__len__` frame's
+self-time alone has an Amdahl ceiling of approximately **1.40x**. Removing
+the entire `__len__` plus raw-bound chain would represent about 45.0% of
+profiled time and an approximately **1.82x** ceiling, but combining two
+distinct frames after declaring an individual-frame threshold would move the
+gate post hoc. Neither named candidate individually clears 30%; therefore no
+dynamic prototype and no timing A/B were admitted.
+
+RESULT: REJECT / NO SOURCE EDIT. The measured `28.3%` is close but below the
+predeclared `30%` profile gate. No wall-ratio verdict, A/A claim, or CV gate is
+used because the lever stopped at profile admission. This row intentionally
+preserves the fleet resurrection taxonomy: a named non-zero frame plus a
+computed Amdahl ceiling makes the rejection valid evidence even without a
+null control.
+
+RETRY PREDICATE: do not retry the Python `AdjacencyView.__len__` wrapper, its
+raw-bound count call, atlas binding, or a relaxed combined-frame threshold.
+Reopen only if a future exact-artifact profile, after a different landed path
+change, attributes at least **30% self-time to one individually named
+removable frame**, or an already-existing extension mapping view exposes a
+safe C-level length slot whose dynamic prototype counts live
+ownerless/filtered/private behavior exactly. Any admitted timing rerun must
+also record the same-invocation A/A null and a doubled-null floor below
+**`1.03x`**, with decisions based on the bootstrap median CI and never CV.
+Otherwise switch to a separately preflighted view seam.
+
+QUALITY GATES: no source or harness file changed. The exact-artifact profile
+completed and the ledger/bead-only diff passed `git diff --check`. UBS was
+invoked on both changed files and reported that Markdown/JSONL has no
+supported language scanner; it therefore emitted no findings but is not
+claimed as a scanner pass.
