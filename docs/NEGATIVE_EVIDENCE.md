@@ -25537,3 +25537,54 @@ those three established lint categories and passed with every other warning
 denied. UBS completed the harness/test scan with zero critical or warning
 findings; its bounded scan of the 61k-line monolithic Python shim reached 180
 seconds without emitting a source finding.
+
+## 2026-07-26 CloudyTurtle VALID-PROFILE (`MultiAdjacencyView.__len__` raw count binding): Amdahl ceiling misses admission — **NO SOURCE EDIT** (`br-r37-c1-7osb2`)
+
+NEGATIVE-LEDGER-FIRST: before selecting this seam,
+`python3 scripts/perf_ledger_preflight.py --prior-art 'MultiAdjacencyView
+__len__ __contains__ most-used view'` returned no direct row. Direct searches
+then read every multigraph adjacency, mapping length, membership, node-key,
+and view-materialization match in both performance ledgers. The prior
+`MultiAtlasView`, `MultiDiAtlasView`, and parallel-key length KEEPs optimize
+inner neighbor/key counts, not the outer `MultiAdjacencyView` node count. The
+simple `AdjacencyView.__len__` raw-count KEEP is a sibling mechanism and its
+post-descriptor profile rejection supplies the governing rule: at least 30%
+individually named removable self-time and at least a 1.5x individual-frame
+Amdahl ceiling before a dynamic prototype or source edit.
+
+EXACT PROFILE: measurement ran on drained `vmi1227854`, pinned to core 3.
+Canonical line one self-reported the loaded ELF SHA-256
+`4b30828df78e87ece5f6323d0b8864d46af76216c37a47e6375acf849dde122f`
+(13,154,016 bytes) from the isolated package whose wrapper SHA-256 was
+`55507a9327b259ee3a356f60d5c8034254260a1ef34feb9b84f9a4b3b06569fc`
+(Python 3.13.7, NetworkX 3.6.1). Profiling 200,000 calls to
+`len(MDG.adj)` recorded 600,002 calls in `0.110s`.
+`MultiAdjacencyView.__len__` owned **`0.034s` / 30.9% self-time**,
+the raw `number_of_nodes` call owned `0.020s`, built-in `len` owned
+`0.034s`, and the driver owned `0.022s`. Removing the individually named
+Python frame has a computed Amdahl ceiling of only **1.45x**. Unprofiled
+medians were `76.951ns` for NetworkX and `104.074ns` for FNX
+(`0.7394x` public ratio).
+
+RESULT: REJECT / NO SOURCE EDIT. This is **VALID-PROFILE**, not
+VOID-ZEROSELF or VOID-NONULL: the exact frame had non-zero self-time and a
+computed ceiling, but the `1.45x` ceiling misses the predeclared `1.5x`
+admission bar. No wall-ratio, A/A, CV, or combined-frame verdict is used
+because the lever stopped before dynamic admission. The separate
+`MultiAdjacencyView.__contains__` profile found a stronger owner-membership
+chain and is routed as a distinct vein.
+
+RETRY PREDICATE: do not retry binding `MultiGraph.number_of_nodes` /
+`MultiDiGraph.number_of_nodes` into the outer view, combining the built-in
+dispatch and Python frame after the fact, or relaxing the 1.5x ceiling.
+Reopen only after a different landed path change and a fresh exact-artifact
+profile attributes at least **33.4% self-time** to one removable frame, or a
+C-level mapping length-slot prototype removes that frame while preserving
+ownerless/private/filtered/live semantics. Any admitted timing rerun must
+record its same-invocation A/A null, require a doubled-null floor below
+**`1.03x`**, and decide only from the bootstrap median CI, never CV.
+
+QUALITY GATES: no source, harness, or test file changed. The exact-artifact
+profile completed on the isolated worker; the ledger/bead-only diff passed
+`git diff --check`. UBS has no supported Markdown/JSONL scanner, so no scanner
+pass is claimed for this docs-only row.
