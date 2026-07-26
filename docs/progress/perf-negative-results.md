@@ -1135,3 +1135,68 @@ FASTER than nx, which builds the same containers. Reopen only if a profile of a 
 API attributes >=20% exact self-time to PyO3 container construction. The genuinely materialization-
 shaped residuals are `dict(G[u])` 0.5159x (AtlasView `__getitem__` at 243k calls, already
 profile-attributed to the Python keydict machinery) and dense `DiGraph.edges()` 0.5850x.
+
+## 2026-07-25 BlackThrush (cc, Lane M) REJECT SUSTAINED (br-r37-c1-2zn1u re-decision): whole-binary v3 A/B after the fleet ISA lift — NO decidable effect; and v3 is not a binary this repo ships
+
+The orchestrator removed `ovh-b` (Ivy Bridge 2012, the only rch worker without avx2+fma) from the
+`rust` tag and asked for the AVX2 / `target-cpu` rejection to be re-decided as a whole-binary A/B.
+
+LEDGER FIRST (campaign HARD GATE). Two prior rows govern this and both were read in full:
+* `br-r37-c1-2zn1u` (2026-07-22) — REJECT of the AVX2 dense-linalg lane. Critically, **that row was
+  NOT blocked by ovh-b**: it ran BOTH arms on a pinned AVX2 worker (`hz2`), printed compile-time
+  `cfg!(target_feature)` as execution proof, and recorded that
+  `RCH_ENV_ALLOWLIST=RUSTFLAGS RUSTFLAGS='-C target-cpu=x86-64-v3'` forwards through rch — "the infra
+  path works". It rejected on MEASURED EFFECT (1.415x / 1.229x on the pure-FLOP `matmul_rowmajor`
+  core) diluted behind eig/LU/Pade + PyO3 marshaling, plus the cost of shipping runtime dispatch.
+* `2026-07-10 cc ISA QUANTIFIED` — `+native` gives **popcount 3.17x, rotate 2.08x on ALU loops but
+  the closeness bit-parallel KERNEL is 0.98x (no change)**. The microbench promise already failed to
+  survive contact with the real kernel once.
+
+WHOLE-BINARY A/B (campaign §2.6). Two release cdylibs built back-to-back from ONE pinned source
+state (`HEAD=2a9ca60b6`, worktree diff `59ed822d…` identical before and after both builds):
+arm A default flags, arm B `RUSTFLAGS='-C target-cpu=x86-64-v3'`.
+* **ELF sha differs** — `ba240617dd113d19` vs `c0b973617d5d5a00` — so the flag reached the compiler.
+* **Instruction-level execution proof** (`objdump`): base `ymm=5109, popcnt=0`; v3
+  `ymm=66376, popcnt=49`. The v3 arm emits **13x more 256-bit YMM instructions and 49 `popcnt`
+  instructions where the baseline had ZERO** (baseline x86-64 predates SSE4.2, so `popcnt` is
+  unavailable — and this repo's centrality kernels are bit-parallel/popcount-shaped). Codegen
+  unambiguously changed in the ways that would matter.
+* Arms alternate at PROCESS level (two binaries cannot share one process), round-robin, 7 rounds, on
+  one host (AMD Zen 3, avx2+fma+bmi2), with a genuine networkx anchor timed in-process for drift
+  normalisation and a **base-vs-base A/A null measured through the identical launch pattern**.
+
+RESULT — gated on wall, never on instruction count:
+
+| row | raw base/v3 | 95% CI | anchored | A/A null | verdict |
+|---|---:|---|---:|---:|---|
+| closeness_centrality [bit-parallel/popcount] | 1.0240 | [0.9104,1.3625] | 1.0680 | 1.0861 | undecidable |
+| harmonic_centrality [bit-parallel/popcount] | 0.8821 | [0.7818,1.4770] | 0.8881 | 0.9963 | undecidable |
+| average_shortest_path [bit-parallel/popcount] | 1.4752 | [0.8451,3.0647] | 1.3553 | **1.7659** | undecidable |
+| adjacency_spectrum [dense eig] | 1.0333 | [0.8799,1.2566] | 0.9745 | 0.8618 | undecidable |
+| communicability [dense matexp] | 1.1152 | [0.7661,1.2678] | 1.1239 | 0.9759 | undecidable |
+| pagerank / triangles / bfs_tree [controls] | 0.97-1.01 | — | 0.96-1.04 | 0.99-1.04 | undecidable |
+
+**NOTHING is decidable, and the A/A null is why.** Process-level launch-to-launch variance on this
+shared host spans **0.86x-1.77x**. Without the null this row would have read "average_shortest_path
+1.4752x from AVX2" — a number its own base-vs-base control (1.7659x) refutes outright. This is the
+VOID-NONULL failure mode caught live, in the act, rather than a year later by an auditor.
+
+VERDICT: **the 2zn1u REJECT stands, with its reason corrected and sharpened.**
+1. The rejection was never ISA-availability-blocked, so lifting the fleet constraint does not
+   resurrect it. Its own measurement already ran at v3 on an AVX2 worker.
+2. My whole-binary re-test is **consistent with the prior `0.98x` closeness finding** (1.0240 inside
+   a 1.0861 null): the popcount kernels do not visibly move even when `popcnt` goes from 0 to 49
+   instructions emitted. The bit-parallel kernels' documented popcnt work-around is doing its job.
+3. **Repo-specific and important — this is where franken_networkx DIVERGES from the fleet-wide
+   recommendation.** frankenfs correctly concluded "benchmark at v3 because that is what
+   `build-perf.sh` ships". franken_networkx ships an **abi3 wheel to arbitrary user CPUs**, so a v3
+   benchmark binary would measure something we do NOT ship and would OVERSTATE what users get. For
+   this repo, v3 is a *shipping* question (runtime dispatch / wheel variants), not a *benchmarking*
+   one. **Do not adopt `RUSTFLAGS=-C target-cpu=x86-64-v3` for franken_networkx benchmarks.**
+
+RETRY PREDICATE (supersedes 2zn1u's, which is otherwise unchanged): re-open ONLY if (a) runtime
+dispatch (`multiversion`/`is_x86_feature_detected!`) or v3 wheel variants land — i.e. v3 becomes
+shippable — AND (b) a dense-family or popcount-family fn shows up as a measured fnx-vs-nx LOSS whose
+self-time is dominated by that kernel. A whole-binary process-level A/B is NOT the instrument for
+this question at these effect sizes: it has a ~±40% noise floor here. Use the in-binary two-arm form
+2zn1u used (both arms in one binary, one pinned quiet worker, `cfg!(target_feature)` execution proof).
