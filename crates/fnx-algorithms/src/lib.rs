@@ -2933,8 +2933,28 @@ pub fn single_source_shortest_path_length_directed_with_parents(
 
 #[must_use]
 pub fn connected_components(graph: &Graph) -> ComponentsResult {
+    connected_components_arm(graph, ConnectedComponentsQueueArm::VecHead)
+}
+
+/// Queue implementation selector retained for same-binary performance proofs.
+///
+/// `VecHead` is the production path resurrected from the 2026-07-10 ledger:
+/// a preallocated `Vec<usize>` with a monotonic head cursor. `VecDeque` is the
+/// frozen baseline. Both arms execute the same monomorphized traversal body,
+/// including CGSE decisions and witness accounting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectedComponentsQueueArm {
+    VecDeque,
+    VecHead,
+}
+
+#[must_use]
+pub fn connected_components_arm(
+    graph: &Graph,
+    arm: ConnectedComponentsQueueArm,
+) -> ComponentsResult {
     let (components, nodes_touched, edges_scanned, queue_peak) =
-        connected_components_borrowed(graph);
+        connected_components_borrowed_arm(graph, arm);
     let owned: Vec<Vec<String>> = components
         .into_iter()
         .map(|comp| comp.into_iter().map(str::to_owned).collect())
@@ -2965,6 +2985,99 @@ pub fn connected_components(graph: &Graph) -> ComponentsResult {
 ///
 /// Returns `(components, nodes_touched, edges_scanned, queue_peak)`.
 pub fn connected_components_borrowed(graph: &Graph) -> (Vec<Vec<&str>>, usize, usize, usize) {
+    connected_components_borrowed_with_queue::<VecHeadQueue>(graph)
+}
+
+fn connected_components_borrowed_arm(
+    graph: &Graph,
+    arm: ConnectedComponentsQueueArm,
+) -> (Vec<Vec<&str>>, usize, usize, usize) {
+    match arm {
+        ConnectedComponentsQueueArm::VecDeque => {
+            connected_components_borrowed_with_queue::<VecDeque<usize>>(graph)
+        }
+        ConnectedComponentsQueueArm::VecHead => {
+            connected_components_borrowed_with_queue::<VecHeadQueue>(graph)
+        }
+    }
+}
+
+trait ComponentsQueue {
+    fn for_node_count(node_count: usize) -> Self;
+    fn clear(&mut self);
+    fn push(&mut self, node: usize);
+    fn pop(&mut self) -> Option<usize>;
+    fn len(&self) -> usize;
+}
+
+impl ComponentsQueue for VecDeque<usize> {
+    #[inline]
+    fn for_node_count(_node_count: usize) -> Self {
+        Self::new()
+    }
+
+    #[inline]
+    fn clear(&mut self) {
+        VecDeque::clear(self);
+    }
+
+    #[inline]
+    fn push(&mut self, node: usize) {
+        self.push_back(node);
+    }
+
+    #[inline]
+    fn pop(&mut self) -> Option<usize> {
+        self.pop_front()
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        VecDeque::len(self)
+    }
+}
+
+struct VecHeadQueue {
+    nodes: Vec<usize>,
+    head: usize,
+}
+
+impl ComponentsQueue for VecHeadQueue {
+    #[inline]
+    fn for_node_count(node_count: usize) -> Self {
+        Self {
+            nodes: Vec::with_capacity(node_count),
+            head: 0,
+        }
+    }
+
+    #[inline]
+    fn clear(&mut self) {
+        self.nodes.clear();
+        self.head = 0;
+    }
+
+    #[inline]
+    fn push(&mut self, node: usize) {
+        self.nodes.push(node);
+    }
+
+    #[inline]
+    fn pop(&mut self) -> Option<usize> {
+        let node = self.nodes.get(self.head).copied()?;
+        self.head += 1;
+        Some(node)
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        self.nodes.len() - self.head
+    }
+}
+
+fn connected_components_borrowed_with_queue<Q: ComponentsQueue>(
+    graph: &Graph,
+) -> (Vec<Vec<&str>>, usize, usize, usize) {
     let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::ConnectedComponents);
     let nodes: Vec<&str> = graph.nodes_ordered();
     let n = nodes.len();
@@ -2982,7 +3095,7 @@ pub fn connected_components_borrowed(graph: &Graph) -> (Vec<Vec<&str>>, usize, u
     let mut nodes_touched = 0usize;
     let mut edges_scanned = 0usize;
     let mut queue_peak = 0usize;
-    let mut queue: VecDeque<usize> = VecDeque::new();
+    let mut queue = Q::for_node_count(n);
 
     for start_idx in 0..n {
         if visited[start_idx] {
@@ -2991,14 +3104,14 @@ pub fn connected_components_borrowed(graph: &Graph) -> (Vec<Vec<&str>>, usize, u
 
         queue.clear();
         let mut component: Vec<&str> = Vec::new();
-        queue.push_back(start_idx);
+        queue.push(start_idx);
         visited[start_idx] = true;
         component.push(nodes[start_idx]);
         cgse_record_decision(&mut cgse_sink, nodes[start_idx], "component_root");
         nodes_touched += 1;
         queue_peak = queue_peak.max(queue.len());
 
-        while let Some(current_idx) = queue.pop_front() {
+        while let Some(current_idx) = queue.pop() {
             // Use integer-indexed adjacency for O(1) neighbor traversal.
             let Some(neighbor_indices) = graph.neighbors_indices(current_idx) else {
                 continue;
@@ -3008,7 +3121,7 @@ pub fn connected_components_borrowed(graph: &Graph) -> (Vec<Vec<&str>>, usize, u
                 edges_scanned += 1;
                 if !visited[nbr_idx] {
                     visited[nbr_idx] = true;
-                    queue.push_back(nbr_idx);
+                    queue.push(nbr_idx);
                     component.push(nodes[nbr_idx]);
                     cgse_record_decision(&mut cgse_sink, nodes[nbr_idx], nodes[current_idx]);
                     nodes_touched += 1;
@@ -22681,13 +22794,11 @@ pub fn transitive_closure(digraph: &DiGraph, reflexive: Option<bool>) -> DiGraph
     // source-major discovery order, same seed-from-successors visited/self-loop semantics, same
     // (s_idx,t_idx) dedup + adjacency + revision → the same closure DiGraph.
     let mut visited_stamp = vec![0u32; n];
-    let mut epoch = 0u32;
     let mut queue: VecDeque<usize> = VecDeque::new();
     let mut edge_pairs: Vec<(usize, usize)> = Vec::new();
 
-    for source in 0..n {
-        epoch += 1;
-        let stamp = epoch;
+    for (epoch, source) in (0..n).enumerate() {
+        let stamp = u32::try_from(epoch + 1).expect("node count fits in u32");
         let mut order: Vec<usize> = Vec::new();
         queue.clear();
 
@@ -22822,10 +22933,9 @@ pub fn transitive_reduction(digraph: &DiGraph) -> Option<DiGraph> {
 
     // Epoch-stamped reachability mark: stamp == current epoch means "reachable via others".
     let mut reach_stamp = vec![0u32; n];
-    let mut epoch = 0u32;
     let mut queue: VecDeque<usize> = VecDeque::new();
 
-    for &u in &topo_idx {
+    for (epoch, &u) in topo_idx.iter().enumerate() {
         // Direct successors sorted by topological position (matches the old String-keyed sort).
         let mut sorted_direct: Vec<usize> = digraph
             .successors_indices(u)
@@ -22833,8 +22943,7 @@ pub fn transitive_reduction(digraph: &DiGraph) -> Option<DiGraph> {
             .unwrap_or_default();
         sorted_direct.sort_by_key(|&v| pos_by_node[v]);
 
-        epoch += 1;
-        let stamp = epoch;
+        let stamp = u32::try_from(epoch + 1).expect("node count fits in u32");
 
         for &v in &sorted_direct {
             if reach_stamp[v] == stamp {
@@ -24455,11 +24564,11 @@ fn closeness_vitality_orig_string(graph: &Graph) -> HashMap<String, f64> {
                         if nbr == *excluded_node {
                             continue;
                         }
-                        if let Some(&v) = node_to_idx.get(nbr) {
-                            if dist[v].is_none() {
-                                dist[v] = Some(d + 1);
-                                queue.push_back(v);
-                            }
+                        if let Some(&v) = node_to_idx.get(nbr)
+                            && dist[v].is_none()
+                        {
+                            dist[v] = Some(d + 1);
+                            queue.push_back(v);
                         }
                     }
                 }
@@ -34263,12 +34372,8 @@ pub fn bidirectional_shortest_path(
     // Vec<Option<usize>> pred; names are materialised only for the O(path) reconstructed path.
     // Byte-identical: same frontier-size expansion choice, same neighbour order, same meeting-point
     // detection → the same meeting node + predecessor trees → the same path.
-    let Some(source_idx) = graph.get_node_index(source) else {
-        return None;
-    };
-    let Some(target_idx) = graph.get_node_index(target) else {
-        return None;
-    };
+    let source_idx = graph.get_node_index(source)?;
+    let target_idx = graph.get_node_index(target)?;
     if source_idx == target_idx {
         return Some(vec![source.to_owned()]);
     }
@@ -55412,10 +55517,10 @@ mod tests {
                     .wrapping_mul(1_000_003)
                     .wrapping_add((k as u64).wrapping_mul(97))
                     % (n as u64)) as usize;
-                if j % 2 == 0 {
+                if j.is_multiple_of(2) {
                     j = (j + 1) % n;
                 }
-                if j % 2 == 0 {
+                if j.is_multiple_of(2) {
                     continue; // n even → (n-1) odd, so this only trips if wrap hit 0
                 }
                 let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
@@ -56151,7 +56256,7 @@ mod tests {
         // dead-ends (degree-1) that inflate the BFS edge scan without creating alternate shortest routes.
         let d = 1500usize;
         let w = 20usize;
-        let build = |directed: bool| {
+        let build = |_directed: bool| {
             let spine = |i: usize| format!("s{i}");
             let leaf = |i: usize, k: usize| format!("l{i}_{k}");
             let mut edges: Vec<(String, String)> = Vec::new();
@@ -56740,9 +56845,9 @@ mod tests {
     /// br-r37-c1-qgidx: full-function paired-interleaved A/B for `quotient_graph` (String-keyed
     /// edges_ordered() + HashMap<&str,usize> block map + String round-trip emit → edges_ordered_indices
     /// + Vec<usize> block map + index-pair batch extend). Dense graph, contiguous blocks so most edges
-    /// are intra-block (tiny output) → the O(|E|) edge scan + edges_ordered() attr-cloning materialisation
-    /// dominates. Byte-exact parity (quotient nodes + edges). `#[ignore]`; run with
-    /// `cargo test --release -p fnx-algorithms --lib quotient_graph_idx_ab -- --ignored --nocapture`.
+    ///   are intra-block (tiny output) → the O(|E|) edge scan + edges_ordered() attr-cloning materialisation
+    ///   dominates. Byte-exact parity (quotient nodes + edges). `#[ignore]`; run with
+    ///   `cargo test --release -p fnx-algorithms --lib quotient_graph_idx_ab -- --ignored --nocapture`.
     #[test]
     #[ignore = "measurement; run with --release --ignored --nocapture"]
     fn quotient_graph_idx_ab() {
@@ -57391,7 +57496,7 @@ mod tests {
     /// with in_degree HashMap<&str,usize> + successors() Vec<&str> alloc + get_mut re-hash per edge →
     /// integer-index). Forward DAG (acyclic → full Kahn's). Byte-exact parity (result incl. generations
     /// + order + witness via PartialEq). `#[ignore]`; run with
-    /// `cargo test --release -p fnx-algorithms --lib topological_generations_idx_ab -- --ignored --nocapture`.
+    ///   `cargo test --release -p fnx-algorithms --lib topological_generations_idx_ab -- --ignored --nocapture`.
     #[test]
     #[ignore = "measurement; run with --release --ignored --nocapture"]
     fn topological_generations_idx_ab() {
@@ -58156,8 +58261,8 @@ mod tests {
     /// br-r37-c1-lextopoidx: full-function paired-interleaved A/B for `lexicographic_topological_sort`
     /// (in_degree HashMap<&str> + successors() alloc + BinaryHeap<Reverse<&str>> → in_degree Vec<usize>
     /// + successors_indices + a ByName{name,idx} heap so pop order is unchanged). Forward DAG (acyclic).
-    /// Byte-exact parity (lexicographic order). `#[ignore]`; run with
-    /// `cargo test --release -p fnx-algorithms --lib lexicographic_topological_sort_idx_ab -- --ignored --nocapture`.
+    ///   Byte-exact parity (lexicographic order). `#[ignore]`; run with
+    ///   `cargo test --release -p fnx-algorithms --lib lexicographic_topological_sort_idx_ab -- --ignored --nocapture`.
     #[test]
     #[ignore = "measurement; run with --release --ignored --nocapture"]
     fn lexicographic_topological_sort_idx_ab() {
@@ -58250,8 +58355,8 @@ mod tests {
     /// br-r37-c1-ebdiridx: full-function paired-interleaved A/B for `edge_boundary_directed` (nbunch2=None
     /// branch: graph.successors(node) Vec<&str> alloc + set1.contains(succ) String probe → successors_indices
     /// + in_set1 bool row). Large nbunch1 (half a dense directed graph). Byte-exact parity (boundary edges +
-    /// order). `#[ignore]`; run with
-    /// `cargo test --release -p fnx-algorithms --lib edge_boundary_directed_idx_ab -- --ignored --nocapture`.
+    ///   order). `#[ignore]`; run with
+    ///   `cargo test --release -p fnx-algorithms --lib edge_boundary_directed_idx_ab -- --ignored --nocapture`.
     #[test]
     #[ignore = "measurement; run with --release --ignored --nocapture"]
     fn edge_boundary_directed_idx_ab() {
@@ -58342,7 +58447,7 @@ mod tests {
     /// br-r37-c1-ebidx: full-function paired-interleaved A/B for undirected `edge_boundary` (nbunch2=None
     /// branch: graph.neighbors(node) Vec<&str> alloc + set1.contains(nbr) String probe → neighbors_indices
     /// + in_set1 bool row). Large nbunch1 (half a dense graph). Byte-exact parity (boundary edges + order).
-    /// `#[ignore]`; run with `cargo test --release -p fnx-algorithms --lib edge_boundary_idx_ab -- --ignored --nocapture`.
+    ///   `#[ignore]`; run with `cargo test --release -p fnx-algorithms --lib edge_boundary_idx_ab -- --ignored --nocapture`.
     #[test]
     #[ignore = "measurement; run with --release --ignored --nocapture"]
     fn edge_boundary_idx_ab() {
@@ -58434,9 +58539,9 @@ mod tests {
     /// already-converted `group_out_degree_centrality` — `group_in_degree_centrality` (DiGraph,
     /// predecessors) and `group_degree_centrality` (Graph, neighbours). Old kernel: group_set HashSet<&str>
     /// + predecessors()/neighbors_iter() (Vec<&str> alloc) + contains + outside HashSet<&str>. New: resolve
-    /// group→indices once, walk *_indices over is_group_member/seen_outside bool rows + counter.
-    /// Byte-identical f64 (set cardinality). `#[ignore]`; run with
-    /// `cargo test --release -p fnx-algorithms --lib group_degree_idx_ab -- --ignored --nocapture`.
+    ///   group→indices once, walk *_indices over is_group_member/seen_outside bool rows + counter.
+    ///   Byte-identical f64 (set cardinality). `#[ignore]`; run with
+    ///   `cargo test --release -p fnx-algorithms --lib group_degree_idx_ab -- --ignored --nocapture`.
     #[test]
     #[ignore = "measurement; run with --release --ignored --nocapture"]
     fn group_degree_idx_ab() {
@@ -60013,8 +60118,8 @@ mod tests {
     /// br-r37-c1-voronoi: paired-interleaved median A/B for the integer-adjacency
     /// multi-source BFS `voronoi_cells` vs the old `graph.neighbors()` (`Vec<&str>`)
     /// + `idx.get` String baseline, in ONE binary / ONE worker with a NULL control.
-    /// `#[ignore]` (measurement); run with
-    /// `cargo test --release -p fnx-algorithms --lib voronoi_cells_voronoi_ab -- --ignored --nocapture`.
+    ///   `#[ignore]` (measurement); run with
+    ///   `cargo test --release -p fnx-algorithms --lib voronoi_cells_voronoi_ab -- --ignored --nocapture`.
     #[test]
     #[ignore = "measurement; run with --release --ignored --nocapture"]
     fn voronoi_cells_voronoi_ab() {
@@ -61598,8 +61703,8 @@ mod tests {
     /// br-r37-c1-branch: paired-interleaved median A/B for the no-alloc-degree +
     /// integer per-component `is_branching` vs the old `predecessors()/successors().len()`
     /// + `HashSet<&str>` baseline, in ONE binary / ONE worker with a NULL control.
-    /// `#[ignore]` (measurement); run with
-    /// `cargo test --release -p fnx-algorithms --lib is_branching_branch_ab -- --ignored --nocapture`.
+    ///   `#[ignore]` (measurement); run with
+    ///   `cargo test --release -p fnx-algorithms --lib is_branching_branch_ab -- --ignored --nocapture`.
     #[test]
     #[ignore = "measurement; run with --release --ignored --nocapture"]
     fn is_branching_branch_ab() {
@@ -62592,9 +62697,9 @@ mod tests {
 
     /// br-r37-c1-ktrussmark: paired-interleaved median A/B for the integer-adjacency
     /// + mark-array k-truss peeling vs the old String-keyed HashMap/HashSet
-    /// per-edge-clone baseline, in ONE binary / ONE worker with a NULL control.
-    /// `#[ignore]` (measurement); run with
-    /// `cargo test --release -p fnx-algorithms --lib k_truss_mark_ab -- --ignored --nocapture`.
+    ///   per-edge-clone baseline, in ONE binary / ONE worker with a NULL control.
+    ///   `#[ignore]` (measurement); run with
+    ///   `cargo test --release -p fnx-algorithms --lib k_truss_mark_ab -- --ignored --nocapture`.
     #[test]
     #[ignore = "measurement; run with --release --ignored --nocapture"]
     fn k_truss_mark_ab() {
@@ -62903,9 +63008,9 @@ mod tests {
 
     /// br-r37-c1-dirclustmark: paired-interleaved median A/B for the integer-adjacency
     /// + mark-array directed clustering vs the old HashSet<&str> preds/succs +
-    /// per-neighbour jpreds/jsuccs baseline, in ONE binary / ONE worker with a NULL
-    /// control. `#[ignore]` (measurement); run with
-    /// `cargo test --release -p fnx-algorithms --lib dir_clustering_mark_ab -- --ignored --nocapture`.
+    ///   per-neighbour jpreds/jsuccs baseline, in ONE binary / ONE worker with a NULL
+    ///   control. `#[ignore]` (measurement); run with
+    ///   `cargo test --release -p fnx-algorithms --lib dir_clustering_mark_ab -- --ignored --nocapture`.
     #[test]
     #[ignore = "measurement; run with --release --ignored --nocapture"]
     fn dir_clustering_mark_ab() {
@@ -65655,6 +65760,47 @@ mod tests {
                 vec!["x".to_owned(), "y".to_owned()]
             ]
         );
+    }
+
+    #[test]
+    fn connected_components_vec_head_matches_frozen_vec_deque_arm() {
+        let mut disconnected = Graph::strict();
+        let _ = disconnected.add_node("isolated");
+        disconnected
+            .add_edge("a", "b")
+            .expect("edge add should succeed");
+        disconnected
+            .add_edge("b", "c")
+            .expect("edge add should succeed");
+        disconnected
+            .add_edge("loop", "loop")
+            .expect("self-loop add should succeed");
+
+        let mut branching = Graph::strict();
+        for (left, right) in [
+            ("root", "left"),
+            ("root", "right"),
+            ("left", "left_leaf"),
+            ("right", "right_leaf"),
+            ("right", "right_leaf_2"),
+        ] {
+            branching
+                .add_edge(left, right)
+                .expect("edge add should succeed");
+        }
+
+        for graph in [Graph::strict(), disconnected, branching] {
+            assert_eq!(
+                super::connected_components_arm(
+                    &graph,
+                    super::ConnectedComponentsQueueArm::VecHead,
+                ),
+                super::connected_components_arm(
+                    &graph,
+                    super::ConnectedComponentsQueueArm::VecDeque,
+                ),
+            );
+        }
     }
 
     #[test]

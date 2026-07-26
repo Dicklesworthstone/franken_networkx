@@ -1719,25 +1719,24 @@ impl Graph {
             if let (Some(left_idx), Some(right_idx)) = (
                 self.nodes.get_index_of(&left),
                 self.nodes.get_index_of(&right),
-            ) {
-                if new_edge {
-                    if left <= right {
-                        self.edge_index_endpoints.push((left_idx, right_idx));
-                    } else {
-                        self.edge_index_endpoints.push((right_idx, left_idx));
-                    }
-                    // br-r37-c1-addedgenewedge (cc): adj_indices membership is EXACTLY edge
-                    // existence, which `new_edge` (= !self.edges.contains_key(edge_key)) already
-                    // decided in O(1). The old `!adj_indices[left_idx].contains(&right_idx)` guards
-                    // were an O(degree) linear rescan of the adjacency row computing the SAME
-                    // answer — O(n²) to build a star/hub via add_edge. Push only when new_edge
-                    // (byte-identical: existing edge ⇒ new_edge false ⇒ both endpoints already in
-                    // adj_indices ⇒ old guards were false too; self-loop ⇒ left_idx==right_idx ⇒
-                    // single push in both).
-                    self.adj_indices[left_idx].push(right_idx);
-                    if left_idx != right_idx {
-                        self.adj_indices[right_idx].push(left_idx);
-                    }
+            ) && new_edge
+            {
+                if left <= right {
+                    self.edge_index_endpoints.push((left_idx, right_idx));
+                } else {
+                    self.edge_index_endpoints.push((right_idx, left_idx));
+                }
+                // br-r37-c1-addedgenewedge (cc): adj_indices membership is EXACTLY edge
+                // existence, which `new_edge` (= !self.edges.contains_key(edge_key)) already
+                // decided in O(1). The old `!adj_indices[left_idx].contains(&right_idx)` guards
+                // were an O(degree) linear rescan of the adjacency row computing the SAME
+                // answer — O(n²) to build a star/hub via add_edge. Push only when new_edge
+                // (byte-identical: existing edge ⇒ new_edge false ⇒ both endpoints already in
+                // adj_indices ⇒ old guards were false too; self-loop ⇒ left_idx==right_idx ⇒
+                // single push in both).
+                self.adj_indices[left_idx].push(right_idx);
+                if left_idx != right_idx {
+                    self.adj_indices[right_idx].push(left_idx);
                 }
             }
             self.revision = self.revision.saturating_add(1);

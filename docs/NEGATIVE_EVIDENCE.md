@@ -2,6 +2,55 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-25 CloudyTurtle RESURRECTION KEEP: `connected_components` preallocated Vec FIFO — **1.032-1.038x**, old REJECT was VOID (`br-r37-c1-cje5a`)
+
+**LEDGER-FIRST / VOID AUDIT.** Before restoring source, the campaign audit
+grepped `docs/NEGATIVE_EVIDENCE.md`, `docs/NEGATIVE_EVIDENCE_cc.md`, and
+`docs/progress/perf-negative-results.md` for `REJECT|NO-SHIP|INVALID|VOID`,
+then ranked explicit target-frame shares. The 2026-07-10
+`connected_components` row ranked third at `76.4%` inclusive
+`connected_components_borrowed` samples. It recorded no A/A null, no
+executing-binary SHA-256, and rejected the measurement using raw-arm medians
+and a shared-worker CV rule. Under the 2026-07-25 campaign definition that row
+is **VOID measurement evidence**, not a durable source decision.
+
+**ONE RESTORED LEVER / EXACT COMPARATOR.** The candidate replaces only the
+reusable `VecDeque<usize>` BFS queue with a `Vec<usize>` preallocated to the
+node count plus a monotonically increasing head. A monomorphized queue trait
+keeps separate VecDeque and Vec-head machine-code arms around the identical
+traversal body: same integer adjacency, CGSE calls, early termination,
+component discovery/emission order, owned strings, and every witness field.
+Exact equality was asserted outside timing on empty, isolated, self-loop,
+disconnected, branching, path/1000, and grid/900 graphs.
+
+**CORRECTED HARNESS / SAME INVOCATION.** One fail-closed remote invocation
+compiled and ran both workloads on worker `ovh-a`. The executing process
+self-reported ELF SHA-256
+`3e47a66a4cc79d34f22f2cd21a351195ae78c174851422e1565a0f1bf3249292`
+(`4,963,336` bytes). Each row used 61 alternating-order rounds of 100 complete
+public calls, with an immediately preceding base/base null. The decision
+statistic is the median of adjacent per-round ratios and its deterministic
+bootstrap 95% CI; CV is report-only.
+
+| workload | A/A median (95% CI) | VecDeque / Vec-head median (95% CI) | null-width margin | exact |
+|---|---:|---:|---:|---|
+| `path/1000` | `0.998x` (`0.992-1.002`) | **`1.032x` (`1.028-1.037`)** | `3.98x` | yes |
+| `grid/900` | `0.998x` (`0.995-1.001`) | **`1.038x` (`1.035-1.039`)** | `8.17x` | yes |
+
+Both candidate medians are outside the matching null CI and their effect is
+more than twice the null half-width. The path candidate won `56/61` adjacent
+pairs; grid won `59/61`. The candidate therefore clears the median-CI gate on
+both historical workloads despite being only a 3.2-3.8% lever.
+
+**RESULT: KEEP / SUPERSEDES THE 2026-07-10 REJECT.** Production
+`connected_components` and the borrowed/count consumers now select the
+preallocated Vec-head arm; the VecDeque arm remains only as the frozen
+same-binary comparator. Retry/rollback predicate: reopen this decision only if
+an exact-output test diverges, or if a same-ELF invocation with at least 61
+alternating rounds shows the production ratio's median inside the adjacent
+A/A 95% CI on **both** path/1000 and grid/900. Never retry or roll back on raw
+CV alone.
+
 ## 2026-07-16 BlackThrush NO-SHIP: pre-size durability envelope JSON — 0.9985x (`br-r37-c1-04z53.9177`)
 
 **NEGATIVE-LEDGER / PROFILE FIRST.** Fresh `bv --robot-triage`, live ownership,

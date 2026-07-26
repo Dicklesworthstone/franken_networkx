@@ -9,15 +9,16 @@ use std::collections::BTreeMap;
 
 use criterion::{BenchmarkId, Criterion, criterion_group};
 use fnx_algorithms::{
-    BitparArm, adamic_adar_index, aspl_gate_overhead_cost, average_degree_connectivity,
-    average_shortest_path_length, average_shortest_path_length_arm, betweenness_centrality,
-    closeness_centrality, closeness_centrality_arm, closeness_reverse_csr_build_cost,
-    cn_soundarajan_hopcroft, common_neighbor_centrality, common_neighbors, connected_components,
-    degree_centrality, degree_histogram, degree_mixing_dict, eigenvector_centrality,
-    harmonic_centrality, harmonic_centrality_arm, jaccard_coefficient, max_flow_edmonds_karp,
-    minimum_cut_edmonds_karp, minimum_spanning_tree, node_degree_xy, pagerank,
-    preferential_attachment, ra_index_soundarajan_hopcroft, resource_allocation_index,
-    shortest_path_unweighted, shortest_path_weighted, single_source_dijkstra_path_length,
+    BitparArm, ConnectedComponentsQueueArm, adamic_adar_index, aspl_gate_overhead_cost,
+    average_degree_connectivity, average_shortest_path_length, average_shortest_path_length_arm,
+    betweenness_centrality, closeness_centrality, closeness_centrality_arm,
+    closeness_reverse_csr_build_cost, cn_soundarajan_hopcroft, common_neighbor_centrality,
+    common_neighbors, connected_components, connected_components_arm, degree_centrality,
+    degree_histogram, degree_mixing_dict, eigenvector_centrality, harmonic_centrality,
+    harmonic_centrality_arm, jaccard_coefficient, max_flow_edmonds_karp, minimum_cut_edmonds_karp,
+    minimum_spanning_tree, node_degree_xy, pagerank, preferential_attachment,
+    ra_index_soundarajan_hopcroft, resource_allocation_index, shortest_path_unweighted,
+    shortest_path_weighted, single_source_dijkstra_path_length,
 };
 use fnx_classes::{Graph, digraph::DiGraph};
 use fnx_runtime::CgseValue;
@@ -383,6 +384,88 @@ fn bench_connected_components(c: &mut Criterion) {
     group.finish();
 }
 
+/// Resurrection rerun for the 2026-07-10 `connected_components` Vec-FIFO row.
+/// The old decision had no A/A null, no executing-ELF identity, and rejected on
+/// raw-arm CV despite a profile attributing 76.4% inclusive time to the target
+/// traversal. This rerun uses the process-wide self hash plus adjacent
+/// base/base and base/candidate median-CI decisions.
+fn bench_connected_components_queue_void_rerun(_c: &mut Criterion) {
+    const CALLS: usize = 100;
+    const ROUNDS: usize = 61;
+
+    let run = |g: &Graph, arm: ConnectedComponentsQueueArm| -> usize {
+        let mut checksum = 0usize;
+        for _ in 0..CALLS {
+            let result = std::hint::black_box(connected_components_arm(
+                std::hint::black_box(g),
+                std::hint::black_box(arm),
+            ));
+            checksum = checksum
+                .wrapping_mul(31)
+                .wrapping_add(result.components.len())
+                .wrapping_add(result.witness.nodes_touched)
+                .wrapping_add(result.witness.edges_scanned)
+                .wrapping_add(result.witness.queue_peak);
+        }
+        std::hint::black_box(checksum)
+    };
+    let score = |g: &Graph, arm: ConnectedComponentsQueueArm| -> Vec<u64> {
+        let result = connected_components_arm(g, arm);
+        let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+        for component in &result.components {
+            hash ^= component.len() as u64;
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            for node in component {
+                for &byte in node.as_bytes() {
+                    hash ^= u64::from(byte);
+                    hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+                }
+            }
+        }
+        vec![
+            hash,
+            result.components.len() as u64,
+            result.witness.nodes_touched as u64,
+            result.witness.edges_scanned as u64,
+            result.witness.queue_peak as u64,
+        ]
+    };
+
+    for (label, graph) in [
+        ("connected_components/path/1000", build_path(1000)),
+        ("connected_components/grid/900", build_grid(30, 30)),
+    ] {
+        assert_eq!(
+            connected_components_arm(&graph, ConnectedComponentsQueueArm::VecDeque),
+            connected_components_arm(&graph, ConnectedComponentsQueueArm::VecHead),
+            "{label}: VecDeque and Vec-head outputs diverged"
+        );
+        let null = paired_interleaved_ab_base(
+            label,
+            &graph,
+            "vec_deque",
+            ConnectedComponentsQueueArm::VecDeque,
+            "null_control",
+            ConnectedComponentsQueueArm::VecDeque,
+            ROUNDS,
+            &run,
+            &score,
+        );
+        let candidate = paired_interleaved_ab_base(
+            label,
+            &graph,
+            "vec_deque",
+            ConnectedComponentsQueueArm::VecDeque,
+            "vec_head",
+            ConnectedComponentsQueueArm::VecHead,
+            ROUNDS,
+            &run,
+            &score,
+        );
+        report_median_ci_gate(label, "vec_deque", "vec_head", null, candidate);
+    }
+}
+
 fn bench_average_shortest_path_length(c: &mut Criterion) {
     let mut group = c.benchmark_group("average_shortest_path_length");
     for &(r, co) in &[(20, 20), (30, 30), (40, 40)] {
@@ -557,21 +640,21 @@ struct PairedStats {
 /// — the two arms differ in the gate probe + row collection, whose own variance the
 /// per_source null cannot see (br-r37-c1-4bubk).
 #[allow(clippy::too_many_arguments)]
-fn paired_interleaved_ab_base(
+fn paired_interleaved_ab_base<A: Copy>(
     label: &str,
     g: &Graph,
     base_name: &str,
-    base: BitparArm,
+    base: A,
     cand_name: &str,
-    cand: BitparArm,
+    cand: A,
     rounds: usize,
-    run_arm: &dyn Fn(&Graph, BitparArm) -> usize,
-    score_bits: &dyn Fn(&Graph, BitparArm) -> Vec<u64>,
+    run_arm: &dyn Fn(&Graph, A) -> usize,
+    score_bits: &dyn Fn(&Graph, A) -> Vec<u64>,
 ) -> PairedStats {
     use std::hint::black_box;
     use std::time::Instant;
 
-    let run = |arm: BitparArm| -> usize { run_arm(black_box(g), black_box(arm)) };
+    let run = |arm: A| -> usize { run_arm(black_box(g), black_box(arm)) };
     for _ in 0..3 {
         black_box(run(base));
         black_box(run(cand));
@@ -673,6 +756,44 @@ fn paired_interleaved_ab_base(
     }
 }
 
+fn report_median_ci_gate(
+    label: &str,
+    base_name: &str,
+    cand_name: &str,
+    null: PairedStats,
+    candidate: PairedStats,
+) {
+    let null_half_width = (null.ci_lo - 1.0).abs().max((null.ci_hi - 1.0).abs());
+    let effect = (candidate.ratio_median - 1.0).abs();
+    let outside_null_ci =
+        candidate.ratio_median < null.ci_lo || candidate.ratio_median > null.ci_hi;
+    let margin = if null_half_width > 0.0 {
+        effect / null_half_width
+    } else {
+        f64::INFINITY
+    };
+    let decidable = outside_null_ci && margin >= 2.0;
+    println!(
+        "MEDIAN_CI_GATE {label} {base_name} vs {cand_name}: verdict={} \
+         claim={:.3}x null_ci95=[{:.3},{:.3}] null_half_width={:.3} \
+         margin={margin:.2}x candidate_ci95=[{:.3},{:.3}] \
+         cv_report_only=null:{:.2}%/candidate:{:.2}%",
+        if decidable {
+            "DECIDABLE"
+        } else {
+            "UNDECIDABLE"
+        },
+        candidate.ratio_median,
+        null.ci_lo,
+        null.ci_hi,
+        null_half_width,
+        candidate.ci_lo,
+        candidate.ci_hi,
+        null.median_cv,
+        candidate.median_cv
+    );
+}
+
 /// Run the required A/A control immediately before the real A/B and decide only
 /// against the null median's bootstrap CI. CV is printed as provenance, never used
 /// by this gate.
@@ -696,36 +817,7 @@ fn paired_interleaved_with_null(
         score_bits,
     );
     let candidate = paired_interleaved_ab(label, g, cand_name, cand, rounds, run_arm, score_bits);
-
-    let null_half_width = (null.ci_lo - 1.0).abs().max((null.ci_hi - 1.0).abs());
-    let effect = (candidate.ratio_median - 1.0).abs();
-    let outside_null_ci =
-        candidate.ratio_median < null.ci_lo || candidate.ratio_median > null.ci_hi;
-    let margin = if null_half_width > 0.0 {
-        effect / null_half_width
-    } else {
-        f64::INFINITY
-    };
-    let decidable = outside_null_ci && margin >= 2.0;
-    println!(
-        "MEDIAN_CI_GATE {label} per_source vs {cand_name}: verdict={} \
-         claim={:.3}x null_ci95=[{:.3},{:.3}] null_half_width={:.3} \
-         margin={margin:.2}x candidate_ci95=[{:.3},{:.3}] \
-         cv_report_only=null:{:.2}%/candidate:{:.2}%",
-        if decidable {
-            "DECIDABLE"
-        } else {
-            "UNDECIDABLE"
-        },
-        candidate.ratio_median,
-        null.ci_lo,
-        null.ci_hi,
-        null_half_width,
-        candidate.ci_lo,
-        candidate.ci_hi,
-        null.median_cv,
-        candidate.median_cv
-    );
+    report_median_ci_gate(label, "per_source", cand_name, null, candidate);
 }
 
 /// br-r37-c1-x0jz8 A/B. BOTH arms live in this ONE group so a single
@@ -1169,6 +1261,7 @@ criterion_group!(
     bench_shortest_path_weighted,
     bench_single_source_dijkstra,
     bench_connected_components,
+    bench_connected_components_queue_void_rerun,
     bench_average_shortest_path_length,
     bench_degree_histogram_index_ab,
     bench_aspl_parallel,
@@ -1192,5 +1285,10 @@ criterion_group!(
 
 fn main() {
     println!("bench_elf_sha256={}", self_identity());
+    if std::env::var("FNX_VOID_RERUN").as_deref() == Ok("connected_components_vec_fifo") {
+        let mut criterion = Criterion::default();
+        bench_connected_components_queue_void_rerun(&mut criterion);
+        return;
+    }
     benches();
 }
