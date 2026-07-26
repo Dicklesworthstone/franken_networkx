@@ -2,6 +2,58 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-25 CloudyTurtle RESURRECTION HOLD / NO-SHIP: compact sorted max-flow residual rows — final-source run inside null floor (`br-r37-c1-g0b1t`)
+
+**LEDGER-FIRST / VOID AUDIT.** The campaign audit grepped
+`docs/NEGATIVE_EVIDENCE.md`, `docs/NEGATIVE_EVIDENCE_cc.md`, and
+`docs/progress/perf-negative-results.md` before source work. The 2026-07-11
+compact-row REJECT ranked fourth among explicit target-frame shares:
+`compute_max_flow_residual` held 1,620 profile samples and B-tree iterator
+machinery held 786 (`48.5%`). That row compared separate Criterion processes,
+reported no executing-binary identity, had no adjacent A/A null, and rejected
+on a 5.10% worse point estimate despite overlapping confidence intervals.
+Under the 2026-07-25 campaign contract its measurement decision was **VOID**.
+
+**ONE RESTORED LEVER / FROZEN ARM.** The evaluated candidate replaced each private
+`BTreeMap<usize, f64>` augmentation row with a sorted
+`Vec<(usize, f64)>`. Binary search preserves first-capacity insertion, lookup,
+forward mutation, and on-demand reverse-edge insertion; flat iteration
+preserves ascending canonical node-index order. Both representations implement
+one generic, monomorphized Edmonds-Karp body. The candidate was scoped to public
+Graph and DiGraph max-flow calls that materialize flows; minimum-cut and the
+value-only connectivity twin were unchanged.
+
+**EXACTNESS.** The timed harness asserts the complete `MaxFlowResult` before
+measurement: value bits, ordered edge names and flow bits, and every witness
+field. A focused test also covers zero-capacity edges and a directed fixture
+where the second augmenting path must traverse an on-demand reverse edge
+(`s-b-c-a-d-t`). The frozen B-tree and compact-row arms were exactly equal.
+
+**CORRECTED SAME-INVOCATION HARNESS.** Each fail-closed remote invocation ran
+the historical `parallel_paths/10x5` workload for 61 alternating-order rounds
+of 250 complete public calls per arm, with the base/base null immediately
+before base/candidate. The process self-reported its executing ELF SHA-256.
+The decision statistic is the median paired ratio and deterministic bootstrap
+95% CI; CV is report-only.
+
+| source/binary | worker | A/A median (95% CI) | B-tree / sorted Vec median (95% CI) | wins | null-width margin |
+|---|---|---:|---:|---:|---:|
+| experimental-arm ELF `80d21e82920021462b58e9474a6304c6420caceba039144ab47081fb98db8335` (`5,002,368` bytes) | `hz1` | `1.003x` (`0.992-1.009`) | `1.036x` (`1.028-1.046`) | `48/61` | `4.08x` |
+| final-candidate ELF `1e2adee4400f77a52a8ea7f835a20a4b4c29aaf05d08fd0e726b486b41c15a6b` (`5,003,272` bytes) | `vmi1227854` | `1.004x` (`0.995-1.011`) | `1.009x` (`0.996-1.025`) | `35/61` | `0.81x` |
+
+Both invocations produced execution checksum `0xee5ff3b67d7324df`, but the
+final-candidate median remained inside its adjacent null CI and below the
+required `2x` null-width margin. Cross-worker disagreement is routing evidence,
+not permission to select the favorable run.
+
+**RESULT: HOLD / NO-SHIP.** The historical rejection remains void, but this
+rerun does not establish a durable keep. The candidate, comparator, test, and
+bench selector were removed; production remains on the B-tree rows. Retry only
+by running the exact final candidate ELF twice on one reserved worker, with at
+least 61 alternating rounds per invocation, and require both candidate medians
+to lie above their adjacent A/A 95% CI with a null-width margin of at least
+`2x`. Never retry, keep, or reject from raw-arm CV alone.
+
 ## 2026-07-25 CloudyTurtle RESURRECTION KEEP: `connected_components` preallocated Vec FIFO — **1.032-1.038x**, old REJECT was VOID (`br-r37-c1-cje5a`)
 
 **LEDGER-FIRST / VOID AUDIT.** Before restoring source, the campaign audit
