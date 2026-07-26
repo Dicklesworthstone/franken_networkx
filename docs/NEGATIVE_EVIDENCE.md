@@ -27794,6 +27794,119 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-26 CloudyTurtle KEEP (class-safe constant graph predicates): cache each raw native descriptor on first instance access — **3.6660-4.2495x** (`br-r37-c1-8a89c`)
+
+NEGATIVE-LEDGER-FIRST / FAMILY SWITCH: after the current cycle's three
+rejected lazy-view admissions (`br-r37-c1-ewvwr`, `br-r37-c1-g9fnp`, and
+`br-r37-c1-iy8ka`), the NO-CEILING rule required a different family.
+Before proposing this lever,
+`scripts/perf_ledger_preflight.py --candidate --lever 'raw native
+descriptor' --surface 'Graph.is_directed method Python shim'` found the
+governing `br-r37-c1-qmi5w` KEEP and printed its retry predicate. That row
+permits this sibling only for a class-safe C-level descriptor or an
+instance-cache design proven non-aliasing across copy/deepcopy/pickle while
+still accepting `Graph.is_directed(None)`. The implementation and tests below
+satisfy that predicate; no rejected row described this exact design.
+
+PROFILE ATTRIBUTION / COMPUTED CEILING: on the exact pre-edit package,
+1,000,000 warm `Graph.is_directed()` calls took `0.564s` under cProfile. The
+named Python `predicate` wrapper carried `0.356s` self and `0.564s`
+cumulative, its wrapper-exclusive `isinstance` check carried another
+`0.091s`, and the captured raw PyO3 call carried `0.117s`. Removing the
+wrapper frame and its class/instance branch therefore targets
+`(0.356 + 0.091) / 0.564 = 79.3%` of this exact workload, for a computed
+Amdahl ceiling of **`4.82x`**. This is substantial measured named self-time
+plus a concrete ceiling, not a public wall-ratio inference.
+
+ONE LEVER: `_CachedClassPredicateDescriptor` retains the existing class-safe
+Python callable for class access, but on first instance access binds the
+captured raw PyO3 method and stores that bound method under the public name.
+Warm `is_directed()` / `is_multigraph()` calls on all four graph classes then
+resolve from the instance dictionary without another Python predicate frame.
+The descriptor records both names in the existing
+`_fnx_descriptor_cached_views` set, so graph copy, deepcopy, and pickle omit
+source-bound methods and let each clone bind itself on first access. Class
+calls, `Graph.is_directed(None)`, user instance overrides, and the returned
+booleans are unchanged.
+
+EXACT LOADED ARTIFACT / SAME-INVOCATION CONTRACT: this is a Python-wrapper
+change, so the native extension itself did not need rebuilding. The edited
+wrapper and permanent `constant-predicates` harness ran from the reusable
+package on drained `vmi1152480`, pinned to core 3. The process self-reported
+the actually loaded ELF as line one:
+
+`bench_elf_sha256=a6dcc1f75f6f2e004e18f27b641d195f3a48b2473c3787acc011293bbd9f26c0
+(13153768 bytes)
+/data/tmp/franken_networkx-measure-current/franken_networkx/_fnx.abi3.so`
+
+Structured provenance recorded wrapper SHA-256
+`f562009e7899e72a32a37e502cef03de80a27a908f1aac52de572ee4f101c2b7`,
+harness SHA-256
+`16ab0566b2dca2a825fe8307d5bbf1aed1da15b6d9fa058f22fad85e4c6e1ca8`,
+Python 3.13.7, NetworkX 3.6.1, and header load average
+`0.4395/0.3726/0.4463`. Every row proved result parity, then ran 21
+interleaved `min_of=3` rounds with an independent A/A null in the same
+invocation. Bootstrap median confidence intervals and the doubled log-space
+null margin govern every verdict; CV is provenance only.
+
+| causal wrapper/raw-cached row | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | doubled-null floor | verdict |
+|---|---:|---:|---:|---:|---|
+| `Graph.is_directed` | **`4.0798x`** | `3.7743-4.5015x` | `0.9787-1.0152x` | `1.0441x` | **DECIDABLE KEEP, 21/21** |
+| `Graph.is_multigraph` | **`3.6660x`** | `3.5304-3.9304x` | `0.9984-1.0273x` | `1.0553x` | **DECIDABLE KEEP, 21/21** |
+| `DiGraph.is_directed` | **`3.8807x`** | `3.8115-4.6149x` | `0.9913-0.9984x` | `1.0175x` | **DECIDABLE KEEP, 21/21** |
+| `DiGraph.is_multigraph` | **`3.8258x`** | `3.6493-3.9160x` | `0.8552-1.0177x` | `1.3674x` | **DECIDABLE KEEP, 21/21** |
+| `MultiGraph.is_directed` | **`3.8117x`** | `3.7653-4.0761x` | `0.9819-1.1055x` | `1.2222x` | **DECIDABLE KEEP, 21/21** |
+| `MultiGraph.is_multigraph` | **`3.7968x`** | `3.5126-4.0594x` | `0.9980-1.0514x` | `1.1054x` | **DECIDABLE KEEP, 21/21** |
+| `MultiDiGraph.is_directed` | **`4.2495x`** | `3.9553-4.4568x` | `0.9861-1.0038x` | `1.0285x` | **DECIDABLE KEEP, 21/21** |
+| `MultiDiGraph.is_multigraph` | **`3.8069x`** | `3.6989-4.3334x` | `0.9936-1.0103x` | `1.0207x` | **DECIDABLE KEEP, 21/21** |
+
+The permanent suite also records the public NetworkX/FNX residual rather than
+representing the mechanism recovery as parity:
+
+| public NetworkX/FNX row | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | doubled-null floor | result |
+|---|---:|---:|---:|---:|---|
+| `Graph.is_directed` | `0.7905x` | `0.7365-0.8046x` | `0.9500-1.0571x` | `1.1174x` | decidable residual loss |
+| `Graph.is_multigraph` | `0.8141x` | `0.8051-0.8433x` | `0.9369-1.0019x` | `1.1392x` | decidable residual loss |
+| `DiGraph.is_directed` | `0.8215x` | `0.7866-0.8459x` | `0.9839-1.0239x` | `1.0484x` | decidable residual loss |
+| `DiGraph.is_multigraph` | `0.7944x` | `0.7176-0.8149x` | `0.8799-1.0212x` | `1.2916x` | undecidable / inside null |
+| `MultiGraph.is_directed` | `0.8681x` | `0.8369-0.8887x` | `0.9856-1.0146x` | `1.0295x` | decidable residual loss |
+| `MultiGraph.is_multigraph` | `0.8403x` | `0.8299-0.8487x` | `0.9977-1.0346x` | `1.0705x` | decidable residual loss |
+| `MultiDiGraph.is_directed` | `0.8268x` | `0.7909-0.8398x` | `1.0032-1.0395x` | `1.0806x` | decidable residual loss |
+| `MultiDiGraph.is_multigraph` | `0.8019x` | `0.7789-0.8610x` | `0.9413-1.0420x` | `1.1287x` | decidable residual loss |
+
+RESULT: **KEEP.** All eight causal medians clear their own A/A median-CI
+floors and win every paired round. The worker window was immediately
+re-enabled and probed healthy after the synchronized invocation. The
+remaining public cost is explicit: seven rows remain decisively
+`1.15-1.27x` slower than NetworkX, while the noisy DiGraph multigraph row is
+undecidable. This row claims only the measured wrapper-frame removal.
+
+CORRECTNESS / QUALITY: the focused class-level suite passed `10/10`; the full
+attribute-access file passed `146` tests with two environment-only failures
+from unavailable SciPy. Six broader graph-predicate/copy/deepcopy/pickle files
+passed `463` tests with `46` skips and eight environment-only SciPy failures.
+Python byte-compilation and `git diff --check` passed. Strict-remote
+`cargo check --workspace --all-targets -j 2` passed on `hz2`, with only the
+two established dead-helper warnings; no local Cargo fallback occurred.
+Focused UBS completed with exit 0. Its sole critical label is the
+locally-generated trusted pickle round trip added specifically to prove clone
+non-aliasing, not untrusted deserialization. The aggregate staged scan entered
+the 61k-line compatibility shim and reached its bounded 300-second timeout
+without emitting a source finding; therefore no complete aggregate UBS pass
+is claimed.
+
+RETRY PREDICATE: do not retry another Python predicate wrapper, descriptor
+cache rearrangement, or eager boolean instance field. Reopen the remaining
+public residual only after a fresh exact-path profile attributes at least
+**30% of end-to-end time** to one named removable raw PyO3/vectorcall frame
+and predicts at least a **`1.10x`** public improvement. Before editing, two
+consecutive preregistered A/A-only runs of that unchanged public workload must
+each have a doubled-log floor below **`1.03x`**. Any replacement must retain
+class calls with `self=None`, subclass and user-instance override behavior,
+copy/deepcopy/pickle non-aliasing, exact booleans for all four graph classes,
+and an in-process loaded-ELF SHA. Until those predicates hold, switch to a
+different most-used NetworkX-call family.
+
 ## 2026-07-26 CloudyTurtle ADMISSION REJECT (`Graph` scalar `EdgeView.__getitem__` C-slot cutover): **2.0008x executable ceiling**, first A/A floor **`1.2324x`** — **NO SOURCE EDIT** (`br-r37-c1-iy8ka`)
 
 NEGATIVE-LEDGER-FIRST: before reopening the 8.35x public scalar-edge residual,

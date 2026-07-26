@@ -7503,10 +7503,19 @@ MultiDiGraph.to_undirected_class = _to_undirected_class
 # directedness. On nx classes, is_directed / is_multigraph are plain
 # methods that ignore self, so calling them with self=None works. fnx's
 # Rust descriptors require a real instance and raise TypeError, which
-# breaks ``nx.gnp_random_graph(..., create_using=fnx.Graph)`` and any
-# nx generator that passes a fnx class as create_using. Wrap the Rust
-# methods so they can be called on a class (returning the class-level
-# default) OR on an instance (delegating to the Rust descriptor).
+# breaks ``nx.gnp_random_graph(..., create_using=fnx.Graph)`` and any nx
+# generator that passes a fnx class as create_using.
+#
+# br-r37-c1-8a89c: retain that class-level compatibility function, but make
+# the class entry a non-data descriptor. Its first instance access binds and
+# stores the raw PyO3 method under the public name, so every warm call is a
+# direct C-level instance-dict hit rather than another Python predicate frame.
+# The shared cached-name set makes copy/deepcopy/pickle omit the bound method,
+# preventing a clone from retaining a method bound to its source graph.
+_DESCRIPTOR_CACHED_VIEWS = "_fnx_descriptor_cached_views"
+_CLASS_PREDICATE_NAMES = frozenset(("is_directed", "is_multigraph"))
+
+
 def _make_class_safe_predicate(raw, class_default):
     def predicate(self, *args, **kwargs):
         if self is None or isinstance(self, type):
@@ -7514,6 +7523,37 @@ def _make_class_safe_predicate(raw, class_default):
         return raw(self, *args, **kwargs)
 
     return predicate
+
+
+class _CachedClassPredicateDescriptor:
+    """Class-safe predicate on the class, cached raw descriptor on instances."""
+
+    def __init__(self, raw, class_callable, name):
+        self._raw = raw
+        self._class_callable = class_callable
+        self._name = name
+        self.__doc__ = getattr(class_callable, "__doc__", None)
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self._class_callable
+        bound = self._raw.__get__(obj, objtype)
+        storage = vars(obj)
+        storage[self._name] = bound
+        cached = storage.get(_DESCRIPTOR_CACHED_VIEWS)
+        if cached is None:
+            storage[_DESCRIPTOR_CACHED_VIEWS] = {self._name}
+        else:
+            cached.add(self._name)
+        return bound
+
+
+def _cached_class_safe_predicate(raw, class_default, name):
+    return _CachedClassPredicateDescriptor(
+        raw,
+        _make_class_safe_predicate(raw, class_default),
+        name,
+    )
 
 
 _GRAPH_RAW_IS_DIRECTED = Graph.is_directed
@@ -7525,14 +7565,30 @@ _MULTIGRAPH_RAW_IS_MULTIGRAPH = MultiGraph.is_multigraph
 _MULTIDIGRAPH_RAW_IS_DIRECTED = MultiDiGraph.is_directed
 _MULTIDIGRAPH_RAW_IS_MULTIGRAPH = MultiDiGraph.is_multigraph
 
-Graph.is_directed = _make_class_safe_predicate(_GRAPH_RAW_IS_DIRECTED, False)
-Graph.is_multigraph = _make_class_safe_predicate(_GRAPH_RAW_IS_MULTIGRAPH, False)
-DiGraph.is_directed = _make_class_safe_predicate(_DIGRAPH_RAW_IS_DIRECTED, True)
-DiGraph.is_multigraph = _make_class_safe_predicate(_DIGRAPH_RAW_IS_MULTIGRAPH, False)
-MultiGraph.is_directed = _make_class_safe_predicate(_MULTIGRAPH_RAW_IS_DIRECTED, False)
-MultiGraph.is_multigraph = _make_class_safe_predicate(_MULTIGRAPH_RAW_IS_MULTIGRAPH, True)
-MultiDiGraph.is_directed = _make_class_safe_predicate(_MULTIDIGRAPH_RAW_IS_DIRECTED, True)
-MultiDiGraph.is_multigraph = _make_class_safe_predicate(_MULTIDIGRAPH_RAW_IS_MULTIGRAPH, True)
+Graph.is_directed = _cached_class_safe_predicate(
+    _GRAPH_RAW_IS_DIRECTED, False, "is_directed"
+)
+Graph.is_multigraph = _cached_class_safe_predicate(
+    _GRAPH_RAW_IS_MULTIGRAPH, False, "is_multigraph"
+)
+DiGraph.is_directed = _cached_class_safe_predicate(
+    _DIGRAPH_RAW_IS_DIRECTED, True, "is_directed"
+)
+DiGraph.is_multigraph = _cached_class_safe_predicate(
+    _DIGRAPH_RAW_IS_MULTIGRAPH, False, "is_multigraph"
+)
+MultiGraph.is_directed = _cached_class_safe_predicate(
+    _MULTIGRAPH_RAW_IS_DIRECTED, False, "is_directed"
+)
+MultiGraph.is_multigraph = _cached_class_safe_predicate(
+    _MULTIGRAPH_RAW_IS_MULTIGRAPH, True, "is_multigraph"
+)
+MultiDiGraph.is_directed = _cached_class_safe_predicate(
+    _MULTIDIGRAPH_RAW_IS_DIRECTED, True, "is_directed"
+)
+MultiDiGraph.is_multigraph = _cached_class_safe_predicate(
+    _MULTIDIGRAPH_RAW_IS_MULTIGRAPH, True, "is_multigraph"
+)
 Graph.adjacency = _simple_graph_adjacency
 DiGraph.adjacency = _simple_graph_adjacency
 MultiGraph.adjacency = _multigraph_adjacency
@@ -42879,12 +42935,13 @@ def _private_override(self, attr_name):
 
 
 # br-r37-c1-wbwkb (cc): instance-dict key holding the set of PUBLIC accessor
-# names that ``_CachedViewDescriptor`` has memoised on this graph. Only these
+# names that a cached non-data descriptor has memoised on this graph. The
+# constant is defined beside the earlier class-predicate descriptor because a
+# predicate can be read while the module is still initializing. Only tracked
 # names may be invalidated when a private override lands — a subgraph view sets
 # its OWN ``nodes`` instance attribute (``_FilteredGraphView.__init__``) that
 # never went through the descriptor, and dropping that one would expose the
 # bare ``_FilteredGraphView.nodes`` function as a bound method.
-_DESCRIPTOR_CACHED_VIEWS = "_fnx_descriptor_cached_views"
 _PRIVATE_NODE_METHOD_SHADOWS = "_fnx_private_node_method_shadows"
 _RAW_HAS_NODE_METHODS = (
     _GRAPH_PRIVATE_AWARE_HAS_NODE,
@@ -44487,6 +44544,15 @@ _GRAPH_PUBLIC_ADJ_PROPERTY = Graph.__dict__["adj"]
 _GRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE = Graph.__setattr__
 
 
+def _discard_cached_descriptor_marker(self, name):
+    """Turn an assignment over a memoized descriptor into user-owned state."""
+    cached = vars(self).get(_DESCRIPTOR_CACHED_VIEWS)
+    if cached is not None:
+        cached.discard(name)
+        if not cached:
+            vars(self).pop(_DESCRIPTOR_CACHED_VIEWS, None)
+
+
 def _graph_setattr_with_cached_public_adj(self, name, value):
     # Filtered views deliberately have an empty Rust base and route graph
     # algorithms through a Python adjacency override. Their constructor's
@@ -44500,18 +44566,28 @@ def _graph_setattr_with_cached_public_adj(self, name, value):
     # A user assignment after a plain access replaces the memoised view. Remove
     # only its internal-cache marker so deepcopy/pickle preserve the user value,
     # just as they do for any other genuine instance attribute.
-    if name == "adj":
-        storage = vars(self)
-        cached = storage.get(_DESCRIPTOR_CACHED_VIEWS)
-        if cached is not None:
-            cached.discard("adj")
-            if not cached:
-                storage.pop(_DESCRIPTOR_CACHED_VIEWS, None)
+    if name == "adj" or name in _CLASS_PREDICATE_NAMES:
+        _discard_cached_descriptor_marker(self, name)
     return _GRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE(self, name, value)
 
 
 Graph.__setattr__ = _graph_setattr_with_cached_public_adj
 Graph.adj = _CachedViewDescriptor(_GRAPH_PUBLIC_ADJ_PROPERTY.fget, "adj")
+
+
+# MultiGraph is an independent PyO3 class rather than a Graph subclass and has
+# no public-adjacency setattr shim. It still needs to distinguish a user
+# predicate assignment from the internally memoized raw bound method.
+_MULTIGRAPH_SETATTR_BEFORE_PREDICATE_CACHE = MultiGraph.__setattr__
+
+
+def _multigraph_setattr_with_cached_predicates(self, name, value):
+    if name in _CLASS_PREDICATE_NAMES:
+        _discard_cached_descriptor_marker(self, name)
+    return _MULTIGRAPH_SETATTR_BEFORE_PREDICATE_CACHE(self, name, value)
+
+
+MultiGraph.__setattr__ = _multigraph_setattr_with_cached_predicates
 
 
 # br-r37-c1-dyuzb: the directed public siblings had the same repeated data-
@@ -44535,13 +44611,8 @@ def _digraph_setattr_with_cached_public_adjacency(self, name, value):
     ):
         return _DIGRAPH_PUBLIC_ADJ_PROPERTIES[name].__set__(self, value)
 
-    if name in _DIGRAPH_PUBLIC_ADJ_PROPERTIES:
-        storage = vars(self)
-        cached = storage.get(_DESCRIPTOR_CACHED_VIEWS)
-        if cached is not None:
-            cached.discard(name)
-            if not cached:
-                storage.pop(_DESCRIPTOR_CACHED_VIEWS, None)
+    if name in _DIGRAPH_PUBLIC_ADJ_PROPERTIES or name in _CLASS_PREDICATE_NAMES:
+        _discard_cached_descriptor_marker(self, name)
     return _DIGRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE(self, name, value)
 
 
@@ -44569,13 +44640,11 @@ def _multidigraph_setattr_with_cached_public_adjacency(self, name, value):
     ):
         return _MULTIDIGRAPH_PUBLIC_ADJ_PROPERTIES[name].__set__(self, value)
 
-    if name in _MULTIDIGRAPH_PUBLIC_ADJ_PROPERTIES:
-        storage = vars(self)
-        cached = storage.get(_DESCRIPTOR_CACHED_VIEWS)
-        if cached is not None:
-            cached.discard(name)
-            if not cached:
-                storage.pop(_DESCRIPTOR_CACHED_VIEWS, None)
+    if (
+        name in _MULTIDIGRAPH_PUBLIC_ADJ_PROPERTIES
+        or name in _CLASS_PREDICATE_NAMES
+    ):
+        _discard_cached_descriptor_marker(self, name)
     return _MULTIDIGRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE(self, name, value)
 
 

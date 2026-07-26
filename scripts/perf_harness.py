@@ -47,6 +47,7 @@ Usage:
     python3 scripts/perf_harness.py digraph-neighbor-descriptors
     python3 scripts/perf_harness.py nodeview-getitem
     python3 scripts/perf_harness.py lazy-rows
+    python3 scripts/perf_harness.py constant-predicates
     python3 scripts/perf_harness.py marshaling
 
 Point `PYTHONPATH` at the package tree under test; the header records which one ran.
@@ -1764,6 +1765,62 @@ def suite_lazy_rows():
     ]
 
 
+def suite_constant_predicates():
+    """br-r37-c1-8a89c: class-safe wrappers become cached raw instance methods."""
+    import franken_networkx as fnx
+    import networkx as nx
+
+    repeats = range(512)
+    graph_classes = (
+        ("Graph", nx.Graph, fnx.Graph),
+        ("DiGraph", nx.DiGraph, fnx.DiGraph),
+        ("MultiGraph", nx.MultiGraph, fnx.MultiGraph),
+        ("MultiDiGraph", nx.MultiDiGraph, fnx.MultiDiGraph),
+    )
+    rows = []
+    for class_name, nx_class, fnx_class in graph_classes:
+        nx_graph = nx_class()
+        fnx_graph = fnx_class()
+        for predicate_name in ("is_directed", "is_multigraph"):
+            descriptor = fnx_class.__dict__[predicate_name]
+            wrapper = descriptor._class_callable
+            nx_bound = getattr(nx_graph, predicate_name)
+            fnx_bound = getattr(fnx_graph, predicate_name)
+            expected = nx_bound()
+            assert wrapper(fnx_graph) is expected
+            assert fnx_bound() is expected
+            assert vars(fnx_graph)[predicate_name].__self__ is fnx_graph
+
+            def wrapper_batch(
+                wrapper=wrapper,
+                graph=fnx_graph,
+                repeats=repeats,
+            ):
+                return sum(wrapper(graph) for _ in repeats)
+
+            def raw_batch(bound=fnx_bound, repeats=repeats):
+                return sum(bound() for _ in repeats)
+
+            def networkx_batch(bound=nx_bound, repeats=repeats):
+                return sum(bound() for _ in repeats)
+
+            rows.extend(
+                (
+                    (
+                        f"{class_name}.{predicate_name} x512 [wrapper/raw-cached]",
+                        wrapper_batch,
+                        raw_batch,
+                    ),
+                    (
+                        f"{class_name}.{predicate_name} x512 [nx/fnx]",
+                        networkx_batch,
+                        raw_batch,
+                    ),
+                )
+            )
+    return rows
+
+
 def suite_marshaling():
     """Return-shape / materialization surface."""
     import networkx as nx
@@ -1808,6 +1865,7 @@ SUITES = {
     "digraph-neighbor-descriptors": suite_digraph_neighbor_descriptors,
     "nodeview-getitem": suite_nodeview_getitem,
     "lazy-rows": suite_lazy_rows,
+    "constant-predicates": suite_constant_predicates,
     "marshaling": suite_marshaling,
 }
 

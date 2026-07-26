@@ -6,6 +6,10 @@ import pytest
 import franken_networkx as fnx
 
 
+def _instance_predicate_override():
+    return "instance override"
+
+
 def test_set_node_attributes_dict_with_name():
     graph = fnx.path_graph(3)
     expected = nx.path_graph(3)
@@ -1450,9 +1454,8 @@ class TestClassLevelPredicates:
     when deciding whether a create_using CLASS matches expected
     directedness. On nx, these are plain methods that ignore self, so
     passing self=None works. fnx's Rust descriptors required a real
-    instance and raised TypeError. Wrapper makes is_directed /
-    is_multigraph callable on the class (returning the class-level
-    default) without breaking instance-level calls.
+    instance and raised TypeError. The class-safe descriptor keeps the
+    class call while memoizing the raw native method on each instance.
     """
 
     def test_class_level_is_directed(self):
@@ -1476,6 +1479,61 @@ class TestClassLevelPredicates:
         assert D.is_directed() is True
         assert MG.is_multigraph() is True
         assert MD.is_multigraph() is True
+
+    @pytest.mark.parametrize(
+        ("graph_cls", "directed", "multigraph"),
+        [
+            (fnx.Graph, False, False),
+            (fnx.DiGraph, True, False),
+            (fnx.MultiGraph, False, True),
+            (fnx.MultiDiGraph, True, True),
+        ],
+    )
+    def test_instance_predicate_cache_does_not_alias_copies(
+        self, graph_cls, directed, multigraph
+    ):
+        """br-r37-c1-8a89c: cached bound methods belong only to their graph."""
+        import copy
+        import pickle
+
+        graph = graph_cls()
+        assert "is_directed" not in vars(graph)
+        assert "is_multigraph" not in vars(graph)
+        assert graph.is_directed() is directed
+        assert graph.is_multigraph() is multigraph
+        assert type(vars(graph)["is_directed"]).__name__ == "builtin_function_or_method"
+        assert type(vars(graph)["is_multigraph"]).__name__ == "builtin_function_or_method"
+        assert vars(graph)["is_directed"].__self__ is graph
+        assert vars(graph)["is_multigraph"].__self__ is graph
+
+        for clone in (
+            copy.copy(graph),
+            copy.deepcopy(graph),
+            pickle.loads(pickle.dumps(graph)),
+        ):
+            assert "is_directed" not in vars(clone)
+            assert "is_multigraph" not in vars(clone)
+            assert clone.is_directed() is directed
+            assert clone.is_multigraph() is multigraph
+            assert vars(clone)["is_directed"].__self__ is clone
+            assert vars(clone)["is_multigraph"].__self__ is clone
+
+        graph.is_directed = _instance_predicate_override
+        graph.is_multigraph = _instance_predicate_override
+        assert graph.is_directed() == "instance override"
+        assert graph.is_multigraph() == "instance override"
+        cached_names = vars(graph).get("_fnx_descriptor_cached_views", ())
+        assert "is_directed" not in cached_names
+        assert "is_multigraph" not in cached_names
+
+        for clone in (
+            copy.deepcopy(graph),
+            pickle.loads(pickle.dumps(graph)),
+        ):
+            assert vars(clone)["is_directed"] is _instance_predicate_override
+            assert vars(clone)["is_multigraph"] is _instance_predicate_override
+            assert clone.is_directed() == "instance override"
+            assert clone.is_multigraph() == "instance override"
 
     def test_nx_gnp_random_graph_with_fnx_create_using(self):
         import networkx as nx
