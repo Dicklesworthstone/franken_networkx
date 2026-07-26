@@ -27794,6 +27794,133 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-26 CloudyTurtle REJECT (`DiGraph.add_nodes_from` exact-string attributed-node interner): causal **`1.0305-1.0617x`**, both median CIs inside their doubled A/A gates — **VALID-AB** (`br-r37-c1-gxjh4`)
+
+NEGATIVE-LEDGER-FIRST: before proposing the lever,
+`scripts/perf_ledger_preflight.py --prior-art 'fresh exact-string attributed
+node batch temporary SipHash RandomState dedup display map interning DiGraph
+MultiDiGraph' --surface 'DiGraph MultiDiGraph collect_attr_node_batch exact
+string attributed nodes'` found no direct row. The broader string-node rows
+were read by hand: the 2026-07-03 string-key floor closes formatter,
+small-string, and per-lookup allocation rearrangements, while the newer
+exact-string attributed *edge* KEEPs permit a distinct dense batch sibling
+only after fresh attribution. The already-mined directed lazy-edge-view
+family was also excluded by hand: its remaining data payload sits inside its
+recorded null. This node-batch experiment therefore started from fresh
+profile evidence rather than regex absence alone.
+
+EXACT-CURRENT LOSS / PROFILE / COMPUTED CEILING: before editing, the loaded
+extension self-reported
+
+`bench_elf_sha256=e532cf2f6b03aa36d21f1ccc131986ede77930bd2d49ad64f858062b89d7f25e
+(70,107,608 bytes)
+/data/tmp/franken_networkx-measure-mdg-e532cf2f/franken_networkx/_fnx.abi3.so`.
+
+On drained `vmi1152480`, pinned to core 8, an 8,000-row list of unique
+`(exact_str, {"weight": float, "tag": int})` nodes proved ordered node/attr
+parity before timing. The same invocation reported:
+
+| exact current public row | median | bootstrap 95% median CI | same-invocation A/A 95% CI | doubled-log gate | verdict |
+|---|---:|---:|---:|---:|---|
+| `DiGraph.add_nodes_from` NetworkX / FNX | `0.5818x` | `0.5386-0.6601x` | `0.9744-1.0464x` | slowdown ceiling `0.9133x` | **DECIDABLE residual loss** |
+
+cProfile attributed `0.571s` of `0.826s` (**69.1%**) to the native
+`_try_add_nodes_from_batch` call over 40 constructions. A zero-loss native
+cycles profile then named Sip13 writes at `10.46%` plus `3.49%`, RandomState
+`hash_one<String>` at `5.31%`, `add_attr_node_batch` self at `4.28%`,
+`py_dict_to_attr_map` at `2.72%`, and store insertion at `2.29%`. The initial
+aggregate randomized-hash hypothesis therefore had a broad upper ceiling of
+`1 / (1 - 0.1926) = 1.2385x`. Call-tree adjudication before the final verdict
+showed that at least `5.58` percentage points of SipHash belonged to the
+mandatory persistent `node_py_attrs` insertion, not the temporary dedup map;
+even excluding that known persistent share left a conservative experiment
+ceiling of `1 / (1 - 0.1368) = 1.1585x`. The target thus had substantial
+measured named self-time and a computed ceiling, but the profile also warned
+that temporary interning might not remove the dominant persistent hashes.
+
+CANDIDATE / COUNTED MECHANISM: on fresh `DiGraph` list/tuple batches only, a
+transactional collector admitted exact built-in string nodes, interned raw
+string contents through `FxHashMap<String, usize>`, formatted each canonical
+label once, merged duplicate-node attrs in first-node order, and carried an
+already-independent ordered Python dict mirror directly into commit. This
+removed the general collector's RandomState `seen_nodes` pass and the
+second source-dict mirror-update lookup. Mixed keys, string subclasses,
+unsupported tuples, conversion errors, and existing graphs declined before
+mutation to the established general route.
+
+PARITY: the focused differential Rust test compared the candidate against
+the frozen general collector across unique rows, repeated nodes, overwritten
+and appended attrs, plain exact-string nodes, non-scalar mirror values, node
+order, inner snapshots, display objects, sequence counters, and post-source
+mutation independence. Strict-remote execution passed. The public fixture
+also asserted exact node count and ordered attr content before every timed
+region.
+
+HARNESS CONTRACT / PROVENANCE: strict RCH built the candidate on
+`vmi1153651`; no local Cargo fallback occurred. The public candidate process
+self-reported loaded extension
+
+`bench_elf_sha256=95fd741db50e3489f5262c9ef59e53ccc811f5745446236c6f3ec31d4b60bd30
+(13,202,816 bytes)
+/data/tmp/franken_networkx-measure-node-gxjh4-95fd741d/franken_networkx/_fnx.abi3.so`
+
+with wrapper SHA-256
+`f562009e7899e72a32a37e502cef03de80a27a908f1aac52de572ee4f101c2b7`
+and harness SHA-256
+`04e13249287d6a6c9435686996906982121c5c5c6c712b7f08d33c5de9e31d15`.
+Its public NetworkX/FNX median moved to `0.9172x` with CI
+`0.8310-0.9844x`, but the same-invocation A/A CI was
+`0.8013-1.0152x`, imposing a `1.5574x` speedup floor / `0.6421x`
+slowdown ceiling. That public row was **UNDECIDABLE** and is routing evidence
+only; it cannot be compared causally to the differently built 70 MB current
+artifact.
+
+The authoritative same-binary test ELF printed line one:
+
+`bench_elf_sha256=607f5c021b463522d59470607ee954f8a6b47f277ecde81e4df2fc4fec9e7a89
+(7,892,816 bytes)
+/data/tmp/fnx-cloudyturtle-frontier/digraph_nodeattr_ab_candidate_607f5c02`.
+
+Both runs used 21 interleaved rounds, `min_of=3`, eight 8,000-node
+constructions per sample, fixed-seed bootstrap median CIs, and A/A plus
+frozen-general/interner A/B in the same invocation. CV was printed as
+provenance and never gated:
+
+| unchanged candidate ELF | A/A median and 95% CI | doubled-log gate | frozen general / interner median and 95% CI | verdict |
+|---|---:|---:|---:|---:|
+| core 3 | `0.9725x` (`0.9379-0.9879x`) | floor `1.1368x`, ceiling `0.8796x` | `1.0305x` (`0.9830-1.0586x`) | **UNDECIDABLE** |
+| core 8 retry | `1.0136x` (`0.9629-1.0348x`) | floor `1.0784x`, ceiling `0.9273x` | `1.0617x` (`1.0212-1.1256x`) | **UNDECIDABLE** |
+
+RESULT: **REJECT / VALID-AB.** Two exact same-ELF runs place the candidate's
+entire causal CI inside or overlapping their own doubled A/A envelopes. The
+candidate therefore cannot support a KEEP even though the second median is
+positive and the cross-binary public number looks much better. All candidate
+Rust and permanent-harness changes were removed; only this evidence and the
+bead closeout land.
+
+RETRY PREDICATE: do not retry an exact-string node collector, raw-text
+interner, premerged source mirror, canonical formatter, or the identical
+`MultiDiGraph` sibling. Reopen attributed node-batch storage only when a fresh
+exact-final-artifact call-tree profile attributes at least **`15%`** of
+end-to-end cycles to one *different* removable persistent-mirror mechanism
+(for example, a design that eliminates one whole canonical-keyed
+`node_key_map` / `node_py_attrs` hash rather than changing its temporary
+hasher), and computes at least a **`1.12x`** ceiling after retaining mandatory
+Python dict creation and inner-store insertion. Admission additionally
+requires a same-invocation doubled-log A/A floor below **`1.04x`**. Any
+candidate must preserve duplicate attr merge/key order, first display-object
+identity, exact/non-exact string routing, source-dict independence,
+non-scalar mirrors, subclasses, existing-graph fallback, mutation tokens, and
+list/tuple behavior; its entire causal bootstrap CI must clear its own null
+gate. Otherwise switch to a different most-used-call or lazy-return vein.
+
+QUALITY / CLOSEOUT: the focused strict-remote parity test passed before the
+candidate was removed. Direct rustfmt, Python harness byte-compilation, and
+`git diff --check` passed. The measurement worker was re-enabled and probed
+healthy after each run. The final commit is docs/bead-only, so no post-revert
+Cargo build is required. UBS has no Markdown/JSONL scanner, so no scanner pass
+is claimed for those files.
+
 ## 2026-07-26 CloudyTurtle KEEP (`MultiDiGraph` fresh exact-string attributed batch): dense node-key interning — **`1.1648x` causal**; public row **UNDECIDABLE** (`br-r37-c1-z9f09`)
 
 NEGATIVE-LEDGER-FIRST / DISTINCT SURFACE: before proposing the lever,
