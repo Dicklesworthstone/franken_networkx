@@ -3,11 +3,30 @@
 //! This measures the public submodule surface, not just the top-level
 //! `franken_networkx.minimum_spanning_tree` functions.
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
+use sha2::{Digest, Sha256};
 use std::ffi::CString;
 use std::path::Path;
+
+/// SHA-256 of this benchmark executable, reported by the process that runs it.
+fn self_identity() -> String {
+    let Ok(path) = std::env::current_exe() else {
+        return "unavailable".to_owned();
+    };
+    let Ok(bytes) = std::fs::read(&path) else {
+        return "unavailable".to_owned();
+    };
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    format!(
+        "{:x} ({} bytes) {}",
+        hasher.finalize(),
+        bytes.len(),
+        path.display()
+    )
+}
 
 fn cstring(source: &str) -> CString {
     CString::new(source).expect("Python snippets must not contain NUL bytes")
@@ -413,4 +432,9 @@ fn tree_submodule_head_to_head(c: &mut Criterion) {
 }
 
 criterion_group!(benches, tree_submodule_head_to_head);
-criterion_main!(benches);
+
+fn main() {
+    println!("bench_elf_sha256={}", self_identity());
+    benches();
+    Criterion::default().configure_from_args().final_summary();
+}

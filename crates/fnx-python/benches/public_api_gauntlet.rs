@@ -1,9 +1,28 @@
 #![forbid(unsafe_code)]
 
-use criterion::{BenchmarkId, Criterion, SamplingMode, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, SamplingMode, criterion_group};
 use pyo3::types::PyAnyMethods;
 use pyo3::{Bound, Py, PyAny, Python};
+use sha2::{Digest, Sha256};
 use std::time::{Duration, Instant};
+
+/// SHA-256 of this benchmark executable, reported by the process that runs it.
+fn self_identity() -> String {
+    let Ok(path) = std::env::current_exe() else {
+        return "unavailable".to_owned();
+    };
+    let Ok(bytes) = std::fs::read(&path) else {
+        return "unavailable".to_owned();
+    };
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    format!(
+        "{:x} ({} bytes) {}",
+        hasher.finalize(),
+        bytes.len(),
+        path.display()
+    )
+}
 
 #[derive(Debug, Eq, PartialEq)]
 struct BidirectionalOutput {
@@ -852,4 +871,9 @@ if target_dir:
 }
 
 criterion_group!(benches, bench_public_api_gauntlet);
-criterion_main!(benches);
+
+fn main() {
+    println!("bench_elf_sha256={}", self_identity());
+    benches();
+    Criterion::default().configure_from_args().final_summary();
+}

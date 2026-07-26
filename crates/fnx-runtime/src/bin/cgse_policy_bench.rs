@@ -4,9 +4,28 @@ use fnx_runtime::{
     CgsePolicyEngine, CgsePolicyRule, CompatibilityMode, EffectTrace, EffectTraceSummary,
     ParserEffect, ParserEffectKind,
 };
+use sha2::{Digest, Sha256};
 use std::env;
 use std::hint::black_box;
 use std::time::Instant;
+
+/// SHA-256 of this benchmark executable, reported by the process that runs it.
+fn self_identity() -> String {
+    let Ok(path) = env::current_exe() else {
+        return "unavailable".to_owned();
+    };
+    let Ok(bytes) = std::fs::read(&path) else {
+        return "unavailable".to_owned();
+    };
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    format!(
+        "{:x} ({} bytes) {}",
+        hasher.finalize(),
+        bytes.len(),
+        path.display()
+    )
+}
 
 fn parse_u64_flag(args: &[String], flag: &str, default: u64) -> u64 {
     let Some(pos) = args.iter().position(|value| value == flag) else {
@@ -41,6 +60,8 @@ fn parse_mode(args: &[String]) -> CompatibilityMode {
 }
 
 fn main() {
+    println!("bench_elf_sha256={}", self_identity());
+
     let args: Vec<String> = env::args().collect();
     if args.iter().any(|value| value == "--help" || value == "-h") {
         println!(
