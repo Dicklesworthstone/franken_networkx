@@ -139,6 +139,113 @@ def test_plain_get_edge_data_is_a_raw_descriptor(cls_name):
 
 
 @pytest.mark.parametrize(
+    ("cls_name", "method_name", "row_kind", "expected"),
+    [
+        ("MultiGraph", "neighbors", "adj", ["n1", "n2", "n3"]),
+        ("MultiDiGraph", "neighbors", "succ", ["n1", "n2", "n3"]),
+        ("MultiDiGraph", "successors", "succ", ["n1", "n2", "n3"]),
+        ("MultiDiGraph", "predecessors", "pred", ["n1", "n2", "n3"]),
+    ],
+)
+def test_multigraph_neighbor_iterators_reuse_key_only_cache(
+    cls_name, method_name, row_kind, expected
+):
+    """br-r37-c1-zrsuc: warm lazy returns must skip list/dict rebuilding."""
+    graph = getattr(fnx, cls_name)()
+    if method_name == "predecessors":
+        graph.add_edges_from((node, "n0") for node in expected)
+    else:
+        graph.add_edges_from(("n0", node) for node in expected)
+
+    call = getattr(graph, method_name)
+    first = call("n0")
+    assert type(first).__name__ == "dict_keyiterator"
+    assert list(first) == expected
+
+    storage = vars(graph)
+    assert storage["_fnx_adj_row_keydict_cache_state"] == (
+        graph.nodes_seq,
+        graph.edges_seq,
+    )
+    keydict = storage["_fnx_adj_row_keydict_cache"][(row_kind, "n0")]
+    assert list(keydict) == expected
+    assert set(keydict.values()) == {None}
+
+    second = call("n0")
+    assert type(second).__name__ == "dict_keyiterator"
+    assert list(second) == expected
+    assert (
+        storage["_fnx_adj_row_keydict_cache"][(row_kind, "n0")]
+        is keydict
+    )
+
+
+@pytest.mark.parametrize(
+    ("cls_name", "method_name", "row_kind"),
+    [
+        ("MultiGraph", "neighbors", "adj"),
+        ("MultiDiGraph", "successors", "succ"),
+        ("MultiDiGraph", "predecessors", "pred"),
+    ],
+)
+def test_multigraph_neighbor_key_cache_invalidates_on_mutation(
+    cls_name, method_name, row_kind
+):
+    graph = getattr(fnx, cls_name)()
+    if method_name == "predecessors":
+        graph.add_edge("n1", "n0")
+    else:
+        graph.add_edge("n0", "n1")
+    call = getattr(graph, method_name)
+    assert list(call("n0")) == ["n1"]
+    old_keydict = vars(graph)["_fnx_adj_row_keydict_cache"][
+        (row_kind, "n0")
+    ]
+
+    if method_name == "predecessors":
+        graph.add_edge("n2", "n0")
+    else:
+        graph.add_edge("n0", "n2")
+    assert list(call("n0")) == ["n1", "n2"]
+    new_keydict = vars(graph)["_fnx_adj_row_keydict_cache"][
+        (row_kind, "n0")
+    ]
+    assert new_keydict is not old_keydict
+
+    if method_name == "predecessors":
+        graph.remove_edge("n1", "n0")
+    else:
+        graph.remove_edge("n0", "n1")
+    assert list(call("n0")) == ["n2"]
+
+    graph.remove_node("n2")
+    assert list(call("n0")) == []
+
+
+@pytest.mark.parametrize(
+    ("cls_name", "private_attr", "method_name"),
+    [
+        ("MultiGraph", "_adj", "neighbors"),
+        ("MultiDiGraph", "_succ", "successors"),
+        ("MultiDiGraph", "_pred", "predecessors"),
+    ],
+)
+def test_multigraph_neighbor_key_cache_defers_to_private_storage(
+    cls_name, private_attr, method_name
+):
+    graph = getattr(fnx, cls_name)()
+    graph._node = {"private-u": {}, "private-v": {}}
+    setattr(
+        graph,
+        private_attr,
+        {"private-u": {"private-v": {}}, "private-v": {}},
+    )
+
+    assert list(getattr(graph, method_name)("private-u")) == ["private-v"]
+    assert "_fnx_adj_row_keydict_cache" not in vars(graph)
+
+
+@pytest.mark.parametrize(
     ("cls_name", "private_attr"),
     [
         ("Graph", "_adj"),

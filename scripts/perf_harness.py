@@ -39,6 +39,7 @@ Usage:
     python3 scripts/perf_harness.py node-primitives
     python3 scripts/perf_harness.py edge-primitives
     python3 scripts/perf_harness.py edge-data-primitives
+    python3 scripts/perf_harness.py multi-neighbor-keydict
     python3 scripts/perf_harness.py nodeview-getitem
     python3 scripts/perf_harness.py lazy-rows
     python3 scripts/perf_harness.py marshaling
@@ -1267,6 +1268,83 @@ def suite_edge_data_primitives():
     return rows
 
 
+def suite_multi_neighbor_keydict():
+    """br-r37-c1-zrsuc: cache lazy multigraph neighbor-key returns."""
+    import networkx as nx
+    import franken_networkx as fnx
+
+    nodes = [str(i) for i in range(2000)]
+    mg_edges = [
+        ("0", str(i)) for i in range(1, 65)
+    ] + [
+        (str(i), str(i + 1)) for i in range(65, 1999)
+    ]
+    mdg_edges = (
+        [("0", str(i)) for i in range(1, 65)]
+        + [(str(i), "0") for i in range(65, 129)]
+        + [(str(i), str(i + 1)) for i in range(129, 1999)]
+    )
+    mg_nx, mg_fx = nx.MultiGraph(), fnx.MultiGraph()
+    mdg_nx, mdg_fx = nx.MultiDiGraph(), fnx.MultiDiGraph()
+    for graph in (mg_nx, mg_fx):
+        graph.add_nodes_from(nodes)
+        graph.add_edges_from(mg_edges)
+    for graph in (mdg_nx, mdg_fx):
+        graph.add_nodes_from(nodes)
+        graph.add_edges_from(mdg_edges)
+
+    rebuild_mg = fnx._MULTIGRAPH_PRIVATE_AWARE_NEIGHBORS.__get__(
+        mg_fx, fnx.MultiGraph
+    )
+    rebuild_succ = fnx._MULTIDIGRAPH_PRIVATE_AWARE_SUCCESSORS.__get__(
+        mdg_fx, fnx.MultiDiGraph
+    )
+    rebuild_pred = fnx._MULTIDIGRAPH_PRIVATE_AWARE_PREDECESSORS.__get__(
+        mdg_fx, fnx.MultiDiGraph
+    )
+    # Populate the candidate cache before every timed region.
+    list(mg_fx.neighbors("0"))
+    list(mdg_fx.successors("0"))
+    list(mdg_fx.predecessors("0"))
+    repeats = range(512)
+
+    def calls(call):
+        return [call("0") for _ in repeats]
+
+    return [
+        (
+            "MG.neighbors x512 [rebuild/cached-keydict]",
+            lambda: calls(rebuild_mg),
+            lambda: calls(mg_fx.neighbors),
+        ),
+        (
+            "MG.neighbors x512 [nx/fnx]",
+            lambda: calls(mg_nx.neighbors),
+            lambda: calls(mg_fx.neighbors),
+        ),
+        (
+            "MDG.successors x512 [rebuild/cached-keydict]",
+            lambda: calls(rebuild_succ),
+            lambda: calls(mdg_fx.successors),
+        ),
+        (
+            "MDG.successors x512 [nx/fnx]",
+            lambda: calls(mdg_nx.successors),
+            lambda: calls(mdg_fx.successors),
+        ),
+        (
+            "MDG.predecessors x512 [rebuild/cached-keydict]",
+            lambda: calls(rebuild_pred),
+            lambda: calls(mdg_fx.predecessors),
+        ),
+        (
+            "MDG.predecessors x512 [nx/fnx]",
+            lambda: calls(mdg_nx.predecessors),
+            lambda: calls(mdg_fx.predecessors),
+        ),
+    ]
+
+
 def suite_nodeview_getitem():
     """br-r37-c1-yere4: intern warm public keys in each live NodeView."""
     gnx, gfx = _build_pair(2000, 8000, seed=7, weighted=True)
@@ -1426,6 +1504,7 @@ SUITES = {
     "node-primitives": suite_node_primitives,
     "edge-primitives": suite_edge_primitives,
     "edge-data-primitives": suite_edge_data_primitives,
+    "multi-neighbor-keydict": suite_multi_neighbor_keydict,
     "nodeview-getitem": suite_nodeview_getitem,
     "lazy-rows": suite_lazy_rows,
     "marshaling": suite_marshaling,

@@ -26590,3 +26590,128 @@ the existing assertion/signature-string heuristic inventory; direct
 changed-line review found no new critical. The bounded wrapper scan retains
 the known large-module timeout documented immediately above. Markdown/JSONL
 have no UBS scanner, so no scanner pass is claimed for the ledger or bead row.
+
+## 2026-07-26 CloudyTurtle KEEP (lazy multigraph neighbor-key iterators): mutation-token key-only row cache — **9.1961-9.8126x mechanism** (`br-r37-c1-zrsuc`)
+
+NEGATIVE-LEDGER-FIRST: before proposing the lever,
+`scripts/perf_ledger_preflight.py --prior-art 'neighbors lazy iterator return
+missing-node wrapper raw descriptor node-key interning'` found no direct row.
+The governing 2026-07-02 string-node floor and the fresh outer-multigraph-row
+HOLD above were read and adjudicated by hand. The former forbids generic
+string-key speculation without a named attributed frame; the latter rejected
+uncached outer row wrappers because every declared same-invocation null floor
+failed. This candidate instead targets the counted native-list plus
+`dict.fromkeys` rebuild performed by the existing public neighbor methods, and
+it received a fresh exact-path profile and independent null-controlled gate.
+
+PROFILE ATTRIBUTION / COMPUTED CEILING: before editing, the exact post-
+`get_edge_data` package loaded ELF SHA-256
+`8dfcc5a55cb68c9320712ffda131964764a28e9b1cf9c534e979a9f3bac85835`
+(13,155,048 bytes) with wrapper SHA-256
+`162eccb44960548c0a3efe149c0e3b66caca1393eb302bdac8576c8642d0f1e2`.
+On drained `vmi1227854`, pinned to core 3, the exact public paths produced:
+
+| exact public path | total profile | named removable frames | named share | computed Amdahl ceiling | public / direct wall |
+|---|---:|---:|---:|---:|---:|
+| `MultiGraph.neighbors` | `1.440859s` | native neighbor list `0.408106s` + `dict.fromkeys` `0.225928s` + old wrapper `0.161832s` | **55.24%** | **2.23x** | `140.2782x` |
+| `MultiDiGraph.successors` | `1.582550s` | native neighbor list `0.466752s` + `dict.fromkeys` `0.248750s` + old wrapper `0.172163s` | **56.08%** | **2.28x** | `133.8639x` |
+
+The simple-graph comparison paths were much smaller in absolute time:
+`Graph.neighbors` spent `0.139639s` of `0.332066s` in its wrapper and
+`DiGraph.successors` spent `0.140716s` of `0.334155s`. The profile therefore
+routed this turn to the addendum's 8-35x multigraph lazy-return loss rather
+than treating all sibling methods as one vein. The multigraph named chains
+clear the 30% attribution floor, have non-zero self-time in the benchmark
+actually run, and predict more than `2.2x`; this is not `VOID-ZEROSELF`.
+
+ONE LEVER / COUNTED MECHANISM: `_cached_adj_row_keydict` now admits
+`MultiGraph` and `MultiDiGraph` neighbor rows. The first public call constructs
+one key-only dictionary from the native neighbor iterator; subsequent calls
+return a fresh `dict_keyiterator` over that cached dictionary. The existing
+`(nodes_seq, edges_seq)` structural token invalidates the cache on node or
+edge mutation. Simple graphs retain their persistent native row dictionary.
+Multigraphs deliberately do not use nested row-dict accessors, so no edge-key
+or attribute mapping is materialized or allowed to escape.
+
+For each warm call this removes exactly one native neighbor-list
+materialization, one temporary `dict.fromkeys`, and the slow cache
+probe/fallback chain. It does not claim to remove the Python call boundary or
+the remaining warm cache lookup. NetworkX private `_node`/`_adj`/`_succ`/
+`_pred` stores still bypass the cache, and missing/unhashable node behavior is
+unchanged.
+
+CONTRACT-VALID ADMISSION: an initial dynamic screen lacked the canonical
+line-one loaded-ELF report because its remote harness copy was stale and was
+used only as routing evidence. The rerun self-reported the exact loaded ELF as
+line one and ran an A/A null beside each A/B in the same invocation. Its
+mechanism rows admitted decisively: `MultiGraph.neighbors` `10.4574x`
+(`10.1979-10.5520x` median CI, null `0.9888-1.0061x`, required floor
+`1.0228x`), `MultiDiGraph.successors` `10.7632x`
+(`10.6107-11.1791x`, null `0.9853-1.0047x`, floor `1.0302x`), and
+`MultiDiGraph.predecessors` `11.3731x` (`10.9720-12.0506x`, null
+`0.9841-1.1180x`, floor `1.2499x`). CV was provenance only and never gated.
+
+BEHAVIOR ISOMORPHISM / CONFORMANCE: the exact candidate passed
+**1,551/1,551** isolated local tests and **209/209** focused tests on the
+destination worker. The proof covers graph class and ordering parity, warm
+cache identity, key-only values, all three multigraph row kinds, invalidation
+after node/edge addition and removal, and private-storage bypass. Python
+byte-compilation and formatting checks also passed.
+
+PINNED-WORKER PERMANENT SAME-INVOCATION A/A + A/B: strict RCH built the
+unchanged native extension on `vmi1153651`. The exact proof package then ran
+on drained `vmi1227854`, pinned to core 3; the worker was immediately
+re-enabled. Canonical line one self-reported loaded ELF SHA-256
+`8dfcc5a55cb68c9320712ffda131964764a28e9b1cf9c534e979a9f3bac85835`
+(13,155,048 bytes). Structured provenance reported wrapper SHA-256
+`90e827e3f51ffa7ce2b6ff59bf5101c2d316906b42c0d2c42a753a81075a45ed`,
+harness SHA-256
+`1dc52376521ac470e3194a4b62f2d4233e4e1385891ad2025ee01566b9cf0041`,
+and test SHA-256
+`de878636843cd710d415410073332578c0f51d98f09238e12ef4ac801a96da22`
+(Python 3.13.7, NetworkX 3.6.1; header load average
+`0.139/0.292/0.299`).
+
+Every 512-call row proved an order-preserving digest before timing, ran 21
+interleaved rounds with `min_of=3`, and ran its own A/A null in the same
+invocation. Decisions use only bootstrap median confidence intervals and the
+doubled log-space null margin; CV was reported as provenance and never gated.
+
+| row | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | required floor | decision |
+|---|---:|---:|---:|---:|---|
+| `MultiGraph.neighbors` rebuild / cached keydict | **`9.1961x`** | `9.0427-9.4882x` | `0.9346-0.9956x` | `1.1449x` | **DECIDABLE KEEP** |
+| NetworkX / FNX `MultiGraph.neighbors` | `0.2070x` | `0.2036-0.2109x` | `0.9838-1.0255x` | `1.0516x` | **DECIDABLE residual loss** |
+| `MultiDiGraph.successors` rebuild / cached keydict | **`9.7315x`** | `9.4433-10.1846x` | `0.9837-1.0141x` | `1.0335x` | **DECIDABLE KEEP** |
+| NetworkX / FNX `MultiDiGraph.successors` | `0.1976x` | `0.1954-0.2037x` | `0.9387-1.0157x` | `1.1349x` | **DECIDABLE residual loss** |
+| `MultiDiGraph.predecessors` rebuild / cached keydict | **`9.8126x`** | `9.4224-10.5410x` | `0.9769-1.0383x` | `1.0780x` | **DECIDABLE KEEP** |
+| NetworkX / FNX `MultiDiGraph.predecessors` | `0.2030x` | `0.1779-0.2065x` | `0.9870-1.0161x` | `1.0324x` | **DECIDABLE residual loss** |
+
+RESULT: KEEP. All three counted mechanism rows clear their own median-CI null
+floors by a wide margin. Warm lazy multigraph neighbor returns improve by
+`9.20-9.81x`, while the public methods still run approximately `4.8-5.1x`
+slower than NetworkX. That residual is explicit and remains open; this row
+does not misrepresent mechanism recovery as parity.
+
+RETRY PREDICATE: do not retry multigraph neighbor-list rebuilding,
+`dict.fromkeys`, this cache's structural invalidation, or another Python
+cache-probe rearrangement. Reopen the remaining public residual only if a
+fresh post-KEEP exact-path profile attributes at least **30%** of end-to-end
+time to one named removable wrapper/cache-lookup frame, the proposed design is
+a class-safe C-level descriptor or instance shadow that preserves private
+stores, subclasses, missing/unhashable-node exceptions, mutation visibility,
+and iteration order, and the same invocation's doubled-log A/A floor is below
+**`1.02x`**. Reopen node-key interning only if canonicalization alone reaches
+that 30% attribution floor under the same null criterion. A new batch API may
+not be represented as accelerating the existing user-level methods.
+
+QUALITY GATES: `cargo fmt --check`, Python byte-compilation, `git diff
+--check`, and both exact Python proof suites passed. Strict-remote
+`cargo check --workspace --all-targets -j 2` passed on `vmi1153651`.
+Mandatory strict clippy reproduced only the established off-lane dead-code,
+`collapsible_if`, and `chunks_exact_to_as_chunks` failures; the filtered
+deny-warnings rerun allowing only those categories passed. No local
+compilation fallback occurred. UBS completed on the permanent harness and
+new focused tests with zero critical/warning findings. The bounded 300-second
+scan of the 61k-line wrapper reached the known large-module timeout without
+emitting a source finding. Markdown/JSONL have no UBS scanner, so no scanner
+pass is claimed for the ledger or bead row.

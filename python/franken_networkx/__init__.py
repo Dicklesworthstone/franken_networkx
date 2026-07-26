@@ -43086,10 +43086,12 @@ def _cached_adj_row_keydict(owner, row_kind, row_node, row_getter):
     # row (caller does iter()/len()/membership). Lean warm fast-path: a
     # token-valid cached keydict is returned with ONE vars() snapshot, skipping
     # the isinstance / _has_networkx_private_storage / native-name machinery
-    # below. A POPULATED cache implies owner is a plain Graph/DiGraph with no
-    # private storage (only that state populates it). Serves AtlasView
-    # iteration/len/contains (list(G[n]), v in G[u]) + neighbors fallback +
-    # succ/pred views.
+    # below. A POPULATED cache implies owner is a concrete graph with no private
+    # storage. Serves AtlasView iteration/len/contains (list(G[n]), v in G[u])
+    # plus neighbors/successors/predecessors. br-r37-c1-zrsuc extends the same
+    # key-only cache to multigraph neighbor iterators: their old public path
+    # rebuilt a native list and temporary dict on every call, despite the
+    # existing nodes_seq/edges_seq invalidation token.
     try:
         owner_vars = vars(owner)
     except TypeError:
@@ -43108,7 +43110,7 @@ def _cached_adj_row_keydict(owner, row_kind, row_node, row_getter):
             pass
     if owner is None or row_node is None:
         return None
-    if not isinstance(owner, (Graph, DiGraph)):
+    if not isinstance(owner, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
         return None
     if _has_networkx_private_storage(owner):
         return None
@@ -43151,7 +43153,11 @@ def _cached_adj_row_keydict(owner, row_kind, row_node, row_getter):
         # from a whole-graph adjacency snapshot solely to recover key order;
         # the per-row accessor has carried identical order since
         # br-r37-c1-gchm1/cc-succrowoV.
-        if native_name is not None:
+        # Simple graphs already maintain persistent live row dicts. Multigraph
+        # row-dict accessors materialise nested edge-key/attribute mappings, but
+        # this cache needs keys only; build those once from the existing
+        # neighbors iterator instead of making hidden edge data escape.
+        if native_name is not None and isinstance(owner, (Graph, DiGraph)):
             native_row = getattr(owner, native_name, None)
             if native_row is not None:
                 try:
