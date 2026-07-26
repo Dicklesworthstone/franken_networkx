@@ -573,6 +573,77 @@ def test_simple_outer_adjacency_len_uses_live_native_count(cls_name, accessors):
     assert [len(view) for view in fnx_views] == [len(view) for view in nx_views]
 
 
+@pytest.mark.parametrize(
+    ("cls_name", "accessors"),
+    [
+        ("Graph", ("adj",)),
+        ("DiGraph", ("adj", "succ", "pred")),
+    ],
+)
+def test_simple_outer_adjacency_iter_uses_live_node_mirror(cls_name, accessors):
+    """br-r37-c1-krg59: iteration skips atlas materialization, but stays live."""
+    gnx, gfx = _pair(cls_name)
+    nx_views = [getattr(gnx, name) for name in accessors]
+    fnx_views = [getattr(gfx, name) for name in accessors]
+    getter_calls = [0] * len(fnx_views)
+
+    for index, view in enumerate(fnx_views):
+        old_getter = view._atlas_getter
+
+        def counted_getter(old_getter=old_getter, index=index):
+            getter_calls[index] += 1
+            return old_getter()
+
+        view._atlas_getter = counted_getter
+
+    assert all(view._fnx_native_iter is not None for view in fnx_views)
+    assert [type(iter(view)).__name__ for view in fnx_views] == [
+        type(iter(view)).__name__ for view in nx_views
+    ]
+    assert [list(view) for view in fnx_views] == [list(view) for view in nx_views]
+    assert getter_calls == [0] * len(fnx_views)
+
+    gnx.add_node("later")
+    gfx.add_node("later")
+    assert [list(view) for view in fnx_views] == [list(view) for view in nx_views]
+    assert getter_calls == [0] * len(fnx_views)
+
+    gnx.remove_node("n1")
+    gfx.remove_node("n1")
+    assert [list(view) for view in fnx_views] == [list(view) for view in nx_views]
+    assert getter_calls == [0] * len(fnx_views)
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+def test_simple_adjacency_iter_keeps_native_storage_under_node_override(cls_name):
+    """An independent ``_node`` assignment must not change adjacency keys."""
+    gnx, gfx = _pair(cls_name)
+    old_nx, old_fnx = gnx.adj, gfx.adj
+
+    gnx._node = {"private-only": {}}
+    gfx._node = {"private-only": {}}
+
+    assert list(old_fnx) == list(old_nx)
+    assert list(gfx.adj) == list(gnx.adj) == list(old_nx)
+    assert list(gfx) == list(gnx) == ["private-only"]
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+def test_simple_adjacency_iter_preserves_size_change_error(cls_name):
+    gnx, gfx = _pair(cls_name)
+    nx_iterator = iter(gnx.adj)
+    fnx_iterator = iter(gfx.adj)
+    assert next(fnx_iterator) == next(nx_iterator)
+
+    gnx.add_node("size-change")
+    gfx.add_node("size-change")
+
+    with pytest.raises(RuntimeError, match="dictionary changed size during iteration"):
+        next(nx_iterator)
+    with pytest.raises(RuntimeError, match="dictionary changed size during iteration"):
+        next(fnx_iterator)
+
+
 @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
 def test_simple_adjacency_len_keeps_native_storage_under_node_override(cls_name):
     """An independent ``_node`` assignment must not change adjacency length."""
@@ -592,9 +663,12 @@ def test_adjacency_len_without_native_owner_uses_live_mapping_fallback():
     snapshot = {"left": {}, "right": {}}
     view = fnx.AdjacencyView(lambda: snapshot)
     assert view._fnx_native_len is None
+    assert view._fnx_native_iter is None
     assert len(view) == 2
+    assert list(view) == ["left", "right"]
     snapshot["later"] = {}
     assert len(view) == 3
+    assert list(view) == ["left", "right", "later"]
 
 
 DIRECTED_ACCESSORS = ["in_degree", "out_degree", "in_edges", "out_edges"]

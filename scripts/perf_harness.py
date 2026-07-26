@@ -29,6 +29,7 @@ Usage:
     python3 scripts/perf_harness.py view-accessors
     python3 scripts/perf_harness.py adj-descriptor
     python3 scripts/perf_harness.py adj-len
+    python3 scripts/perf_harness.py adj-iter
     python3 scripts/perf_harness.py digraph-descriptors
     python3 scripts/perf_harness.py node-primitives
     python3 scripts/perf_harness.py nodeview-getitem
@@ -438,6 +439,92 @@ def suite_adjacency_len():
     ]
 
 
+def suite_adjacency_iter():
+    """br-r37-c1-krg59: outer simple views reuse the live node-key mirror."""
+    gnx, gfx = _build_pair(20_000, 0, seed=7, weighted=False)
+    dnx, dfx = _build_pair(
+        20_000, 0, seed=17, weighted=False, directed=True
+    )
+    graph_view = gfx.adj
+    digraph_view = dfx.adj
+    assert graph_view._fnx_native_iter is not None
+    assert digraph_view._fnx_native_iter is not None
+
+    def old_graph_iter():
+        return iter(dict.fromkeys(graph_view._atlas()))
+
+    def old_digraph_iter():
+        return iter(dict.fromkeys(digraph_view._atlas()))
+
+    def old_graph_list():
+        return list(old_graph_iter())
+
+    def old_digraph_list():
+        return list(old_digraph_iter())
+
+    # Stabilize worker frequency before the first A/A round. Both mechanism
+    # arms are warmed outside every timed region.
+    warm_deadline = perf_counter() + 2.0
+    while perf_counter() < warm_deadline:
+        old_graph_iter()
+        iter(graph_view)
+        old_digraph_iter()
+        iter(digraph_view)
+
+    return [
+        (
+            "iter(G.adj) [fromkeys/raw-bound]",
+            old_graph_iter,
+            lambda: iter(graph_view),
+        ),
+        (
+            "iter(DG.adj) [fromkeys/raw-bound]",
+            old_digraph_iter,
+            lambda: iter(digraph_view),
+        ),
+        (
+            "list(G.adj) [fromkeys/raw-bound]",
+            old_graph_list,
+            lambda: list(graph_view),
+        ),
+        (
+            "list(DG.adj) [fromkeys/raw-bound]",
+            old_digraph_list,
+            lambda: list(digraph_view),
+        ),
+        (
+            "iter(G.adj) [nx/fnx]",
+            lambda: iter(gnx.adj),
+            lambda: iter(graph_view),
+        ),
+        (
+            "list(G.adj) [nx/fnx]",
+            lambda: list(gnx.adj),
+            lambda: list(graph_view),
+        ),
+        (
+            "iter(DG.adj) [nx/fnx]",
+            lambda: iter(dnx.adj),
+            lambda: iter(digraph_view),
+        ),
+        (
+            "list(DG.adj) [nx/fnx]",
+            lambda: list(dnx.adj),
+            lambda: list(digraph_view),
+        ),
+        (
+            "list(DG.succ) [nx/fnx]",
+            lambda: list(dnx.succ),
+            lambda: list(dfx.succ),
+        ),
+        (
+            "list(DG.pred) [nx/fnx]",
+            lambda: list(dnx.pred),
+            lambda: list(dfx.pred),
+        ),
+    ]
+
+
 def suite_digraph_descriptors():
     """br-r37-c1-dyuzb: cache directed public adjacency descriptors."""
     import franken_networkx as fnx
@@ -693,6 +780,7 @@ SUITES = {
     "view-accessors": suite_view_accessors,
     "adj-descriptor": suite_adj_descriptor,
     "adj-len": suite_adjacency_len,
+    "adj-iter": suite_adjacency_iter,
     "digraph-descriptors": suite_digraph_descriptors,
     "node-primitives": suite_node_primitives,
     "nodeview-getitem": suite_nodeview_getitem,

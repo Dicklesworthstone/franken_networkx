@@ -25294,3 +25294,126 @@ completed and the ledger/bead-only diff passed `git diff --check`. UBS was
 invoked on both changed files and reported that Markdown/JSONL has no
 supported language scanner; it therefore emitted no findings but is not
 claimed as a scanner pass.
+
+## 2026-07-26 CloudyTurtle KEEP (`AdjacencyView.__iter__`): reuse the live native node-key mirror — **29.2062-50.1783x full-list recovery** (`br-r37-c1-krg59`)
+
+NEGATIVE-LEDGER-FIRST: before proposing this lever,
+`scripts/perf_ledger_preflight.py --prior-art 'AdjacencyView __iter__ outer
+nodes'` and direct searches for `AdjacencyView`, `__iter__`, `iter(G.adj)`,
+`list(G.adj)`, and `outer adjacency` read every matching row in both
+performance ledgers. The only related prior was the 2026-06-22
+`nbunch_iter(None)` KEEP: it returned `iter(self)` before constructing
+`self.adj`, but did not optimize `AdjacencyView.__iter__` itself. The later
+iterator-type conformance fix intentionally introduced
+`iter(dict.fromkeys(self._atlas()))` so FNX would return NetworkX's
+`dict_keyiterator`; it recorded no performance gate. This is therefore a
+distinct, untried mechanism rather than a retry of that row.
+
+PROFILE ATTRIBUTION: admission was predeclared at least **30% named
+removable self-time** and an Amdahl ceiling of at least **1.5x**, with
+iterator type, order, liveness, mutation error, private-storage, and
+ownerless-view parity required before editing. On the exact loaded ELF,
+profiling 500 calls to `iter(fv)` for one already-captured 20,000-node
+`DiGraph.adj` view recorded 3,002 calls in `0.631s`. Built-in
+`dict.fromkeys` alone owned **`0.616s` / 97.6% self-time**; the driver owned
+`0.012s`, `AdjacencyView.__iter__` owned `0.001s` self / `0.619s`
+cumulative, and the atlas getter chain owned about `0.002s`. Removing the
+materialization has a computed Amdahl ceiling of approximately **42.1x**.
+Unprofiled medians were `1.139ms` for the old FNX view, `0.0956us` for the
+raw bound owner iterator, and `0.0521us` for NetworkX.
+
+DYNAMIC ADMISSION: on the same exact ELF, a no-source monkeypatch bound the
+raw Graph/DiGraph iterator to each outer view and retained the old path for
+ownerless views. It proved `dict_keyiterator` runtime type, insertion order,
+live add/remove-node updates, exact `"dictionary changed size during
+iteration"` behavior, independence from an assigned `_node` mapping,
+correct `_adj` override dispatch, and live ownerless fallback. Its
+same-invocation causal A/B measured **`7706.2578x`**
+(`7235.4833-8480.1603x` median CI) against A/A
+`0.9870-1.1051x`, required floor `1.2212x`. Public
+`list(DG.adj)` was `1.0038x` (`0.9550-1.0539x`) inside its A/A null. This
+cleared the profile and dynamic gates before the source edit.
+
+ONE COUNTED LEVER: outer simple-graph `AdjacencyView` instances now bind the
+raw PyO3 `Graph.__iter__` or `DiGraph.__iter__` descriptor once at
+construction. That descriptor already returns a live `dict_keyiterator` over
+the incrementally maintained node-key mirror, whose keys are exactly the
+outer adjacency keys. `AdjacencyView.__iter__` calls the bound descriptor
+instead of rebuilding an O(N) dict solely to obtain the same iterator type.
+Graph `adj` and DiGraph `adj`/`succ`/`pred` share the mechanism. Inner,
+filtered, reverse, reconstructed, snapshot, assigned-private, and ownerless
+views pass no native iterator and retain the mapping fallback. No Rust graph
+storage, node interning, mutation hook, row materialization, or multigraph
+view changed.
+
+COUNTED MECHANISM / CONFORMANCE: permanent tests replace each outer view's
+atlas getter with a counter and require **zero getter calls** across initial
+iteration, add-node, and remove-node passes. They also lock iterator runtime
+type, order, independent `_node` behavior, native size-change errors, and the
+live ownerless fallback. The exact artifact passed **591/591** descriptor and
+review-regression tests plus **525/525** broader adjacency, attribute,
+filtered/reverse view, pickle, and mutation tests: **1,116/1,116** focused
+tests total.
+
+PINNED-WORKER SAME-INVOCATION A/A + A/B: final measurement ran in one
+invocation on drained `vmi1227854`, pinned to core 3 after the suite's
+predeclared two-second frequency warm-up at header load average
+`0.4014/1.2466/1.2686`; the worker was immediately re-enabled and verified
+healthy. Canonical line one reported loaded ELF SHA-256
+`4b30828df78e87ece5f6323d0b8864d46af76216c37a47e6375acf849dde122f`
+(13,154,016 bytes). Structured provenance reported wrapper SHA-256
+`6dc1c2f8081095a1494ed23cd4bbdd117527d851f612c6cd6971f1e34bf0aa1d`,
+harness SHA-256
+`a8a93e969d8cefaade81ac26a78c5eb7d658b8bd759bfb6628ec81a821f5b358`,
+and focused-test SHA-256
+`cb6a3dc7b2cf5e16e82b051c5c4a9fb1069a3dd47f0dd0c9414b4d5209966ff0`
+(Python 3.13.7, NetworkX 3.6.1).
+
+Every row proved an order-preserving digest before timing, ran 21 interleaved
+rounds with `min_of=3`, and ran its own A/A null in the same invocation.
+Decisions use only the bootstrap median CI with the 2x log-space null margin;
+CV is provenance and was never a gate.
+
+| row (20,000 nodes) | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | required floor | decision |
+|---|---:|---:|---:|---:|---|
+| old `dict.fromkeys` / raw-bound `iter(G.adj)` | **`10437.5683x`** | `9644.8694-11495.0537x` | `0.9819-1.0686x` | `1.1419x` | **DECIDABLE KEEP** |
+| old `dict.fromkeys` / raw-bound `iter(DG.adj)` | **`19387.0397x`** | `17157.6627-20339.5594x` | `0.8909-1.1341x` | `1.2862x` | **DECIDABLE KEEP** |
+| old / raw-bound `list(G.adj)` | **`29.2062x`** | `25.6334-31.4761x` | `0.9782-1.0517x` | `1.1060x` | **DECIDABLE KEEP** |
+| old / raw-bound `list(DG.adj)` | **`50.1783x`** | `46.3406-53.3563x` | `0.8631-0.9608x` | `1.3423x` | **DECIDABLE KEEP** |
+| NetworkX / FNX `iter(G.adj)` | `0.4660x` | `0.4048-0.4980x` | `1.0007-1.1054x` | `1.2220x` | **DECIDABLE residual loss** |
+| NetworkX / FNX `list(G.adj)` | `0.9819x` | `0.9424-1.0736x` | `0.9323-1.0677x` | `1.1506x` | **UNDECIDABLE / inside null** |
+| NetworkX / FNX `iter(DG.adj)` | `0.4686x` | `0.4456-0.4895x` | `0.9300-1.0250x` | `1.1562x` | **DECIDABLE residual loss** |
+| NetworkX / FNX `list(DG.adj)` | `0.9851x` | `0.9351-1.0146x` | `0.9326-0.9912x` | `1.1498x` | **UNDECIDABLE / inside null** |
+| NetworkX / FNX `list(DG.succ)` | `1.0364x` | `0.9800-1.1075x` | `0.9518-1.0220x` | `1.1038x` | **UNDECIDABLE / inside null** |
+| NetworkX / FNX `list(DG.pred)` | `0.9965x` | `0.9067-1.0260x` | `0.9567-1.0826x` | `1.1720x` | **UNDECIDABLE / inside null** |
+
+RESULT: KEEP. The counted O(N) materialization disappears completely and the
+most-used full-consumption calls recover by **29.21-50.18x** to no decidable
+difference from NetworkX under their same-invocation nulls. Bare iterator
+construction remains `0.4660-0.4686x`, but its absolute FNX cost is only
+about `0.17-0.18us`; that residual Python-frame tax is reported, not hidden,
+and does not justify withholding the large full-list win.
+
+RETRY PREDICATE: do not retry `dict.fromkeys`, the raw owner-iterator binding,
+per-call atlas materialization, or per-next mutation-counter checks; the live
+dict mirror already supplies exact CPython mutation semantics. Reopen the
+bare `iter(G.adj)` / `iter(DG.adj)` residual only if a fresh profile of a
+named end-to-end algorithm attributes at least **10% self-time** to the
+remaining Python `AdjacencyView.__iter__` frame and predicts at least
+`1.05x` overall, a dynamic C-level mapping-slot prototype preserves every
+fallback/private contract above, and its same-invocation doubled-null floor
+is below **`1.03x`**. Treat `MultiAdjacencyView.__iter__` as a separate sibling
+vein: preflight its own ledger history and require a fresh profile before
+sharing this mechanism.
+
+QUALITY GATES: exact-artifact Python conformance, Python byte-compilation,
+`cargo fmt --check`, and `git diff --check` passed. Strict-remote
+`cargo check --workspace --all-targets -j 2` passed on `vmi1149989`, emitting
+only the two established dead-helper warnings. Mandatory strict workspace
+clippy reproduced exactly the established six findings outside this lever:
+two dead helpers, three `collapsible_if` sites, and one
+`chunks_exact_to_as_chunks` test site. The filtered strict rerun allowed only
+those three established lint categories and passed with every other warning
+denied. UBS completed the harness/test scan with zero critical or warning
+findings; its bounded scan including the 61k-line monolithic Python shim
+reached 180 seconds without emitting a source finding.

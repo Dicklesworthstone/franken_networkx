@@ -1634,7 +1634,13 @@ class AtlasView(_Mapping):
 
 class AdjacencyView(_Mapping):
     def __init__(
-        self, atlas_getter, *, owner=None, row_kind="adj", native_len=None
+        self,
+        atlas_getter,
+        *,
+        owner=None,
+        row_kind="adj",
+        native_len=None,
+        native_iter=None,
     ):
         self._atlas_getter = atlas_getter
         self._fnx_owner = owner
@@ -1646,6 +1652,14 @@ class AdjacencyView(_Mapping):
         # reverse, reconstructed, and snapshot views pass no native_len and
         # retain the mapping fallback below.
         self._fnx_native_len = native_len
+        # br-r37-c1-krg59: the native Graph/DiGraph node iterator already
+        # serves a live ``dict_keyiterator`` over the incrementally maintained
+        # node-key mirror. Outer simple adjacency has exactly the same key set,
+        # so bind that raw descriptor once instead of rebuilding an O(N)
+        # ``dict.fromkeys`` merely to recover the same iterator runtime type.
+        # Ownerless, filtered, reverse, reconstructed, and snapshot views pass
+        # no native iterator and retain the mapping fallback.
+        self._fnx_native_iter = native_iter
         # br-r37-c1-spg9n: (nodes_seq, {node: AtlasView}) cache. The returned
         # AtlasView reads its row live from Rust, so it stays valid across EDGE
         # changes; only node add/remove (which bumps nodes_seq) needs a fresh
@@ -1663,6 +1677,9 @@ class AdjacencyView(_Mapping):
         return len(self._atlas())
 
     def __iter__(self):
+        native_iter = self._fnx_native_iter
+        if native_iter is not None:
+            return native_iter()
         # br-r37-c1-adjitype (cycle 219): nx's ``AdjacencyView.__iter__``
         # returns ``iter(self._atlas)`` where ``_atlas`` is a Python
         # dict, yielding a ``dict_keyiterator``.  fnx's ``_atlas()``
@@ -1875,6 +1892,8 @@ def _cached_view(slot, factory):
 
 _GRAPH_ADJ_NATIVE_LEN = Graph.number_of_nodes
 _DIGRAPH_ADJ_NATIVE_LEN = DiGraph.number_of_nodes
+_GRAPH_ADJ_NATIVE_ITER = Graph.__iter__
+_DIGRAPH_ADJ_NATIVE_ITER = DiGraph.__iter__
 
 
 _multigraph_adj_view = _cached_view(
@@ -1892,6 +1911,7 @@ _graph_adj_view = _cached_view(
         owner=self,
         row_kind="adj",
         native_len=_GRAPH_ADJ_NATIVE_LEN.__get__(self, Graph),
+        native_iter=_GRAPH_ADJ_NATIVE_ITER.__get__(self, Graph),
     ),
 )
 
@@ -1903,6 +1923,7 @@ _digraph_adj_view = _cached_view(
         owner=self,
         row_kind="succ",
         native_len=_DIGRAPH_ADJ_NATIVE_LEN.__get__(self, DiGraph),
+        native_iter=_DIGRAPH_ADJ_NATIVE_ITER.__get__(self, DiGraph),
     ),
 )
 
@@ -1922,6 +1943,7 @@ _digraph_succ_view = _cached_view(
         owner=self,
         row_kind="succ",
         native_len=_DIGRAPH_ADJ_NATIVE_LEN.__get__(self, DiGraph),
+        native_iter=_DIGRAPH_ADJ_NATIVE_ITER.__get__(self, DiGraph),
     ),
 )
 
@@ -1933,6 +1955,7 @@ _digraph_pred_view = _cached_view(
         owner=self,
         row_kind="pred",
         native_len=_DIGRAPH_ADJ_NATIVE_LEN.__get__(self, DiGraph),
+        native_iter=_DIGRAPH_ADJ_NATIVE_ITER.__get__(self, DiGraph),
     ),
 )
 
