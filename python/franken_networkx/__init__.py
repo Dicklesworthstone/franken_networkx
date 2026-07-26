@@ -2242,6 +2242,22 @@ def _direct_multi_edge_iter(view, exact_graph_type):
 class _DiGraphEdgeView:
     def __init__(self, graph):
         self._graph = graph
+        # br-r37-c1-sivs2: scalar ``DiGraph.edges[u, v]`` used to cross
+        # OutEdgeView -> MultiAdjacencyView -> AdjacencyView -> AtlasView
+        # after a redundant has_edge probe. Bind the raw exact-type descriptor
+        # once, as the keyed multigraph views already do. Subclasses and
+        # NetworkX-private storage retain the generic mapping path, and the
+        # per-call guard keeps a held view live if private storage lands later.
+        raw_get_edge_data = globals().get(
+            "_DIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA"
+        )
+        self._fnx_native_get_edge_data = (
+            raw_get_edge_data.__get__(graph, DiGraph)
+            if raw_get_edge_data is not None
+            and type(graph) is DiGraph
+            and not _has_networkx_private_storage(graph)
+            else None
+        )
 
     def _materialize(self):
         # br-r37-c1-acuub: native ordered no-data edge materialization. The
@@ -2289,6 +2305,17 @@ class _DiGraphEdgeView:
         # (br-r37-c1-cvtv6) so unpack into has_edge handles both
         # the missing and unhashable cases correctly.
         u, v = edge
+        hash(u)
+        hash(v)
+        native_get_edge_data = self._fnx_native_get_edge_data
+        if (
+            native_get_edge_data is not None
+            and not _has_networkx_private_storage(self._graph)
+        ):
+            data = native_get_edge_data(u, v, _PRIVATE_MISSING)
+            if data is not _PRIVATE_MISSING:
+                return data
+            raise KeyError(f"The edge {edge} is not in the graph.")
         if not self._graph.has_edge(u, v):
             raise KeyError(f"The edge {edge} is not in the graph.")
         return self._graph.succ[u][v]
@@ -6403,6 +6430,22 @@ def _make_edge_view_getitem_preserving_key(raw):
                 raise KeyError(
                     f"The edge {edge} is not in the graph."
                 ) from exc
+        # br-r37-c1-sivs2: ordinary Graph EdgeView objects are Rust-bound and
+        # cannot retain an extra bound method like the Python DiGraph sibling.
+        # Recover the weakly held exact owner and bind its captured raw
+        # get_edge_data descriptor for this scalar probe. This removes the
+        # AdjacencyView/AtlasView chain without changing owner lifetime.
+        if type(owner) is Graph and not _has_networkx_private_storage(owner):
+            # Call the PyO3 method descriptor unbound. Binding it afresh for
+            # every Rust EdgeView subscript costs more than the mapping chain
+            # this path replaces; the unbound vectorcall has the same native
+            # body without allocating a transient bound-method object.
+            data = _GRAPH_PRIVATE_AWARE_GET_EDGE_DATA(
+                owner, u, v, _PRIVATE_MISSING
+            )
+            if data is not _PRIVATE_MISSING:
+                return data
+            raise KeyError(f"The edge {edge} is not in the graph.")
         try:
             return owner.adj[u][v]
         except KeyError as exc:

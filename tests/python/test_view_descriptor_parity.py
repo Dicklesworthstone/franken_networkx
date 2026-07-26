@@ -138,6 +138,79 @@ def test_plain_get_edge_data_is_a_raw_descriptor(cls_name):
     assert "get_edge_data" not in vars(graph)
 
 
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+def test_simple_edge_view_getitem_returns_live_native_attr_dict(cls_name):
+    """br-r37-c1-sivs2: scalar simple-edge reads bypass mapping wrappers."""
+    graph = getattr(fnx, cls_name)()
+    graph.add_edge("left", "right", weight=7)
+    held_edges = graph.edges
+
+    attrs = held_edges["left", "right"]
+    assert attrs is graph.get_edge_data("left", "right")
+    attrs["color"] = "blue"
+    assert graph.get_edge_data("left", "right") == {
+        "weight": 7,
+        "color": "blue",
+    }
+
+    if cls_name == "Graph":
+        assert held_edges["right", "left"] is attrs
+    else:
+        with pytest.raises(KeyError, match="is not in the graph"):
+            held_edges["right", "left"]
+
+    graph.remove_edge("left", "right")
+    with pytest.raises(KeyError, match="is not in the graph"):
+        held_edges["left", "right"]
+    graph.add_edge("left", "right", replacement=True)
+    assert held_edges["left", "right"] is graph.get_edge_data("left", "right")
+    assert held_edges["left", "right"] == {"replacement": True}
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+def test_held_simple_edge_view_falls_back_after_private_storage_assignment(
+    cls_name,
+):
+    """A held exact-type view must stop reading native storage after override."""
+    graph = getattr(fnx, cls_name)()
+    graph.add_edge("native-u", "native-v", old=True)
+    held_edges = graph.edges
+    graph._node = {"private-u": {}, "private-v": {}}
+
+    if cls_name == "Graph":
+        graph._adj = {
+            "private-u": {"private-v": {"private": True}},
+            "private-v": {"private-u": {"private": True}},
+        }
+    else:
+        graph._succ = {
+            "private-u": {"private-v": {"private": True}},
+            "private-v": {},
+        }
+        graph._pred = {
+            "private-u": {},
+            "private-v": {"private-u": {"private": True}},
+        }
+
+    assert held_edges["private-u", "private-v"] == {"private": True}
+    with pytest.raises(KeyError, match="is not in the graph"):
+        held_edges["native-u", "native-v"]
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+def test_simple_edge_view_subclasses_keep_generic_lookup(cls_name):
+    base = getattr(fnx, cls_name)
+
+    class Subclass(base):
+        pass
+
+    graph = Subclass()
+    graph.add_edge("left", "right", weight=7)
+    assert graph.edges["left", "right"] == {"weight": 7}
+    if cls_name == "DiGraph":
+        assert graph.edges._fnx_native_get_edge_data is None
+
+
 @pytest.mark.parametrize(
     ("cls_name", "method_name", "node", "expected"),
     [

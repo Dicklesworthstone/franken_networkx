@@ -27431,3 +27431,108 @@ QUALITY / CLOSEOUT: the worker was confirmed healthy after re-enablement.
 `git diff --check` covers this ledger-only change. No Cargo command was
 needed or run; UBS has no Markdown scanner, so no UBS result is claimed for
 this row.
+
+## 2026-07-26 CloudyTurtle KEEP (scalar simple `EdgeView.__getitem__` native lookup): **1.3087x Graph / 1.6509x DiGraph** exact-final causal wins (`br-r37-c1-sivs2`)
+
+NEGATIVE-LEDGER-FIRST / SCOPE ADJUDICATION: before editing,
+`scripts/perf_ledger_preflight.py --candidate` searched
+`Graph.edges[u,v]` and `DiGraph.edges[u,v]`. The apparent Graph matches were
+dense iteration and `nbunch` materialization rows, not scalar attribute-dict
+lookups. The DiGraph matches were likewise iteration/`nbunch` rows. The keyed
+multigraph scalar-view KEEP was a useful sibling mechanism, but it did not
+decide either simple-graph surface. Both rows therefore entered profiling as
+fresh scalar-view candidates rather than retries of a rejected mechanism.
+
+PROFILE ATTRIBUTION / COMPUTED CEILINGS: on the exact loaded pre-edit
+artifact, 204,800 scalar lookups attributed Graph self-time to
+`EdgeView.__getitem__` (**31.07%**), `AdjacencyView.__getitem__` (**15.50%**),
+and `AtlasView.__getitem__` (**8.79%**): **55.36% named self-time** and a
+computed **3.3001x** raw-lookup ceiling (`945.354ns` view versus `286.459ns`
+raw). DiGraph attributed **22.96%**, **18.88%**, and **10.51%** to the
+corresponding `OutEdgeView`/adjacency/atlas frames: **52.35% named
+self-time** and a computed **2.3511x** ceiling (`898.610ns` view versus
+`382.208ns` raw). These are non-zero named targets in the benchmark actually
+run, not `VOID-ZEROSELF`.
+
+ONE LEVER / LAZY-LIVE-VIEW MECHANISM: exact ordinary `Graph` scalar edge-view
+lookups now recover the weakly held owner and call the already captured raw
+PyO3 `get_edge_data` descriptor unbound. Exact ordinary `DiGraph` edge views
+bind that raw descriptor once at view creation. Both paths bypass the
+`AdjacencyView` and `AtlasView` wrapper chain while returning the same live
+native attribute `dict`. Per-call private-storage guards keep held views live
+if NetworkX-private storage is assigned later; subclasses and private-store
+graphs retain the generic mapping path. Endpoint hashing, missing-edge error
+shape, undirected reverse lookup, directed orientation, canonical public
+keys, removal/re-addition liveness, and attribute-dict identity are
+unchanged.
+
+PINNED-WORKER EXACT-FINAL A/A + A/B: no native source changed, so the retained
+Python wrapper and contract harness were overlaid on the immutable exact
+release package whose in-process identity is the first line below. On drained
+`vmi1227854`, pinned to core 3, the benchmark process self-reported:
+
+`bench_elf_sha256=cdbb3c4a0681c33eb92426e3fb25c3d6181c3f4124115e109077d7a4703978c6
+(13155240 bytes)
+/data/tmp/fnx-sivs2-final/franken_networkx/_fnx.abi3.so`
+
+Structured provenance recorded wrapper SHA-256
+`0d338e9054a5700172bfe6b3c00712362873e3d649d68e63b1a1cf3462b2afbf`,
+harness SHA-256
+`8733e9b517ead752f282ea93c4bd6042c1ba310b03a97a9360e31f6b23103385`,
+focused-test SHA-256
+`075563e1d72b99d007c47031d6b0251117ffd9b495060c4a5a670651a6ada0dd`,
+Python 3.13.7, NetworkX 3.6.1, and header load average
+`3.155/4.577/3.533`. Every row proved result identity before timing, then ran
+21 interleaved rounds with `min_of=3` and its own A/A null in the same
+invocation. The bootstrap median CI and doubled log-space null margin decide
+the result; CV is provenance only and never gates.
+
+| exact-final row | median A/B | A/B 95% median CI | same-invocation A/A median / 95% median CI | doubled-null floor | decision |
+|---|---:|---:|---:|---:|---|
+| Graph view-chain / native scalar lookup | **`1.3087x`** | **`1.2572-1.3358x`** | `0.9872x` / `0.9380-1.0530x` | **`1.1367x`** | **DECIDABLE KEEP** |
+| NetworkX / FNX Graph scalar lookup | `0.1198x` | `0.1096-0.1343x` | `1.0172x` / `0.9898-1.0233x` | `1.0471x` | **DECIDABLE 8.35x residual loss** |
+| DiGraph view-chain / native scalar lookup | **`1.6509x`** | **`1.5947-1.7027x`** | `1.0332x` / `0.9861-1.0750x` | **`1.1555x`** | **DECIDABLE KEEP** |
+| NetworkX / FNX DiGraph scalar lookup | `0.1538x` | `0.1470-0.1586x` | `1.0042x` / `0.9843-1.0300x` | `1.0610x` | **DECIDABLE 6.50x residual loss** |
+
+RESULT: **KEEP BOTH SIBLINGS.** Each causal bootstrap CI lies wholly beyond
+its own same-invocation doubled-null floor, despite the deliberately reported
+noisy header. Graph won 20/21 causal pairs and DiGraph won 21/21. The large
+public residual losses remain explicit frontier evidence rather than being
+mistaken for proof of another mechanism. The worker was immediately
+re-enabled and probed healthy.
+
+BEHAVIOR ISOMORPHISM / QUALITY: the immutable exact package passed **220/220**
+focused view-descriptor cases locally and again on the measurement worker.
+It also passed **824/824** broader adjacency-mapping, edge-attribute dirty
+sync, view-pickle, and review-mode regression cases, for **1,044/1,044**
+relevant tests. The new locks cover live attribute identity, mutation and
+remove/re-add behavior, undirected reverse orientation, directed missing
+reverse orientation, held-view fallback after private-store assignment, and
+subclass fallback. Python byte-compilation and `git diff --check` pass.
+Strict-remote `cargo check --workspace --all-targets` passed with the two
+established dead-helper warnings. Exact deny-warnings Clippy reproduced only
+the six established off-lane findings (two `dead_code`, three
+`collapsible_if`, one `chunks_exact_to_as_chunks`); the filtered
+deny-warnings rerun allowing exactly those baseline categories passed.
+Fail-closed RCH rejected `cargo fmt --check` as a non-compilation command
+(`RCH-E301`), and no local Cargo fallback ran. No Rust source changed.
+UBS completed the changed harness and focused-test scan with zero critical
+and zero warning findings. Its aggregate staged scan hit the 300-second
+Python-module bound, and a wrapper-only retry with a 900-second bound also
+timed out without emitting a code finding; therefore no complete UBS pass is
+claimed for the 61k-line compatibility wrapper.
+
+RETRY PREDICATE: do not retry another Python wrapper rearrangement, a
+per-call bound-method allocation, or an unprofiled key cache on either scalar
+view. Reopen the **8.35x Graph / 6.50x DiGraph** public residual only when a
+fresh exact post-KEEP profile of an end-to-end NetworkX workload attributes
+at least **30% self-time** to one named removable frame in endpoint
+canonicalization, native attribute-dict conversion, weak-owner lookup, or the
+PyO3 call boundary. A node-key interning proposal additionally requires a
+counted reduction in canonical conversions while preserving
+equal-but-nonidentical keys and canonical public display identity. Before
+editing, two consecutive preregistered A/A-only runs of the unchanged
+512-lookup workload must each produce a doubled-log floor below **`1.03x`**.
+The final exact process must self-report its loaded ELF and place the A/B
+bootstrap median CI wholly beyond its own same-invocation floor while
+retaining all behavior locks above.

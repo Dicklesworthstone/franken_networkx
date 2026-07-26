@@ -41,6 +41,7 @@ Usage:
     python3 scripts/perf_harness.py node-primitives
     python3 scripts/perf_harness.py edge-primitives
     python3 scripts/perf_harness.py edge-data-primitives
+    python3 scripts/perf_harness.py simple-edge-getitem
     python3 scripts/perf_harness.py multi-neighbor-keydict
     python3 scripts/perf_harness.py digraph-neighbor-descriptors
     python3 scripts/perf_harness.py nodeview-getitem
@@ -1412,6 +1413,65 @@ def suite_edge_data_primitives():
     return rows
 
 
+def suite_simple_edge_getitem():
+    """br-r37-c1-sivs2: bypass simple EdgeView mapping-wrapper chains."""
+    import franken_networkx as fnx
+
+    rows = []
+    for directed, label in ((False, "Graph"), (True, "DiGraph")):
+        gnx, gfx = _build_pair(
+            2000,
+            8000,
+            seed=7,
+            weighted=True,
+            directed=directed,
+        )
+        probes = list(gnx.edges)[:512]
+        fnx_view = gfx.edges
+        nx_view = gnx.edges
+
+        if directed:
+            def old_lookup(edge, *, graph=gfx):
+                u, v = edge
+                if not graph.has_edge(u, v):
+                    raise KeyError(f"The edge {edge} is not in the graph.")
+                return graph.succ[u][v]
+        else:
+            def old_lookup(edge, *, view=fnx_view):
+                u, v = edge
+                hash(u)
+                hash(v)
+                owner = fnx._EDGE_VIEW_GRAPH_OWNER.get(id(view))
+                if owner is None:
+                    raise AssertionError("exact Graph EdgeView lost its owner")
+                return owner.adj[u][v]
+
+        def old_batch(*, call=old_lookup, edges=probes):
+            return [call(edge) for edge in edges]
+
+        def candidate_batch(*, view=fnx_view, edges=probes):
+            return [view[edge] for edge in edges]
+
+        def networkx_batch(*, view=nx_view, edges=probes):
+            return [view[edge] for edge in edges]
+
+        rows.extend(
+            [
+                (
+                    f"{label}.edges[u,v] x512 [view-chain/native]",
+                    old_batch,
+                    candidate_batch,
+                ),
+                (
+                    f"{label}.edges[u,v] x512 [nx/fnx]",
+                    networkx_batch,
+                    candidate_batch,
+                ),
+            ]
+        )
+    return rows
+
+
 def suite_multi_neighbor_keydict():
     """br-r37-c1-zrsuc: cache lazy multigraph neighbor-key returns."""
     import networkx as nx
@@ -1693,6 +1753,7 @@ SUITES = {
     "node-primitives": suite_node_primitives,
     "edge-primitives": suite_edge_primitives,
     "edge-data-primitives": suite_edge_data_primitives,
+    "simple-edge-getitem": suite_simple_edge_getitem,
     "multi-neighbor-keydict": suite_multi_neighbor_keydict,
     "digraph-neighbor-descriptors": suite_digraph_neighbor_descriptors,
     "nodeview-getitem": suite_nodeview_getitem,
