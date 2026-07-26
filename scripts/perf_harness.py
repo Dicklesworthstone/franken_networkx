@@ -34,6 +34,7 @@ Usage:
     python3 scripts/perf_harness.py multi-adj-contains
     python3 scripts/perf_harness.py multi-row-getitem
     python3 scripts/perf_harness.py multiedge-getitem
+    python3 scripts/perf_harness.py multiedge-iter
     python3 scripts/perf_harness.py digraph-descriptors
     python3 scripts/perf_harness.py multidigraph-descriptors
     python3 scripts/perf_harness.py node-primitives
@@ -928,6 +929,75 @@ def suite_multiedge_getitem():
     ]
 
 
+def suite_multiedge_iter():
+    """br-r37-c1-c5zn8: reuse direct multiedge keyed-list materialization."""
+    import networkx as nx
+    import franken_networkx as fnx
+
+    nodes = [str(index) for index in range(2000)]
+    edges = [
+        (
+            str(index % 1999),
+            str((index * 37 + 1) % 1999),
+            index % 3,
+        )
+        for index in range(8000)
+    ]
+    mg_nx, mg_fnx = nx.MultiGraph(), fnx.MultiGraph()
+    mdg_nx, mdg_fnx = nx.MultiDiGraph(), fnx.MultiDiGraph()
+    for graph in (mg_nx, mg_fnx, mdg_nx, mdg_fnx):
+        graph.add_nodes_from(nodes)
+        graph.add_edges_from(edges)
+
+    mg_view = mg_fnx.edges
+    mdg_view = mdg_fnx.edges
+
+    def old_iter(view):
+        """Source-equivalent pre-lever direct-view iterator creation."""
+        return fnx._FailFastEdgeIterator(
+            view._graph,
+            view(keys=True),
+            guard_edge_count=True,
+        )
+
+    # Populate both private candidate materializations outside timed regions.
+    iter(mg_view)
+    iter(mdg_view)
+
+    return [
+        (
+            "MG iter(edges) old/materialized-cache",
+            lambda: old_iter(mg_view),
+            lambda: iter(mg_view),
+        ),
+        (
+            "MG iter(edges) nx/fnx",
+            lambda: iter(mg_nx.edges),
+            lambda: iter(mg_view),
+        ),
+        (
+            "MG list(edges) nx/fnx",
+            lambda: list(mg_nx.edges),
+            lambda: list(mg_view),
+        ),
+        (
+            "MDG iter(edges) old/materialized-cache",
+            lambda: old_iter(mdg_view),
+            lambda: iter(mdg_view),
+        ),
+        (
+            "MDG iter(edges) nx/fnx",
+            lambda: iter(mdg_nx.edges),
+            lambda: iter(mdg_view),
+        ),
+        (
+            "MDG list(edges) nx/fnx",
+            lambda: list(mdg_nx.edges),
+            lambda: list(mdg_view),
+        ),
+    ]
+
+
 def suite_digraph_descriptors():
     """br-r37-c1-dyuzb: cache directed public adjacency descriptors."""
     import franken_networkx as fnx
@@ -1499,6 +1569,7 @@ SUITES = {
     "multi-adj-contains": suite_multi_adjacency_contains,
     "multi-row-getitem": suite_multi_row_getitem,
     "multiedge-getitem": suite_multiedge_getitem,
+    "multiedge-iter": suite_multiedge_iter,
     "digraph-descriptors": suite_digraph_descriptors,
     "multidigraph-descriptors": suite_multidigraph_descriptors,
     "node-primitives": suite_node_primitives,

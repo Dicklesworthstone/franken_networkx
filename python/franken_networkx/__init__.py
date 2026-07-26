@@ -2128,6 +2128,38 @@ def _multigraph_edge_subgraph(self, edges):
     return edge_subgraph(self, edges)
 
 
+def _direct_multi_edge_iter(view, exact_graph_type):
+    """Reuse the private keyed-edge materialization for direct view iteration.
+
+    ``MultiEdgeView.__iter__`` yields keyed triples, so the former path called
+    ``view(keys=True)`` on every iterator creation.  The Rust tuple cache made
+    tuple construction cheap, but crossing it still cloned every tuple
+    reference into two fresh list wrappers before the first ``next()``.
+
+    Keep one guarded list private to the graph and invalidate it with the same
+    structural sequence pair as the native keyed-tuple cache.  Public
+    ``edges(keys=True)`` calls remain fresh lists, and private-storage graphs or
+    subclasses retain the generic materialization path.
+    """
+    graph = view._graph
+    if (
+        type(graph) is exact_graph_type
+        and not _has_networkx_private_storage(graph)
+    ):
+        state = (graph.nodes_seq, graph.edges_seq)
+        graph_vars = vars(graph)
+        cached = graph_vars.get("_fnx_direct_multi_edge_iter_cache")
+        if cached is None or cached[0] != state:
+            cached = (state, view(keys=True))
+            graph_vars["_fnx_direct_multi_edge_iter_cache"] = cached
+        return iter(cached[1])
+    return _FailFastEdgeIterator(
+        graph,
+        view(keys=True),
+        guard_edge_count=True,
+    )
+
+
 class _DiGraphEdgeView:
     def __init__(self, graph):
         self._graph = graph
@@ -2499,11 +2531,10 @@ class _MultiGraphEdgeView:
         # and direct iteration consumers (including downstream nx
         # algorithms) got a different edge _count than nx on multigraphs
         # with parallel edges.
-        return _FailFastEdgeIterator(
-            self._graph,
-            self(keys=True),
-            guard_edge_count=True,
-        )
+        # br-r37-c1-c5zn8: the direct view owns a private mutation-token
+        # materialization; public ``edges(keys=True)`` still returns a fresh
+        # list and therefore cannot mutate this cache.
+        return _direct_multi_edge_iter(self, MultiGraph)
 
     def __len__(self):
         return self._graph.number_of_edges()
@@ -2872,11 +2903,9 @@ class _MultiDiGraphEdgeView:
         # yields 3-tuples ``(u, v, key)`` matching nx.MultiEdgeView's
         # default iter contract; the ``G.edges()`` call form still
         # defaults to 2-tuples via the keys=False default.
-        return _FailFastEdgeIterator(
-            self._graph,
-            self(keys=True),
-            guard_edge_count=True,
-        )
+        # br-r37-c1-c5zn8: directed sibling of the private direct-iteration
+        # materialization above.
+        return _direct_multi_edge_iter(self, MultiDiGraph)
 
     def __len__(self):
         return self._graph.number_of_edges()

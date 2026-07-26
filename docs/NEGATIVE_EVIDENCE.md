@@ -26810,3 +26810,132 @@ parity bundle, and in one final invocation satisfy both: (1) its own doubled
 A/A floor is below `1.02x`; and (2) the A/B median CI remains wholly beyond
 that floor. Do not widen the floor, select the best of repeated candidate
 runs, or revive the directed siblings without their own qualifying nulls.
+
+## 2026-07-26 CloudyTurtle KEEP (direct multiedge iteration): mutation-token keyed-list reuse — **47.2894-77.8258x mechanism** (`br-r37-c1-c5zn8`)
+
+NEGATIVE-LEDGER-FIRST: before proposing the lever,
+`scripts/perf_ledger_preflight.py --prior-art 'EdgeView __iter__ OutEdgeView
+InEdgeView edge iteration lazy view return list(G.edges)'` found no direct
+row. A direct `rg` adjudication of the ledger likewise found no prior direct
+multiedge-view iterator-materialization verdict. The fresh governing rows
+were the `br-r37-c1-zrsuc` neighbor-keydict KEEP and
+`br-r37-c1-b3k8a` C-level-neighbor HOLD immediately above. They prohibit
+unattributed wrapper speculation and require an exact-path profile plus an
+independent same-invocation null. This lever targets a different counted
+mechanism: keyed-edge list wrapping before the first item of direct
+`iter(G.edges)` is consumed.
+
+PROFILE ATTRIBUTION / COMPUTED CEILING: before editing, the exact post-
+`zrsuc` package loaded ELF SHA-256
+`8dfcc5a55cb68c9320712ffda131964764a28e9b1cf9c534e979a9f3bac85835`
+(13,155,048 bytes) with wrapper SHA-256
+`90e827e3f51ffa7ce2b6ff59bf5101c2d316906b42c0d2c42a753a81075a45ed`.
+On drained `vmi1227854`, pinned to core 3, 500 direct iterator creations over
+2,000 nodes and 5,997 keyed edges produced:
+
+| exact public path | total profile | named materialization chain | named share | computed Amdahl ceiling | FNX / NetworkX iterator-creation wall |
+|---|---:|---:|---:|---:|---:|
+| `iter(MultiGraph.edges)` | `0.030s` | `_native_edge_view_list` `0.014s` + `_wrap_edge_data_view` `0.006s` + `__call__` `0.004s` + `__iter__` `0.003s` | **90.0%** | **10.00x** | `49,505.346ns / 89.153ns` |
+| `iter(MultiDiGraph.edges)` | `0.032s` | `_native_edge_view_list` `0.014s` + `_wrap_edge_data_view` `0.006s` + `__call__` `0.006s` + `__iter__` `0.003s` | **90.6%** | **10.67x** | `59,250.146ns / 69.469ns` |
+
+The profile path had non-zero self-time in the benchmark actually run and
+comfortably cleared the 30% attribution floor. Capturing the view before the
+profile did not remove the materialization: the captured-view creation walls
+were `63,664.960ns` (MG) and `69,985.213ns` (MDG). This is therefore neither
+`VOID-ZEROSELF` nor a generic lazy-view guess.
+
+ONE LEVER / COUNTED MECHANISM: exact `MultiGraph` and `MultiDiGraph` direct
+edge views now retain one private `(nodes_seq, edges_seq, keyed_list)`
+materialization. A warm `__iter__` returns the guarded iterator over that
+list, removing one native keyed-edge list crossing plus the two fresh list
+wrappers that the old source-equivalent path allocated for every iterator
+creation. The existing guarded list still checks the structural sequence
+tokens per item, so a graph mutation after iterator creation raises
+`RuntimeError("dictionary changed size during iteration")`.
+
+Public `G.edges(keys=True)` remains a fresh mutable result and cannot poison
+the private list. A changed node or edge sequence replaces the cache.
+NetworkX-private storage and graph subclasses retain the old generic
+`_FailFastEdgeIterator` path. Copy, deepcopy, and pickle continue filtering
+the `_fnx_` cache. The cache duplicates only one Python list of references;
+it does not duplicate the cached keyed tuples or edge attributes.
+
+CONTRACT-VALID DYNAMIC SCREEN: before the source edit, a same-invocation
+prototype used the source-equivalent old iterator as control and the proposed
+private mutation-token list cache as candidate. It measured `44.3397x`
+(`43.5780-45.2162x`, null `0.9922-1.0053x`, floor `1.0157x`) for MG and
+`65.2187x` (`64.9805-66.9126x`, null `0.9790-1.0421x`, floor `1.0859x`) for
+MDG. One earlier prototype invocation failed before timing because its
+temporary import module was not registered for dataclass lookup; no candidate
+measurement or verdict was taken from that harness-authoring failure.
+
+PINNED-WORKER PERMANENT SAME-INVOCATION A/A + A/B: the final exact package
+ran on drained `vmi1227854`, pinned to core 3; the worker was immediately
+re-enabled. Canonical line one self-reported the loaded ELF SHA-256
+`8dfcc5a55cb68c9320712ffda131964764a28e9b1cf9c534e979a9f3bac85835`
+(13,155,048 bytes) from
+`/data/tmp/fnx-c5zn8-final.e2aa54bc/franken_networkx/_fnx.abi3.so`.
+Structured provenance reported wrapper SHA-256
+`e2aa54bc8942f82cef30a4fcfa368c560ef515b10fa6bb104351a3c323ddcc2c`,
+harness SHA-256
+`150ec72352e92e1e8d02e71c655c531c231c86c99ce3f94af69189039148cbe8`,
+and focused-test SHA-256
+`dcea50e7139352a774edebb7e6ee20671bfa1f2cccaa9f285f48ebbd953e9310`
+(Python 3.13.7, NetworkX 3.6.1; header load average
+`1.368/0.789/0.835`).
+
+Every row proved result/order equivalence before timing, ran 21 interleaved
+rounds with `min_of=3`, and ran its own A/A null in the same invocation.
+Decisions use only bootstrap median confidence intervals and the doubled
+log-space null margin; CV is provenance only and never gates.
+
+| exact-final row | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | doubled-null floor | decision |
+|---|---:|---:|---:|---:|---|
+| MG old materialization / cached direct iterator | **`47.2894x`** | `45.3115-50.0126x` | `0.9598-1.0364x` | `1.0854x` | **DECIDABLE KEEP** |
+| NetworkX / FNX MG iterator creation | `0.0767x` | `0.0761-0.0772x` | `0.9661-1.0365x` | `1.0743x` | **DECIDABLE 13.04x residual loss** |
+| NetworkX / FNX `list(MG.edges)` | **`3.9572x`** | `3.6077-4.3614x` | `0.9820-1.0340x` | `1.0692x` | **DECIDABLE end-to-end win** |
+| MDG old materialization / cached direct iterator | **`77.8258x`** | `74.3661-85.0355x` | `0.9941-1.0460x` | `1.0941x` | **DECIDABLE KEEP** |
+| NetworkX / FNX MDG iterator creation | `0.1212x` | `0.1058-0.1298x` | `0.9844-1.0129x` | `1.0320x` | **DECIDABLE 8.25x residual loss** |
+| NetworkX / FNX `list(MDG.edges)` | **`2.8177x`** | `2.6415-2.9817x` | `0.9413-1.0150x` | `1.1287x` | **DECIDABLE end-to-end win** |
+
+RESULT: **KEEP.** Both counted mechanism rows clear their independent
+doubled-null floors by more than 40x. Direct full-view consumption is now
+decisively faster than NetworkX (`3.96x` MG, `2.82x` MDG), while bare
+iterator creation still costs about `1.42us` and `0.73us`, respectively,
+versus roughly `0.1us` upstream. That absolute residual is recorded rather
+than hidden by the full-list result.
+
+BEHAVIOR ISOMORPHISM / CONFORMANCE: the exact candidate passed **32/32**
+focused cache-consistency tests locally and **32/32** on the destination
+worker. The finalized test also passed **32/32** against the exact package.
+A broader isolated exact-package suite passed **1,273/1,273** tests covering
+view descriptors/defaults/repr/pickle, row order under copy/pickle,
+attribute access, multigraph operations, data-cache consistency, and the
+review-mode regression lock. The focused proof covers warm private-list
+reuse, public-result freshness, keyed order, mutation invalidation and stale
+iterator failure, copy/deepcopy/pickle filtering, private-storage bypass, and
+subclass fallback.
+
+RETRY PREDICATE: do not retry keyed-edge tuple construction, list-wrapper
+cloning, mutation-token list reuse, or another Python cache-probe
+rearrangement. Reopen the remaining bare-iterator residual only when a fresh
+post-KEEP exact-path profile attributes at least **30%** to one named
+removable frame outside the retained list, and either (a) an end-to-end
+NetworkX algorithm attributes at least **10%** of its total time to repeated
+bare multiedge iterator creation, or (b) a class-safe C-level iterator design
+removes a counted Python/native boundary while preserving private stores,
+subclasses, order, and per-item fail-fast behavior. Its same-invocation
+doubled-log A/A floor must be below **`1.03x`** and its A/B median CI wholly
+beyond that floor. Separately reconsider the retained list only if counted
+peak RSS on a graph with at least **1,000,000** keyed edges rises by at least
+**5%** end to end; any replacement must retain the measured full-list win and
+the same observable semantics.
+
+QUALITY GATES: `cargo fmt --check`, Python byte-compilation, `git diff
+--check`, **1,273** broad exact-package tests, and the final **32** focused
+tests passed. No Rust source changed; the native extension is the previously
+strict-remote-built ELF identified above. UBS completed on the permanent
+harness and focused test with zero critical/warning findings. The bounded
+300-second UBS scan of the 61k-line wrapper reached the known large-module
+timeout without emitting a source finding. Markdown/JSONL have no UBS
+scanner, so no scanner pass is claimed for the ledger or bead row.
