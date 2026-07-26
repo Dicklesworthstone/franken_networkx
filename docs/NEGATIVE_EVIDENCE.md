@@ -27022,3 +27022,159 @@ identity, and mutation checks passed; and the measurement worker was
 re-enabled after each invocation. The ledger/tracker-only diff must pass
 `git diff --check`. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed for this evidence-only result.
+
+## 2026-07-26 CloudyTurtle KEEP (captured multiedge key-view iteration): token-keyed lazy key cache — **2.9780-2.9844x mechanism** (`br-r37-c1-u4gjj`)
+
+NEGATIVE-LEDGER-FIRST: before proposing the lever,
+`scripts/perf_ledger_preflight.py --prior-art 'MultiKeyDictView __iter__ iter
+G[u][v] multiedge keydict keys lazy iterator cache'` found no direct verdict.
+Hand adjudication then read the governing siblings rather than treating the
+regex as a verdict:
+
+- the 2026-07-14 `MultiKeyDictView.__len__` and
+  `MultiDiKeyDictView.__len__` KEEPs remove allocation only from exact-size
+  reads and explicitly require separate proof before widening into
+  materializing methods;
+- the direct `MG[u]` / `MDG[u]` row-wrapper KEEP permits a distinct nested
+  view lever after its own profile and null;
+- the outer `MultiAdjacencyView.__getitem__` HOLD prohibits reviving an outer
+  row-return cache until a new `<1.05x` null admission succeeds.
+
+This lever does not add an outer row cache, change row return identity, or
+touch either exact-size native length method. It targets repeated iteration
+of an already captured `AtlasView` for one multiedge pair.
+
+PROFILE ATTRIBUTION / COMPUTED CEILING: before editing, the exact post-
+`c5zn8` package self-reported loaded ELF SHA-256
+`8dfcc5a55cb68c9320712ffda131964764a28e9b1cf9c534e979a9f3bac85835`
+(13,155,048 bytes) and wrapper SHA-256
+`e2aa54bc8942f82cef30a4fcfa368c560ef515b10fa6bb104351a3c323ddcc2c`.
+On drained `vmi1227854`, pinned to core 3, each graph held eight keys on one
+edge pair and each profile made 100,000 iterator creations from a captured
+`G["left"]["right"]` view:
+
+| exact pre-edit path | public profile | raw native key-view profile | removable public/raw share | computed ceiling | public FNX wall | NetworkX wall |
+|---|---:|---:|---:|---:|---:|---:|
+| `iter(MultiGraph[u][v])` | `0.303s` | `0.088s` | **71.0%** | **3.44x** | `1,110.306ns` | `71.012ns` |
+| `iter(MultiDiGraph[u][v])` | `0.307s` | `0.079s` | **74.3%** | **3.89x** | `1,096.793ns` | `66.970ns` |
+
+The MG profile named `builtins.iter` (`0.095s` self),
+`AtlasView.__iter__` (`0.052s`), the nested row lambda (`0.044s`), the
+native-row call (`0.028s`), the source lambda (`0.022s`),
+`AtlasView._atlas` (`0.020s`), `AdjacencyView._atlas` (`0.019s`), and
+`_keydict` (`0.009s`). MDG showed the same stack shape. The target therefore
+has substantial non-zero self-time in the benchmark actually run; this is not
+`VOID-ZEROSELF` or an attribution inferred from a different workload.
+
+ONE LEVER / COUNTED MECHANISM: an `AtlasView` nested below an exact concrete
+`MultiGraph` or `MultiDiGraph` row now lazily retains
+`((nodes_seq, edges_seq), dict.fromkeys(native_key_view))`. The first
+iteration still materializes exactly the current ordered keys. Every warm
+iteration removes one native `MultiKeyDictView.__iter__` materialization and
+returns CPython's `dict_keyiterator`. Any structural node or edge mutation
+changes the token, so the next iteration rebuilds in current insertion order.
+
+The cache is deliberately keys-only. `view[key]` continues through the live
+native mapping and returns the same canonical attribute dict as
+`get_edge_data(u, v, key)`. Cold `len(view)` and membership do not populate
+the cache and retain the shipped native exact-size / single-key paths; after
+iteration they may read the valid key dict. Exact public wrapper type and the
+established non-memoized `G[u][v]` wrapper identity policy remain unchanged.
+NetworkX-private storage and graph subclasses decline the cache and retain
+the generic route. No Rust source or native storage changed.
+
+NO-SOURCE MECHANISM SCREEN: before source editing, an invocation-local
+per-view key cache proved exact key order, `dict_keyiterator` type, immediate
+visibility of key add/remove after token change, and live attribute-dict
+identity. Each row performed 512 calls per batch, used a predeclared
+two-second warm-up outside timing, ran 21 interleaved rounds with `min_of=3`,
+and carried its own A/A null in the same invocation:
+
+| screen row | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | doubled-null floor | decision |
+|---|---:|---:|---:|---:|---|
+| MG old / cached key iteration | **`8.9809x`** | `8.7029-9.2557x` | `0.9690-1.0062x` | `1.0651x` | **DECIDABLE** |
+| NetworkX / cached MG | `0.4684x` | `0.4458-0.4874x` | `0.9297-1.0139x` | `1.1570x` | **DECIDABLE residual loss** |
+| MDG old / cached key iteration | **`9.0832x`** | `8.8896-9.3537x` | `0.9796-1.0744x` | `1.1544x` | **DECIDABLE** |
+| NetworkX / cached MDG | `0.4755x` | `0.4633-0.5108x` | `0.9796-1.0083x` | `1.0420x` | **DECIDABLE residual loss** |
+
+The screen was a mechanism ceiling, not the KEEP verdict. The permanent
+source includes exact-type, private-storage, liveness, and token guards, so
+its smaller final effect is the governing result.
+
+PINNED-WORKER PERMANENT SAME-INVOCATION A/A + A/B: the final exact package
+ran on drained `vmi1227854`, pinned to core 3; the worker was immediately
+re-enabled and confirmed healthy. Canonical line one self-reported loaded ELF
+SHA-256
+`8dfcc5a55cb68c9320712ffda131964764a28e9b1cf9c534e979a9f3bac85835`
+(13,155,048 bytes) from
+`/data/tmp/fnx-u4gjj-final.c61c530d/franken_networkx/_fnx.abi3.so`.
+Structured provenance reported wrapper SHA-256
+`c61c530d5f2de37f4858d5afb962b5f6a8d96e0179d7d7fc5a4c5869662d3b35`,
+harness SHA-256
+`0a09c7c3cd9dc75620646bc09f548603d0dbafd0a69cc40986273dac017445dd`,
+and focused-test SHA-256
+`e09bbe399c54720de0cfa143082a834dbfa9530a02f06e89ccf9ed3966b5c46a`
+(Python 3.13.7, NetworkX 3.6.1; header load average
+`3.968/2.208/1.314`).
+
+Every row proved order-preserving digest equality before timing, ran 21
+interleaved rounds with `min_of=3`, and ran its own A/A null in the same
+invocation. Decisions use only the bootstrap median confidence interval and
+doubled log-space null margin. CV is reported by the harness as provenance
+and never gates.
+
+| exact-final row | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | doubled-null floor | decision |
+|---|---:|---:|---:|---:|---|
+| MG native materialization / cached key iterator | **`2.9844x`** | `2.8668-3.0601x` | `0.9858-1.0156x` | `1.0314x` | **DECIDABLE KEEP** |
+| NetworkX / FNX MG iterator creation | `0.1696x` | `0.1521-0.1770x` | `0.9196-1.0345x` | `1.1825x` | **DECIDABLE 5.90x residual loss** |
+| NetworkX / FNX MG key-list consumption | `0.1886x` | `0.1731-0.1967x` | `0.9770-1.0865x` | `1.1806x` | **DECIDABLE 5.30x residual loss** |
+| MDG native materialization / cached key iterator | **`2.9780x`** | `2.8148-3.2914x` | `0.9747-1.0678x` | `1.1403x` | **DECIDABLE KEEP** |
+| NetworkX / FNX MDG iterator creation | `0.1673x` | `0.1550-0.1684x` | `0.9233-1.0260x` | `1.1730x` | **DECIDABLE 5.98x residual loss** |
+| NetworkX / FNX MDG key-list consumption | `0.2005x` | `0.1896-0.2081x` | `0.9953-1.0809x` | `1.1684x` | **DECIDABLE 4.99x residual loss** |
+
+RESULT: **KEEP.** Both source-equivalent mechanism rows win all 21/21 pairs
+and their median CIs sit wholly beyond independent doubled-null floors. The
+remaining roughly 5-6x NetworkX gap is recorded rather than hidden; most of
+it is the Python wrapper, private-store guard, mutation-token reads, and
+PyO3 boundary that NetworkX's direct dict lookup does not pay.
+
+BEHAVIOR ISOMORPHISM / CONFORMANCE: the exact final artifact passed **40/40**
+focused tests and **652/652** broader tests covering adjacency mapping and
+row-key order, view descriptors, mutation, pickle, multigraph operations, and
+metamorphic mutation sequences. Forty SciPy-dependent structural cases were
+deselected on the worker because SciPy is absent; an initial run verified
+that all 40 failures were the same pre-test `ModuleNotFoundError: scipy`, not
+an assertion or changed view path. The focused proof locks cold
+len/membership non-materialization, ordered cache reuse, token invalidation
+on add/remove, live attribute identity, exact wrapper type and identity
+policy, private-store bypass, and subclass fallback.
+
+RETRY PREDICATE: do not retry another Python cache-probe rearrangement,
+duplicate the key dict on the outer row view, or revive the rejected outer
+`MultiAdjacencyView` row cache. Reopen this residual only when a fresh
+post-KEEP profile on an end-to-end NetworkX workload attributes at least
+**30% self-time** to one named removable frame in `_multi_edge_keydict`,
+private-store guarding, token reads, or the remaining native boundary, and a
+class-safe mechanism removes that counted work while preserving exact public
+types, key order, live attribute identity, cold exact-size behavior,
+private/subclass fallbacks, and structural-mutation liveness. The unchanged
+512-call workload must first show a same-invocation doubled-log A/A floor
+below **`1.03x`**, and the final A/B median CI must lie wholly beyond it.
+Separately reconsider the retained keys-only dict only if a counted
+million-captured-view RSS test shows at least **5%** end-to-end peak-memory
+growth; any replacement must retain the present speed and behavior proofs.
+
+QUALITY GATES: Python byte-compilation, `git diff --check`, strict-remote
+workspace `cargo check --workspace --all-targets`, the final **40** focused
+tests, and **652** broader exact-package tests passed. Exact workspace clippy
+reproduced only six established off-lane Rust findings (two `dead_code`,
+three `collapsible_if`, one `chunks_exact_to_as_chunks`); the filtered
+deny-warnings rerun allowing exactly those baseline categories passed.
+Fail-closed RCH rejected `cargo fmt --check` as a non-compilation command
+(`RCH-E301`), and no local Cargo fallback ran; no Rust source changed. UBS
+completed on the harness and focused test with zero critical findings; its
+two warnings are intentional exact-type assertions, while the pre-existing
+pickle-deserialization heuristic is informational to the combined result.
+The bounded 300-second UBS scan of the 61k-line wrapper reached the known
+large-module timeout without emitting a source finding. Markdown/JSONL have
+no UBS scanner, so no scanner pass is claimed for the ledger or bead row.

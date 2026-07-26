@@ -171,3 +171,92 @@ def test_direct_edge_view_subclasses_retain_generic_path(cls):
     g.add_edge("u0", "v0", key="k0")
     assert list(g.edges) == list(g.edges(keys=True))
     assert "_fnx_direct_multi_edge_iter_cache" not in vars(g)
+
+
+@pytest.mark.parametrize("cls", _TYPES)
+def test_captured_multiedge_key_view_cache_is_lazy_and_live(cls):
+    """br-r37-c1-u4gjj: cache iteration, never cold len/membership or values."""
+    g = cls()
+    for index, key in enumerate(("k0", "k3", "k7")):
+        g.add_edge("left", "right", key=key, weight=index)
+
+    view = g["left"]["right"]
+    assert type(view) is fnx.AtlasView
+    assert view._fnx_multi_edge_owner is g
+    assert view._fnx_kd_cache is None
+
+    # Preserve the shipped native exact-size and lookup routes until a caller
+    # actually requests key iteration.
+    assert len(view) == 3
+    assert "k3" in view
+    assert "missing" not in view
+    assert view._fnx_kd_cache is None
+
+    iterator = iter(view)
+    assert type(iterator).__name__ == "dict_keyiterator"
+    assert list(iterator) == ["k0", "k3", "k7"]
+    warm_cache = view._fnx_kd_cache
+    assert warm_cache[0] == (g.nodes_seq, g.edges_seq)
+    assert list(warm_cache[1]) == ["k0", "k3", "k7"]
+    assert list(view) == ["k0", "k3", "k7"]
+    assert view._fnx_kd_cache is warm_cache
+
+    # The cached mapping is keys-only. Attribute values remain the canonical
+    # live dicts returned by the graph and mutate through either reference.
+    attrs = view["k3"]
+    assert attrs is g.get_edge_data("left", "right", "k3")
+    attrs["color"] = "blue"
+    assert view["k3"]["color"] == "blue"
+
+    g.add_edge("left", "right", key="k9", weight=9)
+    assert list(view) == ["k0", "k3", "k7", "k9"]
+    added_cache = view._fnx_kd_cache
+    assert added_cache is not warm_cache
+    assert added_cache[0] == (g.nodes_seq, g.edges_seq)
+
+    g.remove_edge("left", "right", key="k3")
+    assert list(view) == ["k0", "k7", "k9"]
+    assert view._fnx_kd_cache is not added_cache
+
+
+@pytest.mark.parametrize("cls", _TYPES)
+def test_multiedge_key_view_cache_preserves_wrapper_identity_policy(cls):
+    """Caching keys must not memoize the public AtlasView wrapper itself."""
+    g = cls()
+    g.add_edge("left", "right", key="k0")
+
+    first = g["left"]["right"]
+    second = g["left"]["right"]
+    assert first is not second
+    assert type(first) is type(second) is fnx.AtlasView
+    assert list(first) == list(second) == ["k0"]
+
+
+@pytest.mark.parametrize("cls", _TYPES)
+def test_multiedge_key_view_private_storage_declines_native_cache(cls):
+    g = cls()
+    g.add_edge("left", "right", key="k0")
+    view = g["left"]["right"]
+
+    g._node = {"private": {}}
+    if cls is fnx.MultiGraph:
+        g._adj = {"private": {}}
+    else:
+        g._succ = {"private": {}}
+        g._pred = {"private": {}}
+
+    assert list(view) == ["k0"]
+    assert view._fnx_kd_cache is None
+
+
+@pytest.mark.parametrize("cls", _TYPES)
+def test_multiedge_key_view_subclasses_retain_generic_iteration(cls):
+    class GraphSubclass(cls):
+        pass
+
+    g = GraphSubclass()
+    g.add_edge("left", "right", key="k0")
+    view = g["left"]["right"]
+
+    assert list(view) == ["k0"]
+    assert view._fnx_kd_cache is None

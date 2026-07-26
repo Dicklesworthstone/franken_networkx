@@ -1488,11 +1488,26 @@ def _adjacency_view_values(self):
 
 
 class AtlasView(_Mapping):
-    def __init__(self, atlas_getter, *, owner=None, row_node=None, row_kind="adj"):
+    def __init__(
+        self,
+        atlas_getter,
+        *,
+        owner=None,
+        row_node=None,
+        row_kind="adj",
+        multi_edge_owner=None,
+    ):
         self._atlas_getter = atlas_getter
         self._fnx_owner = owner
         self._fnx_row_node = row_node
         self._fnx_row_kind = row_kind
+        # br-r37-c1-u4gjj: an AtlasView nested below a concrete multigraph row
+        # represents one edge pair's {key: attrs} mapping. Iterating the native
+        # MultiKeyDictView materializes its key vector on every call; retain a
+        # keys-only dict on this already-lazy public view so repeated iteration
+        # is a C-level dict iterator. Values still come from _atlas(), keeping
+        # live edge-attribute identity and avoiding hidden attr materialization.
+        self._fnx_multi_edge_owner = multi_edge_owner
         # br-r37-c1-v9auw: exact Graph/DiGraph rows use a Rust-maintained live
         # PyDict mirror. Once materialized, this handle remains authoritative:
         # edge add/remove/clear mutate it in place, while remove-node/clear leave
@@ -1511,7 +1526,30 @@ class AtlasView(_Mapping):
     def _atlas(self):
         return self._atlas_getter()
 
+    def _multi_edge_keydict(self, *, materialize):
+        owner = self._fnx_multi_edge_owner
+        cached = self._fnx_kd_cache
+        if owner is None or (cached is None and not materialize):
+            return None
+        if type(owner) not in (MultiGraph, MultiDiGraph):
+            return None
+        if _has_networkx_private_storage(owner):
+            return None
+        try:
+            token = (owner.nodes_seq, owner.edges_seq)
+        except AttributeError:
+            return None
+        if cached is not None and cached[0] == token:
+            return cached[1]
+        if not materialize:
+            return None
+        keydict = dict.fromkeys(self._atlas())
+        self._fnx_kd_cache = (token, keydict)
+        return keydict
+
     def _keydict(self):
+        if self._fnx_multi_edge_owner is not None:
+            return self._multi_edge_keydict(materialize=True)
         live = self._fnx_live_keydict
         if live is not None:
             return live
@@ -1536,6 +1574,14 @@ class AtlasView(_Mapping):
         return keydict
 
     def __len__(self):
+        if self._fnx_multi_edge_owner is not None:
+            # Do not pay the owner/private/token helper on the cold length-only
+            # path: the native exact-size method is the shipped 118-153x seam.
+            if self._fnx_kd_cache is not None:
+                keydict = self._multi_edge_keydict(materialize=False)
+                if keydict is not None:
+                    return len(keydict)
+            return len(self._atlas())
         keydict = self._keydict()
         if keydict is not None:
             return len(keydict)
@@ -1550,6 +1596,16 @@ class AtlasView(_Mapping):
     def __contains__(self, node):
         # nx: ``v in G[u]`` is ``v in self._adj[u]`` (dict membership; hashes v,
         # TypeError on unhashable). Serve from the keydict so it is pure-Python.
+        if self._fnx_multi_edge_owner is not None:
+            if self._fnx_kd_cache is not None:
+                keydict = self._multi_edge_keydict(materialize=False)
+                if keydict is not None:
+                    return node in keydict
+            try:
+                self._atlas()[node]
+            except KeyError:
+                return False
+            return True
         keydict = self._keydict()
         if keydict is not None:
             return node in keydict
@@ -1560,6 +1616,11 @@ class AtlasView(_Mapping):
         return True
 
     def __getitem__(self, node):
+        # The multiedge cache is keys-only by design; values must continue to
+        # come from the live native view so G[u][v][key] retains the exact edge
+        # attribute dict object.
+        if self._fnx_multi_edge_owner is not None:
+            return self._atlas()[node]
         # br-r37-c1-spg9n: G[u][v] edge-attr access. The cached row keydict's
         # VALUES are the live edge_py_attrs dicts (keydict[v] is G[u][v]; attr
         # mutations reflect), so serve from it — pure-Python dict lookup, no PyO3
@@ -1641,10 +1702,15 @@ class AdjacencyView(_Mapping):
         row_kind="adj",
         native_len=None,
         native_iter=None,
+        multi_edge_owner=None,
     ):
         self._atlas_getter = atlas_getter
         self._fnx_owner = owner
         self._fnx_row_kind = row_kind
+        # br-r37-c1-u4gjj: metadata only, not an outer-row cache. It lets a
+        # captured G[u][v] AtlasView cache that pair's key iteration while this
+        # AdjacencyView remains live across structural edge updates.
+        self._fnx_multi_edge_owner = multi_edge_owner
         # br-r37-c1-4rgsf: outer simple-graph adjacency views bind the raw
         # PyO3 node-count descriptor once. ``len(G.adj)`` is exactly the native
         # adjacency owner count, so avoid rebuilding the native adjacency
@@ -1721,6 +1787,7 @@ class AdjacencyView(_Mapping):
             owner=self._fnx_owner,
             row_node=node,
             row_kind=self._fnx_row_kind,
+            multi_edge_owner=self._fnx_multi_edge_owner,
         )
         if owner is not None:
             cache[1][node] = view
@@ -1846,8 +1913,14 @@ class MultiAdjacencyView(_Mapping):
                 else None
             )
             if native is not None:
-                return AdjacencyView(lambda: native(node))
-            return AdjacencyView(lambda: self._atlas()[node])
+                return AdjacencyView(
+                    lambda: native(node),
+                    multi_edge_owner=owner,
+                )
+            return AdjacencyView(
+                lambda: self._atlas()[node],
+                multi_edge_owner=owner,
+            )
         try:
             self._atlas()[node]
         except KeyError as exc:
@@ -2067,7 +2140,10 @@ def _multigraph_getitem_from_native_row(self, node):
         self._native_adjacency_row(node)
     except KeyError as exc:
         raise KeyError(node) from exc
-    view = AdjacencyView(lambda: self._native_adjacency_row(node))
+    view = AdjacencyView(
+        lambda: self._native_adjacency_row(node),
+        multi_edge_owner=self,
+    )
     cache[1][node] = view
     return view
 
@@ -2100,7 +2176,10 @@ def _multidigraph_getitem_from_native_row(self, node):
         self._native_successor_row(node)
     except KeyError as exc:
         raise KeyError(node) from exc
-    view = AdjacencyView(lambda: self._native_successor_row(node))
+    view = AdjacencyView(
+        lambda: self._native_successor_row(node),
+        multi_edge_owner=self,
+    )
     cache[1][node] = view
     return view
 

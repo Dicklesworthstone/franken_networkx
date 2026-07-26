@@ -35,6 +35,7 @@ Usage:
     python3 scripts/perf_harness.py multi-row-getitem
     python3 scripts/perf_harness.py multiedge-getitem
     python3 scripts/perf_harness.py multiedge-iter
+    python3 scripts/perf_harness.py multikeydict-iter
     python3 scripts/perf_harness.py digraph-descriptors
     python3 scripts/perf_harness.py multidigraph-descriptors
     python3 scripts/perf_harness.py node-primitives
@@ -998,6 +999,78 @@ def suite_multiedge_iter():
     ]
 
 
+def suite_multikeydict_iter():
+    """br-r37-c1-u4gjj: cache captured multiedge key-view iteration."""
+    import networkx as nx
+    import franken_networkx as fnx
+
+    keys = [f"k{index}" for index in range(8)]
+    mg_nx, mg_fnx = nx.MultiGraph(), fnx.MultiGraph()
+    mdg_nx, mdg_fnx = nx.MultiDiGraph(), fnx.MultiDiGraph()
+    for graph in (mg_nx, mg_fnx, mdg_nx, mdg_fnx):
+        for index, key in enumerate(keys):
+            graph.add_edge("left", "right", key=key, weight=index)
+
+    mg_nx_view = mg_nx["left"]["right"]
+    mg_fnx_view = mg_fnx["left"]["right"]
+    mdg_nx_view = mdg_nx["left"]["right"]
+    mdg_fnx_view = mdg_fnx["left"]["right"]
+    repeats = range(512)
+
+    def native_iter_batch(view):
+        # Source-equivalent pre-lever path: AtlasView.__iter__ delegated to
+        # MultiKeyDictView.__iter__, which rebuilt its key vector each call.
+        return [iter(view._atlas()) for _ in repeats]
+
+    def cached_iter_batch(view):
+        return [iter(view) for _ in repeats]
+
+    def list_batch(view):
+        return [list(view) for _ in repeats]
+
+    # The governing surface is warm captured-view iteration. Stabilize worker
+    # frequency and populate the candidate cache before any timed region.
+    warm_deadline = perf_counter() + 2.0
+    while perf_counter() < warm_deadline:
+        native_iter_batch(mg_fnx_view)
+        cached_iter_batch(mg_fnx_view)
+        native_iter_batch(mdg_fnx_view)
+        cached_iter_batch(mdg_fnx_view)
+
+    return [
+        (
+            "MG key iter x512 [native materialize/cached]",
+            lambda: native_iter_batch(mg_fnx_view),
+            lambda: cached_iter_batch(mg_fnx_view),
+        ),
+        (
+            "MG key iter x512 [nx/fnx]",
+            lambda: cached_iter_batch(mg_nx_view),
+            lambda: cached_iter_batch(mg_fnx_view),
+        ),
+        (
+            "MG key list x512 [nx/fnx]",
+            lambda: list_batch(mg_nx_view),
+            lambda: list_batch(mg_fnx_view),
+        ),
+        (
+            "MDG key iter x512 [native materialize/cached]",
+            lambda: native_iter_batch(mdg_fnx_view),
+            lambda: cached_iter_batch(mdg_fnx_view),
+        ),
+        (
+            "MDG key iter x512 [nx/fnx]",
+            lambda: cached_iter_batch(mdg_nx_view),
+            lambda: cached_iter_batch(mdg_fnx_view),
+        ),
+        (
+            "MDG key list x512 [nx/fnx]",
+            lambda: list_batch(mdg_nx_view),
+            lambda: list_batch(mdg_fnx_view),
+        ),
+    ]
+
+
 def suite_digraph_descriptors():
     """br-r37-c1-dyuzb: cache directed public adjacency descriptors."""
     import franken_networkx as fnx
@@ -1570,6 +1643,7 @@ SUITES = {
     "multi-row-getitem": suite_multi_row_getitem,
     "multiedge-getitem": suite_multiedge_getitem,
     "multiedge-iter": suite_multiedge_iter,
+    "multikeydict-iter": suite_multikeydict_iter,
     "digraph-descriptors": suite_digraph_descriptors,
     "multidigraph-descriptors": suite_multidigraph_descriptors,
     "node-primitives": suite_node_primitives,
