@@ -100,6 +100,58 @@ def test_private_override_installed_after_a_plain_access_redispatches():
     assert sorted(graph.nodes) == ["q1", "q2"]
     assert graph.nodes["q1"] == {"tag": 1}
     assert type(graph.nodes).__name__ != plain_type or sorted(graph.nodes) == ["q1", "q2"]
+    assert graph.has_node(n="q1")
+    assert not graph.has_node(n="n0")
+    assert graph.number_of_nodes() == graph.order() == 2
+    assert {"has_node", "number_of_nodes", "order"} <= vars(graph).keys()
+
+
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+def test_plain_node_primitives_are_raw_descriptors(cls_name):
+    """br-r37-c1-qmi5w: ordinary graphs must not pay a Python shim frame."""
+    graph = _build(fnx, cls_name)
+    assert type(graph.has_node).__name__ == "builtin_function_or_method"
+    assert type(graph.number_of_nodes).__name__ == "builtin_function_or_method"
+    assert type(graph.order).__name__ == "builtin_function_or_method"
+    assert graph.has_node(n="n0")
+    assert graph.number_of_nodes() == graph.order() == 4
+    assert not {"has_node", "number_of_nodes", "order"} & vars(graph).keys()
+
+
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+def test_private_node_method_shadows_do_not_alias_copy_or_pickle(cls_name):
+    graph = getattr(fnx, cls_name)()
+    graph.add_node("native")
+    graph._node = {"private": {"tag": 1}}
+
+    assert graph.has_node("private")
+    assert graph.number_of_nodes() == graph.order() == 1
+
+    for other in (
+        copy.copy(graph),
+        copy.deepcopy(graph),
+        pickle.loads(pickle.dumps(graph)),
+    ):
+        # Existing fnx contract: private NetworkX storage is an ephemeral view
+        # override; graph copies serialize the canonical native storage.
+        assert list(other) == ["native"]
+        assert other.has_node("native")
+        assert not other.has_node("private")
+        assert other.number_of_nodes() == other.order() == 1
+        assert not {"has_node", "number_of_nodes", "order"} & vars(other).keys()
+
+
+def test_private_node_install_preserves_user_instance_methods():
+    graph = fnx.Graph()
+
+    def custom(n):
+        return n == "sentinel"
+
+    graph.has_node = custom
+    graph._node = {"private": {}}
+
+    assert graph.has_node is custom
+    assert graph.has_node("sentinel")
 
 
 def test_private_override_state_is_never_memoised():
@@ -122,6 +174,8 @@ def test_subgraph_keeps_its_own_node_view(cls_name):
     assert list(sub_fx.nodes) == list(sub_nx.nodes)
     assert list(sub_fx.edges) == list(sub_nx.edges)
     assert sorted(sub_fx.degree) == sorted(sub_nx.degree)
+    assert sub_fx.has_node("n0") == sub_nx.has_node("n0")
+    assert sub_fx.number_of_nodes() == sub_fx.order() == sub_nx.number_of_nodes()
 
 
 @pytest.mark.parametrize("cls_name", CLASS_NAMES)

@@ -7164,10 +7164,13 @@ def _graph_deepcopy(self, memo=None):
     # graph — copying it would hand the copy a view of the original. Skip it;
     # the descriptor rebuilds it on the copy's first access.
     descriptor_cached = src_dict.get(_DESCRIPTOR_CACHED_VIEWS) or ()
+    private_method_shadows = src_dict.get(_PRIVATE_NODE_METHOD_SHADOWS) or {}
     for key, val in src_dict.items():
         if key in out_dict:
             continue
         if key.startswith("_fnx_") or key in descriptor_cached:
+            continue
+        if key in private_method_shadows and val is private_method_shadows[key]:
             continue
         try:
             out_dict[key] = _dc(val, memo)
@@ -42240,6 +42243,11 @@ class _FilteredGraphView:
     def number_of_nodes(self):
         return len(self)
 
+    def order(self):
+        # The synthetic view owns no Rust nodes, so it must not inherit the
+        # canonical class's raw ``order`` descriptor.
+        return self.number_of_nodes()
+
     def number_of_edges(self, u=None, v=None):
         if u is None and v is None:
             edge_subgraph_count = self._edge_subgraph_number_of_edges()
@@ -42574,6 +42582,74 @@ def _private_override(self, attr_name):
 # never went through the descriptor, and dropping that one would expose the
 # bare ``_FilteredGraphView.nodes`` function as a bound method.
 _DESCRIPTOR_CACHED_VIEWS = "_fnx_descriptor_cached_views"
+_PRIVATE_NODE_METHOD_SHADOWS = "_fnx_private_node_method_shadows"
+_RAW_HAS_NODE_METHODS = (
+    _GRAPH_PRIVATE_AWARE_HAS_NODE,
+    _DIGRAPH_PRIVATE_AWARE_HAS_NODE,
+    _MULTIGRAPH_PRIVATE_AWARE_HAS_NODE,
+    _MULTIDIGRAPH_PRIVATE_AWARE_HAS_NODE,
+)
+_RAW_NUMBER_OF_NODES_METHODS = (
+    _GRAPH_PRIVATE_AWARE_NUMBER_OF_NODES,
+    _DIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES,
+    _MULTIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES,
+    _MULTIDIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES,
+)
+
+
+def _assigned_private_has_node(self, n):
+    return n in self
+
+
+def _assigned_private_number_of_nodes(self):
+    return len(self)
+
+
+def _install_private_node_method_shadows(self, storage):
+    """Restore private-storage dispatch only on instances that need it.
+
+    br-r37-c1-qmi5w: ordinary graphs install the raw PyO3 ``has_node`` and
+    ``number_of_nodes`` descriptors on their classes, avoiding a Python frame
+    on every primitive call. NetworkX utilities can replace ``G._node`` with a
+    Python mapping, though, so that setter shadows the raw descriptors on that
+    one instance with the old mapping-aware behavior.
+
+    Do not replace a user-supplied instance method or a subclass override. The
+    tracked bound-method identities also let deepcopy/pickle distinguish these
+    internal shadows from genuine public instance attributes.
+    """
+    previous = storage.get(_PRIVATE_NODE_METHOD_SHADOWS) or {}
+    installed = {}
+
+    def install(name, fallback, raw_methods):
+        class_method = next(
+            (
+                base.__dict__[name]
+                for base in type(self).__mro__
+                if name in base.__dict__
+            ),
+            None,
+        )
+        if not any(class_method is raw_method for raw_method in raw_methods):
+            return
+        current = storage.get(name, _PRIVATE_MISSING)
+        if current is not _PRIVATE_MISSING and current is not previous.get(name):
+            return
+        bound = fallback.__get__(self, type(self))
+        storage[name] = bound
+        installed[name] = bound
+
+    install("has_node", _assigned_private_has_node, _RAW_HAS_NODE_METHODS)
+    install(
+        "number_of_nodes",
+        _assigned_private_number_of_nodes,
+        _RAW_NUMBER_OF_NODES_METHODS,
+    )
+    install("order", _assigned_private_number_of_nodes, _RAW_NUMBER_OF_NODES_METHODS)
+    if installed:
+        storage[_PRIVATE_NODE_METHOD_SHADOWS] = installed
+    else:
+        storage.pop(_PRIVATE_NODE_METHOD_SHADOWS, None)
 
 
 def _set_private_override(self, attr_name, value):
@@ -42587,6 +42663,8 @@ def _set_private_override(self, attr_name, value):
             storage.pop(name, None)
         storage.pop(_DESCRIPTOR_CACHED_VIEWS, None)
     setattr(self, attr_name, value)
+    if attr_name == _PRIVATE_NODE_OVERRIDE:
+        _install_private_node_method_shadows(self, storage)
 
 
 class _CachedViewDescriptor:
@@ -43824,10 +43902,15 @@ for _cls, _accessor in (
         setattr(_cls, _accessor, _CachedViewDescriptor(_installed.fget, _accessor))
 del _cls, _accessor, _installed
 
-Graph.has_node = _private_aware_has_node(_GRAPH_PRIVATE_AWARE_HAS_NODE)
-DiGraph.has_node = _private_aware_has_node(_DIGRAPH_PRIVATE_AWARE_HAS_NODE)
-MultiGraph.has_node = _private_aware_has_node(_MULTIGRAPH_PRIVATE_AWARE_HAS_NODE)
-MultiDiGraph.has_node = _private_aware_has_node(_MULTIDIGRAPH_PRIVATE_AWARE_HAS_NODE)
+# br-r37-c1-qmi5w: the private-aware Python wrapper consumed 146.4ns of a
+# 262.6ns ``Graph.has_node(str)`` call (56% of wall time), while the raw PyO3
+# descriptor took 116.2ns end-to-end. Install the raw descriptor for ordinary
+# graphs; ``_set_private_override`` restores the mapping-aware Python behavior
+# per instance if a NetworkX utility assigns ``G._node``.
+Graph.has_node = _GRAPH_PRIVATE_AWARE_HAS_NODE
+DiGraph.has_node = _DIGRAPH_PRIVATE_AWARE_HAS_NODE
+MultiGraph.has_node = _MULTIGRAPH_PRIVATE_AWARE_HAS_NODE
+MultiDiGraph.has_node = _MULTIDIGRAPH_PRIVATE_AWARE_HAS_NODE
 Graph.has_edge = _private_aware_has_edge_simple(_GRAPH_PRIVATE_AWARE_HAS_EDGE)
 DiGraph.has_edge = _private_aware_has_edge_simple(_DIGRAPH_PRIVATE_AWARE_HAS_EDGE)
 MultiGraph.has_edge = _private_aware_has_edge_multi(_MULTIGRAPH_PRIVATE_AWARE_HAS_EDGE)
@@ -43862,14 +43945,14 @@ Graph.get_edge_data = _private_aware_get_edge_data_simple(_GRAPH_PRIVATE_AWARE_G
 DiGraph.get_edge_data = _private_aware_get_edge_data_simple(_DIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
 MultiGraph.get_edge_data = _private_aware_get_edge_data_multi(_MULTIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
 MultiDiGraph.get_edge_data = _private_aware_get_edge_data_multi(_MULTIDIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
-Graph.number_of_nodes = _private_aware_number_of_nodes(_GRAPH_PRIVATE_AWARE_NUMBER_OF_NODES)
-DiGraph.number_of_nodes = _private_aware_number_of_nodes(_DIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES)
-MultiGraph.number_of_nodes = _private_aware_number_of_nodes(_MULTIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES)
-MultiDiGraph.number_of_nodes = _private_aware_number_of_nodes(_MULTIDIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES)
-Graph.order = Graph.number_of_nodes
-DiGraph.order = DiGraph.number_of_nodes
-MultiGraph.order = MultiGraph.number_of_nodes
-MultiDiGraph.order = MultiDiGraph.number_of_nodes
+Graph.number_of_nodes = _GRAPH_PRIVATE_AWARE_NUMBER_OF_NODES
+DiGraph.number_of_nodes = _DIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES
+MultiGraph.number_of_nodes = _MULTIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES
+MultiDiGraph.number_of_nodes = _MULTIDIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES
+Graph.order = _GRAPH_PRIVATE_AWARE_NUMBER_OF_NODES
+DiGraph.order = _DIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES
+MultiGraph.order = _MULTIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES
+MultiDiGraph.order = _MULTIDIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES
 Graph.number_of_edges = _private_aware_number_of_edges(_GRAPH_PRIVATE_AWARE_NUMBER_OF_EDGES)
 DiGraph.number_of_edges = _private_aware_number_of_edges(_DIGRAPH_PRIVATE_AWARE_NUMBER_OF_EDGES)
 MultiGraph.number_of_edges = _private_aware_number_of_edges(_MULTIGRAPH_PRIVATE_AWARE_NUMBER_OF_EDGES)
@@ -44078,8 +44161,13 @@ def _make_reduce_ex_preserving_frozen(raw_reduce_ex):
         # br-r37-c1-wbwkb: skip views memoised under their public name by
         # ``_CachedViewDescriptor`` — see the matching note in _graph_deepcopy.
         descriptor_cached = vars(self).get(_DESCRIPTOR_CACHED_VIEWS) or ()
+        private_method_shadows = (
+            vars(self).get(_PRIVATE_NODE_METHOD_SHADOWS) or {}
+        )
         for key, val in vars(self).items():
             if key.startswith("_fnx_") or key in descriptor_cached:
+                continue
+            if key in private_method_shadows and val is private_method_shadows[key]:
                 continue
             if key == "frozen":
                 # Handled separately so the freeze() re-application

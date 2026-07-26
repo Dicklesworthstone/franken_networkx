@@ -24493,3 +24493,91 @@ profile attributes at least five percent end-to-end to public-key handling and
 a design removes both extraction and canonicalization or merges lookup-key
 creation with final mirror materialization while preserving surrogate and
 Python-equality semantics.
+
+## 2026-07-26 CloudyTurtle KEEP (`has_node` / node-count primitives): raw class descriptors with private-storage instance shadows — **1.8113x / 2.6168x** (`br-r37-c1-qmi5w`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: before editing,
+`scripts/perf_ledger_preflight.py --prior-art has_node wrapper` and direct
+searches of all three performance ledgers found no rejected instance-shadow
+lever. The full governing rows were read. The 2026-07-25 decomposition
+attributed **146.4ns of 262.6ns (56%)** in `Graph.has_node(str)` to the
+mapping-aware Python wrapper, versus 116.2ns for its captured raw PyO3
+descriptor. This current-HEAD measurement supersedes the 2026-07-08 claim that
+the wrapper added approximately zero and that a 497-1311ns ABI boundary was
+the floor; both the implementation and current raw-slot measurements have
+changed materially since that row.
+
+ONE LEVER: ordinary `Graph`, `DiGraph`, `MultiGraph`, and `MultiDiGraph`
+instances now expose their captured raw PyO3 `has_node`,
+`number_of_nodes`, and `order` descriptors directly. When a NetworkX utility
+assigns the rare `G._node` private mapping, `_set_private_override` installs
+the prior mapping-aware behavior only in that instance's dictionary. The
+installer does not replace user instance methods, subclass overrides, or the
+synthetic filtered-view methods. Internal bound shadows are identity-tracked
+so deepcopy and pickle do not alias them back to the source graph.
+`_FilteredGraphView.order` explicitly dispatches through its filtered node
+count rather than the synthetic object's empty Rust storage. Special methods
+`__len__` / `__contains__` and class-safe `is_directed` / `is_multigraph`
+were deliberately excluded: Python resolves the former through type slots,
+while NetworkX calls the latter as `Graph.is_directed(None)`, which the raw
+PyO3 descriptor rejects.
+
+BEHAVIOR ISOMORPHISM / CONFORMANCE: the focused accessor, graph-utility,
+adjacency-mapping, and signature suites passed **830/830**. The lock covers all
+four graph classes, keyword `n=`, ordinary raw descriptor installation,
+private `_node` assignment after accessor memoization, `has_node` /
+`number_of_nodes` / `order` parity, user instance methods, filtered views,
+copy, deepcopy, and pickle non-aliasing. A first run caught the filtered-view
+`order()` stale-Rust-state trap in all four classes; the explicit view override
+fixed it before measurement. The six benchmark rows also proved
+order-preserving digest identity before any timing.
+
+PINNED-WORKER SAME-INVOCATION A/A + A/B: the exact dirty overlay passed
+strict-remote `cargo check -p fnx-python --all-targets -j 2` on
+`vmi1153651`. The synchronized tree then ran one 21-round interleaved
+invocation. Line one self-reported the loaded ELF
+`/data/projects/franken_networkx/python/franken_networkx/_fnx.abi3.so`,
+SHA-256
+`ba240617dd113d195b7d8930441c6a7c12c1b69b4c5bbe61407f0cc1855eef44`
+(Python 3.13.7, NetworkX 3.6.1). Every decision below uses the bootstrap
+median CI with the contract's 2x log-space null margin; CV is provenance only.
+
+| row (512 calls per sample) | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | decision |
+|---|---:|---:|---:|---|
+| private-aware wrapper / raw `has_node(present)` | **`1.8113x`** | `1.7674-1.9553x` | `0.8814-1.0485x` | **DECIDABLE KEEP**, required `1.2872x` |
+| private-aware wrapper / raw `number_of_nodes()` | **`2.6168x`** | `2.4962-2.8218x` | `0.9617-1.0442x` | **DECIDABLE KEEP**, required `1.0903x` |
+| NetworkX / FNX `has_node(present)` | `0.4101x` | `0.3944-0.4309x` | `0.9911-1.0178x` | decidable residual loss |
+| NetworkX / FNX `has_node(missing)` | `0.4073x` | `0.3945-0.4277x` | `0.9523-1.0514x` | decidable residual loss |
+| NetworkX / FNX `number_of_nodes()` | `0.9848x` | `0.9743-1.0608x` | `0.9443-1.0546x` | undecidable / parity envelope |
+| NetworkX / FNX `order()` | `1.0332x` | `0.9848-1.1056x` | `0.9708-1.0137x` | undecidable / parity envelope |
+
+RESULT: KEEP. The exact counted mechanism removes one Python wrapper frame per
+call, and both causal medians clear their own A/A median-CI floors. Node count
+reaches the NetworkX parity envelope; `has_node` improves decisively but
+remains a public loss, so this is not represented as closing that surface.
+The worker window was released immediately after the synchronized invocation.
+
+RETRY PREDICATE: node-key interning remains on HOLD. Reopen it only when a
+fresh pinned-worker profile attributes at least **30%** of the post-wrapper
+raw-call residual to canonicalization **and** that same invocation's doubled
+log-space A/A floor is below **1.02x**. The present `has_node(present)` floor is
+`1.0359x`, so this run does not admit an interning claim. Reopen the constant
+predicate sibling only with a class-safe C-level descriptor (or an
+instance-cache design proven non-aliasing across copy/deepcopy/pickle) that
+still accepts `Graph.is_directed(None)`. Do not revisit generic lazy algorithm
+returns without a named API profile showing at least 20% exact self-time in
+container construction; the next materialization vein is the measured
+`dict(G[u])` / dense `DiGraph.edges()` residual.
+
+QUALITY GATES: the ledger gate and focused Python suites passed **835/835**;
+`python -m compileall`, `cargo fmt --check`, and `git diff --check` passed.
+Strict-remote `cargo check --workspace --all-targets -j 2` passed on
+`vmi1153651`, with only the two known dead-helper warnings. Strict workspace
+clippy reached `fnx-python` and reproduced the existing two dead helpers,
+three `collapsible_if` sites, and one `chunks_exact_to_as_chunks` test lint,
+all outside this Python-only lever. UBS completed on the benchmark harness and
+focused test; its three high labels were the existing/test-added trusted
+`pickle.loads(pickle.dumps(fixture))` round trips, not untrusted input. Two
+bounded scans of the 61k-line monolithic shim hit UBS's Python module timeout
+without emitting a source finding; the shim diff was reviewed directly and is
+covered by the parity and compiler gates above.

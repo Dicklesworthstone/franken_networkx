@@ -27,6 +27,7 @@ minimum (the dominant knob; longer samples are a bigger target for preemption).
 
 Usage:
     python3 scripts/perf_harness.py view-accessors
+    python3 scripts/perf_harness.py node-primitives
     python3 scripts/perf_harness.py marshaling
 
 Point `PYTHONPATH` at the package tree under test; the header records which one ran.
@@ -310,6 +311,55 @@ def suite_view_accessors():
     ]
 
 
+def suite_node_primitives():
+    """br-r37-c1-qmi5w: raw-descriptor and competitive primitive proof."""
+    import franken_networkx as fnx
+
+    gnx, gfx = _build_pair(2000, 8000, seed=7, weighted=False)
+    present = [str(i) for i in range(512)]
+    missing = [f"missing-{i}" for i in range(512)]
+
+    wrapped_has_node = fnx._private_aware_has_node(
+        fnx._GRAPH_PRIVATE_AWARE_HAS_NODE
+    ).__get__(gfx, type(gfx))
+    wrapped_number_of_nodes = fnx._private_aware_number_of_nodes(
+        fnx._GRAPH_PRIVATE_AWARE_NUMBER_OF_NODES
+    ).__get__(gfx, type(gfx))
+
+    return [
+        (
+            "G.has_node(present) x512 [nx/fnx]",
+            lambda: sum(gnx.has_node(node) for node in present),
+            lambda: sum(gfx.has_node(node) for node in present),
+        ),
+        (
+            "G.has_node(missing) x512 [nx/fnx]",
+            lambda: sum(gnx.has_node(node) for node in missing),
+            lambda: sum(gfx.has_node(node) for node in missing),
+        ),
+        (
+            "G.has_node(present) x512 [wrapper/raw]",
+            lambda: sum(wrapped_has_node(node) for node in present),
+            lambda: sum(gfx.has_node(node) for node in present),
+        ),
+        (
+            "G.number_of_nodes() x512 [nx/fnx]",
+            lambda: sum(gnx.number_of_nodes() for _ in present),
+            lambda: sum(gfx.number_of_nodes() for _ in present),
+        ),
+        (
+            "G.number_of_nodes() x512 [wrapper/raw]",
+            lambda: sum(wrapped_number_of_nodes() for _ in present),
+            lambda: sum(gfx.number_of_nodes() for _ in present),
+        ),
+        (
+            "G.order() x512 [nx/fnx]",
+            lambda: sum(gnx.order() for _ in present),
+            lambda: sum(gfx.order() for _ in present),
+        ),
+    ]
+
+
 def suite_marshaling():
     """Return-shape / materialization surface."""
     import networkx as nx
@@ -332,7 +382,11 @@ def suite_marshaling():
     ]
 
 
-SUITES = {"view-accessors": suite_view_accessors, "marshaling": suite_marshaling}
+SUITES = {
+    "view-accessors": suite_view_accessors,
+    "node-primitives": suite_node_primitives,
+    "marshaling": suite_marshaling,
+}
 
 
 def main(argv):
