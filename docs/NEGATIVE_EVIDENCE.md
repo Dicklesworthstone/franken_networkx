@@ -27731,3 +27731,65 @@ QUALITY / CLOSEOUT: this was an exact-artifact profile and timing screen only;
 no product, test, or harness source changed. `git diff --check` covers the
 ledger-only change. No Cargo command ran, and UBS has no Markdown scanner, so
 no UBS result is claimed for this row.
+
+## 2026-07-26 CloudyTurtle ADMISSION REJECT (keyless multigraph `get_edge_data` live keydict retry): first A/A floor fails, so two-pass predicate is impossible — **NO SOURCE EDIT** (`br-r37-c1-g9fnp`)
+
+NEGATIVE-LEDGER-FIRST: before reopening the 22-25x public keyless
+`get_edge_data` loss,
+`scripts/perf_ledger_preflight.py --candidate --lever 'live keydict cache'
+--surface 'MultiGraph MultiDiGraph keyless get_edge_data outer mapping'`
+printed the governing `br-r37-c1-zfu6g` HOLD and
+`br-r37-c1-57ba1` primitive KEEP. Both require a fresh exact-path profile with
+at least 30% outer-materialization attribution and a doubled-null floor below
+`1.02x`. The HOLD is more specific: **two consecutive** preregistered
+A/A-only runs of the unchanged 512-call workload must each clear that floor
+before any source candidate is allowed. Its existing profile already
+attributes 77-79% to the outer keydict build, so this retry tested only the
+unmet null prerequisite.
+
+EXACT-CURRENT A/A-ONLY ADMISSION: no source, test, or harness file changed.
+The immutable current package ran on drained `vmi1152480`, pinned to core 3,
+and the worker was immediately re-enabled and probed healthy. The process
+self-reported the loaded artifact as line one:
+
+`bench_elf_sha256=a6dcc1f75f6f2e004e18f27b641d195f3a48b2473c3787acc011293bbd9f26c0
+(13153768 bytes)
+/data/tmp/franken_networkx-measure-current/franken_networkx/_fnx.abi3.so`
+
+Structured provenance recorded wrapper SHA-256
+`5f0635bfabefb100a83adba1a81d7d5e133f8759e7ff31acce4b9bc1a375d71e`,
+harness SHA-256
+`00b82448f3356df09dc996cc7dd01738f5a1c387151ea0390ccdda7c55e6ffd4`,
+Python 3.13.7, NetworkX 3.6.1, and header load average
+`0.6465/0.6299/0.7993`. Each graph carried eight keyed parallel edges on one
+pair. Each arm performed 512 keyless calls; 21 rounds were interleaved with
+`min_of=3`. Bootstrap median confidence intervals and the doubled log-space
+margin govern; CV does not gate.
+
+| first preregistered A/A-only row | A/A median | A/A 95% median CI | doubled-null floor | required | result |
+|---|---:|---:|---:|---:|---|
+| MultiGraph keyless x512 | `1.0006x` | `0.9826-1.0568x` | **`1.116799x`** | `<1.02x` | **FAIL** |
+| MultiDiGraph keyless x512 | `0.9171x` | `0.8193-1.0290x` | **`1.489678x`** | `<1.02x` | **FAIL** |
+
+RESULT: **ADMISSION REJECT / NO SOURCE EDIT.** The governing predicate needs
+two consecutive passing invocations. Since the first invocation fails for
+both graph types, a second run cannot admit either candidate and would amount
+to selecting favorable noise. No A/B was run and no effect claim was made.
+This row records the in-process A/A null rather than creating a
+`VOID-NONULL` rejection, and it never uses CV.
+
+RETRY PREDICATE: do not rerun this keyless pair cache in the current frontier
+cycle. Reopen only when a pre-measurement worker screen shows one-minute load
+below **`0.25`** and steal below **`0.5%`**, then restart the original
+two-consecutive-A/A requirement from run one; both MG and MDG are decided
+independently. Only a type whose two raw/raw doubled floors are each below
+`1.02x` may proceed. The source candidate must still return a built-in
+`dict`, preserve key insertion order, live attribute-dict identity, edge
+add/remove visibility, defaults, explicit-key semantics, private stores,
+subclasses, copy/deepcopy/pickle isolation, and self-report a newly built ELF
+whose final A/B bootstrap median CI lies wholly beyond its own
+same-invocation floor. Until then, switch veins.
+
+QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
+Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
+claimed.
