@@ -29,6 +29,7 @@ Usage:
     python3 scripts/perf_harness.py view-accessors
     python3 scripts/perf_harness.py adj-descriptor
     python3 scripts/perf_harness.py adj-len
+    python3 scripts/perf_harness.py digraph-descriptors
     python3 scripts/perf_harness.py node-primitives
     python3 scripts/perf_harness.py nodeview-getitem
     python3 scripts/perf_harness.py lazy-rows
@@ -437,6 +438,63 @@ def suite_adjacency_len():
     ]
 
 
+def suite_digraph_descriptors():
+    """br-r37-c1-dyuzb: cache directed public adjacency descriptors."""
+    import franken_networkx as fnx
+
+    gnx, gfx = _build_pair(
+        2000, 8000, seed=17, weighted=True, directed=True
+    )
+    repeats = range(500)
+    properties = fnx._DIGRAPH_PUBLIC_ADJ_PROPERTIES
+    assert all(
+        isinstance(fnx.DiGraph.__dict__[name], fnx._CachedViewDescriptor)
+        for name in ("adj", "succ", "pred")
+    )
+    _ = gfx.adj, gfx.succ, gfx.pred
+
+    def property_triple():
+        return [
+            (
+                properties["adj"].__get__(gfx, fnx.DiGraph),
+                properties["succ"].__get__(gfx, fnx.DiGraph),
+                properties["pred"].__get__(gfx, fnx.DiGraph),
+            )
+            for _ in repeats
+        ]
+
+    def cached_triple():
+        return [(gfx.adj, gfx.succ, gfx.pred) for _ in repeats]
+
+    return [
+        (
+            "DG adj/succ/pred x500 [property/cached]",
+            property_triple,
+            cached_triple,
+        ),
+        (
+            "DG adj/succ/pred x500 [nx/fnx]",
+            lambda: [(gnx.adj, gnx.succ, gnx.pred) for _ in repeats],
+            cached_triple,
+        ),
+        (
+            "len(DG.adj) x500 [nx/fnx]",
+            lambda: [len(gnx.adj) for _ in repeats],
+            lambda: [len(gfx.adj) for _ in repeats],
+        ),
+        (
+            "len(DG.succ) x500 [nx/fnx]",
+            lambda: [len(gnx.succ) for _ in repeats],
+            lambda: [len(gfx.succ) for _ in repeats],
+        ),
+        (
+            "len(DG.pred) x500 [nx/fnx]",
+            lambda: [len(gnx.pred) for _ in repeats],
+            lambda: [len(gfx.pred) for _ in repeats],
+        ),
+    ]
+
+
 def suite_node_primitives():
     """br-r37-c1-qmi5w: raw-descriptor and competitive primitive proof."""
     import franken_networkx as fnx
@@ -635,6 +693,7 @@ SUITES = {
     "view-accessors": suite_view_accessors,
     "adj-descriptor": suite_adj_descriptor,
     "adj-len": suite_adjacency_len,
+    "digraph-descriptors": suite_digraph_descriptors,
     "node-primitives": suite_node_primitives,
     "nodeview-getitem": suite_nodeview_getitem,
     "lazy-rows": suite_lazy_rows,

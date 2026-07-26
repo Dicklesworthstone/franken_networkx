@@ -25121,3 +25121,119 @@ byte-compilation, `cargo fmt --check`, `git diff --check`, and the filtered
 strict-clippy rerun all passed. UBS completed the changed harness/test/ledger
 scan with zero critical or warning findings. Its bounded scan of the 61k-line
 monolithic Python shim reached 180 seconds without emitting a source finding.
+
+## 2026-07-26 CloudyTurtle KEEP (public `DiGraph.adj` / `succ` / `pred` descriptors): split cached public reads from private setters — **14.5633x mechanism / 2.35-3.33x gap recovery** (`br-r37-c1-dyuzb`)
+
+NEGATIVE-LEDGER-FIRST: before proposing this lever,
+`scripts/perf_ledger_preflight.py --prior-art 'DiGraph adj succ pred
+descriptor'` returned no direct prior row. Direct searches then read every
+matching directed-adjacency, outer-cache, row-view, and descriptor entry in
+both performance ledgers. The 2026-06-24 outer-dict cache attempts concern
+`dict(G.adjacency())` materialization, not repeated public attribute reads.
+The 2026-07-26 persistent-row KEEP closes `dict(DG.succ[u])` /
+`dict(DG.pred[u])`, not the outer properties. The governing immediately
+preceding length KEEP measured public `len(DG.adj/succ/pred)` at
+`0.2203x` / `0.2687x` / `0.2980x` and explicitly routed the property layer to
+a distinct descriptor-split audit after profile attribution, synthetic-view
+proof, counted zero setter entries, and a same-invocation A/A gate.
+
+PROFILE ATTRIBUTION: on the exact final ELF, the old properties were restored
+inside an isolated process and 200,000 natural reads of all three public names
+were profiled before the candidate descriptor was active. The harness
+self-reported ELF SHA-256
+`4b30828df78e87ece5f6323d0b8864d46af76216c37a47e6375acf849dde122f`
+(13,154,016 bytes). `cProfile` recorded 5,400,002 calls in `1.106576s`.
+Only `0.080s` was the driver loop; the removable property chain consumed
+**`1.0266s` / 92.8% self-time**, a computed Amdahl ceiling of **13.83x**.
+Named frames included `_private_override` (`0.218s`), `_cached_view`'s
+accessor (`0.166s`), `vars` (`0.134s`), dict `get` (`0.128s`),
+`_private_directed_adj_mapping` (`0.106s`), `_private_succ_mapping`
+(`0.072s`), `_private_pred_mapping` (`0.072s`), and the three property lambdas
+(`0.129s` combined). Unprofiled median wall time for the old triple was
+`0.131593s` per 200,000 iterations. This clears the governing 30% named-frame
+predicate by more than threefold.
+
+PROVENANCE CORRECTION: the first isolated test attempt accidentally paired the
+new wrapper with two older extension artifacts
+(`6e8b11827b5d742f1f9fa870ed556d18eefcc7156c62aff6823998ea92ef6f83`
+and
+`ba240617dd113d195b7d8930441c6a7c12c1b69b4c5bbe61407f0cc1855eef44`).
+Both reproduced the same 20 already-fixed NodeView key-error failures, proving
+they predated the current node-key interning substrate. Those runs were
+discarded, not counted as candidate failures, and never used for the final
+gate. The exact `4b30828d...` artifact was recovered from its prior isolated
+package, copied byte-for-byte to the measurement worker, verified again at
+load, and is the only ELF used for final correctness and timing. This is the
+concrete failure mode the line-one self-identity contract prevents.
+
+ONE LEVER: `DiGraph.adj`, `succ`, and `pred` now use the existing
+`_CachedViewDescriptor`. Their captured property getter runs once and ordinary
+warm access becomes a C-level instance-dict hit. The load-bearing `_adj`,
+`_succ`, and `_pred` properties remain data descriptors with their original
+private-override setters. A narrow `DiGraph.__setattr__` hook removes only an
+internal-cache marker when a user assigns one of the public names. Filtered
+and reverse directed synthetics deliberately own an empty Rust base, so their
+constructor's public assignments still delegate to the captured property
+setters and install the Python mappings that graph methods require.
+
+BEHAVIOR ISOMORPHISM / COUNTED MECHANISM: exact-artifact focused suites passed
+**1,354/1,354** tests. New locks cover descriptor type and identity, live edge
+mutation, public assignment, private `_adj` / `_succ` / `_pred` invalidation,
+deepcopy, pickle, filtered subgraph views, reverse views, and native mutation.
+The broader selection covers adjacency mappings and rows, view mutation,
+attributes, lazy mirrors, copy families, node-key errors, and reverse
+conversions. A counted 64-pair permanent test and 512-pair admission prototype
+both recorded **zero** entries into the Python public-assignment hook during
+native add/remove-edge mutation.
+
+PINNED-WORKER SAME-INVOCATION A/A + A/B: final measurement ran in one
+invocation on drained `vmi1227854`, pinned to core 3 after a predeclared
+two-second frequency warm-up, at header load average
+`0.7222/0.5654/0.6240`; the worker was immediately re-enabled. Canonical line
+one reported exact loaded ELF SHA-256 `4b30828d...` and 13,154,016 bytes.
+Structured provenance reported wrapper SHA-256
+`87ff33992853358b0907e1d659e0ed8bff2569fcaaf27780bd284aa7c5898ea4`
+and harness SHA-256
+`68acd87be8cd52760b7e828bac5bcb413e3b154b4b5b4e63b2bc69d82272872e`
+(Python 3.13.7, NetworkX 3.6.1). Every row proved an order-preserving digest,
+ran 21 interleaved rounds with `min_of=3`, and ran its own A/A null in the same
+invocation. Decisions use only the bootstrap median CI with the 2x log-space
+null margin; CV was reported but never gated.
+
+| row (500 reads) | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | required floor | decision |
+|---|---:|---:|---:|---:|---|
+| old properties / cached public triple | **`14.5633x`** | `14.2189-15.1766x` | `0.9761-1.0625x` | `1.1290x` | **DECIDABLE KEEP** |
+| NetworkX / FNX public triple | `0.8784x` | `0.8551-0.8891x` | `0.9775-1.0361x` | `1.0736x` | **DECIDABLE residual loss** |
+| NetworkX / FNX `len(DG.adj)` | `0.7329x` | `0.6806-0.7754x` | `0.9982-1.0540x` | `1.1110x` | **DECIDABLE residual loss** |
+| NetworkX / FNX `len(DG.succ)` | `0.7308x` | `0.7150-0.7528x` | `0.9571-1.0303x` | `1.0916x` | **DECIDABLE residual loss** |
+| NetworkX / FNX `len(DG.pred)` | `0.7012x` | `0.6863-0.7232x` | `1.0021-1.2236x` | `1.4971x` | **UNDECIDABLE residual direction** |
+
+RESULT: KEEP. The measured descriptor chain loses **93.1%** of its old wall
+time and clears the doubled-null floor by `12.90x`. Against the preceding
+exact public rows, `len(DG.adj)` recovers `0.2203x -> 0.7329x` (**3.33x**),
+`len(DG.succ)` recovers `0.2687x -> 0.7308x` (**2.72x**), and the directional
+`len(DG.pred)` median moves `0.2980x -> 0.7012x` (**2.35x**) but is not claimed
+decidable under its noisy null. Public parity is not claimed.
+
+RETRY PREDICATE: do not retry public directed property caching, a broader
+`__setattr__` hook, per-mutation invalidation, or any synthetic view that
+stores mappings as ordinary public instance attributes. Reopen the residual
+bare triple only if a fresh exact profile attributes at least **10% self-time**
+to a new named removable frame and predicts at least `1.05x` end-to-end.
+Treat the remaining length rows as a new view-slot seam, not another
+descriptor attempt: proceed only if a fresh exact profile attributes at least
+**30% self-time** to `AdjacencyView.__len__` or its bound raw call, a dynamic
+C-level-slot prototype preserves ownerless/filtered/private semantics, and
+the unchanged same-invocation doubled-null floor is below **`1.03x`**.
+
+QUALITY GATES: exact Python conformance, byte-compilation, and diff hygiene
+passed. `cargo fmt --check` passed. Strict-remote
+`cargo check --workspace --all-targets -j 2` passed on `vmi1149989`, emitting
+only the two established dead-helper warnings. Mandatory strict workspace
+clippy reproduced exactly the established six findings outside this lever:
+two dead helpers, three `collapsible_if` sites, and one
+`chunks_exact_to_as_chunks` test site. The filtered strict rerun allowed only
+those three established categories and passed with every other warning
+denied. UBS completed the changed harness/test/ledger scan with zero critical
+or warning findings; its bounded scan of the 61k-line Python shim reached 180
+seconds without emitting a source finding.

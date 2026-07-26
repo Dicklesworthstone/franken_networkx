@@ -44095,6 +44095,43 @@ Graph.__setattr__ = _graph_setattr_with_cached_public_adj
 Graph.adj = _CachedViewDescriptor(_GRAPH_PUBLIC_ADJ_PROPERTY.fget, "adj")
 
 
+# br-r37-c1-dyuzb: the directed public siblings had the same repeated data-
+# descriptor tax as Graph.adj. Keep the load-bearing `_adj` / `_succ` / `_pred`
+# properties above, but make the public names assignable cached descriptors.
+# Ordinary warm reads then become instance-dict hits. Filtered and reverse
+# synthetics deliberately own an empty Rust base and install their live Python
+# mappings through public assignments, so their constructor writes must still
+# delegate to the captured property setters.
+_DIGRAPH_PUBLIC_ADJ_PROPERTIES = {
+    "adj": DiGraph.__dict__["adj"],
+    "succ": DiGraph.__dict__["succ"],
+    "pred": DiGraph.__dict__["pred"],
+}
+_DIGRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE = DiGraph.__setattr__
+
+
+def _digraph_setattr_with_cached_public_adjacency(self, name, value):
+    if name in _DIGRAPH_PUBLIC_ADJ_PROPERTIES and isinstance(
+        self, (_FilteredGraphView, _ReverseDirectedViewBase)
+    ):
+        return _DIGRAPH_PUBLIC_ADJ_PROPERTIES[name].__set__(self, value)
+
+    if name in _DIGRAPH_PUBLIC_ADJ_PROPERTIES:
+        storage = vars(self)
+        cached = storage.get(_DESCRIPTOR_CACHED_VIEWS)
+        if cached is not None:
+            cached.discard(name)
+            if not cached:
+                storage.pop(_DESCRIPTOR_CACHED_VIEWS, None)
+    return _DIGRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE(self, name, value)
+
+
+DiGraph.__setattr__ = _digraph_setattr_with_cached_public_adjacency
+for _name, _property in _DIGRAPH_PUBLIC_ADJ_PROPERTIES.items():
+    setattr(DiGraph, _name, _CachedViewDescriptor(_property.fget, _name))
+del _name, _property
+
+
 # br-r37-c1-o1i86: capture the raw Rust __copy__ impls BEFORE the Python
 # override below replaces them. The Rust versions clone the inner graph
 # wholesale (node order, edge order, adjacency ROW content order all
