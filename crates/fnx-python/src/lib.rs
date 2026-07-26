@@ -4208,6 +4208,23 @@ impl PyMultiGraph {
         v: &str,
         key: &Bound<'_, PyAny>,
     ) -> PyResult<Option<usize>> {
+        // br-r37-c1-d0afg: while the display-key space is pristine, every
+        // public integer key is exactly its internal usize key.  Resolve that
+        // overwhelmingly common auto-key shape by direct keyed-edge membership
+        // instead of allocating two canonical strings, collecting the pair's
+        // key vector, materializing each public key, and canonicalizing it again.
+        // Exact PyInt excludes bool; floats and every remapped/string key retain
+        // the Python-equality scan below.
+        if !self.has_remapped_int_key
+            && key.is_exact_instance_of::<PyInt>()
+            && let Ok(internal_key) = key.extract::<usize>()
+        {
+            return Ok(self
+                .inner
+                .edge_attrs(u, v, internal_key)
+                .is_some()
+                .then_some(internal_key));
+        }
         let requested = edge_key_lookup_string(py, key)?;
         for internal_key in self.inner.edge_keys(u, v).unwrap_or_default() {
             let stored_key = self.py_edge_key(py, u, v, internal_key);

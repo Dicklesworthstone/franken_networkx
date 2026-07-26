@@ -668,6 +668,50 @@ def test_multiedge_subclasses_keep_generic_keyed_lookup(cls_name):
     assert graph.edges["left", "right", 0] == {"weight": 7}
 
 
+@pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])
+def test_multiedge_identity_int_key_resolution_preserves_numeric_equality(
+    cls_name,
+):
+    """br-r37-c1-d0afg: fast exact-int lookup keeps dict-key equivalence."""
+    gnx, gfx = getattr(nx, cls_name)(), getattr(fnx, cls_name)()
+    for graph in (gnx, gfx):
+        graph.add_edge("left", "right", key=0, weight=7)
+
+    for equivalent_key in (0, False, 0.0):
+        assert gfx.edges["left", "right", equivalent_key] == gnx.edges[
+            "left", "right", equivalent_key
+        ]
+
+
+@pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])
+def test_multiedge_identity_int_key_resolution_handles_gaps_and_remaps(
+    cls_name,
+):
+    """Gaps use direct membership; one remap conservatively restores scanning."""
+    gnx, gfx = getattr(nx, cls_name)(), getattr(fnx, cls_name)()
+    for graph in (gnx, gfx):
+        graph.add_edge("left", "right", key=0, first=True)
+        graph.add_edge("left", "right", key=1, middle=True)
+        graph.add_edge("left", "right", key=2, second=True)
+        graph.remove_edge("left", "right", key=1)
+
+    assert gfx.edges["left", "right", 2] == gnx.edges["left", "right", 2]
+    with pytest.raises(KeyError, match="1"):
+        gfx.edges["left", "right", 1]
+
+    for graph in (gnx, gfx):
+        graph.add_edge("probe-left", "probe-right", key="remapped")
+        graph.remove_edge("probe-left", "probe-right", key="remapped")
+
+    assert gfx.edges["left", "right", 2] == gnx.edges["left", "right", 2]
+    for remapped_key in ("missing", -1, 2.5):
+        with pytest.raises(KeyError) as nx_error:
+            gnx.edges["left", "right", remapped_key]
+        with pytest.raises(type(nx_error.value)) as fnx_error:
+            gfx.edges["left", "right", remapped_key]
+        assert fnx_error.value.args == nx_error.value.args
+
+
 @pytest.mark.parametrize("accessor", ["adj", "succ", "pred"])
 def test_multidigraph_public_adjacency_assignment_preserves_private_storage(
     accessor,

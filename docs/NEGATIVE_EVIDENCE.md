@@ -26058,3 +26058,111 @@ those three established categories and passed with every other warning denied.
 UBS reported zero critical and zero warning findings for the harness/test
 surface; its combined scan including the 61k-line wrapper hit the bounded
 300-second module timeout without emitting a source finding.
+
+## 2026-07-26 CloudyTurtle KEEP (native integer multiedge-key resolution): direct pristine identity-key membership — **1.6931x MG / 1.6537x MDG raw; 1.4742x MG / 1.2195x MDG edge-view causal** (`br-r37-c1-d0afg`)
+
+NEGATIVE-LEDGER-FIRST: before proposing this lever, the broad post-KEEP
+preflight read the governing scalar keyed `MultiEdgeView.__getitem__` KEEP and
+its node-key/interning retry predicate by hand. The specific preflight for
+`resolve_internal_edge_key has_remapped_int_key identity int edge key fast
+path` found no direct prior row. This is the required freshly attributed
+native resolver seam below the already-landed Python view shortcut, not a
+retry of that shortcut or a broadened private/subclass route.
+
+PROFILE ATTRIBUTION: the exact pre-edit package loaded ELF SHA-256
+`4b30828df78e87ece5f6323d0b8864d46af76216c37a47e6375acf849dde122f`
+(13,154,016 bytes). On drained `vmi1227854`, pinned to core 3, 200,000 natural
+`MG.edges[u, v, 0]` reads recorded 1,400,000 calls in `0.380s`;
+the captured raw `get_edge_data` descriptor owned `0.139s` self
+(**36.6%**), followed by edge-view `__getitem__` at `0.129s`, node hashing at
+`0.047s`, the private-storage guard at `0.042s`, and argument binding at
+`0.022s`. The directed sibling recorded 1,400,000 calls in `0.367s`, with raw
+`get_edge_data` at `0.133s` self (**36.2%**), `__getitem__` at `0.125s`,
+hashing at `0.046s`, the private guard at `0.042s`, and argument binding at
+`0.022s`. Removing only the attributed raw-resolver work predicts conservative
+end-to-end Amdahl ceilings of **1.58x MG** and **1.57x MDG**.
+
+ONE LEVER: `PyMultiGraph::resolve_internal_edge_key` and
+`PyMultiDiGraph::resolve_internal_edge_key` now recognize an exact
+nonnegative `PyInt` while `has_remapped_int_key` is false and test the
+corresponding internal `usize` key directly with `edge_attrs`. The existing
+conservative flag proves the public integer-key space is still identical to
+the internal key space. Exact-type checking deliberately excludes `bool`;
+negative integers, floats, strings, subclasses, and every graph that has ever
+remapped a key retain the canonical Python-equality scan.
+
+BEHAVIOR ISOMORPHISM / COUNTED MECHANISM: each measured batch performs exactly
+512 successful keyed lookups against final-state-identical graphs. The control
+graph creates and removes one string-key probe, conservatively forcing all 512
+lookups through the old scan; the candidate graph creates and removes an
+identity integer-key probe and therefore performs 512 direct membership
+checks. Thus the causal A/B counts exactly 512 removals each of query-key
+string canonicalization, pair-key-vector allocation, stored-public-key
+materialization, and stored-key canonicalization while preserving nodes,
+edges, order, and attributes byte-for-byte. Permanent differential tests cover
+Python numeric-key equality (`0`, `False`, `0.0`), missing gaps, negative and
+float misses, and conservative restoration of the scan after a string remap.
+The exact candidate artifact passed **186/186** focused descriptor tests and
+**742/742** broader keyed-edge/view tests.
+
+PINNED-WORKER SAME-INVOCATION A/A + A/B: final source-state measurement ran on
+drained `vmi1227854`, pinned to core 3; the worker was immediately re-enabled
+after every invocation. Canonical line one reported the exact loaded ELF
+SHA-256
+`25be100cddc5fe3bbc207a60e6ea75382bd502d4f93c5b72d3b4f7ca75fd2e56`
+(13,154,256 bytes). Structured provenance reported wrapper SHA-256
+`2fd428d45b55b9f95ba8c4359cc3699dfa00a3bcd8edb2230d359819bb6cadfe`,
+harness SHA-256
+`77ecbf441caf38b190c4b823e465f00dca7100769204b679e01ef2f108f415f4`,
+and focused-test SHA-256
+`c321bb83d88c6acfb63d29ebca13f52f43c293e873588a403503b7f7792ca9c0`.
+
+Every row proved an order-preserving digest before timing, ran 21 interleaved
+rounds with `min_of=3`, and ran its own A/A null in the same invocation.
+Decisions use only bootstrap median confidence intervals and the doubled
+log-space null margin; CV was reported as provenance and never gated. The
+first full invocation admitted both raw rows but its two edge-view nulls were
+too wide, so those rows were not used. A separate confirmation invocation on
+the same loaded ELF narrowed both governing edge-view nulls and admitted them.
+
+| row | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | required floor | decision |
+|---|---:|---:|---:|---:|---|
+| MG raw scan / identity-int resolver | **`1.6931x`** | `1.6029-1.7372x` | `0.9683-1.1363x` | `1.2912x` | **DECIDABLE KEEP** |
+| MG edge-view scan / identity-int resolver, confirmation | **`1.4742x`** | `1.3152-1.6750x` | `0.9136-1.0535x` | `1.1981x` | **DECIDABLE KEEP** |
+| NetworkX / FNX MG keyed lookup, confirmation | `0.1974x` | `0.1896-0.2144x` | `0.9786-1.0290x` | `1.0588x` | **DECIDABLE residual loss** |
+| MDG raw scan / identity-int resolver | **`1.6537x`** | `1.5941-1.7424x` | `0.9623-1.0049x` | `1.0800x` | **DECIDABLE KEEP** |
+| MDG edge-view scan / identity-int resolver, confirmation | **`1.2195x`** | `1.1451-1.3385x` | `0.9151-1.0241x` | `1.1943x` | **DECIDABLE KEEP** |
+| NetworkX / FNX MDG keyed lookup, confirmation | `0.1803x` | `0.1735-0.1891x` | `0.9646-1.0302x` | `1.0748x` | **DECIDABLE residual loss** |
+
+RESULT: KEEP. The controlled mechanism removes the attributed scan work, and
+all four causal medians clear their own doubled-null floors. Public parity is
+not claimed: exact scalar keyed-edge access remains approximately **5.1x MG**
+and **5.5x MDG** slower than NetworkX after this KEEP.
+
+RETRY PREDICATE: do not broaden direct resolution to `bool`, float, negative,
+subclassed, or previously remapped keys, and do not repeat public-key scan
+specialization. Reopen this residual only after a fresh exact post-KEEP
+profile attributes at least **30% self-time** to one new removable boundary
+and computes at least a **1.5x** end-to-end Amdahl ceiling. A node-key
+interning/canonicalization lever additionally requires a counted reduction in
+hash or canonicalization calls and a same-invocation doubled-null floor below
+**`1.03x`**. The current named residual frames are node hashing, the
+private-storage guard, argument binding, and the still-required canonical
+node-pair lookup; one of those must independently satisfy the threshold before
+this vein reopens.
+
+QUALITY GATES: exact isolated Python parity passed at 186/186 focused and
+742/742 broader keyed-edge/view tests; remote `cargo fmt --check` and
+strict-remote `cargo check --workspace --all-targets -j 2` passed. The
+`fnx-python` Rust suite built and ran 101 tests: 62 passed, 38 ignored, and the
+unrelated pre-existing
+`tests::graph_fresh_exact_int_attr_batch_keeps_attrs_with_lazy_mirrors`
+assertion failed. Its exact isolated rerun failed identically with all 100
+other tests filtered out, while this diff touches only multigraph key
+resolution and does not touch that PyGraph batch path or test. Mandatory
+strict workspace clippy reproduced exactly the established six off-lane
+findings: two dead helpers, three `collapsible_if` sites, and one
+`chunks_exact_to_as_chunks` test site. The filtered strict rerun allowed only
+those three established categories and passed with every other warning denied.
+UBS exited zero with no critical finding on the four changed source,
+harness, and test files; its broad heuristic inventory remains pre-existing.

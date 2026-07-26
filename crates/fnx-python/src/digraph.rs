@@ -1841,6 +1841,20 @@ impl PyMultiDiGraph {
         v: &str,
         key: &Bound<'_, PyAny>,
     ) -> PyResult<Option<usize>> {
+        // br-r37-c1-d0afg: directed sibling of the pristine identity-int
+        // resolver.  The conservative remap flag already proves that an exact
+        // nonnegative PyInt is the internal key; all other public-key shapes
+        // preserve the canonical Python-equality scan.
+        if !self.has_remapped_int_key
+            && key.is_exact_instance_of::<PyInt>()
+            && let Ok(internal_key) = key.extract::<usize>()
+        {
+            return Ok(self
+                .inner
+                .edge_attrs(u, v, internal_key)
+                .is_some()
+                .then_some(internal_key));
+        }
         let requested = edge_key_lookup_string(py, key)?;
         for internal_key in self.inner.edge_keys(u, v).unwrap_or_default() {
             let stored_key = self.py_edge_key(py, u, v, internal_key);

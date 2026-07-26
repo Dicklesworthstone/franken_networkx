@@ -711,7 +711,7 @@ def suite_multi_adjacency_contains():
 
 
 def suite_multiedge_getitem():
-    """br-r37-c1-8l96z: scalar keyed edge-data lookup without view layering."""
+    """Scalar keyed edge-data lookup without view/key-resolution layering."""
     import networkx as nx
     import franken_networkx as fnx
 
@@ -729,6 +729,47 @@ def suite_multiedge_getitem():
     mdg_nx, mdg_fnx, mdg_keys = build_pair(nx.MultiDiGraph, fnx.MultiDiGraph)
     mg_nx_edges, mg_fnx_edges = mg_nx.edges, mg_fnx.edges
     mdg_nx_edges, mdg_fnx_edges = mdg_nx.edges, mdg_fnx.edges
+
+    def build_resolver_control(graph_type):
+        """Identical final graphs; only the conservative remap flag differs."""
+        scan, identity = graph_type(), graph_type()
+        for index in range(512):
+            left, right = f"u{index}", f"v{index}"
+            attrs = {"weight": index, "tag": str(index)}
+            scan.add_edge(left, right, key=0, **attrs)
+            identity.add_edge(left, right, key=0, **attrs)
+        scan.add_edge("probe-left", "probe-right", key="remapped-probe")
+        scan.remove_edge("probe-left", "probe-right", key="remapped-probe")
+        identity.add_edge("probe-left", "probe-right", key=0)
+        identity.remove_edge("probe-left", "probe-right", key=0)
+        assert list(scan.nodes) == list(identity.nodes)
+        assert list(scan.edges(keys=True, data=True)) == list(
+            identity.edges(keys=True, data=True)
+        )
+        keys = [(f"u{index}", f"v{index}", 0) for index in range(512)]
+        return scan, identity, keys
+
+    mg_scan, mg_identity, mg_resolver_keys = build_resolver_control(
+        fnx.MultiGraph
+    )
+    mdg_scan, mdg_identity, mdg_resolver_keys = build_resolver_control(
+        fnx.MultiDiGraph
+    )
+    mg_scan_edges, mg_identity_edges = mg_scan.edges, mg_identity.edges
+    mdg_scan_edges, mdg_identity_edges = mdg_scan.edges, mdg_identity.edges
+    missing = object()
+    mg_scan_raw = fnx._MULTIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA.__get__(
+        mg_scan, fnx.MultiGraph
+    )
+    mg_identity_raw = fnx._MULTIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA.__get__(
+        mg_identity, fnx.MultiGraph
+    )
+    mdg_scan_raw = fnx._MULTIDIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA.__get__(
+        mdg_scan, fnx.MultiDiGraph
+    )
+    mdg_identity_raw = fnx._MULTIDIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA.__get__(
+        mdg_identity, fnx.MultiDiGraph
+    )
 
     def layered_multigraph_lookup(edge):
         """Source-equivalent pre-lever chain for the causal A/B."""
@@ -777,6 +818,38 @@ def suite_multiedge_getitem():
             "MDG.edges[u,v,k] x512 [nx/fnx]",
             lambda: [mdg_nx_edges[edge] for edge in mdg_keys],
             lambda: [mdg_fnx_edges[edge] for edge in mdg_keys],
+        ),
+        (
+            "MG raw keyed x512 [scan/identity-int]",
+            lambda: [
+                mg_scan_raw(u, v, key, missing)
+                for u, v, key in mg_resolver_keys
+            ],
+            lambda: [
+                mg_identity_raw(u, v, key, missing)
+                for u, v, key in mg_resolver_keys
+            ],
+        ),
+        (
+            "MG edge view x512 [scan/identity-int]",
+            lambda: [mg_scan_edges[edge] for edge in mg_resolver_keys],
+            lambda: [mg_identity_edges[edge] for edge in mg_resolver_keys],
+        ),
+        (
+            "MDG raw keyed x512 [scan/identity-int]",
+            lambda: [
+                mdg_scan_raw(u, v, key, missing)
+                for u, v, key in mdg_resolver_keys
+            ],
+            lambda: [
+                mdg_identity_raw(u, v, key, missing)
+                for u, v, key in mdg_resolver_keys
+            ],
+        ),
+        (
+            "MDG edge view x512 [scan/identity-int]",
+            lambda: [mdg_scan_edges[edge] for edge in mdg_resolver_keys],
+            lambda: [mdg_identity_edges[edge] for edge in mdg_resolver_keys],
         ),
     ]
 
