@@ -26715,3 +26715,98 @@ new focused tests with zero critical/warning findings. The bounded 300-second
 scan of the 61k-line wrapper reached the known large-module timeout without
 emitting a source finding. Markdown/JSONL have no UBS scanner, so no scanner
 pass is claimed for the ledger or bead row.
+
+## 2026-07-26 CloudyTurtle HOLD (C-level `MultiGraph.neighbors` keydict): **2.6934x mechanism**, exact final null floor failed the predeclared `<1.02x` admission (`br-r37-c1-b3k8a`)
+
+NEGATIVE-LEDGER-FIRST: before proposing the lever,
+`scripts/perf_ledger_preflight.py --prior-art 'post-KEEP multigraph neighbors
+cached keydict wrapper cache lookup raw descriptor node-key interning'` found
+no direct row. The governing `br-r37-c1-zrsuc` KEEP immediately above was then
+read by hand. Its retry predicate permits this residual only after a fresh
+profile attributes at least 30% to one removable wrapper/cache frame, the
+design is a class-safe C descriptor or instance shadow, and the same
+invocation's doubled-log A/A floor is below `1.02x`.
+
+PROFILE ATTRIBUTION / COMPUTED CEILING: the exact post-KEEP package loaded ELF
+SHA-256
+`8dfcc5a55cb68c9320712ffda131964764a28e9b1cf9c534e979a9f3bac85835`
+with wrapper SHA-256
+`90e827e3f51ffa7ce2b6ff59bf5101c2d316906b42c0d2c42a753a81075a45ed`.
+On drained `vmi1227854`, pinned to core 3, the public calls produced:
+
+| exact path | total profile | named removable Python frame | named share | computed Amdahl ceiling | FNX / NetworkX wall |
+|---|---:|---:|---:|---:|---:|
+| `MultiGraph.neighbors` | `0.302s` | `neighbors` `0.161s` | **53.3%** | **2.14x** | `426.651ns / 105.228ns` (**4.05x slower**) |
+| `MultiDiGraph.successors` | `0.344s` | `successors` `0.184s` | **53.5%** | **2.15x** | `442.558ns / 65.732ns` (**6.73x slower**) |
+| `MultiDiGraph.predecessors` | `0.306s` | `predecessors` `0.164s` | **53.6%** | **2.16x** | `408.336ns / 67.278ns` (**6.07x slower**) |
+
+The `MultiGraph.neighbors` profile also counted `600,000` warm `dict.get`
+calls (`0.062s`), `200,000` `vars` calls (`0.021s`), and `200,000` `iter`
+calls (`0.017s`) inside the named wrapper path. This cleared the profile and
+Amdahl portions of the retry predicate; it is neither `VOID-ZEROSELF` nor an
+unattributed node-key guess.
+
+CANDIDATE / COUNTED MECHANISM: a mutation-token native cache stored an outer
+`PyDict` keyed by the original Python node objects and `{neighbor: None}` row
+dicts. A warm raw PyO3 descriptor therefore performed one CPython hash/equality
+lookup and returned the row's `dict_keyiterator`, removing the Python
+`vars`/private-store probe, state-tuple construction, and repeated Python
+cache lookups. Private NetworkX storage received an instance-only mapping
+shadow; Python numeric-key equality, hash exceptions, missing-node text,
+mutation invalidation, order, copy/deepcopy/pickle, subclass, and user-instance
+method behavior were covered explicitly.
+
+The first candidate included all three multigraph siblings. Its exact package
+passed 231/231 focused tests, but the two directed mechanism rows missed the
+literal quiet-null predicate. They were removed rather than bundled into an
+undirected KEEP. Strict-remote all-target checking of the split candidate
+passed on `vmi1153651` with only the two established off-lane dead-code
+warnings. The exact split package passed 214/214 focused tests.
+
+AUTHORITATIVE EXACT-FINAL CONTRACT GATE: strict RCH built the split candidate
+on `vmi1153651`. The package then ran on drained `vmi1227854`, pinned to core
+3, and the worker was immediately re-enabled. Canonical line one self-reported
+loaded ELF SHA-256
+`0012c31249826211035c4445a28c0fa0ae7df0bae15e4a2c138b80b709f636a7`
+(13,157,584 bytes). Structured provenance reported wrapper SHA-256
+`c874359c5655dfd9ff746ad0bc1ac310f7b20cc2c293012c144510a28cc933cc`,
+harness SHA-256
+`ddd18b64cb65b6f33912318357eb2950813afc1f6b04617a83a0cea94f20f3bc`,
+and test SHA-256
+`9797f874639f6be7c8edfce4af2abb4087b647338e5e4105a004f4d80e780de8`
+(Python 3.13.7, NetworkX 3.6.1; header load average
+`0.220/1.410/1.557`).
+
+Every row proved an order-preserving digest before timing, ran 21 interleaved
+rounds with `min_of=3`, and ran its own A/A null in the same invocation.
+Decisions used bootstrap median confidence intervals and the doubled
+log-space null margin; CV was provenance only and never gated.
+
+| exact-final row | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | doubled-null floor | decision |
+|---|---:|---:|---:|---:|---|
+| `MultiGraph.neighbors` old wrapper / raw descriptor | **`2.6934x`** | `2.4089-2.7861x` | `0.9760-1.0869x` | **`1.1815x`** | effect decisive, **`<1.02x` admission FAIL** |
+| NetworkX / candidate `MultiGraph.neighbors` | `0.5492x` | `0.5135-0.5670x` | `0.9788-1.0630x` | `1.1299x` | decisive **1.82x residual loss** |
+
+An earlier mixed-sibling ELF produced `2.6886x`
+(`2.6570-2.8245x`) with a `1.0176x` floor for the undirected mechanism, but it
+is not the exact split source state and is routing evidence only. The exact
+final hash above is authoritative; selecting the earlier favorable null would
+violate both the loaded-ELF provenance contract and the predeclared retry
+predicate.
+
+RESULT: **HOLD, source reverted.** The counted mechanism almost certainly
+removes real work and its effect is far outside the measured null, but the
+candidate did not satisfy the governing row's independent `<1.02x`
+same-invocation admission condition. No source, wrapper, test, or harness
+change from this candidate was retained.
+
+RETRY PREDICATE: do not replay this candidate until a separately committed
+harness stabilization removes retained-iterator batch-allocation variance
+without changing the 512-call workload, and two consecutive preregistered
+A/A-only runs on drained `vmi1227854` core 3 each demonstrate a doubled-log
+floor below `1.02x`. A retry must then rebuild the candidate from source,
+self-report a new exact ELF hash, pass the private-storage/hash/mutation/copy
+parity bundle, and in one final invocation satisfy both: (1) its own doubled
+A/A floor is below `1.02x`; and (2) the A/B median CI remains wholly beyond
+that floor. Do not widen the floor, select the best of repeated candidate
+runs, or revive the directed siblings without their own qualifying nulls.
