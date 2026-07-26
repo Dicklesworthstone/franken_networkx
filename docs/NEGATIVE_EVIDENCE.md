@@ -24806,3 +24806,72 @@ Rust/harness/test scan likewise found zero Rust criticals; its only three
 Python high labels were pre-existing, trusted
 `pickle.loads(pickle.dumps(fixture))` test round trips whose line numbers moved
 when this lever added tests.
+
+## 2026-07-26 CloudyTurtle HOLD / NO SOURCE EDIT (`G.degree[n]` key-index sibling): mechanism ceiling clears, A/A admission fails on three workers (`br-r37-c1-knvl7`)
+
+NEGATIVE-LEDGER-FIRST: `scripts/perf_ledger_preflight.py --prior-art
+'degree view'` blocked on three historical REJECT rows, and every matching row
+was read before this screen. The 2026-06-25 MultiDiGraph weighted-degree
+accumulator and 2026-06-27 directional lazy-iterator rows are now adjudicated
+`VOID-NONULL`; they concern bulk weighted iteration, not scalar
+`DegreeView.__getitem__`. The relevant valid prior art is the 2026-07-23
+identity-int family, which says not to retry int-only scalar shortcuts; the
+2026-07-25 cached-view-descriptor KEEP, which already removed repeated
+`G.degree` construction; and the immediately preceding NodeView KEEP, whose
+retry predicate requires at least 30% named self-time plus a same-invocation
+doubled A/A floor below `1.02x` before another key-interning edit.
+
+PROFILE / COMPUTED CEILING: the exact preceding KEEP artifact (ELF SHA-256
+`4b30828df78e87ece5f6323d0b8864d46af76216c37a47e6375acf849dde122f`,
+wrapper SHA-256
+`81c92490919c88661dffb9c07d49ceb3b7024244d973c67900bc603ac0825ae8`)
+measured one warm string-key lookup as:
+
+| exact current path | median |
+|---|---:|
+| NetworkX `G.degree[n]` | `136.0ns` |
+| FNX public `G.degree[n]` | `234.2ns` |
+| FNX captured raw Rust `DegreeView[n]` | `159.7ns` |
+| exact-key Python degree dict | `24.9ns` |
+
+The public wrapper therefore costs `74.5ns` (**31.8%** of wall time) above the
+raw getter. A 100,000-call `cProfile` independently named
+`_WeightAwareDegreeView.__getitem__` at `0.034s` self-time plus built-in
+`hash` at `0.009s`, in `0.055s` total. The exact-key dict control removes
+`134.8ns` (**84.4%**) from the raw canonical arm, giving a computed
+post-wrapper ceiling of roughly `2.36x` for the public FNX call and predicting
+parity-plus if a correct key-to-index cache could approach it. That control
+caches degree values and is therefore only a mechanism ceiling, not a
+mutation-correct candidate.
+
+SAME-ELF ADMISSION, ALL TRIALS: no source was edited. Each trial used the same
+exact artifact and harness, one 2-second predeclared frequency warm-up outside
+the measured region, 21 paired rounds, `min_of=3`, approximately 2ms samples,
+and an exact-output check. Each ran raw/raw A/A and raw/exact-key-dict A/B in
+the same invocation. Decisions use the bootstrap median CI with the 2x
+log-space margin; CV was reported but never gated.
+
+| worker | mechanism A/B median (95% median CI) | A/A median (95% median CI) | doubled A/A floor | admission |
+|---|---:|---:|---:|---|
+| `vmi1152480` | `6.0456x` (`5.8321-6.7742x`) | `1.0683x` (`1.0022-1.1158x`) | `1.2450x` | **FAIL** |
+| `vmi1227854` | `6.4732x` (`6.3037-6.8553x`) | `0.9960x` (`0.9730-1.0093x`) | `1.0562x` | **FAIL** |
+| `vmi1264463` | `7.9530x` (`7.4320-8.0428x`) | `1.0025x` (`0.9846-1.0095x`) | `1.0315x` | **FAIL** |
+
+RESULT: HOLD / NO SOURCE EDIT. The mechanism effect is decisive on all three
+workers, but **zero of three** null controls satisfies the predeclared
+`<1.02x` admission predicate. The quietest worker came closest at `1.0315x`;
+that is still a failure, not a reason to relax the gate after seeing the data.
+No key cache, test, or benchmark-suite source was added. Three failed
+admissions trigger an immediate vein switch under the NO-CEILING rule.
+
+RETRY PREDICATE: do not retry the stale degree-dict ceiling or implement a
+DegreeView cache from these data alone. Reopen only when either (a) a
+pre-measurement worker screen finds a pinned core with one-minute load below
+`0.25` and steal below `0.5%`, and the unchanged raw/raw control produces a
+doubled log-space floor below **`1.02x`**, or (b) a separately justified
+C-level `_WeightAwareDegreeView.__getitem__` replacement removes the named
+Python frame and materially changes the controlled path. Any implementation
+must cache **public key -> node index**, clear on `nodes_seq`, call live
+`degree_by_index` on every hit, preserve Python hash/equality and original-key
+errors, and prove edge-mutation liveness. Until then, switch to the `G.adj`
+descriptor/row surface rather than rerunning DegreeView.
