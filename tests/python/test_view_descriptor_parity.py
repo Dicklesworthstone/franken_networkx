@@ -434,6 +434,55 @@ def test_graph_mutation_does_not_cross_public_adj_setattr(monkeypatch):
     assert calls == 1
 
 
+@pytest.mark.parametrize(
+    ("cls_name", "accessors"),
+    [
+        ("Graph", ("adj",)),
+        ("DiGraph", ("adj", "succ", "pred")),
+    ],
+)
+def test_simple_outer_adjacency_len_uses_live_native_count(cls_name, accessors):
+    """br-r37-c1-4rgsf: outer views skip the atlas getter, but stay live."""
+    gnx, gfx = _pair(cls_name)
+    nx_views = [getattr(gnx, name) for name in accessors]
+    fnx_views = [getattr(gfx, name) for name in accessors]
+
+    assert all(view._fnx_native_len is not None for view in fnx_views)
+    assert [len(view) for view in fnx_views] == [len(view) for view in nx_views]
+
+    gnx.add_node("later")
+    gfx.add_node("later")
+    assert [len(view) for view in fnx_views] == [len(view) for view in nx_views]
+
+    gnx.remove_node("n1")
+    gfx.remove_node("n1")
+    assert [len(view) for view in fnx_views] == [len(view) for view in nx_views]
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+def test_simple_adjacency_len_keeps_native_storage_under_node_override(cls_name):
+    """An independent ``_node`` assignment must not change adjacency length."""
+    gnx, gfx = _pair(cls_name)
+    old_nx, old_fnx = gnx.adj, gfx.adj
+    native_count = len(old_nx)
+
+    gnx._node = {"private-only": {}}
+    gfx._node = {"private-only": {}}
+
+    assert gnx.number_of_nodes() == gfx.number_of_nodes() == 1
+    assert len(old_fnx) == len(old_nx) == native_count
+    assert len(gfx.adj) == len(gnx.adj) == native_count
+
+
+def test_adjacency_len_without_native_owner_uses_live_mapping_fallback():
+    snapshot = {"left": {}, "right": {}}
+    view = fnx.AdjacencyView(lambda: snapshot)
+    assert view._fnx_native_len is None
+    assert len(view) == 2
+    snapshot["later"] = {}
+    assert len(view) == 3
+
+
 DIRECTED_ACCESSORS = ["in_degree", "out_degree", "in_edges", "out_edges"]
 
 

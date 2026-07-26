@@ -1633,10 +1633,19 @@ class AtlasView(_Mapping):
 
 
 class AdjacencyView(_Mapping):
-    def __init__(self, atlas_getter, *, owner=None, row_kind="adj"):
+    def __init__(
+        self, atlas_getter, *, owner=None, row_kind="adj", native_len=None
+    ):
         self._atlas_getter = atlas_getter
         self._fnx_owner = owner
         self._fnx_row_kind = row_kind
+        # br-r37-c1-4rgsf: outer simple-graph adjacency views bind the raw
+        # PyO3 node-count descriptor once. ``len(G.adj)`` is exactly the native
+        # adjacency owner count, so avoid rebuilding the native adjacency
+        # wrapper through _atlas_getter on every call. Inner row, filtered,
+        # reverse, reconstructed, and snapshot views pass no native_len and
+        # retain the mapping fallback below.
+        self._fnx_native_len = native_len
         # br-r37-c1-spg9n: (nodes_seq, {node: AtlasView}) cache. The returned
         # AtlasView reads its row live from Rust, so it stays valid across EDGE
         # changes; only node add/remove (which bumps nodes_seq) needs a fresh
@@ -1648,6 +1657,9 @@ class AdjacencyView(_Mapping):
         return self._atlas_getter()
 
     def __len__(self):
+        native_len = self._fnx_native_len
+        if native_len is not None:
+            return native_len()
         return len(self._atlas())
 
     def __iter__(self):
@@ -1861,6 +1873,10 @@ def _cached_view(slot, factory):
     return _accessor
 
 
+_GRAPH_ADJ_NATIVE_LEN = Graph.number_of_nodes
+_DIGRAPH_ADJ_NATIVE_LEN = DiGraph.number_of_nodes
+
+
 _multigraph_adj_view = _cached_view(
     "_fnx_view_adj",
     lambda self: MultiAdjacencyView(
@@ -1875,6 +1891,7 @@ _graph_adj_view = _cached_view(
         lambda: _GRAPH_ADJ_DESCRIPTOR.__get__(self, Graph),
         owner=self,
         row_kind="adj",
+        native_len=_GRAPH_ADJ_NATIVE_LEN.__get__(self, Graph),
     ),
 )
 
@@ -1885,6 +1902,7 @@ _digraph_adj_view = _cached_view(
         lambda: _DIGRAPH_ADJ_DESCRIPTOR.__get__(self, DiGraph),
         owner=self,
         row_kind="succ",
+        native_len=_DIGRAPH_ADJ_NATIVE_LEN.__get__(self, DiGraph),
     ),
 )
 
@@ -1903,6 +1921,7 @@ _digraph_succ_view = _cached_view(
         lambda: _DIGRAPH_SUCC_DESCRIPTOR.__get__(self, DiGraph),
         owner=self,
         row_kind="succ",
+        native_len=_DIGRAPH_ADJ_NATIVE_LEN.__get__(self, DiGraph),
     ),
 )
 
@@ -1913,6 +1932,7 @@ _digraph_pred_view = _cached_view(
         lambda: _DIGRAPH_PRED_DESCRIPTOR.__get__(self, DiGraph),
         owner=self,
         row_kind="pred",
+        native_len=_DIGRAPH_ADJ_NATIVE_LEN.__get__(self, DiGraph),
     ),
 )
 

@@ -25004,3 +25004,120 @@ other warning denied. UBS's bounded scan of the 61k-line monolithic shim
 reached 180 seconds without emitting a source finding; its completed
 harness/test scan reports zero critical or warning findings after the four
 trusted in-process pickle round trips were explicitly annotated.
+
+## 2026-07-26 CloudyTurtle KEEP (`AdjacencyView.__len__`): bind the raw owner node count once — **1.7700x mechanism / 2.70x public-gap recovery** (`br-r37-c1-4rgsf`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: before proposing this lever,
+`scripts/perf_ledger_preflight.py --prior-art 'AdjacencyView __len__'` and
+direct searches for `AdjacencyView`, `len(G.adj)`, `native count`, and
+`number_of_nodes` found no prior attempt at this mechanism. The governing
+public-`Graph.adj` KEEP immediately above measured `len(G.adj)` at `0.3095x`
+and required a fresh profile with at least 30% named removable self-time, an
+exact raw-count prototype preserving private and filtered-view semantics, and
+a doubled same-invocation null floor below `1.03x`.
+
+The exact-current profile on `vmi1264463` measured NetworkX `len(G.adj)` at
+`138.3ns`, FNX at `583.8ns`, the raw owner `number_of_nodes` descriptor at
+`120.3ns`, and `len(view._atlas())` at `431.2ns`. Over 200,000 calls,
+`cProfile` attributed `0.132s` self-time to `AdjacencyView.__len__`, `0.100s`
+to its getter lambda, and `0.081s` to `_atlas`, in `0.459s` total: the
+removable Python chain owns **68.2% self-time** and the raw descriptor predicts
+a **4.85x Amdahl ceiling**. This satisfies the governing profile predicate and
+names the exact work removed.
+
+REJECTED PROTOTYPE / CONCRETE RETRY: the first dynamic prototype checked a
+private-override sentinel on every `__len__` call before selecting the raw
+owner count. On the same exact ELF, its causal A/B was only `0.9753x`
+(`0.8955-1.0260x` median CI) against an A/A CI of `0.9352-1.0413x` and
+required floor `1.1435x`; the public candidate remained `0.3327x` with a
+`1.0719x` floor. This is a **VALID-AB REJECT**, not VOID-NONULL: the effect
+sits inside its recorded same-invocation null. Do not retry a per-call
+override check; it consumes the work saved. Retry only by binding a
+semantically exact raw descriptor once during view construction.
+
+RAW-BOUND ADMISSION: Python descriptor inspection established that captured
+`Graph.number_of_nodes` / `DiGraph.number_of_nodes` are raw PyO3 method
+descriptors (`99.2ns` direct) while `Graph.__len__` is private-aware
+(`436.6ns`). Under an independent `_node` override, the old adjacency view,
+the captured raw descriptor, and native storage all remained `2000`, while
+the public `number_of_nodes()` correctly became `1`. The raw descriptor is
+therefore the adjacency owner's exact semantic count, not merely a faster
+approximation. A second exact-ELF dynamic admission measured atlas/raw-bound
+at `3.5738x` (`3.2284-3.7992x`) against A/A
+`0.9174-0.9865x`, required floor `1.1882x`; the public NetworkX/FNX candidate
+was `1.4660x` (`1.4277-1.6014x`) against A/A `0.9356-1.0484x`, required
+floor `1.1425x`. Counted semantics were identical:
+`old_atlas=2000`, `raw_bound=2000`, `before=2000`, `public_nodes=1`.
+
+ONE LEVER: outer simple-graph `AdjacencyView` instances now bind the captured
+raw Graph or DiGraph node-count descriptor at construction and call it from
+`__len__`. Inner row, filtered, reverse, reconstructed, snapshot, and
+ownerless views pass no native counter and retain the live mapping fallback.
+No graph storage, mutation, iteration, row materialization, or public
+`number_of_nodes` semantics changed.
+
+BEHAVIOR ISOMORPHISM / CONFORMANCE: the exact final artifact passed
+**1,281/1,281** focused tests. New locks cover Graph `adj`, DiGraph
+`adj`/`succ`/`pred`, live add/remove-node updates, independence from a
+load-bearing `_node` override, and ownerless mapping liveness. The broader
+selected suite also covers descriptor assignment, filtered/reverse views,
+lazy mirrors, adjacency mappings, graph methods, mutation, deepcopy, and
+pickle. The earlier exact 140-test descriptor slice also passed before the
+full gate.
+
+PINNED-WORKER SAME-INVOCATION A/A + A/B: the exact extension was exercised
+from an isolated package on drained `vmi1227854`, pinned to core 3 after the
+predeclared two-second warm-up at load average `0.1919/0.2725/0.9907`, then
+the worker was immediately re-enabled. The harness self-reported as line one
+the loaded ELF SHA-256
+`4b30828df78e87ece5f6323d0b8864d46af76216c37a47e6375acf849dde122f`
+(13,154,016 bytes), wrapper SHA-256
+`6fa2529d384c85e1e3bcd26b4a16fb6b6e0cfcf5d3e90d74c1bd15970956a120`,
+harness SHA-256
+`d6d0503d33082785b940e6695c74fb931c228859ff613ecb4c4580679d0c8656`,
+and test SHA-256
+`9f63da2f7544ef955a9a5cc3dfeec1aa30ecc333edbcb10c5d2669fbaad254e8`.
+
+Every row ran 21 interleaved rounds with `min_of=3`, proved exact output before
+timing, and ran its own A/A null in the same invocation. Decisions use only
+the bootstrap median CI with the contract's 2x log-space null margin; CV was
+reported but never gated.
+
+| row (500 lengths) | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | required floor | decision |
+|---|---:|---:|---:|---:|---|
+| old atlas / raw-bound `len(G.adj)` | **`1.7700x`** | `1.6569-1.8383x` | `0.9361-1.0322x` | `1.1412x` | **DECIDABLE KEEP** |
+| NetworkX / FNX `len(G.adj)` | `0.8348x` | `0.7903-0.8607x` | `1.0049-1.0930x` | `1.1946x` | **DECIDABLE residual loss** |
+| NetworkX / FNX `len(DG.adj)` | `0.2203x` | `0.2143-0.2458x` | `0.9419-1.0074x` | `1.1272x` | **DECIDABLE residual loss** |
+| NetworkX / FNX `len(DG.succ)` | `0.2687x` | `0.2614-0.2961x` | `0.9846-1.0825x` | `1.1719x` | **DECIDABLE residual loss** |
+| NetworkX / FNX `len(DG.pred)` | `0.2980x` | `0.2720-0.3125x` | `0.9412-1.0314x` | `1.1288x` | **DECIDABLE residual loss** |
+
+RESULT: KEEP. The named `AdjacencyView.__len__` chain clears its null floor by
+`1.515x` and removes **43.5%** of its old wall time. Public Graph length
+improves from the preceding row's `0.3095x` to `0.8348x`, an approximately
+**2.70x recovery**, but remains an honestly reported residual loss. The much
+larger directed losses are not evidence against the count primitive:
+`DiGraph.adj`, `succ`, and `pred` still execute their load-bearing public
+property before reaching the now-fast view length. That descriptor family is
+a different vein and must be separately profiled and admitted.
+
+RETRY PREDICATE: do not retry atlas materialization in `AdjacencyView.__len__`,
+the raw node-count binding, or any per-call private-override sentinel. Reopen
+the residual public Graph row only if a fresh exact profile attributes at
+least **10% self-time** to a new named removable frame and predicts at least
+`1.05x` end-to-end. Route DiGraph `adj`/`succ`/`pred` properties to a distinct
+descriptor-split audit only after another negative-ledger preflight, a fresh
+profile attributes at least **30% self-time** to those property bodies, an
+exact dynamic prototype proves public/private assignment and filtered/reverse
+view semantics, native mutation records zero entries into the proposed Python
+setter hook, and the same-invocation doubled-null floor is below **`1.03x`**.
+
+QUALITY GATES: strict-remote `cargo check --workspace --all-targets -j 2`
+passed on `vmi1149989`, emitting only the two established dead-helper
+warnings. The mandatory strict workspace clippy command reproduced only the
+same five pre-existing library findings plus one established test lint: two
+dead helpers, three `collapsible_if` sites, and one
+`chunks_exact_to_as_chunks` site. Exact focused conformance, Python
+byte-compilation, `cargo fmt --check`, `git diff --check`, and the filtered
+strict-clippy rerun all passed. UBS completed the changed harness/test/ledger
+scan with zero critical or warning findings. Its bounded scan of the 61k-line
+monolithic Python shim reached 180 seconds without emitting a source finding.

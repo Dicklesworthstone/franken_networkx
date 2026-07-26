@@ -28,6 +28,7 @@ minimum (the dominant knob; longer samples are a bigger target for preemption).
 Usage:
     python3 scripts/perf_harness.py view-accessors
     python3 scripts/perf_harness.py adj-descriptor
+    python3 scripts/perf_harness.py adj-len
     python3 scripts/perf_harness.py node-primitives
     python3 scripts/perf_harness.py nodeview-getitem
     python3 scripts/perf_harness.py lazy-rows
@@ -386,6 +387,50 @@ def suite_adj_descriptor():
     ]
 
 
+def suite_adjacency_len():
+    """br-r37-c1-4rgsf: outer simple adjacency views use raw node count."""
+    import franken_networkx as fnx
+
+    gnx, gfx = _build_pair(2000, 8000, seed=7, weighted=True)
+    dnx, dfx = _build_pair(2000, 8000, seed=17, weighted=True, directed=True)
+    repeats = range(500)
+    graph_view = gfx.adj
+
+    def atlas_len_x500():
+        return [len(graph_view._atlas()) for _ in repeats]
+
+    def native_len_x500():
+        return [len(graph_view) for _ in repeats]
+
+    return [
+        (
+            "len(G.adj) x500 [atlas/raw-bound]",
+            atlas_len_x500,
+            native_len_x500,
+        ),
+        (
+            "len(G.adj) x500 [nx/fnx]",
+            lambda: [len(gnx.adj) for _ in repeats],
+            native_len_x500,
+        ),
+        (
+            "len(DG.adj) x500 [nx/fnx]",
+            lambda: [len(dnx.adj) for _ in repeats],
+            lambda: [len(dfx.adj) for _ in repeats],
+        ),
+        (
+            "len(DG.succ) x500 [nx/fnx]",
+            lambda: [len(dnx.succ) for _ in repeats],
+            lambda: [len(dfx.succ) for _ in repeats],
+        ),
+        (
+            "len(DG.pred) x500 [nx/fnx]",
+            lambda: [len(dnx.pred) for _ in repeats],
+            lambda: [len(dfx.pred) for _ in repeats],
+        ),
+    ]
+
+
 def suite_node_primitives():
     """br-r37-c1-qmi5w: raw-descriptor and competitive primitive proof."""
     import franken_networkx as fnx
@@ -583,6 +628,7 @@ def suite_marshaling():
 SUITES = {
     "view-accessors": suite_view_accessors,
     "adj-descriptor": suite_adj_descriptor,
+    "adj-len": suite_adjacency_len,
     "node-primitives": suite_node_primitives,
     "nodeview-getitem": suite_nodeview_getitem,
     "lazy-rows": suite_lazy_rows,
