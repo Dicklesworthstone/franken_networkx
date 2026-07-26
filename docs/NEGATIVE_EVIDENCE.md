@@ -25888,3 +25888,66 @@ QUALITY GATES: no source, harness, or test file changed. Exact-artifact profile
 provenance and worker re-enablement were verified; the ledger/bead-only diff
 passed `git diff --check`. UBS has no Markdown/JSONL scanner, so no scanner
 pass is claimed for this docs-only result.
+
+## 2026-07-26 CloudyTurtle FRONTIER SWEEP HOLD (`G.degree[n]` key index + `has_node` interning): current A/A floors fail both admission predicates — **NO SOURCE EDIT** (`br-r37-c1-zea7e`)
+
+NEGATIVE-LEDGER-FIRST: before selecting the largest exact current loss, the
+sweep preflight for `lazy view returns node key adjacency row getitem edge
+access most-used NetworkX` returned no direct combined regex match. Direct
+searches then read the governing cached-view, NodeView interning,
+`G.degree[n]` HOLD, per-node-wrapper, adjacency-row, and node-key
+canonicalization rows by hand. The largest measured lazy-view loss,
+`G.degree[n]`, is not a fresh seam: `br-r37-c1-knvl7` already proved a
+key-to-index ceiling but forbids implementation until an unchanged raw/raw
+same-invocation floor is below `1.02x`. The raw-method KEEP likewise permits
+node interning only after a fresh canonicalization attribution and a
+doubled-null floor below `1.02x`.
+
+EXACT CURRENT-ARTIFACT SWEEP: all rows loaded ELF SHA-256
+`4b30828df78e87ece5f6323d0b8864d46af76216c37a47e6375acf849dde122f`
+(13,154,016 bytes) and wrapper SHA-256
+`268d309bb3ca5a0d0ed545d58860fa991253085f5cb1542d0aadcd011afea5a9`.
+Each row proved output identity, ran 21 alternating rounds with `min_of=3`,
+and ran its own A/A null in the same invocation. The worker was drained and
+pinned to core 3 only for measurement, then immediately re-enabled. Decisions
+use the bootstrap median CI with the 2x log-space null margin; CV was never a
+gate.
+
+| admission row | public A/B median | A/B 95% median CI | A/A 95% median CI | doubled-null floor | result |
+|---|---:|---:|---:|---:|---|
+| NetworkX / FNX `G.degree[n]` | `0.5228x` | `0.4855-0.5532x` | `0.9691-1.0437x` | **`1.0893x`** | loss confirmed; degree-cache admission **FAIL** |
+| NetworkX / FNX `G.has_node(present)` | `0.4220x` | `0.4161-0.4287x` | `0.9787-1.0496x` | **`1.1017x`** | loss confirmed; interning admission **FAIL** |
+| NetworkX / FNX `G.has_node(missing)` | `0.5433x` | `0.4744-0.5514x` | `0.9906-1.0194x` | **`1.0392x`** | loss confirmed; interning admission **FAIL** |
+
+The header load average rose from `1.9487/1.5039/1.2939` for the view sweep to
+`3.8833/2.0542/1.4888` for the node-primitive sweep, independently violating
+the degree row's required one-minute load below `0.25`. The current
+wrapper/raw `has_node` control still measured a decisive `1.8461x`, confirming
+the already-landed wrapper removal; it is not a new candidate. The lazy-row
+suite exposed no loss to chase: `dict(G[u])` was inside its null, while
+`list(G[u].keys())`, directed row copies, and the counted live-mirror mechanism
+were decisive FNX wins.
+
+RESULT: HOLD / NO SOURCE EDIT. The public losses are real, but neither
+candidate is admissible under its existing retry predicate. No fresh
+canonicalization share was inferred from a public wall ratio, no stale
+degree-value dict was promoted into a mutation-correct design, and no source
+or harness was edited. This is not a CV rejection.
+
+RETRY PREDICATE: do not rerun the stale degree-value ceiling or implement a
+DegreeView cache unless a pre-measurement worker screen shows one-minute load
+below **`0.25`** and steal below **`0.5%`**, then the unchanged raw/raw A/A
+control produces a doubled floor below **`1.02x`**; the alternative remains a
+separately justified C-level `_WeightAwareDegreeView.__getitem__`. Do not
+reopen node-key interning until a fresh post-wrapper profile attributes at
+least **30%** of residual cost to canonicalization and the same invocation's
+doubled-null floor is below **`1.02x`**. Until one predicate becomes true,
+switch to a different row/edge-view family. Bare cached accessor residuals
+(`0.8175-0.9097x`) require a new named removable frame with at least 10%
+self-time and a predicted `1.05x` end-to-end; their wall ratios alone are not
+an implementation warrant.
+
+QUALITY GATES: no source, harness, or test file changed. Exact-artifact
+identity, parity checks, same-invocation nulls, and worker re-enablement were
+verified. The ledger/bead-only diff passed `git diff --check`; UBS has no
+Markdown/JSONL scanner, so no scanner pass is claimed for this docs-only row.
