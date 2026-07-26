@@ -28,6 +28,7 @@ minimum (the dominant knob; longer samples are a bigger target for preemption).
 Usage:
     python3 scripts/perf_harness.py view-accessors
     python3 scripts/perf_harness.py node-primitives
+    python3 scripts/perf_harness.py nodeview-getitem
     python3 scripts/perf_harness.py lazy-rows
     python3 scripts/perf_harness.py marshaling
 
@@ -369,6 +370,49 @@ def suite_node_primitives():
     ]
 
 
+def suite_nodeview_getitem():
+    """br-r37-c1-yere4: intern warm public keys in each live NodeView."""
+    gnx, gfx = _build_pair(2000, 8000, seed=7, weighted=True)
+    nx_view = gnx.nodes
+    fnx_view = gfx.nodes
+    raw_getitem = type(fnx_view).__getitem__
+    nodes = [str(i) for i in range(512)]
+
+    def canonical_lookup():
+        # ``get`` retains the former native canonical-string path for present
+        # nodes, making it a conservative control: the removed Python
+        # hash/try-except wrapper is not charged to this arm.
+        return [fnx_view.get(node) for node in nodes]
+
+    def interned_lookup():
+        return [raw_getitem(fnx_view, node) for node in nodes]
+
+    # Stabilize worker frequency before the first A/A round. This is benchmark
+    # setup, outside every timed region, and warms both control and candidate.
+    warm_deadline = perf_counter() + 2.0
+    while perf_counter() < warm_deadline:
+        canonical_lookup()
+        interned_lookup()
+
+    return [
+        (
+            "NodeView.__getitem__ x512 [canonical/interned]",
+            canonical_lookup,
+            interned_lookup,
+        ),
+        (
+            "G.nodes[n] x512 [nx/fnx]",
+            lambda: [gnx.nodes[node] for node in nodes],
+            lambda: [gfx.nodes[node] for node in nodes],
+        ),
+        (
+            "sum(G.nodes[n]['weight']) x512 [nx/fnx]",
+            lambda: sum(gnx.nodes[node].get("weight", 0) for node in nodes),
+            lambda: sum(gfx.nodes[node].get("weight", 0) for node in nodes),
+        ),
+    ]
+
+
 def suite_lazy_rows():
     """br-r37-c1-v9auw: live row-mirror materialization and counted mechanism."""
     import networkx as nx
@@ -474,6 +518,7 @@ def suite_marshaling():
 SUITES = {
     "view-accessors": suite_view_accessors,
     "node-primitives": suite_node_primitives,
+    "nodeview-getitem": suite_nodeview_getitem,
     "lazy-rows": suite_lazy_rows,
     "marshaling": suite_marshaling,
 }

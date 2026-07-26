@@ -119,6 +119,121 @@ def test_plain_node_primitives_are_raw_descriptors(cls_name):
 
 
 @pytest.mark.parametrize("cls_name", CLASS_NAMES)
+def test_node_view_getitem_is_a_raw_descriptor(cls_name):
+    """br-r37-c1-yere4: successful lookup must not cross a Python wrapper."""
+    gnx, gfx = _pair(cls_name)
+    assert not inspect.isfunction(type(gfx.nodes).__getitem__)
+    assert gfx.nodes["n0"] is gfx.nodes["n0"]
+    assert gfx.nodes["n0"] == gnx.nodes["n0"]
+
+
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+def test_node_view_lookup_cache_invalidates_on_remove_and_readd(cls_name):
+    gnx, gfx = _pair(cls_name)
+    nx_view, fnx_view = gnx.nodes, gfx.nodes
+    old_nx, old_fnx = nx_view["n0"], fnx_view["n0"]
+    assert fnx_view["n0"] is old_fnx
+
+    gnx.remove_node("n0")
+    gfx.remove_node("n0")
+    gnx.add_node("n0", generation=2)
+    gfx.add_node("n0", generation=2)
+
+    assert fnx_view["n0"] == nx_view["n0"] == {"generation": 2}
+    assert fnx_view["n0"] is not old_fnx
+    assert nx_view["n0"] is not old_nx
+
+
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+def test_node_view_lookup_cache_uses_python_numeric_key_equality(cls_name):
+    gnx, gfx = getattr(nx, cls_name)(), getattr(fnx, cls_name)()
+    gnx.add_node(1, marker="one")
+    gfx.add_node(1, marker="one")
+    nx_attrs, fnx_attrs = gnx.nodes[1], gfx.nodes[1]
+    for equivalent in (True, 1.0):
+        assert gfx.nodes[equivalent] is fnx_attrs
+        assert gnx.nodes[equivalent] is nx_attrs
+
+
+class _EqualNode:
+    def __init__(self, value):
+        self.value = value
+
+    def __hash__(self):
+        return hash(self.value)
+
+    def __eq__(self, other):
+        return isinstance(other, _EqualNode) and self.value == other.value
+
+    def __repr__(self):
+        return f"_EqualNode({self.value!r})"
+
+
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+def test_node_view_lookup_cache_uses_python_object_equality(cls_name):
+    gnx, gfx = getattr(nx, cls_name)(), getattr(fnx, cls_name)()
+    original = _EqualNode("node")
+    equal_query = _EqualNode("node")
+    gnx.add_node(original, marker=7)
+    gfx.add_node(original, marker=7)
+    nx_attrs, fnx_attrs = gnx.nodes[equal_query], gfx.nodes[equal_query]
+    assert fnx_attrs == nx_attrs == {"marker": 7}
+    assert gfx.nodes[equal_query] is fnx_attrs
+    assert gnx.nodes[equal_query] is nx_attrs
+
+
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+@pytest.mark.parametrize("key", ["missing", 999, 1.5, True])
+def test_node_view_missing_key_keeps_original_key(cls_name, key):
+    gnx, gfx = _pair(cls_name)
+    with pytest.raises(KeyError) as nx_error:
+        gnx.nodes[key]
+    with pytest.raises(KeyError) as fnx_error:
+        gfx.nodes[key]
+    assert fnx_error.value.args == nx_error.value.args == (key,)
+    assert fnx_error.value.args[0] is key
+
+
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+@pytest.mark.parametrize("key", [[], {}, set()])
+def test_node_view_unhashable_key_matches_networkx(cls_name, key):
+    gnx, gfx = _pair(cls_name)
+    with pytest.raises(TypeError) as nx_error:
+        gnx.nodes[key]
+    with pytest.raises(TypeError) as fnx_error:
+        gfx.nodes[key]
+    assert str(fnx_error.value) == str(nx_error.value)
+
+
+class _UnhashableString(str):
+    __hash__ = None
+
+
+class _ExplodingHash:
+    def __hash__(self):
+        raise RuntimeError("hash probe reached")
+
+
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+@pytest.mark.parametrize(
+    ("key", "error_type", "message"),
+    [
+        (_UnhashableString("n0"), TypeError, "unhashable type"),
+        (_ExplodingHash(), RuntimeError, "hash probe reached"),
+    ],
+    ids=["unhashable-str-subclass", "custom-hash-error"],
+)
+def test_node_view_subclass_hash_error_is_not_bypassed(
+    cls_name, key, error_type, message
+):
+    gnx, gfx = _pair(cls_name)
+    with pytest.raises(error_type, match=message):
+        gnx.nodes[key]
+    with pytest.raises(error_type, match=message):
+        gfx.nodes[key]
+
+
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
 def test_private_node_method_shadows_do_not_alias_copy_or_pickle(cls_name):
     graph = getattr(fnx, cls_name)()
     graph.add_node("native")

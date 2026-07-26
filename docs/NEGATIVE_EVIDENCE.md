@@ -24683,3 +24683,126 @@ As in the preceding raw-primitive lever, the bounded scan of the 61k-line
 monolithic Python shim reached its 180-second timeout without emitting a source
 finding; that shim diff was reviewed directly and is covered by the exact-ELF
 parity and compiler gates above.
+
+## 2026-07-26 CloudyTurtle KEEP (warm `NodeView.__getitem__` / `G.nodes[n]`): node-set-scoped public-key interning — **1.9170x / 1.1118x** (`br-r37-c1-yere4`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: before proposing this lever,
+`scripts/perf_ledger_preflight.py` and direct searches for `NodeView`,
+`G.nodes[n]`, `node key`, `intern`, `canonical`, and `getitem` read the full
+governing rows in both performance ledgers. The 2026-07-01 row treated node-key
+canonicalization as an ABI floor. The 2026-07-25 wrapper decomposition left
+node-key interning on HOLD until a fresh profile attributed at least 30% of the
+post-wrapper residual to canonicalization and a same-invocation doubled-null
+floor cleared `1.02x`.
+
+On current HEAD, 100,000 warm public lookups took `0.144509s`; the captured raw
+PyO3 getter took `0.071322s`, an observed **2.03x** wrapper/raw ceiling.
+`cProfile` named the Python `__getitem__` wrapper at `0.103s` self-time and
+built-in `hash` at `0.018s`. After moving the error contract into the raw
+getter, an exact-key Python-dict control versus the remaining canonical native
+getter attributed **89.35%** of that canonical arm to avoidable warm key
+resolution (`1 - 1/9.3888`). This supersedes the older unprofiled ABI-floor
+assumption and satisfies the prior row's attribution predicate.
+
+ADMISSION HISTORY, INCLUDING NULL FAILURES: the first wrapper-only exact ELF
+(`5ec7b111…`) removed the Python frame but did not intern keys. Its causal
+median was `1.1484x` (95% median CI `1.1266-1.1833x`), but its A/A CI
+`0.9163-1.0695x` required `1.1910x`, so it was correctly held
+**UNDECIDABLE**; public `G.nodes[n]` remained `0.3892x` and the attribute sum
+`0.4597x`. The interning mechanism was then screened without source claims.
+All trials are recorded:
+
+| exact-key dict / canonical getter prototype | causal median | A/A doubled floor | disposition |
+|---|---:|---:|---|
+| `vmi1167313`, 21 rounds | `12.7089x` | `1.0314x` (A/A CI `0.9869-1.0156x`) | effect visible; null misses `<1.02x` admission |
+| `vmi1167313`, 31 rounds | `11.8187x` | `1.4735x` | worker noise; inadmissible |
+| `vmi1152480`, first run | `11.2657x` | `1.0758x` | frequency transition; inadmissible |
+| `vmi1152480`, predeclared 2s frequency warm-up | **`9.3888x`** (CI `9.3066-9.4857x`, 21/21) | **`1.0120x`** (A/A `1.0000x`, CI `0.9940-1.0051x`) | admits implementation |
+
+No CV threshold was used. The first three attempts are routing evidence, not
+discarded measurements; the warm-up protocol was declared before the final
+admission run and is outside every timed region.
+
+ONE LEVER: each concrete `Graph`, `DiGraph`, `MultiGraph`, and
+`MultiDiGraph` NodeView now owns a small Python dict mapping observed original
+public node keys directly to their live attribute dicts. Warm
+`__getitem__` therefore performs one native Python-dict hash/equality probe
+instead of crossing a Python wrapper, allocating/canonicalizing a Rust string,
+and probing the native string-keyed graph map. Cold successful lookup still
+uses the canonical graph path, then interns the graph's original public key
+object rather than the transient query object. The cache clears lazily whenever
+`nodes_seq` changes; attribute-only mutation needs no invalidation because the
+cached value is the authoritative live dict. Failed keys are never retained,
+so adversarial missing-key traffic cannot grow the cache. Memory is bounded by
+the number of successful keys observed through that live view.
+
+Python's `dict` supplies the contract on the warm path: numeric-equal keys,
+custom hash/equality, unhashable inputs, and exceptions raised by `__hash__`
+all behave natively. Cold misses now raise `KeyError` with the original key
+directly in Rust, which also removes the old Python hash/try/re-raise wrapper.
+No node identity, insertion order, native storage, algorithm, or mutation
+policy changed.
+
+BEHAVIOR ISOMORPHISM / CONFORMANCE: the exact final ELF passed **395/395**
+focused descriptor, unhashable-key, attribute-access, and adjacency-mapping
+tests, then **469 passed / 1 skipped** broader graph-method, lazy-mirror,
+node-canonicalization, view-liveness, pickle, mutation, and error-path tests:
+**864 passes** in total. Locks cover all four graph classes; raw descriptor
+installation; repeated attribute-dict identity; remove/re-add invalidation;
+integer/boolean/float key equality; equal custom objects; missing-key
+`args` and object identity; list/dict/set unhashability; an unhashable `str`
+subclass; and a user `__hash__` exception.
+
+PINNED-WORKER SAME-INVOCATION A/A + A/B: strict RCH built one release
+extension on `vmi1149989`. The exact artifact was copied to an isolated package
+on the idle `vmi1152480` measurement window, and the remote hash was verified
+before testing. The benchmark's first line self-reported the loaded ELF path
+and SHA-256
+`4b30828df78e87ece5f6323d0b8864d46af76216c37a47e6375acf849dde122f`;
+the verified artifact size was 13,154,016 bytes. It also reported wrapper SHA-256
+`81c92490919c88661dffb9c07d49ceb3b7024244d973c67900bc603ac0825ae8`
+(Python 3.13.7, NetworkX 3.6.1). The harness SHA-256 was
+`4500ed2dd5f3ad5b7f88e2d9bc604457298cc37fb278fcacedb172ec691d9924`.
+Each 21-round interleaved row proved an order-preserving digest before timing,
+ran its own A/A in the same invocation, and used only the bootstrap median CI
+with the contract's 2x log-space null margin. CV was provenance only.
+
+| row (512 lookups per sample) | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | required floor | decision |
+|---|---:|---:|---:|---:|---|
+| canonical native getter / interned getter | **`1.9170x`** | `1.7734-2.0809x` | `0.9972-1.0135x` | `1.0271x` | **DECIDABLE KEEP** |
+| NetworkX / FNX `G.nodes[n]` | **`1.1118x`** | `1.0917-1.1611x` | `0.9542-1.0156x` | `1.0984x` | **DECIDABLE KEEP** |
+| NetworkX / FNX `sum(G.nodes[n]["weight"])` | **`1.0771x`** | `1.0490-1.1049x` | `0.9997-1.0199x` | `1.0403x` | **DECIDABLE KEEP** |
+
+RESULT: KEEP. The named wrapper frame and measured canonical-resolution
+mechanism both moved in the predicted direction. The most-used public
+`G.nodes[n]` surface crossed from the pre-lever `0.2544x` loss to a decisive
+`1.1118x` win over NetworkX, while the common immediate attribute consumer
+also crossed to `1.0771x`. The worker was re-enabled immediately after the
+single final invocation.
+
+RETRY PREDICATE: do not retry Python NodeView wrappers, canonical-string
+micro-tuning, or another per-view successful-key cache. Reopen this surface
+only if a fresh pinned-worker profile attributes at least **10% self-time** to
+cache invalidation on a node-mutating workload, or attributes at least **5%**
+end-to-end memory to retained per-view keys on a million-node workload, and a
+replacement preserves original-key `KeyError`, Python hash/equality,
+attribute-dict identity, and lazy `nodes_seq` invalidation. Otherwise switch
+veins to a newly profiled `G.degree[n]`, `G.adj`, or algorithm-return frame;
+require at least **30% named self-time** and a same-invocation doubled A/A
+floor below `1.02x` before editing.
+
+QUALITY GATES: `cargo fmt --check`, Python byte-compilation, and
+`git diff --check` passed. Strict-remote
+`cargo check --workspace --all-targets -j 2` passed on `vmi1149989`, with only
+the two known dead-helper warnings. The mandatory strict workspace clippy
+invocation reproduced six pre-existing findings outside this lever: two dead
+helpers, three `collapsible_if` sites, and one
+`chunks_exact_to_as_chunks` test site. Re-running workspace/all-target clippy
+with exactly those three established lint categories allowed passed with every
+other warning still denied. The staged UBS scan completed its Rust pass with
+zero critical findings, then reached the known 180-second scanner limit on the
+61k-line Python shim without emitting a shim finding. The completed targeted
+Rust/harness/test scan likewise found zero Rust criticals; its only three
+Python high labels were pre-existing, trusted
+`pickle.loads(pickle.dumps(fixture))` test round trips whose line numbers moved
+when this lever added tests.

@@ -5281,7 +5281,13 @@ impl PyMultiDiGraph {
     fn nodes(slf: PyRef<'_, Self>) -> PyResult<Py<MultiDiGraphNodeView>> {
         let py = slf.py();
         let graph_py: Py<PyMultiDiGraph> = Py::from(slf);
-        Py::new(py, MultiDiGraphNodeView { graph: graph_py })
+        Py::new(
+            py,
+            MultiDiGraphNodeView {
+                graph: graph_py,
+                lookup_cache: crate::NodeLookupCache::new(py),
+            },
+        )
     }
 
     #[getter]
@@ -7895,6 +7901,7 @@ impl PyMultiDiGraph {
 #[pyclass]
 pub struct MultiDiGraphNodeView {
     graph: Py<PyMultiDiGraph>,
+    lookup_cache: crate::NodeLookupCache,
 }
 
 #[pymethods]
@@ -7950,6 +7957,10 @@ impl MultiDiGraphNodeView {
     }
 
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+        let nodes_seq = self.graph.borrow(py).nodes_seq;
+        if let Some(attrs) = self.lookup_cache.get(py, nodes_seq, n)? {
+            return Ok(attrs);
+        }
         // br-r37-c1-mdgnodeget (cc): MATERIALIZE + cache the live mirror dict, as
         // DiGraph (br-r37-c1-d58s8) and MultiGraph already do. The old
         // `node_py_attrs.get().map_or_else(|| PyDict::new(py), ..)` returned a FRESH
@@ -7965,7 +7976,11 @@ impl MultiDiGraphNodeView {
         if !g.inner.has_node(&canonical) {
             return Err(crate::missing_key_error(n));
         }
-        Ok(g.materialize_node_py_attrs(py, &canonical))
+        let public_key = g.py_node_key(py, &canonical);
+        let attrs = g.materialize_node_py_attrs(py, &canonical);
+        drop(g);
+        self.lookup_cache.insert(py, public_key.bind(py), &attrs)?;
+        Ok(attrs)
     }
 
     #[pyo3(signature = (n, default=None))]
@@ -12325,6 +12340,7 @@ impl PyDiGraph {
             DiNodeView {
                 graph: graph_py,
                 data: ViewData::NoData,
+                lookup_cache: crate::NodeLookupCache::new(py),
             },
         )
     }
@@ -14620,6 +14636,7 @@ fn parse_edge_nbunch_for_multidigraph(
 pub struct DiNodeView {
     graph: Py<PyDiGraph>,
     data: ViewData,
+    lookup_cache: crate::NodeLookupCache,
 }
 
 #[pymethods]
@@ -14701,6 +14718,10 @@ impl DiNodeView {
     }
 
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+        let nodes_seq = self.graph.borrow(py).nodes_seq;
+        if let Some(attrs) = self.lookup_cache.get(py, nodes_seq, n)? {
+            return Ok(attrs);
+        }
         let mut g = self.graph.borrow_mut(py);
         let canonical = node_key_to_string(py, n)?;
         if !g.inner.has_node(&canonical) {
@@ -14708,10 +14729,15 @@ impl DiNodeView {
         }
         // br-r37-c1-d58s8: MATERIALIZE absent mirrors (lazy-mirror paths
         // produce none) — a fresh unstored dict silently loses writes.
-        Ok(g.node_py_attrs
+        let public_key = g.py_node_key(py, &canonical);
+        let attrs = g
+            .node_py_attrs
             .entry(canonical)
             .or_insert_with(|| PyDict::new(py).unbind())
-            .clone_ref(py))
+            .clone_ref(py);
+        drop(g);
+        self.lookup_cache.insert(py, public_key.bind(py), &attrs)?;
+        Ok(attrs)
     }
 
     #[pyo3(signature = (n, default=None))]
@@ -14754,6 +14780,7 @@ impl DiNodeView {
             DiNodeView {
                 graph: self.graph.clone_ref(py),
                 data: view_data,
+                lookup_cache: crate::NodeLookupCache::new(py),
             },
         )
     }
@@ -14823,6 +14850,7 @@ impl DiNodeView {
             DiNodeView {
                 graph: self.graph.clone_ref(py),
                 data: view_data,
+                lookup_cache: crate::NodeLookupCache::new(py),
             },
         )
     }

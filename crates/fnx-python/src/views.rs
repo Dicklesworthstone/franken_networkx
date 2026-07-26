@@ -3,7 +3,9 @@
 //! These views provide dict-like read access to graph data and reflect
 //! the current state of the graph (they are "live" views backed by Py<PyGraph>).
 
-use crate::{NodeIterator, PyGraph, PyObject, attr_map_to_pydict, node_key_to_string};
+use crate::{
+    NodeIterator, NodeLookupCache, PyGraph, PyObject, attr_map_to_pydict, node_key_to_string,
+};
 use pyo3::exceptions::{PyKeyError, PyRuntimeError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyIterator, PyTuple};
@@ -20,6 +22,7 @@ use pyo3::types::{PyDict, PyIterator, PyTuple};
 pub struct NodeView {
     graph: Py<PyGraph>,
     data: NodeViewData,
+    lookup_cache: NodeLookupCache,
 }
 
 enum NodeViewData {
@@ -131,12 +134,20 @@ impl NodeView {
     }
 
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+        let nodes_seq = self.graph.borrow(py).nodes_seq;
+        if let Some(attrs) = self.lookup_cache.get(py, nodes_seq, n)? {
+            return Ok(attrs);
+        }
         let mut g = self.graph.borrow_mut(py);
         let canonical = node_key_to_string(py, n)?;
         if !g.inner.has_node(&canonical) {
             return Err(crate::missing_key_error(n));
         }
-        Ok(g.materialize_node_py_attrs(py, &canonical))
+        let public_key = g.py_node_key(py, &canonical);
+        let attrs = g.materialize_node_py_attrs(py, &canonical);
+        drop(g);
+        self.lookup_cache.insert(py, public_key.bind(py), &attrs)?;
+        Ok(attrs)
     }
 
     #[pyo3(signature = (n, default=None))]
@@ -189,6 +200,7 @@ impl NodeView {
             NodeView {
                 graph: self.graph.clone_ref(py),
                 data: view_data,
+                lookup_cache: NodeLookupCache::new(py),
             },
         )
     }
@@ -256,6 +268,7 @@ impl NodeView {
             NodeView {
                 graph: self.graph.clone_ref(py),
                 data: view_data,
+                lookup_cache: NodeLookupCache::new(py),
             },
         )
     }
@@ -1263,6 +1276,7 @@ pub fn new_node_view(py: Python<'_>, graph: Py<PyGraph>) -> PyResult<Py<NodeView
         NodeView {
             graph,
             data: NodeViewData::NoData,
+            lookup_cache: NodeLookupCache::new(py),
         },
     )
 }

@@ -24,7 +24,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBool, PyDict, PyFloat, PyInt, PyIterator, PyList, PyString, PyTuple};
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 pub(crate) type PyObject = Py<PyAny>;
 
@@ -1122,6 +1122,53 @@ pub fn geometric_pairs_grid(
 
 pub(crate) fn missing_key_error(key: &Bound<'_, PyAny>) -> PyErr {
     PyKeyError::new_err((key.clone().unbind(),))
+}
+
+/// Per-view public-node-key interning for warm ``NodeView.__getitem__`` calls.
+///
+/// The graph's native maps are keyed by an allocated canonical `String`, while
+/// NetworkX probes its existing Python dict directly. Cache only keys that have
+/// actually been observed, retain the graph's original public key object (not a
+/// transient equal query object), and invalidate lazily on any node-set change.
+/// `PyDict::get_item` supplies Python's native hash/equality behavior and exact
+/// unhashable-key exception before the cold canonical fallback runs.
+pub(crate) struct NodeLookupCache {
+    nodes_seq: AtomicU64,
+    entries: Py<PyDict>,
+}
+
+impl NodeLookupCache {
+    pub(crate) fn new(py: Python<'_>) -> Self {
+        Self {
+            nodes_seq: AtomicU64::new(u64::MAX),
+            entries: PyDict::new(py).unbind(),
+        }
+    }
+
+    pub(crate) fn get(
+        &self,
+        py: Python<'_>,
+        nodes_seq: u64,
+        key: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<Py<PyDict>>> {
+        if self.nodes_seq.load(Ordering::Relaxed) != nodes_seq {
+            self.entries.bind(py).clear();
+            self.nodes_seq.store(nodes_seq, Ordering::Relaxed);
+        }
+        let Some(value) = self.entries.bind(py).get_item(key)? else {
+            return Ok(None);
+        };
+        Ok(Some(value.downcast::<PyDict>()?.clone().unbind()))
+    }
+
+    pub(crate) fn insert(
+        &self,
+        py: Python<'_>,
+        public_key: &Bound<'_, PyAny>,
+        attrs: &Py<PyDict>,
+    ) -> PyResult<()> {
+        self.entries.bind(py).set_item(public_key, attrs.bind(py))
+    }
 }
 
 pub(crate) fn edge_key_lookup_string(_py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String> {
@@ -8655,7 +8702,13 @@ impl PyMultiGraph {
     fn nodes(slf: PyRef<'_, Self>) -> PyResult<Py<MultiGraphNodeView>> {
         let py = slf.py();
         let graph_py: Py<PyMultiGraph> = Py::from(slf);
-        Py::new(py, MultiGraphNodeView { graph: graph_py })
+        Py::new(
+            py,
+            MultiGraphNodeView {
+                graph: graph_py,
+                lookup_cache: NodeLookupCache::new(py),
+            },
+        )
     }
 
     /// ``G.edges`` — returns an EdgeView-like list of edges.
@@ -10558,6 +10611,7 @@ impl PyMultiGraph {
 #[pyclass]
 pub(crate) struct MultiGraphNodeView {
     graph: Py<PyMultiGraph>,
+    lookup_cache: NodeLookupCache,
 }
 
 #[pymethods]
@@ -10613,14 +10667,20 @@ impl MultiGraphNodeView {
     }
 
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        let nodes_seq = self.graph.borrow(py).nodes_seq;
+        if let Some(attrs) = self.lookup_cache.get(py, nodes_seq, n)? {
+            return Ok(attrs.into_any());
+        }
         let mut g = self.graph.borrow_mut(py);
         let canonical = node_key_to_string(py, n)?;
         if !g.inner.has_node(&canonical) {
             return Err(missing_key_error(n));
         }
-        Ok(g.ensure_node_py_attrs(py, &canonical)
-            .clone_ref(py)
-            .into_any())
+        let public_key = g.py_node_key(py, &canonical);
+        let attrs = g.ensure_node_py_attrs(py, &canonical).clone_ref(py);
+        drop(g);
+        self.lookup_cache.insert(py, public_key.bind(py), &attrs)?;
+        Ok(attrs.into_any())
     }
 
     #[pyo3(signature = (n, default=None))]

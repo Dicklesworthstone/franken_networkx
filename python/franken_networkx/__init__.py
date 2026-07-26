@@ -6488,38 +6488,6 @@ _EDGE_VIEW_TYPE.__copy__ = _edge_view_copy
 _EDGE_VIEW_TYPE.__deepcopy__ = _edge_view_deepcopy
 
 
-def _make_keystr_preserving_getitem(raw):
-    """br-keystr: wrap a NodeView ``__getitem__`` so KeyError retains
-    the original Python key object instead of the Rust side's str repr.
-
-    br-r37-c1-i9whv: nx's nodes[n] / adj[n] dict access raises
-    TypeError on unhashable nodes. fnx's wrapper caught KeyError
-    and re-raised KeyError, but unhashable inputs reached the
-    catch path with a different exception type that got swallowed.
-    Hash-check up front for nx parity.
-    """
-
-    def __getitem__(self, node):
-        hash(node)
-        try:
-            return raw(self, node)
-        except KeyError as exc:
-            raise KeyError(node) from exc
-
-    return __getitem__
-
-
-for _node_view_type in (
-    type(Graph().nodes),
-    type(DiGraph().nodes),
-    _MULTIGRAPH_NODE_VIEW_TYPE,
-    _MULTIDIGRAPH_NODE_VIEW_TYPE,
-):
-    _node_view_type.__getitem__ = _make_keystr_preserving_getitem(
-        _node_view_type.__getitem__
-    )
-
-
 # br-r37-c1-k147g: Rust-bound view classes had reprs that either
 # stringified node IDs (NodeView, DegreeView showed ('0', '1', ...)
 # instead of (0, 1, ...)) or showed an opaque _count (EdgeView shows
