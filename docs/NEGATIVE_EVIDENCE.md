@@ -25951,3 +25951,110 @@ QUALITY GATES: no source, harness, or test file changed. Exact-artifact
 identity, parity checks, same-invocation nulls, and worker re-enablement were
 verified. The ledger/bead-only diff passed `git diff --check`; UBS has no
 Markdown/JSONL scanner, so no scanner pass is claimed for this docs-only row.
+
+## 2026-07-26 CloudyTurtle KEEP (scalar keyed `MultiEdgeView.__getitem__`): bind exact-type native edge-data lookup — **3.6479x MG / 10.1186x MDG causal** (`br-r37-c1-8l96z`)
+
+NEGATIVE-LEDGER-FIRST: before proposing this lever, the preflight for
+`scalar adjacency row G[u] G[u][v] MultiGraph edge view getitem` read the
+governing simple-row fast-path KEEP, the older `MG[u][v]` view-layering row,
+and the newer persistent-row-mirror KEEP by hand. The latter permits a fresh
+mapping consumer only with at least 20% row-wrapper attribution and a counted
+reduction in row materializations. A second specific preflight for
+`MultiEdgeView __getitem__ MG.edges[u,v,key] scalar keyed edge access` found no
+direct prior row. This is a distinct scalar keyed-edge consumer, not a retry of
+the mined `MG[u][v]` type-changing family.
+
+PROFILE ATTRIBUTION: the exact pre-edit package loaded ELF SHA-256
+`4b30828df78e87ece5f6323d0b8864d46af76216c37a47e6375acf849dde122f`
+(13,154,016 bytes). On drained `vmi1227854`, pinned to core 3, 200,000 natural
+`MG.edges[u, v, 0]` reads recorded 6,600,002 calls in `2.240891s`;
+unprofiled wall was `0.704906s` versus upstream NetworkX `0.036550s`.
+`_MultiGraphEdgeView.__getitem__` owned `0.269191s` self and `2.159s`
+cumulative (**96.4%**). The four named layered mapping slots owned
+**45.0% self-time**: `AtlasView.__getitem__` `0.293679s` / 13.11%,
+`AdjacencyView.__getitem__` `0.271346s` / 12.11%,
+`MultiGraphEdgeView.__getitem__` `0.269191s` / 12.01%, and
+`MultiAdjacencyView.__getitem__` `0.174523s` / 7.79%. Removing only those
+self frames yields a conservative Amdahl prediction of **1.82x**; the direct
+route also removes their downstream property/private/cache call fanout.
+
+NO-SOURCE PROTOTYPE: an isolated process dynamically bound the captured raw
+PyO3 `get_edge_data` descriptor only for exact ordinary `MultiGraph` and
+`MultiDiGraph` owners. It passed present/reverse identity, live attribute
+mutation, node/neighbor/key-specific missing errors, unhashable errors,
+remove/re-add through a held view, post-construction private `_adj` fallback,
+and subclass fallback. The proof counted 518 MG and 517 MDG native hits while
+retaining 7 and 4 deliberate generic fallbacks. Before source edit, the
+same-ELF same-invocation causal rows were `3.6678x` MG and `8.9889x` MDG,
+both outside their doubled-null floors.
+
+ONE LEVER: `_MultiGraphEdgeView` and `_MultiDiGraphEdgeView` now bind the
+captured raw native `get_edge_data` descriptor once for exact ordinary graph
+types. A successful non-`None` key returns the existing live attribute dict
+without allocating/traversing the four Python mapping views. Missing results,
+literal key `None`, subclasses, and NetworkX-private storage deliberately use
+the established generic chain. A per-call private-storage guard preserves a
+held view if `_adj`, `_succ`, or `_pred` is installed after construction.
+
+BEHAVIOR ISOMORPHISM / COUNTED MECHANISM: the first exact focused run caught
+and rejected a prototype semantic bug: native `key=None` means “all keys,”
+whereas edge-view subscript `None` is a literal key and must raise
+`KeyError(None)`. The landed guard excludes that case. The corrected exact
+bundle passed **182/182** descriptor tests and a broader keyed-edge/view suite
+at **738/738**. Permanent tests cover one raw-native call per successful
+lookup (**128/128 counted calls per graph class**), live dict identity and
+mutation, literal-`None`, exact missing/unhashable exception type and args,
+held private storage, and subclass fallback.
+
+PINNED-WORKER SAME-INVOCATION A/A + A/B: final source-state measurement ran in
+one invocation on drained `vmi1227854`, pinned to core 3 at header load average
+`1.9644/1.7856/1.7207`; the worker was immediately re-enabled. Canonical line
+one reported exact loaded ELF SHA-256 `4b30828d...` and 13,154,016 bytes.
+Structured provenance reported wrapper SHA-256
+`2fd428d45b55b9f95ba8c4359cc3699dfa00a3bcd8edb2230d359819bb6cadfe`,
+harness SHA-256
+`c3fcc7e2826218ac9ebdd389fe196b1f8be9793b79e82e8d752b0f1a4f7c8632`,
+and focused-test SHA-256
+`cc1a4596a2cb49ebf66529a6d16edf6cb472dc3aea8b0af39023b18f11ff4e22`
+(Python 3.13.7, NetworkX 3.6.1).
+
+Every row proved an order-preserving digest before timing, ran 21 interleaved
+rounds with `min_of=3`, and ran its own A/A null in the same invocation.
+Decisions use only the bootstrap median CI with the 2x log-space null margin;
+CV was reported as provenance and never gated.
+
+| row | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | required floor | decision |
+|---|---:|---:|---:|---:|---|
+| old layered / native MG keyed lookup | **`3.6479x`** | `3.4857-3.8754x` | `0.9459-1.0588x` | `1.1211x` | **DECIDABLE KEEP** |
+| NetworkX / FNX MG keyed lookup | `0.1344x` | `0.1309-0.1463x` | `0.9581-1.0147x` | `1.0893x` | **DECIDABLE residual loss** |
+| old layered / native MDG keyed lookup | **`10.1186x`** | `9.4325-10.7170x` | `0.8938-1.0227x` | `1.2517x` | **DECIDABLE KEEP** |
+| NetworkX / FNX MDG keyed lookup | `0.1329x` | `0.1195-0.1448x` | `0.9822-1.0338x` | `1.0687x` | **DECIDABLE residual loss** |
+
+RESULT: KEEP. The counted Python view chain is gone from successful exact-type
+keyed access, and both causal effects clear their own doubled-null floors by
+wide margins. Public parity is not claimed: the most-used scalar edge call is
+still approximately 7.4-7.5x slower than NetworkX, but it is materially closer
+than the pre-lever approximately 19-26x gap.
+
+RETRY PREDICATE: do not retry another Python-level view-chain shortcut,
+special-case literal `None`, or broaden this binding to subclasses/private
+storage. Reopen the remaining scalar keyed-edge gap only after a fresh
+post-KEEP exact profile attributes at least **30% self-time** to one new named
+removable boundary and computes at least a **1.5x** end-to-end Amdahl ceiling.
+A native node-key/interning retry additionally requires a counted reduction in
+hash/canonicalization calls and a same-invocation doubled-null floor below
+**`1.03x`**. A direct native attr-dict proxy or batch lookup is a distinct vein
+only if it preserves live dict identity, exact exception args, reverse
+undirected lookup, and the private/subclass/`None` fallbacks locked here.
+
+QUALITY GATES: exact isolated Python parity passed at 182/182 focused and
+738/738 broader keyed-edge/view tests; `git diff --check`, remote
+`cargo fmt --check`, and strict-remote
+`cargo check --workspace --all-targets -j 2` passed. Mandatory strict workspace
+clippy reproduced exactly the established six findings outside this
+Python-only lever: two dead helpers, three `collapsible_if` sites, and one
+`chunks_exact_to_as_chunks` test site. The filtered strict rerun allowed only
+those three established categories and passed with every other warning denied.
+UBS reported zero critical and zero warning findings for the harness/test
+surface; its combined scan including the 61k-line wrapper hit the bounded
+300-second module timeout without emitting a source finding.

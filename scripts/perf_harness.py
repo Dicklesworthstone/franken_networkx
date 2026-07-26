@@ -32,6 +32,7 @@ Usage:
     python3 scripts/perf_harness.py adj-iter
     python3 scripts/perf_harness.py multi-adj-iter
     python3 scripts/perf_harness.py multi-adj-contains
+    python3 scripts/perf_harness.py multiedge-getitem
     python3 scripts/perf_harness.py digraph-descriptors
     python3 scripts/perf_harness.py multidigraph-descriptors
     python3 scripts/perf_harness.py node-primitives
@@ -709,6 +710,77 @@ def suite_multi_adjacency_contains():
     ]
 
 
+def suite_multiedge_getitem():
+    """br-r37-c1-8l96z: scalar keyed edge-data lookup without view layering."""
+    import networkx as nx
+    import franken_networkx as fnx
+
+    def build_pair(nx_type, fnx_type):
+        gnx, gfx = nx_type(), fnx_type()
+        for index in range(512):
+            left, right = f"u{index}", f"v{index}"
+            attrs = {"weight": index, "tag": str(index)}
+            gnx.add_edge(left, right, key=0, **attrs)
+            gfx.add_edge(left, right, key=0, **attrs)
+        keys = [(f"u{index}", f"v{index}", 0) for index in range(512)]
+        return gnx, gfx, keys
+
+    mg_nx, mg_fnx, mg_keys = build_pair(nx.MultiGraph, fnx.MultiGraph)
+    mdg_nx, mdg_fnx, mdg_keys = build_pair(nx.MultiDiGraph, fnx.MultiDiGraph)
+    mg_nx_edges, mg_fnx_edges = mg_nx.edges, mg_fnx.edges
+    mdg_nx_edges, mdg_fnx_edges = mdg_nx.edges, mdg_fnx.edges
+
+    def layered_multigraph_lookup(edge):
+        """Source-equivalent pre-lever chain for the causal A/B."""
+        u, v, key = edge
+        hash(u)
+        hash(v)
+        hash(key)
+        adj = mg_fnx.adj
+        try:
+            return adj[u][v][key]
+        except KeyError:
+            return adj[v][u][key]
+
+    def layered_multidigraph_lookup(edge):
+        """Source-equivalent pre-lever chain for the directed causal A/B."""
+        u, v, key = edge
+        hash(u)
+        hash(v)
+        hash(key)
+        succ = mdg_fnx.succ
+        if u not in succ:
+            raise KeyError(u)
+        if v not in succ[u]:
+            raise KeyError(v)
+        if key not in succ[u][v]:
+            raise KeyError(key)
+        return succ[u][v][key]
+
+    return [
+        (
+            "MG.edges[u,v,k] x512 [layered/native]",
+            lambda: [layered_multigraph_lookup(edge) for edge in mg_keys],
+            lambda: [mg_fnx_edges[edge] for edge in mg_keys],
+        ),
+        (
+            "MG.edges[u,v,k] x512 [nx/fnx]",
+            lambda: [mg_nx_edges[edge] for edge in mg_keys],
+            lambda: [mg_fnx_edges[edge] for edge in mg_keys],
+        ),
+        (
+            "MDG.edges[u,v,k] x512 [layered/native]",
+            lambda: [layered_multidigraph_lookup(edge) for edge in mdg_keys],
+            lambda: [mdg_fnx_edges[edge] for edge in mdg_keys],
+        ),
+        (
+            "MDG.edges[u,v,k] x512 [nx/fnx]",
+            lambda: [mdg_nx_edges[edge] for edge in mdg_keys],
+            lambda: [mdg_fnx_edges[edge] for edge in mdg_keys],
+        ),
+    ]
+
+
 def suite_digraph_descriptors():
     """br-r37-c1-dyuzb: cache directed public adjacency descriptors."""
     import franken_networkx as fnx
@@ -1069,6 +1141,7 @@ SUITES = {
     "adj-iter": suite_adjacency_iter,
     "multi-adj-iter": suite_multi_adjacency_iter,
     "multi-adj-contains": suite_multi_adjacency_contains,
+    "multiedge-getitem": suite_multiedge_getitem,
     "digraph-descriptors": suite_digraph_descriptors,
     "multidigraph-descriptors": suite_multidigraph_descriptors,
     "node-primitives": suite_node_primitives,

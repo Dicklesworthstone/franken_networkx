@@ -575,6 +575,99 @@ def test_multidigraph_public_adjacency_descriptors_are_cached_and_live():
     assert list(gfx.pred["n0"]["later"]) == list(gnx.pred["n0"]["later"])
 
 
+@pytest.mark.parametrize(
+    ("cls_name", "native_attr"),
+    [
+        ("MultiGraph", "_MULTIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA"),
+        ("MultiDiGraph", "_MULTIDIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA"),
+    ],
+)
+def test_multiedge_keyed_getitem_uses_one_native_lookup(
+    cls_name, native_attr, monkeypatch
+):
+    """br-r37-c1-8l96z: successful scalar lookup bypasses four view layers."""
+    gnx, gfx = getattr(nx, cls_name)(), getattr(fnx, cls_name)()
+    for graph in (gnx, gfx):
+        graph.add_edge("left", "right", key=0, weight=7)
+
+    fnx_edges = gfx.edges
+    native = fnx_edges._fnx_native_get_edge_data
+    raw_descriptor = getattr(fnx, native_attr)
+    assert native is not None
+    assert native.__self__ is gfx
+    assert native == raw_descriptor.__get__(gfx, type(gfx))
+
+    calls = 0
+
+    def counted_native(*args):
+        nonlocal calls
+        calls += 1
+        return native(*args)
+
+    monkeypatch.setattr(
+        fnx_edges, "_fnx_native_get_edge_data", counted_native
+    )
+    for _ in range(64):
+        attrs = fnx_edges["left", "right", 0]
+        assert attrs == gnx.edges["left", "right", 0]
+        assert attrs is fnx_edges["left", "right", 0]
+    assert calls == 128
+
+    attrs["live"] = True
+    assert gfx.get_edge_data("left", "right", 0)["live"]
+
+
+@pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])
+def test_multiedge_keyed_getitem_missing_errors_match_networkx(cls_name):
+    gnx, gfx = getattr(nx, cls_name)(), getattr(fnx, cls_name)()
+    for graph in (gnx, gfx):
+        graph.add_edge("left", "right", key=0, weight=7)
+
+    for edge in (
+        ("missing", "right", 0),
+        ("left", "missing", 0),
+        ("left", "right", 99),
+        ("left", "right", None),
+        ("left", "right"),
+        (["left"], "right", 0),
+        ("left", ["right"], 0),
+        ("left", "right", []),
+    ):
+        with pytest.raises(Exception) as nx_error:
+            gnx.edges[edge]
+        with pytest.raises(type(nx_error.value)) as fnx_error:
+            gfx.edges[edge]
+        assert fnx_error.value.args == nx_error.value.args
+
+
+def test_held_multiedge_view_falls_back_after_private_storage_assignment():
+    """A held ordinary view must not read stale native storage after ``_adj``."""
+    graph = fnx.MultiGraph()
+    graph.add_edge(1, 2, key=0, old=True)
+    held_edges = graph.edges
+    graph._adj = {
+        7: {8: {3: {"private": True}}},
+        8: {7: {3: {"private": True}}},
+    }
+
+    assert held_edges[7, 8, 3] == {"private": True}
+    with pytest.raises(KeyError, match="1"):
+        held_edges[1, 2, 0]
+
+
+@pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])
+def test_multiedge_subclasses_keep_generic_keyed_lookup(cls_name):
+    base = getattr(fnx, cls_name)
+
+    class Subclass(base):
+        pass
+
+    graph = Subclass()
+    graph.add_edge("left", "right", key=0, weight=7)
+    assert graph.edges._fnx_native_get_edge_data is None
+    assert graph.edges["left", "right", 0] == {"weight": 7}
+
+
 @pytest.mark.parametrize("accessor", ["adj", "succ", "pred"])
 def test_multidigraph_public_adjacency_assignment_preserves_private_storage(
     accessor,

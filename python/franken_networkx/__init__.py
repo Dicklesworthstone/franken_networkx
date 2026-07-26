@@ -2456,6 +2456,17 @@ class _LiveMultiEdgeCallView:
 class _MultiGraphEdgeView:
     def __init__(self, graph):
         self._graph = graph
+        # br-r37-c1-8l96z: a scalar ``G.edges[u, v, key]`` lookup used to
+        # allocate/traverse four Python view layers before reaching the native
+        # edge store.  Bind the raw PyO3 descriptor once for ordinary exact-type
+        # graphs; subclasses and NetworkX-private storage retain the generic
+        # mapping chain below.  The per-call private-storage guard keeps a held
+        # edge view live if ``graph._adj`` is installed after this view is built.
+        self._fnx_native_get_edge_data = (
+            _MULTIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA.__get__(graph, MultiGraph)
+            if type(graph) is MultiGraph and not _has_networkx_private_storage(graph)
+            else None
+        )
 
     def __iter__(self):
         # br-multiiterkeys: nx.MultiEdgeView default iteration yields
@@ -2491,6 +2502,15 @@ class _MultiGraphEdgeView:
         hash(u)
         hash(v)
         hash(key)
+        native_get_edge_data = self._fnx_native_get_edge_data
+        if (
+            key is not None
+            and native_get_edge_data is not None
+            and not _has_networkx_private_storage(self._graph)
+        ):
+            data = native_get_edge_data(u, v, key, _PRIVATE_MISSING)
+            if data is not _PRIVATE_MISSING:
+                return data
         adj = self._graph.adj
         try:
             return adj[u][v][key]
@@ -2812,6 +2832,17 @@ def _multigraph_edges(self):
 class _MultiDiGraphEdgeView:
     def __init__(self, graph):
         self._graph = graph
+        # br-r37-c1-8l96z: directed sibling of the exact-type keyed-edge fast
+        # path above.  Missing edges deliberately fall through so the established
+        # element-specific KeyError contract remains byte-for-byte unchanged.
+        self._fnx_native_get_edge_data = (
+            _MULTIDIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA.__get__(
+                graph, MultiDiGraph
+            )
+            if type(graph) is MultiDiGraph
+            and not _has_networkx_private_storage(graph)
+            else None
+        )
 
     def __iter__(self):
         # br-multiiterkeys: see _MultiGraphEdgeView — default iteration
@@ -2862,6 +2893,15 @@ class _MultiDiGraphEdgeView:
         hash(u)
         hash(v)
         hash(key)
+        native_get_edge_data = self._fnx_native_get_edge_data
+        if (
+            key is not None
+            and native_get_edge_data is not None
+            and not _has_networkx_private_storage(self._graph)
+        ):
+            data = native_get_edge_data(u, v, key, _PRIVATE_MISSING)
+            if data is not _PRIVATE_MISSING:
+                return data
         succ = self._graph.succ
         if u not in succ:
             raise KeyError(u)
