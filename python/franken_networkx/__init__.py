@@ -1757,7 +1757,9 @@ _MULTI_NATIVE_ROW_ATTR = {
 
 
 class MultiAdjacencyView(_Mapping):
-    def __init__(self, atlas_getter, *, owner=None, row_kind="adj"):
+    def __init__(
+        self, atlas_getter, *, owner=None, row_kind="adj", native_iter=None
+    ):
         self._atlas_getter = atlas_getter
         # br-r37-c1-spg9n: the owning graph, for cheap membership/len/contains
         # without materialising the whole {node:{nbr:{key:attrs}}} dict. Sparse:
@@ -1767,6 +1769,11 @@ class MultiAdjacencyView(_Mapping):
         # br-r37-c1-spg9n: which native per-row binding to use for G.adj[u] so
         # the inner row view fetches ONLY node u's row (not the whole adjacency).
         self._fnx_native_row_attr = _MULTI_NATIVE_ROW_ATTR.get(row_kind)
+        # br-r37-c1-yisq4: outer multigraph adjacency keys are exactly the
+        # owner's live node-key mirror. Bind its raw dict iterator once so
+        # __iter__ need not rebuild an O(N) dict merely to recover NetworkX's
+        # ``dict_keyiterator`` type. Ownerless/private/snapshot views omit it.
+        self._fnx_native_iter = native_iter
 
     def _atlas(self):
         return self._atlas_getter()
@@ -1791,6 +1798,9 @@ class MultiAdjacencyView(_Mapping):
         return node in self._atlas()
 
     def __iter__(self):
+        native_iter = self._fnx_native_iter
+        if native_iter is not None:
+            return native_iter()
         # br-r37-c1-adjitype (cycle 219): nx's iter(G.adj) is a dict_keyiterator.
         # The keys of G.adj are just the NODES, so build {node: None} from the
         # owner's node iteration (O(V)) instead of materialising the entire
@@ -1894,12 +1904,16 @@ _GRAPH_ADJ_NATIVE_LEN = Graph.number_of_nodes
 _DIGRAPH_ADJ_NATIVE_LEN = DiGraph.number_of_nodes
 _GRAPH_ADJ_NATIVE_ITER = Graph.__iter__
 _DIGRAPH_ADJ_NATIVE_ITER = DiGraph.__iter__
+_MULTIGRAPH_ADJ_NATIVE_ITER = MultiGraph.__iter__
+_MULTIDIGRAPH_ADJ_NATIVE_ITER = MultiDiGraph.__iter__
 
 
 _multigraph_adj_view = _cached_view(
     "_fnx_view_adj",
     lambda self: MultiAdjacencyView(
-        lambda: _MULTIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiGraph), owner=self
+        lambda: _MULTIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiGraph),
+        owner=self,
+        native_iter=_MULTIGRAPH_ADJ_NATIVE_ITER.__get__(self, MultiGraph),
     ),
 )
 
@@ -1931,7 +1945,10 @@ _digraph_adj_view = _cached_view(
 _multidigraph_adj_view = _cached_view(
     "_fnx_view_adj",
     lambda self: MultiAdjacencyView(
-        lambda: _MULTIDIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiDiGraph), owner=self, row_kind="succ"
+        lambda: _MULTIDIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiDiGraph),
+        owner=self,
+        row_kind="succ",
+        native_iter=_MULTIDIGRAPH_ADJ_NATIVE_ITER.__get__(self, MultiDiGraph),
     ),
 )
 
@@ -1963,7 +1980,10 @@ _digraph_pred_view = _cached_view(
 _multidigraph_succ_view = _cached_view(
     "_fnx_view_succ",
     lambda self: MultiAdjacencyView(
-        lambda: _MULTIDIGRAPH_SUCC_DESCRIPTOR.__get__(self, MultiDiGraph), owner=self, row_kind="succ"
+        lambda: _MULTIDIGRAPH_SUCC_DESCRIPTOR.__get__(self, MultiDiGraph),
+        owner=self,
+        row_kind="succ",
+        native_iter=_MULTIDIGRAPH_ADJ_NATIVE_ITER.__get__(self, MultiDiGraph),
     ),
 )
 
@@ -1971,7 +1991,10 @@ _multidigraph_succ_view = _cached_view(
 _multidigraph_pred_view = _cached_view(
     "_fnx_view_pred",
     lambda self: MultiAdjacencyView(
-        lambda: _MULTIDIGRAPH_PRED_DESCRIPTOR.__get__(self, MultiDiGraph), owner=self, row_kind="pred"
+        lambda: _MULTIDIGRAPH_PRED_DESCRIPTOR.__get__(self, MultiDiGraph),
+        owner=self,
+        row_kind="pred",
+        native_iter=_MULTIDIGRAPH_ADJ_NATIVE_ITER.__get__(self, MultiDiGraph),
     ),
 )
 

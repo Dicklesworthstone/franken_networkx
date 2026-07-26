@@ -25417,3 +25417,123 @@ those three established lint categories and passed with every other warning
 denied. UBS completed the harness/test scan with zero critical or warning
 findings; its bounded scan including the 61k-line monolithic Python shim
 reached 180 seconds without emitting a source finding.
+
+## 2026-07-26 CloudyTurtle KEEP (`MultiAdjacencyView.__iter__`): reuse the live native node-key mirror — **4.9605-5.1903x full-list recovery** (`br-r37-c1-yisq4`)
+
+NEGATIVE-LEDGER-FIRST: before proposing this sibling lever,
+`scripts/perf_ledger_preflight.py --prior-art 'MultiAdjacencyView __iter__
+dict.fromkeys'` and direct searches for `MultiAdjacencyView`, `MultiGraph`,
+`MultiDiGraph`, `dict.fromkeys`, and adjacency iteration read every matching
+row in both performance ledgers. There was no direct multigraph iterator
+attempt. The immediately preceding simple `AdjacencyView.__iter__` KEEP
+explicitly routed this separately profiled sibling after proving the common
+live-key-mirror mechanism; it did not time or change `MultiAdjacencyView`.
+This is therefore fresh prior-art-admitted work rather than an unqualified
+retry.
+
+PROFILE ATTRIBUTION: admission was predeclared at least **30% named removable
+self-time** and an Amdahl ceiling of at least **1.5x**, with iterator type,
+order, liveness, mutation error, private-storage, and ownerless-view parity
+required before editing. On the exact loaded ELF, profiling 500 calls to
+`iter(fv)` for one already-captured 20,000-node `MultiDiGraph.adj` view
+recorded `0.155s` total. Built-in `dict.fromkeys` alone owned
+**`0.140s` / 90.3% self-time**; the private-aware iterator chain owned about
+`0.004s` and the driver owned `0.010s`. Removing the materialization has a
+computed Amdahl ceiling of approximately **10.3x**. Unprofiled medians were
+`0.316657ms` for the old FNX view, `0.1017us` for the raw bound owner
+iterator, and `0.0817us` for NetworkX.
+
+DYNAMIC ADMISSION: on the same exact ELF, a no-source monkeypatch bound the
+raw MultiGraph/MultiDiGraph iterator to each outer view and retained the old
+path for ownerless views. It proved `dict_keyiterator` runtime type,
+insertion order, live add/remove-node updates, exact
+`"dictionary changed size during iteration"` behavior, independence from an
+assigned `_node` mapping, and live ownerless fallback. Its same-invocation
+causal A/B measured **`1404.0407x`** (`1339.7178-1508.6810x` median CI)
+against A/A `0.9567-1.1120x`, required floor `1.2366x`. Public
+`list(MDG.adj)` was `0.9872x`, inside its A/A null. This cleared both profile
+and dynamic gates before the source edit.
+
+ONE COUNTED LEVER: outer multigraph `MultiAdjacencyView` instances now bind
+the raw PyO3 `MultiGraph.__iter__` or `MultiDiGraph.__iter__` descriptor once
+at construction. That descriptor returns a live `dict_keyiterator` over the
+incrementally maintained node-key mirror, whose keys are exactly the outer
+adjacency keys. `MultiAdjacencyView.__iter__` calls the bound descriptor
+instead of rebuilding an O(N) dict solely to obtain the same iterator type.
+MultiGraph `adj` and MultiDiGraph `adj`/`succ`/`pred` share the mechanism.
+Inner, filtered, reconstructed, snapshot, assigned-private, and ownerless
+views pass no native iterator and retain the mapping fallback. No Rust graph
+storage, node interning, mutation hook, edge-key view, or row materialization
+changed.
+
+COUNTED MECHANISM / CONFORMANCE: permanent tests replace each outer view's
+atlas getter with a counter and require **zero getter calls** across initial
+iteration, add-node, and remove-node passes for MultiGraph `adj` and
+MultiDiGraph `adj`/`succ`/`pred`. They also lock iterator runtime type, order,
+independent `_node` behavior, native size-change errors, and the live
+ownerless fallback. The exact artifact passed **598/598** descriptor and
+review-regression tests plus **525/525** broader adjacency, attribute,
+filtered/reverse view, pickle, and mutation tests: **1,123/1,123** focused
+tests total.
+
+PINNED-WORKER SAME-INVOCATION A/A + A/B: final measurement ran in one
+invocation on drained `vmi1227854`, pinned to core 3 after the suite's
+predeclared two-second frequency warm-up at header load average
+`0.8115/0.4727/0.6567`; the worker was immediately re-enabled. Canonical
+line one reported loaded ELF SHA-256
+`4b30828df78e87ece5f6323d0b8864d46af76216c37a47e6375acf849dde122f`
+(13,154,016 bytes). Structured provenance reported wrapper SHA-256
+`55507a9327b259ee3a356f60d5c8034254260a1ef34feb9b84f9a4b3b06569fc`,
+harness SHA-256
+`79be2c79e1ff2e898d80ae10cdf26ce40de69ccfa7b51c3ffd789efff0e95900`,
+and focused-test SHA-256
+`e4f18f2c728065691f0b67811dd0270abf91bae5ff9f2f577fd6e193c1bf87f6`
+(Python 3.13.7, NetworkX 3.6.1).
+
+Every row proved an order-preserving digest before timing, ran 21 interleaved
+rounds with `min_of=3`, and ran its own A/A null in the same invocation.
+Decisions use only the bootstrap median CI with the 2x log-space null margin;
+CV is provenance and was never a gate.
+
+| row (20,000 nodes) | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | required floor | decision |
+|---|---:|---:|---:|---:|---|
+| old `dict.fromkeys` / raw-bound `iter(MG.adj)` | **`1680.0292x`** | `1599.2443-1798.2980x` | `0.9495-1.0595x` | `1.1226x` | **DECIDABLE KEEP** |
+| old `dict.fromkeys` / raw-bound `iter(MDG.adj)` | **`1716.4451x`** | `1663.2277-1801.3913x` | `0.9784-1.0806x` | `1.1677x` | **DECIDABLE KEEP** |
+| old / raw-bound `list(MG.adj)` | **`4.9605x`** | `4.8503-5.1659x` | `0.9067-1.1278x` | `1.2719x` | **DECIDABLE KEEP** |
+| old / raw-bound `list(MDG.adj)` | **`5.1903x`** | `4.9844-5.5428x` | `0.9271-1.0491x` | `1.1634x` | **DECIDABLE KEEP** |
+| NetworkX / FNX `iter(MG.adj)` | `0.5030x` | `0.4876-0.5317x` | `0.9533-1.0124x` | `1.1003x` | **DECIDABLE residual loss** |
+| NetworkX / FNX `list(MG.adj)` | `0.9872x` | `0.9383-1.0626x` | `1.0144-1.2018x` | `1.4443x` | **UNDECIDABLE / inside null** |
+| NetworkX / FNX `iter(MDG.adj)` | `0.4270x` | `0.4161-0.4668x` | `0.9878-0.9992x` | `1.0249x` | **DECIDABLE residual loss** |
+| NetworkX / FNX `list(MDG.adj)` | `0.9928x` | `0.9829-0.9968x` | `0.9435-1.0889x` | `1.1856x` | **UNDECIDABLE / inside null** |
+| NetworkX / FNX `list(MDG.succ)` | `0.9593x` | `0.8945-0.9974x` | `0.9580-1.1031x` | `1.2168x` | **UNDECIDABLE / inside null** |
+| NetworkX / FNX `list(MDG.pred)` | `1.0052x` | `0.9711-1.0449x` | `0.9365-1.0442x` | `1.1401x` | **UNDECIDABLE / inside null** |
+
+RESULT: KEEP. The counted O(N) materialization disappears completely and the
+most-used full-consumption calls recover by **4.96-5.19x** to no decidable
+difference from NetworkX under their same-invocation nulls. Bare iterator
+construction remains `0.4270-0.5030x`, but its absolute FNX cost is only
+about `0.16-0.20us`; that residual Python-frame tax is reported, not hidden,
+and does not justify withholding the full-list win.
+
+RETRY PREDICATE: do not retry `dict.fromkeys`, the raw multigraph
+owner-iterator binding, per-call atlas materialization, or per-next
+mutation-counter checks; the live dict mirror already supplies exact CPython
+mutation semantics. Reopen the bare `iter(MG.adj)` / `iter(MDG.adj)` residual
+only if a fresh profile of a named end-to-end algorithm attributes at least
+**10% self-time** to the remaining Python `MultiAdjacencyView.__iter__` frame
+and predicts at least `1.05x` overall, a dynamic C-level mapping-slot
+prototype preserves every fallback/private contract above, and its
+same-invocation doubled-null floor is below **`1.03x`**. Otherwise switch to
+a separately preflighted lazy-view or node-key-interning seam.
+
+QUALITY GATES: exact-artifact Python conformance, Python byte-compilation,
+`cargo fmt --check`, and `git diff --check` passed. Strict-remote
+`cargo check --workspace --all-targets -j 2` passed on `vmi1149989`, emitting
+only the two established dead-helper warnings. Mandatory strict workspace
+clippy reproduced exactly the established six findings outside this lever:
+two dead helpers, three `collapsible_if` sites, and one
+`chunks_exact_to_as_chunks` test site. The filtered strict rerun allowed only
+those three established lint categories and passed with every other warning
+denied. UBS completed the harness/test scan with zero critical or warning
+findings; its bounded scan of the 61k-line monolithic Python shim reached 180
+seconds without emitting a source finding.
