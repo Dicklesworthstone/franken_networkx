@@ -27794,6 +27794,72 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-26 CloudyTurtle ADMISSION REJECT (`Graph.add_edge` wrapper-removal retry): exact current A/A floor is **`1.2959x`** — **NO SOURCE EDIT** (`br-r37-c1-vabqj`)
+
+NEGATIVE-LEDGER-FIRST: before proposing a mutation-entry cutover,
+`scripts/perf_ledger_preflight.py --candidate --lever 'raw mutation
+descriptor with private-store instance shadow' --surface 'Graph incremental
+add_edge Python shim frames'` printed the fresh `br-r37-c1-5opn5`
+construction finding. That row measured incremental attributed
+`Graph.add_edge` at `0.2605x` and permits wrapper removal only after a current
+profile attributes at least 40% of each call to Python shim frames **and** an
+A/A admission is below `1.02x`. The native descriptor must first absorb the
+wrapper's correctness work; merely assigning the current raw slot would not
+satisfy that contract.
+
+EXACT-CURRENT SAME-INVOCATION ADMISSION: no source, test, or harness file
+changed. On drained `vmi1152480`, pinned to core 3, the immutable reusable
+package built a 2,000-node graph by making 8,000 incremental attributed edge
+calls in the same deterministic order as `br-r37-c1-5opn5`. The process
+self-reported the loaded artifact as line one:
+
+`bench_elf_sha256=a6dcc1f75f6f2e004e18f27b641d195f3a48b2473c3787acc011293bbd9f26c0
+(13153768 bytes)
+/data/tmp/franken_networkx-measure-current/franken_networkx/_fnx.abi3.so`
+
+Structured provenance recorded wrapper SHA-256
+`f562009e7899e72a32a37e502cef03de80a27a908f1aac52de572ee4f101c2b7`,
+harness SHA-256
+`16ab0566b2dca2a825fe8307d5bbf1aed1da15b6d9fa058f22fad85e4c6e1ca8`,
+Python 3.13.7, NetworkX 3.6.1, and header load average
+`0.2734/0.2905/0.3398`. The graph digest matched before timing. The unchanged
+NetworkX arm supplied the A/A null in the same process as the public
+NetworkX/FNX row; both used 21 interleaved rounds with `min_of=3`.
+
+| exact-current row | median | bootstrap 95% median CI | doubled-null floor | admission |
+|---|---:|---:|---:|---|
+| A/A NetworkX build / same build | `1.0211x` | `0.9125-1.1384x` | **`1.2959x`** | **FAIL `<1.02x`** |
+| NetworkX / FNX incremental build | `0.2469x` | `0.2262-0.2604x` | `1.2959x` | decisive public loss only |
+
+RESULT: **ADMISSION REJECT / NO SOURCE EDIT.** The current public loss is
+approximately `4.05x`, but its own same-invocation null is far too wide to
+admit the proposed mechanism. Because the null prerequisite fails first, no
+source candidate or post-substrate profile was allowed; running more rows
+until one happened to look quiet would select favorable noise. The decision
+uses the bootstrap median CI and doubled log-space margin only; CV never
+gates. A first harness-authoring invocation failed during dynamic dataclass
+module import before provenance, parity, or timing and therefore supplied no
+measurement or verdict. The worker was re-enabled and probed healthy after
+each invocation.
+
+RETRY PREDICATE: do not rerun incremental `Graph.add_edge` in this frontier
+cycle. Reopen only when a pre-measurement screen on one drained, pinned worker
+shows one-minute load below **`0.25`** and steal below **`0.5%`**, then require
+two consecutive preregistered A/A-only invocations of the unchanged
+2,000-node/8,000-edge workload to produce doubled-log floors below `1.02x`.
+Only then profile the exact public path; at least **40% of end-to-end time**
+must belong to named removable Python shim frames before editing. A native
+cutover must retain `None` rejection, unhashable endpoint errors and partial
+node-creation state, existing-edge attribute merge and live-dict identity,
+keyword signatures, node/edge insertion order, mutation-token invalidation,
+subclasses, and private-storage behavior. Its newly built process must
+self-report the loaded ELF as line one and place the final A/B bootstrap
+median CI wholly beyond its own same-invocation doubled-null floor.
+
+QUALITY / CLOSEOUT: this was an exact-artifact timing screen only. No Cargo
+command ran. `git diff --check` covers the ledger-only result; UBS has no
+Markdown/JSONL scanner, so no scanner pass is claimed.
+
 ## 2026-07-26 CloudyTurtle KEEP (class-safe constant graph predicates): cache each raw native descriptor on first instance access — **3.6660-4.2495x** (`br-r37-c1-8a89c`)
 
 NEGATIVE-LEDGER-FIRST / FAMILY SWITCH: after the current cycle's three
