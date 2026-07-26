@@ -26268,3 +26268,76 @@ filtered deny-warnings rerun passed. Targeted UBS completed on the harness and
 test with zero critical findings; its seven warnings are pre-existing test
 heuristics. The bounded scan that included the 61k-line wrapper reached the
 known 300-second Python-module timeout without emitting a wrapper finding.
+
+## 2026-07-26 CloudyTurtle VALID-PROFILE HOLD (outer `MultiAdjacencyView.__getitem__` row returns): 4.14-4.45x mechanism, but all three predeclared null-floor admissions fail — **NO SOURCE EDIT** (`br-r37-c1-3b0ef`)
+
+NEGATIVE-LEDGER-FIRST: the exact preflight for `MultiAdjacencyView
+__getitem__ MG.adj[u] MDG.succ[u] MDG.pred[u] lazy row return cache` found no
+direct row. The immediately preceding warm `MG[u]` KEEP explicitly classified
+these outer adjacency subscripts as separate siblings and required each one to
+show at least 20% named wrapper/materialization self-time, a counted reduction
+in row-view allocations, and a same-invocation doubled-null floor below
+`1.05x` before source edit.
+
+PROFILE ATTRIBUTION / COMPUTED CEILING: the exact post-KEEP package loaded ELF
+SHA-256
+`25be100cddc5fe3bbc207a60e6ea75382bd502d4f93c5b72d3b4f7ca75fd2e56`
+(13,154,256 bytes) and wrapper SHA-256
+`d9eb050448d81115a07c3afbcdf9abe6edc879ccd93fd17b871064689af3d5db`.
+On drained `vmi1227854`, pinned to core 3, 200,000 warm calls produced:
+
+| exact public path | total profile | `MultiAdjacencyView.__getitem__` self | owner-membership wrapper + private guard | view construction | current NetworkX / FNX wall |
+|---|---:|---:|---:|---:|---:|
+| `MG.adj[u]` | `0.445s` | `0.150s` / **33.7%** | `0.144s` / 32.4% | `0.020s` / 4.5% | `0.1859x` |
+| `MDG.succ[u]` | `0.518s` | `0.170s` / **32.8%** | `0.172s` / 33.2% | `0.021s` / 4.1% | `0.1929x` |
+| `MDG.pred[u]` | `0.483s` | `0.161s` / **33.3%** | `0.157s` / 32.5% | `0.021s` / 4.3% | `0.1787x` |
+
+The named row-return chain owns approximately 70% of each profile, for
+computed Amdahl ceilings above `3.3x`; all three attribution predicates pass.
+
+NO-SOURCE COUNTED PROTOTYPE: an invocation-local `(nodes_seq, {node: row
+view})` cache preserved all 512 return types and ordered row-key sequences for
+each surface before timing. Each warm 512-call candidate batch removes exactly
+512 owner-membership/private-guard chains and 512 `AdjacencyView`
+allocations. No repository source, harness, or test file changed.
+
+PINNED-WORKER SAME-INVOCATION A/A + A/B: the no-source screen ran on drained
+`vmi1227854`, pinned to core 3 at header load average
+`0.4668/1.1958/1.2983`; the worker was immediately re-enabled. Canonical line
+one self-reported the exact loaded ELF above. Every row proved an
+order-preserving digest, ran 21 interleaved rounds with `min_of=3`, and ran its
+own A/A null in the same invocation. Decisions use only bootstrap median
+confidence intervals and the doubled log-space null margin; CV was reported
+as provenance and never gated.
+
+| causal row | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | doubled-null floor | `<1.05x` admission |
+|---|---:|---:|---:|---:|---|
+| `MG.adj[u]` allocate / cached view | `4.4467x` | `4.2611-4.6884x` | `0.9399-1.0366x` | **`1.1320x`** | **FAIL** |
+| `MDG.succ[u]` allocate / cached view | `4.1999x` | `4.0307-4.4439x` | `0.9476-1.0169x` | **`1.1137x`** | **FAIL** |
+| `MDG.pred[u]` allocate / cached view | `4.1444x` | `3.9950-4.2993x` | `0.9426-1.0488x` | **`1.1255x`** | **FAIL** |
+
+For completeness, public cached prototypes remained decidable NetworkX losses:
+`0.6586x` MG adjacency, `0.6613x` MDG successor, and `0.6716x` MDG
+predecessor. Their wall gaps are not an implementation warrant.
+
+RESULT: VALID-PROFILE HOLD / NO SOURCE EDIT. The profile and counted mechanism
+are real, but **zero of three** causal null controls satisfies the
+predeclared `<1.05x` admission predicate. This is not a CV rejection and the
+gate is not relaxed after observing a large mechanism effect. Three failed
+admissions trigger an immediate vein switch under the NO-CEILING rule.
+
+RETRY PREDICATE: do not add an outer MultiAdjacencyView row cache from these
+data or rerun the three rows consecutively. Reopen exactly one sibling only
+after a new measurement window independently shows its unchanged
+allocate/allocate A/A doubled floor below **`1.05x`** while a fresh profile
+still attributes at least 20% self-time to the row-return chain. Any eventual
+cache must invalidate on `nodes_seq`, remain live across edge-only mutation,
+preserve private/subclass fallbacks and original-key exceptions, and count one
+removed wrapper allocation per warm hit. Until that predicate becomes true,
+switch to a different non-adjacency view or algorithm-return vein.
+
+QUALITY GATES: no source, harness, or test file changed. Exact loaded-artifact
+identity, full 512-row return-type/order parity, same-invocation nulls, and
+worker re-enablement were verified. The ledger/bead-only diff passed
+`git diff --check`; UBS has no Markdown/JSONL scanner, so no scanner pass is
+claimed for this docs-only result.
