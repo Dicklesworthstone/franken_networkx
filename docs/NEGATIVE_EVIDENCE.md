@@ -2,6 +2,80 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-25 CloudyTurtle FRONTIER KEEP: MultiGraph stable-slot sole-store cutover — **4.735x** fresh keyed construction (`br-r37-c1-thp6w`)
+
+**NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION.** Before taking this frontier
+lever, the campaign scan grepped `docs/NEGATIVE_EVIDENCE.md`,
+`docs/NEGATIVE_EVIDENCE_cc.md`, and
+`docs/progress/perf-negative-results.md`. The live public MultiGraph construction
+row was only `0.492x` NetworkX on the 20,000-node mixed fixture, and the profile
+attributed the loss to the three nested String stores: endpoint clones/hashes in
+both adjacency rows, String-pair `EdgeKey` construction/hashing, and heap-backed
+per-pair key/bucket cells. Earlier prototype rows predicted the stable-slot plus
+compact One/Many layout, but their measurements had no executing-ELF identity,
+no adjacent A/A median CI, and therefore were VOID as campaign decision evidence.
+
+**ONE ARCHITECTURAL LEVER.** `MultiGraph` now has one authoritative
+`MgSlabStorage`: insertion-ordered names map to stable recyclable slots; rows
+and pair keys use slots; singleton parallel-key cells and edge buckets remain
+inline until promotion. The duplicate String `nodes`/`adjacency`/`edges` stores,
+revision-keyed slab shadow, dual writes, lazy shadow rebuild, and temporary
+feature switches are retired. Every public read, mutation, batch loader,
+row-order replay, snapshot, attribute operation, integer-adjacency derivation,
+remove/re-add, clone, and clear path uses that sole store. Stable tombstoned
+slots avoid the positional-renumber/full-rekey failure already measured at
+`190-203x` slower than the old removal path.
+
+**EXACTNESS / INVARIANTS.** The corrected bench embeds the exact pre-cutover
+String loader as a frozen bench-only arm. Before each sample set, its complete
+10,000-node/80,000-key observable state is encoded in order (node names,
+node-attribute rows, canonical emitted endpoint names, edge-walk order, parallel
+keys, and edge-attribute rows) and compared element-for-element with the
+stable-slot snapshot. Both comparisons produced checksum
+`0x43a37d727676ea6f`. Active production tests additionally cover attributed
+duplicate merges, self-loops, sparse explicit keys, reverse orientation,
+copy-walk reordering, snapshot replay, cache invalidation, batch removal,
+tombstone recycling, remove/re-add order, clone isolation, and clear semantics.
+
+**CORRECTED SAME-INVOCATION A/A + A/B.** One fail-closed remote
+`--profile release-perf` invocation ran on worker `hz1`. The process
+self-reported executing ELF SHA-256
+`a70b59ea12dfc59403d9f3fe366c030e17e01eb824804e293429e536e6eac603`
+(`24,552,824` bytes). The frozen/frozen null ran immediately before
+frozen/stable-slot, each for 61 alternating-order rounds:
+
+| row | median paired ratio | bootstrap 95% CI | wins | CV (report only) |
+|---|---:|---:|---:|---:|
+| frozen String / frozen String null | `1.001x` | `0.988-1.026` | `32/61` | `1.04%` |
+| frozen String / stable slot | **`4.735x`** | **`4.670-4.801`** | **`61/61`** | `0.85%` |
+
+The candidate median is outside the adjacent null CI and its effect is
+`143.01x` the null half-width. The decision uses only the paired-median
+bootstrap CI; neither raw-arm nor median CV participates in the gate.
+
+**REMOTE CORRECTNESS / QUALITY GATES.** `cargo test -p fnx-classes
+--all-features` passed `84` tests with `12` measurement tests ignored.
+`cargo check --workspace --all-targets` passed; its only warnings are two live
+peer-owned unused Python helpers. The conformance crate passed its unit suite
+and all gates reached before stopping on the unrelated committed
+`ftui_workflow_event_contract_gate` requirement that `fnx-runtime` pin a local
+ftui path. Workspace Clippy likewise reached this lane cleanly, then stopped on
+six live peer-owned Python warnings; a package-scoped
+`fnx-classes`/`fnx-algorithms` all-target/all-feature `-D warnings` gate is the
+authoritative lint check for this commit. `cargo fmt --all --check`,
+`git diff --check`, and targeted UBS complete the local static gates.
+
+**RESULT: KEEP.** This closes the profiled MultiGraph nested-String-store
+frontier with a corrected same-ELF decision and resets the frontier REJECT
+streak. Do not reintroduce the String store, shadow, or positional-renumber
+design. Concrete retry/rollback predicate: reopen only if (a) an exact
+snapshot/mutation conformance fixture diverges, or (b) a same-ELF invocation
+with at least 61 alternating rounds shows stable-slot slower than frozen String
+on a removal-heavy fixture, with its median outside the adjacent A/A 95% CI and
+at least `2x` the null half-width. Investigate compaction only after a fresh
+profile attributes at least `10%` of target time to tombstone scans; never
+retry or roll back from CV alone.
+
 ## 2026-07-25 CloudyTurtle RESURRECTION HOLD / NO-SHIP: compact sorted max-flow residual rows — final-source run inside null floor (`br-r37-c1-g0b1t`)
 
 **LEDGER-FIRST / VOID AUDIT.** The campaign audit grepped

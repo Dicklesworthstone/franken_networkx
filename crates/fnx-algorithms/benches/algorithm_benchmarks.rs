@@ -5,7 +5,7 @@
 //! Run:   cargo bench -p fnx-algorithms
 //! Gate:  check p50/p95/p99 via criterion JSON output in target/criterion/
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use criterion::{BenchmarkId, Criterion, criterion_group};
 use fnx_algorithms::{
@@ -20,8 +20,10 @@ use fnx_algorithms::{
     ra_index_soundarajan_hopcroft, resource_allocation_index, shortest_path_unweighted,
     shortest_path_weighted, single_source_dijkstra_path_length,
 };
-use fnx_classes::{Graph, digraph::DiGraph};
-use fnx_runtime::CgseValue;
+use fnx_classes::{AttrMap, Graph, MultiGraph, MultiGraphSnapshot, digraph::DiGraph};
+use fnx_runtime::{CgseValue, CompatibilityMode};
+use indexmap::{IndexMap, IndexSet};
+use rustc_hash::FxBuildHasher;
 use sha2::{Digest, Sha256};
 
 /// SHA-256 of the benchmark executable, reported by the process that runs it.
@@ -46,6 +48,207 @@ fn attr(key: &str, val: &str) -> BTreeMap<String, CgseValue> {
     let mut m = BTreeMap::new();
     m.insert(key.to_owned(), val.to_owned().into());
     m
+}
+
+type FrozenFxIndexMap<K, V> = IndexMap<K, V, FxBuildHasher>;
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct FrozenEdgeKey {
+    left: String,
+    right: String,
+}
+
+impl FrozenEdgeKey {
+    fn new(left: &str, right: &str) -> Self {
+        if left <= right {
+            Self {
+                left: left.to_owned(),
+                right: right.to_owned(),
+            }
+        } else {
+            Self {
+                left: right.to_owned(),
+                right: left.to_owned(),
+            }
+        }
+    }
+}
+
+/// Frozen pre-thp6w MultiGraph store. This intentionally preserves the old
+/// three-map String representation so the cutover benchmark has a real
+/// in-process baseline without keeping the retired store in production.
+struct FrozenStringMultiGraph {
+    nodes: FrozenFxIndexMap<String, AttrMap>,
+    adjacency: FrozenFxIndexMap<String, IndexMap<String, IndexSet<usize>>>,
+    edges: FrozenFxIndexMap<FrozenEdgeKey, IndexMap<usize, AttrMap>>,
+    edge_count: usize,
+}
+
+impl FrozenStringMultiGraph {
+    fn from_fresh_int_prefix(node_count: usize, edges: &[(usize, usize, usize)]) -> Self {
+        let mut nodes = FrozenFxIndexMap::with_capacity_and_hasher(node_count, FxBuildHasher);
+        let mut adjacency: FrozenFxIndexMap<String, IndexMap<String, IndexSet<usize>>> =
+            FrozenFxIndexMap::with_capacity_and_hasher(node_count, FxBuildHasher);
+        let mut edge_store: FrozenFxIndexMap<FrozenEdgeKey, IndexMap<usize, AttrMap>> =
+            FrozenFxIndexMap::with_capacity_and_hasher(edges.len(), FxBuildHasher);
+        let node_names = (0..node_count)
+            .map(|node| node.to_string())
+            .collect::<Vec<_>>();
+        for node in &node_names {
+            nodes.insert(node.clone(), AttrMap::new());
+            adjacency.insert(node.clone(), IndexMap::new());
+        }
+
+        for &(left_idx, right_idx, key) in edges {
+            let left = &node_names[left_idx];
+            let right = &node_names[right_idx];
+            edge_store
+                .entry(FrozenEdgeKey::new(left, right))
+                .or_default()
+                .insert(key, AttrMap::new());
+            adjacency
+                .get_mut(left.as_str())
+                .expect("integer-prefix left node should exist")
+                .entry(right.clone())
+                .or_default()
+                .insert(key);
+            if left_idx != right_idx {
+                adjacency
+                    .get_mut(right.as_str())
+                    .expect("integer-prefix right node should exist")
+                    .entry(left.clone())
+                    .or_default()
+                    .insert(key);
+            }
+        }
+
+        Self {
+            nodes,
+            adjacency,
+            edges: edge_store,
+            edge_count: edges.len(),
+        }
+    }
+
+    fn snapshot(&self) -> MultiGraphSnapshot {
+        let mut edges = Vec::with_capacity(self.edge_count);
+        let mut seen =
+            std::collections::HashSet::<(FrozenEdgeKey, usize)>::with_capacity(self.edge_count);
+        for node in self.nodes.keys() {
+            let neighbors = self
+                .adjacency
+                .get(node.as_str())
+                .expect("every fixture node has an adjacency row");
+            for neighbor in neighbors.keys() {
+                let pair = FrozenEdgeKey::new(node, neighbor);
+                let bucket = self
+                    .edges
+                    .get(&pair)
+                    .expect("every adjacency cell has an edge bucket");
+                for (&key, attrs) in bucket {
+                    if !seen.insert((pair.clone(), key)) {
+                        continue;
+                    }
+                    edges.push(fnx_classes::MultiEdgeSnapshot {
+                        left: pair.left.clone(),
+                        right: pair.right.clone(),
+                        key,
+                        attrs: attrs.clone(),
+                    });
+                }
+            }
+        }
+        MultiGraphSnapshot {
+            mode: CompatibilityMode::Strict,
+            nodes: self.nodes.keys().cloned().collect(),
+            node_attrs: self
+                .nodes
+                .iter()
+                .filter(|(_, attrs)| !attrs.is_empty())
+                .map(|(node, attrs)| (node.clone(), attrs.clone()))
+                .collect(),
+            edges,
+        }
+    }
+
+    fn observable_count(&self) -> usize {
+        self.nodes.len().wrapping_add(self.edge_count)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum MultiGraphCutoverArm {
+    FrozenString,
+    StableSlot,
+}
+
+fn multigraph_cutover_fixture(
+    node_count: usize,
+    edges_per_node: usize,
+) -> Vec<(usize, usize, usize)> {
+    let mut stream = Vec::with_capacity(node_count.saturating_mul(edges_per_node));
+    let mut next_keys = HashMap::<(usize, usize), usize>::new();
+    let mut state = 0xD1B5_4A32_D192_ED03_u64;
+    for left in 0..node_count {
+        for lane in 0..edges_per_node {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let right = if lane == 0 {
+                left
+            } else if lane == 1 {
+                (left + 1) % node_count
+            } else {
+                (state as usize) % node_count
+            };
+            let pair = (left.min(right), left.max(right));
+            let key = next_keys.entry(pair).or_default();
+            stream.push((left, right, *key));
+            *key += 1;
+        }
+    }
+    stream
+}
+
+fn multigraph_cutover_snapshot(
+    node_count: usize,
+    edges: &[(usize, usize, usize)],
+    arm: MultiGraphCutoverArm,
+) -> MultiGraphSnapshot {
+    match arm {
+        MultiGraphCutoverArm::FrozenString => {
+            FrozenStringMultiGraph::from_fresh_int_prefix(node_count, edges).snapshot()
+        }
+        MultiGraphCutoverArm::StableSlot => {
+            let mut graph = MultiGraph::strict();
+            let inserted = graph
+                .extend_fresh_int_prefix_keyed_edges_unrecorded(node_count, edges.iter().copied());
+            assert_eq!(inserted, edges.len());
+            graph.snapshot()
+        }
+    }
+}
+
+fn encode_multigraph_snapshot(snapshot: &MultiGraphSnapshot) -> Vec<u64> {
+    fn push_string(encoded: &mut Vec<u64>, value: &str) {
+        encoded.push(value.len() as u64);
+        encoded.extend(value.bytes().map(u64::from));
+    }
+
+    let mut encoded = Vec::with_capacity(snapshot.nodes.len() + snapshot.edges.len() * 6);
+    encoded.push(snapshot.nodes.len() as u64);
+    for node in &snapshot.nodes {
+        push_string(&mut encoded, node);
+        encoded.push(snapshot.node_attrs.get(node).map_or(0, BTreeMap::len) as u64);
+    }
+    encoded.push(snapshot.edges.len() as u64);
+    for edge in &snapshot.edges {
+        push_string(&mut encoded, &edge.left);
+        push_string(&mut encoded, &edge.right);
+        encoded.push(edge.key as u64);
+        encoded.push(edge.attrs.len() as u64);
+    }
+    encoded
 }
 
 // ---------------------------------------------------------------------------
@@ -640,16 +843,16 @@ struct PairedStats {
 /// — the two arms differ in the gate probe + row collection, whose own variance the
 /// per_source null cannot see (br-r37-c1-4bubk).
 #[allow(clippy::too_many_arguments)]
-fn paired_interleaved_ab_base<A: Copy>(
+fn paired_interleaved_ab_base<G, A: Copy>(
     label: &str,
-    g: &Graph,
+    g: &G,
     base_name: &str,
     base: A,
     cand_name: &str,
     cand: A,
     rounds: usize,
-    run_arm: &dyn Fn(&Graph, A) -> usize,
-    score_bits: &dyn Fn(&Graph, A) -> Vec<u64>,
+    run_arm: &dyn Fn(&G, A) -> usize,
+    score_bits: &dyn Fn(&G, A) -> Vec<u64>,
 ) -> PairedStats {
     use std::hint::black_box;
     use std::time::Instant;
@@ -792,6 +995,78 @@ fn report_median_ci_gate(
         null.median_cv,
         candidate.median_cv
     );
+}
+
+struct MultiGraphCutoverFixture {
+    node_count: usize,
+    edges: Vec<(usize, usize, usize)>,
+}
+
+/// br-r37-c1-thp6w: corrected frontier measurement for the sole-store cutover.
+/// The null and candidate samples run back-to-back in this process, under the
+/// executable identity printed by `main`; only the paired-median bootstrap CI
+/// decides whether the effect clears the measured A/A floor.
+fn run_multigraph_slab_cutover_rerun() {
+    const ROUNDS: usize = 61;
+    let fixture = MultiGraphCutoverFixture {
+        node_count: 10_000,
+        edges: multigraph_cutover_fixture(10_000, 8),
+    };
+    let run = |fixture: &MultiGraphCutoverFixture, arm: MultiGraphCutoverArm| -> usize {
+        match arm {
+            MultiGraphCutoverArm::FrozenString => {
+                let graph = FrozenStringMultiGraph::from_fresh_int_prefix(
+                    fixture.node_count,
+                    &fixture.edges,
+                );
+                let result = graph.observable_count();
+                std::hint::black_box(graph);
+                result
+            }
+            MultiGraphCutoverArm::StableSlot => {
+                let mut graph = MultiGraph::strict();
+                let inserted = graph.extend_fresh_int_prefix_keyed_edges_unrecorded(
+                    fixture.node_count,
+                    fixture.edges.iter().copied(),
+                );
+                assert_eq!(inserted, fixture.edges.len());
+                let result = graph.node_count().wrapping_add(graph.edge_count());
+                std::hint::black_box(graph);
+                result
+            }
+        }
+    };
+    let score = |fixture: &MultiGraphCutoverFixture, arm: MultiGraphCutoverArm| -> Vec<u64> {
+        encode_multigraph_snapshot(&multigraph_cutover_snapshot(
+            fixture.node_count,
+            &fixture.edges,
+            arm,
+        ))
+    };
+    let label = "multigraph/fresh_int_prefix/n10000_m80000";
+    let null = paired_interleaved_ab_base(
+        label,
+        &fixture,
+        "frozen_string",
+        MultiGraphCutoverArm::FrozenString,
+        "null_control",
+        MultiGraphCutoverArm::FrozenString,
+        ROUNDS,
+        &run,
+        &score,
+    );
+    let candidate = paired_interleaved_ab_base(
+        label,
+        &fixture,
+        "frozen_string",
+        MultiGraphCutoverArm::FrozenString,
+        "stable_slot",
+        MultiGraphCutoverArm::StableSlot,
+        ROUNDS,
+        &run,
+        &score,
+    );
+    report_median_ci_gate(label, "frozen_string", "stable_slot", null, candidate);
 }
 
 /// Run the required A/A control immediately before the real A/B and decide only
@@ -1285,6 +1560,10 @@ criterion_group!(
 
 fn main() {
     println!("bench_elf_sha256={}", self_identity());
+    if std::env::var("FNX_FRONTIER_RERUN").as_deref() == Ok("multigraph_slab_cutover") {
+        run_multigraph_slab_cutover_rerun();
+        return;
+    }
     if std::env::var("FNX_VOID_RERUN").as_deref() == Ok("connected_components_vec_fifo") {
         let mut criterion = Criterion::default();
         bench_connected_components_queue_void_rerun(&mut criterion);

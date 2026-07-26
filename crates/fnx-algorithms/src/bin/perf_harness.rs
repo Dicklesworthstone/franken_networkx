@@ -704,10 +704,7 @@ fn start_pprof_guard(
         return None;
     }
 
-    let sample_frequency = match frequency {
-        Some(value) => value,
-        None => 997,
-    };
+    let sample_frequency = frequency.unwrap_or(997);
     match pprof::ProfilerGuardBuilder::default()
         .frequency(sample_frequency)
         .blocklist(&["libc", "libgcc", "pthread", "vdso"])
