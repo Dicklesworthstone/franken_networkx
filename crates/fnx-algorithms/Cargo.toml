@@ -11,6 +11,7 @@ doctest = false
 
 [features]
 default = []
+bench-internals = []
 dhat-heap = ["dhat"]
 profile-pprof = ["pprof"]
 

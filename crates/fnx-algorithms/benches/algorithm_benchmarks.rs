@@ -8,6 +8,11 @@
 use std::collections::{BTreeMap, HashMap};
 
 use criterion::{BenchmarkId, Criterion, criterion_group};
+#[cfg(feature = "bench-internals")]
+use fnx_algorithms::network_simplex_int::{
+    NetworkSimplexCycleArm, NetworkSimplexIntSolution, NetworkSimplexStatus,
+    network_simplex_int_cycle_arm,
+};
 use fnx_algorithms::{
     BitparArm, ConnectedComponentsQueueArm, adamic_adar_index, aspl_gate_overhead_cost,
     average_degree_connectivity, average_shortest_path_length, average_shortest_path_length_arm,
@@ -1069,6 +1074,120 @@ fn run_multigraph_slab_cutover_rerun() {
     report_median_ci_gate(label, "frozen_string", "stable_slot", null, candidate);
 }
 
+#[cfg(feature = "bench-internals")]
+struct NetworkSimplexScratchFixture {
+    demands: Vec<i64>,
+    src: Vec<usize>,
+    tgt: Vec<usize>,
+    cap: Vec<i64>,
+    wt: Vec<i64>,
+}
+
+#[cfg(feature = "bench-internals")]
+impl NetworkSimplexScratchFixture {
+    fn assignment(side: usize) -> Self {
+        const OFFSETS: [usize; 4] = [0, 1, 7, 19];
+
+        let mut demands = vec![-1; side];
+        demands.extend(std::iter::repeat_n(1, side));
+        let mut src = Vec::with_capacity(side * OFFSETS.len());
+        let mut tgt = Vec::with_capacity(side * OFFSETS.len());
+        let mut cap = Vec::with_capacity(side * OFFSETS.len());
+        let mut wt = Vec::with_capacity(side * OFFSETS.len());
+        for supplier in 0..side {
+            for (lane, offset) in OFFSETS.into_iter().enumerate() {
+                let sink = (supplier + offset) % side;
+                src.push(supplier);
+                tgt.push(side + sink);
+                cap.push(1);
+                wt.push(((supplier * 17 + sink * 13 + lane * 5) % 11) as i64 - 5);
+            }
+        }
+        Self {
+            demands,
+            src,
+            tgt,
+            cap,
+            wt,
+        }
+    }
+
+    fn solve(&self, arm: NetworkSimplexCycleArm) -> NetworkSimplexIntSolution {
+        network_simplex_int_cycle_arm(
+            &self.demands,
+            &self.src,
+            &self.tgt,
+            &self.cap,
+            &self.wt,
+            arm,
+        )
+    }
+}
+
+#[cfg(feature = "bench-internals")]
+fn encode_network_simplex_solution(solution: &NetworkSimplexIntSolution) -> Vec<u64> {
+    let status = match solution.status {
+        NetworkSimplexStatus::Optimal => 0,
+        NetworkSimplexStatus::Infeasible => 1,
+        NetworkSimplexStatus::Unbounded => 2,
+    };
+    let mut encoded = Vec::with_capacity(solution.flows.len() + 3);
+    encoded.push(status);
+    encoded.push(solution.cost as u64);
+    encoded.push(solution.flows.len() as u64);
+    encoded.extend(solution.flows.iter().map(|&flow| flow as u64));
+    encoded
+}
+
+/// br-r37-c1-coje0: resurrect the profile-attributed pivot-scratch HOLD under
+/// the corrected same-ELF, A/A-then-A/B, median-CI-only contract.
+#[cfg(feature = "bench-internals")]
+fn run_network_simplex_pivot_scratch_rerun() {
+    const BATCH: usize = 64;
+    const ROUNDS: usize = 61;
+
+    let fixture = NetworkSimplexScratchFixture::assignment(64);
+    let run = |fixture: &NetworkSimplexScratchFixture, arm: NetworkSimplexCycleArm| -> usize {
+        let mut checksum = 0usize;
+        for _ in 0..BATCH {
+            let solution = fixture.solve(arm);
+            checksum = checksum
+                .rotate_left(7)
+                .wrapping_add(solution.cost as usize)
+                .wrapping_add(solution.flows.len());
+            std::hint::black_box(solution);
+        }
+        checksum
+    };
+    let score = |fixture: &NetworkSimplexScratchFixture, arm: NetworkSimplexCycleArm| -> Vec<u64> {
+        encode_network_simplex_solution(&fixture.solve(arm))
+    };
+    let label = "network_simplex/assignment/side64";
+    let null = paired_interleaved_ab_base(
+        label,
+        &fixture,
+        "allocating",
+        NetworkSimplexCycleArm::Allocating,
+        "null_control",
+        NetworkSimplexCycleArm::Allocating,
+        ROUNDS,
+        &run,
+        &score,
+    );
+    let candidate = paired_interleaved_ab_base(
+        label,
+        &fixture,
+        "allocating",
+        NetworkSimplexCycleArm::Allocating,
+        "reused_scratch",
+        NetworkSimplexCycleArm::ReusedScratch,
+        ROUNDS,
+        &run,
+        &score,
+    );
+    report_median_ci_gate(label, "allocating", "reused_scratch", null, candidate);
+}
+
 /// Run the required A/A control immediately before the real A/B and decide only
 /// against the null median's bootstrap CI. CV is printed as provenance, never used
 /// by this gate.
@@ -1560,6 +1679,11 @@ criterion_group!(
 
 fn main() {
     println!("bench_elf_sha256={}", self_identity());
+    #[cfg(feature = "bench-internals")]
+    if std::env::var("FNX_FRONTIER_RERUN").as_deref() == Ok("network_simplex_pivot_scratch") {
+        run_network_simplex_pivot_scratch_rerun();
+        return;
+    }
     if std::env::var("FNX_FRONTIER_RERUN").as_deref() == Ok("multigraph_slab_cutover") {
         run_multigraph_slab_cutover_rerun();
         return;

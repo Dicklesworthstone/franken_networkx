@@ -2,6 +2,65 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## 2026-07-25 CloudyTurtle FRONTIER KEEP: network-simplex solve-local pivot scratch — **2.304x** (`br-r37-c1-coje0`)
+
+**NEGATIVE-LEDGER-FIRST / RESURRECTED HOLD.** The pre-edit scan grepped both
+performance ledgers and the live issue database for `network_simplex`,
+`trace_path`, `find_apex`, cycle scratch, and related flow work. This candidate
+was not a rejected lever: its 2026-07-16 run ended HOLD because warmed workers
+were evicted or stopped returning link output before any A/B ratio existed.
+That source profile remained unusually concrete: the deterministic
+64-supplier assignment fixture executed `140` accepted pivots, `280` path
+traces, `719` parent-edge hops, `1,089` vector capacity growths, and freed
+`558` nonempty path buffers per solve.
+
+**ONE LEVER.** The primal pivot loop now retains four solve-local `Vec<usize>`
+buffers for the left and right cycle paths. Each accepted pivot clears and
+refills those buffers, preserving apex selection, parent traversal, reversal,
+conditional entering-edge insertion, apex removal, append order, leaving-edge
+tie breaks, first-position checks, flow arithmetic, and tree updates. The
+pre-change allocating cycle builder remains available only through the
+`bench-internals` feature so one benchmark ELF can execute both arms; the
+normal library entry point always selects scratch reuse.
+
+**EXACTNESS / PROFILE PARITY.** A focused corpus compares the complete solver
+tuple for allocating and reuse arms: status, exact integer cost, and every flow
+in input-edge order. It covers the known optimum, infeasible capacity, an
+infinite-capacity shortest-path encoding, the empty problem, and assignment
+fixtures at side 32 and 64. Thread-local test counters also prove both arms
+retain the side-64 source profile exactly: `140` pivots, `280` path calls, and
+`719` path hops. The timed executable independently encodes the full side-64
+solution for both arms and produced the same order-sensitive checksum
+`0x218e4d27bec7a8c0`.
+
+**CORRECTED SAME-INVOCATION A/A + A/B.** One fail-closed remote
+`--profile release` invocation with LTO disabled ran on pinned worker
+`vmi1153651`. The process self-reported executing ELF SHA-256
+`7c56f51196a8d4aa39b7cd3df6a01abb9655ed571e2bb13c39013ec34177c02c`
+(`5,436,888` bytes). The allocating/allocating null ran immediately before
+allocating/reused scratch, each for 61 alternating-order rounds of 64 complete
+solves:
+
+| row | median paired ratio | bootstrap 95% CI | wins | CV (report only) |
+|---|---:|---:|---:|---:|
+| allocating / allocating null | `1.004x` | `0.965-1.029` | `31/61` | `1.60%` |
+| allocating / reused scratch | **`2.304x`** | **`2.193-2.417`** | **`60/61`** | `2.95%` |
+
+The candidate median clears the adjacent A/A half-width by `37.52x`. The
+decision gates only on the paired-ratio median and its bootstrap null CI; CV is
+reported as provenance and never participates in the verdict.
+
+**RESULT: KEEP.** The previously unmeasured profile-backed HOLD is now a
+decisive win, with no graph-semantic, serialization, input-validation, or
+shared-state surface change. Concrete re-measure/rollback predicate: rerun only
+after the pivot/cycle implementation, allocator, or release toolchain changes,
+or when a production trace shows a materially different cycle regime (fewer
+than `20` accepted pivots or mean traced path depth at least `2x` this
+fixture's `719/280`). Roll back only if exact status/cost/input-order-flow
+parity fails, or a same-ELF 61-round run shows scratch reuse slower with the
+median outside the adjacent A/A 95% CI by at least `2x` its half-width; never
+retry or roll back from CV alone.
+
 ## 2026-07-25 CloudyTurtle FRONTIER KEEP: MultiGraph stable-slot sole-store cutover — **4.735x** fresh keyed construction (`br-r37-c1-thp6w`)
 
 **NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION.** Before taking this frontier

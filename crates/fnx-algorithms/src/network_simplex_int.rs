@@ -69,6 +69,42 @@ pub struct NetworkSimplexIntSolution {
     pub flows: Vec<i64>,
 }
 
+/// Benchmark-only selector for the frozen allocating cycle builder and the
+/// solve-local scratch implementation.
+#[cfg(any(test, feature = "bench-internals"))]
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug)]
+pub enum NetworkSimplexCycleArm {
+    /// Preserve the pre-scratch behavior: allocate four path vectors per pivot.
+    Allocating,
+    /// Clear and refill four solve-local path buffers across pivots.
+    ReusedScratch,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct CycleTrace {
+    pivots: usize,
+    path_calls: usize,
+    path_hops: usize,
+}
+
+#[cfg(test)]
+thread_local! {
+    static CYCLE_TRACE: std::cell::Cell<CycleTrace> =
+        const { std::cell::Cell::new(CycleTrace { pivots: 0, path_calls: 0, path_hops: 0 }) };
+}
+
+#[cfg(test)]
+fn record_path_trace(hops: usize) {
+    CYCLE_TRACE.with(|trace| {
+        let mut current = trace.get();
+        current.path_calls += 1;
+        current.path_hops += hops;
+        trace.set(current);
+    });
+}
+
 struct Simplex {
     // length edge_count + n (artificial edges appended)
     edge_sources: Vec<usize>,
@@ -85,6 +121,14 @@ struct Simplex {
     next_node_dft: Vec<usize>,
     prev_node_dft: Vec<usize>,
     last_descendent_dft: Vec<usize>,
+}
+
+#[derive(Default)]
+struct CycleScratch {
+    nodes: Vec<usize>,
+    edges: Vec<usize>,
+    right_nodes: Vec<usize>,
+    right_edges: Vec<usize>,
 }
 
 impl Simplex {
@@ -129,7 +173,8 @@ impl Simplex {
         }
     }
 
-    /// Returns (Wn, We) on the path from node p up to its ancestor w.
+    /// Frozen allocating baseline for the cycle-scratch A/B test.
+    #[cfg(any(test, feature = "bench-internals"))]
     fn trace_path(&self, mut p: usize, w: usize) -> (Vec<usize>, Vec<usize>) {
         let mut wn = vec![p];
         let mut we = Vec::new();
@@ -138,11 +183,13 @@ impl Simplex {
             p = self.parent[p];
             wn.push(p);
         }
+        #[cfg(test)]
+        record_path_trace(we.len());
         (wn, we)
     }
 
-    /// Returns (Wn, We) for the cycle created by adding edge i == (p, q),
-    /// oriented from p to q.
+    /// Frozen allocating baseline for the cycle-scratch A/B test.
+    #[cfg(any(test, feature = "bench-internals"))]
     fn find_cycle(&self, i: usize, p: usize, q: usize) -> (Vec<usize>, Vec<usize>) {
         let w = self.find_apex(p, q);
         let (mut wn, mut we) = self.trace_path(p, w);
@@ -156,6 +203,41 @@ impl Simplex {
         wn.extend(wnr);
         we.extend(wer);
         (wn, we)
+    }
+
+    fn trace_path_into(
+        &self,
+        mut p: usize,
+        w: usize,
+        nodes: &mut Vec<usize>,
+        edges: &mut Vec<usize>,
+    ) {
+        nodes.clear();
+        edges.clear();
+        nodes.push(p);
+        while p != w {
+            edges.push(self.parent_edge[p]);
+            p = self.parent[p];
+            nodes.push(p);
+        }
+        #[cfg(test)]
+        record_path_trace(edges.len());
+    }
+
+    /// Fills solve-local scratch with the fundamental cycle created by adding
+    /// edge `i == (p, q)`, oriented from `p` to `q`.
+    fn find_cycle_into(&self, i: usize, p: usize, q: usize, scratch: &mut CycleScratch) {
+        let w = self.find_apex(p, q);
+        self.trace_path_into(p, w, &mut scratch.nodes, &mut scratch.edges);
+        scratch.nodes.reverse();
+        scratch.edges.reverse();
+        if scratch.edges.len() != 1 || scratch.edges[0] != i {
+            scratch.edges.push(i);
+        }
+        self.trace_path_into(q, w, &mut scratch.right_nodes, &mut scratch.right_edges);
+        scratch.right_nodes.pop(); // del WnR[-1]
+        scratch.nodes.extend_from_slice(&scratch.right_nodes);
+        scratch.edges.extend_from_slice(&scratch.right_edges);
     }
 
     fn augment_flow(&mut self, wn: &[usize], we: &[usize], f: i64) {
@@ -193,6 +275,34 @@ impl Simplex {
             self.edge_sources[best_j]
         };
         (best_j, best_s, t)
+    }
+
+    #[inline]
+    fn process_cycle(&mut self, i: usize, mut p: usize, mut q: usize, wn: &[usize], we: &[usize]) {
+        let (j, mut s, mut t) = self.find_leaving_edge(wn, we);
+        let rc = self.residual_capacity(j, s);
+        self.augment_flow(wn, we, rc);
+        if i != j {
+            if self.parent[t] != s {
+                std::mem::swap(&mut s, &mut t);
+            }
+            // We.index(i) > We.index(j): first occurrence positions
+            let pos_i = we
+                .iter()
+                .position(|&edge| edge == i)
+                .expect("fundamental cycle must contain its entering edge");
+            let pos_j = we
+                .iter()
+                .position(|&edge| edge == j)
+                .expect("fundamental cycle must contain its leaving edge");
+            if pos_i > pos_j {
+                std::mem::swap(&mut p, &mut q);
+            }
+            self.remove_edge(s, t);
+            self.make_root(q);
+            self.add_edge(i, p, q);
+            self.update_potentials(i, p, q);
+        }
     }
 
     fn remove_edge(&mut self, s: usize, t: usize) {
@@ -297,7 +407,7 @@ impl Simplex {
 /// Core solve: `cap` uses `i64::MAX` for +infinity. `node_demands` has length n;
 /// the edge arrays have length edge_count (the real, non-self-loop, non-zero-cap
 /// edges already filtered by the caller). Returns the flow on each real edge.
-fn solve(
+fn solve_impl<const REUSE_CYCLE_SCRATCH: bool>(
     node_demands: &[i64],
     src: &[usize],
     tgt: &[usize],
@@ -419,6 +529,7 @@ fn solve(
         let big_m = edge_count.div_ceil(b);
         let mut m = 0usize; // consecutive blocks without an eligible edge
         let mut f = 0usize; // first edge in block
+        let mut cycle_scratch = CycleScratch::default();
         while m < big_m {
             // next block [f, l) cyclically over 0..edge_count
             let l = f + b;
@@ -459,31 +570,30 @@ fn solve(
                 continue;
             }
             // entering edge found
-            let (mut p, mut q) = if sx.edge_flow[i] == 0 {
+            let (p, q) = if sx.edge_flow[i] == 0 {
                 (sx.edge_sources[i], sx.edge_targets[i])
             } else {
                 (sx.edge_targets[i], sx.edge_sources[i])
             };
             m = 0;
             // process this entering edge (the loop body of the Python for-loop)
-            let (wn, we) = sx.find_cycle(i, p, q);
-            let (j, mut s, mut t) = sx.find_leaving_edge(&wn, &we);
-            let rc = sx.residual_capacity(j, s);
-            sx.augment_flow(&wn, &we, rc);
-            if i != j {
-                if sx.parent[t] != s {
-                    std::mem::swap(&mut s, &mut t);
+            #[cfg(test)]
+            CYCLE_TRACE.with(|trace| {
+                let mut current = trace.get();
+                current.pivots += 1;
+                trace.set(current);
+            });
+            if REUSE_CYCLE_SCRATCH {
+                sx.find_cycle_into(i, p, q, &mut cycle_scratch);
+                sx.process_cycle(i, p, q, &cycle_scratch.nodes, &cycle_scratch.edges);
+            } else {
+                #[cfg(any(test, feature = "bench-internals"))]
+                {
+                    let (wn, we) = sx.find_cycle(i, p, q);
+                    sx.process_cycle(i, p, q, &wn, &we);
                 }
-                // We.index(i) > We.index(j): first occurrence positions
-                let pos_i = we.iter().position(|&x| x == i).unwrap();
-                let pos_j = we.iter().position(|&x| x == j).unwrap();
-                if pos_i > pos_j {
-                    std::mem::swap(&mut p, &mut q);
-                }
-                sx.remove_edge(s, t);
-                sx.make_root(q);
-                sx.add_edge(i, p, q);
-                sx.update_potentials(i, p, q);
+                #[cfg(not(any(test, feature = "bench-internals")))]
+                unreachable!("allocating cycle baseline is benchmark-only");
             }
         }
     }
@@ -508,6 +618,40 @@ fn solve(
     }
     let flows: Vec<i64> = sx.edge_flow[..edge_count].to_vec();
     (NetworkSimplexStatus::Optimal, cost, flows)
+}
+
+fn solve(
+    node_demands: &[i64],
+    src: &[usize],
+    tgt: &[usize],
+    cap: &[i64],
+    wt: &[i64],
+) -> (NetworkSimplexStatus, i64, Vec<i64>) {
+    solve_impl::<true>(node_demands, src, tgt, cap, wt)
+}
+
+/// Runs one benchmark arm without changing the public production entry point.
+#[cfg(any(test, feature = "bench-internals"))]
+#[doc(hidden)]
+pub fn network_simplex_int_cycle_arm(
+    node_demands: &[i64],
+    src: &[usize],
+    tgt: &[usize],
+    cap: &[i64],
+    wt: &[i64],
+    arm: NetworkSimplexCycleArm,
+) -> NetworkSimplexIntSolution {
+    let (status, cost, flows) = match arm {
+        NetworkSimplexCycleArm::Allocating => solve_impl::<false>(node_demands, src, tgt, cap, wt),
+        NetworkSimplexCycleArm::ReusedScratch => {
+            solve_impl::<true>(node_demands, src, tgt, cap, wt)
+        }
+    };
+    NetworkSimplexIntSolution {
+        status,
+        cost,
+        flows,
+    }
 }
 
 /// Solve an exact-integer minimum-cost-flow problem via primal network simplex.
@@ -595,6 +739,78 @@ mod tests {
         let cap = [4i64, 4, 2, 4];
         let wt = [1i64, 2, 1, 1];
         (demands, src, tgt, cap, wt)
+    }
+
+    type OwnedProblem = (Vec<i64>, Vec<usize>, Vec<usize>, Vec<i64>, Vec<i64>);
+
+    fn assignment_problem(side: usize) -> OwnedProblem {
+        const OFFSETS: [usize; 4] = [0, 1, 7, 19];
+
+        let mut demands = vec![-1; side];
+        demands.extend(std::iter::repeat_n(1, side));
+        let mut src = Vec::with_capacity(side * OFFSETS.len());
+        let mut tgt = Vec::with_capacity(side * OFFSETS.len());
+        let mut cap = Vec::with_capacity(side * OFFSETS.len());
+        let mut wt = Vec::with_capacity(side * OFFSETS.len());
+        for supplier in 0..side {
+            for (lane, offset) in OFFSETS.into_iter().enumerate() {
+                let sink = (supplier + offset) % side;
+                src.push(supplier);
+                tgt.push(side + sink);
+                cap.push(1);
+                wt.push(((supplier * 17 + sink * 13 + lane * 5) % 11) as i64 - 5);
+            }
+        }
+        (demands, src, tgt, cap, wt)
+    }
+
+    fn solve_with_trace<const REUSE: bool>(
+        problem: &OwnedProblem,
+    ) -> ((NetworkSimplexStatus, i64, Vec<i64>), CycleTrace) {
+        let (demands, src, tgt, cap, wt) = problem;
+        CYCLE_TRACE.with(|trace| trace.set(CycleTrace::default()));
+        let result = solve_impl::<REUSE>(demands, src, tgt, cap, wt);
+        let trace = CYCLE_TRACE.with(std::cell::Cell::get);
+        (result, trace)
+    }
+
+    fn assert_cycle_scratch_parity(problem: &OwnedProblem) -> CycleTrace {
+        let (allocating, allocating_trace) = solve_with_trace::<false>(problem);
+        let (reused, reused_trace) = solve_with_trace::<true>(problem);
+        assert_eq!(
+            reused, allocating,
+            "scratch reuse must preserve status, cost, and input-order flows"
+        );
+        assert_eq!(
+            reused_trace, allocating_trace,
+            "scratch reuse must preserve pivot and path traversal counts"
+        );
+        reused_trace
+    }
+
+    #[test]
+    fn cycle_scratch_matches_allocating_baseline() {
+        let (d, s, t, c, w) = small_problem();
+        assert_cycle_scratch_parity(&(d.to_vec(), s.to_vec(), t.to_vec(), c.to_vec(), w.to_vec()));
+        assert_cycle_scratch_parity(&(vec![-4, 4], vec![0], vec![1], vec![2], vec![1]));
+        assert_cycle_scratch_parity(&(
+            vec![-1, 0, 0, 1],
+            vec![0, 1, 0, 2],
+            vec![1, 3, 2, 3],
+            vec![CAP_INF; 4],
+            vec![1, 5, 2, 1],
+        ));
+        assert_cycle_scratch_parity(&(Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()));
+        assert_cycle_scratch_parity(&assignment_problem(32));
+        assert_eq!(
+            assert_cycle_scratch_parity(&assignment_problem(64)),
+            CycleTrace {
+                pivots: 140,
+                path_calls: 280,
+                path_hops: 719,
+            },
+            "the resurrected fixture must retain its pre-edit operation profile"
+        );
     }
 
     #[test]
