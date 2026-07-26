@@ -24875,3 +24875,132 @@ must cache **public key -> node index**, clear on `nodes_seq`, call live
 `degree_by_index` on every hit, preserve Python hash/equality and original-key
 errors, and prove edge-mutation liveness. Until then, switch to the `G.adj`
 descriptor/row surface rather than rerunning DegreeView.
+
+## 2026-07-26 CloudyTurtle KEEP (public `Graph.adj` descriptor): split the assignable public cache from the load-bearing `_adj` setter — **11.4895x mechanism / 8.49x gap recovery** (`br-r37-c1-pc4hk`)
+
+NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: before proposing this lever,
+`scripts/perf_ledger_preflight.py --prior-art 'G.adj descriptor'` and direct
+searches for `G.adj`, `adj descriptor`, `cached accessor`, `public adj`, and
+`property` read every matching row in both performance ledgers. The governing
+2026-07-25 BlackThrush accessor KEEP deliberately left `adj` as a data
+descriptor because its setter installed NetworkX-compatible private storage.
+It measured bare `G.adj` at **`0.1017x`** versus NetworkX and supplied a
+specific retry predicate: attempt either a C-level descriptor or a
+`__setattr__` split, but only after proving the latter does not enter or regress
+graph mutation. Older `dict(G.adj)` / `dict(G.adj[n])` rows concern row
+materialization and were not treated as evidence about this accessor lever.
+
+The prior cProfile had already attributed the accessor family to repeated
+pure-Python property bodies rather than Rust or marshaling. A pre-edit dynamic
+prototype on the exact current ELF then isolated this remaining descriptor:
+old property / non-data cached access was **`11.9817x`**
+(`11.0807-12.4419x` median CI) with a same-invocation A/A CI of
+`0.9930-1.0122x` and required doubled-null floor `1.0246x`. The public
+NetworkX/FNX row moved to `0.8801x` (`0.8630-0.9042x`) while clearing its
+`1.0521x` floor. The mechanism therefore removes about **91.3%** of the old
+accessor time (`1 - 1/11.4895` in the final run), satisfying both the named
+frame attribution and the governing row's concrete retry predicate.
+
+ONE LEVER: `Graph.adj` now mirrors NetworkX's public/private split. The
+load-bearing `_adj` data descriptor is unchanged and continues to install and
+invalidate private adjacency overrides. The public `adj` name reuses the exact
+old getter through `_CachedViewDescriptor`; after the first read, ordinary
+access is an instance-dict hit instead of two Python property frames.
+`Graph.__setattr__` handles only public `adj` assignment: it clears the
+internal-cache marker before delegating, so a user value replaces the cached
+view and survives deepcopy/pickle exactly like NetworkX state. A counted
+prototype and permanent regression test observed **zero** Python
+`__setattr__` calls across repeated native add/remove-edge operations.
+
+Two semantic traps were found before the final timing and are now explicit
+locks rather than hidden failures:
+
+1. A bare non-data descriptor without the marker-aware assignment hook let
+   `G.adj = user_value` work after a read, but deepcopy/pickle mistook that real
+   value for an internal cache entry and skipped it. The narrow setter hook
+   removes the marker first.
+2. `_FilteredGraphView` intentionally owns an empty Rust base and installs a
+   Python filtered adjacency override. Its constructor's `self.adj = ...` must
+   still pass through the old property's setter; storing only an instance
+   attribute made `subgraph.degree` empty and broke NetworkX traversal through
+   the view. The hook detects this synthetic view and delegates to the captured
+   property setter. Same-artifact causal toggling proved both failures vanished
+   with that branch while ordinary Graph assignment retained the fast split.
+
+BEHAVIOR ISOMORPHISM / CONFORMANCE: the exact final ELF passed **1,276/1,276**
+focused tests spanning descriptor identity/content/liveness, Graph public and
+private assignment, filtered subgraphs, adjacency mapping, attribute access,
+graph utilities, lazy mirrors, graph methods, view mutation, deepcopy, and
+pickle. Locks verify that a cached view observes later mutation, direct public
+assignment does not replace load-bearing `_adj`, private `_adj` assignment
+invalidates the public cache, filtered-view degree/traversal remains live, and
+64 add/remove-edge pairs cross the Python setter zero times.
+
+A wider isolated exact-artifact run exercised **49,613 passing** tests, with
+1,070 skips and one XPASS. Its 31 failures and 17 setup errors were confined to
+the intentionally partial isolated layout: absent installed backend entry
+points, audit/generation scripts, repository specs, and the legacy NetworkX
+checkout, plus established unrelated algorithm gaps. The one traversal failure
+that involved a filtered Graph was rerun with only this candidate toggled off
+and reproduced identically under the captured baseline descriptor, proving it
+non-causal.
+
+PINNED-WORKER SAME-INVOCATION A/A + A/B: the exact extension from the preceding
+KEEP was copied to an isolated package on `vmi1264463`, and remote hashes were
+verified before testing and again immediately before timing. The harness's
+first line self-reported the loaded ELF path and SHA-256
+`4b30828df78e87ece5f6323d0b8864d46af76216c37a47e6375acf849dde122f`
+(13,154,016 bytes), wrapper SHA-256
+`177fc9f796b6ee1e0e6b898157a40de9955fd8f1cd8f63259bbd93774d46bc82`,
+and harness SHA-256
+`f7c107d5e8cedf47d3f55a06863769f0068417565aec13a48a921267eb7f7c4f`
+(Python 3.13.7, NetworkX 3.6.1). The worker was drained only for this
+invocation, pinned to core 3 at load average `0.47/0.45/0.46`, and re-enabled
+immediately afterward.
+
+Every 21-round interleaved row proved an order-preserving digest before timing
+and ran its own A/A null in the same invocation. Decisions use only the
+bootstrap median CI with the contract's 2x log-space null margin; the reported
+CV values were never a gate.
+
+| row (500 accesses unless noted) | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | required floor | decision |
+|---|---:|---:|---:|---:|---|
+| old property / cached public `G.adj` | **`11.4895x`** | `11.1107-12.1097x` | `0.9862-1.0258x` | `1.0522x` | **DECIDABLE KEEP** |
+| NetworkX / FNX bare `G.adj` | `0.8632x` | `0.8076-0.8935x` | `0.9375-1.0048x` | `1.1378x` | **DECIDABLE residual loss** |
+| NetworkX / FNX `len(G.adj)` | `0.3095x` | `0.2958-0.3174x` | `0.9904-1.0341x` | `1.0694x` | **DECIDABLE residual loss** |
+| old / cached add+remove edge x512 | `0.9859x` | `0.8917-1.1512x` | `0.9135-1.0677x` | `1.1984x` | **UNDECIDABLE / no regression claim** |
+
+RESULT: KEEP. The exact descriptor mechanism clears its doubled-null floor by
+more than two orders of magnitude and turns the documented `0.1017x` public
+accessor floor into `0.8632x`, an approximately **8.49x recovery of the gap**.
+The common accessor remains a small measured loss rather than being
+misreported as parity, and `len(G.adj)` separately identifies the next view
+primitive wall. The mutation control is honestly undecidable; the safety claim
+comes from parity plus the counted zero-entry mechanism, not from a noisy wall
+ratio.
+
+RETRY PREDICATE: do not retry public `Graph.adj` property caching, a broader
+`__setattr__` hook, or invalidation on every edge mutation. Reopen the bare
+accessor only if a fresh profile attributes at least **10% self-time** after
+the warm instance-dict hit to a named removable frame and predicts at least
+`1.05x` end-to-end. Route the measured `len(G.adj)` residual to
+`AdjacencyView.__len__` as a different vein: edit only if a pinned-worker
+profile attributes at least **30% self-time** to that wrapper or its
+`number_of_nodes` call, an exact raw-count prototype preserves private and
+filtered-view semantics, and the unchanged same-invocation A/A doubled floor
+is below **`1.03x`**. Reopen mutation only if a million-operation profile
+records at least **5%** in Python `__setattr__`; the current counted mechanism
+is zero.
+
+QUALITY GATES: `cargo fmt --check`, Python byte-compilation, and
+`git diff --check` passed. Strict-remote
+`cargo check --workspace --all-targets -j 2` passed on `vmi1149989`, emitting
+only the two established dead-helper warnings. The mandatory strict workspace
+clippy invocation reproduced exactly six pre-existing findings outside this
+lever: two dead helpers, three `collapsible_if` sites, and one
+`chunks_exact_to_as_chunks` test site. Re-running workspace/all-target clippy
+with exactly those three established lint categories allowed passed with every
+other warning denied. UBS's bounded scan of the 61k-line monolithic shim
+reached 180 seconds without emitting a source finding; its completed
+harness/test scan reports zero critical or warning findings after the four
+trusted in-process pickle round trips were explicitly annotated.

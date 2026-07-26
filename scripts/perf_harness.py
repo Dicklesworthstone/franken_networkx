@@ -27,6 +27,7 @@ minimum (the dominant knob; longer samples are a bigger target for preemption).
 
 Usage:
     python3 scripts/perf_harness.py view-accessors
+    python3 scripts/perf_harness.py adj-descriptor
     python3 scripts/perf_harness.py node-primitives
     python3 scripts/perf_harness.py nodeview-getitem
     python3 scripts/perf_harness.py lazy-rows
@@ -321,6 +322,70 @@ def suite_view_accessors():
     ]
 
 
+def suite_adj_descriptor():
+    """br-r37-c1-pc4hk: cache public Graph.adj; retain private _adj setter."""
+    import franken_networkx as fnx
+
+    gnx, gfx = _build_pair(2000, 8000, seed=7, weighted=True)
+    repeats = range(500)
+    descriptor = fnx.Graph.__dict__["adj"]
+    property_descriptor = fnx._GRAPH_PUBLIC_ADJ_PROPERTY
+    raw_setattr = fnx._GRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE
+    candidate_setattr = fnx._graph_setattr_with_cached_public_adj
+    assert isinstance(descriptor, fnx._CachedViewDescriptor)
+    _ = gfx.adj
+
+    def property_accessor():
+        return [property_descriptor.__get__(gfx, fnx.Graph) for _ in repeats]
+
+    def cached_accessor():
+        return [gfx.adj for _ in repeats]
+
+    baseline_mut = fnx.Graph()
+    candidate_mut = fnx.Graph()
+    for graph in (baseline_mut, candidate_mut):
+        graph.add_nodes_from(("left", "right"))
+
+    def property_mutation():
+        fnx.Graph.__setattr__ = raw_setattr
+        fnx.Graph.adj = property_descriptor
+        for _ in range(512):
+            baseline_mut.add_edge("left", "right")
+            baseline_mut.remove_edge("left", "right")
+        return baseline_mut.number_of_edges()
+
+    def cached_mutation():
+        fnx.Graph.__setattr__ = candidate_setattr
+        fnx.Graph.adj = descriptor
+        for _ in range(512):
+            candidate_mut.add_edge("left", "right")
+            candidate_mut.remove_edge("left", "right")
+        return candidate_mut.number_of_edges()
+
+    return [
+        (
+            "G.adj x500 [property/cached]",
+            property_accessor,
+            cached_accessor,
+        ),
+        (
+            "G.adj x500 [nx/fnx]",
+            lambda: [gnx.adj for _ in repeats],
+            cached_accessor,
+        ),
+        (
+            "len(G.adj) x500 [nx/fnx]",
+            lambda: [len(gnx.adj) for _ in repeats],
+            lambda: [len(gfx.adj) for _ in repeats],
+        ),
+        (
+            "add/remove edge x512 [property/cached]",
+            property_mutation,
+            cached_mutation,
+        ),
+    ]
+
+
 def suite_node_primitives():
     """br-r37-c1-qmi5w: raw-descriptor and competitive primitive proof."""
     import franken_networkx as fnx
@@ -517,6 +582,7 @@ def suite_marshaling():
 
 SUITES = {
     "view-accessors": suite_view_accessors,
+    "adj-descriptor": suite_adj_descriptor,
     "node-primitives": suite_node_primitives,
     "nodeview-getitem": suite_nodeview_getitem,
     "lazy-rows": suite_lazy_rows,

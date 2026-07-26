@@ -44036,6 +44036,44 @@ MultiDiGraph._node = property(
     lambda self, value: _set_private_override(self, _PRIVATE_NODE_OVERRIDE, value),
 )
 
+# br-r37-c1-pc4hk: ``Graph.adj`` was the last high-frequency accessor still
+# installed as a data-descriptor property. Its getter therefore ran two Python
+# frames on every read merely to recover the already-cached AdjacencyView.
+# NetworkX exposes the public name as an assignable cached property and keeps
+# the load-bearing storage setter on ``_adj``. Mirror that split: ``adj`` is a
+# non-data descriptor (then an instance-dict hit), while ``_adj`` above remains
+# the private-override data descriptor and invalidates this cache through
+# ``_set_private_override``.
+_GRAPH_PUBLIC_ADJ_PROPERTY = Graph.__dict__["adj"]
+_GRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE = Graph.__setattr__
+
+
+def _graph_setattr_with_cached_public_adj(self, name, value):
+    # Filtered views deliberately have an empty Rust base and route graph
+    # algorithms through a Python adjacency override. Their constructor's
+    # ``self.adj = ...`` must therefore keep using the old property's setter;
+    # a plain instance attribute would make degree/traversal consult the empty
+    # base instead. Ordinary Graph instances still get nx-style public
+    # assignment below.
+    if name == "adj" and isinstance(self, _FilteredGraphView):
+        return _GRAPH_PUBLIC_ADJ_PROPERTY.__set__(self, value)
+
+    # A user assignment after a plain access replaces the memoised view. Remove
+    # only its internal-cache marker so deepcopy/pickle preserve the user value,
+    # just as they do for any other genuine instance attribute.
+    if name == "adj":
+        storage = vars(self)
+        cached = storage.get(_DESCRIPTOR_CACHED_VIEWS)
+        if cached is not None:
+            cached.discard("adj")
+            if not cached:
+                storage.pop(_DESCRIPTOR_CACHED_VIEWS, None)
+    return _GRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE(self, name, value)
+
+
+Graph.__setattr__ = _graph_setattr_with_cached_public_adj
+Graph.adj = _CachedViewDescriptor(_GRAPH_PUBLIC_ADJ_PROPERTY.fget, "adj")
+
 
 # br-r37-c1-o1i86: capture the raw Rust __copy__ impls BEFORE the Python
 # override below replaces them. The Rust versions clone the inner graph

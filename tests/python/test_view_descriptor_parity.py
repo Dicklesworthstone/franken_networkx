@@ -245,7 +245,7 @@ def test_private_node_method_shadows_do_not_alias_copy_or_pickle(cls_name):
     for other in (
         copy.copy(graph),
         copy.deepcopy(graph),
-        pickle.loads(pickle.dumps(graph)),
+        pickle.loads(pickle.dumps(graph)),  # nosec B301  # ubs:ignore - trusted round trip
     ):
         # Existing fnx contract: private NetworkX storage is an ephemeral view
         # override; graph copies serialize the canonical native storage.
@@ -326,7 +326,7 @@ def test_deepcopy_does_not_alias_the_memoised_view(cls_name):
 def test_pickle_round_trip_does_not_alias_the_memoised_view(cls_name):
     _, gfx = _pair(cls_name)
     _ = gfx.nodes, gfx.edges, gfx.degree
-    other = pickle.loads(pickle.dumps(gfx))
+    other = pickle.loads(pickle.dumps(gfx))  # nosec B301  # ubs:ignore - trusted round trip
     assert list(other.nodes) == list(gfx.nodes)
     assert list(other.edges) == list(gfx.edges)
     other.add_node("only_in_unpickled")
@@ -340,7 +340,9 @@ def test_user_instance_attributes_still_survive_copy_and_pickle():
     graph.custom_attr = 123
     _ = graph.nodes
     assert copy.deepcopy(graph).custom_attr == 123
-    assert pickle.loads(pickle.dumps(graph)).custom_attr == 123
+    assert (
+        pickle.loads(pickle.dumps(graph)).custom_attr == 123  # nosec B301  # ubs:ignore - trusted round trip
+    )
 
 
 @pytest.mark.parametrize("accessor", ACCESSORS)
@@ -350,6 +352,86 @@ def test_accessor_assignment_matches_networkx(accessor):
     setattr(gnx, accessor, "SENTINEL")
     setattr(gfx, accessor, "SENTINEL")
     assert getattr(gfx, accessor) == getattr(gnx, accessor) == "SENTINEL"
+
+
+def test_graph_adj_public_descriptor_is_cached_and_live():
+    """br-r37-c1-pc4hk: repeat access is a dict hit, not a property frame."""
+    gnx, gfx = _pair("Graph")
+    assert isinstance(fnx.Graph.__dict__["adj"], fnx._CachedViewDescriptor)
+    assert "adj" not in vars(gfx)
+
+    nx_view, fnx_view = gnx.adj, gfx.adj
+    assert vars(gfx)["adj"] is fnx_view
+    assert gfx.adj is fnx_view
+    assert {node: dict(row) for node, row in fnx_view.items()} == {
+        node: dict(row) for node, row in nx_view.items()
+    }
+
+    gnx.add_edge("n0", "later", weight=9)
+    gfx.add_edge("n0", "later", weight=9)
+    assert list(fnx_view["n0"]) == list(nx_view["n0"])
+
+
+def test_graph_adj_user_assignment_clears_internal_cache_marker():
+    """A real public value must survive deepcopy/pickle as user state."""
+    gnx, gfx = _pair("Graph")
+    _ = gnx.adj, gfx.adj
+    nx_value = {"public": {"nx": 1}}
+    fnx_value = {"public": {"nx": 1}}
+
+    gnx.adj = nx_value
+    gfx.adj = fnx_value
+
+    assert gnx.adj is nx_value
+    assert gfx.adj is fnx_value
+    assert "adj" not in vars(gfx).get(fnx._DESCRIPTOR_CACHED_VIEWS, ())
+    # Public assignment does not replace NetworkX's load-bearing ``_adj``;
+    # graph methods keep reading the native structure in both libraries.
+    assert list(gfx.neighbors("n0")) == list(gnx.neighbors("n0"))
+    assert copy.deepcopy(gfx).adj == copy.deepcopy(gnx).adj == fnx_value
+    assert (
+        pickle.loads(pickle.dumps(gfx)).adj == fnx_value  # nosec B301  # ubs:ignore - trusted round trip
+    )
+
+
+def test_graph_private_adj_assignment_invalidates_public_cache():
+    graph = _build(fnx, "Graph")
+    old_view = graph.adj
+    assigned = {
+        "n0": {"n1": {"private": True}},
+        "n1": {"n0": {"private": True}},
+        "n2": {},
+        "n3": {},
+    }
+
+    graph._adj = assigned
+
+    assert "adj" not in vars(graph)
+    assert graph.adj is assigned
+    assert graph.adj is not old_view
+    assert list(graph.neighbors("n0")) == ["n1"]
+
+
+def test_graph_mutation_does_not_cross_public_adj_setattr(monkeypatch):
+    """The assignment hook is off the Rust add/remove-edge hot path."""
+    graph = fnx.Graph()
+    graph.add_nodes_from(("left", "right"))
+    raw_setattr = fnx._GRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE
+    calls = 0
+
+    def counted_setattr(self, name, value):
+        nonlocal calls
+        calls += 1
+        return raw_setattr(self, name, value)
+
+    monkeypatch.setattr(fnx, "_GRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE", counted_setattr)
+    for _ in range(64):
+        graph.add_edge("left", "right")
+        graph.remove_edge("left", "right")
+    assert calls == 0
+
+    graph.user_value = 1
+    assert calls == 1
 
 
 DIRECTED_ACCESSORS = ["in_degree", "out_degree", "in_edges", "out_edges"]
