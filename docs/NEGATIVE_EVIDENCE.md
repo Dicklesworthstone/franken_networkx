@@ -27794,6 +27794,64 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-26 CloudyTurtle PROFILED SURFACE CLOSURE (`Graph.edges` warm bare accessor): cached descriptor already exits the Python call graph — **1.00x Python-frame ceiling**, NO SOURCE EDIT (`br-r37-c1-vyku2`)
+
+NEGATIVE-LEDGER-FIRST / HAND ADJUDICATION: the mechanical preflight found no
+exact row for the post-cache residual, but the broader manual search found and
+read the governing `br-r37-c1-wbwkb` KEEP in
+`docs/progress/perf-negative-results.md`. That row already replaced the public
+`nodes` / `edges` / `degree` data descriptors with `_CachedViewDescriptor`,
+proved live-view, assignment, copy, deepcopy, pickle, subgraph, and randomized
+mutation parity, and measured the causal `G.edges` cache mechanism at
+**17.9837x**. Repeating that source lever would therefore ignore already
+landed evidence.
+
+EXACT-CURRENT RESIDUAL / NULL: the permanent `view-accessors` suite ran from
+the immutable current package on `vmi1152480`, pinned to core 3. Its process
+self-reported the actually loaded extension as line one:
+
+`bench_elf_sha256=e532cf2f6b03aa36d21f1ccc131986ede77930bd2d49ad64f858062b89d7f25e
+(70107608 bytes)
+/data/tmp/franken_networkx-measure-mdg-e532cf2f/franken_networkx/_fnx.abi3.so`
+
+The public `G.edges` x500 row measured NetworkX/FNX at `0.7867x`
+(`0.7468-0.8191x` bootstrap median CI). Its independent A/A null ran in the
+same invocation at `0.9876x` (`0.9688-1.0060x`), giving a doubled-log floor of
+`1.0655x`. The residual loss is real; CV was recorded only as provenance and
+never gated the decision.
+
+COUNTED PROFILE MECHANISM / COMPUTED CEILING: a separate exact-ELF process
+warmed both view objects, proved `g.edges is g.edges`, and proved that both
+FNX and NetworkX already stored `edges` in their instance dictionaries.
+Five million FNX reads took `0.219s`; five million NetworkX reads took
+`0.156s`. cProfile counted exactly two calls in either arm: the benchmark loop
+and profiler disable. `_CachedViewDescriptor.__get__`, its builder, the native
+extension, and every compatibility wrapper were absent from the warm path.
+The counted descriptor-builder invocation total is therefore unchanged at
+**0**, and the Amdahl ceiling for removing another Python descriptor/wrapper
+frame is **`1 / (1 - 0.0) = 1.00x`**. The remaining delta lives below Python
+frame attribution in object-layout / C attribute lookup; there is no executed
+Python descriptor work for a descriptor rearrangement to remove.
+
+RESULT: **SURFACE CLOSED / NO SOURCE EDIT.** This is counted-mechanism
+evidence, not a near-1.0 wall-ratio rejection: the public loss is decisive,
+but the proposed lazy-view vein has zero warm-path invocations left. No
+descriptor, test, or benchmark source changed.
+
+RETRY PREDICATE: do not retry `_CachedViewDescriptor`, `cached_property`,
+public-name memoization, or another Python wrapper/cache rearrangement.
+Reopen the warm bare accessor only when an exact-current low-level profile or
+executable prototype attributes at least **10%** of end-to-end time to one
+named replaceable C/PyO3 object-layout or `tp_getattro` mechanism and predicts
+at least **`1.05x`** public improvement. Before editing, the unchanged
+same-invocation A/A doubled-log floor must be below **`1.03x`**. Any candidate
+must retain public assignment, subclass overrides, view identity and
+liveness, private-store invalidation, and copy/deepcopy/pickle non-aliasing,
+and its final process must self-report the loaded ELF SHA-256.
+
+QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only closure. No
+Cargo build, test, bench, or RCH job was needed.
+
 ## 2026-07-26 CloudyTurtle REJECT (`DiGraph.add_nodes_from` exact-string attributed-node interner): causal **`1.0305-1.0617x`**, both median CIs inside their doubled A/A gates — **VALID-AB** (`br-r37-c1-gxjh4`)
 
 NEGATIVE-LEDGER-FIRST: before proposing the lever,
