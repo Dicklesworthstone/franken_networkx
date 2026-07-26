@@ -1084,10 +1084,27 @@ Two lessons are worth keeping in the README rather than only in the ledger:
    losing surfaces is the pure-Python shim layer in `python/franken_networkx/__init__.py`, not the
    Rust boundary and not marshaling.
 
-Construction-path rows (`Graph(...)` / `MultiGraph(...)` from an edge stream) are deliberately
-omitted: the MultiGraph store was cut over to stable-slot storage on 2026-07-25 (a measured 4.7× on
-fresh keyed construction) and the Python-level end-to-end numbers have not been re-measured since.
-They will be quoted again when they are measured, not before.
+**Construction paths — measured 2026-07-26**, after the MultiGraph stable-slot cutover, same
+contract (byte-identity of the *constructed graph* — node order, edge order, keys, attrs — proven
+before timing):
+
+| Path | fnx vs nx | Notes |
+|--------|-----------|-------|
+| `Graph.copy()` | **7.6× faster** | Native clone; no Python round-trip |
+| `MultiGraph.copy()` | **1.4× faster** | Native clone |
+| `Graph(edge stream, no attrs)` | **1.1× faster** | Native bulk loader |
+| `MultiGraph(edge stream)` / batch `add_edges_from` | **~1.0× (parity)** | Both land inside the A/A null after the stable-slot cutover — was 0.61× before it |
+| `Graph(edge stream, weight attr)` | 0.83× | The whole delta vs the no-attr row is per-edge attribute handling |
+| `MultiDiGraph(edge stream)` | 0.70× | Still on the String-keyed store; the cutover was MultiGraph-only |
+| `Graph.add_nodes_from` + `add_edges_from` | 0.57× | Batch loader |
+| `DiGraph(edge stream, weight attr)` | 0.42× | Batch loader |
+| `Graph` incremental `add_edge` ×8000 | **0.26×** | ~3.5 μs/call vs nx's 0.91 μs. Per-call Python shim cost, not storage — batch-constructing the same 8000 edges is 3.2× better per edge. |
+
+The incremental-`add_edge` row is the largest remaining gap in the library and it is the same
+per-call shim cost described above, not an algorithmic or storage problem. If you are building a
+large graph, **use the batch constructors** (`Graph(edge_stream)`, `add_edges_from`) rather than a
+Python loop of `add_edge` calls — that is worth ~3× and it is the single most effective thing a
+caller can do.
 
 If you can keep the graph on the fnx side (don't reconstruct per call), the marshaling chunk vanishes. The backend-dispatch path automatically caches the converted graph for repeat calls.
 
