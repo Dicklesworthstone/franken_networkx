@@ -25837,3 +25837,54 @@ three established categories and passed with every other warning denied. UBS
 completed the harness/test scan with zero critical or warning findings; its
 staged scan of the 61k-line Python shim reached UBS's 300-second module timeout
 without emitting a source finding.
+
+## 2026-07-26 CloudyTurtle VALID-PROFILE (`MultiAdjacencyView.__len__` post-descriptor retry): ceiling remains below admission — **NO SOURCE EDIT** (`br-r37-c1-g5jsi`)
+
+NEGATIVE-LEDGER-FIRST / AUTHORIZED RETRY: the preflight for
+`MultiAdjacencyView len length slot native count MultiDiGraph` returned no
+direct regex match, so direct searches read the prior `fe15a5e11`
+VALID-PROFILE row and the new `aa9165a6f` descriptor KEEP by hand. The prior
+row forbade another raw-count binding unless a different landed substrate
+change raised one removable frame to at least 33.4% self-time / 1.5x Amdahl.
+The descriptor KEEP was that concrete substrate change: it removed the public
+property chain and left exact public `len(MDG.adj/succ/pred)` losses at
+`0.6871-0.7019x`. This profile tests the stated retry predicate; it does not
+relax it.
+
+EXACT POST-SUBSTRATE PROFILE: measurement ran on drained `vmi1227854`, pinned
+to core 3 at load average `0.8599/0.9077/1.0767`. Canonical line one reported
+the loaded ELF SHA-256
+`4b30828df78e87ece5f6323d0b8864d46af76216c37a47e6375acf849dde122f`
+(13,154,016 bytes) from the isolated package whose wrapper SHA-256 was
+`268d309bb3ca5a0d0ed545d58860fa991253085f5cb1542d0aadcd011afea5a9`.
+Profiling 200,000 direct-syntax calls to `len(gfx.adj)` recorded 600,002 calls
+in `0.114675s`. `MultiAdjacencyView.__len__` owned **`0.034465s` / 30.05%
+self-time**; built-in `len` owned `0.034902s`, raw native
+`MultiDiGraph.number_of_nodes` owned `0.019751s`, and the driver owned
+`0.025520s`. The individual removable Python frame therefore has a computed
+Amdahl ceiling of only **`1.43x`**. A diagnostic three-accessor profile using
+generic `getattr` was not used for admission because that artificial frame
+does not exist in the natural direct call.
+
+RESULT: REJECT / NO SOURCE EDIT. This is **VALID-PROFILE**, not VOID-ZEROSELF
+or VOID-NONULL: the named target frame has substantial non-zero self-time and
+a computed ceiling, but both `30.05% < 33.4%` and `1.43x < 1.5x` miss the
+predeclared retry bar. No dynamic prototype, source edit, wall A/B, A/A null,
+CV gate, or combined-frame claim was made. The worker was immediately
+re-enabled.
+
+RETRY PREDICATE: the descriptor substrate has now been consumed; do not retry
+binding `number_of_nodes`, combining built-in dispatch with the Python frame
+after the fact, or lowering the admission bar. Reopen only if a new C-level
+mapping-length-slot implementation can remove the Python frame while
+preserving ownerless/private/filtered/live behavior, or a different landed
+path change makes a fresh exact direct-syntax profile attribute at least
+**33.4% self-time** and a **1.5x** ceiling to one removable frame. Any future
+timing gate must record a same-invocation A/A null, require a doubled-null
+floor below **`1.03x`**, and decide only from the bootstrap median CI. Until
+then switch view families.
+
+QUALITY GATES: no source, harness, or test file changed. Exact-artifact profile
+provenance and worker re-enablement were verified; the ledger/bead-only diff
+passed `git diff --check`. UBS has no Markdown/JSONL scanner, so no scanner
+pass is claimed for this docs-only result.
