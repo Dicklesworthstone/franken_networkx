@@ -138,6 +138,20 @@ def test_plain_get_edge_data_is_a_raw_descriptor(cls_name):
     assert "get_edge_data" not in vars(graph)
 
 
+def test_plain_graph_nodeview_contains_is_a_raw_descriptor():
+    """br-r37-c1-m7xek: the hash guard lives inside the native C slot."""
+    graph = fnx.Graph()
+    graph.add_node("present")
+    view = graph.nodes
+    descriptor = inspect.getattr_static(type(view), "__contains__")
+
+    assert inspect.ismethoddescriptor(descriptor)
+    assert "present" in view
+    assert "missing" not in view
+    with pytest.raises(TypeError, match=r"unhashable type"):
+        [] in view
+
+
 @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
 def test_simple_edge_view_getitem_returns_live_native_attr_dict(cls_name):
     """br-r37-c1-sivs2: scalar simple-edge reads bypass mapping wrappers."""

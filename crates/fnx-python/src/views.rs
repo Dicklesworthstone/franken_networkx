@@ -53,6 +53,10 @@ impl NodeView {
     }
 
     fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        // br-r37-c1-m7xek: keep NetworkX's unhashable-node TypeError inside
+        // the native slot so ordinary Graph NodeView membership no longer
+        // needs a Python hash+delegate wrapper on every present/missing probe.
+        n.hash()?;
         let g = self.graph.borrow(py);
         let canonical = node_key_to_string(py, n)?;
         Ok(g.inner.has_node(&canonical))

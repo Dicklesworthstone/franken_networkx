@@ -42,6 +42,7 @@ Usage:
     python3 scripts/perf_harness.py edge-primitives
     python3 scripts/perf_harness.py edge-data-primitives
     python3 scripts/perf_harness.py simple-edge-getitem
+    python3 scripts/perf_harness.py nodeview-contains
     python3 scripts/perf_harness.py multi-neighbor-keydict
     python3 scripts/perf_harness.py digraph-neighbor-descriptors
     python3 scripts/perf_harness.py nodeview-getitem
@@ -1472,6 +1473,54 @@ def suite_simple_edge_getitem():
     return rows
 
 
+def suite_nodeview_contains():
+    """br-r37-c1-m7xek: move Graph NodeView's hash guard into its C slot."""
+    gnx, gfx = _build_pair(2048, 8192, seed=7, weighted=True)
+    nx_view = gnx.nodes
+    fnx_view = gfx.nodes
+    raw_contains = type(fnx_view).__dict__["__contains__"]
+    present = "1024"
+    missing = "not-present"
+
+    def old_batch(item, *, view=fnx_view, raw=raw_contains):
+        # The native candidate now performs the one mandatory hash itself.
+        # Retain only the former Python delegate frame here; calling hash()
+        # again would charge the control twice for work the old path did once.
+        total = 0
+        for _ in range(512):
+            total += raw(view, item)
+        return total
+
+    def candidate_batch(item, *, view=fnx_view):
+        return sum(item in view for _ in range(512))
+
+    def networkx_batch(item, *, view=nx_view):
+        return sum(item in view for _ in range(512))
+
+    return [
+        (
+            "Graph NodeView contains present x512 [wrapper/native]",
+            lambda: old_batch(present),
+            lambda: candidate_batch(present),
+        ),
+        (
+            "Graph NodeView contains present x512 [nx/fnx]",
+            lambda: networkx_batch(present),
+            lambda: candidate_batch(present),
+        ),
+        (
+            "Graph NodeView contains missing x512 [wrapper/native]",
+            lambda: old_batch(missing),
+            lambda: candidate_batch(missing),
+        ),
+        (
+            "Graph NodeView contains missing x512 [nx/fnx]",
+            lambda: networkx_batch(missing),
+            lambda: candidate_batch(missing),
+        ),
+    ]
+
+
 def suite_multi_neighbor_keydict():
     """br-r37-c1-zrsuc: cache lazy multigraph neighbor-key returns."""
     import networkx as nx
@@ -1754,6 +1803,7 @@ SUITES = {
     "edge-primitives": suite_edge_primitives,
     "edge-data-primitives": suite_edge_data_primitives,
     "simple-edge-getitem": suite_simple_edge_getitem,
+    "nodeview-contains": suite_nodeview_contains,
     "multi-neighbor-keydict": suite_multi_neighbor_keydict,
     "digraph-neighbor-descriptors": suite_digraph_neighbor_descriptors,
     "nodeview-getitem": suite_nodeview_getitem,

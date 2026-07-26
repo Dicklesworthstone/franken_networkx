@@ -44349,14 +44349,12 @@ MultiGraph.get_edge_data = _MULTIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA
 MultiDiGraph.get_edge_data = _MULTIDIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA
 
 
-# br-r37-c1-nv-hash: NodeView.__contains__ silently returned False
-# on unhashable items; nx propagates ``TypeError: unhashable type:
-# 'X'`` from the underlying ``item in self._nodes`` dict lookup.
-# Sister of br-r37-c1-cvtv6 / br-r37-c1-kgpaj / br-r37-c1-cl78j /
-# br-r37-c1-exavo / br-r37-c1-9ll82 — same root pattern: the Rust
-# binding swallows the TypeError, masking caller bugs (e.g. ``if
-# [some_list_id] in G.nodes:`` returning False).  Patch the four
-# Rust-bound NodeView classes (one per graph type) to hash-check.
+# br-r37-c1-nv-hash: the directed and multigraph NodeView bindings still
+# silently return False on unhashable items, whereas nx propagates
+# ``TypeError: unhashable type: 'X'`` from its dict lookup. Keep their Python
+# hash guards until their native slots grow the same check. The ordinary Graph
+# sibling moved that guard into Rust in br-r37-c1-m7xek, so wrapping it here
+# would reintroduce the hot Python frame that native slot removes.
 def _make_hashed_node_view_contains(raw_contains):
     def __contains__(self, item):
         hash(item)
@@ -44365,7 +44363,6 @@ def _make_hashed_node_view_contains(raw_contains):
 
 
 for _NodeViewCls in (
-    _fnx.NodeView,
     _fnx.DiNodeView,
     _fnx.MultiGraphNodeView,
     _fnx.MultiDiGraphNodeView,

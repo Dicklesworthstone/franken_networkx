@@ -27536,3 +27536,105 @@ editing, two consecutive preregistered A/A-only runs of the unchanged
 The final exact process must self-report its loaded ELF and place the A/B
 bootstrap median CI wholly beyond its own same-invocation floor while
 retaining all behavior locks above.
+
+## 2026-07-26 CloudyTurtle KEEP (`Graph` `NodeView.__contains__` native hash guard): **1.2647x present / 1.2400x missing** exact-final causal wins (`br-r37-c1-m7xek`)
+
+NEGATIVE-LEDGER-FIRST / SCOPE ADJUDICATION: before proposing the lever,
+`scripts/perf_ledger_preflight.py --candidate` searched the negative-evidence
+ledgers for `NodeView.__contains__`, `Graph.nodes membership`, and the
+`NodeView` `__len__`/`__iter__` siblings. No prior verdict row decided scalar
+membership. The nearby `br-r37-c1-wbwkb` accessor-cache KEEP was read by hand:
+it removed repeated view construction, not the Python hash-and-delegate frame
+inside membership on an already-held view. This row is therefore a fresh
+surface, not a retry that silently ignores an earlier predicate.
+
+PROFILE ATTRIBUTION / COMPUTED CEILING: the exact loaded pre-edit artifact
+measured NetworkX/FNX at `0.2567x` for present membership and `0.2684x` for
+missing membership; each scout carried its own same-invocation A/A null near
+`1.0035x`. A 400,000-call present-key cProfile run attributed `0.117s` self
+and `0.141s` cumulative of `0.223s` total to the named Python
+`NodeView.__contains__` wrapper, or **52.5% self-time** and a computed
+**2.10x Amdahl ceiling**. The missing-key profile attributed `0.114s` self
+of `0.219s` total to the same frame. A direct raw-slot prototype on that exact
+ELF then measured the removable-frame ceiling at `1.2774x`
+(`1.2757-1.2786x` bootstrap median CI, null floor `1.0044x`) present and
+`1.3403x` (`1.3389-1.3414x`, null floor `1.0014x`) missing.
+
+ONE LEVER / LAZY-VIEW MECHANISM: ordinary `Graph` `NodeView.__contains__`
+now performs the mandatory Python hash check in its native PyO3 slot, then
+performs the existing canonical-key lookup. The compatibility layer therefore
+leaves that raw descriptor installed instead of wrapping every lookup in a
+Python `hash()` plus delegate frame. The `DiGraph`, `MultiGraph`, and
+`MultiDiGraph` wrappers remain unchanged and are explicitly separate
+profile-and-null candidates. The causal control retains the old Python
+delegate frame around the same candidate descriptor without adding a second
+hash; charging two hashes would not model the removed path. The lever
+preserves present/missing semantics and NetworkX's `TypeError` for unhashable
+keys.
+
+PINNED-WORKER EXACT-FINAL A/A + A/B: `RCH_REQUIRE_REMOTE=1` built the release
+extension on `vmi1227854` after `df -h /data` showed more than 500 GiB free.
+Local and worker source hashes matched for Rust
+`240f4cd277b113557e5e42ce341323c6c4709ccc059c1b62afe5a7bf55f322e5`,
+wrapper
+`5f0635bfabefb100a83adba1a81d7d5e133f8759e7ff31acce4b9bc1a375d71e`,
+and harness
+`00b82448f3356df09dc996cc7dd01738f5a1c387151ea0390ccdda7c55e6ffd4`.
+On the drained worker, pinned to core 3, the benchmark process printed this
+loaded identity as line one:
+
+`bench_elf_sha256=a6dcc1f75f6f2e004e18f27b641d195f3a48b2473c3787acc011293bbd9f26c0
+(13153768 bytes)
+/data/tmp/fnx-m7xek-final/franken_networkx/_fnx.abi3.so`
+
+The same invocation recorded Python 3.13.7, NetworkX 3.6.1, header load
+average `3.3198/5.2612/4.7148`, result parity before timing, 21 interleaved
+rounds with `min_of=3`, and an independent A/A null for every row. Decisions
+use only bootstrap median confidence intervals and the doubled log-space null
+margin; CV is recorded nowhere as a gate.
+
+| exact-final row | median A/B | A/B 95% median CI | same-invocation A/A median / 95% median CI | doubled-null floor | decision |
+|---|---:|---:|---:|---:|---|
+| present wrapper / native | **`1.2647x`** | **`1.2236-1.2902x`** | `0.9876x` / `0.9686-0.9976x` | **`1.0658x`** | **DECIDABLE KEEP (21/21)** |
+| present NetworkX / FNX | `0.5702x` | `0.5293-0.6070x` | `1.0086x` / `0.9888-1.0587x` | `1.1209x` | **1.75x residual loss** |
+| missing wrapper / native | **`1.2400x`** | **`1.2220-1.2631x`** | `0.9975x` / `0.9463-1.0523x` | **`1.1167x`** | **DECIDABLE KEEP (21/21)** |
+| missing NetworkX / FNX | `0.5214x` | `0.5070-0.5642x` | `1.0053x` / `0.9387-1.0527x` | `1.1348x` | **1.92x residual loss** |
+
+RESULT: **KEEP.** Both causal A/B bootstrap median CIs lie wholly above their
+own same-invocation doubled-null floors. The NetworkX/FNX rows are reported
+only as remaining frontier losses and do not prove another mechanism. The
+worker was immediately re-enabled and probed healthy.
+
+BEHAVIOR ISOMORPHISM / QUALITY: the immutable exact package passed **221/221**
+focused descriptor tests and **356/356** exact view-pickle plus adjacency
+mapping tests; a separate legacy all-four-graph unhashable-membership review
+test also passed, for **578 distinct relevant passes**. A broader
+multi-module run reported 988 passes and 27 environment-only failures, all
+from unavailable `scipy`; no product assertion failed. Strict-remote
+`cargo check --workspace --all-targets` passed with the two established
+dead-helper warnings. Exact deny-warnings Clippy reproduced only six
+established off-lane findings (two `dead_code`, three `collapsible_if`, one
+`chunks_exact_to_as_chunks`), and the filtered deny-warnings rerun allowing
+exactly those categories passed. Fail-closed RCH refused
+`cargo fmt --check` with `RCH-E301`; no local Cargo fallback ran, while direct
+Rustfmt, Python byte-compilation, and `git diff --check` passed. Focused UBS
+scans of the Rust file, harness, and focused test found zero critical or
+warning findings attributable to this change. The mandatory aggregate staged
+UBS scan finished its Rust module in six seconds, then hit the bounded
+300-second Python-module timeout without emitting a code finding; therefore no
+complete aggregate UBS pass is claimed for the 61k-line compatibility wrapper.
+
+RETRY PREDICATE: do not retry another Python wrapper reshuffle on ordinary
+`Graph` membership. Reopen its **1.75x present / 1.92x missing** residual only
+after a fresh exact post-KEEP profile attributes at least **30% self-time** to
+one named removable frame in canonical key conversion or PyO3 lookup, and a
+counted experiment demonstrates fewer canonicalizations. Any node-key
+interning design must preserve Python hash/equality, equal-but-nonidentical
+keys, canonical public display identity, mutation liveness, and memory bounded
+by the live node set. Before editing, two consecutive preregistered A/A-only
+runs of the unchanged 512-probe workload must each produce a doubled-log
+floor below **`1.03x`**. The directed and multigraph siblings require their
+own non-zero profile attribution, computed Amdahl ceiling, and same-invocation
+nulls rather than inheriting this verdict. Every final candidate must
+self-report its loaded ELF as line one and place its bootstrap median CI
+wholly beyond its own doubled-null floor.
