@@ -923,7 +923,30 @@ that already wins. RETRY PREDICATE for the marshaling thesis: reopen only if a p
 specific returning API attributes >=20% exact self-time to PyO3 container construction (not to the
 Python view machinery, which is where this surface's cost actually is — see the next entry).
 
-## 2026-07-25 BlackThrush (cc) KEEP (br-r37-c1-wbwkb): accessor views were installed as a DATA descriptor, so their Python body re-ran on every access — nx's cached_property mechanism restored, **5.90x-17.98x** same-binary
+## 2026-07-25 BlackThrush (cc) KEEP (br-r37-c1-wbwkb) [SELF-SPEEDUP + incumbent row]: accessor views were installed as a DATA descriptor, so their Python body re-ran on every access — nx's cached_property mechanism restored, **5.90x-17.98x self-speedup**
+
+```
+comparison_class = SELF-SPEEDUP
+campaign_output = false
+bench_elf_sha256 = 26c802ed8013d16182f869323c7c05b2e894c8d2e93588d7aacd99ef5d665d11
+decision_gate = median_ci
+cv_role = report_only
+```
+
+The ELF SHA-256 above is the `_fnx` extension hashed from INSIDE the measuring process by
+`scripts/perf_harness.py`'s provenance header, not by a shell step beside the run. The
+same-invocation A/A null control measured median `1.0000x` with bootstrap CI `[0.9977,0.9996]` on
+the bare-`G.nodes` row; every row's own A/A null CI is listed in the table below and each candidate
+median was gated against it with a 2x margin.
+
+**CLAIM CLASS (Policy 2, labelled 2026-07-27).** The headline `5.90x-17.98x` is a
+**SELF-SPEEDUP** — our own frozen-ORIG arm vs our own candidate arm, same binary. It is
+maintenance and **must never be quoted as a result against the incumbent**, notwithstanding that the row
+names networkx (naming the incumbent while timing only our own two arms is exactly the
+conflation Policy 2 forbids). The row's separate INCUMBENT measurement, taken against genuine
+unpatched networkx 3.6.1 side-by-side in the same invocation, is: bare accessors moved from
+**0.035-0.133x to 0.854-0.867x of networkx** — i.e. this lever shrank a loss, it did not
+produce a win. That is the only figure from this row admissible as campaign output.
 
 PROFILE FIRST. The wide return-shape sweep (28 rows) put the worst decidable losses on HEAD at
 `G.nodes[n]` **0.2477x** and `dict(G[u])` **0.5159x**. cProfile on both arms attributed them with
@@ -1007,7 +1030,26 @@ REMAINING on this surface, with retry predicates:
   and unhashable-node TypeError parity. Retry only with a design that keeps both contracts without
   the per-call `hash()` — e.g. moving the key-fidelity re-raise into the Rust getter.
 
-## 2026-07-25 BlackThrush (cc) KEEP (br-r37-c1-hwu8a): mirror the cached view descriptor onto the DIRECTED accessor siblings — **3.55-3.82x** same-binary, plus an identity divergence fixed
+## 2026-07-25 BlackThrush (cc) KEEP (br-r37-c1-hwu8a) [SELF-SPEEDUP + parity fix]: mirror the cached view descriptor onto the DIRECTED accessor siblings — **3.55-3.82x self-speedup**, plus an identity divergence fixed
+
+```
+comparison_class = SELF-SPEEDUP
+campaign_output = false
+bench_elf_sha256 = 26c802ed8013d16182f869323c7c05b2e894c8d2e93588d7aacd99ef5d665d11
+decision_gate = median_ci
+cv_role = report_only
+```
+
+Same in-process provenance as the row above: the ELF SHA-256 is self-reported by the measuring
+process. The same-invocation A/A null control measured median `1.0000x` with bootstrap CI
+`[0.9899,1.0045]` on the bare-`G.out_edges` row; every row's own A/A null CI is in the table below.
+
+**CLAIM CLASS (Policy 2, labelled 2026-07-27).** The headline `3.55-3.82x` is a **SELF-SPEEDUP**
+(frozen ORIG arm vs candidate arm, same binary) and is not campaign output. Against genuine
+networkx measured side-by-side in the same invocation, these accessors moved from
+**0.244-0.394x to 0.787-0.864x** — a shrunk loss, not a win. The durable result in this row is
+the **parity fix**: `G.out_edges is G.out_edges` was False where networkx's `cached_property`
+makes it True, and that divergence is now closed.
 
 Sibling sweep after br-r37-c1-wbwkb. That lever converted `nodes`/`edges`/`degree`; the DIRECTED
 accessors were left as plain `property` objects, so they still re-ran their Python body per access.
