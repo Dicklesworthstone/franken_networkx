@@ -17,6 +17,7 @@ use fnx_classes::digraph::{DiGraph, MultiDiGraph};
 use fnx_runtime::{CgseValue, CompatibilityMode, RuntimePolicy};
 use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
+use pyo3::gc::{PyTraverseError, PyVisit};
 use pyo3::prelude::*;
 use pyo3::types::{
     PyAny, PyBool, PyDict, PyFloat, PyInt, PyIterator, PyList, PySet, PyString, PyTuple,
@@ -169,6 +170,23 @@ pub struct PyDiGraph {
     /// remove / clear hook so mutation-during-iteration raises CPython's native
     /// "dictionary changed size during iteration" exactly as nx does.
     pub(crate) node_iter_mirror: std::sync::Mutex<Option<Py<PyDict>>>,
+    pub(crate) instance_dict_gc: crate::InstanceDictGc,
+}
+
+#[pymethods]
+impl PyDiGraph {
+    fn _fnx_register_gc_dict(&mut self, dict: &Bound<'_, PyDict>) {
+        self.instance_dict_gc.register(dict);
+    }
+
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        self.instance_dict_gc.traverse(visit)
+    }
+
+    fn __clear__(slf: &Bound<'_, Self>) {
+        let py = slf.py();
+        slf.borrow_mut().instance_dict_gc.clear(py);
+    }
 }
 
 #[pyclass(
@@ -247,6 +265,23 @@ pub struct PyMultiDiGraph {
     /// Live `{node: None}` dict serving iter(G)/list(G.nodes()) as a
     /// dict_keyiterator, mutated in place by node add/remove/clear hooks.
     pub(crate) node_iter_mirror: std::sync::Mutex<Option<Py<PyDict>>>,
+    pub(crate) instance_dict_gc: crate::InstanceDictGc,
+}
+
+#[pymethods]
+impl PyMultiDiGraph {
+    fn _fnx_register_gc_dict(&mut self, dict: &Bound<'_, PyDict>) {
+        self.instance_dict_gc.register(dict);
+    }
+
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        self.instance_dict_gc.traverse(visit)
+    }
+
+    fn __clear__(slf: &Bound<'_, Self>) {
+        let py = slf.py();
+        slf.borrow_mut().instance_dict_gc.clear(py);
+    }
 }
 
 impl PyMultiDiGraph {
@@ -1904,6 +1939,7 @@ impl PyMultiDiGraph {
             in_edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         })
     }
 
@@ -6875,6 +6911,7 @@ impl PyMultiDiGraph {
             in_edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         };
         // br-r37-c1-s0d4x: pred rows in nx's u-major copy-walk order (the inner
         // clone above is in edge INSERTION order).
@@ -6907,6 +6944,7 @@ impl PyMultiDiGraph {
             in_edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         };
         for node in self.inner.nodes_ordered() {
             let py_attrs = self.node_py_attrs.get(node).map_or_else(
@@ -6974,6 +7012,7 @@ impl PyMultiDiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         };
         let mut node_batch: Vec<(String, fnx_classes::AttrMap)> =
@@ -7216,6 +7255,7 @@ impl PyMultiDiGraph {
             in_edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         };
         // br-r37-c1-s0d4x: nx's MultiDiGraph.copy() walk fills PRED rows
         // in u-major order (succ rows keep original order); the verbatim
@@ -7306,6 +7346,7 @@ impl PyMultiDiGraph {
             in_edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         })
     }
 
@@ -7392,6 +7433,7 @@ impl PyMultiDiGraph {
             in_edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         };
 
         for canonical in &keep {
@@ -7476,6 +7518,7 @@ impl PyMultiDiGraph {
             in_edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         };
 
         for item in iter {
@@ -7590,6 +7633,7 @@ impl PyMultiDiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         };
 
@@ -7671,6 +7715,7 @@ impl PyMultiDiGraph {
             in_edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         };
 
         for canonical in self.inner.nodes_ordered() {
@@ -8093,6 +8138,11 @@ pub struct MultiDiGraphNodeView {
 
 #[pymethods]
 impl MultiDiGraphNodeView {
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.graph)?;
+        self.lookup_cache.traverse(visit)
+    }
+
     fn __len__(&self, py: Python<'_>) -> usize {
         self.graph.borrow(py).inner.node_count()
     }
@@ -10384,6 +10434,7 @@ impl PyDiGraph {
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         })
     }
 
@@ -12048,6 +12099,7 @@ impl PyDiGraph {
                 in_edges_data_attr_cache: std::sync::Mutex::new(None),
                 edges_attr_dicts_cache: None,
                 node_iter_mirror: std::sync::Mutex::new(None),
+                instance_dict_gc: crate::InstanceDictGc::new(),
             };
             for canonical in self.inner.nodes_ordered() {
                 rev.node_key_map
@@ -12076,6 +12128,7 @@ impl PyDiGraph {
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         };
         // br-r37-c1-revbulk: node + edge BATCHES through the unrecorded
         // path (one ledger record vs per-edge add_edge_with_attrs +
@@ -12320,6 +12373,7 @@ impl PyDiGraph {
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         };
         // br-r37-c1-0ek49: nx's DiGraph.copy() rebuild walk recreates succ
         // rows in original order but fills PRED rows in u-major walk order;
@@ -12393,6 +12447,7 @@ impl PyDiGraph {
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         };
 
         for canonical in &keep {
@@ -12478,6 +12533,7 @@ impl PyDiGraph {
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         };
 
         let mut nodes_needed: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -14669,6 +14725,7 @@ impl PyDiGraph {
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         })
     }
 
@@ -14992,6 +15049,15 @@ pub struct DiNodeView {
 
 #[pymethods]
 impl DiNodeView {
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.graph)?;
+        self.lookup_cache.traverse(visit.clone())?;
+        if let ViewData::AttrWithDefault(_, default) = &self.data {
+            visit.call(default)?;
+        }
+        Ok(())
+    }
+
     fn __len__(&self, py: Python<'_>) -> usize {
         self.graph.borrow(py).inner.node_count()
     }
@@ -15508,6 +15574,10 @@ impl DiDegreeView {
 
 #[pymethods]
 impl DiDegreeView {
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.graph)
+    }
+
     fn __len__(&self, py: Python<'_>) -> usize {
         self.graph.borrow(py).inner.node_count()
     }

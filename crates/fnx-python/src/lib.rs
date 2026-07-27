@@ -19,6 +19,7 @@ pub use readwrite::{RawNodeLinkError, RawNodeLinkReport, parse_raw_node_link_jso
 use fnx_classes::{AttrMap, Graph, MultiGraph};
 use fnx_runtime::{CgseValue, CompatibilityMode, RuntimePolicy};
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
+use pyo3::gc::{PyTraverseError, PyVisit};
 use pyo3::marker::Ungil;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBool, PyDict, PyFloat, PyInt, PyIterator, PyList, PyString, PyTuple};
@@ -1169,6 +1170,10 @@ impl NodeLookupCache {
     ) -> PyResult<()> {
         self.entries.bind(py).set_item(public_key, attrs.bind(py))
     }
+
+    pub(crate) fn traverse(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.entries)
+    }
 }
 
 /// Per-graph public-node-key to native-index interning for warm scalar probes.
@@ -1688,6 +1693,40 @@ pub(crate) struct DictOfDictsCache {
     pub(crate) shared_outer: std::sync::Mutex<Option<Py<PyDict>>>,
 }
 
+/// Makes a ``#[pyclass(dict)]`` instance's Python dictionary visible to CPython GC.
+///
+/// PyO3 does not traverse a pyclass instance dictionary automatically. Cached
+/// graph views retain their owner, so the instance dictionary must be reported
+/// as an outgoing edge or ``graph -> view -> graph`` cycles leak. ``dict`` is
+/// held once here and once by the Python object layout, hence traversal reports
+/// both strong references.
+pub(crate) struct InstanceDictGc {
+    dict: Option<Py<PyDict>>,
+}
+
+impl InstanceDictGc {
+    pub(crate) const fn new() -> Self {
+        Self { dict: None }
+    }
+
+    pub(crate) fn register(&mut self, dict: &Bound<'_, PyDict>) {
+        if self.dict.is_none() {
+            self.dict = Some(dict.clone().unbind());
+        }
+    }
+
+    pub(crate) fn traverse(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.dict)?;
+        visit.call(&self.dict)
+    }
+
+    pub(crate) fn clear(&mut self, py: Python<'_>) {
+        if let Some(dict) = self.dict.take() {
+            dict.bind(py).clear();
+        }
+    }
+}
+
 #[pyclass(module = "franken_networkx", name = "Graph", dict, weakref, subclass)]
 pub(crate) struct PyGraph {
     pub(crate) inner: Graph,
@@ -1735,6 +1774,23 @@ pub(crate) struct PyGraph {
     pub(crate) node_keys_cache: std::sync::Mutex<Option<(u64, Py<pyo3::types::PyTuple>)>>,
     node_iter_mirror: std::sync::Mutex<Option<Py<PyDict>>>,
     node_data_mirror: std::sync::Mutex<Option<(u64, Py<PyDict>)>>,
+    pub(crate) instance_dict_gc: InstanceDictGc,
+}
+
+#[pymethods]
+impl PyGraph {
+    fn _fnx_register_gc_dict(&mut self, dict: &Bound<'_, PyDict>) {
+        self.instance_dict_gc.register(dict);
+    }
+
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        self.instance_dict_gc.traverse(visit)
+    }
+
+    fn __clear__(slf: &Bound<'_, Self>) {
+        let py = slf.py();
+        slf.borrow_mut().instance_dict_gc.clear(py);
+    }
 }
 
 impl PyGraph {
@@ -2107,6 +2163,7 @@ impl PyGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
             node_data_mirror: std::sync::Mutex::new(None),
         })
     }
@@ -3884,6 +3941,23 @@ pub(crate) struct PyMultiGraph {
     /// br-r37-c1-paof2: warm exact-string endpoints for keyless `has_edge`.
     /// Values are native node indices and are invalidated by `nodes_seq`.
     pub(crate) has_edge_node_index_cache: NodeIndexLookupCache,
+    pub(crate) instance_dict_gc: InstanceDictGc,
+}
+
+#[pymethods]
+impl PyMultiGraph {
+    fn _fnx_register_gc_dict(&mut self, dict: &Bound<'_, PyDict>) {
+        self.instance_dict_gc.register(dict);
+    }
+
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        self.instance_dict_gc.traverse(visit)
+    }
+
+    fn __clear__(slf: &Bound<'_, Self>) {
+        let py = slf.py();
+        slf.borrow_mut().instance_dict_gc.clear(py);
+    }
 }
 
 impl PyMultiGraph {
@@ -4315,6 +4389,7 @@ impl PyMultiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
         })
     }
@@ -9539,6 +9614,7 @@ impl PyMultiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
         };
         // br-r37-c1-tbh4q: single-pass attr crossing (with_mirror) on copy() —
@@ -9645,6 +9721,7 @@ impl PyMultiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
         };
         for node in self.inner.nodes_ordered() {
@@ -9719,6 +9796,7 @@ impl PyMultiGraph {
             in_edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
         };
         let mut node_batch: Vec<(String, fnx_classes::AttrMap)> =
             Vec::with_capacity(self.inner.node_count());
@@ -9808,6 +9886,7 @@ impl PyMultiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
         };
         // br-r37-c1-s0d4x: nx's MultiGraph.copy() rebuild walk reorders
@@ -9900,6 +9979,7 @@ impl PyMultiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
         })
     }
@@ -9973,6 +10053,7 @@ impl PyMultiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
         };
 
@@ -10090,6 +10171,7 @@ impl PyMultiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
         };
 
@@ -10199,6 +10281,7 @@ impl PyMultiGraph {
             in_edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
         };
 
         for (canonical, py_key) in &self.node_key_map {
@@ -10758,6 +10841,11 @@ pub(crate) struct MultiGraphNodeView {
 
 #[pymethods]
 impl MultiGraphNodeView {
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.graph)?;
+        self.lookup_cache.traverse(visit)
+    }
+
     fn __len__(&self, py: Python<'_>) -> usize {
         self.graph.borrow(py).inner.node_count()
     }
@@ -12550,10 +12638,12 @@ impl PyGraph {
         let small_set: std::collections::HashSet<usize> = small.iter().copied().collect();
         let result = pyo3::types::PySet::empty(py)?;
         for &j in large {
-            if j != ui && j != vi && small_set.contains(&j) {
-                if let Some(name) = self.inner.get_node_name(j) {
-                    result.add(self.py_node_key(py, name))?;
-                }
+            if j != ui
+                && j != vi
+                && small_set.contains(&j)
+                && let Some(name) = self.inner.get_node_name(j)
+            {
+                result.add(self.py_node_key(py, name))?;
             }
         }
         Ok(Some(result.unbind()))
@@ -13254,6 +13344,7 @@ impl PyGraph {
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
             node_data_mirror: std::sync::Mutex::new(None),
         };
         // br-r37-c1-0ek49: nx's G.copy() rebuild walk reorders undirected
@@ -13330,6 +13421,7 @@ impl PyGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
             node_data_mirror: std::sync::Mutex::new(None),
         };
 
@@ -13425,6 +13517,7 @@ impl PyGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
             node_data_mirror: std::sync::Mutex::new(None),
         };
 
@@ -14576,6 +14669,7 @@ impl PyGraph {
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
             node_data_mirror: std::sync::Mutex::new(None),
         })
     }

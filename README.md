@@ -1061,8 +1061,9 @@ margin; reproduce with `python3 scripts/perf_harness.py marshaling`):
 
 | Surface | fnx vs nx | Cause |
 |--------|-----------|-------|
-| `G.adj` (bare accessor) | **0.10×** | Python shim: a data-descriptor `property` whose body re-runs per access. Its setter installs networkx private storage, so it cannot use the cached non-data descriptor that fixed `nodes`/`edges`/`degree`. |
-| `G.has_node(n)` / `n in G` / `G.nodes[n]` | **0.24–0.33×** | 56% Python shim wrapper, 24% node-key canonicalization, 20% PyO3 boundary. The bare boundary is only ~42 ns. |
+| `G.adj` (bare accessor) | **0.86× median** | The cached public descriptor removed the old 0.10× repeated-property path; a smaller public residual remains. |
+| `G.has_node(n)` | **0.41×** | The raw-descriptor cutover removed the measured Python wrapper frame, but key conversion/native lookup remains a decisive public loss. |
+| `G.nodes[n]` | **1.11× point estimate; unresolved** | The direct interning mechanism is a decisive 1.92× win and the immediate attribute consumer is 1.08×, but the bare public row's CI lower bound misses its doubled-null floor. |
 | `degree(nbunch, weight=...)` | **0.47×** (Graph) | No native weighted-subset kernel; falls back to Python. |
 | dense `DiGraph.edges()` (no data) | **0.59×** | Tuple materialization in the edge-view walk. The `data=True` shape is a 1.6× *win*. |
 
@@ -1084,27 +1085,29 @@ Two lessons are worth keeping in the README rather than only in the ledger:
    losing surfaces is the pure-Python shim layer in `python/franken_networkx/__init__.py`, not the
    Rust boundary and not marshaling.
 
-**Construction paths — measured 2026-07-26**, after the MultiGraph stable-slot cutover, same
-contract (byte-identity of the *constructed graph* — node order, edge order, keys, attrs — proven
-before timing):
+**Construction paths — contextual snapshot from 2026-07-26**, after the MultiGraph stable-slot
+cutover. Byte-identity of the *constructed graph* (node order, edge order, keys, attrs) was proven
+before timing, and an A/A null ran in the same invocation. The run included uncommitted peer work
+and recorded only a truncated, out-of-process extension hash, however, so these figures are routing
+evidence for that working tree—not commit-attributable or release-proven performance claims.
 
 | Path | fnx vs nx | Notes |
 |--------|-----------|-------|
 | `Graph.copy()` | **7.6× faster** | Native clone; no Python round-trip |
 | `MultiGraph.copy()` | **1.4× faster** | Native clone |
-| `Graph(edge stream, no attrs)` | **1.1× faster** | Native bulk loader |
-| `MultiGraph(edge stream)` / batch `add_edges_from` | **~1.0× (parity)** | Both land inside the A/A null after the stable-slot cutover — was 0.61× before it |
+| `Graph(edge stream, no attrs)` | **1.08× point estimate; unresolved** | The CI lower bound misses the strict doubled-null floor |
+| `MultiGraph(edge stream)` / batch `add_edges_from` | **0.94–0.95× point estimates; unresolved** | Both land inside their A/A envelopes; that is no detected difference, not proof of equality or causal cutover attribution |
 | `Graph(edge stream, weight attr)` | 0.83× | The whole delta vs the no-attr row is per-edge attribute handling |
 | `MultiDiGraph(edge stream)` | 0.70× | Still on the String-keyed store; the cutover was MultiGraph-only |
 | `Graph.add_nodes_from` + `add_edges_from` | 0.57× | Batch loader |
 | `DiGraph(edge stream, weight attr)` | 0.42× | Batch loader |
-| `Graph` incremental `add_edge` ×8000 | **0.26×** | ~3.5 μs/call vs nx's 0.91 μs. Per-call Python shim cost, not storage — batch-constructing the same 8000 edges is 3.2× better per edge. |
+| `Graph` incremental `add_edge` ×8000 | **0.26×** | ~3.5 μs/call vs nx's 0.91 μs. This invocation established the loss, but did not profile its cause. |
 
-The incremental-`add_edge` row is the largest remaining gap in the library and it is the same
-per-call shim cost described above, not an algorithmic or storage problem. If you are building a
-large graph, **use the batch constructors** (`Graph(edge_stream)`, `add_edges_from`) rather than a
-Python loop of `add_edge` calls — that is worth ~3× and it is the single most effective thing a
-caller can do.
+The incremental-`add_edge` row is the largest loss in this construction snapshot. A read-side
+`has_node` profile does not establish its cause, and dividing two FNX-vs-NetworkX ratios does not
+measure a direct batch-vs-incremental speedup. Prefer batch constructors when they match the
+application, but treat the magnitude above as a historical routing signal until a
+provenance-complete, directly matched construction benchmark replaces it.
 
 If you can keep the graph on the fnx side (don't reconstruct per call), the marshaling chunk vanishes. The backend-dispatch path automatically caches the converted graph for repeat calls.
 

@@ -22,8 +22,10 @@ Two of them lock traps that the change actually hit during development:
 from __future__ import annotations
 
 import copy
+import gc
 import inspect
 import pickle
+import weakref
 
 import networkx as nx
 import pytest
@@ -32,6 +34,7 @@ import franken_networkx as fnx
 
 CLASS_NAMES = ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"]
 ACCESSORS = ["nodes", "edges", "degree"]
+DIRECTED_ACCESSORS = ["in_degree", "out_degree", "in_edges", "out_edges"]
 EDGES = [("n0", "n1"), ("n1", "n2"), ("n2", "n3"), ("n0", "n3"), ("n1", "n1")]
 
 
@@ -86,6 +89,107 @@ def test_memoised_view_is_live_not_a_snapshot(cls_name):
     assert list(nodes_fx) == list(nodes_nx)
     assert list(edges_fx) == list(edges_nx)
     assert sorted(degree_fx) == sorted(degree_nx)
+
+
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+def test_user_assignment_after_cached_view_read_survives_round_trips(cls_name):
+    """A user overwrite is state, not the internal view that preceded it."""
+    accessors = list(ACCESSORS)
+    if "DiGraph" in cls_name:
+        accessors.extend(DIRECTED_ACCESSORS)
+
+    for accessor in accessors:
+        graph = _build(fnx, cls_name)
+        _ = getattr(graph, accessor)
+        value = f"user-owned-{accessor}"
+        setattr(graph, accessor, value)
+        assert accessor not in vars(graph).get("_fnx_descriptor_cached_views", ())
+
+        deep = copy.deepcopy(graph)
+        restored = pickle.loads(  # nosec B301  # ubs:ignore - trusted round trip
+            pickle.dumps(graph)
+        )
+        assert getattr(deep, accessor) == value
+        assert getattr(restored, accessor) == value
+
+
+@pytest.mark.parametrize(
+    ("cls_name", "accessor"),
+    [
+        *[
+            (cls_name, accessor)
+            for cls_name in CLASS_NAMES
+            for accessor in (
+                "nodes",
+                "edges",
+                "degree",
+                "adj",
+                "is_directed",
+                "is_multigraph",
+            )
+        ],
+        *[
+            (cls_name, accessor)
+            for cls_name in ("DiGraph", "MultiDiGraph")
+            for accessor in (
+                "in_degree",
+                "out_degree",
+                "in_edges",
+                "out_edges",
+                "succ",
+                "pred",
+            )
+        ],
+    ],
+)
+def test_cached_accessor_owner_cycle_is_collectable(cls_name, accessor):
+    """Cached views and bound predicates must not keep their owner alive."""
+    graph = _build(fnx, cls_name)
+    reference = weakref.ref(graph)
+    getattr(graph, accessor)
+    assert gc.is_tracked(graph)
+
+    del graph
+    gc.collect()
+    assert reference() is None
+
+
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+def test_user_instance_attribute_owner_cycle_is_collectable(cls_name):
+    graph = getattr(fnx, cls_name)()
+    reference = weakref.ref(graph)
+    graph.owner = graph
+    assert gc.is_tracked(graph)
+
+    del graph
+    gc.collect()
+    assert reference() is None
+
+
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+def test_private_storage_method_shadow_cycle_is_collectable(cls_name):
+    graph = getattr(fnx, cls_name)()
+    reference = weakref.ref(graph)
+    graph._node = {"only": {}}
+    assert "has_node" in vars(graph)
+    assert gc.is_tracked(graph)
+
+    del graph
+    gc.collect()
+    assert reference() is None
+
+
+@pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])
+def test_cached_multigraph_row_owner_cycle_is_collectable(cls_name):
+    graph = getattr(fnx, cls_name)()
+    graph.add_edge("left", "right")
+    reference = weakref.ref(graph)
+    graph["left"]
+    assert "_fnx_getitem_atlas_cache" in vars(graph)
+
+    del graph
+    gc.collect()
+    assert reference() is None
 
 
 def test_private_override_installed_after_a_plain_access_redispatches():

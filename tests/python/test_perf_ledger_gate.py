@@ -5,8 +5,8 @@ fleet-wide resurrection audit produced the decay lesson: ledger integrity is not
 one-time cleanup. The one repo that audited once and then MECHANICALLY enforced the
 check sits at 1.7% VOID; repos that audited once and banked the wins sit at 25-91%.
 
-franken_networkx measured **75.5% VOID (120/159 rejection rows)** under the six-class
-taxonomy, of which **113 are VOID-NONULL**: an A/B ran, the row was rejected on a
+franken_networkx measured **81.8% VOID (130/159 rejection rows)** under the six-class
+taxonomy, of which **121 are VOID-NONULL**: an A/B ran, the row was rejected on a
 near-1.0 wall ratio, and neither an A/A null control nor a counted mechanism was
 recorded — so the lever cannot be distinguished from the harness. Those rows are not
 evidence, and re-deriving levers they appear to close is pure waste.
@@ -136,6 +136,60 @@ def test_reject_requires_positive_null_evidence_or_exact_counted_mechanism():
     assert ledger_gate.falsifiable(heading, profile_only) == (
         False,
         "VOID-NONULL",
+    )
+
+    valid_profile = (
+        "RESULT: VALID-PROFILE / NO SOURCE EDIT. Rejected before any source "
+        "edit. The named frame `Graph::neighbors` carried 3.2% self-time. "
+        "The computed Amdahl ceiling was 1.033x."
+    )
+    assert ledger_gate.classify(heading, valid_profile) == "VALID-PROFILE"
+    # The taxonomy recognizes old profile-only rows, but the institutional
+    # new-row contract remains stricter: A/A or counted mechanism is mandatory.
+    assert ledger_gate.falsifiable(heading, valid_profile) == (
+        False,
+        "VALID-PROFILE",
+    )
+
+    profile_with_null = (
+        valid_profile
+        + "\n| unchanged / unchanged A/A null | 1.001x | [0.995,1.008] |"
+    )
+    assert ledger_gate.classify(heading, profile_with_null) == "VALID-PROFILE"
+    assert ledger_gate.falsifiable(heading, profile_with_null) == (
+        True,
+        "VALID-PROFILE",
+    )
+
+
+def test_counted_mechanism_requires_the_metric_and_result_to_be_local():
+    heading = "2026-07-26 REJECT candidate"
+    incidental_words = (
+        "The candidate sought to remove allocations. The unchanged design "
+        "then ran at 1.0x, with no A/A null control recorded."
+    )
+    assert ledger_gate.falsifiable(heading, incidental_words) == (
+        False,
+        "VOID-NONULL",
+    )
+    assert ledger_gate.falsifiable(
+        heading,
+        "Counted allocation totals were unchanged between the two arms.",
+    ) == (True, "VALID-MECHANISM")
+
+    unrelated_null_value = (
+        "Null node values were preserved. The A/B wall ratio was 1.001x "
+        "with CI [0.995,1.008], but no control was recorded."
+    )
+    assert ledger_gate.falsifiable(heading, unrelated_null_value) == (
+        False,
+        "VOID-NONULL",
+    )
+
+
+def test_valid_profile_heading_is_a_rejection_for_precommit():
+    assert ledger_gate.is_rejection(
+        "2026-07-26 CloudyTurtle VALID-PROFILE: no source edit"
     )
 
 

@@ -4,8 +4,8 @@
 Adopted 2026-07-25 from frankensqlite's `sql_pipeline_candidate_preflight` after the
 fleet resurrection audit showed ledger integrity DECAYS: the one repo that audited once
 and then mechanically enforced the check sits at 1.7% VOID, while repos that never did
-sit at 25-91%. franken_networkx measured 75.5% VOID (120/159 rejection rows) under the
-six-class taxonomy, of which **113 are VOID-NONULL** — an A/B ran, the row was rejected
+sit at 25-91%. franken_networkx measured 81.8% VOID (130/159 rejection rows) under the
+six-class taxonomy, of which **121 are VOID-NONULL** — an A/B ran, the row was rejected
 on a near-1.0 wall ratio, and neither an A/A null control nor a counted mechanism was
 recorded, so the lever cannot be distinguished from the harness.
 
@@ -57,28 +57,60 @@ LEDGERS = [
 ]
 
 REJECT_HEAD = re.compile(
-    r"\b(REJECT\w*|NO-?SHIPS?|NOSHIP|REVERTED|ABANDONED|NOT TAKEN|NOT SHIPPED|BACKED OUT)\b",
+    r"\b(REJECT\w*|NO-?SHIPS?|NOSHIP|REVERTED|ABANDONED|NOT TAKEN|NOT SHIPPED|"
+    r"BACKED OUT|VALID-PROFILE)\b",
     re.I,
 )
 KEEP_HEAD = re.compile(r"\b(KEEP|SHIP(?:PED|S)?|WIN|MILESTONE|FINDING|SURFACE)\b", re.I)
 KEEP_VERDICT_HEAD = re.compile(r"\b(KEEP|SHIP(?:PED|S)?|WIN)\b", re.I)
 NULL_TOKEN = re.compile(
-    r"\bA/A\b|\bnull control\b|self[- ]control|identical arm|control arm|"
+    r"\bA/A\b|\bnull(?:[- ](?:control|floor|band|envelope|CI))\b|"
+    r"\bnull\b(?=\s*\|)|"
+    r"self[- ]control|identical arm|control arm|"
     r"same-?binary (?:forced )?control",
     re.I,
 )
-COUNTED = re.compile(
-    r"\binstructions?\b|\bcycles?\b|\bsyscalls?\b|\ballocations?\b|\bfaults?\b",
-    re.I,
-)
-UNCHANGED = re.compile(
-    r"\bunchanged\b|\bidentical\b|\bno (?:work|allocation|syscall|instruction)|\bsame number\b|"
-    r"\bflat\b|\bnot? reduction\b|\bdid not (?:change|drop|fall)\b|\bzero (?:allocations|difference)",
+COUNTED_UNCHANGED = re.compile(
+    r"(?:\binstructions?\b|\bcycles?\b|\bsyscalls?\b|\ballocations?\b|\bfaults?\b)"
+    r"[^.\n]{0,120}"
+    r"(?:\bunchanged\b|\bidentical\b|\bflat\b|\bno reduction\b|"
+    r"\bdid not (?:change|drop|fall)\b|\bzero difference\b)|"
+    r"(?:\bunchanged\b|\bidentical\b|\bflat\b|\bno reduction\b|"
+    r"\bdid not (?:change|drop|fall)\b|\bzero difference\b)"
+    r"[^.\n]{0,120}"
+    r"(?:\binstructions?\b|\bcycles?\b|\bsyscalls?\b|\ballocations?\b|\bfaults?\b)",
     re.I,
 )
 ZERO_SELF = re.compile(
-    r"0\.0{4,}\s*s\b|0\.000\s*%|zero self[- ]?time|never (?:executed|ran|routed)|"
-    r"did not execute|no self[- ]?time",
+    r"0\.0{4,}\s*s\b|0\.000\s*%|(?<!non-)zero self[- ]?time|"
+    r"never (?:executed|ran|routed)|did not (?:execute|reach (?:the )?timed path)|"
+    r"(?<!non-)no self[- ]?time",
+    re.I,
+)
+PROFILE_PRE_EDIT = re.compile(
+    r"\bpre[- ]edit\b|\bbefore (?:any )?(?:source )?edit(?:ing)?\b|"
+    r"\bno source (?:edit|change)\b",
+    re.I,
+)
+PROFILE_VERDICT = re.compile(r"\bVALID-PROFILE\b|\bRESULT\b[^.\n]{0,80}\bNO SOURCE EDIT\b", re.I)
+PROFILE_FRAME = re.compile(
+    r"\b[A-Za-z_][A-Za-z0-9_]*(?:(?:::|\.)[A-Za-z_][A-Za-z0-9_]*)+\b|"
+    r"\b[A-Za-z_][A-Za-z0-9_]*\b[^.\n]{0,40}\bframe\b",
+    re.I,
+)
+NONZERO_SELF = re.compile(
+    r"(?:\b(?:[1-9]\d*(?:\.\d+)?|0\.\d*[1-9]\d*)\s*%"
+    r"[^.\n]{0,40}\bself(?:[- ]time)?\b|"
+    r"\bself(?:[- ]time)?\b[^.\n]{0,40}"
+    r"(?:[1-9]\d*(?:\.\d+)?|0\.\d*[1-9]\d*)\s*%|"
+    r"\b(?:[1-9]\d*(?:\.\d+)?|0\.\d*[1-9]\d*)\s*s\b"
+    r"[^.\n]{0,40}\bself\b|\bnon-zero (?:measured )?self[- ]time\b)",
+    re.I,
+)
+AMDHAL_CEILING = re.compile(
+    r"\b(?:computed|executable)?\s*(?:Amdahl\s+)?"
+    r"(?:ceilings?|upper bound|maximum|max)\b"
+    r"[\s\S]{0,500}?\d+(?:\.\d+)?\s*(?:[x×]|%)",
     re.I,
 )
 CV_GATE = re.compile(r"cv\b[^.\n]{0,60}(?:gate|exceed|above|below|missed|failed)", re.I)
@@ -94,13 +126,20 @@ LOADED_ELF_SHA = re.compile(
 NEGATED_NULL = re.compile(
     r"\b(?:no|without|lacks?|lacking|missing|never recorded|not recorded)\s+"
     r"(?:an?\s+)?(?:recorded\s+)?(?:same[- ]invocation\s+)?"
-    r"(?:A/A(?:\s+null(?:\s+control)?)?|null control)\b",
+    r"(?:A/A(?:\s+null(?:\s+control)?)?|null control)\b|"
+    r"\bno\b[^.\n]{0,120}\b(?:A/A|null)\b",
     re.I,
 )
-NULL_EVIDENCE = re.compile(
-    r"\b(?:same[- ]invocation|same process|in[- ]process|recorded|measured|"
-    r"bootstrap|median|ratio|floor|confidence interval|CI)\b|"
-    r"\b\d+(?:\.\d+)?\s*[x×]\b",
+FUTURE_NULL = re.compile(
+    r"\b(?:future|retry|reopen|must|need(?:s|ed)?|require[sd]?|"
+    r"only (?:after|if)|permitted)\b"
+    r"[\s\S]{0,1000}?(?:\bA/A\b|\bnull\b)",
+    re.I,
+)
+NULL_NUMERIC_EVIDENCE = re.compile(
+    r"\b\d+(?:\.\d+)?\s*[x×]\b|"
+    r"\b\d+(?:\.\d+)?\s*[-–]\s*\d+(?:\.\d+)?\s*[x×]\b|"
+    r"\[\s*\d+(?:\.\d+)?\s*[,–-]\s*\d+(?:\.\d+)?\s*\]",
     re.I,
 )
 TOKEN = re.compile(r"[a-z0-9_:.]+")
@@ -152,20 +191,52 @@ def has_recorded_null(body: str) -> bool:
     ``no A/A null`` and a retry sentence saying that a future run *needs* a
     null must not make an undecidable rejection pass the gate.
     """
-    for match in NULL_TOKEN.finditer(body):
-        start = max(0, match.start() - 96)
-        end = min(len(body), match.end() + 192)
-        window = body[start:end]
-        if NEGATED_NULL.search(window):
+    logical_lines = []
+    paragraph = []
+    for physical_line in body.splitlines():
+        stripped = physical_line.strip()
+        if not stripped:
+            if paragraph:
+                logical_lines.append(" ".join(paragraph))
+                paragraph = []
+        elif stripped.startswith("|"):
+            if paragraph:
+                logical_lines.append(" ".join(paragraph))
+                paragraph = []
+            logical_lines.append(stripped)
+        else:
+            paragraph.append(stripped)
+    if paragraph:
+        logical_lines.append(" ".join(paragraph))
+
+    for logical_line in logical_lines:
+        if not NULL_TOKEN.search(logical_line):
             continue
-        if NULL_EVIDENCE.search(window):
+        if NEGATED_NULL.search(logical_line) or FUTURE_NULL.search(logical_line):
+            continue
+        if NULL_NUMERIC_EVIDENCE.search(logical_line):
             return True
     return False
 
 
 def has_counted_mechanism(body: str) -> bool:
     """The fleet taxonomy's VALID-MECHANISM rule, verbatim and conservative."""
-    return bool(COUNTED.search(body)) and bool(UNCHANGED.search(body))
+    return bool(COUNTED_UNCHANGED.search(body))
+
+
+def has_valid_profile_rejection(heading: str, body: str) -> bool:
+    """Recognize the taxonomy's profile-only class without weakening new-row policy."""
+    plain = (heading + "\n" + body).replace("`", "").replace("*", "")
+    return all(
+        pattern.search(plain)
+        for pattern in (
+            PROFILE_VERDICT,
+            PROFILE_PRE_EDIT,
+            PROFILE_FRAME,
+            NONZERO_SELF,
+            AMDHAL_CEILING,
+        )
+    )
 
 
 def has_loaded_elf_sha(body: str) -> bool:
@@ -226,6 +297,8 @@ def classify(heading: str, body: str) -> str:
     counted = has_counted_mechanism(body)
     if ZERO_SELF.search(body):
         return "VOID-ZEROSELF"
+    if has_valid_profile_rejection(heading, body):
+        return "VALID-PROFILE"
     if has_null:
         return "VALID-AB"
     if counted:
@@ -238,9 +311,7 @@ def classify(heading: str, body: str) -> str:
 def falsifiable(heading: str, body: str) -> tuple[bool, str]:
     """A rejection row must carry an A/A null OR a counted mechanism."""
     cls = classify(heading, body)
-    if cls.startswith("VALID"):
-        return True, cls
-    return False, cls
+    return has_recorded_null(body) or has_counted_mechanism(body), cls
 
 
 def added_headings(diff: str) -> set[str]:

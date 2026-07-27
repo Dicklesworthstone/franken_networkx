@@ -109,9 +109,14 @@ Ownership/lifetime story, precisely:
 * Invalidation is by eviction, not by dangling: removing a node drops the map entry; any
   Python reference still held keeps that dict alive but detached, which matches networkx
   (`d = G.nodes[n]; G.remove_node(n)` leaves `d` usable in nx too).
-* Reference cycles (graph → PyDict → …) are collectable only if the pyclass participates in
-  GC. If your Python-visible objects can reference back into the owner, implement `__traverse__`
-  /`__clear__` or you leak. franken_networkx's attr dicts hold only scalars, so it does not.
+* Reference cycles (graph → Python object → graph) are collectable only if the pyclass
+  participates in GC. If Python-visible objects can reference back into the owner, implement
+  complete `__traverse__` / `__clear__` coverage or they leak. **Model-integrity correction,
+  2026-07-27:** franken_networkx accepts arbitrary Python attribute values; the original claim
+  that its attr dicts hold only scalars was false. The immediate correction makes the graph
+  classes GC-track their instance dictionaries, closing cycles introduced by cached public views
+  and cached bound predicates. Traversal of every Rust-held Python attribute/cache reference is
+  separately tracked as correctness bug `br-r37-c1-43vf9`.
 
 Use when: the payload is a Python object the caller may mutate and expects to be *the same
 object* next time. Cost model: `O(payload)` once, `O(1)` refcount thereafter.

@@ -11341,6 +11341,7 @@ pub fn stochastic_graph_copy_multidigraph(
         in_edges_with_data_cache: None,
         edges_with_keys_cache: None,
         node_iter_mirror: std::sync::Mutex::new(None),
+        instance_dict_gc: crate::InstanceDictGc::new(),
     };
     Ok(Py::new(py, new_graph)?.into_any())
 }
@@ -12091,6 +12092,7 @@ fn dfs_forest_directed(
 /// simple-graph materialization, no `apply_row_orders`. The IndexMap-backed
 /// `neighbors(u)` order is exactly the order the structure-only-ordered
 /// conversion restored, so the emitted DFS/BFS edge sequence is unchanged.
+#[cfg(test)]
 fn build_index_adjacency<'a>(
     nodes: &[&'a str],
     str_neighbors: impl Fn(&str) -> Vec<&'a str>,
@@ -15237,6 +15239,7 @@ fn multidigraph_strongly_connected_components_nx_ordered_orig_inline(
     result
 }
 
+#[cfg(test)]
 fn reaches_every_node(source: usize, adjacency: &[Vec<usize>]) -> bool {
     let mut visited = vec![false; adjacency.len()];
     let mut stack = vec![source];
@@ -15732,6 +15735,7 @@ pub fn multidigraph_transitive_closure(
         in_edges_with_data_cache: None,
         edges_with_keys_cache: None,
         node_iter_mirror: std::sync::Mutex::new(None),
+        instance_dict_gc: crate::InstanceDictGc::new(),
     };
 
     for (canonical, py_key) in &mdg.node_key_map {
@@ -15817,6 +15821,7 @@ pub fn transitive_closure(
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         };
         Ok(py_dg.into_pyobject(py)?.into_any().unbind())
     }
@@ -17557,10 +17562,10 @@ fn strong_product_edge_attrs_fast(
         let (canon, _node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
         let make_scalar = |py: Python<'_>, attrs: Option<&AttrMap>| -> PyResult<Py<PyDict>> {
             let dict = PyDict::new(py);
-            if let Some(k) = single_key.as_deref() {
-                if let Some(v) = attrs.and_then(|m| m.get(k)) {
-                    dict.set_item(k, crate::cgse_value_to_py(py, v)?)?;
-                }
+            if let Some(k) = single_key.as_deref()
+                && let Some(v) = attrs.and_then(|m| m.get(k))
+            {
+                dict.set_item(k, crate::cgse_value_to_py(py, v)?)?;
             }
             Ok(dict.unbind())
         };
@@ -17685,10 +17690,10 @@ fn strong_product_edge_attrs_fast(
     // Single-source scalar attrs: `dict(attrs)` for the ≤1 key.
     let make_scalar = |py: Python<'_>, attrs: Option<&AttrMap>| -> PyResult<Py<PyDict>> {
         let dict = PyDict::new(py);
-        if let Some(k) = single_key.as_deref() {
-            if let Some(v) = attrs.and_then(|m| m.get(k)) {
-                dict.set_item(k, crate::cgse_value_to_py(py, v)?)?;
-            }
+        if let Some(k) = single_key.as_deref()
+            && let Some(v) = attrs.and_then(|m| m.get(k))
+        {
+            dict.set_item(k, crate::cgse_value_to_py(py, v)?)?;
         }
         Ok(dict.unbind())
     };
@@ -25461,6 +25466,7 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        instance_dict_gc: crate::InstanceDictGc::new(),
         node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
@@ -25578,6 +25584,7 @@ pub fn ego_graph_rust(
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        instance_dict_gc: crate::InstanceDictGc::new(),
         node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
@@ -25716,6 +25723,7 @@ pub fn full_join_rust(
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        instance_dict_gc: crate::InstanceDictGc::new(),
         node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
@@ -25753,6 +25761,7 @@ pub fn identified_nodes_rust(
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        instance_dict_gc: crate::InstanceDictGc::new(),
         node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
@@ -25849,6 +25858,7 @@ pub fn dedensify_rust(
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        instance_dict_gc: crate::InstanceDictGc::new(),
         node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok((pg.into_pyobject(py)?.into_any().unbind(), compressors))
@@ -26019,6 +26029,7 @@ pub fn quotient_graph_rust(
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        instance_dict_gc: crate::InstanceDictGc::new(),
         node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
@@ -26556,6 +26567,7 @@ pub fn gomory_hu_tree_rust(
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        instance_dict_gc: crate::InstanceDictGc::new(),
         node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
@@ -26612,6 +26624,7 @@ pub fn snap_aggregation_rust(
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        instance_dict_gc: crate::InstanceDictGc::new(),
         node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
@@ -28374,7 +28387,7 @@ mod tests {
         let mut state = 90_210u64;
         for _ in 0..2 {
             shuffle(&mut order, &mut state);
-            for pair in order.chunks_exact(2) {
+            for pair in order.as_chunks::<2>().0 {
                 let _ = graph.add_edge(names[pair[0]].clone(), names[pair[1]].clone());
             }
         }
@@ -32397,6 +32410,7 @@ mod tests {
                 dict_of_dicts_cache: None,
                 edges_with_data_cache: None,
                 node_iter_mirror: std::sync::Mutex::new(None),
+                instance_dict_gc: crate::InstanceDictGc::new(),
                 edges_with_keys_cache: None,
                 edges_data_attr_cache: std::sync::Mutex::new(None),
                 has_remapped_int_key: false,

@@ -1201,7 +1201,7 @@ self-time is dominated by that kernel. A whole-binary process-level A/B is NOT t
 this question at these effect sizes: it has a ~±40% noise floor here. Use the in-binary two-arm form
 2zn1u used (both arms in one binary, one pinned quiet worker, `cfg!(target_feature)` execution proof).
 
-## 2026-07-26 BlackThrush (cc, Lane M) FINDING (br-r37-c1-5opn5): construction rows measured post-cutover — the stable-slot flip WORKED (MultiGraph 0.61x to parity), and MultiDiGraph is now the laggard sibling at 0.6958x
+## 2026-07-26 BlackThrush (cc, Lane M) CONTEXTUAL SNAPSHOT (br-r37-c1-5opn5): post-cutover construction rows — no commit-level causal attribution; MultiDiGraph measured at 0.6958x
 
 These are the rows I deliberately omitted from the corrected README table on 2026-07-25 rather than
 guess, because the MultiGraph stable-slot cutover (`45cb1925e`) had landed the same day and the
@@ -1215,11 +1215,20 @@ through the shim, so these numbers describe the working tree, not the commit). P
 `df /data` = 647G free. Same §2 contract: byte-identity of the CONSTRUCTED GRAPH (node order, edge
 order, keys, attrs) proven before timing, A/A null in the same invocation, 15 paired rounds.
 
+**2026-07-27 MODEL-INTEGRITY CORRECTION.** This invocation recorded only a truncated hash computed
+outside the Python process, not the full SHA-256 of the loaded extension self-reported from inside
+that process. It also deliberately included uncommitted peer work. The parity proof and
+same-invocation null remain useful, but these ratios are **contextual working-tree routing
+evidence**, not provenance-complete evidence for a release, a commit, or the stable-slot lever.
+“Inside the null” means no difference was resolved; it does not prove equality. Re-applying the
+strict whole-CI rule also makes the `Graph(edge stream, no attrs)` row undecidable: its `1.0701x`
+lower bound misses the doubled-log null floor (approximately `1.0743x`).
+
 | row | ratio | 95% CI | A/A null | verdict |
 |---|---:|---|---|---|
 | `Graph.copy()` | **7.5561x** | [6.6506,8.1550] | [0.9694,1.0877] | DECIDABLE |
 | `MultiGraph.copy()` | **1.3839x** | [1.3653,1.4853] | [0.9262,1.0227] | DECIDABLE |
-| `Graph(edge stream, no attrs)` | **1.0812x** | [1.0701,1.0918] | [0.9944,1.0365] | DECIDABLE |
+| `Graph(edge stream, no attrs)` | **1.0812x** | [1.0701,1.0918] | [0.9944,1.0365] | **undecidable under whole-CI gate** |
 | `MultiGraph(edge stream, weight)` | 0.9540x | [0.8765,1.0218] | [0.9352,1.0481] | undecidable |
 | `MultiGraph add_nodes_from + add_edges_from` | 0.9364x | [0.9252,1.0093] | [0.9860,1.0596] | undecidable |
 | `Graph(edge stream, weight)` | **0.8337x** | [0.8142,0.8494] | [0.9948,1.0072] | DECIDABLE |
@@ -1230,11 +1239,12 @@ order, keys, attrs) proven before timing, A/A null in the same invocation, 15 pa
 
 THREE FINDINGS.
 
-**1. The stable-slot cutover worked, and this is the independent confirmation.** MultiGraph
-construction measured **0.6123x** on 2026-07-25 before the cutover; it is now **0.9364-0.9540x** —
-both rows land INSIDE their A/A null, i.e. at parity with networkx. The cutover's own bench claimed
-4.735x on the store kernel; this is the Python-visible end of that same change, measured
-independently, and it is the difference between a decidable loss and no measurable loss.
+**1. The snapshot is consistent with the stable-slot cutover, but does not independently prove
+it.** MultiGraph construction measured **0.6123x** in an earlier invocation and
+**0.9364-0.9540x** here. Both current rows land inside their A/A envelopes, so this invocation
+resolves no current FNX-vs-NetworkX difference. Cross-invocation movement on a different source
+state cannot be assigned causally to the cutover. The cutover's own fixed-binary causal benchmark
+(`45cb1925e`, 4.735x store-kernel row) remains its admissible evidence.
 
 **2. MultiDiGraph is now the laggard sibling at 0.6958x.** `br-r37-c1-thp6w` cut over MultiGraph
 ONLY. MDG still carries the String-keyed store the cutover replaced, and it is now the worst
@@ -1243,13 +1253,13 @@ directed/undirected mirror-the-laggard pattern that has paid repeatedly in this 
 `br-r37-c1-4c29a`. The prototype, the gauntlets, the trap list, and the slab layout are all already
 written and proven for MultiGraph — this is a port, not a design.
 
-**3. `Graph incremental add_edge` at 0.2605x is the per-call wall again, in construction form.**
+**3. `Graph incremental add_edge` at 0.2605x is a decisive public loss, but its cause was not
+profiled by this invocation.**
 7285us for nx vs 28057us for fnx over 8000 calls = **~3.5 us per `add_edge`** against nx's 0.91 us.
-This is the same shim-wrapper tax already attributed on the read side (56% of `has_node` is Python
-wrapper frames, bare PyO3 boundary only ~42 ns): a per-call surface where the Python layer, not the
-Rust kernel, sets the cost. It is the single largest remaining construction loss and it is NOT a
-storage problem — `Graph(edge stream)` batch construction of the same 8000 edges is 0.8337x, i.e.
-3.2x better per edge than the incremental path.
+The read-side `has_node` profile does not establish the frame attribution of this mutation path,
+and comparing two FNX-vs-NetworkX ratios does not measure a caller-visible batch-vs-incremental
+speedup. Treat the shim explanation as a hypothesis subject to the profile predicate below, not as
+a result of this row.
 
 RETRY PREDICATES.
 * **`Graph incremental add_edge` (0.2605x):** retry with the wrapper-removal mechanism already

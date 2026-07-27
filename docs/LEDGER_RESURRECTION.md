@@ -5,6 +5,7 @@ Meta-Lever #1 of `PERF_CAMPAIGN_2026-07-25`, re-adjudicated 2026-07-25 under the
 which is better than the one in the campaign doc and supersedes this file's first pass.
 
 - **Auditor:** BlackThrush (cc / Lane M), 2026-07-25
+- **Model-integrity re-auditor:** CloudyTurtle (cod / Lane M), 2026-07-27
 - **Sources:** `docs/NEGATIVE_EVIDENCE.md` (24,261 lines), `docs/NEGATIVE_EVIDENCE_cc.md`
   (9,300), `docs/progress/perf-negative-results.md` — **1,044 entries parsed**.
 - **Reproduce:** `python3 scripts/perf_ledger_preflight.py --audit`
@@ -38,34 +39,43 @@ it honestly is what moved this repo's headline number (see §2).
 |---|---:|
 | Ledger entries parsed | 1,044 |
 | **Rejection rows — audited** | **159** |
-| VALID-AB | 14 |
-| VALID-MECHANISM | 25 |
-| VALID-PROFILE | 1 |
-| **VOID-NONULL** | **112** |
-| **VOID-CV** | **4** |
-| **VOID-ZEROSELF** | **3** |
+| VALID-AB | 29 |
+| VALID-MECHANISM | 0 |
+| VALID-PROFILE | 0 |
+| **VOID-NONULL** | **121** |
+| **VOID-CV** | **5** |
+| **VOID-ZEROSELF** | **4** |
 | **VOID-ISA** | **0** (hand-adjudicated — see §4) |
-| **VOID total** | **119 / 159 = 74.8%** |
+| **VOID total** | **130 / 159 = 81.8%** |
 | Rows carrying a binary sha256 | 14 / 159 = 8.8% |
 
 ### Correction to this repo's previously reported figure
 
-My first pass reported **91% VOID** using the campaign doc's criteria, and that number
-reached the fleet scoreboard. It is **too high**. The campaign criteria void a row for
-lacking a null control full stop; the six-class taxonomy first asks whether the row was
-refuted on a *counted mechanism*, which a null control cannot overturn. Applying
-`VALID-MECHANISM` honestly rescues **25 rows**, and the corrected figure is
-**74.8%**. The in-repo tool reproduces 156 rows / 75.0% — it screens
-headings only, while this audit also catches four body-declared `REJECTED MEASUREMENT`
-rows; the two agree within 3 rows.
+The first six-class pass reported **74.8% VOID** and claimed that
+`VALID-MECHANISM` rescued 25 rows. The 2026-07-27 model-integrity re-audit
+re-read all 25 source rows and found that claim unsound. The mechanical screen
+had matched a counted-mechanism word (often a proposed allocation) anywhere in
+the section and a separate word such as "unchanged" anywhere else. No row
+actually recorded unchanged counted instructions, cycles, syscalls,
+allocations, or faults.
+
+Of those 25 rows, 15 already carried a measured null and are `VALID-AB`; one
+was killed by CV alone; eight are `VOID-NONULL`; and one never reached the
+timed path and is `VOID-ZEROSELF`. The sole claimed `VALID-PROFILE` row also
+lacked the taxonomy's named non-zero self-time plus computed Amdahl ceiling,
+so it is `VOID-NONULL`. The corrected historical snapshot is therefore
+**81.8% VOID (130/159)**. The in-repo tool now requires the counted metric and
+its unchanged result to occur together, recognizes body-declared
+`VALID-PROFILE` rows as rejections, and distinguishes historical
+classification from the stricter new-row A/A-or-counted-mechanism gate.
 
 ### The orchestrator's correction is confirmed here, independently
 
 The prediction was that `cv<5%` would be the dominant void class. **It is not.**
-`VOID-CV` is **4 rows**; `VOID-NONULL` is **112**. franken_networkx and frankenfs
+`VOID-CV` is **5 rows**; `VOID-NONULL` is **121**. franken_networkx and frankenfs
 found the same shape from different corpora (frankenfs: 4 vs 214).
 
-**Read the void rate honestly.** 119 void rows are *not* 119 buried wins. VOID-NONULL
+**Read the void rate honestly.** 130 void rows are *not* 130 buried wins. VOID-NONULL
 overwhelmingly means "the row measured ~1.0x and never wrote down what ~1.0x means on
 that bench" — most of those levers really are dead; the class exists because the row
 cannot *prove* it. The actionable yield is a small head, and it is ranked in §3.
@@ -117,7 +127,7 @@ the failure mode; **for franken_networkx it is empty.** All 10 regex candidates 
 
 | Entry | Hand verdict |
 |---|---|
-| `NEGATIVE_EVIDENCE_cc.md:9167` — AVX2 dense-linalg (`br-r37-c1-2zn1u`) | **NOT VOID-ISA — this row already tested v3.** Both arms ran on a pinned AVX2 worker (`hz2`) with `cfg!(target_feature)` execution proof; it measured 1.415x/1.229x and rejected on dilution + shipping cost. Reclassified by hand from the screen's `VOID-NONULL` to **`VALID-PROFILE`**: the effect is nowhere near 1.0 and the row computes an explicit Amdahl dilution argument. |
+| `NEGATIVE_EVIDENCE_cc.md:9167` — AVX2 dense-linalg (`br-r37-c1-2zn1u`) | **NOT VOID-ISA — this row already tested v3.** Both arms ran on a pinned AVX2 worker (`hz2`) with `cfg!(target_feature)` execution proof. It remains **`VOID-NONULL`** under the six classes: the row has no A/A null, no unchanged counted mechanism, no named non-zero self-time, and no computed Amdahl ceiling. Its 1.415x/1.229x routing result is useful profile direction, not a sound lane-closing rejection. |
 | `NEGATIVE_EVIDENCE.md:1612` — `+native` popcount 3.17x / rotate 2.08x ALU loops, **closeness bit-parallel kernel 0.98x** | **NOT void.** The real kernel was measured, not just the microbench. Confirmed independently below. |
 | `NEGATIVE_EVIDENCE.md:1640` — bit-parallel grid/1600 integrity audit | Not a lever rejection; it is an audit row that voids a *different* row. Excluded. |
 | `NEGATIVE_EVIDENCE_cc.md:423` — closeness per-source CSR fallback | **NOT VOID-ISA.** Mechanism is CSR-vs-String rows, not SIMD, and it carries a null. |
@@ -151,10 +161,14 @@ correct, and it decayed because nothing enforced it.
 
 Landed with this audit:
 
-* **`scripts/perf_ledger_preflight.py`** — three modes, frankensqlite's exit-2-means-BLOCKED
+* **`scripts/perf_ledger_preflight.py`** — five modes, frankensqlite's exit-2-means-BLOCKED
   convention:
   * `--check [REF]` — every rejection row added since REF must carry an A/A null **or** a
     counted mechanism. Exit 2 otherwise.
+  * `--check-staged` — applies the same contract to the exact staged ledger text; this is the
+    pre-commit path, so unstaged work cannot hide an invalid staged row.
+  * `--candidate --lever TEXT --surface TEXT` — prints prior rows and their concrete retry
+    predicates before a candidate row is written.
   * `--prior-art TERMS` — greps all three ledgers before a lever is proposed and exits 2 if a
     prior REJECT matches, enforcing the campaign's HARD GATE. If the matching row is `VOID-*`,
     the rejection is not evidence and may be re-run — the new row must say so and cite it.
@@ -171,22 +185,22 @@ that ran — 8.8% do, which is why so many rows cannot be re-attached to a build
 
 | # | source:line | date | entry | claimed | null | self-time | sha? | class |
 |---|---|---|---|---:|---|---|---|---|
-| 1 | `NEGATIVE_EVIDENCE.md:5` | 2026-07-16 | 2026-07-16 BlackThrush NO-SHIP: pre-size durability envelope JSON — 0.9985x (`br-r37-c1-04z53.9177`) | 0.9985x | recorded | **none** | no | VALID-MECHANISM |
-| 2 | `NEGATIVE_EVIDENCE.md:251` | 2026-07-16 | 2026-07-16 BlackThrush NO-SHIP: index self-loop k-out reinforcement — 0.9889x (`br-r37-c1-3uuu8`) | 0.9889x | recorded | **none** | no | VALID-MECHANISM |
-| 3 | `NEGATIVE_EVIDENCE.md:390` | 2026-07-16 | 2026-07-16 BlackThrush NO-SHIP: cache CGSE random-edge labels — 1.0278x, 7/15 (`br-r37-c1-ppmfy`) | 1.0278x | recorded | **none** | no | VALID-MECHANISM |
+| 1 | `NEGATIVE_EVIDENCE.md:5` | 2026-07-16 | 2026-07-16 BlackThrush NO-SHIP: pre-size durability envelope JSON — 0.9985x (`br-r37-c1-04z53.9177`) | 0.9985x | recorded | **none** | no | VALID-AB |
+| 2 | `NEGATIVE_EVIDENCE.md:251` | 2026-07-16 | 2026-07-16 BlackThrush NO-SHIP: index self-loop k-out reinforcement — 0.9889x (`br-r37-c1-3uuu8`) | 0.9889x | recorded | **none** | no | VALID-AB |
+| 3 | `NEGATIVE_EVIDENCE.md:390` | 2026-07-16 | 2026-07-16 BlackThrush NO-SHIP: cache CGSE random-edge labels — 1.0278x, 7/15 (`br-r37-c1-ppmfy`) | 1.0278x | recorded | **none** | no | VALID-AB |
 | 4 | `NEGATIVE_EVIDENCE.md:485` | 2026-07-16 | 2026-07-16 BlackThrush NO-SHIP: versioned-ledger linear merge is below its null (`br-r37-c1-gx0fd`) | — | recorded | **none** | no | VALID-AB |
-| 5 | `NEGATIVE_EVIDENCE.md:1021` | 2026-07-14 | 2026-07-14 RusticHollow NO-SHIP: `min_weight_matching` in-place candidate transform is inside the null floor (`br-r37-c1-pic0x`) | — | 1.0518x | **none** | no | VALID-MECHANISM |
+| 5 | `NEGATIVE_EVIDENCE.md:1021` | 2026-07-14 | 2026-07-14 RusticHollow NO-SHIP: `min_weight_matching` in-place candidate transform is inside the null floor (`br-r37-c1-pic0x`) | — | 1.0518x | **none** | no | VALID-AB |
 | 6 | `NEGATIVE_EVIDENCE.md:1121` | 2026-07-10 | 2026-07-10 codex REJECT: `connected_components` Vec FIFO is bit-identical but slower on both median self-time gates | — | **none** | recorded | no | **VOID-NONULL** |
 | 7 | `NEGATIVE_EVIDENCE.md:1244` | 2026-07-10 | 2026-07-10 cod_nx REJECTED MEASUREMENT: corrected ORIG reproduced 1.788x but cold-worker drift failed CV (`br-r37-c1-04z53.9171`) | 1.7880x | **none** | recorded | yes | **VOID-NONULL** |
 | 8 | `NEGATIVE_EVIDENCE.md:1256` | 2026-07-10 | 2026-07-10 cod_nx REJECTED MEASUREMENT: corrected long-warm retry hit a contended worker (`br-r37-c1-04z53.9171`) | — | **none** | recorded | yes | **VOID-CV** |
 | 9 | `NEGATIVE_EVIDENCE.md:1268` | 2026-07-10 | 2026-07-10 cod_nx REJECTED MEASUREMENT: external NetworkX control was outlier-dominated (`br-r37-c1-04z53.9171`) | — | **none** | recorded | yes | **VOID-NONULL** |
-| 10 | `NEGATIVE_EVIDENCE.md:1309` | 2026-07-10 | 2026-07-10 cod_nx REJECTED MEASUREMENT: longer linear sampling replicated 1.3043x but amplified shared-host CV (`br-r37-c1-gtty9`) | 1.3043x | **none** | recorded | yes | VALID-MECHANISM |
+| 10 | `NEGATIVE_EVIDENCE.md:1309` | 2026-07-10 | 2026-07-10 cod_nx REJECTED MEASUREMENT: longer linear sampling replicated 1.3043x but amplified shared-host CV (`br-r37-c1-gtty9`) | 1.3043x | **none** | recorded | yes | **VOID-CV** |
 | 11 | `NEGATIVE_EVIDENCE.md:1323` | 2026-07-10 | 2026-07-10 cod_nx REJECTED MEASUREMENT: persistent MultiGraph dense node IDs were 1.3011x faster, but both paired CVs missed 5% (`br-r37-... | 1.3011x | **none** | 11.1% | yes | **VOID-CV** |
 | 12 | `NEGATIVE_EVIDENCE.md:1345` | 2026-07-10 | 2026-07-10 cod_nx LEDGER-INTEGRITY CORRECTION: the StackCanon REJECT itself is INVALID — its timed `Graph` path never called the `MultiGr... | — | **none** | 0.1% | yes | **VOID-ZEROSELF** |
 | 13 | `NEGATIVE_EVIDENCE.md:1449` | 2026-07-10 | 2026-07-10 cod_nx MEDIAN/NULL RE-DECISION: StackCanon is VOID, not a REJECT (`br-r37-c1-04z53.9173`) | — | recorded | recorded | yes | **VOID-ZEROSELF** |
 | 14 | `NEGATIVE_EVIDENCE.md:1640` | 2026-07-10 | 2026-07-10 cc LEDGER-INTEGRITY AUDIT: the "batch-parallel bit-parallel grid/1600 0.27x" reject is NOT evidence against chunked-parallel b... | 0.2700x | **none** | recorded | no | **VOID-ZEROSELF** |
 | 15 | `NEGATIVE_EVIDENCE.md:1755` | 2026-07-10 | 2026-07-10 cod_nx MEASUREMENT REJECT: bidirectional-only guard isolation is stable, but one 400-call NetworkX control missed CV (`br-r37-... | — | **none** | **none** | yes | **VOID-NONULL** |
-| 16 | `NEGATIVE_EVIDENCE.md:1779` | 2026-07-10 | 2026-07-10 cod_nx SOURCE REJECT (PY BINDING, exact string-key weighted MultiGraph): positive 13.10-17.23x measurement had an over-broad s... | 17.2300x | **none** | 0.1% | yes | VALID-MECHANISM |
+| 16 | `NEGATIVE_EVIDENCE.md:1779` | 2026-07-10 | 2026-07-10 cod_nx SOURCE REJECT (PY BINDING, exact string-key weighted MultiGraph): positive 13.10-17.23x measurement had an over-broad s... | 17.2300x | **none** | 0.1% | yes | **VOID-NONULL** |
 | 17 | `NEGATIVE_EVIDENCE.md:1848` | 2026-07-10 | 2026-07-10 cod_nx MEASUREMENT REJECT: 400-call pinned MultiGraph bidirectional A/B moved the noise to the candidate shortest-path row (`b... | — | **none** | **none** | yes | **VOID-NONULL** |
 | 18 | `NEGATIVE_EVIDENCE.md:1870` | 2026-07-10 | 2026-07-10 cod_nx MEASUREMENT REJECT: final-source pinned 200-call MultiGraph bidirectional A/B missed the `<5%` CV gate in one NetworkX ... | — | **none** | **none** | yes | **VOID-CV** |
 | 19 | `NEGATIVE_EVIDENCE.md:1894` | 2026-07-10 | 2026-07-10 cod_nx MEASUREMENT REJECT: unpinned `hz1` MultiGraph bidirectional A/B did not meet the `<5%` CV gate (`br-r37-c1-04z53.9170`) | — | **none** | **none** | yes | **VOID-CV** |
@@ -200,14 +214,14 @@ that ran — 8.8% do, which is why so many rows cannot be re-attached to a build
 | 27 | `NEGATIVE_EVIDENCE.md:5868` | 2026-07-02 | 2026-07-02 CopperCliff NO-SHIP (reverted, bench rejection): simple-DiGraph degree(weight) store twins — eager mirror means NOT strict wor... | — | **none** | **none** | no | **VOID-NONULL** |
 | 28 | `NEGATIVE_EVIDENCE.md:6097` | 2026-07-02 | 2026-07-02 CopperCliff SURFACE (AUTHORITATIVE cargo bench): head2head 20/24 workloads WIN; the 4 residual gaps are ALL documented floor/N... | — | **none** | **none** | no | **VOID-NONULL** |
 | 29 | `NEGATIVE_EVIDENCE.md:6412` | 2026-07-01 | 2026-07-01 CopperCliff NO-SHIP: node_link_data 0.70x vs nx is the materialization floor (native binding 0.90-0.95x vs the comprehension —... | 0.9500x | **none** | **none** | no | **VOID-NONULL** |
-| 30 | `NEGATIVE_EVIDENCE.md:6509` | 2026-06-29 | 2026-06-29 CopperCliff NO-SHIP: DiGraph weighted degree(weight) store accumulator — ~0 gain, materialization floor (`br-r37-c1-dgwdegs`) | — | **none** | **none** | no | VALID-MECHANISM |
+| 30 | `NEGATIVE_EVIDENCE.md:6509` | 2026-06-29 | 2026-06-29 CopperCliff NO-SHIP: DiGraph weighted degree(weight) store accumulator — ~0 gain, materialization floor (`br-r37-c1-dgwdegs`) | — | **none** | **none** | no | **VOID-NONULL** |
 | 31 | `NEGATIVE_EVIDENCE.md:6538` | 2026-06-29 | 2026-06-29 CopperCliff NO-SHIP: MG/MDG induced subgraph().copy() parent.edges() shortcut — nx induced-view REORDERS edges (`br-r37-c1-mgs... | — | **none** | **none** | no | **VOID-NONULL** |
 | 32 | `NEGATIVE_EVIDENCE.md:6814` | 2026-06-28 | 2026-06-28 BlackThrush MultiDiGraph in_edges data-key CSR predecessor scan - NO-SHIP (`cod-a`) | — | **none** | **none** | no | **VOID-NONULL** |
 | 33 | `NEGATIVE_EVIDENCE.md:6875` | 2026-06-28 | 2026-06-28 BlackThrush MultiDiGraph weighted in-degree one-pass store scan - NO-SHIP (`cod-b`) | — | **none** | **none** | no | **VOID-NONULL** |
 | 34 | `NEGATIVE_EVIDENCE.md:6941` | 2026-06-28 | 2026-06-28 BlackThrush MultiGraph selfloop heterogenous tuple constructor - NO-SHIP (`cod-b`) | — | **none** | **none** | no | **VOID-NONULL** |
 | 35 | `NEGATIVE_EVIDENCE.md:6990` | 2026-06-28 | 2026-06-28 BlackThrush MultiDiGraph weighted degree tuple cache - NO-SHIP (`cod-a`) | — | **none** | **none** | no | **VOID-NONULL** |
 | 36 | `NEGATIVE_EVIDENCE.md:7057` | 2026-06-27 | 2026-06-27 BlackThrush MultiGraph selfloop scalar-only borrowed-node scan - NO-SHIP (`cod-b`) | — | **none** | **none** | no | **VOID-NONULL** |
-| 37 | `NEGATIVE_EVIDENCE.md:7122` | 2026-06-28 | 2026-06-28 BlackThrush MultiGraph selfloop borrowed-bucket fast path - NO-SHIP (`cod-a`) | — | **none** | **none** | no | VALID-MECHANISM |
+| 37 | `NEGATIVE_EVIDENCE.md:7122` | 2026-06-28 | 2026-06-28 BlackThrush MultiGraph selfloop borrowed-bucket fast path - NO-SHIP (`cod-a`) | — | **none** | **none** | no | **VOID-NONULL** |
 | 38 | `NEGATIVE_EVIDENCE.md:7252` | 2026-06-27 | 2026-06-27 BlackThrush MultiDiGraph in_edges data-key batch view constructor - NO-SHIP (`cod-a`) | — | **none** | **none** | no | **VOID-NONULL** |
 | 39 | `NEGATIVE_EVIDENCE.md:7370` | 2026-06-27 | 2026-06-27 BlackThrush directed degree generator-delegation bypass - NO-SHIP (`cod-b`) | — | **none** | **none** | no | **VOID-NONULL** |
 | 40 | `NEGATIVE_EVIDENCE.md:7483` | 2026-06-27 | 2026-06-27 BlackThrush MultiDiGraph weighted degree values-only probe - NO-SHIP (`cod-a`) | — | **none** | **none** | no | **VOID-NONULL** |
@@ -235,7 +249,7 @@ that ran — 8.8% do, which is why so many rows cannot be re-attached to a build
 | 62 | `NEGATIVE_EVIDENCE.md:13843` | 2026-06-25 | 2026-06-25 BlackThrush MultiDiGraph weighted-degree edge-order accumulator - NO-SHIP | — | **none** | **none** | no | **VOID-NONULL** |
 | 63 | `NEGATIVE_EVIDENCE.md:13882` | 2026-06-25 | 2026-06-25 BlackThrush core-laggard display-key probes - NO-SHIP | — | **none** | **none** | no | **VOID-NONULL** |
 | 64 | `NEGATIVE_EVIDENCE.md:13915` | 2026-06-25 | 2026-06-25 BlackThrush MultiGraph selfloop attr tuple cache recheck - NO-SHIP | — | **none** | **none** | no | **VOID-NONULL** |
-| 65 | `NEGATIVE_EVIDENCE.md:14015` | 2026-06-25 | 2026-06-25 BlackThrush MultiGraph.clear_edges adjacency-spine rebuild - NO-SHIP | — | **none** | **none** | no | VALID-MECHANISM |
+| 65 | `NEGATIVE_EVIDENCE.md:14015` | 2026-06-25 | 2026-06-25 BlackThrush MultiGraph.clear_edges adjacency-spine rebuild - NO-SHIP | — | **none** | **none** | no | **VOID-NONULL** |
 | 66 | `NEGATIVE_EVIDENCE.md:14051` | 2026-06-25 | 2026-06-25 BlackThrush MultiGraph.selfloop_edges list-iterator handoff - REJECT | — | **none** | **none** | no | **VOID-NONULL** |
 | 67 | `NEGATIVE_EVIDENCE.md:14077` | 2026-06-26 | 2026-06-26 BlackThrush MultiDiGraph weighted in/out degree count zip - NO-SHIP | — | **none** | **none** | no | **VOID-NONULL** |
 | 68 | `NEGATIVE_EVIDENCE.md:14170` | 2026-06-25 | 2026-06-25 BlackThrush MultiDiGraph.in_edges data-key borrowed stream - REJECT | — | **none** | **none** | no | **VOID-NONULL** |
@@ -245,13 +259,13 @@ that ran — 8.8% do, which is why so many rows cannot be re-attached to a build
 | 72 | `NEGATIVE_EVIDENCE.md:14370` | 2026-06-26 | 2026-06-26 BlackThrush MultiGraph selfloop clean-int mirror bypass - REJECT | — | **none** | **none** | no | **VOID-NONULL** |
 | 73 | `NEGATIVE_EVIDENCE.md:14424` | 2026-06-26 | 2026-06-26 BlackThrush MultiGraph.clear_edges wholesale mirror-map replace - REJECT | — | **none** | **none** | no | **VOID-NONULL** |
 | 74 | `NEGATIVE_EVIDENCE.md:14472` | 2026-06-26 | 2026-06-26 BlackThrush weighted multi_source_dijkstra projection-order de-gate - REJECT | — | **none** | **none** | no | **VOID-NONULL** |
-| 75 | `NEGATIVE_EVIDENCE.md:14579` | 2026-06-27 | 2026-06-27 BlackThrush MultiDiGraph weighted-degree cached node-key pairs - REVERTED | — | **none** | **none** | no | VALID-MECHANISM |
-| 76 | `NEGATIVE_EVIDENCE.md:14717` | 2026-06-27 | 2026-06-27 BlackThrush MultiDiGraph weighted in-degree iterator materializer - NO-SHIP | — | **none** | **none** | no | VALID-MECHANISM |
+| 75 | `NEGATIVE_EVIDENCE.md:14579` | 2026-06-27 | 2026-06-27 BlackThrush MultiDiGraph weighted-degree cached node-key pairs - REVERTED | — | **none** | **none** | no | **VOID-NONULL** |
+| 76 | `NEGATIVE_EVIDENCE.md:14717` | 2026-06-27 | 2026-06-27 BlackThrush MultiDiGraph weighted in-degree iterator materializer - NO-SHIP | — | **none** | **none** | no | **VOID-NONULL** |
 | 77 | `NEGATIVE_EVIDENCE.md:14791` | 2026-06-27 | 2026-06-27 BlackThrush MultiDiGraph weighted in-degree lazy native iterator - NO-SHIP | — | **none** | **none** | no | **VOID-NONULL** |
 | 78 | `NEGATIVE_EVIDENCE.md:14923` | 2026-06-27 | 2026-06-27 BlackThrush MultiGraph selfloop small-int object cache - NO-SHIP | — | **none** | **none** | no | **VOID-NONULL** |
 | 79 | `NEGATIVE_EVIDENCE.md:14983` | 2026-06-27 | 2026-06-27 BlackThrush MultiDiGraph weighted in-degree edge-stream accumulator - NO-SHIP | — | **none** | **none** | no | **VOID-NONULL** |
 | 80 | `NEGATIVE_EVIDENCE.md:15033` | 2026-06-27 | 2026-06-27 BlackThrush MultiDiGraph `in_edges(keys, data=<attr>)` default-key emit - NO-SHIP | — | **none** | **none** | no | **VOID-NONULL** |
-| 81 | `NEGATIVE_EVIDENCE.md:15097` | 2026-06-27 | 2026-06-27 CopperCliff to_directed/to_undirected single-attr AttrMap-clone - NO-SHIP | — | **none** | **none** | no | VALID-MECHANISM |
+| 81 | `NEGATIVE_EVIDENCE.md:15097` | 2026-06-27 | 2026-06-27 CopperCliff to_directed/to_undirected single-attr AttrMap-clone - NO-SHIP | — | **none** | **none** | no | **VOID-NONULL** |
 | 82 | `NEGATIVE_EVIDENCE.md:15339` | 2026-06-28 | 2026-06-28 CopperCliff multi_source_dijkstra_path_length 0.20x — NO-SHIP (length-only de-delegation is value-exact but ORDER-blocked by t... | 86.0000x | **none** | **none** | no | **VOID-NONULL** |
 | 83 | `NEGATIVE_EVIDENCE.md:16038` | 2026-06-28 | 2026-06-28 CopperCliff NO-SHIP: MultiGraph size(weight) native scalar — substrate-bound below nx (REVERTED, 2 approaches tried) | — | **none** | **none** | no | **VOID-NONULL** |
 | 84 | `NEGATIVE_EVIDENCE.md:16191` | 2026-06-28 | 2026-06-28 CopperCliff NO-SHIP (lever DISPROVEN by implementation): native CSR MG dijkstra ALSO loses — the floor is the MultiGraph's STR... | — | **none** | **none** | no | **VOID-NONULL** |
@@ -264,25 +278,25 @@ that ran — 8.8% do, which is why so many rows cannot be re-attached to a build
 | 91 | `NEGATIVE_EVIDENCE.md:17600` | 2026-06-29 | 2026-06-29 BlackThrush NO-SHIP: PyGraph degree(nbunch, weight) int-accumulator twin — store-read floor, trades workloads | — | **none** | **none** | no | **VOID-NONULL** |
 | 92 | `NEGATIVE_EVIDENCE.md:17842` | 2026-06-29 | 2026-06-29 BlackThrush NO-SHIP (cargo-bench-confirmed): clear_edges 0.351x is per-edge CONSTRUCTION fragmentation, not a clear_edges bug | 0.3510x | **none** | **none** | no | **VOID-NONULL** |
 | 93 | `NEGATIVE_EVIDENCE.md:18721` | 2026-07-10 | 2026-07-10 cod_nx REJECT (PY WRAPPER, string-key weighted MultiGraph `shortest_path(source,target,weight)`): in-process multigraph bidire... | — | **none** | 0.1% | no | **VOID-NONULL** |
-| 94 | `NEGATIVE_EVIDENCE.md:19523` | 2026-07-11 | 2026-07-11 WhiteJaguar REJECT (FLOW, `max_flow`): compact sorted residual rows — 5.10% worse same-worker median (`br-r37-c1-fz193`) | — | **none** | **none** | yes | VALID-MECHANISM |
+| 94 | `NEGATIVE_EVIDENCE.md:19523` | 2026-07-11 | 2026-07-11 WhiteJaguar REJECT (FLOW, `max_flow`): compact sorted residual rows — 5.10% worse same-worker median (`br-r37-c1-fz193`) | — | **none** | **none** | yes | **VOID-NONULL** |
 | 95 | `NEGATIVE_EVIDENCE.md:20262` | 2026-07-13 | 2026-07-13 CrimsonHorizon REJECT (`MultiDiGraph(<true iterator>)`): broad drain wins plain/attrs but regresses keyed 23.7% (`br-r37-c1-2f... | — | 1.0085x | **none** | no | VALID-AB |
 | 96 | `NEGATIVE_EVIDENCE.md:20919` | 2026-07-14 | 2026-07-14 RusticHollow NO-SHIP (`core_number`): edgeless peeling bypass is inside the null-control floor (`br-r37-c1-dy8w1`) | — | recorded | **none** | no | VALID-AB |
 | 97 | `NEGATIVE_EVIDENCE.md:21085` | 2026-07-14 | 2026-07-14 RusticHollow NO-SHIP (`dag_longest_path_length`): direct scalar DP stays below the keep floor (`br-r37-c1-qwzl2`) | — | recorded | **none** | no | VALID-AB |
-| 98 | `NEGATIVE_EVIDENCE.md:22022` | 2026-07-14 | 2026-07-14 GrayCitadel INVALID / NO-SHIP (`build_crosswalk_report`): borrowed fixture-ID indexes did not reach timed path (`br-r37-c1-wrq... | — | **none** | **none** | no | VALID-MECHANISM |
+| 98 | `NEGATIVE_EVIDENCE.md:22022` | 2026-07-14 | 2026-07-14 GrayCitadel INVALID / NO-SHIP (`build_crosswalk_report`): borrowed fixture-ID indexes did not reach timed path (`br-r37-c1-wrq... | — | **none** | **none** | no | **VOID-ZEROSELF** |
 | 99 | `NEGATIVE_EVIDENCE.md:22065` | 2026-07-14 | 2026-07-14 GrayCitadel INVALID / NO-SHIP (`dominance_frontiers`): index-space propagation did not reach timed path (`br-r37-c1-nfe62`) | — | **none** | **none** | no | **VOID-NONULL** |
-| 100 | `NEGATIVE_EVIDENCE.md:22428` | 2026-07-14 | 2026-07-14 GrayCitadel NO-SHIP (`generate_sidecar_for_file`): fused packet serialization metadata pass — **1.0226x inside null noise** (`... | 1.0226x | recorded | **none** | yes | VALID-MECHANISM |
-| 101 | `NEGATIVE_EVIDENCE.md:23861` | 2026-07-24 | 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` scalar attrs): adopt the private snapshot as the live mirror — **1.0280x** (`br-r... | 1.0280x | 1.0033x | **none** | no | VALID-MECHANISM |
-| 102 | `NEGATIVE_EVIDENCE.md:23905` | 2026-07-24 | 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` scalar attrs): defer normalized fallback tuples — **1.0105x** (`br-r37-c1-pab55`) | 1.0105x | 0.9986x | **none** | no | VALID-MECHANISM |
-| 103 | `NEGATIVE_EVIDENCE.md:24112` | 2026-07-24 | 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` keyed scalar attrs): fused validation + native decode — **1.0202x** (`br-r37-c1-4... | 1.0202x | 1.0056x | **none** | no | VALID-MECHANISM |
-| 104 | `NEGATIVE_EVIDENCE.md:24161` | 2026-07-24 | 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` keyed scalar attrs): exact tuple-iterator stage pre-sizing — **1.0144x** (`br-r37... | 1.0144x | 1.0009x | **none** | no | VALID-MECHANISM |
-| 105 | `NEGATIVE_EVIDENCE.md:24210` | 2026-07-24 | 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` keyed scalar attrs): raw exact-string stage lookup — **0.9897x** (`br-r37-c1-04z5... | 0.9897x | 1.0065x | **none** | no | VALID-MECHANISM |
-| 106 | `NEGATIVE_EVIDENCE_cc.md:423` | 2026-07-12 | REJECT (cod, 2026-07-12): declined `closeness_centrality` per-source CSR fallback does not clear its null (br-r37-c1-yy0rp) | — | 1.0852x | **none** | no | VALID-MECHANISM |
+| 100 | `NEGATIVE_EVIDENCE.md:22428` | 2026-07-14 | 2026-07-14 GrayCitadel NO-SHIP (`generate_sidecar_for_file`): fused packet serialization metadata pass — **1.0226x inside null noise** (`... | 1.0226x | recorded | **none** | yes | VALID-AB |
+| 101 | `NEGATIVE_EVIDENCE.md:23861` | 2026-07-24 | 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` scalar attrs): adopt the private snapshot as the live mirror — **1.0280x** (`br-r... | 1.0280x | 1.0033x | **none** | no | VALID-AB |
+| 102 | `NEGATIVE_EVIDENCE.md:23905` | 2026-07-24 | 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` scalar attrs): defer normalized fallback tuples — **1.0105x** (`br-r37-c1-pab55`) | 1.0105x | 0.9986x | **none** | no | VALID-AB |
+| 103 | `NEGATIVE_EVIDENCE.md:24112` | 2026-07-24 | 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` keyed scalar attrs): fused validation + native decode — **1.0202x** (`br-r37-c1-4... | 1.0202x | 1.0056x | **none** | no | VALID-AB |
+| 104 | `NEGATIVE_EVIDENCE.md:24161` | 2026-07-24 | 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` keyed scalar attrs): exact tuple-iterator stage pre-sizing — **1.0144x** (`br-r37... | 1.0144x | 1.0009x | **none** | no | VALID-AB |
+| 105 | `NEGATIVE_EVIDENCE.md:24210` | 2026-07-24 | 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` keyed scalar attrs): raw exact-string stage lookup — **0.9897x** (`br-r37-c1-04z5... | 0.9897x | 1.0065x | **none** | no | VALID-AB |
+| 106 | `NEGATIVE_EVIDENCE_cc.md:423` | 2026-07-12 | REJECT (cod, 2026-07-12): declined `closeness_centrality` per-source CSR fallback does not clear its null (br-r37-c1-yy0rp) | — | 1.0852x | **none** | no | VALID-AB |
 | 107 | `NEGATIVE_EVIDENCE_cc.md:688` | 2026-07-12 | REJECT + SWEEP (cc, 2026-07-12): `ego_graph` BFS below-null; neighbour-walk sub-family exhausted | — | recorded | **none** | no | VALID-AB |
-| 108 | `NEGATIVE_EVIDENCE_cc.md:1233` | 2026-07-12 | REJECT (cc, 2026-07-12): `quotient_graph` batch — BELOW NULL (br-r37-c1-quotientbatch) | — | 1.1103x | **none** | no | VALID-MECHANISM |
+| 108 | `NEGATIVE_EVIDENCE_cc.md:1233` | 2026-07-12 | REJECT (cc, 2026-07-12): `quotient_graph` batch — BELOW NULL (br-r37-c1-quotientbatch) | — | 1.1103x | **none** | no | VALID-AB |
 | 109 | `NEGATIVE_EVIDENCE_cc.md:1903` | 2026-07-11 | SURFACE (cc, 2026-07-11): `barabasi_albert_graph` batch-by-index = BELOW-NOISE (1.04x) — BA is SAMPLING-bound, not insertion-bound → not ... | 1.0400x | 0.9967x | **none** | no | VALID-AB |
 | 110 | `NEGATIVE_EVIDENCE_cc.md:3307` | 2026-07-10 | REJECT (cc, 2026-07-10): MultiGraph `degree(nbunch, weight=)` per-edge `edge_key` alloc removal — byte-identical but **below the noise fl... | — | **none** | **none** | no | **VOID-NONULL** |
 | 111 | `NEGATIVE_EVIDENCE_cc.md:3431` | 2026-07-10 | REJECT (cc, 2026-07-10): the different-primitive SoA / cache-friendly integer-adjacency for MG target Dijkstra is **0.7152x** (0/121 wins... | 0.7152x | 0.9987x | **none** | no | VALID-AB |
-| 112 | `NEGATIVE_EVIDENCE_cc.md:3494` | 2026-07-10 | REJECT (cc, 2026-07-10): scratch-reuse for the MG target Dijkstra is BELOW the null floor — measured 1.0053x median, inside NULL [0.836,1... | 1.0053x | 0.9976x | **none** | no | VALID-MECHANISM |
+| 112 | `NEGATIVE_EVIDENCE_cc.md:3494` | 2026-07-10 | REJECT (cc, 2026-07-10): scratch-reuse for the MG target Dijkstra is BELOW the null floor — measured 1.0053x median, inside NULL [0.836,1... | 1.0053x | 0.9976x | **none** | no | VALID-AB |
 | 113 | `NEGATIVE_EVIDENCE_cc.md:4563` | 2026-06-28 | DOMAIN MAP + 2 NO-SHIPs + BLOCKER (cc, 2026-06-28): dijkstra/bellman_ford family & flow/matching/operators/traversal sweeps — all wins ex... | — | **none** | **none** | no | **VOID-NONULL** |
 | 114 | `NEGATIVE_EVIDENCE_cc.md:4805` | 2026-06-27 | NO-SHIP (cc, 2026-06-27): MDG in_edges(keys,data=key) single-pass bucket walk + node-obj hoist — REGRESSION 0.263x->0.190x | 0.1900x | **none** | **none** | no | **VOID-NONULL** |
 | 115 | `NEGATIVE_EVIDENCE_cc.md:5009` | — | read_edgelist 0.40x: parse_edgelist NOT a drop-in (REVERTED) | 0.4000x | **none** | **none** | no | **VOID-NONULL** |
@@ -320,13 +334,13 @@ that ran — 8.8% do, which is why so many rows cannot be re-attached to a build
 | 147 | `NEGATIVE_EVIDENCE_cc.md:8291` | — | Mutation-cluster residual is a PyO3 call-boundary floor — SURFACED (CopperCliff, no-ship) | — | **none** | **none** | no | **VOID-NONULL** |
 | 148 | `NEGATIVE_EVIDENCE_cc.md:8581` | 2026-07-02 | 2026-07-02 CopperCliff SURFACE (architectural, NO-SHIP this pass): node removal is the storage-model wall — 0.003-0.14x, needs slotmap/de... | 0.1400x | **none** | **none** | no | **VOID-NONULL** |
 | 149 | `NEGATIVE_EVIDENCE_cc.md:9101` | 2026-07-22 | 2026-07-22 SnowyBadger (cc) S8 MEASURED VERDICT: positional renumber REJECTED for the real flip — 190-203x slower than the String store o... | 203.0000x | **none** | **none** | no | **VOID-NONULL** |
-| 150 | `NEGATIVE_EVIDENCE_cc.md:9167` | 2026-07-22 | 2026-07-22 SnowyBadger (cc) REJECT (br-r37-c1-2zn1u): AVX2 dense-linalg — the pure-FLOP core moves only 1.2-1.4x; below shipping threshold | — | **none** | recorded | no | VALID-PROFILE |
+| 150 | `NEGATIVE_EVIDENCE_cc.md:9167` | 2026-07-22 | 2026-07-22 SnowyBadger (cc) REJECT (br-r37-c1-2zn1u): AVX2 dense-linalg — the pure-FLOP core moves only 1.2-1.4x; below shipping threshold | — | **none** | recorded | no | **VOID-NONULL** |
 | 151 | `perf-negative-results.md:191` | 2026-07-23 | 2026-07-23 SnowyBadger (cc) REJECT + BLOCKER (br-r37-c1-04z53): edges(nbunch,data=True) repack removal — correct but reddens full suite v... | — | **none** | recorded | no | **VOID-NONULL** |
 | 152 | `perf-negative-results.md:217` | 2026-07-23 | 2026-07-23 SnowyBadger (cc) SHIP + CORRECTION (br-r37-c1-04z53): edges(nbunch,data) repack removal — the prior REJECT was an INSTALL-STAT... | — | **none** | **none** | no | **VOID-NONULL** |
 | 153 | `perf-negative-results.md:395` | 2026-07-23 | 2026-07-23 BlackThrush (cc) REJECT (br-r37-c1-thp6w): MultiGraph fresh-batch capacity-reserve does NOT move construction — String-substra... | — | 1.0000x | 8.0% | no | VALID-AB |
 | 154 | `perf-negative-results.md:431` | 2026-07-24 | 2026-07-24 BlackThrush (cc) REJECT (br-r37-c1-thp6w S13): slab index-read route `edges_ordered_indices_borrowed` — O(n) slot->position bu... | — | recorded | **none** | no | VALID-AB |
 | 155 | `perf-negative-results.md:622` | 2026-07-24 | 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` scalar attrs): private snapshot mirror transfer — **1.0280x** (`br-r37-c1-kbs9t`) | 1.0280x | 1.0033x | **none** | no | VALID-AB |
 | 156 | `perf-negative-results.md:651` | 2026-07-24 | 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` scalar attrs): deferred normalized fallback tuples — **1.0105x** (`br-r37-c1-pab55`) | 1.0105x | 0.9986x | **none** | no | VALID-AB |
-| 157 | `perf-negative-results.md:782` | 2026-07-24 | 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` keyed scalar attrs): fused validation + native decode — **1.0202x** (`br-r37-c1-4... | 1.0202x | 1.0101x | **none** | no | VALID-MECHANISM |
-| 158 | `perf-negative-results.md:817` | 2026-07-24 | 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` keyed scalar attrs): exact tuple-iterator stage pre-sizing — **1.0144x** (`br-r37... | 1.0144x | 1.0060x | **none** | no | VALID-MECHANISM |
+| 157 | `perf-negative-results.md:782` | 2026-07-24 | 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` keyed scalar attrs): fused validation + native decode — **1.0202x** (`br-r37-c1-4... | 1.0202x | 1.0101x | **none** | no | VALID-AB |
+| 158 | `perf-negative-results.md:817` | 2026-07-24 | 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` keyed scalar attrs): exact tuple-iterator stage pre-sizing — **1.0144x** (`br-r37... | 1.0144x | 1.0060x | **none** | no | VALID-AB |
 | 159 | `perf-negative-results.md:853` | 2026-07-24 | 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` keyed scalar attrs): raw exact-string stage lookup — **0.9897x** (`br-r37-c1-04z5... | 0.9897x | 1.0065x | **none** | no | VALID-AB |

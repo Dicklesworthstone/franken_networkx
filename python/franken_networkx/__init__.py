@@ -2128,11 +2128,13 @@ def _multigraph_getitem_from_native_row(self, node):
     # br-r37-c1-fy913: the row wrapper remains live across edge churn, so reuse
     # it exactly as the simple-graph path above does.  Node mutations advance
     # nodes_seq and discard the cache before the next lookup.
-    cache = vars(self).get("_fnx_getitem_atlas_cache")
+    storage = vars(self)
+    self._fnx_register_gc_dict(storage)
+    cache = storage.get("_fnx_getitem_atlas_cache")
     seq = self.nodes_seq
     if cache is None or cache[0] != seq:
         cache = (seq, {})
-        vars(self)["_fnx_getitem_atlas_cache"] = cache
+        storage["_fnx_getitem_atlas_cache"] = cache
     view = cache[1].get(node)
     if view is not None:
         return view
@@ -2164,11 +2166,13 @@ def _multidigraph_getitem_from_native_row(self, node):
         return _graph_getitem_from_adj(self, node)
     # Directed sibling of br-r37-c1-fy913.  The cached AdjacencyView calls the
     # native successor-row binding lazily, so structural edge updates stay live.
-    cache = vars(self).get("_fnx_getitem_atlas_cache")
+    storage = vars(self)
+    self._fnx_register_gc_dict(storage)
+    cache = storage.get("_fnx_getitem_atlas_cache")
     seq = self.nodes_seq
     if cache is None or cache[0] != seq:
         cache = (seq, {})
-        vars(self)["_fnx_getitem_atlas_cache"] = cache
+        storage["_fnx_getitem_atlas_cache"] = cache
     view = cache[1].get(node)
     if view is not None:
         return view
@@ -4767,6 +4771,7 @@ def _init_absorbing_dict_of_dicts(raw_init, is_multigraph):
     """
 
     def __init__(self, incoming_graph_data=None, multigraph_input=None, **attr):
+        self._fnx_register_gc_dict(vars(self))
         # ``raw_init(self, incoming_graph_data)`` is a no-op on pyo3
         # classes where ``__new__`` consumed the data; call it with
         # no extra args just to exercise any future init logic.
@@ -7514,6 +7519,10 @@ MultiDiGraph.to_undirected_class = _to_undirected_class
 # preventing a clone from retaining a method bound to its source graph.
 _DESCRIPTOR_CACHED_VIEWS = "_fnx_descriptor_cached_views"
 _CLASS_PREDICATE_NAMES = frozenset(("is_directed", "is_multigraph"))
+_COMMON_CACHED_PUBLIC_NAMES = frozenset(("nodes", "edges", "degree"))
+_DIRECTED_CACHED_PUBLIC_NAMES = _COMMON_CACHED_PUBLIC_NAMES | frozenset(
+    ("in_degree", "out_degree", "in_edges", "out_edges")
+)
 
 
 def _make_class_safe_predicate(raw, class_default):
@@ -7539,6 +7548,9 @@ class _CachedClassPredicateDescriptor:
             return self._class_callable
         bound = self._raw.__get__(obj, objtype)
         storage = vars(obj)
+        register_gc_dict = getattr(obj, "_fnx_register_gc_dict", None)
+        if register_gc_dict is not None:
+            register_gc_dict(storage)
         storage[self._name] = bound
         cached = storage.get(_DESCRIPTOR_CACHED_VIEWS)
         if cached is None:
@@ -43150,6 +43162,9 @@ def _set_private_override(self, attr_name, value):
         for name in cached:
             storage.pop(name, None)
         storage.pop(_DESCRIPTOR_CACHED_VIEWS, None)
+    register_gc_dict = getattr(self, "_fnx_register_gc_dict", None)
+    if register_gc_dict is not None:
+        register_gc_dict(storage)
     setattr(self, attr_name, value)
     _install_private_method_shadows(self, storage)
 
@@ -43199,6 +43214,9 @@ class _CachedViewDescriptor:
         view = self._build(obj)
         if not _has_networkx_private_storage(obj):
             storage = vars(obj)
+            register_gc_dict = getattr(obj, "_fnx_register_gc_dict", None)
+            if register_gc_dict is not None:
+                register_gc_dict(storage)
             storage[self._name] = view
             cached = storage.get(_DESCRIPTOR_CACHED_VIEWS)
             if cached is None:
@@ -44566,9 +44584,15 @@ def _graph_setattr_with_cached_public_adj(self, name, value):
     # A user assignment after a plain access replaces the memoised view. Remove
     # only its internal-cache marker so deepcopy/pickle preserve the user value,
     # just as they do for any other genuine instance attribute.
-    if name == "adj" or name in _CLASS_PREDICATE_NAMES:
+    if (
+        name == "adj"
+        or name in _COMMON_CACHED_PUBLIC_NAMES
+        or name in _CLASS_PREDICATE_NAMES
+    ):
         _discard_cached_descriptor_marker(self, name)
-    return _GRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE(self, name, value)
+    result = _GRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE(self, name, value)
+    self._fnx_register_gc_dict(vars(self))
+    return result
 
 
 Graph.__setattr__ = _graph_setattr_with_cached_public_adj
@@ -44582,9 +44606,14 @@ _MULTIGRAPH_SETATTR_BEFORE_PREDICATE_CACHE = MultiGraph.__setattr__
 
 
 def _multigraph_setattr_with_cached_predicates(self, name, value):
-    if name in _CLASS_PREDICATE_NAMES:
+    if (
+        name in _COMMON_CACHED_PUBLIC_NAMES
+        or name in _CLASS_PREDICATE_NAMES
+    ):
         _discard_cached_descriptor_marker(self, name)
-    return _MULTIGRAPH_SETATTR_BEFORE_PREDICATE_CACHE(self, name, value)
+    result = _MULTIGRAPH_SETATTR_BEFORE_PREDICATE_CACHE(self, name, value)
+    self._fnx_register_gc_dict(vars(self))
+    return result
 
 
 MultiGraph.__setattr__ = _multigraph_setattr_with_cached_predicates
@@ -44611,9 +44640,15 @@ def _digraph_setattr_with_cached_public_adjacency(self, name, value):
     ):
         return _DIGRAPH_PUBLIC_ADJ_PROPERTIES[name].__set__(self, value)
 
-    if name in _DIGRAPH_PUBLIC_ADJ_PROPERTIES or name in _CLASS_PREDICATE_NAMES:
+    if (
+        name in _DIGRAPH_PUBLIC_ADJ_PROPERTIES
+        or name in _DIRECTED_CACHED_PUBLIC_NAMES
+        or name in _CLASS_PREDICATE_NAMES
+    ):
         _discard_cached_descriptor_marker(self, name)
-    return _DIGRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE(self, name, value)
+    result = _DIGRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE(self, name, value)
+    self._fnx_register_gc_dict(vars(self))
+    return result
 
 
 DiGraph.__setattr__ = _digraph_setattr_with_cached_public_adjacency
@@ -44642,10 +44677,13 @@ def _multidigraph_setattr_with_cached_public_adjacency(self, name, value):
 
     if (
         name in _MULTIDIGRAPH_PUBLIC_ADJ_PROPERTIES
+        or name in _DIRECTED_CACHED_PUBLIC_NAMES
         or name in _CLASS_PREDICATE_NAMES
     ):
         _discard_cached_descriptor_marker(self, name)
-    return _MULTIDIGRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE(self, name, value)
+    result = _MULTIDIGRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE(self, name, value)
+    self._fnx_register_gc_dict(vars(self))
+    return result
 
 
 MultiDiGraph.__setattr__ = _multidigraph_setattr_with_cached_public_adjacency

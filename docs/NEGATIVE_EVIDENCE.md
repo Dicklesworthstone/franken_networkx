@@ -24582,7 +24582,7 @@ bounded scans of the 61k-line monolithic shim hit UBS's Python module timeout
 without emitting a source finding; the shim diff was reviewed directly and is
 covered by the parity and compiler gates above.
 
-## 2026-07-26 CloudyTurtle KEEP (`dict(G[u])` / simple directed rows): persistent live adjacency-row mirror — **1.1227x / 3.2981x mechanism** (`br-r37-c1-v9auw`)
+## 2026-07-26 CloudyTurtle KEEP (`dict(G[u])` / simple directed rows): persistent live adjacency-row mirror — **3.2981x mechanism / 2.4967x key iteration; dict rows UNDECIDABLE** (`br-r37-c1-v9auw`)
 
 NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: before proposing the lever,
 `scripts/perf_ledger_preflight.py` and direct searches for `AtlasView`,
@@ -24642,17 +24642,22 @@ invocation. Decisions use only the bootstrap median CI with the contract's
 
 | row (degree 64) | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | required floor | decision |
 |---|---:|---:|---:|---:|---|
-| NetworkX / FNX `dict(G[u])` | **`1.1227x`** | `1.0631-1.1435x` | `0.9864-1.0557x` | `1.1146x` | **DECIDABLE KEEP** |
+| NetworkX / FNX `dict(G[u])` | **`1.1227x`** | `1.0631-1.1435x` | `0.9864-1.0557x` | `1.1146x` | **UNDECIDABLE — CI crosses floor** |
 | NetworkX / FNX `list(G[u].keys())` | **`2.4967x`** | `2.3700-2.7288x` | `0.9190-1.0102x` | `1.1841x` | **DECIDABLE KEEP** |
-| NetworkX / FNX `dict(DG.succ[u])` | **`1.1672x`** | `1.0829-1.1871x` | `0.9897-1.0610x` | `1.1258x` | **DECIDABLE KEEP** |
-| NetworkX / FNX `dict(DG.pred[u])` | **`1.0966x`** | `1.0043-1.1342x` | `0.9667-1.0315x` | `1.0700x` | **DECIDABLE KEEP** |
+| NetworkX / FNX `dict(DG.succ[u])` | **`1.1672x`** | `1.0829-1.1871x` | `0.9897-1.0610x` | `1.1258x` | **UNDECIDABLE — CI crosses floor** |
+| NetworkX / FNX `dict(DG.pred[u])` | **`1.0966x`** | `1.0043-1.1342x` | `0.9667-1.0315x` | `1.0700x` | **UNDECIDABLE — CI crosses floor** |
 | old token loop / live-row loop | **`3.2981x`** | `3.1902-3.4127x` | `0.9572-0.9995x` | `1.0914x` | **DECIDABLE MECHANISM** |
 
-RESULT: KEEP. The named 82.1%-self frame and counted mechanism both moved as
-predicted, the most-used `dict(G[u])` surface crossed from a documented
-`0.5159x` loss to a median win over NetworkX, and all four public row surfaces
-clear their own doubled-null floors. The measurement window was released
-immediately after the invocation.
+RESULT: KEEP, with the public-surface claim corrected by the 2026-07-27 model
+integrity audit. The named 82.1%-self frame moved as predicted, the direct
+old-token/live-row mechanism clears its doubled-null floor by a wide margin,
+and `list(G[u].keys())` is a decisive public win. `dict(G[u])`,
+`dict(DG.succ[u])`, and `dict(DG.pred[u])` have positive point estimates but
+their bootstrap CI lower bounds do **not** clear their own required floors;
+those three rows are undecidable and are not KEEP evidence. The source KEEP is
+still justified by its direct causal row plus the decisive key-iteration
+consumer. The measurement window was released immediately after the
+invocation.
 
 RETRY PREDICATE: do not retry mutation-counter validation, outer-adjacency
 caching, or neighbor-key snapshotting on concrete simple rows. Reopen this
@@ -24684,7 +24689,7 @@ monolithic Python shim reached its 180-second timeout without emitting a source
 finding; that shim diff was reviewed directly and is covered by the exact-ELF
 parity and compiler gates above.
 
-## 2026-07-26 CloudyTurtle KEEP (warm `NodeView.__getitem__` / `G.nodes[n]`): node-set-scoped public-key interning — **1.9170x / 1.1118x** (`br-r37-c1-yere4`)
+## 2026-07-26 CloudyTurtle KEEP (warm `NodeView.__getitem__` / `G.nodes[n]`): node-set-scoped public-key interning — **1.9170x causal / 1.0771x attribute consumer; bare public row UNDECIDABLE** (`br-r37-c1-yere4`)
 
 NEGATIVE-LEDGER-FIRST / PROFILE ATTRIBUTION: before proposing this lever,
 `scripts/perf_ledger_preflight.py` and direct searches for `NodeView`,
@@ -24770,15 +24775,17 @@ with the contract's 2x log-space null margin. CV was provenance only.
 | row (512 lookups per sample) | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | required floor | decision |
 |---|---:|---:|---:|---:|---|
 | canonical native getter / interned getter | **`1.9170x`** | `1.7734-2.0809x` | `0.9972-1.0135x` | `1.0271x` | **DECIDABLE KEEP** |
-| NetworkX / FNX `G.nodes[n]` | **`1.1118x`** | `1.0917-1.1611x` | `0.9542-1.0156x` | `1.0984x` | **DECIDABLE KEEP** |
+| NetworkX / FNX `G.nodes[n]` | **`1.1118x`** | `1.0917-1.1611x` | `0.9542-1.0156x` | `1.0984x` | **UNDECIDABLE — CI crosses floor** |
 | NetworkX / FNX `sum(G.nodes[n]["weight"])` | **`1.0771x`** | `1.0490-1.1049x` | `0.9997-1.0199x` | `1.0403x` | **DECIDABLE KEEP** |
 
-RESULT: KEEP. The named wrapper frame and measured canonical-resolution
-mechanism both moved in the predicted direction. The most-used public
-`G.nodes[n]` surface crossed from the pre-lever `0.2544x` loss to a decisive
-`1.1118x` win over NetworkX, while the common immediate attribute consumer
-also crossed to `1.0771x`. The worker was re-enabled immediately after the
-single final invocation.
+RESULT: KEEP, with the bare-public claim corrected by the 2026-07-27 model
+integrity audit. The named wrapper frame and measured canonical-resolution
+mechanism both moved in the predicted direction. The direct causal row clears
+its floor at `1.9170x`, and the common immediate attribute consumer is a
+decisive `1.0771x` win. Bare `G.nodes[n]` has a positive `1.1118x` point
+estimate, but its `1.0917x` CI lower bound misses the `1.0984x` floor, so that
+row is **undecidable**, not KEEP evidence. The worker was re-enabled
+immediately after the single final invocation.
 
 RETRY PREDICATE: do not retry Python NodeView wrappers, canonical-string
 micro-tuning, or another per-view successful-key cache. Reopen this surface
@@ -27793,6 +27800,78 @@ same-invocation floor. Until then, switch veins.
 QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
+
+## 2026-07-27 CloudyTurtle MODEL-INTEGRITY CORRECTION (64-commit re-audit): CI verdicts, ledger taxonomy, construction attribution, and cached-view lifetime
+
+SCOPE: re-read all 64 commits in the provider-downgrade window
+`2026-07-25 20:40` through `2026-07-27`, prioritizing every KEEP and every
+taxonomy/gate change. Existing measurements carrying an in-process loaded-ELF
+SHA, same-invocation A/A, and behavior proof were not rerun wholesale. The
+audit instead rechecked workload routing, proof soundness, each numerical
+verdict, and ungated code quality.
+
+CORRECTIONS:
+
+* `8436b60ac`'s Criterion decision helper compared the candidate point
+  estimate with the doubled-null floor. It now requires the **entire bootstrap
+  median CI** to clear that floor, with direct accept/reject boundary tests.
+* `2319a6c86` remains a KEEP because its direct old-token/live-row causal CI is
+  `3.1902-3.4127x` against a `1.0914x` floor and
+  `list(G[u].keys())` also clears. Its `dict(G[u])`,
+  `dict(DG.succ[u])`, and `dict(DG.pred[u])` public rows are corrected from
+  KEEP to **UNDECIDABLE** because their CI lower bounds miss their floors.
+* `724f273c3` remains a KEEP because its causal CI is
+  `1.7734-2.0809x` against `1.0271x`, and the immediate attribute consumer
+  clears. Bare `G.nodes[n]` is corrected to **UNDECIDABLE**:
+  `1.0917x < 1.0984x`.
+* The `351fe4518` construction snapshot and `5b118cc91` README summary are
+  corrected to contextual working-tree evidence. The run used peer WIP and
+  lacked a full in-process loaded-extension SHA, “inside null” did not prove
+  equality, cross-invocation movement did not independently identify the
+  stable-slot cause, and the `add_edge` row did not profile its own cause.
+* The six-class resurrection table is corrected to the hand-adjudicated
+  historical result: `130/159 = 81.8%` VOID, including `121`
+  `VOID-NONULL`; none of the 25 formerly claimed `VALID-MECHANISM` rows
+  recorded an unchanged counted metric. The gate now recognizes genuine
+  historical `VALID-PROFILE` rows, refuses incidental/negated/future null
+  prose, and requires a local counted metric plus an unchanged result for
+  `VALID-MECHANISM`.
+* Cached public view descriptors, cached multigraph row views, cached class
+  predicates, and private-storage method shadows retained their owner through an uncollectable
+  `graph -> instance __dict__ -> view/bound method -> graph` cycle. All four
+  graph classes now participate in CPython GC for their instance dictionaries;
+  every cached accessor family has a weak-reference collection regression
+  lock. The false design-note claim that graph attributes contain only scalars
+  is retracted. Complete traversal of Rust-held Python attribute/cache
+  references is tracked separately as `br-r37-c1-43vf9`.
+* User assignment after warming any cached accessor now removes that name from
+  the internal-cache marker, so deepcopy and pickle preserve the user-owned
+  value rather than discarding it as an internal bound object.
+
+RESULT: **CORRECTED; no KEEP retracted.** The affected source KEEPs retain
+independent causal rows whose complete median CIs clear their same-invocation
+floors. Narrow public claims that did not clear are no longer used as evidence.
+The construction rows remain only routing context. The GC defect and cached
+assignment defect are fixed rather than accepted as proof debt.
+
+RETRY PREDICATES:
+
+* Do not promote any undecidable public row above until one invocation
+  self-reports the full loaded ELF, runs its own A/A, and places the complete
+  candidate median CI beyond the doubled-log null floor.
+* Do not make a new construction-attribution claim until the workload runs
+  from a named clean source state, self-reports the full loaded extension SHA
+  in-process, directly times the claimed comparison, and profiles the exact
+  target path rather than a read-side sibling.
+* Do not classify `VALID-MECHANISM` from prose about expected work; require an
+  actually recorded instruction/cycle/syscall/allocation/fault count and an
+  unchanged result. Otherwise require A/A or leave the row VOID.
+* Do not add another owner-retaining cached Python object without a
+  weak-reference `gc.collect()` proof for every owning graph class. Close
+  `br-r37-c1-43vf9` only when graph/node/edge arbitrary-object
+  self-backreferences also collect, direct self-reference insertion no longer
+  hits a re-entrant PyO3 borrow, and live/detached attribute identity stays
+  NetworkX-equivalent.
 
 ## 2026-07-27 CloudyTurtle VALID-PROFILE ADMISSION REJECT (`Graph.has_edge` exact-string node-index interning): **`2.0318x` executable ceiling**, but unchanged A/A floor is **`1.0610x`** — **NO SOURCE EDIT** (`br-r37-c1-e2uqr`)
 

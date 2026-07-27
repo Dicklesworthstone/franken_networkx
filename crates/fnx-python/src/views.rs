@@ -7,6 +7,7 @@ use crate::{
     NodeIterator, NodeLookupCache, PyGraph, PyObject, attr_map_to_pydict, node_key_to_string,
 };
 use pyo3::exceptions::{PyKeyError, PyRuntimeError};
+use pyo3::gc::{PyTraverseError, PyVisit};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyIterator, PyTuple};
 
@@ -47,6 +48,15 @@ impl Clone for NodeViewData {
 
 #[pymethods]
 impl NodeView {
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.graph)?;
+        self.lookup_cache.traverse(visit.clone())?;
+        if let NodeViewData::AttrWithDefault(_, default) = &self.data {
+            visit.call(default)?;
+        }
+        Ok(())
+    }
+
     fn __len__(&self, py: Python<'_>) -> usize {
         let g = self.graph.borrow(py);
         g.inner.node_count()
@@ -506,6 +516,14 @@ impl EdgeView {
 
 #[pymethods]
 impl EdgeView {
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.graph)?;
+        if let NodeViewData::AttrWithDefault(_, default) = &self.data {
+            visit.call(default)?;
+        }
+        Ok(())
+    }
+
     fn __len__(&self, py: Python<'_>) -> usize {
         let g = self.graph.borrow(py);
         g.inner.edge_count()
@@ -834,6 +852,10 @@ pub struct DegreeView {
 
 #[pymethods]
 impl DegreeView {
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.graph)
+    }
+
     fn __len__(&self, py: Python<'_>) -> usize {
         let g = self.graph.borrow(py);
         g.inner.node_count()

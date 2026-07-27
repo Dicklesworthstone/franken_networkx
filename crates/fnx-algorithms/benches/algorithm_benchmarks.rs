@@ -972,19 +972,24 @@ fn report_median_ci_gate(
     candidate: PairedStats,
 ) {
     let null_half_width = (null.ci_lo - 1.0).abs().max((null.ci_hi - 1.0).abs());
-    let effect = (candidate.ratio_median - 1.0).abs();
-    let outside_null_ci =
-        candidate.ratio_median < null.ci_lo || candidate.ratio_median > null.ci_hi;
-    let margin = if null_half_width > 0.0 {
-        effect / null_half_width
+    let null_log_radius = null.ci_lo.ln().abs().max(null.ci_hi.ln().abs());
+    let candidate_ci_edge_log = if candidate.ci_lo > 1.0 {
+        candidate.ci_lo.ln()
+    } else if candidate.ci_hi < 1.0 {
+        -candidate.ci_hi.ln()
+    } else {
+        0.0
+    };
+    let ci_edge_margin = if null_log_radius > 0.0 {
+        candidate_ci_edge_log / null_log_radius
     } else {
         f64::INFINITY
     };
-    let decidable = outside_null_ci && margin >= 2.0;
+    let decidable = median_ci_decidable(null, candidate);
     println!(
         "MEDIAN_CI_GATE {label} {base_name} vs {cand_name}: verdict={} \
          claim={:.3}x null_ci95=[{:.3},{:.3}] null_half_width={:.3} \
-         margin={margin:.2}x candidate_ci95=[{:.3},{:.3}] \
+         ci_edge_margin={ci_edge_margin:.2}x candidate_ci95=[{:.3},{:.3}] \
          cv_report_only=null:{:.2}%/candidate:{:.2}%",
         if decidable {
             "DECIDABLE"
@@ -1000,6 +1005,31 @@ fn report_median_ci_gate(
         null.median_cv,
         candidate.median_cv
     );
+}
+
+fn median_ci_decidable(null: PairedStats, candidate: PairedStats) -> bool {
+    if null.ci_lo <= 0.0 || null.ci_hi <= 0.0 || candidate.ci_lo <= 0.0 || candidate.ci_hi <= 0.0 {
+        return false;
+    }
+    let doubled_null_log_radius = 2.0 * null.ci_lo.ln().abs().max(null.ci_hi.ln().abs());
+    candidate.ci_lo.ln() > doubled_null_log_radius
+        || candidate.ci_hi.ln() < -doubled_null_log_radius
+}
+
+fn assert_median_ci_gate_contract() {
+    fn stats(point: f64, lo: f64, hi: f64) -> PairedStats {
+        PairedStats {
+            ratio_median: point,
+            ci_lo: lo,
+            ci_hi: hi,
+            median_cv: 0.0,
+        }
+    }
+
+    let null = stats(1.0, 0.99, 1.01);
+    assert!(!median_ci_decidable(null, stats(1.04, 0.995, 1.05)));
+    assert!(median_ci_decidable(null, stats(1.04, 1.03, 1.05)));
+    assert!(median_ci_decidable(null, stats(0.96, 0.95, 0.97)));
 }
 
 struct MultiGraphCutoverFixture {
@@ -1679,6 +1709,12 @@ criterion_group!(
 
 fn main() {
     println!("bench_elf_sha256={}", self_identity());
+    // Fail before any measurement if a future harness edit regresses the
+    // whole-candidate-CI rule back to a point-estimate decision.
+    assert_median_ci_gate_contract();
+    if std::env::args().any(|arg| arg == "--fnx-harness-contract-check-only") {
+        return;
+    }
     #[cfg(feature = "bench-internals")]
     if std::env::var("FNX_FRONTIER_RERUN").as_deref() == Ok("network_simplex_pivot_scratch") {
         run_network_simplex_pivot_scratch_rerun();
