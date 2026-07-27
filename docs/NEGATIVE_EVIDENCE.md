@@ -27794,6 +27794,100 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-27 CloudyTurtle VALID-AB REJECT (`Graph.add_node` native guard cutover): causal **`1.0833x`** sits inside its **`1.1433x`** doubled-null floor — **NO SOURCE CHANGE KEPT** (`br-r37-c1-jid6f`)
+
+NEGATIVE-LEDGER-FIRST / MUTATION-ENTRY SWITCH:
+`scripts/perf_ledger_preflight.py --candidate --lever 'raw mutation
+descriptor with private-store shadow' --surface 'Graph incremental add_node
+exact-string no attrs Python shim'` found no prior row on this exact surface.
+Manual adjudication of both performance ledgers found attributed-batch and
+`add_edge` work, but no earlier attempt to move the scalar `Graph.add_node`
+guard into its native descriptor. This was a mutation-entry family switch
+after the edge-count admission rejection, not another view-cache sibling.
+
+EXACT-CURRENT PROFILE / EXECUTABLE CEILING: before editing, 163,840 calls
+that each added one fresh exact-string node spent `0.246s` in the measured
+path. Native `PyGraph.add_node` carried `0.171s`, the named Python
+`add_node` guard carried `0.059s` self (**24.0%**), and its mandatory
+`hash()` carried `0.016s`. The hash must remain; only the named wrapper frame
+was removable. A direct old raw-descriptor screen supplied the executable
+upper bound rather than extrapolating from the public wall gap:
+public/raw was **`1.1864x`**, CI `1.1706-1.1968x`, above its same-process
+public/public doubled-null floor of `1.0217x`. The exact current package
+self-reported loaded ELF SHA-256
+`1a2f65dca0d5036caccd7f8e6806938c33cbc05757159bf438f8259d42c5578e`.
+
+ONE LEVER / EXACTNESS: the rejected candidate moved the existing
+`None`-before-hash contract into native `PyGraph.add_node`, exposed the raw
+descriptor only for `Graph`, and retained a private source-equivalent
+unchecked native control behind the benchmark. `DiGraph`, `MultiGraph`, and
+`MultiDiGraph` were deliberately unchanged pending independent measurement.
+The exact candidate package passed all **35** focused add/remove keyword and
+behavior tests. Added checks proved raw-descriptor identity, exact NetworkX
+exception type and text for `None` and unhashable nodes with no mutation,
+single hash invocation, keyword signature, insertion order, and live
+attribute-dict identity across duplicate updates.
+
+EXACT CANDIDATE ELF / SAME-INVOCATION GATE: strict-remote check and release
+builds ran on `vmi1153651`; immediately before each Cargo command `/data`
+had `467G` free. The release build used RCH's reusable worker pool and linked
+Python 3.13, never a local or per-task Cargo target. The candidate package
+then ran on drained `vmi1152480`, pinned to core 3, and the worker was
+immediately re-enabled and probed healthy. The benchmark process printed as
+line one:
+
+`bench_elf_sha256=5cf82f7baa9df1bfd491322f82d67be834a80224088ed4c11a1c7b6748e86c04
+(13192296 bytes)
+/data/tmp/fnx-jid6f-5cf82f7b/franken_networkx/_fnx.abi3.so`
+
+Structured provenance recorded wrapper SHA-256
+`b750ae53a591ea8ad7fb6544214401ec8d224479a409cde2fb5ceea67bdda67f`,
+harness SHA-256
+`746cb1e791ba44e80b7defde0491f480a7f07fbbd012234e34b3d5df4e9c6edd`,
+Python 3.13.7, NetworkX 3.6.1, and header load average
+`0.9155/0.5151/0.4741`. Each row ran 21 paired `min_of=3` rounds and an
+independent A/A null in the same invocation. Bootstrap median confidence
+intervals and the doubled log-space null margin alone govern the verdict; CV
+does not participate.
+
+| exact-final row | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | doubled-null floor | verdict |
+|---|---:|---:|---:|---:|---|
+| old Python guard / native guard | `1.0833x` | `1.0371-1.1801x` | `0.9609-1.0692x` | **`1.1433x`** | **UNDECIDABLE / VALID-AB** |
+| NetworkX / candidate FNX | `0.3493x` | `0.3123-0.3643x` | `0.9192-1.0106x` | `1.1834x` | decisive residual loss |
+
+RESULT: **REJECT / NO SOURCE CHANGE KEPT.** The candidate's median is an
+8.33% causal improvement and its CI excludes `1.0x`, but the entire effect
+does not clear the adjacent doubled-null floor. It is therefore impossible
+to distinguish the full observed magnitude from this invocation's harness
+envelope under the preregistered contract. The candidate implementation,
+private control, focused tests, and harness row were manually reverted; this
+VALID-AB evidence row is the only retained change. The public workload
+remains approximately `2.86x` slower than NetworkX, so the surface remains
+important, but public loss does not override an inadmissible causal gate.
+
+RETRY PREDICATE: do not retry the same `Graph.add_node` native-guard cutover
+in this frontier cycle. Reopen only after **two consecutive preregistered
+A/A-only invocations** of the unchanged 1,024-fresh-exact-string workload on
+one drained, pinned worker each produce doubled-log floors below **`1.02x`**.
+Then require a fresh exact-current profile to attribute at least **20% self
+time** to the named Python guard and a compatibility-complete executable
+screen to remain at least **`1.10x`**. Any new candidate must preserve
+None-before-hash ordering, exactly one hash for valid nodes, original
+unhashable exceptions and partial-state semantics, keyword signatures,
+equal-but-nonidentical key display, node/attribute insertion order, live dict
+identity, private-storage and subclass behavior, and mutation-token mirrors.
+Its newly built process must self-report the loaded ELF as line one and place
+the final A/B bootstrap median CI wholly beyond its own same-invocation
+doubled-null floor. Until every predicate holds, switch to a different
+most-used NetworkX call family.
+
+QUALITY / CLOSEOUT: the candidate exact package passed `35/35` focused tests
+before reversion. Strict-remote `cargo check -p fnx-python --all-targets -j 2`
+passed with only the two established unrelated dead-helper warnings, and the
+strict-remote release build succeeded. The retained ledger-only state is
+covered by `git diff --check`; UBS has no Markdown/JSONL scanner, so no
+scanner pass is claimed.
+
 ## 2026-07-26 CloudyTurtle ADMISSION REJECT (`Graph.number_of_edges()` raw slot): **4.3937x mechanism**, but A/A floor is **1.1554x** — NO SOURCE EDIT (`br-r37-c1-nqlq4`)
 
 NEGATIVE-LEDGER-FIRST / FAMILY SWITCH: after closing the marshaling sweep
