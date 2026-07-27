@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Ledger preflight — make an unfalsifiable REJECT impossible, not merely discouraged.
+"""Ledger preflight — make an unfalsifiable verdict impossible, not merely discouraged.
 
 Adopted 2026-07-25 from frankensqlite's `sql_pipeline_candidate_preflight` after the
 fleet resurrection audit showed ledger integrity DECAYS: the one repo that audited once
 and then mechanically enforced the check sits at 1.7% VOID, while repos that never did
-sit at 25-91%. franken_networkx measured 81.8% VOID (130/159 rejection rows) under the
-six-class taxonomy, of which **121 are VOID-NONULL** — an A/B ran, the row was rejected
+sit at 25-91%. The current franken_networkx audit measures 75.6% VOID (133/176
+rejection rows) under the six-class taxonomy, of which **122 are VOID-NONULL** — an
+A/B ran, the row was rejected
 on a near-1.0 wall ratio, and neither an A/A null control nor a counted mechanism was
 recorded, so the lever cannot be distinguished from the harness.
 
@@ -16,9 +17,11 @@ Exit codes (frankensqlite convention):
 
 Modes
 -----
---check [REF]      Every rejection row added since REF (default: origin/main) must carry
-                   an A/A null control OR a counted mechanism, and every KEEP must carry
-                   the SHA-256 of the ELF identified from inside the benchmark process.
+--check [REF]      Every rejection row added or modified since REF (default: origin/main)
+                   must carry
+                   an A/A null control OR a counted mechanism. Every KEEP must carry the
+                   in-process ELF SHA-256, a numeric A/A null, median-CI-only decision
+                   metadata, and an explicit INCUMBENT or SELF-SPEEDUP comparison class.
 --check-staged      Apply that rule to the exact staged ledger text. This is the
                    pre-commit gate; it does not inspect an unstaged worktree by mistake.
 --candidate         Given `--lever TEXT --surface TEXT`, search prior ledger rows on the
@@ -29,7 +32,27 @@ Modes
 --audit            Re-classify all rejection rows under the six-class taxonomy and print
                    the void rate. Run it periodically: a rising void rate IS the decay.
 --selfcheck        Exercise all six classes, loaded-ELF provenance, and known historical
-                   escape rows from this repository. This also runs inside --check-staged.
+                   escape rows. It also proves that a self-speedup cannot pass as campaign
+                   output. This runs inside --check-staged.
+
+KEEP comparison contract (machine-readable lines)
+  comparison_class=INCUMBENT
+  incumbent=networkx
+  incumbent_same_invocation=true
+  incumbent_ratio=1.234x
+  campaign_output=true
+  decision_gate=median_ci
+  cv_role=report_only
+
+or:
+  comparison_class=SELF-SPEEDUP
+  campaign_output=false
+  decision_gate=median_ci
+  cv_role=report_only
+
+INCUMBENT means the actual legacy NetworkX implementation ran side-by-side in the same
+invocation and the recorded ratio is greater than 1.0x. SELF-SPEEDUP is maintenance:
+it may ship, but it cannot use a WIN heading or make a competitive claim.
 
 Verdict taxonomy (frankenfs, adopted fleet-wide 2026-07-25)
   VALID-PROFILE    rejected pre-edit on a named frame with non-zero self-time + a ceiling
@@ -132,6 +155,45 @@ LOADED_ELF_SHA = re.compile(
     r"[\s\S]{0,120}?\bsha-?256\b[^0-9a-f]{0,32}[`*]?([0-9a-f]{64})\b",
     re.I,
 )
+# Policy 2 uses exact fields rather than prose inference. A self-speedup row can
+# mention NetworkX while explaining a public loss; searching for "NetworkX" plus
+# "same invocation" would therefore misclassify maintenance as campaign output.
+COMPARISON_CLASS = re.compile(
+    r"^\s*comparison_class\s*=\s*(INCUMBENT|SELF-SPEEDUP)\s*$",
+    re.I | re.M,
+)
+INCUMBENT_NAME = re.compile(r"^\s*incumbent\s*=\s*networkx\s*$", re.I | re.M)
+INCUMBENT_SAME_INVOCATION = re.compile(
+    r"^\s*incumbent_same_invocation\s*=\s*true\s*$",
+    re.I | re.M,
+)
+INCUMBENT_RATIO = re.compile(
+    r"^\s*incumbent_ratio\s*=\s*(\d+(?:,\d{3})*(?:\.\d+)?)x\s*$",
+    re.I | re.M,
+)
+CAMPAIGN_OUTPUT_TRUE = re.compile(
+    r"^\s*campaign_output\s*=\s*true\s*$",
+    re.I | re.M,
+)
+CAMPAIGN_OUTPUT_FALSE = re.compile(
+    r"^\s*campaign_output\s*=\s*false\s*$",
+    re.I | re.M,
+)
+DECISION_GATE_MEDIAN_CI = re.compile(
+    r"^\s*decision_gate\s*=\s*median_ci\s*$",
+    re.I | re.M,
+)
+CV_REPORT_ONLY = re.compile(
+    r"^\s*cv_role\s*=\s*report_only\s*$",
+    re.I | re.M,
+)
+COMPETITIVE_SELF_CLAIM = re.compile(
+    r"\b(?:beats?|outperforms?)\s+(?:(?:the|actual|legacy)\s+)*"
+    r"(?:networkx|incumbent)\b|"
+    r"\bfaster\s+than\s+(?:networkx|(?:the\s+)?incumbent)\b",
+    re.I,
+)
+
 NEGATED_NULL = re.compile(
     r"\b(?:no|without|lacks?|lacking|missing|never recorded|not recorded)\s+"
     r"(?:an?\s+)?(?:recorded\s+)?(?:same[- ]invocation\s+)?"
@@ -273,6 +335,60 @@ def has_loaded_elf_sha(body: str) -> bool:
     return bool(LOADED_ELF_SHA.search(body))
 
 
+def claim_class(heading: str, body: str) -> str:
+    """Return the row's exact machine-readable comparison class."""
+    del heading
+    match = COMPARISON_CLASS.search(body)
+    return match.group(1).upper() if match is not None else "UNLABELED"
+
+
+def keep_contract(heading: str, body: str) -> tuple[bool, str, list[str]]:
+    """Validate KEEP provenance, decision discipline, and comparison semantics."""
+    problems = []
+    if not has_loaded_elf_sha(body):
+        problems.append("missing in-process loaded-ELF SHA-256")
+    if not has_recorded_null(body):
+        problems.append("missing numeric same-invocation A/A null control")
+    if not DECISION_GATE_MEDIAN_CI.search(body):
+        problems.append("missing decision_gate=median_ci")
+    if not CV_REPORT_ONLY.search(body):
+        problems.append("missing cv_role=report_only")
+
+    comparison_class = claim_class(heading, body)
+    if comparison_class == "UNLABELED":
+        problems.append("missing comparison_class=INCUMBENT|SELF-SPEEDUP")
+        return False, "KEEP-NO-COMPARISON-CLASS", problems
+
+    if comparison_class == "INCUMBENT":
+        if not INCUMBENT_NAME.search(body):
+            problems.append("missing incumbent=networkx")
+        if not INCUMBENT_SAME_INVOCATION.search(body):
+            problems.append("missing incumbent_same_invocation=true")
+        ratio_match = INCUMBENT_RATIO.search(body)
+        if ratio_match is None:
+            problems.append("missing numeric incumbent_ratio=<ratio>x")
+        else:
+            ratio = float(ratio_match.group(1).replace(",", ""))
+            if ratio <= 1.0:
+                problems.append("incumbent_ratio must be greater than 1.0x")
+        if not CAMPAIGN_OUTPUT_TRUE.search(body):
+            problems.append("missing campaign_output=true")
+        if CAMPAIGN_OUTPUT_FALSE.search(body):
+            problems.append("INCUMBENT row also declares campaign_output=false")
+        label = "KEEP-INCUMBENT"
+    else:
+        if not CAMPAIGN_OUTPUT_FALSE.search(body):
+            problems.append("missing campaign_output=false")
+        if CAMPAIGN_OUTPUT_TRUE.search(body):
+            problems.append("SELF-SPEEDUP row also declares campaign_output=true")
+        if re.search(r"\bWIN\b", heading, re.I):
+            problems.append("SELF-SPEEDUP cannot use a WIN heading")
+        if COMPETITIVE_SELF_CLAIM.search(body):
+            problems.append("SELF-SPEEDUP makes a competitive claim")
+        label = "KEEP-SELF-SPEEDUP"
+    return not problems, label, problems
+
+
 def retry_predicate(body: str) -> str | None:
     """Extract the first concrete ``RETRY PREDICATE`` paragraph, if present."""
     lines = body.splitlines()
@@ -343,13 +459,25 @@ def falsifiable(heading: str, body: str) -> tuple[bool, str]:
     return has_recorded_null(body) or has_counted_mechanism(body), cls
 
 
-def added_headings(diff: str) -> set[str]:
-    """Return exact ``##`` headings added by a Git diff."""
-    return {
-        line[1:].strip()[3:].strip()
-        for line in diff.splitlines()
-        if line.startswith("+## ")
-    }
+def keyed_sections(text: str) -> dict[tuple[str, int], str]:
+    """Index sections by heading plus occurrence, preserving duplicate headings."""
+    occurrences: dict[str, int] = {}
+    indexed = {}
+    for heading, body in sections(text):
+        occurrence = occurrences.get(heading, 0)
+        occurrences[heading] = occurrence + 1
+        indexed[(heading, occurrence)] = body
+    return indexed
+
+
+def changed_section_rows(path: Path, before: str, after: str):
+    """Return every added or body-modified verdict section from ``after``."""
+    before_sections = keyed_sections(before)
+    return [
+        (path.name, heading, body)
+        for (heading, occurrence), body in keyed_sections(after).items()
+        if before_sections.get((heading, occurrence)) != body
+    ]
 
 
 def git_text(spec: str, path: Path) -> str:
@@ -371,16 +499,8 @@ def git_text(spec: str, path: Path) -> str:
     return result.stdout
 
 
-def rows_for_added_headings(path: Path, headings: set[str], text: str):
-    return [
-        (path.name, heading, body)
-        for heading, body in sections(text)
-        if heading in headings
-    ]
-
-
 def added_sections(ref: str):
-    """Sections whose heading line was committed after ``ref``."""
+    """Sections added or modified on HEAD relative to the merge base with ``ref``."""
     probe = subprocess.run(
         ["git", "rev-parse", "--verify", "--quiet", ref],
         cwd=REPO,
@@ -392,43 +512,41 @@ def added_sections(ref: str):
     if probe.returncode != 0:
         raise RuntimeError(f"unknown Git ref: {ref}")
 
+    merge_base = subprocess.run(
+        ["git", "merge-base", ref, "HEAD"],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=GIT_TIMEOUT_SECONDS,
+    )
+    if merge_base.returncode != 0:
+        raise RuntimeError((merge_base.stderr or merge_base.stdout).strip())
+    base = merge_base.stdout.strip()
+
     out = []
     for path in LEDGERS:
-        relative = path.relative_to(REPO).as_posix()
-        diff = subprocess.run(
-            ["git", "diff", f"{ref}...HEAD", "--unified=0", "--", relative],
-            cwd=REPO,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=GIT_TIMEOUT_SECONDS,
+        out.extend(
+            changed_section_rows(
+                path,
+                git_text(base, path),
+                git_text("HEAD", path),
+            )
         )
-        if diff.returncode != 0:
-            raise RuntimeError((diff.stderr or diff.stdout).strip())
-        headings = added_headings(diff.stdout)
-        if headings:
-            out.extend(rows_for_added_headings(path, headings, git_text("HEAD", path)))
     return out
 
 
 def staged_sections():
-    """Sections added in the index, read from the index rather than the worktree."""
+    """Sections added or modified in the index, never the unstaged worktree."""
     out = []
     for path in LEDGERS:
-        relative = path.relative_to(REPO).as_posix()
-        diff = subprocess.run(
-            ["git", "diff", "--cached", "--unified=0", "--", relative],
-            cwd=REPO,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=GIT_TIMEOUT_SECONDS,
+        out.extend(
+            changed_section_rows(
+                path,
+                git_text("HEAD", path),
+                git_text(":", path),
+            )
         )
-        if diff.returncode != 0:
-            raise RuntimeError((diff.stderr or diff.stdout).strip())
-        headings = added_headings(diff.stdout)
-        if headings:
-            out.extend(rows_for_added_headings(path, headings, git_text(":", path)))
     return out
 
 
@@ -450,10 +568,9 @@ def cmd_check_rows(rows, label: str) -> int:
             if not ok:
                 bad_rejects.append((fname, heading, cls))
         else:
-            ok = has_loaded_elf_sha(body)
-            cls = "KEEP-ELF" if ok else "KEEP-NO-LOADED-ELF-SHA"
+            ok, cls, problems = keep_contract(heading, body)
             if not ok:
-                bad_keeps.append((fname, heading, cls))
+                bad_keeps.append((fname, heading, cls, problems))
         mark = "OK  " if ok else "FAIL"
         print(f"  [{mark}] {cls:<23} {fname}: {heading[:88]}")
 
@@ -471,11 +588,17 @@ def cmd_check_rows(rows, label: str) -> int:
             )
         if bad_keeps:
             print(
-                f"\n{len(bad_keeps)} KEEP row(s) lack the SHA-256 of the binary identified "
-                "from INSIDE the benchmark process. Print `bench_elf_sha256=<64 hex>` as line "
-                "one (or record equivalent explicit in-process loaded-ELF provenance). A shell "
-                "hash computed next to the run is not accepted."
+                f"\n{len(bad_keeps)} KEEP row(s) violate the provenance/comparison contract. "
+                "Every KEEP needs an in-process loaded-ELF SHA, a numeric A/A null, "
+                "`decision_gate=median_ci`, and `cv_role=report_only`. It must then declare "
+                "either a >1.0x same-invocation `incumbent=networkx` result with "
+                "`campaign_output=true`, or `comparison_class=SELF-SPEEDUP` with "
+                "`campaign_output=false`."
             )
+            for fname, heading, _cls, problems in bad_keeps:
+                print(f"  - {fname}: {heading[:72]}")
+                for problem in problems:
+                    print(f"      {problem}")
         return 2
 
     print(f"\npreflight: {len(verdict_rows)} new verdict row(s) {label}, all valid — OK")
@@ -563,6 +686,80 @@ def cmd_selfcheck(*, quiet: bool = False) -> int:
         f"bench_elf_sha256={digest} (13155240 bytes) /tmp/pkg/_fnx.abi3.so"
     ):
         failures.append("in-process bench_elf_sha256 does not satisfy KEEP provenance")
+
+    common_keep = (
+        f"bench_elf_sha256={digest} (13155240 bytes) /tmp/pkg/_fnx.abi3.so\n"
+        "The same-invocation A/A null measured 1.001x with bootstrap CI "
+        "[0.995,1.008].\n"
+        "decision_gate=median_ci\n"
+        "cv_role=report_only\n"
+    )
+    keep_rows = [
+        (
+            "valid incumbent campaign output",
+            "2026-07-27 KEEP incumbent",
+            common_keep
+            + "comparison_class=INCUMBENT\n"
+            + "incumbent=networkx\n"
+            + "incumbent_same_invocation=true\n"
+            + "incumbent_ratio=1.234x\n"
+            + "campaign_output=true\n",
+            True,
+        ),
+        (
+            "incumbent missing same-invocation proof",
+            "2026-07-27 KEEP incumbent",
+            common_keep
+            + "comparison_class=INCUMBENT\n"
+            + "incumbent=networkx\n"
+            + "incumbent_ratio=1.234x\n"
+            + "campaign_output=true\n",
+            False,
+        ),
+        (
+            "incumbent loss cannot be campaign output",
+            "2026-07-27 KEEP incumbent",
+            common_keep
+            + "comparison_class=INCUMBENT\n"
+            + "incumbent=networkx\n"
+            + "incumbent_same_invocation=true\n"
+            + "incumbent_ratio=0.912x\n"
+            + "campaign_output=true\n",
+            False,
+        ),
+        (
+            "valid maintenance self-speedup",
+            "2026-07-27 KEEP maintenance",
+            common_keep
+            + "comparison_class=SELF-SPEEDUP\n"
+            + "campaign_output=false\n",
+            True,
+        ),
+        (
+            "self-speedup cannot use WIN heading",
+            "2026-07-27 WIN maintenance",
+            common_keep
+            + "comparison_class=SELF-SPEEDUP\n"
+            + "campaign_output=false\n",
+            False,
+        ),
+        (
+            "self-speedup cannot claim incumbent victory",
+            "2026-07-27 KEEP maintenance",
+            common_keep
+            + "comparison_class=SELF-SPEEDUP\n"
+            + "campaign_output=false\n"
+            + "This beats NetworkX on the fixture.\n",
+            False,
+        ),
+    ]
+    for label, keep_heading, keep_body, expected_ok in keep_rows:
+        checks += 1
+        actual_ok, _class, _problems = keep_contract(keep_heading, keep_body)
+        if actual_ok != expected_ok:
+            failures.append(
+                f"{label}: expected keep_contract={expected_ok}, got {actual_ok}"
+            )
 
     own_sentinels = [
         ("pre-size durability envelope JSON", "VALID-AB"),
@@ -742,6 +939,7 @@ def cmd_audit() -> int:
     total = 0
     keep_total = 0
     keep_with_loaded_elf = 0
+    claim_counts: dict[str, int] = {}
     for path in LEDGERS:
         if not path.exists():
             continue
@@ -753,6 +951,9 @@ def cmd_audit() -> int:
             elif is_keep(heading):
                 keep_total += 1
                 keep_with_loaded_elf += int(has_loaded_elf_sha(body))
+                claim_counts[claim_class(heading, body)] = (
+                    claim_counts.get(claim_class(heading, body), 0) + 1
+                )
     void = sum(v for k, v in counts.items() if k.startswith("VOID"))
     print(f"rejection rows audited : {total}")
     for key in sorted(counts):
@@ -766,6 +967,17 @@ def cmd_audit() -> int:
         else f"  {'loaded ELF sha':<16}:    0 / 0"
     )
     print(f"  {'missing ELF sha':<16}: {keep_total - keep_with_loaded_elf:>4}")
+    # Policy 2 decay signal: campaign output is the INCUMBENT count, not the KEEP
+    # count. A ledger whose KEEP rows are overwhelmingly self-speedups is a ledger
+    # full of maintenance, however large its multipliers look.
+    incumbent = claim_counts.get("INCUMBENT", 0)
+    for key in ("INCUMBENT", "SELF-SPEEDUP", "UNLABELED"):
+        print(f"  {key.lower():<16}: {claim_counts.get(key, 0):>4}")
+    if keep_total:
+        print(
+            f"  {'campaign output':<16}: {incumbent:>4} / {keep_total} = "
+            f"{incumbent / keep_total * 100:.1f}% measured vs the incumbent"
+        )
     return 0
 
 

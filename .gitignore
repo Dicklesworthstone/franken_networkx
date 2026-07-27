@@ -178,6 +178,8 @@ storage.sqlite3-wal.corrupt-*
 .beads/*.bad_*
 .beads/*.backup_*
 .beads/*.rebuild_*
+.beads/*-fsqlite-ns-gate
+.beads/*-fsqlite-ns-use
 .beads/recovery*/
 .beads_recovery/
 

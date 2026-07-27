@@ -5053,9 +5053,26 @@ class MultiGraphDegreeView:
         self._graph = graph
         self._nodes = nodes
         self._weight = weight
+        # br-r37-c1-ylunk: the raw view is itself live. Bind it once with this
+        # public DegreeView instead of re-running descriptor binding on every
+        # scalar subscript.
+        self._raw_base_view = _MULTIGRAPH_DEGREE_DESCRIPTOR.__get__(
+            graph, type(graph)
+        )
 
-    def _base_view(self):
-        return _MULTIGRAPH_DEGREE_DESCRIPTOR.__get__(self._graph, type(self._graph))
+    def __getstate__(self):
+        # PyO3's raw MultiGraphDegreeView is intentionally not pickleable.
+        # Rebuild it from the restored graph rather than serializing the bound
+        # object; retain any user-added state on this Python wrapper.
+        state = vars(self).copy()
+        state.pop("_raw_base_view", None)
+        return state
+
+    def __setstate__(self, state):
+        vars(self).update(state)
+        self._raw_base_view = _MULTIGRAPH_DEGREE_DESCRIPTOR.__get__(
+            self._graph, type(self._graph)
+        )
 
     def _iter_nodes(self):
         if self._nodes is None:
@@ -5095,7 +5112,7 @@ class MultiGraphDegreeView:
         # KeyError.
         hash(node)
         if self._weight is None:
-            return self._base_view()[node]
+            return self._raw_base_view[node]
         return degree(self._graph, node, weight=self._weight)
 
     def __bool__(self):
@@ -5111,7 +5128,7 @@ class MultiGraphDegreeView:
         try:
             if nbunch in self._graph:
                 if weight is None:
-                    return self._base_view()[nbunch]
+                    return self._raw_base_view[nbunch]
                 return degree(self._graph, nbunch, weight=weight)
         except TypeError:
             pass
@@ -5167,9 +5184,20 @@ class MultiDiGraphDegreeView:
         self._graph = graph
         self._nodes = nodes
         self._weight = weight
+        self._raw_base_view = _MULTIDIGRAPH_DEGREE_DESCRIPTOR.__get__(
+            graph, type(graph)
+        )
 
-    def _base_view(self):
-        return _MULTIDIGRAPH_DEGREE_DESCRIPTOR.__get__(self._graph, type(self._graph))
+    def __getstate__(self):
+        state = vars(self).copy()
+        state.pop("_raw_base_view", None)
+        return state
+
+    def __setstate__(self, state):
+        vars(self).update(state)
+        self._raw_base_view = _MULTIDIGRAPH_DEGREE_DESCRIPTOR.__get__(
+            self._graph, type(self._graph)
+        )
 
     def _iter_nodes(self):
         if self._nodes is None:
@@ -5209,7 +5237,7 @@ class MultiDiGraphDegreeView:
         # KeyError.
         hash(node)
         if self._weight is None:
-            return self._base_view()[node]
+            return self._raw_base_view[node]
         return degree(self._graph, node, weight=self._weight)
 
     def __bool__(self):
@@ -5225,7 +5253,7 @@ class MultiDiGraphDegreeView:
         try:
             if nbunch in self._graph:
                 if weight is None:
-                    return self._base_view()[nbunch]
+                    return self._raw_base_view[nbunch]
                 return degree(self._graph, nbunch, weight=weight)
         except TypeError:
             pass

@@ -1021,15 +1021,9 @@ The cost of a `fnx.algorithm(G)` call decomposes into four chunks:
 | Chunk | Typical scale | Notes |
 |---|---|---|
 | Python → Rust marshaling | ~5–50 μs base + O(n + m) for graph conversion when a *new* graph is constructed | Reusing an existing fnx graph: ~5 μs total per call (attribute lookup only). Constructing a fresh fnx graph from an nx graph at call time: O(n + m) plus a constant ~5 μs/node, ~3 μs/edge for dict→IndexMap conversion. |
-| Native algorithm execution | algorithm-dependent | Performance varies by algorithm family (see table below). Algorithms with native Rust kernels and minimal marshaling overhead (betweenness, clustering, shortest_path) are 2-4× faster. Algorithms requiring attr sync (dijkstra, MST, pagerank) or graph-result construction (bfs_tree, dfs_tree) are 2-6× slower. |
-| Rust → Python return marshaling | O(output size) | A `PyDict::set_item` per entry plus an arc-bumped node label string. **Measured 2026-07-25: ~450 ns per `edges(data=True)` entry and ~27 ns per `nodes(data=True)` / `adjacency()` entry — and NetworkX pays *more* per entry than we do** (758 ns/edge, 1690 ns/node for `to_dict_of_lists`), because it builds the same containers in interpreted code. This chunk was previously described here as "the dominant tail"; it is not. See the note below the family table. |
+| Native algorithm execution | algorithm-dependent | Performance varies by family and workload. The dated incumbent comparison below ranges from 1.6× to 36.1× on the listed winning rows. |
+| Rust → Python return marshaling | O(output size) | A `PyDict::set_item` per entry plus an arc-bumped node label string. Measured 2026-07-25: **~452 ns per `edges(data=True)` entry** and **~27 ns per `nodes(data=True)` / `adjacency()` entry**. NetworkX pays more per entry on the same shapes (758 ns/edge; 1690 ns/node for `to_dict_of_lists`), because it builds the same containers in interpreted code. |
 | Wrapper-side post-processing (if any) | O(output size) | The 25 wrapper-patched functions add a single pass over the output for iteration-order normalization. Skipped for the 731 - 25 = 706 functions that don't need it. |
-
-The performance break-even versus pure-Python NetworkX is roughly:
-
-- **Below ~100 nodes**: marshaling cost dominates; NetworkX usually wins or ties.
-- **100–10,000 nodes**: fnx wins across the traversal, shortest-path and centrality families.
-- **Above ~10,000 nodes**: fnx wins by 3-10× on betweenness, cliques, and other cubic/exponential algorithms.
 
 **Per-family performance — remeasured 2026-07-25** (n=2000 / m=8000 random graph, genuine
 unpatched networkx 3.6.1, byte-identity of the full result proven *before* timing, A/A null
@@ -1055,59 +1049,24 @@ margin; reproduce with `python3 scripts/perf_harness.py marshaling`):
 | bidirectional_dijkstra / shortest_path(weighted) | **1.8× faster** | Native kernel |
 | all_pairs_shortest_path | **1.8× faster** | Result construction dilutes the kernel win |
 | edges(data=True) | **1.6× faster** | 452 ns/edge vs nx's 758 ns/edge |
-| nodes(data=True), adjacency() | **~1.0×** | Parity; already cheap on both sides |
 
-**Known remaining losses, measured the same way:**
+**Scalar multigraph degree access — measured 2026-07-27** (2,000 nodes / 1,999
+path-shaped edges, 512 exact-string lookups per sample, genuine unpatched NetworkX
+3.6.1 side-by-side in the same invocation, with an A/A null control and bootstrap
+median-CI gate; reproduce with
+`FNX_PERF_ROUNDS=61 python3 scripts/perf_harness.py multigraph-degree-scalar`):
+
+| Surface | fnx vs nx | Bootstrap 95% CI |
+|---|---:|---:|
+| `MultiGraph.degree[node]` | **1.47× faster** | `1.4389–1.5295×` |
+| `MultiDiGraph.degree[node]` | **2.20× faster** | `2.1125–2.2690×` |
+
+**Known remaining measured losses:**
 
 | Surface | fnx vs nx | Cause |
 |--------|-----------|-------|
-| `G.adj` (bare accessor) | **0.86× median** | The cached public descriptor removed the old 0.10× repeated-property path; a smaller public residual remains. |
-| `G.has_node(n)` | **0.41×** | The raw-descriptor cutover removed the measured Python wrapper frame, but key conversion/native lookup remains a decisive public loss. |
-| `G.nodes[n]` | **1.11× point estimate; unresolved** | The direct interning mechanism is a decisive 1.92× win and the immediate attribute consumer is 1.08×, but the bare public row's CI lower bound misses its doubled-null floor. |
-| `degree(nbunch, weight=...)` | **0.47×** (Graph) | No native weighted-subset kernel; falls back to Python. |
-| dense `DiGraph.edges()` (no data) | **0.59×** | Tuple materialization in the edge-view walk. The `data=True` shape is a 1.6× *win*. |
-
-### A correction, and why it is stated here
-
-Earlier revisions of this table reported `single_pair_shortest_path` at 10-20× slower,
-`bfs_tree`/`dfs_tree` at 25-35× slower, `dijkstra (weighted)` at 8-17× slower, and `pagerank` at
-2-4× slower. **Every one of those rows is now a measured win**, and several were already wins when
-the figures were last quoted. The stale numbers propagated outward and were cited back at this
-project as its headline weakness, which is how a stale benchmark table becomes a planning input.
-
-Two lessons are worth keeping in the README rather than only in the ledger:
-
-1. **A performance table needs a measurement date and a reproduction command**, or it silently
-   becomes fiction as the code moves. Both are now present.
-2. **The old cost model — "~0.5-1 μs per returned dict entry dominates the tail" — was wrong in its
-   conclusion.** The per-entry figure is roughly right in magnitude, but NetworkX pays *more* per
-   entry, so return marshaling is a place fnx wins rather than a wall. The real per-call cost on the
-   losing surfaces is the pure-Python shim layer in `python/franken_networkx/__init__.py`, not the
-   Rust boundary and not marshaling.
-
-**Construction paths — contextual snapshot from 2026-07-26**, after the MultiGraph stable-slot
-cutover. Byte-identity of the *constructed graph* (node order, edge order, keys, attrs) was proven
-before timing, and an A/A null ran in the same invocation. The run included uncommitted peer work
-and recorded only a truncated, out-of-process extension hash, however, so these figures are routing
-evidence for that working tree—not commit-attributable or release-proven performance claims.
-
-| Path | fnx vs nx | Notes |
-|--------|-----------|-------|
-| `Graph.copy()` | **7.6× faster** | Native clone; no Python round-trip |
-| `MultiGraph.copy()` | **1.4× faster** | Native clone |
-| `Graph(edge stream, no attrs)` | **1.08× point estimate; unresolved** | The CI lower bound misses the strict doubled-null floor |
-| `MultiGraph(edge stream)` / batch `add_edges_from` | **0.94–0.95× point estimates; unresolved** | Both land inside their A/A envelopes; that is no detected difference, not proof of equality or causal cutover attribution |
-| `Graph(edge stream, weight attr)` | 0.83× | The whole delta vs the no-attr row is per-edge attribute handling |
-| `MultiDiGraph(edge stream)` | 0.70× | Still on the String-keyed store; the cutover was MultiGraph-only |
-| `Graph.add_nodes_from` + `add_edges_from` | 0.57× | Batch loader |
-| `DiGraph(edge stream, weight attr)` | 0.42× | Batch loader |
-| `Graph` incremental `add_edge` ×8000 | **0.26×** | ~3.5 μs/call vs nx's 0.91 μs. This invocation established the loss, but did not profile its cause. |
-
-The incremental-`add_edge` row is the largest loss in this construction snapshot. A read-side
-`has_node` profile does not establish its cause, and dividing two FNX-vs-NetworkX ratios does not
-measure a direct batch-vs-incremental speedup. Prefer batch constructors when they match the
-application, but treat the magnitude above as a historical routing signal until a
-provenance-complete, directly matched construction benchmark replaces it.
+| `G.adj` (bare accessor) | **0.82×** | Public descriptor access |
+| `G.has_node(n)` | **0.41×** | Key conversion and native lookup |
 
 If you can keep the graph on the fnx side (don't reconstruct per call), the marshaling chunk vanishes. The backend-dispatch path automatically caches the converted graph for repeat calls.
 

@@ -8799,6 +8799,10 @@ pub struct MultiDiGraphDegreeView {
 
 #[pymethods]
 impl MultiDiGraphDegreeView {
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.graph)
+    }
+
     fn __len__(&self, py: Python<'_>) -> usize {
         self.graph.borrow(py).inner.node_count()
     }

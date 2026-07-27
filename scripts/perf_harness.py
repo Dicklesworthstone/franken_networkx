@@ -42,6 +42,8 @@ Usage:
     python3 scripts/perf_harness.py node-primitives
     python3 scripts/perf_harness.py edge-primitives
     python3 scripts/perf_harness.py edge-data-primitives
+    python3 scripts/perf_harness.py multigraph-edge-data-admission
+    python3 scripts/perf_harness.py multigraph-degree-scalar
     python3 scripts/perf_harness.py simple-edge-getitem
     python3 scripts/perf_harness.py nodeview-contains
     python3 scripts/perf_harness.py multi-neighbor-keydict
@@ -51,6 +53,7 @@ Usage:
     python3 scripts/perf_harness.py constant-predicates
     python3 scripts/perf_harness.py digraph-string-attr-construction
     python3 scripts/perf_harness.py multidigraph-string-attr-construction
+    python3 scripts/perf_harness.py multigraph-compose
     python3 scripts/perf_harness.py marshaling
 
 Point `PYTHONPATH` at the package tree under test; the header records which one ran.
@@ -69,7 +72,7 @@ from time import perf_counter
 
 MIN_SAMPLE_S = 0.002
 MIN_OF = 3
-ROUNDS = 21
+ROUNDS = int(os.environ.get("FNX_PERF_ROUNDS", "21"))
 
 # The nx arm must be genuinely unpatched upstream: a "2.6x faster" claim in this
 # repo's history was once measured against an already-dispatched fnx baseline and
@@ -1454,6 +1457,132 @@ def suite_edge_data_primitives():
     return rows
 
 
+def suite_multigraph_edge_data_admission():
+    """A/A-only gate for the keyless multigraph live-keydict retry.
+
+    The governing ``br-r37-c1-zfu6g`` retry predicate requires two consecutive
+    invocations of this unchanged 512-call workload to produce doubled-log null
+    floors below 1.02x before any source candidate may be built.  Both arms are
+    deliberately the exact current public path: this suite establishes only
+    measurement admission and makes no candidate-effect claim.
+    """
+    import franken_networkx as fnx
+
+    repeats = range(512)
+    rows = []
+    for graph_class in (fnx.MultiGraph, fnx.MultiDiGraph):
+        graph = graph_class()
+        for key in range(8):
+            graph.add_edge(
+                "left",
+                "right",
+                key=key,
+                weight=key,
+                label=f"edge-{key}",
+            )
+
+        current = graph.get_edge_data("left", "right")
+        assert type(current) is dict
+        assert list(current) == list(range(8))
+        assert current[3] is graph.get_edge_data("left", "right", key=3)
+
+        def keyless_batch(graph=graph):
+            return sum(
+                len(graph.get_edge_data("left", "right"))
+                for _ in repeats
+            )
+
+        rows.append(
+            (
+                f"{graph_class.__name__}.get_edge_data keyless x512 "
+                "[public/public A/A admission]",
+                keyless_batch,
+                keyless_batch,
+            )
+        )
+
+    # Match the preregistered screen: stabilize frequency for two seconds before
+    # the first timed null while preserving the exact 512-call batch.
+    warm_deadline = perf_counter() + 2.0
+    while perf_counter() < warm_deadline:
+        for _label, arm_a, arm_b in rows:
+            arm_a()
+            arm_b()
+    return rows
+
+
+def suite_multigraph_degree_scalar():
+    """Profile screen for caching the raw base view in live multi DegreeViews."""
+    import networkx as nx
+    import franken_networkx as fnx
+
+    nodes = [str(index) for index in range(2_000)]
+    edges = [
+        (str(index), str(index + 1), index % 3)
+        for index in range(1_999)
+    ]
+    probes = nodes[:512]
+    rows = []
+    classes = (
+        (
+            nx.MultiGraph,
+            fnx.MultiGraph,
+            fnx._MULTIGRAPH_DEGREE_DESCRIPTOR,
+        ),
+        (
+            nx.MultiDiGraph,
+            fnx.MultiDiGraph,
+            fnx._MULTIDIGRAPH_DEGREE_DESCRIPTOR,
+        ),
+    )
+    for nx_class, fnx_class, raw_descriptor in classes:
+        nx_graph, fnx_graph = nx_class(), fnx_class()
+        nx_graph.add_nodes_from(nodes)
+        fnx_graph.add_nodes_from(nodes)
+        nx_graph.add_edges_from(edges)
+        fnx_graph.add_edges_from(edges)
+        nx_view = nx_graph.degree
+        current_view = fnx_graph.degree
+        cached_base = raw_descriptor.__get__(fnx_graph, fnx_class)
+
+        def current_batch(view=current_view):
+            return sum(view[node] for node in probes)
+
+        def cached_base_batch(view=cached_base):
+            total = 0
+            for node in probes:
+                # Retain the public wrapper's eager unhashable-node contract.
+                hash(node)
+                total += view[node]
+            return total
+
+        def incumbent_batch(view=nx_view):
+            return sum(view[node] for node in probes)
+
+        assert incumbent_batch() == current_batch() == cached_base_batch()
+        label = fnx_class.__name__
+        rows.extend(
+            [
+                (
+                    f"{label}.degree[n] x512 [current/cached-base prototype]",
+                    current_batch,
+                    cached_base_batch,
+                ),
+                (
+                    f"{label}.degree[n] x512 [nx/cached-base prototype]",
+                    incumbent_batch,
+                    cached_base_batch,
+                ),
+                (
+                    f"{label}.degree[n] x512 [nx/current]",
+                    incumbent_batch,
+                    current_batch,
+                ),
+            ]
+        )
+    return rows
+
+
 def suite_simple_edge_getitem():
     """br-r37-c1-sivs2: bypass simple EdgeView mapping-wrapper chains."""
     import franken_networkx as fnx
@@ -1934,6 +2063,99 @@ def suite_multidigraph_string_attr_construction():
     ]
 
 
+def suite_multigraph_compose():
+    """Re-admit attributed multigraph compose after the stable-slot cutover.
+
+    The governing 2026-06-21 negative-evidence row permits a retry only after
+    the multigraph attribute substrate changes.  Each factor has 12,600 keyed
+    edges; 6,300 overlap with H updating G, yielding the historical 18,900-edge
+    result shape.  String nodes, explicit string keys, graph attrs, node attrs,
+    and partially overlapping edge attrs exercise the observable merge contract.
+    """
+    import networkx as nx
+    import franken_networkx as fnx
+
+    node_count = 420
+    factor_edges = 12_600
+    overlap_edges = 6_300
+    result_edges = factor_edges * 2 - overlap_edges
+    nodes = [f"node-{index}" for index in range(node_count)]
+
+    def edge_stream(directed):
+        pairs = []
+        for source in range(node_count):
+            targets = range(node_count) if directed else range(source + 1, node_count)
+            for target in targets:
+                if source != target:
+                    pairs.append((nodes[source], nodes[target]))
+                    if len(pairs) == result_edges:
+                        return pairs
+        raise AssertionError("fixture does not contain enough unique pairs")
+
+    def factors(graph_class, directed):
+        pairs = edge_stream(directed)
+        graph_g = graph_class()
+        graph_h = graph_class()
+        graph_g.graph.update({"owner": "G", "shared": "G"})
+        graph_h.graph.update({"owner_h": "H", "shared": "H"})
+        graph_g.add_nodes_from(
+            (node, {"source": "G", "rank": index}) for index, node in enumerate(nodes)
+        )
+        graph_h.add_nodes_from(
+            (node, {"source": "H", "color": index % 7}) for index, node in enumerate(nodes)
+        )
+        graph_g.add_edges_from(
+            (
+                u,
+                v,
+                f"key-{index % 3}",
+                {"g": index, "shared": f"G-{index}", "payload": f"g-{index % 11}"},
+            )
+            for index, (u, v) in enumerate(pairs[:factor_edges])
+        )
+        graph_h.add_edges_from(
+            (
+                u,
+                v,
+                f"key-{index % 3}",
+                {"h": index, "shared": f"H-{index}", "payload_h": f"h-{index % 13}"},
+            )
+            for index, (u, v) in enumerate(
+                pairs[factor_edges - overlap_edges : result_edges],
+                start=factor_edges - overlap_edges,
+            )
+        )
+        return graph_g, graph_h
+
+    nx_mg = factors(nx.MultiGraph, directed=False)
+    fnx_mg = factors(fnx.MultiGraph, directed=False)
+    nx_mdg = factors(nx.MultiDiGraph, directed=True)
+    fnx_mdg = factors(fnx.MultiDiGraph, directed=True)
+
+    def snapshot(compose, pair):
+        result = compose(*pair)
+        assert result.number_of_nodes() == node_count
+        assert result.number_of_edges() == result_edges
+        return (
+            dict(result.graph),
+            list(result.nodes(data=True)),
+            list(result.edges(keys=True, data=True)),
+        )
+
+    return [
+        (
+            "compose MultiGraph str attrs n=420 e=18900 [nx/fnx]",
+            lambda: snapshot(nx.compose, nx_mg),
+            lambda: snapshot(fnx.compose, fnx_mg),
+        ),
+        (
+            "compose MultiDiGraph str attrs n=420 e=18900 [nx/fnx]",
+            lambda: snapshot(nx.compose, nx_mdg),
+            lambda: snapshot(fnx.compose, fnx_mdg),
+        ),
+    ]
+
+
 def suite_marshaling():
     """Return-shape / materialization surface."""
     import networkx as nx
@@ -1972,6 +2194,8 @@ SUITES = {
     "node-primitives": suite_node_primitives,
     "edge-primitives": suite_edge_primitives,
     "edge-data-primitives": suite_edge_data_primitives,
+    "multigraph-edge-data-admission": suite_multigraph_edge_data_admission,
+    "multigraph-degree-scalar": suite_multigraph_degree_scalar,
     "simple-edge-getitem": suite_simple_edge_getitem,
     "nodeview-contains": suite_nodeview_contains,
     "multi-neighbor-keydict": suite_multi_neighbor_keydict,
@@ -1981,6 +2205,7 @@ SUITES = {
     "constant-predicates": suite_constant_predicates,
     "digraph-string-attr-construction": suite_digraph_string_attr_construction,
     "multidigraph-string-attr-construction": suite_multidigraph_string_attr_construction,
+    "multigraph-compose": suite_multigraph_compose,
     "marshaling": suite_marshaling,
 }
 

@@ -2,6 +2,218 @@
 
 Campaign: `br-r37-c1-04z53` no-gaps performance domination.
 
+## Ledger verdict contract (2026-07-27)
+
+Every new performance verdict is classified against the comparison actually measured:
+
+- A campaign result uses `comparison_class=INCUMBENT`, names
+  `incumbent=networkx`, records `incumbent_same_invocation=true` and a numeric
+  `incumbent_ratio` greater than `1.0x`, and sets `campaign_output=true`.
+- A before/after result within FrankenNetworkX uses
+  `comparison_class=SELF-SPEEDUP` and `campaign_output=false`. It is maintenance,
+  even when the source change ships; it must not use a `WIN` heading or support a
+  competitive claim.
+
+Every KEEP/SHIP row also records the loaded ELF hash from inside the benchmark
+process, a numeric same-invocation A/A null, `decision_gate=median_ci`, and
+`cv_role=report_only`. The pre-commit gate in
+`scripts/perf_ledger_preflight.py` enforces these exact machine-readable fields
+over added and modified verdicts in all three active ledger paths. Public
+documentation carries only current supported incumbent figures; correction history
+stays in this ledger, `docs/LEDGER_RESURRECTION.md`,
+`docs/progress/perf-negative-results.md`, and bead bodies.
+
+## 2026-07-27 CloudyTurtle LANE M KEEP / INCUMBENT WIN: cache the live raw base for scalar multigraph degree — **1.4714x MultiGraph / 2.1967x MultiDiGraph vs NetworkX** (`br-r37-c1-ylunk`)
+
+**LEDGER-FIRST / RIGHT-PATH PROFILE.** The prior-art scan read the governing
+scalar-degree, DegreeView, key-interning, weighted-degree, and cached-accessor rows
+before this lever was proposed. None had tested retaining the already-live raw
+multigraph degree view inside the public wrapper. On the exact pre-edit ELF
+`e8b227edade176d0c8e194d46415fbb10ce45e0903e54738d5650702622972ac`,
+cProfile over 204,800 exact-string scalar lookups measured the
+`MultiGraphDegreeView.__getitem__` workload at `0.281s`, including `0.067s`
+(`23.8%` self-time) in `_base_view`, for a computed `1.31x` Amdahl ceiling.
+The MultiDiGraph sibling measured `0.285s`, including `0.068s` (`23.9%`
+self-time) in `_base_view`, with the same computed `1.31x` ceiling. The
+workload therefore exercised the exact public `G.degree[node]` path changed by
+the candidate.
+
+**ONE LEVER / BEHAVIOR-PRESERVATION PROOF.** Each public
+`MultiGraphDegreeView` and `MultiDiGraphDegreeView` now binds one raw PyO3 base
+view in its constructor and reuses that live object for unweighted scalar
+subscripts and scalar calls. Graph mutation remains visible through the retained
+view. Pickle and deepcopy omit the non-pickleable raw object and reconstruct it
+from the restored graph, preserving user-added wrapper state without aliasing the
+source view. The broader view suite exposed one real ownership defect in the first
+candidate: the retained raw view made a graph/view owner cycle visible to Python
+GC. The landed correction adds `__traverse__` to both raw PyO3 degree-view
+classes, so the Rust-held graph reference participates in cycle collection.
+
+Exact parity coverage exercises live mutation, missing and unhashable nodes,
+weighted and unweighted calls, self-loops, iteration, copy, deepcopy, pickle,
+and owner-cycle collection across MultiGraph and MultiDiGraph. The rebuilt
+extension passed 569 focused Python tests. Workspace `cargo check --all-targets`,
+workspace clippy with warnings denied, and formatting passed under strict remote
+execution. The isolated `fnx-python` unit suite still has the already-tracked,
+unrelated exact-int attribute-batch failure `br-r37-c1-sk4xf`; 64 other unit
+tests passed.
+
+**EXACT LOADED ELF / SAME-INVOCATION LEGACY INCUMBENT.** Line one of the final
+process self-reported
+`bench_elf_sha256=e72c937d1e28a894878b52ff79543f5f9cfe7c53112c795d0d515eec6223f812`
+(`13,230,136` bytes) at
+`/tmp/fnx-keyless-admission-e8b227/franken_networkx/_fnx.abi3.so`. The wrapper
+SHA-256 was
+`8740cc56899d6934d947009e95a3c587635cd2cc1f0e402aaea6d07794283c71`,
+and the harness SHA-256 was
+`595422f87375430d27564d9e7ee2ebaf19aa3b281e70cf49c6084468321101fc`.
+Genuine unpatched NetworkX 3.6.1 and the candidate ran side-by-side for 61
+alternating-order rounds in one invocation pinned to core 3 of drained worker
+`vmi1152480` (preflight load `0.096`, steal `0%`):
+
+The recorded same-invocation A/A null for MultiGraph measured `1.0038x` with
+bootstrap 95% CI `[1.0038,1.0224]`; the MultiDiGraph A/A null measured
+`0.9842x` with CI `[0.9842,1.0107]`.
+
+| public row, 512 exact-string lookups | incumbent/FNX median | bootstrap 95% CI | same-invocation A/A median | A/A 95% CI | doubled-null floor |
+|---|---:|---:|---:|---:|---:|
+| `MultiGraph.degree[node]` | **`1.4714x`** | **`[1.4389,1.5295]`** | `1.0038x` | `[1.0038,1.0224]` | `1.0453x` |
+| `MultiDiGraph.degree[node]` | **`2.1967x`** | **`[2.1125,2.2690]`** | `0.9842x` | `[0.9842,1.0107]` | `1.0324x` |
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.4714x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: KEEP / CAMPAIGN OUTPUT.** Both actual-incumbent lower bounds clear
+their adjacent doubled-null floors. The decision uses paired-ratio medians and
+bootstrap confidence intervals only; CV is report-only provenance. Prototype
+and internal before/after ratios are not competitive claims and do not contribute
+campaign output.
+
+RETRY PREDICATE: retain the live raw view and its GC traversal unless exact
+mutation, missing-node, unhashable-node, weighted-call, pickle/deepcopy, or
+owner-cycle parity fails. Re-run the 61-round loaded-ELF incumbent gate after
+changing either degree-view implementation, PyO3 GC behavior, or the Python
+toolchain; roll back only if an incumbent/FNX median falls below `1.0x` with its
+entire 95% CI below the adjacent doubled-null floor. Consider another wrapper
+lever only when a fresh exact-path profile attributes at least `15%` self-time to
+a named remaining public-wrapper frame and its computed Amdahl ceiling exceeds
+`1.15x`; never reopen or roll back from CV alone.
+
+## 2026-07-27 CloudyTurtle LANE M VALID-PROFILE ADMISSION REJECT / NO SOURCE EDIT: keyless multigraph `get_edge_data` null floor — **1.0839x / 1.1052x floors** (`br-r37-c1-2i3pk`)
+
+**LEDGER-FIRST / GOVERNING PREDICATE.** The prior-art scan read
+`br-r37-c1-zfu6g` before proposing a keyless live-keydict lever. That row allows
+another candidate only after two consecutive invocations of the unchanged
+512-call public workload produce doubled-log A/A floors below `1.02x`. A fresh
+pre-edit cProfile on the exact workload measured the named
+`MultiGraph.get_edge_data` keyless public path at `78.7339%` self-time, for a
+computed Amdahl ceiling of `4.7023x`; the MultiDiGraph sibling measured
+`81.2495%` self-time and a computed Amdahl ceiling of `5.3332x`. This was the
+right hot path, but the preregistered null-admission predicate still governed
+before any source edit.
+
+**EXACT LOADED ARTIFACT / FIRST NULL INVOCATION.** Line one self-reported the
+pre-edit ELF
+`bench_elf_sha256=e8b227edade176d0c8e194d46415fbb10ce45e0903e54738d5650702622972ac`
+(`13,230,024` bytes), with wrapper SHA-256
+`d6530c2c6ff432ba355b494a99fa506cef803ea3ae102f93080e48c6938ada48`.
+The permanent `multigraph-edge-data-admission` suite warmed the exact public path
+for two seconds, then ran 61 alternating-order rounds on pinned core 3 of drained
+worker `vmi1152480` (load `0.06`, steal `0%`). Both sides of each row were the
+unchanged public implementation:
+
+The recorded same-invocation MultiGraph A/A null measured `1.0143x` with
+bootstrap 95% CI `[1.0004,1.0411]`; the MultiDiGraph A/A null measured
+`0.9874x` with CI `[0.9512,1.0056]`.
+
+| A/A admission row | median | bootstrap 95% CI | doubled-log floor | required |
+|---|---:|---:|---:|---:|
+| `MultiGraph.get_edge_data(u, v)` x512 | `1.0143x` | `[1.0004,1.0411]` | **`1.0839x`** | `<1.02x` |
+| `MultiDiGraph.get_edge_data(u, v)` x512 | `0.9874x` | `[0.9512,1.0056]` | **`1.1052x`** | `<1.02x` |
+
+**RESULT: VALID-PROFILE ADMISSION REJECT / NO SOURCE EDIT.** The first
+invocation failed the governing threshold for both graph classes. The
+preregistered stop rule therefore prohibited the second invocation and any
+candidate edit. No A/B or incumbent effect was measured, and this row contributes
+no campaign output. The decision uses the A/A paired-ratio medians and bootstrap
+confidence intervals; CV is report-only provenance.
+
+RETRY PREDICATE: do not edit or benchmark a keyless multigraph
+`get_edge_data(u, v)` candidate until a quiet pinned worker produces two
+consecutive 61-round invocations of this exact public/public suite with both
+doubled-log floors below `1.02x`. If admitted, preserve live keydict identity,
+display-key order, missing-endpoint/default behavior, private-storage fallback,
+subclasses, copy/deepcopy/pickle, and owner-cycle collection, then require a
+loaded-ELF same-invocation incumbent/A/A median-CI gate; never admit from CV.
+
+## 2026-07-27 CloudyTurtle LANE M REJECT / NO-SHIP: stable-slot MultiGraph string-key compose batch — **0.5615x vs NetworkX** (`br-r37-c1-2os6p`)
+
+**LEDGER-FIRST RESURRECTION / PROFILE ATTRIBUTION.** The pre-edit scan read the
+governing 2026-06-21 MultiGraph compose rows in full. Their native keyed-with-data
+batch rejection was `VOID-NONULL`, and its retry predicate allowed a new run only
+after the attribute substrate changed. The stable-slot sole-store cutover satisfies
+that predicate. On clean loaded ELF
+`e8b227edade176d0c8e194d46415fbb10ce45e0903e54738d5650702622972ac`,
+three exact public compose calls took `0.799s` under cProfile. Named self-time was
+`0.235s` in native `add_edge`, `0.155s` in Python `add_edge`, `0.100s` in the
+native edge view, `0.072s` in `_multi_add_edges_from`, `0.052s` in `compose`, and
+`0.052s` in `get_edge_data`. Per-edge replay owned about 58% of the profile, for a
+computed `2.38x` Amdahl ceiling.
+
+**ONE CANDIDATE, THEN MANUAL REVERT.** A conservative exact-string fast path
+validated a node-populated/edgeless result, exact string nodes and explicit string
+keys, existing endpoints, unique canonical public keys, and lossless scalar
+attribute dictionaries before committing all 18,900 keyed edges through the
+stable-slot batch primitive. Non-string, duplicate-key, missing-endpoint, nested
+attribute, and override shapes retained the old per-edge path. The timed harness
+compared complete ordered snapshots—graph attributes, node order/attributes, edge
+order, display keys, and edge attributes—and both arms were exactly equal. The
+candidate source was removed after the incumbent gate failed; the reusable live
+NetworkX/FNX compose suite remains.
+
+**EXACT LOADED ARTIFACT / SAME-INVOCATION INCUMBENT GATE.** Line one of the
+candidate process self-reported
+`bench_elf_sha256=982e0c2690745beb19c84de533aa1d5df2e6559713cfc584440842112bd37644`
+(`13,236,544` bytes). The wrapper SHA-256 was
+`d6530c2c6ff432ba355b494a99fa506cef803ea3ae102f93080e48c6938ada48`;
+Python was 3.13.7, genuine unpatched NetworkX was 3.6.1, and both implementations
+ran side-by-side in one pinned `vmi1293453` invocation. The numeric MultiGraph A/A
+null measured median **`1.0098x`** with bootstrap 95% CI
+**`[0.8921,1.0817]`**. Its NetworkX/FNX candidate ratio was **`0.5615x`** with
+CI **`[0.4925,0.5902]`**, below the `1.2565x` doubled-null floor. The unchanged
+MultiDiGraph control independently measured A/A **`1.0161x`**
+`[0.9731,1.0760]` and NetworkX/FNX **`0.4134x`**
+`[0.3832,0.4294]`. Decisions use paired-ratio medians and bootstrap CIs only;
+CV is provenance and never a gate.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=0.5615x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: VALID-AB REJECT / NO-SHIP.** The point estimate rose from the clean
+build's separate `0.4772x` routing run to `0.5615x`, but that cross-ELF comparison
+is not an admissible self-speedup and, under the campaign policy, would be
+maintenance even if measured causally. The only campaign-admissible comparison is
+the live incumbent arm, and it is a decisive loss. No competitive claim or source
+change survives this row.
+
+RETRY PREDICATE: do not retry another producer-side exact-string batch. Reopen
+only for a consumer-fused native compose implementation whose fresh post-change
+profile attributes at least 55.3% removable self-time, enough to support the
+**`2.24x` further end-to-end gain** required for `0.5615x` to clear this run's
+`1.2565x` doubled-null floor. It must preserve the complete ordered snapshot and
+then pass a loaded-ELF, live-NetworkX, same-invocation A/A/A-B median-CI gate;
+never reopen from CV alone.
+
 ## 2026-07-25 CloudyTurtle FRONTIER KEEP: network-simplex solve-local pivot scratch — **2.304x** (`br-r37-c1-coje0`)
 
 **NEGATIVE-LEDGER-FIRST / RESURRECTED HOLD.** The pre-edit scan grepped both

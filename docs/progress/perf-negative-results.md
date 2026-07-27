@@ -946,7 +946,8 @@ names networkx (naming the incumbent while timing only our own two arms is exact
 conflation Policy 2 forbids). The row's separate INCUMBENT measurement, taken against genuine
 unpatched networkx 3.6.1 side-by-side in the same invocation, is: bare accessors moved from
 **0.035-0.133x to 0.854-0.867x of networkx** — i.e. this lever shrank a loss, it did not
-produce a win. That is the only figure from this row admissible as campaign output.
+produce a win. Those incumbent ratios establish competitive status, but this row contributes no
+campaign output.
 
 PROFILE FIRST. The wide return-shape sweep (28 rows) put the worst decidable losses on HEAD at
 `G.nodes[n]` **0.2477x** and `dict(G[u])` **0.5159x**. cProfile on both arms attributed them with

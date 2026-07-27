@@ -448,6 +448,33 @@ def test_degree_view_deepcopy_roundtrips(name, builder):
     assert sorted(list(deepc)) == sorted(list(G.degree))
 
 
+@pytest.mark.parametrize(
+    "graph_class",
+    [fnx.MultiGraph, fnx.MultiDiGraph],
+    ids=["MultiGraph", "MultiDiGraph"],
+)
+def test_multi_degree_cached_raw_base_stays_live_and_pickle_safe(graph_class):
+    """Scalar multi-degree lookups reuse one live raw view without aliasing copies."""
+    graph = graph_class()
+    graph.add_edges_from([(0, 1), (0, 1), (1, 2)])
+    view = graph.degree
+    raw_base = view._raw_base_view
+
+    assert view[0] == 2
+    assert view._raw_base_view is raw_base
+    graph.add_edge(0, 2)
+    assert view[0] == 3
+    assert view._raw_base_view is raw_base
+
+    # ast-grep-ignore: trusted in-memory pickle round-trip fixture
+    restored = pickle.loads(pickle.dumps(view))  # nosec B301
+    deepcopied = copy.deepcopy(view)
+    assert restored._raw_base_view is not raw_base
+    assert deepcopied._raw_base_view is not raw_base
+    assert dict(restored) == dict(view)
+    assert dict(deepcopied) == dict(view)
+
+
 # ---------------------------------------------------------------------------
 # DiGraph.in_edges / out_edges as views (br-r37-c1-iev-pkl)
 # ---------------------------------------------------------------------------

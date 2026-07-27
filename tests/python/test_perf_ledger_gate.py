@@ -5,18 +5,19 @@ fleet-wide resurrection audit produced the decay lesson: ledger integrity is not
 one-time cleanup. The one repo that audited once and then MECHANICALLY enforced the
 check sits at 1.7% VOID; repos that audited once and banked the wins sit at 25-91%.
 
-franken_networkx measured **81.8% VOID (130/159 rejection rows)** under the six-class
-taxonomy, of which **121 are VOID-NONULL**: an A/B ran, the row was rejected on a
-near-1.0 wall ratio, and neither an A/A null control nor a counted mechanism was
-recorded — so the lever cannot be distinguished from the harness. Those rows are not
-evidence, and re-deriving levers they appear to close is pure waste.
+The current franken_networkx audit measures **75.6% VOID (133/176 rejection rows)**
+under the six-class taxonomy, of which **122 are VOID-NONULL**: an A/B ran, the row
+was rejected on a near-1.0 wall ratio, and neither an A/A null control nor a counted
+mechanism was recorded — so the lever cannot be distinguished from the harness. Those
+rows are not evidence, and re-deriving levers they appear to close is pure waste.
 
 This test makes the next such row impossible rather than merely discouraged: a new
 REJECT must carry an A/A null control OR a counted mechanism (instructions, cycles,
-syscalls, allocations, faults unchanged), and a new KEEP must record the SHA-256 of
-the ELF identified from inside the benchmark process. The committed pre-commit entry
-applies the rule to the exact staged ledger text. See
-`scripts/perf_ledger_preflight.py`.
+syscalls, allocations, faults unchanged). A new KEEP must record the in-process ELF
+SHA-256, a numeric A/A null, and median-CI-only decision metadata. It must also classify
+the result as either a same-invocation win over the actual NetworkX incumbent, or a
+non-campaign SELF-SPEEDUP maintenance result. The committed pre-commit entry applies
+the rule to the exact staged ledger text. See `scripts/perf_ledger_preflight.py`.
 """
 
 from __future__ import annotations
@@ -169,6 +170,54 @@ def test_reject_requires_positive_null_evidence_or_exact_counted_mechanism():
     )
 
 
+def test_comparison_class_is_an_explicit_field_never_inferred_from_prose():
+    """Policy 2 (2026-07-27): a bare multiplier is not a competitive claim.
+
+    A self-speedup — our own code before vs after — is maintenance. Only a ratio
+    against the actual legacy incumbent, measured with the incumbent running
+    side-by-side in the SAME invocation, is campaign output.
+
+    The class is a declared field, never inferred from prose, and this test pins
+    that: a self-speedup row routinely *mentions* NetworkX while explaining a public
+    loss, so any prose rule that keys on "networkx" plus "same invocation" would
+    promote maintenance to campaign output. Both prose forms below must therefore
+    read as UNLABELED.
+    """
+    heading = "2026-07-27 KEEP: some lever — 4.0x"
+
+    self_speedup_prose = (
+        "Same-binary interleaved A/B: the frozen ORIG arm vs the candidate arm, "
+        "21 paired rounds, ratio 4.0x. This is a self-speedup."
+    )
+    assert ledger_gate.claim_class(heading, self_speedup_prose) == "UNLABELED"
+
+    incumbent_prose = (
+        "Measured against genuine unpatched networkx 3.6.1 running side-by-side in "
+        "the same invocation, with an A/A null control: 4.0x."
+    )
+    assert ledger_gate.claim_class(heading, incumbent_prose) == "UNLABELED"
+
+    assert ledger_gate.claim_class(heading, "comparison_class = SELF-SPEEDUP") == "SELF-SPEEDUP"
+    assert ledger_gate.claim_class(heading, "comparison_class = INCUMBENT") == "INCUMBENT"
+
+
+def test_naming_the_incumbent_without_running_it_is_not_an_incumbent_win():
+    """The exact conflation Policy 2 exists to stop.
+
+    Regression guard for a real row: `br-r37-c1-wbwkb` headlined 17.98x, which is our
+    own ORIG arm against our own candidate arm, while its prose legitimately discusses
+    how networkx installs the same accessors. Against the incumbent that lever moved
+    0.035-0.133x to 0.854-0.867x — it shrank a loss. Prose inference would have called
+    it a campaign win.
+    """
+    heading = "2026-07-27 KEEP: accessor lever — 17.98x"
+    names_but_does_not_run = (
+        "networkx installs these accessors as cached_property. Our ORIG arm was the "
+        "old property; the candidate is the cached descriptor. Ratio 17.98x."
+    )
+    assert ledger_gate.claim_class(heading, names_but_does_not_run) == "UNLABELED"
+
+
 def test_counted_mechanism_requires_the_metric_and_result_to_be_local():
     heading = "2026-07-26 REJECT candidate"
     incidental_words = (
@@ -234,6 +283,137 @@ def test_keep_requires_full_in_process_loaded_elf_sha():
 
     rows = [("NEGATIVE_EVIDENCE.md", "2026-07-26 KEEP candidate", adjacent_shell_hash)]
     assert ledger_gate.cmd_check_rows(rows, "in a synthetic index") == 2
+
+
+def _keep_common() -> str:
+    digest = "a" * 64
+    return (
+        f"bench_elf_sha256={digest} (13155240 bytes) /tmp/pkg/_fnx.abi3.so\n"
+        "The same-invocation A/A null measured 1.001x with bootstrap "
+        "CI [0.995,1.008].\n"
+        "decision_gate=median_ci\n"
+        "cv_role=report_only\n"
+    )
+
+
+def test_incumbent_keep_requires_actual_same_invocation_win():
+    valid = (
+        _keep_common()
+        + "comparison_class=INCUMBENT\n"
+        + "incumbent=networkx\n"
+        + "incumbent_same_invocation=true\n"
+        + "incumbent_ratio=1.234x\n"
+        + "campaign_output=true\n"
+    )
+    assert ledger_gate.keep_contract("2026-07-27 KEEP candidate", valid) == (
+        True,
+        "KEEP-INCUMBENT",
+        [],
+    )
+
+    missing_same_invocation = valid.replace("incumbent_same_invocation=true\n", "")
+    assert not ledger_gate.keep_contract(
+        "2026-07-27 KEEP candidate", missing_same_invocation
+    )[0]
+
+    incumbent_loss = valid.replace("incumbent_ratio=1.234x", "incumbent_ratio=0.912x")
+    ok, label, problems = ledger_gate.keep_contract(
+        "2026-07-27 KEEP candidate", incumbent_loss
+    )
+    assert not ok
+    assert label == "KEEP-INCUMBENT"
+    assert "incumbent_ratio must be greater than 1.0x" in problems
+
+
+def test_self_speedup_is_maintenance_and_cannot_make_competitive_claims():
+    maintenance = (
+        _keep_common()
+        + "comparison_class=SELF-SPEEDUP\n"
+        + "campaign_output=false\n"
+    )
+    assert ledger_gate.keep_contract("2026-07-27 KEEP maintenance", maintenance) == (
+        True,
+        "KEEP-SELF-SPEEDUP",
+        [],
+    )
+
+    assert not ledger_gate.keep_contract(
+        "2026-07-27 WIN maintenance", maintenance
+    )[0]
+    assert not ledger_gate.keep_contract(
+        "2026-07-27 KEEP maintenance",
+        maintenance + "This beats NetworkX on the fixture.\n",
+    )[0]
+    assert not ledger_gate.keep_contract(
+        "2026-07-27 KEEP maintenance",
+        maintenance.replace("campaign_output=false\n", ""),
+    )[0]
+
+
+def test_keep_requires_explicit_comparison_class_and_median_ci_discipline():
+    missing_class = _keep_common() + "campaign_output=false\n"
+    ok, label, problems = ledger_gate.keep_contract(
+        "2026-07-27 KEEP candidate", missing_class
+    )
+    assert not ok
+    assert label == "KEEP-NO-COMPARISON-CLASS"
+    assert "missing comparison_class=INCUMBENT|SELF-SPEEDUP" in problems
+
+    missing_decision_gate = (
+        _keep_common().replace("decision_gate=median_ci\n", "")
+        + "comparison_class=SELF-SPEEDUP\n"
+        + "campaign_output=false\n"
+    )
+    assert not ledger_gate.keep_contract(
+        "2026-07-27 KEEP maintenance", missing_decision_gate
+    )[0]
+
+
+def test_every_active_verdict_ledger_has_a_fail_then_pass_keep_boundary():
+    expected = {
+        "docs/NEGATIVE_EVIDENCE.md",
+        "docs/NEGATIVE_EVIDENCE_cc.md",
+        "docs/progress/perf-negative-results.md",
+    }
+    assert {
+        path.relative_to(REPO).as_posix() for path in ledger_gate.LEDGERS
+    } == expected
+
+    valid = (
+        _keep_common()
+        + "comparison_class=INCUMBENT\n"
+        + "incumbent=networkx\n"
+        + "incumbent_same_invocation=true\n"
+        + "incumbent_ratio=1.234x\n"
+        + "campaign_output=true\n"
+    )
+    for path in ledger_gate.LEDGERS:
+        heading = "2026-07-27 KEEP boundary"
+        assert (
+            ledger_gate.cmd_check_rows(
+                [(path.name, heading, "ratio 2.0x without provenance")],
+                f"synthetic {path.name}",
+            )
+            == 2
+        )
+        assert (
+            ledger_gate.cmd_check_rows(
+                [(path.name, heading, valid)],
+                f"synthetic {path.name}",
+            )
+            == 0
+        )
+
+
+def test_body_modified_verdict_rows_reenter_the_gate():
+    path = REPO / "docs" / "NEGATIVE_EVIDENCE.md"
+    heading = "2026-07-27 KEEP modified boundary"
+    before = f"# Ledger\n\n## {heading}\nold body\n"
+    after = f"# Ledger\n\n## {heading}\nnew body\n"
+    assert ledger_gate.changed_section_rows(path, before, after) == [
+        (path.name, heading, "new body")
+    ]
+    assert ledger_gate.changed_section_rows(path, after, after) == []
 
 
 def test_retry_predicate_is_extracted_for_prior_art_output():
