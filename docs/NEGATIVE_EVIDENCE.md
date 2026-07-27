@@ -27794,6 +27794,96 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-27 CloudyTurtle VALID-PROFILE ADMISSION REJECT (`Graph.has_edge` exact-string node-index interning): **`2.0318x` executable ceiling**, but unchanged A/A floor is **`1.0610x`** — **NO SOURCE EDIT** (`br-r37-c1-e2uqr`)
+
+NEGATIVE-LEDGER-FIRST / GOVERNING PREDICATE:
+`scripts/perf_ledger_preflight.py --candidate --lever 'mutation-tokened
+public-key to native-index interning' --surface 'Graph.has_edge keyless
+exact-string endpoints simple graph'` found no prior row on this exact
+surface. Manual adjudication then read the raw-descriptor KEEP
+`br-r37-c1-6q4wl` and the successful MultiGraph interning sibling
+`br-r37-c1-paof2`. The former permits node-key interning only after a fresh
+post-wrapper profile attributes at least 30% of raw-call time to
+canonicalization/index resolution **and** the unchanged same-invocation
+doubled-log A/A floor is below `1.02x`. The latter proves the cache design for
+MultiGraph only; it does not waive independent Graph admission.
+
+EXACT-CURRENT PROFILE / COMPUTED CEILING: no source changed. On drained
+`vmi1152480`, pinned to core 3, 1,048,576 present exact-string edge probes
+took `0.718s` under cProfile. The named native
+`franken_networkx.Graph.has_edge` frame carried `0.381s` self
+(**53.1%**), the generator frame `0.230s`, and `sum` `0.105s`. The native
+frame is substantial and non-zero, but cProfile exposes canonicalization,
+index lookup, and edge lookup as one opaque frame, so its full 53.1% is not
+misrepresented as canonicalization alone.
+
+An adjacent exact-string/identity-index comparison supplied the executable
+ceiling. Both graphs had the same 2,000 nodes, 1,999 path edges, and 512
+present probes; the identity-index arm executes the existing verified
+index-addressed predicate. Exact-string/identity-index measured
+**`2.0318x`**, bootstrap median CI `2.0150-2.0438x`, implying a conservative
+combined canonical/hash/index removable share of
+`1 - 1/2.0318 = 50.8%` and an executable **`2.03x`** ceiling. This is not a
+candidate A/B: an eventual Python-key cache would retain Python hashing and
+equality, so the identity-int arm can only bound the opportunity.
+
+EXACT LOADED ARTIFACT / SAME-INVOCATION ADMISSION: the immutable package
+self-reported its actually loaded extension as line one:
+
+`bench_elf_sha256=1a2f65dca0d5036caccd7f8e6806938c33cbc05757159bf438f8259d42c5578e
+(13189848 bytes)
+/data/tmp/fnx-paof2-1a2f65dc-full/franken_networkx/_fnx.abi3.so`
+
+Structured provenance recorded wrapper SHA-256
+`f562009e7899e72a32a37e502cef03de80a27a908f1aac52de572ee4f101c2b7`,
+Python 3.13.7, NetworkX 3.6.1, and header load average
+`0.3481/0.4048/0.4341`. Each timing row ran 21 paired `min_of=3` rounds.
+The unchanged exact-string arm supplied its own A/A beside the executable
+ceiling, and the public row had an independent NetworkX/NetworkX A/A in that
+same invocation. Bootstrap median confidence intervals and the doubled
+log-space null margin alone govern; CV never gates.
+
+| exact-current row | median | bootstrap 95% median CI | doubled-null floor | result |
+|---|---:|---:|---:|---|
+| exact-string / exact-string A/A | `0.9913x` | `0.9708-1.0000x` | **`1.0610x`** | **FAIL `<1.02x` admission** |
+| exact-string / identity-index ceiling | **`2.0318x`** | `2.0150-2.0438x` | `1.0610x` | decisive ceiling only |
+| NetworkX / FNX exact-string public | `0.4195x` | `0.3582-0.4610x` | `1.1850x` | decisive residual loss |
+
+RESULT: **VALID-PROFILE ADMISSION REJECT / NO SOURCE EDIT.** The named target
+frame has material self-time and the executable ceiling is large, but the
+unchanged A/A floor fails the governing `<1.02x` prerequisite. In addition,
+the opaque cProfile frame is not sufficient by itself to claim that at least
+30% belongs specifically to canonicalization. No cache field, constructor
+change, private control, test, or harness row was written. The public scalar
+call remains approximately `2.38x` slower than NetworkX, but that loss cannot
+override either preregistered admission condition.
+
+RETRY PREDICATE: do not retry simple `Graph.has_edge` exact-string interning
+in this frontier cycle. Reopen only after **two consecutive preregistered
+A/A-only invocations** of the unchanged 512-probe exact-string workload on
+one drained, pinned worker each produce doubled-log floors below **`1.02x`**.
+Then require an exact native profile or counted control to attribute at least
+**30% of raw-call end-to-end time** specifically to canonical string
+construction plus String-key node-index resolution, rather than the opaque
+whole method. Any candidate must retain eager endpoint hash exceptions,
+equal-but-nonidentical string semantics, compact-index invalidation after
+node removal/re-add, edge-only mutation liveness, missing nodes, original
+display objects, private-storage instance shadows, subclasses, and
+copy/deepcopy/pickle isolation. Its process must self-report the loaded ELF
+as line one and its final A/B bootstrap median CI must wholly clear its own
+same-invocation doubled-null floor.
+
+NO-CEILING SWITCH: `br-r37-c1-nqlq4`, `br-r37-c1-jid6f`, and this row are
+three consecutive rejected scalar-primitive admissions after the
+`br-r37-c1-paof2` KEEP. The next frontier lever must switch away from scalar
+graph primitives and node-key interning to a different measured vein.
+
+QUALITY / CLOSEOUT: no source, harness, or test file changed, and no Cargo or
+RCH compilation command ran. The exact artifact, parity result, profile,
+same-invocation nulls, and worker re-enablement were verified. The retained
+ledger/bead-only diff is covered by `git diff --check`; UBS has no
+Markdown/JSONL scanner, so no scanner pass is claimed.
+
 ## 2026-07-27 CloudyTurtle VALID-AB REJECT (`Graph.add_node` native guard cutover): causal **`1.0833x`** sits inside its **`1.1433x`** doubled-null floor — **NO SOURCE CHANGE KEPT** (`br-r37-c1-jid6f`)
 
 NEGATIVE-LEDGER-FIRST / MUTATION-ENTRY SWITCH:
