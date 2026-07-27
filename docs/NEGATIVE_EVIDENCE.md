@@ -27801,6 +27801,98 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-27 CloudyTurtle VALID-AB REJECT (`node_link_data_simple` store-backed resurrection): Graph inside null; DiGraph **`0.5729x`** decisive regression — **SOURCE REVERTED** (`br-r37-c1-b3kaq`)
+
+NEGATIVE-LEDGER-FIRST / RESURRECTION BASIS: before editing,
+`scripts/perf_ledger_preflight.py --candidate --lever 'native node-link
+payload resurrection' --surface 'node_link_data simple Graph and DiGraph
+serialization'` was run, then every matching ledger row was read rather than
+accepting the mechanical screen as a verdict. The governing rows were the
+2026-07-02 `cc-nldmaterialize` KEEP and the 2026-07-01
+`br-r37-c1-nldstore` NO-SHIP. The latter found the native binding
+`0.90-0.95x` versus the Python comprehension and permitted reopening only
+after the storage substrate could avoid its per-edge Python-dict
+materialization floor. Reopening was justified because current bulk
+construction leaves lazy-mirror misses in the ordered Rust attribute store,
+the native function already uses cached per-index node keys, and an exact
+no-source Graph screen predicted `1.2858-1.2969x` versus the frozen Python
+materializer. The final two-type causal run below is authoritative and
+refuted that screen.
+
+PROFILE / COMPUTED CEILING: on the exact pre-edit Graph workload, 40 public
+`node_link_data` calls took `0.179s`. The named Python `node_link_data` frame
+carried `0.095s` self (**53.1%**) and `EdgeDataView._materialize` carried
+`0.058s` self (**32.4%**). The combined named removable share was therefore
+**85.5%**, for a computed Amdahl ceiling of **`6.82x`**. Calling the dormant
+native binding reduced the 40-call profile to `0.078s` and removed
+**321,240 Python calls**. This was substantial named self-time and a counted
+mechanism, not a near-1.0 public ratio guess.
+
+ONE LEVER / CORRECTNESS PROOF: the candidate re-enabled
+`node_link_data_simple` only for exact `Graph`/`DiGraph` instances without
+NetworkX-private storage. A lazy Python-mirror miss reconstructed node and
+edge dictionaries from `inner.node_attrs` / `inner.edge_attrs`; subclasses,
+private mapping replacements, and multigraphs retained the existing general
+path. Custom field names, overwrite/insertion-order semantics, source
+attribute non-mutation, store-only bulk attrs, and both simple graph kinds
+were byte-equal to NetworkX. Focused route/parity tests passed `18/18`, the
+broader serialization/I/O set passed `678/678`, and the repository-wide
+non-slow Python suite passed **49,865** with 1,061 skips and one expected
+xfail.
+
+EXACT LOADED ARTIFACT / SAME-INVOCATION CONTRACT: the release extension was
+built strict-remote, copied with the edited wrapper and NetworkX 3.6.1 into an
+isolated package, and run on drained `vmi1264463`, pinned to core 3. Line one
+was:
+
+`bench_elf_sha256=9e168cd9a94764633b37fc85fca9d4d103030001d3cf7853a00f3168986e9d61
+(13230344 bytes)
+/tmp/fnx-b3kaq-final-v2/franken_networkx/_fnx.abi3.so`
+
+Structured provenance also recorded wrapper SHA-256
+`e1dc8279483340a32c18fde94ff1846040bb770090ed2e2cc2f10746fb6121f6`,
+Python 3.13.7, NetworkX 3.6.1, and header load average
+`1.1367/0.8511/0.6763`. Every A/B row had an independent A/A null in the same
+invocation. Bootstrap median confidence intervals and doubled log-space null
+margins alone govern the verdict; CV is provenance only.
+
+The positively recorded same-invocation A/A null controls measured
+`0.9925x [0.9242,1.0518]` for Graph/frozen Python,
+`0.9706x [0.9333,0.9914]` for Graph/NetworkX,
+`0.9353x [0.8699,1.0889]` for DiGraph/frozen Python, and
+`1.0572x [1.0034,1.1311]` for DiGraph/NetworkX (bootstrap median 95% CIs).
+
+| causal row | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | doubled-null boundary | verdict |
+|---|---:|---:|---:|---:|---|
+| Graph frozen Python / native | `1.0922x` | `1.0545-1.1802x` | `0.9242-1.0518x` | speedup floor `1.1708x` | **UNDECIDABLE / inside null** |
+| Graph NetworkX / native | `1.0836x` | `0.9617-1.1355x` | `0.9333-0.9914x` | speedup floor `1.1479x` | **UNDECIDABLE / inside null** |
+| DiGraph frozen Python / native | **`0.5729x`** | `0.5494-0.5976x` | `0.8699-1.0889x` | slowdown ceiling `0.7568x` | **DECIDABLE REGRESSION** |
+| DiGraph NetworkX / native | `0.7201x` | `0.6774-0.7929x` | `1.0034-1.1311x` | slowdown ceiling `0.7817x` | **UNDECIDABLE / overlaps boundary** |
+
+RESULT / TAXONOMY: **REJECT; SOURCE REVERTED. VALID-AB.** The Graph recovery
+does not clear its own null floor, and the exact same mechanism decisively
+slows DiGraph versus the frozen implementation. The loaded-ELF SHA and
+same-invocation null make this rejection adjudicable; it is neither
+`VOID-NONULL`, `VOID-ZEROSELF`, nor `VOID-CV`. The candidate code, route
+tests, and temporary suite were manually reverted, leaving only this evidence
+row and its bead closeout. The worker was immediately re-enabled.
+
+RETRY PREDICATE: do not retry another Python-wrapper cutover or
+`Some(mirror) else attr_map_to_pydict(store)` variant. Reopen Graph and
+DiGraph separately only after the storage layer exposes an insertion-ordered,
+per-index Python `dict` handle for every node/edge without string edge-key
+reconstruction, or a native-candidate profile attributes at least **30%** of
+end-to-end time to one removable `edge_key` / `attr_map_to_pydict` frame and
+the proposed primitive eliminates that counted work. Before editing, each
+type must produce two consecutive preregistered A/A-only runs with doubled
+floors below **`1.03x`**. A new process must self-report the loaded ELF, retain
+the parity surface above, and place the final median-CI wholly beyond its own
+same-invocation null boundary. Until then, switch away from node-link
+serialization.
+
+QUALITY / CLOSEOUT: after the source revert, `git diff --check` passed. No
+candidate source is being shipped from this rejected resurrection.
+
 ## 2026-07-27 CloudyTurtle MODEL-INTEGRITY CORRECTION (64-commit re-audit): CI verdicts, ledger taxonomy, construction attribution, and cached-view lifetime
 
 SCOPE: re-read all 64 commits in the provider-downgrade window
