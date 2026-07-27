@@ -27794,6 +27794,75 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-26 CloudyTurtle ADMISSION REJECT (`Graph.number_of_edges()` raw slot): **4.3937x mechanism**, but A/A floor is **1.1554x** — NO SOURCE EDIT (`br-r37-c1-nqlq4`)
+
+NEGATIVE-LEDGER-FIRST / FAMILY SWITCH: after closing the marshaling sweep
+without an admissible loss, `scripts/perf_ledger_preflight.py --prior-art
+'Graph __len__ len(G) node count special method raw descriptor filtered
+private storage'` and direct searches for `number_of_edges`, raw count
+descriptors, and private-storage dispatch found no prior attempt at the
+ordinary concrete-Graph no-argument wrapper. The historical matches concern
+conversion views or native whole-graph counts, not the two Python wrappers
+that still precede the existing O(1) PyO3 count. Before measuring, admission
+was fixed at at least **30% named removable self-time**, a raw-slot ceiling
+above **1.5x**, and a same-invocation doubled-log A/A floor below **1.03x**.
+
+EXACT-CURRENT PROFILE / COMPUTED CEILING: no source changed. One million warm
+public calls took `0.971s` under `cProfile`. The outer private-storage-aware
+`number_of_edges` frame owned `0.340s` self, its
+`_has_networkx_private_storage` helper owned `0.214s`, the endpoint wrapper
+owned `0.183s`, `vars` owned `0.106s`, and the captured raw PyO3 count owned
+`0.128s`. The two wrapper frames alone therefore own **53.9% named self-time**;
+including their wrapper-exclusive helper work raises the removable share to
+**86.8%**. Eleven alternating 200,000-call wall rounds measured public
+`59,490,498ns` versus raw `15,682,780ns`, an executable **3.7934x ceiling**.
+The target is non-zero and material; this is not `VOID-ZEROSELF`.
+
+SAME-ELF A/A + MECHANISM SCREEN: the immutable package ran on drained
+`vmi1152480`, pinned to core 3, and the worker was immediately re-enabled and
+probed healthy. Line one self-reported the actually loaded extension:
+
+`bench_elf_sha256=1a2f65dca0d5036caccd7f8e6806938c33cbc05757159bf438f8259d42c5578e
+(13189848 bytes)
+/data/tmp/fnx-paof2-1a2f65dc-full/franken_networkx/_fnx.abi3.so`
+
+Structured provenance recorded wrapper SHA-256
+`f562009e7899e72a32a37e502cef03de80a27a908f1aac52de572ee4f101c2b7`,
+Python 3.13.7, NetworkX 3.6.1, and header load average
+`0.5024/0.4829/0.5337`. Each arm performed 512 no-argument calls per batch,
+proved the exact count `1999`, and ran 21 interleaved rounds with `min_of=3`.
+The A/A and A/B were in the same process; the bootstrap median CI plus doubled
+log-space null margin governs, never CV.
+
+| exact-current row | median | bootstrap 95% median CI | doubled-null floor | result |
+|---|---:|---:|---:|---|
+| public/public A/A | `1.0140x` | `0.9546-1.0749x` | **`1.1554x`** | **FAIL `<1.03x` admission** |
+| private-aware public / raw PyO3 count | **`4.3937x`** | `4.1130-4.5608x` | `1.1554x` | decisive mechanism, not admitted |
+| NetworkX / FNX public | `831.5530x` | `790.6877-871.0559x` | `1.1489x` | existing decisive public win |
+
+RESULT: **ADMISSION REJECT / NO SOURCE EDIT.** The named profile and raw-slot
+ceiling clear their prerequisites, but the unchanged A/A floor misses the
+predeclared `<1.03x` gate by a wide margin. The large mechanism effect cannot
+waive that gate after observing it, and the already enormous public
+NetworkX/FNX win does not turn wrapper cleanup into an admissible KEEP.
+
+RETRY PREDICATE: do not rerun `Graph.number_of_edges()` in this frontier
+cycle or edit its Rust endpoint signature from these data. Reopen only when a
+pre-measurement screen finds a drained pinned worker with one-minute load
+below **0.25** and steal below **0.5%**, then require **two consecutive**
+preregistered A/A-only invocations of the unchanged 512-call workload to
+produce doubled-log floors below **1.03x**. A later raw-slot candidate must
+retain no-argument O(1) counts, `u`/`v` endpoint semantics and errors, keyword
+signatures, all four graph classes, assigned NetworkX private storage,
+filtered/conversion views, subclasses, and copy/pickle behavior. Its final
+process must self-report the loaded ELF and place the A/B bootstrap median CI
+wholly beyond its own doubled-null floor.
+
+QUALITY / CLOSEOUT: this was an immutable exact-artifact screen. No Cargo
+build, test, bench, or RCH compilation job ran. `git diff --check` covers the
+ledger-only result; UBS has no Markdown/JSONL scanner, so no scanner pass is
+claimed.
+
 ## 2026-07-26 CloudyTurtle KEEP (`MultiGraph.has_edge` exact-string endpoints): mutation-tokened public-key/native-index interning — **1.2860x** (`br-r37-c1-paof2`)
 
 NEGATIVE-LEDGER-FIRST / RETRY ADJUDICATION: before proposing this lever,
