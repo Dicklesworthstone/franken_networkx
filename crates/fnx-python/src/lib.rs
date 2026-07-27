@@ -1171,6 +1171,49 @@ impl NodeLookupCache {
     }
 }
 
+/// Per-graph public-node-key to native-index interning for warm scalar probes.
+///
+/// NetworkX probes its existing Python dictionaries with the caller's node
+/// objects, while the native store is keyed by canonical Rust strings.  This
+/// cache lets an exact built-in string pay that canonicalization once, then
+/// resolve equal-but-nonidentical strings through Python's own hash/equality
+/// semantics.  A node-set mutation invalidates every index because removal can
+/// renumber the compact native store.
+pub(crate) struct NodeIndexLookupCache {
+    nodes_seq: AtomicU64,
+    entries: Py<PyDict>,
+}
+
+impl NodeIndexLookupCache {
+    pub(crate) fn new(py: Python<'_>) -> Self {
+        Self {
+            nodes_seq: AtomicU64::new(u64::MAX),
+            entries: PyDict::new(py).unbind(),
+        }
+    }
+
+    fn get(
+        &self,
+        py: Python<'_>,
+        nodes_seq: u64,
+        key: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<usize>> {
+        if self.nodes_seq.load(Ordering::Relaxed) != nodes_seq {
+            self.entries.bind(py).clear();
+            self.nodes_seq.store(nodes_seq, Ordering::Relaxed);
+        }
+        self.entries
+            .bind(py)
+            .get_item(key)?
+            .map(|index| index.extract::<usize>())
+            .transpose()
+    }
+
+    fn insert(&self, py: Python<'_>, public_key: &Bound<'_, PyAny>, index: usize) -> PyResult<()> {
+        self.entries.bind(py).set_item(public_key, index)
+    }
+}
+
 pub(crate) fn edge_key_lookup_string(_py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String> {
     // br-r37-c1-edgekeyint: MultiGraph/MultiDiGraph edge keys must
     // honour Python's dict semantics — ``hash(0) == hash(0.0) ==
@@ -3838,6 +3881,9 @@ pub(crate) struct PyMultiGraph {
     /// Live `{node: None}` dict serving iter(G)/list(G.nodes()) as a
     /// dict_keyiterator, mutated in place by node add/remove/clear hooks.
     pub(crate) node_iter_mirror: std::sync::Mutex<Option<Py<PyDict>>>,
+    /// br-r37-c1-paof2: warm exact-string endpoints for keyless `has_edge`.
+    /// Values are native node indices and are invalidated by `nodes_seq`.
+    pub(crate) has_edge_node_index_cache: NodeIndexLookupCache,
 }
 
 impl PyMultiGraph {
@@ -4269,6 +4315,7 @@ impl PyMultiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
         })
     }
 
@@ -4282,6 +4329,27 @@ impl PyMultiGraph {
     #[inline]
     pub(crate) fn bump_edges_seq(&mut self) {
         self.edges_seq = self.edges_seq.wrapping_add(1);
+    }
+
+    fn cached_exact_string_node_index(
+        &self,
+        py: Python<'_>,
+        key: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<usize>> {
+        if let Some(index) = self
+            .has_edge_node_index_cache
+            .get(py, self.nodes_seq, key)?
+        {
+            return Ok(Some(index));
+        }
+        let canonical = node_key_to_string(py, key)?;
+        let Some(index) = self.inner.get_node_index(&canonical) else {
+            return Ok(None);
+        };
+        let public_key = self.py_node_key(py, &canonical);
+        self.has_edge_node_index_cache
+            .insert(py, public_key.bind(py), index)?;
+        Ok(Some(index))
     }
 
     #[inline]
@@ -8466,6 +8534,22 @@ impl PyMultiGraph {
         {
             return Ok(self.inner.has_edge_by_indices(iu, iv));
         }
+        // br-r37-c1-paof2: the most-used keyless exact-string path interns the
+        // graph's canonical public keys to native indices.  Python's dict
+        // lookup preserves hash/equality semantics for equal-but-nonidentical
+        // strings; nodes_seq invalidation preserves compact-index correctness
+        // across removal/re-add.  Explicit edge keys and every non-exact string
+        // shape retain the established canonical fallback below.
+        if key.is_none()
+            && u.is_exact_instance_of::<PyString>()
+            && v.is_exact_instance_of::<PyString>()
+        {
+            let u_index = self.cached_exact_string_node_index(py, u)?;
+            let v_index = self.cached_exact_string_node_index(py, v)?;
+            return Ok(u_index
+                .zip(v_index)
+                .is_some_and(|(ui, vi)| self.inner.has_edge_by_indices(ui, vi)));
+        }
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
         Ok(match key {
@@ -8476,6 +8560,24 @@ impl PyMultiGraph {
                 }),
             None => self.inner.has_edge(&u_c, &v_c),
         })
+    }
+
+    /// Exact pre-paof2 keyless path retained as the same-ELF causal control.
+    ///
+    /// This private helper is deliberately source-equivalent to the fallback
+    /// above: eager endpoint hashes, two canonical conversions, and the same
+    /// native edge lookup. It is used only by the permanent perf harness.
+    fn _native_has_edge_uncached_string_control(
+        &self,
+        py: Python<'_>,
+        u: &Bound<'_, PyAny>,
+        v: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        u.hash()?;
+        v.hash()?;
+        let u_c = node_key_to_string(py, u)?;
+        let v_c = node_key_to_string(py, v)?;
+        Ok(self.inner.has_edge(&u_c, &v_c))
     }
 
     fn neighbors(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
@@ -9437,6 +9539,7 @@ impl PyMultiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
         };
         // br-r37-c1-tbh4q: single-pass attr crossing (with_mirror) on copy() —
         // node attrs still cross once; clean edge attrs below reuse the
@@ -9542,6 +9645,7 @@ impl PyMultiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
         };
         for node in self.inner.nodes_ordered() {
             let py_attrs = self.node_py_attrs.get(node).map_or_else(
@@ -9704,6 +9808,7 @@ impl PyMultiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
         };
         // br-r37-c1-s0d4x: nx's MultiGraph.copy() rebuild walk reorders
         // adjacency CELLS (u-major first-touch) just like simple Graph
@@ -9795,6 +9900,7 @@ impl PyMultiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
         })
     }
 
@@ -9867,6 +9973,7 @@ impl PyMultiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
         };
 
         for canonical in &keep {
@@ -9983,6 +10090,7 @@ impl PyMultiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
         };
 
         for (u, v, key_filter) in &keep_edges {

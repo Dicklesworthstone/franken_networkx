@@ -128,6 +128,60 @@ def test_plain_has_edge_is_a_raw_descriptor(cls_name):
     assert "has_edge" not in vars(graph)
 
 
+def test_multigraph_has_edge_string_index_cache_is_equal_key_and_mutation_safe():
+    """br-r37-c1-paof2: warm exact strings resolve to live native indices."""
+    left = "".join(("left", "-", "endpoint"))
+    right = "".join(("right", "-", "endpoint"))
+    equal_left = left.encode().decode()
+    equal_right = right.encode().decode()
+    assert equal_left == left and equal_left is not left
+    assert equal_right == right and equal_right is not right
+
+    graph = fnx.MultiGraph()
+    graph.add_edge(left, right)
+    assert graph.has_edge(equal_left, equal_right)
+    assert graph.has_edge(equal_left, equal_right)
+    assert graph._native_has_edge_uncached_string_control(
+        equal_left, equal_right
+    )
+    assert next(node for node in graph if node == left) is left
+
+    # Edge-only mutations keep node indices stable, so a warm entry stays live.
+    graph.remove_edge(left, right)
+    assert not graph.has_edge(equal_left, equal_right)
+    graph.add_edge(left, right)
+    assert graph.has_edge(equal_left, equal_right)
+
+    # Node removal compacts indices; nodes_seq must invalidate both endpoints.
+    graph.remove_node(equal_left)
+    assert not graph.has_edge(equal_left, equal_right)
+    edge_key = "".join(("edge", "-", "key"))
+    graph.add_edge(left, right, key=edge_key)
+    assert graph.has_edge(equal_left, equal_right)
+    equal_key = edge_key.encode().decode()
+    assert equal_key is not edge_key
+    assert graph.has_edge(equal_left, equal_right, key=equal_key)
+
+
+def test_multigraph_has_edge_string_index_cache_does_not_alias_copies():
+    graph = fnx.MultiGraph()
+    graph.add_edge("left", "right")
+    assert graph.has_edge("left", "right")  # warm the native-index cache
+
+    copies = (
+        copy.copy(graph),
+        copy.deepcopy(graph),
+        pickle.loads(pickle.dumps(graph)),  # nosec B301  # ubs:ignore - trusted round trip
+    )
+    graph.remove_edge("left", "right")
+    for other in copies:
+        assert other.has_edge("left", "right")
+        other.remove_node("left")
+        assert not other.has_edge("left", "right")
+        other.add_edge("left", "right")
+        assert other.has_edge("left", "right")
+
+
 @pytest.mark.parametrize("cls_name", CLASS_NAMES)
 def test_plain_get_edge_data_is_a_raw_descriptor(cls_name):
     """br-r37-c1-57ba1: ordinary attr reads must not pay a Python shim."""

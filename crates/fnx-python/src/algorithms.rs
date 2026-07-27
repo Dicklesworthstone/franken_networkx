@@ -32400,6 +32400,7 @@ mod tests {
                 edges_with_keys_cache: None,
                 edges_data_attr_cache: std::sync::Mutex::new(None),
                 has_remapped_int_key: false,
+                has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             };
             let mut weighted_attrs = AttrMap::new();
             weighted_attrs.insert("weight".to_owned(), 1.0.into());

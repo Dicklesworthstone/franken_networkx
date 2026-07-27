@@ -1322,6 +1322,33 @@ def suite_edge_primitives():
         gfx.add_edges_from(edges)
         raw = raw_descriptor.__get__(gfx, fnx_cls)
 
+        if fnx_cls is fnx.MultiGraph:
+            uncached = gfx._native_has_edge_uncached_string_control
+
+            def uncached_string_batch(
+                probes=probes,
+                call=uncached,
+            ):
+                return sum(call(u, v) for u, v in probes)
+
+            def cached_string_batch(
+                probes=probes,
+                graph=gfx,
+            ):
+                return sum(graph.has_edge(u, v) for u, v in probes)
+
+            assert uncached_string_batch() == cached_string_batch()
+            # Populate the mutation-tokened candidate cache outside timing.
+            cached_string_batch()
+            rows.append(
+                (
+                    "MultiGraph.has_edge exact-string x512 "
+                    "[canonical/index-cache]",
+                    uncached_string_batch,
+                    cached_string_batch,
+                )
+            )
+
         def conservative_control(u, v, *, graph=gfx, raw_call=raw):
             # The former wrapper also hash-checked u/v in Python. The candidate
             # raw descriptor now performs those checks itself, so retaining

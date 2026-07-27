@@ -27794,6 +27794,140 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-26 CloudyTurtle KEEP (`MultiGraph.has_edge` exact-string endpoints): mutation-tokened public-key/native-index interning — **1.2860x** (`br-r37-c1-paof2`)
+
+NEGATIVE-LEDGER-FIRST / RETRY ADJUDICATION: before proposing this lever,
+`scripts/perf_ledger_preflight.py --candidate --lever 'exact-string
+node-index interning' --surface 'MultiGraph.has_edge keyless exact-string
+endpoints'` found no row on that exact surface. A manual
+`MultiGraph.*has_edge|has_edge.*MultiGraph` search then found and read the
+governing raw-descriptor KEEP `br-r37-c1-6q4wl`. That row forbids another
+Python wrapper, private-storage guard cache, or identity-int layer. It permits
+node-key interning only after a fresh post-KEEP profile attributes at least
+30% of raw-call time to canonicalization/index resolution and the unchanged
+workload's same-invocation doubled-log A/A floor is below `1.02x`.
+
+PROFILE ATTRIBUTION / EXECUTABLE CEILING: no source changed before admission.
+The exact pre-edit package loaded ELF SHA-256
+`e532cf2f6b03aa36d21f1ccc131986ede77930bd2d49ad64f858062b89d7f25e`
+(70,107,608 bytes) on drained `vmi1152480`, pinned to core 3. cProfile over
+2,097,152 warm raw exact-string calls attributed `0.695s` self to the native
+`has_edge` method in `1.304s` total (**53.3%** substantial measured named
+self-time). The same ELF's exact-string / identity-int executable
+decomposition measured **`1.7226x`** with bootstrap median CI
+`1.7079-1.7348x` and identical answers. Its conservative removable share is
+`1 - 1/1.7226 = 42.0%`, for a computed Amdahl ceiling of **`1.72x`**.
+
+`perf` corroborated the mechanism rather than treating the wall ratio as
+attribution: `IndexMap<String, usize>::get_index_of` carried `7.87%` self,
+format construction/writes carried `12.32%`, the native `has_edge` PyO3
+method carried `3.06%`, the edge-bucket `IndexMap` lookup carried `3.05%`,
+and `node_key_to_string`, `PyUnicode_AsUTF8AndSize`, `memcmp`, allocation,
+and moves supplied the remaining named conversion/index work. The
+unchanged admission A/A was `1.0018x`, bootstrap median CI
+`0.9942-1.0074x`, giving a doubled log-space floor of **`1.0148x`**. Both
+governing prerequisites passed before the edit; CV was recorded only as
+provenance and never gated.
+
+ONE LEVER / COUNTED MECHANISM: exact built-in string endpoints on keyless
+`MultiGraph.has_edge(u, v)` now resolve through a per-graph Python dict from
+the graph's public node objects to compact native indices. The first present
+lookup performs the established canonical conversion and native
+`get_node_index`; each warm endpoint hit removes one canonical string
+allocation/format and one string-keyed native node-index lookup, then calls
+the existing index-based edge predicate. Python dict hashing/equality keeps
+equal-but-nonidentical strings correct and preserves the graph's original
+public node object.
+
+The cache records `nodes_seq` and clears before lookup when that token
+changes, because node removal can compact every native index. Edge-only
+mutation keeps indices stable and remains visible through the existing live
+inner graph. Missing nodes are not cached, so arbitrary misses cannot grow a
+negative-key table. Non-exact strings, arbitrary hashable keys, explicit
+multiedge keys, identity-int endpoints, subclasses, and NetworkX-private
+storage retain their established paths. Copy, deepcopy, pickle, projections,
+and fresh constructors receive an empty cache rather than aliasing a source
+graph. The private `_native_has_edge_uncached_string_control` permanently
+retains the exact pre-lever two-canonicalization path in the same candidate
+ELF, making the causal comparison reproducible without a cross-build arm.
+
+BEHAVIOR ISOMORPHISM: the isolated exact candidate package passed **223/223**
+view/descriptor parity regressions on the measurement worker. New locks cover
+equal-but-nonidentical string endpoints, original display-object identity,
+edge removal/re-add liveness, node removal/re-add index invalidation,
+explicit equal-but-nonidentical edge keys, and non-aliasing across copy,
+deepcopy, and pickle. The timed causal arms asserted identical 512-probe
+counts before measurement.
+
+EXACT LOADED ARTIFACT / SAME-INVOCATION CONTRACT: strict RCH produced the
+admissible release ELF on Python-3.13 worker `vmi1153651`. A first release
+ELF from `hz2` was rejected before timing because `readelf` showed an explicit
+`libpython3.14.so.1.0` dependency that the Python-3.13 measurement host could
+not load; its neighbouring shell hash was never treated as benchmark
+provenance. The admitted isolated process self-reported this as line one:
+
+`bench_elf_sha256=1a2f65dca0d5036caccd7f8e6806938c33cbc05757159bf438f8259d42c5578e
+(13189848 bytes)
+/data/tmp/fnx-paof2-1a2f65dc-full/franken_networkx/_fnx.abi3.so`
+
+Structured provenance recorded wrapper SHA-256
+`f562009e7899e72a32a37e502cef03de80a27a908f1aac52de572ee4f101c2b7`,
+harness SHA-256
+`03d0aff8f08bc0890ecc70065d43304c3d22a439611137de1e7b368df03cbc88`,
+Python 3.13.7, NetworkX 3.6.1, and header load average
+`1.1260/0.7754/0.6631`. The worker was drained, pinned to core 3, then
+immediately re-enabled and probed healthy. Each row ran 21 interleaved
+`min_of=3` rounds and its own A/A null in the same invocation. Bootstrap
+median confidence intervals plus the doubled log-space null margin govern;
+CV never decides.
+
+| row | median A/B | A/B 95% median CI | same-invocation A/A 95% median CI | doubled-null floor | decision |
+|---|---:|---:|---:|---:|---|
+| uncached canonical/index path / warm index cache | **`1.2860x`** | **`1.2484-1.3092x`** | `0.9812-1.0293x` | **`1.0595x`** | **DECIDABLE KEEP, 21/21** |
+| NetworkX / candidate FNX public call | `0.5554x` | `0.5219-0.5720x` | `1.0015-1.0673x` | `1.1391x` | decidable residual loss |
+
+RESULT: **KEEP.** The causal CI lies wholly beyond its own doubled-null floor
+and all 21 paired rounds win. The exact pre-edit public survey was `0.4133x`,
+so the post-edit `0.5554x` public median is approximately **34.4% higher**,
+while still an explicit `1.80x` NetworkX/FNX residual. This row claims only
+the measured canonicalization/index-resolution removal; it does not claim
+public parity or generalize to other graph classes.
+
+QUALITY / CLOSEOUT: `rustfmt --check`, `git diff --check`, and strict-remote
+`cargo check --workspace --all-targets -j 2` passed. Mandatory strict Clippy
+reproduced exactly the governing row's six established off-lane findings:
+two dead helpers, three `collapsible_if` sites, and one test-only
+`chunks_exact_to_as_chunks` lint. A filtered deny-warnings rerun allowing
+only those named categories passed. `cargo test -p fnx-python --lib` reached
+64 passes and 40 intentional measurement ignores, plus one deterministic
+pre-existing failure in the unrelated `PyGraph` exact-int attributed-batch
+lazy-mirror assertion; the failure reproduces alone, predates this lever,
+and executes neither `PyMultiGraph.has_edge` nor its cache. Follow-up
+`br-r37-c1-sk4xf` owns that baseline drift rather than mixing a second change
+into this perf commit. Every Cargo command used
+`RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec --` after a
+`df -h /data` check above the 120G abort threshold; no local fallback or
+per-task local target was created. Focused UBS on the changed Python harness
+and regression file completed with exit 0 and no critical/warning finding.
+The three-file Rust scan completed its format, Clippy, check, test-build,
+audit, and deny sub-gates; its nonzero aggregate verdict came solely from
+three pre-existing `panic!` macros in `algorithms.rs` unit tests at
+historical lines 32205/32225/32241, with no candidate-line finding.
+
+RETRY PREDICATE: do not add another keyless `MultiGraph.has_edge` Python
+wrapper, eager negative cache, identity-int layer, or cache that survives a
+`nodes_seq` change. Reopen the remaining public residual only after a fresh
+same-ELF profile attributes at least **25% of end-to-end time** to one named
+removable PyO3/vectorcall or edge-bucket frame and a preregistered unchanged
+public A/A has a doubled-log floor below **`1.02x`**. A sibling
+`MultiDiGraph` interner is a separate lever: before editing it must pass its
+own exact-path profile with at least **30%** canonical/index share and its
+own same-invocation A/A floor below **`1.02x`**. Any retry must retain eager
+hash exceptions, equal-but-nonidentical public-key semantics, explicit edge
+keys, mutation liveness, original display objects, private-storage and
+subclass routing, clone/pickle non-aliasing, line-one loaded-ELF SHA, and a
+candidate median CI wholly beyond its doubled-null floor.
+
 ## 2026-07-26 CloudyTurtle PROFILED SURFACE CLOSURE (`Graph.edges` warm bare accessor): cached descriptor already exits the Python call graph — **1.00x Python-frame ceiling**, NO SOURCE EDIT (`br-r37-c1-vyku2`)
 
 NEGATIVE-LEDGER-FIRST / HAND ADJUDICATION: the mechanical preflight found no
